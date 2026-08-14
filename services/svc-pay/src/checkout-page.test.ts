@@ -248,8 +248,20 @@ describe('stateForError', () => {
     expect(stateForError(payErr('pay.merchant_inactive', '')).kind).toBe('unavailable');
     // Layer B money-door refuse — hosted HTML must not 500 a live KYB gap.
     expect(stateForError(payErr('pay.kyb_required', '')).kind).toBe('unavailable');
+    // Remaining live-acquiring refuses that still 500'd after #1808.
+    expect(stateForError(payErr('pay.merchant_pricing_invalid', '')).kind).toBe('unavailable');
+    expect(stateForError(payErr('pay.merchant_not_found', '')).kind).toBe('unavailable');
+    expect(stateForError(payErr('pay.rail_unknown', '')).kind).toBe('unavailable');
+    expect(stateForError(payErr('pay.rail_capability', '')).kind).toBe('unavailable');
+    expect(stateForError(payErr('pay.sandbox_rail_refused', '')).kind).toBe('unavailable');
+    expect(stateForError(payErr('pay.rail_not_live', '')).kind).toBe('unavailable');
     // Operator stub decide is not a checkout money door — do not over-map.
     expect(stateForError(payErr('pay.kyb_operator_required', '')).kind).toBe('error');
+    expect(stateForError(payErr('pay.kyb_invalid', '')).kind).toBe('error');
+    expect(stateForError(payErr('pay.psp_mode_required', '')).kind).toBe('error');
+    // Per-payment rail decline is not "merchant cannot take payment" — a
+    // payment was started; unavailable copy would lie.
+    expect(stateForError(payErr('pay.rail_declined', '')).kind).toBe('error');
     // Anything unrecognised is a 500, never a friendlier-looking state — the
     // friendly-looking states are the ones that imply money moved.
     expect(stateForError(payErr('pay.something_new', '')).kind).toBe('error');
@@ -461,6 +473,29 @@ describe('checkout routes', () => {
     expect(res.body).toContain('Nothing has been charged');
     expect(res.body.toLowerCase()).not.toContain('try again');
     expect(res.body.toLowerCase()).not.toContain('kyb');
+    expect(res.body.toLowerCase()).not.toContain('something went wrong');
+    await app.close();
+  });
+
+  it('shows the unavailable page when live pricing is unpublished — not a 500, not a receipt', async () => {
+    const app = await build({
+      openCheckoutSession: async () => {
+        throw payErr('pay.merchant_pricing_invalid', 'Merchant x has no fee rate and no default is configured');
+      },
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/checkout/session',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'token=pl_stubbed_token_value&geoCountry=DE',
+    });
+
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toContain('Nothing has been charged');
+    expect(res.body.toLowerCase()).not.toContain('try again');
+    expect(res.body.toLowerCase()).not.toContain('pricing');
+    expect(res.body.toLowerCase()).not.toContain('fee');
     expect(res.body.toLowerCase()).not.toContain('something went wrong');
     await app.close();
   });
