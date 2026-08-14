@@ -3,6 +3,7 @@ import { DestinationKindError } from './payout-destination.js';
 import {
   assertOnlyPayoutDestinations,
   assertPersistableDestination,
+  memoryPayoutDestinations,
   PayoutDestinationMissingError,
 } from './merchant-payout-destination.js';
 
@@ -48,6 +49,20 @@ describe('assertOnlyPayoutDestinations (no store)', () => {
     await expect(dests.require({ merchantId: 'm', railId: 'crypto-native' })).rejects.toBeInstanceOf(PayoutDestinationMissingError);
     await expect(dests.require({ merchantId: 'm', railId: 'crypto-native' })).rejects.toMatchObject({
       code: 'pay.payout_destination_missing',
+    });
+  });
+});
+
+describe('memoryPayoutDestinations', () => {
+  it('require refuses until persist, then returns the stored EVM dest', async () => {
+    const dests = memoryPayoutDestinations();
+    await expect(dests.require({ merchantId: 'm', railId: 'crypto-native' })).rejects.toMatchObject({
+      code: 'pay.payout_destination_missing',
+    });
+    await dests.persist({ merchantId: 'm', railId: 'crypto-native', kind: 'crypto', ref: EVM });
+    await expect(dests.require({ merchantId: 'm', railId: 'crypto-native' })).resolves.toEqual({
+      kind: 'crypto',
+      ref: EVM,
     });
   });
 });

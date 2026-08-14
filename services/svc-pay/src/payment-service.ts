@@ -25,6 +25,11 @@ import {
 import { RoutingInputError } from './routing-inputs.js';
 import { merchantKybMoneyGateRefusal } from './merchant-kyb-money-gate.js';
 import { assertPayoutDestinationKind, DestinationKindError } from './payout-destination.js';
+import {
+  assertOnlyPayoutDestinations,
+  PayoutDestinationMissingError,
+  type MerchantPayoutDestinations,
+} from './merchant-payout-destination.js';
 import { settlementLedgerPlan } from './settlement-ledger.js';
 import { withMoneySpan, withRailSpan } from './tracing.js';
 import { defaultDisputeCaseStore } from './fraud/dispute-case.js';
@@ -188,6 +193,8 @@ export type PayErrorCode =
    */
   | 'pay.destination_kind_mismatch'
   | 'pay.invalid_destination_ref'
+  /** Crypto payout has no stored EVM dest — refused BEFORE withdrawHold. */
+  | 'pay.payout_destination_missing'
   | 'pay.subscription_not_found'
   | 'pay.mandate_not_found'
   | 'pay.subscription_reconsent_required'
@@ -410,7 +417,14 @@ export interface PayServiceOptions {
    * Default noop. Failures must not unwind settlement.
    */
   readonly affiliateAccrue?: AffiliateAccruePort;
+
+  /**
+   * Persisted merchant payout destinations. Crypto-native payout requires a
+   * stored EVM dest before withdrawHold. Default refuses closed (no invented ref).
+   */
+  readonly payoutDestinations?: MerchantPayoutDestinations;
 }
+
 
 /** One entry in `checkoutRails`: which adapter, and what `payments.method` it writes. */
 export interface CheckoutRail {
@@ -548,6 +562,7 @@ export class PayService {
       }) => void | Promise<void>)
     | undefined;
   private readonly affiliateAccrue: AffiliateAccruePort;
+  private readonly payoutDestinations: MerchantPayoutDestinations;
 
   constructor(
     private readonly sql: Sql,
@@ -568,6 +583,7 @@ export class PayService {
     this.now = options.now ?? (() => new Date());
     this.afterPaymentEvent = options.afterPaymentEvent;
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
+    this.payoutDestinations = options.payoutDestinations ?? assertOnlyPayoutDestinations();
   }
 
   /**
@@ -2502,7 +2518,7 @@ export class PayService {
   async payoutSettlement(input: {
     settlementId: string;
     railId: string;
-    destination: { kind: string; ref: string };
+    destination?: { kind: string; ref: string };
   }): Promise<SettlementRecord> {
     return withMoneySpan(
       'pay.payoutSettlement',
@@ -2526,17 +2542,10 @@ export class PayService {
 
         const merchant = await this.getMerchant(settlement.merchantId);
 
-        // Destination kind must match the rail BEFORE any hold posts. Crypto
-        // used to accept kind:'bank' + an IBAN and hand it to chain.send —
-        // MemoryChain would "succeed"; live EVM would fail after the hold.
-        try {
-          assertPayoutDestinationKind(adapter.id, input.destination);
-        } catch (err) {
-          if (err instanceof DestinationKindError) {
-            throw new PayError(err.message, err.code);
-          }
-          throw err;
-        }
+        // Crypto-native pays the stored EVM dest. Refuse if none stored —
+        // BEFORE withdrawHold. Caller dest is persisted first, then required.
+        // Other rails still take the caller dest. Does not live-wire bank-payout.
+        const destination = await this.resolvePayoutDestination(adapter.id, merchant.id, input.destination);
 
         // The attempt number is part of the hold's business key. A refused
         // payout releases the hold, so the next attempt must not reuse the key
@@ -2550,7 +2559,7 @@ export class PayService {
           assetId: settlement.assetId,
           amount: settlement.net,
           railId: adapter.id,
-          destinationKind: input.destination.kind,
+          destinationKind: destination.kind,
         });
 
         // G4: suspension must not open a NEW drain. But if withdrawHold already
@@ -2578,7 +2587,7 @@ export class PayService {
             amount: settlement.net,
             assetId: settlement.assetId,
             window: settlement.window,
-            destination: input.destination,
+            destination,
           }),
         );
 
@@ -2605,6 +2614,58 @@ export class PayService {
         return { ...settlement, status: 'paid_out', payoutMethod: adapter.id, payoutRef: result.railRef };
       },
     );
+  }
+
+  /**
+   * Crypto-native: persist offered dest (if any), then require the stored EVM
+   * dest. Refuse closed if none stored. Other rails: caller dest + kind gate.
+   * Does not invent a PSP. Does not live-wire bank-payout.
+   */
+  private async resolvePayoutDestination(
+    railId: string,
+    merchantId: string,
+    offered?: { kind: string; ref: string },
+  ): Promise<{ kind: string; ref: string }> {
+    if (railId === 'crypto-native') {
+      try {
+        if (offered) {
+          await this.payoutDestinations.persist({
+            merchantId,
+            railId,
+            kind: offered.kind,
+            ref: offered.ref,
+          });
+        }
+        const stored = await this.payoutDestinations.require({ merchantId, railId });
+        assertPayoutDestinationKind(railId, stored);
+        return stored;
+      } catch (err) {
+        if (err instanceof PayoutDestinationMissingError) {
+          throw new PayError(err.message, 'pay.payout_destination_missing', { merchantId, railId });
+        }
+        if (err instanceof DestinationKindError) {
+          throw new PayError(err.message, err.code);
+        }
+        throw err;
+      }
+    }
+
+    if (!offered) {
+      throw new PayError(
+        `Merchant ${merchantId} has no payout destination for rail ${railId}`,
+        'pay.payout_destination_missing',
+        { merchantId, railId },
+      );
+    }
+    try {
+      assertPayoutDestinationKind(railId, offered);
+    } catch (err) {
+      if (err instanceof DestinationKindError) {
+        throw new PayError(err.message, err.code);
+      }
+      throw err;
+    }
+    return offered;
   }
 
   async getSettlement(settlementId: string): Promise<SettlementRecord> {

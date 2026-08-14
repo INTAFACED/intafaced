@@ -53,6 +53,24 @@ export function assertOnlyPayoutDestinations(): MerchantPayoutDestinations {
   };
 }
 
+/** In-memory store for tests — persist actually stores, require refuses if none. */
+export function memoryPayoutDestinations(): MerchantPayoutDestinations {
+  const rows = new Map<string, PayoutDestination>();
+  const key = (merchantId: string, railId: string) => `${merchantId}:${railId}`;
+  return {
+    async persist(input) {
+      const dest = assertPersistableDestination(input.railId, input);
+      rows.set(key(input.merchantId, input.railId), dest);
+      return dest;
+    },
+    async require(input) {
+      const dest = rows.get(key(input.merchantId, input.railId));
+      if (!dest) throw new PayoutDestinationMissingError(input.merchantId, input.railId);
+      return dest;
+    },
+  };
+}
+
 export class MerchantPayoutDestinationStore implements MerchantPayoutDestinations {
   constructor(private readonly sql: Sql) {}
 

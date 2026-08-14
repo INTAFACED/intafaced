@@ -17,6 +17,7 @@ import {
   type PostRequest,
 } from '@intafaced/ledger-client';
 import { PayService, PayError, type PaymentView } from './payment-service.js';
+import { memoryPayoutDestinations } from './merchant-payout-destination.js';
 import { RailRegistry } from './rails/registry.js';
 import { CardSandboxAdapter, SANDBOX_DECLINE_TOKEN } from './rails/card-sandbox.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
@@ -114,6 +115,7 @@ if (!available) {
   let crypto: CryptoNativeAdapter;
   let rails: RailRegistry;
   let pay: PayService;
+  let dests: ReturnType<typeof memoryPayoutDestinations>;
 
   beforeEach(async () => {
     // A BARE TRUNCATE, deliberately not wrapped in the migration advisory lock.
@@ -131,7 +133,8 @@ if (!available) {
     card = new CardSandboxAdapter({ secret: SECRET });
     crypto = new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 6 });
     rails = new RailRegistry([card, crypto, new BankPayoutAbsentAdapter()]);
-    pay = new PayService(sql, ledger, rails, { checkoutRiskBand: 'low' });
+    dests = memoryPayoutDestinations();
+    pay = new PayService(sql, ledger, rails, { checkoutRiskBand: 'low', payoutDestinations: dests });
   });
 
   afterAll(async () => {
@@ -1631,6 +1634,46 @@ if (!available) {
       expect((await pay.getSettlement(settlement.id)).status).toBe('posted');
       expect(chain.totalSent('USDT')).toBe('0');
       expect(chain.outboundTransfers()).toHaveLength(0);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('refuses crypto payout when no EVM dest is stored — nothing held', async () => {
+      const m = await merchant(0);
+      const payment = await cryptoPayment(m.id, '9');
+      await pay.capture(payment.id);
+      const settlement = await settle(m.id, 'w-payout-no-dest');
+      const journalBefore = ledger.journal().map((tx) => tx.idempotencyKey);
+
+      await expect(
+        pay.payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native' }),
+      ).rejects.toMatchObject({ code: 'pay.payout_destination_missing' });
+
+      expect(ledger.journal().map((tx) => tx.idempotencyKey)).toEqual(journalBefore);
+      expect(await availableOf(MERCHANT_USER)).toBe('9');
+      expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
+      expect((await pay.getSettlement(settlement.id)).status).toBe('posted');
+      expect(chain.totalSent('USDT')).toBe('0');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('pays crypto to the stored EVM dest through ledger-client', async () => {
+      const m = await merchant(0);
+      const payment = await cryptoPayment(m.id, '11');
+      await pay.capture(payment.id);
+      const settlement = await settle(m.id, 'w-payout-stored');
+      await dests.persist({
+        merchantId: m.id,
+        railId: 'crypto-native',
+        kind: 'crypto',
+        ref: '0x000000000000000000000000000000000000dEaD',
+      });
+
+      const paid = await pay.payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native' });
+      expect(paid.status).toBe('paid_out');
+      expect(chain.totalSent('USDT')).toBe('11');
+      expect(chain.outboundTransfers()[0]?.to).toBe('0x000000000000000000000000000000000000dEaD');
+      expect(await availableOf(MERCHANT_USER)).toBe('0');
+      expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
   });

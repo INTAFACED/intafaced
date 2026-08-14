@@ -161,7 +161,9 @@ for (const { railId } of env.PAY_CHECKOUT_RAILS) {
  */
 const merchantWebhooks = new MerchantWebhookService(new PostgresMerchantWebhookStore(sql));
 
+const payoutDestinations = new MerchantPayoutDestinationStore(sql);
 const pay = new PayService(sql, ledger, rails, {
+  payoutDestinations,
   defaultFeeBps: env.PAY_DEFAULT_FEE_BPS,
   valueMovement: railPosture.policy,
   // NOT `railPosture.policy`. `PAY_ALLOW_SANDBOX_RAILS` relaxes the payout gate
@@ -310,7 +312,7 @@ const subMerchants = new SubMerchantService(sql);
  */
 export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
-  createPayRouter(pay, rails, userMoney, subMerchants, new MerchantPayoutDestinationStore(sql)),
+  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations),
   createMerchantStateRouter(merchantState),
   createKybPspRouter(kyb, pspMode),
   // `pay` is passed only as the ACTOR LOOKUP — the router resolves the caller's
