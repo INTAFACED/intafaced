@@ -345,6 +345,18 @@ export class CryptoNativeAdapter implements RailAdapter {
       });
     }
 
+    const payer = transfer.from?.trim() ?? '';
+    if (!payer) {
+      return railFailure({
+        railRef: ref,
+        amount,
+        assetId: transfer.assetId,
+        failureCode: 'refund.destination_missing',
+        failureReason: 'On-chain refund requires the payer address — no invented dest',
+        at: this.now(),
+      });
+    }
+
     if (amount <= 0n) {
       return railFailure({
         railRef: ref,
@@ -384,7 +396,7 @@ export class CryptoNativeAdapter implements RailAdapter {
 
     try {
       const { txHash } = await this.chain.send({
-        to: transfer.from,
+        to: payer,
         assetId: transfer.assetId,
         amount,
         idempotencyKey,
@@ -399,7 +411,7 @@ export class CryptoNativeAdapter implements RailAdapter {
         amount,
         assetId: transfer.assetId,
         at: this.now(),
-        raw: { txHash, to: transfer.from, refundedTotal: formatAmount(already + amount), idempotencyKey },
+        raw: { txHash, to: payer, refundedTotal: formatAmount(already + amount), idempotencyKey },
       };
       this.completedRefundKeys.set(idempotencyKey, ok);
       return ok;

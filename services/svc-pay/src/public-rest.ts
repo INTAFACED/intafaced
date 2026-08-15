@@ -307,6 +307,7 @@ function statusFor(code: string): number {
     case 'pay.kyb_operator_required':
       return 403;
     case 'pay.invalid_transition':
+    case 'pay.nothing_captured':
     case 'pay.capture_exceeds_authorized':
     case 'pay.refund_exceeds_captured':
     case 'pay.refund_in_flight':

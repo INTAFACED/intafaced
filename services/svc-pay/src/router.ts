@@ -1502,6 +1502,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.payout_destination_missing':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.invalid_transition':
+      case 'pay.nothing_captured':
       case 'pay.capture_exceeds_authorized':
       case 'pay.refund_exceeds_captured':
       case 'pay.refund_in_flight':

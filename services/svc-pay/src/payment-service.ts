@@ -132,6 +132,8 @@ export type PayErrorCode =
   | 'pay.capture_exceeds_authorized'
   | 'pay.partial_capture_unsupported'
   | 'pay.refund_exceeds_captured'
+  /** Refund refused — nothing was captured. Before ledger-client posts. */
+  | 'pay.nothing_captured'
   | 'pay.refund_in_flight'
   /**
    * An explicit `refundId` already ran to `refund.reversed` (rail refused after
@@ -1587,6 +1589,11 @@ export class PayService {
   /**
    * Refund, in full or in part. THE OUTBOUND MONEY PATH.
    *
+   * Merchant refund of a captured payment through ledger-client
+   * (`recipes.paymentRefund`). Refuse `pay.nothing_captured` if nothing was
+   * captured — before the ledger posts. No PSP. No invented dest (crypto
+   * returns to the payer).
+   *
    * The ledger moves FIRST, in its own committed transaction, and only then is
    * the rail asked to send money out. That order is the whole design:
    *
@@ -1626,8 +1633,9 @@ export class PayService {
 
         if (row.status !== 'captured' && row.status !== 'settled') {
           throw new PayError(
-            `Payment ${row.id} is ${row.status}; only a captured or settled payment can be refunded`,
-            'pay.invalid_transition',
+            `Payment ${row.id} has nothing captured (status ${row.status}) — refund refused`,
+            'pay.nothing_captured',
+            { paymentId: row.id, status: row.status },
           );
         }
 
@@ -1656,6 +1664,13 @@ export class PayService {
         }
 
         const totals = await totalsFor(tx, row.id);
+        if (totals.captured <= 0n) {
+          throw new PayError(
+            `Payment ${row.id} has nothing captured — refund refused`,
+            'pay.nothing_captured',
+            { paymentId: row.id },
+          );
+        }
 
         // A COMPLETED `refundId` IS A REPLAY, NOT A SECOND REFUND.
         //

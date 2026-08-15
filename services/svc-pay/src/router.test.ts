@@ -454,6 +454,7 @@ describe('a caller can tell the failures apart', () => {
   it('maps an over-refund and a double-spend guard to CONFLICT', async () => {
     for (const code of [
       'pay.refund_exceeds_captured',
+      'pay.nothing_captured',
       'pay.refund_in_flight',
       'pay.settlement_in_flight',
       'pay.settlement_desynced',

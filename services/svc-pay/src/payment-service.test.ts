@@ -421,11 +421,31 @@ if (!available) {
       expect(await clearingOf(m.id)).toBe('30');
     });
 
-    it('refuses to refund a payment that was never captured', async () => {
+    it('refuses when nothing is captured — nothing posted', async () => {
       const m = await merchant();
       const payment = await cardPayment(m.id, '100');
-      await expect(pay.refund(payment.id, amt('10'))).rejects.toMatchObject({ code: 'pay.invalid_transition' });
-      expect(ledger.journal()).toHaveLength(0);
+      const journalBefore = ledger.journal().map((tx) => tx.idempotencyKey);
+
+      await expect(pay.refund(payment.id, amt('10'))).rejects.toMatchObject({ code: 'pay.nothing_captured' });
+
+      expect(ledger.journal().map((tx) => tx.idempotencyKey)).toEqual(journalBefore);
+      expect(formatAmount((await pay.getPayment(payment.id)).refundedAmount)).toBe('0');
+    });
+
+    it('refunds a captured payment through ledger-client', async () => {
+      const m = await merchant();
+      const payment = await cardPayment(m.id, '100');
+      await pay.capture(payment.id);
+
+      const refunded = await pay.refund(payment.id, amt('40'));
+
+      expect(formatAmount(refunded.refundedAmount)).toBe('40');
+      expect(refunded.status).toBe('captured');
+      expect(
+        ledger.journal().some((tx) => tx.idempotencyKey.startsWith(`payment.refund:${payment.id}:`)),
+      ).toBe(true);
+      expect(await clearingOf(m.id)).toBe('60');
+      expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
     it('draws a post-settlement refund on the merchant, not on the clearing account', async () => {
