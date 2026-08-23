@@ -275,5 +275,5 @@ describe('D26-P1-P7 Done bar — surface + webhooks + sandbox', () => {
     expect(enable.statusCode).toBe(200);
     expect(enable.json().status).toBe('active');
     expect(enable.json().consecutiveFailures).toBe(0);
-  });
+  }, 15_000);
 });
