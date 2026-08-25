@@ -96,6 +96,13 @@ export class AuthError extends Error {
        */
       | 'auth.sub_account_limit'
       /**
+       * Place door: API key id was missing or unknown. Same answer as a
+       * foreign guess — no existence oracle (pair with revoked).
+       */
+      | 'auth.api_key_denied'
+      /** Place door: API key is hard-revoked (revoked=true). */
+      | 'auth.api_key_revoked'
+      /**
        * TOTP encrypt-at-rest key missing/invalid. Enrol refuses rather than
        * writing base32 plaintext to users.totp_secret (IDENTITY_TOTP_SECRET_KEY).
        */
@@ -1015,6 +1022,52 @@ export class AuthService {
       UPDATE api_keys SET revoked = true WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false
     `;
     return result.count > 0;
+  }
+
+  /**
+   * S2S ownership read for money services (place gate).
+   *
+   * Returns the row even when revoked so the caller can distinguish "missing"
+   * from "revoked". Scopes are not in this snapshot — revoke is a hard flag,
+   * not a flatten, and S2S must not leak them.
+   */
+  async getApiKeyOwnership(keyId: string): Promise<{ id: string; userId: string; revoked: boolean } | null> {
+    const rows = await this.sql<Array<{ id: string; user_id: string; revoked: boolean }>>`
+      SELECT id, user_id, revoked
+        FROM api_keys
+       WHERE id = ${keyId}
+       LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return { id: row.id, userId: row.user_id, revoked: row.revoked };
+  }
+
+  /**
+   * PLACE DOOR for one API key.
+   *
+   * A revoked key must not pass — it cannot be exchanged into a principal
+   * that could place. Fail-closed:
+   *   - missing / empty / unknown id → denied (no existence oracle)
+   *   - revoked → revoked
+   *
+   * Does not write scopes. Revoke stays a hard flag.
+   */
+  async assertApiKeyLive(keyId: string): Promise<{ id: string; userId: string }> {
+    const id = typeof keyId === 'string' ? keyId.trim() : '';
+    if (!id) {
+      throw new AuthError('API key not found', 'auth.api_key_denied');
+    }
+
+    const row = await this.getApiKeyOwnership(id);
+    if (!row) {
+      throw new AuthError('API key not found', 'auth.api_key_denied');
+    }
+    if (row.revoked) {
+      throw new AuthError('API key is revoked', 'auth.api_key_revoked');
+    }
+
+    return { id: row.id, userId: row.userId };
   }
 
   async listApiKeys(userId: string) {

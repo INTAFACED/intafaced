@@ -694,9 +694,57 @@ if (!available) {
     it('will not let one user revoke another user’s key', async () => {
       const owner = await register();
       const attacker = await register();
-      const { id } = await auth.createApiKey({ userId: owner.userId, name: 'mine', scopes: ['trade:read'], grantorScopes: SESSION_SCOPES });
+      const minted = await auth.createApiKey({
+        userId: owner.userId,
+        name: 'mine',
+        scopes: ['trade:read', 'trade:write'],
+        grantorScopes: SESSION_SCOPES,
+      });
 
-      expect(await auth.revokeApiKey(attacker.userId, id)).toBe(false);
+      expect(await auth.revokeApiKey(attacker.userId, minted.id)).toBe(false);
+      expect(await auth.verifyApiKey(minted.key)).not.toBeNull();
+      await expect(auth.exchangeApiKey(minted.key)).resolves.toMatchObject({
+        userId: owner.userId,
+        keyId: minted.id,
+      });
+      await expect(auth.getApiKeyOwnership(minted.id)).resolves.toEqual({
+        id: minted.id,
+        userId: owner.userId,
+        revoked: false,
+      });
+      await expect(auth.assertApiKeyLive(minted.id)).resolves.toEqual({
+        id: minted.id,
+        userId: owner.userId,
+      });
+    });
+
+    it('revoked key cannot exchange into a principal that could place', async () => {
+      const session = await register();
+      const scopes = ['trade:read', 'trade:write'];
+      const { key, id } = await auth.createApiKey({
+        userId: session.userId,
+        name: 'bot',
+        scopes,
+        grantorScopes: SESSION_SCOPES,
+      });
+
+      await expect(auth.exchangeApiKey(key)).resolves.toMatchObject({
+        userId: session.userId,
+        keyId: id,
+        scopes,
+      });
+      expect(await auth.revokeApiKey(session.userId, id)).toBe(true);
+
+      expect(await auth.verifyApiKey(key)).toBeNull();
+      await expect(auth.exchangeApiKey(key)).rejects.toMatchObject({ code: 'auth.invalid_credentials' });
+      await expect(auth.getApiKeyOwnership(id)).resolves.toEqual({
+        id,
+        userId: session.userId,
+        revoked: true,
+      });
+      const listed = await auth.listApiKeys(session.userId);
+      expect(listed.find((k) => k.id === id)?.scopes).toEqual(scopes);
+      await expect(auth.assertApiKeyLive(id)).rejects.toMatchObject({ code: 'auth.api_key_revoked' });
     });
 
     it('freezeIdentity bulk-revokes API keys and stops exchange', async () => {

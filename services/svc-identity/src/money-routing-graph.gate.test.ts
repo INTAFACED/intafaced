@@ -81,6 +81,12 @@ describe('money-routing graph gate (D26-P1-I1)', () => {
     expect(src).toMatch(/getSubAccountOwnership/);
   });
 
+  it('S2S API key ownership snapshot stays mounted for the place gate', () => {
+    const src = readFileSync(join(serviceRoot, 'src/index.ts'), 'utf8');
+    expect(src).toMatch(/\/internal\/api-keys\/:keyId/);
+    expect(src).toMatch(/getApiKeyOwnership/);
+  });
+
   it('ledger transfer recipe remains the only identity.sub_account.transfer journal shape', () => {
     const recipe = readFileSync(join(monorepo, 'packages/ledger-client/src/recipes/sub-accounts.ts'), 'utf8');
     expect(recipe).toMatch(/identity\.sub_account\.transfer/);
