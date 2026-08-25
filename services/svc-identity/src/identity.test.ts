@@ -9,6 +9,7 @@ import { checkAccess } from '@intafaced/config';
 import { createHash, generateKeyPairSync, randomBytes, sign as cryptoSign, type KeyObject } from 'node:crypto';
 import { AuthService, AuthError } from './auth/auth-service.js';
 import { RankService } from './rank/rank-service.js';
+import { createNavigatorSessionStore } from './agents/navigator-session-store.js';
 import { totp } from './auth/totp.js';
 import { encodeCbor } from './auth/cbor.js';
 import {
@@ -592,8 +593,72 @@ if (!available) {
 
     it('logout revokes the session', async () => {
       const session = await register();
+      await expect(auth.assertSessionLive(session.sessionId)).resolves.toEqual({
+        id: session.sessionId,
+        userId: session.userId,
+      });
       await auth.logout(session.refreshToken);
       await expect(auth.refresh(session.refreshToken)).rejects.toThrow(AuthError);
+      await expect(auth.getSessionOwnership(session.sessionId)).resolves.toEqual({
+        id: session.sessionId,
+        userId: session.userId,
+        revoked: true,
+      });
+      await expect(auth.assertSessionLive(session.sessionId)).rejects.toMatchObject({
+        code: 'auth.session_revoked',
+      });
+    });
+
+    it('assertSessionLive refuses empty or unknown without confirming existence', async () => {
+      await expect(auth.assertSessionLive('')).rejects.toMatchObject({ code: 'auth.session_denied' });
+      await expect(auth.assertSessionLive('00000000-0000-4000-8000-000000000099')).rejects.toMatchObject({
+        code: 'auth.session_denied',
+      });
+      await expect(auth.getSessionOwnership('00000000-0000-4000-8000-000000000099')).resolves.toBeNull();
+    });
+
+    it('assertSessionLive treats an expired session as revoked', async () => {
+      const session = await register();
+      await db.sql`UPDATE sessions SET expires_at = now() - interval '1 day' WHERE id = ${session.sessionId}`;
+      await expect(auth.assertSessionLive(session.sessionId)).rejects.toMatchObject({
+        code: 'auth.session_revoked',
+      });
+    });
+
+    it('readSession returns closed after logout even if the projection still says open', async () => {
+      const session = await register();
+      const store = createNavigatorSessionStore(db.sql);
+      await store.publishSession({
+        sessionId: session.sessionId,
+        userId: session.userId,
+        status: 'open',
+      });
+      await expect(store.readSession(session.sessionId)).resolves.toMatchObject({ status: 'open' });
+
+      await auth.logout(session.refreshToken);
+      // Stale re-publish must not keep stream/COD live — auth is truth.
+      await store.publishSession({
+        sessionId: session.sessionId,
+        userId: session.userId,
+        status: 'open',
+      });
+      await expect(store.readSession(session.sessionId)).resolves.toMatchObject({
+        sessionId: session.sessionId,
+        userId: session.userId,
+        status: 'closed',
+      });
+    });
+
+    it('freezeIdentity does not leave a live navigator projection open', async () => {
+      const session = await register();
+      const store = createNavigatorSessionStore(db.sql);
+      await store.publishSession({
+        sessionId: session.sessionId,
+        userId: session.userId,
+        status: 'open',
+      });
+      await auth.freezeIdentity(session.userId);
+      await expect(store.readSession(session.sessionId)).resolves.toMatchObject({ status: 'closed' });
     });
   });
 

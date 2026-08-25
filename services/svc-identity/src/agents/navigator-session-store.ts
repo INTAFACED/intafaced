@@ -40,34 +40,57 @@ export function mapAuthSessionRow(row: AuthSessionRow, now: Date = new Date()): 
   };
 }
 
+async function readAuthSessionRow(sql: postgres.Sql, sessionId: string): Promise<AuthSessionRow | null> {
+  try {
+    const authRows = await sql<AuthSessionRow[]>`
+      SELECT id, user_id, revoked, expires_at
+      FROM sessions
+      WHERE id = ${sessionId}::uuid
+      LIMIT 1
+    `;
+    return authRows[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function createNavigatorSessionStore(sql: postgres.Sql): NavigatorSessionStore {
   return {
     async readSession(sessionId) {
       const projected = await sql<ProjectionRow[]>`
         SELECT session_id, user_id, status
-        FROM identity.navigator_session_projections
+        FROM navigator_session_projections
         WHERE session_id = ${sessionId}
         LIMIT 1
       `;
       const projection = projected[0];
-      if (projection) return rowToSession(projection);
-
-      try {
-        const authRows = await sql<AuthSessionRow[]>`
-          SELECT id, user_id, revoked, expires_at
-          FROM identity.sessions
-          WHERE id = ${sessionId}::uuid
-          LIMIT 1
-        `;
-        const auth = authRows[0];
-        return auth ? mapAuthSessionRow(auth) : null;
-      } catch {
-        return null;
+      if (projection) {
+        // Auth is truth. A stale `open` projection must not keep stream/COD live.
+        if (projection.status === 'open') {
+          const auth = await readAuthSessionRow(sql, sessionId);
+          if (!auth || mapAuthSessionRow(auth).status === 'closed') {
+            const closed: NavigatorSessionProjection = {
+              sessionId: projection.session_id,
+              userId: projection.user_id,
+              status: 'closed',
+            };
+            try {
+              await this.publishSession(closed);
+            } catch {
+              // Projection write is best-effort; the read already returns closed.
+            }
+            return closed;
+          }
+        }
+        return rowToSession(projection);
       }
+
+      const auth = await readAuthSessionRow(sql, sessionId);
+      return auth ? mapAuthSessionRow(auth) : null;
     },
     async publishSession(session) {
       await sql`
-        INSERT INTO identity.navigator_session_projections (session_id, user_id, status)
+        INSERT INTO navigator_session_projections (session_id, user_id, status)
         VALUES (${session.sessionId}, ${session.userId}, ${session.status})
         ON CONFLICT (session_id) DO UPDATE SET
           user_id = EXCLUDED.user_id,
@@ -78,7 +101,7 @@ export function createNavigatorSessionStore(sql: postgres.Sql): NavigatorSession
     async refreshFromAuthSessions() {
       const rows = await sql<AuthSessionRow[]>`
         SELECT id, user_id, revoked, expires_at
-        FROM identity.sessions
+        FROM sessions
       `;
       const now = new Date();
       for (const row of rows) {

@@ -103,6 +103,13 @@ export class AuthError extends Error {
       /** Place door: API key is hard-revoked (revoked=true). */
       | 'auth.api_key_revoked'
       /**
+       * Place door: session id was missing or unknown. Same answer as a
+       * foreign guess — no existence oracle (pair with revoked).
+       */
+      | 'auth.session_denied'
+      /** Place door: session is revoked or expired. */
+      | 'auth.session_revoked'
+      /**
        * TOTP encrypt-at-rest key missing/invalid. Enrol refuses rather than
        * writing base32 plaintext to users.totp_secret (IDENTITY_TOTP_SECRET_KEY).
        */
@@ -522,6 +529,55 @@ export class AuthService {
     const result = await this.sql`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false`;
     if (result.count > 0) await syncNavigatorSessionsClosedForUser(this.sql, userId);
     return result.count;
+  }
+
+  /**
+   * S2S ownership read for money services (place gate).
+   *
+   * Returns the row even when revoked so the caller can distinguish "missing"
+   * from "revoked". No scopes, no jurisdiction or tier.
+   */
+  async getSessionOwnership(sessionId: string): Promise<{ id: string; userId: string; revoked: boolean } | null> {
+    const rows = await this.sql<Array<{ id: string; user_id: string; revoked: boolean }>>`
+      SELECT id, user_id, revoked
+        FROM sessions
+       WHERE id = ${sessionId}
+       LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return { id: row.id, userId: row.user_id, revoked: row.revoked };
+  }
+
+  /**
+   * PLACE DOOR for one session.
+   *
+   * A revoked or expired session must not pass — it cannot place, and its
+   * private stream/COD must not keep firing as live. Fail-closed:
+   *   - missing / empty / unknown id → denied (no existence oracle)
+   *   - revoked or expired → revoked
+   */
+  async assertSessionLive(sessionId: string): Promise<{ id: string; userId: string }> {
+    const id = typeof sessionId === 'string' ? sessionId.trim() : '';
+    if (!id) {
+      throw new AuthError('Session not found', 'auth.session_denied');
+    }
+
+    const rows = await this.sql<Array<{ id: string; user_id: string; revoked: boolean; expires_at: Date }>>`
+      SELECT id, user_id, revoked, expires_at
+        FROM sessions
+       WHERE id = ${id}
+       LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) {
+      throw new AuthError('Session not found', 'auth.session_denied');
+    }
+    if (row.revoked || row.expires_at.getTime() < Date.now()) {
+      throw new AuthError('Session is revoked', 'auth.session_revoked');
+    }
+
+    return { id: row.id, userId: row.user_id };
   }
 
   // ── TOTP ───────────────────────────────────────────────────────────────────
@@ -1433,7 +1489,7 @@ export class AuthService {
    * checked `revoked` without re-reading user status.
    */
   async freezeIdentity(userId: string): Promise<{ userId: string; status: 'frozen'; subAccountsRevoked: number; apiKeysRevoked: number }> {
-    return transaction(this.sql, async (tx) => {
+    const result = await transaction(this.sql, async (tx) => {
       const users = await tx<Array<{ id: string; status: string }>>`
         SELECT id, status FROM users WHERE id = ${userId} LIMIT 1 FOR UPDATE
       `;
@@ -1460,6 +1516,9 @@ export class AuthService {
         apiKeysRevoked: revokedKeys.length,
       };
     });
+    // Auth is authoritative if the projection write fails (ignore helper).
+    await syncNavigatorSessionsClosedForUser(this.sql, userId);
+    return result;
   }
 
   /**

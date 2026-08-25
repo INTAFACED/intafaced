@@ -218,6 +218,8 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.sub_account_limit':
     case 'auth.api_key_denied':
     case 'auth.api_key_revoked':
+    case 'auth.session_denied':
+    case 'auth.session_revoked':
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
     case 'auth.totp_key_missing':
       // Server misconfiguration — enrol cannot write plaintext. Ops must set IDENTITY_TOTP_SECRET_KEY.
