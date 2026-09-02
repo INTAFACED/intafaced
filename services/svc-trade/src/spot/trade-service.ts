@@ -2132,6 +2132,10 @@ export class TradeService {
       );
     }
 
+    // Owner schedule before findOrder, fill SQL, or any fill recipe. Listing-row
+    // 10/20 is not a rate; unpublished refuses even if ratesForFill later moves.
+    this.assertOwnerFeeSchedulePublished();
+
     const maker = await this.findOrder(fill.makerOrderId);
     const taker = await this.findOrder(fill.takerOrderId);
     const makerIsHouseMm = isHouseMmAccount(fill.makerAccountId);
