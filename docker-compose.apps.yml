@@ -38,10 +38,15 @@ x-app: &app
   restart: unless-stopped
 
 x-service-env: &service-env
+  # Production Node, dev application environment. They are different questions:
+  # NODE_ENV picks the optimised runtime paths, APP_ENV picks the policy —
+  # svc-identity only hard-requires argon2 when APP_ENV is `prod` (§4.1).
   NODE_ENV: production
   APP_ENV: ${APP_ENV:-dev}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   LAUNCH_DROP: ${LAUNCH_DROP:-0}
+  # Service names inside the compose network, and the CONTAINER ports — not the
+  # host ports below. Postgres is 5432 in here even though it is 5433 outside.
   REDIS_URL: redis://redis:6379
   NATS_URL: nats://nats:4222
   NATS_STREAM_PREFIX: ${NATS_STREAM_PREFIX:-INTAFACED}
@@ -50,3 +55,1642 @@ x-service-env: &service-env
   DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
   DATABASE_SSL: 'false'
   HTTP_HOST: 0.0.0.0
+
+# The two fleet-wide secrets. `:?` means compose REFUSES to start if either is
+# unset — see .env.example for why they must hold the same value everywhere.
+x-edge-secret: &edge-secret
+  EDGE_PRINCIPAL_SECRET: ${EDGE_PRINCIPAL_SECRET:?missing — copy .env.example to .env. Every service must share ONE value or edge-signed principals fail verification.}
+
+x-internal-secret: &internal-secret
+  INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?missing — copy .env.example to .env. Every service must share ONE value or service-to-service calls return 401.}
+  # Host pin for S2S body-bind (internalServiceEnvSchema default accept-both).
+  # Do not default require — v1 callers 401 until the fleet finishes v2.
+  INTERNAL_SERVICE_BODY_BIND: ${INTERNAL_SERVICE_BODY_BIND:-accept-both}
+
+# `/health`, never `/ready` — the script explains why at length.
+x-healthcheck: &healthcheck
+  test: ['CMD', 'node', '/app/tooling/infra/healthcheck.mjs']
+  interval: 5s
+  timeout: 5s
+  retries: 30
+  # Node + Fastify + a JetStream handshake takes a few seconds; failures inside
+  # this window do not count against `retries`.
+  start_period: 20s
+
+# What a service that owns a Postgres schema needs before it may start.
+x-needs-schema: &needs-schema
+  postgres:
+    condition: service_healthy
+  migrate:
+    condition: service_completed_successfully
+
+x-needs-bus: &needs-bus
+  nats:
+    condition: service_healthy
+
+services:
+  # ── Migrations ─────────────────────────────────────────────
+  # Runs every service's `db:migrate` and exits. Everything with a schema waits
+  # on `service_completed_successfully`, so a service physically cannot reach
+  # its `SELECT 1 FROM <schema>.<table>` boot assertion before its migration has
+  # been applied. tooling/infra/migrate-all.mjs argues the design choice.
+  migrate:
+    <<: *app
+    container_name: intafaced-migrate
+    restart: 'no'
+    command: ['node', 'tooling/infra/migrate-all.mjs']
+    environment:
+      NODE_ENV: production
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: intafaced
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── Phase 1 · THE CORE ─────────────────────────────────────
+
+  # svc-ledger is the root of the money plane: six services call it and none of
+  # them can move value without it. It owns the `ledger` JetStream stream and
+  # asserts `chain_tip` exists at boot.
+  svc-ledger:
+    <<: *app
+    container_name: intafaced-svc-ledger
+    command: ['node', 'services/svc-ledger/dist/index.js']
+    environment:
+      <<: [*service-env, *internal-secret]
+      SERVICE_NAME: svc-ledger
+      HTTP_PORT: '4001'
+      DATABASE_URL: postgres://svc_ledger:svc_ledger@postgres:5432/intafaced
+      # svc-ledger merges `authEnvSchema` for its OPERATOR surface
+      # (operator-http.ts), so this is required at boot with no default — and it
+      # was never set here. The service crash-looped on `JWT_ACCESS_SECRET:
+      # Required` the first time its container was recreated.
+      #
+      # It hid for so long because a running container keeps the environment it
+      # started with: the fleet looked healthy until an unrelated
+      # `--force-recreate` of another service pulled the dependency chain with
+      # it. workspace-sync check 3b now fails on this shape.
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?missing — copy .env.example to .env}
+      # Operator JWT lifetime + iss/aud. authEnvSchema already defaults these
+      # (900 / intafaced / intafaced.api). Without compose pass-through a host
+      # `.env` pin never reaches the container and operator tokens keep schema
+      # defaults forever.
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+      JWT_ISSUER: ${JWT_ISSUER:-intafaced}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
+      JWT_REFRESH_TTL_SECONDS: ${JWT_REFRESH_TTL_SECONDS:-2592000}
+      # Posting freeze + reconcile cadence. env.ts already names these (default)
+      # true / 60). Without compose pass-through a host `.env` freeze after a
+      # reconcile mismatch never reaches the container. Do not default posting
+      # OFF — that would halt the money plane on a clean clone.
+      LEDGER_POSTING_ENABLED: ${LEDGER_POSTING_ENABLED:-true}
+      RECONCILE_CRON_MINUTES: ${RECONCILE_CRON_MINUTES:-60}
+    # L5-7: S2S — not published on host (compose network only)
+    expose: ['4001']
+    healthcheck: *healthcheck
+    depends_on:
+      <<: [*needs-schema, *needs-bus]
+
+  # ── THE FRONT DOOR ─────────────────────────────────────────
+  #
+  # svc-edge is the only service a browser talks to. It exchanges a bearer token
+  # for the signed principal every mounted service requires, and strips anything
+  # a caller tried to send under the x-intafaced- prefix.
+  #
+  # It was absent from this file entirely: the compose was written before the
+  # edge existed, so `platform:up` brought up eleven services behind a door that
+  # was never opened. Every request would have been anonymous.
+  #
+  # JWT_ACCESS_SECRET must be THE SAME VALUE as svc-identity's. A mismatch is
+  # the worst failure mode in the fleet because nothing errors: every login
+  # succeeds, every request after it is anonymous, and it presents to a user as
+  # "logged in but nothing works".
+  #
+  # Deliberately holds no DATABASE_URL and no INTERNAL_SERVICE_SECRET. The
+  # internet-facing component gets the smallest blast radius in the fleet, and
+  # that is a property of what it is allowed to hold.
+  # ── Protocol Plane: the DEX (§8.6, §17.5) ──────────────────────────
+  #
+  # Non-custodial by construction, and the environment is part of the proof:
+  # no DATABASE_URL (a position we hold is custody) and no
+  # INTERNAL_SERVICE_SECRET (that secret is what reaches ledger.post).
+  # custody-scan covers the source; this covers the deployment.
+  svc-dex:
+    <<: *app
+    container_name: intafaced-svc-dex
+    command: ['node', 'services/svc-dex/dist/index.js']
+    environment:
+      <<: [*service-env, *edge-secret]
+      SERVICE_NAME: svc-dex
+      HTTP_PORT: '4010'
+      # Indexer is 4013 (protocol owns 4012). Matching is 4005 (trade owns 4004).
+      # Wrong ports here were latent until dex starts calling them (audit L5-1/2).
+      INDEXER_URL: http://svc-indexer:4013
+      MATCHING_URL: http://svc-matching:4005
+      QUOTE_MAX_AGE_MS: ${QUOTE_MAX_AGE_MS:-2000}
+      # Book levels pulled from each venue when pricing a size.
+      DEX_QUOTE_DEPTH: ${DEX_QUOTE_DEPTH:-50}
+      # Quote the Fiat Plane internal book alongside the on-chain one (§8.6).
+      # Set false to make this front door quote nothing custodial. Either way the
+      # venue is DISCLOSED as `custodial: true` in the response, never hidden.
+      DEX_INTERNAL_BOOK_ENABLED: ${DEX_INTERNAL_BOOK_ENABLED:-true}
+      # CLOB fee schedule (S-I3): no default 0 — that understates cost. Set both
+      # from SovereignVenue.takerFeeBps / settlementCostQuote, or omit both.
+      DEX_CLOB_FEE_BPS: ${DEX_CLOB_FEE_BPS:-}
+      DEX_CLOB_SETTLEMENT_COST: '${DEX_CLOB_SETTLEMENT_COST:-}'
+      DEX_INTERNAL_BOOK_FEE_BPS: ${DEX_INTERNAL_BOOK_FEE_BPS:-20}
+      # The §27 multi-venue fabric, as configuration. EMPTY BY DEFAULT — a
+      # service with no outbound egress does not silently acquire it. Public
+      # depth needs no credentials, so a venue quotes the moment a row is added.
+      DEX_EXTERNAL_VENUES: '${DEX_EXTERNAL_VENUES:-[]}'
+    # L5-7: S2S — not published on host (compose network only)
+    expose: ['4010']
+    healthcheck: *healthcheck
+    # No schema and no bus: it reads projections and quotes. Depending on
+    # svc-matching would be wrong — a DEX whose front door needs the CENTRALISED
+    # engine alive to answer is not much of a DEX.
+    depends_on: {}
+
+  svc-edge:
+    <<: *app
+    container_name: intafaced-svc-edge
+    command: ['node', 'services/svc-edge/dist/index.js']
+    environment:
+      <<: [*service-env, *edge-secret]
+      SERVICE_NAME: svc-edge
+      HTTP_PORT: '4000'
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?missing — copy .env.example to .env}
+      JWT_ISSUER: ${JWT_ISSUER:-intafaced}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+      DEFAULT_REGION: ${DEFAULT_REGION:-XX}
+      # Pass-through (key, no value): host `.env` reaches the container only
+      # when set. Unset omits the key so unresolved region stays fall-open.
+      # Do not default true — `:-true` would refuse XX on every compose boot.
+      INTAFACED_REGION_FAIL_CLOSED:
+      # Embeddable ramp widget. Unset → ops.infra_licence_unset. White-label is CSS.
+      INFRA_LICENCE:
+      INFRA_WIDGET_ACCENT:
+      INFRA_WIDGET_CSS:
+      EDGE_RATE_LIMIT_ENABLED: ${EDGE_RATE_LIMIT_ENABLED:-true}
+      EDGE_RATE_LIMIT_MAX: ${EDGE_RATE_LIMIT_MAX:-300}
+      EDGE_RATE_LIMIT_WINDOW_MS: ${EDGE_RATE_LIMIT_WINDOW_MS:-60000}
+      EDGE_BODY_LIMIT_BYTES: ${EDGE_BODY_LIMIT_BYTES:-1048576}
+      EDGE_KILL_STATE_PATH: ${EDGE_KILL_STATE_PATH:-.data/edge-kill-state.json}
+      UPSTREAM_TIMEOUT_MS: ${UPSTREAM_TIMEOUT_MS:-15000}
+      IDENTITY_URL: http://svc-identity:4002
+      TRADE_URL: http://svc-trade:4004
+      TOKEN_URL: http://svc-token:4003
+      LEDGER_URL: http://svc-ledger:4001
+      AGENTS_URL: http://svc-agents:4008
+      BANK_URL: http://svc-bank:4009
+      P2P_URL: http://svc-p2p:4007
+      PAY_URL: http://svc-pay:4006
+      BLUEPRINT_URL: http://svc-blueprint:4011
+      PROTOCOL_URL: http://svc-protocol:4012
+      DEX_URL: http://svc-dex:4010
+      INDEXER_URL: http://svc-indexer:4013
+      NOTIFY_URL: http://svc-notify:4015
+      ACADEMY_URL: http://svc-academy:4016
+      SUPPORT_URL: http://svc-support:4017
+      MARKET_URL: http://svc-market:4018
+      EXECUTION_URL: http://svc-execution:4019
+      TAX_URL: http://svc-tax:4020
+      QUANT_URL: http://svc-quant:4021
+      OPS_URL: http://svc-ops:4022
+      # connect.data-lake TSDB + retention owner env — blank retention refuses persist.
+      CONNECT_DATA_LAKE_TSDB_URL: postgres://svc_connect_lake:svc_connect_lake@postgres:5432/intafaced
+      CONNECT_DATA_LAKE_RETENTION_DAYS: ${CONNECT_DATA_LAKE_RETENTION_DAYS:-}
+    ports: ['4000:4000']
+    healthcheck: *healthcheck
+    # Started last on purpose: the door should open onto services that are
+    # already answering, so a user's first request is not a 502.
+    depends_on:
+      svc-identity: { condition: service_healthy }
+      svc-trade: { condition: service_healthy }
+
+  svc-identity:
+    <<: *app
+    container_name: intafaced-svc-identity
+    command: ['node', 'services/svc-identity/dist/index.js']
+    environment:
+      # internal-secret: rank.awardXp is serviceProcedure; /internal/rank needs HMAC.
+      <<: [*service-env, *edge-secret, *internal-secret]
+      SERVICE_NAME: svc-identity
+      HTTP_PORT: '4002'
+      DATABASE_URL: postgres://svc_identity:svc_identity@postgres:5432/intafaced
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?missing — copy .env.example to .env}
+      JWT_ISSUER: ${JWT_ISSUER:-intafaced}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
+      # Access-token lifetime (authEnvSchema default 900). Host `.env` can shorten
+      # it; do not raise the compose default above 900.
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+      # Refresh-token lifetime (authEnvSchema default 60*60*24*30 = 2592000).
+      # Host `.env` can pin session refresh life; do not raise the compose
+      # default above 2592000.
+      JWT_REFRESH_TTL_SECONDS: ${JWT_REFRESH_TTL_SECONDS:-2592000}
+      REGISTRATION_OPEN: ${REGISTRATION_OPEN:-true}
+      # Waitlist / referral queue pins (env.ts optional). Empty default so
+      # unset follows the drop clock — do not default these on. `off` in
+      # `.env` refuse-closes capture.
+      INTAFACED_FLAG_WAITLIST_ENABLED: ${INTAFACED_FLAG_WAITLIST_ENABLED:-}
+      INTAFACED_FLAG_REFERRAL_QUEUE: ${INTAFACED_FLAG_REFERRAL_QUEUE:-}
+      # WebAuthn kill-switch (env.ts boolish default true). Host `.env` can
+      # disable WebAuthn without a TOTP redeploy.
+      WEBAUTHN_ENABLED: ${WEBAUTHN_ENABLED:-true}
+      # RP id/name/origin match env.ts localhost defaults so the host can pin a
+      # real domain. Do not invent a production registrable domain here.
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-localhost}
+      WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-INTAFACED}
+      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:-http://localhost:3000}
+      # D26-P0-02 owner-published accrual tiers — pass-through, no compose default.
+      IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON: ${IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON:-}
+      # M01 DMA broker/desk/shift law — pass-through, no compose default, no invented tree.
+      IDENTITY_DMA_HIERARCHY_LAW_JSON: ${IDENTITY_DMA_HIERARCHY_LAW_JSON:-}
+      # #1806 KYC document vault. Pass-through only — no compose default, no invented key.
+      # Host sets IDENTITY_KYC_DOC_KEY → vault boots. Blank stays refuse-closed.
+      IDENTITY_KYC_DOC_KEY: ${IDENTITY_KYC_DOC_KEY:-}
+      # TOTP enrol at rest. Pass-through only — no compose default, no invented key.
+      # Host sets IDENTITY_TOTP_SECRET_KEY → enrol can run. Blank stays refuse-closed.
+      IDENTITY_TOTP_SECRET_KEY: ${IDENTITY_TOTP_SECRET_KEY:-}
+      # Live-partition cap (env.ts default 25). Host can pin or lower; do not raise above 25 here.
+      IDENTITY_MAX_SUB_ACCOUNTS: ${IDENTITY_MAX_SUB_ACCOUNTS:-25}
+      # ops.affiliates: payout posts sweepFeesToRewards + rewardPay. Without this,
+      # compose identity refuses affiliate.payout.ledger_unwired (env stays optional
+      # and undefaulted — unset is still a legible refuse, not a localhost invent).
+      LEDGER_URL: http://svc-ledger:4001
+    # L5-7: S2S — not published on host (compose network only)
+    expose: ['4002']
+    healthcheck: *healthcheck
+    depends_on:
+      <<: [*needs-schema, *needs-bus]
+      svc-ledger:
+        condition: service_healthy
+
+  svc-token:
+    <<: *app
+    container_name: intafaced-svc-token
+    command: ['node', 'services/svc-token/dist/index.js']
+    environment:
+      <<: [*service-env, *edge-secret, *internal-secret]
+      SERVICE_NAME: svc-token
+      HTTP_PORT: '4003'
+      DATABASE_URL: postgres://svc_token:svc_token@postgres:5432/intafaced
+      LEDGER_URL: http://svc-ledger:4001
+      TOKEN_ASSET_ID: ${TOKEN_ASSET_ID:-IFC}
+      # Access-token life + iss/aud (authEnvSchema / identity defaults). Host
+      # `.env` can pin without a rebuild. Do not add JWT_ACCESS_SECRET here —
+      # token authenticates via *edge-secret, not a second signing key.
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+      JWT_ISSUER: ${JWT_ISSUER:-intafaced}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
+      # Emissions kill + auto-tick (token.emissions). Host `.env` can stop
+      # minting without a rebuild. AUTO_TICK stays default false — do not
+      # open the faucet on a clean clone. Tick interval matches env.ts (1d).
+      # Yield job kill-switch defaults off — unset refuses token.yield_job_unset.
+      # Buyback job kill-switch defaults off — unset refuses token.buyback_job_unset.
+      # Do not pass YIELD_DISTRIBUTION_CRON_HOURS (no in-process weekly timer).
+      # BUYBACK_SYMBOL / BUYBACK_QUOTE_ASSET stay blank — refuse-closed, never invent a listing.
+      EMISSIONS_ENABLED: ${EMISSIONS_ENABLED:-true}
+      EMISSIONS_AUTO_TICK: ${EMISSIONS_AUTO_TICK:-false}
+      EMISSIONS_TICK_MS: ${EMISSIONS_TICK_MS:-86400000}
+      YIELD_JOB_ENABLED: ${YIELD_JOB_ENABLED:-false}
+      BUYBACK_JOB_ENABLED: ${BUYBACK_JOB_ENABLED:-false}
+      TRADE_URL: http://svc-trade:4004
+      BUYBACK_SYMBOL: ${BUYBACK_SYMBOL:-}
+      BUYBACK_QUOTE_ASSET: ${BUYBACK_QUOTE_ASSET:-}
+      # Owner quorum/threshold — blank default, never a number. Close refuses
+      # token.governance_quorum_unset until host `.env` sets both.
+      TOKEN_GOVERNANCE_QUORUM_BPS: ${TOKEN_GOVERNANCE_QUORUM_BPS:-}
+      TOKEN_GOVERNANCE_THRESHOLD_BPS: ${TOKEN_GOVERNANCE_THRESHOLD_BPS:-}
+    # L5-7: S2S — not published on host (compose network only)
+    expose: ['4003']
+    healthcheck: *healthcheck
+    depends_on:
+      <<: [*needs-schema, *needs-bus]
+      # Not a boot assertion — svc-token connects to the ledger lazily. Ordered
+      # anyway so the first mint after `up` does not race the ledger's own boot.
+      svc-ledger:
+        condition: service_healthy
+
+  # ── Phase 2 · TRADE ────────────────────────────────────────
+
+  # No DATABASE_URL, deliberately: §5.1 gives this service in-memory books and
+  # the file journal below, and nothing else. It is therefore not gated on
+  # `migrate` — there is no schema to migrate.
+  svc-matching:
+    <<: *app
+    container_name: intafaced-svc-matching
+    command: ['node', 'services/svc-matching/dist/index.js']
+    environment:
+      <<: [*service-env, *internal-secret]
+      SERVICE_NAME: svc-matching
+      # 4005, not the code default of 4004: svc-trade's MATCHING_URL default is
+      # `http://localhost:4005`, and three services share 4004 as a default
+      # because each was written without knowing the others' ports.
+      HTTP_PORT: '4005'
+      # Journal lives on matchingjournal:/data/matching. Host `.env` can pin;
+      # default stays the volume path so replay still works after replace.
+      MATCHING_JOURNAL_PATH: ${MATCHING_JOURNAL_PATH:-/data/matching/engine_journal.ndjson}
+      # Engine kill-switch (env.ts boolish default true). Host `.env` can halt
+      # submissions before the journal. `${VAR:-false}` here would refuse every
+      # order on a clean clone while env.ts still reads as on.
+      MATCHING_ENGINE_ENABLED: ${MATCHING_ENGINE_ENABLED:-true}
+      # Snapshot cadence (env.ts default 500). 0 disables. Host can pin; compose
+      # does not invent a different N.
+      MATCHING_SNAPSHOT_EVERY: ${MATCHING_SNAPSHOT_EVERY:-500}
+      # Public rulebook version (M00). Host `.env` can pin. Blank stays
+      # unpublished — compose does not invent a version string.
+      MATCHING_RULEBOOK_VERSION: ${MATCHING_RULEBOOK_VERSION:-}
+    # L5-7: S2S — not published on host (compose network only)
+    expose: ['4005']
+    volumes:
+      # The journal is the recovery guarantee (§5.1): the engine replays it
+      # before it will accept an order. On an anonymous volume a container
+      # replacement would silently start with empty books.
+      - matchingjournal:/data/matching
+    healthcheck: *healthcheck
+    depends_on:
+      <<: *needs-bus
+
+  # THE ORDERING THAT ACTUALLY MATTERS.
+  #
+  # svc-trade calls `bus.subscribe('orderFilled')` at boot, and `orderFilled`
+  # lives on the `matching` stream. JetStreamEventBus creates streams only for
+  # its `ownedStreams` (packages/events/src/jetstream-bus.ts) and svc-trade
+  # owns NONE — `ownedStreams: []`. So `consumers.add` against a stream that
+  # svc-matching has not created yet fails and this process exits.
+  #
+  # It also publishes `intafaced.identity.xp.earned` per filled order, on the
+  # `identity` stream, which svc-identity owns. Same failure mode, later.
+  svc-trade:
+    <<: *app
+    container_name: intafaced-svc-trade
+    command: ['node', 'services/svc-trade/dist/index.js']
+    environment:
+      <<: [*service-env, *edge-secret, *internal-secret]
+      SERVICE_NAME: svc-trade
+      HTTP_PORT: '4004'
+      DATABASE_URL: postgres://svc_trade:svc_trade@postgres:5432/intafaced
+      LEDGER_URL: http://svc-ledger:4001
+      IDENTITY_URL: http://svc-identity:4002
+      MATCHING_URL: http://svc-matching:4005
+      TOKEN_URL: http://svc-token:4003
+      # Access-token lifetime / iss / aud (authEnvSchema defaults 900 /
+      # intafaced / intafaced.api). Host `.env` can pin token life for trade;
+      # without these names the container keeps schema-only defaults.
+      # Do not add JWT_ACCESS_SECRET here — trade authenticates users via
+      # *edge-secret, not the signing key.
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+      JWT_ISSUER: ${JWT_ISSUER:-intafaced}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
+      # Spot kill-switch (env.ts boolish default true). Host `.env` can halt
+      # new places; cancels still work. `${VAR:-false}` here would refuse every
+      # new spot order on a clean clone while env.ts still reads as on.
+      TRADE_SPOT_ENABLED: ${TRADE_SPOT_ENABLED:-true}
+      # Worst price a market BUY may be funded at, above the best ask.
+      # Empty = refuse market-buy hold (`trade.slippage_cap_unset`). Never invent 200.
+      TRADE_MARKET_SLIPPAGE_CAP_BPS: ${TRADE_MARKET_SLIPPAGE_CAP_BPS:-}
+      # MAY A FUTURES MARKET ACCEPT AN ORDER? Default `false`, and the default is
+      # the decision this line exists to make explicit rather than leave to a zod
+      # schema nobody reads at deploy time.
+      #
+      # OFF is a product state, not an outage: the container starts, spot trades,
+      # ticker and orderbook answer for the futures symbol too, cancellations
+      # work, and an ORDER into a futures book is refused by name with
+      # `trade.futures_disabled` (403). Turning it on is one variable in `.env`
+      # plus a restart.
+      #
+      # It does NOT turn futures on as a product. Funding still needs
+      # TRADE_FUTURES_JOBS_ENABLED, an explicit market list, and
+      # TRADE_FUTURES_FUNDING_MAX_ABS_RATE (no product default — D2 residual);
+      # realised profit still needs TRADE_FUTURES_PROFIT_SOURCE (PKT-B5 named
+      # in .env.example; compose still has no default). This flag governs
+      # orderability only.
+      TRADE_FUTURES_ENABLED: ${TRADE_FUTURES_ENABLED:-false}
+      # Residual jobs (liquidation scan + funding ticks). Default OFF — same
+      # shape as TRADE_FUTURES_ENABLED. `${VAR:-true}` here would start funding
+      # ticks on a clean clone while env.ts still read as off. Does not invent
+      # a market list or a |rate| ceiling; those stay empty until named.
+      TRADE_FUTURES_JOBS_ENABLED: ${TRADE_FUTURES_JOBS_ENABLED:-false}
+      # Liquidation scan interval when jobs are on. Matches env.ts 15s.
+      # Does not turn jobs on. Host `.env` can pin cadence.
+      TRADE_FUTURES_LIQ_INTERVAL_MS: ${TRADE_FUTURES_LIQ_INTERVAL_MS:-15000}
+      # Connect WS / MaintainedBook stream for venue marks. Default OFF.
+      # `${VAR:-true}` here would treat a clean clone as stream-first while
+      # env.ts still read as snapshot poll. Empty symbol map still starts nothing.
+      TRADE_VENUE_MARK_STREAM: ${TRADE_VENUE_MARK_STREAM:-false}
+      # Venue id + market UUID→symbol map. Empty = mark port off (depth mid
+      # only). No invented venue, no invented UUID list. Host env cannot leak
+      # a map into a clean clone because compose names the empty default.
+      TRADE_VENUE_MARK_VENUE: ${TRADE_VENUE_MARK_VENUE:-}
+      TRADE_VENUE_MARK_SYMBOLS: ${TRADE_VENUE_MARK_SYMBOLS:-}
+      # Market-maker book seed (trade.mm-bot). Default `false`, and the default is
+      # the decision this line exists to make explicit rather than leave to a zod
+      # schema nobody reads at deploy time.
+      #
+      # OFF is a product state, not an outage: the container starts, spot trades,
+      # and no house seed rests. Turning it on is host `.env` plus a restart.
+      # `${VAR:-true}` here would seed books on a clean clone. Empty markets/mids
+      # still skip (never invent a list or a mid).
+      TRADE_MM_SEED_ENABLED: ${TRADE_MM_SEED_ENABLED:-false}
+      TRADE_MM_SEED_INTERVAL_MS: ${TRADE_MM_SEED_INTERVAL_MS:-60000}
+      TRADE_MM_SEED_MARKETS: ${TRADE_MM_SEED_MARKETS:-}
+      TRADE_MM_SEED_MIDS: ${TRADE_MM_SEED_MIDS:-}
+      TRADE_MM_SEED_MID_FROM_VENUE: ${TRADE_MM_SEED_MID_FROM_VENUE:-false}
+      TRADE_MM_SEED_HALF_SPREAD_BPS: ${TRADE_MM_SEED_HALF_SPREAD_BPS:-10}
+      TRADE_MM_SEED_STEP_BPS: ${TRADE_MM_SEED_STEP_BPS:-10}
+      TRADE_MM_SEED_LEVELS: ${TRADE_MM_SEED_LEVELS:-3}
+      TRADE_MM_SEED_QTY: ${TRADE_MM_SEED_QTY:-1}
+      TRADE_MM_SEED_STATE_PATH: ${TRADE_MM_SEED_STATE_PATH:-.data/mm-seed-last-run.json}
+      # TWAP create vs scheduler (trade.algo). Same process as MM seed — splitting
+      # PRs collides on this block. Create defaults ON (matches env.ts); JOBS stay
+      # OFF until an operator opts in. Never `${VAR:-true}` on jobs.
+      TRADE_ALGO_ENABLED: ${TRADE_ALGO_ENABLED:-true}
+      TRADE_ALGO_JOBS_ENABLED: ${TRADE_ALGO_JOBS_ENABLED:-false}
+      TRADE_ALGO_JOBS_INTERVAL_MS: ${TRADE_ALGO_JOBS_INTERVAL_MS:-1000}
+      # Convert RFQ kill + house spread (trade.convert). Spread empty = refuse
+      # quote/execute (`trade.convert_spread_unset`). Never invent 10.
+      TRADE_CONVERT_ENABLED: ${TRADE_CONVERT_ENABLED:-true}
+      TRADE_CONVERT_SPREAD_BPS: ${TRADE_CONVERT_SPREAD_BPS:-}
+      # Absolute max |period funding rate| — empty refuses publish/settle.
+      # Required when funding market ids are non-empty. No invented ceiling.
+      # D3 isolated-margin ladder policy JSON. Empty = refuse — never invent tiers.
+      TRADE_FUTURES_LADDER_POLICY: ${TRADE_FUTURES_LADDER_POLICY:-}
+      TRADE_FUTURES_FUNDING_MAX_ABS_RATE: ${TRADE_FUTURES_FUNDING_MAX_ABS_RATE:-}
+      # Funding tick interval (ms). Empty = do not schedule funding ticks.
+      # D2: no product 8h. Pin empty so an omitted key cannot fall through to a
+      # schema default if one is ever reintroduced.
+      TRADE_FUTURES_FUNDING_INTERVAL_MS: ${TRADE_FUTURES_FUNDING_INTERVAL_MS:-}
+      # Funding market membership. Empty = no schedule even when jobs are on.
+      # Host `.env` pins ids; compose does not invent UUIDs.
+      TRADE_FUTURES_FUNDING_MARKET_IDS: ${TRADE_FUTURES_FUNDING_MARKET_IDS:-}
+      # THE ACCOUNT REALISED FUTURES PROFIT IS PAID FROM — its balance is the
+      # ceiling (docs/adr/2026-08-05-futures-risk-and-mark-law.md). PKT-B5
+      # 2026-08-13 named `house:fees:trade:available` in `.env.example`. This
+      # line still has NO compose default — a host that blanks .env keeps
+      # futures profit refused; a typed-wrong pot still fails boot.
+      TRADE_FUTURES_PROFIT_SOURCE: ${TRADE_FUTURES_PROFIT_SOURCE:-}
+      # Maximum leverage on a futures open. Empty = DIRECTION §1 10× in code.
+      # Set only to tighten (≤ 10). Compose does not pin a raise.
+      TRADE_FUTURES_MAX_LEVERAGE: ${TRADE_FUTURES_MAX_LEVERAGE:-}
+      # Dated futures settlement fixing (trade.futures / PTX-M10-R03). Empty =
+      # refuse style=dated listing (`trade.dated_futures_fixing_unconfigured`).
+      # Opaque stamp only — never invent last trade / mark as settlement.
+      TRADE_FUTURES_SETTLEMENT_FIXING: ${TRADE_FUTURES_SETTLEMENT_FIXING:-}
+      # D26-P0-02 copy fee-share + D26-P0-15 geo — pass-through, no compose default.
+      # Published JSON lives in `.env.example`. Blank host still refuse-closed.
+      TRADE_COPY_FEE_SHARE_LAW: ${TRADE_COPY_FEE_SHARE_LAW:-}
+      TRADE_COPY_JURISDICTION_LAW: ${TRADE_COPY_JURISDICTION_LAW:-}
+      # PTX-M21 fee/rebate schedule — pass-through, no compose default.
+      # Blank host → order preview refuses (never invent bps).
+      TRADE_FEE_SCHEDULE: ${TRADE_FEE_SCHEDULE:-}
+      # Options settlement-asset law (trade.options / D26-P0-05). Empty =
+      # unpublished refuse (`trade.options_settlement_law_unset`). Host `.env`
+      # can stamp; compose never invents live set / settlement asset / matrix.
+      # Fixing below is a second gate — it alone must not unlock listing.
+      TRADE_OPTIONS_SETTLEMENT_ASSET_LAW: ${TRADE_OPTIONS_SETTLEMENT_ASSET_LAW:-}
+      # Options listing gate (trade.options / D7). Empty = refuse kind=options
+      # listing. Opaque stamp only — never invent fixing source/window/payor.
+      TRADE_OPTIONS_SETTLEMENT_FIXING: ${TRADE_OPTIONS_SETTLEMENT_FIXING:-}
+      # OTC RFQ desk (trade.otc). Empty law = unpublished refuse. Host `.env`
+      # can publish; compose never invents desk JSON, mids, or symbols.
+      TRADE_OTC_DESK_LAW: ${TRADE_OTC_DESK_LAW:-}
+      TRADE_OTC_MIDS: ${TRADE_OTC_MIDS:-}
+      TRADE_OTC_MID_FROM_VENUE: ${TRADE_OTC_MID_FROM_VENUE:-false}
+      TRADE_OTC_VENUE_SYMBOLS: ${TRADE_OTC_VENUE_SYMBOLS:-}
+      # Spot candle materialization (A-TRADE-SPOT-1). Default OFF — same shape as
+      # TRADE_FUTURES_JOBS_ENABLED. `${VAR:-true}` here would copy buckets on a
+      # clean clone while env.ts still read as off. Empty market ids still skip
+      # (never invent a UUID list). Timeframes default 1m to match env.ts.
+      TRADE_CANDLE_JOBS_ENABLED: ${TRADE_CANDLE_JOBS_ENABLED:-false}
+      TRADE_CANDLE_JOBS_INTERVAL_MS: ${TRADE_CANDLE_JOBS_INTERVAL_MS:-60000}
+      TRADE_CANDLE_JOBS_MARKET_IDS: ${TRADE_CANDLE_JOBS_MARKET_IDS:-}
+      TRADE_CANDLE_JOBS_TIMEFRAMES: ${TRADE_CANDLE_JOBS_TIMEFRAMES:-1m}
+      # Engine ↔ ledger reconcile sweep. Default OFF. Does not turn jobs on.
+      # Host `.env` can pin cadence. No invented market list.
+      TRADE_RECONCILE_JOBS_ENABLED: ${TRADE_RECONCILE_JOBS_ENABLED:-false}
+      TRADE_RECONCILE_JOBS_INTERVAL_MS: ${TRADE_RECONCILE_JOBS_INTERVAL_MS:-60000}
+    # L5-7: S2S — not published on host (compose network only)
+    expose: ['4004']
+    healthcheck: *healthcheck
+    depends_on:
+      <<: [*needs-schema, *needs-bus]
+      svc-matching:
+        condition: service_healthy # owns the `matching` stream this subscribes to
+      svc-identity:
+        condition: service_healthy # owns the `identity` stream this publishes to
+      svc-ledger:
+        condition: service_healthy # every fill settles through it
+
+  # THE ONLY OTHER PUBLIC PORT IN THE FLEET, AND THE ONE WITH LEAST TO STEAL.
+  #
+  # Note the environment block: no `*edge-secret`, no `*internal-secret`, no
+  # DATABASE_URL, and it is not gated on `migrate` or `nats` because it uses
+  # neither. It reads svc-matching's UNAUTHENTICATED depth endpoint and
+  # re-broadcasts it, and that is the whole of its authority — which is the
+  # argument for it being its own process rather than a socket bolted onto
+  # svc-trade. services/svc-ws/README.md makes the case in full.
+  #
+  # Not behind svc-edge: the edge proxy buffers with `response.text()` and
+  # cannot carry a websocket, so this is a second origin the browser reaches
+  # directly (`NEXT_PUBLIC_WS_URL` on the web container below).
+  svc-ws:
+    <<: *app
+    container_name: intafaced-svc-ws
+    command: ['node', 'services/svc-ws/dist/index.js']
+    environment:
+      <<: *service-env
+      SERVICE_NAME: svc-ws
+      # 4014: 4013 is svc-indexer, and everything below it is taken.
+      HTTP_PORT: '4014'
+      MATCHING_URL: http://svc-matching:4005
+      # WHICH MARKETS EXIST, as opposed to which ones have traded.
+      #
+      # svc-matching's `/markets` is the books the engine currently holds. It is
+      # not the listing, and after a `trade.markets` reseed it is not even a
+      # subset of it: this fleet had ten journal-replayed engine ids and sixteen
+      # listed ids with an EMPTY intersection, so the socket refused every market
+      # the browser could legitimately discover. svc-trade's
+      # `GET /api/v1/markets` is that listing, and it is unauthenticated public
+      # market data — so svc-ws still holds no credential. See
+      # services/svc-ws/src/depth/registry.ts.
+      TRADE_URL: http://svc-trade:4004
+      WS_DEPTH_LIMIT: ${WS_DEPTH_LIMIT:-50}
+      WS_POLL_INTERVAL_MS: ${WS_POLL_INTERVAL_MS:-250}
+      # Host can pin listing refresh and per-hub socket ceiling. Defaults match
+      # services/svc-ws/src/env.ts (30_000 / 5_000). Without these names, a
+      # host `.env` never reaches the container.
+      WS_MARKETS_REFRESH_MS: ${WS_MARKETS_REFRESH_MS:-30000}
+      WS_MAX_CONNECTIONS: ${WS_MAX_CONNECTIONS:-5000}
+      # Host can pin ping cadence, outbound lag policy, and per-user private
+      # socket cap. Defaults match services/svc-ws/src/env.ts (30_000 /
+      # 1_048_576 / 20 / 16). Without these names, a host `.env` never reaches
+      # the container.
+      WS_HEARTBEAT_MS: ${WS_HEARTBEAT_MS:-30000}
+      WS_HIGH_WATER_BYTES: ${WS_HIGH_WATER_BYTES:-1048576}
+      WS_MAX_LAG_TICKS: ${WS_MAX_LAG_TICKS:-20}
+      WS_PRIVATE_MAX_CONNECTIONS_PER_USER: ${WS_PRIVATE_MAX_CONNECTIONS_PER_USER:-16}
+      WS_GATEWAY_ENABLED: ${WS_GATEWAY_ENABLED:-true}
+      # Host can pin tape replay length and JetStream durable names. Defaults
+      # match services/svc-ws/src/env.ts (50 / ws-trade-tape / ws-private-orders).
+      # Without these names, a host `.env` never reaches the container.
+      WS_TRADE_RECENT_LIMIT: ${WS_TRADE_RECENT_LIMIT:-50}
+      WS_TRADES_DURABLE: ${WS_TRADES_DURABLE:-ws-trade-tape}
+      WS_PRIVATE_ORDERS_DURABLE: ${WS_PRIVATE_ORDERS_DURABLE:-ws-private-orders}
+      # Private /private/stream (#119/#122) needs the SAME JWT material as
+      # svc-identity / svc-edge. Without these, privateTokens stays null and
+      # every private upgrade returns 403 (mega-audit L5-4 / WS-JWT).
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?missing — copy .env.example to .env}
+      JWT_ISSUER: ${JWT_ISSUER:-intafaced}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
+    ports: ['4014:4014']
+    healthcheck: *healthcheck
+    depends_on:
+      # The market list is read at boot so a subscription can be validated
+      # against it. A miss is not fatal — it retries on the timer — but starting
+      # after the engine means the first browser to connect does not have to.
+      svc-matching:
+        condition: service_healthy
+
+  # ── Phase 3 · PAY + P2P ────────────────────────────────────
+
+  svc-pay:
+    <<: *app
+    container_name: intafaced-svc-pay
+    command: ['node', 'services/svc-pay/dist/index.js']
+    environment:
+      <<: [*service-env, *edge-secret, *internal-secret]
+      SERVICE_NAME: svc-pay
+      HTTP_PORT: '4006'
+      DATABASE_URL: postgres://svc_pay:svc_pay@postgres:5432/intafaced
+      LEDGER_URL: http://svc-ledger:4001
+      IDENTITY_URL: http://svc-identity:4002
+      # Both are `z.string().min(32)` with no default. A forged delivery on the
+      # webhook endpoint asserts that money moved, so the service refuses to
+      # boot rather than verify everything.
+      PAY_CRYPTO_WEBHOOK_SECRET: ${PAY_CRYPTO_WEBHOOK_SECRET:?missing — copy .env.example to .env}
+      PAY_CARD_SANDBOX_WEBHOOK_SECRET: ${PAY_CARD_SANDBOX_WEBHOOK_SECRET:?missing — copy .env.example to .env}
+      # In-process chain watcher. env.ts already names these; without compose
+      # pass-through a host `.env` never reaches the container. Defaults match
+      # env.ts (`true` / `2000`). No RPC, mnemonic, hot wallet, or card rail.
+      PAY_CRYPTO_WATCHER_ENABLED: ${PAY_CRYPTO_WATCHER_ENABLED:-true}
+      PAY_CRYPTO_WATCHER_INTERVAL_MS: ${PAY_CRYPTO_WATCHER_INTERVAL_MS:-2000}
+      # Hosted checkout + confirmation depth. env.ts already names these;
+      # without compose pass-through a host `.env` never reaches the container.
+      # Defaults match env.ts. Sandbox rails stay OFF. No owner fee bps, RPC,
+      # mnemonic, hot wallet, or card rail.
+      PAY_MIN_CONFIRMATIONS: ${PAY_MIN_CONFIRMATIONS:-6}
+      PAY_CHECKOUT_SESSION_TTL_SECONDS: ${PAY_CHECKOUT_SESSION_TTL_SECONDS:-900}
+      PAY_PUBLIC_BASE_PATH: ${PAY_PUBLIC_BASE_PATH:-/api/pay}
+      PAY_ALLOW_SANDBOX_RAILS: ${PAY_ALLOW_SANDBOX_RAILS:-false}
+      # Open-session cap + operator risk band. env.ts already names these;
+      # blank risk band refuses — never invent `low`. Defaults match env.ts.
+      PAY_CHECKOUT_MAX_OPEN_SESSIONS: ${PAY_CHECKOUT_MAX_OPEN_SESSIONS:-25}
+      PAY_CHECKOUT_RISK_BAND: ${PAY_CHECKOUT_RISK_BAND:-}
+      # Payment-link lifetime + webhook skew window. env.ts already names these;
+      # without compose pass-through a host `.env` never reaches the container.
+      # Defaults match env.ts (30 / 365 / 300). No owner fee bps or rail list.
+      PAY_LINK_DEFAULT_TTL_DAYS: ${PAY_LINK_DEFAULT_TTL_DAYS:-30}
+      PAY_LINK_MAX_TTL_DAYS: ${PAY_LINK_MAX_TTL_DAYS:-365}
+      PAY_WEBHOOK_TOLERANCE_SECONDS: ${PAY_WEBHOOK_TOLERANCE_SECONDS:-300}
+      # Operator-credit allow-list. env.ts already names this (default
+      # card-sandbox — not the public checkout path). Without compose
+      # pass-through a host `.env` never reaches the container.
+      PAY_OPERATOR_CREDIT_RAILS: ${PAY_OPERATOR_CREDIT_RAILS:-card-sandbox}
+      # Register `card-sandbox` at boot. env.ts types this as optional
+      # `'true' | 'false'`; empty string is invalid. Key-no-value forwards
+      # a host `.env` pin and omits the var when unset so schema default
+      # applies (yes in dev/test, no in staging/prod). Do not use `${VAR:-}`.
+      PAY_REGISTER_CARD_SANDBOX:
+      # Optional live-crypto rail. env.ts types RPC as url().optional(),
+      # chain id as optional int, mnemonic min 20, hot key 0x hex, assets
+      # min 1. `${VAR:-}` interpolates "" which fails those schemas.
+      # Key-no-value forwards a host `.env` pin and omits when unset.
+      PAY_CRYPTO_RPC_URL:
+      PAY_CRYPTO_CHAIN_ID:
+      PAY_CRYPTO_DEPOSIT_MNEMONIC:
+      PAY_CRYPTO_HOT_WALLET_KEY:
+      PAY_CRYPTO_ASSETS:
+    # L5-7: S2S — not published on host (compose network only)
+    expose: ['4006']
+    healthcheck: *healthcheck
+    depends_on:
+      # No `nats` — svc-pay connects to no bus (see its index.ts).
+      <<: *needs-schema
+      svc-ledger:
+        condition: service_healthy
+      svc-identity:
+        condition: service_healthy
+
+  svc-p2p:
+    <<: *app
+    container_name: intafaced-svc-p2p
+    command: ['node', 'services/svc-p2p/dist/index.js']
+    environment:
+      <<: [*service-env, *edge-secret, *internal-secret]
+      SERVICE_NAME: svc-p2p
+      # 4007: the code default is 4004, which svc-trade already holds.
+      HTTP_PORT: '4007'
+      DATABASE_URL: postgres://svc_p2p:svc_p2p@postgres:5432/intafaced
+      LEDGER_URL: http://svc-ledger:4001
+      IDENTITY_URL: http://svc-identity:4002
+      # p2p.merchants — host `.env` must reach the container. Empty ceilings stay
+      # unset (env.ts maps "" → omitted). Never seed a magnitude or `unlimited`.
+      P2P_OFFER_MAX_STANDARD: ${P2P_OFFER_MAX_STANDARD:-}
+      P2P_OFFER_MAX_MERCHANT: ${P2P_OFFER_MAX_MERCHANT:-}
+      P2P_MODERATOR_USER_IDS: ${P2P_MODERATOR_USER_IDS:-}
+      # Kill new offers/takes. Default ON matches env.ts; host can set false.
+      P2P_TRADING_ENABLED: ${P2P_TRADING_ENABLED:-true}
+      # Escrow clocks + sweep. env.ts already names these; without compose
+      # pass-through a host `.env` never reaches the container. Defaults match
+      # env.ts (120 / 15m / 30m / 30s). House take stays owner — not P2P_FEE_BPS.
+      P2P_ESCROW_DEADLINE_SECONDS: ${P2P_ESCROW_DEADLINE_SECONDS:-120}
+      P2P_PAYMENT_DEADLINE_SECONDS: ${P2P_PAYMENT_DEADLINE_SECONDS:-900}
+      P2P_RELEASE_DEADLINE_SECONDS: ${P2P_RELEASE_DEADLINE_SECONDS:-1800}
+      P2P_SWEEP_INTERVAL_SECONDS: ${P2P_SWEEP_INTERVAL_SECONDS:-30}
+      # Dispute SLA + escalation re-check. env.ts already names these; without
+      # compose pass-through a host `.env` never reaches the container. Defaults
+      # match env.ts (7d / 1h). Escalation is a re-raise, not auto-settle.
+      P2P_DISPUTE_SLA_SECONDS: ${P2P_DISPUTE_SLA_SECONDS:-604800}
+      P2P_DISPUTE_ESCALATION_RECHECK_SECONDS: ${P2P_DISPUTE_ESCALATION_RECHECK_SECONDS:-3600}
+      # Closed-trade instrument purge. env.ts already names this; without compose
+      # pass-through a host `.env` never reaches the container and the sweep
+      # always uses the schema default. Default 90d is longer than the 7-day
+      # dispute SLA (env.ts forbids retention shorter than SLA).
+      P2P_INSTRUMENT_RETENTION_DAYS: ${P2P_INSTRUMENT_RETENTION_DAYS:-90}
+      # Access-token TTL / iss / aud. authEnvSchema defaults match identity
+      # (900 / intafaced / intafaced.api). Without compose pass-through a host
+      # `.env` never reaches the container. Do not bake P2P_FEE_BPS.
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+      JWT_ISSUER: ${JWT_ISSUER:-intafaced}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
+    # L5-7: S2S — not published on host (compose network only)
+    expose: ['4007']
+    healthcheck: *healthcheck
+    depends_on:
+      <<: [*needs-schema, *needs-bus]
+      # This one is a boot dependency, not a nicety: the settlement sweep runs
+      # ONCE before the HTTP listener opens, and it posts to the ledger.
+      svc-ledger:
+        condition: service_healthy
+
+  # ── Phase 4 · BLUEPRINT ────────────────────────────────────
+
+  svc-blueprint:
+    <<: *app
+    container_name: intafaced-svc-blueprint
+    command: ['node', 'services/svc-blueprint/dist/index.js']
+    environment:
+      <<: [*service-env, *edge-secret]
+      SERVICE_NAME: svc-blueprint
+      # 4011: the code default is 4008, which svc-agents already holds.
+      HTTP_PORT: '4011'
+      DATABASE_URL: postgres://svc_blueprint:svc_blueprint@postgres:5432/intafaced
+      # `mock` because the Neural Engine is a separate external deployment that
+      # a clean clone does not have. The service picks its engine explicitly and
+      # never falls back, so pointing `http` at nothing would serve onboarding
+      # traffic at an engine that cannot answer.
+      BLUEPRINT_ENGINE_MODE: ${BLUEPRINT_ENGINE_MODE:-mock}
+      BLUEPRINT_ENGINE_URL: ${BLUEPRINT_ENGINE_URL:-http://host.docker.internal:4108}
+      # Host can pin engine call ceiling, default crew size, mentor shortlist,
+      # and season. Defaults match services/svc-blueprint/src/env.ts
+      # (20_000 / 6 / 3 / 1). Without these names, a host `.env` never
+      # reaches the container.
+      BLUEPRINT_ENGINE_TIMEOUT_MS: ${BLUEPRINT_ENGINE_TIMEOUT_MS:-20000}
+      BLUEPRINT_CREW_CAPACITY: ${BLUEPRINT_CREW_CAPACITY:-6}
+      BLUEPRINT_MENTOR_SHORTLIST_SIZE: ${BLUEPRINT_MENTOR_SHORTLIST_SIZE:-3}
+      BLUEPRINT_SEASON: ${BLUEPRINT_SEASON:-1}
+      # The card rasterizer. DELIBERATELY has no default: unset means this
+      # deployment has no renderer, and the service says so with a typed code
+      # while still serving the full vector card. A default pointing at a host
+      # that is not there would turn that honest answer into a timeout on every
+      # card request. There is no rasterizer and no object storage in this
+      # stack, so it is empty here and `blueprint.card` reports
+      # `blueprint.card_renderer_unconfigured`.
+      BLUEPRINT_CARD_RENDERER_URL: ${BLUEPRINT_CARD_RENDERER_URL:-}
+      # Host can shorten a hung rasterizer. Default 10000 matches env.ts.
+      # URL stays empty — this does not invent a renderer.
+      BLUEPRINT_CARD_RENDERER_TIMEOUT_MS: ${BLUEPRINT_CARD_RENDERER_TIMEOUT_MS:-10000}
+      # Pass-through form (key, no value): compose forwards these ONLY if they
+      # are set in .env, and omits them entirely otherwise. `${VAR:-}` would set
+      # them to the empty string instead, and env.ts types them as optional
+      # min(1) strings — an empty string is a present, invalid value.
+      BLUEPRINT_ENGINE_API_KEY:
+      BLUEPRINT_CARD_RENDERER_API_KEY:
+    # L5-7: S2S — not published on host (compose network only)
+    expose: ['4011']
+    healthcheck: *healthcheck
+    depends_on:
+      <<: [*needs-schema, *needs-bus]
+
+  # ── Phase 5 · SURFACES ─────────────────────────────────────
+
+  svc-bank:
+    <<: *app
+    container_name: intafaced-svc-bank
+    command: ['node', 'services/svc-bank/dist/index.js']
+    environment:
+      <<: [*service-env, *edge-secret, *internal-secret]
+      SERVICE_NAME: svc-bank
+      HTTP_PORT: '4009'
+      DATABASE_URL: postgres://svc_bank:svc_bank@postgres:5432/intafaced
+      LEDGER_URL: http://svc-ledger:4001
+      # Identity affiliate accrue/payout after loan house fees. env.ts is
+      # optional with no localhost default; unset is a noop port. Fleet
+      # identity only — not a rate, not JWT restamp, not #2194 quote/sweep keys.
+      IDENTITY_URL: http://svc-identity:4002
+      # Access-token lifetime + iss/aud. Identity / authEnvSchema already
+      # default these (900 / intafaced / intafaced.api). Without compose
+      # pass-through a host `.env` pin never reaches the container and bank
+      # keeps schema-only defaults forever. Do not restamp JWT_ACCESS_SECRET —
+      # bank takes the edge principal via *edge-secret, not a second
+      # ACCESS_SECRET line.
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+      JWT_ISSUER: ${JWT_ISSUER:-intafaced}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
+      # Loan LTV marks read svc-trade public REST. env.ts defaults to
+      # http://localhost:4004, which is unreachable inside compose and leaves
+      # every mark as bank.mark_missing. Same surface notify already uses.
+      TRADE_URL: http://svc-trade:4004
+      # Mark asset for loan LTV. env.ts already defaults USDT. Without compose
+      # pass-through a host `.env` pin never reaches the container. A wrong id
+      # refuses `bank.mark_missing` — it does not invent a price. No APY/LTV/mids.
+      LOAN_QUOTE_ASSET_ID: ${LOAN_QUOTE_ASSET_ID:-USDT}
+      TOKEN_ASSET_ID: ${TOKEN_ASSET_ID:-IFC}
+      # `none` means this deployment has NO CARD PROGRAMME, and every card
+      # procedure refuses `bank.no_card_issuer` by name. The only other value is
+      # `card-sim`, which is a SIMULATOR — no card, no scheme, no issuing BIN, no
+      # network call, and `simulated: true` on every card and every response. The
+      # live rail is §13 `socket.live-issuer`: a sponsor bank and a contract,
+      # which no value of this variable can supply. Written out with its default
+      # rather than left unset, so the choice is visible in the file an operator
+      # actually reads instead of living only in a zod schema.
+      BANK_CARD_ISSUER: ${BANK_CARD_ISSUER:-none}
+      # Cards module kill. env.ts already names BANK_CARDS_ENABLED (default true);
+      # without compose pass-through a host `.env` cannot halt issue/authorise
+      # without changing issuer. Issuer stays `none` — this is the emergency
+      # product stop, not a live programme. No BIN, scheme, or live issuer.
+      BANK_CARDS_ENABLED: ${BANK_CARDS_ENABLED:-true}
+      # WHICH BANK RAMP PROGRAMME THIS DEPLOYMENT HAS. env.ts already names
+      # BANK_RAMP_MODE (none | crypto-ledger, default none). Without compose
+      # pass-through a host `.env` never reaches the container. Default stays
+      # `none` — `crypto-ledger` is an operator act, not a stack default. Fiat
+      # PSP, chain broadcast, and APY are not named here.
+      BANK_RAMP_MODE: ${BANK_RAMP_MODE:-none}
+      # Standing-order + auto-invest runners. env.ts already names these;
+      # without compose pass-through a host `.env` never reaches the container.
+      # Defaults match env.ts (`true`) — an operator stop is host `.env` plus
+      # restart. No rate, APY, or schedule is named here (empty must not invent).
+      SCHEDULED_TRANSFERS_ENABLED: ${SCHEDULED_TRANSFERS_ENABLED:-true}
+      # How many due schedules one runner pass claims. env.ts already defaults
+      # 200; without compose pass-through a host `.env` cannot tighten blast
+      # radius. No APY, LTV, or schedule rate is named here.
+      TRANSFER_BATCH_SIZE: ${TRANSFER_BATCH_SIZE:-200}
+      AUTO_INVEST_ENABLED: ${AUTO_INVEST_ENABLED:-true}
+      # Earn-pool interest accrual kill. env.ts already names this (default true);
+      # without compose pass-through a host `.env` never reaches the container and
+      # cannot halt a runaway payout. Loan charging is a separate key (below).
+      # No APY or pool rate is invented.
+      INTEREST_ACCRUAL_ENABLED: ${INTEREST_ACCRUAL_ENABLED:-true}
+      # Loan interest capitalisation kill. env.ts already names this (default true);
+      # without compose pass-through a host `.env` never reaches the container.
+      # Separate from INTEREST_ACCRUAL_ENABLED so stopping earn payout does not
+      # also stop charging borrowers. No APY, LTV, or USDT mid is invented.
+      LOAN_ACCRUAL_ENABLED: ${LOAN_ACCRUAL_ENABLED:-true}
+      # Loans module kill + collateral-sale sweep. env.ts already names these;
+      # without compose pass-through a host `.env` never reaches the container.
+      # BANK_LOANS_ENABLED defaults ON (matches env.ts). LOAN_RISK_SWEEP_ENABLED
+      # MUST stay default OFF — a host must not inherit a schema flip that sells
+      # collateral. No LTV, price source, or liquidation venue is named here.
+      BANK_LOANS_ENABLED: ${BANK_LOANS_ENABLED:-true}
+      LOAN_RISK_SWEEP_ENABLED: ${LOAN_RISK_SWEEP_ENABLED:-false}
+      # How many loans one sweep pass marks. env.ts already defaults 500;
+      # without compose pass-through a host `.env` cannot tighten blast
+      # radius. Sweep stays OFF above — this is not turning it on. No APY/LTV/mids.
+      LOAN_SWEEP_BATCH_SIZE: ${LOAN_SWEEP_BATCH_SIZE:-500}
+    # L5-7: S2S — not published on host (compose network only)
+    expose: ['4009']
+    healthcheck: *healthcheck
+    depends_on:
+      # `nats` is now required. svc-bank owns INTAFACED_BANK and creates it at
+      # boot — the stream has never existed, so svc-notify's finished margin-call
+      # consumer has parked on it since it shipped. A margin call raised with no
+      # transport is a grace clock running against a borrower who was never told.
+      <<: [*needs-schema, *needs-bus]
+      svc-ledger:
+        condition: service_healthy
+      # Compose sets TRADE_URL, so trade must be answerable for LTV marks.
+      svc-trade:
+        condition: service_healthy
+
+  # ── The AI gateway socket (docs/AI-GATEWAY-SOCKET.md) ─────────────────────
+  #
+  # svc-agents already terminates at an operator-set URL and names no provider
+  # anywhere below `providers/upstream.ts` (§0.7). This is the thing that URL is
+  # meant to point at: one proxy that owns routing, failover, per-key budgets,
+  # caching and cost accounting, so `gateway.ts` does not grow them by hand.
+  #
+  # OFF BY DEFAULT — `profiles` means it starts only under `--profile ai`. It
+  # cannot run without a config the operator supplies, and a service that
+  # crash-loops in every developer's `platform:up` is one people learn to delete.
+  #
+  # NO CONFIG IS COMMITTED, and that is doctrine rather than laziness: a LiteLLM
+  # model list names providers and models, `.yaml` is inside the brand scan's
+  # EXTENSIONS, and §0.7 forbids those names in this repo. The routing table is
+  # a deployment secret mounted from `LITELLM_CONFIG_PATH`, exactly as the
+  # provider's own key already is.
+  #
+  # Pinned by DIGEST rather than the moving `main-stable` tag — same reasoning
+  # as the Action digests in .github/workflows.
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable@sha256:af806882b7a6ced41658db5b6a7e98ed7b9b51d03b935e0417bf1c8552d688af
+    container_name: intafaced-litellm
+    profiles: ['ai']
+    restart: unless-stopped
+    command: ['--config', '/etc/litellm/config.yaml', '--port', '4400', '--num_workers', '1']
+    volumes:
+      # Read-only, and REQUIRED: compose refuses to start rather than run a
+      # proxy with no routing table.
+      - ${LITELLM_CONFIG_PATH:?set LITELLM_CONFIG_PATH — see docs/AI-GATEWAY-SOCKET.md}:/etc/litellm/config.yaml:ro
+    environment:
+      # The key svc-agents presents. Not defaulted: an unauthenticated proxy
+      # holding provider credentials is the worst shape this can take.
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:-}
+    # Compose network only. It holds provider credentials, so it is never
+    # published to the host and never reachable through svc-edge.
+    expose: ['4400']
+
+  svc-agents:
+    <<: *app
+    container_name: intafaced-svc-agents
+    command: ['node', 'services/svc-agents/dist/index.js']
+    environment:
+      <<: [*service-env, *edge-secret, *internal-secret]
+      SERVICE_NAME: svc-agents
+      HTTP_PORT: '4008'
+      DATABASE_URL: postgres://svc_agents:svc_agents@postgres:5432/intafaced
+      LEDGER_URL: http://svc-ledger:4001
+      # Affiliate accrue + payout after usage feeCharge. env.ts is optional with
+      # no localhost default (unset = noop). Compose pins identity on the fleet
+      # network. Never invents rates; identity owns the payout door.
+      IDENTITY_URL: http://svc-identity:4002
+      # Coach cites academy platform spine over S2S. Unset locally stays empty
+      # (chatbot refuse). Compose pins the academy service so the fleet is not
+      # dark forever while academy is on the same network.
+      ACADEMY_URL: http://svc-academy:4016
+      # Scanner live spot tickers (`GET /api/v1/tickers`). Unset locally stays
+      # dark (`no_live_tickers`). Compose pins trade on the fleet network.
+      TRADE_URL: http://svc-trade:4004
+      # Merchant approval-rate watch (`GET /internal/agents/merchant-watch-metrics`).
+      # Unset locally stays dark (`no_live_metrics`). Compose pins pay on fleet.
+      PAY_URL: http://svc-pay:4006
+      # Support agent live KB/ticket desk. Unset locally stays dark (`no_live_kb`).
+      SUPPORT_URL: http://svc-support:4017
+      # `mock` by default so bringing the fleet up cannot spend money. The
+      # upstream's identity is deployment configuration — set the
+      # AGENTS_UPSTREAM_* block in .env to point it somewhere real.
+      AGENTS_PROVIDER: ${AGENTS_PROVIDER:-mock}
+      AGENTS_FEE_ASSET_ID: ${AGENTS_FEE_ASSET_ID:-IFC}
+      AGENTS_METERING_ENABLED: ${AGENTS_METERING_ENABLED:-true}
+      # Billing window + upstream HTTP timeout. env.ts already names these
+      # (default 60 / 60000). Without compose pass-through a host `.env` pin
+      # never reaches the container. Window must divide 1440 (env.ts).
+      AGENTS_USAGE_WINDOW_MINUTES: ${AGENTS_USAGE_WINDOW_MINUTES:-60}
+      AGENTS_UPSTREAM_TIMEOUT_MS: ${AGENTS_UPSTREAM_TIMEOUT_MS:-60000}
+      # Upstream auth header name + prefix (env.ts defaults x-api-key / empty).
+      # Without compose pass-through a host `.env` pin never reaches the container.
+      AGENTS_UPSTREAM_AUTH_HEADER: ${AGENTS_UPSTREAM_AUTH_HEADER:-x-api-key}
+      AGENTS_UPSTREAM_AUTH_PREFIX: ${AGENTS_UPSTREAM_AUTH_PREFIX:-}
+      # Access-token TTL / iss / aud (authEnvSchema defaults 900 / intafaced /
+      # intafaced.api). Without compose pass-through a host `.env` pin never
+      # reaches the container. Do not add JWT_ACCESS_SECRET here — agents
+      # authenticates the edge via *edge-secret, not a local signing key.
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+      JWT_ISSUER: ${JWT_ISSUER:-intafaced}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
+      # Pass-through form (key, no value): compose forwards these ONLY if they
+      # are set in .env, and omits them entirely otherwise. `${VAR:-}` would set
+      # them to the empty string instead, and the schema types them as an
+      # optional URL and a min(1) string — an empty string is a present, invalid
+      # value, and svc-agents would refuse to boot with `mock` selected.
+      AGENTS_UPSTREAM_BASE_URL:
+      AGENTS_UPSTREAM_API_KEY:
+      AGENTS_UPSTREAM_HEADERS:
+      AGENTS_UPSTREAM_MODELS:
+      AGENTS_UPSTREAM_COMPLETIONS_PATH:
+      AGENTS_UPSTREAM_EMBEDDINGS_PATH:
+      AGENTS_ROUTING_TABLE:
+      # Copy-intel live plane (Class X). Pass-through only — unset stays refuse-closed.
+      LIVE_TRADE_COPY_LEADER_PLANE_OPEN:
+      LIVE_TRADE_COPY_LEADER_IDS:
+    # L5-7: S2S — not published on host (compose network only)
+    expose: ['4008']
+    healthcheck: *healthcheck
+    depends_on:
+      <<: [*needs-schema, *needs-bus]
+      svc-ledger:
+        condition: service_healthy
+
+  # In-app inbox always; email / push / SMS whenever the owner supplies a gateway.
+  #
+  # The six gateway variables below have NO DEFAULT AND NO PLACEHOLDER, which is
+  # the point. Unset, the channel refuses every message by name and the refusal
+  # lands on the delivery row — users still get everything in the inbox. Invented
+  # here, the same channel would fail sends against a URL nobody runs, and the
+  # difference between "not wired" and "broken" would be lost.
+  #
+  # NOTIFY_REQUIRED_CHANNELS is what turns a refusal into a boot failure: in
+  # APP_ENV=staging|prod it must be set, and every channel it lists must have its
+  # pair. See .env.example and docs/OWNER-ACTIONS-NOTIFY-GATEWAYS.md.
+  svc-notify:
+    <<: *app
+    container_name: intafaced-svc-notify
+    command: ['node', 'services/svc-notify/dist/index.js']
+    environment:
+      <<: [*service-env, *edge-secret]
+      SERVICE_NAME: svc-notify
+      HTTP_PORT: '4015'
+      DATABASE_URL: postgres://svc_notify:svc_notify@postgres:5432/intafaced
+      # Same public ticker surface svc-bank already uses for loan marks (#1586).
+      # Without this, price watches stay dark forever in the compose stack even
+      # though trade is up and the live MarkSource factory is wired in code.
+      TRADE_URL: http://svc-trade:4004
+      NOTIFY_FANOUT_ENABLED: ${NOTIFY_FANOUT_ENABLED:-true}
+      NOTIFY_OUT_OF_APP_ENABLED: ${NOTIFY_OUT_OF_APP_ENABLED:-true}
+      NOTIFY_EMAIL_GATEWAY_URL: ${NOTIFY_EMAIL_GATEWAY_URL:-}
+      NOTIFY_EMAIL_GATEWAY_TOKEN: ${NOTIFY_EMAIL_GATEWAY_TOKEN:-}
+      NOTIFY_PUSH_GATEWAY_URL: ${NOTIFY_PUSH_GATEWAY_URL:-}
+      NOTIFY_PUSH_GATEWAY_TOKEN: ${NOTIFY_PUSH_GATEWAY_TOKEN:-}
+      NOTIFY_SMS_GATEWAY_URL: ${NOTIFY_SMS_GATEWAY_URL:-}
+      NOTIFY_SMS_GATEWAY_TOKEN: ${NOTIFY_SMS_GATEWAY_TOKEN:-}
+      NOTIFY_REQUIRED_CHANNELS: ${NOTIFY_REQUIRED_CHANNELS:-}
+      NOTIFY_MAX_DELIVERY_ATTEMPTS: ${NOTIFY_MAX_DELIVERY_ATTEMPTS:-3}
+      NOTIFY_GATEWAY_TIMEOUT_MS: ${NOTIFY_GATEWAY_TIMEOUT_MS:-5000}
+      NOTIFY_SMS_MAX_CHARS: ${NOTIFY_SMS_MAX_CHARS:-480}
+      NOTIFY_VERIFY_TTL_MINUTES: ${NOTIFY_VERIFY_TTL_MINUTES:-15}
+    # L5-7: S2S — not published on host (compose network only)
+    expose: ['4015']
+    healthcheck: *healthcheck
+    depends_on:
+      <<: [*needs-schema, *needs-bus]
+      # Mark feed is optional at the env layer (unset stays dark) but compose
+      # sets TRADE_URL, so trade must be answerable for watches to fire.
+      svc-trade:
+        condition: service_healthy
+
+  # Support desk tickets + KB (ops.support). Durable Postgres store; no ledger.
+  svc-support:
+    <<: *app
+    container_name: intafaced-svc-support
+    command: ['node', 'services/svc-support/dist/index.js']
+    environment:
+      # internal-secret: the desk READS account state from svc-identity's
+      # /internal/account/:userId, which hard-401s an unauthenticated caller.
+      # Without this line the service refuses to boot (env.ts requires it) —
+      # deliberately, rather than starting and reporting every account as
+      # unread, which from an operator's chair is indistinguishable from every
+      # account genuinely being unreadable.
+      <<: [*service-env, *edge-secret, *internal-secret]
+      SERVICE_NAME: svc-support
+      HTTP_PORT: '4017'
+      DATABASE_URL: postgres://svc_support:svc_support@postgres:5432/intafaced
+      # Read-only dependency. No LEDGER_URL, and there never will be one: this
+      # mountain moves no value (§0.6) and a refund is a request it files, not a
+      # transaction it posts.
+      IDENTITY_URL: http://svc-identity:4002
+      # Access-token life + iss/aud (edge/identity defaults). Host `.env` can
+      # pin them; without these lines the desk keeps schema-only 900 /
+      # intafaced / intafaced.api. No JWT_ACCESS_SECRET here — the desk
+      # verifies the edge principal, it does not mint access tokens.
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+      JWT_ISSUER: ${JWT_ISSUER:-intafaced}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
+      # Class X: owner sets true only after observing ticket create + KB loop in live compose.
+      TICKET_KB_LOOP_OBSERVED_IN_LIVE_COMPOSE:
+    expose: ['4017']
+    healthcheck: *healthcheck
+    depends_on:
+      <<: *needs-schema
+      # Starts after identity so the desk's first grounding read is not a
+      # connection refused that gets recorded as "account unread".
+      svc-identity: { condition: service_healthy }
+
+  # Vendor lifecycle + market.commerce (§8.7). Vendor half holds no balances;
+  # commerce posts `marketPurchase` to svc-ledger when the owner configures a
+  # house commission rate. TOKEN_URL is the stake-gated slot callee.
+  #
+  # No `ports:`. This is an S2S service reached only through svc-edge, which is
+  # what makes `/api/market` kill-switchable from the operator control plane; a
+  # published host port would put it outside the door.
+  svc-market:
+    <<: *app
+    container_name: intafaced-svc-market
+    command: ['node', 'services/svc-market/dist/index.js']
+    environment:
+      # *internal-secret became required at Stage 2. src/env.ts merges
+      # `internalServiceEnvSchema` for exactly one callee — svc-token's
+      # /internal/stake/:userId, which is how a listing slot knows how many slots
+      # the caller's stake tier entitles them to — and INTERNAL_SERVICE_SECRET has
+      # no default, so without this line the process dies at import with
+      # `EnvError: INTERNAL_SERVICE_SECRET: Required` and the container is never
+      # created at all. The svc-academy block below records why that failure is
+      # SILENT rather than loud, and why compose-secret-parity exists.
+      <<: [*service-env, *edge-secret, *internal-secret]
+      SERVICE_NAME: svc-market
+      # 4018: every port from 4000 to 4017 is already claimed above.
+      HTTP_PORT: '4018'
+      DATABASE_URL: postgres://svc_market:svc_market@postgres:5432/intafaced
+      TOKEN_URL: http://svc-token:4003
+      # Class M money door (D26-P1-M1). Without this, env.ts defaults to
+      # localhost:4001 which is unreachable inside the compose network — purchase
+      # would invent a broken settle path instead of posting marketPurchase.
+      LEDGER_URL: http://svc-ledger:4001
+      # Affiliate accrue + payout after house commission posts. Swallow
+      # identity-down; never unwind marketPurchase. No localhost invent.
+      IDENTITY_URL: http://svc-identity:4002
+      # D26-P0-02 owner click 2026-08-13: explicit free-cut via host env.
+      # Pass-through only — no compose default. Silence still refuses
+      # market.commission_not_configured. Copy .env.example → .env for 0.
+      MARKET_HOUSE_COMMISSION_BPS: ${MARKET_HOUSE_COMMISSION_BPS:-}
+    # L5-7: S2S — not published on host (compose network only)
+    expose: ['4018']
+    healthcheck: *healthcheck
+    depends_on:
+      <<: *needs-schema
+      # The stake gate fails closed, so starting before svc-token would refuse
+      # every slot claim with market.stake_unavailable rather than oversell —
+      # correct, but pointlessly noisy on a cold start.
+      svc-token:
+        condition: service_healthy
+      # Purchase posts recipes.marketPurchase; order ledger healthy so the first
+      # settle after `up` does not race a cold ledger boot (D26-P1-M1).
+      svc-ledger:
+        condition: service_healthy
+
+  # House-desk tenancy mechanism (D26-P0-01 Stage-1). In-memory sealed registry.
+  # No Postgres, no ledger, no SOR/OMS. Internal venue stays refused in the package.
+  svc-execution:
+    <<: *app
+    container_name: intafaced-svc-execution
+    command: ['node', 'services/svc-execution/dist/index.js']
+    environment:
+      <<: [*service-env, *edge-secret]
+      SERVICE_NAME: svc-execution
+      HTTP_PORT: '4019'
+      # OMS book snapshot on venue intafaced-spot via trade public orderbook REST.
+      TRADE_URL: http://svc-trade:4004
+      # Durable EMS ack journal — survives container replace (refuse-closed when path blank).
+      EXECUTION_EMS_STORE_PATH: ${EXECUTION_EMS_STORE_PATH:-/data/execution/ems-journal.jsonl}
+      # venue.aggregation OMS wire — public MD venue ids for trade adapters.
+      EXECUTION_VENUE_IDS: ${EXECUTION_VENUE_IDS:-binance-spot,bybit-spot,okx-spot}
+      # venue.aggregation operator keys — pass-through from host `.env`; blank per venue = refuse-closed.
+      VENUE_AGGREGATION_BINANCE_SPOT_API_KEY: ${VENUE_AGGREGATION_BINANCE_SPOT_API_KEY:-}
+      VENUE_AGGREGATION_BINANCE_SPOT_API_SECRET: ${VENUE_AGGREGATION_BINANCE_SPOT_API_SECRET:-}
+      VENUE_AGGREGATION_BYBIT_SPOT_API_KEY: ${VENUE_AGGREGATION_BYBIT_SPOT_API_KEY:-}
+      VENUE_AGGREGATION_BYBIT_SPOT_API_SECRET: ${VENUE_AGGREGATION_BYBIT_SPOT_API_SECRET:-}
+      VENUE_AGGREGATION_OKX_SPOT_API_KEY: ${VENUE_AGGREGATION_OKX_SPOT_API_KEY:-}
+      VENUE_AGGREGATION_OKX_SPOT_API_SECRET: ${VENUE_AGGREGATION_OKX_SPOT_API_SECRET:-}
+      VENUE_AGGREGATION_OKX_SPOT_PASSPHRASE: ${VENUE_AGGREGATION_OKX_SPOT_PASSPHRASE:-}
+      # execution.sor letter→bps owner schedule — JSON map A/B/C/D/F; blank = refuse-closed (no invented defaults).
+      EXECUTION_SOR_LETTER_BPS_SCHEDULE: ${EXECUTION_SOR_LETTER_BPS_SCHEDULE:-}
+      # execution.market-making spread/skew owner bands — JSON bounds; blank = refuse-closed.
+      EXECUTION_MM_SPREAD_SKEW_BANDS: ${EXECUTION_MM_SPREAD_SKEW_BANDS:-}
+      # execution.arbitrage owner freshness window — blank = refuse-closed (no invented maxQuoteAgeMs).
+      EXECUTION_ARB_MAX_QUOTE_AGE_MS: ${EXECUTION_ARB_MAX_QUOTE_AGE_MS:-}
+    expose: ['4019']
+    volumes:
+      - execution-ems-journal:/data/execution
+    healthcheck: *healthcheck
+    # OMS snapshot reads trade public orderbook — start after trade is healthy.
+    depends_on:
+      svc-trade: { condition: service_healthy }
+
+  # Lot export (tax.engine). Reads ledger; no second book. Owner map blank →
+  # tax.jurisdiction_unmapped at the door — never a silent country default.
+  svc-tax:
+    <<: *app
+    container_name: intafaced-svc-tax
+    command: ['node', 'services/svc-tax/dist/index.js']
+    environment:
+      <<: [*service-env, *edge-secret, *internal-secret]
+      SERVICE_NAME: svc-tax
+      HTTP_PORT: '4020'
+      LEDGER_URL: http://svc-ledger:4001
+      # Counsel/owner map. Blank is refuse-closed (tax.jurisdiction_unmapped).
+      TAX_JURISDICTION_MAP_JSON: ${TAX_JURISDICTION_MAP_JSON:-}
+      # Lake / indexer — blank names absent on the pack; never a fabricated $0.
+      CONNECT_DATA_LAKE_TSDB_URL: ${CONNECT_DATA_LAKE_TSDB_URL:-}
+      INDEXER_URL: ${INDEXER_URL:-}
+    expose: ['4020']
+    healthcheck: *healthcheck
+    depends_on:
+      svc-ledger: { condition: service_healthy }
+
+  # Strategy sandbox (§29). Paper book, no ledger. Port 4021: 4020 held for tax.
+  svc-quant:
+    <<: *app
+    container_name: intafaced-svc-quant
+    command: ['node', 'services/svc-quant/dist/index.js']
+    environment:
+      <<: [*service-env, *edge-secret]
+      SERVICE_NAME: svc-quant
+      HTTP_PORT: '4021'
+      # Venue Vault trade-only pin. Blank = venue OMS refuses quant.venue_vault_unset.
+      QUANT_VENUE_VAULT: ${QUANT_VENUE_VAULT:-}
+    expose: ['4021']
+    healthcheck: *healthcheck
+    depends_on: {}
+
+  # CRM / team / warehouse revenue / projects (ops.business-systems).
+  # Non-custodial. Blank analytics replica → ops.warehouse_unwired.
+  # Payroll is never invented (ops.payroll_invent_forbidden).
+  svc-ops:
+    <<: *app
+    container_name: intafaced-svc-ops
+    command: ['node', 'services/svc-ops/dist/index.js']
+    environment:
+      <<: [*service-env, *edge-secret, *internal-secret]
+      SERVICE_NAME: svc-ops
+      HTTP_PORT: '4022'
+      # IDENTITY_URL / SUPPORT_URL blank → contacts name ops.identity_unwired /
+      # ops.support_unwired. Local CRM rows still write. No second contact book.
+      ANALYTICS_REPLICA_CONFIGURED: ${ANALYTICS_REPLICA_CONFIGURED:-}
+      ANALYTICS_REPLICA_LAG_SECONDS: ${ANALYTICS_REPLICA_LAG_SECONDS:-}
+      ANALYTICS_REPLICA_LEDGER_URL: ${ANALYTICS_REPLICA_LEDGER_URL:-}
+      ANALYTICS_REPLICA_TRADE_URL: ${ANALYTICS_REPLICA_TRADE_URL:-}
+      ANALYTICS_REPLICA_IDENTITY_URL: ${ANALYTICS_REPLICA_IDENTITY_URL:-}
+      ANALYTICS_ETL_WATERMARK_AT: ${ANALYTICS_ETL_WATERMARK_AT:-}
+      # OPS_CUSTODY_WRAP blank → wrap/execute refuse ops.custody_wrap_unset. Never invent keys.
+      OPS_CUSTODY_WRAP: ${OPS_CUSTODY_WRAP:-}
+      # Blank/unknown freeze policy → createApproval/execute refuse ops.custody_freeze_unset.
+      # frozen → ops.custody_frozen. open passes freeze only — never a live send.
+      OPS_CUSTODY_FREEZE_POLICY: ${OPS_CUSTODY_FREEZE_POLICY:-}
+    expose: ['4022']
+    healthcheck: *healthcheck
+
+  # Live lobbies with capacity tiers (§8.3, §XIII). Non-custodial: no
+  # LEDGER_URL, and nothing in this process could reach anything that moves
+  # value.
+  #
+  # No `nats` dependency — this service publishes no subject and consumes none.
+  # It calls svc-token for a staked room's `stakeOf` and svc-identity for §4.1's
+  # `lobbyHostRights`, both over the shared internal service secret.
+  #
+  # ACADEMY_STREAM_PROVIDER is `none`, and that is the honest default rather
+  # than a placeholder: there is no SFU in this stack. Lobbies run as seats,
+  # presence and the 2D scene canvas, and a request for a stream credential is
+  # REFUSED by name rather than answered with a join token that cannot connect
+  # (SOCKET §13 `socket.stream-provider`).
+  # Stored VOD (TRK-academy.video). OFF BY DEFAULT — `profiles` means it starts
+  # only under `--profile academy-video`. svc-academy refuses
+  # academy.video_storage_unconfigured until S3 env is set. Not LiveKit.
+  academy-minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    container_name: intafaced-academy-minio
+    profiles: ['academy-video']
+    restart: unless-stopped
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: ${ACADEMY_VIDEO_S3_ACCESS_KEY:-}
+      MINIO_ROOT_PASSWORD: ${ACADEMY_VIDEO_S3_SECRET_KEY:-}
+    expose: ['9000']
+    volumes:
+      - academy-miniodata:/data
+
+  # Self-hosted SFU for the explicit LiveKit provider mode. Academy still
+  # refuses streaming when ACADEMY_STREAM_PROVIDER is `none` or credentials
+  # are blank; starting this container never invents a credential.
+  livekit:
+    image: livekit/livekit-server:v1.9.0
+    container_name: intafaced-livekit
+    restart: unless-stopped
+    command: ['--dev', '--bind', '0.0.0.0']
+    expose: ['7880', '7881', '7882/udp']
+
+  svc-academy:
+    <<: *app
+    container_name: intafaced-svc-academy
+    command: ['node', 'services/svc-academy/dist/index.js']
+    environment:
+      # *internal-secret is required here. src/env.ts merges
+      # `internalServiceEnvSchema` for its two callees, and
+      # INTERNAL_SERVICE_SECRET has no default — so without it the process dies
+      # at import with `EnvError: INTERNAL_SERVICE_SECRET: Required` and the
+      # container is never created at all. That is why there are no
+      # restart-loop logs for anyone to read: a service that fails to boot is
+      # loud, a service nobody started is silent.
+      #
+      # Restored 2026-08-04. #442 landed exactly this line at 16:39 on
+      # 2026-08-03; #447 had branched before that, and its merge dropped it
+      # again at 17:05 — 26 minutes of fix, undone by a PR about the admin
+      # console that never mentioned academy. Nobody noticed, for the reason
+      # above. compose-secret-parity is what noticed; it lands in the same
+      # commit as this line, on purpose.
+      <<: [*service-env, *edge-secret, *internal-secret]
+      SERVICE_NAME: svc-academy
+      # 4016: every port from 4000 to 4015 is already claimed above.
+      HTTP_PORT: '4016'
+      DATABASE_URL: postgres://svc_academy:svc_academy@postgres:5432/intafaced
+      TOKEN_URL: http://svc-token:4003
+      IDENTITY_URL: http://svc-identity:4002
+      # Access-token lifetime / iss / aud (authEnvSchema + identity compose defaults).
+      # Host `.env` can pin token life and audience; schema-only defaults never
+      # reach the container without these names. Do not raise TTL above 900.
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+      JWT_ISSUER: ${JWT_ISSUER:-intafaced}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
+      # Public markets listing — paper drills verify `paper` here. Unset would
+      # refuse academy.paper_flag_unverified rather than trust the caller.
+      TRADE_URL: http://svc-trade:4004
+      ACADEMY_STREAM_PROVIDER: ${ACADEMY_STREAM_PROVIDER:-none}
+      LIVEKIT_URL: ${LIVEKIT_URL:-}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+      LIVEKIT_TOKEN_TTL_SECONDS: ${LIVEKIT_TOKEN_TTL_SECONDS:-3600}
+      ACADEMY_MAX_ROOM_CAPACITY: ${ACADEMY_MAX_ROOM_CAPACITY:-5000}
+      # Paper-drill ops kill. env.ts already names this (default true); without
+      # compose pass-through a host `.env` never reaches the container. Live
+      # trade on svc-trade is unaffected. No prize, IFC, or paper balance here.
+      ACADEMY_PAPER_TRADING_ENABLED: ${ACADEMY_PAPER_TRADING_ENABLED:-true}
+      # Tournament ladder kill. env.ts already names this (default true) and
+      # refuses academy.tournament_disabled when off. Without compose
+      # pass-through a host `.env` never reaches the container. No prize,
+      # IFC, or programme JSON here.
+      ACADEMY_TOURNAMENT_ENABLED: ${ACADEMY_TOURNAMENT_ENABLED:-true}
+      # Owner-published ambassador rate law. env.ts already names these
+      # (empty default = unpublished refuse). Never invent session credits
+      # or fee %. Class M settlement stays owner JSON + ledger recipes.
+      ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON: ${ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON:-}
+      ACADEMY_AMBASSADOR_REVENUE_SHARE_LAW_JSON: ${ACADEMY_AMBASSADOR_REVENUE_SHARE_LAW_JSON:-}
+      # Stored VOD. Empty default = unconfigured named refuse. MinIO is
+      # profile-gated; do not default an endpoint here.
+      ACADEMY_VIDEO_S3_ENDPOINT: ${ACADEMY_VIDEO_S3_ENDPOINT:-}
+      ACADEMY_VIDEO_S3_BUCKET: ${ACADEMY_VIDEO_S3_BUCKET:-}
+      ACADEMY_VIDEO_S3_ACCESS_KEY: ${ACADEMY_VIDEO_S3_ACCESS_KEY:-}
+      ACADEMY_VIDEO_S3_SECRET_KEY: ${ACADEMY_VIDEO_S3_SECRET_KEY:-}
+      ACADEMY_VIDEO_S3_REGION: ${ACADEMY_VIDEO_S3_REGION:-us-east-1}
+
+      ACADEMY_VIDEO_URL_TTL_SECONDS: ${ACADEMY_VIDEO_URL_TTL_SECONDS:-300}
+      ACADEMY_VIDEO_MIN_TIER: ${ACADEMY_VIDEO_MIN_TIER:-}
+      ACADEMY_VIDEO_MIN_STAKE: ${ACADEMY_VIDEO_MIN_STAKE:-}
+    # L5-7: S2S — not published on host (compose network only)
+    expose: ['4016']
+    healthcheck: *healthcheck
+    depends_on:
+      # *needs-bus since certification publishes `intafaced.identity.xp.earned`
+      # (services/svc-academy/src/certs/xp-publish.ts). NATS_URL already arrives
+      # on *service-env; what was missing was the ordering. Academy degrades
+      # rather than dies without the bus, so this is about not starting into a
+      # known-absent dependency — not about making the lobby need one.
+      <<: [*needs-schema, *needs-bus]
+      svc-identity:
+        condition: service_healthy
+      svc-token:
+        condition: service_healthy
+
+  svc-mining-pool:
+    <<: *app
+    container_name: intafaced-svc-mining-pool
+    command: ['node', 'services/svc-mining-pool/dist/server.js']
+    environment:
+      <<: [*service-env, *internal-secret]
+      SERVICE_NAME: svc-mining-pool
+      HTTP_PORT: '4023'
+      LEDGER_URL: http://svc-ledger:4001
+    expose: ['4023']
+
+  # ── Protocol Plane (§17.4) ─────────────────────────────────────
+
+  # Non-custodial and permissionless: no ledger connection, no signing key.
+  #
+  # ── The chain, and what changed ────────────────────────────
+  #
+  # PROTOCOL_RPC_URL used to point OUTSIDE the compose network at a node the
+  # developer had to run themselves, with `0x0` factory addresses, because the
+  # stack had no chain at all. `docker-compose.yml` now carries a `# no-deploy`
+  # anvil (service `evm`), and the defaults below describe THAT — a throwaway
+  # local chain and nothing else. `host.docker.internal` still works: override
+  # PROTOCOL_RPC_URL and the service points wherever you say.
+  #
+  # The addresses are not magic constants. Anvil starts at genesis with the
+  # deployer at nonce 0, so `pnpm --filter @intafaced/svc-protocol chain:deploy`
+  # lands the implementation and the factory at the same two CREATE addresses
+  # every time. They mean nothing on any chain but this one.
+  #
+  # ── Configured is not deployed ────────────────────────────
+  #
+  # Naming an address here does NOT make svc-protocol claim the contracts
+  # exist. `protocol.chainStatus` reads `eth_getCode` at both addresses and
+  # reports `suiteDeployed` from what came back, so a stack pointed at a chain
+  # where nothing was deployed — or at a restarted anvil that lost its state —
+  # answers `usable: false` instead of a confident lie. Bring the stack up
+  # without `evm`, or before running the deploy, and every chain path refuses
+  # exactly as it did before with `protocol.chain_unreachable`.
+  svc-protocol:
+    <<: *app
+    container_name: intafaced-svc-protocol
+    command: ['node', 'services/svc-protocol/dist/index.js']
+    environment:
+      <<: [*service-env, *edge-secret]
+      SERVICE_NAME: svc-protocol
+      # 4012: the code default is 4004, which svc-trade already holds.
+      HTTP_PORT: '4012'
+      DATABASE_URL: postgres://svc_protocol:svc_protocol@postgres:5432/intafaced
+      PROTOCOL_CHAIN_ID: ${PROTOCOL_CHAIN_ID:-31337}
+      # `evm` is the dev anvil in docker-compose.yml; 8545 is its container port.
+      PROTOCOL_RPC_URL: ${PROTOCOL_RPC_URL:-http://evm:8545}
+      # A public singleton we do not own, and NOT deployed on the dev chain —
+      # so relaying still refuses here. Reads and address prediction do not
+      # need it.
+      PROTOCOL_ENTRYPOINT_ADDRESS: ${PROTOCOL_ENTRYPOINT_ADDRESS:-0x0000000071727De22E5E9d8BAf0edAc6f37da032}
+      # Deterministic dev-chain addresses: CREATE from anvil account #0 at
+      # nonce 1, nonce 0 and nonce 2. See `chain:deploy`. Zero these to get the
+      # old "nothing is configured" refusal back.
+      PROTOCOL_FACTORY_ADDRESS: ${PROTOCOL_FACTORY_ADDRESS:-0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512}
+      PROTOCOL_IMPLEMENTATION_ADDRESS: ${PROTOCOL_IMPLEMENTATION_ADDRESS:-0x5FbDB2315678afecb367f032d93F642f64180aa3}
+      # launch.token-factory (§8.4). The launch deploy is APPENDED at nonce 2 so
+      # the two addresses above keep the values named here — inserting a
+      # deployment before them would move both and point this service at
+      # addresses holding no code.
+      PROTOCOL_TOKEN_FACTORY_ADDRESS: ${PROTOCOL_TOKEN_FACTORY_ADDRESS:-0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0}
+      # protocol.amm PoolFactory — CREATE from anvil account #0 at nonce 3 after
+      # suite (0–1) + token factory (2). Zero until chain:deploy; eth_getCode still
+      # decides usable, same as the other factories.
+      PROTOCOL_AMM_FACTORY_ADDRESS: ${PROTOCOL_AMM_FACTORY_ADDRESS:-0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9}
+    # L5-7: S2S — not published on host (compose network only)
+    expose: ['4012']
+    extra_hosts:
+      # Linux docker has no host.docker.internal by default; Desktop does. This
+      # makes the default RPC URL above mean the same thing on both.
+      - 'host.docker.internal:host-gateway'
+    healthcheck: *healthcheck
+    depends_on:
+      <<: [*needs-schema, *needs-bus]
+
+  # The read path for the Protocol Plane: chain → Postgres → apps/web.
+  #
+  # No `nats` dependency: this service publishes no subject and consumes none.
+  # It reads a chain and writes its own schema, and that is the whole coupling.
+  #
+  # ── Which chain source it boots with, and why the default is none ─────────
+  #
+  # `INDEXER_RPC_URL` decides, and it is EMPTY by default. Empty means
+  # `NullChainSource`: the ingest loop has nothing to do, reads are served from
+  # whatever is already in Postgres, and `indexer.status` reports
+  # `chainSource: "null"` with a reason. Set it and the real `EvmChainSource`
+  # boots — SOCKET §13 `socket.evm-rpc` is closed and the adapter is real.
+  #
+  # It is empty rather than pointing at `evm` because of the SECOND variable.
+  # `INDEXER_VENUE_ADDRESS` has no honest default: no audited venue contract
+  # exists to point it at (SOCKET §13 `socket.clob-contracts`), and
+  # `contracts/dev/DevVenue.sol` is a test fixture with no access control that
+  # must never be part of a running stack. Wiring an RPC without a venue would
+  # give this service a chain and nothing to read on it — and `eth_getLogs`
+  # against an absent contract returns `[]` rather than failing, which is an
+  # empty book nobody would question. So the adapter REFUSES a zero venue
+  # address, and the default configuration says "no chain" out loud instead.
+  #
+  # To watch it work against the dev chain:
+  #   docker compose up -d evm
+  #   pnpm --filter @intafaced/svc-indexer chain:deploy   # prints all three
+  svc-indexer:
+    <<: *app
+    container_name: intafaced-svc-indexer
+    command: ['node', 'services/svc-indexer/dist/index.js']
+    environment:
+      <<: [*service-env, *edge-secret]
+      SERVICE_NAME: svc-indexer
+      # 4013: every port from 4000 to 4012 is already taken above.
+      HTTP_PORT: '4013'
+      DATABASE_URL: postgres://svc_indexer:svc_indexer@postgres:5432/intafaced
+      # Matches PROTOCOL_CHAIN_ID — the two services describe one chain.
+      INDEXER_CHAIN_ID: ${PROTOCOL_CHAIN_ID:-31337}
+      # Dev follows the disposable anvil. `chain:deploy` deploys DevVenue from
+      # account #5 at this deterministic CREATE address; production keeps the
+      # explicit zero (the app default in APP_ENV=prod) and reports
+      # indexer.venue_unset until an owner supplies a real venue address.
+      INDEXER_RPC_URL: ${INDEXER_RPC_URL:-http://evm:8545}
+      INDEXER_VENUE_ADDRESS: ${INDEXER_VENUE_ADDRESS:-}
+      INDEXER_START_HEIGHT: ${INDEXER_START_HEIGHT:-0}
+      INDEXER_FINALITY_DEPTH: ${INDEXER_FINALITY_DEPTH:-64}
+      INDEXER_POLL_INTERVAL_MS: ${INDEXER_POLL_INTERVAL_MS:-2000}
+      INDEXER_BATCH_SIZE: ${INDEXER_BATCH_SIZE:-200}
+      INDEXER_INGEST_ENABLED: ${INDEXER_INGEST_ENABLED:-true}
+    # L5-7: S2S — not published on host (compose network only)
+    expose: ['4013']
+    healthcheck: *healthcheck
+    depends_on:
+      <<: *needs-schema
+
+  # ── Apps ───────────────────────────────────────────────
+  #
+  # The customer surface is `vendor-shell` below, on :8090. It is the SOLE
+  # product surface — ADR `docs/adr/2026-08-03-retire-apps-web-port-to-vue-shell.md`.
+  #
+  # There WAS a `web` service here (apps/web, Next, `3000:3000`). It is removed,
+  # and removing it is the point rather than a tidy-up: that ADR's own root cause
+  # is that :3000 was the only surface that started, and so it "quietly became
+  # the de-facto product. Nobody decided that." A running port outranks a stated
+  # direction every time, so the port goes with the direction.
+  #
+  # no-deploy: mobile — Capacitor wrap of the vendored Vue shell (`apps/mobile`,
+  # bundle id app.intafaced.mobile). Sideload / WebView from this repo; not a
+  # fleet HTTP service. Store listing is a Class X residual. `/app` on the
+  # shell tells that truth. A compose port here would mint a second surface.
+  #
+  # no-deploy: web — `apps/web`, the retired Next scaffold. Deliberate, and this
+  # line is the deliberateness: the gate below is right that an app nobody serves
+  # can be worked on for weeks unseen, and that is precisely the history here —
+  # it was served, on 3000, and that is HOW it became the product against a
+  # stated direction. The answer is not to serve it again; it is to stop working
+  # on it. The directory is still on disk pending an owner go on deletion, and
+  # the tracker row `web.shell` carries the same statement.
+  #
+  # The one Next app still served is `admin` (the operator console, 3100). It
+  # declares no `depends_on`, and that is not an oversight: its service URLs are
+  # BROWSER-side, so ordering the container behind a service would buy nothing —
+  # a browser that loads before a service is up sees the panel say so and
+  # recovers on the next render, which is the behaviour we want anyway.
+
+  # The vendored trading shell — the app the product direction has always said
+  # we ARE, and which until now could not be run at all.
+  #
+  # 74 Vue screens with no `dist`, no Dockerfile and no compose entry. Every
+  # document pointing readers at `:8090` was pointing at a port nothing served,
+  # while `web` above quietly became the de-facto product. That is how a stated
+  # direction and a running system drift apart without anyone deciding to.
+  #
+  # It does NOT use *app: this tree is Vue 2.5 / webpack 3 with its own npm
+  # lockfile, deliberately outside the pnpm workspace so a 2017 dependency graph
+  # cannot reach our services. Its own Dockerfile builds it and nginx serves it.
+  vendor-shell:
+    build:
+      context: ./vendor/upstream-exchange/05_Web_Front
+      dockerfile: Dockerfile
+      target: runtime
+    image: intafaced/vendor-shell:dev
+    container_name: intafaced-vendor-shell
+    restart: unless-stopped
+    # 8090 because that is the port every existing doc already claims. Making
+    # the docs true is cheaper than correcting all of them.
+    ports: ['8090:80']
+    # nginx proxies /api to the edge and /ws to the socket by SERVICE NAME, so
+    # both must be resolvable on this network — the browser stays same-origin
+    # and never learns a port.
+    depends_on:
+      svc-edge: { condition: service_healthy }
+      svc-ws: { condition: service_started }
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost/']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # no-deploy: 04_Web_Admin — the vendored STAFF console (92 Vue files), and the
+  # one front-end in this repo that is deliberately not served.
+  #
+  # It is a decision, not an oversight, and it was taken in
+  # `docs/ADMIN-0-INVENTORY-VENDOR-VS-APPS-2026-08-02.md`: that console speaks
+  # to the legacy Java backend over its own HTTP API, not to svc-edge, so
+  # starting it in this fleet would either 404 against a backend that is not
+  # here or — worse — reach one that is, unauthenticated. Hard block 1 of that
+  # doc: "Do not connect 04_Web_Admin webpack to monorepo services without edge
+  # auth." The staff surface we DO serve is `admin` below, on 3100.
+  #
+  # This line exists because `workspace-sync` check 7 forbids SILENCE, not
+  # absence. Until 2026-08-03 the check could not see anything under `vendor/`
+  # at all, so this directory was absent AND silent — the exact state that let
+  # the trading shell take 48 commits with nobody able to look at it.
+  #
+  # Not permanent. ADMIN-0 phase A2 ports the screens that must move (withdraw
+  # examine, fee manage) one at a time through contracts; phase A3 is the
+  # quarantine path for what is left. When either lands, this line goes.
+
+  # THE OPERATOR CONSOLE — and the one container in this file that is a SAFETY
+  # CONTROL rather than a surface.
+  #
+  # ── Why this block grew ────────────────────────────────────
+  #
+  # #186 wired `apps/admin` to svc-edge: `src/lib/control-plane-client.ts` reads
+  # `EDGE_URL` + `ADMIN_OPERATOR_TOKEN` and posts module kills, and
+  # `ADMIN_TREASURY_TOKEN` reaches the ledger freeze. This block set NONE of the
+  # three. So the deployed console fell into `unconfigured` on every request and
+  # an operator flipping a switch changed a React boolean — the exact failure the
+  # client file's own header describes, reintroduced by the deployment rather
+  # than by the code.
+  #
+  # A wire that exists in `src/` and not in the environment is not a wire. This
+  # is where that is fixed.
+  #
+  # ── EDGE_URL has a default; the tokens deliberately do not ─────────────────
+  #
+  # An address is not a credential. `http://svc-edge:4000` is the edge's name on
+  # this network and nothing else — getting it wrong costs an operator an hour,
+  # and there is no version of this stack where it is anything else.
+  #
+  # The two tokens are OWNER-SUPPLIED SECRETS and are written in pass-through
+  # form (key, no value) exactly like `AGENTS_UPSTREAM_API_KEY` above: compose
+  # forwards them only if they are set in `.env`, and omits them entirely
+  # otherwise. `${VAR:-}` would instead set them to the EMPTY STRING, which is a
+  # present-but-invalid value — `docker inspect` would show the variable, and the
+  # console's `config()` would still refuse. "Configured, blank" and "not
+  # configured" must not look the same to somebody debugging at 3am.
+  #
+  # They are NOT `:?`-required like EDGE_PRINCIPAL_SECRET. Refusing to start the
+  # console because it has no operator token would remove the surface that tells
+  # you it has no operator token — and the launch, drop and jurisdiction screens
+  # do not need one. Absent means the console SAYS, on every page, that it cannot
+  # halt anything. See `src/lib/console-status.ts`.
+  #
+  # ── No `depends_on: svc-edge` ──────────────────────────────
+  #
+  # Unlike the note above about browser-side URLs, this container now DOES call
+  # svc-edge server-side (`/` and `/ledger` server-load the control plane before
+  # first paint). Ordering it behind the edge would still be wrong: the moment an
+  # operator most needs this console is the moment the edge is unhealthy, and a
+  # console that will not boot then is a console that is absent during exactly
+  # the incident it exists for. Both pages render `unreachable` and say why.
+  admin:
+    <<: *app
+    container_name: intafaced-admin
+    # 3100 comes from the package's own start script (`next start --port 3100`).
+    command: ['pnpm', '--filter', '@intafaced/admin', 'start']
+    environment:
+      NODE_ENV: production
+      APP_ENV: ${APP_ENV:-dev}
+      # The console reports the drop it is told about, per request (§11).
+      LAUNCH_DROP: ${LAUNCH_DROP:-0}
+      HOSTNAME: 0.0.0.0
+      HEALTHCHECK_PORT: '3100'
+      HEALTHCHECK_PATH: /
+      # The control plane this console reaches (§14.6). Container port 4000, not
+      # the host's — the console calls the edge across the compose network.
+      EDGE_URL: ${EDGE_URL:-http://svc-edge:4000}
+      # `admin:write` + MFA — reaches the module kill-switches.
+      ADMIN_OPERATOR_TOKEN:
+      # `admin:treasury` — reaches the ledger freeze. A SEPARATE authority on
+      # purpose: a console holding only the operator token cannot stop the money
+      # plane, and svc-edge enforces that split independently.
+      ADMIN_TREASURY_TOKEN:
+      # Until operator SSO lands, the optional shared-secret gate on the BFF
+      # routes (`x-intafaced-admin-bff`), injected by a reverse proxy. Unset
+      # means network ACL is the only thing in front of these routes.
+      ADMIN_BFF_SHARED_SECRET:
+      # Warehouse replica door (`resolveWarehouseReplicaConfig`). Key-no-value
+      # like the tokens above: unset omits the key. Do not default CONFIGURED
+      # to true, and do not invent replica URLs or lag numbers here.
+      ANALYTICS_REPLICA_LEDGER_URL:
+      ANALYTICS_REPLICA_TRADE_URL:
+      ANALYTICS_REPLICA_IDENTITY_URL:
+      ANALYTICS_REPLICA_CONFIGURED:
+      ANALYTICS_REPLICA_LAG_SECONDS:
+    ports: ['3100:3100']
+    healthcheck: *healthcheck
+
+volumes:
+  matchingjournal:
+  execution-ems-journal:
+  academy-miniodata:
