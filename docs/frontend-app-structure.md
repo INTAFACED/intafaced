@@ -35,7 +35,7 @@ Checked again on 2 October 2026, against the products, not only the first help p
 - **Strike.** The live product pages, not the 2023 blog alone, are the source for the three relationships. Individual is one platform: buy, borrow, get paid, pay bills, send. Business is one business account: treasury, borrow, accept payments, pay bills. Private is concierge on that same company: a relationship manager, a large order handled off the public book, limits set per account, and reports. Strike's own account, 29 July 2026, says moving between personal and business is one tap and no logout, on web, Android, and iOS. The Google Play listing updated 22 September 2026 still describes that app: buy and sell, direct deposit, target orders, chart widgets, and borrowing. A different company named Strike Finance ships a perpetuals app. It is not this Strike.
 - **Robinhood.** The current help page "Using advanced charts" says the phone chart is opened on the asset, then Advanced. It is not a second app. Indicator sets sync with Legend. Robinhood's own account, 26 June 2026, says price and indicator alerts roll out on Legend and on the phone charts. Robinhood's own newsroom, 29 September 2026, says Social is in the US app and is coming to Legend as a widget. Social stays out of this structure. The same note says foldable phones and tablets get a wider layout of the same app. That is a way to draw the shell, not a new door.
 - **Coinbase.** The current send article still says the phone send starts on a Pay tab. Advanced remains a desk on the same account: chart, depth, book, ticket, open orders. The Base app's Home, Social, Trade, and Wallet tabs belong to a different, self-custody app. They are not the Intafaced customer bar. The old Coinbase Pro phone article is stale. Pro was replaced by Advanced. Do not follow it.
-- **Kraken.** The app guide updated 3 August 2026 still lists the calm phone as Home, Portfolio, Explore, Activity, and a plus button to buy, sell, and convert. Account sits in the corner. Kraken Pro's own guide, updated 1 October 2026, is still the widget desk, with Classic and Advanced layouts. The apps page updated 11 August 2026 still lists Kraken, Kraken Pro, Krak, and a separate Kraken Wallet. Intafaced keeps one product. A Kraken blog on 10 July 2026 said a rebuilt consumer app was coming and not yet the documented app. The August pages still describe the tabs above, so that rebuild is not the structure to copy. On-chain tokens inside the Kraken app, announced 18 June 2026, stay out until the owner says the chain starts.
+- **Kraken.** The app guide updated 3 August 2026 lists the calm phone as Home, Portfolio, Explore, Activity, a plus button to buy, sell, and convert, and a Funded tab for trading with Kraken's money. Account sits in the corner. Funded is not copied. It would be a second pool of money. Kraken Pro's own guide, updated 1 October 2026, is still the widget desk, with Classic and Advanced layouts. The apps page updated 11 August 2026 still lists Kraken, Kraken Pro, Krak, and a separate Kraken Wallet. Intafaced keeps one product. A Kraken blog on 10 July 2026 said a rebuilt consumer app was coming and not yet the documented app. The August pages still describe the tabs above, so that rebuild is not the structure to copy. On-chain tokens inside the Kraken app, announced 18 June 2026, stay out until the owner says the chain starts.
 
 ## Words that look alike
 
@@ -94,9 +94,9 @@ Search sits in the bar on every door. It is not a fifth door. The old platform i
 
 The phone stacks the same four doors. A later phone item, not a door, is a home-screen price and a pay button. Strike's own widget page lists a price chart, a buy action, and pay-with-cash or pay-with-bitcoin, currently on iPhone. OKX documents a home-screen price widget and a floating position widget. Robinhood's own newsroom, 29 September 2026, says a foldable phone or a tablet may show two panes of the same app. That wider drawing is part of the shell frame. It does not add a door. A social feed on the chart stays out. Robinhood's same newsroom says Social is already in the US app and is coming to the desktop desk as a widget. It was seen. It is not part of this structure.
 
-The public front sits in front of the doors. It is not a fifth product. It holds home (`/`, `/index`), sign-in (`/login`), create account (`/register`, `/reg`), password recovery (`/findPwd`), help (`/help`, `/helplist`, `/helpdetail`), notices (`/notice`; `/announcement` redirects there), about (`/about-us`), invite (`/invite`), the app download (`/app`), partner (`/partner`), and campaigns (`/lab`, `/lab/detail/:id`, `/bzb`). Campaigns are public activity pages. They are not doors. There is no whitepaper route. The old one pointed at a file the repo does not have.
+The public front sits in front of the doors. It is not a fifth product. It holds home (`/`, `/index`), sign-in (`/login`, including `/login/returnUrl/:returnUrl`), create account (`/register`, `/reg`), password recovery (`/findPwd`), help (`/help`, `/helplist`, `/helpdetail`), notices (`/notice`, `/announcement/:id`; `/announcement` redirects to `/notice`), about (`/about-us`), invite (`/invite`), the app download (`/app`), partner (`/partner`), and campaigns (`/lab`, `/lab/detail/:id`, `/bzb`). Campaigns are public activity pages. They are not doors. There is no whitepaper route. The old one pointed at a file the repo does not have.
 
-The person menu is the corner, not a door: account, security (`/uc/safe`), verification, language, and View. Merchant verification (`/identbusiness`) appears for someone opening a Business account. Promotions and dividend records sit here too (`/uc/promotion`, pay-dividends). They are not doors.
+The person menu is the corner, not a door: account, security (`/uc/safe`), verification, language, and View. Merchant verification (`/identbusiness`) appears for someone opening a Business account. Promotions sit here too (`/uc/promotion`, `/uc/promotion/mycards`, `/uc/promotion/mypromotion`), as do dividend records (`/uc/paydividends`). A beneficiary, who receives the account, sits here as well. Strike's own account, 5 August 2026, shipped that as an account control, not a door. They are not doors.
 
 The team door is separate, same look, never on the customer bar: kill-switches, launch sequence, jurisdiction, ledger, and operator tools. The customer URL `/ops` belongs to this door. It is not a More room.
 
@@ -106,10 +106,10 @@ This is the calm screen. OKX calls the matching pages Portfolio and Activity. St
 
 Intafaced lands on one total. The portfolio page (`/portfolio`) is that holdings screen, not a separate product. Under it:
 
-- Each holding. Open one and you get the price, a simple line or candle chart, buy, sell, send, and a repeat buy. From that same holding, Trade opens the desk on that market. Repeat buy is the same idea as Strike's recurring buy.
+- Each holding. Open one and you get the price, a simple line or candle chart, buy, sell, send, and a repeat buy. The simple chart has an Advanced control that opens the desk on that market. Robinhood's current "Using advanced charts" page is the source: search the asset, then Advanced. It is not a second app. Repeat buy is Strike's recurring buy. A target order, from Strike's current store listing, is a buy or sell that waits for a price. It lives on this holding and on the ticket. Cost basis, what the holding cost against what it is worth now, sits on this holding too. Strike shipped that on the bitcoin chart in August 2025. It is not a door.
 - Pending and available, shown apart. Pending can be used to buy. It cannot be sent until it is available. Taken from Strike's own limits page. Coinbase states the same hold in "Understand your available balance."
 - Deposit, withdraw, addresses, and the record of money moving (`/uc/recharge`, `/uc/withdraw`, `/uc/withdraw/address`, `/uc/record`, `/uc/money`).
-- The bank, behind the balance: overview (`/bank`), spaces, transfers, earn, loans, cards, moving between cash and crypto (`/bank/ramps`), spending analytics, and business bank accounts (`/bank/business`).
+- The bank, behind the balance: overview (`/bank`), spaces (`/bank/spaces`), transfers (`/bank/transfers`), earn (`/bank/earn`), loans (`/bank/loans`), cards (`/bank/cards`), moving between cash and crypto (`/bank/ramps`), spending analytics (`/bank/analytics`), and business bank accounts (`/bank/business`). Loans are the borrow room. Strike's individual page and OKX's asset buckets both call this borrow or loan. It stays in the bank. It does not become a door, and it does not also live in More. Direct deposit, a paycheck landing in the balance, is a Money action. Strike's individual page and the 22 September 2026 store listing both have it.
 - The whole total can be shown in dollars or in a coin. OKX's preferences page lets the person pick the display currency, including a coin. The number can be hidden.
 
 Cards are a bank room. A real card issuer plugs in later. Until then the screen says the issuer is not connected. It does not present a simulated rail as a live card.
@@ -122,7 +122,7 @@ Deposit and withdraw that the product cannot do yet stay on the route and say th
 
 One door. The mode is a setting, not a new door. OKX's own trading-settings page is the source: inside Trade you pick Spot, Futures, or Trading bots, and an account mode decides what that screen may do.
 
-The current desk is `/exchange` and `/exchange/:pair`. Open orders and order history already live under the account as current and past entrust. They belong to this door.
+The current desk is `/exchange` and `/exchange/:pair`. Open orders and order history are `/uc/entrust/current` and `/uc/entrust/history`. The older account trade list is `/uc/trade` and `/uc/trade/*`. They belong to this door.
 
 Modes and tools, for the finished app, including ones that have no page yet:
 
@@ -149,7 +149,7 @@ Coinbase Advanced, Kraken Pro, Robinhood Legend, and OKX describe the same desk.
 - Recent trades.
 - Open orders, positions, and the balance that can be used.
 - Favorites. Picking a market updates the chart, the book, and the ticket together. Robinhood calls this linking widgets. OKX calls the list Favourites.
-- Alerts.
+- Alerts. Robinhood's own account, 26 June 2026, says price and indicator alerts exist on the desktop desk and on the phone charts. The phone chart has them too.
 
 Layouts are saved. Kraken ships Classic and Advanced presets and lets the person drag panels, with up to four charts. OKX allows up to ten chart workspaces and can hide the order panel so the chart fills the screen. Robinhood Legend allows several layouts and templates, and up to eight charts. The first frame Intafaced draws is one chart. The finished desktop can hold several charts and more than one saved layout. The competitor counts are what those products ship. They are not a cap on Intafaced.
 
@@ -210,7 +210,7 @@ Personal Pay is how a person moves money, taken from Strike, plus the person-to-
 
 - Send to a name, and request. Coinbase's own send article also lets a person pay from a Pay tab by contact or address. Same job.
 - Receive, and choose whether it stays in the asset or converts.
-- Person-to-person (`/p2p`). Offers, orders, and the chat on an order. `/ctc` redirects to `/p2p`. It is the same room, not a second product. A Personal account sees this. It is not hidden behind Business.
+- Person-to-person (`/p2p`). Offers, orders, and the chat on an order. Creating or editing an offer is `/uc/ad/create` and `/uc/ad/update`. `/ctc` redirects to `/p2p`. It is the same room, not a second product. A Personal account sees this. It is not hidden behind Business.
 - Bill pay, and sending to a bank account abroad. Strike's limits page lists both. They are rooms inside Pay for the finished app. They are not built yet. They are not doors. They are not optional extras to be dropped because the page is missing.
 - Lightning and on-chain receive are the chain. They stay out of the menu until the owner says the chain starts. The structure has a place for them inside Pay. The product does not build them in the first build. The place stays reserved so a later agent does not invent a new door for them.
 
@@ -229,13 +229,13 @@ A person who is not on a Business account never sees the merchant list. They sti
 
 Rooms that are real and are not on the main bar. OKX puts the longer list under Explore, reached from the bottom of the app, not from the trade ticket. Same idea here.
 
-- Academy.
-- Agents.
+- Academy (`/academy`).
+- Agents (`/agents`).
 - Quant, including the studio (`/quant/studio`) and backtest (`/quant/backtest`). The sandbox entry is `/quant`.
-- Launch (`/launch`). Innovation orders under the account belong to this room.
+- Launch (`/launch`). Innovation orders (`/uc/innovation/myorders`) belong to this room.
 - Market, the catalogue (`/market`) and the person's own listings (`/market/mine`).
 - Prediction markets (`/predict`).
-- Mining (`/mining`).
+- Mining (`/mining`), including the invite list (`/uc/invitingmining`).
 - Token (`/token`). This is the token room. It is not the display-currency setting in View.
 - Blueprint (`/blueprint`).
 - Support (`/support`).
@@ -256,7 +256,7 @@ These stay. They are not dropped because a competitor has no room with that name
 
 ## Left out, and why
 
-- Kraken's three apps. One product. The simple app is Money plus a simple chart. Pro is Trade. Krak's job, paying a person, is Pay.
+- Kraken's three apps, and Kraken Funded. One product. The simple app is Money plus a simple chart. Pro is Trade. Krak's job, paying a person, is Pay. Funded, trading with the house's money, is not a door and not a second pool.
 - OKX's old switch between a Lite app and a Pro app. OKX's own preferences page says the current app no longer has it.
 - OKX Wallet, DEX trader mode, and on-chain stock tokens. Those are the self-custody and chain surface. The URLs can exist. They are not customer doors until the chain starts.
 - Strike Private as a fifth door or a third account. It is a relationship on Personal or Business, specified above.
