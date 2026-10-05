@@ -555,6 +555,45 @@ describe('okx-spot — signed trade (FakeHttp, no live network)', () => {
     expect(http.calls[2]!.init?.headers?.['OK-ACCESS-SIGN']).toBeTruthy();
   });
 
+  it('market buy sends tgtCcy base_ccy so sz is base size, not quote notional', async () => {
+    const http = new FakeHttp((url, method) => {
+      if (url.includes('/api/v5/market/books')) return json(200, thickBook());
+      if (method === 'POST') return json(200, ack());
+      return json(200, { code: '0', msg: '', data: [okxOrder('live', { ordType: 'market', px: '' })] });
+    });
+    const trade = new OkxSpotTrade(KEYS, { http, restBase: 'https://www.okx.com', clock: CLOCK, snapshotLimit: 5 });
+    const amount = parseAmount('0.25');
+    await trade.placeOrder({
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      type: 'market',
+      amount,
+      clientOrderId: 'abc',
+    });
+    const marketBody = http.calls.find((call) => call.method === 'POST')!.init?.jsonBody;
+    expect(marketBody).toEqual({
+      instId: 'BTC-USDT',
+      tdMode: 'cash',
+      clOrdId: 'abc',
+      side: 'buy',
+      ordType: 'market',
+      sz: formatAmount(amount),
+      tgtCcy: 'base_ccy',
+    });
+
+    await trade.placeOrder(PLACE);
+    const limitBody = http.calls.filter((call) => call.method === 'POST').at(-1)!.init?.jsonBody;
+    expect(limitBody).toEqual({
+      instId: 'BTC-USDT',
+      tdMode: 'cash',
+      clOrdId: 'abc',
+      side: 'buy',
+      ordType: 'limit',
+      sz: formatAmount(PLACE.amount),
+      px: formatAmount(PLACE.price),
+    });
+  });
+
   it('code !== "0" throws and never returns a rejected fill', async () => {
     const http = new FakeHttp((url, method) => {
       if (url.includes('/api/v5/market/books')) return json(200, thickBook());

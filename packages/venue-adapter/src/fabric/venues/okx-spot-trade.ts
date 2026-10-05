@@ -168,6 +168,8 @@ export class OkxSpotTrade implements TradeAdapter {
       ordType: request.type === 'market' ? 'market' : request.postOnly ? 'post_only' : 'limit',
       sz: formatAmount(request.amount),
     };
+    // Spot market buys default sz to quote. request.amount is base for every type.
+    if (request.type === 'market' && request.side === 'buy') payload.tgtCcy = 'base_ccy';
     if (request.type === 'limit') payload.px = formatAmount(request.price!);
     const ack = await this.#signed('POST', '/api/v5/trade/order', keys, 'placeOrder', payload);
     const row = firstDataRow(ack.data, 'placeOrder');
