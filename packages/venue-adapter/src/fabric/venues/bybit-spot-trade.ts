@@ -157,6 +157,9 @@ export class BybitSpotTrade implements TradeAdapter {
     if (request.type === 'limit') {
       payload.price = formatAmount(request.price!);
       payload.timeInForce = request.postOnly ? 'PostOnly' : 'GTC';
+    } else {
+      // Spot market buy qty is quote notional unless marketUnit is baseCoin.
+      payload.marketUnit = 'baseCoin';
     }
     await this.#signed('POST', '/v5/order/create', payload, keys, 'placeOrder');
     return this.fetchOrder(request.symbol, request.clientOrderId);

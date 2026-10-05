@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { formatAmount } from '@intafaced/ledger-client/money';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
 import { VenueCapabilityError, VenueCredentialsMissingError, VenueUnavailableError } from '@intafaced/venue-contracts';
 import {
   BYBIT_IP_BACKOFF_MS,
@@ -943,6 +943,28 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
     expect(http.posts[0]!.headers?.['X-BAPI-SIGN']).toMatch(/^[a-f0-9]{64}$/);
     expect(http.requests[0]).toContain('/v5/market/orderbook');
     expect(http.requests[1]).toContain('POST https://api.bybit.com/v5/order/create');
+  });
+
+  it('market buy sets marketUnit baseCoin so qty stays base size, not quote notional', async () => {
+    const amount = parseAmount('0.01');
+    const http = new FakeHttp()
+      .queue(orderbook(1))
+      .queue({ retCode: 0, retMsg: 'OK', result: { orderId: '9', orderLinkId: 'mkt-buy' } })
+      .queue(envelope([{ ...openRow, orderLinkId: 'mkt-buy', orderType: 'Market', price: '0' }]));
+    const trade = new BybitSpotTrade(keys, { http, clock: () => 1_700_000_000_000, snapshotLimit: 5 });
+    await trade.placeOrder({
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      type: 'market',
+      amount,
+      clientOrderId: 'mkt-buy',
+    });
+    const body = http.posts[0]!.jsonBody as Record<string, string>;
+    expect(body.orderType).toBe('Market');
+    expect(body.side).toBe('Buy');
+    expect(body.qty).toBe(formatAmount(amount));
+    expect(body.marketUnit).toBe('baseCoin');
+    expect(body.price).toBeUndefined();
   });
 
   it('retCode 10001 throws and does not return a rejected order', async () => {
