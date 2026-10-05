@@ -450,6 +450,28 @@ describe('INVARIANT 3 — locks are funded from the owner’s own available bala
     ).not.toThrow();
   });
 
+  it('refuses a credit on an unknown kind as funding for a lock', () => {
+    const unknown = {
+      ...userAvailable(USER_A, 'BTC'),
+      kind: 'receivable' as unknown as ReturnType<typeof userAvailable>['kind'],
+    };
+    const locks = [
+      userHold(USER_A, 'BTC', 'order:test'),
+      userEscrow(USER_A, 'BTC', 'trade:test'),
+      userStake(USER_A, 'BTC', 'token:stake:test'),
+      positionCollateralAccount(USER_A, 'BTC', 'test'),
+    ];
+    for (const lock of locks) {
+      const wash = () =>
+        assertPairedLocks([
+          { account: unknown, direction: 'credit', amount: amt('1') },
+          { account: lock, direction: 'debit', amount: amt('1') },
+        ]);
+      expect(wash).toThrow(InvalidEntryError);
+      expect(wash).toThrow(/receivable/);
+    }
+  });
+
   /**
    * The invariant above is only as good as the list it tests `kind` against.
    *
