@@ -1668,6 +1668,118 @@ describe('svc-pay money PG-hard', () => {
     });
 
     /**
+     * releasePendingSettlement marks a never-posted pending window `failed`
+     * (payout_method stays null, attempts stay 0, no ledger credit). A rail
+     * refusal uses the same status only after a real post. Paying the released
+     * window would drain some other posted balance.
+     */
+    it('refuses to pay out a released window that never posted', async () => {
+      const base = new MemoryLedger();
+      const gate = { blockSettle: true };
+      const ledgerProxy: LedgerClient = {
+        post: async (request: PostRequest) => {
+          if (gate.blockSettle && request.reason === 'pay.settled') {
+            throw new Error('simulated ledger outage during settlement post');
+          }
+          return base.post(request);
+        },
+        balance: (ref) => base.balance(ref),
+        balances: (ownerType, ownerId) => base.balances(ownerType, ownerId),
+        getTx: (txId) => base.getTx(txId),
+        getTxByKey: (key) => base.getTxByKey(key),
+      };
+      const gated = new PayService(sql, ledgerProxy, rails, {
+        checkoutRiskBand: 'low',
+        payoutDestinations: dests,
+        routingProfiles: TEST_CHECKOUT_PROFILES,
+        linkDefaultTtlDays: 30,
+        linkMaxTtlDays: 365,
+        checkoutSessionTtlSeconds: 900,
+        maxOpenSessionsPerLink: 25,
+      });
+
+      const m = await gated.createMerchant({ userId: MERCHANT_USER, pricing: { feeBps: 0 } });
+      const stuckPayment = await gated.createPayment({
+        merchantId: m.id,
+        amount: amt('40'),
+        assetId: 'USDT',
+        method: 'card',
+        railAdapter: 'card-sandbox',
+        instrument: { kind: 'card', token: 'tok_ok' },
+      });
+      await gated.authorize(stuckPayment.id);
+      await gated.capture(stuckPayment.id);
+
+      const bounds = {
+        from: new Date(Date.now() - 24 * 3600_000),
+        to: new Date(Date.now() + 24 * 3600_000),
+      };
+      await expect(
+        gated.settleWindow({ merchantId: m.id, window: 'w-released-never-posted', assetId: 'USDT', ...bounds }),
+      ).rejects.toThrow(/simulated ledger outage/);
+
+      await sql`
+        INSERT INTO pay.payment_events (payment_id, event, payload)
+        VALUES (
+          ${stuckPayment.id},
+          'refunded',
+          ${sql.json({ refundId: 'forced-release', amount: '40', source: 'clearing' } as never)}
+        )
+      `;
+
+      gate.blockSettle = false;
+      const stuckId = (
+        await sql<Array<{ id: string }>>`
+          SELECT id FROM pay.settlements WHERE merchant_id = ${m.id} AND "window" = 'w-released-never-posted'
+        `
+      )[0]!.id;
+      const released = await gated.releasePendingSettlement({
+        settlementId: stuckId,
+        reason: 'ops: frozen gross no longer matches live nets',
+      });
+      expect(released.status).toBe('failed');
+      expect(released.payoutMethod).toBeNull();
+      expect(released.payoutAttempts).toBe(0);
+
+      const laterPayment = await gated.createPayment({
+        merchantId: m.id,
+        amount: amt('40'),
+        assetId: 'USDT',
+        method: 'card',
+        railAdapter: 'card-sandbox',
+        instrument: { kind: 'card', token: 'tok_ok' },
+      });
+      await gated.authorize(laterPayment.id);
+      await gated.capture(laterPayment.id);
+      const posted = await gated.settleWindow({
+        merchantId: m.id,
+        window: 'w-posted-other',
+        assetId: 'USDT',
+        ...bounds,
+      });
+      expect(posted.status).toBe('posted');
+      expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('40');
+
+      const journalBefore = base.journal().map((tx) => tx.idempotencyKey);
+      await expect(
+        gated.payoutSettlement({
+          settlementId: released.id,
+          railId: 'card-sandbox',
+          destination: { kind: 'bank', ref: 'GB82WEST12345698765432' },
+        }),
+      ).rejects.toMatchObject({ code: 'pay.invalid_transition' });
+
+      expect(base.journal().map((tx) => tx.idempotencyKey)).toEqual(journalBefore);
+      const still = await gated.getSettlement(released.id);
+      expect(still.status).toBe('failed');
+      expect(still.payoutMethod).toBeNull();
+      expect(still.payoutAttempts).toBe(0);
+      expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('40');
+      expect((await gated.getSettlement(posted.id)).status).toBe('posted');
+      expect(base.reconcile()).toEqual({ ok: true });
+    });
+
+    /**
      * Suspension stops money LEAVING, not only money arriving.
      *
      * Posted settlement funds sit in the merchant's available balance. Without

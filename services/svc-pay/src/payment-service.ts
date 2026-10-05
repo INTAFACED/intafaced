@@ -2969,7 +2969,13 @@ export class PayService {
 
         const settlement = await this.getSettlement(input.settlementId);
         if (settlement.status === 'paid_out') return settlement;
-        if (settlement.status !== 'posted' && settlement.status !== 'failed') {
+        // Rail refusal is also `failed`, but only after post (method is ledger,
+        // attempts advanced) and may be retried. releasePendingSettlement writes
+        // the same status on a pending window that never posted: method stays
+        // null, attempts stay 0, and no ledger value moved.
+        const releasedWithoutPost =
+          settlement.status === 'failed' && settlement.payoutMethod == null && settlement.payoutAttempts === 0;
+        if ((settlement.status !== 'posted' && settlement.status !== 'failed') || releasedWithoutPost) {
           throw new PayError(
             `Settlement ${settlement.id} is ${settlement.status}; only a posted settlement can be paid out`,
             'pay.invalid_transition',
