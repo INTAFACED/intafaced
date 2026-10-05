@@ -12,7 +12,7 @@ The first screens to draw are only these three: the shell, the exchange desk, an
 
 ## What is decided, and what is open
 
-Decided here: the doors, which account sees which rooms, Private as a relationship on Personal or Business, the trading desk, the chart's jobs, the view settings, where every current URL sits, and which company or product rule each choice came from.
+Decided here: the doors, which account sees which rooms, Private as a relationship on Personal or Business, the trading desk, the chart's jobs, the view settings, where each current URL sits, and which company or product rule each choice came from.
 
 Open, and not to be invented by an agent:
 
@@ -21,11 +21,37 @@ Open, and not to be invented by an agent:
 - The exact words on an empty screen, beyond the rule that an empty price stays empty.
 - Phone layout pixels. The phone uses the same doors. How they are drawn is the shell frame.
 
+## What matters
+
+Read these in this order.
+
+1. The settled structure. Four doors. One ledger. Private is a relationship the team opens. Trade modes are settings on Trade. The chain stays parked until the owner writes GO. An empty price stays empty. A missing page stays in this file. A note here is not permission to build.
+2. The room. The screen, the service behind it, why the room exists, and the date that was checked.
+3. The audit below. A failed check means stop and fix this file, or bring the line to Nitro.
+4. The look stays open. Colors, type, empty-screen wording, and phone pixels are not holes.
+
+## Audit
+
+Checked on 5 October 2026 against `vendor/upstream-exchange/05_Web_Front/src/config/routes.js` at `origin/main` `0a587a3d`. The same file is in this worktree. Parent and child paths are joined. An empty child is the parent address. There are 89 live addresses. A match is the full address on its own. `/pay` is not proved by `/pay/money`. `/uc` is not proved by `/uc/safe`. `/uc/ad` is not proved by `/uc/ad/create`. `/otc/trade/*` is not proved by `/otc/tradeInfo`.
+
+A later agent re-runs that check before placing a screen.
+
+- Open that route file. If `origin/main` has moved, say so. This inventory is current only for that commit.
+- Join every parent and child into the full address. The full address has to appear in this file on its own. A shorter piece that hits a longer path is a failed check.
+- A live address with no sentence is a gap. Add it to a room this file already has, or bring it to Nitro. A new door is not the fix.
+- A service claim is true only when the service file was opened on that pass. Otherwise write unsure. "No service" means the pass looked and did not find one.
+- Money moves only through `packages/ledger-client`. A blank price, limit, or sanctions list stays blank.
+- `graphify-out` is not part of this file.
+
+The product's own module manifest, `vendor/upstream-exchange/05_Web_Front/src/config/intafaced.js`, was read the same day. It labels bank, support, portfolio, p2p, blueprint, protocol, dex, chain, academy, launch, quant, and execution as partial. It labels pay, market, token, agents, predict, and mining as live. Partial means the surface a person wants can still refuse. That label is the product's own.
+
+Services that are plumbing, not rooms: `svc-edge` is the front door, `svc-ws` is the live connection, `svc-matching` and `svc-matching-rust-stage1` are the matcher, and `svc-fix` is the FIX adapter. The adapter is not a book.
+
 ## Why these five
 
 Nitro named the companies. OKX weighs more than the others when they disagree. Strike is the model for a person moving money. Robinhood, Coinbase, and Kraken are the model for a calm home and a professional desk on the same account.
 
-Pages were read from each company's own help, product site, store listing, or official account on 2 October 2026. A news recap was not used as a source. The live phone apps were not installed. Where a current official page describes the screen, that page is the evidence. Where a page failed, the same article was opened on another address of that company. Rooms that come from Intafaced itself say so. They are not dressed up as a competitor feature.
+Pages were read from each company's own help, product site, store listing, or official account on 2 October 2026, and read again on 5 October 2026 for rooms this file had not named. A news recap was not used as a source. The live phone apps were not installed. Where a current official page describes the screen, that page is the evidence. Where a page failed, the same article was opened on another address of that company. Rooms that come from Intafaced itself say so. They are not dressed up as a competitor feature. The 5 October read did not add a door. It named statements and tax, a contact list, a scanner, stocks as markets, splitting a bill, money locked for an order or a loan, card rewards, and a request to buy a new listing.
 
 ## What a later session can trust
 
@@ -77,7 +103,7 @@ What Private does not do:
 
 - It does not open the chain, self-custody, or Lightning. Strike includes those in the private relationship. Intafaced keeps them parked until the owner says the chain starts. A private client can be told that the chain is not open. Private is not a side door into it.
 - It does not add a third look, a third app, or a second book of money.
-- The team door gains one control: who is private, and who their manager is. Customers never see that list.
+- The team door gains one control: who is private, and who their manager is. Customers never see that list. Checked 5 October 2026. No screen for that list, and no service that records who is private, were found.
 
 ## The spine
 
@@ -94,51 +120,54 @@ Search sits in the bar on every door. It is not a fifth door. The old platform i
 
 The phone stacks the same four doors. A later phone item, not a door, is a home-screen price and a pay button. Strike's own widget page lists a price chart, a buy action, and pay-with-cash or pay-with-bitcoin, currently on iPhone. OKX documents a home-screen price widget and a floating position widget. Robinhood's own newsroom, 29 September 2026, says a foldable phone or a tablet may show two panes of the same app. That wider drawing is part of the shell frame. It does not add a door. A social feed on the chart stays out. Robinhood's same newsroom says Social is already in the US app and is coming to the desktop desk as a widget. It was seen. It is not part of this structure.
 
-The public front sits in front of the doors. It is not a fifth product. It holds home (`/`, `/index`), sign-in (`/login`, including `/login/returnUrl/:returnUrl`), create account (`/register`, `/reg`), password recovery (`/findPwd`), help (`/help`, `/helplist`, `/helpdetail`), notices (`/notice`, `/announcement/:id`; `/announcement` redirects to `/notice`), about (`/about-us`), invite (`/invite`), the app download (`/app`), partner (`/partner`), and campaigns (`/lab`, `/lab/detail/:id`, `/bzb`). Campaigns are public activity pages. They are not doors. There is no whitepaper route. The old one pointed at a file the repo does not have.
+The public front sits in front of the doors. It is not a fifth product. It holds home (`/`, `/index`), sign-in (`/login`, including `/login/returnUrl/:returnUrl`), create account (`/register`, `/reg`), password recovery (`/findPwd`), help (`/help`, `/helplist`, `/helpdetail`), notices (`/notice`, `/announcement/:id`; `/announcement` redirects to `/notice`), about (`/about-us`), invite (`/invite`), the app download (`/app`), partner (`/partner`), and campaigns (`/lab`, `/lab/detail/:id`, `/bzb`). Campaigns are public activity pages. They are not doors. The campaign list (`/lab`) and `/bzb` say there is no surface behind them. There is no whitepaper route. The old one pointed at a file the repo does not have. Sign-in calls `svc-identity`, including a passkey. An address this file does not name (`*`) says the address is not one of ours. It does not show the home page. Help is up and has no help service behind it. Notices are two things on one page: public announcements have no service, and the personal inbox and price alerts use `svc-notify`.
 
-The person menu is the corner, not a door: account, security (`/uc/safe`), verification, language, and View. Merchant verification (`/identbusiness`) appears for someone opening a Business account. Promotions sit here too (`/uc/promotion`, `/uc/promotion/mycards`, `/uc/promotion/mypromotion`), as do dividend records (`/uc/paydividends`). A beneficiary, who receives the account, sits here as well. Strike's own account, 5 August 2026, shipped that as an account control, not a door. They are not doors.
+The person menu is the corner, not a door. The shell is `/uc`. An empty visit shows the same security screen as `/uc/safe`. The account screen is `/uc/account`. It lists named wallets under the same person through `svc-identity`. The screen's own words say that list is a catalogue: no balances, and no ledger posts. Security (`/uc/safe`) already enrolls a passkey through `svc-identity`. Verification, language, and View sit here too. Merchant verification (`/identbusiness`) appears for someone opening a Business account. Promotions sit here too (`/uc/promotion/mycards`, `/uc/promotion/mypromotion`). Those two are the live screens. A promotions address with nothing after it is not a route. Dividend records (`/uc/paydividends`) sit here, as does a beneficiary, who receives the account. Strike's own account, 5 August 2026, shipped that as an account control, not a door. They are not doors.
 
-The team door is separate, same look, never on the customer bar: kill-switches, launch sequence, jurisdiction, ledger, and operator tools. The customer URL `/ops` belongs to this door. It is not a More room.
+The team door is separate, same look, never on the customer bar: kill-switches, launch sequence, jurisdiction, ledger, and operator tools. The customer URL `/ops` belongs to this door. It is not a More room. The screen is there. The service is `svc-ops`. It keeps no balances of its own. Warehouse, payroll, and chain custody refuse when they are not set.
 
 ## Money
 
 This is the calm screen. OKX calls the matching pages Portfolio and Activity. Strike splits the home into a cash balance and a bitcoin balance. Robinhood's home is one balance and a list of holdings. Coinbase's help puts holdings under My Assets, with an available balance that is the total minus funds on hold.
 
-Intafaced lands on one total. The portfolio page (`/portfolio`) is that holdings screen, not a separate product. Under it:
+Intafaced lands on one total. The portfolio page (`/portfolio`) is that holdings screen, not a separate product. The holdings read goes through `svc-ledger`. Under it:
 
 - Each holding. Open one and you get the price, a simple line or candle chart, buy, sell, send, and a repeat buy. The simple chart has an Advanced control that opens the desk on that market. Robinhood's current "Using advanced charts" page is the source: search the asset, then Advanced. It is not a second app. Repeat buy is Strike's recurring buy. A target order, from Strike's current store listing, is a buy or sell that waits for a price. It lives on this holding and on the ticket. Cost basis, what the holding cost against what it is worth now, sits on this holding too. Strike shipped that on the bitcoin chart in August 2025. It is not a door.
-- Pending and available, shown apart. Pending can be used to buy. It cannot be sent until it is available. Taken from Strike's own limits page. Coinbase states the same hold in "Understand your available balance."
-- Deposit, withdraw, addresses, and the record of money moving (`/uc/recharge`, `/uc/withdraw`, `/uc/withdraw/address`, `/uc/record`, `/uc/money`).
-- The bank, behind the balance: overview (`/bank`), spaces (`/bank/spaces`), transfers (`/bank/transfers`), earn (`/bank/earn`), loans (`/bank/loans`), cards (`/bank/cards`), moving between cash and crypto (`/bank/ramps`), spending analytics (`/bank/analytics`), and business bank accounts (`/bank/business`). Loans are the borrow room. Strike's individual page and OKX's asset buckets both call this borrow or loan. It stays in the bank. It does not become a door, and it does not also live in More. Direct deposit, a paycheck landing in the balance, is a Money action. Strike's individual page and the 22 September 2026 store listing both have it.
+- Pending and available, shown apart. Pending can be used to buy. It cannot be sent until it is available. Taken from Strike's own limits page. Coinbase states the same hold in "Understand your available balance." Money locked for an open order or a loan is shown apart from both. Strike calls that reserved. It is the same ledger. No separate screen for it was found on 5 October 2026.
+- Deposit, withdraw, addresses, and the record of money moving (`/uc/recharge`, `/uc/withdraw`, `/uc/withdraw/address`, `/uc/record`, `/uc/money`). Deposit, withdraw, and saved addresses are an honest refusal. The screen says custody is not built. There is no custody service behind them.
+- Statements and tax, on Money, next to that record. The screen is not built. `svc-ledger` can reproduce a statement when the lots exist, and it refuses when they do not. `svc-tax` exports the tax lots and keeps no balance of its own. A blank tax map refuses. No tax figure is invented. OKX, Coinbase, Kraken, and Strike each document a tax or statement room. This is one room, not a door.
+- The bank, behind the balance: overview (`/bank`), spaces (`/bank/spaces`), transfers (`/bank/transfers`), earn (`/bank/earn`), loans (`/bank/loans`), cards (`/bank/cards`), moving between cash and crypto (`/bank/ramps`), spending analytics (`/bank/analytics`), and business bank accounts (`/bank/business`). The service is `svc-bank`. Loans are the borrow room. Strike's individual page and OKX's asset buckets both call this borrow or loan. It stays in the bank. It does not become a door, and it does not also live in More. Repeating transfers already live on the transfers screen. Direct deposit, a paycheck landing in the balance, is a Money action. Strike's individual page and the 22 September 2026 store listing both have it. No screen and no service for that paycheck were found on 5 October 2026. The room stays.
 - The whole total can be shown in dollars or in a coin. OKX's preferences page lets the person pick the display currency, including a coin. The number can be hidden.
 
-Cards are a bank room. A real card issuer plugs in later. Until then the screen says the issuer is not connected. It does not present a simulated rail as a live card.
+Cards are a bank room. A real card issuer plugs in later. Until then the screen says the issuer is not connected, and it says the programme is simulated. Rewards on the card wait for that issuer. There is no rewards service before then. Coinbase and Krak document rewards on the card. They are a line on this room, not a door. Moving between cash and crypto (`/bank/ramps`) says the same kind of thing: simulated, no live fiat rail.
 
 There is one ledger. OKX moves funds from a funding account to a trading account. Intafaced does not. A trading view and a spending view are two ways to look at the same ledger. A screen never keeps its own balance.
 
-Deposit and withdraw that the product cannot do yet stay on the route and say they are not built. They do not show a fake form that looks live.
+Deposit and withdraw stay on the route and say they are not built. They do not show a fake form that looks live.
 
 ## Trade
 
 One door. The mode is a setting, not a new door. OKX's own trading-settings page is the source: inside Trade you pick Spot, Futures, or Trading bots, and an account mode decides what that screen may do.
 
-The current desk is `/exchange` and `/exchange/:pair`. Open orders and order history are `/uc/entrust/current` and `/uc/entrust/history`. The older account trade list is `/uc/trade` and `/uc/trade/*`. They belong to this door.
+The current desk is `/exchange` and `/exchange/:pair`. Open orders and order history are `/uc/entrust/current` and `/uc/entrust/history`. The older account trade list is `/uc/trade`. They belong to this door. The service behind the desk is `svc-trade`.
 
 Modes and tools, for the finished app, including ones that have no page yet:
 
 - Spot. A new person stays here.
-- Margin. On OKX it is a switch on the spot ticket, cross or isolated. Same here.
-- Futures, perpetual and dated. Not built as its own page yet. It is still a mode of this door.
-- Options. Not built as its own page yet. Same door. The chain is specified under the chart.
-- Convert. An action on the holding and on the ticket. Not a mode and not a door. The product plan already calls for one-tap convert. The absence of a pretty page does not remove it.
-- Copy. A mode of this door, and also listed in More so it can be found. This one comes from Intafaced's own product, not from a help page of the five companies. OKX's copy mode that was read sits on the self-custody DEX, which stays parked. Do not move Copy into the chain.
-- Bots. A mode of this door, reachable from the ticket, and listed in More. OKX puts Trading bots inside Trade.
-- Execution (`/execution`). Cross-venue execution. It lives in this door, next to bots. Quant can open it. It is not a customer door.
-- The quote desk (`/otc`, `/otc/tradeInfo`). A person asks for a price instead of taking the book. It is part of Trade. The counterparty check (`/checkuser`) and the order chat (`/chat`) belong to that quote, and also to a person-to-person trade in Pay. They are not doors.
+- Margin. On OKX it is a switch on the spot ticket, cross or isolated. Same here. A margin section is on the desk when the market is a perpetual. Whether the spot ticket itself has that switch was not confirmed on 5 October 2026.
+- Futures, perpetual and dated. Not built as its own page yet. It is still a mode of this door. A perpetual mode is on the desk, and `svc-trade` has a futures policy. How much of a futures order can be placed was not proved on 5 October 2026.
+- Options. Not built as its own page yet. Same door. The chain is the options surface, under the chart, when options exist. On 5 October 2026 the desk mode said that chain is unavailable. `svc-trade` has an options policy and no chain on the screen.
+- Convert. An action on the holding and on the ticket, and a mode on the current desk. It is not a door. Asking for a quote calls `svc-trade`. Execute does not send that quote back. The screen is partly wired.
+- Copy. A mode of this door, and also listed in More so it can be found. This one comes from Intafaced's own product, not from a help page of the five companies. The follow action calls `svc-trade`. A blank rule refuses it. OKX's copy mode that was read sits on the self-custody DEX, which stays parked. Copy stays off that chain.
+- Bots. A mode of this door, reachable from the ticket, and listed in More. OKX puts Trading bots inside Trade. No bots screen and no separate bots service were found on 5 October 2026. Quant is a different room. When bots exist, their money stays on the one ledger. OKX isolates bot funds in their own pot. Intafaced does not.
+- Stocks. Markets on this door, not a second brokerage account and not a door. Coinbase, Kraken, and OKX document stock or stock-token trading, often as another account. No stocks screen and no separate stocks service were found on 5 October 2026.
+- A scanner. A widget of this desk, not a door. Robinhood Legend has one. OKX has rankings on Home. No scanner screen and no scanner service were found on 5 October 2026.
+- Execution (`/execution`). Cross-venue execution. It lives in this door, next to bots. Quant can open it. It is not a customer door. The service is `svc-execution`.
+- The quote desk (`/otc`, `/otc/trade/*`, `/otc/tradeInfo`). Opening `/otc` sends the person to the trade screen. That screen reads offers from `svc-p2p`. There is no separate quote-desk service. A person asks for a price instead of taking the book. It is part of Trade. The counterparty check (`/checkuser`) and the order chat (`/chat`) belong to that quote, and also to a person-to-person trade in Pay. They are not doors.
 
 A position mode, taken from OKX, applies once futures exist: one-way, or hedge (a long and a short at the same time). Switching account mode changes what Trade shows. It does not change the doors.
 
-**Simulated** is a switch on this desk. It is clearly marked. It cannot move ledger money. It is not a door, and it is not Paper Design.
+**Simulated** is a switch on this desk. It is clearly marked. It cannot move ledger money. It is not a door, and it is not Paper Design. The switch was not on the desk's mode row on 5 October 2026. The room stays. OKX's demo mode is a separate practice balance. This switch is not that.
 
 ### The desk
 
@@ -149,7 +178,8 @@ Coinbase Advanced, Kraken Pro, Robinhood Legend, and OKX describe the same desk.
 - Recent trades.
 - Open orders, positions, and the balance that can be used.
 - Favorites. Picking a market updates the chart, the book, and the ticket together. Robinhood calls this linking widgets. OKX calls the list Favourites.
-- Alerts. Robinhood's own account, 26 June 2026, says price and indicator alerts exist on the desktop desk and on the phone charts. The phone chart has them too.
+- A scanner, as named with the modes above. The other Legend widgets, a snapshot, positions, a watchlist, recent orders, and an account summary, are this same desk.
+- Alerts. Robinhood's own account, 26 June 2026, says price and indicator alerts exist on the desktop desk and on the phone charts. The phone chart has them too. The inbox and the alert list use `svc-notify`, on the notices page.
 
 Layouts are saved. Kraken ships Classic and Advanced presets and lets the person drag panels, with up to four charts. OKX allows up to ten chart workspaces and can hide the order panel so the chart fills the screen. Robinhood Legend allows several layouts and templates, and up to eight charts. The first frame Intafaced draws is one chart. The finished desktop can hold several charts and more than one saved layout. The competitor counts are what those products ship. They are not a cap on Intafaced.
 
@@ -206,12 +236,13 @@ One View section, opened from the person menu or from the desk. These settings c
 
 ## Pay
 
-Personal Pay is how a person moves money, taken from Strike, plus the person-to-person market the product already has.
+Personal Pay is how a person moves money, taken from Strike, plus the person-to-person market the product already has. The Pay landing is `/pay`. The screen is there. The service is `svc-pay`.
 
-- Send to a name, and request. Coinbase's own send article also lets a person pay from a Pay tab by contact or address. Same job.
+- Send to a name, and request. Coinbase's own send article also lets a person pay from a Pay tab by contact or address. Same job. A saved contact list sits inside send. Coinbase and Strike document it. No contact-list screen and no service for it were found on 5 October 2026.
 - Receive, and choose whether it stays in the asset or converts.
-- Person-to-person (`/p2p`). Offers, orders, and the chat on an order. Creating or editing an offer is `/uc/ad/create` and `/uc/ad/update`. `/ctc` redirects to `/p2p`. It is the same room, not a second product. A Personal account sees this. It is not hidden behind Business.
-- Bill pay, and sending to a bank account abroad. Strike's limits page lists both. They are rooms inside Pay for the finished app. They are not built yet. They are not doors. They are not optional extras to be dropped because the page is missing.
+- Split a bill, inside Pay, from an activity line or from receive. Krak documents it. No screen and no service were found on 5 October 2026. It is not a door.
+- Person-to-person (`/p2p`). Offers, orders, and the chat on an order. The person's own offer list is `/uc/ad`. Creating or editing an offer is `/uc/ad/create` and `/uc/ad/update`. That person's order list is `/uc/order`. `/ctc` redirects to `/p2p`. It is the same room, not a second product. A Personal account sees this. It is not hidden behind Business. The service is `svc-p2p`.
+- Bill pay, and sending to a bank account abroad. Strike's limits page lists both. They are rooms inside Pay for the finished app. They are not built yet. No screen and no service were found on 5 October 2026. They are not doors. They are not optional extras to be dropped because the page is missing.
 - Lightning and on-chain receive are the chain. They stay out of the menu until the owner says the chain starts. The structure has a place for them inside Pay. The product does not build them in the first build. The place stays reserved so a later agent does not invent a new door for them.
 
 Business Pay is the merchant desk. It appears only in the Business account.
@@ -219,7 +250,7 @@ Business Pay is the merchant desk. It appears only in the Business account.
 - The merchant's own balance (`/pay/money`). Personal holdings stay on Money.
 - Links (`/pay/links`), checkout (`/pay/checkout`), payments (`/pay/payments`), customers, payouts, settlements (`/pay/settlements`), and disputes.
 - The merchant home (`/pay/merchant`), sub-merchants (`/pay/network`), and permissions (`/pay/permissions`). These routes exist today.
-- Invoices and subscriptions. Not built as their own pages yet. They still belong here. Strike Business is the reason a business can run payments. The product plan already includes billing.
+- Invoices and subscriptions. Not built as their own pages yet. They still belong here. The business-bank screen can issue a hosted pay link and calls that an invoice. That link uses the pay service. It is not a second book. Subscriptions have a service inside `svc-pay` and no customer page. Strike Business is the reason a business can run payments. The product plan already includes billing.
 - Reports. Strike Business's own announcement says a business can export activity for accounting.
 - A developer test mode: keys and webhooks that cannot move live money. Strike's business signup page says the API is an extra verification, not a separate app.
 
@@ -229,16 +260,16 @@ A person who is not on a Business account never sees the merchant list. They sti
 
 Rooms that are real and are not on the main bar. OKX puts the longer list under Explore, reached from the bottom of the app, not from the trade ticket. Same idea here.
 
-- Academy (`/academy`).
-- Agents (`/agents`).
-- Quant, including the studio (`/quant/studio`) and backtest (`/quant/backtest`). The sandbox entry is `/quant`.
-- Launch (`/launch`). Innovation orders (`/uc/innovation/myorders`) belong to this room.
-- Market, the catalogue (`/market`) and the person's own listings (`/market/mine`).
-- Prediction markets (`/predict`).
-- Mining (`/mining`), including the invite list (`/uc/invitingmining`).
-- Token (`/token`). This is the token room. It is not the display-currency setting in View.
-- Blueprint (`/blueprint`).
-- Support (`/support`).
+- Academy (`/academy`). The page is there. The service is `svc-academy`. An old comment in the route file still says this room has no service. That comment is stale.
+- Agents (`/agents`). The service is `svc-agents`. An agent does not get its own trading balance. Robinhood's trading agent uses a separate pot. This room stays on the one ledger.
+- Quant, including the studio (`/quant/studio`) and backtest (`/quant/backtest`). The sandbox entry is `/quant`. The service is `svc-quant`. This is not the bots room.
+- Launch (`/launch`). Innovation orders (`/uc/innovation/myorders`) belong to this room. The page asks `svc-protocol` for launch status. The chain stays parked until the owner writes GO. Launch is not a side door into it.
+- Market, the catalogue (`/market`) and the person's own listings (`/market/mine`). The service is `svc-market`. A person can also ask to buy a new listing as it opens. Robinhood's own help calls that IPO Access. The screen is not built. Whether the service is the catalogue or Launch was not settled on 5 October 2026. It is a line on this room, not a door, and it is not the issuing side. The issuing side is Launch.
+- Prediction markets (`/predict`). The service is `svc-trade`. An empty list stays empty.
+- Mining (`/mining`), including the invite list (`/uc/invitingmining`). The service is `svc-mining-pool`.
+- Token (`/token`). This is the token room. It is not the display-currency setting in View. The service is `svc-token`.
+- Blueprint (`/blueprint`). The service is `svc-blueprint`.
+- Support (`/support`). The service is `svc-support`.
 - Copy and bots, also inside Trade.
 - Campaigns that are signed-in activity rather than the public front. The public campaign URLs are listed with the front door.
 
@@ -251,7 +282,7 @@ These stay. They are not dropped because a competitor has no room with that name
 - The team door: kill-switches, launch sequence, jurisdiction, ledger, operator tools, and `/ops`.
 - Jurisdiction as a real constraint. A missing tier says so. It does not invent a permission.
 - Honest empty. A missing price, a missing balance, an unbuilt custody screen, and an unconnected card issuer say what is missing. A banner does not make a made-up number allowed.
-- The parked chain. The decentralized exchange (`/dex`), the protocol (`/protocol`), and the chain (`/chain`), including self-custody, can keep their URLs and stay out of the menu until the owner says that work starts.
+- The parked chain. The decentralized exchange (`/dex`, service `svc-dex`), the protocol (`/protocol`, service `svc-protocol`), and the chain (`/chain`, service `svc-indexer`), including self-custody, can keep their URLs and stay out of the menu until the owner says that work starts. The pages are there. The module's own label for each is partial. They are not customer doors.
 - Academy, agents, blueprint, quant, launch, mining, prediction markets, token, execution, and the market catalogue.
 
 ## Left out, and why
@@ -267,6 +298,7 @@ These stay. They are not dropped because a competitor has no room with that name
 - Two books of money.
 - A customer door named Platform. Search and the four doors replace that index.
 - A whitepaper page. There is no paper to serve.
+- Seen on 5 October 2026 and left here: a second banking app, child or joint accounts, a membership plan, a rewards tier, Krak Salary Match, a tax-filing concierge with a published cutoff, Breakout, NinjaTrader, and Kraken Prop. Private already has the manager. The cutoff is not copied. Prop and evaluation trading are another pot of money.
 
 ## First build
 
@@ -274,7 +306,11 @@ Draw only the shell with these four doors, the exchange desk, and the Bank overv
 
 ## Sources
 
-Read 2 October 2026, from the companies themselves. Intafaced routes were read from `vendor/upstream-exchange/05_Web_Front/src/config/routes.js` on `origin/main` at `0a587a3d`.
+Read 2 October 2026, from the companies themselves, and read again on 5 October 2026 for rooms this file had not named. Intafaced routes were read from `vendor/upstream-exchange/05_Web_Front/src/config/routes.js` on `origin/main` at `0a587a3d`. The route check joined parent and child and matched each full address.
+
+- Robinhood, "How to sign up for IPO Access" and "About IPO Access," read 5 October 2026: a person asks to buy shares as a company goes public. `https://robinhood.com/us/en/support/articles/how-to-sign-up-for-ipo-access/` and `https://robinhood.com/us/en/support/articles/ipo-access/`
+- Robinhood, "Concierge Tax and Estate Services," read 5 October 2026: a dated pilot with a cutoff. Not adopted. `https://robinhood.com/us/en/support/articles/concierge-tax-estate/`
+- Krak, "Split a bill on Krak," updated 30 June 2026. `https://support.krak.app/articles/krak-split-bill`
 
 - OKX, "How do I set up the commonly used transaction features?": account mode, position mode, interface, up and down colors, chart position, cooling-off. `https://www.okx.com/help/trading-settings-faq`
 - OKX, "How do I use and adjust the candlestick chart?": chart settings, trading display, order book, drawings, TradingView as a chart display, options charts unsupported. `https://www.okx.com/help/candlestick-faqs-and-settings`
