@@ -31,14 +31,22 @@ import { MemorySupportStore, type SupportStore } from './store.js';
 import { withSupportSpan } from './tracing.js';
 
 export class SupportError extends Error {
+  readonly slot = null;
+  readonly missingPiece: string | null;
+
   constructor(
     message: string,
     readonly code: string,
+    missingPiece: string | null = null,
   ) {
     super(message);
     this.name = 'SupportError';
+    this.missingPiece = missingPiece;
   }
 }
+
+/** Public help is not this room. The slot stays empty. No article is invented. */
+export const PUBLIC_HELP_NOT_SERVED = 'support.public_help_not_served' as const;
 
 /**
  * The single refusal for "you may not see this ticket", whatever the reason.
@@ -156,7 +164,7 @@ export function assertListKbLimit(limit: number | undefined): number {
 
 /**
  * Support desk — tickets + KB + operator queue.
- * Zero money: no ledger client, no balance fields on tickets.
+ * Zero money: the ledger door is held and not posted. No balance on a ticket.
  *
  * Store defaults to memory for tests; production injects PostgresSupportStore
  * so multi-replica claims stay exclusive.
@@ -169,9 +177,37 @@ export class SupportService implements SupportContract {
      * without svc-identity reports "not read" rather than nothing at all.
      */
     private readonly accounts: AccountStateSource = new DarkAccountState(),
+    /**
+     * Money door. Support holds it and does not post. There is no support balance.
+     */
+    private readonly ledger: unknown = undefined,
   ) {}
 
+  /**
+   * Support keeps no balance of its own. The slot stays empty.
+   * The ledger client is the only money door, and this read does not post.
+   */
+  balance(): { readonly slot: null } {
+    void this.ledger;
+    return { slot: null };
+  }
+
+  /**
+   * Public help articles stay on the help service.
+   * This desk does not serve one, and it does not invent one.
+   */
+  async publicHelpArticle(_request: { readonly articleId: string; readonly question?: string }): Promise<never> {
+    void _request;
+    void this.ledger;
+    throw new SupportError(
+      'Public help articles are not served from this service. The missing piece is article.',
+      PUBLIC_HELP_NOT_SERVED,
+      'article',
+    );
+  }
+
   async createTicket(input: { userId: string } & CreateTicketInput): Promise<SupportTicket> {
+    void this.ledger;
     return withSupportSpan('support.createTicket', { op: 'createTicket' }, async (span) => {
       const ticket = await this.store.createTicket({
         userId: input.userId,

@@ -17,7 +17,7 @@ import {
 } from '@intafaced/contracts';
 import { describeSupportDeskPolicy } from './desk-policy.js';
 import { describeKbPolicy } from './kb-policy.js';
-import { SupportError, SupportService, requireSupportOps } from './support-service.js';
+import { PUBLIC_HELP_NOT_SERVED, SupportError, SupportService, requireSupportOps } from './support-service.js';
 import type { TicketKbLoopObserver } from './ticket-kb-loop-observation.js';
 import { userCopy } from './user-copy.js';
 
@@ -65,6 +65,7 @@ function mapError(err: unknown): never {
       err.code === 'support.kb_version_unknown' ||
       err.code === 'support.identity_grounding_unwired' ||
       err.code === 'support.settle.refused' ||
+      err.code === PUBLIC_HELP_NOT_SERVED ||
       // listQueue / listAll / listMine / listComments / events / listKb / searchKb page size unpublished. Blank is not 100.
       err.code === 'support.queue_list_limit_unset' ||
       err.code === 'support.list_all_limit_unset' ||
@@ -85,6 +86,33 @@ export function createSupportRouter(support: SupportService, loop?: TicketKbLoop
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 
     kbPolicy: publicProcedure.query(() => describeKbPolicy()),
+
+    /**
+     * Support keeps no balance of its own. The slot stays empty.
+     * The ledger client is the only money door, and this read does not post.
+     */
+    balance: scopedProcedure('support:read')
+      .output(z.object({ slot: z.null() }))
+      .query(() => support.balance()),
+
+    /**
+     * Public help is not this room. The refusal names the missing article.
+     * The slot stays empty. Nothing here becomes an answer.
+     */
+    publicHelp: publicProcedure
+      .input(
+        z.object({
+          articleId: z.string().min(1).max(200),
+          question: z.string().max(10_000).optional(),
+        }),
+      )
+      .query(async ({ input }) => {
+        try {
+          return await support.publicHelpArticle({ articleId: input.articleId, question: input.question });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
 
     create: scopedProcedure('support:write')
       .input(createTicketInputSchema)
