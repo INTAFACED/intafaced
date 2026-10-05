@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseAmount } from '@intafaced/ledger-client/money';
 import { VenueUnavailableError } from '@intafaced/venue-contracts';
 import { BinanceSpotTrade, mapBinanceSpotOrder } from './binance-spot-trade.js';
 import { BybitSpotTrade, mapBybitSpotOrder } from './bybit-spot-trade.js';
@@ -176,6 +177,58 @@ describe('CEX mappers — unknown / missing fill / no invented fee', () => {
     const open = mapOkxSpotOrder(okxRow(), 'BTC/USDT', NOW);
     expect(open.status).toBe('open');
     expect(open.feePaid).toBeNull();
+  });
+
+  it('does not subtract base accFillSz from quote sz on a spot market buy', () => {
+    const quoteBuy = okxRow({
+      ordType: 'market',
+      side: 'buy',
+      px: '',
+      sz: '100',
+      accFillSz: '0.00192834',
+      avgPx: '51858',
+      state: 'filled',
+      tgtCcy: 'quote_ccy',
+    });
+    const defaultQuoteBuy = { ...quoteBuy };
+    delete defaultQuoteBuy.tgtCcy;
+    for (const row of [quoteBuy, defaultQuoteBuy]) {
+      expect(() => mapOkxSpotOrder(row, 'BTC/USDT', NOW)).toThrow(VenueUnavailableError);
+      try {
+        mapOkxSpotOrder(row, 'BTC/USDT', NOW);
+      } catch (error) {
+        expect(error).toBeInstanceOf(VenueUnavailableError);
+        expect((error as VenueUnavailableError).reason).toBe('malformed');
+        expect(String((error as Error).message)).toMatch(/quote/);
+      }
+    }
+
+    const limit = mapOkxSpotOrder(
+      okxRow({ sz: '1', accFillSz: '0.4', avgPx: '30000', state: 'partially_filled' }),
+      'BTC/USDT',
+      NOW,
+    );
+    expect(limit.amount).toBe(parseAmount('1'));
+    expect(limit.filled).toBe(parseAmount('0.4'));
+    expect(limit.remaining).toBe(parseAmount('1') - parseAmount('0.4'));
+
+    const baseBuy = mapOkxSpotOrder(
+      okxRow({
+        ordType: 'market',
+        side: 'buy',
+        px: '',
+        sz: '1',
+        accFillSz: '0.4',
+        avgPx: '30000',
+        state: 'partially_filled',
+        tgtCcy: 'base_ccy',
+      }),
+      'BTC/USDT',
+      NOW,
+    );
+    expect(baseBuy.amount).toBe(parseAmount('1'));
+    expect(baseBuy.filled).toBe(parseAmount('0.4'));
+    expect(baseBuy.remaining).toBe(parseAmount('1') - parseAmount('0.4'));
   });
 });
 
