@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { checkAccess } from '@intafaced/config';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { checkAccess, SANCTIONS_REGIONS_ENV, SANCTIONS_SOURCE_ENV, SCREENING_REVIEWED_EMPTY } from '@intafaced/config';
 import { createEdgeContext, encodePrincipal } from '@intafaced/contracts';
 import { parseAmount as amt, type Amount } from '@intafaced/ledger-client/money';
 import { createDexRouter } from './router.js';
@@ -42,6 +42,23 @@ import { venuesFor, type VenueSetEnv } from './quote/venue-set.js';
 
 /** Length-checked by `createEdgeContext` before it will mount anything. */
 const SECRET = 'a-dex-mount-test-edge-secret-long-enough';
+
+/**
+ * Quote tests need a configured screening answer or the hosted door refuses.
+ * `none` is the attributed-empty token, not a region list.
+ */
+const priorRegions = process.env[SANCTIONS_REGIONS_ENV];
+const priorSource = process.env[SANCTIONS_SOURCE_ENV];
+beforeAll(() => {
+  process.env[SANCTIONS_REGIONS_ENV] = SCREENING_REVIEWED_EMPTY;
+  process.env[SANCTIONS_SOURCE_ENV] = 'counsel-memo-ref';
+});
+afterAll(() => {
+  if (priorRegions === undefined) delete process.env[SANCTIONS_REGIONS_ENV];
+  else process.env[SANCTIONS_REGIONS_ENV] = priorRegions;
+  if (priorSource === undefined) delete process.env[SANCTIONS_SOURCE_ENV];
+  else process.env[SANCTIONS_SOURCE_ENV] = priorSource;
+});
 
 const NOW = new Date('2026-07-29T12:00:00.000Z');
 const at = (msAgo: number) => new Date(NOW.getTime() - msAgo);

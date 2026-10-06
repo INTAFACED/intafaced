@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { checkAccess } from '@intafaced/config';
+import { checkAccess, parseScreeningList, SCREENING_REVIEWED_EMPTY, UNSET_SCREENING_LIST } from '@intafaced/config';
+
+/** Attributed empty decision. Not a region list. */
+const attributedEmpty = parseScreeningList(SCREENING_REVIEWED_EMPTY, 'counsel-memo-ref');
 
 /**
  * THE ZERO-KYC CLAIM, TESTED.
@@ -16,7 +19,13 @@ import { checkAccess } from '@intafaced/config';
  */
 describe('the DEX is permissionless — and the custodial venue is not', () => {
   it('admits a caller with no verification at all', () => {
-    const decision = checkAccess({ module: 'dex', plane: 'protocol', region: 'GB', kycTier: 'none' });
+    const decision = checkAccess({
+      module: 'dex',
+      plane: 'protocol',
+      region: 'GB',
+      kycTier: 'none',
+      screening: attributedEmpty,
+    });
     expect(decision.allowed).toBe(true);
   });
 
@@ -29,7 +38,10 @@ describe('the DEX is permissionless — and the custodial venue is not', () => {
 
   it('admits every tier equally — there is no tier ladder to climb', () => {
     for (const kycTier of ['none', 'basic', 'full', 'institutional'] as const) {
-      expect(checkAccess({ module: 'dex', plane: 'protocol', region: 'GB', kycTier }).allowed, kycTier).toBe(true);
+      expect(
+        checkAccess({ module: 'dex', plane: 'protocol', region: 'GB', kycTier, screening: attributedEmpty }).allowed,
+        kycTier,
+      ).toBe(true);
     }
   });
 
@@ -41,28 +53,24 @@ describe('the DEX is permissionless — and the custodial venue is not', () => {
    * per applicable law; the contracts themselves are permissionless
    * infrastructure."
    *
-   * `checkAccess` implements this correctly: the permissionless branch checks
-   * `entry?.blocked` BEFORE returning allowed.
-   *
-   * ── AND THE BLOCKLIST IS EMPTY ─────────────────────────────────────────────
-   *
-   * No region in `JURISDICTION_MATRIX` currently carries `blocked: true`. So
-   * the mechanism works and screens nothing. This test asserts that state
-   * honestly rather than passing against a region I invented, because the gap
-   * is a real one and hiding it behind a green test would be worse than the gap.
-   *
-   * Populating it is a COMPLIANCE decision, not an engineering one — the matrix
-   * header is explicit that every entry "must be signed off by counsel for the
-   * relevant jurisdiction". A sanctions list guessed by an engineer is a
-   * liability, not a control.
+   * The shipped sanctions list is blank. A blank list stays blank: this call
+   * refuses closed with a typed code, and it does not invent a region entry
+   * to get there. Counsel supplies the list later; an engineer does not.
    */
-  it('screens no region today, because the blocklist is empty', () => {
-    const kp = checkAccess({ module: 'dex', plane: 'protocol', region: 'KP', kycTier: 'none' });
+  it('refuses hosted DEX access while the sanctions list is blank', () => {
+    const kp = checkAccess({
+      module: 'dex',
+      plane: 'protocol',
+      region: 'KP',
+      kycTier: 'none',
+      screening: UNSET_SCREENING_LIST,
+    });
 
-    // Currently allowed. When counsel populates the matrix this flips, and
-    // this test is where someone will notice it needs updating.
-    expect(kp.allowed).toBe(true);
-    expect(kp.code).toBe('allowed.permissionless');
+    expect(kp.allowed).toBe(false);
+    expect(kp.code).toBe('denied.screening_unconfigured');
+    expect(kp.screening.listConfigured).toBe(false);
+    expect(kp.screening.declaration).toBe('unset');
+    expect(kp.screening.blockedRegionCount).toBe(0);
   });
 
   it('refuses a blocked region on the CUSTODIAL plane, proving the mechanism works', () => {
