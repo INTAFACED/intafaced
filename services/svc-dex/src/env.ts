@@ -124,10 +124,11 @@ const schema = baseEnvSchema
        * and therefore no settlement-cost knob beside it — a fabricated one
        * would be worse than none.
        */
-      DEX_INTERNAL_BOOK_FEE_BPS: z.preprocess(
-        (v) => (v === undefined || v === null || v === '' ? undefined : v),
-        z.coerce.number().int().min(0).max(9_999).optional(),
-      ),
+      DEX_INTERNAL_BOOK_FEE_BPS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(0).max(9_999).optional()),
 
       /**
        * EXTERNAL VENUES — the §27 multi-venue fabric, as configuration.
