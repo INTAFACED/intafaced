@@ -95,3 +95,55 @@ describe('sbe codec — missing / IEEE inputs refuse even if Java is present', (
     expect(result.reason).toBe('invalid_decimal');
   });
 });
+
+describe('sbe codec — decode money stays a decimal string', () => {
+  function decodeJava(fields: Record<string, unknown>) {
+    const stub: JavaSbeCodec = {
+      handle: () =>
+        JSON.stringify({
+          ok: true,
+          template: 'Trade',
+          instrument: 'BTCUSDT',
+          tradeId: '9',
+          side: 'buy',
+          eventTimeNs: '1',
+          price: '100.25',
+          qty: '1.50',
+          ...fields,
+        }),
+    };
+    return createSbeCodec({ java: stub }).decode('cGF5bG9hZA');
+  }
+
+  it('refuses blank, whitespace, and exponent-form price or qty', () => {
+    const blankPrice = decodeJava({ price: '' });
+    expect(blankPrice.ok).toBe(false);
+    if (!blankPrice.ok) expect(blankPrice.reason).toBe('missing_input');
+
+    const whitespaceQty = decodeJava({ qty: '   ' });
+    expect(whitespaceQty.ok).toBe(false);
+    if (!whitespaceQty.ok) expect(whitespaceQty.reason).toBe('missing_input');
+
+    const exponentPrice = decodeJava({ price: '1e-2' });
+    expect(exponentPrice.ok).toBe(false);
+    if (!exponentPrice.ok) {
+      expect(exponentPrice.reason).toBe('invalid_decimal');
+      expect(exponentPrice.message).not.toContain('0.01');
+    }
+
+    const exponentQty = decodeJava({ qty: '1e-2' });
+    expect(exponentQty.ok).toBe(false);
+    if (!exponentQty.ok) expect(exponentQty.reason).toBe('invalid_decimal');
+
+    const plain = decodeJava({});
+    expect(plain.ok).toBe(true);
+    if (plain.ok) {
+      expect(plain.price).toBe('100.25');
+      expect(plain.qty).toBe('1.50');
+    }
+
+    const jsonNumber = decodeJava({ price: 1.5 });
+    expect(jsonNumber.ok).toBe(false);
+    if (!jsonNumber.ok) expect(jsonNumber.reason).toBe('invalid_message');
+  });
+});
