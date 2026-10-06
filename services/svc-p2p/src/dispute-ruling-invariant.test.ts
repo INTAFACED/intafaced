@@ -246,6 +246,50 @@ describe('p2p dispute ruling invariant', () => {
       `;
       expect(fn[0]!.prosrc).toMatch(/SELECT true, "status"::text, "moderator_id", "resolution"::text/);
     });
+
+    /**
+     * The match above sits inside `OLD.resolution IS NULL`. Once the trade is
+     * already the matching refunded row, a later write is not re-checked.
+     * Clearing `settled_at` is what makes settleOnce post escrowRelease again:
+     * it returns early only when settledAt is set, and it posts from the trade
+     * row. The second write must be refused, and the refunded row must stay.
+     */
+    it('refuses a second write that rewrites a matching refund as released', async () => {
+      const id = await disputedTrade('00000000-0000-4000-8000-000000000043');
+      await rule(id, MODERATOR);
+
+      await sql`
+        UPDATE p2p.p2p_trades
+           SET status = 'cancelled', resolution = 'refunded', resolved_at = now(), deadline_at = NULL
+         WHERE id = ${id}
+      `;
+      await sql`UPDATE p2p.p2p_trades SET settled_at = now() WHERE id = ${id}`;
+
+      const matched = (
+        await sql<Array<{ status: string; resolution: string | null; settled: boolean }>>`
+          SELECT status, resolution::text AS resolution, settled_at IS NOT NULL AS settled
+            FROM p2p.p2p_trades WHERE id = ${id}
+        `
+      )[0]!;
+      expect(matched).toEqual({ status: 'cancelled', resolution: 'refunded', settled: true });
+
+      await expect(sql`
+        UPDATE p2p.p2p_trades
+           SET status = 'released', resolution = 'released', settled_at = NULL
+         WHERE id = ${id}
+      `).rejects.toMatchObject({
+        code: '23514',
+        message: expect.stringMatching(/does not match the human ruling/),
+      });
+
+      const stayed = (
+        await sql<Array<{ status: string; resolution: string | null; settled: boolean }>>`
+          SELECT status, resolution::text AS resolution, settled_at IS NOT NULL AS settled
+            FROM p2p.p2p_trades WHERE id = ${id}
+        `
+      )[0]!;
+      expect(stayed).toEqual({ status: 'cancelled', resolution: 'refunded', settled: true });
+    });
   });
 
   describe('the ruling that terminates an escrow', () => {

@@ -14,6 +14,13 @@
 -- The function now also reads p2p_disputes.resolution. release matches only
 -- trade resolution released; refund matches only refunded. voided is not a
 -- ruling. The UPDATE is refused (check_violation) so settleOnce never sees it.
+--
+-- That match is not only the first write (`OLD.resolution IS NULL`). A later
+-- UPDATE can set status='released', resolution='released', settled_at=NULL on
+-- a row that already matched refund. settleOnce posts escrowRelease from the
+-- trade row and returns early only when settled_at is set, so clearing it
+-- reopens the post. The match runs again whenever the new row carries a
+-- resolution. A write that keeps the matching resolution still passes.
 
 CREATE OR REPLACE FUNCTION "p2p"."p2p_trades_disputed_needs_ruling"() RETURNS trigger
 LANGUAGE plpgsql AS $$
@@ -45,7 +52,7 @@ BEGIN
       USING ERRCODE = 'check_violation';
   END IF;
 
-  -- (C) The terminal write itself. It must be the resolution the dispute holds.
+  -- (C) The first terminal write must be an attributed human ruling.
   IF OLD."resolution" IS NULL AND NEW."resolution" IS NOT NULL THEN
     IF NOT coalesce(d_exists, false) THEN
       RAISE EXCEPTION
@@ -63,10 +70,13 @@ BEGIN
         'whatever it is called', NEW."id", coalesce(d_status, 'absent'), coalesce(d_moderator, 'nobody')
         USING ERRCODE = 'check_violation';
     END IF;
+  END IF;
 
-    -- dispute_resolution and trade_resolution are different enums.
-    -- release → released (escrowRelease to the buyer). refund → refunded.
-    -- voided is not a ruling and must not terminate the escrow by posting nothing.
+  -- (D) The ruling match, including a later rewrite. dispute_resolution and
+  -- trade_resolution are different enums. release → released. refund → refunded.
+  -- voided is not a ruling. A write that keeps the matching pair still passes,
+  -- so stamping settled_at is not a second resolution.
+  IF NEW."resolution" IS NOT NULL THEN
     IF NOT (
          (d_resolution = 'release' AND NEW."resolution"::text = 'released')
       OR (d_resolution = 'refund' AND NEW."resolution"::text = 'refunded')
