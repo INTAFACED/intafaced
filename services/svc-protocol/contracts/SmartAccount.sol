@@ -295,9 +295,7 @@ contract SmartAccount is IAccount, IERC1271 {
         // scoped call — it is a payment, and a session key does not make those.
         if (data.length < 4) revert SessionCalldataTooShort();
         bytes4 selector = bytes4(data[0:4]);
-        // Same-length lists are pairs: selector i runs only on target i.
-        // One target may use any of its selectors; one selector may use any of
-        // its targets. Anything else is not a cross-product.
+        // Selector i is granted only for target i. Unequal lists are not a grant.
         if (!_selectorGrantedForTarget(spec, target, selector)) revert SessionSelectorNotAllowed(selector);
         // Re-checked at call time as well as grant time. Cheap, and it means a
         // stored spec can never outlive a change to what counts as a transfer.
@@ -432,15 +430,10 @@ contract SmartAccount is IAccount, IERC1271 {
         bytes4 selector
     ) private pure returns (bool) {
         uint256 targetCount = spec.targets.length;
-        uint256 selectorCount = spec.selectors.length;
-        if (targetCount == selectorCount) {
-            for (uint256 i = 0; i < targetCount; i++) {
-                if (spec.targets[i] == target && spec.selectors[i] == selector) return true;
-            }
-            return false;
+        if (targetCount != spec.selectors.length) return false;
+        for (uint256 i = 0; i < targetCount; i++) {
+            if (spec.targets[i] == target && spec.selectors[i] == selector) return true;
         }
-        if (targetCount == 1) return spec.targets[0] == target && SessionKeyLib.allowsSelector(spec, selector);
-        if (selectorCount == 1) return spec.selectors[0] == selector;
         return false;
     }
 

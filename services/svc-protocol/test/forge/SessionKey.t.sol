@@ -380,6 +380,25 @@ contract SessionKeyForgeTest {
         require(data == SIG_VALIDATION_FAILED, "non-guarded selector must fail");
     }
 
+    /// One selector and two targets is not a pair. The selector must not run on the second target.
+    function test_one_selector_is_not_granted_on_the_second_target() public {
+        SmartAccount account = _deployClone();
+        SessionReenter first = new SessionReenter(account);
+        SessionReenter second = new SessionReenter(account);
+
+        SessionKeyLib.SessionSpec memory spec = _legalSpec(address(0xBEEF), address(first));
+        spec.targets = new address[](2);
+        spec.targets[0] = address(first);
+        spec.targets[1] = address(second);
+        spec.selectors = new bytes4[](1);
+        spec.selectors[0] = SessionReenter.ping.selector;
+        account.grantSession(spec);
+
+        try account.executeWithSession(spec, address(second), 0, abi.encodeWithSelector(SessionReenter.ping.selector)) {
+            revert("selector ran on the second target");
+        } catch {}
+    }
+
     /// A native cap of 0 does not price a venue payout. The session may swap or
     /// sweep only back to the account, and a selector is not borrowed onto the
     /// other allowlisted target.
