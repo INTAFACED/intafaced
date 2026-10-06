@@ -160,8 +160,13 @@ export function startTelemetry(options: TelemetryOptions): TelemetryHandle {
 export function registerProcessHooks(handle: TelemetryHandle): void {
   if (!handle.enabled) return;
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    // `once` removes this listener before it runs, so the re-raise hits Node's
+    // default handler instead of looping. Without the re-raise, docker stop
+    // waits out the grace period and SIGKILL can cut off the flush.
     process.once(signal, () => {
-      void handle.shutdown();
+      void handle.shutdown().finally(() => {
+        process.kill(process.pid, signal);
+      });
     });
   }
 }

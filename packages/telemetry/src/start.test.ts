@@ -1,5 +1,11 @@
+import { type ChildProcess, spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { trace, SpanStatusCode, diag } from '@opentelemetry/api';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startTelemetry, isTelemetryActive } from './start.js';
@@ -161,3 +167,119 @@ describe('the diag failure channel', () => {
     expect(cap.lines.join('\n')).not.toContain('should not be routed to this logger');
   });
 });
+
+/**
+ * A SIGTERM/SIGINT listener removes Node's default handler, which is what
+ * exits the process. The hook must finish its flush and then exit or re-raise.
+ * Otherwise `docker stop` waits out the grace period and SIGKILL cuts off the
+ * flush this hook exists to save.
+ */
+describe('registerProcessHooks', () => {
+  const startSource = fileURLToPath(new URL('./start.ts', import.meta.url));
+
+  function signalHonored(sent: 'SIGTERM' | 'SIGINT', code: number | null, received: NodeJS.Signals | null): boolean {
+    if (received === sent) return true;
+    // 128 + signo. Exit 0 would be the signal swallowed as a clean success.
+    return code === 128 + (sent === 'SIGTERM' ? 15 : 2);
+  }
+
+  async function onSignal(sent: 'SIGTERM' | 'SIGINT'): Promise<{
+    code: number | null;
+    signal: NodeJS.Signals | null;
+    timedOut: boolean;
+    flushed: boolean;
+    stderr: string;
+  }> {
+    const dir = mkdtempSync(join(tmpdir(), 'l96-'));
+    const marker = join(dir, 'flushed');
+    const childPath = join(dir, 'child.mjs');
+    writeFileSync(
+      childPath,
+      `import { registerProcessHooks } from ${JSON.stringify(startSource)};
+import { writeFileSync } from 'node:fs';
+registerProcessHooks({
+  enabled: true,
+  async shutdown() {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    writeFileSync(${JSON.stringify(marker)}, 'flushed');
+  },
+});
+process.stdout.write('ready\\n');
+setInterval(() => {}, 1000);
+`,
+    );
+
+    const child = spawn(process.execPath, [childPath], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout!.setEncoding('utf8');
+    child.stderr!.setEncoding('utf8');
+    child.stdout!.on('data', (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr!.on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on('error', () => {});
+
+    try {
+      const ready = await new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => resolve(false), 5000);
+        child.stdout!.on('data', () => {
+          if (stdout.includes('ready')) {
+            clearTimeout(timer);
+            resolve(true);
+          }
+        });
+        child.on('exit', () => {
+          clearTimeout(timer);
+          resolve(false);
+        });
+      });
+      if (!ready) {
+        throw new Error(`hook child did not start\nstdout=${stdout}\nstderr=${stderr}`);
+      }
+
+      const pending = waitForExit(child, 800);
+      child.kill(sent);
+      const exit = await pending;
+      if (exit.timedOut && child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGKILL');
+        await once(child, 'exit');
+      }
+      return { ...exit, flushed: existsSync(marker), stderr };
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  // Each signal is a fresh process. Importing the telemetry module dominates the time.
+  it('flushes, then exits or re-raises SIGTERM and SIGINT', async () => {
+    for (const sent of ['SIGTERM', 'SIGINT'] as const) {
+      const outcome = await onSignal(sent);
+      expect(outcome.flushed, `${sent} flush did not finish\n${outcome.stderr}`).toBe(true);
+      expect(
+        outcome.timedOut,
+        `${sent} listener swallowed the signal; docker stop would wait until SIGKILL\n${outcome.stderr}`,
+      ).toBe(false);
+      expect(
+        signalHonored(sent, outcome.code, outcome.signal),
+        `${sent} swallowed: code=${outcome.code} signal=${outcome.signal}`,
+      ).toBe(true);
+    }
+  }, 20_000);
+});
+
+function waitForExit(
+  child: ChildProcess,
+  ms: number,
+): Promise<{ code: number | null; signal: NodeJS.Signals | null; timedOut: boolean }> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve({ code: null, signal: null, timedOut: true }), ms);
+    child.once('exit', (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal, timedOut: false });
+    });
+  });
+}
