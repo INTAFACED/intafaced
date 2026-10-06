@@ -112,6 +112,11 @@ export const kycRecords = identity.table(
      * an approval can arrive from an admin console service identity that is not
      * a platform account, and a constraint saying otherwise would be wrong the
      * first time that happens.
+     *
+     * `kyc_reviewed_by_ck` is NOT VALID, so the backlog is not scanned or
+     * rewritten and is not given a name. A pending row may omit this column.
+     * Any other status needs `reviewed_at` and a `reviewed_by` that is not null
+     * or whitespace. A blank reviewer names nobody.
      */
     reviewedBy: text('reviewed_by'),
     reviewedAt: tstz('reviewed_at'),
