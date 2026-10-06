@@ -184,15 +184,6 @@ export class SupportService implements SupportContract {
   ) {}
 
   /**
-   * Support keeps no balance of its own. The slot stays empty.
-   * The ledger client is the only money door, and this read does not post.
-   */
-  balance(): { readonly slot: null } {
-    void this.ledger;
-    return { slot: null };
-  }
-
-  /**
    * Public help articles stay on the help service.
    * This desk does not serve one, and it does not invent one.
    */

@@ -88,14 +88,6 @@ export function createSupportRouter(support: SupportService, loop?: TicketKbLoop
     kbPolicy: publicProcedure.query(() => describeKbPolicy()),
 
     /**
-     * Support keeps no balance of its own. The slot stays empty.
-     * The ledger client is the only money door, and this read does not post.
-     */
-    balance: scopedProcedure('support:read')
-      .output(z.object({ slot: z.null() }))
-      .query(() => support.balance()),
-
-    /**
      * Public help is not this room. The refusal names the missing article.
      * The slot stays empty. Nothing here becomes an answer.
      */

@@ -112,7 +112,12 @@ describe('a support ticket can be opened', () => {
 });
 
 describe('support keeps no balance', () => {
-  it('returns an empty slot and posts nothing', async () => {
+  it('the public router has no balance procedure', () => {
+    const procedures = Object.keys(createSupportRouter(new SupportService())._def.procedures);
+    expect(procedures).not.toContain('balance');
+  });
+
+  it('posts nothing', async () => {
     const ledger = new MemoryLedger();
     const watched = watch(ledger);
     const amount = '4.25';
@@ -127,9 +132,9 @@ describe('support keeps no balance', () => {
     );
     expect(watched.posts()).toBe(1);
 
-    const slot = await callerOn(ledger).balance();
+    const mine = await callerOn(ledger).listMine({ limit: 100 });
 
-    expect(slot).toEqual({ slot: null });
+    expect(mine).toEqual([]);
     expect(watched.posts()).toBe(1);
     expect(ledger.journal().map((tx) => tx.reason)).toEqual(['deposit.credited']);
     const held = await ledger.balances('user', ACCOUNT);
