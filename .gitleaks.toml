@@ -27,7 +27,8 @@ paths = [
 regexTarget = "match"
 regexes = [
   '''(?i)(example|placeholder|changeme|your[-_]?|xxx|dummy|test[-_]?secret|a-mount-test)''',
-  '''(?i)0x[0-9a-f]{40}''',
+  # Exactly 40 hex digits. Bounded so this is not the prefix of an 0x + 64 hex key.
+  '''(?i)(?:^|[^0-9a-f])0x[0-9a-f]{40}(?:[^0-9a-f]|$)''',
   '''bodyKey:\s*'notify\.''',
   '''titleKey:\s*'notify\.''',
   # Hardhat/anvil well-known account #1 private key (local sandbox only)
