@@ -170,7 +170,10 @@ export function assessBacktestSurface(candidate: BacktestSurfaceCandidate): Back
       strategyId: candidate.strategyId,
       claimLabel: 'Historical simulation — not a forecast',
       outOfSample: {
-        ...verdict,
+        status: verdict.status,
+        evaluatedFrom: verdict.evaluatedFrom,
+        evaluatedTo: verdict.evaluatedTo,
+        sampleCount: verdict.sampleCount,
         label: `Out-of-sample: ${verdict.status}`,
       },
       strategyCount: {

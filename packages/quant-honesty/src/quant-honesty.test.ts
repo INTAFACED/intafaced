@@ -117,6 +117,36 @@ describe('assessBacktestSurface — D26-P1-X6', () => {
     expect(result.surface.costs.map((cost) => cost.component)).toEqual(['fees', 'slippage', 'latency']);
     expect(result.surface.costs.every((cost) => cost.modelled && cost.source.length > 0)).toBe(true);
   });
+
+  it('drops extra enumerable fields from the out-of-sample surface', () => {
+    const verdict = {
+      status: 'passed' as const,
+      evaluatedFrom: '2026-04-01T00:00:00.000Z',
+      evaluatedTo: '2026-06-30T23:59:59.999Z',
+      sampleCount: 2_184,
+      return: '999',
+      price: '1',
+      live: true,
+    };
+    const result = assessBacktestSurface(honestCandidate({ outOfSampleVerdict: verdict }));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.surface.outOfSample).toEqual({
+      status: verdict.status,
+      evaluatedFrom: verdict.evaluatedFrom,
+      evaluatedTo: verdict.evaluatedTo,
+      sampleCount: verdict.sampleCount,
+      label: `Out-of-sample: ${verdict.status}`,
+    });
+    expect(result.surface.outOfSample).not.toHaveProperty('return');
+    expect(result.surface.outOfSample).not.toHaveProperty('price');
+    expect(result.surface.outOfSample).not.toHaveProperty('live');
+
+    const clean = assessBacktestSurface(honestCandidate());
+    expect(clean.ok).toBe(true);
+  });
 });
 
 describe('strategy comparison ordering — no curve-fit leaderboard', () => {
