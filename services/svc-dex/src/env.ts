@@ -96,10 +96,11 @@ const schema = baseEnvSchema
        */
 
       /** Taker fee on the on-chain CLOB, in bps. Unset = do not quote that venue. */
-      DEX_CLOB_FEE_BPS: z.preprocess(
-        (v) => (v === undefined || v === null || v === '' ? undefined : v),
-        z.coerce.number().int().min(0).max(9_999).optional(),
-      ),
+      DEX_CLOB_FEE_BPS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(0).max(9_999).optional()),
 
       /**
        * Quote-asset settlement surcharge for an on-chain fill, decimal string.
@@ -171,7 +172,19 @@ const schema = baseEnvSchema
           return result.data;
         }),
     }),
-  );
+  )
+  .superRefine((parsed, ctx) => {
+    const feeBlank = parsed.DEX_CLOB_FEE_BPS === undefined;
+    const costSet = parsed.DEX_CLOB_SETTLEMENT_COST !== undefined && parsed.DEX_CLOB_SETTLEMENT_COST !== '';
+    if (feeBlank && costSet) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DEX_CLOB_FEE_BPS'],
+        message:
+          'DEX_CLOB_FEE_BPS is blank while DEX_CLOB_SETTLEMENT_COST is set. Refusing to publish a 0 bps schedule.',
+      });
+    }
+  });
 
 export const env = loadEnv(schema);
 export type DexEnv = typeof env;
