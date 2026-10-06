@@ -94,7 +94,8 @@ function priceKey(wirePrice: string): string {
   return formatAmount(parseAmount(wirePrice));
 }
 
-function sideFromWire(levels: readonly WireLevel[]): Map<string, Amount> {
+/** `null` means a negative qty refused the side. Zero still deletes; it is not garbage. */
+function sideFromWire(levels: readonly WireLevel[]): Map<string, Amount> | null {
   const side = new Map<string, Amount>();
   for (const [price, qty] of levels) {
     const amount = parseAmount(qty);
@@ -102,18 +103,34 @@ function sideFromWire(levels: readonly WireLevel[]): Map<string, Amount> {
     // Last write wins when the same canonical price appears twice. A later
     // qty 0 at that key must retract the earlier rest — dropping only `> 0`
     // would leave the first write as phantom liquidity.
+    // Negative is not that delete: one bad level refuses the side, so a
+    // snapshot cannot quietly drop it and return a partial book.
     if (amount > 0n) side.set(key, amount);
-    else side.delete(key);
+    else if (amount === 0n) side.delete(key);
+    else return null;
   }
   return side;
 }
 
-export function bookFromSnapshot(snapshot: DepthSnapshot): DepthBook {
+/**
+ * A positive snapshot is the book. A negative qty is the same `invalid-qty`
+ * refusal as `applyDelta`: no book, and the level is not deleted.
+ * A snapshot has no prior sequence, so `expected` and `got` are both the
+ * snapshot sequence that was not installed.
+ */
+export function bookFromSnapshot(
+  snapshot: DepthSnapshot,
+): DepthBook | Extract<ApplyResult, { reason: 'invalid-qty' }> {
+  const bids = sideFromWire(snapshot.bids);
+  const asks = sideFromWire(snapshot.asks);
+  if (bids === null || asks === null) {
+    return { ok: false, reason: 'invalid-qty', expected: snapshot.sequence, got: snapshot.sequence };
+  }
   return {
     marketId: snapshot.marketId,
     sequence: snapshot.sequence,
-    bids: sideFromWire(snapshot.bids),
-    asks: sideFromWire(snapshot.asks),
+    bids,
+    asks,
   };
 }
 
@@ -331,7 +348,10 @@ export function ingestVenueDepthSnapshot(lake: CaptureLog, input: VenueDepthSnap
   if (bookLevelsFromCapture(record) === null || snapshot === null) {
     return { record, book: null };
   }
-  return { record, book: bookFromSnapshot(snapshot) };
+  const built = bookFromSnapshot(snapshot);
+  // Same refusal as applyDelta: do not publish a book that dropped a negative qty.
+  if ('ok' in built) return { record, book: null };
+  return { record, book: built };
 }
 
 export interface VenueDepthDeltaIngest {

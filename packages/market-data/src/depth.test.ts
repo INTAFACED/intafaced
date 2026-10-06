@@ -23,7 +23,9 @@ function snapshot(sequence: number, bids: WireLevel[], asks: WireLevel[]): Depth
 }
 
 function book(sequence: number, bids: WireLevel[], asks: WireLevel[]): DepthBook {
-  return bookFromSnapshot(snapshot(sequence, bids, asks));
+  const built = bookFromSnapshot(snapshot(sequence, bids, asks));
+  if ('ok' in built) throw new Error(`snapshot refused: ${built.reason}`);
+  return built;
 }
 
 const sideOf = (b: DepthBook, side: 'bids' | 'asks') => Object.fromEntries([...b[side].entries()].map(([p, q]) => [p, formatAmount(q)]));
@@ -72,7 +74,7 @@ describe('snapshot is a full replace — prior book is discarded', () => {
     );
     expect(prior.bids.has('100')).toBe(true);
 
-    const next = bookFromSnapshot(snapshot(2, [['99', '2']], []));
+    const next = book(2, [['99', '2']], []);
     expect(next.bids.has('100')).toBe(false);
     expect(formatAmount(next.bids.get('99')!)).toBe('2');
   });
@@ -81,7 +83,7 @@ describe('snapshot is a full replace — prior book is discarded', () => {
     const prior = book(1, [['100', '1']], []);
     expect(prior.bids.has('100')).toBe(true);
 
-    const next = bookFromSnapshot(snapshot(2, [['100', '0']], []));
+    const next = book(2, [['100', '0']], []);
     expect(next.bids.has('100')).toBe(false);
     expect(next.bids.size).toBe(0);
   });
@@ -104,6 +106,30 @@ describe('snapshot last-write at the same canonical price', () => {
 });
 
 describe('negative quantity must not rest', () => {
+  it('refuses a snapshot qty "-1" with invalid-qty instead of a quiet book', () => {
+    const refused = bookFromSnapshot(snapshot(1, [['100', '-1']], []));
+    expect(refused).toEqual({ ok: false, reason: 'invalid-qty', expected: 1, got: 1 });
+    expect(refused).not.toHaveProperty('bids');
+    expect(refused).not.toHaveProperty('asks');
+    expect(refused).not.toHaveProperty('book');
+
+    const partial = bookFromSnapshot(
+      snapshot(
+        1,
+        [
+          ['100', '5'],
+          ['99', '-1'],
+        ],
+        [],
+      ),
+    );
+    expect(partial).toEqual({ ok: false, reason: 'invalid-qty', expected: 1, got: 1 });
+    expect(partial).not.toHaveProperty('bids');
+
+    const ask = bookFromSnapshot(snapshot(1, [], [['100', '-1']]));
+    expect(ask).toEqual({ ok: false, reason: 'invalid-qty', expected: 1, got: 1 });
+  });
+
   it('refuses a delta qty "-1" and does not advance sequence', () => {
     const start = book(1, [['100', '1']], []);
     const result = applyDelta(start, {
@@ -296,7 +322,7 @@ describe('the sequence check — what stops a book drifting', () => {
   });
 
   it('accepts the first delta after a snapshot', () => {
-    const fresh = bookFromSnapshot(snapshot(42, [['100', '1']], []));
+    const fresh = book(42, [['100', '1']], []);
     const result = applyDelta(fresh, { type: 'delta', marketId: MARKET, fromSequence: 42, sequence: 43, bids: [['100', '2']], asks: [] });
 
     expect(result.ok).toBe(true);
