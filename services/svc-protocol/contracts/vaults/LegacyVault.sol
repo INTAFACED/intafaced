@@ -118,6 +118,7 @@ contract LegacyVault {
         lastHeartbeat = uint64(block.timestamp);
         if (successionStartedAt != 0) {
             successionStartedAt = 0;
+            _clearEstateLatch();
             emit SuccessionAborted(lastHeartbeat);
         }
         emit Heartbeat(owner, lastHeartbeat);
@@ -160,8 +161,19 @@ contract LegacyVault {
         emit Claimed(heirIndex, h.account, pay);
     }
 
+    /// Drops the snapped estate and per-heir payouts so the next succession reads `balanceOf`.
+    function _clearEstateLatch() private {
+        estate = 0;
+        estateSnapped = false;
+        uint256 n = heirs.length;
+        for (uint256 i = 0; i < n; i++) {
+            paid[i] = 0;
+        }
+    }
+
     function _writeHeirs(address[] memory heirAccounts, uint16[] memory shareBps_) private {
         if (heirAccounts.length == 0 || heirAccounts.length != shareBps_.length) revert BadConfig();
+        _clearEstateLatch();
         delete heirs;
         uint256 sum;
         for (uint256 i = 0; i < heirAccounts.length; i++) {
