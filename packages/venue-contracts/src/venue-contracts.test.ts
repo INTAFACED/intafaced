@@ -123,23 +123,40 @@ describe('unified instrument', () => {
   });
 
   describe('roundToTick', () => {
-    it('rounds away from the caller, so the executed price can only be better than the quote', () => {
+    it('rounds a buy toward a cheaper or equal price and a sell toward a higher or equal price', () => {
       const tick = parseAmount('0.5');
-      // A buy rounds UP — never crossing further than authorised.
-      expect(formatAmount(roundToTick(parseAmount('30000.3'), tick, 'buy'))).toBe('30000.5');
-      // A sell rounds DOWN.
-      expect(formatAmount(roundToTick(parseAmount('30000.3'), tick, 'sell'))).toBe('30000');
+      const price = parseAmount('30000.3');
+      const buy = roundToTick(price, tick, 'buy');
+      const sell = roundToTick(price, tick, 'sell');
+      // A buy must not rest above the requested limit. A sell must not rest below it.
+      expect(buy <= price).toBe(true);
+      expect(sell >= price).toBe(true);
+      expect(formatAmount(buy)).toBe('30000');
+      expect(formatAmount(sell)).toBe('30000.5');
     });
 
     it('handles a non-decimal tick, which a decimal-places model cannot express', () => {
       const tick = parseAmount('25');
-      expect(formatAmount(roundToTick(parseAmount('4013'), tick, 'buy'))).toBe('4025');
-      expect(formatAmount(roundToTick(parseAmount('4013'), tick, 'sell'))).toBe('4000');
+      const price = parseAmount('4013');
+      const buy = roundToTick(price, tick, 'buy');
+      const sell = roundToTick(price, tick, 'sell');
+      expect(buy <= price).toBe(true);
+      expect(sell >= price).toBe(true);
+      expect(formatAmount(buy)).toBe('4000');
+      expect(formatAmount(sell)).toBe('4025');
     });
 
     it('leaves an on-tick price alone', () => {
       const tick = parseAmount('0.5');
-      expect(roundToTick(parseAmount('30000.5'), tick, 'buy')).toBe(parseAmount('30000.5'));
+      const price = parseAmount('30000.5');
+      expect(roundToTick(price, tick, 'buy')).toBe(price);
+      expect(roundToTick(price, tick, 'sell')).toBe(price);
+    });
+
+    it('refuses a non-positive tick instead of returning the price unchanged', () => {
+      const price = parseAmount('30000.3');
+      expect(() => roundToTick(price, parseAmount('0'), 'buy')).toThrow(/non-positive tick/);
+      expect(() => roundToTick(price, parseAmount('-0.5'), 'sell')).toThrow(/non-positive tick/);
     });
   });
 

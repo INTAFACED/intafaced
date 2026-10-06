@@ -162,20 +162,32 @@ export function parseUnifiedSymbol(symbol: string): { base: string; quote: strin
 }
 
 /**
- * Round a price DOWN to the venue's tick for a sell, UP for a buy.
+ * A tick that is not a positive increment. Returning the original price would
+ * post an off-tick limit as if the venue had accepted it.
+ */
+export class NonPositiveTickError extends Error {
+  constructor() {
+    super('non-positive tick');
+    this.name = 'NonPositiveTickError';
+  }
+}
+
+/**
+ * Round a limit toward a better or equal price: down for a buy, up for a sell.
  *
- * The direction is not symmetric on purpose. Rounding a limit price the wrong
- * way makes an order that would have filled sit unfilled, or — worse on a buy —
- * crosses further than the caller authorised. Rounding always AWAY from the
- * caller's advantage means the executed price can only ever be better than the
- * one they were quoted.
+ * A buy that rounds up can fill up to one tick above the requested limit. A
+ * sell that rounds down can fill up to one tick below it. Those are the worse
+ * outcomes — a buy that crosses further than authorised, or a sell that fills
+ * cheaper than the quote. Rounding toward a cheaper buy or a dearer sell means
+ * execution can only be better than the quote; the order may sit unfilled
+ * instead.
  */
 export function roundToTick(price: Amount, tick: Amount, side: 'buy' | 'sell'): Amount {
-  if (tick <= 0n) return price;
+  if (tick <= 0n) throw new NonPositiveTickError();
   const remainder = price % tick;
   if (remainder === 0n) return price;
   // `price` is always positive here (a negative price is refused at the wire).
-  return side === 'buy' ? price - remainder + tick : price - remainder;
+  return side === 'buy' ? price - remainder : price - remainder + tick;
 }
 
 /** Round a quantity down to the venue's lot size. Never up — we cannot size beyond authority. */
