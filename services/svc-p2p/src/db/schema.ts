@@ -126,6 +126,12 @@ export const p2pTrades = p2p.table(
     fiatCurrency: text('fiat_currency').notNull(),
     /** Crypto quantity held in escrow. */
     amount: amount('amount').notNull(),
+    /**
+     * The figure copied when escrow is first stamped (`0010`). `amount` has to
+     * stay equal to it afterwards, including after `escrowed_at` is cleared.
+     * The trigger writes it. The service does not.
+     */
+    escrowAmount: amount('escrow_amount'),
     /** Effective price at take — snapshotted so a float offer cannot re-price mid-trade. */
     price: amount('price').notNull(),
     /** What the buyer owes off-platform, already quantised to the currency's minor units. */
