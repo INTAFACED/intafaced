@@ -62,6 +62,13 @@ describe('CCXT unified symbols', () => {
     expect(() => parseSymbol('BTC/USDT:USDT-251226-90000-X')).toThrow(/option type/);
   });
 
+  it('rejects a fifth hyphen segment instead of the four-field call', () => {
+    const extra = 'BTC/USDT:USDT-251226-90000-C-EXTRA';
+    const call = 'BTC/USDT:USDT-251226-90000-C';
+    expect(() => parseSymbol(extra)).toThrow(SymbolError);
+    expect(symbolsEqual(extra, call)).toBe(false);
+  });
+
   it('compares symbols case-insensitively', () => {
     expect(symbolsEqual('btc/usdt', 'BTC/USDT')).toBe(true);
     expect(symbolsEqual('BTC/USDT', 'BTC/USDT:USDT')).toBe(false);
