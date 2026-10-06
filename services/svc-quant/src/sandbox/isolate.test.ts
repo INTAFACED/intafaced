@@ -47,6 +47,48 @@ print(book.pnl())`,
     expect(ran.pnl).toBe('0');
   });
 
+  it('does not place a paper order from a false python if, and runs a true body once', () => {
+    const missedBuy = runIsolate(
+      'python',
+      `if 1 == 0:
+oms.buy("BTC-USD", "0.01")
+print(book.cash())`,
+      book(),
+      limits,
+      true,
+    );
+    expect(missedBuy.fills).toEqual([]);
+    expect(missedBuy.cash).toBe('10000');
+    expect(missedBuy.logs).toEqual(['10000']);
+
+    const missedSell = runIsolate(
+      'python',
+      `if 1 == 0:
+oms.sell("BTC-USD", "0.01")`,
+      book(),
+      limits,
+      true,
+    );
+    expect(missedSell.fills).toEqual([]);
+    expect(missedSell.cash).toBe('10000');
+
+    const taken = runIsolate(
+      'python',
+      `if 1 == 1:
+oms.buy("BTC-USD", "0.01")
+print(book.cash())`,
+      book(),
+      limits,
+      true,
+    );
+    expect(taken.fills).toHaveLength(1);
+    expect(taken.fills[0]?.side).toBe('buy');
+    expect(taken.fills[0]?.symbol).toBe('BTC-USD');
+    expect(taken.fills[0]?.qty).toBe('0.01');
+    expect(taken.cash).toBe('9500');
+    expect(taken.logs).toEqual(['9500']);
+  });
+
   it('refuses when the isolate is unwired rather than inventing pnl', () => {
     expect(() => runIsolate('javascript', 'console.log("x")', book(), limits, false)).toThrow(QUANT_SANDBOX_UNWIRED);
   });

@@ -184,6 +184,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
   env.set('None', null);
 
   let ops = 0;
+  let live = true;
   const bump = () => {
     ops += 1;
     if (ops > maxOps) throw new QuantError(QUANT_SANDBOX_TIMEOUT, `exceeded ${maxOps} operations`);
@@ -191,6 +192,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
 
   const callHost = (host: Host, method: string, args: Val[]): Val => {
     bump();
+    if (!live) return null;
     const a0 = () => {
       const v = args[0];
       if (typeof v !== 'string') throw new QuantError(QUANT_SANDBOX_SYNTAX, `${host.$host}.${method} needs a string`);
@@ -238,6 +240,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
   };
 
   const printFn = (args: Val[]): Val => {
+    if (!live) return null;
     logs.push(args.map(stringify).join(' '));
     return null;
   };
@@ -426,7 +429,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
       }
       eatOp('=');
       const val = parseExpr();
-      env.set(name.v, val);
+      if (live) env.set(name.v, val);
       tryOp(';');
       return;
     }
@@ -441,7 +444,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
       p++;
       eatOp('=');
       const val = parseExpr();
-      env.set(t.v, val);
+      if (live) env.set(t.v, val);
       tryOp(';');
       return;
     }
@@ -452,6 +455,19 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
       if (!python) eatOp(')');
       if (python) eatOp(':');
       else eatOp('{');
+      // Indentation is discarded, so a python if body is the next statement, not a brace block.
+      if (python) {
+        while (peek().k === 'nl') p++;
+        if (!cond) {
+          const prev = live;
+          live = false;
+          parseStmt();
+          live = prev;
+        } else {
+          parseStmt();
+        }
+        return;
+      }
       if (cond) {
         while (
           peek().k !== 'eof' &&
