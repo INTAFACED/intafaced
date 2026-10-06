@@ -523,10 +523,10 @@ describe('§10 consumer idempotency', () => {
   });
 
   /**
-   * The mark is held for an in-flight handler and for a success — NOT for a
-   * failure. Before this, `checkAndSet` marked on arrival, so a handler that
-   * threw was already recorded as processed and the redelivery was swallowed
-   * and acked: at-most-once, silently.
+   * A failure is not a completion. The success mark is written only after the
+   * handler returns, so a redelivery runs it again. Before this, `checkAndSet`
+   * marked on arrival, a thrown handler was already recorded as processed, and
+   * the redelivery was swallowed and acked: at-most-once, silently.
    *
    * That mattered most where a throw is the design. `svc-identity/src/events.ts`
    * documents an XP award for an unknown user as an FK violation "which throws,
@@ -559,6 +559,51 @@ describe('§10 consumer idempotency', () => {
     // ...and now that it succeeded, a further redelivery is deduped as before.
     await wrapped(payload as never, envelope);
     expect(attempts).toBe(2);
+  });
+
+  it('a mark left behind without a success does not return without running the handler', async () => {
+    const store = new MemorySeenStore();
+    const scope = 'fill-settle';
+    const envelope = { subject: 'xpEarned', idempotencyKey: 'fill-crash-1' } as never;
+    // Crash after checkAndSet: the seen-key is marked and the handler never succeeded.
+    await store.checkAndSet(`${scope}:xpEarned:fill-crash-1`);
+
+    let runs = 0;
+    const wrapped = idempotent(
+      async () => {
+        runs += 1;
+      },
+      store,
+      scope,
+    );
+
+    const outcome = await wrapped({} as never, envelope).then(
+      () => 'returned' as const,
+      () => 'threw' as const,
+    );
+
+    // A normal return is an ack. That is only legal when this delivery ran the handler, or when it throws so the pump naks.
+    expect(outcome === 'threw' || runs === 1).toBe(true);
+
+    // An ack-wait redelivery must not return while the first attempt can still throw.
+    let open!: () => void;
+    const opened = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    let unblock!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      unblock = resolve;
+    });
+    const racing = idempotent(async () => {
+      open();
+      await blocked;
+    }, store, scope);
+    const live = { subject: 'xpEarned', idempotencyKey: 'fill-live-1' } as never;
+    const first = racing({} as never, live);
+    await opened;
+    await expect(racing({} as never, live)).rejects.toThrow();
+    unblock();
+    await first;
   });
 
   it('keeps failing a handler that always throws, so it can reach the dead-letter', async () => {
