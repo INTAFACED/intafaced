@@ -87,9 +87,9 @@
  *
  * HONEST LIMIT, stated because the alternative is implying coverage
  * ────────────────────────────────────────────────────────────────
- * Five ENFORCED gates refuse by UNCAUGHT throw, not by a guard: `secrets`,
- * `lang-duplicate-key`, `dual-book-door-paths`, `compose-secret-parity`,
- * `money-property-mutation`. A stack trace is a refusal — nobody reads
+ * Six ENFORCED gates refuse by UNCAUGHT throw, not by a guard: `secrets`,
+ * `gitleaks-allowlist-address`, `lang-duplicate-key`, `dual-book-door-paths`,
+ * `compose-secret-parity`, `money-property-mutation`. A stack trace is a refusal — nobody reads
  * `ENOENT` as a clean bill of health — so they satisfy the law. But it is
  * WEAKER, and in a specific way worth naming: it proves the gate refuses when
  * its subject is MISSING, not when its subject exists and is EMPTY. Those rows
@@ -189,6 +189,13 @@ export const ENFORCED = {
     kind: 'uncaught',
     must: /not a git repository/,
     note: 'enumerates via `git ls-files`, which fails hard outside a repo. Refuses, but by throw — no zero-file branch of its own.',
+  },
+  'gitleaks-allowlist-address': {
+    kind: 'uncaught',
+    must: /ENOENT[\s\S]*\.gitleaks\.toml/,
+    note:
+      'reads .gitleaks.toml from the repo root beside the script. With the tree gone the open throws ENOENT and the ' +
+      'node:test exits 1. Refuses, by throw — the allowlist subject is that file, not an in-script fixture.',
   },
   'wallet-rpc-mainnet': {
     kind: 'guard',

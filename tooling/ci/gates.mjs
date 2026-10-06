@@ -194,6 +194,15 @@ export const GATES = [
     why: 'a committed credential is invisible in review — it reads as a config line',
   },
   {
+    id: 'gitleaks-allowlist-address',
+    script: 'tooling/ci/gitleaks-allowlist-address.test.mjs',
+    doctrine: '§16',
+    why:
+      'proves the .gitleaks.toml 40-hex address allowlist still matches a bare address and still refuses a 64-hex key. ' +
+      'The file is node:test and exits 0 under plain `node`, so verify and CI run the same proof. Without this entry ' +
+      'the manifest check fails and the proof sits in tooling/ci/ unrun.',
+  },
+  {
     id: 'wallet-rpc-auth',
     script: 'tooling/ci/wallet-rpc-auth-scan.mjs',
     doctrine: '§16 / A1.4',
