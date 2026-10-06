@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   SCREENING_ENFORCED_ENVS,
   SCREENING_FAIL_CLOSED_ENV,
@@ -52,6 +52,19 @@ import {
 
 /** A stand-in for what counsel eventually supplies. Not a real list. */
 const POPULATED = parseScreeningList('AA:placeholder programme,ZY', 'test-fixture-not-a-real-list');
+
+/**
+ * Unset `INTAFACED_SCREENING_FAIL_CLOSED` refuses. Tests that still need the
+ * honesty path (allowed, list not configured, not screened-clean) pin explicit off.
+ */
+const screeningFailClosedAtLoad = process.env[SCREENING_FAIL_CLOSED_ENV];
+beforeEach(() => {
+  process.env[SCREENING_FAIL_CLOSED_ENV] = '0';
+});
+afterEach(() => {
+  if (screeningFailClosedAtLoad === undefined) delete process.env[SCREENING_FAIL_CLOSED_ENV];
+  else process.env[SCREENING_FAIL_CLOSED_ENV] = screeningFailClosedAtLoad;
+});
 
 describe('parsing the configured list', () => {
   it('treats absent, empty and whitespace-only as UNCONFIGURED, not as clear', () => {
@@ -156,8 +169,8 @@ describe('the state is observable — "screened and clear" vs "screened nothing"
  * D26-P1-O1 mechanism seal — request-time refuse when list unset.
  *
  * Boot guard already refuses prod start without a list. This is the twin at
- * checkAccess: when operators arm fail-closed, hosted access cannot look
- * screened-clean with no counsel content. Default OFF preserves honesty-only.
+ * checkAccess: an unset flag refuses, so hosted access cannot look
+ * screened-clean with no counsel content. Explicit off keeps honesty-only.
  * No real sanctions codes — AA/QQ placeholders only.
  */
 describe('screening fail-closed — refuse when list unset (D26-P1-O1)', () => {
@@ -167,7 +180,24 @@ describe('screening fail-closed — refuse when list unset (D26-P1-O1)', () => {
     else process.env[SCREENING_FAIL_CLOSED_ENV] = original;
   });
 
-  it('default OFF keeps honesty-only allow with listConfigured false', () => {
+  it('refuses hosted access when INTAFACED_SCREENING_FAIL_CLOSED is unset', () => {
+    delete process.env[SCREENING_FAIL_CLOSED_ENV];
+    expect(screeningFailClosedFromEnv({})).toBe(true);
+    const d = checkAccess({
+      module: 'dex',
+      plane: 'protocol',
+      region: 'QQ',
+      kycTier: 'none',
+      screening: UNSET_SCREENING_LIST,
+    });
+    expect(d.allowed).toBe(false);
+    expect(d.code).toBe('denied.screening_unconfigured');
+    expect(d.screening.listConfigured).toBe(false);
+    expect(d.screening.readsAsScreenedClean).toBe(false);
+  });
+
+  it('explicit off keeps honesty-only allow with listConfigured false', () => {
+    process.env[SCREENING_FAIL_CLOSED_ENV] = 'off';
     const d = checkAccess({
       module: 'dex',
       plane: 'protocol',
@@ -178,6 +208,7 @@ describe('screening fail-closed — refuse when list unset (D26-P1-O1)', () => {
     expect(d.allowed).toBe(true);
     expect(d.screening.listConfigured).toBe(false);
     expect(d.screening.declaration).toBe('unset');
+    expect(d.screening.readsAsScreenedClean).toBe(false);
   });
 
   it('refuses unset when screeningFailClosed is armed on the query', () => {
@@ -197,10 +228,14 @@ describe('screening fail-closed — refuse when list unset (D26-P1-O1)', () => {
   });
 
   it('reads INTAFACED_SCREENING_FAIL_CLOSED from the environment', () => {
-    expect(screeningFailClosedFromEnv({})).toBe(false);
+    expect(screeningFailClosedFromEnv({})).toBe(true);
     expect(screeningFailClosedFromEnv({ [SCREENING_FAIL_CLOSED_ENV]: '1' })).toBe(true);
     expect(screeningFailClosedFromEnv({ [SCREENING_FAIL_CLOSED_ENV]: 'true' })).toBe(true);
+    expect(screeningFailClosedFromEnv({ [SCREENING_FAIL_CLOSED_ENV]: 'yes' })).toBe(true);
+    expect(screeningFailClosedFromEnv({ [SCREENING_FAIL_CLOSED_ENV]: 'on' })).toBe(true);
     expect(screeningFailClosedFromEnv({ [SCREENING_FAIL_CLOSED_ENV]: 'no' })).toBe(false);
+    expect(screeningFailClosedFromEnv({ [SCREENING_FAIL_CLOSED_ENV]: '0' })).toBe(false);
+    expect(screeningFailClosedFromEnv({ [SCREENING_FAIL_CLOSED_ENV]: 'false' })).toBe(false);
 
     process.env[SCREENING_FAIL_CLOSED_ENV] = 'yes';
     const d = checkAccess({
