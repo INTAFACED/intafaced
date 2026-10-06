@@ -2140,6 +2140,12 @@ export class TradeService {
    * After a proven engine remaining, shrink qty and post the exact leftover
    * hold. Sequence is the new instruction version so it never collides with
    * the terminal sequence-0 release.
+   *
+   * Qty is the committed fill sum plus the new remaining. `filled_qty` is a
+   * cache `refreshFilledQty` rewrites after the fill row commits and before
+   * `tradeFill` posts. Using the cache can store a qty below that sum; the
+   * overfill check then rejects every refresh and the hold slice
+   * `remainingHold` already counted stays in the order-hold account.
    */
   private async applyNativeAmendHold(
     order: OrderRecord,
@@ -2182,7 +2188,13 @@ export class TradeService {
             ),
           );
         }
-        const newQty = locked.filledQty + newRemaining;
+        const filledRows = await tx<Array<{ filled: string }>>`
+          SELECT COALESCE(SUM(qty), 0)::numeric(38, 18)::text AS filled
+            FROM trade.fills
+           WHERE order_id = ${locked.id}
+        `;
+        const committedFilled = parseAmount(filledRows[0]?.filled ?? '0');
+        const newQty = committedFilled + newRemaining;
         const amendReleased = locked.amendReleased + release;
         await tx`
           UPDATE trade.orders
