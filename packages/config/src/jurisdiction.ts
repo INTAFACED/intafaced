@@ -299,6 +299,16 @@ export const SHIPPED_BUSINESS_BLOCKS: readonly BusinessBlock[] = businessBlocksF
 
 let businessLookupCache: { blocks: readonly BusinessBlock[]; byRegion: ReadonlyMap<string, BusinessBlock> } | null = null;
 
+/** Trimmed upper-case region. Blank stays blank; it is not a region code. */
+function canonicalRegion(region: RegionCode): string {
+  return region.trim().toUpperCase();
+}
+
+/** Blank and the `XX` sentinel are not region codes. Callers must not look them up. */
+function isUnresolvedRegionCode(code: string): boolean {
+  return code === '' || code === UNRESOLVED_REGION;
+}
+
 /**
  * The business block for a region, if the business refuses it outright.
  *
@@ -311,10 +321,12 @@ export function businessBlockFor(
   region: RegionCode,
   business: readonly BusinessBlock[] = SHIPPED_BUSINESS_BLOCKS,
 ): BusinessBlock | undefined {
+  const code = canonicalRegion(region);
+  if (isUnresolvedRegionCode(code)) return undefined;
   if (!businessLookupCache || businessLookupCache.blocks !== business) {
     businessLookupCache = { blocks: business, byRegion: new Map(business.map((b) => [b.region, b])) };
   }
-  return businessLookupCache.byRegion.get(region.toUpperCase());
+  return businessLookupCache.byRegion.get(code);
 }
 
 /**
@@ -349,10 +361,12 @@ export function activeScreeningList(env: Record<string, string | undefined> = pr
 let lookupCache: { list: ScreeningList; byRegion: ReadonlyMap<string, ScreenedRegion> } | null = null;
 
 function screenedRegion(list: ScreeningList, region: RegionCode): ScreenedRegion | undefined {
+  const code = canonicalRegion(region);
+  if (isUnresolvedRegionCode(code)) return undefined;
   if (!lookupCache || lookupCache.list !== list) {
     lookupCache = { list, byRegion: new Map(list.regions.map((r) => [r.region, r])) };
   }
-  return lookupCache.byRegion.get(region.toUpperCase());
+  return lookupCache.byRegion.get(code);
 }
 
 /**
@@ -438,9 +452,9 @@ export const REGION_FAIL_CLOSED_ENV = 'INTAFACED_REGION_FAIL_CLOSED';
  */
 export const SCREENING_FAIL_CLOSED_ENV = 'INTAFACED_SCREENING_FAIL_CLOSED';
 
-/** True when `region` is not the platform unresolved sentinel. */
+/** True when `region` is a real code: not blank, and not the unresolved sentinel. */
 export function isRegionResolved(region: RegionCode): boolean {
-  return region.toUpperCase() !== UNRESOLVED_REGION;
+  return !isUnresolvedRegionCode(canonicalRegion(region));
 }
 
 /**
@@ -571,9 +585,16 @@ export interface AccessDecision {
  * than a yes/no decision would otherwise recompose
  * `entry.modules?.[m] ?? DEFAULT_MODULE_RULES[m]` itself, duplicating this
  * lookup outside the file that owns it. That duplicate is what drifts.
+ *
+ * Blank and `XX` are not matrix keys. They do not fall through to
+ * `DEFAULT_MODULE_RULES` — that open default is what made an unresolved
+ * region look like a cleared one. `checkAccess` applies the default only
+ * when fail-closed is off, after it has already recorded the region unresolved.
  */
 export function ruleFor(module: ModuleId, region: RegionCode): JurisdictionRule {
-  const entry = BY_REGION.get(region.toUpperCase());
+  const code = canonicalRegion(region);
+  if (isUnresolvedRegionCode(code)) return BLOCKED;
+  const entry = BY_REGION.get(code);
   return entry?.modules?.[module] ?? DEFAULT_MODULE_RULES[module];
 }
 
@@ -708,7 +729,9 @@ export function checkAccess(q: AccessQuery): AccessDecision {
     };
   }
 
-  const rule = ruleFor(q.module, q.region);
+  // Fail-closed already returned above. Fail-open keeps the historical default
+  // for an unresolved region so `XX` is not turned into a restrictive rule.
+  const rule = regionResolved ? ruleFor(q.module, q.region) : DEFAULT_MODULE_RULES[q.module];
 
   // A region is refused if the BUSINESS blocks it outright OR the SCREENING list
   // names it. Two authorities, one question — "do we serve this region" — so
