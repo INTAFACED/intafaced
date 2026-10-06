@@ -137,6 +137,8 @@ contract SmartAccount is IAccount, IERC1271 {
     error SessionSelectorNotAllowed(bytes4 selector);
     error SessionCalldataTooShort();
     error SessionSpendLimitExceeded(uint256 attempted, uint256 limit);
+    /** A venue call named somebody other than this account as the recipient. */
+    error SessionRecipientNotAccount(address recipient);
     error SelfCallForbidden();
     error EntryPointRequired();
     error CallReverted(bytes reason);
@@ -293,12 +295,19 @@ contract SmartAccount is IAccount, IERC1271 {
         // scoped call — it is a payment, and a session key does not make those.
         if (data.length < 4) revert SessionCalldataTooShort();
         bytes4 selector = bytes4(data[0:4]);
-        if (!SessionKeyLib.allowsSelector(spec, selector)) revert SessionSelectorNotAllowed(selector);
+        // Same-length lists are pairs: selector i runs only on target i.
+        // One target may use any of its selectors; one selector may use any of
+        // its targets. Anything else is not a cross-product.
+        if (!_selectorGrantedForTarget(spec, target, selector)) revert SessionSelectorNotAllowed(selector);
         // Re-checked at call time as well as grant time. Cheap, and it means a
         // stored spec can never outlive a change to what counts as a transfer.
         if (SessionKeyLib.isOutboundTransfer(selector)) {
             revert SessionKeyLib.SessionOutboundTransferForbidden(selector);
         }
+
+        // spendLimitWei counts native value only, so a venue call can move
+        // tokens without touching it. The proceeds have to come back here.
+        _assertSessionPaysAccount(selector, data);
 
         // Counted BEFORE the external call, so re-entrancy spends the budget
         // once rather than once per re-entry.
@@ -415,6 +424,118 @@ contract SmartAccount is IAccount, IERC1271 {
      */
     function _requireOwnerAuthorized() private view {
         if (msg.sender != owner && msg.sender != address(this) && msg.sender != entryPoint) revert NotAuthorized();
+    }
+
+    function _selectorGrantedForTarget(
+        SessionKeyLib.SessionSpec calldata spec,
+        address target,
+        bytes4 selector
+    ) private pure returns (bool) {
+        uint256 targetCount = spec.targets.length;
+        uint256 selectorCount = spec.selectors.length;
+        if (targetCount == selectorCount) {
+            for (uint256 i = 0; i < targetCount; i++) {
+                if (spec.targets[i] == target && spec.selectors[i] == selector) return true;
+            }
+            return false;
+        }
+        if (targetCount == 1) return spec.targets[0] == target && SessionKeyLib.allowsSelector(spec, selector);
+        if (selectorCount == 1) return spec.selectors[0] == selector;
+        return false;
+    }
+
+    bytes4 private constant SEL_SWAP_EXACT_TOKENS_FOR_TOKENS =
+        bytes4(keccak256("swapExactTokensForTokens(uint256,uint256,address[],address,uint256)"));
+    bytes4 private constant SEL_SWAP_TOKENS_FOR_EXACT_TOKENS =
+        bytes4(keccak256("swapTokensForExactTokens(uint256,uint256,address[],address,uint256)"));
+    bytes4 private constant SEL_SWAP_EXACT_TOKENS_FOR_ETH =
+        bytes4(keccak256("swapExactTokensForETH(uint256,uint256,address[],address,uint256)"));
+    bytes4 private constant SEL_SWAP_TOKENS_FOR_EXACT_ETH =
+        bytes4(keccak256("swapTokensForExactETH(uint256,uint256,address[],address,uint256)"));
+    bytes4 private constant SEL_SWAP_EXACT_TOKENS_FEE =
+        bytes4(keccak256("swapExactTokensForTokensSupportingFeeOnTransferTokens(uint256,uint256,address[],address,uint256)"));
+    bytes4 private constant SEL_SWAP_EXACT_TOKENS_FOR_ETH_FEE =
+        bytes4(keccak256("swapExactTokensForETHSupportingFeeOnTransferTokens(uint256,uint256,address[],address,uint256)"));
+    bytes4 private constant SEL_SWAP_EXACT_ETH_FOR_TOKENS =
+        bytes4(keccak256("swapExactETHForTokens(uint256,address[],address,uint256)"));
+    bytes4 private constant SEL_SWAP_ETH_FOR_EXACT_TOKENS =
+        bytes4(keccak256("swapETHForExactTokens(uint256,address[],address,uint256)"));
+    bytes4 private constant SEL_SWAP_EXACT_ETH_FEE =
+        bytes4(keccak256("swapExactETHForTokensSupportingFeeOnTransferTokens(uint256,address[],address,uint256)"));
+    bytes4 private constant SEL_UR_EXECUTE = bytes4(keccak256("execute(bytes,bytes[],uint256)"));
+    bytes4 private constant SEL_UR_EXECUTE_OPEN = bytes4(keccak256("execute(bytes,bytes[])"));
+
+    function _assertSessionPaysAccount(bytes4 selector, bytes calldata data) private view {
+        if (
+            selector == SEL_SWAP_EXACT_TOKENS_FOR_TOKENS ||
+            selector == SEL_SWAP_TOKENS_FOR_EXACT_TOKENS ||
+            selector == SEL_SWAP_EXACT_TOKENS_FOR_ETH ||
+            selector == SEL_SWAP_TOKENS_FOR_EXACT_ETH ||
+            selector == SEL_SWAP_EXACT_TOKENS_FEE ||
+            selector == SEL_SWAP_EXACT_TOKENS_FOR_ETH_FEE
+        ) {
+            _requireV2Recipient(data, false);
+            return;
+        }
+        if (
+            selector == SEL_SWAP_EXACT_ETH_FOR_TOKENS ||
+            selector == SEL_SWAP_ETH_FOR_EXACT_TOKENS ||
+            selector == SEL_SWAP_EXACT_ETH_FEE
+        ) {
+            _requireV2Recipient(data, true);
+            return;
+        }
+        if (selector == SEL_UR_EXECUTE || selector == SEL_UR_EXECUTE_OPEN) {
+            _assertRouterPaysAccount(selector, data);
+        }
+    }
+
+    function _requireV2Recipient(bytes calldata data, bool ethIn) private view {
+        address to;
+        if (ethIn) {
+            if (data.length < 4 + 128) revert SessionCalldataTooShort();
+            (, , to, ) = abi.decode(data[4:], (uint256, address[], address, uint256));
+        } else {
+            if (data.length < 4 + 160) revert SessionCalldataTooShort();
+            (, , , to, ) = abi.decode(data[4:], (uint256, uint256, address[], address, uint256));
+        }
+        if (to != address(this)) revert SessionRecipientNotAccount(to);
+    }
+
+    /// Universal Router command ids. A command that can hide a recipient is refused.
+    function _assertRouterPaysAccount(bytes4 selector, bytes calldata data) private view {
+        bytes memory commands;
+        bytes[] memory inputs;
+        if (selector == SEL_UR_EXECUTE) {
+            (commands, inputs, ) = abi.decode(data[4:], (bytes, bytes[], uint256));
+        } else {
+            (commands, inputs) = abi.decode(data[4:], (bytes, bytes[]));
+        }
+        if (commands.length != inputs.length) revert SessionRecipientNotAccount(address(0));
+        for (uint256 i = 0; i < commands.length; i++) {
+            address recipient = _routerCommandRecipient(uint8(commands[i]) & 0x7f, inputs[i]);
+            if (recipient != address(this)) revert SessionRecipientNotAccount(recipient);
+        }
+    }
+
+    function _routerCommandRecipient(uint8 command, bytes memory input) private pure returns (address recipient) {
+        // First word is the recipient: V3/V2 swaps, WRAP_ETH, UNWRAP_WETH.
+        if (command == 0x00 || command == 0x01 || command == 0x08 || command == 0x09 || command == 0x0b || command == 0x0c) {
+            if (input.length < 32) return address(0);
+            assembly {
+                recipient := mload(add(input, 32))
+            }
+            return recipient;
+        }
+        // Second word is the recipient: PERMIT2_TRANSFER_FROM, SWEEP, TRANSFER, PAY_PORTION.
+        if (command == 0x02 || command == 0x04 || command == 0x05 || command == 0x06) {
+            if (input.length < 64) return address(0);
+            assembly {
+                recipient := mload(add(input, 64))
+            }
+            return recipient;
+        }
+        return address(0);
     }
 
     function _call(address target, uint256 value, bytes calldata data) private returns (bytes memory) {
