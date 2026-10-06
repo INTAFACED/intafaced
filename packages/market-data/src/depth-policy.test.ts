@@ -24,15 +24,13 @@ describe('describeDepthPolicy', () => {
 
   it('matches applyDelta gap and stale refusal semantics', () => {
     const p = describeDepthPolicy();
-    const built = bookFromSnapshot({
+    const book = bookFromSnapshot({
       type: 'snapshot',
       marketId: MARKET,
       sequence: 10,
       bids: [['100', '5']],
       asks: [],
     });
-    if ('ok' in built) throw new Error(`snapshot refused: ${built.reason}`);
-    const book = built;
 
     const gap = applyDelta(book, {
       type: 'delta',

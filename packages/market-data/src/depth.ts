@@ -94,6 +94,37 @@ function priceKey(wirePrice: string): string {
   return formatAmount(parseAmount(wirePrice));
 }
 
+/**
+ * Same `invalid-qty` refusal `applyDelta` returns. Not a `DepthBook`:
+ * no bids, asks, or book.
+ */
+export type InvalidQtyRefusal = {
+  readonly ok: false;
+  readonly reason: 'invalid-qty';
+  readonly expected: number;
+  readonly got: number;
+};
+
+type LevelQty<L> = L extends readonly [unknown, infer Q] ? Q : never;
+
+type SideQty<Side> = Side extends readonly (infer L)[] ? LevelQty<L> : never;
+
+type SnapshotQty<S> = S extends { readonly bids: infer B; readonly asks: infer A } ? SideQty<B> | SideQty<A> : never;
+
+/**
+ * Wide `string` is not a negative literal, so a `DepthSnapshot` stays a
+ * `DepthBook`. A literal such as `"-1"` is not.
+ */
+type NegativeLiteralQty<Q> = string extends Q ? false : Q extends `-${infer Rest}` ? (Rest extends '' ? false : true) : false;
+
+type SnapshotHasNegativeQty<S> = true extends NegativeLiteralQty<SnapshotQty<S>> ? true : false;
+
+/**
+ * What callers compile against. Valid snapshot → `DepthBook`.
+ * A negative qty literal → `InvalidQtyRefusal`, which is not a `DepthBook`.
+ */
+export type SnapshotBookResult<S extends DepthSnapshot> = SnapshotHasNegativeQty<S> extends true ? InvalidQtyRefusal : DepthBook;
+
 /** `null` means a negative qty refused the side. Zero still deletes; it is not garbage. */
 function sideFromWire(levels: readonly WireLevel[]): Map<string, Amount> | null {
   const side = new Map<string, Amount>();
@@ -112,19 +143,30 @@ function sideFromWire(levels: readonly WireLevel[]): Map<string, Amount> | null 
   return side;
 }
 
+function invalidQtyRefusal(sequence: number): InvalidQtyRefusal {
+  return { ok: false, reason: 'invalid-qty', expected: sequence, got: sequence };
+}
+
+function isInvalidQtyRefusal(err: unknown): err is InvalidQtyRefusal {
+  if (typeof err !== 'object' || err === null) return false;
+  const refusal = err as Partial<InvalidQtyRefusal>;
+  return refusal.ok === false && refusal.reason === 'invalid-qty';
+}
+
 /**
- * A positive snapshot is the book. A negative qty is the same `invalid-qty`
- * refusal as `applyDelta`: no book, and the level is not deleted.
- * A snapshot has no prior sequence, so `expected` and `got` are both the
- * snapshot sequence that was not installed.
+ * Valid snapshot → `DepthBook`. A negative qty throws `InvalidQtyRefusal`
+ * instead of returning a book. Callers bind this result as a `DepthBook`
+ * and do not narrow, so a returned refusal would be installed.
+ * A snapshot has no prior sequence, so `expected` and `got` are that sequence.
+ * A negative qty literal's type is `InvalidQtyRefusal`, not a `DepthBook`.
  */
-export function bookFromSnapshot(
-  snapshot: DepthSnapshot,
-): DepthBook | Extract<ApplyResult, { reason: 'invalid-qty' }> {
+export function bookFromSnapshot<const S extends DepthSnapshot>(snapshot: S): SnapshotBookResult<S>;
+export function bookFromSnapshot(snapshot: DepthSnapshot): DepthBook {
   const bids = sideFromWire(snapshot.bids);
   const asks = sideFromWire(snapshot.asks);
   if (bids === null || asks === null) {
-    return { ok: false, reason: 'invalid-qty', expected: snapshot.sequence, got: snapshot.sequence };
+    // Throw, do not return. A DepthBook binding must not receive this.
+    throw invalidQtyRefusal(snapshot.sequence);
   }
   return {
     marketId: snapshot.marketId,
@@ -148,7 +190,7 @@ export type ApplyResult =
    * A negative absolute qty is garbage. Zero remains delete.
    * `expected` is the book seq we kept; `got` is the delta seq we refused.
    */
-  | { readonly ok: false; readonly reason: 'invalid-qty'; readonly expected: number; readonly got: number };
+  | InvalidQtyRefusal;
 
 function applySide(current: DepthSide, levels: readonly WireLevel[]): Map<string, Amount> {
   const next = new Map(current);
@@ -348,10 +390,13 @@ export function ingestVenueDepthSnapshot(lake: CaptureLog, input: VenueDepthSnap
   if (bookLevelsFromCapture(record) === null || snapshot === null) {
     return { record, book: null };
   }
-  const built = bookFromSnapshot(snapshot);
-  // Same refusal as applyDelta: do not publish a book that dropped a negative qty.
-  if ('ok' in built) return { record, book: null };
-  return { record, book: built };
+  try {
+    return { record, book: bookFromSnapshot(snapshot) };
+  } catch (err) {
+    // Same refusal as applyDelta: do not publish a book that dropped a negative qty.
+    if (isInvalidQtyRefusal(err)) return { record, book: null };
+    throw err;
+  }
 }
 
 export interface VenueDepthDeltaIngest {
