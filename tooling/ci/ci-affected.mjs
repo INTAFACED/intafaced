@@ -115,9 +115,16 @@ export function sealNeeded(flags, results) {
     paybank: 'tests-paybank',
     rest: 'tests-rest',
   };
+  let shardRequired = false;
   for (const [flag, job] of Object.entries(map)) {
     if (!flags[flag]) continue;
+    shardRequired = true;
     if (results[job] !== 'success') problems.push(`${job} was ${results[job] || 'missing'} (${flag} shard required)`);
+  }
+  // Unset flags arrive as false. All-false selects no tests, so it is not success.
+  // A flag that is false stays skipped when some other shard is required.
+  if (!shardRequired) {
+    problems.push('no test job required (full and every shard flag were false)');
   }
   return problems;
 }
@@ -221,7 +228,17 @@ function selfTest() {
     },
   );
   assert(sealFail.length === 1, `seal fail: ${sealFail}`);
-  console.log(`✓ ci-affected --self-test OK (${cases.length + 3} fixtures)`);
+  const sealBlank = sealNeeded(
+    { full: false, protocol: false, money: false, trade: false, paybank: false, rest: false },
+    {
+      changes: 'success',
+      gates: 'success',
+      format: 'success',
+      build: 'success',
+    },
+  );
+  assert(sealBlank.length !== 0, `blank classifier must not pass: ${sealBlank}`);
+  console.log(`✓ ci-affected --self-test OK (${cases.length + 4} fixtures)`);
 }
 
 function githubOutput(flags) {
