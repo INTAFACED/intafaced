@@ -264,7 +264,9 @@ function selfTest() {
     process.exit(1);
   }
   console.log('claim-check --self-test OK');
-  console.log('  fixture blank argv · dashed junk · abs→relative · rename porcelain · list/files caps · trailing-slash wall · same-name other author');
+  console.log(
+    '  fixture blank argv · dashed junk · abs→relative · rename porcelain · list/files caps · trailing-slash wall · same-name other author',
+  );
   process.exit(0);
 }
 
