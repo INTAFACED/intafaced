@@ -55,14 +55,16 @@ So a trade stuck in `created` is never ambiguous. This matters more than it look
 
 The six states are §6.2's enum exactly. `resolution` (`released` · `refunded` · `voided`) records where the value went; `voided` means the lock never happened, so nothing had to move.
 
-| State       | Holds escrow? | Deadline | What the clock does about it                                   |
-| ----------- | ------------- | -------- | -------------------------------------------------------------- |
-| `created`   | not provably  | 2 min    | re-drive the lock, then refund or void                         |
-| `escrowed`  | yes           | 15 min   | **refund** — the buyer never even claimed to pay               |
-| `fiat_sent` | yes           | 30 min   | **open a dispute** — never auto-release                        |
-| `disputed`  | yes           | 7 days   | **escalate and re-arm** — nothing moves without a human ruling |
-| `released`  | no            | —        | terminal                                                       |
-| `cancelled` | no            | —        | terminal                                                       |
+| State       | Holds escrow? | Deadline                | What the clock does about it                                   |
+| ----------- | ------------- | ----------------------- | -------------------------------------------------------------- |
+| `created`   | not provably  | owner-published integer | re-drive the lock, then refund or void                         |
+| `escrowed`  | yes           | owner-published integer | **refund** — the buyer never even claimed to pay               |
+| `fiat_sent` | yes           | owner-published integer | **open a dispute** — never auto-release                        |
+| `disputed`  | yes           | owner-published integer | **escalate and re-arm** — nothing moves without a human ruling |
+| `released`  | no            | —                       | terminal                                                       |
+| `cancelled` | no            | —                       | terminal                                                       |
+
+The four clocks in that table are owner-published integers. `index.ts` installs only `publishedEscrowDeadlineSeconds`, `publishedPaymentDeadlineSeconds`, `publishedReleaseDeadlineSeconds`, and `publishedDisputeSlaSeconds`. A blank env throws `p2p.escrow_deadline_unset`, `p2p.payment_deadline_unset`, `p2p.release_deadline_unset`, or `p2p.dispute_sla_unset`. The payment and release clocks keep the existing 60-second floor.
 
 The three states that hold escrow are also **exactly** the three in which the seller's payment destination is disclosed to the buyer. That is not a coincidence and it is not two rules: the buyer needs somewhere to pay for precisely as long as the seller's asset is locked against that payment, and not one moment before or after. See the payment-instruments section below.
 
@@ -337,7 +339,7 @@ _If it crashes exactly here, whose funds are stranded?_
 
 | Crash point                                        | Whose funds                 | Why not                                                                                                                |
 | -------------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| after the inventory reserve, before `escrowLock`   | nobody's                    | nothing is locked; `created` expires in 2 min and voids                                                                |
+| after the inventory reserve, before `escrowLock`   | nobody's                    | nothing is locked; `created` expires on the owner-published escrow clock and voids, or refuses when that clock is blank (`p2p.escrow_deadline_unset`) |
 | after `escrowLock`, before the row says `escrowed` | nobody's, but non-obviously | the sweep re-calls `escrowLock`, which is idempotent, so the lock becomes a fact rather than a guess — then refunds    |
 | after the resolution is recorded, before the post  | nobody's, but they are late | `sweepSettlements()` re-posts; the recipe key stops it doubling; `last_settle_error` names why if a post keeps failing |
 | after the post, before `settled_at`                | nobody's                    | the re-post is idempotent and the stamp is retried                                                                     |
