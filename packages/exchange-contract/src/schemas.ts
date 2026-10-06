@@ -302,6 +302,15 @@ export const orderSchema = z.object({
 });
 export type Order = z.infer<typeof orderSchema>;
 
+/** Strictly greater than zero. Character scan only — never a JS number. */
+function positiveDecimal(value: string): boolean {
+  if (value.startsWith('-')) return false;
+  for (const char of value) {
+    if (char >= '1' && char <= '9') return true;
+  }
+  return false;
+}
+
 export const createOrderRequestSchema = z
   .object({
     symbol: z.string(),
@@ -327,9 +336,13 @@ export const createOrderRequestSchema = z
   .superRefine((order, ctx) => {
     // A limit order without a price is the single most common integration bug.
     // Reject it at the boundary rather than guessing what the caller meant.
+    // Zero and negative are present values, not a missing price.
     const needsPrice = order.type === 'limit' || order.type === 'stop_limit';
     if (needsPrice && order.price === undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['price'], message: `a ${order.type} order requires a price` });
+    }
+    if (order.price !== undefined && !positiveDecimal(order.price)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['price'], message: 'price must be a positive decimal string' });
     }
     if (order.type === 'market' && order.price !== undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['price'], message: 'a market order must not carry a price' });
@@ -337,6 +350,19 @@ export const createOrderRequestSchema = z
     const needsStop = order.type === 'stop' || order.type === 'stop_limit' || order.type === 'take_profit';
     if (needsStop && order.stopPrice === undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['stopPrice'], message: `a ${order.type} order requires a stopPrice` });
+    }
+    if (order.stopPrice !== undefined && !positiveDecimal(order.stopPrice)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['stopPrice'], message: 'stopPrice must be a positive decimal string' });
+    }
+    if (!positiveDecimal(order.amount)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['amount'], message: 'amount must be a positive decimal string' });
+    }
+    if (order.type === 'market' && order.postOnly === true && order.timeInForce === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['postOnly'],
+        message: 'postOnly cannot be set on a market order when timeInForce is omitted',
+      });
     }
     if (order.postOnly && order.timeInForce && order.timeInForce !== 'GTC' && order.timeInForce !== 'PO') {
       ctx.addIssue({

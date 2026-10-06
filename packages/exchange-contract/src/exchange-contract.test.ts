@@ -124,6 +124,44 @@ describe('order validation at the boundary', () => {
     const result = createOrderRequestSchema.safeParse({ ...noId, type: 'market' });
     expect(result.success).toBe(false);
   });
+
+  it('refuses a zero or negative amount, price, or stopPrice, and refuses postOnly on a market order when time in force is omitted', () => {
+    const nonPositive = ['0', '0.0', '000', '-0', '-1'] as const;
+
+    for (const amount of nonPositive) {
+      const result = createOrderRequestSchema.safeParse({ ...base, type: 'market', amount });
+      expect(result.success, `amount ${amount}`).toBe(false);
+    }
+
+    for (const price of nonPositive) {
+      const result = createOrderRequestSchema.safeParse({ ...base, type: 'limit', price });
+      expect(result.success, `price ${price}`).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues.some((issue) => issue.path[0] === 'price' && /requires a price/.test(issue.message))).toBe(false);
+      }
+    }
+
+    for (const stopPrice of nonPositive) {
+      const result = createOrderRequestSchema.safeParse({ ...base, type: 'stop', stopPrice });
+      expect(result.success, `stopPrice ${stopPrice}`).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues.some((issue) => issue.path[0] === 'stopPrice' && /requires a stopPrice/.test(issue.message))).toBe(false);
+      }
+    }
+
+    const marketPostOnly = createOrderRequestSchema.safeParse({ ...base, type: 'market', postOnly: true });
+    expect(marketPostOnly.success).toBe(false);
+
+    expect(
+      createOrderRequestSchema.safeParse({
+        ...base,
+        type: 'limit',
+        amount: '0.000000000000000001',
+        price: '0.000000000000000001',
+      }).success,
+    ).toBe(true);
+    expect(createOrderRequestSchema.safeParse({ ...base, type: 'stop', stopPrice: '0.000000000000000001' }).success).toBe(true);
+  });
 });
 
 describe('response shapes', () => {
