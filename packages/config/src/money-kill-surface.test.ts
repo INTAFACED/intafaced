@@ -96,6 +96,11 @@ describe('money kill surface (D26-P2-10)', () => {
     expect(failures.some((f) => f.includes('/api/launch') && f.includes('not-deployed'))).toBe(true);
   });
 
+  it('refuses a mistyped edge module even when other money doors still match', () => {
+    const failures = assertMoneyRoutesHaveKillMapping([...LIVE_MONEY_UPSTREAMS, { prefix: '/api/payy', module: 'payy' }]);
+    expect(failures).toContain('money route prefix "/api/payy" names unknown module "payy" — no kill mapping');
+  });
+
   it('refuses an empty upstream table (vacuous green is a hole)', () => {
     expect(assertMoneyRoutesHaveKillMapping([])).toEqual(['no edge upstreams provided — money-route kill mapping would pass vacuously']);
   });
