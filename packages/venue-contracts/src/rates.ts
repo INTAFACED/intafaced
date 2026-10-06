@@ -83,9 +83,47 @@ export interface VenueTrade {
  *
  * Integer arithmetic throughout — `periods` is exact for every interval any
  * venue uses, and the multiply happens in ledger-client's scale.
+ *
+ * Zero is a real annualised rate when the venue published a zero rate on a real
+ * clock. A blank, zero, negative, infinite, NaN, or too-large interval is not
+ * that print. Reporting it as `0n` would invent a yearly rate.
  */
+const SECONDS_PER_YEAR = 31_536_000;
+
+/** A funding interval that cannot be turned into a yearly rate. */
+export class FundingIntervalError extends Error {
+  constructor(readonly intervalSeconds: unknown) {
+    super(
+      `funding interval ${describeInterval(intervalSeconds)} cannot be annualised — refused, not a zero rate`,
+    );
+    this.name = 'FundingIntervalError';
+  }
+}
+
+function describeInterval(intervalSeconds: unknown): string {
+  if (intervalSeconds === undefined || intervalSeconds === null) return 'blank';
+  if (typeof intervalSeconds === 'string' && intervalSeconds.trim() === '') return 'blank';
+  if (typeof intervalSeconds === 'number' && Number.isNaN(intervalSeconds)) return 'NaN';
+  return String(intervalSeconds);
+}
+
+/**
+ * Settlements in a 365-day year, or `null` when the interval is not a clock
+ * those settlements can be counted on.
+ */
+function periodsPerYear(intervalSeconds: unknown): bigint | null {
+  if (typeof intervalSeconds !== 'number' || !Number.isFinite(intervalSeconds) || intervalSeconds <= 0) {
+    return null;
+  }
+  const periods = Math.floor(SECONDS_PER_YEAR / intervalSeconds);
+  // Zero periods is an interval longer than a year. A non-safe count is an
+  // interval so small that the settlement tally is not an integer bigint.
+  if (!Number.isSafeInteger(periods) || periods < 1) return null;
+  return BigInt(periods);
+}
+
 export function annualisedFundingRate(funding: Pick<FundingRate, 'rate' | 'intervalSeconds'>): Amount {
-  if (funding.intervalSeconds <= 0) return 0n;
-  const periodsPerYear = BigInt(Math.floor(31_536_000 / funding.intervalSeconds));
-  return funding.rate * periodsPerYear;
+  const periods = periodsPerYear(funding.intervalSeconds);
+  if (periods === null) throw new FundingIntervalError(funding.intervalSeconds);
+  return funding.rate * periods;
 }
