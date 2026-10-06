@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -122,6 +122,48 @@ describe('FileApprovedAlgoParentStore', () => {
     expect(readFileSync(path, 'utf8').trim().split('\n').length).toBeGreaterThan(1);
     const reloaded = new FileApprovedAlgoParentStore(path);
     expect(reloaded.get('parent-1')?.status).toBe('stopped');
+  });
+
+  it('rolls memory back when the journal append throws on stop or kill', () => {
+    const stopPath = join(tempDir(), 'algo-parents.jsonl');
+    const stopStore = new FileApprovedAlgoParentStore(stopPath);
+    stopStore.approve(approved());
+    stopStore.start('parent-1', '2026-09-09T00:00:00.000Z', 'op-1');
+    const running = stopStore.get('parent-1');
+    expect(running?.status).toBe('running');
+
+    chmodSync(stopPath, 0o444);
+    try {
+      expect(() => stopStore.stop('parent-1')).toThrow();
+      expect(stopStore.get('parent-1')).toEqual(running);
+      expect(stopStore.list()).toEqual([running]);
+    } finally {
+      chmodSync(stopPath, 0o644);
+    }
+
+    expect(stopStore.stop('parent-1')?.status).toBe('stopped');
+    expect(stopStore.get('parent-1')?.status).toBe('stopped');
+    expect(stopStore.list()).toEqual([expect.objectContaining({ parentClientOrderId: 'parent-1', status: 'stopped' })]);
+
+    const killPath = join(tempDir(), 'algo-parents.jsonl');
+    const killStore = new FileApprovedAlgoParentStore(killPath);
+    killStore.approve(approved());
+    killStore.start('parent-1', '2026-09-09T00:00:00.000Z', 'op-1');
+    const live = killStore.get('parent-1');
+    expect(live?.status).toBe('running');
+
+    chmodSync(killPath, 0o444);
+    try {
+      expect(() => killStore.kill('parent-1')).toThrow();
+      expect(killStore.get('parent-1')).toEqual(live);
+      expect(killStore.list()).toEqual([live]);
+    } finally {
+      chmodSync(killPath, 0o644);
+    }
+
+    expect(killStore.kill('parent-1')?.status).toBe('stopped');
+    expect(killStore.get('parent-1')?.status).toBe('stopped');
+    expect(killStore.list()).toEqual([expect.objectContaining({ parentClientOrderId: 'parent-1', status: 'stopped' })]);
   });
 });
 

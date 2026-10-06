@@ -80,6 +80,15 @@ export class InMemoryApprovedAlgoParentStore implements ApprovedAlgoParentStore 
     this.rows.set(parent.parentClientOrderId, cloneParent(parent));
   }
 
+  /** Put one row back after a journal append throws. Null means it was absent. */
+  restore(parentClientOrderId: string, previous: ApprovedAlgoParent | null): void {
+    if (!previous) {
+      this.rows.delete(parentClientOrderId);
+      return;
+    }
+    this.rows.set(parentClientOrderId, cloneParent(previous));
+  }
+
   get(parentClientOrderId: string): ApprovedAlgoParent | null {
     const row = this.rows.get(parentClientOrderId);
     return row ? cloneParent(row) : null;
