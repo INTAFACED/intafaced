@@ -71,6 +71,7 @@ function instrument(instId: string, extra: Record<string, unknown> = {}) {
     tickSz: '0.1',
     lotSz: '0.0001',
     minSz: '0.0001',
+    minCost: '5',
     maxLmtSz: '1000',
     state: 'live',
     ...extra,
@@ -183,6 +184,48 @@ describe('okx-spot — public market data (third venue)', () => {
 
     const numbers = new FakeHttp(() => json(200, { code: '0', msg: '', data: [instrument('BTC-USDT', { tickSz: 0.1 })] }));
     await expect(adapter(numbers).markets()).rejects.toThrow(/JSON number/);
+  });
+
+  it('refuses a blank tick, lot, minimum size, or minimum cost instead of publishing an invented limit', async () => {
+    const http = new FakeHttp(() =>
+      json(200, {
+        code: '0',
+        msg: '',
+        data: [
+          instrument('BTC-USDT'),
+          instrument('ETH-USDT', { tickSz: null }),
+          instrument('SOL-USDT', { lotSz: '' }),
+          instrument('XRP-USDT', { minSz: undefined }),
+          instrument('ADA-USDT', { minCost: null }),
+          instrument('DOGE-USDT', { tickSz: '   ' }),
+        ],
+      }),
+    );
+
+    const markets = await adapter(http).markets();
+    expect(markets.map((market) => market.symbol)).toEqual(['BTC/USDT']);
+
+    const btc = markets[0]!;
+    expect(btc.active).toBe(true);
+    expect(formatAmount(btc.precision.price)).toBe('0.1');
+    expect(formatAmount(btc.precision.amount)).toBe('0.0001');
+    expect(formatAmount(btc.limits.minAmount)).toBe('0.0001');
+    expect(formatAmount(btc.limits.minCost)).toBe('5');
+    expect(btc.precision.price).not.toBe(parseAmount('0.00000001'));
+    expect(btc.precision.amount).not.toBe(parseAmount('0.00000001'));
+    expect(btc.limits.minAmount).not.toBe(0n);
+    expect(btc.limits.minCost).not.toBe(0n);
+
+    const blank = new FakeHttp(() => json(200, { code: '0', msg: '', data: [instrument('ETH-USDT', { tickSz: null })] }));
+    try {
+      await adapter(blank).markets();
+      expect.unreachable('a blank tickSz must be refused');
+    } catch (error) {
+      expect(error).toBeInstanceOf(VenueUnavailableError);
+      expect((error as VenueUnavailableError).venueId).toBe('okx-spot');
+      expect((error as VenueUnavailableError).reason).toBe('malformed');
+      expect((error as VenueUnavailableError).message).toMatch(/tickSz/);
+    }
   });
 
   it('snapshotBook reads string levels + seqId and grades the round-trip', async () => {

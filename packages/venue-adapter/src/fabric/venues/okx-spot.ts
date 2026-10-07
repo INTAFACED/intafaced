@@ -1,4 +1,4 @@
-import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
+import { formatAmount } from '@intafaced/ledger-client/money';
 import {
   readDecimal,
   readInteger,
@@ -93,6 +93,11 @@ function publishedSnapshotLimit(limit: number | null | undefined): number | unde
   return typeof limit === 'number' && Number.isInteger(limit) && limit >= 1 ? limit : undefined;
 }
 
+/** Missing, null, or whitespace. A blank limit is not a decimal the venue published. */
+function blankInstrumentLimit(value: unknown): boolean {
+  return value === undefined || value === null || (typeof value === 'string' && value.trim() === '');
+}
+
 export interface OkxSpotOptions {
   readonly http?: HttpPort;
   readonly stream?: StreamPort;
@@ -155,7 +160,25 @@ export class OkxSpotMarketData implements MarketDataAdapter {
       throw new VenueUnavailableError(VENUE.id, 'malformed', 'instruments carried no data array');
     }
     const observedAt = new Date(this.#clock());
-    return data.map((raw) => this.#market(raw as Record<string, unknown>, observedAt));
+    const published: VenueMarket[] = [];
+    let refused: VenueUnavailableError | undefined;
+    for (const raw of data) {
+      try {
+        published.push(this.#market(raw as Record<string, unknown>, observedAt));
+      } catch (error) {
+        // A blank tick, lot, or minimum is refused for that symbol. Leaving it
+        // out keeps the instruments that published real decimals. Throw only
+        // when nothing left is publishable — an empty list would look like the
+        // venue listed nothing.
+        if (error instanceof VenueUnavailableError) {
+          refused = error;
+          continue;
+        }
+        throw error;
+      }
+    }
+    if (published.length === 0 && refused) throw refused;
+    return published;
   }
 
   /**
@@ -439,10 +462,25 @@ export class OkxSpotMarketData implements MarketDataAdapter {
   #market(raw: Record<string, unknown>, observedAt: Date): VenueMarket {
     const base = String(raw.baseCcy ?? '');
     const quote = String(raw.quoteCcy ?? '');
+    const venueSymbol = String(raw.instId ?? '');
+    const missing = [
+      blankInstrumentLimit(raw.tickSz) ? 'tickSz' : null,
+      blankInstrumentLimit(raw.lotSz) ? 'lotSz' : null,
+      blankInstrumentLimit(raw.minSz) ? 'minSz' : null,
+      blankInstrumentLimit(raw.minCost) ? 'minCost' : null,
+    ].filter((name): name is string => name !== null);
+    if (missing.length > 0) {
+      throw new VenueUnavailableError(
+        VENUE.id,
+        'malformed',
+        `${venueSymbol || 'symbol'} is missing ${missing.join(', ')} (state ${String(raw.state ?? '')}). Refusing the symbol rather than inventing a tick, a lot, or a zero minimum.`,
+      );
+    }
+
     return {
       venueId: VENUE.id,
       symbol: unifiedSymbol(base, quote),
-      venueSymbol: String(raw.instId ?? ''),
+      venueSymbol,
       type: 'spot',
       base: base.toUpperCase(),
       quote: quote.toUpperCase(),
@@ -451,13 +489,13 @@ export class OkxSpotMarketData implements MarketDataAdapter {
       contractSize: null,
       expiry: null,
       precision: {
-        price: readOptionalDecimal(raw.tickSz, VENUE.id, 'tickSz') ?? parseAmount('0.00000001'),
-        amount: readOptionalDecimal(raw.lotSz, VENUE.id, 'lotSz') ?? parseAmount('0.00000001'),
+        price: readDecimal(raw.tickSz, VENUE.id, 'tickSz'),
+        amount: readDecimal(raw.lotSz, VENUE.id, 'lotSz'),
       },
       limits: {
-        minAmount: readOptionalDecimal(raw.minSz, VENUE.id, 'minSz') ?? 0n,
+        minAmount: readDecimal(raw.minSz, VENUE.id, 'minSz'),
         maxAmount: readOptionalDecimal(raw.maxLmtSz, VENUE.id, 'maxLmtSz'),
-        minCost: 0n,
+        minCost: readDecimal(raw.minCost, VENUE.id, 'minCost'),
         maxLeverageBps: null,
       },
       fees: { makerBps: DEFAULT_FEE_BPS.maker, takerBps: DEFAULT_FEE_BPS.taker, indicative: true },
