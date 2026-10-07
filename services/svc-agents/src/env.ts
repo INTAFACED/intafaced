@@ -156,7 +156,14 @@ const schema = serviceEnvSchema
        * is half of the ledger idempotency key.
        * No git default: blank refuses (never 60). Owner may set 60 explicitly.
        */
-      AGENTS_USAGE_WINDOW_MINUTES: z.coerce.number().int().min(1).max(1440),
+      AGENTS_USAGE_WINDOW_MINUTES: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(1440)
+        .refine((minutes) => 1440 % minutes === 0, {
+          message: 'must divide 1440 so a billing window never straddles midnight',
+        }),
 
       /**
        * Kill-switch for billing (§14 admin controls). When off (D26-P1-A6
