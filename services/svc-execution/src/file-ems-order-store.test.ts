@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -101,5 +101,109 @@ describe('FileEmsOrderStore', () => {
     const reloaded = new FileEmsOrderStore(path);
     expect(reloaded.get('parent-1/client/leg-1-0')).toMatchObject({ state: 'SUBMIT_UNKNOWN', execution: null });
     expect(reloaded.getByReconciliationKey('lookup:parent-1/client/leg-1-0')?.childOrderId).toBe('group-1/child/leg-1-0');
+  });
+
+  it('a thrown journal format leaves the fill unrecorded and still propagates', () => {
+    const path = tempStorePath();
+    const store = new FileEmsOrderStore(path);
+    store.record({
+      clientOrderId: 'already',
+      venueId: 'binance-spot',
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      execution: sampleExecution('v-prior'),
+      recordedAtMs: 1,
+    });
+    const fill = {
+      clientOrderId: 'fill-child',
+      parentClientOrderId: 'parent-1',
+      executionGroupId: 'group-1',
+      childOrderId: 'group-1/child/fill',
+      legIndex: 0,
+      venueId: 'binance-spot',
+      symbol: 'BTC/USDT',
+      side: 'buy' as const,
+      execution: {
+        ...sampleExecution('v-fill'),
+        filledAmount: 1 as unknown as ReturnType<typeof parseAmount>,
+      },
+      reconciliationKey: 'lookup:fill-child',
+      recordedAtMs: 2,
+    };
+
+    expect(() => store.record(fill)).toThrow(TypeError);
+    expect(store.get('fill-child')).toBeNull();
+    expect(store.getByReconciliationKey('lookup:fill-child')).toBeNull();
+    expect(store.list().map((row) => row.clientOrderId)).toEqual(['already']);
+    expect(store.list({ reconciliationKey: 'lookup:fill-child' })).toEqual([]);
+
+    const reloaded = new FileEmsOrderStore(path);
+    expect(reloaded.get('fill-child')).toBeNull();
+    expect(reloaded.getByReconciliationKey('lookup:fill-child')).toBeNull();
+
+    store.record({ ...fill, execution: sampleExecution('v-fill') });
+    expect(store.get('fill-child')?.execution?.venueOrderId).toBe('v-fill');
+    expect(store.get('fill-child')?.execution?.status).toBe('filled');
+    expect(store.getByReconciliationKey('lookup:fill-child')?.childOrderId).toBe('group-1/child/fill');
+    expect(store.list({ reconciliationKey: 'lookup:fill-child' })).toHaveLength(1);
+    const afterRetry = new FileEmsOrderStore(path);
+    expect(afterRetry.get('fill-child')?.execution?.venueOrderId).toBe('v-fill');
+    expect(afterRetry.getByReconciliationKey('lookup:fill-child')?.childOrderId).toBe('group-1/child/fill');
+    expect(afterRetry.list({ reconciliationKey: 'lookup:fill-child' })).toHaveLength(1);
+  });
+
+  it('a failed journal append leaves the outcome-unknown child unrecorded and still propagates', () => {
+    const path = tempStorePath();
+    const store = new FileEmsOrderStore(path);
+    store.record({
+      clientOrderId: 'already',
+      venueId: 'binance-spot',
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      execution: sampleExecution('v-prior'),
+      recordedAtMs: 1,
+    });
+    const child = {
+      clientOrderId: 'parent-1/client/leg-1-0',
+      parentClientOrderId: 'parent-1',
+      executionGroupId: 'group-1',
+      childOrderId: 'group-1/child/leg-1-0',
+      legIndex: 1,
+      venueId: 'bybit-spot',
+      symbol: 'BTC/USDT',
+      side: 'buy' as const,
+      execution: null,
+      state: 'OUTCOME_UNKNOWN' as const,
+      reconciliationKey: 'lookup:parent-1/client/leg-1-0',
+      recordedAtMs: 3,
+    };
+
+    chmodSync(path, 0o444);
+    try {
+      expect(() => store.record(child)).toThrow();
+    } finally {
+      chmodSync(path, 0o644);
+    }
+
+    expect(store.get(child.clientOrderId)).toBeNull();
+    expect(store.getByReconciliationKey(child.reconciliationKey)).toBeNull();
+    expect(store.list().map((row) => row.clientOrderId)).toEqual(['already']);
+    expect(store.list({ reconciliationKey: child.reconciliationKey })).toEqual([]);
+
+    const reloaded = new FileEmsOrderStore(path);
+    expect(reloaded.get(child.clientOrderId)).toBeNull();
+    expect(reloaded.getByReconciliationKey(child.reconciliationKey)).toBeNull();
+    expect(reloaded.list().map((row) => row.clientOrderId)).toEqual(['already']);
+
+    store.record(child);
+    expect(store.get(child.clientOrderId)?.state).toBe('OUTCOME_UNKNOWN');
+    expect(store.get(child.clientOrderId)?.execution).toBeNull();
+    expect(store.getByReconciliationKey(child.reconciliationKey)?.childOrderId).toBe('group-1/child/leg-1-0');
+    expect(store.list({ state: 'OUTCOME_UNKNOWN' }).map((row) => row.clientOrderId)).toEqual([child.clientOrderId]);
+    const afterRetry = new FileEmsOrderStore(path);
+    expect(afterRetry.get(child.clientOrderId)?.state).toBe('OUTCOME_UNKNOWN');
+    expect(afterRetry.get(child.clientOrderId)?.execution).toBeNull();
+    expect(afterRetry.getByReconciliationKey(child.reconciliationKey)?.childOrderId).toBe('group-1/child/leg-1-0');
+    expect(afterRetry.list({ reconciliationKey: child.reconciliationKey })).toHaveLength(1);
   });
 });

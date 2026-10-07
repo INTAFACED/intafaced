@@ -146,8 +146,8 @@ export class FileEmsOrderStore implements EmsOrderStore {
   record(input: Omit<EmsOrderEvidence, 'recordedAtMs'> & { readonly recordedAtMs?: number }): void {
     const ack = normalizeAck(input);
     if (!ack) return;
-    this.byClientOrderId.set(ack.clientOrderId, ack);
     appendFileSync(this.filePath, `${JSON.stringify(toStoredLine(ack))}\n`, 'utf8');
+    this.byClientOrderId.set(ack.clientOrderId, ack);
   }
 
   get(clientOrderId: string): EmsOrderEvidence | null {
