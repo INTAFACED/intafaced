@@ -16,6 +16,16 @@ describe('parseEvmAssets', () => {
   it('refuses a bad address', () => {
     expect(() => parseEvmAssets('USDT:not-an-address:6')).toThrow(/address/i);
   });
+
+  it('refuses a blank decimals scale and keeps the omitted native default', () => {
+    expect(() => parseEvmAssets('ETH:native:')).toThrow(/Native asset "ETH" has invalid decimals/);
+    expect(() => parseEvmAssets('ETH:native:   ')).toThrow(/Native asset "ETH" has invalid decimals/);
+    expect(() => parseEvmAssets('USDT:0x0000000000000000000000000000000000000001:')).toThrow(
+      /Asset "USDT" needs on-chain decimals 0–36/,
+    );
+    expect(parseEvmAssets('ETH:native').get('ETH')).toEqual({ kind: 'native', assetId: 'ETH', decimals: 18 });
+    expect(parseEvmAssets('ETH:native:0').get('ETH')).toEqual({ kind: 'native', assetId: 'ETH', decimals: 0 });
+  });
 });
 
 describe('chain ↔ ledger unit conversion', () => {
