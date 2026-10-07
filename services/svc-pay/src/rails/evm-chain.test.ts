@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Hex } from 'viem';
+import { pad, toHex, type Hex } from 'viem';
 import { parseAmount } from '@intafaced/ledger-client';
 import { MemoryBroadcastStore } from './broadcast-store.js';
 import { MemoryDepositAddressBook } from './deposit-address-book.js';
-import { parseEvmAssets } from './evm-assets.js';
+import { ERC20_TRANSFER_TOPIC, parseEvmAssets } from './evm-assets.js';
 import { EvmLiveChain } from './evm-chain.js';
 
 /**
@@ -40,9 +40,41 @@ function installRpc(
   rpc: {
     getBlockNumber: () => Promise<bigint>;
     getBlock: (args: { blockNumber: bigint }) => Promise<{ number: bigint; transactions: NativeTx[] }>;
+    getLogs?: () => Promise<Erc20Log[]>;
+    getTransactionReceipt?: (args: { hash: Hex }) => Promise<ReceiptStub | null>;
   },
 ): void {
-  (chain as unknown as { public: typeof rpc }).public = rpc;
+  const client = {
+    getLogs: async (): Promise<Erc20Log[]> => [],
+    getTransactionReceipt: async ({ hash }: { hash: Hex }): Promise<ReceiptStub> => ({
+      status: 'success',
+      transactionHash: hash,
+      logs: [],
+    }),
+    ...rpc,
+  };
+  (chain as unknown as { public: typeof client }).public = client;
+}
+
+type Erc20Log = {
+  address: string;
+  blockNumber: bigint;
+  transactionHash: Hex;
+  logIndex: number;
+  topics: readonly [Hex, Hex, Hex];
+  data: Hex;
+};
+
+type ReceiptStub = {
+  status: 'success' | 'reverted';
+  transactionHash: Hex;
+  blockNumber?: bigint;
+  to?: string | null;
+  logs: readonly Erc20Log[];
+};
+
+function addressTopic(address: string): Hex {
+  return pad(address.toLowerCase() as Hex, { size: 32 });
 }
 
 function chainWith(book: MemoryDepositAddressBook): EvmLiveChain {
@@ -140,3 +172,117 @@ describe('EvmLiveChain deposit scan cursor', () => {
     expect(typeof mid?.amount).toBe('bigint');
   });
 });
+
+describe('EvmLiveChain inbound identity', () => {
+  it('keeps every log and does not drain a transfer whose receipt is gone after it would have aged in', async () => {
+    const book = new MemoryDepositAddressBook();
+    const token = '0x00000000000000000000000000000000000000a1';
+    const port = new EvmLiveChain({
+      rpcUrl: 'http://127.0.0.1:9',
+      chainId: 31337,
+      depositMnemonic: MNEMONIC,
+      hotWalletKey: HOT_KEY,
+      assets: parseEvmAssets(`USDC:${token}:18`),
+      broadcasts: new MemoryBroadcastStore(),
+      depositAddresses: book,
+      minConfirmations: 2,
+    });
+    const deposit = await port.acceptanceAddress('pay-l321', 'USDC');
+    const landedBlock = 10n;
+    const firstTip = 10n;
+    const agedTip = 12n;
+    const amountA = parseAmount('1.5');
+    const amountB = parseAmount('2.25');
+    const amountC = parseAmount('0.4');
+    const amountD = parseAmount('9');
+    const txSame = '0x1111111111111111111111111111111111111111111111111111111111111111' as Hex;
+    const txOther = '0x2222222222222222222222222222222222222222222222222222222222222222' as Hex;
+    const txDropped = '0x3333333333333333333333333333333333333333333333333333333333333333' as Hex;
+    const wouldBeConfirmations = Number(agedTip - landedBlock + 1n);
+    expect(wouldBeConfirmations).toBeGreaterThanOrEqual(2);
+
+    const logs: Erc20Log[] = [
+      erc20Log({ token, to: deposit, value: amountA, txHash: txSame, logIndex: 1, blockNumber: landedBlock }),
+      erc20Log({ token, to: deposit, value: amountB, txHash: txSame, logIndex: 2, blockNumber: landedBlock }),
+      erc20Log({ token, to: deposit, value: amountC, txHash: txOther, logIndex: 5, blockNumber: landedBlock }),
+      erc20Log({ token, to: deposit, value: amountD, txHash: txDropped, logIndex: 8, blockNumber: landedBlock }),
+    ];
+    const available = new Set<Hex>([txSame, txOther, txDropped]);
+    let tip = firstTip;
+    const getTransactionReceipt = vi.fn(async ({ hash }: { hash: Hex }): Promise<ReceiptStub | null> => {
+      if (!available.has(hash)) return null;
+      return {
+        status: 'success',
+        transactionHash: hash,
+        blockNumber: landedBlock,
+        logs: logs.filter((log) => log.transactionHash === hash),
+      };
+    });
+    installRpc(port, {
+      getBlockNumber: async () => tip,
+      getBlock: async ({ blockNumber }) => block(blockNumber),
+      getLogs: async () => logs,
+      getTransactionReceipt,
+    });
+
+    await port.refresh();
+
+    const kept = listObserved(port);
+    expect(kept).toHaveLength(4);
+    for (const row of kept) expect(typeof row.amount).toBe('bigint');
+    const sameTx = kept.filter((row) => row.txHash === txSame);
+    expect(sameTx.map((row) => row.logIndex).sort((a, b) => a - b)).toEqual([1, 2]);
+    expect(sameTx.map((row) => row.amount)).toEqual(expect.arrayContaining([amountA, amountB]));
+    expect(sameTx.some((row) => row.amount === amountA + amountB)).toBe(false);
+    expect(kept.some((row) => row.txHash === txOther && row.amount === amountC)).toBe(true);
+    expect(port.drainFinalized()).toEqual([]);
+
+    available.delete(txDropped);
+    tip = agedTip;
+    await port.refresh();
+
+    const drained = port.drainFinalized();
+    expect(getTransactionReceipt.mock.calls.some((call) => call[0]?.hash === txDropped)).toBe(true);
+    expect(drained.map((item) => item.transfer.txHash)).not.toContain(txDropped);
+    expect(drained.map((item) => item.transfer.amount)).not.toContain(amountD);
+    expect(drained).toHaveLength(3);
+    const drainedSame = drained.filter((item) => item.transfer.txHash === txSame);
+    expect(drainedSame).toHaveLength(2);
+    expect(drainedSame.map((item) => item.transfer.amount)).toEqual(expect.arrayContaining([amountA, amountB]));
+    expect(drained.some((item) => item.transfer.txHash === txOther && item.transfer.amount === amountC)).toBe(true);
+    for (const item of drained) {
+      expect(typeof item.transfer.amount).toBe('bigint');
+      expect(item.transfer.confirmations).toBeGreaterThanOrEqual(2);
+    }
+
+    port.markFinalizedEmitted(deposit);
+    const still = port.drainFinalized();
+    expect(still).toHaveLength(2);
+    expect(still.map((item) => item.transfer.amount)).toEqual(expect.arrayContaining([amountB, amountC]));
+    expect(still.map((item) => item.transfer.amount)).not.toContain(amountA);
+    expect(still.map((item) => item.transfer.txHash)).not.toContain(txDropped);
+  });
+});
+
+function erc20Log(input: {
+  token: string;
+  to: string;
+  value: bigint;
+  txHash: Hex;
+  logIndex: number;
+  blockNumber: bigint;
+}): Erc20Log {
+  return {
+    address: input.token,
+    blockNumber: input.blockNumber,
+    transactionHash: input.txHash,
+    logIndex: input.logIndex,
+    topics: [ERC20_TRANSFER_TOPIC, addressTopic(PAYER), addressTopic(input.to)],
+    data: toHex(input.value, { size: 32 }),
+  };
+}
+
+function listObserved(chain: EvmLiveChain): Array<{ txHash: string; amount: bigint; logIndex: number }> {
+  const observed = (chain as unknown as { observed: Map<string, { txHash: string; amount: bigint; logIndex: number }> }).observed;
+  return [...observed.values()];
+}

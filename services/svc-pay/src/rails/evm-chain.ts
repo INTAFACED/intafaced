@@ -97,8 +97,11 @@ interface AddressBookEntry {
 }
 
 interface ObservedInbound extends ConfirmedTransfer {
+  readonly address: Address;
   readonly blockNumber: bigint;
   readonly logIndex: number;
+  /** True only after this refresh re-read a receipt that still contains the transfer. */
+  readonly inReceipt: boolean;
 }
 
 /**
@@ -136,7 +139,9 @@ export class EvmLiveChain implements CryptoChainPort {
 
   private readonly byPayment = new Map<string, AddressBookEntry>();
   private readonly byAddress = new Map<string, AddressBookEntry>();
+  /** One row per address + tx + log. An address holds every inbound. */
   private readonly observed = new Map<string, ObservedInbound>();
+  /** Observation keys already handed to the watcher after webhook 2xx/202. */
   private readonly finalizedEmitted = new Set<string>();
 
   private scanCursor = 0n;
@@ -209,10 +214,13 @@ export class EvmLiveChain implements CryptoChainPort {
   async inboundTransfer(address: string): Promise<ConfirmedTransfer | null> {
     if (!isAddress(address)) return null;
     await this.refresh();
-    const observed = this.observed.get(getAddress(address).toLowerCase());
+    const addr = getAddress(address).toLowerCase();
+    const matches = [...this.observed.values()]
+      .filter((observed) => observed.address.toLowerCase() === addr && observed.inReceipt)
+      .sort(compareObserved);
+    const observed = matches[0];
     if (!observed) return null;
-    const { blockNumber: _b, logIndex: _l, ...transfer } = observed;
-    return transfer;
+    return toTransfer(observed);
   }
 
   async send(request: ChainSendRequest): Promise<{ txHash: string }> {
@@ -288,7 +296,7 @@ export class EvmLiveChain implements CryptoChainPort {
     // already mined. The cursor stays at the lookback until a later refresh
     // has addresses and scans those blocks.
     if (this.byAddress.size === 0) {
-      this.recomputeConfirmations();
+      await this.recomputeConfirmations();
       return;
     }
 
@@ -321,29 +329,53 @@ export class EvmLiveChain implements CryptoChainPort {
     }
 
     await this.scanErc20();
-    this.recomputeConfirmations();
+    await this.recomputeConfirmations();
   }
 
   /**
    * Transfers that have reached `minConfirmations` and have not yet been
    * successfully delivered by the watcher. **Does not mark** — call
    * `markFinalizedEmitted` only after webhook 2xx/202 so a failed POST retries.
+   *
+   * Tip distance is not enough. An observation is omitted when this refresh
+   * did not re-read a receipt that still contains the transfer.
    */
   drainFinalized(): FinalizedInbound[] {
-    const out: FinalizedInbound[] = [];
-    for (const [address, observed] of this.observed) {
-      if (observed.confirmations < this.minConfirmations) continue;
-      if (this.finalizedEmitted.has(address)) continue;
-      const { blockNumber, logIndex, ...transfer } = observed;
-      out.push({ address: getAddress(address), transfer, blockNumber, logIndex });
-    }
-    return out;
+    const ready = [...this.observed.entries()]
+      .filter(([key, observed]) => {
+        if (!observed.inReceipt) return false;
+        if (observed.confirmations < this.minConfirmations) return false;
+        return !this.finalizedEmitted.has(key);
+      })
+      .sort((a, b) => compareObserved(a[1], b[1]));
+    return ready.map(([, observed]) => ({
+      address: getAddress(observed.address),
+      transfer: toTransfer(observed),
+      blockNumber: observed.blockNumber,
+      logIndex: observed.logIndex,
+    }));
   }
 
-  /** Record successful webhook delivery so the address is not re-drained. */
+  /**
+   * Record successful webhook delivery for one inbound at this address.
+   *
+   * The watcher calls this once per drained item, in cursor order. Each call
+   * marks the earliest unmarked finalized inbound so a later log or a later
+   * transaction to the same address is still drained.
+   */
   markFinalizedEmitted(address: string): void {
-    // Keys in `observed` / `finalizedEmitted` are lowercased (see `record`).
-    this.finalizedEmitted.add(address.toLowerCase());
+    const addr = address.toLowerCase();
+    const pending = [...this.observed.entries()]
+      .filter(([key, observed]) => {
+        if (observed.address.toLowerCase() !== addr) return false;
+        if (this.finalizedEmitted.has(key)) return false;
+        if (!observed.inReceipt) return false;
+        return observed.confirmations >= this.minConfirmations;
+      })
+      .sort((a, b) => compareObserved(a[1], b[1]));
+    const first = pending[0];
+    if (!first) return;
+    this.finalizedEmitted.add(first[0]);
   }
 
   /** Test helper — force the scan cursor (e.g. after anvil restart). */
@@ -379,9 +411,12 @@ export class EvmLiveChain implements CryptoChainPort {
     blockNumber: bigint;
     logIndex: number;
   }): void {
-    const key = input.address.toLowerCase();
+    // Same tx and same log updates that one row. A different log index is a
+    // second inbound — its amount stays. A different txHash is recorded too.
+    const key = observationKey(input.address, input.txHash, input.logIndex);
     const confirmations = Number(this.tip - input.blockNumber + 1n);
     const next: ObservedInbound = {
+      address: getAddress(input.address),
       txHash: input.txHash,
       from: getAddress(input.from),
       assetId: input.assetId,
@@ -389,9 +424,8 @@ export class EvmLiveChain implements CryptoChainPort {
       confirmations: confirmations < 0 ? 0 : confirmations,
       blockNumber: input.blockNumber,
       logIndex: input.logIndex,
+      inReceipt: false,
     };
-    const prev = this.observed.get(key);
-    if (prev && prev.txHash !== next.txHash) return;
     this.observed.set(key, next);
   }
 
@@ -447,15 +481,84 @@ export class EvmLiveChain implements CryptoChainPort {
     }
   }
 
-  private recomputeConfirmations(): void {
-    for (const [key, observed] of this.observed) {
-      const confirmations = Number(this.tip - observed.blockNumber + 1n);
+  private async recomputeConfirmations(): Promise<void> {
+    for (const [key, observed] of [...this.observed.entries()]) {
+      const receipt = await this.receiptFor(observed.txHash as Hex);
+      if (!receipt || !this.transferStillInReceipt(observed, receipt)) {
+        // A dropped or reverted transfer must not age in on tip distance.
+        this.observed.set(key, { ...observed, inReceipt: false, confirmations: 0 });
+        continue;
+      }
+      const blockNumber = typeof receipt.blockNumber === 'bigint' ? receipt.blockNumber : observed.blockNumber;
+      const confirmations = Number(this.tip - blockNumber + 1n);
       this.observed.set(key, {
         ...observed,
+        blockNumber,
+        inReceipt: true,
         confirmations: confirmations < 0 ? 0 : confirmations,
       });
     }
   }
+
+  private async receiptFor(txHash: Hex): Promise<Awaited<ReturnType<PublicClient['getTransactionReceipt']>> | null> {
+    try {
+      return (await this.public.getTransactionReceipt({ hash: txHash })) ?? null;
+    } catch {
+      // Missing receipt, or the node did not answer. This refresh has not
+      // seen the transfer, so it must not count as confirmed.
+      return null;
+    }
+  }
+
+  private transferStillInReceipt(
+    observed: ObservedInbound,
+    receipt: Awaited<ReturnType<PublicClient['getTransactionReceipt']>>,
+  ): boolean {
+    if (receipt.status !== 'success') return false;
+    if (receipt.transactionHash.toLowerCase() !== observed.txHash.toLowerCase()) return false;
+    const asset = this.assets.get(observed.assetId);
+    if (!asset) return false;
+    if (asset.kind === 'native') {
+      if (receipt.to && getAddress(receipt.to).toLowerCase() !== observed.address.toLowerCase()) return false;
+      return true;
+    }
+    for (const log of receipt.logs) {
+      if (log.logIndex !== observed.logIndex) continue;
+      if (!log.transactionHash || log.transactionHash.toLowerCase() !== observed.txHash.toLowerCase()) continue;
+      if (log.topics[0]?.toLowerCase() !== ERC20_TRANSFER_TOPIC.toLowerCase()) continue;
+      const toTopic = log.topics[2];
+      if (!toTopic) continue;
+      const to = getAddress(`0x${toTopic.slice(26)}`);
+      if (to.toLowerCase() !== observed.address.toLowerCase()) continue;
+      const value = log.data && log.data !== '0x' ? BigInt(log.data) : 0n;
+      if (fromChainUnits(value, asset.decimals) !== observed.amount) continue;
+      return true;
+    }
+    return false;
+  }
+}
+
+function observationKey(address: string, txHash: string, logIndex: number): string {
+  return `${address.toLowerCase()}:${txHash.toLowerCase()}:${logIndex}`;
+}
+
+/** Same order as the watcher cursor: block, log index, tx hash. */
+function compareObserved(a: ObservedInbound, b: ObservedInbound): number {
+  if (a.blockNumber < b.blockNumber) return -1;
+  if (a.blockNumber > b.blockNumber) return 1;
+  if (a.logIndex !== b.logIndex) return a.logIndex < b.logIndex ? -1 : 1;
+  if (a.txHash.toLowerCase() === b.txHash.toLowerCase()) return 0;
+  return a.txHash.toLowerCase() < b.txHash.toLowerCase() ? -1 : 1;
+}
+
+function toTransfer(observed: ObservedInbound): ConfirmedTransfer {
+  return {
+    txHash: observed.txHash,
+    from: observed.from,
+    assetId: observed.assetId,
+    amount: observed.amount,
+    confirmations: observed.confirmations,
+  };
 }
 
 /** Stable HD slot for a payment and asset. The book, not this function, owns occupancy. */
