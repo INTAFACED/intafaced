@@ -61,9 +61,25 @@ function stringArg(node) {
   return { computed: true };
 }
 
+function memberName(node) {
+  if (ts.isPropertyAccessExpression(node)) return node.name.text;
+  if (ts.isElementAccessExpression(node) && node.argumentExpression && ts.isStringLiteral(node.argumentExpression)) {
+    return node.argumentExpression.text;
+  }
+  return null;
+}
+
+function isRequire(node) {
+  if (ts.isIdentifier(node)) return node.text === 'require';
+  return memberName(node) === 'require' && ts.isIdentifier(node.expression) && node.expression.text === 'module';
+}
+
 /**
  * Runtime dependency facts for one source text.
- * Type-only imports are ignored. Computed import/require forms are unresolved.
+ * Declaration-level type-only imports are ignored. Named types retain their
+ * module load under verbatimModuleSyntax. Computed import/require arguments
+ * are unresolved. Aliased loaders and browser export conditions are outside
+ * this check's scope; the checked entries use explicit import/default exports.
  */
 export function dependencyFacts(source, fileName = 'module.ts') {
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, scriptKind(fileName));
@@ -80,15 +96,17 @@ export function dependencyFacts(source, fileName = 'module.ts') {
       if (!node.isTypeOnly && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
         specifiers.push(node.moduleSpecifier.text);
       }
+    } else if (ts.isImportEqualsDeclaration(node)) {
+      if (!node.isTypeOnly && ts.isExternalModuleReference(node.moduleReference)) {
+        const spec = node.moduleReference.expression;
+        if (spec && ts.isStringLiteral(spec)) specifiers.push(spec.text);
+        else unresolved.push('computed-require');
+      }
     } else if (ts.isCallExpression(node)) {
       const expr = node.expression;
       const dynamicImport = expr.kind === ts.SyntaxKind.ImportKeyword;
-      const requireCall = ts.isIdentifier(expr) && expr.text === 'require';
-      const requireResolve =
-        ts.isPropertyAccessExpression(expr) &&
-        expr.name.text === 'resolve' &&
-        ts.isIdentifier(expr.expression) &&
-        expr.expression.text === 'require';
+      const requireCall = isRequire(expr);
+      const requireResolve = memberName(expr) === 'resolve' && isRequire(expr.expression);
       if (dynamicImport || requireCall || requireResolve) {
         const got = stringArg(node);
         if (got.spec) specifiers.push(got.spec);
