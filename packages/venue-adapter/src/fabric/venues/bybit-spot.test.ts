@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
-import { VenueCapabilityError, VenueCredentialsMissingError, VenueUnavailableError } from '@intafaced/venue-contracts';
+import { VenueCapabilityError, VenueCredentialsMissingError, VenueDecimalError, VenueUnavailableError } from '@intafaced/venue-contracts';
 import {
   BYBIT_IP_BACKOFF_MS,
   BybitSpotAccount,
@@ -1151,7 +1151,7 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
   });
 
   // Coin rows are the wallet-balance body. No live Bybit call.
-  it('a blank availableToWithdraw does not win over a real free or availableToTrade decimal', () => {
+  it('a deprecated spot free field does not replace the unified wallet', () => {
     const now = new Date('2026-10-07T00:00:00.000Z');
     const [fromFree] = mapBybitSpotCoins(
       [{ coin: 'USDT', walletBalance: '100', locked: '10', availableToWithdraw: '', free: '40' }],
@@ -1161,7 +1161,7 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
     expect(typeof fromFree!.free).toBe('bigint');
     expect(typeof fromFree!.used).toBe('bigint');
     expect(typeof fromFree!.total).toBe('bigint');
-    expect(formatAmount(fromFree!.free)).toBe('40');
+    expect(formatAmount(fromFree!.free)).toBe('90');
     expect(formatAmount(fromFree!.used)).toBe('10');
     expect(formatAmount(fromFree!.total)).toBe('100');
 
@@ -1170,17 +1170,17 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
       now,
     );
     expect(typeof fromTrade!.free).toBe('bigint');
-    expect(formatAmount(fromTrade!.free)).toBe('1.25');
+    expect(formatAmount(fromTrade!.free)).toBe('1.5');
     expect(formatAmount(fromTrade!.used)).toBe('0.5');
     expect(formatAmount(fromTrade!.total)).toBe('2');
   });
 
-  it('a real availableToWithdraw decimal stays the free balance', () => {
+  it('a transferable amount does not become the unified free balance', () => {
     const now = new Date('2026-10-07T00:00:00.000Z');
     const rows = mapBybitSpotCoins(
       [
-        { coin: 'USDT', walletBalance: '100', locked: '10', availableToWithdraw: '90', free: '1', availableToTrade: '2' },
-        { coin: 'ETH', walletBalance: '5', locked: '5', availableToWithdraw: '0', free: '5' },
+        { coin: 'USDT', walletBalance: '100', locked: '10', availableToWithdraw: '40', free: '1', availableToTrade: '2' },
+        { coin: 'ETH', walletBalance: '5', locked: '1', availableToWithdraw: '0', free: '5' },
       ],
       now,
     );
@@ -1188,32 +1188,30 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
     expect(formatAmount(rows[0]!.free)).toBe('90');
     expect(formatAmount(rows[0]!.used)).toBe('10');
     expect(formatAmount(rows[0]!.total)).toBe('100');
-    expect(formatAmount(rows[1]!.free)).toBe('0');
-    expect(formatAmount(rows[1]!.used)).toBe('5');
+    expect(formatAmount(rows[1]!.free)).toBe('4');
+    expect(formatAmount(rows[1]!.used)).toBe('1');
     expect(formatAmount(rows[1]!.total)).toBe('5');
   });
 
-  it('refuses a coin when withdraw, free, and availableToTrade are blank', () => {
+  it('refuses a blank or non-decimal unified wallet amount', () => {
     const now = new Date('2026-10-07T00:00:00.000Z');
-    const blankWithdraw = [{ coin: 'USDT', walletBalance: '100', locked: '10', availableToWithdraw: '' }];
+    expect(() => mapBybitSpotCoins([{ coin: 'USDT', walletBalance: '', locked: '10' }], now)).toThrow(VenueDecimalError);
+    expect(() => mapBybitSpotCoins([{ coin: 'USDT', walletBalance: '100', locked: '' }], now)).toThrow(VenueDecimalError);
+    expect(() => mapBybitSpotCoins([{ coin: 'USDT', walletBalance: 'nope', locked: '10' }], now)).toThrow(VenueDecimalError);
+    expect(() => mapBybitSpotCoins([{ coin: 'USDT', walletBalance: '100', locked: 'nope' }], now)).toThrow(VenueDecimalError);
+    expect(() => mapBybitSpotCoins([{ coin: 'USDT', walletBalance: 100, locked: '0' }], now)).toThrow(VenueDecimalError);
+    expect(() => mapBybitSpotCoins([{ coin: 'USDT', walletBalance: '100', locked: 10 }], now)).toThrow(VenueDecimalError);
+    expect(() => mapBybitSpotCoins([{ coin: 'USDT', walletBalance: '100' }], now)).toThrow(VenueDecimalError);
+    expect(() => mapBybitSpotCoins([{ coin: 'USDT', locked: '1' }], now)).toThrow(VenueDecimalError);
+    expect(() => mapBybitSpotCoins([{ coin: 'USDT', walletBalance: null, locked: '0' }], now)).toThrow(VenueDecimalError);
     try {
-      mapBybitSpotCoins(blankWithdraw, now);
-      expect.unreachable('blank withdraw should have refused');
+      mapBybitSpotCoins([{ coin: 'USDT', walletBalance: '1', locked: '2', availableToWithdraw: '1' }], now);
+      expect.unreachable('locked above wallet should have refused');
     } catch (error) {
       expect(error).toBeInstanceOf(VenueUnavailableError);
       expect((error as VenueUnavailableError).venueId).toBe('bybit-spot');
       expect((error as VenueUnavailableError).reason).toBe('malformed');
     }
-    expect(() => mapBybitSpotCoins([{ coin: 'USDT', walletBalance: '100', locked: '0' }], now)).toThrow(VenueUnavailableError);
-    expect(() =>
-      mapBybitSpotCoins(
-        [{ coin: 'USDT', walletBalance: '100', locked: '10', availableToWithdraw: '', free: '', availableToTrade: '' }],
-        now,
-      ),
-    ).toThrow(VenueUnavailableError);
-    expect(() =>
-      mapBybitSpotCoins([{ coin: 'USDT', walletBalance: '100', locked: '10', availableToWithdraw: null, free: null }], now),
-    ).toThrow(VenueUnavailableError);
   });
 
   it('spot positions is [] — honest empty, not not_ready', async () => {

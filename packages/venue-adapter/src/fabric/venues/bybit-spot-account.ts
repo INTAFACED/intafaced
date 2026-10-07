@@ -1,3 +1,4 @@
+import { sub } from '@intafaced/ledger-client/money';
 import { readDecimal, requireCredentials, VenueUnavailableError } from '@intafaced/venue-contracts';
 import type { AccountAdapter, VenueBalance, VenueCredentials, VenueDescriptor } from '@intafaced/venue-contracts';
 import { fetchHttpPort, type HttpPort } from '../transport.js';
@@ -19,17 +20,6 @@ const VENUE: VenueDescriptor = {
 
 const TRANSFER_RAILS_REFUSED =
   'transferRails is not called: Bybit coin-info / withdraw endpoints are wallet-scoped and connect keys must be trade-only (§27).';
-
-const FREE_FIELDS = ['availableToWithdraw', 'free', 'availableToTrade'] as const;
-
-function readBybitSpotFree(rec: Record<string, unknown>, index: number) {
-  for (const field of FREE_FIELDS) {
-    const value = rec[field];
-    if (value === undefined || value === null || value === '') continue;
-    return readDecimal(value, VENUE.id, field);
-  }
-  throw new VenueUnavailableError(VENUE.id, 'malformed', `coin[${index}] available balance is blank`);
-}
 
 function encodeQuery(params: Readonly<Record<string, string>>): string {
   return Object.keys(params)
@@ -54,9 +44,16 @@ export function mapBybitSpotCoins(coin: unknown, now: Date): VenueBalance[] {
       throw new VenueUnavailableError(VENUE.id, 'malformed', `coin[${i}] is not an object`);
     }
     const rec = row as Record<string, unknown>;
+    // availableToWithdraw is the deprecated transferable amount. `free` is the
+    // gone spot wallet. A unified coin is the wallet and locked amounts the
+    // venue reported. A blank or non-decimal of either refuses; neither field
+    // is defaulted, and the transferable amount is not the free balance.
     const total = readDecimal(rec.walletBalance, VENUE.id, 'walletBalance');
-    const used = readDecimal(rec.locked ?? '0', VENUE.id, 'locked');
-    const free = readBybitSpotFree(rec, i);
+    const used = readDecimal(rec.locked, VENUE.id, 'locked');
+    if (used > total) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', `coin[${i}] locked exceeds walletBalance`);
+    }
+    const free = sub(total, used);
     return {
       venueId: VENUE.id,
       asset: String(rec.coin ?? ''),
