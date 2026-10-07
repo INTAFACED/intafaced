@@ -48,4 +48,36 @@ describe('S-L6 venue key permissions — refuse at registration', () => {
     expect(withdrawalPermissionHits({ scopes: ['spot', 'trade', 'read', 'order'] })).toEqual([]);
     expect(() => assertTradeOnly({ scopes: ['spot', 'trade', 'read', 'order'] })).not.toThrow();
   });
+
+  it('refuses a string or other non-array scopes value before the character walk', () => {
+    const assertRefused = (scopes: unknown) => {
+      const permissions = { scopes } as unknown as Parameters<typeof assertTradeOnly>[0];
+      expect(() => assertTradeOnly(permissions)).toThrow(WithdrawalPermissionRefusedError);
+      expect(() => withdrawalPermissionHits(permissions)).toThrow(WithdrawalPermissionRefusedError);
+      try {
+        assertTradeOnly(permissions);
+      } catch (err) {
+        expect(err).toBeInstanceOf(WithdrawalPermissionRefusedError);
+        expect((err as WithdrawalPermissionRefusedError).code).toBe('venue_vault.withdrawal_permission_refused');
+      }
+    };
+
+    assertRefused('withdraw');
+    assertRefused(JSON.parse('{"scopes":"withdraw"}').scopes);
+    assertRefused(null);
+    assertRefused({ withdraw: true });
+
+    expect(() => assertTradeOnly({ scopes: ['spot', 'trade', 'read', 'order'] })).not.toThrow();
+    for (const scope of [
+      'universal_transfer',
+      'internal_transfer',
+      'universal-transfer',
+      'internal-transfer',
+      'funds_out',
+      'enableUniversalTransfer',
+    ]) {
+      expect(withdrawalPermissionHits({ scopes: [scope] })).toEqual([`scope:${scope}`]);
+      expect(() => assertTradeOnly({ scopes: [scope] })).toThrow(WithdrawalPermissionRefusedError);
+    }
+  });
 });

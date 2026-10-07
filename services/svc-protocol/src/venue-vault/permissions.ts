@@ -25,6 +25,10 @@ export class WithdrawalPermissionRefusedError extends Error {
 }
 
 export function withdrawalPermissionHits(permissions: VenueKeyPermissions): string[] {
+  // A string is iterable. Refuse it before for...of yields characters.
+  if (!Array.isArray(permissions.scopes)) {
+    throw new WithdrawalPermissionRefusedError('scopes');
+  }
   const hits: string[] = [];
   for (const scope of permissions.scopes) {
     if (WITHDRAW_TOKEN.test(scope)) hits.push(`scope:${scope}`);
