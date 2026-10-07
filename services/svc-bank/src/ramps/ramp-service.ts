@@ -327,70 +327,80 @@ export class RampService {
         assetId: input.assetId,
         coolingHours: String(coolingHours),
       },
-      async () => {
-        const claimed = await this.claimOfframp({ ...input, rail, destinationRef: dest.ref });
+      () =>
+        this.withOfframpLock(input.offrampId, async () => {
+          const claimed = await this.claimOfframp({ ...input, rail, destinationRef: dest.ref });
 
-        if (claimed.status === 'settled') return claimed;
-        if (claimed.status === 'rejected') {
-          throw new BankError(claimed.rejectionCode ?? 'Off-ramp previously rejected', 'bank.ramp_conflict');
-        }
+          if (claimed.status === 'settled') return claimed;
+          if (claimed.status === 'rejected') {
+            throw new BankError(claimed.rejectionCode ?? 'Off-ramp previously rejected', 'bank.ramp_conflict');
+          }
 
-        // Resume path: hold already posted, settle still needed.
-        let holdTxId = claimed.holdLedgerTxId;
-        if (!holdTxId) {
-          try {
-            const held = await this.ledger.post(
-              recipes.withdrawHold({
-                userId: claimed.userId,
-                assetId: claimed.assetId,
-                amount: claimed.amount,
-                rail: claimed.rail,
-                withdrawalId: claimed.id,
-              }),
-            );
-            holdTxId = held.id;
-            await this.sql`
+          // Resume path: hold already posted, settle still needed.
+          let holdTxId = claimed.holdLedgerTxId;
+          if (!holdTxId) {
+            try {
+              const held = await this.ledger.post(
+                recipes.withdrawHold({
+                  userId: claimed.userId,
+                  assetId: claimed.assetId,
+                  amount: claimed.amount,
+                  rail: claimed.rail,
+                  withdrawalId: claimed.id,
+                }),
+              );
+              holdTxId = held.id;
+            } catch (err) {
+              if (err instanceof InsufficientFundsError) {
+                await this.rejectOfframp(claimed.id, 'ledger.insufficient_funds');
+                throw err;
+              }
+              if (err instanceof LedgerError) throw err;
+              throw err;
+            }
+
+            const stamped = await this.sql<Array<{ id: string }>>`
               UPDATE bank.ramp_offramps
                  SET hold_ledger_tx_id = ${holdTxId}
                WHERE id = ${claimed.id} AND status = 'pending'
+               RETURNING id
             `;
-          } catch (err) {
-            if (err instanceof InsufficientFundsError) {
-              await this.rejectOfframp(claimed.id, 'ledger.insufficient_funds');
-              throw err;
+            if (stamped.length === 0) {
+              throw new BankError('Off-ramp hold did not claim the pending row', 'bank.ramp_conflict');
             }
-            if (err instanceof LedgerError) throw err;
-            throw err;
           }
-        }
 
-        const settled = await this.ledger.post(
-          recipes.withdrawSettle({
-            userId: claimed.userId,
-            assetId: claimed.assetId,
-            amount: claimed.amount,
-            rail: claimed.rail,
-            withdrawalId: claimed.id,
-          }),
-        );
+          const settled = await this.ledger.post(
+            recipes.withdrawSettle({
+              userId: claimed.userId,
+              assetId: claimed.assetId,
+              amount: claimed.amount,
+              rail: claimed.rail,
+              withdrawalId: claimed.id,
+            }),
+          );
 
-        await this.sql`
-          UPDATE bank.ramp_offramps
-             SET status = 'settled',
-                 hold_ledger_tx_id = ${holdTxId},
-                 settle_ledger_tx_id = ${settled.id},
-                 settled_at = now()
-           WHERE id = ${claimed.id} AND status = 'pending'
-        `;
+          const wrote = await this.sql<Array<{ id: string }>>`
+            UPDATE bank.ramp_offramps
+               SET status = 'settled',
+                   hold_ledger_tx_id = ${holdTxId},
+                   settle_ledger_tx_id = ${settled.id},
+                   settled_at = now()
+             WHERE id = ${claimed.id} AND status = 'pending'
+             RETURNING id
+          `;
+          if (wrote.length === 0) {
+            throw new BankError('Off-ramp settle did not claim the pending row', 'bank.ramp_conflict');
+          }
 
-        return {
-          ...claimed,
-          status: 'settled',
-          holdLedgerTxId: holdTxId,
-          settleLedgerTxId: settled.id,
-          settledAt: new Date(),
-        };
-      },
+          return {
+            ...claimed,
+            status: 'settled',
+            holdLedgerTxId: holdTxId,
+            settleLedgerTxId: settled.id,
+            settledAt: new Date(),
+          };
+        }),
     );
   }
 
@@ -550,6 +560,32 @@ export class RampService {
       }
       return existing;
     });
+  }
+
+  /**
+   * One offramp at a time, from the claim through withdrawHold and withdrawSettle.
+   *
+   * The claim's FOR UPDATE ends when that transaction commits, which is before
+   * the posts. This session lock is still held while those posts run, so a
+   * second caller cannot settle a row this caller rejects.
+   *
+   * `pg_advisory_lock` is session-scoped. The connection stays reserved so
+   * unlock hits the session that took the lock.
+   */
+  private async withOfframpLock<T>(offrampId: string, body: () => Promise<T>): Promise<T> {
+    const reserved = await this.sql.reserve();
+    let locked = false;
+    try {
+      await reserved`SELECT pg_advisory_lock(hashtext('bank.ramp.offramp'), hashtext(${offrampId}))`;
+      locked = true;
+      return await body();
+    } finally {
+      try {
+        if (locked) await reserved`SELECT pg_advisory_unlock(hashtext('bank.ramp.offramp'), hashtext(${offrampId}))`;
+      } finally {
+        reserved.release();
+      }
+    }
   }
 
   private async rejectOfframp(id: string, code: string): Promise<void> {
