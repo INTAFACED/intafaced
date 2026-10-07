@@ -277,8 +277,18 @@ fn self_trade_prevention() -> String {
     "self_trade_prevention: a taker and a resting maker with the same account do not trade; the engine does not invent a self-fill".into()
 }
 
+fn known_tif(tif: &str) -> bool {
+    matches!(tif, "GTC" | "IOC" | "FOK" | "PO" | "GTD" | "GTT")
+}
+
+/// A remainder rests only for a known resting time in force. IOC and FOK do not.
+/// Blank and unknown are refused before this, so they neither take nor rest.
+fn may_rest(tif: &str) -> bool {
+    matches!(tif, "GTC" | "PO" | "GTD" | "GTT")
+}
+
 fn taker_would_rest(order: &Order, remaining: u128) -> bool {
-    remaining > 0 && order.tif != "IOC" && order.tif != "FOK"
+    remaining > 0 && may_rest(&order.tif)
 }
 
 /// Later makers the fill walk will not trade. Book order is price-time, so the first non-cross ends the scan.
@@ -373,6 +383,9 @@ impl Book {
             return Err(format!("unsupported order type: {kind}"));
         }
 
+        if !known_tif(&order.tif) {
+            return Err("invalid_tif: time in force is blank or unknown; the engine does not invent a fill or a price".into());
+        }
         if order.tif == "GTD" || order.tif == "GTT" {
             if blank(&order.expireAt) {
                 return Err("missing_expire_at: GTD/GTT requires expireAt; the engine does not invent one".into());
@@ -529,8 +542,25 @@ impl Book {
         Ok(clips)
     }
 
+    fn would_cross(&self, side: &str, price: u128) -> Result<bool, String> {
+        let opposite = if side == "buy" { &self.asks } else { &self.bids };
+        let Some(best) = opposite.first() else {
+            return Ok(false);
+        };
+        let maker = parse_amount(best.order.price.as_deref().unwrap_or(""))?;
+        Ok(crosses(side, price, maker))
+    }
+
     fn match_rest(&mut self, order: Order, qty: u128, price: u128, display: Option<u128>) -> Result<(), String> {
-        let clips = self.plan_take(&order, price, qty, display)?;
+        // Post-only never takes. A crossing limit is refused before any print.
+        let clips = if order.tif == "PO" {
+            if self.would_cross(&order.side, price)? {
+                return Err("post_only_would_cross: post-only order would take liquidity".into());
+            }
+            Vec::new()
+        } else {
+            self.plan_take(&order, price, qty, display)?
+        };
         let covered: u128 = clips.iter().map(|c| c.qty).sum();
         if order.tif == "FOK" && covered < qty {
             return Ok(());
@@ -585,7 +615,7 @@ impl Book {
             }
         }
         self.sequence += 1;
-        if remaining > 0 && order.tif != "IOC" && order.tif != "FOK" {
+        if remaining > 0 && may_rest(&order.tif) {
             let side = order.side.clone();
             let live = Live {
                 display_peak: display,
@@ -636,9 +666,10 @@ impl Book {
                 continue;
             }
             // The print that armed this stop is already on the book. A stop that would
-            // cross its own resting order is dropped, and that refusal does not unwind the print.
+            // cross its own resting order, or a post-only stop that would take, is dropped.
+            // That refusal does not unwind the print.
             match self.match_rest(stop.order, qty, price, display) {
-                Err(err) if err.starts_with("self_trade_prevention") => {}
+                Err(err) if err.starts_with("self_trade_prevention") || err.starts_with("post_only_would_cross") => {}
                 other => other?,
             }
         }
@@ -1366,5 +1397,201 @@ mod tests {
         let err = book.submit(stop("zero-stop", "sell", "1", Some("0"))).unwrap_err();
         assert!(err.contains("invalid_price") && err.contains("strictly positive"), "{err}");
         assert_eq!(serde_json::to_value(book.state()).unwrap(), with_bid);
+    }
+
+    fn priced(id: &str, account: &str, side: &str, qty: &str, price: &str, tif: &str) -> Order {
+        let mut order = limit(id, side, qty, tif);
+        order.accountId = account.into();
+        order.price = Some(price.into());
+        order
+    }
+
+    #[test]
+    fn post_only_that_would_cross_prints_nothing_and_rests_nothing() {
+        let ask = priced("ask", "mm", "sell", "2", "99.10", "GTC");
+        let mut book = Book { market: "BTC/USDT".into(), ..Book::default() };
+        book.submit(ask.clone()).unwrap();
+        let before = serde_json::to_value(book.state()).unwrap();
+        assert!(before["lastTradePrice"].is_null());
+        assert_eq!(before["asks"][0]["orders"][0]["remaining"], "2");
+
+        for (id, price) in [("po-eq", "99.1"), ("po-through", "100"), ("po-padded", "99.10")] {
+            let buy = priced(id, "desk", "buy", "5", price, "PO");
+            let err = book.submit(buy.clone()).unwrap_err();
+            assert!(err.starts_with("post_only_would_cross"), "{price}: {err}");
+            assert_eq!(serde_json::to_value(book.state()).unwrap(), before, "{price}");
+            let err = replay_orders(&[ask.clone(), buy]).unwrap_err();
+            assert!(err.starts_with("post_only_would_cross"), "replay {price}: {err}");
+        }
+
+        let mut bid_book = Book { market: "BTC/USDT".into(), ..Book::default() };
+        let bid = priced("bid", "desk", "buy", "2", "100.10", "GTC");
+        bid_book.submit(bid.clone()).unwrap();
+        let bid_before = serde_json::to_value(bid_book.state()).unwrap();
+        let sell = priced("po-sell", "mm", "sell", "5", "100.1", "PO");
+        let err = bid_book.submit(sell.clone()).unwrap_err();
+        assert!(err.starts_with("post_only_would_cross"), "{err}");
+        assert_eq!(serde_json::to_value(bid_book.state()).unwrap(), bid_before);
+        assert!(bid_before["lastTradePrice"].is_null());
+        assert!(bid_before["bids"][0]["orders"][0]["remaining"] == "2");
+        let err = replay_orders(&[bid, sell]).unwrap_err();
+        assert!(err.starts_with("post_only_would_cross"), "{err}");
+    }
+
+    #[test]
+    fn post_only_that_would_not_cross_rests_and_does_not_take() {
+        let ask = priced("ask", "mm", "sell", "2", "100.50", "GTC");
+        let buy = priced("po", "desk", "buy", "1", "100.49", "PO");
+        let state = replay_orders(&[ask, buy]).unwrap();
+        assert_eq!(state.lastTradePrice, None);
+        assert_eq!(state.asks.len(), 1);
+        assert_eq!(state.asks[0].orders[0].orderId, "ask");
+        assert_eq!(state.asks[0].orders[0].remaining, "2");
+        assert_eq!(state.bids.len(), 1);
+        assert_eq!(state.bids[0].price, "100.49");
+        assert_eq!(state.bids[0].orders[0].orderId, "po");
+        assert_eq!(state.bids[0].orders[0].remaining, "1");
+
+        let mut book = Book { market: "BTC/USDT".into(), ..Book::default() };
+        book.submit(priced("alone", "desk", "sell", "1", "101", "PO")).unwrap();
+        let alone = book.state();
+        assert_eq!(alone.lastTradePrice, None);
+        assert!(alone.bids.is_empty());
+        assert_eq!(alone.asks[0].orders[0].orderId, "alone");
+        assert_eq!(alone.asks[0].orders[0].remaining, "1");
+
+        let bid = priced("bid", "desk", "buy", "2", "100", "GTC");
+        let sell = priced("po-sell", "mm", "sell", "1", "100.01", "PO");
+        let behind = replay_orders(&[bid, sell]).unwrap();
+        assert_eq!(behind.lastTradePrice, None);
+        assert_eq!(behind.bids[0].orders[0].remaining, "2");
+        assert_eq!(behind.asks[0].price, "100.01");
+        assert_eq!(behind.asks[0].orders[0].orderId, "po-sell");
+        assert_eq!(behind.asks[0].orders[0].remaining, "1");
+    }
+
+    #[test]
+    fn post_only_same_account_cross_prints_nothing() {
+        let ask = priced("ask", "mm", "sell", "2", "100", "GTC");
+        let mut book = Book { market: "BTC/USDT".into(), ..Book::default() };
+        book.submit(ask.clone()).unwrap();
+        let before = serde_json::to_value(book.state()).unwrap();
+        let buy = priced("po", "mm", "buy", "2", "100", "PO");
+        let err = book.submit(buy.clone()).unwrap_err();
+        assert!(err.starts_with("post_only_would_cross"), "{err}");
+        assert_eq!(serde_json::to_value(book.state()).unwrap(), before);
+        assert!(before["lastTradePrice"].is_null());
+        let err = replay_orders(&[ask, buy]).unwrap_err();
+        assert!(err.starts_with("post_only_would_cross"), "{err}");
+    }
+
+    #[test]
+    fn blank_or_unknown_tif_does_not_take_or_rest() {
+        let ask = priced("ask", "mm", "sell", "2", "100", "GTC");
+        let mut book = Book { market: "BTC/USDT".into(), ..Book::default() };
+        book.submit(ask.clone()).unwrap();
+        let before = serde_json::to_value(book.state()).unwrap();
+        assert_eq!(before["sequence"], 1);
+        assert!(before["lastTradePrice"].is_null());
+
+        for tif in ["", "   ", "DAY", "gtc", "po", "GTC "] {
+            let buy = priced("bad", "desk", "buy", "2", "100", tif);
+            let err = book.submit(buy.clone()).unwrap_err();
+            assert!(err.starts_with("invalid_tif"), "{tif:?}: {err}");
+            assert!(err.contains("does not invent a fill or a price"), "{tif:?}: {err}");
+            assert_eq!(serde_json::to_value(book.state()).unwrap(), before, "{tif:?}");
+            let err = replay_orders(&[ask.clone(), buy]).unwrap_err();
+            assert!(err.starts_with("invalid_tif"), "replay {tif:?}: {err}");
+        }
+
+        let mut empty = Book { market: "BTC/USDT".into(), ..Book::default() };
+        let err = empty.submit(priced("rest", "desk", "buy", "1", "99", "DAY")).unwrap_err();
+        assert!(err.starts_with("invalid_tif"), "{err}");
+        let state = empty.state();
+        assert_eq!(state.sequence, 0);
+        assert!(state.bids.is_empty());
+        assert!(state.asks.is_empty());
+        assert_eq!(state.lastTradePrice, None);
+    }
+
+    #[test]
+    fn ioc_does_not_rest_a_remainder() {
+        let ask = priced("ask", "mm", "sell", "2", "100", "GTC");
+        let buy = priced("ioc", "desk", "buy", "5", "100", "IOC");
+        let state = replay_orders(&[ask, buy]).unwrap();
+        assert_eq!(state.lastTradePrice.as_deref(), Some("100"));
+        assert!(state.asks.is_empty());
+        assert!(state.bids.is_empty());
+    }
+
+    #[test]
+    fn gtd_and_gtt_still_require_a_future_expire_at() {
+        for tif in ["GTD", "GTT"] {
+            let mut book = Book { market: "BTC/USDT".into(), ..Book::default() };
+            let err = book.submit_at(priced("open", "desk", "buy", "1", "100", tif), Some(AT)).unwrap_err();
+            assert!(err.starts_with("missing_expire_at"), "{tif}: {err}");
+            assert_eq!(book.state().sequence, 0);
+            assert!(book.state().bids.is_empty());
+            assert_eq!(book.state().lastTradePrice, None);
+
+            let mut expired = priced("expired", "desk", "buy", "1", "100", tif);
+            expired.expireAt = Some(AT.into());
+            let err = book.submit_at(expired.clone(), Some(AT)).unwrap_err();
+            assert!(err.starts_with("already_expired"), "{tif}: {err}");
+            assert_eq!(book.state().sequence, 0, "{tif}");
+            let err = replay_orders(&[expired]).unwrap_err();
+            assert!(err.starts_with("already_expired"), "replay {tif}: {err}");
+
+            let mut past = priced("past", "desk", "buy", "1", "100", tif);
+            past.expireAt = Some("2026-01-01T00:00:00.000Z".into());
+            let err = book.submit_at(past, Some(AT)).unwrap_err();
+            assert!(err.starts_with("already_expired"), "{tif}: {err}");
+            assert_eq!(book.state().sequence, 0, "{tif}");
+        }
+    }
+
+    #[test]
+    fn replay_drops_gtd_and_gtt_when_the_deadline_has_passed() {
+        for tif in ["GTD", "GTT"] {
+            let mut buy = priced("buy", "desk", "buy", "1", "100", tif);
+            buy.expireAt = Some("2026-01-01T00:00:02.000Z".into());
+            let sell = priced("sell", "mm", "sell", "1", "100", "GTC");
+            let state = replay_orders(&[buy, sell]).unwrap();
+            assert_eq!(state.lastTradePrice, None, "{tif}");
+            assert!(state.bids.is_empty(), "{tif}");
+            assert_eq!(state.asks.len(), 1, "{tif}");
+            assert_eq!(state.asks[0].orders[0].orderId, "sell");
+            assert_eq!(state.asks[0].orders[0].remaining, "1");
+        }
+
+        let mut live = priced("live", "desk", "buy", "1", "100", "GTD");
+        live.expireAt = Some("2026-01-01T00:00:05.000Z".into());
+        let sell = priced("sell", "mm", "sell", "1", "100", "GTC");
+        let traded = replay_orders(&[live, sell]).unwrap();
+        assert_eq!(traded.lastTradePrice.as_deref(), Some("100"));
+        assert!(traded.bids.is_empty());
+        assert!(traded.asks.is_empty());
+    }
+
+    #[test]
+    fn different_account_trade_stays_when_a_triggered_post_only_stop_would_cross() {
+        let desk_ask = priced("desk-ask", "desk", "sell", "5", "100", "GTC");
+        let mut alice = priced("alice-ask", "alice", "sell", "1", "90", "GTC");
+        alice.price = Some("90".into());
+        let mut stop = priced("mm-stop", "mm", "buy", "1", "100", "PO");
+        stop.kind = "stop_limit".into();
+        stop.stopPrice = Some("90".into());
+        let mut bob = priced("bob-bid", "bob", "buy", "1", "90", "GTC");
+        bob.price = Some("90".into());
+
+        let state = replay_orders(&[desk_ask, alice, stop, bob]).unwrap();
+        assert_eq!(state.sequence, 5);
+        assert_eq!(state.lastTradePrice.as_deref(), Some("90"));
+        assert!(state.bids.is_empty());
+        assert!(state.stops.is_empty());
+        assert_eq!(state.asks.len(), 1);
+        assert_eq!(state.asks[0].price, "100");
+        assert_eq!(state.asks[0].orders[0].orderId, "desk-ask");
+        assert_eq!(state.asks[0].orders[0].remaining, "5");
     }
 }
