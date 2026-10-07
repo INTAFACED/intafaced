@@ -180,6 +180,9 @@ export class BinanceSpotTrade implements TradeAdapter {
     if (request.type === 'market' && request.price !== undefined) {
       throw new VenueUnavailableError(VENUE.id, 'malformed', 'market order must not carry price');
     }
+    if (request.type === 'market' && request.postOnly) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', 'market order must not set postOnly');
+    }
     const params: Record<string, string> = {
       symbol: venueSymbolOf(request.symbol),
       side: request.side.toUpperCase(),
