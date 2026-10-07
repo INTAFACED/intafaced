@@ -43,6 +43,11 @@ export type AffiliatePayoutRefuseCode =
   | 'affiliate.payout.self_referral'
   /** Operator froze the beneficiary after accrual. */
   | 'affiliate.payout.beneficiary_frozen'
+  /**
+   * Caller omitted the freeze roster. An explicit empty set means the caller
+   * checked and nobody is frozen; omission is not that check.
+   */
+  | 'affiliate.payout.freeze_roster_required'
   /** Fan-out spans more than one asset — sum-to-zero is per asset. */
   | 'affiliate.payout.mixed_asset'
   /**

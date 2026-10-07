@@ -208,6 +208,12 @@ export function planAffiliatePayout(input: {
   readonly feeEventId: string;
   readonly rows: readonly CommissionRow[];
   readonly law: AccrualTierLaw;
+  /**
+   * Who is frozen. Required at the call. An explicit empty set means the
+   * caller checked and nobody is frozen. Omitting the set is not that check:
+   * the planner refuses and pays nobody, so a freeze applied after accrual
+   * cannot be skipped by silence.
+   */
   readonly frozenBeneficiaryIds?: ReadonlySet<string>;
   readonly maxTierDepth?: number;
   /**
@@ -236,7 +242,16 @@ export function planAffiliatePayout(input: {
   }
 
   const asset = input.rows[0]!.asset;
-  const frozen = input.frozenBeneficiaryIds ?? new Set<string>();
+  // A freeze applied after accrual must stop the money. Defaulting a missing
+  // roster to an empty set would pay every accrual row. An explicit empty set
+  // is the caller saying they checked and nobody is frozen.
+  if (input.frozenBeneficiaryIds === undefined) {
+    refuse(
+      `Fee event ${feeEventId} has no freeze roster — refusing to pay accruals when the caller did not say who is frozen`,
+      'affiliate.payout.freeze_roster_required',
+    );
+  }
+  const frozen = input.frozenBeneficiaryIds;
   const legs: AffiliatePayoutLeg[] = [];
   const seen = new Set<string>();
   const beneficiaries = new Set<string>();
