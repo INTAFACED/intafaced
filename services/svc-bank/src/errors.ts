@@ -141,6 +141,12 @@ export type BankErrorCode =
   /** Liquidation needs a funded counterparty and there is none. */
   | 'bank.no_liquidation_counterparty'
   /**
+   * Collateral is marked in the quote asset and the debt is a different asset.
+   * Booking mark × quantity as debt would invent a conversion. Seizure refuses
+   * before any ledger post. A same-asset quote may still sell at the mark.
+   */
+  | 'bank.loan_seizure_cross_asset'
+  /**
    * Collateral was exhausted without clearing the debt AND the insurance fund
    * could not cover it. The loudest code in this file.
    */

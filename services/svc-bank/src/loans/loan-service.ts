@@ -1536,9 +1536,7 @@ export class LoanService {
     // 0. Once the collateral is gone the ladder has nothing to sell and would
     // return here without finishing that rung, so the shortfall would never be
     // booked. Finish the stored sale. Do not plan another one.
-    const postedPending = await this.sql<
-      Array<{ ltv_bps: number; grace_waived: boolean; collateral_sold: string }>
-    >`
+    const postedPending = await this.sql<Array<{ ltv_bps: number; grace_waived: boolean; collateral_sold: string }>>`
       SELECT ltv_bps, grace_waived, collateral_sold::text AS collateral_sold
         FROM bank.loan_liquidations
        WHERE loan_id = ${loan.id} AND status = 'pending' AND ledger_tx_id IS NOT NULL
@@ -1709,6 +1707,17 @@ export class LoanService {
     now: Date;
   }): Promise<void> {
     const { loan, product, collateralMark } = input;
+
+    // The collateral mark is denominated in the quote asset. Proceeds from
+    // quantity × that mark are quote units. Booking them from the debt-asset
+    // market maker would treat quote and debt as the same unit. No rate is
+    // applied, including 1:1. A blank mark has already refused above this call.
+    if (loan.quoteAssetId !== loan.debtAssetId) {
+      throw new BankError(
+        `Loan ${loan.id} collateral is marked in ${loan.quoteAssetId} and the debt is ${loan.debtAssetId} — seizure refuses rather than converting the mark into the debt asset`,
+        'bank.loan_seizure_cross_asset',
+      );
+    }
 
     // A rung left pending must be finished from the sale already stored on it,
     // not followed by another sale of the same collateral. The claim is inserted
@@ -2245,7 +2254,10 @@ export class LoanService {
     }
 
     if (input.beforeSettle) {
-      await this.sql.unsafe(`UPDATE bank.${input.table} SET ledger_tx_id = $1 WHERE id = $2 AND ledger_tx_id IS NULL`, [posted.id, claim.id]);
+      await this.sql.unsafe(`UPDATE bank.${input.table} SET ledger_tx_id = $1 WHERE id = $2 AND ledger_tx_id IS NULL`, [
+        posted.id,
+        claim.id,
+      ]);
       await input.beforeSettle();
     }
 

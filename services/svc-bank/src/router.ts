@@ -99,7 +99,12 @@ function opaqueFailure(err: unknown, context: string): TRPCError {
 function publicDoorWireMessage(err: BankError): string {
   const facing = userFacingBankMessage(err.code, err.message);
   if (facing.includes(err.code)) return facing;
-  if (err.code === 'bank.pool_underfunded' || err.code === 'bank.mark_missing' || err.code === 'bank.earn_principal_mismatch') {
+  if (
+    err.code === 'bank.pool_underfunded' ||
+    err.code === 'bank.mark_missing' ||
+    err.code === 'bank.earn_principal_mismatch' ||
+    err.code === 'bank.loan_seizure_cross_asset'
+  ) {
     return facing + ' (' + err.code + ')';
   }
   return facing;
@@ -151,6 +156,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.mark_missing':
       case 'bank.mark_invalid':
       case 'bank.no_liquidation_counterparty':
+      case 'bank.loan_seizure_cross_asset':
       case 'bank.accrual_backlog':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
 
