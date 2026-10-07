@@ -89,7 +89,7 @@ export interface PrivatePositionUpdate {
   readonly realizedPnl: string | null;
   readonly liquidationPrice: string | null;
   readonly marginMode: 'cross' | 'isolated' | null;
-  readonly fundingPaid: string;
+  readonly fundingPaid: string | null;
   readonly closingReason?: string | null;
   readonly ts: string;
 }

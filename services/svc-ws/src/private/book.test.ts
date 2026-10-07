@@ -81,6 +81,26 @@ describe('private book parse', () => {
       expect(parseOpenPosition(row(status), USER).status).toBe(status);
     }
   });
+
+  it('keeps a missing or null fundingPaid null and parses a decimal-string funding figure', () => {
+    const row = (fundingPaid?: unknown) => {
+      const base: Record<string, unknown> = {
+        id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        symbol: 'BTC/USDT:USDT',
+        side: 'long',
+        status: 'open',
+        contracts: '1',
+        entryPrice: '100',
+        notional: '101',
+      };
+      if (fundingPaid !== undefined) base.fundingPaid = fundingPaid;
+      return base;
+    };
+    expect(parseOpenPosition(row(), USER).fundingPaid).toBeNull();
+    expect(parseOpenPosition(row(null), USER).fundingPaid).toBeNull();
+    expect(parseOpenPosition(row('0'), USER).fundingPaid).toBe('0');
+    expect(parseOpenPosition(row('-0.004'), USER).fundingPaid).toBe('-0.004');
+  });
 });
 
 describe('HttpPrivateBookPort', () => {

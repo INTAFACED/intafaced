@@ -137,7 +137,7 @@ export function parseOpenPosition(raw: unknown, userId: string): PrivatePosition
     realizedPnl: signedDecimalOrNull(row.realizedPnl, 'realizedPnl'),
     liquidationPrice: unsignedDecimalOrNull(row.liquidationPrice, 'liquidationPrice'),
     marginMode,
-    fundingPaid: signedDecimalOrNull(row.fundingPaid, 'fundingPaid') ?? '0',
+    fundingPaid: signedDecimalOrNull(row.fundingPaid, 'fundingPaid'),
     closingReason: textOrNull(row.closingReason),
     ts,
   };
