@@ -14,14 +14,17 @@ export function P2P({ path }: { path: string }) {
   const params = new URLSearchParams(
     path.includes('?') ? path.slice(path.indexOf('?')) : typeof location === 'undefined' ? '' : location.search,
   );
-  const tradeId = params.get('tradeId') ?? params.get('id') ?? path.match(/^\/p2p\/orders\/([^/?]+)/)?.[1];
-  const current = path.split('?')[0];
+  const current = path.split('?')[0] ?? '/p2p';
+  const tradeId =
+    current === '/checkuser'
+      ? undefined
+      : (params.get('tradeId') ?? (current === '/chat' ? params.get('id') : null) ?? path.match(/^\/p2p\/orders\/([^/?]+)/)?.[1]);
   const showOrders = current === '/uc/order' || current === '/p2p/orders';
   const showMine = current === '/uc/ad' || current === '/p2p/offers';
   const showMethods = current === '/p2p/methods' || params.get('view') === 'methods';
   const showAccess = params.get('view') === 'access';
   const publish = current === '/uc/ad/create' || current === '/uc/ad/update' || current === '/p2p/offers/new';
-  const counterparty = params.get('userId') ?? params.get('userid');
+  const counterparty = params.get('userId') ?? params.get('userid') ?? (current === '/checkuser' ? params.get('id') : null);
   return (
     <Page
       eyebrow="Personal Pay"

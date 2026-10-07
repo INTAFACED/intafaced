@@ -142,6 +142,29 @@ test('P2P keeps release behind seller-confirmed external payment and shows absen
   await expect(page.getByRole('dialog', { name: 'Review: Release escrow' }).getByText('2 USDT', { exact: true })).toBeVisible();
 });
 
+test('Legacy counterparty IDs read reputation instead of addressing an order', async ({ page }) => {
+  const requests = [];
+  await page.route('**/api/**', (route) => {
+    requests.push(route.request().url());
+    return reply(route, {
+      tradesTotal: 2,
+      completed: 1,
+      cancelled: 1,
+      disputed: 0,
+      disputesLost: 0,
+      completionRate: 0.5,
+      avgReleaseSecs: 20,
+      badges: [],
+      merchant: null,
+    });
+  });
+  await mount(page, `/checkuser?id=${merchantId}`);
+  await expect(page.getByRole('heading', { name: 'Counterparty', exact: true })).toBeVisible();
+  await expect(page.getByText('Programme unavailable', { exact: true })).toBeVisible();
+  expect(requests).toHaveLength(1);
+  expect(requests[0]).toContain('/api/p2p/trpc/reputation.get');
+});
+
 test('Personal P2P programme application does not create Business authority', async ({ page }) => {
   const posted = [];
   let applied = false;
