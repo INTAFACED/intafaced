@@ -969,6 +969,40 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
     expect(body.price).toBeUndefined();
   });
 
+  it('refuses a market order with postOnly instead of sending it as a plain market order', async () => {
+    const amount = parseAmount('0.01');
+    const http = new FakeHttp()
+      .queue(orderbook(1))
+      .queue({ retCode: 0, retMsg: 'OK', result: { orderId: '9', orderLinkId: 'mkt-po' } })
+      .queue(envelope([{ ...openRow, orderLinkId: 'mkt-po', orderType: 'Market', price: '0', side: 'Buy' }]));
+    const trade = new BybitSpotTrade(keys, { http, clock: () => 1_700_000_000_000, snapshotLimit: 5 });
+    let sent: Record<string, unknown> | undefined;
+    try {
+      await trade.placeOrder({
+        symbol: 'BTC/USDT',
+        side: 'buy',
+        type: 'market',
+        amount,
+        postOnly: true,
+        clientOrderId: 'mkt-po',
+      });
+      sent = http.posts.find((post) => post.url.includes('/v5/order/create'))?.jsonBody as Record<string, unknown> | undefined;
+    } catch (error) {
+      expect(error).toBeInstanceOf(VenueUnavailableError);
+      expect((error as VenueUnavailableError).venueId).toBe('bybit-spot');
+      expect((error as VenueUnavailableError).reason).toBe('malformed');
+      expect(String((error as Error).message)).toMatch(/postOnly/);
+      expect(http.posts.some((post) => post.url.includes('/v5/order/create'))).toBe(false);
+      expect(http.requests.some((url) => url.includes('/v5/order/create'))).toBe(false);
+      return;
+    }
+    const orderType = String(sent?.orderType ?? '(unset)');
+    const timeInForce = String(sent?.timeInForce ?? '(unset)');
+    expect.unreachable(
+      `market postOnly was sent as a plain market order: orderType=${orderType} timeInForce=${timeInForce} marketUnit=${String(sent?.marketUnit ?? '(unset)')}`,
+    );
+  });
+
   it('retCode 10001 throws and does not return a rejected order', async () => {
     const http = new FakeHttp().queue(orderbook(1)).queue({ retCode: 10001, retMsg: 'Qty invalid', result: {} });
     const trade = new BybitSpotTrade(keys, { http, clock: () => 1, snapshotLimit: 5 });
