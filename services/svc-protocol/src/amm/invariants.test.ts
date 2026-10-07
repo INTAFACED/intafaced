@@ -45,8 +45,18 @@ function createPool(feeBps: number): Pool {
   return { r0: 0n, r1: 0n, totalSupply: 0n, lp: new Map([['0', 0n]]), feeBps };
 }
 
+/** Smallest integer amount that still supports `liquidity` against `reserve`. */
+function tokensForLiquidity(liquidity: bigint, reserve: bigint, supply: bigint): bigint {
+  const product = liquidity * reserve;
+  let used = product / supply;
+  if (used * supply < product) used += 1n;
+  return used;
+}
+
 function mint(p: Pool, to: string, amount0: bigint, amount1: bigint): bigint {
   let liquidity: bigint;
+  let book0 = amount0;
+  let book1 = amount1;
   if (p.totalSupply === 0n) {
     liquidity = sqrt(amount0 * amount1);
     if (liquidity <= MINIMUM_LIQUIDITY) throw new Error('insufficient liquidity');
@@ -59,11 +69,15 @@ function mint(p: Pool, to: string, amount0: bigint, amount1: bigint): bigint {
     const liq1 = (amount1 * p.totalSupply) / p.r1;
     liquidity = liq0 < liq1 ? liq0 : liq1;
     if (liquidity === 0n) throw new Error('insufficient liquidity');
+    const used0 = tokensForLiquidity(liquidity, p.r0, p.totalSupply);
+    const used1 = tokensForLiquidity(liquidity, p.r1, p.totalSupply);
+    book0 = used0 < amount0 ? used0 : amount0;
+    book1 = used1 < amount1 ? used1 : amount1;
     p.totalSupply += liquidity;
     p.lp.set(to, (p.lp.get(to) ?? 0n) + liquidity);
   }
-  p.r0 += amount0;
-  p.r1 += amount1;
+  p.r0 += book0;
+  p.r1 += book1;
   return liquidity;
 }
 
@@ -159,6 +173,22 @@ describe('S-A2 LP accounting + fee tiers', () => {
     expect(amount0).toBe(expect0);
     expect(amount1).toBe(expect1);
     expect(amount0).toBeLessThan((100n * 10n ** 18n) / 2n); // MINIMUM lock → less than half deposits
+  });
+
+  it('later mint refunds the surplus and does not book it as reserves', () => {
+    const p = createPool(30);
+    const seed = 1_000_000n;
+    mint(p, 'alice', seed, seed);
+    const supply = p.totalSupply;
+    const r0 = p.r0;
+    const r1 = p.r1;
+    const amount0 = seed;
+    const amount1 = (seed * 5n) / 2n;
+    const minted = mint(p, 'bob', amount0, amount1);
+    expect(minted).toBe((amount0 * supply) / r0);
+    expect(p.r0 - r0).toBe(amount0);
+    expect(p.r1 - r1).toBe(amount0);
+    expect(p.r1 - r1).not.toBe(amount1);
   });
 
   it('second LP mints pro-rata; cannot dilute the first beyond deposits', () => {

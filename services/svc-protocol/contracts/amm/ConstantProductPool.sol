@@ -76,34 +76,80 @@ contract ConstantProductPool {
         returns (uint256 liquidity)
     {
         if (amount0Desired == 0 || amount1Desired == 0) revert InsufficientInput();
-        _pull(token0, msg.sender, amount0Desired);
-        _pull(token1, msg.sender, amount1Desired);
-
+        (uint256 pulled0, uint256 pulled1) = _pullBoth(amount0Desired, amount1Desired);
         (uint112 r0, uint112 r1,) = getReserves();
+        if (totalSupply == 0) {
+            liquidity = _seed(to);
+        } else {
+            // Credit stays the limiting side. Surplus from this pull is returned
+            // before reserves are stored, so it does not accrue to existing LPs.
+            liquidity = _mintLater(to, uint256(r0), uint256(r1), pulled0, pulled1);
+        }
         uint256 balance0 = IERC20Minimal(token0).balanceOf(address(this));
         uint256 balance1 = IERC20Minimal(token1).balanceOf(address(this));
-        uint256 amount0 = balance0 - uint256(r0);
-        uint256 amount1 = balance1 - uint256(r1);
-
-        if (totalSupply == 0) {
-            liquidity = _sqrt(amount0 * amount1);
-            if (liquidity <= MINIMUM_LIQUIDITY) revert InsufficientLiquidity();
-            // Permanently lock minimum liquidity — classic V2 anti-inflation dust.
-            totalSupply = liquidity;
-            balanceOf[address(0)] = MINIMUM_LIQUIDITY;
-            liquidity -= MINIMUM_LIQUIDITY;
-            balanceOf[to] += liquidity;
-        } else {
-            uint256 liq0 = (amount0 * totalSupply) / uint256(r0);
-            uint256 liq1 = (amount1 * totalSupply) / uint256(r1);
-            liquidity = liq0 < liq1 ? liq0 : liq1;
-            if (liquidity == 0) revert InsufficientLiquidity();
-            totalSupply += liquidity;
-            balanceOf[to] += liquidity;
-        }
-
         _update(balance0, balance1);
-        emit Mint(msg.sender, amount0, amount1, liquidity);
+        emit Mint(msg.sender, balance0 - uint256(r0), balance1 - uint256(r1), liquidity);
+    }
+
+    function _pullBoth(uint256 amount0Desired, uint256 amount1Desired) private returns (uint256 pulled0, uint256 pulled1) {
+        uint256 bal0Before = IERC20Minimal(token0).balanceOf(address(this));
+        _pull(token0, msg.sender, amount0Desired);
+        pulled0 = IERC20Minimal(token0).balanceOf(address(this)) - bal0Before;
+        uint256 bal1Before = IERC20Minimal(token1).balanceOf(address(this));
+        _pull(token1, msg.sender, amount1Desired);
+        pulled1 = IERC20Minimal(token1).balanceOf(address(this)) - bal1Before;
+    }
+
+    function _seed(address to) private returns (uint256 liquidity) {
+        uint256 amount0 = IERC20Minimal(token0).balanceOf(address(this));
+        uint256 amount1 = IERC20Minimal(token1).balanceOf(address(this));
+        liquidity = _sqrt(amount0 * amount1);
+        if (liquidity <= MINIMUM_LIQUIDITY) revert InsufficientLiquidity();
+        // Permanently lock minimum liquidity — classic V2 anti-inflation dust.
+        totalSupply = liquidity;
+        balanceOf[address(0)] = MINIMUM_LIQUIDITY;
+        liquidity -= MINIMUM_LIQUIDITY;
+        balanceOf[to] += liquidity;
+    }
+
+    function _mintLater(address to, uint256 reserve0_, uint256 reserve1_, uint256 pulled0, uint256 pulled1)
+        private
+        returns (uint256 liquidity)
+    {
+        liquidity = _liquidityForDeposit(reserve0_, reserve1_);
+        _refundToken(token0, reserve0_, liquidity, pulled0);
+        _refundToken(token1, reserve1_, liquidity, pulled1);
+        totalSupply += liquidity;
+        balanceOf[to] += liquidity;
+    }
+
+    function _liquidityForDeposit(uint256 reserve0_, uint256 reserve1_) private view returns (uint256 liquidity) {
+        uint256 amount0 = IERC20Minimal(token0).balanceOf(address(this)) - reserve0_;
+        uint256 amount1 = IERC20Minimal(token1).balanceOf(address(this)) - reserve1_;
+        uint256 liq0 = (amount0 * totalSupply) / reserve0_;
+        uint256 liq1 = (amount1 * totalSupply) / reserve1_;
+        liquidity = liq0 < liq1 ? liq0 : liq1;
+        if (liquidity == 0) revert InsufficientLiquidity();
+    }
+
+    /**
+     * Refund the part of this pull that is above the tokens supporting `liquidity_`.
+     * Tokens already in the pool, above reserve, are not this pull and stay put.
+     */
+    function _refundToken(address token, uint256 reserve_, uint256 liquidity_, uint256 pulled) private {
+        uint256 used = _tokensForLiquidity(liquidity_, reserve_, totalSupply);
+        uint256 amount = IERC20Minimal(token).balanceOf(address(this)) - reserve_;
+        if (amount <= used) return;
+        uint256 surplus = amount - used;
+        if (surplus > pulled) surplus = pulled;
+        if (surplus != 0) _push(token, msg.sender, surplus);
+    }
+
+    /// Smallest integer amount that still supports `liquidity_` against `reserve`.
+    function _tokensForLiquidity(uint256 liquidity_, uint256 reserve, uint256 supply) private pure returns (uint256 used) {
+        uint256 product = liquidity_ * reserve;
+        used = product / supply;
+        if (used * supply < product) used += 1;
     }
 
     function burn(address to, uint256 liquidity) external returns (uint256 amount0, uint256 amount1) {
