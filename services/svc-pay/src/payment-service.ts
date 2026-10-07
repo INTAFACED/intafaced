@@ -3,7 +3,9 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import {
   formatAmount,
+  InsufficientFundsError,
   InvalidEntryError,
+  LedgerError,
   merchantClearing,
   mulBps,
   parseAmount,
@@ -175,9 +177,11 @@ export type PayErrorCode =
    */
   | 'pay.settlement_in_flight'
   /**
-   * Frozen settlement numbers no longer match live captured−refunded totals.
-   * Refusing to post is the only honest answer — inventing a new gross under the
-   * same settlement key would disagree with the ledger idempotency key.
+   * Frozen settlement numbers no longer match live captured−refunded totals
+   * after chargebacks that already left clearing, or clearing itself is short
+   * of that frozen gross. Refusing to post is the only honest answer —
+   * inventing a new gross under the same settlement key would disagree with
+   * the ledger idempotency key. `releasePendingSettlement` can heal this code.
    */
   | 'pay.settlement_desynced'
   | 'pay.settlement_not_pending'
@@ -2379,11 +2383,13 @@ export class PayService {
         //
         // The debit itself is gated inside openChargeback: captured or settled
         // only, capped at captured − refunded, and it will not spend clearing a
-        // pending settlement has frozen. A created, failed, or refunded payment
-        // throws before this marker is written, so the delivery is not acked as
-        // if the merchant had been debited. An omitted rail amount is only a
-        // ceiling — the row amount is not the debit when it exceeds what was
-        // captured.
+        // pending settlement has frozen for a different payment. A chargeback
+        // of a payment already inside that freeze spends that payment's own
+        // slice; the settlement post then refuses the pre-chargeback gross.
+        // A created, failed, or refunded payment throws before this marker is
+        // written, so the delivery is not acked as if the merchant had been
+        // debited. An omitted rail amount is only a ceiling — the row amount
+        // is not the debit when it exceeds what was captured.
         const disputeId = event.disputeId?.trim();
         if (disputeId) {
           const requested = formatAmount(event.amount === undefined ? parseAmount(payment.amount) : event.amount);
@@ -2609,19 +2615,20 @@ export class PayService {
         `;
 
         // Re-check live nets under payment row locks before the ledger
-        // moves. The freeze promised these numbers; if a concurrent path
-        // (or an operator) changed captured/refunded, posting the frozen
-        // gross would take someone else's clearing.
+        // moves. The freeze promised these numbers. A refund, or a chargeback
+        // that already left clearing, means the frozen gross is no longer
+        // this window's money — posting it would take someone else's clearing.
         let liveGross = 0n;
         for (const { payment_id } of included) {
           await lockPayment(tx, payment_id);
           const totals = await totalsFor(tx, payment_id);
-          const net = totals.captured - totals.refunded;
+          const chargedBack = await clearingChargedBack(tx, payment_id);
+          const net = totals.captured - totals.refunded - chargedBack;
           if (net > 0n) liveGross += net;
         }
         if (liveGross !== gross) {
           throw new PayError(
-            `Settlement ${row.id} frozen gross ${formatAmount(gross)} no longer matches live captured−refunded ${formatAmount(liveGross)} — refusing to post`,
+            `Settlement ${row.id} frozen gross ${formatAmount(gross)} no longer matches live captured−refunded−chargeback ${formatAmount(liveGross)} — refusing to post`,
             'pay.settlement_desynced',
             {
               settlementId: row.id,
@@ -2631,16 +2638,34 @@ export class PayService {
           );
         }
 
-        await this.ledger.post(
-          recipes.merchantSettlement({
-            merchantId: row.merchant_id,
-            merchantUserId: merchant.userId,
-            window: row.window,
-            assetId: row.asset_id,
-            gross,
-            fee: fees,
-          }),
-        );
+        try {
+          await this.ledger.post(
+            recipes.merchantSettlement({
+              merchantId: row.merchant_id,
+              merchantUserId: merchant.userId,
+              window: row.window,
+              assetId: row.asset_id,
+              gross,
+              fee: fees,
+            }),
+          );
+        } catch (err) {
+          // Clearing can be short even when the event log still matches the
+          // freeze (the debit committed, the chargeback row did not). That
+          // mismatch is the same refusal release already knows how to heal.
+          // Any other ledger fault still propagates so a posted-then-crashed
+          // window is not freed into a second credit.
+          if (!isShortClearing(err)) throw err;
+          throw new PayError(
+            `Settlement ${row.id} clearing cannot fund frozen gross ${formatAmount(gross)} — refusing to post`,
+            'pay.settlement_desynced',
+            {
+              settlementId: row.id,
+              frozenGross: formatAmount(gross),
+              liveGross: formatAmount(liveGross),
+            },
+          );
+        }
 
         await tx`
           UPDATE pay.settlements SET status = 'posted', payout_method = 'ledger', updated_at = now()
@@ -3211,7 +3236,9 @@ export class PayService {
    * payment (or one already marked disputed after that), and the debit is
    * capped at captured − refunded. An omitted rail amount must not become the
    * full row amount when that exceeds what was captured. Clearing that
-   * prepareSettlement has frozen — this payment, or any other — is not spent.
+   * prepareSettlement has frozen for a different payment is not spent. This
+   * payment's own frozen slice may fund its chargeback; the settlement post
+   * then sees that clearing has left and refuses the pre-chargeback gross.
    */
   async openChargeback(input: {
     disputeId: string;
@@ -3238,25 +3265,22 @@ export class PayService {
           );
         }
 
-        const pendingSettlement = await tx<Array<{ settlement_id: string }>>`
-          SELECT e.payload->>'settlementId' AS settlement_id
-            FROM pay.payment_events e
-            JOIN pay.settlements s ON s.id = (e.payload->>'settlementId')::uuid
-           WHERE e.payment_id = ${row.id}
-             AND e.event = 'settlement.included'
-             AND s.status = 'pending'
+        const priorChargeback = await tx<Array<{ amount: string; ledger_tx: string | null }>>`
+          SELECT payload->>'amount' AS amount, payload->>'ledgerTxId' AS ledger_tx
+            FROM pay.payment_events
+           WHERE payment_id = ${row.id}
+             AND event = 'chargeback.opened'
+             AND payload->>'disputeId' = ${input.disputeId}
            LIMIT 1
         `;
-        if (pendingSettlement[0]) {
-          throw new PayError(
-            `Payment ${row.id} is frozen in pending settlement ${pendingSettlement[0].settlement_id} — chargeback must not spend clearing prepareSettlement has frozen`,
-            'pay.settlement_in_flight',
-            { settlementId: pendingSettlement[0].settlement_id, paymentId: row.id },
-          );
+        if (priorChargeback[0]?.amount) {
+          return { txId: priorChargeback[0].ledger_tx ?? '', amount: priorChargeback[0].amount };
         }
 
         const totals = await totalsFor(tx, row.id);
-        const chargebackable = totals.captured - totals.refunded;
+        const alreadyFromClearing = await clearingChargedBack(tx, row.id);
+        const netCaptured = totals.captured - totals.refunded;
+        const chargebackable = netCaptured > alreadyFromClearing ? netCaptured - alreadyFromClearing : 0n;
         if (chargebackable <= 0n) {
           throw new PayError(`Payment ${row.id} has nothing captured to charge back`, 'pay.nothing_captured', { paymentId: row.id });
         }
@@ -3267,19 +3291,38 @@ export class PayService {
         // that is a ceiling, not a licence to debit value this payment never captured.
         const amount = requested > chargebackable ? chargebackable : requested;
 
-        const pendingGross = await tx<Array<{ gross: string }>>`
-          SELECT gross
+        const pendingSettlements = await tx<Array<{ id: string; gross: string }>>`
+          SELECT id::text AS id, gross
             FROM pay.settlements
            WHERE merchant_id = ${row.merchant_id}
              AND asset_id = ${row.currency}
              AND status = 'pending'
         `;
-        let frozen = 0n;
-        for (const pending of pendingGross) frozen += parseAmount(pending.gross);
+        const includedPending = await tx<Array<{ settlement_id: string }>>`
+          SELECT s.id::text AS settlement_id
+            FROM pay.payment_events e
+            JOIN pay.settlements s ON s.id = (e.payload->>'settlementId')::uuid
+           WHERE e.payment_id = ${row.id}
+             AND e.event = 'settlement.included'
+             AND s.status = 'pending'
+        `;
+        const includedIds = new Set(includedPending.map((pending) => pending.settlement_id));
+        // Reserve every other payment's frozen gross. This payment's own slice
+        // may leave via the chargeback — the bank already took it — and the
+        // settlement post must then refuse the pre-chargeback number.
+        let reserved = 0n;
+        for (const pending of pendingSettlements) {
+          const pendingGross = parseAmount(pending.gross);
+          if (includedIds.has(pending.id)) {
+            reserved += pendingGross > netCaptured ? pendingGross - netCaptured : 0n;
+          } else {
+            reserved += pendingGross;
+          }
+        }
 
         const clearing = (await this.ledger.balance(merchantClearing(row.merchant_id, row.currency))).amount;
         const available = (await this.ledger.balance(userAvailable(merchant.userId, row.currency))).amount;
-        const spendableClearing = clearing > frozen ? clearing - frozen : 0n;
+        const spendableClearing = clearing > reserved ? clearing - reserved : 0n;
         const fromClearing = spendableClearing < amount ? spendableClearing : amount;
         const fromMerchantBalance = amount - fromClearing;
         if (fromMerchantBalance > available) {
@@ -3295,6 +3338,14 @@ export class PayService {
           rail: row.rail_adapter,
           fromClearing,
           fromMerchantBalance,
+        });
+
+        await appendEvent(tx, row.id, 'chargeback.opened', {
+          disputeId: input.disputeId,
+          amount: formatAmount(amount),
+          fromClearing: formatAmount(fromClearing),
+          fromMerchantBalance: formatAmount(fromMerchantBalance),
+          ledgerTxId: posted.txId,
         });
 
         if (row.status === 'captured' || row.status === 'settled') {
@@ -3524,6 +3575,28 @@ async function totalsFor(sql: Sql, paymentId: string): Promise<{ captured: Amoun
   `;
   const row = rows[0];
   return { captured: parseAmount(row?.captured ?? '0'), refunded: parseAmount(row?.refunded ?? '0') };
+}
+
+/**
+ * Clearing a chargeback already took for this payment.
+ *
+ * `openChargeback` does not write `refunded`. `markDisputed` only changes
+ * status. The `chargeback.opened` row is the amount that left clearing, as a
+ * decimal string. A refused dispute, or a leg that came from the merchant's
+ * available balance, adds nothing here.
+ */
+async function clearingChargedBack(sql: Sql, paymentId: string): Promise<Amount> {
+  const rows = await sql<Array<{ charged: string }>>`
+    SELECT COALESCE(SUM((payload->>'fromClearing')::numeric), 0) AS charged
+      FROM pay.payment_events
+     WHERE payment_id = ${paymentId}
+       AND event = 'chargeback.opened'
+  `;
+  return parseAmount(rows[0]?.charged ?? '0');
+}
+
+function isShortClearing(err: unknown): boolean {
+  return err instanceof InsufficientFundsError || (err instanceof LedgerError && err.code === 'ledger.insufficient_funds');
 }
 
 async function countEvents(sql: Sql, paymentId: string, event: string): Promise<number> {
