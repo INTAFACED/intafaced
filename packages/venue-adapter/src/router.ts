@@ -419,9 +419,16 @@ export async function planRoute(
   };
 }
 
-/** How much worse `price` is than `best`, in bps. Never negative. */
+/**
+ * How much worse `price` is than `best`, in bps. Never negative.
+ *
+ * A zero reference is not a price. Returning 0 there reads as "no worse",
+ * and the slippage check then lets every later leg through — including a
+ * sell measured against a best effective of 0. Drift is unbounded instead,
+ * so no finite slippage cap can accept the leg.
+ */
 export function priceDriftBps(best: Amount, price: Amount, side: 'buy' | 'sell'): number {
-  if (best === 0n) return 0;
+  if (best === 0n) return Number.POSITIVE_INFINITY;
   const worse = side === 'buy' ? sub(price, best) : sub(best, price);
   if (worse <= 0n) return 0;
   const magnitude = best < 0n ? -best : best;

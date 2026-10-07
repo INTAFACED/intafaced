@@ -115,6 +115,18 @@ describe('priceDriftBps', () => {
     expect(priceDriftBps(amt('100'), amt('99'), 'buy')).toBe(0);
     expect(priceDriftBps(amt('100'), amt('100'), 'buy')).toBe(0);
   });
+
+  it('a zero reference does not let a later price through', () => {
+    // Slippage keeps a leg only when drift is within maxSlippageBps. Returning 0
+    // for a zero reference made every later price look no worse, including a
+    // sell measured against a best effective of 0. The cap here is the largest
+    // finite limit the router will honour.
+    const maxSlippageBps = Number.MAX_VALUE;
+    expect(priceDriftBps(amt('0'), amt('100'), 'sell')).toBeGreaterThan(maxSlippageBps);
+    expect(priceDriftBps(amt('0'), amt('50'), 'sell')).toBeGreaterThan(maxSlippageBps);
+    expect(priceDriftBps(amt('0'), amt('100'), 'buy')).toBeGreaterThan(maxSlippageBps);
+    expect(priceDriftBps(amt('0'), amt('0'), 'sell')).toBeGreaterThan(maxSlippageBps);
+  });
 });
 
 // ── Routing ──────────────────────────────────────────────────────────────────
