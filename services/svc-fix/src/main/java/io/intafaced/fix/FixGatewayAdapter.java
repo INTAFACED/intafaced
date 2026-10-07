@@ -17,6 +17,10 @@ import quickfix.ValidationSettings;
 import quickfix.field.ApplVerID;
 import quickfix.field.BeginString;
 import quickfix.field.ClOrdID;
+import quickfix.field.ExpireDate;
+import quickfix.field.ExpireTime;
+import quickfix.field.MaxFloor;
+import quickfix.field.MinQty;
 import quickfix.field.MsgType;
 import quickfix.field.OrdType;
 import quickfix.field.OrderQty;
@@ -114,6 +118,10 @@ public final class FixGatewayAdapter {
         if (tagRefuse != null) {
             return tagRefuse;
         }
+        AdaptResult economicRefuse = refuseUnmappedEconomic(message);
+        if (economicRefuse != null) {
+            return economicRefuse;
+        }
         if (!message.isSetField(ClOrdID.FIELD)) {
             return AdaptResult.refuse("missing_cl_ord_id", "NewOrderSingle requires ClOrdID (11)");
         }
@@ -139,15 +147,14 @@ public final class FixGatewayAdapter {
             return AdaptResult.refuse("invalid_decimal", "OrderQty (38) is not a decimal string: " + qty);
         }
         String price = null;
-        if ("limit".equals(ordType)) {
-            if (!message.isSetField(Price.FIELD)) {
-                return AdaptResult.refuse(
-                        "missing_price", "limit NewOrderSingle requires Price (44) as a decimal string");
-            }
+        if (message.isSetField(Price.FIELD)) {
             price = message.getString(Price.FIELD);
             if (!DECIMAL.matcher(price).matches()) {
                 return AdaptResult.refuse("invalid_decimal", "Price (44) is not a decimal string: " + price);
             }
+        } else if ("limit".equals(ordType)) {
+            return AdaptResult.refuse(
+                    "missing_price", "limit NewOrderSingle requires Price (44) as a decimal string");
         }
         String senderCompId = null;
         if (message.getHeader().isSetField(SenderCompID.FIELD)) {
@@ -167,6 +174,11 @@ public final class FixGatewayAdapter {
             return AdaptResult.refuse(
                     "invalid_message",
                     "TimeInForce (59) " + tifWire + " is not DAY/GTC/IOC/FOK/GTD; svc-fix does not invent GTC");
+        }
+        if ("GTD".equals(tif) && !hasExpire(message)) {
+            return AdaptResult.refuse(
+                    "gtd_expiry_missing",
+                    "TimeInForce GTD requires ExpireTime (126) or ExpireDate (432); svc-fix does not invent an expiry");
         }
         return AdaptResult.command(
                 new MatchingOrderCommand(
@@ -196,6 +208,29 @@ public final class FixGatewayAdapter {
         }
         if ("2".equals(ordType)) {
             return "limit";
+        }
+        return null;
+    }
+
+    private static boolean hasExpire(Message message) throws FieldNotFound {
+        return present(message, ExpireTime.FIELD) || present(message, ExpireDate.FIELD);
+    }
+
+    private static boolean present(Message message, int tag) throws FieldNotFound {
+        return message.isSetField(tag) && !message.getString(tag).isBlank();
+    }
+
+    /** Dictionary fields the command does not keep. Refuse them; do not drop or invent a quantity. */
+    private static AdaptResult refuseUnmappedEconomic(Message message) {
+        if (message.isSetField(MinQty.FIELD)) {
+            return AdaptResult.refuse(
+                    "unmapped_economic_tag",
+                    "MinQty (110) is not mapped; svc-fix refuses it rather than dropping or inventing a quantity");
+        }
+        if (message.isSetField(MaxFloor.FIELD)) {
+            return AdaptResult.refuse(
+                    "unmapped_economic_tag",
+                    "MaxFloor (111) is not mapped; svc-fix refuses it rather than dropping or inventing a quantity");
         }
         return null;
     }
