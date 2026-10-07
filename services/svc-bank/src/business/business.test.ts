@@ -148,6 +148,78 @@ describe('maker/checker dual control with ledger holds', () => {
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
+  it('an under-threshold propose remembers its client id', async () => {
+    const clientId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    const account = await bank.business.createAccount({
+      name: 'Ops Co',
+      assetId: 'USDT',
+      spendThreshold: amt('500'),
+      creatorUserId: MAKER,
+    });
+    await bank.business.addMember({
+      accountId: account.id,
+      actorUserId: MAKER,
+      userId: CHECKER,
+      role: 'checker',
+    });
+    const primary = await bank.spaces.ensurePrimary(MAKER, 'USDT');
+    const pot = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Vendor' });
+    const other = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Other' });
+    await fund(MAKER, 'USDT', '1000');
+
+    const posted = await bank.business.proposeTransfer({
+      clientId,
+      accountId: account.id,
+      makerUserId: MAKER,
+      fromSpaceId: primary.id,
+      toSpaceId: pot.id,
+      amount: amt('100'),
+    });
+    expect(posted.kind).toBe('posted');
+    if (posted.kind !== 'posted') throw new Error('expected posted');
+    expect(await availableOf(MAKER, 'USDT')).toBe('900');
+    expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('100');
+
+    // The same instruction is now at or above the spend floor. Terms did not change.
+    await sql`
+      UPDATE bank.business_accounts
+         SET spend_threshold = ${formatAmount(amt('50'))}::numeric
+       WHERE id = ${account.id}::uuid
+    `;
+
+    await expect(
+      bank.business.proposeTransfer({
+        clientId,
+        accountId: account.id,
+        makerUserId: MAKER,
+        fromSpaceId: primary.id,
+        toSpaceId: other.id,
+        amount: amt('100'),
+      }),
+    ).rejects.toMatchObject({ code: 'bank.business_request_conflict' });
+    expect(await availableOf(MAKER, 'USDT')).toBe('900');
+    expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('100');
+    expect(formatAmount(await bank.spaces.balanceOf(other))).toBe('0');
+
+    const again = await bank.business.proposeTransfer({
+      clientId,
+      accountId: account.id,
+      makerUserId: MAKER,
+      fromSpaceId: primary.id,
+      toSpaceId: pot.id,
+      amount: amt('100'),
+    });
+    expect(again).toEqual({ kind: 'posted', transferId: posted.transferId, ledgerTxId: posted.ledgerTxId });
+    expect(await availableOf(MAKER, 'USDT')).toBe('900');
+    expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('100');
+
+    const settled = await bank.business.approve({ approvalId: clientId, checkerUserId: CHECKER });
+    expect(settled).toEqual({ transferId: posted.transferId, ledgerTxId: posted.ledgerTxId });
+    expect(await availableOf(MAKER, 'USDT')).toBe('900');
+    expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('100');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
   it('reserves over-threshold on propose; checker settle lands at destination', async () => {
     const account = await bank.business.createAccount({
       name: 'Ops Co',

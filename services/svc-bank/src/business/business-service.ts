@@ -280,6 +280,20 @@ export class BusinessService {
         toSpaceId: input.toSpaceId,
         amount: input.amount,
       });
+      // Record the client id on the same row the lookup above already reads.
+      // Status is approved and ledger_tx_id is the transfer that just posted, so
+      // a later call sees the instruction: different terms conflict, the same
+      // terms return this post, and a checker cannot settle a second time.
+      await this.sql`
+        INSERT INTO bank.business_approvals
+          (id, account_id, maker_user_id, from_space_id, to_space_id, asset_id, amount, status, transfer_id, ledger_tx_id, decided_at)
+        VALUES (
+          ${clientId}::uuid, ${input.accountId}::uuid, ${input.makerUserId},
+          ${input.fromSpaceId}::uuid, ${input.toSpaceId}::uuid,
+          ${account.assetId}, ${formatAmount(input.amount)}::numeric, 'approved',
+          ${posted.transferId}, ${posted.ledgerTxId}, now()
+        )
+      `;
       return { kind: 'posted', transferId: posted.transferId, ledgerTxId: posted.ledgerTxId };
     }
 
