@@ -350,6 +350,16 @@ describeOnChain('MemeLaunch on chain (S-G1)', () => {
     })) as bigint;
     expect(lpAtLock).toBe(0n);
     expect(lpAtZero).toBe(minimumLiquidity);
+
+    await expect(
+      clients.walletClient.writeContract({
+        address: lpLock,
+        abi: lockAbi,
+        functionName: 'claim',
+        account: clients.walletClient.account!,
+        chain: clients.walletClient.chain,
+      }),
+    ).rejects.toThrow();
   }, 120_000);
 
   it('reverts on zero amounts, identical tokens, and unlockTime <= now', async () => {
