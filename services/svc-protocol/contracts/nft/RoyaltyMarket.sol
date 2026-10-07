@@ -5,6 +5,8 @@ import {IERC20Minimal} from "../amm/IERC20Minimal.sol";
 
 interface IERC721Escrow {
     function transferFrom(address from, address to, uint256 tokenId) external;
+    function safeTransferFrom(address from, address to, uint256 tokenId) external;
+    function ownerOf(uint256 tokenId) external view returns (address);
 }
 
 interface IERC2981Royalty {
@@ -49,6 +51,17 @@ contract RoyaltyMarket {
     uint256 public nextAuctionId = 1;
     mapping(uint256 => Auction) public auctions;
 
+    struct Pending {
+        address seller;
+        uint256 id;
+        bool auction;
+    }
+
+    /// Set while `list` or `startAuction` is waiting for the token it just asked for.
+    mapping(address nft => mapping(uint256 tokenId => Pending)) private pending;
+    /// Seller recorded when that asked-for token actually arrived.
+    mapping(address nft => mapping(uint256 tokenId => address seller)) public escrowedFrom;
+
     event Listed(uint256 indexed id, address indexed seller, address indexed nft, uint256 tokenId, address quote, uint256 price);
     event Cancelled(uint256 indexed id);
     event Sold(uint256 indexed id, address indexed buyer, uint256 price, uint256 royalty, address royaltyReceiver);
@@ -72,13 +85,16 @@ contract RoyaltyMarket {
     error AuctionLive();
     error AuctionOver();
     error BidTooLow();
+    error UnexpectedNft();
 
     function list(address nft, uint256 tokenId, address quote, uint256 price) external returns (uint256 id) {
         if (nft == address(0) || quote == address(0) || price == 0) revert BadParams();
-        IERC721Escrow(nft).transferFrom(msg.sender, address(this), tokenId);
         id = nextListingId;
         nextListingId = id + 1;
-        listings[id] = Listing(msg.sender, nft, tokenId, quote, price, true);
+        listings[id] = Listing(msg.sender, nft, tokenId, quote, price, false);
+        _expect(nft, tokenId, id, false);
+        IERC721Escrow(nft).safeTransferFrom(msg.sender, address(this), tokenId);
+        if (!listings[id].active || escrowedFrom[nft][tokenId] != msg.sender) revert UnexpectedNft();
         emit Listed(id, msg.sender, nft, tokenId, quote, price);
     }
 
@@ -86,7 +102,9 @@ contract RoyaltyMarket {
         Listing storage L = listings[listingId];
         if (!L.active) revert Inactive();
         if (L.seller != msg.sender) revert NotSeller();
+        if (escrowedFrom[L.nft][L.tokenId] != L.seller) revert Inactive();
         L.active = false;
+        escrowedFrom[L.nft][L.tokenId] = address(0);
         IERC721Escrow(L.nft).transferFrom(address(this), L.seller, L.tokenId);
         emit Cancelled(listingId);
     }
@@ -94,7 +112,9 @@ contract RoyaltyMarket {
     function buy(uint256 listingId) external {
         Listing storage L = listings[listingId];
         if (!L.active) revert Inactive();
+        if (escrowedFrom[L.nft][L.tokenId] != L.seller) revert Inactive();
         L.active = false;
+        escrowedFrom[L.nft][L.tokenId] = address(0);
         (uint256 royalty, address receiver) = _takePayment(L.nft, L.tokenId, L.quote, L.price, L.seller, msg.sender);
         IERC721Escrow(L.nft).transferFrom(address(this), msg.sender, L.tokenId);
         emit Sold(listingId, msg.sender, L.price, royalty, receiver);
@@ -108,17 +128,20 @@ contract RoyaltyMarket {
         uint32 duration
     ) external returns (uint256 id) {
         if (nft == address(0) || quote == address(0) || duration == 0) revert BadParams();
-        IERC721Escrow(nft).transferFrom(msg.sender, address(this), tokenId);
         id = nextAuctionId;
         nextAuctionId = id + 1;
         uint64 endTime = uint64(block.timestamp) + duration;
         auctions[id] = Auction(msg.sender, nft, tokenId, quote, minBid, endTime, address(0), 0, false);
+        _expect(nft, tokenId, id, true);
+        IERC721Escrow(nft).safeTransferFrom(msg.sender, address(this), tokenId);
+        if (escrowedFrom[nft][tokenId] != msg.sender) revert UnexpectedNft();
         emit AuctionStarted(id, msg.sender, nft, tokenId, quote, minBid, endTime);
     }
 
     function bid(uint256 auctionId, uint256 amount) external {
         Auction storage A = auctions[auctionId];
         if (A.settled || A.seller == address(0)) revert Inactive();
+        if (escrowedFrom[A.nft][A.tokenId] != A.seller) revert Inactive();
         if (block.timestamp >= A.endTime) revert AuctionOver();
         if (amount < A.minBid || amount <= A.highestBid) revert BidTooLow();
         if (!IERC20Minimal(A.quote).transferFrom(msg.sender, address(this), amount)) revert PaymentTooLow();
@@ -136,7 +159,9 @@ contract RoyaltyMarket {
         Auction storage A = auctions[auctionId];
         if (A.settled || A.seller == address(0)) revert Inactive();
         if (block.timestamp < A.endTime) revert AuctionLive();
+        if (escrowedFrom[A.nft][A.tokenId] != A.seller) revert Inactive();
         A.settled = true;
+        escrowedFrom[A.nft][A.tokenId] = address(0);
         if (A.highestBidder == address(0)) {
             IERC721Escrow(A.nft).transferFrom(address(this), A.seller, A.tokenId);
             emit AuctionSettled(auctionId, address(0), 0, 0, address(0));
@@ -147,9 +172,28 @@ contract RoyaltyMarket {
         emit AuctionSettled(auctionId, A.highestBidder, A.highestBid, royalty, receiver);
     }
 
-    /// @dev ERC-721 receiver hook so a seller may `safeTransferFrom` into escrow.
-    function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
+    /// @dev Accepts `safeTransferFrom` only for a token a listing or auction already expects from that sender.
+    function onERC721Received(address, address from, uint256 tokenId, bytes calldata) external returns (bytes4) {
+        Pending memory p = pending[msg.sender][tokenId];
+        if (p.seller == address(0) || from != p.seller) revert UnexpectedNft();
+        delete pending[msg.sender][tokenId];
+        if (IERC721Escrow(msg.sender).ownerOf(tokenId) != address(this)) revert UnexpectedNft();
+        if (escrowedFrom[msg.sender][tokenId] != address(0)) revert UnexpectedNft();
+        if (p.auction) {
+            Auction storage A = auctions[p.id];
+            if (A.settled || A.seller != from || A.nft != msg.sender || A.tokenId != tokenId) revert UnexpectedNft();
+        } else {
+            Listing storage L = listings[p.id];
+            if (L.active || L.seller != from || L.nft != msg.sender || L.tokenId != tokenId) revert UnexpectedNft();
+            L.active = true;
+        }
+        escrowedFrom[msg.sender][tokenId] = from;
         return 0x150b7a02;
+    }
+
+    function _expect(address nft, uint256 tokenId, uint256 id, bool auction) private {
+        if (pending[nft][tokenId].seller != address(0) || escrowedFrom[nft][tokenId] != address(0)) revert BadParams();
+        pending[nft][tokenId] = Pending(msg.sender, id, auction);
     }
 
     function _takePayment(
