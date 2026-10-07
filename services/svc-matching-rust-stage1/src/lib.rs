@@ -635,7 +635,12 @@ impl Book {
             if stop.order.reduceOnly && self.would_increase(&stop.order.accountId, &stop.order.side, qty) {
                 continue;
             }
-            self.match_rest(stop.order, qty, price, display)?;
+            // The print that armed this stop is already on the book. A stop that would
+            // cross its own resting order is dropped, and that refusal does not unwind the print.
+            match self.match_rest(stop.order, qty, price, display) {
+                Err(err) if err.starts_with("self_trade_prevention") => {}
+                other => other?,
+            }
         }
         Ok(())
     }
@@ -1035,6 +1040,46 @@ mod tests {
         assert_eq!(state.lastTradePrice.as_deref(), Some("100"));
         assert!(state.bids.is_empty());
         assert_eq!(state.asks.len(), 1);
+        assert_eq!(state.asks[0].orders.len(), 1);
+        assert_eq!(state.asks[0].orders[0].orderId, "mm-ask");
+        assert_eq!(state.asks[0].orders[0].accountId, "mm");
+        assert_eq!(state.asks[0].orders[0].remaining, "5");
+    }
+
+    #[test]
+    fn different_account_trade_stays_when_a_triggered_stop_would_self_cross() {
+        let mm_ask = order_on("mm-ask", "mm", "sell", "5");
+        let mut alice = order_on("alice-ask", "alice", "sell", "1");
+        alice.price = Some("90".into());
+        let mut stop = order_on("mm-stop", "mm", "buy", "1");
+        stop.kind = "stop_limit".into();
+        stop.stopPrice = Some("90".into());
+        let mut bob = order_on("bob-bid", "bob", "buy", "1");
+        bob.price = Some("90".into());
+
+        let parked = replay_orders(&[mm_ask.clone(), alice.clone(), stop.clone()]).unwrap();
+        assert_eq!(parked.sequence, 3);
+        assert_eq!(parked.lastTradePrice, None);
+        assert!(parked.bids.is_empty());
+        assert_eq!(parked.stops.len(), 1);
+        assert_eq!(parked.stops[0]["orderId"], "mm-stop");
+        assert_eq!(parked.stops[0]["accountId"], "mm");
+        assert_eq!(parked.asks.len(), 2);
+        assert_eq!(parked.asks[0].price, "90");
+        assert_eq!(parked.asks[0].orders[0].orderId, "alice-ask");
+        assert_eq!(parked.asks[0].orders[0].remaining, "1");
+        assert_eq!(parked.asks[1].price, "100");
+        assert_eq!(parked.asks[1].orders[0].orderId, "mm-ask");
+        assert_eq!(parked.asks[1].orders[0].accountId, "mm");
+        assert_eq!(parked.asks[1].orders[0].remaining, "5");
+
+        let state = replay_orders(&[mm_ask, alice, stop, bob]).unwrap();
+        assert_eq!(state.sequence, 5);
+        assert_eq!(state.lastTradePrice.as_deref(), Some("90"));
+        assert!(state.bids.is_empty());
+        assert!(state.stops.is_empty());
+        assert_eq!(state.asks.len(), 1);
+        assert_eq!(state.asks[0].price, "100");
         assert_eq!(state.asks[0].orders.len(), 1);
         assert_eq!(state.asks[0].orders[0].orderId, "mm-ask");
         assert_eq!(state.asks[0].orders[0].accountId, "mm");
