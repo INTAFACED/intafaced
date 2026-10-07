@@ -291,6 +291,7 @@ export const REFUSAL_CODES = [
   'agents.mode_forbids_write',
   'agents.withdraw_scope_required',
   'agents.place_idempotency_required',
+  'agents.place_key_conflict',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];

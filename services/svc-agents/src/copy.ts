@@ -44,6 +44,7 @@ export const COPY_KEYS = [
   'agents.refused.mode_forbids_write',
   'agents.refused.withdraw_scope_required',
   'agents.refused.place_idempotency_required',
+  'agents.refused.place_key_conflict',
   'agents.refused.log_mine_limit_unset',
   'agents.refused.kb_search_limit_unset',
   'agents.error.route_not_found',
@@ -108,6 +109,8 @@ export const EN: Readonly<Record<CopyKey, string>> = {
   'agents.refused.withdraw_scope_required': 'Refused: agent credentials do not include withdrawal, so {tool} was not run.',
   'agents.refused.place_idempotency_required':
     'Refused: placing an order needs a stable intent key so a repeated message cannot duplicate it.',
+  'agents.refused.place_key_conflict':
+    'Refused: this intent key is already in use for a place on this session, so {tool} was not run.',
   'agents.refused.log_mine_limit_unset': 'Refused: a page size is required for your activity log — none was given.',
   'agents.refused.kb_search_limit_unset': 'Refused: a page size is required to search support knowledge — none was given.',
 
