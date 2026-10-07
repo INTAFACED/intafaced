@@ -49,6 +49,31 @@ export function signOkxRequest(secret: string, timestamp: string, method: string
   return createHmac('sha256', secret).update(`${timestamp}${method}${requestPath}${body}`).digest('base64');
 }
 
+/** Blank, or a zero decimal string. A JSON number is left for `readDecimal` to refuse. */
+function isBlankOrZeroWireDecimal(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (typeof value !== 'string') return false;
+  const text = value.trim();
+  return text === '' || /^0+(?:\.0+)?$/.test(text);
+}
+
+function knownOkxSpotOrderType(typeRaw: string): VenueOrder['type'] {
+  if (typeRaw === 'market') return 'market';
+  if (typeRaw === 'limit') return 'limit';
+  throw new VenueUnavailableError(VENUE.id, 'malformed', `ordType ${typeRaw || '(empty)'} is not a known OKX spot type`);
+}
+
+function positiveLimitPrice(px: unknown): VenueOrder['price'] {
+  if (isBlankOrZeroWireDecimal(px)) {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', 'non-market order px is blank or zero');
+  }
+  const price = readDecimal(px, VENUE.id, 'px');
+  if (price <= 0n) {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', 'non-market order px is blank or zero');
+  }
+  return price;
+}
+
 export function mapOkxSpotOrder(row: Record<string, unknown>, unified: string, now: Date): VenueOrder {
   const stateRaw = String(row.state ?? '');
   const status = OKX_ORDER_STATE[stateRaw];
@@ -56,7 +81,7 @@ export function mapOkxSpotOrder(row: Record<string, unknown>, unified: string, n
   const amount = readDecimal(row.sz, VENUE.id, 'sz');
   const filled = readDecimal(row.accFillSz, VENUE.id, 'accFillSz');
   const typeRaw = String(row.ordType ?? '');
-  const type: VenueOrder['type'] = typeRaw === 'market' ? 'market' : 'limit';
+  const type = knownOkxSpotOrderType(typeRaw);
   const side: VenueOrder['side'] = String(row.side).toLowerCase() === 'sell' ? 'sell' : 'buy';
   const tgtRaw = row.tgtCcy;
   const tgtCcy = tgtRaw === undefined || tgtRaw === null ? '' : String(tgtRaw);
@@ -72,15 +97,19 @@ export function mapOkxSpotOrder(row: Record<string, unknown>, unified: string, n
   if (remaining < 0n) {
     throw new VenueUnavailableError(VENUE.id, 'malformed', 'accFillSz exceeds sz');
   }
-  const px = row.px;
-  const price =
-    type === 'market' || px === undefined || px === null || String(px) === '' || String(px) === '0'
-      ? null
-      : readDecimal(px, VENUE.id, 'px');
+  const price = type === 'market' ? null : positiveLimitPrice(row.px);
   let averagePrice: VenueOrder['averagePrice'] = null;
   const avgPx = row.avgPx;
-  if (filled > 0n && avgPx !== undefined && avgPx !== null && String(avgPx) !== '' && String(avgPx) !== '0') {
-    averagePrice = readDecimal(avgPx, VENUE.id, 'avgPx');
+  if (filled > 0n && !isBlankOrZeroWireDecimal(avgPx)) {
+    const parsed = readDecimal(avgPx, VENUE.id, 'avgPx');
+    if (parsed > 0n) averagePrice = parsed;
+  }
+  if (status === 'partially_filled' && filled > 0n && averagePrice === null) {
+    throw new VenueUnavailableError(
+      VENUE.id,
+      'malformed',
+      'partially_filled with a sized fill and blank or zero avgPx — outcome unknown, not a fill',
+    );
   }
   const createdRaw = row.cTime ?? row.uTime;
   const createdAt = createdRaw === undefined || createdRaw === null ? now : new Date(readInteger(createdRaw, VENUE.id, 'cTime'));

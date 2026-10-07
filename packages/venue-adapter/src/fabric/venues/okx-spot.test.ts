@@ -20,7 +20,7 @@ import {
   subscribeRefusal,
   takerSideOf,
 } from './okx-spot.js';
-import { signOkxRequest } from './okx-spot-trade.js';
+import { mapOkxSpotOrder, signOkxRequest } from './okx-spot-trade.js';
 
 class FakeHttp implements HttpPort {
   readonly requests: string[] = [];
@@ -574,13 +574,15 @@ describe('okx-spot — signed trade (FakeHttp, no live network)', () => {
     });
     const trade = new OkxSpotTrade(KEYS, { http, restBase: 'https://www.okx.com', clock: CLOCK, snapshotLimit: 5 });
     const amount = parseAmount('0.25');
-    await trade.placeOrder({
+    const marketOrder = await trade.placeOrder({
       symbol: 'BTC/USDT',
       side: 'buy',
       type: 'market',
       amount,
       clientOrderId: 'abc',
     });
+    expect(marketOrder.type).toBe('market');
+    expect(marketOrder.price).toBeNull();
     const marketBody = http.calls.find((call) => call.method === 'POST')!.init?.jsonBody;
     expect(marketBody).toEqual({
       instId: 'BTC-USDT',
@@ -638,8 +640,21 @@ describe('okx-spot — signed trade (FakeHttp, no live network)', () => {
     expect(formatAmount(filled.remaining)).toBe('0');
     expect(formatAmount(filled.averagePrice!)).toBe('30000');
 
-    const partial = new FakeHttp(() => json(200, { code: '0', msg: '', data: [okxOrder('partially_filled', { accFillSz: '0.4' })] }));
-    expect((await new OkxSpotTrade(KEYS, { http: partial, clock: CLOCK }).fetchOrder('BTC/USDT', 'abc')).status).toBe('partially_filled');
+    const partialHole = new FakeHttp(() =>
+      json(200, { code: '0', msg: '', data: [okxOrder('partially_filled', { accFillSz: '0.4' })] }),
+    );
+    await expect(new OkxSpotTrade(KEYS, { http: partialHole, clock: CLOCK }).fetchOrder('BTC/USDT', 'abc')).rejects.toMatchObject({
+      reason: 'malformed',
+      message: expect.stringMatching(/avgPx/),
+    });
+
+    const partial = new FakeHttp(() =>
+      json(200, { code: '0', msg: '', data: [okxOrder('partially_filled', { accFillSz: '0.4', avgPx: '29950.5' })] }),
+    );
+    const partialOrder = await new OkxSpotTrade(KEYS, { http: partial, clock: CLOCK }).fetchOrder('BTC/USDT', 'abc');
+    expect(partialOrder.status).toBe('partially_filled');
+    expect(formatAmount(partialOrder.filled)).toBe('0.4');
+    expect(formatAmount(partialOrder.averagePrice!)).toBe('29950.5');
 
     const canceled = new FakeHttp((_url, method) => {
       if (method === 'POST') return json(200, ack());
@@ -653,6 +668,76 @@ describe('okx-spot — signed trade (FakeHttp, no live network)', () => {
     await expect(new OkxSpotTrade(KEYS, { http: unknown, clock: CLOCK }).fetchOrder('BTC/USDT', 'abc')).rejects.toMatchObject({
       reason: 'malformed',
     });
+  });
+
+  it('refuses a sized partial fill with a blank or zero avgPx, and still reports a real average', () => {
+    const now = new Date(CLOCK());
+    const blank = okxOrder('partially_filled', { accFillSz: '0.4', avgPx: '' });
+    const zero = okxOrder('partially_filled', { accFillSz: '0.4', avgPx: '0' });
+    const zeroScale = okxOrder('partially_filled', { accFillSz: '0.4', avgPx: '0.00' });
+    const missingAvg = okxOrder('partially_filled', { accFillSz: '0.4', avgPx: undefined });
+    for (const row of [blank, zero, zeroScale, missingAvg]) {
+      let published = false;
+      try {
+        mapOkxSpotOrder(row, 'BTC/USDT', now);
+        published = true;
+      } catch (error) {
+        expect(error).toBeInstanceOf(VenueUnavailableError);
+        expect((error as VenueUnavailableError).venueId).toBe('okx-spot');
+        expect((error as VenueUnavailableError).reason).toBe('malformed');
+        expect(String((error as Error).message)).toMatch(/avgPx/);
+      }
+      if (published) expect.unreachable('a sized partial fill with no average price was published');
+    }
+
+    const priced = mapOkxSpotOrder(
+      okxOrder('partially_filled', { accFillSz: '0.4', avgPx: '29950.5' }),
+      'BTC/USDT',
+      now,
+    );
+    expect(priced.status).toBe('partially_filled');
+    expect(formatAmount(priced.averagePrice!)).toBe('29950.5');
+    expect(formatAmount(priced.price!)).toBe('30000');
+  });
+
+  it('refuses a non-market order with a blank or zero px instead of returning price null', () => {
+    const now = new Date(CLOCK());
+    for (const px of ['', '0', '0.0', '0.00']) {
+      let published: string | null | undefined;
+      try {
+        const order = mapOkxSpotOrder(okxOrder('live', { px }), 'BTC/USDT', now);
+        published = order.price === null ? null : formatAmount(order.price);
+      } catch (error) {
+        expect(error).toBeInstanceOf(VenueUnavailableError);
+        expect((error as VenueUnavailableError).reason).toBe('malformed');
+        expect(String((error as Error).message)).toMatch(/px/);
+        continue;
+      }
+      expect.unreachable(`blank or zero px was published as ${published === null ? 'null' : published}`);
+    }
+  });
+
+  it('refuses an ordType other than market or limit instead of publishing it as a limit', () => {
+    const now = new Date(CLOCK());
+    for (const ordType of ['', 'iceberg', 'fok', 'ioc']) {
+      let published: string | undefined;
+      try {
+        published = mapOkxSpotOrder(okxOrder('live', { ordType }), 'BTC/USDT', now).type;
+      } catch (error) {
+        expect(error).toBeInstanceOf(VenueUnavailableError);
+        expect((error as VenueUnavailableError).reason).toBe('malformed');
+        expect(String((error as Error).message)).toMatch(/ordType/);
+        continue;
+      }
+      expect.unreachable(`ordType ${ordType || '(empty)'} was published as ${published}`);
+    }
+
+    const limit = mapOkxSpotOrder(okxOrder('live'), 'BTC/USDT', now);
+    expect(limit.type).toBe('limit');
+    expect(formatAmount(limit.price!)).toBe('30000');
+    const market = mapOkxSpotOrder(okxOrder('live', { ordType: 'market', px: '', tgtCcy: 'base_ccy' }), 'BTC/USDT', now);
+    expect(market.type).toBe('market');
+    expect(market.price).toBeNull();
   });
 
   it('openOrders GETs orders-pending and maps live rows', async () => {
