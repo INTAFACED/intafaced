@@ -83,6 +83,15 @@ describe('startBasketParent', () => {
     });
   });
 
+  it('refuses status paper even when approved is true, and does not start', () => {
+    const result = startBasketParent(base({ approved: true, status: 'paper' }));
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'not_approved',
+    });
+    expect(result).not.toMatchObject({ started: true, status: 'running' });
+  });
+
   it('refuses missing / whitespace operator', () => {
     expect(startBasketParent(base({ operatorId: undefined }))).toMatchObject({
       ok: false,
