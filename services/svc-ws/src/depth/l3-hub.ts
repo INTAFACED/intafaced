@@ -202,9 +202,9 @@ export class NativeL3Hub {
     const windowed = this.#windowed(queue);
     if (windowed === 'unpublished') return;
     if (windowed === 'empty') {
-      // Live subscribers still hold the last resting snapshot. Tell them the
-      // book drained, then forget it so a new subscriber still sees absence.
-      const hadResting = this.#last.has(queue.marketId);
+      // A live subscriber who was shown a resting snapshot still needs to hear
+      // that the book drained. Forget it afterwards so a new subscriber sees absence.
+      const hadResting = this.#hasLive(queue.marketId) && this.#last.has(queue.marketId);
       this.noteNoBook(queue.marketId);
       if (hadResting) this.#fanout(queue.marketId, nativeL3NoRestingFrame(queue.marketId));
       return;
@@ -212,6 +212,8 @@ export class NativeL3Hub {
     const recovering = this.#engineDown.delete(windowed.marketId);
     this.#l3Down.delete(windowed.marketId);
     const frame = nativeL3Frame(windowed);
+    // No live subscriber. Leave #last unset so the next #open refetches l3Queue.
+    if (!this.#hasLive(windowed.marketId)) return;
     // markEngineUnavailable keeps #last. An unchanged queue still has to
     // replace the down frame the live subscriber is holding.
     if (!recovering && this.#last.get(windowed.marketId) === frame) return;
@@ -280,7 +282,14 @@ export class NativeL3Hub {
         return;
       }
       const cached = this.#last.get(sub.marketId);
-      if (cached) this.#write(sub, cached);
+      if (cached) {
+        this.#write(sub, cached);
+        return;
+      }
+      // First subscriber on an idle market. Flags and #last were dropped with
+      // the last watcher, and tick() does not poll a market nobody is watching.
+      if (!this.#soleLive(sub.marketId)) return;
+      await this.#refetch(sub.marketId);
     } catch (err) {
       this.#evict(sub, CLOSE_TRY_LATER, err instanceof DepthSourceError ? err.message : 'l3 unavailable');
     }
@@ -298,9 +307,46 @@ export class NativeL3Hub {
     this.#last.set(queue.marketId, nativeL3Frame(queue));
   }
 
+  #hasLive(marketId: string): boolean {
+    for (const sub of this.#subscriptions) if (!sub.closed && sub.marketId === marketId) return true;
+    return false;
+  }
+
+  #soleLive(marketId: string): boolean {
+    let count = 0;
+    for (const sub of this.#subscriptions) {
+      if (sub.closed || sub.marketId !== marketId) continue;
+      count += 1;
+      if (count > 1) return false;
+    }
+    return count === 1;
+  }
+
+  async #refetch(marketId: string): Promise<void> {
+    if (typeof this.#source.l3Queue !== 'function') {
+      if (this.#hasLive(marketId)) this.markL3Unavailable(marketId);
+      return;
+    }
+    const limit = this.#options.depthLimit;
+    if (!isPublishedDepthLimit(limit)) return;
+    try {
+      const queue = await this.#source.l3Queue(marketId, limit);
+      if (!this.#hasLive(marketId)) return;
+      this.ingest(queue);
+    } catch (err) {
+      if (!this.#hasLive(marketId)) return;
+      if (err instanceof DepthL3UnavailableError) this.markL3Unavailable(marketId);
+      else if (err instanceof DepthNoBookError) this.noteNoBook(marketId);
+      else this.markEngineUnavailable(marketId);
+      this.#log.warn({ marketId, err: String(err) }, 'ws: native L3 poll failed');
+    }
+  }
+
   #forgetIdle(marketId: string): void {
     for (const sub of this.#subscriptions) if (sub.marketId === marketId && !sub.closed) return;
     this.#last.delete(marketId);
+    this.#l3Down.delete(marketId);
+    this.#engineDown.delete(marketId);
   }
 
   #fanout(marketId: string, frame: string): void {
