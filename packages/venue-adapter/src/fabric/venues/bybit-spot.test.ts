@@ -993,14 +993,14 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
     expect(open[0]!.status).toBe('open');
   });
 
-  it('balances maps SPOT wallet-balance coins from signed GET', async () => {
+  it('balances reads the UNIFIED wallet on /v5/account/wallet-balance', async () => {
     const http = new FakeHttp().queue({
       retCode: 0,
       retMsg: 'OK',
       result: {
         list: [
           {
-            accountType: 'SPOT',
+            accountType: 'UNIFIED',
             coin: [
               { coin: 'USDT', walletBalance: '100', locked: '10', availableToWithdraw: '90' },
               { coin: 'BTC', walletBalance: '1', locked: '0', availableToWithdraw: '1' },
@@ -1016,7 +1016,8 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
     expect(formatAmount(rows[0]!.free)).toBe('90');
     expect(formatAmount(rows[0]!.used)).toBe('10');
     expect(formatAmount(rows[0]!.total)).toBe('100');
-    expect(http.requests[0]).toContain('/v5/account/wallet-balance?accountType=SPOT');
+    expect(http.requests[0]).toContain('/v5/account/wallet-balance?accountType=UNIFIED');
+    expect(http.requests[0]).not.toContain('/v5/asset/');
     expect(http.requests[0]).not.toMatch(/^POST /);
   });
 
