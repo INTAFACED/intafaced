@@ -3,7 +3,7 @@ import type { DepthSnapshot } from '@intafaced/market-data';
 import { DEPTH_ENGINE_UNAVAILABLE, DEPTH_L3_UNAVAILABLE } from '../gateway-policy.js';
 import { NativeL3Hub } from './l3-hub.js';
 import { DepthL3UnavailableError, DepthNoBookError, type DepthSource, type NativeL3Queue } from './source.js';
-import type { DepthSink } from './hub.js';
+import { CLOSE_TRY_LATER, type DepthSink } from './hub.js';
 
 const MARKET = 'BTC-USDT';
 
@@ -1490,5 +1490,76 @@ describe('NativeL3Hub', () => {
     hub.markL3Unavailable(MARKET);
     expect(JSON.parse(sink.frames.at(-1)!)).toEqual({ type: 'status', code: DEPTH_L3_UNAVAILABLE, marketId: MARKET });
     expect(sink.frames.at(-1)!).not.toContain('"bids":[["100"');
+  });
+
+  it('a client that misses one update receives that queue when the book stays quiet', async () => {
+    const source = new Source();
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 10,
+      maxLagTicks: 3,
+      maxConnections: 4,
+      ensureKnownMarket: async () => true,
+    });
+    const sink = new RecordingSink();
+    hub.attach(MARKET, sink);
+    await new Promise((r) => setTimeout(r, 0));
+    const held = JSON.parse(sink.frames[0]!) as { asks: Array<{ price: string; orders: Array<{ remaining: string }> }> };
+    expect(held.asks[0]!.price).toBe('100');
+    expect(held.asks[0]!.orders[0]!.remaining).toBe('1');
+
+    const quiet: NativeL3Queue = {
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '97', orders: [{ orderId: 'o9', remaining: '6', sequence: 11 }] }],
+      asks: [],
+    };
+    sink.bufferedBytes = 40;
+    hub.ingest(quiet);
+    expect(sink.frames).toHaveLength(1);
+
+    sink.bufferedBytes = 0;
+    hub.ingest(quiet);
+
+    expect(JSON.parse(sink.frames.at(-1)!)).toEqual({
+      type: 'snapshot',
+      transport: 'poll',
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '97', orders: [{ orderId: 'o9', remaining: '6', sequence: 11 }] }],
+      asks: [],
+    });
+    expect(sink.closed).toBeNull();
+  });
+
+  it('a quiet book that dropped a frame still disconnects a client that stays over the high water', async () => {
+    const source = new Source();
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 10,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async () => true,
+    });
+    const sink = new RecordingSink();
+    hub.attach(MARKET, sink);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(JSON.parse(sink.frames[0]!).asks[0]).toMatchObject({ price: '100', orders: [{ remaining: '1' }] });
+
+    const quiet: NativeL3Queue = {
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '97', orders: [{ orderId: 'o9', remaining: '6', sequence: 11 }] }],
+      asks: [],
+    };
+    sink.bufferedBytes = 40;
+    hub.ingest(quiet);
+    hub.ingest(quiet);
+
+    expect(sink.closed?.code).toBe(CLOSE_TRY_LATER);
+    expect(sink.frames).toHaveLength(1);
+    expect(JSON.parse(sink.frames[0]!).asks[0]).toMatchObject({ price: '100', orders: [{ remaining: '1' }] });
+    expect(JSON.stringify(sink.frames)).not.toContain('"price":"97"');
+    expect(hub.connections).toBe(0);
   });
 });
