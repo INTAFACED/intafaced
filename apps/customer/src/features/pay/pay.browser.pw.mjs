@@ -1,0 +1,229 @@
+import { expect, test } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
+
+// Playwright fixtures exercise the public feature/session and network seams only.
+// No test application, fixture route or production sample dataset is exposed.
+const userId = '11111111-1111-4111-8111-111111111111';
+const spaceId = '22222222-2222-4222-8222-222222222222';
+const merchantId = '33333333-3333-4333-8333-333333333333';
+const orderId = '44444444-4444-4444-8444-444444444444';
+const source = {
+  id: spaceId,
+  assetId: 'USDT',
+  kind: 'primary',
+  name: 'Main',
+  goalTarget: null,
+  lockedUntil: null,
+  balance: '4.000000000000000001',
+  ledgerAccount: { ownerType: 'user', ownerId: userId, assetId: 'USDT', kind: 'bank:primary' },
+};
+const session = {
+  accessToken: 'test-only-in-memory',
+  refreshToken: 'test-only-in-memory-refresh',
+  expiresAt: '2027-10-07T12:00:00Z',
+  userId,
+};
+const authority = {
+  verified: true,
+  companyId: 'fixture-company',
+  companyName: 'Company test fixture',
+  userId,
+  merchantId,
+  scopes: ['pay:read', 'pay:write', 'pay:refund', 'pay:payout'],
+};
+const merchant = {
+  id: merchantId,
+  userId,
+  mode: 'gateway',
+  status: 'active',
+  kybStatus: 'approved',
+  kybRef: 'test-reference',
+  feeBps: null,
+};
+const reply = (route, data, status = 200) =>
+  route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ result: { data } }) });
+
+async function mount(page, path, business = null, signedIn = true) {
+  await page.goto('/');
+  await page.evaluate(
+    async ({ path, business, session, signedIn }) => {
+      const React = (await import('/node_modules/.vite/deps/react.js')).default;
+      const { createRoot } = (await import('/node_modules/.vite/deps/react-dom_client.js')).default;
+      const { SessionProvider, useSession } = await import('/src/features/session/session.tsx');
+      const { PayRoutes, PayBusinessProvider } = await import('/src/features/pay/PayRoutes.tsx');
+      window.history.replaceState(null, '', path);
+      const host = document.createElement('main');
+      document.body.replaceChildren(host);
+      function Setup() {
+        const context = useSession();
+        React.useEffect(() => {
+          if (signedIn) context.commit(session);
+        }, []);
+        return React.createElement(PayBusinessProvider, { authority: business }, React.createElement(PayRoutes, { path }));
+      }
+      createRoot(host).render(React.createElement(SessionProvider, null, React.createElement(Setup)));
+    },
+    { path, business, session, signedIn },
+  );
+}
+
+test('Personal Pay hides merchant rooms and direct Business refuses without company authority', async ({ page }) => {
+  const requests = [];
+  await page.route('**/api/**', (route) => {
+    requests.push(route.request().url());
+    return reply(route, null);
+  });
+  await mount(page, '/pay');
+  await expect(page.getByRole('heading', { name: 'Pay', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: /merchant|settlement|permission/i })).toHaveCount(0);
+  await mount(page, '/pay/links');
+  await expect(page.getByRole('heading', { name: 'Access is restricted' })).toBeVisible();
+  await expect(page.getByText(/verified Business account and company membership/)).toBeVisible();
+  expect(requests).toEqual([]);
+});
+
+test('Send reviews exact units, posts once, and a lost response survives navigation', async ({ page }) => {
+  const posted = [];
+  await page.route('**/api/**', async (route) => {
+    if (route.request().url().includes('spaces.list')) return reply(route, [source]);
+    posted.push(route.request().postDataJSON());
+    return route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { message: 'Rail outcome unknown' } }),
+    });
+  });
+  await mount(page, '/pay/send');
+  await page.getByLabel('Source account').selectOption(spaceId);
+  await page.getByLabel('Recipient account ID').fill(merchantId);
+  await page.getByLabel('Amount · USDT', { exact: true }).fill('0.000000000000000001');
+  await page.getByRole('button', { name: 'Review transfer' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Review transfer' });
+  await expect(dialog.getByText('0.000000000000000001 USDT', { exact: true })).toBeVisible();
+  expect(posted).toEqual([]);
+  await dialog.getByRole('button', { name: 'Confirm transfer' }).click();
+  await expect(dialog.getByRole('heading', { name: 'Outcome not confirmed' })).toBeVisible();
+  expect(posted).toHaveLength(1);
+  expect(posted[0]).toMatchObject({ amount: '0.000000000000000001', fromSpaceId: spaceId, toUserId: merchantId });
+  await mount(page, '/pay/send');
+  await expect(page.getByRole('heading', { name: 'Original transfer is unresolved' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review transfer' })).toBeDisabled();
+  expect(posted).toHaveLength(1);
+});
+
+test('P2P keeps release behind seller-confirmed external payment and shows absent chat', async ({ page }) => {
+  const trade = {
+    id: orderId,
+    offerId: spaceId,
+    sellerId: userId,
+    buyerId: merchantId,
+    asset: 'USDT',
+    amount: '2',
+    fiatCurrency: 'USD',
+    fiatAmount: '2.1',
+    price: '1.05',
+    method: 'operator-method',
+    status: 'escrowed',
+    resolution: null,
+    deadlineAt: null,
+    createdAt: '2026-10-07T12:00:00Z',
+    escrowedAt: '2026-10-07T12:00:00Z',
+    resolvedAt: null,
+    settledAt: null,
+  };
+  await page.route('**/api/**', (route) => (route.request().url().includes('trades.get') ? reply(route, trade) : reply(route, null, 404)));
+  await mount(page, `/chat?tradeId=${orderId}`);
+  await expect(page.getByRole('heading', { name: 'Order details' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Release escrow' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Message thread is not connected' })).toBeVisible();
+  trade.status = 'fiat_sent';
+  await page.getByRole('button', { name: 'Refresh status', exact: true }).click();
+  await page.getByRole('button', { name: 'Release escrow' }).click();
+  await expect(page.getByRole('dialog', { name: 'Review: Release escrow' }).getByText('2 USDT', { exact: true })).toBeVisible();
+});
+
+test('Public checkout keeps fixed amount authoritative and never invents a payment handoff', async ({ page }) => {
+  const posted = [];
+  await page.route('**/api/**', (route) => {
+    const url = route.request().url();
+    if (url.includes('resolveLink'))
+      return reply(route, {
+        id: orderId,
+        merchantId,
+        profileId: null,
+        label: 'Checkout test fixture',
+        amount: '12.000000000000000001',
+        currency: 'USD',
+        expiresAt: null,
+        remainingUses: 1,
+        checkoutConfig: {},
+      });
+    const checkout = {
+      id: orderId,
+      status: 'open',
+      label: 'Checkout test fixture',
+      amount: '12.000000000000000001',
+      currency: 'USD',
+      method: 'card',
+      expiresAt: '2027-10-07T12:00:00Z',
+      instruction: null,
+    };
+    if (url.includes('checkout.open')) {
+      posted.push(route.request().postDataJSON());
+      return reply(route, { sessionToken: 'session-test-capability', session: checkout });
+    }
+    return reply(route, checkout);
+  });
+  await mount(page, '/pay/checkout?token=link-test-capability', null, false);
+  await expect(page.getByText('12.000000000000000001 USD', { exact: true })).toBeVisible();
+  await page.getByLabel('Your country').fill('ID');
+  await page.getByLabel('Payment method', { exact: true }).selectOption('card');
+  await page.getByRole('button', { name: 'Open payment session', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm open payment session' }).click();
+  await expect(page.getByRole('heading', { name: 'Payment instructions were not returned' })).toBeVisible();
+  expect(posted).toEqual([{ token: 'link-test-capability', geoCountry: 'ID', method: 'card' }]);
+  await expect(page.getByRole('button', { name: /paid|capture|pay now/i })).toHaveCount(0);
+});
+
+test('Developer sandbox key cannot omit its mode or enter the live payment path', async ({ page }) => {
+  const posted = [];
+  await page.route('**/api/**', (route) => {
+    const url = route.request().url();
+    if (url.includes('merchant.me')) return reply(route, merchant);
+    if (url.includes('apiKeys.list')) return reply(route, []);
+    posted.push({ url, body: route.request().postDataJSON() });
+    return reply(route, { id: orderId, key: 'ifc_test_fixture-secret', prefix: 'ifc_test_fixture', mode: 'sandbox' });
+  });
+  await mount(page, '/pay/developer', authority);
+  await page.getByLabel('Key name').fill('Sandbox test fixture');
+  await page.getByLabel('pay:read', { exact: true }).check();
+  await page.getByRole('button', { name: 'Create sandbox key', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm create sandbox key' }).click();
+  await expect(page.getByRole('heading', { name: 'Sandbox secret returned once' })).toBeVisible();
+  expect(posted).toHaveLength(1);
+  expect(posted[0].body).toEqual({ name: 'Sandbox test fixture', scopes: ['pay:read'], mode: 'sandbox' });
+  expect(posted[0].url).toContain('/api/identity/trpc/apiKeys.create');
+  await expect(page.getByRole('button', { name: /capture|refund|payout|live payment/i })).toHaveCount(0);
+});
+
+test('Personal Pay fits desktop, tablet and phone without page overflow', async ({ page }) => {
+  for (const width of [1440, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    await mount(page, '/pay');
+    await expect(page.getByRole('heading', { name: 'Pay', exact: true })).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
+    expect(overflow).toBe(false);
+    await page.screenshot({
+      path: `${process.env.PAY_PROOF_DIR ?? '/tmp/intafaced-pay-browser-results'}/personal-pay-${width}.png`,
+      fullPage: true,
+    });
+  }
+});
+
+test('Pay uses accessible control names, page regions and contrast in the browser', async ({ page }) => {
+  await mount(page, '/pay');
+  expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()).violations).toEqual([]);
+  await mount(page, '/pay/links');
+  await expect(page.getByRole('heading', { name: 'Access is restricted' })).toBeVisible();
+  expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()).violations).toEqual([]);
+});
