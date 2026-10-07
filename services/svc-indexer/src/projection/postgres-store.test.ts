@@ -4,8 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
+import { formatAmount } from '@intafaced/ledger-client/money';
 import { PostgresProjectionStore } from './postgres-store.js';
 import { CHAIN_ID, runProjectionConformance } from '../testing/conformance.js';
+import type { ChainBlock } from '../chain/source.js';
 
 /**
  * The Postgres store runs the SAME conformance suite as the in-memory
@@ -204,6 +206,162 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
       await expect(store.applyBlock(blk(0, H2, `0x${'00'.repeat(32)}`))).rejects.toThrow(/height_below_tip/);
       expect((await store.head())?.hash).toBe(H1);
       expect(await store.blockAt(0)).toBeNull();
+    });
+
+    /**
+     * A known hash reapplied at the head, or at head+1 with that head as
+     * parent, used to skip the under-tip guards. ON CONFLICT left the stored
+     * height in place and the event writes still landed at the caller height.
+     * Same-height replay of that hash stays on the idempotent path.
+     */
+    it('refuses a known hash at another height and writes nothing at the caller height', async () => {
+      await db.sql`TRUNCATE positions, fills, book_levels, blocks RESTART IDENTITY CASCADE`;
+      const store = new PostgresProjectionStore(db.sql, CHAIN_ID);
+      const MARKET = 'IFC-USD';
+      const ALICE = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      const BOB = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+      const GENESIS = `0x${'00'.repeat(32)}`;
+      const H0 = `0x${'11'.repeat(32)}`;
+      const H1 = `0x${'22'.repeat(32)}`;
+      const PRICE = '100';
+
+      const stored: ChainBlock = {
+        chainId: CHAIN_ID,
+        height: 0,
+        hash: H0,
+        parentHash: GENESIS,
+        timestamp: 1_700_000_000,
+        events: [
+          { kind: 'book_level', logIndex: 0, market: MARKET, side: 'bid', price: PRICE, quantity: '5' },
+          {
+            kind: 'fill',
+            logIndex: 1,
+            market: MARKET,
+            price: PRICE,
+            quantity: '1',
+            takerSide: 'buy',
+            maker: ALICE,
+            taker: BOB,
+          },
+          { kind: 'position', logIndex: 2, market: MARKET, account: ALICE, size: '2', entryPrice: PRICE },
+        ],
+      };
+      await store.applyBlock(stored);
+      await store.applyBlock({
+        chainId: CHAIN_ID,
+        height: 1,
+        hash: H1,
+        parentHash: H0,
+        timestamp: 1_700_000_001,
+        events: [{ kind: 'book_level', logIndex: 0, market: MARKET, side: 'bid', price: PRICE, quantity: '7' }],
+      });
+
+      const heightsFor = async (table: 'book_levels' | 'fills' | 'positions') => {
+        const rows = await db.sql<Array<{ block_height: string }>>`
+          SELECT block_height FROM ${db.sql(table)}
+          WHERE chain_id = ${CHAIN_ID} AND block_hash = ${H0}
+          ORDER BY block_height
+        `;
+        return rows.map((row) => Number(row.block_height));
+      };
+
+      // Same hash at the current head, parent unchanged. The under-tip guard
+      // does not run here. A same-price level would overwrite the tip row.
+      await expect(
+        store.applyBlock({
+          chainId: CHAIN_ID,
+          height: 1,
+          hash: H0,
+          parentHash: GENESIS,
+          timestamp: 1_700_000_001,
+          events: [
+            { kind: 'book_level', logIndex: 0, market: MARKET, side: 'bid', price: PRICE, quantity: '1' },
+            {
+              kind: 'fill',
+              logIndex: 3,
+              market: MARKET,
+              price: PRICE,
+              quantity: '1',
+              takerSide: 'buy',
+              maker: ALICE,
+              taker: BOB,
+            },
+            { kind: 'position', logIndex: 4, market: MARKET, account: ALICE, size: '2', entryPrice: PRICE },
+          ],
+        }),
+      ).rejects.toThrow(/block_hash_relocated/);
+
+      // Same hash at head+1, parent = current head. Parent gates pass; the
+      // canonical-height index does not, because the stored row never moves.
+      await expect(
+        store.applyBlock({
+          chainId: CHAIN_ID,
+          height: 2,
+          hash: H0,
+          parentHash: H1,
+          timestamp: 1_700_000_002,
+          events: [
+            { kind: 'book_level', logIndex: 0, market: MARKET, side: 'bid', price: PRICE, quantity: '1' },
+            {
+              kind: 'fill',
+              logIndex: 3,
+              market: MARKET,
+              price: PRICE,
+              quantity: '1',
+              takerSide: 'buy',
+              maker: ALICE,
+              taker: BOB,
+            },
+            { kind: 'position', logIndex: 4, market: MARKET, account: ALICE, size: '2', entryPrice: PRICE },
+          ],
+        }),
+      ).rejects.toThrow(/block_hash_relocated/);
+
+      expect((await store.head())?.hash).toBe(H1);
+      expect((await store.head())?.height).toBe(1);
+      expect(await store.blockAt(2)).toBeNull();
+
+      const atZero = await store.blockAt(0);
+      expect(atZero?.hash).toBe(H0);
+      expect(atZero?.height).toBe(0);
+      expect(atZero?.parentHash).toBe(GENESIS);
+      expect(atZero?.eventCount).toBe(3);
+
+      const book = await store.book(MARKET, 10);
+      expect(book.asOfHeight).toBe(1);
+      expect(book.asOfHash).toBe(H1);
+      expect(book.bids.map((level) => [formatAmount(level.price), formatAmount(level.quantity)])).toEqual([[PRICE, '7']]);
+
+      const position = await store.position(MARKET, ALICE);
+      expect(formatAmount(position!.size)).toBe('2');
+      expect(formatAmount(position!.entryPrice)).toBe(PRICE);
+      expect(position!.blockHeight).toBe(0);
+      expect(position!.blockHash).toBe(H0);
+
+      const fills = await store.recentFills(MARKET, 50);
+      expect(fills.map((fill) => [fill.blockHash, fill.blockHeight, fill.logIndex, formatAmount(fill.price)])).toEqual([[H0, 0, 1, PRICE]]);
+
+      expect(await heightsFor('book_levels')).toEqual([0]);
+      expect(await heightsFor('fills')).toEqual([0]);
+      expect(await heightsFor('positions')).toEqual([0]);
+
+      const [tip] = await db.sql<Array<{ block_hash: string }>>`
+        SELECT block_hash FROM book_levels
+        WHERE chain_id = ${CHAIN_ID} AND block_height = 1 AND side = 'bid'
+      `;
+      expect(tip?.block_hash).toBe(H1);
+
+      const replay = await store.applyBlock(stored);
+      expect(replay.duplicate).toBe(true);
+      expect(formatAmount((await store.book(MARKET, 10)).bids[0]!.quantity)).toBe('7');
+      expect(formatAmount((await store.position(MARKET, ALICE))!.size)).toBe('2');
+      expect((await store.position(MARKET, ALICE))!.blockHeight).toBe(0);
+      expect(await store.recentFills(MARKET, 50)).toHaveLength(1);
+      expect((await store.blockAt(0))?.parentHash).toBe(GENESIS);
+      expect((await store.blockAt(0))?.eventCount).toBe(3);
+      expect(await heightsFor('book_levels')).toEqual([0]);
+      expect(await heightsFor('fills')).toEqual([0]);
+      expect(await heightsFor('positions')).toEqual([0]);
     });
 
     /**

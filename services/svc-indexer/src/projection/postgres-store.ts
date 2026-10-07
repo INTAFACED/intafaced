@@ -91,10 +91,24 @@ export class PostgresProjectionStore implements ProjectionStore {
     }
 
     return this.sql.begin(async (tx) => {
-      const [prior] = await tx<Array<{ status: string }>>`
-        SELECT status FROM blocks WHERE chain_id = ${this.chainId} AND hash = ${block.hash}
+      const [prior] = await tx<Array<{ status: string; height: string; parent_hash: string }>>`
+        SELECT status, height, parent_hash FROM blocks WHERE chain_id = ${this.chainId} AND hash = ${block.hash}
       `;
       const duplicate = prior?.status === 'canonical';
+
+      // A hash already stored is that block. ON CONFLICT (chain_id, hash)
+      // updates status and event_count and leaves height and parent_hash
+      // where they were, so the partial unique index on canonical height
+      // never sees a second row. The event writes below would still land at
+      // the caller-supplied height — including at the current head, and at
+      // head+1 when parentHash is the head — and book() / the tape would
+      // serve them. Replay at the stored height and parent stays on the
+      // idempotent path below.
+      if (prior && (Number(prior.height) !== block.height || prior.parent_hash !== block.parentHash)) {
+        throw new Error(
+          `indexer.block_hash_relocated: hash ${block.hash} is stored at height ${Number(prior.height)} parent ${prior.parent_hash} and cannot be applied at height ${block.height} parent ${block.parentHash}`,
+        );
+      }
 
       const blockTime = new Date(block.timestamp * 1000);
 
