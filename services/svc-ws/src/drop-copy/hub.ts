@@ -412,8 +412,10 @@ export class DropCopyHub {
     for (const s of this.#subscriptions) {
       if (!s.closed && s.userId === userId) return;
     }
+    // The session replay ring is not durable. Printed fill ids and the sequence
+    // counter stay, so a later session refuses a fill already printed and the
+    // next new fill continues from the last issued dropCopySeq.
     this.#recent.delete(userId);
-    this.#seenFill.delete(userId);
   }
 
   #write(sub: Subscription, frame: string): void {
