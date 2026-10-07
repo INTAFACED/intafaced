@@ -607,6 +607,65 @@ describe('okx-spot — signed trade (FakeHttp, no live network)', () => {
     });
   });
 
+  it('refuses a market order with postOnly before a request is sent', async () => {
+    const http = new FakeHttp((url, method) => {
+      if (url.includes('/api/v5/market/books')) return json(200, thickBook());
+      if (method === 'POST') return json(200, ack());
+      return json(200, {
+        code: '0',
+        msg: '',
+        data: [okxOrder('live', { ordType: 'market', px: '', tgtCcy: 'base_ccy' })],
+      });
+    });
+    const trade = new OkxSpotTrade(KEYS, { http, restBase: 'https://www.okx.com', clock: CLOCK, snapshotLimit: 5 });
+    let sent: unknown;
+    try {
+      await trade.placeOrder({
+        symbol: 'BTC/USDT',
+        side: 'buy',
+        type: 'market',
+        amount: parseAmount('0.25'),
+        postOnly: true,
+        clientOrderId: 'abc',
+      });
+      sent = http.calls.find((call) => call.method === 'POST')?.init?.jsonBody;
+    } catch (error) {
+      expect(error).toBeInstanceOf(VenueUnavailableError);
+      expect((error as VenueUnavailableError).venueId).toBe('okx-spot');
+      expect((error as VenueUnavailableError).reason).toBe('malformed');
+      expect(String((error as Error).message)).toMatch(/postOnly/);
+      expect(http.calls).toHaveLength(0);
+      expect(http.calls.some((call) => call.url.includes('/api/v5/trade/order'))).toBe(false);
+      return;
+    }
+    const body = sent as { ordType?: unknown } | undefined;
+    expect.unreachable(`market postOnly was sent as ordType ${String(body?.ordType ?? '(unset)')}`);
+  });
+
+  it('sends a post-only limit as ordType post_only', async () => {
+    const http = new FakeHttp((url, method) => {
+      if (url.includes('/api/v5/market/books')) return json(200, thickBook());
+      if (method === 'POST') return json(200, ack());
+      return json(200, { code: '0', msg: '', data: [okxOrder('live')] });
+    });
+    const trade = new OkxSpotTrade(KEYS, { http, restBase: 'https://www.okx.com', clock: CLOCK, snapshotLimit: 5 });
+    const placed = await trade.placeOrder({ ...PLACE, postOnly: true });
+    expect(placed.status).toBe('open');
+    expect(placed.side).toBe('buy');
+    expect(placed.type).toBe('limit');
+    expect(formatAmount(placed.price!)).toBe('30000');
+    const body = http.calls.find((call) => call.method === 'POST')!.init?.jsonBody;
+    expect(body).toEqual({
+      instId: 'BTC-USDT',
+      tdMode: 'cash',
+      clOrdId: 'abc',
+      side: 'buy',
+      ordType: 'post_only',
+      sz: formatAmount(PLACE.amount),
+      px: formatAmount(PLACE.price),
+    });
+  });
+
   it('code !== "0" throws and never returns a rejected fill', async () => {
     const http = new FakeHttp((url, method) => {
       if (url.includes('/api/v5/market/books')) return json(200, thickBook());
