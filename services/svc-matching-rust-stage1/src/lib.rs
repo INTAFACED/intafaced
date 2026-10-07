@@ -273,6 +273,35 @@ fn crosses(side: &str, taker: u128, maker: u128) -> bool {
     if side == "buy" { taker >= maker } else { taker <= maker }
 }
 
+fn self_trade_prevention() -> String {
+    "self_trade_prevention: a taker and a resting maker with the same account do not trade; the engine does not invent a self-fill".into()
+}
+
+fn taker_would_rest(order: &Order, remaining: u128) -> bool {
+    remaining > 0 && order.tif != "IOC" && order.tif != "FOK"
+}
+
+/// Later makers the fill walk will not trade. Book order is price-time, so the first non-cross ends the scan.
+fn unvisited_same_account(order: &Order, price: u128, makers: &[Live]) -> Result<bool, String> {
+    for maker in makers {
+        let maker_price = parse_amount(maker.order.price.as_deref().unwrap_or(""))?;
+        if !crosses(&order.side, price, maker_price) {
+            return Ok(false);
+        }
+        if maker.order.accountId == order.accountId {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn refuse_unvisited_self_cross(order: &Order, price: u128, remaining: u128, makers: &[Live]) -> Result<(), String> {
+    if taker_would_rest(order, remaining) && unvisited_same_account(order, price, makers)? {
+        return Err(self_trade_prevention());
+    }
+    Ok(())
+}
+
 fn visible(maker: &Live) -> u128 {
     match maker.display_remaining {
         Some(d) => d.min(maker.remaining),
@@ -443,8 +472,13 @@ impl Book {
         let mut take_left = display.unwrap_or(qty).min(qty);
         let mut clips = Vec::new();
         let opposite = if order.side == "buy" { &self.asks } else { &self.bids };
-        for maker in opposite {
-            if remaining == 0 || take_left == 0 {
+        for (idx, maker) in opposite.iter().enumerate() {
+            if remaining == 0 {
+                break;
+            }
+            if take_left == 0 {
+                // Display is spent. The hidden remainder would rest across any later same-account maker.
+                refuse_unvisited_self_cross(order, price, remaining, &opposite[idx..])?;
                 break;
             }
             let maker_price = parse_amount(maker.order.price.as_deref().unwrap_or(""))?;
@@ -452,7 +486,7 @@ impl Book {
                 break;
             }
             if maker.order.accountId == order.accountId {
-                return Err("self_trade_prevention: a taker and a resting maker with the same account do not trade; the engine does not invent a self-fill".into());
+                return Err(self_trade_prevention());
             }
             let show = visible(maker);
             if show == 0 {
@@ -478,9 +512,11 @@ impl Book {
             }
             let maker_min = parse_min_qty(&maker.order.minQty)?;
             if maker.order.aon && traded < maker.remaining {
+                refuse_unvisited_self_cross(order, price, remaining, &opposite[idx + 1..])?;
                 break;
             }
             if !clip_ok(traded, remaining - traded, taker_min) || !clip_ok(traded, maker.remaining - traded, maker_min) {
+                refuse_unvisited_self_cross(order, price, remaining, &opposite[idx + 1..])?;
                 break;
             }
             let (taker_delta, maker_delta) = fill_deltas(&order.side, traded)?;
@@ -505,7 +541,7 @@ impl Book {
             for clip in &take {
                 if let Some(maker) = opposite.iter().find(|m| m.order.orderId == clip.maker_id) {
                     if maker.order.accountId == order.accountId {
-                        return Err("self_trade_prevention: a taker and a resting maker with the same account do not trade; the engine does not invent a self-fill".into());
+                        return Err(self_trade_prevention());
                     }
                 }
             }
@@ -902,6 +938,107 @@ mod tests {
         assert!(traded.asks.is_empty());
         assert!(traded.bids.is_empty());
         assert_eq!(traded.lastTradePrice.as_deref(), Some("100"));
+    }
+
+    fn order_on(id: &str, account: &str, side: &str, qty: &str) -> Order {
+        let mut order = limit(id, side, qty, "GTC");
+        order.accountId = account.into();
+        order
+    }
+
+    fn replay_orders(orders: &[Order]) -> Result<BookState, String> {
+        let records = orders.iter().enumerate().map(|(i, order)| {
+            let at = format!("2026-01-01T00:00:{:02}.000Z", i + 1);
+            submit_record((i as u64) + 1, &at, serde_json::to_value(order).unwrap())
+        }).collect();
+        replay_book(records)
+    }
+
+    fn assert_replay_refuses_before_the_book_moves(resting: &[Order], taker: &Order) {
+        let mut book = Book { market: "BTC/USDT".into(), ..Book::default() };
+        for order in resting {
+            book.submit(order.clone()).unwrap();
+        }
+        let before = serde_json::to_value(book.state()).unwrap();
+        let err = book.submit(taker.clone()).unwrap_err();
+        assert!(err.contains("self_trade_prevention"), "{err}");
+        assert_eq!(serde_json::to_value(book.state()).unwrap(), before);
+
+        let mut journal = resting.to_vec();
+        journal.push(taker.clone());
+        let err = replay_orders(&journal).unwrap_err();
+        assert!(err.contains("self_trade_prevention"), "{err}");
+    }
+
+    #[test]
+    fn replay_refuses_same_account_cross_behind_an_all_or_none_maker() {
+        let mut desk = order_on("desk-ask", "desk", "sell", "5");
+        desk.aon = true;
+        let mm_ask = order_on("mm-ask", "mm", "sell", "1");
+        let mm_bid = order_on("mm-bid", "mm", "buy", "1");
+        let resting = replay_orders(&[desk.clone(), mm_ask.clone()]).unwrap();
+        assert_eq!(resting.sequence, 2);
+        assert_eq!(resting.lastTradePrice, None);
+        assert!(resting.bids.is_empty());
+        assert_eq!(resting.asks[0].price, "100");
+        assert_eq!(resting.asks[0].orders[0].orderId, "desk-ask");
+        assert_eq!(resting.asks[0].orders[0].accountId, "desk");
+        assert_eq!(resting.asks[0].orders[0].remaining, "5");
+        assert_eq!(resting.asks[0].orders[1].orderId, "mm-ask");
+        assert_eq!(resting.asks[0].orders[1].accountId, "mm");
+        assert_eq!(resting.asks[0].orders[1].remaining, "1");
+        assert_replay_refuses_before_the_book_moves(&[desk, mm_ask], &mm_bid);
+    }
+
+    #[test]
+    fn replay_refuses_same_account_cross_behind_a_min_qty_maker() {
+        let mut desk = order_on("desk-ask", "desk", "sell", "5");
+        desk.minQty = Some("2".into());
+        let mm_ask = order_on("mm-ask", "mm", "sell", "1");
+        let mm_bid = order_on("mm-bid", "mm", "buy", "1");
+        let resting = replay_orders(&[desk.clone(), mm_ask.clone()]).unwrap();
+        assert_eq!(resting.sequence, 2);
+        assert_eq!(resting.lastTradePrice, None);
+        assert!(resting.bids.is_empty());
+        assert_eq!(resting.asks[0].orders[0].remaining, "5");
+        assert_eq!(resting.asks[0].orders[0].accountId, "desk");
+        assert_eq!(resting.asks[0].orders[1].remaining, "1");
+        assert_eq!(resting.asks[0].orders[1].accountId, "mm");
+        assert_replay_refuses_before_the_book_moves(&[desk, mm_ask], &mm_bid);
+    }
+
+    #[test]
+    fn replay_refuses_same_account_cross_behind_an_iceberg_display() {
+        let desk = order_on("desk-ask", "desk", "sell", "1");
+        let mm_ask = order_on("mm-ask", "mm", "sell", "5");
+        let mut mm_bid = order_on("mm-bid", "mm", "buy", "3");
+        mm_bid.iceberg = true;
+        mm_bid.displayQty = Some("1".into());
+        let resting = replay_orders(&[desk.clone(), mm_ask.clone()]).unwrap();
+        assert_eq!(resting.sequence, 2);
+        assert_eq!(resting.lastTradePrice, None);
+        assert!(resting.bids.is_empty());
+        assert_eq!(resting.asks[0].orders[0].orderId, "desk-ask");
+        assert_eq!(resting.asks[0].orders[0].remaining, "1");
+        assert_eq!(resting.asks[0].orders[1].orderId, "mm-ask");
+        assert_eq!(resting.asks[0].orders[1].accountId, "mm");
+        assert_eq!(resting.asks[0].orders[1].remaining, "5");
+        assert_replay_refuses_before_the_book_moves(&[desk, mm_ask], &mm_bid);
+    }
+
+    #[test]
+    fn different_accounts_still_trade_when_the_taker_is_filled_before_its_own_maker() {
+        let desk = order_on("desk-ask", "desk", "sell", "1");
+        let mm_ask = order_on("mm-ask", "mm", "sell", "5");
+        let mm_bid = order_on("mm-bid", "mm", "buy", "1");
+        let state = replay_orders(&[desk, mm_ask, mm_bid]).unwrap();
+        assert_eq!(state.lastTradePrice.as_deref(), Some("100"));
+        assert!(state.bids.is_empty());
+        assert_eq!(state.asks.len(), 1);
+        assert_eq!(state.asks[0].orders.len(), 1);
+        assert_eq!(state.asks[0].orders[0].orderId, "mm-ask");
+        assert_eq!(state.asks[0].orders[0].accountId, "mm");
+        assert_eq!(state.asks[0].orders[0].remaining, "5");
     }
 
     #[test]
