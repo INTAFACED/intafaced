@@ -1,0 +1,32 @@
+{
+  "name": "@intafaced/customer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 3200",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "preview": "vite preview --host 127.0.0.1 --port 3200",
+    "clean": "rimraf dist .turbo"
+  },
+  "dependencies": {
+    "@intafaced/contracts": "workspace:*",
+    "@intafaced/exchange-contract": "workspace:*",
+    "@intafaced/ledger-client": "workspace:*",
+    "@intafaced/ui": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "typescript": "^5.7.2",
+    "vite": "7.3.6",
+    "vitest": "^3.0.5"
+  }
+}
