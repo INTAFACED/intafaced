@@ -38,7 +38,8 @@ interface IConstantProductPool {
  * ConstantProductPool LP shares are internal accounting, not an ERC-20, so
  * `LaunchLpLock.lock` cannot pull them. Minting LP to the lock address IS the
  * lock: only the lock's address holds the shares, and `claim` still reverts
- * `LockedStill` until `unlockTime`.
+ * `LockedStill` until `unlockTime`. After that, `claim` burns those shares
+ * and the pool sends the deposited token and quote to the beneficiary.
  */
 contract MemeLaunch {
     address public immutable tokenFactory;

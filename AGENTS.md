@@ -15,7 +15,7 @@ Doctrine: [`INTAFACED_DEFINITIVE_BUILD.md`](INTAFACED_DEFINITIVE_BUILD.md). Prot
 
 1. Move value only through `packages/ledger-client`. No module holds its own balance.
 2. Never store money in a `number`. Decimal strings on the wire, scaled bigint in memory.
-3. Extend the existing shell, ledger, and `svc-*`. A second app or a **second money book** is out. **Internet leverage law:** [`docs/INTERNET-LEVERAGE-LAW.md`](docs/INTERNET-LEVERAGE-LAW.md). Exchange take/keep/never: [`PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md`](PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md) **§0.3**. Leave FIX, SBE, and Greeks as adapters. Leave npm `ccxt` and a second CLOB uninstalled.
+3. A **second money book** is out. This redesign may replace the product UI and the unsettled color lock: [`docs/adr/2026-10-02-redesign-may-replace-product-ui.md`](docs/adr/2026-10-02-redesign-may-replace-product-ui.md). **Internet leverage law:** [`docs/INTERNET-LEVERAGE-LAW.md`](docs/INTERNET-LEVERAGE-LAW.md). Exchange take/keep/never: [`PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md`](PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md) **§0.3**. Leave FIX, SBE, and Greeks as adapters. Leave npm `ccxt` and a second CLOB uninstalled. INTACHAIN stays parked until Nitro writes GO.
 
 ## One chain of work
 
