@@ -69,7 +69,7 @@ export function startImplementationShortfallParent(input: {
   parentClientOrderId?: string;
   /** Must be true — start needs an already-approved IS parent. */
   approved?: boolean;
-  /** Running parent refuses already_started. */
+  /** Running, including padded or differently cased running, refuses already_started. A finished status refuses not_approved. */
   status?: 'approved' | 'running' | string;
   /** Retained arrival from approve. Blank refuses — never invent a schedule. */
   arrivalPrice?: string | null;
@@ -88,10 +88,14 @@ export function startImplementationShortfallParent(input: {
   if (input.jobs.enabled === false) {
     return refuse('jobs_off', 'EXECUTION_ALGO_JOBS_ENABLED is off — refusing to invent a live start');
   }
-  if (input.status === 'running') {
+  if (typeof input.status === 'string' && input.status.trim().toLowerCase() === 'running') {
     return refuse('already_started', `parent ${parentClientOrderId} is already running`);
   }
-  if (input.approved !== true && input.status !== 'approved') {
+  if (input.approved === true) {
+    if (input.status !== undefined && input.status !== 'approved') {
+      return refuse('not_approved', `parent ${parentClientOrderId} is not approved`);
+    }
+  } else if (input.status !== 'approved') {
     return refuse('not_approved', `parent ${parentClientOrderId} is not approved`);
   }
   const operatorId = input.operatorId?.trim() ?? '';
