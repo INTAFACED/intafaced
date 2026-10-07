@@ -2,24 +2,28 @@
  * Unit card — overlapping repayments pay the outstanding once
  *
  * 1. Promise: two repay calls in flight, different event ids, each offering the
- *    full debt, move that debt once. The loan row is locked and the debt is
- *    read again before the split is posted.
- * 2. Break: each caller splits principal and interest from its own outstanding()
- *    read, then posts that split. Neither waits for the other, so both pay the
- *    full balance.
+ *    full debt, move that debt once. The lock that covers the debt re-read also
+ *    covers the pending repayment and the post, and it is still held when the
+ *    row is marked settled.
+ * 2. Break: the loan lock commits before settle. The second caller reads
+ *    outstanding() and pending repayments as two statements, so a settle that
+ *    commits between them is in neither figure and the second split pays the
+ *    full balance again.
  * 3. Done bar: one loan.repaid for the outstanding, the other call refuses
  *    bank.loan_closed, collateral releases once, and a retry of the posted
  *    event id does not post the repayment again. The borrower is funded for
  *    both, so a second post is not an insufficient-balance accident.
  * 4. Class M
  * 5. Paths: services/svc-bank/src/loans/loan-service.ts (repay)
- * 6. RED: both callers fulfill and the journal has two loan.repaid
+ * 6. RED: the second caller is let through the debt re-read, the first row is
+ *    settled in that gap, and both callers post loan.repaid
  */
 import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import type { Sql } from 'postgres';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryLedger, parseAmount as amt, recipes, userAvailable, type PostRequest } from '@intafaced/ledger-client';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
@@ -90,6 +94,19 @@ function countReason(ledger: MemoryLedger, reason: string): number {
   return ledger.journal().filter((tx) => tx.reason === reason).length;
 }
 
+function queryText(arg: unknown): string {
+  if (Array.isArray(arg)) return arg.join(' ');
+  return '';
+}
+
+function isDebtReread(text: string): boolean {
+  return text.includes('WITH drawn AS') && text.includes('loan_repayments');
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 describe('LoanService.repay — overlapping event ids pay the outstanding once', () => {
   let ledger: MemoryLedger;
 
@@ -118,23 +135,122 @@ describe('LoanService.repay — overlapping event ids pay the outstanding once',
     let parked = false;
     let releasePark!: () => void;
     const park = new Promise<void>((resolve) => {
-      releasePark = resolve;
+      releasePark = () => resolve();
     });
+    // The first repayment has moved money and is not yet marked settled.
+    // Releasing the park lets that settle commit.
     ledger.post = async (request: PostRequest) => {
+      const posted = await innerPost(request);
       if (!parked && request.reason === 'loan.repaid') {
         parked = true;
         await park;
       }
-      return innerPost(request);
+      return posted;
     };
 
-    const noteSettled = () => {
+    let armed = false;
+    let debtReads = 0;
+    let sawLockWait = false;
+    let settleResolve!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      settleResolve = resolve;
+    });
+    const originalBegin = sql.begin.bind(sql);
+    const originalUnsafe = sql.unsafe.bind(sql);
+
+    const onDebtReread = async () => {
+      if (!armed) return;
+      debtReads += 1;
+      // The first read is the caller that already posted. The next read is the
+      // overlapping caller. Hold it here, let the posted row settle, then allow
+      // the pending read. A lock still held through settle never reaches this
+      // gap: the second read starts only after that settle.
+      if (debtReads < 2) return;
       releasePark();
+      await Promise.race([
+        settled,
+        sleep(8_000).then(() => {
+          throw new Error('settle did not commit between the debt re-read and the pending repayment');
+        }),
+      ]);
     };
-    const results = await Promise.allSettled([
-      bank.loans.repay({ loanId: opened.loan.id, amount: amt('5000'), eventId: eventA, now: NOW }).finally(noteSettled),
-      bank.loans.repay({ loanId: opened.loan.id, amount: amt('5000'), eventId: eventB, now: NOW }).finally(noteSettled),
-    ]);
+
+    const tapTx = (tx: Sql): Sql =>
+      new Proxy(tx, {
+        apply(target, thisArg, argArray: unknown[]) {
+          const text = queryText(argArray[0]);
+          const run = Reflect.apply(target, thisArg, argArray) as Promise<unknown>;
+          if (!isDebtReread(text)) return run;
+          return run.then(async (rows) => {
+            await onDebtReread();
+            return rows;
+          });
+        },
+      });
+
+    sql.begin = (async (options: unknown, fn?: unknown) => {
+      if (typeof options === 'function') {
+        return originalBegin((tx) => (options as (tx: Sql) => unknown)(tapTx(tx)));
+      }
+      return originalBegin(options as string, (tx) => (fn as (tx: Sql) => unknown)(tapTx(tx)));
+    }) as typeof sql.begin;
+
+    sql.unsafe = ((query: string, parameters?: Parameters<Sql['unsafe']>[1], queryOptions?: Parameters<Sql['unsafe']>[2]) => {
+      const pending = originalUnsafe(query, parameters, queryOptions);
+      const note = () => {
+        if (armed && query.includes('UPDATE bank.loan_repayments') && query.includes("status = 'settled'")) settleResolve();
+      };
+      const execute = pending.execute.bind(pending);
+      pending.execute = (async (...args: unknown[]) => {
+        const result = await execute(...args);
+        note();
+        return result;
+      }) as typeof pending.execute;
+      const then = pending.then.bind(pending);
+      pending.then = ((onFulfilled?: (value: unknown) => unknown, onRejected?: (reason: unknown) => unknown) =>
+        then((value: unknown) => {
+          note();
+          return onFulfilled ? onFulfilled(value) : value;
+        }, onRejected)) as typeof pending.then;
+      return pending;
+    }) as typeof sql.unsafe;
+
+    let watch = true;
+    const watcher = (async () => {
+      while (watch) {
+        if (parked) {
+          const waits = await originalUnsafe<{ n: number }[]>(
+            `SELECT count(*)::int AS n FROM pg_stat_activity
+              WHERE datname = current_database()
+                AND wait_event_type = 'Lock'
+                AND pid <> pg_backend_pid()`,
+          );
+          if (Number(waits[0]?.n ?? 0) > 0) {
+            sawLockWait = true;
+            releasePark();
+          }
+        }
+        await sleep(20);
+      }
+    })();
+
+    armed = true;
+    let results: PromiseSettledResult<unknown>[];
+    try {
+      results = await Promise.allSettled([
+        bank.loans.repay({ loanId: opened.loan.id, amount: amt('5000'), eventId: eventA, now: NOW }).finally(releasePark),
+        bank.loans.repay({ loanId: opened.loan.id, amount: amt('5000'), eventId: eventB, now: NOW }).finally(releasePark),
+      ]);
+    } finally {
+      armed = false;
+      watch = false;
+      releasePark();
+      sql.begin = originalBegin;
+      sql.unsafe = originalUnsafe;
+      await watcher;
+    }
+
+    expect(debtReads >= 2 || sawLockWait).toBe(true);
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled');
     const rejected = results.filter((r) => r.status === 'rejected');
