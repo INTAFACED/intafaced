@@ -4,8 +4,11 @@
  * tRPC startBasket calls handleStartBasketDoor. tRPC killBasket calls
  * handleKillBasketDoor. Writes require HMAC as svc-execution. Matching mill is not recut.
  * Ledger qty strings. Partial-failure refuse_all only: a later refused leg kills
- * children already accepted so they do not keep working. Paper never ledgers.
- * Kill-basket unknown matching cancel is killed false.
+ * children already accepted so they do not keep working. The posted refusal is
+ * returned only when every accepted child came back stopped or already_stopped.
+ * An unconfirmed kill (killed false, outcome unknown) is returned instead, so
+ * the door does not report a clean refusal while a child is still live.
+ * Paper never ledgers. Kill-basket unknown matching cancel is killed false.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { startBasketParent, type OmsBasketStartResult } from './oms-basket-start.js';
@@ -54,7 +57,11 @@ export type StartBasketDoorDeps = {
   };
 };
 
-export type StartBasketDoorResult = OmsBasketStartResult | OmsBasketMatchingResult | OmsPaperUnsupportedRefuse;
+export type StartBasketDoorResult =
+  | OmsBasketStartResult
+  | OmsBasketMatchingResult
+  | OmsBasketMatchingKillResult
+  | OmsPaperUnsupportedRefuse;
 
 /** Pure door — tests call this. Signed principal is the operator; body operatorId is ignored. */
 export async function handleStartBasketDoor(
@@ -93,11 +100,16 @@ export async function handleStartBasketDoor(
     },
   });
   if (!posted.ok && accepted.length > 0) {
-    await killBasketMatchingChildren({
+    const killed = await killBasketMatchingChildren({
       children: accepted,
       matchingUrl: deps.matchingUrl,
       fetch: deps.fetch,
     });
+    const everyAcceptedChildStopped =
+      killed.ok &&
+      killed.children.length === accepted.length &&
+      killed.children.every((child) => child.outcome === 'stopped' || child.outcome === 'already_stopped');
+    if (!everyAcceptedChildStopped) return killed;
   }
   return posted;
 }

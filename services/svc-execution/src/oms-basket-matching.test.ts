@@ -299,6 +299,21 @@ describe('postBasketChildrenToMatching', () => {
 });
 
 describe('killBasketMatchingChildren — unknown ≠ killed', () => {
+  it('HTTP 503 is not stopped and does not invent an order id', async () => {
+    const base = await listen(async (req, res) => {
+      await capture(req, res, 503, { cancelled: true, outcome: 'stopped', orderId: 'invented-order' });
+    });
+    const out = await killBasketMatchingChildren({
+      ...liveAuth({ matchingUrl: base }),
+      children: [{ marketId: 'BTC-USDT', orderId: BTC_ID }],
+    });
+    expect(out).toEqual({
+      ok: true,
+      killed: false,
+      children: [{ marketId: 'BTC-USDT', orderId: BTC_ID, outcome: 'unknown', reason: 'cancel_failed' }],
+    });
+  });
+
   it('unknown matching cancel is killed false', async () => {
     const base = await listen(async (req, res) => {
       await capture(req, res, 503, { cancelled: false });
