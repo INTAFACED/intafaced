@@ -208,8 +208,8 @@ export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort 
       return pair && typeof m.symbol === 'string';
     });
     if (!match) rateUnset(`no listed spot market for ${fromAsset}/${toAsset}`);
-    const minRaw = match.limits?.amount?.min;
-    const minQty = minRaw ? parseAmount(minRaw) : parseAmount('0');
+    const minQty = parseWireAmount(match.limits?.amount?.min, 'limits.amount.min');
+    if (minQty <= 0n) rateUnset('limits.amount.min is not positive');
     return { symbol: match.symbol, base: match.base, quote: match.quote, minQty };
   }
 
@@ -276,12 +276,15 @@ export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort 
       }
 
       // Spend quote, receive base: size the base qty from convert's own avg.
-      const probeQty = market.minQty > 0n ? market.minQty : parseAmount('0.00000001');
-      const probe = await quote(input.userId, market.symbol, 'buy', probeQty);
+      // The probe quantity is the market's published minimum. Never invent one.
+      const probe = await quote(input.userId, market.symbol, 'buy', market.minQty);
       const avg = parseAmount(probe.avgPrice);
-      const sized = floorToStep(div(input.fromAmount, avg, 'floor'), market.minQty > 0n ? market.minQty : 1n);
+      const sized = floorToStep(div(input.fromAmount, avg, 'floor'), market.minQty);
       if (sized <= 0n) rateUnset('spend amount below convert min qty at trade rate');
       const live = await quote(input.userId, market.symbol, 'buy', sized);
+      const liveNotional = parseWireAmount(live.userNotional, 'buy convert userNotional');
+      if (liveNotional <= 0n) rateUnset('buy convert notional is not positive');
+      if (liveNotional > input.fromAmount) rateUnset('buy convert notional exceeds authorized fromAmount');
       const order = await execute(input.userId, market.symbol, 'buy', sized, input.clientConvertId, parseAmount(live.avgPrice));
       return { toAmount: parseAmount(order.filled), ledgerTxId: order.id };
     },

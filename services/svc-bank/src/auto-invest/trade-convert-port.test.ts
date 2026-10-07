@@ -7,6 +7,10 @@
  *    outAmount; omitted spot/active, a quote that is not fullyFilled true,
  *    and an execute that is not status filled with remaining 0 refuse
  *    bank.auto_invest_rate_unset (no invented price);
+ *    a missing or blank limits.amount.min refuses the same code and is not
+ *    quoted as an invented 0.00000001 probe; before buy execute the live
+ *    quote notional must be a positive scaled amount no greater than
+ *    fromAmount;
  *    usableTradeConvertUrl rejects empty/non-http.
  * 4. Class M
  * 5. Paths: services/svc-bank/src/auto-invest/**
@@ -480,5 +484,145 @@ describe('tradeConvertPort.convert — a sell books the quote asset the fill rec
       executeWire({ outAmount: '-1' }),
     );
     await expect(port.convert(SELL)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  });
+});
+
+function quoteQtyFromUrl(url: string): string {
+  const raw = new URL(url).searchParams.get('input');
+  if (!raw) return '';
+  const body = JSON.parse(raw) as { qty?: unknown };
+  return typeof body.qty === 'string' ? body.qty : '';
+}
+
+/** Records quote quantities and execute calls at the convert port seam. */
+function watchingPort(markets: unknown, quoteFor: (call: number) => unknown) {
+  const quotes: string[] = [];
+  const executes: string[] = [];
+  const port = tradeConvertPort({
+    baseUrl: 'http://svc-trade:4004',
+    edgeSecret: EDGE,
+    marketsLimit: MARKETS_LIMIT,
+    fetchImpl: async (input) => {
+      const url = String(input);
+      if (url.includes('/api/v1/markets')) return jsonResponse(200, markets);
+      if (url.includes('/trpc/convert.quote')) {
+        quotes.push(quoteQtyFromUrl(url));
+        return jsonResponse(200, { result: { data: quoteFor(quotes.length) } });
+      }
+      if (url.includes('/trpc/convert.execute')) {
+        executes.push(url);
+        return jsonResponse(200, { result: { data: executeWire() } });
+      }
+      return jsonResponse(404, { error: { message: 'unexpected' } });
+    },
+  });
+  return { port, quotes, executes };
+}
+
+const SPOT_NO_LIMITS = {
+  symbol: 'BTC/USDT',
+  base: 'BTC',
+  quote: 'USDT',
+  spot: true,
+  active: true,
+};
+
+describe('tradeConvertPort.convert — a missing or blank minimum is refused', () => {
+  it('refuses a missing limits.amount.min and does not quote 0.00000001', async () => {
+    const seen = watchingPort([SPOT_NO_LIMITS], () => quoteWire());
+    await expect(seen.port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+    expect(seen.quotes).toEqual([]);
+    expect(seen.quotes).not.toContain('0.00000001');
+    expect(seen.executes).toEqual([]);
+  });
+
+  it('refuses a blank limits.amount.min and does not quote 0.00000001', async () => {
+    for (const min of ['', '   ', null]) {
+      const seen = watchingPort([{ ...SPOT_NO_LIMITS, limits: { amount: { min } } }], () => quoteWire());
+      await expect(seen.port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+      expect(seen.quotes).not.toContain('0.00000001');
+      expect(seen.executes).toEqual([]);
+    }
+  });
+
+  it('refuses a non-positive published minimum and does not invent a probe quantity', async () => {
+    for (const min of ['0', '-0.001']) {
+      const seen = watchingPort([{ ...SPOT_NO_LIMITS, limits: { amount: { min } } }], () => quoteWire());
+      await expect(seen.port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+      expect(seen.quotes).not.toContain('0.00000001');
+      expect(seen.executes).toEqual([]);
+    }
+  });
+
+  it('refuses a sell when limits.amount.min is blank', async () => {
+    const seen = watchingPort([{ ...SPOT_NO_LIMITS, limits: { amount: { min: '' } } }], () =>
+      quoteWire({ side: 'sell', userNotional: '100' }),
+    );
+    await expect(seen.port.convert(SELL)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+    expect(seen.quotes).not.toContain('0.00000001');
+    expect(seen.executes).toEqual([]);
+  });
+
+  it('probes a buy with the published positive minimum', async () => {
+    const seen = watchingPort([LISTED_SPOT], () => quoteWire({ userNotional: '100' }));
+    const result = await seen.port.convert(BUY);
+    expect(seen.quotes[0]).toBe('0.001');
+    expect(seen.quotes).not.toContain('0.00000001');
+    expect(formatAmount(result.toAmount)).toBe('0.002');
+    expect(seen.executes).toHaveLength(1);
+  });
+
+  it('probes a buy with 0.00000001 only when the market published that minimum', async () => {
+    const seen = watchingPort([{ ...LISTED_SPOT, limits: { amount: { min: '0.00000001' } } }], () =>
+      quoteWire({ userNotional: '100' }),
+    );
+    const result = await seen.port.convert(BUY);
+    expect(seen.quotes[0]).toBe('0.00000001');
+    expect(formatAmount(result.toAmount)).toBe('0.002');
+  });
+});
+
+describe('tradeConvertPort.convert — buy execute requires the live quote notional inside fromAmount', () => {
+  function buyWithLiveNotional(userNotional: unknown) {
+    return watchingPort([LISTED_SPOT], (call) => (call === 1 ? quoteWire() : quoteWire({ userNotional })));
+  }
+
+  it('refuses when the live quote notional is above fromAmount and does not execute', async () => {
+    const seen = buyWithLiveNotional('101');
+    await expect(seen.port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+    expect(seen.executes).toEqual([]);
+  });
+
+  it('refuses when the live quote notional is zero and does not execute', async () => {
+    const seen = buyWithLiveNotional('0');
+    await expect(seen.port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+    expect(seen.executes).toEqual([]);
+  });
+
+  it('refuses when the live quote notional is blank and does not execute', async () => {
+    for (const userNotional of ['', '   ']) {
+      const seen = buyWithLiveNotional(userNotional);
+      await expect(seen.port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+      expect(seen.executes).toEqual([]);
+    }
+  });
+
+  it('refuses when the live quote notional is negative and does not execute', async () => {
+    const seen = buyWithLiveNotional('-1');
+    await expect(seen.port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+    expect(seen.executes).toEqual([]);
+  });
+
+  it('refuses when the live quote notional does not parse and does not execute', async () => {
+    const seen = buyWithLiveNotional('not-a-notional');
+    await expect(seen.port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+    expect(seen.executes).toEqual([]);
+  });
+
+  it('executes a buy when the live quote notional is positive and below fromAmount', async () => {
+    const seen = buyWithLiveNotional('99.5');
+    const result = await seen.port.convert(BUY);
+    expect(formatAmount(result.toAmount)).toBe('0.002');
+    expect(seen.executes).toHaveLength(1);
   });
 });
