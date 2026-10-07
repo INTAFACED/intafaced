@@ -58,6 +58,10 @@ contract IsolatedLendingMarket {
     uint16 public immutable slope2Bps;
     uint16 public immutable kinkBps;
 
+    /// Raw units in one whole token. Marks price that whole token, not one raw unit.
+    uint256 private immutable collateralUnit;
+    uint256 private immutable borrowUnit;
+
     uint256 public totalCollateral;
     uint256 public totalDebtShares;
     uint256 public totalCash;
@@ -108,6 +112,8 @@ contract IsolatedLendingMarket {
         slope1Bps = c.slope1Bps;
         slope2Bps = c.slope2Bps;
         kinkBps = c.kinkBps;
+        collateralUnit = 10 ** uint256(IERC20Minimal(c.collateralToken).decimals());
+        borrowUnit = 10 ** uint256(IERC20Minimal(c.borrowToken).decimals());
         lastAccrual = uint64(block.timestamp);
     }
 
@@ -181,7 +187,8 @@ contract IsolatedLendingMarket {
         (uint256 colPrice,) = oracle.getMark(collateralAssetForOracle);
         (uint256 borPrice,) = oracle.getMark(borrowAssetForOracle);
 
-        uint256 seize = (repayAmount * borPrice * (BPS + liquidationBonusBps)) / (colPrice * BPS);
+        uint256 seize = (repayAmount * borPrice * (BPS + liquidationBonusBps) * collateralUnit)
+            / (borrowUnit * colPrice * BPS);
         if (seize > collateralOf[borrower]) seize = collateralOf[borrower];
 
         uint256 shares = _debtToShares(repayAmount);
@@ -244,8 +251,8 @@ contract IsolatedLendingMarket {
         if (debt == 0) return true;
         (uint256 colPrice,) = oracle.getMark(collateralAssetForOracle);
         (uint256 borPrice,) = oracle.getMark(borrowAssetForOracle);
-        uint256 colValue = (collateralOf[user] * colPrice) / WAD;
-        uint256 debtValue = (debt * borPrice) / WAD;
+        uint256 colValue = (collateralOf[user] * colPrice) / collateralUnit;
+        uint256 debtValue = (debt * borPrice) / borrowUnit;
         return colValue * thresholdBps >= debtValue * BPS;
     }
 
