@@ -203,6 +203,27 @@ describe('crypto-native — finality is the whole rail', () => {
     expect(formatAmount(outbound[0]!.amount)).toBe('40');
   });
 
+  it('does not send a refund under the confirmation bar, and still sends at the bar', async () => {
+    const address = await localChain.acceptanceAddress('p-fin-1', 'USDT');
+    localChain.credit({ address, assetId: 'USDT', amount: amt('100'), from: '0xbuyer', confirmations: 12 });
+    const auth = await adapter.authorize(intent());
+    await adapter.capture(auth.railRef);
+
+    // A reorg after capture. The deposit is still the payer's, but it is no
+    // longer final, so the outbound refund must not be broadcast.
+    localChain.setConfirmations(address, 5);
+    const shallow = await adapter.refund(auth.railRef, amt('40'));
+    expect(shallow.ok).toBe(false);
+    expect(shallow.failureCode).toBe('chain.insufficient_confirmations');
+    expect(localChain.outboundTransfers()).toHaveLength(0);
+
+    localChain.setConfirmations(address, 6);
+    const atBar = await adapter.refund(auth.railRef, amt('40'));
+    expect(atBar.ok).toBe(true);
+    expect(localChain.outboundTransfers()).toHaveLength(1);
+    expect(formatAmount(localChain.outboundTransfers()[0]!.amount)).toBe('40');
+  });
+
   it('does not advance its refunded total when the broadcast fails', async () => {
     const address = await localChain.acceptanceAddress('p-fin-1', 'USDT');
     localChain.credit({ address, assetId: 'USDT', amount: amt('100'), confirmations: 12 });
