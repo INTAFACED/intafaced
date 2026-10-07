@@ -47,14 +47,16 @@ import type { RestLatencyGrade, WsLatencyGrade } from '@intafaced/venue-contract
  *     stream, which would leave `streamBook` able only to throw. A venue whose
  *     own encoding already agrees with Doctrine 5 is a venue we can read without
  *     negotiating with it.
- *   · **Its REST book carries an update id (`u`), and so do its websocket
- *     frames.** That is what lets the EXISTING `SequencedBookTracker` and
- *     `MaintainedBook` drive this adapter unchanged — subscribe, buffer,
- *     snapshot, join, gap-detect — instead of a second, parallel book path with
- *     its own bugs. Venues that number only their stream (or only publish a
- *     checksum) cannot be joined to a REST snapshot at all, and would have
- *     forced either a second book implementation or an honest `sequenced: false`
- *     that made this venue useless for cross-checking Binance.
+ *   · **REST and the websocket both carry `seq`.** REST `u` is the 1000-level
+ *     update id, on a limit-50 book as well. `orderbook.50` numbers its own
+ *     `u`, so joining those two through `u` either gap-resyncs or applies a
+ *     50-level delta onto the REST book. `seq` is the cross-depth id, and it
+ *     is what the EXISTING `SequencedBookTracker` and `MaintainedBook` join
+ *     and gap-check — no second book implementation. Venues that number only
+ *     their stream (or only publish a checksum) cannot be joined to a REST
+ *     snapshot at all, and would have forced either a second book path or an
+ *     honest `sequenced: false` that made this venue useless for
+ *     cross-checking Binance.
  *   · **Public market data needs no key**, so the whole of this file is
  *     verifiable against the real venue by anyone with egress — and none of it
  *     touches a credential.
@@ -335,10 +337,10 @@ export class BybitSpotMarketData implements MarketDataAdapter {
       symbol,
       bids: readLevels(result.b, 'bids', VENUE.id),
       asks: readLevels(result.a, 'asks', VENUE.id),
-      // `u`, the update id — the field that makes the join arithmetic possible.
-      // NOT `seq`, which Bybit documents as a cross-topic ordering hint rather
-      // than a per-book counter, and which therefore cannot be checked for gaps.
-      sequence: readInteger(result.u, VENUE.id, 'orderbook.u'),
+      // REST `u` matches the 1000-level websocket update id. This book is
+      // `orderbook.50`, whose `u` is a different sequence. Cross-depth
+      // continuity is `seq`.
+      sequence: readInteger(result.seq, VENUE.id, 'orderbook.seq'),
       sequenced: true,
       // Our clock at the moment the read finished. `ts` and `cts` are the venue's
       // own, and a venue that has silently stopped updating still returns a
@@ -412,8 +414,9 @@ export class BybitSpotMarketData implements MarketDataAdapter {
           // Bybit numbers each frame individually and publishes no coalesced
           // range, so the range collapses to a point. That is honest rather than
           // lossy: with `first === last`, the tracker's `firstSequence > current + 1`
-          // gap rule reads as exactly "a message was missed".
-          const sequence = readInteger(book.u, VENUE.id, 'orderbook.u');
+          // gap rule reads as exactly "a message was missed". The point is `seq`:
+          // this topic's `u` does not continue the REST book.
+          const sequence = readInteger(book.seq, VENUE.id, 'orderbook.seq');
           queue.push({
             venueId: VENUE.id,
             symbol,

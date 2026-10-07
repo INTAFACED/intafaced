@@ -166,14 +166,13 @@ describe('symbol mapping', () => {
 });
 
 describe('BybitSpotMarketData.snapshotBook — public data, no credentials', () => {
-  it('reads a snapshot with our clock, not the venue’s, and carries `u` as the sequence', async () => {
+  it('reads a snapshot with our clock, not the venue’s, and carries `seq` as the join sequence', async () => {
     const http = new FakeHttp().queue(orderbook(4_242));
     const snapshot = await adapter(http, new FakeStream(), () => 1_700_000_000_001).snapshotBook('BTC/USDT', 50);
 
-    // `u`, not `seq` (9242 in the fixture): `seq` is a cross-topic ordering hint
-    // and cannot be gap-checked. Picking the wrong one would look fine here and
-    // desync the tracker in production.
-    expect(snapshot.sequence).toBe(4_242);
+    // Fixture `u` is 4242, the 1000-level update id. Fixture `seq` is 9000 + 4242.
+    // The maintained book is orderbook.50, so the join sequence is `seq`.
+    expect(snapshot.sequence).toBe(13_242);
     expect(snapshot.sequenced).toBe(true);
     expect(snapshot.venueId).toBe('bybit-spot');
     expect(snapshot.observedAt.getTime()).toBe(1_700_000_000_001);
@@ -260,7 +259,8 @@ describe('refusals — never a book we cannot stand behind', () => {
     expect(snapshot.asks).toEqual([]);
     // Still a real, sequenced read of a real market. "No liquidity" is a fact,
     // not an error, and the caller is the one that must refuse to price it.
-    expect(snapshot.sequence).toBe(7);
+    // Fixture `u` is 7. The join sequence is `seq` (9007).
+    expect(snapshot.sequence).toBe(9_007);
   });
 
   it('ONE-SIDED book: keeps the side that exists and leaves the other empty', async () => {
@@ -338,11 +338,12 @@ describe('refusals — never a book we cannot stand behind', () => {
     await expect(adapter(http, new FakeStream()).snapshotBook('BTC/USDT', 1)).rejects.toThrow(/is not an array/);
   });
 
-  it('MALFORMED: a missing update id is refused rather than defaulted', async () => {
+  it('MALFORMED: a missing cross-depth seq is refused rather than defaulted', async () => {
     // `Number(undefined)` is NaN and `Number(null)` is 0 — a sequence of zero
     // would be a plausible first sequence and defeat every gap check downstream.
-    const http = new FakeHttp().queue({ retCode: 0, retMsg: 'OK', result: { b: [], a: [] }, time: 1 });
-    await expect(adapter(http, new FakeStream()).snapshotBook('BTC/USDT', 1)).rejects.toThrow(/orderbook\.u/);
+    // `u` alone is the 1000-level update id and is not a substitute.
+    const http = new FakeHttp().queue({ retCode: 0, retMsg: 'OK', result: { b: [], a: [], u: 4_242 }, time: 1 });
+    await expect(adapter(http, new FakeStream()).snapshotBook('BTC/USDT', 1)).rejects.toThrow(/orderbook\.seq/);
   });
 
   it('MALFORMED: a non-positive price refuses the WHOLE response, not just the level', async () => {
@@ -611,7 +612,8 @@ describe('streamBook — subscribe by message, not by URL', () => {
     // Only the delta. Replaying a full book as absolute levels would leave every
     // level the snapshot omitted sitting in the book as phantom liquidity.
     expect(deltas).toHaveLength(1);
-    expect(deltas[0]!.sequence).toEqual({ firstSequence: 101, lastSequence: 101 });
+    // Fixture `u` is 101. The emitted sequence is `seq` (9101).
+    expect(deltas[0]!.sequence).toEqual({ firstSequence: 9_101, lastSequence: 9_101 });
     expect(deltas[0]!.bids).toEqual([['30001', '3']]);
     expect(deltas[0]!.venueId).toBe('bybit-spot');
   });
@@ -780,8 +782,9 @@ describe('subscribeRefusal / takerSideOf', () => {
 // subclassed and not parameterised for Bybit. If they were, the second venue
 // would have bought a second book implementation with its own bugs.
 //
-// Bybit's update id is per depth. The stream is orderbook.50, so every snapshot
-// in this suite is limit=50. A REST 1000-level `u` is not that sequence.
+// REST `u` is the 1000-level update id even when limit is 50. The stream is
+// orderbook.50. Cross-depth continuity is `seq`. Every snapshot in this suite
+// is still the 50-level book.
 // ════════════════════════════════════════════════════════════════════════════
 
 describe('MaintainedBook on bybit-spot — subscribe, buffer, snapshot, join', () => {
@@ -805,9 +808,8 @@ describe('MaintainedBook on bybit-spot — subscribe, buffer, snapshot, join', (
     expect(stream.sent()).toEqual([{ op: 'subscribe', args: ['orderbook.50.BTCUSDT'] }]);
     expect(book.venueId).toBe('bybit-spot');
 
-    // `u` is per depth. orderbook.50 and a REST snapshot at limit=1000 are not
-    // one sequence, so live at 101 after a snapshot whose u is 100 is only a
-    // real join when that snapshot is the 50-level book.
+    // The stream is orderbook.50, so the seed is a limit-50 book. Live sequence
+    // is the delta's `seq` (9101), which continues the snapshot's `seq` (9100).
     expect(http.requests[0]).toBe(fiftyLevelBook);
 
     stream.socket().push(depthFrame('snapshot', 100));
@@ -815,7 +817,73 @@ describe('MaintainedBook on bybit-spot — subscribe, buffer, snapshot, join', (
     await settle();
 
     expect(book.servable).toBe(true);
-    expect(book.status).toEqual({ kind: 'live', sequence: 101 });
+    expect(book.status).toEqual({ kind: 'live', sequence: 9_101 });
+    expect(formatAmount(book.top()!.bestBid!)).toBe('30001');
+    expect(formatAmount(book.top()!.bestAsk!)).toBe('30002');
+
+    await book.close();
+    stream.socket().close();
+    await running;
+  });
+
+  /**
+   * REST `u` is the 1000-level update id, including on a limit-50 book.
+   * `orderbook.50` has its own `u`. A delta whose `u` is the REST id's
+   * successor is still a different sequence. Continuity across those depths
+   * is `seq`.
+   */
+  it('joins a limit-50 REST book to an orderbook.50 delta on seq', async () => {
+    const http = new FakeHttp().queue({
+      retCode: 0,
+      retMsg: 'OK',
+      result: {
+        s: 'BTCUSDT',
+        b: [['30000.00', '2.00']],
+        a: [['30002.00', '1.00']],
+        ts: 1_700_000_000_000,
+        u: 900_000,
+        seq: 4_100,
+        cts: 1_700_000_000_000,
+      },
+      retExtInfo: {},
+      time: 1_700_000_000_000,
+    });
+    const stream = new FakeStream();
+    const book = new MaintainedBook(adapter(http, stream), 'BTC/USDT', bookOptions);
+
+    const running = book.run();
+    await settle();
+    expect(http.requests).toEqual([fiftyLevelBook]);
+
+    stream.socket().push({
+      topic: 'orderbook.50.BTCUSDT',
+      type: 'snapshot',
+      ts: 1,
+      data: { s: 'BTCUSDT', b: LEVELS.b, a: LEVELS.a, u: 54, seq: 4_100 },
+      cts: 1,
+    });
+    // `u` is the next 1000-level id. `seq` is not the next cross-depth id.
+    stream.socket().push({
+      topic: 'orderbook.50.BTCUSDT',
+      type: 'delta',
+      ts: 1,
+      data: { s: 'BTCUSDT', b: [['29999.00', '1.00']], a: [], u: 900_001, seq: 50 },
+      cts: 1,
+    });
+    // `u` is the 50-level id. `seq` continues the REST book.
+    stream.socket().push({
+      topic: 'orderbook.50.BTCUSDT',
+      type: 'delta',
+      ts: 1,
+      data: { s: 'BTCUSDT', b: [['30001.00', '3.00']], a: [], u: 55, seq: 4_101 },
+      cts: 1,
+    });
+    await settle();
+
+    expect(book.tracker.resyncCount).toBe(0);
+    expect(http.requests).toEqual([fiftyLevelBook]);
+    expect(book.servable).toBe(true);
+    expect(book.status).toEqual({ kind: 'live', sequence: 4_101 });
     expect(formatAmount(book.top()!.bestBid!)).toBe('30001');
     expect(formatAmount(book.top()!.bestAsk!)).toBe('30002');
 
@@ -903,7 +971,7 @@ describe('MaintainedBook on bybit-spot — subscribe, buffer, snapshot, join', (
     }
     await settle();
 
-    expect(book.tracker.sequence).toBe(200);
+    expect(book.tracker.sequence).toBe(9_200);
     expect(book.tracker.resyncCount).toBe(0);
     // One 50-level snapshot for the whole run: no self-inflicted resnapshot loop.
     expect(http.requests).toEqual([fiftyLevelBook]);
@@ -1231,7 +1299,7 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
     const http = new FakeHttp().queue(orderbook(1));
     const snapshot = await adapter(http, new FakeStream()).snapshotBook('BTC/USDT', 50);
     expect(snapshot.venueId).toBe('bybit-spot');
-    expect(snapshot.sequence).toBe(1);
+    expect(snapshot.sequence).toBe(9_001);
     expect(snapshot.bids).not.toHaveLength(0);
   });
 });

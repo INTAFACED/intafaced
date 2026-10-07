@@ -115,7 +115,8 @@ describe('BybitSpotMarketData.snapshotBook limit unpublished', () => {
     const http = new FakeHttp().queue(depth).queue(depth);
     const adapter = md(http);
     const snapshot = await adapter.snapshotBook('BTC/USDT', 200);
-    expect(snapshot.sequence).toBe(1);
+    // Fixture `u` is 1. The join sequence is `seq`.
+    expect(snapshot.sequence).toBe(9);
     expect(http.requests[0]).toBe('https://rest.test/v5/market/orderbook?category=spot&symbol=BTCUSDT&limit=200');
     await adapter.snapshotBook('BTC/USDT', 999_999);
     expect(http.requests[1]).toContain('limit=1000');
