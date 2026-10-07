@@ -132,6 +132,61 @@ describe('executeOmsArbAtomicLegs', () => {
     expect(calls).toBe(1);
   });
 
+  it('refuses a blank or whitespace parent before plan or submit', async () => {
+    const store = new InMemoryEmsOrderStore();
+    let submits = 0;
+    const submit: OmsSubmitFn = async (req) => {
+      submits += 1;
+      return executionFor(req.side === 'buy' ? 'binance-spot' : 'bybit-spot');
+    };
+    const venues = { 'binance-spot': submit, 'bybit-spot': submit };
+
+    const whitespace = await executeOmsArbAtomicLegs(input({ parentClientOrderId: ' \t ', executionGroupId: ' \n ' }), venues, store);
+    const empty = await executeOmsArbAtomicLegs(input({ parentClientOrderId: '', executionGroupId: '' }), venues, store);
+    const unplanned = await executeOmsArbAtomicLegs(
+      input({
+        parentClientOrderId: '   ',
+        executionGroupId: '   ',
+        inventory: { prePositionedByVenue: { 'binance-spot': true, 'bybit-spot': false } },
+      }),
+      venues,
+      store,
+    );
+
+    expect(whitespace).toMatchObject({
+      ok: false,
+      reason: 'missing_identity',
+      parentClientOrderId: '',
+      executionGroupId: '',
+      executions: [],
+      children: [],
+    });
+    expect(empty).toMatchObject({
+      ok: false,
+      reason: 'missing_identity',
+      parentClientOrderId: '',
+      executionGroupId: '',
+      executions: [],
+      children: [],
+    });
+    expect(unplanned).toMatchObject({
+      ok: false,
+      reason: 'missing_identity',
+      parentClientOrderId: '',
+      executionGroupId: '',
+      executions: [],
+      children: [],
+    });
+    expect(unplanned).not.toMatchObject({ reason: 'inventory_missing' });
+    expect(submits).toBe(0);
+    expect(store.list()).toEqual([]);
+    expect(whitespace).not.toMatchObject({ reason: 'submit_failed' });
+    expect(empty).not.toMatchObject({ reason: 'submit_failed' });
+    const childIds = [...whitespace.children, ...empty.children].map((child) => child.clientOrderId);
+    expect(childIds.filter((id) => id.startsWith('oms/'))).toEqual([]);
+    expect(new Set(childIds).size).toBe(childIds.length);
+  });
+
   it('keeps identities deterministic and collision-resistant across parent/group/leg combinations', async () => {
     const submit: OmsSubmitFn = async (req) => executionFor(req.side === 'buy' ? 'binance-spot' : 'bybit-spot');
     const a = await executeOmsArbAtomicLegs(input(), { 'binance-spot': submit, 'bybit-spot': submit });

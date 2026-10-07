@@ -52,7 +52,18 @@ export type OmsArbExecuteLegsSubmitFailed = {
   readonly commandOutcome: ExecutionCommandOutcome;
 };
 
-export type OmsArbExecuteLegsResult = OmsArbExecuteLegsPlanRefuse | OmsArbExecuteLegsOk | OmsArbExecuteLegsSubmitFailed;
+export type OmsArbExecuteLegsIdentityRefuse = {
+  readonly ok: false;
+  readonly reason: 'missing_identity';
+  readonly detail: string;
+  readonly parentClientOrderId: string;
+  readonly executionGroupId: string;
+  readonly executions: readonly VenueExecution[];
+  readonly children: readonly OmsChildExecution[];
+};
+
+export type OmsArbExecuteLegsResult =
+  OmsArbExecuteLegsPlanRefuse | OmsArbExecuteLegsOk | OmsArbExecuteLegsSubmitFailed | OmsArbExecuteLegsIdentityRefuse;
 
 function submitErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -86,9 +97,22 @@ export async function executeOmsArbAtomicLegs(
   submitByVenue: Readonly<Record<string, OmsSubmitFn>>,
   emsStore?: EmsOrderStore,
 ): Promise<OmsArbExecuteLegsResult> {
+  const parentClientOrderId = input.parentClientOrderId.trim();
+  const providedGroupId = input.executionGroupId?.trim() ?? '';
+  if (parentClientOrderId.length === 0) {
+    return {
+      ok: false,
+      reason: 'missing_identity',
+      detail: 'caller-owned parentClientOrderId is required',
+      parentClientOrderId,
+      executionGroupId: providedGroupId,
+      executions: [],
+      children: [],
+    };
+  }
   const lineageIds: OmsExecutionLineage = {
-    parentClientOrderId: input.parentClientOrderId.trim(),
-    executionGroupId: input.executionGroupId?.trim() || input.parentClientOrderId.trim(),
+    parentClientOrderId,
+    executionGroupId: providedGroupId || parentClientOrderId,
   };
   const planned = planOmsArbAtomicLegs(input);
   if (!planned.ok) {
