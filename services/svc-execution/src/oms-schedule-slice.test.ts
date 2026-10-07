@@ -4,7 +4,7 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { SealedHouseTenantRegistry } from '@intafaced/execution-house-tenant';
 import type { SubmitRequest, VenueExecution } from '@intafaced/venue-adapter';
-import { InMemoryEmsOrderStore } from './oms-ems-store.js';
+import { InMemoryEmsOrderStore, type EmsOrderStore } from './oms-ems-store.js';
 import { InMemoryApprovedAlgoParentStore, type ApprovedAlgoParent, type RetainedAlgoSchedule } from './oms-start.js';
 import { scheduleSliceLiveAlgoParent } from './oms-schedule-slice.js';
 import type { OmsSubmitFn } from './oms-trade-submit.js';
@@ -94,6 +94,22 @@ function trackingSubmit(): { calls: SubmitRequest[]; submit: OmsSubmitFn } {
     submit: async (req) => {
       calls.push(req);
       return ack(req);
+    },
+  };
+}
+
+/** Record is accepted and then dropped, so a following list never shows the child. */
+function storeThatDropsRecords(): EmsOrderStore {
+  return {
+    record() {},
+    get() {
+      return null;
+    },
+    getByReconciliationKey() {
+      return null;
+    },
+    list() {
+      return [];
     },
   };
 }
@@ -321,6 +337,53 @@ describe('scheduleSliceLiveAlgoParent', () => {
         emsStore,
       }),
     ).toMatchObject({ ok: false, reason: 'not_due' });
+    expect(street.calls).toHaveLength(1);
+  });
+
+  it('a missing ems store refuses before a slice is submitted', async () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(live({ parentClientOrderId: 'parent-twap', kind: 'twap' }));
+    const street = trackingSubmit();
+    const first = await scheduleSliceLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      ...sliceFields,
+      now: START,
+      parentStore,
+      submit: street.submit,
+    });
+    expect(first).toMatchObject({ ok: false, reason: 'ems_store_unwired' });
+    expect(first).not.toMatchObject({ scheduled: true, sliceIndex: 0, dueAt: STARTED_AT });
+    expect(street.calls).toEqual([]);
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe(leftover);
+
+    const again = await scheduleSliceLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      ...sliceFields,
+      now: AT_SECOND,
+      parentStore,
+      submit: street.submit,
+    });
+    expect(again).toMatchObject({ ok: false, reason: 'ems_store_unwired' });
+    expect(street.calls).toEqual([]);
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe(leftover);
+  });
+
+  it('a record that does not keep the child is not scheduled', async () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(live({ parentClientOrderId: 'parent-twap', kind: 'twap' }));
+    const street = trackingSubmit();
+    const emsStore = storeThatDropsRecords();
+    const result = await scheduleSliceLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      ...sliceFields,
+      now: START,
+      parentStore,
+      submit: street.submit,
+      emsStore,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'child_not_retained' });
+    expect(result).not.toMatchObject({ scheduled: true });
+    expect(emsStore.list({ parentClientOrderId: 'parent-twap' })).toEqual([]);
     expect(street.calls).toHaveLength(1);
   });
 

@@ -6,7 +6,8 @@
  * host timer and never invents VWAP volume or POV participation. Qty,
  * venue, symbol, side, limit, and parentCap stay on the request;
  * oms-slice + the parent remaining/price caps do the submit. Missing
- * schedule, clock, remaining, or parentCap refuses. Never invents ticks.
+ * schedule, clock, remaining, parentCap, or EMS store refuses. A slice
+ * is scheduled only when the child is listed after record. Never invents ticks.
  */
 import { parseAmount, ZERO } from '@intafaced/ledger-client';
 import type { AlgoPauseStore } from './oms-pause.js';
@@ -27,7 +28,9 @@ export type OmsScheduleSliceRefuse =
   | OmsSliceRefuse
   | { readonly ok: false; readonly reason: 'missing_schedule'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'missing_clock'; readonly detail: string }
-  | { readonly ok: false; readonly reason: 'not_due'; readonly detail: string };
+  | { readonly ok: false; readonly reason: 'not_due'; readonly detail: string }
+  | { readonly ok: false; readonly reason: 'ems_store_unwired'; readonly detail: string }
+  | { readonly ok: false; readonly reason: 'child_not_retained'; readonly detail: string };
 
 export type OmsScheduleSliceResult = OmsScheduleSliceOk | OmsScheduleSliceRefuse;
 
@@ -134,11 +137,19 @@ export async function scheduleSliceLiveAlgoParent(input: {
     return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover from duration or slicesPlanned');
   }
 
+  if (!input.emsStore) {
+    return refuse(
+      'ems_store_unwired',
+      'EMS evidence store is required for schedule slice — refusing to treat a missing store as no children',
+    );
+  }
+  const emsStore = input.emsStore;
+
   const startedAt = existing.startedAt!.trim();
   const startedMs = Date.parse(startedAt);
   const sliceIntervalMs = existing.schedule.sliceIntervalMs;
   const slicesPlanned = existing.schedule.slicesPlanned;
-  const taken = input.emsStore?.list({ parentClientOrderId }) ?? [];
+  const taken = emsStore.list({ parentClientOrderId });
   const sliceIndex = taken.length;
   if (sliceIndex >= slicesPlanned) {
     return refuse('not_due', `parent ${parentClientOrderId} has taken ${sliceIndex} of ${slicesPlanned} planned slices`);
@@ -172,11 +183,11 @@ export async function scheduleSliceLiveAlgoParent(input: {
     submit: input.submit,
     submitByVenue: input.submitByVenue,
     pauseStore: input.pauseStore,
-    emsStore: input.emsStore,
+    emsStore,
   });
   if (!sliced.ok) return sliced;
 
-  input.emsStore?.record({
+  emsStore.record({
     clientOrderId: sliced.child.clientOrderId,
     parentClientOrderId: sliced.parent.parentClientOrderId,
     executionGroupId: sliced.parent.parentClientOrderId,
@@ -189,6 +200,14 @@ export async function scheduleSliceLiveAlgoParent(input: {
     reconciliationKey: null,
     recordedAtMs: now.getTime(),
   });
+  const retained = emsStore.list({ parentClientOrderId });
+  const kept = retained.some((child) => child.clientOrderId === sliced.child.clientOrderId);
+  if (!kept) {
+    return refuse(
+      'child_not_retained',
+      `child ${sliced.child.clientOrderId} is not visible after record — refusing to report the slice as scheduled`,
+    );
+  }
 
   return {
     ...sliced,
