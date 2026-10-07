@@ -3,6 +3,7 @@ import { parseAmount, ZERO } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { SealedHouseTenantRegistry } from '@intafaced/execution-house-tenant';
+import type { VenueExecution } from '@intafaced/venue-adapter';
 import type { VenueOrder } from '@intafaced/venue-contracts';
 import type { OmsCancelFn } from './oms-cancel.js';
 import { InMemoryEmsOrderStore } from './oms-ems-store.js';
@@ -78,6 +79,23 @@ class FakeCancel {
   };
 }
 
+function storedExecution(
+  filled: string,
+  status: VenueExecution['status'] = 'partial',
+  venueId = 'street',
+): VenueExecution {
+  return {
+    venueId,
+    venueOrderId: 'v-stored',
+    filledAmount: parseAmount(filled),
+    averagePrice: parseAmount('100'),
+    feeAmount: ZERO,
+    feeAsset: 'USDT',
+    status,
+    executedAt: now,
+  };
+}
+
 function seedAck(
   store: InMemoryEmsOrderStore,
   over: {
@@ -85,7 +103,8 @@ function seedAck(
     parentClientOrderId?: string;
     executionGroupId?: string;
     venueId?: string;
-    state?: 'ACKNOWLEDGED' | 'REJECTED' | 'UNWIRED' | 'SUBMIT_UNKNOWN' | 'OUTCOME_UNKNOWN';
+    state?: 'ACKNOWLEDGED' | 'REJECTED' | 'UNWIRED' | 'SUBMIT_UNKNOWN' | 'OUTCOME_UNKNOWN' | 'CANCELED';
+    execution?: VenueExecution | null;
   } = {},
 ) {
   store.record({
@@ -97,7 +116,7 @@ function seedAck(
     venueId: over.venueId ?? 'street',
     symbol: 'BTC/USDT',
     side: 'buy',
-    execution: null,
+    execution: over.execution === undefined ? null : over.execution,
     state: over.state ?? 'ACKNOWLEDGED',
     reconciliationKey: null,
   });
@@ -214,6 +233,77 @@ describe('drainInFlightAlgo', () => {
       ok: false,
       reason: 'ems_store_unwired',
     });
+  });
+
+  it('counts stored fills on a later drain of rows that already stopped', async () => {
+    const store = new InMemoryEmsOrderStore();
+    seedAck(store, { clientOrderId: 'child-canceled', state: 'CANCELED', execution: storedExecution('0.4') });
+    seedAck(store, {
+      clientOrderId: 'child-rejected',
+      state: 'REJECTED',
+      execution: storedExecution('0.15', 'rejected'),
+    });
+    seedAck(store, { clientOrderId: 'child-unwired', state: 'UNWIRED', execution: storedExecution('0.25') });
+    seedAck(store, { clientOrderId: 'child-empty', state: 'CANCELED' });
+    const street = new FakeCancel(venueOrder());
+    const result = await drainInFlightAlgo({
+      parentClientOrderId: 'parent-1',
+      cancelByVenue: { street: street.fn },
+      emsStore: store,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.children.every((child) => child.outcome === 'already_stopped')).toBe(true);
+    expect(result.residual).toEqual({ filled: '0.8', remaining: '0' });
+    expect(street.calls).toHaveLength(0);
+  });
+
+  it('counts a lone partial fill and keeps the venue remaining', async () => {
+    const store = new InMemoryEmsOrderStore();
+    seedAck(store);
+    const street = new FakeCancel(
+      venueOrder({
+        status: 'partially_filled',
+        filled: parseAmount('0.4'),
+        remaining: parseAmount('0.6'),
+        averagePrice: parseAmount('100'),
+      }),
+    );
+    const result = await drainInFlightAlgo({
+      parentClientOrderId: 'parent-1',
+      cancelByVenue: { street: street.fn },
+      emsStore: store,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.children[0]).toMatchObject({ outcome: 'stopped', status: 'partially_filled' });
+    expect(result.residual).toEqual({ filled: '0.4', remaining: '0.6' });
+  });
+
+  it('keeps a known fill when another child is unknown', async () => {
+    const store = new InMemoryEmsOrderStore();
+    seedAck(store, { clientOrderId: 'child-canceled', state: 'CANCELED', execution: storedExecution('0.25') });
+    seedAck(store, { clientOrderId: 'child-partial' });
+    seedAck(store, { clientOrderId: 'child-down', venueId: 'down' });
+    const street = new FakeCancel(
+      venueOrder({
+        clientOrderId: 'child-partial',
+        status: 'partially_filled',
+        filled: parseAmount('0.4'),
+        remaining: parseAmount('0.6'),
+        averagePrice: parseAmount('100'),
+      }),
+    );
+    const down = new FakeCancel(new Error('venue 503'), 'down');
+    const result = await drainInFlightAlgo({
+      parentClientOrderId: 'parent-1',
+      cancelByVenue: { street: street.fn, down: down.fn },
+      emsStore: store,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.children.map((child) => child.outcome)).toEqual(['already_stopped', 'stopped', 'unknown']);
+    expect(result.residual).toEqual({ filled: '0.65', remaining: null });
   });
 });
 
