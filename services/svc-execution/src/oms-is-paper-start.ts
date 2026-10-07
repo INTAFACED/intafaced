@@ -67,7 +67,7 @@ export function startPaperImplementationShortfallParent(input: {
   parentClientOrderId?: string;
   /** Must be true — start needs an already-approved paper IS parent. */
   approved?: boolean;
-  /** Paper-approved status is 'paper'. Live running refuses already_started. */
+  /** Omitted, paper, or approved may start. Running refuses already_started. Any other status refuses not_approved. */
   status?: 'paper' | 'approved' | 'running' | string;
   /** Retained arrival from paper approve. Blank refuses — never invent a schedule. */
   arrivalPrice?: string | null;
@@ -87,7 +87,12 @@ export function startPaperImplementationShortfallParent(input: {
   if (input.status === 'running') {
     return refuse('already_started', `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`);
   }
-  if (input.approved !== true && input.status !== 'paper' && input.status !== 'approved') {
+  const statusOmitted = input.status === undefined;
+  const paperOrApproved = input.status === 'paper' || input.status === 'approved';
+  if (!statusOmitted && !paperOrApproved) {
+    return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper parent`);
+  }
+  if (input.approved !== true && !paperOrApproved) {
     return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper parent`);
   }
   const operatorId = input.operatorId?.trim() ?? '';
