@@ -106,6 +106,11 @@ import {
  *   the original transaction rather than making a second one. Nothing is stranded
  *   — the borrower's payment either happened or did not, and the row says which.
  *
+ *   A crash after that settle and before the collateral release is the other
+ *   window: the debt is clear and the collateral is still locked. The retry
+ *   finds `ledger_tx_id` and must release that collateral without posting the
+ *   repayment again.
+ *
  * ── liquidate(): the seizure and the sale are ONE transaction ───────────────
  *
  *   The three-step version — release collateral, sell it, apply the proceeds —
@@ -1247,6 +1252,27 @@ export class LoanService {
       }
       if (prior.ledger_tx_id) {
         const remaining = await this.outstanding(loan.id);
+        // The repayment already settled. Do not post it again. If this retry
+        // is the crash after that settle, the debt is clear and the collateral
+        // is still locked — release it and mark the loan repaid. A loan already
+        // repaid or liquidated is left as it is.
+        if (remaining.total <= 0n && loan.status !== 'repaid' && loan.status !== 'liquidated') {
+          const held = await this.collateralOf(loan);
+          if (held > 0n) await this.releaseCollateral(loan, held);
+          await this.sql`
+            UPDATE bank.loans SET status = 'repaid', margin_called_at = NULL, closed_at = ${now}, updated_at = now()
+             WHERE id = ${loan.id}
+          `;
+          await this.clearMarginCalls(loan.id, now);
+          return {
+            ledgerTxId: prior.ledger_tx_id,
+            sequence: Number(prior.sequence),
+            interestPaid: parseAmount(prior.interest_amount),
+            principalPaid: parseAmount(prior.principal_amount),
+            remaining,
+            closed: true,
+          };
+        }
         return {
           ledgerTxId: prior.ledger_tx_id,
           sequence: Number(prior.sequence),
