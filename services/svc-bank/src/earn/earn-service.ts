@@ -537,6 +537,11 @@ export class EarnService {
   /**
    * Close a position and return the principal.
    *
+   * The money is the ledger stake pot, checked with `stakePrincipalForAccrual`
+   * the same way `principalOf` checks it. A column that disagrees with the pot
+   * refuses `bank.earn_principal_mismatch` before anything is posted, so the
+   * row stays open and the pot stays whole.
+   *
    * The row is locked for the duration so two concurrent withdrawals cannot both
    * post. The ledger's idempotency key would catch the double-post anyway, but
    * relying on the last line of defence for ordinary correctness is how the last
@@ -567,7 +572,9 @@ export class EarnService {
           throw new BankError(`Fixed-term position is locked until ${row.matures_at.toISOString()}`, 'bank.position_locked');
         }
 
-        const principal = parseAmount(row.principal);
+        const recorded = parseAmount(row.principal);
+        const book = (await this.ledger.balance(earnStakeAccount(row.user_id, row.asset_id, row.id))).amount;
+        const principal = stakePrincipalForAccrual(row.id, recorded, book);
 
         await this.ledger.post(
           recipes.earnWithdraw({
