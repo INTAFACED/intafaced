@@ -27,6 +27,7 @@ export type OmsAmendRemainingRefuseReason =
   | 'not_live'
   | 'missing_residual'
   | 'exceeds_remaining'
+  | 'non_positive_qty'
   | 'children_unknown';
 
 export type OmsAmendRemainingRefusal = {

@@ -14,7 +14,8 @@ export type ParentRemainingCapOk = { readonly ok: true; readonly nextRemaining: 
 
 export type ParentRemainingCapRefuse =
   | { readonly ok: false; readonly reason: 'missing_residual'; readonly detail: string }
-  | { readonly ok: false; readonly reason: 'exceeds_remaining'; readonly detail: string };
+  | { readonly ok: false; readonly reason: 'exceeds_remaining'; readonly detail: string }
+  | { readonly ok: false; readonly reason: 'non_positive_qty'; readonly detail: string };
 
 export type ParentPriceCapOk = { readonly ok: true };
 
@@ -87,6 +88,12 @@ export function capAgainstParentRemaining(
   }
   if (remainingAmt < ZERO) {
     return remainingRefuse('missing_residual', 'residual.remaining is not a ledger amount — refusing to invent leftover');
+  }
+  if (compare(childQty, ZERO) <= 0) {
+    return remainingRefuse(
+      'non_positive_qty',
+      `${label} ${formatAmount(childQty)} is not a positive child quantity — refusing to grow residual.remaining`,
+    );
   }
   if (compare(childQty, remainingAmt) > 0) {
     return remainingRefuse(

@@ -58,7 +58,8 @@ export type OmsAssignRefuse =
   | { readonly ok: false; readonly reason: 'missing_fill'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'already_assigned'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'missing_residual'; readonly detail: string }
-  | { readonly ok: false; readonly reason: 'exceeds_remaining'; readonly detail: string };
+  | { readonly ok: false; readonly reason: 'exceeds_remaining'; readonly detail: string }
+  | { readonly ok: false; readonly reason: 'non_positive_qty'; readonly detail: string };
 
 export type OmsAssignResult = OmsAssignOk | OmsAssignRefuse;
 
