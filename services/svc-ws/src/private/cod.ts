@@ -318,10 +318,11 @@ export function targetsFromCancel(input: {
       targets: [{ selector, outcome: 'OUTCOME_UNKNOWN', reason: `cod.trade_http_${input.result.status}` }],
     };
   }
+  const applied = input.result.orders.map((o) => ({ selector: o.orderId, outcome: 'APPLIED' as const }));
   return {
     tradeReached: true,
-    complete: true,
-    targets: input.result.orders.map((o) => ({ selector: o.orderId, outcome: 'APPLIED' as const })),
+    complete: applied.length > 0,
+    targets: applied,
   };
 }
 
