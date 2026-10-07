@@ -37,7 +37,9 @@ contract SovereignRouter {
         external
         returns (uint256 amountOut)
     {
-        if (pool == address(0) || tokenIn == address(0) || to == address(0) || amountIn == 0) revert BadAmount();
+        if (pool == address(0) || tokenIn == address(0) || to == address(0) || amountIn == 0 || minAmountOut == 0) {
+            revert BadAmount();
+        }
         IConstantProductPool p = IConstantProductPool(pool);
         address t0 = p.token0();
         address t1 = p.token1();
