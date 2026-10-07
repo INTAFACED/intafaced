@@ -247,7 +247,14 @@ fn require_price(order: &Order) -> Result<u128, String> {
 fn require_stop(order: &Order) -> Result<u128, String> {
     match order.stopPrice.as_deref() {
         None | Some("") => Err("missing_stop_price: a stop order requires a stopPrice".into()),
-        Some(s) => parse_amount(s),
+        Some(s) => {
+            let px = parse_amount(s)?;
+            if px == 0 {
+                Err("invalid_price: stopPrice must be strictly positive".into())
+            } else {
+                Ok(px)
+            }
+        }
     }
 }
 
@@ -1032,5 +1039,71 @@ mod tests {
         assert!(traded.bids.is_empty());
         assert!(traded.asks.is_empty());
         assert_eq!(traded.lastTradePrice.as_deref(), Some("100"));
+    }
+
+    fn stop(id: &str, side: &str, qty: &str, stop_price: Option<&str>) -> Order {
+        Order {
+            orderId: id.into(),
+            accountId: "desk".into(),
+            kind: "stop".into(),
+            side: side.into(),
+            qty: qty.into(),
+            price: None,
+            stopPrice: stop_price.map(str::to_string),
+            tif: "GTC".into(),
+            aon: false,
+            iceberg: false,
+            displayQty: None,
+            minQty: None,
+            reduceOnly: false,
+            ocoSiblingId: None,
+            expireAt: None,
+            peg: false,
+            midpoint: false,
+            auction: false,
+            exercise: false,
+        }
+    }
+
+    #[test]
+    fn zero_stop_price_is_refused_before_the_stop_rests() {
+        let mut book = Book { market: "BTC/USDT".into(), ..Book::default() };
+        let empty = serde_json::to_value(book.state()).unwrap();
+        assert_eq!(empty["sequence"], 0);
+        assert!(empty["stops"].as_array().unwrap().is_empty());
+
+        for raw in ["0", "0.0"] {
+            let err = book.submit(stop("zero-stop", "sell", "1", Some(raw))).unwrap_err();
+            assert!(err.contains("invalid_price") && err.contains("strictly positive"), "{raw}: {err}");
+            assert_eq!(serde_json::to_value(book.state()).unwrap(), empty, "{raw}");
+        }
+
+        for raw in [None, Some("")] {
+            let err = book.submit(stop("blank-stop", "sell", "1", raw)).unwrap_err();
+            assert!(err.contains("missing_stop_price"), "{raw:?}: {err}");
+            assert!(!err.contains("0"), "{raw:?}: {err}");
+            assert_eq!(serde_json::to_value(book.state()).unwrap(), empty, "{raw:?}");
+        }
+
+        book.submit(stop("rest-stop", "sell", "1", Some("90"))).unwrap();
+        let rested = book.state();
+        assert_eq!(rested.sequence, 1);
+        assert!(rested.bids.is_empty());
+        assert!(rested.asks.is_empty());
+        assert_eq!(rested.lastTradePrice, None);
+        assert_eq!(rested.stops.len(), 1);
+        assert_eq!(rested.stops[0]["orderId"], "rest-stop");
+        assert_eq!(rested.stops[0]["stopPrice"], "90");
+        assert_eq!(rested.stops[0]["price"], serde_json::Value::Null);
+
+        let mut book = Book { market: "BTC/USDT".into(), ..Book::default() };
+        book.submit(limit("bid", "buy", "1", "GTC")).unwrap();
+        let with_bid = serde_json::to_value(book.state()).unwrap();
+        assert_eq!(with_bid["sequence"], 1);
+        assert_eq!(with_bid["bids"][0]["orders"][0]["orderId"], "bid");
+        assert!(with_bid["stops"].as_array().unwrap().is_empty());
+        let err = book.submit(stop("zero-stop", "sell", "1", Some("0"))).unwrap_err();
+        assert!(err.contains("invalid_price") && err.contains("strictly positive"), "{err}");
+        assert_eq!(serde_json::to_value(book.state()).unwrap(), with_bid);
     }
 }
