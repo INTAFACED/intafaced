@@ -82,12 +82,19 @@ export function mapBybitSpotOrder(row: Record<string, unknown>, unified: string,
   const createdRaw = row.createdTime ?? row.updatedTime;
   const createdAt = createdRaw === undefined || createdRaw === null ? now : new Date(readInteger(createdRaw, VENUE.id, 'createdTime'));
   assertFillReportMatchesStatus(VENUE.id, status, executed, averagePrice);
+  const sideRaw = typeof row.side === 'string' ? row.side.toLowerCase() : '';
+  let side: VenueOrder['side'];
+  if (sideRaw === 'buy') side = 'buy';
+  else if (sideRaw === 'sell') side = 'sell';
+  else {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', `side ${sideRaw || '(empty)'} is not a known Bybit side`);
+  }
   return {
     venueId: VENUE.id,
     venueOrderId: row.orderId === undefined || row.orderId === null ? null : String(row.orderId),
     clientOrderId: String(row.orderLinkId ?? ''),
     symbol: unified,
-    side: String(row.side).toLowerCase() === 'sell' ? 'sell' : 'buy',
+    side,
     type,
     price,
     amount: orig,
