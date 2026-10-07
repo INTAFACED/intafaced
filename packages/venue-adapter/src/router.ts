@@ -137,6 +137,16 @@ export function capInternalPreferenceBps(requested?: number): number {
 }
 
 /**
+ * Keep a house route limit when the caller omits it or passes a non-finite one.
+ * Object spread would otherwise install NaN, and both `drift > NaN` and
+ * `legs.length >= NaN` are false, so the guard would fail open.
+ */
+function finiteRouteLimit(requested: number | undefined, fallback: number): number {
+  if (requested === undefined || !Number.isFinite(requested)) return fallback;
+  return requested;
+}
+
+/**
  * What the user really pays (buy) or receives (sell) per unit.
  *
  * Fees round `ceil` so an estimate is never rosier than reality — a route that
@@ -187,6 +197,9 @@ export async function planRoute(
     ...options,
     // Cap after spread so a caller cannot silently raise the house thumb.
     internalPreferenceBps: capInternalPreferenceBps(options.internalPreferenceBps),
+    // Re-apply after spread. Undefined or NaN must not replace 50 bps / 4 venues.
+    maxSlippageBps: finiteRouteLimit(options.maxSlippageBps, DEFAULTS.maxSlippageBps),
+    maxVenues: finiteRouteLimit(options.maxVenues, DEFAULTS.maxVenues),
   };
   const now = opts.now ?? new Date();
   const rejected: RejectedVenue[] = [];

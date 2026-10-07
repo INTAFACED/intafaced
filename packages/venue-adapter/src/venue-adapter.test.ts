@@ -373,6 +373,40 @@ describe('venue exclusion — the failures that cost money', () => {
     expect(plan.rejected.find((r) => r.venueId === 'c')?.reason).toBe('venue_cap');
   });
 
+  it('drops a worse leg when maxSlippageBps is undefined or NaN', async () => {
+    // 99000 vs 90000 is 1000 bps worse. The house default is 50 bps.
+    // An explicit undefined or NaN must not replace that default: drift > NaN is false.
+    const sources = [
+      venue({ id: 'good', kind: 'external-cex', price: '90000', amount: '1', feeBps: 0 }),
+      venue({ id: 'awful', kind: 'external-cex', price: '99000', amount: '100', feeBps: 0 }),
+    ];
+    for (const maxSlippageBps of [undefined, Number.NaN]) {
+      const plan = await planRoute(buy('10'), sources, { maxSlippageBps });
+      expect(plan.legs).toHaveLength(1);
+      expect(plan.legs[0]?.venueId).toBe('good');
+      expect(formatAmount(plan.unfilledAmount)).toBe('9');
+      expect(plan.rejected.find((r) => r.venueId === 'awful')?.reason).toBe('slippage');
+    }
+  });
+
+  it('keeps the four-venue cap when maxVenues is undefined or NaN', async () => {
+    // Each step is 10 bps, so all five sit inside the 50 bps slippage default.
+    // An explicit undefined or NaN must not lift the cap of 4: length >= NaN is false.
+    const sources = [
+      venue({ id: 'a', kind: 'external-cex', price: '100', amount: '1', feeBps: 0 }),
+      venue({ id: 'b', kind: 'external-cex', price: '100.1', amount: '1', feeBps: 0 }),
+      venue({ id: 'c', kind: 'external-cex', price: '100.2', amount: '1', feeBps: 0 }),
+      venue({ id: 'd', kind: 'external-cex', price: '100.3', amount: '1', feeBps: 0 }),
+      venue({ id: 'e', kind: 'external-cex', price: '100.4', amount: '1', feeBps: 0 }),
+    ];
+    for (const maxVenues of [undefined, Number.NaN]) {
+      const plan = await planRoute(buy('10'), sources, { maxVenues });
+      expect(plan.legs).toHaveLength(4);
+      expect(plan.legs.map((leg) => leg.venueId)).toEqual(['a', 'b', 'c', 'd']);
+      expect(plan.rejected.find((r) => r.venueId === 'e')?.reason).toBe('venue_cap');
+    }
+  });
+
   it('returns an empty plan when nothing is routable, without throwing', async () => {
     const plan = await planRoute(buy('1'), [
       venue({ id: 'down', kind: 'external-cex', price: '1', amount: '1', feeBps: 0, healthy: false }),
