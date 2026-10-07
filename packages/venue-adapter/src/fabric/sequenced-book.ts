@@ -292,6 +292,18 @@ export class SequencedBookTracker {
       };
     }
 
+    // While the tracker is live the buffer is empty, so the check above never
+    // sees the book already held. Equal sequence is a re-seed, not a rewind.
+    const held = this.#book?.sequence ?? -1;
+    if (snapshot.sequence < held) {
+      return {
+        kind: 'snapshot-stale',
+        state: this.#state,
+        detail:
+          `snapshot at ${snapshot.sequence} is behind the book already held at ${held} — fetch a newer snapshot`,
+      };
+    }
+
     this.#book = seeded;
     this.#state = 'live';
     this.#buffer = [];
