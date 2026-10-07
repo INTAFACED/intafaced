@@ -1227,12 +1227,12 @@ export class LoanService {
    * `ON CONFLICT (id)` posts the claimed row's sequence — the ledger key is
    * loanId:sequence.
    *
-   * The split is decided under the loan row lock, after the debt is read again.
-   * A repayment already claimed and not yet settled is reserved, the same way an
-   * excess release reserves a pending collateral row. Two overlapping repayments
-   * cannot each pay a stale outstanding. The lock is dropped before the ledger
-   * post. A retry of an event that already has a row posts that row, not a
-   * second split.
+   * The split is decided after the debt is read again, counting a repayment
+   * already claimed and not yet settled. That re-read, the pending repayment,
+   * the ledger post, and the settle share one session lock. The loan row lock
+   * ends when the claim commits, which is before the post, so it cannot keep a
+   * settle out of the gap between those two reads. The session lock can. A
+   * retry of an event that already has a row posts that row, not a second split.
    */
   async repay(input: { loanId: string; amount: Amount; eventId: string; now?: Date }): Promise<{
     ledgerTxId: string;
@@ -1314,7 +1314,7 @@ export class LoanService {
     }
 
     let postSequence = sequence;
-    const ledgerTxId = await this.drivenPost({
+    const ledgerTxId = await this.withRepayLock(loan.id, () => this.drivenPost({
       claim: async (tx) => {
         const locked = await tx<Array<{ status: string }>>`
           SELECT status FROM bank.loans WHERE id = ${loan.id} FOR UPDATE
@@ -1439,7 +1439,7 @@ export class LoanService {
           }),
         ),
       table: 'loan_repayments',
-    });
+    }));
 
     await this.notifyBankAffiliateAccrue(
       affiliateLegAfterLoanRepay({
@@ -2518,6 +2518,28 @@ export class LoanService {
         FROM bank.loan_repayments WHERE id = ${eventId}
     `;
     return rows[0] ?? null;
+  }
+
+  /**
+   * One repayment at a time for a loan, from the debt re-read through settle.
+   *
+   * `pg_advisory_lock` is session-scoped, so it survives the claim commit. The
+   * connection is reserved so unlock hits the session that took the lock.
+   */
+  private async withRepayLock<T>(loanId: string, body: () => Promise<T>): Promise<T> {
+    const reserved = await this.sql.reserve();
+    let locked = false;
+    try {
+      await reserved`SELECT pg_advisory_lock(hashtext('bank.loan.repay'), hashtext(${loanId}))`;
+      locked = true;
+      return await body();
+    } finally {
+      try {
+        if (locked) await reserved`SELECT pg_advisory_unlock(hashtext('bank.loan.repay'), hashtext(${loanId}))`;
+      } finally {
+        reserved.release();
+      }
+    }
   }
 
   private async nextCollateralSequence(loanId: string): Promise<number> {
