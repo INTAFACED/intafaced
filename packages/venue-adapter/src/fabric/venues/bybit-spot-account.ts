@@ -20,6 +20,17 @@ const VENUE: VenueDescriptor = {
 const TRANSFER_RAILS_REFUSED =
   'transferRails is not called: Bybit coin-info / withdraw endpoints are wallet-scoped and connect keys must be trade-only (§27).';
 
+const FREE_FIELDS = ['availableToWithdraw', 'free', 'availableToTrade'] as const;
+
+function readBybitSpotFree(rec: Record<string, unknown>, index: number) {
+  for (const field of FREE_FIELDS) {
+    const value = rec[field];
+    if (value === undefined || value === null || value === '') continue;
+    return readDecimal(value, VENUE.id, field);
+  }
+  throw new VenueUnavailableError(VENUE.id, 'malformed', `coin[${index}] available balance is blank`);
+}
+
 function encodeQuery(params: Readonly<Record<string, string>>): string {
   return Object.keys(params)
     .sort()
@@ -45,11 +56,7 @@ export function mapBybitSpotCoins(coin: unknown, now: Date): VenueBalance[] {
     const rec = row as Record<string, unknown>;
     const total = readDecimal(rec.walletBalance, VENUE.id, 'walletBalance');
     const used = readDecimal(rec.locked ?? '0', VENUE.id, 'locked');
-    const freeRaw = rec.availableToWithdraw ?? rec.free ?? rec.availableToTrade;
-    const free =
-      freeRaw === undefined || freeRaw === null || String(freeRaw) === ''
-        ? total - used
-        : readDecimal(freeRaw, VENUE.id, 'availableToWithdraw');
+    const free = readBybitSpotFree(rec, i);
     return {
       venueId: VENUE.id,
       asset: String(rec.coin ?? ''),
