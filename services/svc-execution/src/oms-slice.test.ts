@@ -730,6 +730,40 @@ describe('sliceLiveAlgoParent', () => {
     });
   });
 
+  it('a rejected slice with a partial fill leaves that fill out of the leftover so the next slice does not submit the old remaining', async () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(withResidual({ parentClientOrderId: 'parent-twap', kind: 'twap' }, '10'));
+    const calls: SubmitRequest[] = [];
+    const submit: OmsSubmitFn = async (req) => {
+      calls.push(req);
+      return { ...ack(req), status: 'rejected', filledAmount: parseAmount('2') };
+    };
+    const out = await sliceLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      ...sliceFields,
+      amount: '6',
+      parentStore,
+      submit,
+    });
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('8');
+    expect(out).toMatchObject({
+      ok: true,
+      sliced: true,
+      execution: { status: 'rejected', filledAmount: parseAmount('2') },
+      residual: { remaining: '8' },
+    });
+
+    const next = await sliceLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      ...sliceFields,
+      amount: '10',
+      parentStore,
+      submit,
+    });
+    expect(next).toMatchObject({ ok: false, reason: 'exceeds_remaining' });
+    expect(calls.map((call) => call.amount)).toEqual([parseAmount('6')]);
+  });
+
   it('puts the previous remaining back when submit throws after the reservation sticks', async () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
     parentStore.seed(withResidual({ parentClientOrderId: 'parent-twap', kind: 'twap' }, '10'));

@@ -9,7 +9,7 @@
  * must already be a ledger amount; a successful slice subtracts the
  * submitted qty and never invents leftover.
  */
-import { parseAmount, ZERO } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client';
 import type { VenueExecution } from '@intafaced/venue-adapter';
 import { childIds } from './oms-execute.js';
 import type { AlgoPauseStore } from './oms-pause.js';
@@ -71,6 +71,12 @@ function refuse(reason: OmsSliceRefuse['reason'], detail: string): OmsSliceRefus
 
 function liveStatus(status: string): boolean {
   return status === 'approved' || status === 'running';
+}
+
+/** A reject restores the reservation except size the venue already traded. A missing or non-positive fill is not invented. */
+function leftoverAfterRejectedFill(priorRemaining: string, filledAmount: Amount | undefined): string {
+  if (typeof filledAmount !== 'bigint' || filledAmount <= ZERO) return priorRemaining;
+  return formatAmount(sub(parseAmount(priorRemaining), filledAmount));
 }
 
 function ownerOf(parent: ApprovedAlgoParent): string | null {
@@ -208,7 +214,8 @@ export async function sliceLiveAlgoParent(input: {
 
   let remaining = consumed.remaining;
   if (execution.status === 'rejected') {
-    const restored = input.parentStore.consumeResidual?.(parentClientOrderId, priorRemaining, consumed.remaining);
+    const restoreTo = leftoverAfterRejectedFill(priorRemaining, execution.filledAmount);
+    const restored = input.parentStore.consumeResidual?.(parentClientOrderId, restoreTo, consumed.remaining);
     remaining = restored?.residual?.remaining ?? consumed.remaining;
   }
 
