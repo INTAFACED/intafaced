@@ -29,7 +29,7 @@ This document is the single source of truth for building the INTAFACED Sovereign
 | ORM / migrations | Drizzle ORM + drizzle-kit | SQL-first, type-safe, agent-friendly migrations |
 | Cache / hot state | Redis 7 | Sessions, orderbook snapshots, rate limits |
 | Event bus | NATS JetStream | Module decoupling, event sourcing for ledger + orders |
-| Frontend | Next.js 15 (App Router) | All user surfaces, one design system |
+| Frontend | Vue shell served today; React/Vite planned for the one customer site; Next.js for the team desk | Customer site served today is `vendor/upstream-exchange/05_Web_Front` on `:8090`. `apps/web` is retired and absent. A later customer app is React/Vite and is not in the tree. `apps/admin` stays Next.js. One active customer site |
 | Realtime | WebSocket gateway (uWebSockets.js) | Orderbook, lobbies, agent streams |
 | Auth | Own service — JWT (short) + rotating refresh, TOTP 2FA, WebAuthn | Sovereignty; no third-party auth dependency |
 | Queue / jobs | BullMQ (Redis) | Settlements, payouts, emissions, notifications |
@@ -47,8 +47,10 @@ This document is the single source of truth for building the INTAFACED Sovereign
 ```
 intafaced/
 ├── apps/
-│   ├── web/                  # Next.js — all user surfaces (trade, bank, pay, academy…)
-│   ├── admin/                # Next.js — operator console (Core ops, compliance, listings)
+│   # apps/web is retired and absent. It is not the customer root.
+│   # Customer site served today: vendor/upstream-exchange/05_Web_Front (Vue, :8090).
+│   # Later customer app: planned React/Vite, not created here. Team desk: admin (Next.js).
+│   ├── admin/                # Next.js — team desk (operator console, compliance, listings)
 │   └── ws-gateway/           # WebSocket fan-out (orderbook, lobbies, agent streams)
 ├── services/
 │   ├── svc-identity/         # Accounts, auth, KYC state, rank & XP          [PHASE 1]
