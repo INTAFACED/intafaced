@@ -52,8 +52,9 @@ export class ChainObserver {
       }),
     );
 
-    // No address filter: any account deployed by our factory is one of ours,
-    // and the event signature is specific enough to be unambiguous.
+    // Accounts appear after this watch starts, so there is no address list.
+    // The handler publishes only when ownerOfRecord shows log.address is a
+    // row recordDeployment has marked deployed.
     this.#stoppers.push(
       chain.client.watchEvent({
         event: sessionGrantedEvent,
@@ -76,6 +77,15 @@ export class ChainObserver {
   stop(): void {
     for (const stop of this.#stoppers) stop();
     this.#stoppers = [];
+  }
+
+  /**
+   * A factory deployment is a registry row `recordDeployment` has marked
+   * deployed. A missing row, or a row that is still undeployed, is not one.
+   */
+  async #isRecordedFactoryDeployment(address: Address): Promise<boolean> {
+    const record = await this.deps.registry.ownerOfRecord(address);
+    return record?.deployed === true;
   }
 
   async #onAccountCreated(logs: readonly { args: Record<string, unknown>; transactionHash: Hex | null }[]) {
@@ -112,6 +122,7 @@ export class ChainObserver {
       if (!sessionKey || !specHash) continue;
 
       await withSpan('observer.sessionGranted', async () => {
+        if (!(await this.#isRecordedFactoryDeployment(log.address))) return;
         await this.deps.bus.publish(
           'protocolSessionKeyCreated',
           {
@@ -139,6 +150,7 @@ export class ChainObserver {
       if (!sessionKey || !revokedBy) continue;
 
       await withSpan('observer.sessionRevoked', async () => {
+        if (!(await this.#isRecordedFactoryDeployment(log.address))) return;
         await this.deps.bus.publish(
           'protocolSessionKeyCancelled',
           {
