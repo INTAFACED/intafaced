@@ -277,6 +277,142 @@ describe('NativeL3Hub', () => {
     expect(live.closed).toBeNull();
   });
 
+  it('the first subscriber on a recovered idle market refetches l3 instead of replaying a down flag', async () => {
+    const source = new Source();
+    let l3Calls = 0;
+    const readQueue = source.l3Queue.bind(source);
+    source.l3Queue = async (marketId: string) => {
+      l3Calls += 1;
+      return readQueue(marketId);
+    };
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async () => true,
+    });
+    const watched = new RecordingSink();
+    const leaveWatched = hub.attach(MARKET, watched);
+    await new Promise((r) => setTimeout(r, 0));
+    hub.ingest(native);
+    hub.markEngineUnavailable(MARKET);
+    expect(JSON.parse(watched.frames.at(-1)!)).toEqual({
+      type: 'status',
+      code: DEPTH_ENGINE_UNAVAILABLE,
+      marketId: MARKET,
+    });
+
+    leaveWatched!();
+    const recovered: NativeL3Queue = {
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    };
+    source.queue = recovered;
+    const callsAfterEngineIdle = l3Calls;
+    const afterEngine = new RecordingSink();
+    const leaveAfterEngine = hub.attach(MARKET, afterEngine);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(l3Calls).toBeGreaterThan(callsAfterEngineIdle);
+    expect(afterEngine.frames.some((frame) => JSON.parse(frame).code === DEPTH_ENGINE_UNAVAILABLE)).toBe(false);
+    expect(JSON.parse(afterEngine.frames.at(-1)!)).toEqual({
+      type: 'snapshot',
+      transport: 'poll',
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    });
+    expect(afterEngine.closed).toBeNull();
+
+    hub.markL3Unavailable(MARKET);
+    expect(JSON.parse(afterEngine.frames.at(-1)!)).toEqual({
+      type: 'status',
+      code: DEPTH_L3_UNAVAILABLE,
+      marketId: MARKET,
+    });
+    leaveAfterEngine!();
+    const afterL3: NativeL3Queue = {
+      level: 'L3',
+      marketId: MARKET,
+      bids: [],
+      asks: [{ price: '100', orders: [{ orderId: 'o1', remaining: '1', sequence: 3 }] }],
+    };
+    source.queue = afterL3;
+    const callsAfterL3Idle = l3Calls;
+    const afterUnavailable = new RecordingSink();
+    hub.attach(MARKET, afterUnavailable);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(l3Calls).toBeGreaterThan(callsAfterL3Idle);
+    expect(afterUnavailable.frames.some((frame) => JSON.parse(frame).code === DEPTH_L3_UNAVAILABLE)).toBe(false);
+    expect(afterUnavailable.frames.some((frame) => JSON.parse(frame).code === DEPTH_ENGINE_UNAVAILABLE)).toBe(false);
+    expect(JSON.parse(afterUnavailable.frames.at(-1)!)).toEqual({
+      type: 'snapshot',
+      transport: 'poll',
+      level: 'L3',
+      marketId: MARKET,
+      bids: [],
+      asks: [{ price: '100', orders: [{ orderId: 'o1', remaining: '1', sequence: 3 }] }],
+    });
+    expect(afterUnavailable.closed).toBeNull();
+  });
+
+  it('ingest does not leave a snapshot for a subscriber who arrives after the market went idle', async () => {
+    const source = new Source();
+    let l3Calls = 0;
+    const readQueue = source.l3Queue.bind(source);
+    source.l3Queue = async (marketId: string) => {
+      l3Calls += 1;
+      return readQueue(marketId);
+    };
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async () => true,
+    });
+    const watched = new RecordingSink();
+    const leave = hub.attach(MARKET, watched);
+    await new Promise((r) => setTimeout(r, 0));
+    hub.ingest(native);
+    leave!();
+
+    hub.ingest({
+      level: 'L3',
+      marketId: MARKET,
+      bids: [],
+      asks: [{ price: '101', orders: [{ orderId: 'stale', remaining: '9', sequence: 4 }] }],
+    });
+    source.queue = {
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '97', orders: [{ orderId: 'live', remaining: '5', sequence: 12 }] }],
+      asks: [],
+    };
+    const callsAtIdle = l3Calls;
+    const next = new RecordingSink();
+    hub.attach(MARKET, next);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(l3Calls).toBeGreaterThan(callsAtIdle);
+    expect(JSON.stringify(next.frames)).not.toContain('stale');
+    expect(JSON.stringify(next.frames)).not.toContain('"101"');
+    expect(JSON.parse(next.frames.at(-1)!)).toEqual({
+      type: 'snapshot',
+      transport: 'poll',
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '97', orders: [{ orderId: 'live', remaining: '5', sequence: 12 }] }],
+      asks: [],
+    });
+    expect(next.closed).toBeNull();
+  });
+
   it('fan-out names depth.l3_unavailable without an L2 ladder', () => {
     const source = new Source();
     const hub = new NativeL3Hub(source, {
