@@ -338,6 +338,90 @@ describe('DropCopyHub', () => {
     ]);
   });
 
+  it('does not emit DROP_COPY_GAP when every send was delivered and the socket was only slow', () => {
+    const h = new DropCopyHub({
+      highWaterBytes: 10,
+      maxLagTicks: 50,
+      maxConnections: 8,
+      maxConnectionsPerUser: 8,
+      recentLimit: 10,
+    });
+    h.announceBus(true);
+    const sink = new FakeSink();
+    h.attach(USER, sink);
+    const before = sink.frames.length;
+
+    const delivered = h.publishExecution(fill());
+    expect(delivered).toMatchObject({
+      price: '100.5',
+      qty: '0.01',
+      quoteAmount: '1.005',
+      feeAmount: '0.001005',
+      dropCopySeq: 1,
+    });
+    expect(typeof delivered!.price).toBe('string');
+    expect(typeof delivered!.qty).toBe('string');
+    expect(typeof delivered!.quoteAmount).toBe('string');
+    expect(typeof delivered!.feeAmount).toBe('string');
+
+    const sent = sink.parsed().slice(before);
+    expect(sent.filter((frame) => frame.type === 'execution')).toEqual([
+      expect.objectContaining({
+        fillId: fill().fillId,
+        price: '100.5',
+        qty: '0.01',
+        quoteAmount: '1.005',
+        feeAmount: '0.001005',
+        dropCopySeq: 1,
+      }),
+    ]);
+    expect(sent.some((frame) => frame.code === DROP_COPY_GAP)).toBe(false);
+    const rawExecution = sink.frames.slice(before).find((frame) => frame.includes('"type":"execution"'));
+    expect(rawExecution).toContain('"price":"100.5"');
+
+    sink.bufferedBytes = 100;
+    h.sweepLag();
+    expect(sink.parsed().slice(before).some((frame) => frame.code === DROP_COPY_GAP)).toBe(false);
+
+    sink.bufferedBytes = 0;
+    h.sweepLag();
+
+    const drained = sink.parsed().slice(before);
+    expect(drained.filter((frame) => frame.type === 'status' && frame.code === DROP_COPY_GAP)).toEqual([]);
+    expect(drained.filter((frame) => frame.type === 'execution')).toHaveLength(1);
+    expect(sink.frames.slice(before).some((frame) => frame.includes(DROP_COPY_GAP))).toBe(false);
+    expect(h.lastSeq(USER)).toBe(1);
+  });
+
+  it('does not emit DROP_COPY_GAP when the socket was only slow across connect', () => {
+    const h = new DropCopyHub({
+      highWaterBytes: 10,
+      maxLagTicks: 50,
+      maxConnections: 8,
+      maxConnectionsPerUser: 8,
+      recentLimit: 10,
+    });
+    h.announceBus(true);
+    const sink = new FakeSink();
+    sink.bufferedBytes = 100;
+    h.attach(USER, sink);
+
+    h.sweepLag();
+    expect(sink.parsed().some((frame) => frame.code === DROP_COPY_GAP)).toBe(false);
+    expect(sink.parsed().some((frame) => frame.type === 'execution')).toBe(false);
+
+    sink.bufferedBytes = 0;
+    h.sweepLag();
+
+    expect(sink.parsed().filter((frame) => frame.type === 'status' && frame.code === DROP_COPY_GAP)).toEqual([]);
+    expect(sink.frames.some((frame) => frame.includes(DROP_COPY_GAP))).toBe(false);
+    expect(sink.parsed().some((frame) => frame.type === 'execution')).toBe(false);
+    expect(h.lastSeq(USER)).toBe(0);
+    expect(h.recentFor(USER)).toEqual([]);
+    const snap = sink.parsed().find((frame) => frame.type === 'snapshot');
+    expect(snap).toMatchObject({ executions: [], lastSeq: 0 });
+  });
+
   it('replays the session ring as SESSION and still refuses complete', () => {
     const h = hub();
     h.announceBus(true);
