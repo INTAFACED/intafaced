@@ -205,7 +205,7 @@ describe('LoanService.releaseExcess refuses missing loan or mark before any post
       loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
 
-    await expect(bank.loans.releaseExcess({ loanId: MISSING, amount: amt('1'), now: NOW })).rejects.toMatchObject({
+    await expect(bank.loans.releaseExcess({ loanId: MISSING, eventId: randomUUID(), amount: amt('1'), now: NOW })).rejects.toMatchObject({
       code: 'bank.loan_not_found',
     });
 
@@ -221,7 +221,9 @@ describe('LoanService.releaseExcess refuses missing loan or mark before any post
       loans: { priceSource: fixedPriceSource({}, () => NOW) },
     });
 
-    await expect(bank.loans.releaseExcess({ loanId: opened.loan.id, amount: amt('1'), now: NOW })).rejects.toMatchObject({
+    await expect(
+      bank.loans.releaseExcess({ loanId: opened.loan.id, eventId: randomUUID(), amount: amt('1'), now: NOW }),
+    ).rejects.toMatchObject({
       code: 'bank.mark_missing',
     });
 
@@ -248,12 +250,12 @@ describe('HTTP /trpc/loans.releaseExcess — peel through ledger-client', () => 
     });
     const app = await mountDoors(bank);
 
-    await expect(caller(bank).loans.releaseExcess({ loanId: MISSING, amount: '1' })).rejects.toMatchObject({
+    await expect(caller(bank).loans.releaseExcess({ loanId: MISSING, eventId: randomUUID(), amount: '1' })).rejects.toMatchObject({
       code: 'NOT_FOUND',
       cause: { code: 'bank.loan_not_found' },
     });
 
-    const released = await post(app, 'loans.releaseExcess', { loanId: MISSING, amount: '1' });
+    const released = await post(app, 'loans.releaseExcess', { loanId: MISSING, eventId: randomUUID(), amount: '1' });
     expect(released.statusCode).toBe(404);
     expect(released.body.error?.data?.code).toBe('NOT_FOUND');
     await app.close();
@@ -271,12 +273,14 @@ describe('HTTP /trpc/loans.releaseExcess — peel through ledger-client', () => 
     });
     const app = await mountDoors(bank);
 
-    await expect(caller(bank).loans.releaseExcess({ loanId: opened.loan.id, amount: '1' })).rejects.toMatchObject({
+    await expect(
+      caller(bank).loans.releaseExcess({ loanId: opened.loan.id, eventId: randomUUID(), amount: '1' }),
+    ).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
       cause: { code: 'bank.mark_missing' },
     });
 
-    const released = await post(app, 'loans.releaseExcess', { loanId: opened.loan.id, amount: '1' });
+    const released = await post(app, 'loans.releaseExcess', { loanId: opened.loan.id, eventId: randomUUID(), amount: '1' });
     expect(released.statusCode).toBe(412);
     expect(released.body.error?.data?.code).toBe('PRECONDITION_FAILED');
     expect(JSON.stringify(released.body.error)).toMatch(/bank\.mark_missing/);
@@ -292,7 +296,7 @@ describe('HTTP /trpc/loans.releaseExcess — peel through ledger-client', () => 
     const opened = await seedOpenLoan(bank, ledger, new Date(), '2');
     const app = await mountDoors(bank);
 
-    const released = await post(app, 'loans.releaseExcess', { loanId: opened.loan.id, amount: '1' });
+    const released = await post(app, 'loans.releaseExcess', { loanId: opened.loan.id, eventId: randomUUID(), amount: '1' });
     expect(released.statusCode).toBe(200);
     const data = procedureData(released.body) as { ledgerTxId: string; sequence: number };
     expect(data.ledgerTxId.length).toBeGreaterThan(0);

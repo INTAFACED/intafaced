@@ -227,10 +227,10 @@ describe('LoanService.releaseExcess — one release, cap held across callers', (
       return innerPost(request);
     };
 
-    let open = 2;
     const noteSettled = () => {
-      open -= 1;
-      if (open === 0 || parked) releasePark();
+      // Resolving before the park starts is safe: the later await returns at
+      // once. The cap decision has already committed with the ledger unmoved.
+      releasePark();
     };
     const results = await Promise.allSettled([
       bank.loans.releaseExcess({ loanId: opened.loan.id, eventId: eventA, amount: amt('1'), now: NOW }).finally(noteSettled),

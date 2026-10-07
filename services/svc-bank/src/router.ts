@@ -1280,15 +1280,24 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         }),
       ),
 
-    /** Peel surplus collateral. Marks first; refuses if the remainder would exceed the product cap. */
+    /**
+     * `eventId` is the client retry key (§5). Required: omit used to allocate
+     * MAX+1 and post a second loanCollateralRelease. Same eventId + amount is
+     * one release. Overlapping releases share the loan row lock, so they cannot
+     * each pass the product cap.
+     */
     releaseExcess: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ loanId: z.string().uuid(), amount: amountString }))
+      .input(z.object({ loanId: z.string().uuid(), eventId: z.string().uuid(), amount: amountString }))
       .output(z.object({ ledgerTxId: z.string(), sequence: z.number().int() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const loan = await bank.loans.loan(input.loanId);
           assertSelf(ctx.principal.userId, loan.userId);
-          return bank.loans.releaseExcess({ loanId: input.loanId, amount: parseAmount(input.amount) });
+          return bank.loans.releaseExcess({
+            loanId: input.loanId,
+            eventId: input.eventId,
+            amount: parseAmount(input.amount),
+          });
         }),
       ),
 
