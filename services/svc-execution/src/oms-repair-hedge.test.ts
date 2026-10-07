@@ -99,8 +99,59 @@ describe('repairFailedHedgeChild', () => {
       repaired: true,
       parent: { parentClientOrderId: 'parent-1' },
       child: { clientOrderId: 'hedge-fail', venueId: 'street', outcome: 'repaired', reason: 'REJECTED' },
-      residual: { filled: '2', remaining: '0' },
+      residual: { filled: '2', remaining: null },
     });
+  });
+
+  it('counts a fill on a stopped child and does not invent a zero leftover', () => {
+    const store = new InMemoryEmsOrderStore();
+    seed(store, {
+      clientOrderId: 'filled-live',
+      execution: execution({ filledAmount: parseAmount('3'), venueOrderId: 'v-live' }),
+    });
+    seed(store, {
+      clientOrderId: 'hedge-rejected',
+      state: 'REJECTED',
+      execution: execution({ filledAmount: parseAmount('1.5'), venueOrderId: 'v-rej' }),
+    });
+    seed(store, {
+      clientOrderId: 'hedge-unwired',
+      state: 'UNWIRED',
+      execution: execution({ filledAmount: parseAmount('2'), venueOrderId: 'v-unw' }),
+    });
+    seed(store, {
+      clientOrderId: 'hedge-status-rejected',
+      execution: execution({ filledAmount: parseAmount('0.25'), status: 'rejected', venueOrderId: 'v-st' }),
+    });
+    const result = repairFailedHedgeChild({
+      parentClientOrderId: 'parent-1',
+      clientOrderId: 'hedge-rejected',
+      emsStore: store,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.residual).toEqual({ filled: '6.75', remaining: null });
+  });
+
+  it('counts a partial fill and leaves remaining null', () => {
+    const store = new InMemoryEmsOrderStore();
+    seed(store, {
+      clientOrderId: 'hedge-rejected',
+      state: 'REJECTED',
+      execution: execution({ filledAmount: parseAmount('0.5'), venueOrderId: 'v-rej' }),
+    });
+    seed(store, {
+      clientOrderId: 'child-partial',
+      execution: execution({ filledAmount: parseAmount('1.25'), status: 'partial', venueOrderId: 'v-part' }),
+    });
+    const result = repairFailedHedgeChild({
+      parentClientOrderId: 'parent-1',
+      clientOrderId: 'hedge-rejected',
+      emsStore: store,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.residual).toEqual({ filled: '1.75', remaining: null });
   });
 
   it('repairs a listed REFUSED commandOutcome child', () => {
@@ -237,7 +288,7 @@ describe('execution.oms.repairHedge tRPC', () => {
       repaired: true,
       parent: { parentClientOrderId: 'parent-1' },
       child: { clientOrderId: 'hedge-fail', outcome: 'repaired' },
-      residual: { filled: '0', remaining: '0' },
+      residual: { filled: '0', remaining: null },
     });
   });
 });
