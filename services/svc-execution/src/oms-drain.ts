@@ -7,7 +7,6 @@
  */
 import { add, formatAmount, ZERO, type Amount } from '@intafaced/ledger-client';
 import type { VenueKind } from '@intafaced/venue-adapter';
-import type { VenueOrder } from '@intafaced/venue-contracts';
 import { cancelOmsOrder, type OmsCancelFn } from './oms-cancel.js';
 import type { EmsOrderEvidence, EmsOrderStore } from './oms-ems-store.js';
 
@@ -48,17 +47,29 @@ export type OmsDrainRefuse =
 
 export type OmsDrainResult = OmsDrainOk | OmsDrainRefuse;
 
-const TERMINAL_STOPPED = new Set(['canceled', 'filled']);
+const TERMINAL_STOPPED = new Set(['canceled', 'filled', 'partially_filled']);
+
+type ResidualPiece = {
+  readonly filled: Amount;
+  readonly remaining: Amount;
+};
 
 function alreadyStopped(row: EmsOrderEvidence): boolean {
   return row.state === 'REJECTED' || row.state === 'UNWIRED' || row.state === 'CANCELED';
+}
+
+/** Stored fill only. A stopped row has nothing still working, and a missing execution contributes nothing. */
+function storedResidual(row: EmsOrderEvidence): ResidualPiece | null {
+  const execution = row.execution;
+  if (!execution) return null;
+  return { filled: execution.filledAmount, remaining: ZERO };
 }
 
 function childKind(row: EmsOrderEvidence, kindsByVenue?: Readonly<Record<string, VenueKind>>): VenueKind | undefined {
   return kindsByVenue?.[row.venueId] ?? (row.venueId === 'internal' ? 'internal' : undefined);
 }
 
-function residualFromOrders(orders: readonly VenueOrder[], unknown: boolean): OmsDrainResidual {
+function residualFromOrders(orders: readonly ResidualPiece[], unknown: boolean): OmsDrainResidual {
   let filled: Amount = ZERO;
   let remaining: Amount = ZERO;
   for (const order of orders) {
@@ -86,7 +97,7 @@ export async function drainInFlightAlgo(input: OmsDrainInput): Promise<OmsDrainR
 
   const rows = input.emsStore.list(parentClientOrderId ? { parentClientOrderId } : { executionGroupId });
   const children: OmsDrainChild[] = [];
-  const confirmed: VenueOrder[] = [];
+  const confirmed: ResidualPiece[] = [];
   let unknown = false;
 
   for (const row of rows) {
@@ -97,6 +108,8 @@ export async function drainInFlightAlgo(input: OmsDrainInput): Promise<OmsDrainR
         outcome: 'already_stopped',
         reason: row.state,
       });
+      const stored = storedResidual(row);
+      if (stored) confirmed.push(stored);
       continue;
     }
 
@@ -133,7 +146,7 @@ export async function drainInFlightAlgo(input: OmsDrainInput): Promise<OmsDrainR
     }
 
     if (TERMINAL_STOPPED.has(cancelled.order.status)) {
-      confirmed.push(cancelled.order);
+      confirmed.push({ filled: cancelled.order.filled, remaining: cancelled.order.remaining });
       if (cancelled.order.status === 'canceled') {
         const evidence = input.emsStore.get(row.clientOrderId);
         if (evidence) {
