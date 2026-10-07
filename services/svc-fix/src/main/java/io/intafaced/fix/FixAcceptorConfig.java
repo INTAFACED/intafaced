@@ -1,5 +1,7 @@
 package io.intafaced.fix;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 import quickfix.ConfigError;
 import quickfix.FixVersions;
@@ -16,6 +18,8 @@ public final class FixAcceptorConfig {
     public static final String SOCKET_ACCEPT_PORT_ENV = "FIX_SOCKET_ACCEPT_PORT";
     public static final String HEARTBTINT_ENV = "FIX_HEARTBTINT";
     public static final String RULEBOOK_VERSION_ENV = "MATCHING_RULEBOOK_VERSION";
+    public static final String STORE_PATH_ENV = "FIX_STORE_PATH";
+    public static final String STORE_UNCONFIGURED = "order_entry_store_unconfigured";
 
     public final String productBegin;
     public final String senderCompId;
@@ -104,17 +108,82 @@ public final class FixAcceptorConfig {
                 "certification program is OPS; svc-fix does not mint a certified claim");
     }
 
+    /** Blank store: memory session, sequences reset. Does not invent a path. */
     public SessionSettings toSessionSettings() throws ConfigError {
-        return sessionSettings("");
+        return toSessionSettings("");
     }
 
     /**
-     * Drop-copy session. Blank store path keeps memory + ResetOnLogon (today).
+     * Order-entry session. Blank store path keeps memory and the three resets.
+     * Owner directory → FileStorePath, PersistMessages=Y, and no reset, so a
+     * replayed NewOrderSingle is not a new message. Does not invent a path.
+     */
+    public SessionSettings toSessionSettings(String storePath) throws ConfigError {
+        return sessionSettings(storePath);
+    }
+
+    /**
+     * Drop-copy session. Blank store path keeps memory and the three resets.
      * Owner directory → FileStorePath and no reset, so ResendRequest can replay.
-     * Does not invent a path. Order-entry still uses {@link #toSessionSettings()}.
+     * Does not invent a path. Order-entry uses {@link #toSessionSettings(String)}
+     * with its own path.
      */
     public SessionSettings toDropCopySessionSettings(String storePath) throws ConfigError {
         return sessionSettings(storePath);
+    }
+
+    /**
+     * Blank store path is valid: memory session, sequences reset.
+     * A set path must already be a directory — svc-fix does not mkdir a store.
+     */
+    public static StoreResult storeFromEnv(Map<String, String> env) {
+        String path = storePath(env);
+        if (path.isEmpty()) {
+            return StoreResult.memory();
+        }
+        Path dir = Path.of(path);
+        if (!Files.isDirectory(dir)) {
+            return StoreResult.refuse(
+                    STORE_UNCONFIGURED,
+                    "FIX_STORE_PATH is not a directory; svc-fix does not invent an order-entry store");
+        }
+        return StoreResult.durable(dir.toAbsolutePath().toString());
+    }
+
+    public static String storePath(Map<String, String> env) {
+        if (env == null) {
+            return "";
+        }
+        String raw = env.get(STORE_PATH_ENV);
+        return raw == null ? "" : raw.trim();
+    }
+
+    public static final class StoreResult {
+        public final boolean ok;
+        public final boolean durable;
+        public final String path;
+        public final String errorCode;
+        public final String errorMessage;
+
+        private StoreResult(boolean ok, boolean durable, String path, String errorCode, String errorMessage) {
+            this.ok = ok;
+            this.durable = durable;
+            this.path = path;
+            this.errorCode = errorCode;
+            this.errorMessage = errorMessage;
+        }
+
+        static StoreResult memory() {
+            return new StoreResult(true, false, "", null, null);
+        }
+
+        static StoreResult durable(String path) {
+            return new StoreResult(true, true, path, null, null);
+        }
+
+        static StoreResult refuse(String errorCode, String errorMessage) {
+            return new StoreResult(false, false, "", errorCode, errorMessage);
+        }
     }
 
     private SessionSettings sessionSettings(String storePath) throws ConfigError {

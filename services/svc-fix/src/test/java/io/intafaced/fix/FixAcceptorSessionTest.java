@@ -6,13 +6,24 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import quickfix.ConfigError;
 import quickfix.DefaultMessageFactory;
+import quickfix.FileStoreFactory;
 import quickfix.FixVersions;
 import quickfix.MemoryStoreFactory;
 import quickfix.ScreenLogFactory;
@@ -24,6 +35,8 @@ import quickfix.field.ClOrdID;
 import quickfix.field.MsgType;
 import quickfix.field.OrdType;
 import quickfix.field.OrderQty;
+import quickfix.field.OrigSendingTime;
+import quickfix.field.PossDupFlag;
 import quickfix.field.Side;
 import quickfix.field.Symbol;
 import quickfix.field.TestReqID;
@@ -173,6 +186,266 @@ class FixAcceptorSessionTest {
             assertFalse(pair.server.appMsgTypes().isEmpty(), "NOS reached fromApp");
         } finally {
             pair.close();
+        }
+    }
+
+    @Test
+    void blankOrderEntryStorePathResetsAndDoesNotInventADirectory() throws Exception {
+        SessionConfigResult parsed = FixAcceptorConfig.fromOwner(
+                FixVersions.BEGINSTRING_FIX44, "INTAFACED", "CLIENT", "19000", "5", "");
+        assertTrue(parsed.ok, parsed.errorMessage);
+
+        for (String blank : new String[] {null, "", "   "}) {
+            SessionSettings memory = parsed.config.toSessionSettings(blank);
+            assertEquals("Y", memory.getString("ResetOnLogon"));
+            assertEquals("Y", memory.getString("ResetOnLogout"));
+            assertEquals("Y", memory.getString("ResetOnDisconnect"));
+            assertFalse(hasSetting(memory, "FileStorePath"), "blank store path must not mint FileStorePath");
+        }
+
+        SessionSettings noArg = parsed.config.toSessionSettings();
+        assertEquals("Y", noArg.getString("ResetOnLogon"));
+        assertFalse(hasSetting(noArg, "FileStorePath"));
+
+        FixAcceptorConfig.StoreResult empty = FixAcceptorConfig.storeFromEnv(Map.of());
+        assertTrue(empty.ok);
+        assertFalse(empty.durable);
+        assertEquals("", empty.path);
+
+        FixAcceptorConfig.StoreResult spaces =
+                FixAcceptorConfig.storeFromEnv(Map.of(FixAcceptorConfig.STORE_PATH_ENV, "  "));
+        assertTrue(spaces.ok);
+        assertEquals("", spaces.path);
+
+        Path missing = Path.of("/no/such/intafaced-order-entry-store");
+        assertFalse(Files.exists(missing));
+        FixAcceptorConfig.StoreResult refused = FixAcceptorConfig.storeFromEnv(
+                Map.of(FixAcceptorConfig.STORE_PATH_ENV, missing.toString()));
+        assertFalse(refused.ok);
+        assertEquals(FixAcceptorConfig.STORE_UNCONFIGURED, refused.errorCode);
+        assertTrue(refused.errorMessage.contains("does not invent an order-entry store"));
+        assertFalse(Files.exists(missing));
+    }
+
+    @Test
+    void orderEntryStorePathDisablesResetAndUsesFileStore() throws Exception {
+        Path dir = Files.createTempDirectory("oe-store-");
+        SessionConfigResult parsed = FixAcceptorConfig.fromOwner(
+                FixVersions.BEGINSTRING_FIX44, "INTAFACED", "CLIENT", "19000", "5", "");
+        assertTrue(parsed.ok, parsed.errorMessage);
+        SessionSettings durable = parsed.config.toSessionSettings(dir.toString());
+        assertEquals("N", durable.getString("ResetOnLogon"));
+        assertEquals("N", durable.getString("ResetOnLogout"));
+        assertEquals("N", durable.getString("ResetOnDisconnect"));
+        assertEquals("Y", durable.getString("PersistMessages"));
+        assertEquals(dir.toString(), durable.getString("FileStorePath"));
+
+        FixAcceptorConfig.StoreResult stored = FixAcceptorConfig.storeFromEnv(
+                Map.of(FixAcceptorConfig.STORE_PATH_ENV, dir.toString()));
+        assertTrue(stored.ok);
+        assertTrue(stored.durable);
+        assertEquals(dir.toAbsolutePath().toString(), stored.path);
+
+        FixSessionApplication app = new FixSessionApplication();
+        try (FixAcceptor acceptor = FixAcceptor.start(parsed.config, app, dir.toString())) {
+            assertTrue(acceptor.durableStore);
+        }
+    }
+
+    @Test
+    @Timeout(40)
+    void replayedNewOrderSingleIsNotANewOrderWhenStoreRememberedSequence() throws Exception {
+        Path acceptorStore = Files.createTempDirectory("oe-acceptor-store-");
+        Path initiatorStore = Files.createTempDirectory("oe-initiator-store-");
+        int port = freePort();
+        String begin = FixVersions.BEGINSTRING_FIX44;
+        String sender = "OEENTRY";
+        String target = "OECLIENT";
+        SessionConfigResult parsed = FixAcceptorConfig.fromOwner(
+                begin, sender, target, Integer.toString(port), "30", "");
+        assertTrue(parsed.ok, parsed.errorMessage);
+
+        AtomicInteger firstPosts = new AtomicInteger();
+        FixSessionApplication firstApp = application(firstPosts, target);
+        FixAcceptor firstAcceptor = FixAcceptor.start(parsed.config, firstApp, acceptorStore.toString());
+        assertTrue(firstAcceptor.durableStore);
+        SocketInitiator firstInitiator = null;
+        int nosSeq;
+        try {
+            firstInitiator = startDurableInitiator(begin, port, initiatorStore, sender, target);
+            SessionID clientId = new SessionID(begin, target, sender);
+            assertTrue(firstApp.loggedOn.await(8, TimeUnit.SECONDS), "first logon");
+            Session client = loggedOnSession(clientId);
+            nosSeq = client.getExpectedSenderNum();
+            assertTrue(client.send(limitNos()), "first NOS while loggedOn=" + client.isLoggedOn());
+            assertEquals(nosSeq, client.getExpectedSenderNum() - 1, "send used the session sequence");
+            for (int i = 0; i < 40 && firstPosts.get() < 1; i++) {
+                Thread.sleep(50);
+            }
+            assertEquals(1, firstPosts.get());
+            assertEquals(1, firstApp.matchingPosts());
+        } finally {
+            stopQuietly(firstInitiator);
+            firstAcceptor.close();
+        }
+
+        int rememberedTarget = readTargetSeq(acceptorStore);
+        assertTrue(rememberedTarget > nosSeq, "store remembered target " + rememberedTarget + " nos " + nosSeq);
+
+        awaitPortFree(port);
+        AtomicInteger replayPosts = new AtomicInteger();
+        FixSessionApplication replayApp = application(replayPosts, target);
+        FixAcceptor replayAcceptor = FixAcceptor.start(parsed.config, replayApp, acceptorStore.toString());
+        SocketInitiator replayInitiator = null;
+        try {
+            replayInitiator = startDurableInitiator(begin, port, initiatorStore, sender, target);
+            SessionID clientId = new SessionID(begin, target, sender);
+            assertTrue(replayApp.loggedOn.await(8, TimeUnit.SECONDS), "replay logon");
+            Session acceptorSession = loggedOnSession(new SessionID(begin, sender, target));
+            assertTrue(
+                    acceptorSession.getExpectedTargetNum() > nosSeq,
+                    "loaded target " + acceptorSession.getExpectedTargetNum() + " forgot " + nosSeq);
+            Session client = loggedOnSession(clientId);
+            client.setNextSenderMsgSeqNum(nosSeq);
+            NewOrderSingle replay = limitNos();
+            replay.getHeader().setBoolean(PossDupFlag.FIELD, true);
+            replay.getHeader().setUtcTimeStamp(
+                    OrigSendingTime.FIELD, LocalDateTime.now(ZoneOffset.UTC).minusSeconds(2), true);
+            client.send(replay);
+            Thread.sleep(600);
+            assertEquals(0, replayPosts.get(), "replayed NOS was treated as a new order");
+            assertEquals(0, replayApp.matchingPosts());
+        } finally {
+            stopQuietly(replayInitiator);
+            replayAcceptor.close();
+        }
+    }
+
+    private static boolean hasSetting(SessionSettings settings, String key) {
+        try {
+            settings.getString(key);
+            return true;
+        } catch (ConfigError missing) {
+            return false;
+        }
+    }
+
+    private static Session loggedOnSession(SessionID sessionId) throws Exception {
+        Session session = null;
+        for (int i = 0; i < 40; i++) {
+            session = Session.lookupSession(sessionId);
+            if (session != null && session.isLoggedOn()) {
+                return session;
+            }
+            Thread.sleep(50);
+        }
+        assertNotNull(session, "missing session " + sessionId);
+        assertTrue(session.isLoggedOn(), "session not logged on " + sessionId);
+        return session;
+    }
+
+    private static FixSessionApplication application(AtomicInteger posts, String senderCompId) {
+        MatchingSubmitPort matching = new MatchingSubmitPort(
+                "http://matching.example",
+                "{\"" + senderCompId + "\":\"acct-desk\"}",
+                "a".repeat(32),
+                (url, json, headers) -> {
+                    posts.incrementAndGet();
+                    return new MatchingSubmitPort.Transport.Response(
+                            200, "{\"accepted\":true,\"sequence\":9}");
+                });
+        return new FixSessionApplication(new FixGatewayAdapter(), matching);
+    }
+
+    private static NewOrderSingle limitNos() {
+        NewOrderSingle nos = new NewOrderSingle();
+        nos.set(new ClOrdID("replay-clid"));
+        nos.set(new Symbol("BTC/USDT"));
+        nos.set(new Side(Side.BUY));
+        nos.set(new OrdType(OrdType.LIMIT));
+        nos.setString(OrderQty.FIELD, "1.00");
+        nos.setString(quickfix.field.Price.FIELD, "100.25");
+        nos.set(new TimeInForce(TimeInForce.GOOD_TILL_CANCEL));
+        nos.set(new TransactTime());
+        return nos;
+    }
+
+    private static SocketInitiator startDurableInitiator(
+            String productBegin, int port, Path store, String acceptorCompId, String clientCompId) throws Exception {
+        String sessionBegin = FixDictionaries.sessionBeginString(productBegin);
+        String appDd = FixDictionaries.applicationResource(productBegin);
+        StringBuilder text = new StringBuilder();
+        text.append("[DEFAULT]\n");
+        text.append("ConnectionType=initiator\n");
+        text.append("HeartBtInt=30\n");
+        text.append("StartTime=00:00:00\n");
+        text.append("EndTime=00:00:00\n");
+        text.append("UseDataDictionary=Y\n");
+        text.append("TimeZone=UTC\n");
+        text.append("ResetOnLogon=N\n");
+        text.append("ResetOnLogout=N\n");
+        text.append("ResetOnDisconnect=N\n");
+        text.append("PersistMessages=Y\n");
+        text.append("FileStorePath=").append(store.toAbsolutePath()).append('\n');
+        text.append("SocketConnectHost=127.0.0.1\n");
+        text.append("SocketConnectPort=").append(port).append('\n');
+        text.append("ReconnectInterval=2\n");
+        text.append("[SESSION]\n");
+        text.append("BeginString=").append(sessionBegin).append('\n');
+        text.append("SenderCompID=").append(clientCompId).append('\n');
+        text.append("TargetCompID=").append(acceptorCompId).append('\n');
+        text.append("DataDictionary=").append(appDd).append('\n');
+        SessionSettings settings =
+                new SessionSettings(new ByteArrayInputStream(text.toString().getBytes(StandardCharsets.UTF_8)));
+        SocketInitiator initiator = new SocketInitiator(
+                new FixSessionApplication(),
+                new FileStoreFactory(settings),
+                settings,
+                new ScreenLogFactory(false, false, false),
+                new DefaultMessageFactory());
+        initiator.start();
+        return initiator;
+    }
+
+    private static int readTargetSeq(Path dir) throws Exception {
+        Path seqFile;
+        try (var files = Files.list(dir)) {
+            seqFile = files.filter(path -> path.getFileName().toString().endsWith(".targetseqnums")).findFirst().orElse(null);
+        }
+        assertNotNull(seqFile, "store wrote no target sequence in " + dir);
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(Files.readAllBytes(seqFile)))) {
+            return Integer.parseInt(in.readUTF().trim());
+        }
+    }
+
+    private static void stopQuietly(SocketInitiator initiator) {
+        if (initiator == null) {
+            return;
+        }
+        try {
+            initiator.stop();
+        } catch (RuntimeException ignored) {
+            // stop anyway
+        }
+    }
+
+    private static void awaitPortFree(int port) throws Exception {
+        for (int i = 0; i < 50; i++) {
+            try (ServerSocket socket = new ServerSocket()) {
+                socket.setReuseAddress(true);
+                socket.bind(new InetSocketAddress("127.0.0.1", port));
+                return;
+            } catch (IOException busy) {
+                Thread.sleep(100);
+            }
+        }
+        throw new AssertionError("port " + port + " stayed bound");
+    }
+
+    private static int freePort() throws Exception {
+        try (ServerSocket socket = new ServerSocket(0)) {
+            socket.setReuseAddress(true);
+            return socket.getLocalPort();
         }
     }
 

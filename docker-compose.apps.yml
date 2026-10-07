@@ -471,6 +471,8 @@ services:
       FIX_TARGET_COMP_ID: ${FIX_TARGET_COMP_ID:-}
       FIX_SOCKET_ACCEPT_PORT: ${FIX_SOCKET_ACCEPT_PORT:-}
       FIX_HEARTBTINT: ${FIX_HEARTBTINT:-}
+      # Blank = memory order-entry session (sequences reset). Owner directory only.
+      FIX_STORE_PATH: ${FIX_STORE_PATH:-}
       MATCHING_RULEBOOK_VERSION: ${MATCHING_RULEBOOK_VERSION:-}
       # H1b: second QFJ acceptor when OWNER-SET. Blank → no drop-copy session.
       # Do not invent CompID/port/heartbeat. Distinct from order-entry.

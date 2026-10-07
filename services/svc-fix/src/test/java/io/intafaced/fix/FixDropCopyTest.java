@@ -189,9 +189,10 @@ class FixDropCopyTest {
         String main = Files.readString(Path.of("src/main/java/io/intafaced/fix/FixAcceptorMain.java"));
         assertTrue(main.contains("FixDropCopyConfig.storeFromEnv"));
         assertTrue(main.contains("FixDropCopyAcceptor.start(dropCopy.config, dropApp, store.path)"));
+        assertTrue(main.contains("FixAcceptorConfig.storeFromEnv"));
+        assertTrue(main.contains("FixAcceptor.start(parsed.config, orderApp, orderStore.path)"));
         String oe = Files.readString(Path.of("src/main/java/io/intafaced/fix/FixAcceptor.java"));
-        assertTrue(oe.contains("new MemoryStoreFactory()"));
-        assertFalse(oe.contains("FileStoreFactory"));
+        assertTrue(oe.contains("path.isEmpty() ? new MemoryStoreFactory() : new FileStoreFactory(settings)"));
     }
 
     @Test
