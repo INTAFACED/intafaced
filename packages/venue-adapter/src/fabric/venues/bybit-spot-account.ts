@@ -87,7 +87,7 @@ export class BybitSpotAccount implements AccountAdapter {
 
   async balances(): Promise<VenueBalance[]> {
     const keys = requireCredentials(VENUE.id, 'balances', this.#credentials);
-    const body = await this.#signedGet({ accountType: 'SPOT' }, keys);
+    const body = await this.#signedGet({ accountType: 'UNIFIED' }, keys);
     const list = (body.result as { list?: unknown } | undefined)?.list;
     if (!Array.isArray(list) || list.length === 0) {
       return [];
