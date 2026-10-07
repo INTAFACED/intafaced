@@ -6,6 +6,7 @@ import { SealedHouseTenantRegistry } from '@intafaced/execution-house-tenant';
 import type { SubmitRequest, VenueExecution } from '@intafaced/venue-adapter';
 import { executeOmsRoute, type OmsSubmitFn } from './oms-execute.js';
 import { InMemoryEmsOrderStore } from './oms-ems-store.js';
+import { InMemoryAlgoPauseStore } from './oms-pause.js';
 import { latencyGradeWire, planOmsRoute, type OmsPlanVenue } from './oms-plan.js';
 import { createExecutionRouter } from './router.js';
 
@@ -342,6 +343,50 @@ describe('executeOmsRoute', () => {
     expect(result.executions).toHaveLength(1);
     expect(result.children.map((child) => child.outcome)).toEqual(['APPLIED', 'UNWIRED']);
     expect(result.children[1]?.execution).toBeNull();
+  });
+
+  it('keeps legs already submitted when a later leg finds the algo paused', async () => {
+    const pauseStore = new InMemoryAlgoPauseStore();
+    const emsStore = new InMemoryEmsOrderStore();
+    const first = new FakeSource('first');
+    const later = new FakeSource('later');
+    const parentClientOrderId = 'parent-pause-later';
+    const result = await executeOmsRoute({
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      amount: '2',
+      parentClientOrderId,
+      executionGroupId: 'group-pause-later',
+      venues: [completeVenue({ id: 'first', price: '100', amount: '1' }), completeVenue({ id: 'later', price: '100', amount: '1' })],
+      submitByVenue: {
+        first: async (req) => {
+          const execution = await first.submit(req);
+          pauseStore.pause({ kind: 'parent', id: parentClientOrderId });
+          return execution;
+        },
+        later: later.submit,
+      },
+      emsStore,
+      pauseStore,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'algo_paused' });
+    expect(later.calls).toHaveLength(0);
+    expect(first.calls).toHaveLength(1);
+    if (result.ok || result.reason !== 'algo_paused') return;
+    expect(result.executions).toEqual([
+      {
+        venueId: 'first',
+        venueOrderId: 'v-first',
+        filledAmount: parseAmount('1'),
+        averagePrice: parseAmount('100'),
+        feeAmount: parseAmount('0'),
+        feeAsset: 'USDT',
+        status: 'filled',
+        executedAt: new Date('2026-08-17T00:00:00.000Z'),
+      },
+    ]);
+    expect(result.children).toMatchObject([{ venueId: 'first', outcome: 'APPLIED', execution: result.executions[0] }]);
+    expect(emsStore.get(result.children[0]!.clientOrderId)?.execution?.venueOrderId).toBe('v-first');
   });
 
   it('binds deterministic child IDs to the parent and prevents venue collisions', async () => {

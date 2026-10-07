@@ -531,7 +531,11 @@ export async function executeOmsRoute(input: OmsExecuteInput, registry?: SealedH
     }
 
     if (input.pauseStore?.isPaused(lineageIds)) {
-      return identityRefusal(lineageIds, 'algo_paused', 'paused algo takes no new children');
+      return {
+        ...identityRefusal(lineageIds, 'algo_paused', 'paused algo takes no new children'),
+        executions,
+        children,
+      };
     }
 
     const submit = venue ? submitFor(venue, input.submitByVenue) : input.submitByVenue?.[leg.venueId];
