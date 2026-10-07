@@ -3,6 +3,7 @@ import { JetStreamEventBus, type Subscription } from '@intafaced/events';
 import { JAVA_ENV, sbeCodec } from '@intafaced/sbe-codec';
 import { env } from './env.js';
 import { createBusLifecycle } from './bus-lifecycle.js';
+import { closeBusSession } from './bus-session-close.js';
 import { DepthHub } from './depth/hub.js';
 import { NativeL3Hub } from './depth/l3-hub.js';
 import { DepthPoller } from './depth/poller.js';
@@ -300,13 +301,28 @@ const busLifecycle = createBusLifecycle({
           }
         : undefined,
       close: async () => {
-        dropCopyHub.announceBus(false);
-        await tradeSub?.unsubscribe().catch(() => undefined);
-        await privateHalf?.orders.unsubscribe().catch(() => undefined);
-        await privateHalf?.fills.unsubscribe().catch(() => undefined);
-        await privateHalf?.positions.unsubscribe().catch(() => undefined);
-        await dropHalf?.fills.unsubscribe().catch(() => undefined);
-        await connected.close().catch(() => undefined);
+        await closeBusSession({
+          privateHub: privateOrderHub,
+          dropCopyHub,
+          unsubscribe: [
+            async () => {
+              await tradeSub?.unsubscribe();
+            },
+            async () => {
+              await privateHalf?.orders.unsubscribe();
+            },
+            async () => {
+              await privateHalf?.fills.unsubscribe();
+            },
+            async () => {
+              await privateHalf?.positions.unsubscribe();
+            },
+            async () => {
+              await dropHalf?.fills.unsubscribe();
+            },
+          ],
+          disconnect: () => connected.close(),
+        });
       },
     };
   },
