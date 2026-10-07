@@ -72,7 +72,7 @@ export class VenueVault {
       }),
       'utf8',
     );
-    const wrapped = wrapSecret(this.kek, plaintext);
+    const wrapped = wrapSecret(this.kek, plaintext, Buffer.from(userId, 'utf8'));
     plaintext.fill(0);
     const id = randomUUID();
     await this.store.put({ id, userId, venueId: credential.venueId, wrapped });
@@ -82,7 +82,7 @@ export class VenueVault {
   async unwrapForTrade(userId: string, id: string): Promise<VenueCredential> {
     const row = await this.store.get(id);
     if (!row || row.userId !== userId) throw new VenueVaultNotFoundError();
-    const opened = unwrapSecret(this.kek, row.wrapped);
+    const opened = unwrapSecret(this.kek, row.wrapped, Buffer.from(userId, 'utf8'));
     const parsed = JSON.parse(opened.toString('utf8')) as VenueCredential;
     opened.fill(0);
     // Defence in depth — a poisoned store still cannot yield withdraw keys.
