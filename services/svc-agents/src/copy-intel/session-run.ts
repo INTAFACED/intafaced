@@ -102,8 +102,16 @@ function unmetered(assetId: string): CopyIntelRunMetering {
   return { sessionId: null, billedAmount: '0', assetId, sessionClosed: false, settlements: [] };
 }
 
-async function settleAndClose(runtime: AgentRuntime, sessionId: string, assetId: string): Promise<CopyIntelRunMetering> {
+async function settleAndClose(
+  runtime: AgentRuntime,
+  sessionId: string,
+  assetId: string,
+  charge?: { recorded: boolean },
+): Promise<CopyIntelRunMetering> {
   const results = await runtime.settleSession(sessionId);
+  // The charge stands once settleSession returns. Mark it before closeSession
+  // or formatAmount can throw, or the caller finally settles again and swallows that failure.
+  if (charge) charge.recorded = true;
   const closed = await runtime.closeSession(sessionId);
 
   let total: Amount = 0n;
@@ -204,6 +212,7 @@ export async function runCopyIntelStatsSession(input: CopyIntelRunInput): Promis
 
   const session = await input.runtime.openSession({ userId: input.userId, agentId: COPY_INTEL_AGENT_ID });
 
+  const charge = { recorded: false };
   let metering: CopyIntelRunMetering | null = null;
   try {
     const accepted: LeaderPerformanceFixture[] = [];
@@ -227,7 +236,7 @@ export async function runCopyIntelStatsSession(input: CopyIntelRunInput): Promis
     }
 
     if (accepted.length === 0) {
-      metering = await settleAndClose(input.runtime, session.id, input.feeAssetId);
+      metering = await settleAndClose(input.runtime, session.id, input.feeAssetId, charge);
       return {
         status: 'refuse',
         reason: 'no_live_leaders',
@@ -245,7 +254,7 @@ export async function runCopyIntelStatsSession(input: CopyIntelRunInput): Promis
     });
 
     if (built.status !== 'ok') {
-      metering = await settleAndClose(input.runtime, session.id, input.feeAssetId);
+      metering = await settleAndClose(input.runtime, session.id, input.feeAssetId, charge);
       if (built.status === 'empty') {
         return { status: 'empty', userMessageKey: built.userMessageKey, metering };
       }
@@ -278,7 +287,7 @@ export async function runCopyIntelStatsSession(input: CopyIntelRunInput): Promis
       }
     }
 
-    metering = await settleAndClose(input.runtime, session.id, input.feeAssetId);
+    metering = await settleAndClose(input.runtime, session.id, input.feeAssetId, charge);
 
     if (written.length === 0) {
       // Built stats but could not write any — never ship unwritten "audit".
@@ -304,7 +313,7 @@ export async function runCopyIntelStatsSession(input: CopyIntelRunInput): Promis
       metering,
     };
   } finally {
-    if (metering === null) {
+    if (metering === null && !charge.recorded) {
       await settleAndClose(input.runtime, session.id, input.feeAssetId).catch(() => {
         // Original error wins.
       });
