@@ -139,6 +139,9 @@ export class BybitSpotTrade implements TradeAdapter {
 
   async placeOrder(request: PlaceOrderRequest): Promise<VenueOrder> {
     const keys = requireCredentials(VENUE.id, 'placeOrder', this.#credentials);
+    if (request.type === 'market' && request.postOnly) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', 'market order must not set postOnly');
+    }
     await assertTradeBookPayoutGradeBeforePlace(VENUE.id, request.symbol, {
       http: this.#http,
       clock: this.#clock,
