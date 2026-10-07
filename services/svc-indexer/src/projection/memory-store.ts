@@ -91,6 +91,17 @@ export class MemoryProjectionStore implements ProjectionStore {
     const existing = this.#blocks.get(block.hash);
     const duplicate = existing?.status === 'canonical';
 
+    // A hash already in the map is that block. The map is keyed by hash, so a
+    // later set() would replace height and parentHash and leave the level and
+    // position rows at the old height. head() would then walk a gap, and the
+    // parent the reorg path stored would be gone. Replay at the stored height
+    // and parent stays on the idempotent path below.
+    if (existing && (existing.height !== block.height || existing.parentHash !== block.parentHash)) {
+      throw new Error(
+        `indexer.block_hash_relocated: hash ${block.hash} is stored at height ${existing.height} parent ${existing.parentHash} and cannot be applied at height ${block.height} parent ${block.parentHash}`,
+      );
+    }
+
     // The competing-block check the partial unique index enforces in Postgres.
     // Modelled here so the two stores fail the same way rather than one of them
     // quietly accepting a state the other cannot represent.
