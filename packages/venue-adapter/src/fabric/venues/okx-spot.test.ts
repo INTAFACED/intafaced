@@ -740,6 +740,42 @@ describe('okx-spot — signed trade (FakeHttp, no live network)', () => {
     expect(market.price).toBeNull();
   });
 
+  it('refuses a missing, blank, or unknown side instead of reporting it as buy', () => {
+    const now = new Date(CLOCK());
+    const missing: Record<string, unknown> = { ...okxOrder('live') };
+    delete missing.side;
+    const cases: ReadonlyArray<{ label: string; row: Record<string, unknown> }> = [
+      { label: 'missing', row: missing },
+      { label: 'undefined', row: okxOrder('live', { side: undefined }) },
+      { label: 'null', row: okxOrder('live', { side: null }) },
+      { label: 'blank', row: okxOrder('live', { side: '' }) },
+      { label: 'blank whitespace', row: okxOrder('live', { side: '   ' }) },
+      { label: 'unknown', row: okxOrder('live', { side: 'hold' }) },
+    ];
+    for (const { label, row } of cases) {
+      let published: string | undefined;
+      try {
+        published = mapOkxSpotOrder(row, 'BTC/USDT', now).side;
+      } catch (error) {
+        expect(error).toBeInstanceOf(VenueUnavailableError);
+        expect((error as VenueUnavailableError).venueId).toBe('okx-spot');
+        expect((error as VenueUnavailableError).reason).toBe('malformed');
+        expect(String((error as Error).message)).toMatch(/side/);
+        continue;
+      }
+      expect.unreachable(`${label} side was published as ${published}`);
+    }
+
+    const buy = mapOkxSpotOrder(okxOrder('live', { side: 'buy' }), 'BTC/USDT', now);
+    expect(buy.side).toBe('buy');
+    expect(formatAmount(buy.price!)).toBe('30000');
+    const sell = mapOkxSpotOrder(okxOrder('live', { side: 'sell' }), 'BTC/USDT', now);
+    expect(sell.side).toBe('sell');
+    expect(formatAmount(sell.price!)).toBe('30000');
+    expect(mapOkxSpotOrder(okxOrder('live', { side: 'Buy' }), 'BTC/USDT', now).side).toBe('buy');
+    expect(mapOkxSpotOrder(okxOrder('live', { side: 'SELL' }), 'BTC/USDT', now).side).toBe('sell');
+  });
+
   it('openOrders GETs orders-pending and maps live rows', async () => {
     const http = new FakeHttp(() =>
       json(200, { code: '0', msg: '', data: [okxOrder('live'), okxOrder('live', { clOrdId: 'def', ordId: '2' })] }),

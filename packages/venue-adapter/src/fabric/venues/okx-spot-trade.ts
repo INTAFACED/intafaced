@@ -63,6 +63,19 @@ function knownOkxSpotOrderType(typeRaw: string): VenueOrder['type'] {
   throw new VenueUnavailableError(VENUE.id, 'malformed', `ordType ${typeRaw || '(empty)'} is not a known OKX spot type`);
 }
 
+/** buy and sell only. A missing, blank, or unknown side is refused — never invented as buy. */
+function knownOkxSpotOrderSide(sideRaw: unknown): VenueOrder['side'] {
+  const text = typeof sideRaw === 'string' ? sideRaw.toLowerCase() : '';
+  if (text === 'buy') return 'buy';
+  if (text === 'sell') return 'sell';
+  const shown = text.trim();
+  throw new VenueUnavailableError(
+    VENUE.id,
+    'malformed',
+    `side ${shown === '' ? '(empty)' : text} is not a known OKX spot side`,
+  );
+}
+
 function positiveLimitPrice(px: unknown): VenueOrder['price'] {
   if (isBlankOrZeroWireDecimal(px)) {
     throw new VenueUnavailableError(VENUE.id, 'malformed', 'non-market order px is blank or zero');
@@ -82,7 +95,7 @@ export function mapOkxSpotOrder(row: Record<string, unknown>, unified: string, n
   const filled = readDecimal(row.accFillSz, VENUE.id, 'accFillSz');
   const typeRaw = String(row.ordType ?? '');
   const type = knownOkxSpotOrderType(typeRaw);
-  const side: VenueOrder['side'] = String(row.side).toLowerCase() === 'sell' ? 'sell' : 'buy';
+  const side = knownOkxSpotOrderSide(row.side);
   const tgtRaw = row.tgtCcy;
   const tgtCcy = tgtRaw === undefined || tgtRaw === null ? '' : String(tgtRaw);
   // Spot market buys default sz to quote. accFillSz is always base, so sz - accFillSz mixes units.
