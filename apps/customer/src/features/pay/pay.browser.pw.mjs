@@ -142,6 +142,45 @@ test('P2P keeps release behind seller-confirmed external payment and shows absen
   await expect(page.getByRole('dialog', { name: 'Review: Release escrow' }).getByText('2 USDT', { exact: true })).toBeVisible();
 });
 
+test('Personal P2P programme application does not create Business authority', async ({ page }) => {
+  const posted = [];
+  let applied = false;
+  await page.route('**/api/**', (route) => {
+    const url = route.request().url();
+    if (url.includes('merchants.apiAccess'))
+      return reply(route, {
+        eligible: false,
+        credential: 'session',
+        merchantStatus: applied ? 'applied' : null,
+        keyPlane: 'identity',
+        rateLimitPlane: 'edge',
+        disputeResolution: 'interactive_human_only',
+      });
+    const standing = {
+      userId,
+      status: 'applied',
+      appliedCompletionRate: 1,
+      appliedTradesTotal: 2,
+      appliedAt: '2026-10-07T12:00:00Z',
+      decidedAt: null,
+    };
+    if (url.includes('merchants.submitApplication')) {
+      posted.push(route.request().postDataJSON());
+      applied = true;
+      return reply(route, standing);
+    }
+    return reply(route, applied ? standing : null);
+  });
+  await mount(page, '/p2p?view=access');
+  await expect(page.locator('nav[aria-label="P2P rooms"] [aria-current="page"]')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Apply to P2P programme', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm apply to p2p programme' }).click();
+  await expect(page.getByText('applied', { exact: true })).toBeVisible();
+  expect(posted).toEqual([{}]);
+  await mount(page, '/pay/links');
+  await expect(page.getByRole('heading', { name: 'Access is restricted' })).toBeVisible();
+});
+
 test('Public checkout keeps fixed amount authoritative and never invents a payment handoff', async ({ page }) => {
   const posted = [];
   await page.route('**/api/**', (route) => {

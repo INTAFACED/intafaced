@@ -19,6 +19,7 @@ export function P2P({ path }: { path: string }) {
   const showOrders = current === '/uc/order' || current === '/p2p/orders';
   const showMine = current === '/uc/ad' || current === '/p2p/offers';
   const showMethods = current === '/p2p/methods' || params.get('view') === 'methods';
+  const showAccess = params.get('view') === 'access';
   const publish = current === '/uc/ad/create' || current === '/uc/ad/update' || current === '/p2p/offers/new';
   const counterparty = params.get('userId') ?? params.get('userid');
   return (
@@ -36,7 +37,7 @@ export function P2P({ path }: { path: string }) {
       description="External payment, ledger escrow, and a recorded order status."
     >
       <nav className="pay-room-tabs" aria-label="P2P rooms">
-        <a href="/p2p" aria-current={!showOrders && !showMine && !publish && !tradeId ? 'page' : undefined}>
+        <a href="/p2p" aria-current={!showOrders && !showMine && !showMethods && !showAccess && !publish && !tradeId ? 'page' : undefined}>
           Offers
         </a>
         <a href="/uc/order" aria-current={showOrders ? 'page' : undefined}>
@@ -47,6 +48,9 @@ export function P2P({ path }: { path: string }) {
         </a>
         <a href="/p2p?view=methods" aria-current={showMethods ? 'page' : undefined}>
           Payment methods
+        </a>
+        <a href="/p2p?view=access" aria-current={showAccess ? 'page' : undefined}>
+          Trading access
         </a>
       </nav>
       {current === '/chat' || tradeId ? (
@@ -61,6 +65,8 @@ export function P2P({ path }: { path: string }) {
         <OrderList pay={pay} userId={userId} />
       ) : publish ? (
         <PublishAvailability pay={pay} />
+      ) : showAccess ? (
+        <TradingProgramme pay={pay} userId={userId} />
       ) : showMethods ? (
         <PaymentMethods pay={pay} userId={userId} />
       ) : (
@@ -698,5 +704,91 @@ function Counterparty({ pay, userId }: { pay: PersonalPayApi; userId: string }) 
         )}
       </PayState>
     </PaySection>
+  );
+}
+function TradingProgramme({ pay, userId }: { pay: PersonalPayApi; userId: string | null }) {
+  const [reason, setReason] = useState('');
+  const standing = useResource((signal) => pay.standing(signal), `pay:p2p-standing:${userId}`);
+  const access = useResource((signal) => pay.apiAccess(signal), `pay:p2p-api-access:${userId}`);
+  function refresh() {
+    standing.reload();
+    access.reload();
+  }
+  return (
+    <div className="stack">
+      <PayNotice title="P2P trading standing">
+        This programme is your personal P2P trading record. It does not create a Business account, company membership or acquiring
+        permissions.
+      </PayNotice>
+      <PaySection
+        title="Your programme status"
+        action={
+          <Button variant="secondary" onClick={refresh}>
+            Refresh standing
+          </Button>
+        }
+      >
+        <PayState resource={standing.resource} retry={standing.reload}>
+          {(data) =>
+            data ? (
+              <div className="form-stack">
+                <PayDetails
+                  values={[
+                    ['Standing', data.status],
+                    ['Application submitted', data.appliedAt],
+                    ['Decision', data.decidedAt ?? 'Not recorded'],
+                    ['Trades at application', String(data.appliedTradesTotal)],
+                  ]}
+                />
+                {['applied', 'approved', 'suspended'].includes(data.status) && (
+                  <>
+                    <Field label="Reason for leaving" value={reason} onChange={(event) => setReason(event.target.value)} />
+                    <ReviewedAction
+                      title="Leave P2P programme"
+                      description="Withdraw your personal P2P programme membership. Your existing order escrow is not released by leaving."
+                      review={<p>{reason}</p>}
+                      perform={() => pay.withdrawProgramme(reason.trim())}
+                      onConfirmed={refresh}
+                      disabled={!reason.trim()}
+                    />
+                  </>
+                )}
+                {['rejected', 'withdrawn'].includes(data.status) && (
+                  <ReviewedAction
+                    title="Reapply to P2P programme"
+                    description="Submit a new application based on current earned reputation. The previous decision is not automatically restored."
+                    perform={() => pay.applyProgramme()}
+                    onConfirmed={refresh}
+                  />
+                )}
+              </div>
+            ) : (
+              <div className="stack">
+                <p className="muted">No P2P programme application exists for this account.</p>
+                <ReviewedAction
+                  title="Apply to P2P programme"
+                  description="Submit an application on your own behalf. The service checks your actual trading record; an application is not an approval or an offer limit increase."
+                  perform={() => pay.applyProgramme()}
+                  onConfirmed={refresh}
+                />
+              </div>
+            )
+          }
+        </PayState>
+      </PaySection>
+      <PaySection title="P2P API eligibility">
+        <PayState resource={access.resource} retry={access.reload}>
+          {(data) => (
+            <PayDetails
+              values={[
+                ['API standing', data.eligible ? 'Eligible by current programme standing' : 'Not eligible by current programme standing'],
+                ['Current credential', data.credential],
+                ['Dispute decisions', 'Interactive human only'],
+              ]}
+            />
+          )}
+        </PayState>
+      </PaySection>
+    </div>
   );
 }

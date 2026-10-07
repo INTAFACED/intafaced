@@ -142,6 +142,22 @@ export const reputationSchema = z.object({
   badges: z.array(z.string()),
   merchant: z.boolean().nullable(),
 });
+export const p2pStandingSchema = z.object({
+  userId: z.string(),
+  status: z.enum(['applied', 'approved', 'rejected', 'suspended', 'withdrawn']),
+  appliedCompletionRate: z.number(),
+  appliedTradesTotal: z.number().int(),
+  appliedAt: z.string(),
+  decidedAt: z.string().nullable(),
+});
+export const p2pApiAccessSchema = z.object({
+  eligible: z.boolean(),
+  credential: z.enum(['session', 'api_key']),
+  merchantStatus: p2pStandingSchema.shape.status.nullable(),
+  keyPlane: z.literal('identity'),
+  rateLimitPlane: z.literal('edge'),
+  disputeResolution: z.literal('interactive_human_only'),
+});
 export const merchantSchema = z.object({
   id,
   userId: id,

@@ -277,7 +277,7 @@ function SendForm({
             />
             <p className="muted">
               This is an internal transfer in the source asset. Recipient name verification and fee preview are not published. The server
-              validates recipient eligibility and the source again before posting.
+              checks that the recipient has a primary bank space for this asset and revalidates the source before posting.
             </p>
             <MutationResult result={result} />
             <Button onClick={() => void confirm()} disabled={busy || Boolean(result && !result.ok && result.reason === 'uncertain')}>

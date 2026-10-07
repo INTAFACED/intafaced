@@ -184,6 +184,12 @@ export function createPersonalPayApi(api: ApiClient, userId: string | null, guar
       api.query('p2p', 'trades.paymentInstrument', { tradeId }, s.tradeDestinationSchema, { signal }),
     reputation: (counterparty: string, signal?: AbortSignal) =>
       api.query('p2p', 'reputation.get', { userId: counterparty }, s.reputationSchema, { signal }),
+    standing: (signal?: AbortSignal) => api.query('p2p', 'merchants.me', undefined, s.p2pStandingSchema.nullable(), { signal }),
+    apiAccess: (signal?: AbortSignal) => api.query('p2p', 'merchants.apiAccess', undefined, s.p2pApiAccessSchema, { signal }),
+    applyProgramme: () =>
+      guard.run(`${userId}:p2p-programme`, () => api.mutate('p2p', 'merchants.submitApplication', {}, s.p2pStandingSchema)),
+    withdrawProgramme: (reason: string) =>
+      guard.run(`${userId}:p2p-programme`, () => api.mutate('p2p', 'merchants.withdraw', { reason }, s.p2pStandingSchema)),
     dispute: (tradeId: string, signal?: AbortSignal) => api.query('p2p', 'disputes.get', { tradeId }, s.disputeSchema, { signal }),
     async manageOffer(offerId: string, action: 'pause' | 'resume' | 'close') {
       const denied = signedIn();
