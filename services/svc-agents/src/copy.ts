@@ -51,6 +51,7 @@ export const COPY_KEYS = [
   'agents.error.engine_unavailable',
   'agents.error.window_sealed',
   'agents.error.request_id_replay',
+  'agents.error.price_not_configured',
   'agents.scanner.empty',
   'agents.scanner.unavailable',
   'agents.scanner.tier_closed',
@@ -117,6 +118,8 @@ export const EN: Readonly<Record<CopyKey, string>> = {
   'agents.error.window_sealed': 'This usage period is already settled.',
   'agents.error.request_id_replay':
     'That request was already processed for this session — start a new request rather than reusing the same id.',
+  'agents.error.price_not_configured':
+    'Refused: no token price is configured for “{task}”, so nothing was metered.',
 
   'agents.scanner.empty': 'No markets were provided to rank.',
   'agents.scanner.unavailable': 'Market signals are unavailable right now — quotes are missing or too old to trust.',
