@@ -341,11 +341,19 @@ export class NativeL3Hub {
     }
     const limit = this.#options.depthLimit;
     if (!isPublishedDepthLimit(limit)) return;
+    const generation = this.#idleGeneration.get(marketId) ?? 0;
     try {
       const queue = await this.#source.l3Queue(marketId, limit);
       if (!this.#hasLive(marketId)) return;
       this.ingest(queue);
     } catch (err) {
+      // Same generation rule as tick(). This await is the sole opener's refetch,
+      // not a later poll. #forgetIdle bumps the generation when that watcher
+      // leaves. attach() has already added the next subscriber, so #hasLive is
+      // true and is not enough: applying this rejection marks them down, or
+      // noteNoBook wipes the queue they already refetched. A market that stayed
+      // watched keeps its generation, and that live subscriber still hears it.
+      if ((this.#idleGeneration.get(marketId) ?? 0) !== generation) return;
       if (!this.#hasLive(marketId)) return;
       if (err instanceof DepthL3UnavailableError) this.markL3Unavailable(marketId);
       else if (err instanceof DepthNoBookError) this.noteNoBook(marketId);
