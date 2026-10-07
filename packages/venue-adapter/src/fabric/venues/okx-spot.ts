@@ -43,6 +43,9 @@ import type { RestLatencyGrade, WsLatencyGrade } from '@intafaced/venue-contract
  *   5. books5 is snapshot-only. The WS channel is books (incremental 400-depth).
  *   6. REST depth is sz on the closed set {1,5,10,50,100,200,400}.
  *   7. A second WS action: snapshot is a feed restart — fail the subscription.
+ *   8. A books update is continuous when `prevSeqId` equals the previous
+ *      `seqId`, even if `seqId` jumps. An idle push repeats `seqId` and is not
+ *      a gap. A `prevSeqId` that does not match fails the subscription.
  *
  * Signed spot trade lives in `okx-spot-trade.ts` (HMAC OK-ACCESS). Signed
  * account observation lives in `okx-spot-account.ts`. transferRails stays
@@ -197,6 +200,7 @@ export class OkxSpotMarketData implements MarketDataAdapter {
     const { handle, stopHeartbeat } = await this.#subscribe('books', instId, 'streamBook');
     const queue = new AsyncFrameQueue<VenueBookDelta>();
     let snapshots = 0;
+    let previousSeqId: number | null = null;
 
     void (async () => {
       try {
@@ -214,27 +218,58 @@ export class OkxSpotMarketData implements MarketDataAdapter {
           const book = firstDataObject(frame, 'books');
           if (frame.action === 'snapshot') {
             snapshots += 1;
-            if (snapshots === 1) continue;
+            if (snapshots > 1) {
+              queue.fail(
+                new Error(
+                  `${VENUE.id} books:${instId}: the venue re-sent a full snapshot mid-stream (seqId=${String(book.seqId)}) — ` +
+                    'its feed restarted and its update numbering is void. Failing the subscription so the feed is stopped ' +
+                    'and reported, rather than reading the renumbered frames as already-applied and serving a frozen book.',
+                ),
+              );
+              return;
+            }
+            previousSeqId = readInteger(book.seqId, VENUE.id, 'books.seqId');
+            continue;
+          }
+          if (frame.action !== 'update') continue;
+
+          // Continuity is `prevSeqId === previous seqId`, not `seqId === previous + 1`.
+          // A jump whose prevSeqId matches is one batch covering (prevSeqId, seqId].
+          // An idle push repeats seqId. A missing seqId stays a typed refusal.
+          const seqId = readInteger(book.seqId, VENUE.id, 'books.seqId');
+          if (previousSeqId !== null && seqId === previousSeqId) continue;
+
+          const prevSeqId = readInteger(book.prevSeqId, VENUE.id, 'books.prevSeqId');
+          if (previousSeqId === null || prevSeqId !== previousSeqId) {
             queue.fail(
               new Error(
-                `${VENUE.id} books:${instId}: the venue re-sent a full snapshot mid-stream (seqId=${String(book.seqId)}) — ` +
-                  'its feed restarted and its update numbering is void. Failing the subscription so the feed is stopped ' +
-                  'and reported, rather than reading the renumbered frames as already-applied and serving a frozen book.',
+                `${VENUE.id} books:${instId}: books update is not continuous ` +
+                  `(prevSeqId=${String(prevSeqId)} does not match the previous seqId ${
+                    previousSeqId === null ? '(none yet)' : String(previousSeqId)
+                  }). Failing the subscription rather than applying the frame as one continuous point.`,
               ),
             );
             return;
           }
-          if (frame.action !== 'update') continue;
+          if (seqId <= prevSeqId) {
+            queue.fail(
+              new Error(
+                `${VENUE.id} books:${instId}: books update seqId=${String(seqId)} does not advance past prevSeqId=${String(prevSeqId)}. ` +
+                  'Refusing rather than inventing a sequence.',
+              ),
+            );
+            return;
+          }
 
-          const sequence = readInteger(book.seqId, VENUE.id, 'books.seqId');
           queue.push({
             venueId: VENUE.id,
             symbol,
-            sequence: { firstSequence: sequence, lastSequence: sequence },
+            sequence: { firstSequence: prevSeqId + 1, lastSequence: seqId },
             bids: wireLevels(book.bids, 'bids'),
             asks: wireLevels(book.asks, 'asks'),
             observedAt: new Date(this.#clock()),
           });
+          previousSeqId = seqId;
         }
         queue.close();
       } catch (error) {

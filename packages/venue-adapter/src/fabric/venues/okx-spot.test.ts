@@ -3,7 +3,9 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
 import {
   VenueCapabilityError,
   VenueCredentialsMissingError,
+  VenueDecimalError,
   VenueUnavailableError,
+  type VenueBookDelta,
   type VenueCredentials,
 } from '@intafaced/venue-contracts';
 import { SequencedBookTracker } from '../sequenced-book.js';
@@ -126,6 +128,22 @@ class ScriptedStream implements StreamPort {
 
 function adapter(http: HttpPort, extras: ConstructorParameters<typeof OkxSpotMarketData>[0] = {}) {
   return new OkxSpotMarketData({ http, heartbeatMs: 0, ...extras });
+}
+
+function booksFrame(action: 'snapshot' | 'update', book: Record<string, unknown>) {
+  return {
+    arg: { channel: 'books', instId: 'BTC-USDT' },
+    action,
+    data: [book],
+  };
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 describe('okx-spot — public market data (third venue)', () => {
@@ -302,7 +320,7 @@ describe('okx-spot — public market data (third venue)', () => {
     stream.push({
       arg: { channel: 'books', instId: 'BTC-USDT' },
       action: 'update',
-      data: [{ asks: [['30003.00', '0.5', '0', '1']], bids: [['30001.00', '0']], ts: '2', seqId: 101 }],
+      data: [{ asks: [['30003.00', '0.5', '0', '1']], bids: [['30001.00', '0']], ts: '2', prevSeqId: 100, seqId: 101 }],
     });
     const deadline = Date.now() + 1_000;
     while (received.length < 1 && Date.now() < deadline) {
@@ -320,6 +338,196 @@ describe('okx-spot — public market data (third venue)', () => {
       data: [{ asks: [['1', '1', '0', '1']], bids: [['1', '1', '0', '1']], ts: '3', seqId: 1 }],
     });
     await expect(consume).rejects.toThrow(/re-sent a full snapshot/);
+    await sub.close();
+  });
+
+  it('streamBook keeps prevSeqId: a linked seqId jump is applied, an idle repeat is not a gap, a real gap fails the subscription', async () => {
+    const http = new FakeHttp(() => json(200, thickBook(100)));
+    const stream = new ScriptedStream();
+    const md = new OkxSpotMarketData({ http, stream, heartbeatMs: 0 });
+    const snapshot = await md.snapshotBook('BTC/USDT', 1);
+    const tracker = new SequencedBookTracker('okx-spot', 'BTC/USDT');
+    expect(tracker.onSnapshot(snapshot).kind).toBe('applied');
+    expect(tracker.sequence).toBe(100);
+
+    const sub = await md.streamBook('BTC/USDT');
+    const received: VenueBookDelta[] = [];
+    const consume = (async () => {
+      for await (const delta of sub.deltas) received.push(delta);
+    })();
+
+    stream.push(
+      booksFrame('snapshot', {
+        asks: [['30002.10', '1.5', '0', '1']],
+        bids: [['30000.00', '2.0', '0', '1']],
+        ts: '1',
+        seqId: 100,
+        prevSeqId: -1,
+      }),
+    );
+    stream.push(
+      booksFrame('update', {
+        asks: [['30003.00', '0.5', '0', '1']],
+        bids: [['30001', '1.25', '0', '1']],
+        ts: '2',
+        prevSeqId: 100,
+        seqId: 110,
+      }),
+    );
+
+    await waitFor(() => received.length >= 1);
+    expect(received).toHaveLength(1);
+    const jumped = received[0]!;
+    expect(jumped.sequence).toEqual({ firstSequence: 101, lastSequence: 110 });
+    expect(jumped.bids[0]).toEqual(['30001', '1.25']);
+    expect(typeof jumped.bids[0]![0]).toBe('string');
+    expect(typeof jumped.bids[0]![1]).toBe('string');
+    expect(tracker.onDelta(jumped)).toEqual({ kind: 'applied', state: 'live', sequence: 110 });
+    expect(tracker.book()).not.toBeNull();
+    expect(formatAmount(tracker.top()!.bestBid!)).toBe('30001');
+    expect(formatAmount(tracker.top()!.bestAsk!)).toBe('30002.1');
+
+    // Same seqId again. prevSeqId does not match 110; that repeat is idle, not a gap.
+    stream.push(
+      booksFrame('update', {
+        asks: [],
+        bids: [],
+        ts: '3',
+        prevSeqId: 109,
+        seqId: 110,
+      }),
+    );
+    stream.push(
+      booksFrame('update', {
+        asks: [],
+        bids: [['30001.5', '2', '0', '1']],
+        ts: '4',
+        prevSeqId: 110,
+        seqId: 111,
+      }),
+    );
+
+    await waitFor(() => received.length >= 2);
+    expect(received).toHaveLength(2);
+    const continued = received[1]!;
+    expect(continued.sequence).toEqual({ firstSequence: 111, lastSequence: 111 });
+    expect(continued.bids[0]).toEqual(['30001.5', '2']);
+    expect(tracker.onDelta(continued)).toEqual({ kind: 'applied', state: 'live', sequence: 111 });
+    expect(tracker.state).toBe('live');
+
+    // prevSeqId does not match 111. seqId is the next integer, so a point stamp of
+    // seqId would be applied as continuous. The subscription fails and the frame is not emitted.
+    stream.push(
+      booksFrame('update', {
+        asks: [],
+        bids: [['30000.5', '9', '0', '1']],
+        ts: '5',
+        prevSeqId: 50,
+        seqId: 112,
+      }),
+    );
+
+    const gap = await Promise.race([
+      consume.then(
+        () => new Error('subscription closed without failing the gap'),
+        (error: unknown) => error,
+      ),
+      new Promise<Error>((resolve) =>
+        setTimeout(() => resolve(new Error('timed out waiting for the gap to fail the subscription')), 1_000),
+      ),
+    ]);
+    expect(gap).toBeInstanceOf(Error);
+    expect((gap as Error).message).toMatch(/prevSeqId/);
+    expect(received).toHaveLength(2);
+    expect(received.some((delta) => delta.sequence.lastSequence === 112 || delta.sequence.firstSequence === 112)).toBe(false);
+    expect(tracker.state).toBe('live');
+    expect(tracker.sequence).toBe(111);
+    expect(tracker.book()).not.toBeNull();
+    expect(formatAmount(tracker.top()!.bestBid!)).toBe('30001.5');
+    await sub.close();
+  });
+
+  it('streamBook refuses a books update with no seqId and does not invent one', async () => {
+    const stream = new ScriptedStream();
+    const md = new OkxSpotMarketData({
+      http: new FakeHttp(() => json(200, thickBook())),
+      stream,
+      heartbeatMs: 0,
+    });
+    const sub = await md.streamBook('BTC/USDT');
+    const received: VenueBookDelta[] = [];
+    const consume = (async () => {
+      for await (const delta of sub.deltas) received.push(delta);
+    })();
+
+    stream.push(
+      booksFrame('snapshot', {
+        asks: [['30002.10', '1.5', '0', '1']],
+        bids: [['30000.00', '2.0', '0', '1']],
+        ts: '1',
+        seqId: 100,
+      }),
+    );
+    stream.push(
+      booksFrame('update', {
+        asks: [['30003.00', '0.5', '0', '1']],
+        bids: [['30001.00', '1', '0', '1']],
+        ts: '2',
+        prevSeqId: 100,
+      }),
+    );
+
+    await expect(consume).rejects.toMatchObject({
+      name: 'VenueDecimalError',
+      venueId: 'okx-spot',
+      field: 'books.seqId',
+    });
+    expect(received).toHaveLength(0);
+    await sub.close();
+  });
+
+  it('streamBook refuses a books update with no prevSeqId instead of stamping seqId as one point', async () => {
+    const stream = new ScriptedStream();
+    const md = new OkxSpotMarketData({
+      http: new FakeHttp(() => json(200, thickBook())),
+      stream,
+      heartbeatMs: 0,
+    });
+    const sub = await md.streamBook('BTC/USDT');
+    const received: VenueBookDelta[] = [];
+    const consume = (async () => {
+      for await (const delta of sub.deltas) received.push(delta);
+    })();
+
+    stream.push(
+      booksFrame('snapshot', {
+        asks: [['30002.10', '1.5', '0', '1']],
+        bids: [['30000.00', '2.0', '0', '1']],
+        ts: '1',
+        seqId: 100,
+      }),
+    );
+    stream.push(
+      booksFrame('update', {
+        asks: [['30003.00', '0.5', '0', '1']],
+        bids: [['30001.00', '1', '0', '1']],
+        ts: '2',
+        seqId: 101,
+      }),
+    );
+
+    const refusal = await Promise.race([
+      consume.then(
+        () => new Error('subscription closed without refusing the missing prevSeqId'),
+        (error: unknown) => error,
+      ),
+      new Promise<Error>((resolve) =>
+        setTimeout(() => resolve(new Error('timed out waiting for the missing prevSeqId refusal')), 1_000),
+      ),
+    ]);
+    expect(refusal).toBeInstanceOf(VenueDecimalError);
+    expect(refusal).toMatchObject({ venueId: 'okx-spot', field: 'books.prevSeqId' });
+    expect(received).toHaveLength(0);
     await sub.close();
   });
 
