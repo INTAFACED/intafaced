@@ -101,6 +101,7 @@ function venue(o: FakeOpts): LiquiditySource {
 }
 
 const buy = (amount: string): QuoteRequest => ({ symbol: 'BTC/USDT', side: 'buy', amount: amt(amount) });
+const sell = (amount: string): QuoteRequest => ({ symbol: 'BTC/USDT', side: 'sell', amount: amt(amount) });
 
 describe('scoreSorCost — §28 complete model honesty (D26-P1-X3)', () => {
   it('accepts complete terms and sums fee + impact + transfer', () => {
@@ -177,6 +178,57 @@ describe('allInEffectivePrice', () => {
 
   it('subtracts on the sell side', () => {
     expect(formatAmount(allInEffectivePrice(amt('100'), 17, 'sell'))).toBe('99.83');
+  });
+});
+
+describe('planRoute sell — all-in cost must leave a positive price', () => {
+  it('refuses a sell when all-in cost consumes the price', async () => {
+    // Quote fee is 0, so fee-only effective stays 100. All-in is 10000 bps.
+    const plan = await planRoute(
+      sell('1'),
+      [venue({ id: 'eaten', kind: 'external-cex', price: '100', amount: '1', feeBps: 0 })],
+      {
+        costTermsByVenue: {
+          eaten: completeTerms({ feeBps: 10_000, expectedImpactBps: 0, transferCostBps: 0 }),
+        },
+      },
+    );
+    expect(plan.legs).toHaveLength(0);
+    expect(plan.routedAmount).toBe(0n);
+    expect(plan.averageEffectivePrice).toBeNull();
+    expect(plan.rejected.find((r) => r.venueId === 'eaten')?.reason).toBe('no_quote');
+  });
+
+  it('routes a sell when all-in cost stays under the price', async () => {
+    const plan = await planRoute(
+      sell('1'),
+      [venue({ id: 'ok', kind: 'external-cex', price: '100', amount: '1', feeBps: 10 })],
+      {
+        costTermsByVenue: {
+          ok: completeTerms({ feeBps: 10, expectedImpactBps: 5, transferCostBps: 2 }),
+        },
+      },
+    );
+    expect(plan.legs).toHaveLength(1);
+    expect(formatAmount(plan.legs[0]!.effectivePrice)).toBe('99.9');
+    expect(formatAmount(plan.legs[0]!.allInEffectivePrice)).toBe('99.83');
+    expect(plan.routedAmount > 0n).toBe(true);
+    expect(plan.averageEffectivePrice! > 0n).toBe(true);
+  });
+
+  it('routes a buy when all-in cost is 100% — the buyer pays more', async () => {
+    const plan = await planRoute(
+      buy('1'),
+      [venue({ id: 'dear', kind: 'external-cex', price: '100', amount: '1', feeBps: 0 })],
+      {
+        costTermsByVenue: {
+          dear: completeTerms({ feeBps: 10_000, expectedImpactBps: 0, transferCostBps: 0 }),
+        },
+      },
+    );
+    expect(plan.legs).toHaveLength(1);
+    expect(formatAmount(plan.legs[0]!.allInEffectivePrice)).toBe('200');
+    expect(plan.averageEffectivePrice! > 0n).toBe(true);
   });
 });
 

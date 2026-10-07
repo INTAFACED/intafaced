@@ -280,6 +280,19 @@ export async function planRoute(
       transferCostBps = scored.transferCostBps;
     }
 
+    // Sell proceeds are price minus cost. feeBps is on a 10_000 = 100% scale, so
+    // a fee (or all-in cost) at or above the price leaves effectivePrice <= 0
+    // and would report averageEffectivePrice 0 on a positive routed amount.
+    // A buy pays the fee on top, so a large fee is still a price.
+    if (request.side === 'sell' && (feeOnly <= 0n || allIn <= 0n)) {
+      rejected.push({
+        venueId: source.id,
+        reason: 'no_quote',
+        detail: 'effective price consumed by cost',
+      });
+      continue;
+    }
+
     const adjusted = preferenceAdjusted(allIn, request.side, source.kind === 'internal', opts.internalPreferenceBps);
 
     candidates.push({

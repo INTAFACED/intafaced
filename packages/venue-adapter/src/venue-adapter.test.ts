@@ -333,6 +333,51 @@ describe('venue exclusion — the failures that cost money', () => {
     expect(plan.rejected.find((r) => r.venueId === 'neg')?.reason).toBe('no_quote');
   });
 
+  it('refuses a sell whose fee consumes the price — 10000 bps is 100%', async () => {
+    const plan = await planRoute(sell('1'), [
+      venue({ id: 'consumed', kind: 'external-cex', price: '100', amount: '1', feeBps: 10_000 }),
+      venue({ id: 'live', kind: 'external-cex', price: '100', amount: '1', feeBps: 10 }),
+    ]);
+    expect(plan.legs.map((leg) => leg.venueId)).toEqual(['live']);
+    expect(plan.rejected.find((r) => r.venueId === 'consumed')?.reason).toBe('no_quote');
+    expect(plan.routedAmount > 0n).toBe(true);
+    expect(plan.averageEffectivePrice).not.toBeNull();
+    expect(plan.averageEffectivePrice! > 0n).toBe(true);
+    expect(formatAmount(plan.averageEffectivePrice!)).toBe('99.9');
+  });
+
+  it('refuses a sell at a 100% fee and leaves an empty plan average null', async () => {
+    const plan = await planRoute(sell('1'), [
+      venue({ id: 'consumed', kind: 'external-cex', price: '100', amount: '1', feeBps: 10_000 }),
+    ]);
+    expect(plan.legs).toHaveLength(0);
+    expect(plan.routedAmount).toBe(0n);
+    expect(plan.averageEffectivePrice).toBeNull();
+    expect(plan.rejected.find((r) => r.venueId === 'consumed')?.reason).toBe('no_quote');
+  });
+
+  it('routes a sell whose fee stays under 100%', async () => {
+    // 9999 bps of 100 is 99.99, so the seller still receives 0.01.
+    const plan = await planRoute(sell('1'), [
+      venue({ id: 'thin', kind: 'external-cex', price: '100', amount: '1', feeBps: 9_999 }),
+    ]);
+    expect(plan.legs).toHaveLength(1);
+    expect(plan.legs[0]?.venueId).toBe('thin');
+    expect(formatAmount(plan.legs[0]!.effectivePrice)).toBe('0.01');
+    expect(plan.routedAmount > 0n).toBe(true);
+    expect(formatAmount(plan.averageEffectivePrice!)).toBe('0.01');
+  });
+
+  it('routes a buy when the fee is 100% — the buyer pays more', async () => {
+    const plan = await planRoute(buy('1'), [
+      venue({ id: 'dear', kind: 'external-cex', price: '100', amount: '1', feeBps: 10_000 }),
+    ]);
+    expect(plan.legs).toHaveLength(1);
+    expect(formatAmount(plan.legs[0]!.effectivePrice)).toBe('200');
+    expect(plan.routedAmount > 0n).toBe(true);
+    expect(formatAmount(plan.averageEffectivePrice!)).toBe('200');
+  });
+
   it('does not rank a free-looking zero price ahead of a real book', async () => {
     const plan = await planRoute(buy('1'), [
       venue({ id: 'free', kind: 'external-cex', price: '0', amount: '1', feeBps: 0 }),
