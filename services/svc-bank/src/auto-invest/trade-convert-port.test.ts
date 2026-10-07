@@ -3,8 +3,10 @@
  *
  * 1. Promise: DCA convert amounts come from trade.convert; bank invents no mid.
  * 2. Break: quote/execute failure or missing market still returns a fill.
- * 3. Done bar: mock quote+execute settles to trade's filled/userNotional;
- *    convert failure throws bank.auto_invest_rate_unset (no invented price);
+ * 3. Done bar: a buy books execute filled base qty; a sell books execute
+ *    outAmount; omitted spot/active, a quote that is not fullyFilled true,
+ *    and an execute that is not status filled with remaining 0 refuse
+ *    bank.auto_invest_rate_unset (no invented price);
  *    usableTradeConvertUrl rejects empty/non-http.
  * 4. Class M
  * 5. Paths: services/svc-bank/src/auto-invest/**
@@ -272,5 +274,211 @@ describe('tradeConvertPort — amounts from trade, never a bank mid', () => {
         clientConvertId: 'dca-no-pair',
       }),
     ).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  });
+});
+
+const BUY = {
+  userId: USER,
+  fromAsset: 'USDT',
+  toAsset: 'BTC',
+  fromAmount: parseAmount('100'),
+  clientConvertId: 'dca-l154-buy',
+};
+
+const SELL = {
+  userId: USER,
+  fromAsset: 'BTC',
+  toAsset: 'USDT',
+  fromAmount: parseAmount('0.002'),
+  clientConvertId: 'dca-l154-sell',
+};
+
+const LISTED_SPOT = {
+  symbol: 'BTC/USDT',
+  base: 'BTC',
+  quote: 'USDT',
+  spot: true,
+  active: true,
+  limits: { amount: { min: '0.001' } },
+};
+
+function quoteWire(overrides: Record<string, unknown> = {}, omit: readonly string[] = []): Record<string, unknown> {
+  const quote: Record<string, unknown> = {
+    symbol: 'BTC/USDT',
+    side: 'buy',
+    requestedQty: '0.002',
+    filledQty: '0.002',
+    userNotional: '100',
+    avgPrice: '50000',
+    fullyFilled: true,
+    ...overrides,
+  };
+  for (const key of omit) delete quote[key];
+  return quote;
+}
+
+function executeWire(overrides: Record<string, unknown> = {}, omit: readonly string[] = []): Record<string, unknown> {
+  const order: Record<string, unknown> = {
+    id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    filled: '0.002',
+    remaining: '0',
+    status: 'filled',
+    ...overrides,
+  };
+  for (const key of omit) delete order[key];
+  return order;
+}
+
+/** Seam: tradeConvertPort.convert, with fetchImpl standing in for svc-trade. */
+function portFrom(markets: unknown, quote: unknown, execute: unknown) {
+  return tradeConvertPort({
+    baseUrl: 'http://svc-trade:4004',
+    edgeSecret: EDGE,
+    marketsLimit: MARKETS_LIMIT,
+    fetchImpl: async (input) => {
+      const url = String(input);
+      if (url.includes('/api/v1/markets')) return jsonResponse(200, markets);
+      if (url.includes('/trpc/convert.quote')) return jsonResponse(200, { result: { data: quote } });
+      if (url.includes('/trpc/convert.execute')) return jsonResponse(200, { result: { data: execute } });
+      return jsonResponse(404, { error: { message: 'unexpected' } });
+    },
+  });
+}
+
+describe('tradeConvertPort.convert — a listed market is tradable only when spot and active are true', () => {
+  it('refuses when spot is omitted, even though the pair matches', async () => {
+    const port = portFrom(
+      [{ symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', active: true, limits: { amount: { min: '0.001' } } }],
+      quoteWire(),
+      executeWire(),
+    );
+    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  });
+
+  it('refuses when active is omitted, even though the pair matches', async () => {
+    const port = portFrom(
+      [{ symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', spot: true, limits: { amount: { min: '0.001' } } }],
+      quoteWire(),
+      executeWire(),
+    );
+    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  });
+
+  it('refuses when spot is false', async () => {
+    const port = portFrom([{ ...LISTED_SPOT, spot: false }], quoteWire(), executeWire());
+    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  });
+
+  it('refuses when active is false', async () => {
+    const port = portFrom([{ ...LISTED_SPOT, active: false }], quoteWire(), executeWire());
+    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  });
+});
+
+describe('tradeConvertPort.convert — quote proceeds only when fullyFilled is true', () => {
+  it('refuses when fullyFilled is omitted', async () => {
+    const port = portFrom([LISTED_SPOT], quoteWire({}, ['fullyFilled']), executeWire());
+    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  });
+
+  it('refuses when fullyFilled is false', async () => {
+    const port = portFrom([LISTED_SPOT], quoteWire({ fullyFilled: false }), executeWire());
+    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  });
+});
+
+describe('tradeConvertPort.convert — execute books only a complete fill', () => {
+  it('refuses when filled is above zero and remaining is above zero', async () => {
+    const port = portFrom([LISTED_SPOT], quoteWire(), executeWire({ filled: '0.002', remaining: '0.001', status: 'filled' }));
+    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  });
+
+  it('refuses when status is not filled', async () => {
+    const port = portFrom([LISTED_SPOT], quoteWire(), executeWire({ filled: '0.002', remaining: '0', status: 'partial' }));
+    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  });
+
+  it('refuses when status is omitted', async () => {
+    const port = portFrom([LISTED_SPOT], quoteWire(), executeWire({}, ['status']));
+    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  });
+
+  it('refuses when remaining is omitted', async () => {
+    const port = portFrom([LISTED_SPOT], quoteWire(), executeWire({}, ['remaining']));
+    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  });
+
+  it('refuses when remaining is blank', async () => {
+    const port = portFrom([LISTED_SPOT], quoteWire(), executeWire({ remaining: '' }));
+    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  });
+
+  it('a buy that is spot, active, fully filled, status filled, remaining 0 returns the execute filled base qty', async () => {
+    const port = portFrom(
+      [LISTED_SPOT],
+      quoteWire({ fullyFilled: true }),
+      executeWire({ filled: '0.002', remaining: '0.0', status: 'filled', outAmount: '250' }),
+    );
+    const result = await port.convert(BUY);
+    expect(formatAmount(result.toAmount)).toBe('0.002');
+    expect(result.ledgerTxId).toBe('cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+  });
+});
+
+describe('tradeConvertPort.convert — a sell books the quote asset the fill received', () => {
+  it('returns the quote asset parsed from execute outAmount', async () => {
+    const port = portFrom(
+      [LISTED_SPOT],
+      quoteWire({ side: 'sell', userNotional: '100', fullyFilled: true }),
+      executeWire({ filled: '0.002', remaining: '0', status: 'filled', outAmount: '99.5' }),
+    );
+    const result = await port.convert(SELL);
+    expect(formatAmount(result.toAmount)).toBe('99.5');
+    expect(result.ledgerTxId).toBe('cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+  });
+
+  it('refuses when outAmount is missing', async () => {
+    const port = portFrom(
+      [LISTED_SPOT],
+      quoteWire({ side: 'sell', userNotional: '100' }),
+      executeWire({ filled: '0.002', remaining: '0', status: 'filled' }),
+    );
+    await expect(port.convert(SELL)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  });
+
+  it('refuses when outAmount is blank', async () => {
+    const port = portFrom(
+      [LISTED_SPOT],
+      quoteWire({ side: 'sell', userNotional: '100' }),
+      executeWire({ outAmount: '' }),
+    );
+    await expect(port.convert(SELL)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  });
+
+  it('refuses when outAmount is whitespace', async () => {
+    const port = portFrom(
+      [LISTED_SPOT],
+      quoteWire({ side: 'sell', userNotional: '100' }),
+      executeWire({ outAmount: '   ' }),
+    );
+    await expect(port.convert(SELL)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  });
+
+  it('refuses when outAmount is zero', async () => {
+    const port = portFrom(
+      [LISTED_SPOT],
+      quoteWire({ side: 'sell', userNotional: '100' }),
+      executeWire({ outAmount: '0' }),
+    );
+    await expect(port.convert(SELL)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  });
+
+  it('refuses when outAmount is negative', async () => {
+    const port = portFrom(
+      [LISTED_SPOT],
+      quoteWire({ side: 'sell', userNotional: '100' }),
+      executeWire({ outAmount: '-1' }),
+    );
+    await expect(port.convert(SELL)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
   });
 });
