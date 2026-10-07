@@ -148,6 +148,22 @@ describe('S2S producer payout — accrued commission through ledger-client', () 
     await f.close();
   });
 
+  it('403 when the signed service is an inherited key such as constructor or toString', async () => {
+    const { f, ledger } = await app({ law: PUBLISHED });
+    const journalBefore = ledger!.journal().map((tx) => tx.idempotencyKey);
+    for (const service of ['constructor', 'toString']) {
+      const res = await f.inject(post({ feeEventId: FEE }, service));
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ code: 'affiliate.payout.producer_forbidden' });
+    }
+    expect(ledger!.journal().map((tx) => tx.idempotencyKey)).toEqual(journalBefore);
+    const trade = await f.inject(post({ feeEventId: FEE }, 'svc-trade'));
+    expect(trade.statusCode).toBe(200);
+    const pay = await f.inject(post({ feeEventId: FEE }, 'svc-pay'));
+    expect(pay.statusCode).toBe(200);
+    await f.close();
+  });
+
   it('412 rates unset — nothing posted', async () => {
     const { f, ledger } = await app({ law: undefined });
     const journalBefore = ledger!.journal().map((tx) => tx.idempotencyKey);

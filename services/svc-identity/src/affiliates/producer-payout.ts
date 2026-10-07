@@ -15,7 +15,7 @@ import { AffiliatePayoutRefuseError, AFFILIATE_PAYOUT_RESIDUAL } from './admin-t
 import type { AccrualStore } from './accrual-store.js';
 import type { AccrualTierLaw } from './commission-rate-law.js';
 import { UNPUBLISHED_ACCRUAL_TIER_LAW } from './commission-rate-law.js';
-import { AFFILIATE_PRODUCER_SOURCE_BY_SERVICE, type AffiliateProducerService } from './producer-accrue.js';
+import { AFFILIATE_PRODUCER_SOURCE_BY_SERVICE } from './producer-accrue.js';
 import { assertPayoutRateProvenance, planAffiliatePayout, postAffiliatePayout } from './payout-engine.js';
 
 export const AFFILIATE_PRODUCER_PAYOUT_PATH = '/internal/affiliates/payout';
@@ -62,7 +62,7 @@ export function registerAffiliateProducerPayout(app: FastifyInstance, deps: Affi
       });
     }
 
-    if (AFFILIATE_PRODUCER_SOURCE_BY_SERVICE[service as AffiliateProducerService] === undefined) {
+    if (!Object.hasOwn(AFFILIATE_PRODUCER_SOURCE_BY_SERVICE, service)) {
       return reply.code(403).send({
         error: `service ${service} is not an affiliate fee producer`,
         code: 'affiliate.payout.producer_forbidden',
