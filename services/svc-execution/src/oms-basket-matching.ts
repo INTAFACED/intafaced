@@ -3,6 +3,8 @@
  * Generic live slice (twap|vwap|pov) does not cover basket — do not dual-implement
  * a second engine. Qty/price stay decimal strings. Paper never posts and never
  * ledgers. Partial-failure refuse_all: first matching miss stops remaining legs.
+ * A later miss, timeout, or unknown names acks already accepted and kills those children.
+ * A basket whose children all post is not killed.
  * Kill: unknown matching cancel is killed false — never invent canceled.
  */
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
@@ -45,6 +47,10 @@ export type OmsBasketMatchingRefusal = {
   readonly ok: false;
   readonly reason: OmsBasketMatchingRefuseReason;
   readonly detail: string;
+  /** Acks of children matching already accepted, when a later leg refuses. */
+  readonly children?: readonly OmsBasketMatchingChildAck[];
+  /** Kill of that accepted prefix. The start door reads this and does not kill twice. */
+  readonly kill?: OmsBasketMatchingKillResult;
 };
 
 export type OmsBasketMatchingChildInput = {
@@ -364,6 +370,7 @@ async function postOne(
 /**
  * POST each named basket leg to matching. Blank MATCHING_URL refuses.
  * First matching miss stops remaining legs (refuse_all — never flatten).
+ * Children already accepted are killed, and their acks stay on the refusal.
  * Does not touch ledger. Paper callers must refuse before this door.
  */
 export async function postBasketChildrenToMatching(input: {
@@ -417,15 +424,23 @@ export async function postBasketChildrenToMatching(input: {
   for (const child of resolved) {
     const posted = await postOne(base, child, fetchFn, timeoutMs, secret.secret);
     if (!posted.ok) {
-      return refuse(
+      const reason =
         posted.reason === 'matching_unknown' ||
-          posted.reason === 'matching_timeout' ||
-          posted.reason === 'matching_unavailable' ||
-          posted.reason === 'matching_rejected'
+        posted.reason === 'matching_timeout' ||
+        posted.reason === 'matching_unavailable' ||
+        posted.reason === 'matching_rejected'
           ? posted.reason
-          : 'flatten_remaining_refused',
-        `${posted.detail} — refuse_all, remaining legs not posted`,
-      );
+          : 'flatten_remaining_refused';
+      const detail = `${posted.detail} — refuse_all, remaining legs not posted`;
+      if (children.length === 0) return refuse(reason, detail);
+      const kill = await killBasketMatchingChildren({
+        children: children.map((ack) => ({ marketId: ack.marketId, orderId: ack.orderId })),
+        matchingUrl: base,
+        fetch: fetchFn,
+        timeoutMs,
+        internalServiceSecret: secret.secret,
+      });
+      return { ...refuse(reason, detail), children, kill };
     }
     children.push(posted.ack);
     input.onChildAccepted?.(posted.ack);

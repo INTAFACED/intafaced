@@ -238,11 +238,136 @@ describe('handleStartBasketDoor', () => {
       matchingVenueHalt: MATCHING_OPEN,
       matchingUrl,
     });
-    expect(out).toMatchObject({ ok: false, reason: 'matching_rejected' });
+    expect(out).toMatchObject({
+      ok: false,
+      reason: 'matching_rejected',
+      children: [
+        {
+          name: 'BTC',
+          qty: formatAmount(parseAmount('0.5')),
+          marketId: 'BTC-USDT',
+          orderId: BTC_ID,
+          matching: { accepted: true, sequence: 1 },
+        },
+      ],
+    });
     expect(working).toEqual(new Set());
     expect(recorded.map((row) => row.method)).toEqual(['POST', 'POST', 'DELETE']);
     expect(recorded[2]?.url).toBe(`/markets/BTC-USDT/orders/${BTC_ID}`);
     expect(recorded.some((row) => row.url.includes(ETH_ID) && row.method === 'DELETE')).toBe(false);
+    expect(JSON.stringify(out)).not.toContain('invented-order');
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.children?.some((child) => child.orderId === ETH_ID)).toBe(false);
+  });
+
+  it('a later timeout, once the prefix kill is confirmed, names the accepted ack', async () => {
+    const working = new Set<string>();
+    const matchingUrl = await listen(async (req, res) => {
+      const text = await readBody(req);
+      const method = req.method ?? '';
+      const url = req.url ?? '';
+      recorded.push({ method, url, body: text });
+      if (method === 'POST') {
+        const posts = recorded.filter((row) => row.method === 'POST').length;
+        if (posts === 1) {
+          const body = JSON.parse(text) as { orderId?: string };
+          if (body.orderId) working.add(body.orderId);
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ accepted: true, sequence: 1 }));
+          return;
+        }
+        res.writeHead(504, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ accepted: false, orderId: 'invented-order' }));
+        return;
+      }
+      if (method === 'DELETE') {
+        const orderId = decodeURIComponent(url.split('/').pop() ?? '');
+        working.delete(orderId);
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ cancelled: true, orderId: 'invented-order' }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    const out = await handleStartBasketDoor(BODY, OP, {
+      jobs: JOBS_ON,
+      matchingVenueHalt: MATCHING_OPEN,
+      matchingUrl,
+    });
+    expect(out).toMatchObject({
+      ok: false,
+      reason: 'matching_timeout',
+      children: [
+        {
+          name: 'BTC',
+          qty: formatAmount(parseAmount('0.5')),
+          marketId: 'BTC-USDT',
+          orderId: BTC_ID,
+          matching: { accepted: true, sequence: 1 },
+        },
+      ],
+    });
+    expect(working).toEqual(new Set());
+    expect(recorded.map((row) => row.method)).toEqual(['POST', 'POST', 'DELETE']);
+    expect(recorded[2]?.url).toBe(`/markets/BTC-USDT/orders/${BTC_ID}`);
+    expect(JSON.stringify(out)).not.toContain('invented-order');
+  });
+
+  it('a later unknown, once the prefix kill is confirmed, names the accepted ack', async () => {
+    const calls: string[] = [];
+    const working = new Set<string>();
+    const fetchFn: typeof fetch = async (input, init) => {
+      const method = init?.method ?? 'GET';
+      const url = String(input);
+      calls.push(`${method} ${url}`);
+      if (method === 'POST' && url.endsWith('/markets/BTC-USDT/orders')) {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { orderId?: string };
+        if (body.orderId) working.add(body.orderId);
+        return new Response(JSON.stringify({ accepted: true, sequence: 1 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (method === 'POST' && url.endsWith('/markets/ETH-USDT/orders')) {
+        throw new Error('matching socket closed');
+      }
+      if (method === 'DELETE' && url.endsWith(`/markets/BTC-USDT/orders/${BTC_ID}`)) {
+        working.delete(BTC_ID);
+        return new Response(JSON.stringify({ cancelled: true, orderId: 'invented-order' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      throw new Error(`unexpected ${method} ${url}`);
+    };
+    const out = await handleStartBasketDoor(BODY, OP, {
+      jobs: JOBS_ON,
+      matchingVenueHalt: MATCHING_OPEN,
+      matchingUrl: 'http://matching.example',
+      fetch: fetchFn,
+    });
+    expect(out).toMatchObject({
+      ok: false,
+      reason: 'matching_unknown',
+      children: [
+        {
+          name: 'BTC',
+          qty: formatAmount(parseAmount('0.5')),
+          marketId: 'BTC-USDT',
+          orderId: BTC_ID,
+          matching: { accepted: true, sequence: 1 },
+        },
+      ],
+    });
+    expect(working).toEqual(new Set());
+    expect(calls).toEqual([
+      'POST http://matching.example/markets/BTC-USDT/orders',
+      'POST http://matching.example/markets/ETH-USDT/orders',
+      `DELETE http://matching.example/markets/BTC-USDT/orders/${BTC_ID}`,
+    ]);
+    expect(JSON.stringify(out)).not.toContain('invented-order');
   });
 
   it('an unconfirmed kill (HTTP 503) is not a successful start and names the child that was not killed', async () => {

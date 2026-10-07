@@ -5,7 +5,8 @@
  * handleKillBasketDoor. Writes require HMAC as svc-execution. Matching mill is not recut.
  * Ledger qty strings. Partial-failure refuse_all only: a later refused leg kills
  * children already accepted so they do not keep working. The posted refusal is
- * returned only when every accepted child came back stopped or already_stopped.
+ * returned only when every accepted child came back stopped or already_stopped,
+ * and that refusal names the acks of children already accepted.
  * An unconfirmed kill is not a successful start: the start door returns ok
  * false and names the child that was not killed. That case is kill_unconfirmed,
  * not matching_rejected. Kill-basket's own killed-false result stays put.
@@ -111,16 +112,25 @@ export async function handleStartBasketDoor(
     },
   });
   if (!posted.ok && accepted.length > 0) {
-    const killed = await killBasketMatchingChildren({
-      children: accepted,
-      matchingUrl: deps.matchingUrl,
-      fetch: deps.fetch,
-    });
+    const killed =
+      posted.kill ??
+      (await killBasketMatchingChildren({
+        children: accepted,
+        matchingUrl: deps.matchingUrl,
+        fetch: deps.fetch,
+      }));
     const everyAcceptedChildStopped =
       killed.ok &&
       killed.children.length === accepted.length &&
       killed.children.every((child) => child.outcome === 'stopped' || child.outcome === 'already_stopped');
-    if (everyAcceptedChildStopped) return posted;
+    if (everyAcceptedChildStopped) {
+      return {
+        ok: false,
+        reason: posted.reason,
+        detail: posted.detail,
+        ...(posted.children ? { children: posted.children } : {}),
+      };
+    }
     if (!killed.ok) return killed;
     const notKilled = killed.children.filter((child) => child.outcome === 'unknown');
     const named = notKilled.map((child) => `${child.marketId} ${child.orderId}`).join(', ');
