@@ -779,16 +779,22 @@ describe('subscribeRefusal / takerSideOf', () => {
 // stream: `MaintainedBook` and `SequencedBookTracker` are not modified, not
 // subclassed and not parameterised for Bybit. If they were, the second venue
 // would have bought a second book implementation with its own bugs.
+//
+// Bybit's update id is per depth. The stream is orderbook.50, so every snapshot
+// in this suite is limit=50. A REST 1000-level `u` is not that sequence.
 // ════════════════════════════════════════════════════════════════════════════
 
 describe('MaintainedBook on bybit-spot — subscribe, buffer, snapshot, join', () => {
   /** Let the pending microtasks (the seeding fetch, the delta pump) settle. */
   const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  /** Same depth as `orderbook.50`. The default 1000 is a different update id. */
+  const bookOptions = { depthLimit: 50 } as const;
+  const fiftyLevelBook = 'https://rest.test/v5/market/orderbook?category=spot&symbol=BTCUSDT&limit=50';
 
   it('subscribes BEFORE snapshotting, and joins across the buffered window', async () => {
     const http = new FakeHttp().queue(orderbook(100));
     const stream = new FakeStream();
-    const book = new MaintainedBook(adapter(http, stream), 'BTC/USDT');
+    const book = new MaintainedBook(adapter(http, stream), 'BTC/USDT', bookOptions);
 
     const running = book.run();
     await settle();
@@ -802,7 +808,7 @@ describe('MaintainedBook on bybit-spot — subscribe, buffer, snapshot, join', (
     // `u` is per depth. orderbook.50 and a REST snapshot at limit=1000 are not
     // one sequence, so live at 101 after a snapshot whose u is 100 is only a
     // real join when that snapshot is the 50-level book.
-    expect(http.requests[0]).toBe('https://rest.test/v5/market/orderbook?category=spot&symbol=BTCUSDT&limit=50');
+    expect(http.requests[0]).toBe(fiftyLevelBook);
 
     stream.socket().push(depthFrame('snapshot', 100));
     stream.socket().push(depthFrame('delta', 101, { b: [['30001.00', '3.00']] }));
@@ -821,7 +827,7 @@ describe('MaintainedBook on bybit-spot — subscribe, buffer, snapshot, join', (
   it('WITHHOLDS the book on a gap and rebuilds from a fresh snapshot', async () => {
     const http = new FakeHttp().queue(orderbook(100)).queue(orderbook(200));
     const stream = new FakeStream();
-    const book = new MaintainedBook(adapter(http, stream), 'BTC/USDT');
+    const book = new MaintainedBook(adapter(http, stream), 'BTC/USDT', bookOptions);
 
     const running = book.run();
     await settle();
@@ -834,8 +840,8 @@ describe('MaintainedBook on bybit-spot — subscribe, buffer, snapshot, join', (
     await settle();
 
     expect(book.tracker.lastDesync?.reason).toBe('gap');
-    // Two reads: the seed and the rebuild.
-    expect(http.requests).toHaveLength(2);
+    // Two reads of the 50-level book: the seed and the rebuild.
+    expect(http.requests).toEqual([fiftyLevelBook, fiftyLevelBook]);
     // Rebuilt at 200, and the gapped 31000 bid did NOT survive.
     expect(book.servable).toBe(true);
     expect(formatAmount(book.top()!.bestBid!)).toBe('30000');
@@ -860,10 +866,11 @@ describe('MaintainedBook on bybit-spot — subscribe, buffer, snapshot, join', (
   it('STOPS the feed when the venue restarts and renumbers, rather than serving a frozen book', async () => {
     const http = new FakeHttp().queue(orderbook(100));
     const stream = new FakeStream();
-    const book = new MaintainedBook(adapter(http, stream), 'BTC/USDT');
+    const book = new MaintainedBook(adapter(http, stream), 'BTC/USDT', bookOptions);
 
     const running = book.run();
     await settle();
+    expect(http.requests).toEqual([fiftyLevelBook]);
     stream.socket().push(depthFrame('snapshot', 100));
     stream.socket().push(depthFrame('delta', 101, { b: [['30001.00', '3.00']] }));
     await settle();
@@ -885,7 +892,7 @@ describe('MaintainedBook on bybit-spot — subscribe, buffer, snapshot, join', (
   it('runs a 200-frame stream through the real adapter without drifting', async () => {
     const http = new FakeHttp().queue(orderbook(0));
     const stream = new FakeStream();
-    const book = new MaintainedBook(adapter(http, stream), 'BTC/USDT');
+    const book = new MaintainedBook(adapter(http, stream), 'BTC/USDT', bookOptions);
 
     const running = book.run();
     await settle();
@@ -898,8 +905,8 @@ describe('MaintainedBook on bybit-spot — subscribe, buffer, snapshot, join', (
 
     expect(book.tracker.sequence).toBe(200);
     expect(book.tracker.resyncCount).toBe(0);
-    // One snapshot for the whole run: no self-inflicted resnapshot loop.
-    expect(http.requests).toHaveLength(1);
+    // One 50-level snapshot for the whole run: no self-inflicted resnapshot loop.
+    expect(http.requests).toEqual([fiftyLevelBook]);
     expect(formatAmount(book.levels('bids')[0]![1])).toBe('200');
 
     await book.close();
