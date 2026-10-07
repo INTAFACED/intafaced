@@ -428,6 +428,48 @@ describe('executeOmsRoute', () => {
     expect(conflict).toMatchObject({ ok: false, reason: 'identity_conflict' });
     expect(venue.calls).toHaveLength(before);
   });
+
+  it('refuses an overlapping execute with the same parent and a different side', async () => {
+    const buyVenue = new FakeSource('street');
+    const sellVenue = new FakeSource('street');
+    const store = new InMemoryEmsOrderStore();
+    const shared = {
+      symbol: 'BTC/USDT',
+      amount: '1',
+      parentClientOrderId: 'parent-overlap',
+      executionGroupId: 'group-overlap',
+      venues: [completeVenue({ id: 'street', price: '100' })],
+      emsStore: store,
+    };
+    const buyPromise = executeOmsRoute({
+      ...shared,
+      side: 'buy',
+      submitByVenue: { street: buyVenue.submit },
+    });
+    const sellPromise = executeOmsRoute({
+      ...shared,
+      side: 'sell',
+      submitByVenue: { street: sellVenue.submit },
+    });
+    const [buyResult, sellResult] = await Promise.all([buyPromise, sellPromise]);
+    const results = [buyResult, sellResult];
+    const successes = results.filter((result) => result.ok);
+    const conflicts = results.filter((result) => !result.ok && result.reason === 'identity_conflict');
+
+    expect(successes).toHaveLength(1);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({ ok: false, reason: 'identity_conflict', executions: [] });
+    expect(buyVenue.calls.length + sellVenue.calls.length).toBe(1);
+    if (buyVenue.calls.length === 1) {
+      expect(buyVenue.calls[0]?.side).toBe('buy');
+      expect(sellVenue.calls).toHaveLength(0);
+      expect(buyResult.ok).toBe(true);
+    } else {
+      expect(sellVenue.calls[0]?.side).toBe('sell');
+      expect(buyVenue.calls).toHaveLength(0);
+      expect(sellResult.ok).toBe(true);
+    }
+  });
 });
 
 describe('plan door still does not submit', () => {

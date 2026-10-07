@@ -162,6 +162,16 @@ function lineage(input: OmsExecuteInput): OmsExecutionLineage {
 export type OmsChildIds = { childOrderId: string; clientOrderId: string };
 
 /** Shared deterministic parent/group-bound child identity for all external legs. */
+/** Parent-scoped claim id. It is not a child id, so a later leg lookup does not treat the claim as an execution. */
+function fingerprintClaimClientOrderId(lineageIds: OmsExecutionLineage): string {
+  const digest = createHash('sha256')
+    .update(JSON.stringify({ parent: lineageIds.parentClientOrderId, group: lineageIds.executionGroupId, claim: 'request-fingerprint' }))
+    .digest('hex')
+    .slice(0, 24);
+  const prefix = (lineageIds.parentClientOrderId.replace(/[^A-Za-z0-9._~-]/g, '_').slice(0, 48) || 'oms').replace(/[-_.]+$/, '');
+  return `${prefix}/claim/${digest}`;
+}
+
 export function childIds(lineageIds: OmsExecutionLineage, legIndex: number, occurrence: number, venueId = ''): OmsChildIds {
   const suffix = `leg-${legIndex}-${occurrence}`;
   const digest = createHash('sha256')
@@ -472,6 +482,22 @@ export async function executeOmsRoute(input: OmsExecuteInput, registry?: SealedH
         `execution identity ${lineageIds.parentClientOrderId} is already bound to a different symbol, side, amount, or route`,
       );
     }
+  }
+
+  if (!input.pauseStore?.isPaused(lineageIds)) {
+    input.emsStore.record({
+      clientOrderId: fingerprintClaimClientOrderId(lineageIds),
+      requestFingerprint,
+      parentClientOrderId: lineageIds.parentClientOrderId,
+      executionGroupId: lineageIds.executionGroupId,
+      ...killScope,
+      venueId: '',
+      symbol: input.symbol,
+      side: input.side,
+      execution: null,
+      state: 'UNWIRED',
+      reconciliationKey: null,
+    });
   }
 
   const planned = await planOmsRoute(input, registry);
