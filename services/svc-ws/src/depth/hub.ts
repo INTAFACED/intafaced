@@ -378,6 +378,14 @@ export class DepthHub {
         return;
       }
 
+      // Engine-down wins over a halt name. A halt frame must not be the door
+      // that later flushes the cached ladder, and the subscriber is told
+      // matching is down even when the market is also halted.
+      if (this.isEngineUnavailable(sub.marketId)) {
+        this.#write(sub, depthEngineUnavailableFrame(sub.marketId));
+        return;
+      }
+
       if (this.isMatchingNotTradable(sub.marketId)) {
         this.#write(sub, depthMatchingTradingFrame(sub.marketId, this.#trading.get(sub.marketId)!));
         return;
@@ -573,6 +581,10 @@ export class DepthHub {
   }
 
   #fanOut(book: DepthBook, delta: DepthDelta | null, forceRepair = false): void {
+    // A resume that clears a halt before ingest must not broadcast the cached
+    // ladder while matching is still down. ingest clears the flag first, then
+    // fans out the new book.
+    if (this.isEngineUnavailable(book.marketId)) return;
     if (this.isMatchingNotTradable(book.marketId)) return;
     let snapshotFrame: string | null = null;
     const snapshot = (): string => (snapshotFrame ??= JSON.stringify(toSnapshot(book)));
@@ -634,6 +646,9 @@ export class DepthHub {
   /** Send the snapshot, then whatever the stream sent while we were producing it. */
   #flush(sub: Subscription): void {
     if (sub.closed || sub.pending === null) return;
+    // Leave pending in place. A later ingest, after the outage clears, still
+    // flushes the new snapshot. Sending the cached ladder here would look live.
+    if (this.isEngineUnavailable(sub.marketId)) return;
     if (this.isMatchingNotTradable(sub.marketId)) return;
     const book = this.#books.get(sub.marketId);
     if (!book || !bookHasRestingDepth(book)) {
