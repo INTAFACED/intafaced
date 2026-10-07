@@ -418,14 +418,16 @@ impl Book {
         qty > reducible_of(&self.positions, account, side)
     }
 
-    fn plan_take(&self, order: &Order, price: u128, qty: u128) -> Result<Vec<Clip>, String> {
+    fn plan_take(&self, order: &Order, price: u128, qty: u128, display: Option<u128>) -> Result<Vec<Clip>, String> {
         let taker_min = parse_min_qty(&order.minQty)?;
         let mut sim = self.positions.clone();
         let mut remaining = qty;
+        // Display caps this taking clip. Hidden remainder rests; it is not a second slice.
+        let mut take_left = display.unwrap_or(qty).min(qty);
         let mut clips = Vec::new();
         let opposite = if order.side == "buy" { &self.asks } else { &self.bids };
         for maker in opposite {
-            if remaining == 0 {
+            if remaining == 0 || take_left == 0 {
                 break;
             }
             let maker_price = parse_amount(maker.order.price.as_deref().unwrap_or(""))?;
@@ -436,7 +438,7 @@ impl Book {
             if show == 0 {
                 continue;
             }
-            let mut traded = remaining.min(show);
+            let mut traded = remaining.min(show).min(take_left);
             if maker.order.reduceOnly {
                 let room = reducible_of(&sim, &maker.order.accountId, &maker.order.side);
                 if room == 0 {
@@ -465,13 +467,14 @@ impl Book {
             bump(&mut sim, &order.accountId, taker_delta)?;
             bump(&mut sim, &maker.order.accountId, maker_delta)?;
             remaining -= traded;
+            take_left -= traded;
             clips.push(Clip { maker_id: maker.order.orderId.clone(), qty: traded });
         }
         Ok(clips)
     }
 
     fn match_rest(&mut self, order: Order, qty: u128, price: u128, display: Option<u128>) -> Result<(), String> {
-        let clips = self.plan_take(&order, price, qty)?;
+        let clips = self.plan_take(&order, price, qty, display)?;
         let covered: u128 = clips.iter().map(|c| c.qty).sum();
         if order.tif == "FOK" && covered < qty {
             return Ok(());
@@ -844,6 +847,23 @@ mod tests {
         ask["iceberg"] = serde_json::json!(true);
         ask["displayQty"] = serde_json::json!("1");
         let buy = limit_json("buy", "desk", "buy", "5", "100");
+        let state = replay_book(vec![
+            submit_record(1, AT, ask),
+            submit_record(2, "2026-01-01T00:00:02.000Z", buy),
+        ]).unwrap();
+        assert_eq!(state.lastTradePrice.as_deref(), Some("100"));
+        assert_eq!(state.asks.len(), 1);
+        assert_eq!(state.asks[0].orders[0].remaining, "4");
+        assert_eq!(state.bids.len(), 1);
+        assert_eq!(state.bids[0].orders[0].remaining, "4");
+    }
+
+    #[test]
+    fn crossing_iceberg_does_not_trade_more_than_its_display_in_one_clip() {
+        let ask = limit_json("ask", "mm", "sell", "5", "100");
+        let mut buy = limit_json("buy", "desk", "buy", "5", "100");
+        buy["iceberg"] = serde_json::json!(true);
+        buy["displayQty"] = serde_json::json!("1");
         let state = replay_book(vec![
             submit_record(1, AT, ask),
             submit_record(2, "2026-01-01T00:00:02.000Z", buy),
