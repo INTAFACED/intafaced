@@ -82,6 +82,11 @@ contract SovereignEscrow {
     error TransferOutFailed();
     error DeadlineNotReached();
     error NoArbiter();
+    error PullInProgress();
+
+    /// Token currently inside `lock`'s `transferFrom`. Payouts of this token wait
+    /// until that pull has finished, so a callback cannot spend another deal.
+    mapping(address token => bool pulling) private tokenPull;
 
     /**
      * @param disputeWindow Seconds after dispute before anyone may `settleTimeout`.
@@ -127,10 +132,17 @@ contract SovereignEscrow {
         if (d.status != Status.Open) revert BadStatus();
         if (msg.sender != d.seller) revert NotSeller();
 
-        d.status = Status.Locked;
-        if (!IERC20Minimal(d.token).transferFrom(msg.sender, address(this), d.amount)) revert TransferInFailed();
+        address token = d.token;
+        uint128 amount = d.amount;
+        if (tokenPull[token]) revert PullInProgress();
+        tokenPull[token] = true;
+        bool ok = IERC20Minimal(token).transferFrom(msg.sender, address(this), amount);
+        tokenPull[token] = false;
+        if (!ok) revert TransferInFailed();
+        if (d.status != Status.Open) revert BadStatus();
 
-        emit DealLocked(dealId, d.amount);
+        d.status = Status.Locked;
+        emit DealLocked(dealId, amount);
     }
 
     /** Seller releases to buyer (classic "fiat received" path). Only while Locked. */
@@ -187,6 +199,7 @@ contract SovereignEscrow {
     }
 
     function _release(uint256 dealId, Deal storage d) private {
+        if (tokenPull[d.token]) revert PullInProgress();
         uint128 amount = d.amount;
         uint128 fee = d.feeBps == 0 ? 0 : uint128((uint256(amount) * d.feeBps) / 10_000);
         uint128 net = amount - fee;
@@ -201,6 +214,7 @@ contract SovereignEscrow {
     }
 
     function _refund(uint256 dealId, Deal storage d) private {
+        if (tokenPull[d.token]) revert PullInProgress();
         uint128 amount = d.amount;
         d.status = Status.Refunded;
         d.amount = 0;
