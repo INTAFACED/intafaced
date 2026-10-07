@@ -49,7 +49,9 @@ import {
  *
  *   after the claim, before the post
  *     Value is still outside the book. The pending row is the resumable marker.
- *     Re-drive with the same (rail, railRef) finishes the credit.
+ *     Re-drive with the same railRef finishes the credit. Fiat may resolve a
+ *     different live pay rail id on that retry; the claim keeps the rail stored
+ *     on the first row, and the deposit stays on that rail.
  *
  *   after the post, before status=settled
  *     User has funds; row is one status behind. Reporting lag, not stranded money.
@@ -437,6 +439,23 @@ export class RampService {
     creditedBy: string;
   }): Promise<OnrampRecord> {
     return transaction(this.sql, async (tx) => {
+      if (input.kind === 'fiat') {
+        // selectLivePayFiatRail returns whichever live rail is first, so a retry
+        // can carry a different rail id for the same railRef. The fiat credit is
+        // the railRef. recipes.deposit keys `deposit:<stored rail>:<railRef>`,
+        // so the row we already claimed is the one this call must resume.
+        // The lock covers the gap before that row exists: two first credits of
+        // one railRef cannot both insert.
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${`bank.ramp.onramp.fiat:${input.railRef}`})::bigint)`;
+        const prior = await tx<OnrampRow[]>`
+          SELECT * FROM bank.ramp_onramps
+           WHERE kind = 'fiat' AND rail_ref = ${input.railRef}
+           ORDER BY created_at ASC, id ASC
+           FOR UPDATE
+        `;
+        if (prior[0]) return sameOnrampOrConflict(toOnramp(prior[0]), input);
+      }
+
       const inserted = await tx<OnrampRow[]>`
         INSERT INTO bank.ramp_onramps (
           user_id, asset_id, amount, kind, rail, rail_ref, simulated, credited_by, status
@@ -454,15 +473,7 @@ export class RampService {
          WHERE rail = ${input.rail} AND rail_ref = ${input.railRef}
          FOR UPDATE
       `;
-      const existing = toOnramp(rows[0]!);
-      const mismatch = existing.userId !== input.userId || existing.assetId !== input.assetId || existing.amount !== input.amount;
-      if (mismatch) {
-        throw new BankError(
-          `Rail reference ${input.rail}:${input.railRef} was already credited as a different on-ramp`,
-          'bank.ramp_conflict',
-        );
-      }
-      return existing;
+      return sameOnrampOrConflict(toOnramp(rows[0]!), input);
     });
   }
 
@@ -604,6 +615,20 @@ function assertRampAssetId(assetId: string): void {
       'bank.ramp_invalid_asset',
     );
   }
+}
+
+function sameOnrampOrConflict(
+  existing: OnrampRecord,
+  input: { userId: string; assetId: string; amount: Amount },
+): OnrampRecord {
+  const mismatch = existing.userId !== input.userId || existing.assetId !== input.assetId || existing.amount !== input.amount;
+  if (mismatch) {
+    throw new BankError(
+      `Rail reference ${existing.rail}:${existing.railRef} was already credited as a different on-ramp`,
+      'bank.ramp_conflict',
+    );
+  }
+  return existing;
 }
 
 /** Claimed row must match every client-supplied term, including both unique keys. */

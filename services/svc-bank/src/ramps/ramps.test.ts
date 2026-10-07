@@ -305,6 +305,76 @@ describe('ramps PG-hard', () => {
       expect(ledger.reconcile().ok).toBe(true);
     });
 
+    it('retries the same fiat railRef once when the first live rail id changes', async () => {
+      let order = ['pay-fiat-first'];
+      const shifting: PayFiatRampPort = {
+        listFiatRails: () => order.map((railId) => ({ railId, mode: 'live' as const, capabilities: ['onramp' as const] })),
+      };
+      const fiatRamps = new RampService(sql, ledger, {
+        programme: CRYPTO_LEDGER_PROGRAMME,
+        payFiat: shifting,
+      });
+      const railRef = 'ach-same-ref-rail-moves';
+      const first = await fiatRamps.creditOnramp({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('25'),
+        kind: 'fiat',
+        railRef,
+        creditedBy: OPERATOR,
+      });
+      expect(first.rail).toBe('pay-fiat-first');
+      expect(first.status).toBe('settled');
+      expect(first.ledgerTxId).toBeTruthy();
+
+      order = ['pay-fiat-second', 'pay-fiat-first'];
+      const second = await fiatRamps.creditOnramp({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('25'),
+        kind: 'fiat',
+        railRef,
+        creditedBy: OPERATOR,
+      });
+
+      expect(second.id).toBe(first.id);
+      expect(second.rail).toBe('pay-fiat-first');
+      expect(second.ledgerTxId).toBe(first.ledgerTxId);
+      const rows = await sql<Array<{ n: number }>>`
+        SELECT count(*)::int AS n FROM bank.ramp_onramps WHERE rail_ref = ${railRef}
+      `;
+      expect(rows[0]!.n).toBe(1);
+      expect(formatAmount((await ledger.balance(userAvailable(USER, 'USDT'))).amount)).toBe('25');
+      expect(formatAmount((await ledger.balance(railBoundary('pay-fiat-first', 'USDT'))).amount)).toBe('-25');
+      expect(formatAmount((await ledger.balance(railBoundary('pay-fiat-second', 'USDT'))).amount)).toBe('0');
+      const deposits = ledger.journal().filter((tx) => tx.reason === 'deposit.credited');
+      expect(deposits).toHaveLength(1);
+      expect(deposits[0]!.idempotencyKey).toBe(`deposit:pay-fiat-first:${railRef}`);
+      expect(ledger.reconcile().ok).toBe(true);
+    });
+
+    it('refuses a non-positive fiat amount before a row or a deposit', async () => {
+      const fiatRamps = new RampService(sql, ledger, {
+        programme: CRYPTO_LEDGER_PROGRAMME,
+        payFiat: livePay,
+      });
+      for (const amount of [0n, -1n]) {
+        await expect(
+          fiatRamps.creditOnramp({
+            userId: USER,
+            assetId: 'USDT',
+            amount,
+            kind: 'fiat',
+            railRef: 'ach-non-positive',
+            creditedBy: OPERATOR,
+          }),
+        ).rejects.toMatchObject({ code: 'bank.ramp_invalid_amount' });
+      }
+      const count = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM bank.ramp_onramps`;
+      expect(count[0]!.n).toBe(0);
+      expect(ledger.journal()).toHaveLength(0);
+    });
+
     it('settles fiat off-ramp through the pay rail without inventing a bank PSP book', async () => {
       const fiatRamps = new RampService(sql, ledger, {
         programme: CRYPTO_LEDGER_PROGRAMME,
