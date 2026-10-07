@@ -209,10 +209,12 @@ export class NativeL3Hub {
       if (hadResting) this.#fanout(queue.marketId, nativeL3NoRestingFrame(queue.marketId));
       return;
     }
-    this.#engineDown.delete(windowed.marketId);
+    const recovering = this.#engineDown.delete(windowed.marketId);
     this.#l3Down.delete(windowed.marketId);
     const frame = nativeL3Frame(windowed);
-    if (this.#last.get(windowed.marketId) === frame) return;
+    // markEngineUnavailable keeps #last. An unchanged queue still has to
+    // replace the down frame the live subscriber is holding.
+    if (!recovering && this.#last.get(windowed.marketId) === frame) return;
     this.#last.set(windowed.marketId, frame);
     this.#fanout(windowed.marketId, frame);
   }

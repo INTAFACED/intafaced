@@ -237,6 +237,46 @@ describe('NativeL3Hub', () => {
     expect(resent.bids[0]!.orders[0]!.remaining).toBe('2');
   });
 
+  it('sends the recovered queue after the engine was down even when that queue is unchanged', async () => {
+    const source = new Source();
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async () => true,
+    });
+    const live = new RecordingSink();
+    hub.attach(MARKET, live);
+    await new Promise((r) => setTimeout(r, 0));
+    hub.ingest(native);
+    hub.markEngineUnavailable(MARKET);
+    expect(JSON.parse(live.frames.at(-1)!)).toEqual({
+      type: 'status',
+      code: DEPTH_ENGINE_UNAVAILABLE,
+      marketId: MARKET,
+    });
+    expect(hub.stats.code).toBe(DEPTH_ENGINE_UNAVAILABLE);
+
+    hub.ingest(native);
+
+    expect(JSON.parse(live.frames.at(-1)!)).toEqual({
+      type: 'snapshot',
+      transport: 'poll',
+      level: 'L3',
+      marketId: MARKET,
+      bids: [],
+      asks: [{ price: '100', orders: [{ orderId: 'o1', remaining: '1', sequence: 3 }] }],
+    });
+    expect(hub.stats.code).toBeNull();
+
+    const afterRecovery = live.frames.length;
+    hub.ingest(native);
+    expect(live.frames.length).toBe(afterRecovery);
+    expect(hub.stats.code).toBeNull();
+    expect(live.closed).toBeNull();
+  });
+
   it('fan-out names depth.l3_unavailable without an L2 ladder', () => {
     const source = new Source();
     const hub = new NativeL3Hub(source, {
