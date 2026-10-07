@@ -102,6 +102,7 @@ td.numeric, th.numeric { text-align: right; }
 .rail-footer { margin-top: auto; color: var(--color-muted); font-size: 12px; }
 .workspace { min-width: 0; }
 .topbar { height: 76px; padding: 0 32px; border-bottom: 1px solid var(--color-divider); display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.mobile-brand { display: none; }
 .search-trigger { display: flex; gap: 12px; align-items: center; width: min(432px,45vw); height: 44px; padding: 10px 16px; color: var(--color-muted); background: var(--color-shell); border: 1px solid var(--color-search-border); border-radius: 8px; text-align: left; }
 .search-trigger kbd { margin-left: auto; font-size: 11px; border: 1px solid var(--color-border); border-radius: 4px; padding: 1px 5px; }
 .account-controls { display: flex; align-items: center; gap: 10px; }

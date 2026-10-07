@@ -10,7 +10,7 @@ const Context = createContext<SessionContext | null>(null);
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const current = useRef(session); current.current = session;
-  const api = useMemo(() => createApiClient({ token: () => current.current?.accessToken, onUnauthorized: () => setSession(null) }), []);
+  const api = useMemo(() => createApiClient({ token: () => current.current?.accessToken, onUnauthorized: (requestToken) => { if (requestToken && current.current?.accessToken === requestToken) setSession(null); } }), []);
   useEffect(() => {
     if (!session) return;
     const deadline = Date.parse(session.expiresAt);

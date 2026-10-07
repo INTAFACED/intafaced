@@ -8,4 +8,9 @@ describe('customer transport boundary', () => {
     const result = await api.query('bank', 'overview', {}, z.object({ available: z.string() }));
     expect(result).toMatchObject({ ok: false, reason: 'invalid_response' });
   });
+  it('preserves the service explanation when a REST refusal carries a string error', async () => {
+    const api = createApiClient({ fetch: async () => new Response(JSON.stringify({ error: 'Forbidden', message: 'Verification tier full is required.' }), { status: 403 }) });
+    const result = await api.rest('/account/balance', z.unknown());
+    expect(result).toMatchObject({ ok: false, message: 'Verification tier full is required.' });
+  });
 });

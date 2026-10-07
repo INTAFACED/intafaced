@@ -15,6 +15,7 @@
   "dependencies": {
     "@intafaced/contracts": "workspace:*",
     "@intafaced/exchange-contract": "workspace:*",
+    "@intafaced/i18n": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
     "@intafaced/ui": "workspace:*",
     "react": "^19.0.0",
