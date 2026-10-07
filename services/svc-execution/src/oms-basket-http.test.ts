@@ -203,6 +203,155 @@ describe('handleStartBasketDoor', () => {
     expect(out).not.toHaveProperty('fills');
   });
 
+  it('a later refused leg kills children already accepted — they do not keep working while the door reports failure', async () => {
+    const working = new Set<string>();
+    const matchingUrl = await listen(async (req, res) => {
+      const text = await readBody(req);
+      const method = req.method ?? '';
+      const url = req.url ?? '';
+      recorded.push({ method, url, body: text });
+      if (method === 'POST') {
+        const posts = recorded.filter((row) => row.method === 'POST').length;
+        if (posts === 1) {
+          const body = JSON.parse(text) as { orderId?: string };
+          if (body.orderId) working.add(body.orderId);
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ accepted: true, sequence: 1 }));
+          return;
+        }
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ accepted: false }));
+        return;
+      }
+      if (method === 'DELETE') {
+        const orderId = decodeURIComponent(url.split('/').pop() ?? '');
+        working.delete(orderId);
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ cancelled: true }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    const out = await handleStartBasketDoor(BODY, OP, {
+      jobs: JOBS_ON,
+      matchingVenueHalt: MATCHING_OPEN,
+      matchingUrl,
+    });
+    expect(out).toMatchObject({ ok: false, reason: 'matching_rejected' });
+    expect(working).toEqual(new Set());
+    expect(recorded.map((row) => row.method)).toEqual(['POST', 'POST', 'DELETE']);
+    expect(recorded[2]?.url).toBe(`/markets/BTC-USDT/orders/${BTC_ID}`);
+    expect(recorded.some((row) => row.url.includes(ETH_ID) && row.method === 'DELETE')).toBe(false);
+  });
+
+  it('an unconfirmed kill (HTTP 503) is not a successful start and names the child that was not killed', async () => {
+    const working = new Set<string>();
+    const matchingUrl = await listen(async (req, res) => {
+      const text = await readBody(req);
+      const method = req.method ?? '';
+      const url = req.url ?? '';
+      recorded.push({ method, url, body: text });
+      if (method === 'POST') {
+        const posts = recorded.filter((row) => row.method === 'POST').length;
+        if (posts === 1) {
+          const body = JSON.parse(text) as { orderId?: string };
+          if (body.orderId) working.add(body.orderId);
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ accepted: true, sequence: 1 }));
+          return;
+        }
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ accepted: false }));
+        return;
+      }
+      if (method === 'DELETE') {
+        res.writeHead(503, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ cancelled: true, orderId: 'invented-order' }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    const out = await handleStartBasketDoor(BODY, OP, {
+      jobs: JOBS_ON,
+      matchingVenueHalt: MATCHING_OPEN,
+      matchingUrl,
+    });
+    expect(working).toEqual(new Set([BTC_ID]));
+    expect(out).toEqual({
+      ok: false,
+      reason: 'kill_unconfirmed',
+      detail: `unconfirmed kill is not a successful start; not killed: BTC-USDT ${BTC_ID}`,
+      children: [
+        {
+          marketId: 'BTC-USDT',
+          orderId: BTC_ID,
+          outcome: 'unknown',
+          reason: 'cancel_failed',
+        },
+      ],
+    });
+    expect(out).not.toMatchObject({ reason: 'matching_rejected' });
+    expect(JSON.stringify(out)).not.toContain('invented-order');
+    expect(recorded.map((row) => row.method)).toEqual(['POST', 'POST', 'DELETE']);
+    expect(recorded[2]?.url).toBe(`/markets/BTC-USDT/orders/${BTC_ID}`);
+  });
+
+  it('a confirmed already_stopped kill may return the later-leg refusal', async () => {
+    const working = new Set<string>();
+    const matchingUrl = await listen(async (req, res) => {
+      const text = await readBody(req);
+      const method = req.method ?? '';
+      const url = req.url ?? '';
+      recorded.push({ method, url, body: text });
+      if (method === 'POST') {
+        const posts = recorded.filter((row) => row.method === 'POST').length;
+        if (posts === 1) {
+          const body = JSON.parse(text) as { orderId?: string };
+          if (body.orderId) working.add(body.orderId);
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ accepted: true, sequence: 1 }));
+          return;
+        }
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ accepted: false }));
+        return;
+      }
+      if (method === 'DELETE') {
+        const orderId = decodeURIComponent(url.split('/').pop() ?? '');
+        working.delete(orderId);
+        res.writeHead(404, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ cancelled: false }));
+        return;
+      }
+      res.writeHead(500);
+      res.end();
+    });
+    const out = await handleStartBasketDoor(BODY, OP, {
+      jobs: JOBS_ON,
+      matchingVenueHalt: MATCHING_OPEN,
+      matchingUrl,
+    });
+    expect(out).toMatchObject({ ok: false, reason: 'matching_rejected' });
+    expect(working).toEqual(new Set());
+    expect(recorded[2]?.method).toBe('DELETE');
+    expect(recorded[2]?.url).toBe(`/markets/BTC-USDT/orders/${BTC_ID}`);
+  });
+
+  it('a first-leg refusal with no accepted child does not kill', async () => {
+    const matchingUrl = await listen(async (req, res) => {
+      await capture(req, res, 400, { accepted: false });
+    });
+    const out = await handleStartBasketDoor(BODY, OP, {
+      jobs: JOBS_ON,
+      matchingVenueHalt: MATCHING_OPEN,
+      matchingUrl,
+    });
+    expect(out).toMatchObject({ ok: false, reason: 'matching_rejected' });
+    expect(recorded.map((row) => row.method)).toEqual(['POST']);
+  });
+
   it('paper flag refuses before matching POST — no ledger', async () => {
     const out = await handleStartBasketDoor({ ...BODY, paper: true }, OP, {
       jobs: JOBS_ON,
@@ -342,6 +491,56 @@ describe('POST /execution/oms/start-basket', () => {
     await f.close();
   });
 
+  it('HTTP 503 on cancel is not a successful start and names the child that was not killed', async () => {
+    const matchingUrl = await listen(async (req, res) => {
+      const text = await readBody(req);
+      const method = req.method ?? '';
+      recorded.push({ method, url: req.url ?? '', body: text });
+      if (method === 'POST') {
+        const posts = recorded.filter((row) => row.method === 'POST').length;
+        if (posts === 1) {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ accepted: true, sequence: 1 }));
+          return;
+        }
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ accepted: false }));
+        return;
+      }
+      if (method === 'DELETE') {
+        res.writeHead(503, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ cancelled: true, orderId: 'invented-order' }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    const f = await app(matchingUrl);
+    const res = await f.inject({
+      method: 'POST',
+      url: '/execution/oms/start-basket',
+      headers: { ...signedHeaders(), ...hmacHeaders(BODY) },
+      payload: JSON.stringify(BODY),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      ok: false,
+      reason: 'kill_unconfirmed',
+      detail: `unconfirmed kill is not a successful start; not killed: BTC-USDT ${BTC_ID}`,
+      children: [
+        {
+          marketId: 'BTC-USDT',
+          orderId: BTC_ID,
+          outcome: 'unknown',
+          reason: 'cancel_failed',
+        },
+      ],
+    });
+    expect(res.json()).not.toMatchObject({ reason: 'matching_rejected' });
+    expect(res.body).not.toContain('invented-order');
+    await f.close();
+  });
+
   it('signed kill-basket unknown is killed false', async () => {
     const matchingUrl = await listen(async (req, res) => {
       await capture(req, res, 504, { cancelled: false });
@@ -430,6 +629,48 @@ describe('tRPC execution.oms.startBasket', () => {
     expect('children' in out && out.children).toHaveLength(2);
     expect(JSON.parse(recorded[0]?.body ?? '{}').qty).toBe(formatAmount(parseAmount('0.5')));
     expect(out).not.toHaveProperty('fills');
+  });
+
+  it('tRPC startBasket HTTP 503 on cancel is not a successful start and names the child that was not killed', async () => {
+    const matchingUrl = await listen(async (req, res) => {
+      const text = await readBody(req);
+      const method = req.method ?? '';
+      recorded.push({ method, url: req.url ?? '', body: text });
+      if (method === 'POST') {
+        const posts = recorded.filter((row) => row.method === 'POST').length;
+        if (posts === 1) {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ accepted: true, sequence: 1 }));
+          return;
+        }
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ accepted: false }));
+        return;
+      }
+      if (method === 'DELETE') {
+        res.writeHead(503, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ cancelled: true, orderId: 'invented-order' }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    const out = await basketCaller(matchingUrl).execution.oms.startBasket(BODY);
+    expect(out).toEqual({
+      ok: false,
+      reason: 'kill_unconfirmed',
+      detail: `unconfirmed kill is not a successful start; not killed: BTC-USDT ${BTC_ID}`,
+      children: [
+        {
+          marketId: 'BTC-USDT',
+          orderId: BTC_ID,
+          outcome: 'unknown',
+          reason: 'cancel_failed',
+        },
+      ],
+    });
+    expect(out).not.toMatchObject({ reason: 'matching_rejected' });
+    expect(JSON.stringify(out)).not.toContain('invented-order');
   });
 
   it('paper flag refuses before matching POST — no ledger', async () => {

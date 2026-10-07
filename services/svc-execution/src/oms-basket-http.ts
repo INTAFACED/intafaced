@@ -3,8 +3,13 @@
  * Generic live slice (twap|vwap|pov) does not cover basket — no sliceBasket dual-implement.
  * tRPC startBasket calls handleStartBasketDoor. tRPC killBasket calls
  * handleKillBasketDoor. Writes require HMAC as svc-execution. Matching mill is not recut.
- * Ledger qty strings. Partial-failure refuse_all only. Paper never ledgers.
- * Kill-basket unknown matching cancel is killed false.
+ * Ledger qty strings. Partial-failure refuse_all only: a later refused leg kills
+ * children already accepted so they do not keep working. The posted refusal is
+ * returned only when every accepted child came back stopped or already_stopped.
+ * An unconfirmed kill is not a successful start: the start door returns ok
+ * false and names the child that was not killed. That case is kill_unconfirmed,
+ * not matching_rejected. Kill-basket's own killed-false result stays put.
+ * Paper never ledgers. Kill-basket unknown matching cancel is killed false.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { startBasketParent, type OmsBasketStartResult } from './oms-basket-start.js';
@@ -13,6 +18,7 @@ import {
   postBasketChildrenToMatching,
   type OmsBasketMatchingChildInput,
   type OmsBasketMatchingKillChild,
+  type OmsBasketMatchingKillOutcome,
   type OmsBasketMatchingKillResult,
   type OmsBasketMatchingResult,
 } from './oms-basket-matching.js';
@@ -53,7 +59,20 @@ export type StartBasketDoorDeps = {
   };
 };
 
-export type StartBasketDoorResult = OmsBasketStartResult | OmsBasketMatchingResult | OmsPaperUnsupportedRefuse;
+/** Start door only. An unconfirmed kill names the child and is not a start. */
+export type StartBasketKillUnconfirmed = {
+  readonly ok: false;
+  readonly reason: 'kill_unconfirmed';
+  readonly detail: string;
+  readonly children: readonly OmsBasketMatchingKillOutcome[];
+};
+
+export type StartBasketDoorResult =
+  | OmsBasketStartResult
+  | OmsBasketMatchingResult
+  | OmsBasketMatchingKillResult
+  | StartBasketKillUnconfirmed
+  | OmsPaperUnsupportedRefuse;
 
 /** Pure door — tests call this. Signed principal is the operator; body operatorId is ignored. */
 export async function handleStartBasketDoor(
@@ -77,7 +96,8 @@ export async function handleStartBasketDoor(
     matchingVenueHalt: await resolveMatchingVenueHalt(deps.matchingVenueHalt),
   });
   if (!started.ok) return started;
-  return postBasketChildrenToMatching({
+  const accepted: OmsBasketMatchingKillChild[] = [];
+  const posted = await postBasketChildrenToMatching({
     parent: started,
     legs: body.legs,
     accountId: body.accountId,
@@ -86,7 +106,34 @@ export async function handleStartBasketDoor(
     lifecycleProof: body.lifecycleProof,
     matchingUrl: deps.matchingUrl,
     fetch: deps.fetch,
+    onChildAccepted: (child) => {
+      accepted.push({ marketId: child.marketId, orderId: child.orderId });
+    },
   });
+  if (!posted.ok && accepted.length > 0) {
+    const killed = await killBasketMatchingChildren({
+      children: accepted,
+      matchingUrl: deps.matchingUrl,
+      fetch: deps.fetch,
+    });
+    const everyAcceptedChildStopped =
+      killed.ok &&
+      killed.children.length === accepted.length &&
+      killed.children.every((child) => child.outcome === 'stopped' || child.outcome === 'already_stopped');
+    if (everyAcceptedChildStopped) return posted;
+    if (!killed.ok) return killed;
+    const notKilled = killed.children.filter((child) => child.outcome === 'unknown');
+    const named = notKilled.map((child) => `${child.marketId} ${child.orderId}`).join(', ');
+    return {
+      ok: false,
+      reason: 'kill_unconfirmed',
+      detail: named
+        ? `unconfirmed kill is not a successful start; not killed: ${named}`
+        : 'unconfirmed kill is not a successful start',
+      children: notKilled,
+    };
+  }
+  return posted;
 }
 
 /** Pure door — unknown matching cancel is killed false. */
