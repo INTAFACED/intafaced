@@ -100,12 +100,16 @@ contract FairLaunch {
     }
 
     /**
-     * Deposit the exact `saleAmount` of sale token. Anyone may fund; once in,
-     * inventory cannot be withdrawn except via fail-path `reclaimSale`.
+     * Deposit the exact `saleAmount` of sale token. Anyone may fund before
+     * `endTime`. Once in, inventory cannot be withdrawn except via fail-path
+     * `reclaimSale`. At or after `endTime`, contribute is already closed, so
+     * a pull would sit at `totalRaised == 0` and `reclaimSale` would pay it
+     * to the creator.
      */
     function fund() external {
         if (funded) revert AlreadyFunded();
         if (finalized) revert AlreadyFinalized();
+        if (block.timestamp >= endTime) revert WindowClosed();
         funded = true;
         if (!IERC20Minimal(saleToken).transferFrom(msg.sender, address(this), saleAmount)) revert TransferFailed();
         emit Funded(saleAmount);
