@@ -222,7 +222,7 @@ export function childFromAck(
   const outcome: OmsChildOutcome =
     ack.state === 'UNWIRED'
       ? 'UNWIRED'
-      : ack.state === 'SUBMIT_UNKNOWN' || ack.state === 'OUTCOME_UNKNOWN' || ack.execution === null
+      : ack.state === 'SUBMIT_UNKNOWN' || ack.state === 'OUTCOME_UNKNOWN' || ack.state === 'CANCELED' || ack.execution === null
         ? 'OUTCOME_UNKNOWN'
         : ack.state === 'REJECTED' || ack.execution.status === 'rejected'
           ? 'REFUSED'
