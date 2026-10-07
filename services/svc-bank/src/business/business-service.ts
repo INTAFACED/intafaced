@@ -508,13 +508,7 @@ export class BusinessService {
     await this.assertRole(input.accountId, input.actorUserId, ['admin', 'maker']);
 
     const existing = await this.payrollRun(input.payrollId);
-    if (existing) {
-      this.assertPayrollVisibleTerms(existing, input);
-      if (existing.recipients.length === input.recipients.length) {
-        this.assertPayrollSameTerms(existing, input);
-        return existing;
-      }
-    }
+    if (existing) this.assertPayrollVisibleTerms(existing, input);
 
     const now = new Date();
     const from = await this.spaces.resolveForDebit(input.fromSpaceId, now);
@@ -543,46 +537,38 @@ export class BusinessService {
       resolved.push({ toSpaceId: line.toSpaceId, amount: line.amount, acct: accountForSpace(to) });
     }
 
-    if (existing) {
-      const recordedTx = await this.ledger.getTx(existing.ledgerTxId);
-      if (!recordedTx || !(await this.postedPayrollMatches(recordedTx, accountForSpace(from), resolved))) {
-        throw new BankError(
-          `Payroll ${input.payrollId} already exists on different terms`,
-          'bank.business_request_conflict',
-        );
-      }
-      return transaction(this.sql, async (tx) => {
-        const locked = await this.payrollRun(input.payrollId, tx, true);
-        if (!locked) {
-          throw new BankError(`Payroll ${input.payrollId} could not be recorded`, 'bank.business_request_conflict');
-        }
-        return this.completePayrollLines(tx, locked, input);
-      });
-    }
-
+    const fromAcct = accountForSpace(from);
     return withMoneySpan(
       'bank.business.payroll',
       { operation: 'business-payroll', userId: input.actorUserId, amount: formatAmount(resolved.reduce((acc, l) => acc + l.amount, 0n)) },
       async () => {
-        let posted;
-        try {
-          posted = await this.ledger.post(
-            recipes.businessPayroll({
-              payrollId: input.payrollId,
-              from: accountForSpace(from),
-              recipients: resolved.map((line) => ({ to: line.acct, amount: line.amount })),
-            }),
-          );
-        } catch (err) {
-          if (err instanceof InsufficientFundsError) throw err;
-          throw err;
-        }
-
-        if (!(await this.postedPayrollMatches(posted, accountForSpace(from), resolved))) {
+        const posted = await this.ledger.post(
+          recipes.businessPayroll({
+            payrollId: input.payrollId,
+            from: fromAcct,
+            recipients: resolved.map((line) => ({ to: line.acct, amount: line.amount })),
+          }),
+        );
+        // Empty entries: this client did not return the book. That is not a
+        // different instruction, and it is not a reason to invent a recipient.
+        const agreed = await this.payrollEntriesAgree(posted, fromAcct, resolved);
+        if (agreed === false) {
           throw new BankError(
             `Payroll ${input.payrollId} already exists on different terms`,
             'bank.business_request_conflict',
           );
+        }
+        if (existing && existing.ledgerTxId !== posted.id) {
+          throw new BankError(
+            `Payroll ${input.payrollId} already exists on different terms`,
+            'bank.business_request_conflict',
+          );
+        }
+        // Equal stored and requested counts are the same instruction only when
+        // the book does not show a recipient this request dropped.
+        if (existing && existing.recipients.length === input.recipients.length) {
+          this.assertPayrollSameTerms(existing, input);
+          return existing;
         }
 
         return transaction(this.sql, async (tx) => {
@@ -611,7 +597,7 @@ export class BusinessService {
             return recorded;
           }
           const locked = await this.payrollRun(input.payrollId, tx, true);
-          if (!locked) {
+          if (!locked || locked.ledgerTxId !== posted.id) {
             throw new BankError(`Payroll ${input.payrollId} could not be recorded`, 'bank.business_request_conflict');
           }
           return this.completePayrollLines(tx, locked, input);
@@ -661,6 +647,19 @@ export class BusinessService {
     }
     this.assertPayrollSameTerms(recorded, input);
     return recorded;
+  }
+
+  /**
+   * `null` — the client returned no entries, so the book was not shown.
+   * `true` / `false` — the entries that were returned agree with this request, or they do not.
+   */
+  private async payrollEntriesAgree(
+    posted: LedgerTx,
+    fromAcct: ReturnType<typeof accountForSpace>,
+    resolved: ReadonlyArray<{ amount: Amount; acct: ReturnType<typeof accountForSpace> }>,
+  ): Promise<boolean | null> {
+    if (posted.entries.length === 0) return null;
+    return this.postedPayrollMatches(posted, fromAcct, resolved);
   }
 
   /** The posted book is the instruction. A same key with other lines is not a second payment. */

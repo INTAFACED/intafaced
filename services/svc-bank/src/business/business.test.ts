@@ -5,7 +5,16 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { MemoryLedger, formatAmount, parseAmount, recipes, userAvailable, type Amount } from '@intafaced/ledger-client';
+import {
+  MemoryLedger,
+  formatAmount,
+  parseAmount,
+  recipes,
+  userAvailable,
+  type Amount,
+  type LedgerClient,
+  type PostRequest,
+} from '@intafaced/ledger-client';
 import { createBankServices, type BankServices } from '../bank-service.js';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { accountForSpace } from '../spaces/space-service.js';
@@ -40,6 +49,24 @@ const migrations = readdirSync(drizzle)
 const MAKER = '11111111-1111-4111-8111-111111111111';
 const CHECKER = '22222222-2222-4222-8222-222222222222';
 const amt = (v: string): Amount => parseAmount(v);
+
+/** The shape `services/svc-bank/src/ledger-client.ts` actually returns. */
+function ledgerThatHidesEntries(inner: MemoryLedger): LedgerClient {
+  return {
+    async post(request: PostRequest) {
+      const posted = await inner.post(request);
+      return { ...posted, entries: [] };
+    },
+    balance: (ref) => inner.balance(ref),
+    balances: (ownerType, ownerId) => inner.balances(ownerType, ownerId),
+    async getTx() {
+      throw new Error('getTx is not exposed over the internal ledger API — query svc-ledger directly');
+    },
+    async getTxByKey() {
+      throw new Error('getTxByKey is not exposed over the internal ledger API — query svc-ledger directly');
+    },
+  };
+}
 
 const H8A_IMAGE = 'postgres:16-alpine';
 
@@ -767,7 +794,7 @@ describe('maker/checker dual control with ledger holds', () => {
 
       const racedAgain = await run(racedId, same);
       expect(racedAgain.ledgerTxId).toBe(racedTxId);
-      expect(payrollPostCalls).toBe(1);
+      expect(payrollPostCalls).toBe(2);
       expect(await availableOf(MAKER, 'USDT')).toBe('935');
 
       const partialId = 'a1590002-0000-4000-8000-000000000002';
@@ -776,7 +803,7 @@ describe('maker/checker dual control with ledger holds', () => {
       const callsAfterPartialSeed = payrollPostCalls;
       const partial = await run(partialId, same);
       expect(partial.ledgerTxId).toBe(partialPosted.id);
-      expect(payrollPostCalls).toBe(callsAfterPartialSeed);
+      expect(payrollPostCalls).toBe(callsAfterPartialSeed + 1);
       expect(partial.recipients).toHaveLength(2);
       expect(partial.recipients).toEqual(
         expect.arrayContaining([
@@ -792,7 +819,7 @@ describe('maker/checker dual control with ledger holds', () => {
       const callsAfterBareSeed = payrollPostCalls;
       const bare = await run(bareId, same);
       expect(bare.ledgerTxId).toBe(barePosted.id);
-      expect(payrollPostCalls).toBe(callsAfterBareSeed);
+      expect(payrollPostCalls).toBe(callsAfterBareSeed + 1);
       expect(bare.recipients).toHaveLength(2);
       expect(await availableOf(MAKER, 'USDT')).toBe('805');
 
@@ -806,7 +833,7 @@ describe('maker/checker dual control with ledger holds', () => {
           { toSpaceId: carol.id, amount: amt('25') },
         ]),
       ).rejects.toMatchObject({ code: 'bank.business_request_conflict' });
-      expect(payrollPostCalls).toBe(callsAfterDivergentSeed);
+      expect(payrollPostCalls).toBe(callsAfterDivergentSeed + 1);
       expect(formatAmount(await bank.spaces.balanceOf(carol))).toBe('0');
       const divergentLines = await sql<{ to_space_id: string }[]>`
         SELECT to_space_id FROM bank.business_payroll_lines WHERE payroll_id = ${divergentId}::uuid
@@ -887,7 +914,7 @@ describe('maker/checker dual control with ledger holds', () => {
         expect(await availableOf(MAKER, 'USDT')).toBe('675');
         const again = await run(freshId, same);
         expect(again.ledgerTxId).toBe(fresh.ledgerTxId);
-        expect(payrollPostCalls).toBe(callsBeforeFresh + 1);
+        expect(payrollPostCalls).toBe(callsBeforeFresh + 2);
         expect(await availableOf(MAKER, 'USDT')).toBe('675');
         expect(ledger.reconcile()).toEqual({ ok: true });
       } finally {
@@ -897,6 +924,254 @@ describe('maker/checker dual control with ledger holds', () => {
     } finally {
       ledger.post = origPost;
     }
+  });
+
+  it('records a payroll when the ledger client returns no entries', async () => {
+    const inner = new MemoryLedger();
+    const hidden = ledgerThatHidesEntries(inner);
+    const bankStub = createBankServices(sql, hidden, memoryLedgerHistory(inner), { nativeAssetId: 'IFC' });
+    const account = await bankStub.business.createAccount({
+      name: 'Ops Co',
+      assetId: 'USDT',
+      spendThreshold: amt('10'),
+      creatorUserId: MAKER,
+    });
+    const primary = await bankStub.spaces.ensurePrimary(MAKER, 'USDT');
+    const alice = await bankStub.spaces.ensurePrimary(CHECKER, 'USDT');
+    const bob = await bankStub.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Contractor' });
+    await inner.post(
+      recipes.deposit({
+        userId: MAKER,
+        assetId: 'USDT',
+        amount: amt('1000'),
+        rail: 'test',
+        railRef: 'stub-payroll-fund',
+      }),
+    );
+    const available = async () => formatAmount((await inner.balance(userAvailable(MAKER, 'USDT'))).amount);
+    const movements = (payrollId: string) =>
+      inner.journal().filter((tx) => tx.idempotencyKey === `bank.business.payroll:${payrollId}`).length;
+    const same = [
+      { toSpaceId: alice.id, amount: amt('40') },
+      { toSpaceId: bob.id, amount: amt('25') },
+    ];
+    const run = (
+      payrollId: string,
+      recipients: ReadonlyArray<{ toSpaceId: string; amount: Amount }>,
+    ) =>
+      bankStub.business.runPayroll({
+        payrollId,
+        accountId: account.id,
+        actorUserId: MAKER,
+        fromSpaceId: primary.id,
+        recipients,
+      });
+    const book = (payrollId: string) =>
+      inner.post(
+        recipes.businessPayroll({
+          payrollId,
+          from: accountForSpace(primary),
+          recipients: [
+            { to: accountForSpace(alice), amount: amt('40') },
+            { to: accountForSpace(bob), amount: amt('25') },
+          ],
+        }),
+      );
+
+    const payId = 'a1590011-0000-4000-8000-000000000011';
+    const paid = await run(payId, same);
+    expect(paid.ledgerTxId).toBeTruthy();
+    expect(paid.recipients).toHaveLength(2);
+    expect(paid.recipients).toEqual(
+      expect.arrayContaining([
+        { toSpaceId: alice.id, amount: amt('40') },
+        { toSpaceId: bob.id, amount: amt('25') },
+      ]),
+    );
+    expect(await available()).toBe('935');
+    expect(formatAmount(await bankStub.spaces.balanceOf(alice))).toBe('40');
+    expect(formatAmount(await bankStub.spaces.balanceOf(bob))).toBe('25');
+    expect(movements(payId)).toBe(1);
+
+    const again = await run(payId, same);
+    expect(again.ledgerTxId).toBe(paid.ledgerTxId);
+    expect(movements(payId)).toBe(1);
+    expect(await available()).toBe('935');
+
+    const partialId = 'a1590012-0000-4000-8000-000000000012';
+    const partialPosted = await book(partialId);
+    await sql`
+      INSERT INTO bank.business_payroll_runs
+        (id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id)
+      VALUES (
+        ${partialId}::uuid, ${account.id}::uuid, ${MAKER},
+        ${primary.id}::uuid, 'USDT', ${partialPosted.id}
+      )
+    `;
+    await sql`
+      INSERT INTO bank.business_payroll_lines (payroll_id, to_space_id, amount)
+      VALUES (${partialId}::uuid, ${alice.id}::uuid, ${formatAmount(amt('40'))}::numeric)
+    `;
+    const partial = await run(partialId, same);
+    expect(partial.ledgerTxId).toBe(partialPosted.id);
+    expect(partial.recipients).toHaveLength(2);
+    expect(partial.recipients).toEqual(
+      expect.arrayContaining([
+        { toSpaceId: alice.id, amount: amt('40') },
+        { toSpaceId: bob.id, amount: amt('25') },
+      ]),
+    );
+    expect(movements(partialId)).toBe(1);
+    expect(await available()).toBe('870');
+
+    const shortId = 'a1590013-0000-4000-8000-000000000013';
+    const shortPosted = await book(shortId);
+    await sql`
+      INSERT INTO bank.business_payroll_runs
+        (id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id)
+      VALUES (
+        ${shortId}::uuid, ${account.id}::uuid, ${MAKER},
+        ${primary.id}::uuid, 'USDT', ${shortPosted.id}
+      )
+    `;
+    await sql`
+      INSERT INTO bank.business_payroll_lines (payroll_id, to_space_id, amount)
+      VALUES (${shortId}::uuid, ${alice.id}::uuid, ${formatAmount(amt('40'))}::numeric)
+    `;
+    const short = await run(shortId, [{ toSpaceId: alice.id, amount: amt('40') }]);
+    expect(short.ledgerTxId).toBe(shortPosted.id);
+    expect(short.recipients).toEqual([{ toSpaceId: alice.id, amount: amt('40') }]);
+    expect(movements(shortId)).toBe(1);
+    const shortLines = await sql<{ to_space_id: string }[]>`
+      SELECT to_space_id FROM bank.business_payroll_lines WHERE payroll_id = ${shortId}::uuid ORDER BY to_space_id
+    `;
+    expect(shortLines.map((line) => line.to_space_id)).toEqual([alice.id]);
+
+    const raceId = 'a1590014-0000-4000-8000-000000000014';
+    const origPost = hidden.post.bind(hidden);
+    let racedTx = '';
+    hidden.post = (async (req: PostRequest) => {
+      const posted = await origPost(req);
+      if (req.idempotencyKey === `bank.business.payroll:${raceId}` && !racedTx) {
+        racedTx = posted.id;
+        await sql`
+          INSERT INTO bank.business_payroll_runs
+            (id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id)
+          VALUES (
+            ${raceId}::uuid, ${account.id}::uuid, ${MAKER},
+            ${primary.id}::uuid, 'USDT', ${posted.id}
+          )
+        `;
+      }
+      return posted;
+    }) as LedgerClient['post'];
+    try {
+      const raced = await run(raceId, same);
+      expect(raced.ledgerTxId).toBe(racedTx);
+      expect(raced.recipients).toHaveLength(2);
+      expect(movements(raceId)).toBe(1);
+    } finally {
+      hidden.post = origPost;
+    }
+
+    const replayId = 'a1590015-0000-4000-8000-000000000015';
+    await sql.unsafe(`DROP TRIGGER IF EXISTS payroll_run_fail_first ON bank.business_payroll_runs`);
+    await sql.unsafe(`DROP FUNCTION IF EXISTS bank.payroll_run_fail_first()`);
+    await sql.unsafe(`DROP SEQUENCE IF EXISTS bank.payroll_run_attempt_l159`);
+    await sql.unsafe(`CREATE SEQUENCE bank.payroll_run_attempt_l159`);
+    await sql.unsafe(`
+      CREATE OR REPLACE FUNCTION bank.payroll_run_fail_first()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF nextval('bank.payroll_run_attempt_l159') = 1 THEN
+          RAISE EXCEPTION 'run insert rolled back';
+        END IF;
+        RETURN NEW;
+      END;
+      $$;
+    `);
+    await sql.unsafe(`DROP TRIGGER IF EXISTS payroll_run_fail_first ON bank.business_payroll_runs`);
+    await sql.unsafe(`
+      CREATE TRIGGER payroll_run_fail_first
+      BEFORE INSERT ON bank.business_payroll_runs
+      FOR EACH ROW
+      EXECUTE FUNCTION bank.payroll_run_fail_first();
+    `);
+    try {
+      await expect(run(replayId, same)).rejects.toThrow(/run insert rolled back/);
+      const replayed = await run(replayId, same);
+      expect(replayed.ledgerTxId).toBeTruthy();
+      expect(replayed.recipients).toHaveLength(2);
+      expect(replayed.recipients).toEqual(
+        expect.arrayContaining([
+          { toSpaceId: alice.id, amount: amt('40') },
+          { toSpaceId: bob.id, amount: amt('25') },
+        ]),
+      );
+      expect(movements(replayId)).toBe(1);
+      expect(await available()).toBe('675');
+    } finally {
+      await sql.unsafe(`DROP TRIGGER IF EXISTS payroll_run_fail_first ON bank.business_payroll_runs`);
+      await sql.unsafe(`DROP FUNCTION IF EXISTS bank.payroll_run_fail_first()`);
+      await sql.unsafe(`DROP SEQUENCE IF EXISTS bank.payroll_run_attempt_l159`);
+    }
+  });
+
+  it('a shorter payroll conflicts when the booked payment still includes the dropped recipient', async () => {
+    const account = await bank.business.createAccount({
+      name: 'Ops Co',
+      assetId: 'USDT',
+      spendThreshold: amt('10'),
+      creatorUserId: MAKER,
+    });
+    const primary = await bank.spaces.ensurePrimary(MAKER, 'USDT');
+    const alice = await bank.spaces.ensurePrimary(CHECKER, 'USDT');
+    const bob = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Contractor' });
+    await fund(MAKER, 'USDT', '1000');
+    const payrollId = 'a1590016-0000-4000-8000-000000000016';
+    const posted = await ledger.post(
+      recipes.businessPayroll({
+        payrollId,
+        from: accountForSpace(primary),
+        recipients: [
+          { to: accountForSpace(alice), amount: amt('40') },
+          { to: accountForSpace(bob), amount: amt('25') },
+        ],
+      }),
+    );
+    await sql`
+      INSERT INTO bank.business_payroll_runs
+        (id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id)
+      VALUES (
+        ${payrollId}::uuid, ${account.id}::uuid, ${MAKER},
+        ${primary.id}::uuid, 'USDT', ${posted.id}
+      )
+    `;
+    await sql`
+      INSERT INTO bank.business_payroll_lines (payroll_id, to_space_id, amount)
+      VALUES (${payrollId}::uuid, ${alice.id}::uuid, ${formatAmount(amt('40'))}::numeric)
+    `;
+
+    await expect(
+      bank.business.runPayroll({
+        payrollId,
+        accountId: account.id,
+        actorUserId: MAKER,
+        fromSpaceId: primary.id,
+        recipients: [{ toSpaceId: alice.id, amount: amt('40') }],
+      }),
+    ).rejects.toMatchObject({ code: 'bank.business_request_conflict' });
+
+    const lines = await sql<{ to_space_id: string }[]>`
+      SELECT to_space_id FROM bank.business_payroll_lines WHERE payroll_id = ${payrollId}::uuid ORDER BY to_space_id
+    `;
+    expect(lines.map((line) => line.to_space_id)).toEqual([alice.id]);
+    expect(await availableOf(MAKER, 'USDT')).toBe('935');
+    expect(formatAmount(await bank.spaces.balanceOf(alice))).toBe('40');
+    expect(formatAmount(await bank.spaces.balanceOf(bob))).toBe('25');
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.business.payroll:${payrollId}`)).toHaveLength(1);
   });
 
   it('refuses mixed-asset payroll as rate unset — never invents FX', async () => {
