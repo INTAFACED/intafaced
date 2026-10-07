@@ -93,19 +93,20 @@ contract CrewVault {
     }
 
     /**
-     * Exit: burn membership, pay share of current vault balance.
-     * Designed before deposits — shareBps is immutable.
+     * Exit: pay this member's bps over the bps still held, then burn membership.
+     * The last member's bps equal that sum, so they receive the whole remainder.
      */
     function exit() external {
         if (!isMember[msg.sender]) revert NotMember();
         uint16 bps = shareBps[msg.sender];
+        uint256 remaining;
+        for (uint256 i = 0; i < members.length; i++) {
+            if (isMember[members[i]]) remaining += shareBps[members[i]];
+        }
         uint256 bal = IERC20Minimal(token).balanceOf(address(this));
-        uint256 amount = (bal * uint256(bps)) / 10_000;
+        uint256 amount = (bal * uint256(bps)) / remaining;
         isMember[msg.sender] = false;
         shareBps[msg.sender] = 0;
-        // Remaining members keep their bps; sum may drop below 10k after exits —
-        // later exits are relative to remaining share table. For P0: first-exit
-        // pays their construction share of current balance.
         if (amount > 0) {
             if (!IERC20Minimal(token).transfer(msg.sender, amount)) revert TransferFailed();
         }
