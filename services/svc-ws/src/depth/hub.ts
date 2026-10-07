@@ -383,6 +383,14 @@ export class DepthHub {
         return;
       }
 
+      // Cached ladder is not a live book while matching is down. Name the
+      // outage before flush so a subscriber who connects during it is not
+      // handed the last snapshot as if the engine were up.
+      if (this.isEngineUnavailable(sub.marketId)) {
+        this.#write(sub, depthEngineUnavailableFrame(sub.marketId));
+        return;
+      }
+
       if (sub.pending !== null) this.#flush(sub);
     } catch (err) {
       this.#evict(sub, CLOSE_TRY_LATER, err instanceof Error ? err.message : 'depth unavailable');

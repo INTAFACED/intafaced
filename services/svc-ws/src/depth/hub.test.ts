@@ -834,6 +834,32 @@ describe('DepthHub — the listing decides, not the engine', () => {
     expect(sink.messages()[0]).toMatchObject({ type: 'snapshot', sequence: 5 });
     expect(canonical(rebuild(sink))).toBe(canonical(hub.bookFor(MARKET) ?? null));
   });
+
+  it('tells a subscriber who connects during an outage that matching is down when the book is already cached', async () => {
+    const source = new FakeSource([MARKET]);
+    source.current.set(MARKET, snapshot(10, [['100', '2']], [['101', '3']]));
+    const hub = hubFor(source);
+
+    const already = new FakeSink();
+    hub.attach(MARKET, already);
+    await settle();
+    expect(already.messages()[0]).toMatchObject({ type: 'snapshot', marketId: MARKET, sequence: 10 });
+
+    hub.markEngineUnavailable(MARKET);
+    expect(hub.isEngineUnavailable(MARKET)).toBe(true);
+    expect(hub.bookFor(MARKET)?.sequence).toBe(10);
+
+    const late = new FakeSink();
+    hub.attach(MARKET, late);
+    await settle();
+
+    expect(late.closed).toBeNull();
+    expect(late.messages()).toEqual([]);
+    expect(late.frames.map((f) => JSON.parse(f))).toEqual([
+      { type: 'status', code: 'depth.engine_unavailable', marketId: MARKET },
+    ]);
+    expect(hub.bookFor(MARKET)?.sequence).toBe(10);
+  });
 });
 
 describe('DepthHub — seed vs poll races and window pins', () => {
