@@ -10,8 +10,10 @@ import type { HubLogger } from './depth/hub.js';
  *
  * Ownership split (do not blur these):
  * - **Before first attach:** this loop owns retry + `/ready` flags.
- * - **Tape up, private down:** this loop keeps the tape handle and retries
- *   only `retryPrivate` (do not reconnect, do not tear the public print).
+ * - **Tape up, a half still down:** this loop keeps the tape handle and retries
+ *   only that half (do not reconnect while the half is merely down). If
+ *   `sessionLost` resolves during the retry, close and re-attach — do not
+ *   leave the tape reported up.
  * - **After first full attach:** nats.js still owns TCP reconnect on that
  *   socket. If the connection is gone for good, `sessionLost` (nats `closed()`)
  *   drops `/ready` flags and this loop re-attaches — depth keeps serving.
@@ -109,21 +111,49 @@ export function createBusLifecycle(options: BusLifecycleOptions): BusLifecycle {
     });
   }
 
-  async function retryPrivateHalf(result: BusLifecycleConnectResult, startBackoff: number): Promise<void> {
+  interface HalfRetryWatch {
+    readonly gone: () => boolean;
+    readonly gonePromise: Promise<void> | null;
+  }
+
+  function watchSession(result: BusLifecycleConnectResult): HalfRetryWatch {
+    if (!result.sessionLost) return { gone: () => false, gonePromise: null };
+    let gone = false;
+    let resolveGone: () => void = () => undefined;
+    const gonePromise = new Promise<void>((resolve) => {
+      resolveGone = resolve;
+    });
+    void result.sessionLost.then(() => {
+      gone = true;
+      resolveGone();
+    });
+    return { gone: () => gone, gonePromise };
+  }
+
+  function pauseForRetry(ms: number, watch: HalfRetryWatch): Promise<void> {
+    if (!watch.gonePromise) return sleep(ms);
+    return Promise.race([sleep(ms), watch.gonePromise]);
+  }
+
+  async function retryPrivateHalf(
+    result: BusLifecycleConnectResult,
+    startBackoff: number,
+    watch: HalfRetryWatch,
+  ): Promise<void> {
     let backoff = startBackoff;
-    while (!stopped) {
-      await sleep(backoff);
-      if (stopped) return;
+    while (!stopped && !watch.gone()) {
+      await pauseForRetry(backoff, watch);
+      if (stopped || watch.gone()) return;
       try {
         const up = await result.retryPrivate!();
-        if (stopped) return;
+        if (stopped || watch.gone()) return;
         if (up) {
           patch({ tradesUp: true, privateUp: true });
           log.info({ tradesBus: true, privateBus: true }, 'svc-ws: private bus consumers attached after retry');
           return;
         }
       } catch (err) {
-        if (stopped) return;
+        if (stopped || watch.gone()) return;
         log.warn(
           { err: String(err), backoffMs: backoff },
           'svc-ws: private bus still unavailable — trade tape still attached; retrying private half',
@@ -133,21 +163,25 @@ export function createBusLifecycle(options: BusLifecycleOptions): BusLifecycle {
     }
   }
 
-  async function retryDropCopyHalf(result: BusLifecycleConnectResult, startBackoff: number): Promise<void> {
+  async function retryDropCopyHalf(
+    result: BusLifecycleConnectResult,
+    startBackoff: number,
+    watch: HalfRetryWatch,
+  ): Promise<void> {
     let backoff = startBackoff;
-    while (!stopped) {
-      await sleep(backoff);
-      if (stopped) return;
+    while (!stopped && !watch.gone()) {
+      await pauseForRetry(backoff, watch);
+      if (stopped || watch.gone()) return;
       try {
         const up = await result.retryDropCopy!();
-        if (stopped) return;
+        if (stopped || watch.gone()) return;
         if (up) {
           patch({ tradesUp: true, dropCopyUp: true });
           log.info({ tradesBus: true, dropCopyBus: true }, 'svc-ws: drop-copy bus consumer attached after retry');
           return;
         }
       } catch (err) {
-        if (stopped) return;
+        if (stopped || watch.gone()) return;
         log.warn(
           { err: String(err), backoffMs: backoff },
           'svc-ws: drop-copy bus still unavailable — trade tape still attached; retrying drop-copy independently of private',
@@ -209,10 +243,27 @@ export function createBusLifecycle(options: BusLifecycleOptions): BusLifecycle {
             },
             'svc-ws: bus consumers attached (private and/or drop-copy still retrying)',
           );
-          await Promise.all([
-            result.retryPrivate && !result.privateUp ? retryPrivateHalf(result, backoff.value) : Promise.resolve(),
-            result.retryDropCopy && result.dropCopyUp !== true ? retryDropCopyHalf(result, backoff.value) : Promise.resolve(),
+          const watch = watchSession(result);
+          const retries = Promise.all([
+            result.retryPrivate && !result.privateUp
+              ? retryPrivateHalf(result, backoff.value, watch)
+              : Promise.resolve(),
+            result.retryDropCopy && result.dropCopyUp !== true
+              ? retryDropCopyHalf(result, backoff.value, watch)
+              : Promise.resolve(),
           ]);
+          if (watch.gonePromise) {
+            const outcome = await Promise.race([
+              retries.then(() => 'halves' as const),
+              watch.gonePromise.then(() => 'lost' as const),
+            ]);
+            if (outcome === 'lost') {
+              await retries;
+              if ((await afterAttach(result, backoff)) === 'lost' && !stopped) continue;
+              return;
+            }
+          }
+          await retries;
           if (stopped) return;
           const live = handle ?? result;
           if ((await afterAttach(live, backoff)) === 'lost' && !stopped) continue;

@@ -368,4 +368,64 @@ describe('bus lifecycle reconnect', () => {
     expect(first.close).toHaveBeenCalled();
     expect(lifecycle.tradesBus()).toBe(false);
   });
+
+  it('reports the tape down when sessionLost resolves while a private retry never attaches', async () => {
+    let attempts = 0;
+    let privateTries = 0;
+    let sleeps = 0;
+    const lost: { fire: (() => void) | null } = { fire: null };
+    const sleepGate: { release: (() => void) | null } = { release: null };
+    const secondGate: { release: (() => void) | null } = { release: null };
+    const first = ok({
+      tradesUp: true,
+      privateUp: false,
+      retryPrivate: async () => {
+        privateTries += 1;
+        return false;
+      },
+      sessionLost: new Promise<void>((resolve) => {
+        lost.fire = resolve;
+      }),
+    });
+    const second = ok({ tradesUp: true, privateUp: true });
+    const lifecycle = createBusLifecycle({
+      log,
+      initialBackoffMs: 1_000,
+      sleep: () => {
+        sleeps += 1;
+        if (sleeps === 1) return Promise.resolve();
+        return new Promise<void>((resolve) => {
+          sleepGate.release = resolve;
+        });
+      },
+      attempt: async () => {
+        attempts += 1;
+        if (attempts === 1) return first;
+        return new Promise((resolve) => {
+          secondGate.release = () => resolve(second);
+        });
+      },
+    });
+
+    try {
+      lifecycle.start();
+      await flushUntil(() => lifecycle.tradesBus() && privateTries >= 1);
+      expect(lifecycle.tradesBus()).toBe(true);
+      expect(attempts).toBe(1);
+      expect(privateTries).toBeGreaterThanOrEqual(1);
+      expect(first.close).not.toHaveBeenCalled();
+
+      lost.fire?.();
+      await flushUntil(() => lifecycle.tradesBus() === false && attempts >= 2);
+
+      expect(first.close).toHaveBeenCalled();
+      expect(lifecycle.tradesBus()).toBe(false);
+      expect(attempts).toBe(2);
+    } finally {
+      const stopping = lifecycle.stop();
+      sleepGate.release?.();
+      secondGate.release?.();
+      await stopping;
+    }
+  });
 });
