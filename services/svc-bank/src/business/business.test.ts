@@ -220,6 +220,141 @@ describe('maker/checker dual control with ledger holds', () => {
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
+  it('a conflicting propose is not reported as pending', async () => {
+    const account = await bank.business.createAccount({
+      name: 'Ops Co',
+      assetId: 'USDT',
+      spendThreshold: amt('100'),
+      creatorUserId: MAKER,
+    });
+    const primary = await bank.spaces.ensurePrimary(MAKER, 'USDT');
+    const pot = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Vendor' });
+    const other = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Other' });
+    await fund(MAKER, 'USDT', '5000');
+
+    // Opening lookup already missed. The row appears while the hold posts, so
+    // the insert loses ON CONFLICT and has to judge the row that won.
+    async function proposeAgainst(input: {
+      clientId: string;
+      toSpaceId: string;
+      amount: Amount;
+      existing: {
+        toSpaceId: string;
+        amount: Amount;
+        status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+        transferId?: string;
+        ledgerTxId?: string;
+        holdLedgerTxId?: string;
+      };
+    }) {
+      const orig = ledger.post.bind(ledger);
+      ledger.post = (async (req: Parameters<MemoryLedger['post']>[0]) => {
+        const posted = await orig(req);
+        if (req.idempotencyKey === `bank.business.hold:${input.clientId}`) {
+          await sql`
+            INSERT INTO bank.business_approvals
+              (id, account_id, maker_user_id, from_space_id, to_space_id, asset_id, amount, status,
+               transfer_id, hold_ledger_tx_id, ledger_tx_id, decided_at)
+            VALUES (
+              ${input.clientId}::uuid, ${account.id}::uuid, ${MAKER},
+              ${primary.id}::uuid, ${input.existing.toSpaceId}::uuid,
+              'USDT', ${formatAmount(input.existing.amount)}::numeric,
+              ${input.existing.status}::bank.business_approval_status,
+              ${input.existing.transferId ?? null}, ${input.existing.holdLedgerTxId ?? null},
+              ${input.existing.ledgerTxId ?? null},
+              ${input.existing.status === 'pending' ? null : new Date()}
+            )
+          `;
+        }
+        return posted;
+      }) as MemoryLedger['post'];
+      try {
+        return await bank.business.proposeTransfer({
+          clientId: input.clientId,
+          accountId: account.id,
+          makerUserId: MAKER,
+          fromSpaceId: primary.id,
+          toSpaceId: input.toSpaceId,
+          amount: input.amount,
+        });
+      } finally {
+        ledger.post = orig;
+      }
+    }
+
+    await expect(
+      proposeAgainst({
+        clientId: 'f1580001-0000-4000-8000-000000000001',
+        toSpaceId: pot.id,
+        amount: amt('250'),
+        existing: { toSpaceId: other.id, amount: amt('400'), status: 'pending' },
+      }),
+    ).rejects.toMatchObject({ code: 'bank.business_request_conflict' });
+    expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('0');
+    expect(formatAmount(await bank.spaces.balanceOf(other))).toBe('0');
+
+    const approved = await proposeAgainst({
+      clientId: 'f1580002-0000-4000-8000-000000000002',
+      toSpaceId: pot.id,
+      amount: amt('250'),
+      existing: {
+        toSpaceId: pot.id,
+        amount: amt('250'),
+        status: 'approved',
+        transferId: 'orig-transfer-f158',
+        ledgerTxId: 'orig-ledger-f158',
+      },
+    });
+    expect(approved).toEqual({
+      kind: 'posted',
+      transferId: 'orig-transfer-f158',
+      ledgerTxId: 'orig-ledger-f158',
+    });
+    expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('0');
+
+    await expect(
+      proposeAgainst({
+        clientId: 'f1580003-0000-4000-8000-000000000003',
+        toSpaceId: pot.id,
+        amount: amt('250'),
+        existing: { toSpaceId: pot.id, amount: amt('250'), status: 'rejected' },
+      }),
+    ).rejects.toMatchObject({ code: 'bank.business_approval_inactive' });
+
+    await expect(
+      proposeAgainst({
+        clientId: 'f1580004-0000-4000-8000-000000000004',
+        toSpaceId: pot.id,
+        amount: amt('250'),
+        existing: { toSpaceId: pot.id, amount: amt('250'), status: 'cancelled' },
+      }),
+    ).rejects.toMatchObject({ code: 'bank.business_approval_inactive' });
+
+    const pending = await proposeAgainst({
+      clientId: 'f1580005-0000-4000-8000-000000000005',
+      toSpaceId: pot.id,
+      amount: amt('250'),
+      existing: {
+        toSpaceId: pot.id,
+        amount: amt('250'),
+        status: 'pending',
+        holdLedgerTxId: 'existing-hold-f158',
+      },
+    });
+    expect(pending).toMatchObject({
+      kind: 'pending',
+      approval: {
+        id: 'f1580005-0000-4000-8000-000000000005',
+        status: 'pending',
+        toSpaceId: pot.id,
+        amount: amt('250'),
+        holdLedgerTxId: 'existing-hold-f158',
+      },
+    });
+    expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('0');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
   it('reserves over-threshold on propose; checker settle lands at destination', async () => {
     const account = await bank.business.createAccount({
       name: 'Ops Co',
