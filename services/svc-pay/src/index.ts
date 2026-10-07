@@ -330,7 +330,7 @@ export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
   createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals),
   createMerchantStateRouter(merchantState, actionApprovals),
-  createKybPspRouter(kyb, pspMode, actionApprovals),
+  createKybPspRouter(kyb, pspMode, actionApprovals, pay),
   // `pay` is passed only as the ACTOR LOOKUP — the router resolves the caller's
   // own merchant node from the authenticated principal, because a merchant node
   // taken from a request body would let any merchant claim to be acting as any

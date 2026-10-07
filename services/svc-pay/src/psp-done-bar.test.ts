@@ -108,6 +108,10 @@ function stubKyb(): KybService {
   } as unknown as KybService;
 }
 
+function callerOwnsMerchant() {
+  return { getMerchant: async () => ({ userId: USER }) };
+}
+
 function stubPsp(): PspModeService {
   let feeBps = 250;
   let mode: 'gateway' | 'psp' = 'gateway';
@@ -171,7 +175,7 @@ describe('D26-P1-P1 PSP Done bar — public doors', () => {
   });
 
   it('kyb.submit → kyb.decide is reachable on the live operator door', async () => {
-    const router = createKybPspRouter(stubKyb(), stubPsp(), stubApprovalConsumer(CONFIRM));
+    const router = createKybPspRouter(stubKyb(), stubPsp(), stubApprovalConsumer(CONFIRM), callerOwnsMerchant());
     const merchant = await router.createCaller(await ctx(['pay:write'])).kyb.submit({
       merchantId: MERCHANT,
       kybRef: 'dossier-acme',
@@ -196,7 +200,7 @@ describe('D26-P1-P1 PSP Done bar — public doors', () => {
   });
 
   it('psp.setPricing + enableMode refuse invent blank reason and record durability', async () => {
-    const router = createKybPspRouter(stubKyb(), stubPsp(), stubApprovalConsumer(CONFIRM));
+    const router = createKybPspRouter(stubKyb(), stubPsp(), stubApprovalConsumer(CONFIRM), callerOwnsMerchant());
     const priced = await router.createCaller(await ctx(['admin:write'])).psp.setPricing({
       merchantId: MERCHANT,
       feeBps: 300,
@@ -223,7 +227,7 @@ describe('D26-P1-P1 PSP Done bar — public doors', () => {
   });
 
   it('kyb.decide / psp.setPricing / enableMode refuse missing approval ids and no MFA without writing', async () => {
-    const router = createKybPspRouter(stubKyb(), stubPsp(), stubApprovalConsumer(CONFIRM));
+    const router = createKybPspRouter(stubKyb(), stubPsp(), stubApprovalConsumer(CONFIRM), callerOwnsMerchant());
     await router.createCaller(await ctx(['pay:write'])).kyb.submit({ merchantId: MERCHANT, kybRef: 'dossier-acme' });
 
     const compliance = router.createCaller(await ctx(['admin:compliance']));
