@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.LocalDateTime;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import quickfix.FixVersions;
@@ -18,6 +19,8 @@ import quickfix.field.MsgSeqNum;
 import quickfix.field.MsgType;
 import quickfix.field.OrdType;
 import quickfix.field.OrderQty;
+import quickfix.field.PossDupFlag;
+import quickfix.field.PossResend;
 import quickfix.field.Price;
 import quickfix.field.SenderCompID;
 import quickfix.field.SendingTime;
@@ -59,6 +62,39 @@ class FixSessionNosMatchingTest {
     }
 
     @Test
+    void possDupOrPossResendNewOrderSingleIsNotPostedToMatching() throws Exception {
+        AtomicInteger posts = new AtomicInteger();
+        MatchingSubmitPort port = new MatchingSubmitPort(
+                "http://matching.example", OWNER_MAP, "a".repeat(32), (url, json, headers) -> {
+                    posts.incrementAndGet();
+                    return new MatchingSubmitPort.Transport.Response(
+                            200, "{\"accepted\":true,\"sequence\":9}");
+                });
+        FixSessionApplication app = new FixSessionApplication(new FixGatewayAdapter(), port);
+
+        app.fromApp(limitNos(), SESSION);
+        assertEquals(1, posts.get());
+        assertEquals(1, app.matchingPosts());
+        assertEquals(MsgType.EXECUTION_REPORT, app.outbound().get(0).getHeader().getString(MsgType.FIELD));
+
+        NewOrderSingle possDup = limitNos();
+        possDup.getHeader().setBoolean(PossDupFlag.FIELD, true);
+        app.fromApp(possDup, SESSION);
+        assertEquals(1, posts.get(), "PossDupFlag Y was posted to matching again");
+        assertEquals(1, app.matchingPosts());
+
+        NewOrderSingle possResend = limitNos();
+        possResend.getHeader().setBoolean(PossResend.FIELD, true);
+        app.fromApp(possResend, SESSION);
+        assertEquals(1, posts.get(), "PossResend Y was posted to matching again");
+        assertEquals(1, app.matchingPosts());
+
+        assertEquals(3, app.outbound().size());
+        assertSessionReject(app.outbound().get(1), "PossDupFlag");
+        assertSessionReject(app.outbound().get(2), "PossResend");
+    }
+
+    @Test
     void unmappedCompIdDoesNotPostMatching() throws Exception {
         MatchingSubmitPort port = new MatchingSubmitPort("http://matching.example", OWNER_MAP, "a".repeat(32), (url, json, headers) -> {
             throw new AssertionError("must not POST");
@@ -82,6 +118,16 @@ class FixSessionNosMatchingTest {
         assertEquals("3", er.getString(ExecID.FIELD));
         assertFalse(er.isSetField(quickfix.field.LastPx.FIELD));
         assertFalse(er.toString().contains("100.25"));
+    }
+
+    private static void assertSessionReject(Message reject, String flagName) throws Exception {
+        assertEquals(MsgType.REJECT, reject.getHeader().getString(MsgType.FIELD));
+        assertEquals(MsgType.NEW_ORDER_SINGLE, reject.getString(quickfix.field.RefMsgType.FIELD));
+        assertTrue(reject.getString(quickfix.field.Text.FIELD).contains(flagName), reject.getString(quickfix.field.Text.FIELD));
+        assertFalse(reject.isSetField(ExecID.FIELD));
+        assertFalse(reject.isSetField(ExecType.FIELD));
+        assertFalse(reject.isSetField(Price.FIELD));
+        assertFalse(reject.toString().contains("100.25"));
     }
 
     private static NewOrderSingle limitNos() {
