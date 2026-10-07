@@ -162,6 +162,15 @@ function rankKey(effective: Amount, side: 'buy' | 'sell'): Amount {
   return side === 'buy' ? effective : -effective;
 }
 
+/**
+ * Fee-only notional of a sell leg. `mul` half-up turns a sub-wei product into 0,
+ * so a positive effective price can still report `averageEffectivePrice` 0.
+ * That quote is not a fill, and it is not a slippage benchmark either.
+ */
+function sellNotionalRoundsToZero(side: 'buy' | 'sell', effective: Amount, take: Amount): boolean {
+  return side === 'sell' && mul(effective, take) <= 0n;
+}
+
 /** The ranking-only adjustment. Never leaves this module. */
 function preferenceAdjusted(effective: Amount, side: 'buy' | 'sell', isInternal: boolean, prefBps: number): Amount {
   if (!isInternal || prefBps === 0) return effective;
@@ -322,10 +331,15 @@ export async function planRoute(
     return a.source.health().latencyMs - b.source.health().latencyMs;
   });
 
-  const best = candidates[0]!;
   // Slippage guard uses all-in when the complete model is on, else fee-only —
   // same figure the ranker used, never the preference-adjusted one.
-  const bestAllIn = best.allIn;
+  // A quote the fill loop will refuse is not a price. Choosing the benchmark
+  // before the notional check let a zero-average quote reject a real sell.
+  const benchmark = candidates.find((candidate) => {
+    const take = min(request.amount, candidate.quote.amount);
+    return !sellNotionalRoundsToZero(request.side, candidate.effective, take);
+  });
+  const bestAllIn = benchmark?.allIn;
 
   // ── Fill ──────────────────────────────────────────────────────────────────
   const legs: RouteLeg[] = [];
@@ -344,7 +358,8 @@ export async function planRoute(
     // Slippage is measured against the best TRUE all-in price, not the
     // preference-adjusted one — otherwise the thumb on the scale would widen
     // the tolerance for everyone else too.
-    const drift = priceDriftBps(bestAllIn, candidate.allIn, request.side);
+    // No routable quote: do not measure drift against a quote we will refuse.
+    const drift = bestAllIn === undefined ? 0 : priceDriftBps(bestAllIn, candidate.allIn, request.side);
     if (drift > opts.maxSlippageBps) {
       rejected.push({ venueId: candidate.source.id, reason: 'slippage', detail: `${drift} bps worse than best` });
       continue;
@@ -355,7 +370,7 @@ export async function planRoute(
     // turns a sub-wei notional into 0, so a positive effective price can still
     // report averageEffectivePrice 0 on a positive routed amount. A sell leg
     // that would contribute nothing is not a fill.
-    if (request.side === 'sell' && mul(candidate.effective, take) <= 0n) {
+    if (sellNotionalRoundsToZero(request.side, candidate.effective, take)) {
       rejected.push({
         venueId: candidate.source.id,
         reason: 'no_quote',
@@ -398,7 +413,8 @@ export async function planRoute(
     legs,
     averageEffectivePrice,
     totalCost,
-    improvementBps: improvementVersusSingleVenue(legs, bestAllIn, averageAllIn, request.side),
+    improvementBps:
+      bestAllIn === undefined ? 0 : improvementVersusSingleVenue(legs, bestAllIn, averageAllIn, request.side),
     rejected,
   };
 }

@@ -399,6 +399,24 @@ describe('venue exclusion — the failures that cost money', () => {
     expect(plan.averageEffectivePrice! > 0n).toBe(true);
   });
 
+  it('routes that size-1 sell when the better quote is refused for a zero average', async () => {
+    // Price 0.4 ranks ahead of 1 wei on a sell, but its 1-wei size rounds the
+    // average to zero. That refusal is not a slippage benchmark.
+    const plan = await planRoute(sell('1'), [
+      venue({ id: 'dust', kind: 'external-cex', price: '0.4', amount: '0.000000000000000001', feeBps: 0 }),
+      venue({ id: 'wei', kind: 'external-cex', price: '0.000000000000000001', amount: '1', feeBps: 0 }),
+    ]);
+    expect(plan.legs.map((leg) => leg.venueId)).toEqual(['wei']);
+    expect(plan.routedAmount > 0n).toBe(true);
+    expect(plan.averageEffectivePrice).not.toBeNull();
+    expect(plan.averageEffectivePrice! > 0n).toBe(true);
+    expect(plan.rejected.find((r) => r.venueId === 'wei')).toBeUndefined();
+    expect(plan.rejected.find((r) => r.venueId === 'dust')).toMatchObject({
+      reason: 'no_quote',
+      detail: 'average effective price rounds to zero',
+    });
+  });
+
   it('keeps a positive sell and refuses only the leg whose notional rounds to zero', async () => {
     const plan = await planRoute(
       sell('1.000000000000000001'),
