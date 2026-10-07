@@ -114,7 +114,8 @@ export function parseOpenPosition(raw: unknown, userId: string): PrivatePosition
   const marketId = typeof row.marketId === 'string' && row.marketId.length > 0 ? row.marketId : symbol;
   const statusRaw = row.status;
   const status =
-    statusRaw === 'open' || statusRaw === 'closing' || statusRaw === 'closed' || statusRaw === 'liquidated' ? statusRaw : 'open';
+    statusRaw === 'open' || statusRaw === 'closing' || statusRaw === 'closed' || statusRaw === 'liquidated' ? statusRaw : null;
+  if (status === null) throw new PrivateBookError('status is not open, closing, closed, or liquidated');
   const side = row.side === 'short' ? 'short' : row.side === 'long' ? 'long' : null;
   if (side === null) throw new PrivateBookError('side is not long or short');
   const ts = typeof row.ts === 'string' ? row.ts : typeof row.datetime === 'string' ? row.datetime : new Date(0).toISOString();

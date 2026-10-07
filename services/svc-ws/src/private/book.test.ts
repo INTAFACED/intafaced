@@ -63,6 +63,24 @@ describe('private book parse', () => {
       ),
     ).toThrow(PrivateBookError);
   });
+
+  it('refuses a blank or unrecognized position status and keeps the four known statuses', () => {
+    const row = (status: unknown) => ({
+      id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      symbol: 'BTC/USDT:USDT',
+      side: 'long',
+      status,
+      contracts: '1',
+      entryPrice: '100',
+      notional: '101',
+    });
+    expect(() => parseOpenPosition(row(''), USER)).toThrow(PrivateBookError);
+    expect(() => parseOpenPosition(row(undefined), USER)).toThrow(PrivateBookError);
+    expect(() => parseOpenPosition(row('mystery'), USER)).toThrow(PrivateBookError);
+    for (const status of ['open', 'closing', 'closed', 'liquidated'] as const) {
+      expect(parseOpenPosition(row(status), USER).status).toBe(status);
+    }
+  });
 });
 
 describe('HttpPrivateBookPort', () => {
