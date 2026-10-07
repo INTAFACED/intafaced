@@ -241,6 +241,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.card_capture_exceeds_authorization':
       /** Disagrees with a claimed settlement row — same class as ramp_conflict. */
       case 'bank.card_settlement_amount_conflict':
+      /** Disagrees with the kind a sequence was claimed for — same class as the amount. */
+      case 'bank.card_settlement_kind_conflict':
       case 'bank.ramp_invalid_amount':
       case 'bank.ramp_invalid_asset':
       case 'bank.ramp_invalid_destination':

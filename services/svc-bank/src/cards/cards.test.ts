@@ -1032,6 +1032,150 @@ describe('svc-bank cards PG-hard', () => {
       expect(ledger.totalsByAsset().USDT).toBe('0');
     });
 
+    /**
+     * A full capture and a reverse both use sequence 0. While the capture claim
+     * is still pending they used to share that row, and once it carried a ledger
+     * transaction id the reverse handed that id back as the reversal.
+     *
+     * The same kind at the same amount still is a re-drive: it returns the
+     * existing transaction and posts nothing else. The other kind is a conflict.
+     * A pending reversal is the same door, shut the other way.
+     */
+    it('refuses a reverse while a full capture claim is still pending, and does not report the capture transaction as the reversal', async () => {
+      await fund(HOLDER, 'USDT', '500');
+      const card = await issueCard();
+      const auth = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') });
+
+      let releaseCapture!: () => void;
+      const captureGate = new Promise<void>((resolve) => {
+        releaseCapture = resolve;
+      });
+      let capturePending!: () => void;
+      const captureClaimed = new Promise<void>((resolve) => {
+        capturePending = resolve;
+      });
+      let captureTxId = '';
+
+      const pausing = new CardService(
+        sql,
+        {
+          ...ledger,
+          balance: ledger.balance.bind(ledger),
+          post: async (tx: Parameters<MemoryLedger['post']>[0]) => {
+            if (tx.idempotencyKey.startsWith('withdraw.settle:')) {
+              const posted = await ledger.post(tx);
+              captureTxId = posted.id;
+              capturePending();
+              await captureGate;
+              return posted;
+            }
+            return ledger.post(tx);
+          },
+        } as unknown as MemoryLedger,
+        { issuer: cardSim() },
+      );
+
+      const captureInFlight = pausing.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') });
+      await captureClaimed;
+
+      // The ledger has the capture. The row is still pending — the status write
+      // has not happened — so a reverse can see the transaction id.
+      await sql`
+        UPDATE bank.card_settlements
+           SET ledger_tx_id = ${captureTxId}
+         WHERE authorization_id = ${auth.id} AND sequence = 0 AND status = 'pending'
+      `;
+      const pending = await sql<Array<{ kind: string; status: string; ledger_tx_id: string | null }>>`
+        SELECT kind, status, ledger_tx_id FROM bank.card_settlements WHERE authorization_id = ${auth.id}
+      `;
+      expect(pending).toEqual([{ kind: 'capture', status: 'pending', ledger_tx_id: captureTxId }]);
+
+      const settleCount = () => ledger.journal().filter((tx) => tx.idempotencyKey === `withdraw.settle:${auth.id}`).length;
+      expect(settleCount()).toBe(1);
+
+      // Same kind, same amount: the existing transaction, and no second movement.
+      const redriven = await cards.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') });
+      expect(redriven.captureLedgerTxId).toBe(captureTxId);
+      expect(settleCount()).toBe(1);
+
+      await expect(pausing.reverse({ cardId: card.id, authorizationRef: 'auth-1' })).rejects.toMatchObject({
+        code: 'bank.card_settlement_kind_conflict',
+      });
+
+      const afterReverse = await sql<Array<{ kind: string; status: string; ledger_tx_id: string | null }>>`
+        SELECT kind, status, ledger_tx_id FROM bank.card_settlements WHERE authorization_id = ${auth.id}
+      `;
+      expect(afterReverse).toEqual([{ kind: 'capture', status: 'pending', ledger_tx_id: captureTxId }]);
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey === `withdraw.reverse:${auth.id}`)).toHaveLength(0);
+
+      releaseCapture();
+      const captured = await captureInFlight;
+      expect(captured.captureLedgerTxId).toBe(captureTxId);
+      expect(settleCount()).toBe(1);
+
+      const settled = await sql<Array<{ kind: string; status: string; ledger_tx_id: string | null }>>`
+        SELECT kind, status, ledger_tx_id FROM bank.card_settlements WHERE authorization_id = ${auth.id} AND sequence = 0
+      `;
+      expect(settled).toEqual([{ kind: 'capture', status: 'settled', ledger_tx_id: captureTxId }]);
+      await expect(cards.reverse({ cardId: card.id, authorizationRef: 'auth-1' })).rejects.toMatchObject({
+        code: 'bank.card_authorization_closed',
+      });
+
+      // The other direction: a pending reversal is not an open door for a capture.
+      const voided = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-2', amount: amt('80') });
+      let releaseReverse!: () => void;
+      const reverseGate = new Promise<void>((resolve) => {
+        releaseReverse = resolve;
+      });
+      let reversePending!: () => void;
+      const reverseClaimed = new Promise<void>((resolve) => {
+        reversePending = resolve;
+      });
+      let reverseTxId = '';
+      const pausingReverse = new CardService(
+        sql,
+        {
+          ...ledger,
+          balance: ledger.balance.bind(ledger),
+          post: async (tx: Parameters<MemoryLedger['post']>[0]) => {
+            if (tx.idempotencyKey === `withdraw.reverse:${voided.id}`) {
+              const posted = await ledger.post(tx);
+              reverseTxId = posted.id;
+              reversePending();
+              await reverseGate;
+              return posted;
+            }
+            return ledger.post(tx);
+          },
+        } as unknown as MemoryLedger,
+        { issuer: cardSim() },
+      );
+
+      const reverseInFlight = pausingReverse.reverse({ cardId: card.id, authorizationRef: 'auth-2' });
+      await reverseClaimed;
+      await sql`
+        UPDATE bank.card_settlements
+           SET ledger_tx_id = ${reverseTxId}
+         WHERE authorization_id = ${voided.id} AND sequence = 0 AND status = 'pending'
+      `;
+
+      await expect(cards.capture({ cardId: card.id, authorizationRef: 'auth-2', amount: amt('80') })).rejects.toMatchObject({
+        code: 'bank.card_settlement_kind_conflict',
+      });
+      const reverseRow = await sql<Array<{ kind: string; status: string; ledger_tx_id: string | null }>>`
+        SELECT kind, status, ledger_tx_id FROM bank.card_settlements WHERE authorization_id = ${voided.id}
+      `;
+      expect(reverseRow).toEqual([{ kind: 'reversal', status: 'pending', ledger_tx_id: reverseTxId }]);
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey === `withdraw.settle:${voided.id}`)).toHaveLength(0);
+
+      releaseReverse();
+      const reversed = await reverseInFlight;
+      expect(reversed.ledgerTxId).toBe(reverseTxId);
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey === `withdraw.reverse:${voided.id}`)).toHaveLength(1);
+      expect(await heldOn(voided.id)).toBe('0');
+      expect(ledger.totalsByAsset().USDT).toBe('0');
+    });
+
     it('refuses a capture larger than what was authorised and held', async () => {
       await fund(HOLDER, 'USDT', '500');
       const card = await issueCard();
