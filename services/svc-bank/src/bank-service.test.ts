@@ -113,6 +113,89 @@ describe('svc-bank money (source)', () => {
   });
 });
 
+/**
+ * One `information_schema.columns` row. Precision and scale are type metadata,
+ * not a money amount.
+ */
+type BankSchemaColumn = {
+  table_name: string;
+  column_name: string;
+  data_type: string;
+  numeric_precision: number | null;
+  numeric_scale: number | null;
+};
+
+function bankColumnRef(column: Pick<BankSchemaColumn, 'table_name' | 'column_name'>): string {
+  return `${column.table_name}.${column.column_name}`;
+}
+
+type MoneyColumnGuardResult = {
+  ok: boolean;
+  illegalType: string[];
+  wrongScale: string[];
+  undeclared: string[];
+  missing: string[];
+};
+
+const ILLEGAL_MONEY_DATA_TYPES = new Set(['double precision', 'real', 'money']);
+
+/**
+ * Columns the schema guard treats as money, judged against the allowlist.
+ * Legal money is `numeric(38,18)` and named on the allowlist. `double precision`,
+ * `real`, and `money` fail even when named there. `numeric(38)` at any other
+ * scale fails even when named there.
+ */
+function moneyColumnGuard(
+  columns: readonly BankSchemaColumn[],
+  allowlist: Readonly<Record<string, string>>,
+): MoneyColumnGuardResult {
+  const illegalType = columns.filter((column) => ILLEGAL_MONEY_DATA_TYPES.has(column.data_type)).map(bankColumnRef);
+  const wrongScale = columns
+    .filter((column) => column.data_type === 'numeric' && column.numeric_precision === 38 && column.numeric_scale !== 18)
+    .map(bankColumnRef);
+  const exact = columns
+    .filter((column) => column.data_type === 'numeric' && column.numeric_precision === 38 && column.numeric_scale === 18)
+    .map(bankColumnRef);
+  const undeclared = exact.filter((name) => !(name in allowlist));
+  const present = new Set(exact);
+  const missing = Object.keys(allowlist).filter((name) => !present.has(name));
+  return {
+    ok: illegalType.length === 0 && wrongScale.length === 0 && undeclared.length === 0 && missing.length === 0,
+    illegalType,
+    wrongScale,
+    undeclared,
+    missing,
+  };
+}
+
+function moneyScaleFixtureRow(
+  column_name: string,
+  data_type: string,
+  numeric_precision: number | null,
+  numeric_scale: number | null,
+): BankSchemaColumn {
+  return { table_name: 'fixture', column_name, data_type, numeric_precision, numeric_scale };
+}
+
+/** In-memory column rows. Nothing here is created in the bank schema. */
+function moneyScaleFixtureReport(): Record<string, { ok: boolean; illegalType: string[]; wrongScale: string[] }> {
+  const allowlist: Record<string, string> = {
+    'fixture.kept': 'an allowlisted numeric(38,18) column',
+  };
+  const kept = moneyScaleFixtureRow('kept', 'numeric', 38, 18);
+  const judge = (columns: readonly BankSchemaColumn[]) => {
+    const result = moneyColumnGuard(columns, allowlist);
+    return { ok: result.ok, illegalType: result.illegalType, wrongScale: result.wrongScale };
+  };
+  return {
+    'numeric(38,18)': judge([kept]),
+    'double precision': judge([kept, moneyScaleFixtureRow('slipped', 'double precision', 53, null)]),
+    real: judge([kept, moneyScaleFixtureRow('slipped', 'real', 24, null)]),
+    money: judge([kept, moneyScaleFixtureRow('slipped', 'money', null, null)]),
+    'numeric(38) scale not 18': judge([moneyScaleFixtureRow('kept', 'numeric', 38, 0)]),
+  };
+}
+
 describe('svc-bank money PG-hard', () => {
   // 0002 is in the list so THE SCHEMA GUARD BELOW SEES THE LOAN TABLES: what
   // this file owns is the money-column allowlist, and a guard that cannot see
@@ -2226,14 +2309,23 @@ describe('svc-bank money PG-hard', () => {
      * red, with the doctrine quoted in the failure.
      */
     it('has NO balance-like column anywhere in the bank schema', async () => {
-      const columns = await sql<Array<{ table_name: string; column_name: string; data_type: string; numeric_precision: number | null }>>`
-        SELECT table_name, column_name, data_type, numeric_precision
+      expect(moneyScaleFixtureReport()).toEqual({
+        'numeric(38,18)': { ok: true, illegalType: [], wrongScale: [] },
+        'double precision': { ok: false, illegalType: ['fixture.slipped'], wrongScale: [] },
+        real: { ok: false, illegalType: ['fixture.slipped'], wrongScale: [] },
+        money: { ok: false, illegalType: ['fixture.slipped'], wrongScale: [] },
+        'numeric(38) scale not 18': { ok: false, illegalType: [], wrongScale: ['fixture.kept'] },
+      });
+
+      const columns = await sql<BankSchemaColumn[]>`
+        SELECT table_name, column_name, data_type, numeric_precision, numeric_scale
           FROM information_schema.columns
          WHERE table_schema = 'bank' AND table_name <> '__migrations'
          ORDER BY table_name, column_name
       `;
 
       expect(columns.length).toBeGreaterThan(0);
+      expect(columns.every((column) => Object.hasOwn(column, 'numeric_scale'))).toBe(true);
 
       // Names that describe an accumulating figure — a second source of truth
       // for money by any other name.
@@ -2266,7 +2358,8 @@ describe('svc-bank money PG-hard', () => {
        * Every money-typed column, with the reason it is not a balance. A new
        * numeric(38,18) column fails here until someone writes down which of the
        * three legitimate kinds it is: a policy limit, a goal, an instruction, or
-       * a record of one completed event.
+       * a record of one completed event. double precision, real, money, and an
+       * allowlisted numeric(38) whose scale is not 18 fail as well.
        */
       const MONEY_COLUMNS: Record<string, string> = {
         'spaces.goal_target': 'a savings TARGET the user set — never written by a money path',
@@ -2356,21 +2449,25 @@ describe('svc-bank money PG-hard', () => {
         'business_payroll_lines.amount': 'a RECORD of one payroll line; written once with the run',
       };
 
-      const moneyColumns = columns
-        .filter((c) => c.data_type === 'numeric' && c.numeric_precision === 38)
-        .map((c) => `${c.table_name}.${c.column_name}`);
-
-      const undeclared = moneyColumns.filter((c) => !(c in MONEY_COLUMNS));
+      const guard = moneyColumnGuard(columns, MONEY_COLUMNS);
       expect(
-        undeclared,
+        guard.illegalType,
+        `A money column must be numeric(38,18). double precision, real, and money are not: ${guard.illegalType.join(', ')}`,
+      ).toEqual([]);
+      expect(
+        guard.wrongScale,
+        `A money column must be numeric(38,18). numeric(38) at another scale is not: ${guard.wrongScale.join(', ')}`,
+      ).toEqual([]);
+      expect(
+        guard.undeclared,
         `Every money column in svc-bank must be a policy limit, a goal, an instruction, or a record of a ` +
-          `completed event — never a running figure. Undeclared: ${undeclared.join(', ')}`,
+          `completed event — never a running figure. Undeclared: ${guard.undeclared.join(', ')}`,
       ).toEqual([]);
 
       // And the allowlist must not rot: a declared column that no longer exists
-      // means the reasoning above is stale.
-      const missing = Object.keys(MONEY_COLUMNS).filter((c) => !moneyColumns.includes(c));
-      expect(missing).toEqual([]);
+      // means the reasoning above is stale. A declared numeric(38) whose scale
+      // is not 18 is absent from the exact set, so it fails here too.
+      expect(guard.missing).toEqual([]);
     });
 
     it('never writes to a money column after the row is created', async () => {
