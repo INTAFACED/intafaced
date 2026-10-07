@@ -1,0 +1,200 @@
+import { z } from 'zod';
+import { positionSchema } from '@intafaced/exchange-contract/schemas';
+import { decimalSchema } from '../../shared/money';
+import type { ApiClient } from '../../shared/api';
+
+const side = z.enum(['buy', 'sell']);
+const source = z.object({ kind: z.literal('book'), symbol: z.string(), asOf: z.string() });
+export const convertQuoteSchema = z.object({
+  quoteId: z.string(),
+  symbol: z.string(),
+  side,
+  requestedQty: decimalSchema,
+  filledQty: decimalSchema,
+  bookNotional: decimalSchema,
+  userNotional: decimalSchema,
+  avgPrice: decimalSchema,
+  fullyFilled: z.boolean(),
+  convertSpreadBps: z.number().int(),
+  expiresAt: z.string(),
+  source,
+  inAsset: z.string(),
+  outAsset: z.string(),
+  inAmount: decimalSchema,
+  outAmount: decimalSchema,
+});
+export const convertTradeSchema = z.object({
+  quoteId: z.string(),
+  fillId: z.string(),
+  takerOrderId: z.string(),
+  makerOrderId: z.string(),
+  symbol: z.string(),
+  side,
+  inAsset: z.string(),
+  outAsset: z.string(),
+  inAmount: decimalSchema,
+  outAmount: decimalSchema,
+  fillPrice: decimalSchema,
+  fillNotional: decimalSchema,
+  convertSpreadBps: z.number().int(),
+  source,
+  expiresAt: z.string(),
+  acceptedAt: z.string(),
+  settledAt: z.string(),
+});
+export const algoSchema = z.object({
+  id: z.string(),
+  symbol: z.string(),
+  side,
+  kind: z.enum(['twap', 'vwap', 'pov']),
+  totalQty: decimalSchema,
+  durationMs: z.number().int(),
+  sliceIntervalMs: z.number().int(),
+  limitPrice: decimalSchema.nullable(),
+  status: z.enum(['active', 'paused', 'cancelled', 'completed', 'halted']),
+  slicesPlanned: z.number().int(),
+  nextSliceIndex: z.number().int(),
+  childrenEmitted: z.number().int(),
+  missesRecorded: z.number().int(),
+  haltReason: z.string().nullable(),
+  createdAt: z.string(),
+  projectedEndsAt: z.string(),
+});
+export const algoProgressSchema = z.object({
+  parentId: z.string(),
+  status: z.enum(['active', 'paused', 'cancelled', 'completed', 'halted']),
+  haltReason: z.string().nullable(),
+  childrenEmitted: z.number().int(),
+  missesRecorded: z.number().int(),
+  slicesPlanned: z.number().int(),
+  nextSliceIndex: z.number().int(),
+  filledQty: decimalSchema,
+  totalQty: decimalSchema,
+});
+export const copyFollowSchema = z.object({
+  followId: z.string(),
+  leaderId: z.string(),
+  permittedMarkets: z.array(z.string()),
+  maxNotionalPerOrder: decimalSchema,
+  maxAggregateExposure: decimalSchema,
+  maxLoss: decimalSchema.nullable(),
+  currentExposure: decimalSchema,
+  remainingExposure: decimalSchema,
+  expiresAt: z.string(),
+  region: z.string(),
+  feeShareKilled: z.boolean(),
+  sessionKeyGranted: z.boolean(),
+  sessionKeyRevoked: z.boolean(),
+  relationshipState: z.string(),
+  newIntentFenced: z.boolean(),
+});
+export const copyStatusSchema = z.object({
+  feeSharePublished: z.boolean(),
+  leaderShareBps: z.string().nullable(),
+  jurisdictionPublished: z.boolean(),
+  statusLine: z.string(),
+  residual: z.string().nullable().optional(),
+  autoMirrorPlace: z.object({ published: z.boolean(), residual: z.string().nullable() }).optional(),
+});
+export const otcStatusSchema = z.object({ published: z.boolean(), statusLine: z.string(), residual: z.string().nullable().optional() });
+export const otcQuoteSchema = z.object({
+  quoteId: z.string(),
+  side,
+  baseAsset: z.string(),
+  quoteAsset: z.string(),
+  qty: decimalSchema,
+  midPrice: decimalSchema,
+  quotedPrice: decimalSchema,
+  midNotional: decimalSchema,
+  userNotional: decimalSchema,
+  spreadBps: z.number().int(),
+  spreadNotional: decimalSchema,
+  counterparty: z.string(),
+  counterpartyId: z.string(),
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  status: z.string(),
+  lifecycle: z.string().optional(),
+  acceptedAt: z.string().nullable().optional(),
+  fillPrice: decimalSchema.nullable().optional(),
+});
+export const otcFillSchema = z.object({
+  quoteId: z.string(),
+  side,
+  baseAsset: z.string(),
+  quoteAsset: z.string(),
+  qty: decimalSchema,
+  fillPrice: decimalSchema,
+  fillNotional: decimalSchema,
+  spreadBps: z.number().int(),
+  counterparty: z.string(),
+  counterpartyId: z.string(),
+  acceptedAt: z.string(),
+});
+export const positionPreviewSchema = z.object({
+  symbol: z.string(),
+  side: z.enum(['long', 'short']),
+  size: decimalSchema,
+  leverage: decimalSchema,
+  marginMode: z.literal('isolated'),
+  markPrice: decimalSchema.nullable(),
+  markSource: z.unknown().nullable(),
+  leverageCap: decimalSchema.nullable(),
+  orderValue: decimalSchema.nullable(),
+  initialMargin: decimalSchema.nullable(),
+  estimatedFee: decimalSchema.nullable(),
+  liquidationPrice: decimalSchema.nullable(),
+  orderable: z.boolean(),
+  refusals: z.array(z.object({ code: z.string(), field: z.string(), message: z.string() })),
+});
+export function createToolApi(api: ApiClient) {
+  return {
+    convertQuote: (input: { symbol: string; side: 'buy' | 'sell'; qty: string }) =>
+      api.query('trade', 'convert.quote', input, convertQuoteSchema),
+    convertAccept: (quoteId: string, clientConvertId: string) =>
+      api.mutate('trade', 'convert.accept', { quoteId, clientConvertId }, convertTradeSchema),
+    algoGet: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.get', { algoId }, algoSchema, { signal }),
+    algoProgress: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.progress', { algoId }, algoProgressSchema, { signal }),
+    algoAction: (action: 'pause' | 'resume' | 'cancel', algoId: string) => api.mutate('trade', `algo.${action}`, { algoId }, algoSchema),
+    copyStatus: (signal?: AbortSignal) => api.query('trade', 'copy.deskStatus', undefined, copyStatusSchema, { signal }),
+    copyFollows: (signal?: AbortSignal) => api.query('trade', 'copy.listMyFollows', { limit: 100 }, z.array(copyFollowSchema), { signal }),
+    copyAction: (action: 'pause' | 'stop' | 'detach' | 'resume', followId: string) =>
+      api.mutate(
+        'trade',
+        `copy.${action}`,
+        { followId },
+        z.object({ followId: z.string(), relationshipState: z.string(), newIntentFenced: z.boolean(), disposition: z.string() }),
+      ),
+    otcStatus: (signal?: AbortSignal) => api.query('trade', 'otc.deskStatus', undefined, otcStatusSchema, { signal }),
+    otcQuote: (input: { side: 'buy' | 'sell'; baseAsset: string; quoteAsset: string; qty: string; makerId?: string }) =>
+      api.mutate('trade', 'rfq.quote', input, otcQuoteSchema),
+    otcGet: (quoteId: string) => api.query('trade', 'rfq.get', { quoteId }, otcQuoteSchema),
+    otcAccept: (quoteId: string, assertedPrice: string) => api.mutate('trade', 'otc.accept', { quoteId, assertedPrice }, otcFillSchema),
+    otcSettle: (quoteId: string) =>
+      api.mutate(
+        'trade',
+        'otc.settle',
+        { quoteId },
+        otcFillSchema.extend({ fillId: z.string(), takerOrderId: z.string(), makerOrderId: z.string() }),
+      ),
+    positionPreview: (input: { symbol: string; side: 'long' | 'short'; size: string; leverage: string; marginMode: 'isolated' }) =>
+      api.rest('/positions/preview', positionPreviewSchema, { method: 'POST', body: input }),
+    position: (id: string) => api.rest(`/positions/${encodeURIComponent(id)}`, positionSchema),
+    positionClose: (id: string) => api.rest(`/positions/${encodeURIComponent(id)}`, positionSchema, { method: 'DELETE' }),
+    disclosure: (signal?: AbortSignal) =>
+      api.rest('/futures/adl-disclosure', z.object({ version: z.string(), copy: z.string(), acknowledged: z.boolean() }), { signal }),
+    executionSpine: (signal?: AbortSignal) =>
+      api.query(
+        'execution',
+        'execution.spine',
+        undefined,
+        z.object({
+          doors: z.array(z.object({ id: z.string(), module: z.string(), kind: z.string(), callerSubmit: z.boolean() })),
+          externalOnly: z.boolean(),
+          houseInternalRefuse: z.boolean(),
+        }),
+        { signal },
+      ),
+  };
+}
+export type ToolApi = ReturnType<typeof createToolApi>;
