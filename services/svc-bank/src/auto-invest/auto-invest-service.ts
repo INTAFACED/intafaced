@@ -646,7 +646,7 @@ export class AutoInvestService {
     );
   }
 
-  private async driveDca(rule: AutoInvestRule, now: Date): Promise<'settled' | 'skipped' | 'rejected'> {
+  private async driveDca(rule: AutoInvestRule, now: Date): Promise<'settled' | 'skipped' | 'rejected' | 'pending'> {
     if (!this.convert) {
       // Defence in depth: create already refuses, but a rule from a previous
       // deploy that lost its convert port must not invent a rate on fire.
@@ -669,7 +669,19 @@ export class AutoInvestService {
       ON CONFLICT (rule_id, client_run_id) DO NOTHING
       RETURNING id
     `;
-    if (claimed.length === 0) return 'settled';
+    if (claimed.length === 0) {
+      const existing = await this.sql<Array<{ status: AutoInvestRunStatus }>>`
+        SELECT status FROM bank.auto_invest_runs
+         WHERE rule_id = ${rule.id}::uuid AND client_run_id = ${clientRunId}
+      `;
+      const status = existing[0]?.status;
+      // The key is taken. Settled only if that row already settled — a
+      // pending or rejected row did not convert this buy.
+      if (status === 'settled') return 'settled';
+      if (status === 'rejected') return 'rejected';
+      if (status === 'pending') return 'pending';
+      return 'skipped';
+    }
     const runId = claimed[0]!.id;
 
     try {
@@ -684,7 +696,7 @@ export class AutoInvestService {
         UPDATE bank.auto_invest_runs
            SET status = 'settled',
                ledger_tx_id = ${result.ledgerTxId},
-               amount = ${formatAmount(amount)}::numeric,
+               amount = ${formatAmount(result.toAmount)}::numeric,
                settled_at = ${now}
          WHERE id = ${runId}::uuid
       `;
