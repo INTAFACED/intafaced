@@ -5,7 +5,8 @@ import { createEdgeContext } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { ModelGateway } from './gateway/gateway.js';
-import { DEFAULT_ROUTING_TABLE, parseRoutingTable, type RoutingTable } from './gateway/routing.js';
+import { DEFAULT_ROUTING_TABLE } from './gateway/routing.js';
+import { buildRoutingTable } from './build-routing-table.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './affiliate-payout.js';
@@ -92,14 +93,9 @@ function buildPrimaryProvider(): ModelProvider {
   });
 }
 
-function buildRoutingTable(): RoutingTable {
-  if (!env.AGENTS_ROUTING_TABLE) return DEFAULT_ROUTING_TABLE;
-  return parseRoutingTable(JSON.parse(env.AGENTS_ROUTING_TABLE));
-}
-
 const primaryProvider = buildPrimaryProvider();
 const providers: readonly ModelProvider[] = [primaryProvider];
-const gateway = new ModelGateway(providers, buildRoutingTable());
+const gateway = new ModelGateway(providers, buildRoutingTable(env.AGENTS_ROUTING_TABLE, DEFAULT_ROUTING_TABLE));
 
 const bus = await JetStreamEventBus.connect({
   servers: env.NATS_URL,
