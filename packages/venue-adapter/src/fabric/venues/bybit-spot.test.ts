@@ -799,6 +799,11 @@ describe('MaintainedBook on bybit-spot — subscribe, buffer, snapshot, join', (
     expect(stream.sent()).toEqual([{ op: 'subscribe', args: ['orderbook.50.BTCUSDT'] }]);
     expect(book.venueId).toBe('bybit-spot');
 
+    // `u` is per depth. orderbook.50 and a REST snapshot at limit=1000 are not
+    // one sequence, so live at 101 after a snapshot whose u is 100 is only a
+    // real join when that snapshot is the 50-level book.
+    expect(http.requests[0]).toBe('https://rest.test/v5/market/orderbook?category=spot&symbol=BTCUSDT&limit=50');
+
     stream.socket().push(depthFrame('snapshot', 100));
     stream.socket().push(depthFrame('delta', 101, { b: [['30001.00', '3.00']] }));
     await settle();
