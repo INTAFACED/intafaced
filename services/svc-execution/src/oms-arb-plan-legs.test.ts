@@ -32,4 +32,18 @@ describe('planOmsArbAtomicLegs', () => {
       }),
     ).toMatchObject({ ok: false, reason: 'inventory_missing' });
   });
+
+  it('refuses a blank, non-numeric, or non-positive amount instead of copying it onto the legs', () => {
+    for (const amount of ['', '   ', 'not-a-number', '0', '-1']) {
+      expect(
+        planOmsArbAtomicLegs({
+          symbol: 'BTC/USDT',
+          amount,
+          buyVenueId: 'binance',
+          sellVenueId: 'bybit',
+          inventory: { prePositionedByVenue: { binance: true, bybit: true } },
+        }),
+      ).toMatchObject({ ok: false, reason: 'invalid_amount' });
+    }
+  });
 });

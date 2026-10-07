@@ -187,6 +187,90 @@ describe('executeOmsArbAtomicLegs', () => {
     expect(new Set(childIds).size).toBe(childIds.length);
   });
 
+  it('refuses a blank, non-numeric, or non-positive amount before submit and does not fence a corrected retry', async () => {
+    const cases = [
+      { amount: '', label: 'blank' },
+      { amount: '   ', label: 'whitespace' },
+      { amount: 'not-a-number', label: 'non-numeric' },
+      { amount: '0', label: 'zero' },
+      { amount: '-1', label: 'negative' },
+    ] as const;
+
+    for (const { amount, label } of cases) {
+      const store = new InMemoryEmsOrderStore();
+      const seen: { side: string; amount: ReturnType<typeof parseAmount>; limitPrice: ReturnType<typeof parseAmount> }[] = [];
+      let submits = 0;
+      const submit: OmsSubmitFn = async (req) => {
+        submits += 1;
+        seen.push({ side: req.side, amount: req.amount, limitPrice: req.limitPrice });
+        return executionFor(req.side === 'buy' ? 'binance-spot' : 'bybit-spot');
+      };
+      const venues = { 'binance-spot': submit, 'bybit-spot': submit };
+      const parentClientOrderId = `arb-amount-${label}`;
+
+      const refused = await executeOmsArbAtomicLegs(input({ amount, parentClientOrderId }), venues, store);
+      expect(refused.ok).toBe(false);
+      expect(refused).not.toMatchObject({ reason: 'submit_failed' });
+      expect(refused).not.toMatchObject({ outcome: 'OUTCOME_UNKNOWN', state: 'SUBMIT_UNKNOWN' });
+      if (!refused.ok) {
+        expect(refused.children).toEqual([]);
+        expect(refused.executions).toEqual([]);
+      }
+      expect(submits).toBe(0);
+      expect(store.list()).toEqual([]);
+
+      const retried = await executeOmsArbAtomicLegs(input({ amount: '1.5', parentClientOrderId }), venues, store);
+      expect(retried.ok).toBe(true);
+      expect(submits).toBe(2);
+      expect(seen).toEqual([
+        { side: 'buy', amount: parseAmount('1.5'), limitPrice: parseAmount('100') },
+        { side: 'sell', amount: parseAmount('1.5'), limitPrice: parseAmount('101') },
+      ]);
+    }
+  });
+
+  it('checks the sell limit before the buy is sent', async () => {
+    const cases = [
+      { field: 'sell' as const, price: '', label: 'blank-sell' },
+      { field: 'sell' as const, price: '   ', label: 'whitespace-sell' },
+      { field: 'sell' as const, price: 'not-a-price', label: 'non-numeric-sell' },
+      { field: 'buy' as const, price: '', label: 'blank-buy' },
+      { field: 'buy' as const, price: 'not-a-price', label: 'non-numeric-buy' },
+    ];
+
+    for (const { field, price, label } of cases) {
+      const store = new InMemoryEmsOrderStore();
+      const seen: { side: string; amount: ReturnType<typeof parseAmount>; limitPrice: ReturnType<typeof parseAmount> }[] = [];
+      const submit: OmsSubmitFn = async (req) => {
+        seen.push({ side: req.side, amount: req.amount, limitPrice: req.limitPrice });
+        return executionFor(req.side === 'buy' ? 'binance-spot' : 'bybit-spot');
+      };
+      const venues = { 'binance-spot': submit, 'bybit-spot': submit };
+      const parentClientOrderId = `arb-limit-${label}`;
+      const limits = field === 'sell' ? { sellLimitPrice: price } : { buyLimitPrice: price };
+
+      const refused = await executeOmsArbAtomicLegs(input({ amount: '1.5', parentClientOrderId, ...limits }), venues, store);
+      expect(seen).toEqual([]);
+      expect(refused).toMatchObject({
+        ok: false,
+        reason: 'invalid_limit',
+        parentClientOrderId,
+        executions: [],
+        children: [],
+      });
+      expect(refused).not.toMatchObject({ reason: 'submit_failed' });
+      expect(refused).not.toMatchObject({ outcome: 'OUTCOME_UNKNOWN', state: 'SUBMIT_UNKNOWN' });
+      expect(store.list()).toEqual([]);
+
+      const retried = await executeOmsArbAtomicLegs(input({ amount: '1.5', parentClientOrderId }), venues, store);
+      expect(retried.ok).toBe(true);
+      expect(seen).toEqual([
+        { side: 'buy', amount: parseAmount('1.5'), limitPrice: parseAmount('100') },
+        { side: 'sell', amount: parseAmount('1.5'), limitPrice: parseAmount('101') },
+      ]);
+    }
+  });
+
   it('keeps identities deterministic and collision-resistant across parent/group/leg combinations', async () => {
     const submit: OmsSubmitFn = async (req) => executionFor(req.side === 'buy' ? 'binance-spot' : 'bybit-spot');
     const a = await executeOmsArbAtomicLegs(input(), { 'binance-spot': submit, 'bybit-spot': submit });
