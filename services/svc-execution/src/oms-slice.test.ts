@@ -780,6 +780,106 @@ describe('sliceLiveAlgoParent', () => {
     ).rejects.toThrow('venue down');
     expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('10');
   });
+
+  it('puts the whole reserved size back on leftover a sibling already filled when this slice throws', async () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(withResidual({ parentClientOrderId: 'parent-twap', kind: 'twap' }, '10'));
+    const submit: OmsSubmitFn = async () => {
+      const sibling = await sliceLiveAlgoParent({
+        parentClientOrderId: 'parent-twap',
+        ...sliceFields,
+        amount: '3',
+        parentStore,
+        submit: async (req) => ack(req),
+      });
+      expect(sibling).toMatchObject({ ok: true, residual: { remaining: '1' } });
+      expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('1');
+      throw new Error('venue down');
+    };
+
+    await expect(
+      sliceLiveAlgoParent({
+        parentClientOrderId: 'parent-twap',
+        ...sliceFields,
+        amount: '6',
+        parentStore,
+        submit,
+      }),
+    ).rejects.toThrow('venue down');
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('7');
+
+    const tooBig = await sliceLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      ...sliceFields,
+      amount: '8',
+      parentStore,
+      submit: async (req) => ack(req),
+    });
+    expect(tooBig).toMatchObject({ ok: false, reason: 'exceeds_remaining' });
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('7');
+
+    const follow = await sliceLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      ...sliceFields,
+      amount: '7',
+      parentStore,
+      submit: async (req) => ack(req),
+    });
+    expect(follow).toMatchObject({ ok: true, sliced: true, residual: { remaining: '0' } });
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('0');
+  });
+
+  it('a rejected slice with a partial fill restores only the unfilled reservation on top of leftover a sibling already filled', async () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(withResidual({ parentClientOrderId: 'parent-twap', kind: 'twap' }, '10'));
+    const submit: OmsSubmitFn = async (req) => {
+      const sibling = await sliceLiveAlgoParent({
+        parentClientOrderId: 'parent-twap',
+        ...sliceFields,
+        amount: '3',
+        parentStore,
+        submit: async (child) => ack(child),
+      });
+      expect(sibling).toMatchObject({ ok: true, residual: { remaining: '1' } });
+      expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('1');
+      return { ...ack(req), status: 'rejected', filledAmount: parseAmount('2') };
+    };
+
+    const out = await sliceLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      ...sliceFields,
+      amount: '6',
+      parentStore,
+      submit,
+    });
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('5');
+    expect(out).toMatchObject({
+      ok: true,
+      sliced: true,
+      execution: { status: 'rejected', filledAmount: parseAmount('2') },
+      residual: { remaining: '5' },
+    });
+
+    const tooBig = await sliceLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      ...sliceFields,
+      amount: '6',
+      parentStore,
+      submit: async (req) => ack(req),
+    });
+    expect(tooBig).toMatchObject({ ok: false, reason: 'exceeds_remaining' });
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('5');
+
+    const follow = await sliceLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      ...sliceFields,
+      amount: '5',
+      parentStore,
+      submit: async (req) => ack(req),
+    });
+    expect(follow).toMatchObject({ ok: true, sliced: true, residual: { remaining: '0' } });
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('0');
+  });
 });
 
 describe('execution.oms.slice tRPC', () => {
