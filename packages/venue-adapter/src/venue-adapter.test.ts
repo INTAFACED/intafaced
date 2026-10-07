@@ -368,6 +368,52 @@ describe('venue exclusion — the failures that cost money', () => {
     expect(formatAmount(plan.averageEffectivePrice!)).toBe('0.01');
   });
 
+  it('refuses a sell whose sub-wei notional rounds the average to zero', async () => {
+    // effectivePrice is 0.01, but mul half-up of that price times 1 wei is 0.
+    const plan = await planRoute(sell('0.000000000000000001'), [
+      venue({ id: 'dust', kind: 'external-cex', price: '100', amount: '0.000000000000000001', feeBps: 9_999 }),
+    ]);
+    expect(plan.legs).toHaveLength(0);
+    expect(plan.routedAmount).toBe(0n);
+    expect(plan.averageEffectivePrice).toBeNull();
+    expect(plan.rejected.find((r) => r.venueId === 'dust')?.reason).toBe('no_quote');
+  });
+
+  it('refuses a sell at a 1-wei price when the size rounds the average to zero', async () => {
+    const plan = await planRoute(sell('0.4'), [
+      venue({ id: 'wei', kind: 'external-cex', price: '0.000000000000000001', amount: '0.4', feeBps: 0 }),
+    ]);
+    expect(plan.legs).toHaveLength(0);
+    expect(plan.routedAmount).toBe(0n);
+    expect(plan.averageEffectivePrice).toBeNull();
+    expect(plan.rejected.find((r) => r.venueId === 'wei')?.reason).toBe('no_quote');
+  });
+
+  it('routes a size-1 sell at a 1-wei price when the fee stays under 100%', async () => {
+    const plan = await planRoute(sell('1'), [
+      venue({ id: 'wei', kind: 'external-cex', price: '0.000000000000000001', amount: '1', feeBps: 0 }),
+    ]);
+    expect(plan.legs).toHaveLength(1);
+    expect(plan.routedAmount > 0n).toBe(true);
+    expect(plan.averageEffectivePrice).not.toBeNull();
+    expect(plan.averageEffectivePrice! > 0n).toBe(true);
+  });
+
+  it('keeps a positive sell and refuses only the leg whose notional rounds to zero', async () => {
+    const plan = await planRoute(
+      sell('1.000000000000000001'),
+      [
+        venue({ id: 'live', kind: 'external-cex', price: '100', amount: '1', feeBps: 10 }),
+        venue({ id: 'dust', kind: 'external-cex', price: '100', amount: '0.000000000000000001', feeBps: 9_999 }),
+      ],
+      { maxSlippageBps: 1_000_000 },
+    );
+    expect(plan.legs.map((leg) => leg.venueId)).toEqual(['live']);
+    expect(plan.rejected.find((r) => r.venueId === 'dust')?.reason).toBe('no_quote');
+    expect(formatAmount(plan.routedAmount)).toBe('1');
+    expect(formatAmount(plan.averageEffectivePrice!)).toBe('99.9');
+  });
+
   it('routes a buy when the fee is 100% — the buyer pays more', async () => {
     const plan = await planRoute(buy('1'), [
       venue({ id: 'dear', kind: 'external-cex', price: '100', amount: '1', feeBps: 10_000 }),

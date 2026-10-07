@@ -283,7 +283,9 @@ export async function planRoute(
     // Sell proceeds are price minus cost. feeBps is on a 10_000 = 100% scale, so
     // a fee (or all-in cost) at or above the price leaves effectivePrice <= 0
     // and would report averageEffectivePrice 0 on a positive routed amount.
-    // A buy pays the fee on top, so a large fee is still a price.
+    // A positive price can still round the same average to 0 when the notional
+    // is sub-wei; that leg is refused in the fill loop. A buy pays the fee on
+    // top, so a large fee is still a price.
     if (request.side === 'sell' && (feeOnly <= 0n || allIn <= 0n)) {
       rejected.push({
         venueId: source.id,
@@ -349,6 +351,18 @@ export async function planRoute(
     }
 
     const take = min(remaining, candidate.quote.amount);
+    // Fee-only average is div(sum of mul(effective, amount), routed). mul half-up
+    // turns a sub-wei notional into 0, so a positive effective price can still
+    // report averageEffectivePrice 0 on a positive routed amount. A sell leg
+    // that would contribute nothing is not a fill.
+    if (request.side === 'sell' && mul(candidate.effective, take) <= 0n) {
+      rejected.push({
+        venueId: candidate.source.id,
+        reason: 'no_quote',
+        detail: 'average effective price rounds to zero',
+      });
+      continue;
+    }
     legs.push({
       venueId: candidate.source.id,
       amount: take,
