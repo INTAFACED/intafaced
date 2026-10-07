@@ -260,7 +260,7 @@ otc_quotes     (id, user_id, side, base, quote, qty, quoted_px, expires_at, stat
 **Liquidity:** internal MM bot account (house-owned, own strategy config) seeds books at launch; external venue aggregation is an adapter behind `LiquiditySource` interface — later, per Doctrine 4.
 **Forex markets:** same engine, `kind:spot` with fiat pairs — rails to fund them arrive with svc-pay adapters.
 
-### 5.3 The product shell — Trade surfaces · customer site served today = the vendored Vue shell on `:8090` · `apps/web` stays retired (ADR `docs/adr/2026-08-03-retire-apps-web-port-to-vue-shell.md`) · Vue and iView belong to that current shell and are not a permanent kit (ADR `docs/adr/2026-10-02-redesign-may-replace-product-ui.md` permits replacing the product UI; one active customer site; no second exchange or money book) · audience = pro trader workbench, retail via Convert and never terminal-default
+### 5.3 The product shell — Trade surfaces · customer site served today = the vendored Vue shell on `:8090` · `apps/web` stays retired (ADR `docs/adr/2026-08-03-retire-apps-web-port-to-vue-shell.md`) · Vue and iView belong to that current shell and are not a permanent kit (ADR `docs/adr/2026-10-02-redesign-may-replace-product-ui.md` permits replacing the product UI; one active customer site) · audience = pro trader workbench, retail via Convert and never terminal-default
 - Pro terminal: multi-book layout, depth, hotkeys, TradingView-style charting (lightweight-charts lib), sub-account switcher
 - Convert: single-card swap UI (the retail on-ramp)
 - Copy: leader boards with audited badges; Mirror follow flow with guardrail defaults from Blueprint (Phase 4 hook)
