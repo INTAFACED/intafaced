@@ -66,3 +66,47 @@ contract RecoveryOwnerForgeTest {
         } catch {}
     }
 }
+
+/// L339: an in-flight approveRecovery names the owner it means.
+contract RecoveryApproveOwnerForgeTest {
+    uint256 internal constant SITTING_PRIV = 0x51;
+    uint256 internal constant ATTACK_GUARDIAN_PRIV = 0xA77;
+    uint256 internal constant HONEST_GUARDIAN_PRIV = 0xB0A;
+
+    function test_approveRecovery_naming_honest_owner_does_not_raise_attacker_count() public {
+        address sitting = vm.addr(SITTING_PRIV);
+        address attackGuardian = vm.addr(ATTACK_GUARDIAN_PRIV);
+        address honestGuardian = vm.addr(HONEST_GUARDIAN_PRIV);
+        address attacker = vm.addr(0xA77AC);
+        address honest = vm.addr(0xB0B0);
+
+        UserElectedRecovery recovery = new UserElectedRecovery(sitting, 86_400);
+
+        vm.prank(sitting);
+        recovery.addGuardian(attackGuardian);
+        vm.prank(sitting);
+        recovery.addGuardian(honestGuardian);
+        vm.prank(sitting);
+        recovery.setThreshold(2);
+
+        vm.prank(attackGuardian);
+        recovery.proposeRecovery(attacker);
+
+        require(recovery.pendingOwner() == attacker, "attacker pending");
+        uint64 approvals = recovery.approvalCount();
+        require(approvals == 1, "only the proposer");
+
+        vm.prank(honestGuardian);
+        try recovery.approveRecovery(honest) {
+            revert("honest owner must not count for the attacker");
+        } catch {}
+
+        require(recovery.approvalCount() == approvals, "attacker count unchanged");
+        require(recovery.pendingOwner() == attacker, "pending owner unchanged");
+        require(!recovery.approved(recovery.recoveryRound(), honestGuardian), "honest vote not stored");
+
+        vm.prank(honestGuardian);
+        recovery.approveRecovery(attacker);
+        require(recovery.approvalCount() == approvals + 1, "named pending owner still counts");
+    }
+}

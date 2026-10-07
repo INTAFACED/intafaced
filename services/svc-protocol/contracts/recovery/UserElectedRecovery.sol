@@ -63,6 +63,7 @@ contract UserElectedRecovery is IERC1271 {
     error RecoveryUnavailable();
     error RecoveryInProgress();
     error NoRecovery();
+    error NotPendingOwner();
     error AlreadyApproved();
     error DelayNotElapsed();
     error NotEnoughApprovals();
@@ -120,16 +121,23 @@ contract UserElectedRecovery is IERC1271 {
         _propose(newOwner, msg.sender);
     }
 
-    function approveRecovery() external {
+    /**
+     * Count this guardian only for `newOwner`. A vote aimed at any other
+     * address reverts and leaves `approvalCount` unchanged, so an in-flight
+     * approval of an honest owner cannot be collected by a front-run
+     * `proposeRecovery`.
+     */
+    function approveRecovery(address newOwner) external {
         _requireLiveGuardian(msg.sender);
         if (pendingOwner == address(0)) revert NoRecovery();
+        if (newOwner != pendingOwner) revert NotPendingOwner();
         _approve(msg.sender);
     }
 
     /**
-     * Same as `approveRecovery`, but the guardian's ECDSA over `recoveryDigest()`
-     * may be submitted by anyone. Lets M signatures land without each guardian
-     * sending a transaction.
+     * A guardian's ECDSA over `recoveryDigest()` may be submitted by anyone.
+     * The digest binds `pendingOwner`, so the signature cannot be counted for
+     * a different owner than the one pending when it was signed.
      */
     function approveRecoveryWithSignature(address guardian, bytes calldata signature) external {
         _requireLiveGuardian(guardian);

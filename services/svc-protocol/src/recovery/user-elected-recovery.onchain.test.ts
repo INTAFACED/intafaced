@@ -102,7 +102,7 @@ describeOnChain('UserElectedRecovery on chain (S-A1)', () => {
         address: instance,
         abi: recoveryAbi,
         functionName: 'approveRecovery',
-        args: [],
+        args: [newOwner],
         account: guardianB.walletClient.account!,
         chain: guardianB.walletClient.chain,
       }),
