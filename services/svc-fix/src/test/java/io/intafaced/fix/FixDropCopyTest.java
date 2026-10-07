@@ -32,7 +32,6 @@ import quickfix.Session;
 import quickfix.SessionID;
 import quickfix.SessionSettings;
 import quickfix.SocketInitiator;
-import quickfix.field.AvgPx;
 import quickfix.field.ClOrdID;
 import quickfix.field.ExecID;
 import quickfix.field.MsgSeqNum;
@@ -517,7 +516,6 @@ class FixDropCopyTest {
                         "CLIENT",
                         "GTC"),
                 new MatchingAck(true, Long.parseLong(execId)));
-        er.setString(AvgPx.FIELD, "0");
         return er;
     }
 
@@ -554,6 +552,7 @@ class FixDropCopyTest {
             text.append("StartTime=00:00:00\n");
             text.append("EndTime=00:00:00\n");
             text.append("UseDataDictionary=Y\n");
+            text.append("ValidateIncomingMessage=N\n");
             text.append("TimeZone=UTC\n");
             text.append("ResetOnLogon=Y\n");
             text.append("ResetOnLogout=Y\n");
