@@ -130,7 +130,7 @@ describe('retryFailedHedgeChild', () => {
       retried: true,
       parent: { parentClientOrderId: 'parent-twap', kind: 'twap', status: 'approved' },
       child: { clientOrderId: 'hedge-fail', venueId: 'street', outcome: 'retried', reason: 'REJECTED' },
-      residual: { filled: '2', remaining: '0' },
+      residual: { filled: '2', remaining: null },
     });
     expect(emsStore.get('hedge-fail')).toMatchObject({ state: 'REJECTED', execution: null, venueId: 'street' });
   });

@@ -56,15 +56,10 @@ function failureReason(row: EmsOrderEvidence): string {
   return row.state ?? 'failed';
 }
 
-function alreadyStopped(row: EmsOrderEvidence): boolean {
-  return row.state === 'REJECTED' || row.state === 'UNWIRED' || row.execution?.status === 'rejected';
-}
-
 function parentResidual(rows: readonly EmsOrderEvidence[]): OmsRepairHedgeResidual {
   let filled: Amount = ZERO;
   let unknown = false;
   for (const row of rows) {
-    if (alreadyStopped(row)) continue;
     if (row.state === 'SUBMIT_UNKNOWN' || row.state === 'OUTCOME_UNKNOWN' || row.execution === null) {
       unknown = true;
       continue;
@@ -72,10 +67,10 @@ function parentResidual(rows: readonly EmsOrderEvidence[]): OmsRepairHedgeResidu
     if (row.execution.status === 'partial') unknown = true;
     filled = add(filled, row.execution.filledAmount);
   }
-  return {
-    filled: formatAmount(filled),
-    remaining: unknown ? null : formatAmount(ZERO),
-  };
+  const filledText = formatAmount(filled);
+  if (unknown) return { filled: filledText, remaining: null };
+  // Known fills have no parent size and no retained residual to subtract.
+  return { filled: filledText, remaining: null };
 }
 
 export function repairFailedHedgeChild(input: OmsRepairHedgeInput): OmsRepairHedgeResult {
