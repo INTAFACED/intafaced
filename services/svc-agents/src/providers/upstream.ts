@@ -208,8 +208,23 @@ export class UpstreamModelProvider implements ModelProvider {
     const response = await this.send(this.completionsPath, body, request.signal, 'text/event-stream');
     if (!response.body) throw new ProviderError('Upstream returned no stream body', this.id, true, response.status);
 
-    let usage: TokenUsage | undefined;
+    // Input and output arrive on different events. message_start carries the
+    // input count (on the event, or under message.usage). message_delta carries
+    // the output count. Hold each side until both are present. A missing output
+    // count is a refusal — do not fill it with 0. Embeddings still pass
+    // partial:true; a completion stream does not.
+    let inputTokens: number | undefined;
+    let outputTokens: number | undefined;
     let stopReason: StopReason | undefined;
+
+    const absorbUsage = (raw: unknown): void => {
+      if (!raw || typeof raw !== 'object') return;
+      const usage = raw as UpstreamUsage;
+      const input = usage.input_tokens ?? usage.prompt_tokens;
+      const output = usage.output_tokens ?? usage.completion_tokens;
+      if (input !== undefined) inputTokens = input;
+      if (output !== undefined) outputTokens = output;
+    };
 
     for await (const event of readServerSentEvents(response.body)) {
       const type = typeof event.type === 'string' ? event.type : '';
@@ -220,17 +235,26 @@ export class UpstreamModelProvider implements ModelProvider {
         continue;
       }
 
+      if (type === 'message_start') {
+        absorbUsage(event.usage);
+        const message = event.message;
+        if (message && typeof message === 'object') absorbUsage((message as { usage?: unknown }).usage);
+      }
+
       if (type === 'message_delta' || type === 'message_stop') {
-        const raw = event.usage as UpstreamUsage | undefined;
-        if (raw) usage = readUsage(raw, this.id, { partial: true });
+        absorbUsage(event.usage);
         const reason = (event.delta as { stop_reason?: string } | undefined)?.stop_reason;
         if (reason) stopReason = STOP_REASONS[reason] ?? 'end';
       }
     }
 
-    // A stream that never reported usage cannot be metered. Same rule as the
-    // non-streaming path: fail loudly rather than bill zero.
-    if (!usage) throw new ProviderError('Upstream stream ended without reporting token usage', this.id, true);
+    // A stream that never reported both counts cannot be metered. Same rule as
+    // the non-streaming path: fail loudly rather than bill zero.
+    if (inputTokens === undefined || outputTokens === undefined) {
+      throw new ProviderError('Upstream stream ended without reporting token usage', this.id, true);
+    }
+
+    const usage = readUsage({ input_tokens: inputTokens, output_tokens: outputTokens }, this.id);
 
     yield { delta: '', done: true, usage, ...(stopReason ? { stopReason } : {}) };
   }
