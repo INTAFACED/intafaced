@@ -1,5 +1,6 @@
 import { isHex, type Hex } from 'viem';
 import { MemoryBroadcastStore, type BroadcastStore } from './broadcast-store.js';
+import { MemoryDepositAddressBook, type DepositAddressBook } from './deposit-address-book.js';
 import { MemoryChain, UnconfiguredChain, type CryptoChainPort } from './chain-port.js';
 import { parseEvmAssets } from './evm-assets.js';
 import { EvmLiveChain } from './evm-chain.js';
@@ -552,9 +553,17 @@ export function selectPublicCheckoutRailDetailed(
  *   and get MemoryBroadcastStore (single-process). staging/prod live chain
  *   REFUSES to build without one — two replicas on MemoryBroadcastStore can
  *   double-send. Production boot injects PostgresBroadcastStore.
+ * @param depositAddresses Durable payment→deposit-address book. Dev/test may
+ *   omit it and get a process-local book. staging/prod live chain REFUSES to
+ *   build without one — a restart would forget which payment owns an address.
+ *   Production boot injects PostgresDepositAddressBook.
  */
-export function defaultChainFor(env: Record<string, string | undefined> = process.env, broadcasts?: BroadcastStore): CryptoChainPort {
-  const live = tryLiveChainFromEnv(env, broadcasts);
+export function defaultChainFor(
+  env: Record<string, string | undefined> = process.env,
+  broadcasts?: BroadcastStore,
+  depositAddresses?: DepositAddressBook,
+): CryptoChainPort {
+  const live = tryLiveChainFromEnv(env, broadcasts, depositAddresses);
   if (live) return live;
 
   const appEnv = env.APP_ENV ?? 'dev';
@@ -583,6 +592,7 @@ export function shouldRegisterCardSandbox(env: Record<string, string | undefined
 export function tryLiveChainFromEnv(
   env: Record<string, string | undefined> = process.env,
   broadcasts?: BroadcastStore,
+  depositAddresses?: DepositAddressBook,
 ): EvmLiveChain | null {
   const rpcUrl = env.PAY_CRYPTO_RPC_URL?.trim();
   if (!rpcUrl) return null;
@@ -637,6 +647,13 @@ export function tryLiveChainFromEnv(
         `and two replicas can double-send the same payout.`,
     );
   }
+  if (enforced && !depositAddresses) {
+    throw new Error(
+      `Live crypto rail in ${appEnv} requires a durable DepositAddressBook ` +
+        `(PostgresDepositAddressBook). A process-local book forgets which ` +
+        `payment owns a deposit address after restart.`,
+    );
+  }
 
   return new EvmLiveChain({
     rpcUrl,
@@ -645,6 +662,7 @@ export function tryLiveChainFromEnv(
     hotWalletKey: hotKey as Hex,
     assets: parseEvmAssets(assetsRaw!),
     broadcasts: broadcasts ?? new MemoryBroadcastStore(),
+    depositAddresses: depositAddresses ?? new MemoryDepositAddressBook(),
     minConfirmations,
   });
 }

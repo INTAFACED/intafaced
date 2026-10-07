@@ -16,6 +16,12 @@ import {
 import { mnemonicToAccount, privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import type { Amount } from '@intafaced/ledger-client';
 import type { BroadcastStore } from './broadcast-store.js';
+import {
+  MemoryDepositAddressBook,
+  depositBookKey,
+  type DepositAddressAssignment,
+  type DepositAddressBook,
+} from './deposit-address-book.js';
 import { runDurableBroadcast } from './durable-broadcast.js';
 import { ERC20_TRANSFER_TOPIC, fromChainUnits, requireAsset, toChainUnits, type EvmAsset } from './evm-assets.js';
 import type { ChainSendRequest, ConfirmedTransfer, CryptoChainPort } from './chain-port.js';
@@ -32,8 +38,10 @@ import type { ChainSendRequest, ConfirmedTransfer, CryptoChainPort } from './cha
  *
  * Acceptance addresses are HD-derived from `PAY_CRYPTO_DEPOSIT_MNEMONIC` at
  * account index `n` (viem `addressIndex`) where `n` is a stable function of
- * (paymentId, assetId). The same payment always gets the same address; two
- * payments that collide on index walk forward until a free slot is found.
+ * (paymentId, assetId). The assignment is journalled in `DepositAddressBook`.
+ * A new `EvmLiveChain` on the same book returns that address. Two payments
+ * that collide on index walk forward until the book has a free address — the
+ * walk reads the book, not a map that dies with the process.
  *
  * Outbound sends go through a hot wallet (`PAY_CRYPTO_HOT_WALLET_KEY`) and the
  * `BroadcastStore`, so a retried business key never broadcasts twice.
@@ -62,6 +70,11 @@ export interface EvmLiveChainOptions {
   readonly hotWalletKey: Hex;
   readonly assets: ReadonlyMap<string, EvmAsset>;
   readonly broadcasts: BroadcastStore;
+  /**
+   * Shared payment→address book. Omit only for a single process (a private
+   * memory book). A restarted instance must receive the same book.
+   */
+  readonly depositAddresses?: DepositAddressBook;
   /** How deep a transfer must be before we report it as finalized. Owner-published — never invent 6. */
   readonly minConfirmations: number;
   readonly requestTimeoutMs?: number;
@@ -98,6 +111,7 @@ export class EvmLiveChain implements CryptoChainPort {
   private readonly depositMnemonic: string;
   private readonly assets: ReadonlyMap<string, EvmAsset>;
   private readonly broadcasts: BroadcastStore;
+  private readonly addressBook: DepositAddressBook;
   private readonly minConfirmations: number;
 
   private readonly byPayment = new Map<string, AddressBookEntry>();
@@ -131,6 +145,7 @@ export class EvmLiveChain implements CryptoChainPort {
 
     this.assets = options.assets;
     this.broadcasts = options.broadcasts;
+    this.addressBook = options.depositAddresses ?? new MemoryDepositAddressBook();
     this.minConfirmations = options.minConfirmations;
     this.description =
       `live EVM chain id=${options.chainId} rpc=${redactRpc(options.rpcUrl)} ` +
@@ -143,20 +158,30 @@ export class EvmLiveChain implements CryptoChainPort {
 
   async acceptanceAddress(paymentId: string, assetId: string): Promise<string> {
     requireAsset(this.assets, assetId);
-    const key = bookKey(paymentId, assetId);
+    await this.hydrateAddressBook();
+    const key = depositBookKey(paymentId, assetId);
     const existing = this.byPayment.get(key);
     if (existing) return existing.address;
 
-    let index = stableIndex(paymentId, assetId);
+    const stored = await this.addressBook.findByPayment(paymentId, assetId);
+    if (stored) {
+      this.remember(stored);
+      return getAddress(stored.address);
+    }
+
+    let index = stableDepositIndex(paymentId, assetId);
     for (let guard = 0; guard < 1_000; guard++, index = (index + 1) >>> 0) {
       const address = deriveDepositAddress(this.depositMnemonic, index);
       const taken = this.byAddress.get(address.toLowerCase());
       if (taken && (taken.paymentId !== paymentId || taken.assetId !== assetId)) continue;
 
-      const entry: AddressBookEntry = { paymentId, assetId, address, index };
-      this.byPayment.set(key, entry);
-      this.byAddress.set(address.toLowerCase(), entry);
-      return address;
+      const claimed = await this.addressBook.claim({ paymentId, assetId, address, index });
+      this.remember(claimed.entry);
+      if (claimed.kind === 'taken') continue;
+      if (claimed.entry.paymentId !== paymentId || claimed.entry.assetId !== assetId) {
+        throw new Error('deposit address book bound a different payment');
+      }
+      return getAddress(claimed.entry.address);
     }
     throw new Error('Could not allocate a unique acceptance address — address book exhausted');
   }
@@ -222,6 +247,7 @@ export class EvmLiveChain implements CryptoChainPort {
    * Safe to call from `inboundTransfer` and from the watcher loop.
    */
   async refresh(): Promise<void> {
+    await this.hydrateAddressBook();
     this.tip = await this.public.getBlockNumber();
     if (!this.started) {
       const lookback = 2_000n;
@@ -295,6 +321,22 @@ export class EvmLiveChain implements CryptoChainPort {
     this.started = true;
     this.observed.clear();
     this.finalizedEmitted.clear();
+  }
+
+  private async hydrateAddressBook(): Promise<void> {
+    for (const entry of await this.addressBook.list()) this.remember(entry);
+  }
+
+  private remember(entry: DepositAddressAssignment): void {
+    const address = getAddress(entry.address);
+    const stored: AddressBookEntry = {
+      paymentId: entry.paymentId,
+      assetId: entry.assetId,
+      address,
+      index: entry.index,
+    };
+    this.byPayment.set(depositBookKey(entry.paymentId, entry.assetId), stored);
+    this.byAddress.set(address.toLowerCase(), stored);
   }
 
   private record(input: {
@@ -386,11 +428,8 @@ export class EvmLiveChain implements CryptoChainPort {
   }
 }
 
-function bookKey(paymentId: string, assetId: string): string {
-  return `${paymentId}\0${assetId}`;
-}
-
-function stableIndex(paymentId: string, assetId: string): number {
+/** Stable HD slot for a payment and asset. The book, not this function, owns occupancy. */
+export function stableDepositIndex(paymentId: string, assetId: string): number {
   const digest = keccak256(toBytes(`${paymentId}:${assetId}`));
   return Number(BigInt(digest) & 0x7fff_ffffn);
 }

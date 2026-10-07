@@ -22,12 +22,15 @@ const indexSrc = readFileSync(join(here, 'index.ts'), 'utf8');
 describe('boot wires PostgresBroadcastStore', () => {
   it('constructs the durable journal and injects it into defaultChainFor', () => {
     expect(indexSrc).toMatch(/import \{ PostgresBroadcastStore \} from '\.\/rails\/broadcast-store\.js'/);
+    expect(indexSrc).toMatch(/import \{ PostgresDepositAddressBook \} from '\.\/rails\/deposit-address-book\.js'/);
     expect(indexSrc).toMatch(/const broadcasts = new PostgresBroadcastStore\(sql\)/);
-    expect(indexSrc).toMatch(/defaultChainFor\(process\.env, broadcasts\)/);
+    expect(indexSrc).toMatch(/const depositAddresses = new PostgresDepositAddressBook\(sql\)/);
+    expect(indexSrc).toMatch(/defaultChainFor\(process\.env, broadcasts, depositAddresses\)/);
   });
 
   it('does not fall back to MemoryBroadcastStore at boot', () => {
     expect(indexSrc).not.toMatch(/new MemoryBroadcastStore\s*\(/);
+    expect(indexSrc).not.toMatch(/new MemoryDepositAddressBook\s*\(/);
     expect(indexSrc).not.toMatch(/defaultChainFor\(process\.env\)\s*;/);
   });
 });

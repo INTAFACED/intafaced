@@ -11,6 +11,7 @@ import { RailRegistry } from './rails/registry.js';
 import { CryptoChainWatcher, PostgresChainWatcherCursorStore } from './rails/chain-watcher.js';
 import { EvmLiveChain } from './rails/evm-chain.js';
 import { PostgresBroadcastStore } from './rails/broadcast-store.js';
+import { PostgresDepositAddressBook } from './rails/deposit-address-book.js';
 import { PostgresRestIdempotencyStore } from './rest-idempotency.js';
 import { MerchantWebhookService, PostgresMerchantWebhookStore } from './merchant-webhooks.js';
 import {
@@ -103,11 +104,14 @@ const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
 /**
  * Live crypto outbound broadcasts journal in Postgres so multi-replica fleets
  * share claim→putSigned→sendRaw→put (MemoryBroadcastStore alone is single-process).
- * Unconfigured/Memory chain paths ignore the store.
+ * Deposit addresses journal in the same database so a new process keeps the
+ * payment→address assignment (a process-local book does not).
+ * Unconfigured/Memory chain paths ignore both stores.
  */
 const broadcasts = new PostgresBroadcastStore(sql);
+const depositAddresses = new PostgresDepositAddressBook(sql);
 const watcherCursors = new PostgresChainWatcherCursorStore(sql);
-const chain = defaultChainFor(process.env, broadcasts);
+const chain = defaultChainFor(process.env, broadcasts, depositAddresses);
 
 const cryptoRail = new CryptoNativeAdapter({
   chain,

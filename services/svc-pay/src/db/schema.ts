@@ -578,6 +578,26 @@ export const chainWatcherCursors = pay.table('chain_watcher_cursors', {
 });
 
 /**
+ * Deposit address book (Class M). Not money — which payment and asset own
+ * an HD-derived acceptance address. `hdIndex` is the derivation slot, not an amount.
+ * Unique address so a restarted process cannot hand that address to a second payment.
+ */
+export const cryptoDepositAddresses = pay.table(
+  'crypto_deposit_addresses',
+  {
+    paymentId: text('payment_id').notNull(),
+    assetId: text('asset_id').notNull(),
+    address: text('address').notNull(),
+    hdIndex: bigint('hd_index', { mode: 'number' }).notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ name: 'crypto_deposit_addresses_pkey', columns: [t.paymentId, t.assetId] }),
+    uniqueIndex('crypto_deposit_addresses_address_idx').on(t.address),
+  ],
+);
+
+/**
  * Merchant REST Idempotency-Key journal (pay.public-api step 2 / ADR §2.2).
  * Not money — fingerprints + prior HTTP responses so retries never double-charge.
  */
@@ -788,6 +808,7 @@ export const schema = {
   deposits,
   withdrawals,
   cryptoBroadcasts,
+  cryptoDepositAddresses,
   restIdempotency,
   merchantWebhookEndpoints,
   merchantWebhookDeliveries,
