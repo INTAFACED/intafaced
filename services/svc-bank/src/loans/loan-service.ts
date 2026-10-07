@@ -1682,44 +1682,95 @@ export class LoanService {
   }): Promise<void> {
     const { loan, product, collateralMark } = input;
 
-    const quoted = await this.venue.quote({
-      loanId: loan.id,
-      collateralAssetId: loan.collateralAssetId,
-      collateralAmount: input.collateralToSell,
-      debtAssetId: loan.debtAssetId,
-      markPrice: collateralMark.price,
-    });
-
-    if (quoted === null || quoted.proceeds <= 0n) {
-      // No buyer means no sale. Booking one anyway would post a fictional trade
-      // and hand the borrower's collateral to an account that never paid for it.
-      throw new BankError(
-        `No counterparty for ${formatAmount(input.collateralToSell)} ${loan.collateralAssetId} on loan ${loan.id}`,
-        'bank.no_liquidation_counterparty',
-      );
-    }
-
-    const split = splitProceeds({
-      proceeds: quoted.proceeds,
-      interestOwed: input.debt.interest,
-      principalOwed: input.debt.principal,
-      penaltyBps: product.policy.penaltyBps,
-      closesPosition: input.closesPosition,
-    });
-
-    // A rung left pending (insurance post failed after the sale, or a crash
-    // before settle) must be finished, not followed by another sale of the
-    // same collateral. The shortfall figure is not on that row yet — it is
-    // written with the bad-debt tx id below — so the key is the pending claim.
-    const pendingTranche = await this.sql<Array<{ tranche: number }>>`
-      SELECT tranche FROM bank.loan_liquidations
+    // A rung left pending must be finished from the sale already stored on it,
+    // not followed by another sale of the same collateral. The claim is inserted
+    // with shortfall 0. drivenPost stores ledger_tx_id and only then writes
+    // shortfall. A retry in that window still sees shortfall 0. Building a later
+    // quote and writing its shortfall would replace the first sale.
+    const pendingRows = await this.sql<
+      Array<{
+        tranche: number;
+        proceeds: string;
+        principal_repaid: string;
+        interest_repaid: string;
+        penalty: string;
+        surplus_returned: string;
+        shortfall: string;
+        collateral_sold: string;
+        mark_price: string;
+        ledger_tx_id: string | null;
+      }>
+    >`
+      SELECT tranche,
+             proceeds::text AS proceeds,
+             principal_repaid::text AS principal_repaid,
+             interest_repaid::text AS interest_repaid,
+             penalty::text AS penalty,
+             surplus_returned::text AS surplus_returned,
+             shortfall::text AS shortfall,
+             collateral_sold::text AS collateral_sold,
+             mark_price::text AS mark_price,
+             ledger_tx_id
+        FROM bank.loan_liquidations
        WHERE loan_id = ${loan.id} AND status = 'pending'
        ORDER BY tranche ASC
        LIMIT 1
     `;
-    const tranche = pendingTranche[0]
-      ? Number(pendingTranche[0].tranche)
-      : await this.nextSequence('loan_liquidations', loan.id, 'tranche');
+    const pending = pendingRows[0];
+    const storedSale = pending
+      ? {
+          proceeds: parseAmount(pending.proceeds),
+          collateralSold: parseAmount(pending.collateral_sold),
+          markPrice: parseAmount(pending.mark_price),
+          principalRepaid: parseAmount(pending.principal_repaid),
+          interestRepaid: parseAmount(pending.interest_repaid),
+          penalty: parseAmount(pending.penalty),
+          surplusToBorrower: parseAmount(pending.surplus_returned),
+          shortfall: parseAmount(pending.shortfall),
+        }
+      : null;
+
+    // The sale is already on the ledger once ledger_tx_id is stored. A later
+    // quote is not a buyer for that rung.
+    const quoted = pending?.ledger_tx_id
+      ? null
+      : await this.venue.quote({
+          loanId: loan.id,
+          collateralAssetId: loan.collateralAssetId,
+          collateralAmount: storedSale ? storedSale.collateralSold : input.collateralToSell,
+          debtAssetId: loan.debtAssetId,
+          markPrice: storedSale ? storedSale.markPrice : collateralMark.price,
+        });
+
+    if (!pending?.ledger_tx_id && (quoted === null || quoted.proceeds <= 0n)) {
+      // No buyer means no sale. Booking one anyway would post a fictional trade
+      // and hand the borrower's collateral to an account that never paid for it.
+      throw new BankError(
+        `No counterparty for ${formatAmount(storedSale ? storedSale.collateralSold : input.collateralToSell)} ${loan.collateralAssetId} on loan ${loan.id}`,
+        'bank.no_liquidation_counterparty',
+      );
+    }
+
+    const split = storedSale
+      ? {
+          principalRepaid: storedSale.principalRepaid,
+          interestRepaid: storedSale.interestRepaid,
+          penalty: storedSale.penalty,
+          surplusToBorrower: storedSale.surplusToBorrower,
+          shortfall: storedSale.shortfall,
+        }
+      : splitProceeds({
+          proceeds: quoted!.proceeds,
+          interestOwed: input.debt.interest,
+          principalOwed: input.debt.principal,
+          penaltyBps: product.policy.penaltyBps,
+          closesPosition: input.closesPosition,
+        });
+    const saleProceeds = storedSale ? storedSale.proceeds : quoted!.proceeds;
+    const saleCollateral = storedSale ? storedSale.collateralSold : input.collateralToSell;
+    const saleMark = storedSale ? storedSale.markPrice : collateralMark.price;
+
+    const tranche = pending ? Number(pending.tranche) : await this.nextSequence('loan_liquidations', loan.id, 'tranche');
 
     await withMoneySpan('bank.loan.liquidate', { operation: 'loan-liquidate', loanId: loan.id, tranche }, async (span) => {
       span.setAttribute('intafaced.ltv_bps', input.ltv);
@@ -1736,9 +1787,9 @@ export class LoanService {
                 loan_id, tranche, ltv_bps, mark_price, grace_waived, collateral_sold, proceeds,
                 principal_repaid, interest_repaid, penalty, surplus_returned
               ) VALUES (
-                ${loan.id}, ${tranche}, ${input.ltv}, ${formatAmount(collateralMark.price)}::numeric,
-                ${input.graceWaived}, ${formatAmount(input.collateralToSell)}::numeric,
-                ${formatAmount(quoted.proceeds)}::numeric, ${formatAmount(split.principalRepaid)}::numeric,
+                ${loan.id}, ${tranche}, ${input.ltv}, ${formatAmount(saleMark)}::numeric,
+                ${input.graceWaived}, ${formatAmount(saleCollateral)}::numeric,
+                ${formatAmount(saleProceeds)}::numeric, ${formatAmount(split.principalRepaid)}::numeric,
                 ${formatAmount(split.interestRepaid)}::numeric, ${formatAmount(split.penalty)}::numeric,
                 ${formatAmount(split.surplusToBorrower)}::numeric
               )
@@ -1751,24 +1802,31 @@ export class LoanService {
             `;
           return { claimed: false as const, id: existing[0]!.id, ledgerTxId: existing[0]!.ledger_tx_id };
         },
-        post: () =>
-          this.ledger.post(
+        post: () => {
+          if (!quoted) {
+            throw new BankError(
+              `Loan ${loan.id} tranche ${tranche} already has a ledger tx — refusing a second sale`,
+              'bank.no_liquidation_counterparty',
+            );
+          }
+          return this.ledger.post(
             recipes.loanLiquidate({
               loanId: loan.id,
               userId: loan.userId,
               tranche,
               collateralAssetId: loan.collateralAssetId,
-              collateralSold: input.collateralToSell,
+              collateralSold: saleCollateral,
               debtAssetId: loan.debtAssetId,
-              proceeds: quoted.proceeds,
+              proceeds: saleProceeds,
               principalRepaid: split.principalRepaid,
               interestRepaid: split.interestRepaid,
               penalty: split.penalty,
               surplusToBorrower: split.surplusToBorrower,
               buyer: quoted.buyer,
-              markPrice: collateralMark.price,
+              markPrice: saleMark,
             }),
-          ),
+          );
+        },
         table: 'loan_liquidations',
         // Shortfall stays 0 on the claim. It is written in the same statement as
         // the bad-debt tx id, before status becomes settled, so the row never
@@ -1806,8 +1864,11 @@ export class LoanService {
     });
 
     const remaining = await this.outstanding(loan.id);
-    if (remaining.total <= 0n || input.closesPosition) {
-      const held = await this.collateralOf(loan);
+    const held = await this.collateralOf(loan);
+    // A stored sale already moved its collateral. Whether it closed the position
+    // is what is left, not the later plan that found this pending rung.
+    const closesPosition = pending?.ledger_tx_id ? held <= 0n : input.closesPosition;
+    if (remaining.total <= 0n || closesPosition) {
       // Surviving collateral on a cleared debt is the borrower's. Not keeping it
       // is the difference between a liquidation and a confiscation.
       if (remaining.total <= 0n && held > 0n) await this.releaseCollateral(loan, held);
@@ -1834,11 +1895,11 @@ export class LoanService {
   private async coverShortfallTranche(loan: LoanRecord, tranche: number, shortfall: Amount): Promise<void> {
     try {
       const posted = await this.ledger.post(recipes.loanBadDebt({ loanId: loan.id, debtAssetId: loan.debtAssetId, shortfall }));
-      // A retry after this statement has already run comes back with a later
-      // quote. loanBadDebt is keyed by loan id, so the post above returns the
-      // original transaction. Writing that quote's shortfall here would replace
-      // the figure stored with the first bad-debt tx. Only the still-zero claim
-      // takes a shortfall, and it takes it once, in this same statement.
+      // This is the quote that created the row. A retry whose ledger_tx_id is
+      // already stored settles in drivenPost and does not reach here, so a later
+      // quote cannot fill the claim's zero. A figure already stored is left
+      // alone: the update matches only while shortfall is still 0, and it writes
+      // that figure once, in the same statement as the bad-debt tx id.
       await this.sql`
         UPDATE bank.loan_liquidations
            SET bad_debt_ledger_tx_id = ${posted.id},
@@ -2104,8 +2165,23 @@ export class LoanService {
       // ledger_tx_id can be recorded while the row is still pending, when a
       // beforeSettle step has to run before the row may be marked settled.
       // Only a settled row is done.
+      //
+      // A pending row that already names its ledger tx is the crash after that
+      // id was stored and before shortfall was written. The sale on the row is
+      // the one that posted. Settle it. Do not post again, and do not run
+      // beforeSettle: that closure is this call's quote, and shortfall is still
+      // the claim's zero, so the update would write the later figure onto the
+      // first sale. The call that created the row writes its own shortfall,
+      // together with bad_debt_ledger_tx_id, before it marks the row settled.
       const rows = await this.sql.unsafe<Array<{ status: string }>>(`SELECT status FROM bank.${input.table} WHERE id = $1`, [claim.id]);
       if (rows[0]?.status === 'settled') return claim.ledgerTxId;
+      if (rows[0]?.status === 'pending') {
+        await this.sql.unsafe(
+          `UPDATE bank.${input.table} SET status = 'settled', ledger_tx_id = $1, settled_at = now() WHERE id = $2 AND status = 'pending' AND ledger_tx_id = $1`,
+          [claim.ledgerTxId, claim.id],
+        );
+        return claim.ledgerTxId;
+      }
     }
 
     // Reached when the row exists but has no tx id: this runner claimed it, or a
