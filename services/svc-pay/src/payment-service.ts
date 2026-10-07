@@ -2376,19 +2376,29 @@ export class PayService {
       case 'dispute.opened': {
         // Post the opening recipe via ledger-client, or named refuse. Never claim
         // posted without a tx id. Shortfall/won stay unwired (no invented cover).
+        //
+        // The debit itself is gated inside openChargeback: captured or settled
+        // only, capped at captured − refunded, and it will not spend clearing a
+        // pending settlement has frozen. A created, failed, or refunded payment
+        // throws before this marker is written, so the delivery is not acked as
+        // if the merchant had been debited. An omitted rail amount is only a
+        // ceiling — the row amount is not the debit when it exceeds what was
+        // captured.
         const disputeId = event.disputeId?.trim();
         if (disputeId) {
-          const amount = event.amount === undefined ? payment.amount : formatAmount(event.amount);
+          const requested = formatAmount(event.amount === undefined ? parseAmount(payment.amount) : event.amount);
           const assetId = event.assetId ?? payment.currency;
           const wire = await this.postChargebackOpenOrRefuse({
             disputeId,
             paymentId: payment.id,
             merchantId: payment.merchant_id,
-            amount,
+            amount: requested,
             assetId,
+            reasonCode: event.reasonCode ?? null,
           });
+          const amount = wire.ledgerPost?.amount ?? requested;
           let marked = false;
-          if (payment.status === 'settled' || payment.status === 'captured') {
+          if (payment.status === 'settled' || payment.status === 'captured' || payment.status === 'disputed') {
             await this.markDisputed(payment.id, {
               disputeId,
               reasonCode: event.reasonCode ?? null,
@@ -2492,6 +2502,10 @@ export class PayService {
       this.sql,
       async (tx) => {
         const row = await lockPayment(tx, paymentId);
+        // openChargeback already moved captured|settled → disputed under the
+        // payment lock, in the same transaction as the debit. A second mark
+        // from the webhook must not throw and must not append another event.
+        if (row.status === 'disputed') return this.view(tx, row);
         assertTransition(row, 'disputed');
         await appendEvent(tx, row.id, 'disputed', {
           disputeId: meta.disputeId,
@@ -3192,6 +3206,12 @@ export class PayService {
    * Post the sole chargeback-open recipe. The recipe owns the legs; this
    * service only reads the two real pots and applies its documented
    * clearing-first split. No shortfall policy is invented here.
+   *
+   * The row is locked first. A chargeback posts only for a captured or settled
+   * payment (or one already marked disputed after that), and the debit is
+   * capped at captured − refunded. An omitted rail amount must not become the
+   * full row amount when that exceeds what was captured. Clearing that
+   * prepareSettlement has frozen — this payment, or any other — is not spent.
    */
   async openChargeback(input: {
     disputeId: string;
@@ -3199,29 +3219,99 @@ export class PayService {
     merchantId: string;
     amount: string;
     assetId: string;
-  }): Promise<{ txId: string }> {
-    const payment = await this.getPayment(input.paymentId);
+    reasonCode?: string | null;
+  }): Promise<{ txId: string; amount: string }> {
     const merchant = await this.getMerchant(input.merchantId);
-    if (payment.merchantId !== input.merchantId) throw new PayError('Payment does not belong to merchant', 'pay.payment_not_found');
-    if (payment.assetId !== input.assetId) throw new PayError('Chargeback asset does not match payment', 'pay.invalid_amount');
-    const amount = parseAmount(input.amount);
-    const clearing = await this.clearingBalance(input.merchantId, input.assetId);
-    const available = await this.merchantBalance(input.merchantId, input.assetId);
-    const fromClearing = clearing < amount ? clearing : amount;
-    const fromMerchantBalance = amount - fromClearing;
-    if (fromMerchantBalance > available) {
-      throw new PayError('Merchant balances cannot cover chargeback', 'pay.invalid_amount');
-    }
-    return postDisputeOpening(this.ledger, {
-      disputeId: input.disputeId,
-      paymentId: input.paymentId,
-      merchantId: input.merchantId,
-      merchantUserId: merchant.userId,
-      assetId: input.assetId,
-      rail: payment.railAdapter,
-      fromClearing,
-      fromMerchantBalance,
-    });
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const row = await lockPayment(tx, input.paymentId);
+        if (row.merchant_id !== input.merchantId) throw new PayError('Payment does not belong to merchant', 'pay.payment_not_found');
+        if (row.currency !== input.assetId) throw new PayError('Chargeback asset does not match payment', 'pay.invalid_amount');
+        // `disputed` is only reachable from captured|settled. The router marks
+        // first; the money gate is still captured − refunded under this lock.
+        if (row.status !== 'captured' && row.status !== 'settled' && row.status !== 'disputed') {
+          throw new PayError(
+            `Payment ${row.id} is ${row.status} — a chargeback posts only after the payment is captured or settled`,
+            'pay.nothing_captured',
+            { paymentId: row.id, status: row.status },
+          );
+        }
+
+        const pendingSettlement = await tx<Array<{ settlement_id: string }>>`
+          SELECT e.payload->>'settlementId' AS settlement_id
+            FROM pay.payment_events e
+            JOIN pay.settlements s ON s.id = (e.payload->>'settlementId')::uuid
+           WHERE e.payment_id = ${row.id}
+             AND e.event = 'settlement.included'
+             AND s.status = 'pending'
+           LIMIT 1
+        `;
+        if (pendingSettlement[0]) {
+          throw new PayError(
+            `Payment ${row.id} is frozen in pending settlement ${pendingSettlement[0].settlement_id} — chargeback must not spend clearing prepareSettlement has frozen`,
+            'pay.settlement_in_flight',
+            { settlementId: pendingSettlement[0].settlement_id, paymentId: row.id },
+          );
+        }
+
+        const totals = await totalsFor(tx, row.id);
+        const chargebackable = totals.captured - totals.refunded;
+        if (chargebackable <= 0n) {
+          throw new PayError(`Payment ${row.id} has nothing captured to charge back`, 'pay.nothing_captured', { paymentId: row.id });
+        }
+
+        const requested = parseAmount(input.amount);
+        if (requested <= 0n) throw new PayError('Chargeback amount must be positive', 'pay.invalid_amount');
+        // Cap. The caller may omit the rail amount and hand us the row amount;
+        // that is a ceiling, not a licence to debit value this payment never captured.
+        const amount = requested > chargebackable ? chargebackable : requested;
+
+        const pendingGross = await tx<Array<{ gross: string }>>`
+          SELECT gross
+            FROM pay.settlements
+           WHERE merchant_id = ${row.merchant_id}
+             AND asset_id = ${row.currency}
+             AND status = 'pending'
+        `;
+        let frozen = 0n;
+        for (const pending of pendingGross) frozen += parseAmount(pending.gross);
+
+        const clearing = (await this.ledger.balance(merchantClearing(row.merchant_id, row.currency))).amount;
+        const available = (await this.ledger.balance(userAvailable(merchant.userId, row.currency))).amount;
+        const spendableClearing = clearing > frozen ? clearing - frozen : 0n;
+        const fromClearing = spendableClearing < amount ? spendableClearing : amount;
+        const fromMerchantBalance = amount - fromClearing;
+        if (fromMerchantBalance > available) {
+          throw new PayError('Merchant balances cannot cover chargeback', 'pay.invalid_amount');
+        }
+
+        const posted = await postDisputeOpening(this.ledger, {
+          disputeId: input.disputeId,
+          paymentId: row.id,
+          merchantId: row.merchant_id,
+          merchantUserId: merchant.userId,
+          assetId: row.currency,
+          rail: row.rail_adapter,
+          fromClearing,
+          fromMerchantBalance,
+        });
+
+        if (row.status === 'captured' || row.status === 'settled') {
+          await appendEvent(tx, row.id, 'disputed', {
+            disputeId: input.disputeId,
+            reasonCode: input.reasonCode ?? null,
+            ledgerWire: 'posted',
+            ledgerTxId: posted.txId,
+            ledgerSocket: null,
+          });
+          await tx`UPDATE pay.payments SET status = 'disputed', updated_at = now() WHERE id = ${row.id}`;
+        }
+
+        return { txId: posted.txId, amount: formatAmount(amount) };
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
   }
 
   /**
@@ -3234,7 +3324,8 @@ export class PayService {
     merchantId: string;
     amount: string;
     assetId: string;
-  }): Promise<{ ledgerPost?: { txId: string }; ledgerRefuse?: ChargebackLedgerRefuse }> {
+    reasonCode?: string | null;
+  }): Promise<{ ledgerPost?: { txId: string; amount: string }; ledgerRefuse?: ChargebackLedgerRefuse }> {
     try {
       return { ledgerPost: await this.openChargeback(input) };
     } catch (e) {

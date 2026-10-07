@@ -947,6 +947,147 @@ describe('svc-pay money PG-hard', () => {
       expect(c?.ledgerRefuse?.code).toBe('pay.chargeback_uncovered');
       expect(ledger.journal().some((t) => t.reason.includes('shortfall'))).toBe(false);
     });
+
+    it('dispute.opened on a payment that was never captured does not debit the merchant', async () => {
+      const m = await merchant(0);
+      const captured = await cardPayment(m.id, '100');
+      await pay.capture(captured.id);
+      const uncaptured = await cardPayment(m.id, '40');
+      expect(await clearingOf(m.id)).toBe('100');
+      expect(await availableOf(MERCHANT_USER)).toBe('0');
+
+      const disputeId = `dsp-never-captured-${uncaptured.id}`;
+      await expect(
+        pay.handleWebhook(
+          'card-sandbox',
+          signed('card-sandbox', {
+            id: 'evt_cb_never_captured',
+            type: 'dispute.opened',
+            ref: uncaptured.railRef,
+            assetId: 'USDT',
+            disputeId,
+          }),
+        ),
+      ).rejects.toMatchObject({ code: 'pay.nothing_captured' });
+
+      expect(await clearingOf(m.id)).toBe('100');
+      expect(await availableOf(MERCHANT_USER)).toBe('0');
+      expect(ledger.journal().some((t) => t.reason === 'pay.chargeback.opened')).toBe(false);
+      expect((await pay.getPayment(uncaptured.id)).status).toBe('authorized');
+      expect(await events(uncaptured.id)).not.toContain('webhook.dispute.opened');
+      expect(defaultDisputeCaseStore.get(disputeId)).toBeNull();
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('dispute.opened caps an omitted amount at captured minus refunded', async () => {
+      const m = await merchant(0);
+      const settled = await cardPayment(m.id, '100');
+      await pay.capture(settled.id);
+      await settle(m.id, 'w-cb-cap');
+      const partial = await cardPayment(m.id, '100');
+      await pay.capture(partial.id);
+      await pay.refund(partial.id, amt('60'));
+      expect(await clearingOf(m.id)).toBe('40');
+      expect(await availableOf(MERCHANT_USER)).toBe('100');
+
+      const disputeId = `dsp-cap-${partial.id}`;
+      const outcome = await pay.handleWebhook(
+        'card-sandbox',
+        signed('card-sandbox', {
+          id: 'evt_cb_cap',
+          type: 'dispute.opened',
+          ref: partial.railRef,
+          assetId: 'USDT',
+          disputeId,
+        }),
+      );
+
+      expect(outcome.applied).toBe(true);
+      expect(await clearingOf(m.id)).toBe('0');
+      expect(await availableOf(MERCHANT_USER)).toBe('100');
+      expect((await pay.getPayment(partial.id)).status).toBe('disputed');
+      expect(defaultDisputeCaseStore.get(disputeId)?.amount).toBe('40');
+      expect(defaultDisputeCaseStore.get(disputeId)?.ledgerWire).toBe('posted');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('dispute.opened does not spend clearing prepareSettlement froze for another payment', async () => {
+      const base = new MemoryLedger();
+      const gate = { blockSettle: true };
+      const ledgerProxy: LedgerClient = {
+        post: async (request: PostRequest) => {
+          if (gate.blockSettle && request.reason === 'pay.settled') {
+            throw new Error('simulated ledger outage during settlement post');
+          }
+          return base.post(request);
+        },
+        balance: (ref) => base.balance(ref),
+        balances: (ownerType, ownerId) => base.balances(ownerType, ownerId),
+        getTx: (txId) => base.getTx(txId),
+        getTxByKey: (key) => base.getTxByKey(key),
+      };
+      const gated = new PayService(sql, ledgerProxy, rails);
+      const window = {
+        merchantId: '',
+        window: 'w-cb-frozen',
+        assetId: 'USDT',
+        from: new Date(Date.now() - 24 * 3600_000),
+        to: new Date(Date.now() + 24 * 3600_000),
+      };
+
+      const m = await gated.createMerchant({ userId: MERCHANT_USER, pricing: { feeBps: 0 } });
+      window.merchantId = m.id;
+      const frozen = await gated.createPayment({
+        merchantId: m.id,
+        amount: amt('100'),
+        assetId: 'USDT',
+        method: 'card',
+        railAdapter: 'card-sandbox',
+        instrument: { kind: 'card', token: 'tok_ok' },
+      });
+      await gated.authorize(frozen.id);
+      await gated.capture(frozen.id);
+      await expect(gated.settleWindow(window)).rejects.toThrow(/simulated ledger outage/);
+
+      const createdOther = await gated.createPayment({
+        merchantId: m.id,
+        amount: amt('25'),
+        assetId: 'USDT',
+        method: 'card',
+        railAdapter: 'card-sandbox',
+        instrument: { kind: 'card', token: 'tok_ok' },
+      });
+      const other = await gated.authorize(createdOther.id);
+      await gated.capture(other.id);
+      expect(formatAmount((await base.balance(merchantClearing(m.id, 'USDT'))).amount)).toBe('125');
+
+      const disputeId = `dsp-frozen-other-${other.id}`;
+      const outcome = await gated.handleWebhook(
+        'card-sandbox',
+        signed('card-sandbox', {
+          id: 'evt_cb_frozen_other',
+          type: 'dispute.opened',
+          ref: other.railRef,
+          amount: '80',
+          assetId: 'USDT',
+          disputeId,
+        }),
+      );
+
+      expect(outcome.applied).toBe(true);
+      expect(formatAmount((await base.balance(merchantClearing(m.id, 'USDT'))).amount)).toBe('100');
+      expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('0');
+      expect((await gated.getPayment(frozen.id)).status).toBe('captured');
+      expect((await gated.getPayment(other.id)).status).toBe('disputed');
+      expect(defaultDisputeCaseStore.get(disputeId)?.amount).toBe('25');
+
+      gate.blockSettle = false;
+      const settlement = await gated.settleWindow(window);
+      expect(settlement.status).toBe('posted');
+      expect(formatAmount((await base.balance(merchantClearing(m.id, 'USDT'))).amount)).toBe('0');
+      expect(formatAmount((await base.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('100');
+      expect(base.reconcile()).toEqual({ ok: true });
+    });
   });
 
   // ── Settlement ────────────────────────────────────────────────────────────
