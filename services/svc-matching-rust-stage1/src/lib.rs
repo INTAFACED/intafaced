@@ -315,6 +315,9 @@ impl Book {
     }
 
     fn submit_at(&mut self, order: Order, now: Option<&str>) -> Result<(), String> {
+        if order.accountId.trim().is_empty() {
+            return Err("self_trade: STP identity missing; the engine does not invent a group".into());
+        }
         if order.midpoint {
             return Err("midpoint_unsupported: midpoint orders are unsupported; the engine does not invent a mid".into());
         }
@@ -448,6 +451,9 @@ impl Book {
             if !crosses(&order.side, price, maker_price) {
                 break;
             }
+            if maker.order.accountId == order.accountId {
+                return Err("self_trade_prevention: a taker and a resting maker with the same account do not trade; the engine does not invent a self-fill".into());
+            }
             let show = visible(maker);
             if show == 0 {
                 continue;
@@ -494,6 +500,16 @@ impl Book {
             return Ok(());
         }
         let take: Vec<Clip> = if order.aon && covered < qty { Vec::new() } else { clips };
+        {
+            let opposite = if order.side == "buy" { &self.asks } else { &self.bids };
+            for clip in &take {
+                if let Some(maker) = opposite.iter().find(|m| m.order.orderId == clip.maker_id) {
+                    if maker.order.accountId == order.accountId {
+                        return Err("self_trade_prevention: a taker and a resting maker with the same account do not trade; the engine does not invent a self-fill".into());
+                    }
+                }
+            }
+        }
         let mut remaining = qty;
         let mut filled = false;
         let mut oco_pull: Vec<String> = Vec::new();
@@ -745,7 +761,7 @@ mod tests {
     fn limit(id: &str, side: &str, qty: &str, tif: &str) -> Order {
         Order {
             orderId: id.into(),
-            accountId: "desk".into(),
+            accountId: if side == "buy" { "desk".into() } else { "mm".into() },
             kind: "limit".into(),
             side: side.into(),
             qty: qty.into(),
@@ -823,6 +839,69 @@ mod tests {
         assert!(state.asks.is_empty());
         assert!(state.bids.is_empty());
         assert_eq!(state.lastTradePrice.as_deref(), Some("100"));
+    }
+
+    #[test]
+    fn same_account_cross_is_refused_and_blank_account_does_not_match() {
+        let mut book = Book { market: "BTC/USDT".into(), ..Book::default() };
+        let mut ask = limit("ask", "sell", "2", "GTC");
+        ask.accountId = "mm".into();
+        book.submit(ask).unwrap();
+        let before = serde_json::to_value(book.state()).unwrap();
+        assert!(before["sequence"].as_u64().unwrap() > 0);
+        assert!(before["lastTradePrice"].is_null());
+        assert_eq!(before["asks"][0]["orders"][0]["remaining"], "2");
+
+        let mut buy = limit("buy", "buy", "2", "GTC");
+        buy.accountId = "mm".into();
+        let err = book.submit(buy).unwrap_err();
+        assert!(err.contains("self_trade_prevention"), "{err}");
+        assert_eq!(serde_json::to_value(book.state()).unwrap(), before);
+
+        let mut fok = limit("fok", "buy", "2", "FOK");
+        fok.accountId = "mm".into();
+        let err = book.submit(fok).unwrap_err();
+        assert!(err.contains("self_trade_prevention"), "{err}");
+        assert_eq!(serde_json::to_value(book.state()).unwrap(), before);
+
+        let mut bid_book = Book { market: "BTC/USDT".into(), ..Book::default() };
+        let mut bid = limit("bid", "buy", "2", "GTC");
+        bid.accountId = "mm".into();
+        bid_book.submit(bid).unwrap();
+        let bid_before = serde_json::to_value(bid_book.state()).unwrap();
+        let mut sell = limit("sell", "sell", "2", "GTC");
+        sell.accountId = "mm".into();
+        let err = bid_book.submit(sell).unwrap_err();
+        assert!(err.contains("self_trade_prevention"), "{err}");
+        assert_eq!(serde_json::to_value(bid_book.state()).unwrap(), bid_before);
+        assert!(bid_before["lastTradePrice"].is_null());
+
+        for raw in ["", "   "] {
+            let mut blank = limit("blank", "buy", "2", "GTC");
+            blank.accountId = raw.into();
+            let err = book.submit(blank).unwrap_err();
+            assert!(err.starts_with("self_trade:"), "{raw:?}: {err}");
+            assert_eq!(serde_json::to_value(book.state()).unwrap(), before, "{raw:?}");
+        }
+
+        let mut empty = Book { market: "BTC/USDT".into(), ..Book::default() };
+        let mut naked = limit("naked", "sell", "1", "GTC");
+        naked.accountId = String::new();
+        let err = empty.submit(naked).unwrap_err();
+        assert!(err.starts_with("self_trade:"), "{err}");
+        let state = empty.state();
+        assert_eq!(state.sequence, 0);
+        assert!(state.bids.is_empty());
+        assert!(state.asks.is_empty());
+        assert_eq!(state.lastTradePrice, None);
+
+        let mut other = limit("other", "buy", "2", "GTC");
+        other.accountId = "desk".into();
+        book.submit(other).unwrap();
+        let traded = book.state();
+        assert!(traded.asks.is_empty());
+        assert!(traded.bids.is_empty());
+        assert_eq!(traded.lastTradePrice.as_deref(), Some("100"));
     }
 
     #[test]
