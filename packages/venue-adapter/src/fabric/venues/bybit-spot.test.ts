@@ -8,6 +8,7 @@ import {
   BybitSpotTrade,
   bybitSymbolOf,
   mapBybitSpotCoins,
+  mapBybitSpotOrder,
   subscribeRefusal,
   takerSideOf,
 } from './bybit-spot.js';
@@ -991,6 +992,36 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
     const open = await trade.openOrders('BTC/USDT');
     expect(open).toHaveLength(1);
     expect(open[0]!.status).toBe('open');
+  });
+
+  it('refuses a missing, null, or unexpected side instead of accepting it as buy', () => {
+    const now = new Date('2026-10-07T00:00:00.000Z');
+    const missing = { ...openRow } as Record<string, unknown>;
+    delete missing.side;
+    const cases: ReadonlyArray<{ label: string; row: Record<string, unknown> }> = [
+      { label: 'missing', row: missing },
+      { label: 'null', row: { ...openRow, side: null } },
+      { label: 'unexpected', row: { ...openRow, side: 'hold' } },
+    ];
+    for (const { label, row } of cases) {
+      let accepted: string | undefined;
+      let refused = false;
+      try {
+        accepted = mapBybitSpotOrder(row, 'BTC/USDT', now).side;
+      } catch (error) {
+        refused = true;
+        expect(error).toBeInstanceOf(VenueUnavailableError);
+        expect((error as VenueUnavailableError).venueId).toBe('bybit-spot');
+        expect((error as VenueUnavailableError).reason).toBe('malformed');
+        expect(String((error as Error).message)).toMatch(/side/);
+      }
+      if (!refused) expect.unreachable(`${label} side was accepted as ${accepted}`);
+    }
+
+    expect(mapBybitSpotOrder({ ...openRow, side: 'Buy' }, 'BTC/USDT', now).side).toBe('buy');
+    expect(mapBybitSpotOrder({ ...openRow, side: 'buy' }, 'BTC/USDT', now).side).toBe('buy');
+    expect(mapBybitSpotOrder({ ...openRow, side: 'Sell' }, 'BTC/USDT', now).side).toBe('sell');
+    expect(mapBybitSpotOrder({ ...openRow, side: 'sell' }, 'BTC/USDT', now).side).toBe('sell');
   });
 
   it('balances reads the UNIFIED wallet on /v5/account/wallet-balance', async () => {
