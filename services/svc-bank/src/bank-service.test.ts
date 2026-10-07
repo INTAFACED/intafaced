@@ -11,6 +11,7 @@ import {
   LedgerError,
   MemoryLedger,
   earnPoolReserve,
+  earnStakeAccount,
   formatAmount,
   houseFees,
   parseAmount as amt,
@@ -1669,6 +1670,43 @@ describe('svc-bank money PG-hard', () => {
       });
 
       expect(formatAmount(await bank.earn.stakedOf(USER_A, 'USDT'))).toBe('1000');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('refuses a withdraw when the column is below the stake pot, so the remainder is not stranded', async () => {
+      const pool = await openPool();
+      await fund(USER_A, 'USDT', '1000');
+      const position = await bank.earn.deposit({
+        positionId: randomUUID(),
+        poolId: pool.id,
+        userId: USER_A,
+        amount: amt('1000'),
+      });
+
+      // Column 400, pot 1000. Paying the column and closing the row leaves 600
+      // in the pot with no position left to withdraw it.
+      await sql`UPDATE bank.earn_positions SET principal = '400' WHERE id = ${position.id}`;
+
+      const withdraw = await bank.earn.withdraw(position.id).then(
+        () => 'paid',
+        (err: unknown) => (err instanceof BankError ? err.code : 'other'),
+      );
+      const row = await sql<Array<{ status: string }>>`
+        SELECT status FROM bank.earn_positions WHERE id = ${position.id}
+      `;
+      const pot = formatAmount((await ledger.balance(earnStakeAccount(USER_A, 'USDT', position.id))).amount);
+
+      expect({
+        withdraw,
+        status: row[0]!.status,
+        available: await availableOf(USER_A, 'USDT'),
+        pot,
+      }).toEqual({
+        withdraw: 'bank.earn_principal_mismatch',
+        status: 'active',
+        available: '0',
+        pot: '1000',
+      });
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
   });
