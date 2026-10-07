@@ -251,6 +251,93 @@ describe('DropCopyHub', () => {
     expect(sink.parsed().find((f) => f.type === 'execution')!.dropCopySeq).toBe(2);
   });
 
+  it('surfaces DROP_COPY_GAP when a high-water drop drains with no later fill', () => {
+    const h = new DropCopyHub({
+      highWaterBytes: 10,
+      maxLagTicks: 50,
+      maxConnections: 8,
+      maxConnectionsPerUser: 8,
+      recentLimit: 10,
+    });
+    h.announceBus(true);
+    const sink = new FakeSink();
+    sink.bufferedBytes = 100;
+    h.attach(USER, sink);
+    const before = sink.frames.length;
+
+    const dropped = h.publishExecution(fill());
+    expect(dropped).toMatchObject({
+      price: '100.5',
+      qty: '0.01',
+      quoteAmount: '1.005',
+      feeAmount: '0.001005',
+      dropCopySeq: 1,
+    });
+    expect(typeof dropped!.price).toBe('string');
+    expect(typeof dropped!.qty).toBe('string');
+    expect(typeof dropped!.quoteAmount).toBe('string');
+    expect(typeof dropped!.feeAmount).toBe('string');
+
+    h.sweepLag();
+    const whileSlow = sink.parsed().slice(before);
+    expect(whileSlow.filter((frame) => frame.type === 'execution')).toEqual([]);
+    expect(whileSlow.some((frame) => frame.code === DROP_COPY_GAP)).toBe(false);
+
+    sink.bufferedBytes = 0;
+    h.sweepLag();
+
+    const drained = sink.parsed().slice(before);
+    expect(drained.filter((frame) => frame.type === 'status' && frame.code === DROP_COPY_GAP)).toEqual([
+      expect.objectContaining({
+        channel: DROP_COPY_CHANNEL,
+        type: 'status',
+        code: DROP_COPY_GAP,
+        userId: USER,
+        replayDurable: false,
+        lastSeq: 1,
+      }),
+    ]);
+    expect(drained.filter((frame) => frame.type === 'execution')).toEqual([]);
+    const gapFrame = sink.frames.slice(before).find((frame) => frame.includes(DROP_COPY_GAP));
+    expect(gapFrame).toBeDefined();
+    expect(gapFrame).not.toContain('"price"');
+
+    const later = h.publishExecution(
+      fill({
+        fillId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        price: '101.25',
+        qty: '0.02',
+        quoteAmount: '2.025',
+        feeAmount: '0.002',
+        engineSequence: 8,
+      }),
+    );
+    expect(later).toMatchObject({ price: '101.25', qty: '0.02', quoteAmount: '2.025', feeAmount: '0.002', dropCopySeq: 2 });
+    expect(typeof later!.price).toBe('string');
+
+    const live = sink.parsed().slice(before);
+    expect(live.filter((frame) => frame.type === 'status' && frame.code === DROP_COPY_GAP)).toHaveLength(1);
+    const executions = live.filter((frame) => frame.type === 'execution');
+    expect(executions).toEqual([
+      expect.objectContaining({
+        fillId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        price: '101.25',
+        qty: '0.02',
+        quoteAmount: '2.025',
+        feeAmount: '0.002',
+        dropCopySeq: 2,
+      }),
+    ]);
+    expect(typeof executions[0]!.price).toBe('string');
+    expect(typeof executions[0]!.qty).toBe('string');
+    expect(typeof executions[0]!.quoteAmount).toBe('string');
+    expect(typeof executions[0]!.feeAmount).toBe('string');
+    expect(h.recentFor(USER).map((row) => [row.price, row.qty, row.quoteAmount, row.feeAmount])).toEqual([
+      ['100.5', '0.01', '1.005', '0.001005'],
+      ['101.25', '0.02', '2.025', '0.002'],
+    ]);
+  });
+
   it('replays the session ring as SESSION and still refuses complete', () => {
     const h = hub();
     h.announceBus(true);
