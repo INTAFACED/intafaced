@@ -1,5 +1,14 @@
 import type { Sql } from 'postgres';
-import { InsufficientFundsError, formatAmount, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { transaction } from '@intafaced/db';
+import {
+  InsufficientFundsError,
+  formatAmount,
+  parseAmount,
+  recipes,
+  type Amount,
+  type LedgerClient,
+  type LedgerTx,
+} from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { assertBusinessListLimit, assertBusinessPendingListLimit } from '../owner-list-limit.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
@@ -499,10 +508,7 @@ export class BusinessService {
     await this.assertRole(input.accountId, input.actorUserId, ['admin', 'maker']);
 
     const existing = await this.payrollRun(input.payrollId);
-    if (existing) {
-      this.assertPayrollSameTerms(existing, input);
-      return existing;
-    }
+    if (existing) this.assertPayrollVisibleTerms(existing, input);
 
     const now = new Date();
     const from = await this.spaces.resolveForDebit(input.fromSpaceId, now);
@@ -531,50 +537,156 @@ export class BusinessService {
       resolved.push({ toSpaceId: line.toSpaceId, amount: line.amount, acct: accountForSpace(to) });
     }
 
+    const fromAcct = accountForSpace(from);
     return withMoneySpan(
       'bank.business.payroll',
       { operation: 'business-payroll', userId: input.actorUserId, amount: formatAmount(resolved.reduce((acc, l) => acc + l.amount, 0n)) },
       async () => {
-        let posted;
-        try {
-          posted = await this.ledger.post(
-            recipes.businessPayroll({
-              payrollId: input.payrollId,
-              from: accountForSpace(from),
-              recipients: resolved.map((line) => ({ to: line.acct, amount: line.amount })),
-            }),
+        const posted = await this.ledger.post(
+          recipes.businessPayroll({
+            payrollId: input.payrollId,
+            from: fromAcct,
+            recipients: resolved.map((line) => ({ to: line.acct, amount: line.amount })),
+          }),
+        );
+        // Empty entries: this client did not return the book. That is not a
+        // different instruction, and it is not a reason to invent a recipient.
+        const agreed = await this.payrollEntriesAgree(posted, fromAcct, resolved);
+        if (agreed === false) {
+          throw new BankError(
+            `Payroll ${input.payrollId} already exists on different terms`,
+            'bank.business_request_conflict',
           );
-        } catch (err) {
-          if (err instanceof InsufficientFundsError) throw err;
-          throw err;
+        }
+        if (existing && existing.ledgerTxId !== posted.id) {
+          throw new BankError(
+            `Payroll ${input.payrollId} already exists on different terms`,
+            'bank.business_request_conflict',
+          );
+        }
+        // Equal stored and requested counts are the same instruction only when
+        // the book does not show a recipient this request dropped.
+        if (existing && existing.recipients.length === input.recipients.length) {
+          this.assertPayrollSameTerms(existing, input);
+          return existing;
         }
 
-        const inserted = await this.sql<PayrollRunRow[]>`
-          INSERT INTO bank.business_payroll_runs
-            (id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id)
-          VALUES (
-            ${input.payrollId}::uuid, ${input.accountId}::uuid, ${input.actorUserId},
-            ${input.fromSpaceId}::uuid, ${account.assetId}, ${posted.id}
-          )
-          ON CONFLICT (id) DO NOTHING
-          RETURNING id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id, created_at
-        `;
-        const row = inserted[0] ?? (await this.payrollRunRow(input.payrollId));
-        if (!row) throw new BankError(`Payroll ${input.payrollId} could not be recorded`, 'bank.business_request_conflict');
-        if (inserted[0]) {
-          for (const line of resolved) {
-            await this.sql`
-              INSERT INTO bank.business_payroll_lines (payroll_id, to_space_id, amount)
-              VALUES (${input.payrollId}::uuid, ${line.toSpaceId}::uuid, ${formatAmount(line.amount)}::numeric)
-            `;
+        return transaction(this.sql, async (tx) => {
+          const inserted = await tx<PayrollRunRow[]>`
+            INSERT INTO bank.business_payroll_runs
+              (id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id)
+            VALUES (
+              ${input.payrollId}::uuid, ${input.accountId}::uuid, ${input.actorUserId},
+              ${input.fromSpaceId}::uuid, ${account.assetId}, ${posted.id}
+            )
+            ON CONFLICT (id) DO NOTHING
+            RETURNING id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id, created_at
+          `;
+          if (inserted[0]) {
+            for (const line of resolved) {
+              await tx`
+                INSERT INTO bank.business_payroll_lines (payroll_id, to_space_id, amount)
+                VALUES (${input.payrollId}::uuid, ${line.toSpaceId}::uuid, ${formatAmount(line.amount)}::numeric)
+              `;
+            }
+            const recorded = await this.payrollRun(input.payrollId, tx);
+            if (!recorded) {
+              throw new BankError(`Payroll ${input.payrollId} could not be recorded`, 'bank.business_request_conflict');
+            }
+            this.assertPayrollSameTerms(recorded, input);
+            return recorded;
           }
-        }
-        const recorded = await this.payrollRun(input.payrollId);
-        if (!recorded) throw new BankError(`Payroll ${input.payrollId} could not be recorded`, 'bank.business_request_conflict');
-        this.assertPayrollSameTerms(recorded, input);
-        return recorded;
+          const locked = await this.payrollRun(input.payrollId, tx, true);
+          if (!locked || locked.ledgerTxId !== posted.id) {
+            throw new BankError(`Payroll ${input.payrollId} could not be recorded`, 'bank.business_request_conflict');
+          }
+          return this.completePayrollLines(tx, locked, input);
+        });
       },
     );
+  }
+
+  /**
+   * Lines already stored must agree with the request. Lines that are not
+   * visible yet are not a different instruction — the caller completes them
+   * when the ledger payment is that same instruction.
+   */
+  private assertPayrollVisibleTerms(
+    existing: BusinessPayrollRun,
+    input: { accountId: string; fromSpaceId: string; recipients: ReadonlyArray<BusinessPayrollLine> },
+  ): void {
+    if (existing.accountId !== input.accountId || existing.fromSpaceId !== input.fromSpaceId) {
+      throw new BankError(`Payroll ${existing.payrollId} already exists on different terms`, 'bank.business_request_conflict');
+    }
+    const requested = new Map(input.recipients.map((line) => [line.toSpaceId, line.amount]));
+    for (const line of existing.recipients) {
+      if (requested.get(line.toSpaceId) !== line.amount) {
+        throw new BankError(`Payroll ${existing.payrollId} already exists on different terms`, 'bank.business_request_conflict');
+      }
+    }
+  }
+
+  private async completePayrollLines(
+    tx: Sql,
+    existing: BusinessPayrollRun,
+    input: { payrollId: string; accountId: string; fromSpaceId: string; recipients: ReadonlyArray<BusinessPayrollLine> },
+  ): Promise<BusinessPayrollRun> {
+    this.assertPayrollVisibleTerms(existing, input);
+    const have = new Set(existing.recipients.map((line) => line.toSpaceId));
+    for (const line of input.recipients) {
+      if (have.has(line.toSpaceId)) continue;
+      await tx`
+        INSERT INTO bank.business_payroll_lines (payroll_id, to_space_id, amount)
+        VALUES (${input.payrollId}::uuid, ${line.toSpaceId}::uuid, ${formatAmount(line.amount)}::numeric)
+        ON CONFLICT (payroll_id, to_space_id) DO NOTHING
+      `;
+    }
+    const recorded = await this.payrollRun(input.payrollId, tx);
+    if (!recorded) {
+      throw new BankError(`Payroll ${input.payrollId} could not be recorded`, 'bank.business_request_conflict');
+    }
+    this.assertPayrollSameTerms(recorded, input);
+    return recorded;
+  }
+
+  /**
+   * `null` — the client returned no entries, so the book was not shown.
+   * `true` / `false` — the entries that were returned agree with this request, or they do not.
+   */
+  private async payrollEntriesAgree(
+    posted: LedgerTx,
+    fromAcct: ReturnType<typeof accountForSpace>,
+    resolved: ReadonlyArray<{ amount: Amount; acct: ReturnType<typeof accountForSpace> }>,
+  ): Promise<boolean | null> {
+    if (posted.entries.length === 0) return null;
+    return this.postedPayrollMatches(posted, fromAcct, resolved);
+  }
+
+  /** The posted book is the instruction. A same key with other lines is not a second payment. */
+  private async postedPayrollMatches(
+    posted: LedgerTx,
+    fromAcct: ReturnType<typeof accountForSpace>,
+    resolved: ReadonlyArray<{ amount: Amount; acct: ReturnType<typeof accountForSpace> }>,
+  ): Promise<boolean> {
+    const source = await this.ledger.balance(fromAcct);
+    if (!source.accountId) return false;
+    let total = 0n;
+    for (const line of resolved) total += line.amount;
+    const credits = posted.entries.filter((entry) => entry.direction === 'credit');
+    const debits = posted.entries.filter((entry) => entry.direction === 'debit');
+    const credit = credits[0];
+    if (credits.length !== 1 || !credit || credit.accountId !== source.accountId || credit.amount !== total) return false;
+    if (debits.length !== resolved.length) return false;
+    const paid = new Map<string, Amount>();
+    for (const entry of debits) {
+      if (paid.has(entry.accountId)) return false;
+      paid.set(entry.accountId, entry.amount);
+    }
+    for (const line of resolved) {
+      const dest = await this.ledger.balance(line.acct);
+      if (!dest.accountId || paid.get(dest.accountId) !== line.amount) return false;
+    }
+    return true;
   }
 
   private assertPayrollSameTerms(
@@ -595,18 +707,24 @@ export class BusinessService {
     }
   }
 
-  private async payrollRunRow(id: string): Promise<PayrollRunRow | null> {
-    const rows = await this.sql<PayrollRunRow[]>`
-      SELECT id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id, created_at
-        FROM bank.business_payroll_runs WHERE id = ${id}
-    `;
+  private async payrollRunRow(id: string, sql: Sql = this.sql, lock = false): Promise<PayrollRunRow | null> {
+    const rows = lock
+      ? await sql<PayrollRunRow[]>`
+          SELECT id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id, created_at
+            FROM bank.business_payroll_runs WHERE id = ${id}::uuid
+           FOR UPDATE
+        `
+      : await sql<PayrollRunRow[]>`
+          SELECT id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id, created_at
+            FROM bank.business_payroll_runs WHERE id = ${id}
+        `;
     return rows[0] ?? null;
   }
 
-  private async payrollRun(id: string): Promise<BusinessPayrollRun | null> {
-    const row = await this.payrollRunRow(id);
+  private async payrollRun(id: string, sql: Sql = this.sql, lock = false): Promise<BusinessPayrollRun | null> {
+    const row = await this.payrollRunRow(id, sql, lock);
     if (!row) return null;
-    const lines = await this.sql<PayrollLineRow[]>`
+    const lines = await sql<PayrollLineRow[]>`
       SELECT payroll_id, to_space_id, amount
         FROM bank.business_payroll_lines WHERE payroll_id = ${id}
        ORDER BY to_space_id ASC
