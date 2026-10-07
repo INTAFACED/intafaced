@@ -75,9 +75,16 @@ export class FileFillConfirmStore implements FillConfirmStore {
   }
 
   confirm(row: ChildFillConfirmation): ChildFillConfirmation | null {
-    const recorded = this.inner.confirm(row);
-    if (recorded) appendJsonl(this.filePath, recorded);
-    return recorded;
+    const id = row.clientOrderId.trim();
+    if (!id || this.inner.get(id)) return null;
+    const recorded: ChildFillConfirmation = {
+      clientOrderId: id,
+      parentClientOrderId: row.parentClientOrderId,
+      confirmerId: row.confirmerId,
+      confirmedAt: row.confirmedAt,
+    };
+    appendJsonl(this.filePath, recorded);
+    return this.inner.confirm(recorded);
   }
 }
 
@@ -109,9 +116,18 @@ export class FileManualFillStore implements ManualFillStore {
   }
 
   record(row: ManualChildFill): ManualChildFill | null {
-    const recorded = this.inner.record(row);
-    if (recorded) appendJsonl(this.filePath, recorded);
-    return recorded;
+    const id = row.clientOrderId.trim();
+    if (!id || this.inner.get(id)) return null;
+    const recorded: ManualChildFill = {
+      clientOrderId: id,
+      parentClientOrderId: row.parentClientOrderId,
+      filledAmount: row.filledAmount,
+      averagePrice: row.averagePrice,
+      confirmerId: row.confirmerId,
+      confirmedAt: row.confirmedAt,
+    };
+    appendJsonl(this.filePath, recorded);
+    return this.inner.record(recorded);
   }
 }
 
@@ -156,9 +172,21 @@ export class FileFillAssignStore implements FillAssignStore {
   }
 
   assign(row: ChildFillAssignment): ChildFillAssignment | null {
-    const recorded = this.inner.assign(row);
-    if (recorded) appendJsonl(this.filePath, recorded);
-    return recorded;
+    const id = row.clientOrderId.trim();
+    const existing = id ? this.inner.get(id) : null;
+    if (!id || Boolean(existing?.accountTag.trim())) return null;
+    const recorded: ChildFillAssignment = {
+      clientOrderId: id,
+      parentClientOrderId: row.parentClientOrderId,
+      accountTag: row.accountTag,
+      filledAmount: row.filledAmount,
+      averagePrice: row.averagePrice,
+      operatorId: row.operatorId,
+      recordedAt: row.recordedAt,
+      kind: 'assign',
+    };
+    appendJsonl(this.filePath, recorded);
+    return this.inner.assign(recorded);
   }
 
   correct(row: ChildFillAssignment): ChildFillAssignment {
