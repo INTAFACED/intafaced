@@ -322,6 +322,9 @@ impl Book {
         }
 
         let qty = parse_amount(&order.qty)?;
+        if qty == 0 {
+            return Err("invalid_qty: quantity must be strictly positive".into());
+        }
         if order.side != "buy" && order.side != "sell" {
             return Err(format!("invalid side: {}", order.side));
         }
@@ -372,8 +375,12 @@ impl Book {
             if !blank(&order.price) {
                 return Err("unexpected_price: a stop order must not carry a limit price".into());
             }
-        } else if require_price(&order).is_err() {
-            return Err("stage 1 accepts limit orders only".into());
+        } else {
+            match require_price(&order) {
+                Ok(0) => return Err("invalid_price: price must be strictly positive".into()),
+                Ok(_) => {}
+                Err(_) => return Err("stage 1 accepts limit orders only".into()),
+            }
         }
         if is_stop {
             require_stop(&order)?;
@@ -997,5 +1004,33 @@ mod tests {
         assert_eq!(order.ocoSiblingId.as_deref(), Some("sib"));
         assert_eq!(order.expireAt.as_deref(), Some("2026-01-02T00:00:00.000Z"));
         assert_eq!(order.kind, "limit");
+    }
+
+    #[test]
+    fn zero_price_or_qty_is_refused_without_moving_the_book() {
+        let mut book = Book { market: "BTC/USDT".into(), ..Book::default() };
+        book.submit(limit("bid", "buy", "2", "GTC")).unwrap();
+        let before = serde_json::to_value(book.state()).unwrap();
+        assert!(before["sequence"].as_u64().unwrap() > 0);
+        assert!(before["lastTradePrice"].is_null());
+
+        for (id, side, qty, price) in [
+            ("zero-qty", "sell", "0", "100"),
+            ("zero-qty-decimal", "buy", "0.0", "100"),
+            ("zero-price", "sell", "1", "0"),
+            ("zero-price-decimal", "buy", "1", "0.0"),
+        ] {
+            let mut order = limit(id, side, qty, "GTC");
+            order.price = Some(price.into());
+            let err = book.submit(order).unwrap_err();
+            assert!(err.contains("strictly positive"), "{id}: {err}");
+            assert_eq!(serde_json::to_value(book.state()).unwrap(), before, "{id}");
+        }
+
+        book.submit(limit("sell", "sell", "2", "GTC")).unwrap();
+        let traded = book.state();
+        assert!(traded.bids.is_empty());
+        assert!(traded.asks.is_empty());
+        assert_eq!(traded.lastTradePrice.as_deref(), Some("100"));
     }
 }
