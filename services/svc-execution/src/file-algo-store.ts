@@ -168,6 +168,10 @@ type StoredPauseLine = {
   readonly paused: boolean;
 };
 
+function pauseIds(key: AlgoPauseKey): AlgoPauseIds {
+  return key.kind === 'parent' ? { parentClientOrderId: key.id } : { executionGroupId: key.id };
+}
+
 export class FileAlgoPauseStore implements AlgoPauseStore {
   private readonly inner = new InMemoryAlgoPauseStore();
 
@@ -190,15 +194,15 @@ export class FileAlgoPauseStore implements AlgoPauseStore {
   }
 
   pause(key: AlgoPauseKey): boolean {
-    const newlyPaused = this.inner.pause(key);
-    if (newlyPaused) appendJsonl(this.filePath, { kind: key.kind, id: key.id, paused: true } satisfies StoredPauseLine);
-    return newlyPaused;
+    if (this.inner.isPaused(pauseIds(key))) return false;
+    appendJsonl(this.filePath, { kind: key.kind, id: key.id, paused: true } satisfies StoredPauseLine);
+    return this.inner.pause(key);
   }
 
   resume(key: AlgoPauseKey): boolean {
-    const resumed = this.inner.resume(key);
-    if (resumed) appendJsonl(this.filePath, { kind: key.kind, id: key.id, paused: false } satisfies StoredPauseLine);
-    return resumed;
+    if (!this.inner.isPaused(pauseIds(key))) return false;
+    appendJsonl(this.filePath, { kind: key.kind, id: key.id, paused: false } satisfies StoredPauseLine);
+    return this.inner.resume(key);
   }
 
   isPaused(ids: AlgoPauseIds): boolean {
