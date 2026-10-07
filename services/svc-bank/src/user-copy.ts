@@ -28,6 +28,7 @@ const USER_VISIBLE_CODES = new Set<BankErrorCode>([
   'bank.card_authorization_closed',
   'bank.card_capture_exceeds_authorization',
   'bank.card_settlement_amount_conflict',
+  'bank.card_settlement_kind_conflict',
   'bank.cards_disabled',
   'bank.no_ramp_rail',
   'bank.fiat_ramp_socket',

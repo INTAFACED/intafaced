@@ -707,7 +707,7 @@ export class CardService {
    */
   async capture(input: { cardId: string; authorizationRef: string; amount: Amount }): Promise<CaptureResult> {
     const card = await this.card(input.cardId);
-    const authorization = await this.requireOpenAuthorization(card, input.authorizationRef);
+    const authorization = await this.requireOpenAuthorization(card, input.authorizationRef, 'capture');
     const conversion = authorization.conversion;
 
     // The ceiling is checked in the MERCHANT'S currency, because the merchant's
@@ -807,7 +807,7 @@ export class CardService {
    */
   async reverse(input: { cardId: string; authorizationRef: string }): Promise<{ returned: Amount; ledgerTxId: string }> {
     const card = await this.card(input.cardId);
-    const authorization = await this.requireOpenAuthorization(card, input.authorizationRef);
+    const authorization = await this.requireOpenAuthorization(card, input.authorizationRef, 'reversal');
 
     return withMoneySpan(
       'bank.card.reverse',
@@ -1114,31 +1114,50 @@ export class CardService {
   }
 
   /**
-   * An authorisation that is approved, settled, and has nothing against it yet.
+   * An authorisation that is approved, whose hold landed, and that this kind
+   * may still move.
    *
-   * `status = 'settled'` IS THE LOAD-BEARING PART OF THIS QUERY. Counting every
-   * sequence-0 row regardless of status closes the authorisation on the strength
-   * of a settlement that never reached the ledger: a post that threw leaves a
-   * `rejected` row, a process that died between the claim and the post leaves a
-   * `pending` one, and in both cases the user's whole hold is still sitting in an
-   * account only this authorisation can name. Treating either as "already
-   * settled" refuses the retry that would release it — and refuses `reverse()`
-   * too, because it comes through here as well. That is stranded funds with no
-   * way out, produced by one transient ledger error.
+   * `status = 'settled'` IS THE LOAD-BEARING PART OF THE CLOSED CHECK. Counting
+   * every sequence-0 row regardless of status closes the authorisation on the
+   * strength of a settlement that never reached the ledger: a post that threw
+   * leaves a `rejected` row, a process that died between the claim and the post
+   * leaves a `pending` one, and in both cases the user's whole hold is still
+   * sitting in an account only this authorisation can name. Treating either as
+   * "already settled" refuses the retry that would release it. That is stranded
+   * funds with no way out, produced by one transient ledger error.
    *
    * A settlement that DID reach the ledger still closes the authorisation, which
    * is what makes a second capture at a different amount, and a reversal after a
    * capture, impossible rather than merely unlikely. Recovering the remainder of
    * a capture that got that far is `resumeSettlements`, not a re-drive of this.
+   *
+   * A pending row is not settled, and it is not an open door for the other kind.
+   * Capture and reverse both take sequence 0. Letting a reverse through while a
+   * capture claim is pending — or a capture through while a reversal claim is
+   * pending — makes them share that row. The same kind stays open, because that
+   * is the re-drive. A rejected row stays open too, including for the other
+   * kind: the post never landed, and `reverse()` after a failed capture is how
+   * the hold goes back.
    */
-  private async requireOpenAuthorization(card: CardRecord, authorizationRef: string): Promise<AuthorizationRecord> {
+  private async requireOpenAuthorization(
+    card: CardRecord,
+    authorizationRef: string,
+    kind: 'capture' | 'reversal',
+  ): Promise<AuthorizationRecord> {
     const authorization = await this.requireApprovedAuthorization(card, authorizationRef);
-    const settled = await this.sql<Array<{ count: string }>>`
-      SELECT count(*)::text AS count FROM bank.card_settlements
-       WHERE authorization_id = ${authorization.id} AND sequence = 0 AND status = 'settled'
+    const rows = await this.sql<Array<{ status: string; kind: 'capture' | 'reversal' }>>`
+      SELECT status, kind FROM bank.card_settlements
+       WHERE authorization_id = ${authorization.id} AND sequence = 0
     `;
-    if (settled[0]!.count !== '0') {
+    const claim = rows[0];
+    if (claim?.status === 'settled') {
       throw new BankError(`Authorisation ${authorizationRef} has already been settled`, 'bank.card_authorization_closed');
+    }
+    if (claim?.status === 'pending' && claim.kind !== kind) {
+      throw new BankError(
+        `Authorisation ${authorizationRef} has a pending ${claim.kind} on sequence 0, not a ${kind}`,
+        'bank.card_settlement_kind_conflict',
+      );
     }
     return authorization;
   }
@@ -1223,9 +1242,20 @@ export class CardService {
           ON CONFLICT (authorization_id, sequence) DO NOTHING
           RETURNING id, ledger_tx_id
         `;
-        if (rows.length > 0) return { claimed: true as const, id: rows[0]!.id, ledgerTxId: null, amount: input.amount };
-        const existing = await tx<Array<{ id: string; ledger_tx_id: string | null; amount: string }>>`
-          SELECT id, ledger_tx_id, amount::text AS amount FROM bank.card_settlements
+        if (rows.length > 0) {
+          return {
+            claimed: true as const,
+            id: rows[0]!.id,
+            ledgerTxId: null,
+            amount: input.amount,
+            kind: input.kind,
+            status: 'pending' as const,
+          };
+        }
+        const existing = await tx<
+          Array<{ id: string; ledger_tx_id: string | null; amount: string; kind: 'capture' | 'reversal'; status: string }>
+        >`
+          SELECT id, ledger_tx_id, amount::text AS amount, kind, status FROM bank.card_settlements
            WHERE authorization_id = ${input.authorization.id} AND sequence = ${input.sequence}
         `;
         return {
@@ -1233,6 +1263,8 @@ export class CardService {
           id: existing[0]!.id,
           ledgerTxId: existing[0]!.ledger_tx_id,
           amount: parseAmount(existing[0]!.amount),
+          kind: existing[0]!.kind,
+          status: existing[0]!.status,
         };
       },
       { isolation: 'read committed', maxAttempts: 5 },
@@ -1252,6 +1284,19 @@ export class CardService {
     //
     // The claimed row is the record of what this sequence is for. A caller who
     // disagrees with it is refused by name rather than quietly reconciled.
+    //
+    // Kind is the other half. Capture and reverse both take sequence 0, so the
+    // lost insert is not proof they asked for the same movement. Returning
+    // `ledgerTxId` here would report the capture's transaction as the reversal.
+    // A rejected claim is the exception a failed post depends on: nothing was
+    // posted, and the other kind may still take the sequence — that is how
+    // `reverse()` releases a hold after a capture post threw.
+    if (!claim.claimed && claim.kind !== input.kind && claim.status !== 'rejected') {
+      throw new BankError(
+        `Settlement ${input.sequence} on this authorisation was claimed as ${claim.kind}, not ${input.kind}`,
+        'bank.card_settlement_kind_conflict',
+      );
+    }
     if (claim.amount !== input.amount) {
       throw new BankError(
         `Settlement ${input.sequence} on this authorisation was claimed for ${formatAmount(claim.amount)}, not ${formatAmount(input.amount)}`,

@@ -189,6 +189,16 @@ export type BankErrorCode =
    */
   | 'bank.card_settlement_amount_conflict'
   /**
+   * A settlement disagreed with the kind its sequence was claimed for.
+   *
+   * Capture and reverse both take sequence 0. The unique index makes a second
+   * row impossible, which is right once a movement has settled and wrong if the
+   * other kind is handed the first kind's ledger transaction while the claim is
+   * still pending. A pending capture is not an open door for a reverse, and a
+   * pending reversal is not an open door for a capture.
+   */
+  | 'bank.card_settlement_kind_conflict'
+  /**
    * Cashback was owed and the rewards pot could not pay it.
    *
    * `loanBadDebt`'s rule applied to the other direction: a platform that cannot
