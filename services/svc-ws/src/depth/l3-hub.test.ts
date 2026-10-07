@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DepthSnapshot } from '@intafaced/market-data';
-import { DEPTH_L3_UNAVAILABLE } from '../gateway-policy.js';
+import { DEPTH_ENGINE_UNAVAILABLE, DEPTH_L3_UNAVAILABLE } from '../gateway-policy.js';
 import { NativeL3Hub } from './l3-hub.js';
 import { DepthL3UnavailableError, type DepthSource, type NativeL3Queue } from './source.js';
 import type { DepthSink } from './hub.js';
@@ -159,6 +159,82 @@ describe('NativeL3Hub', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(sink.frames).toEqual([]);
     expect(sink.closed).toBeNull();
+  });
+
+  it('a successful empty queue tells a live subscriber the resting orders are gone', async () => {
+    const source = new Source();
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async () => true,
+    });
+    const live = new RecordingSink();
+    hub.attach(MARKET, live);
+    await new Promise((r) => setTimeout(r, 0));
+    hub.ingest(native);
+    expect(JSON.parse(live.frames.at(-1)!)).toMatchObject({
+      type: 'snapshot',
+      level: 'L3',
+      transport: 'poll',
+      asks: native.asks,
+    });
+
+    hub.ingest({ level: 'L3', marketId: MARKET, bids: [], asks: [] });
+
+    const cleared = JSON.parse(live.frames.at(-1)!) as {
+      type?: string;
+      code?: string;
+      bids?: unknown;
+      asks?: unknown;
+      sequence?: unknown;
+      price?: unknown;
+    };
+    expect(cleared).toEqual({
+      type: 'status',
+      code: 'depth.l3_no_resting',
+      marketId: MARKET,
+    });
+    expect(cleared.type).not.toBe('snapshot');
+    expect(cleared).not.toHaveProperty('bids');
+    expect(cleared).not.toHaveProperty('asks');
+    expect(cleared).not.toHaveProperty('sequence');
+    expect(cleared).not.toHaveProperty('price');
+    expect(cleared.code).not.toBe(DEPTH_L3_UNAVAILABLE);
+    expect(cleared.code).not.toBe(DEPTH_ENGINE_UNAVAILABLE);
+    expect(live.frames.at(-1)).not.toContain('o1');
+    expect(live.closed).toBeNull();
+    expect(hub.stats.code).toBeNull();
+
+    const late = new RecordingSink();
+    hub.attach(MARKET, late);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(late.frames).toEqual([]);
+    expect(late.closed).toBeNull();
+
+    const next: NativeL3Queue = {
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o2', remaining: '2', sequence: 8 }] }],
+      asks: [],
+    };
+    hub.ingest(next);
+    expect(JSON.parse(live.frames.at(-1)!)).toMatchObject({
+      type: 'snapshot',
+      level: 'L3',
+      transport: 'poll',
+      bids: next.bids,
+      asks: [],
+    });
+    expect(JSON.parse(late.frames.at(-1)!)).toMatchObject({
+      type: 'snapshot',
+      level: 'L3',
+      bids: next.bids,
+    });
+    const resent = JSON.parse(live.frames.at(-1)!) as { bids: Array<{ price: string; orders: Array<{ remaining: string }> }> };
+    expect(resent.bids[0]!.price).toBe('99');
+    expect(resent.bids[0]!.orders[0]!.remaining).toBe('2');
   });
 
   it('fan-out names depth.l3_unavailable without an L2 ladder', () => {

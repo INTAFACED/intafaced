@@ -36,6 +36,19 @@ export interface NativeL3UnavailableFrame {
   readonly marketId: string;
 }
 
+/**
+ * A successful queue with nothing resting. Engine and L3 are up.
+ * Not `depth.l3_unavailable`, not `depth.engine_unavailable`, and not a
+ * snapshot — a snapshot with empty bids and asks would be a live zero book.
+ */
+export const DEPTH_L3_NO_RESTING = 'depth.l3_no_resting' as const;
+
+export interface NativeL3NoRestingFrame {
+  readonly type: 'status';
+  readonly code: typeof DEPTH_L3_NO_RESTING;
+  readonly marketId: string;
+}
+
 export function nativeL3Frame(queue: NativeL3Queue): string {
   const frame: NativeL3Frame = { ...queue, type: 'snapshot', transport: DEPTH_TRANSPORT_POLL };
   return JSON.stringify(frame);
@@ -43,6 +56,11 @@ export function nativeL3Frame(queue: NativeL3Queue): string {
 
 export function nativeL3UnavailableFrame(marketId: string): string {
   const frame: NativeL3UnavailableFrame = { type: 'status', code: DEPTH_L3_UNAVAILABLE, marketId };
+  return JSON.stringify(frame);
+}
+
+export function nativeL3NoRestingFrame(marketId: string): string {
+  const frame: NativeL3NoRestingFrame = { type: 'status', code: DEPTH_L3_NO_RESTING, marketId };
   return JSON.stringify(frame);
 }
 
@@ -184,7 +202,11 @@ export class NativeL3Hub {
     const windowed = this.#windowed(queue);
     if (windowed === 'unpublished') return;
     if (windowed === 'empty') {
+      // Live subscribers still hold the last resting snapshot. Tell them the
+      // book drained, then forget it so a new subscriber still sees absence.
+      const hadResting = this.#last.has(queue.marketId);
       this.noteNoBook(queue.marketId);
+      if (hadResting) this.#fanout(queue.marketId, nativeL3NoRestingFrame(queue.marketId));
       return;
     }
     this.#engineDown.delete(windowed.marketId);
