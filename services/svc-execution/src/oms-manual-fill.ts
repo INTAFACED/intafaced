@@ -84,6 +84,7 @@ export type OmsManualFillRefuse =
   | { readonly ok: false; readonly reason: 'worse_than_cap'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'missing_residual'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'exceeds_remaining'; readonly detail: string }
+  | { readonly ok: false; readonly reason: 'non_positive_qty'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'fill_store_unwired'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'already_recorded'; readonly detail: string };
 

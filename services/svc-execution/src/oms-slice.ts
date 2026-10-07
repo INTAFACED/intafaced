@@ -44,6 +44,7 @@ export type OmsSliceRefuse =
   | { readonly ok: false; readonly reason: 'missing_qty'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'missing_residual'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'exceeds_remaining'; readonly detail: string }
+  | { readonly ok: false; readonly reason: 'non_positive_qty'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'missing_venue'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'missing_symbol'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'missing_side'; readonly detail: string }
