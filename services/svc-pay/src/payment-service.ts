@@ -170,6 +170,13 @@ export type PayErrorCode =
   | 'pay.refund_id_spent'
   | 'pay.refund_id_conflict'
   /**
+   * `payment.refund` was called without a refundId (omitted or blank).
+   * The procedure must refuse before any debit. It must not forward `{}`
+   * and let `pay.refund` mint `paymentId:sequence`, which makes a timed-out
+   * retry of a partial refund a second movement.
+   */
+  | 'pay.refund_id_required'
+  /**
    * A pending settlement window has already frozen this payment into its set.
    * Pre-settlement refunds would drain clearing under the frozen gross and let
    * a later post take another payment's funds (or stick forever). Wait for the

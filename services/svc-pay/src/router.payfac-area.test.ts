@@ -164,9 +164,10 @@ describe('tRPC PayFac area map on gateway money doors', () => {
     const withRefund = createPayRouter(stub.service, rails, money, fence(['payment.refund'])).createCaller(
       await ctx(MID_USER, ['pay:write', 'pay:refund']),
     );
-    await expect(withRefund.payment.refund({ paymentId: PAYMENT, amount: '10' })).resolves.toMatchObject({
+    await expect(withRefund.payment.refund({ paymentId: PAYMENT, amount: '10', refundId: 'area-rf-1' })).resolves.toMatchObject({
       status: 'refunded',
     });
+    expect(stub.calls.find((c) => c.method === 'refund')?.args[2]).toEqual({ refundId: 'area-rf-1' });
   });
 
   it('lets the leaf owner and the tree root act without an extra grant', async () => {

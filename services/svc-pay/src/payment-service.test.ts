@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
+import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
+import type { Context } from '@intafaced/contracts';
 import {
   MemoryLedger,
   formatAmount,
@@ -17,6 +19,8 @@ import {
   type PostRequest,
 } from '@intafaced/ledger-client';
 import { PayService, PayError, type PaymentView } from './payment-service.js';
+import { createPayRouter } from './router.js';
+import type { UserMoneyService } from './user-money-service.js';
 import { defaultDisputeCaseStore } from './fraud/dispute-case.js';
 import { REFERENCE_RAIL_ROUTING_PROFILES, type RailRoutingProfile } from './routing/decide.js';
 import { memoryPayoutDestinations } from './merchant-payout-destination.js';
@@ -643,6 +647,69 @@ describe('svc-pay money PG-hard', () => {
       const replay = await pay.refund(payment.id, amt('10'), { refundId: 'amt-bind-1' });
       expect(formatAmount(replay.refundedAmount)).toBe('10');
       expect(await clearingOf(m.id)).toBe('90');
+    });
+
+    /**
+     * tRPC `payment.refund` used to forward an omitted id as `{}`. The service
+     * then minted `paymentId:sequence`, so a timed-out retry of a partial
+     * refund that still fits under captured funds was a second debit. Spent
+     * and conflict checks never saw that call. The procedure now refuses
+     * before any debit. A supplied id still replays as one movement.
+     */
+    it('an omitted refundId does not debit twice', async () => {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '100');
+      await pay.capture(payment.id);
+      expect(await clearingOf(m.id)).toBe('100');
+
+      const authConfig = {
+        secret: 'a-test-signing-secret-that-is-long-enough',
+        issuer: 'intafaced',
+        audience: 'intafaced.api',
+        accessTtlSeconds: 900,
+      };
+      const { token } = await issueAccessToken(
+        {
+          userId: MERCHANT_USER,
+          sessionId: '77777777-7777-4777-8777-777777777777',
+          scopes: ['pay:refund'],
+          tier: 'full',
+          mfa: true,
+        },
+        authConfig,
+      );
+      const callerCtx: Context = {
+        principal: await verifyAccessToken(token, authConfig),
+        region: 'DE',
+        requestId: 'req-refund-id',
+      };
+      const api = createPayRouter(pay, rails, {} as UserMoneyService).createCaller(callerCtx);
+
+      const refundKeys = () => ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('payment.refund:')).map((tx) => tx.idempotencyKey);
+
+      for (const refundId of [undefined, '', '   '] as const) {
+        const err = await api.payment
+          .refund(refundId === undefined ? { paymentId: payment.id, amount: '10' } : { paymentId: payment.id, amount: '10', refundId })
+          .catch((e: unknown) => e);
+        expect((err as { code?: string }).code).toBe('BAD_REQUEST');
+        expect((err as Error).message).toContain('pay.refund_id_required');
+      }
+      // A second omit is the timeout retry. Still no movement, and no minted ordinal.
+      const again = await api.payment.refund({ paymentId: payment.id, amount: '10' }).catch((e: unknown) => e);
+      expect((again as { code?: string }).code).toBe('BAD_REQUEST');
+      expect((again as Error).message).toContain('pay.refund_id_required');
+
+      expect(await clearingOf(m.id)).toBe('100');
+      expect(refundKeys()).toEqual([]);
+      expect(formatAmount((await pay.getPayment(payment.id)).refundedAmount)).toBe('0');
+      expect(refundKeys().some((key) => key.includes(`${payment.id}:`))).toBe(false);
+
+      const first = await api.payment.refund({ paymentId: payment.id, amount: '10', refundId: 'retry-same' });
+      const second = await api.payment.refund({ paymentId: payment.id, amount: '10', refundId: 'retry-same' });
+      expect(first.refundedAmount).toBe('10');
+      expect(second.refundedAmount).toBe('10');
+      expect(await clearingOf(m.id)).toBe('90');
+      expect(refundKeys()).toEqual([`payment.refund:${payment.id}:retry-same`]);
     });
 
     it('sends an on-chain refund back to the address that paid', async () => {

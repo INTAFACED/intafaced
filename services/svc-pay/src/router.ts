@@ -652,7 +652,16 @@ export function createPayRouter(
           }),
         ),
 
-      /** Its own scope. Refunding is not the same authority as taking payment. */
+      /**
+       * Its own scope. Refunding is not the same authority as taking payment.
+       *
+       * `refundId` is required before any debit. Omit and blank used to be
+       * forwarded as `{}`, and `pay.refund` then minted `paymentId:sequence`.
+       * A timed-out retry of a partial refund that still fits under captured
+       * funds was a second debit. Spent and conflict checks only run when an
+       * id was sent. This door refuses first and never asks the service to
+       * mint an id. REST keeps its Idempotency-Key door.
+       */
       refund: scopedProcedure('pay:refund', { module: 'pay' })
         .input(z.object({ paymentId: z.string().uuid(), amount: amountSchema, refundId: z.string().optional() }))
         .output(paymentView)
@@ -660,9 +669,14 @@ export function createPayRouter(
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
             await assertAccess(ctx.principal?.userId, payment.merchantId, 'trpc.payment.refund');
-            return toPaymentOut(
-              await pay.refund(input.paymentId, parseAmount(input.amount), input.refundId ? { refundId: input.refundId } : {}),
-            );
+            const refundId = input.refundId?.trim() ?? '';
+            if (refundId.length === 0) {
+              throw new PayError(
+                'refundId is required before any debit — an omitted or blank id is not minted as paymentId:sequence',
+                'pay.refund_id_required',
+              );
+            }
+            return toPaymentOut(await pay.refund(input.paymentId, parseAmount(input.amount), { refundId }));
           }),
         ),
 
@@ -1736,6 +1750,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.checkout_busy':
         return 'TOO_MANY_REQUESTS' as const;
       case 'pay.routing_input_missing':
+      case 'pay.refund_id_required':
         return 'BAD_REQUEST' as const;
       case 'pay.routing_no_rail':
       case 'pay.payout_destination_missing':
