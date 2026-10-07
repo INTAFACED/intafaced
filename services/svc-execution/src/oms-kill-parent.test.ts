@@ -21,6 +21,7 @@ import type { OmsSubmitFn } from './oms-trade-submit.js';
 import { createExecutionRouter } from './router.js';
 
 const SECRET = 'a-execution-oms-kill-parent-test-edge-secret';
+const MATCHING_ORDER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OP = '33333333-3333-4333-8333-333333333333';
 const OTHER = '44444444-4444-4444-8444-444444444444';
 const ORIGINATOR = '55555555-5555-4555-8555-555555555555';
@@ -158,6 +159,54 @@ function trackingSubmit(): { calls: SubmitRequest[]; submit: OmsSubmitFn } {
       return ack(req);
     },
   };
+}
+
+function matchingFetch(status: number, body: unknown): typeof fetch {
+  return async () =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+}
+
+function runningOwnedParent(street: FakeCancel) {
+  const parentStore = new InMemoryApprovedAlgoParentStore();
+  parentStore.seed(
+    live({
+      parentClientOrderId: 'parent-twap',
+      kind: 'twap',
+      status: 'running',
+      startedAt: '2026-08-25T00:00:00.000Z',
+      executionOwner: OP,
+    }),
+  );
+  const emsStore = new InMemoryEmsOrderStore();
+  seedAck(emsStore);
+  const pauseStore = new InMemoryAlgoPauseStore();
+  return { parentStore, emsStore, pauseStore, street };
+}
+
+async function expectPausedParentTakesNoSlice(
+  parentStore: InMemoryApprovedAlgoParentStore,
+  pauseStore: InMemoryAlgoPauseStore,
+) {
+  const streetSubmit = trackingSubmit();
+  expect(
+    await sliceLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      amount: '0.5',
+      venueId: 'street',
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      limitPrice: '100',
+      parentCap: '100',
+      parentStore,
+      pauseStore,
+      submit: streetSubmit.submit,
+    }),
+  ).toMatchObject({ ok: false, reason: 'algo_paused' });
+  expect(streetSubmit.calls).toEqual([]);
+  expect(parentStore.get('parent-twap')?.status).toBe('running');
 }
 
 function stubStore(over: Partial<ApprovedAlgoParentStore> = {}): ApprovedAlgoParentStore {
@@ -423,6 +472,121 @@ describe('killLiveAlgoParent', () => {
       }),
     ).toMatchObject({ ok: false, reason: 'parent_store_unwired' });
     expect(street.calls).toEqual([]);
+  });
+
+  it('refused matching cancel still cancels street children and pauses the running parent', async () => {
+    const street = new FakeCancel(venueOrder());
+    const { parentStore, emsStore, pauseStore } = runningOwnedParent(street);
+    const out = await killLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      operatorId: OP,
+      parentStore,
+      pauseStore,
+      emsStore,
+      cancelByVenue: { street: street.fn },
+      matchingUrl: '',
+      internalServiceSecret: SECRET,
+      matchingChildren: [{ marketId: 'BTC-USDT', orderId: MATCHING_ORDER }],
+    });
+    expect(out).toMatchObject({ ok: false, reason: 'matching_unconfigured' });
+    expect(street.calls).toEqual([{ symbol: 'BTC/USDT', clientOrderId: 'child-1' }]);
+    expect(pauseStore.isPaused({ parentClientOrderId: 'parent-twap' })).toBe(true);
+    await expectPausedParentTakesNoSlice(parentStore, pauseStore);
+  });
+
+  it('unconfirmed matching cancel keeps the street fill and pauses the running parent', async () => {
+    const street = new FakeCancel(
+      venueOrder({
+        filled: parseAmount('1.25'),
+        remaining: parseAmount('0.75'),
+        status: 'canceled',
+      }),
+    );
+    const { parentStore, emsStore, pauseStore } = runningOwnedParent(street);
+    const out = await killLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      operatorId: OP,
+      parentStore,
+      pauseStore,
+      emsStore,
+      cancelByVenue: { street: street.fn },
+      matchingUrl: 'http://matching.test',
+      internalServiceSecret: SECRET,
+      matchingChildren: [{ marketId: 'BTC-USDT', orderId: MATCHING_ORDER }],
+      fetch: matchingFetch(404, { cancelled: false }),
+    });
+    expect(out).toMatchObject({ ok: true, killed: false });
+    if (!out.ok) return;
+    expect(out.residual).toEqual({ filled: '1.25', remaining: '0.75' });
+    expect(out.residual).not.toEqual({ filled: '0', remaining: null });
+    expect(typeof out.residual.filled).toBe('string');
+    expect(typeof out.residual.remaining).toBe('string');
+    expect(street.calls).toEqual([{ symbol: 'BTC/USDT', clientOrderId: 'child-1' }]);
+    expect(out.children).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ clientOrderId: MATCHING_ORDER, outcome: 'unknown', reason: 'matching_unknown' }),
+        { clientOrderId: 'child-1', venueId: 'street', outcome: 'stopped', status: 'canceled' },
+      ]),
+    );
+    expect(pauseStore.isPaused({ parentClientOrderId: 'parent-twap' })).toBe(true);
+    await expectPausedParentTakesNoSlice(parentStore, pauseStore);
+  });
+
+  it('unconfirmed matching cancel leaves an unknown street fill unknown', async () => {
+    const street = new FakeCancel(new Error('venue 503'));
+    const { parentStore, emsStore, pauseStore } = runningOwnedParent(street);
+    const out = await killLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      operatorId: OP,
+      parentStore,
+      pauseStore,
+      emsStore,
+      cancelByVenue: { street: street.fn },
+      matchingUrl: 'http://matching.test',
+      internalServiceSecret: SECRET,
+      matchingChildren: [{ marketId: 'BTC-USDT', orderId: MATCHING_ORDER }],
+      fetch: matchingFetch(404, { cancelled: false }),
+    });
+    expect(out).toMatchObject({ ok: true, killed: false });
+    if (!out.ok) return;
+    expect(out.residual.remaining).toBeNull();
+    expect(out.residual.filled).toBeNull();
+    expect(out.residual.filled).not.toBe('0');
+    expect(typeof out.residual.filled).not.toBe('number');
+    expect(street.calls).toEqual([{ symbol: 'BTC/USDT', clientOrderId: 'child-1' }]);
+    expect(pauseStore.isPaused({ parentClientOrderId: 'parent-twap' })).toBe(true);
+    await expectPausedParentTakesNoSlice(parentStore, pauseStore);
+  });
+
+  it('confirmed matching kill still cancels street children and pauses', async () => {
+    const street = new FakeCancel(
+      venueOrder({
+        filled: parseAmount('1.25'),
+        remaining: parseAmount('0.75'),
+        status: 'canceled',
+      }),
+    );
+    const { parentStore, emsStore, pauseStore } = runningOwnedParent(street);
+    const out = await killLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      operatorId: OP,
+      parentStore,
+      pauseStore,
+      emsStore,
+      cancelByVenue: { street: street.fn },
+      matchingUrl: 'http://matching.test',
+      internalServiceSecret: SECRET,
+      matchingChildren: [{ marketId: 'BTC-USDT', orderId: MATCHING_ORDER }],
+      fetch: matchingFetch(200, { cancelled: true, sequence: 7 }),
+    });
+    expect(out).toMatchObject({
+      ok: true,
+      killed: true,
+      residual: { filled: '1.25', remaining: '0.75' },
+    });
+    expect(street.calls).toEqual([{ symbol: 'BTC/USDT', clientOrderId: 'child-1' }]);
+    expect(pauseStore.isPaused({ parentClientOrderId: 'parent-twap' })).toBe(true);
+    expect(parentStore.get('parent-twap')?.status).toBe('stopped');
   });
 });
 
