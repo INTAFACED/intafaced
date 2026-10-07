@@ -38,6 +38,7 @@ contract SovereignEscrow {
         address seller;
         address buyer;
         address token;
+        /** Open: the pull. Locked: tokens that arrived. Terminal paths zero it. */
         uint128 amount;
         /** Optional. address(0) = no human arbiter; only timeout settles disputes. */
         address arbiter;
@@ -126,7 +127,10 @@ contract SovereignEscrow {
         emit DealOpened(dealId, msg.sender, buyer, token, amount, arbiter, timeoutDisposition, disputeWindow);
     }
 
-    /** Seller pulls `amount` into the contract. Idempotent refusal if already locked. */
+    /**
+     * Seller pulls the open amount. The deal is credited with the tokens that
+     * arrived, so a fee-on-transfer token does not book the pre-fee pull.
+     */
     function lock(uint256 dealId) external {
         Deal storage d = deals[dealId];
         if (d.status != Status.Open) revert BadStatus();
@@ -136,13 +140,19 @@ contract SovereignEscrow {
         uint128 amount = d.amount;
         if (tokenPull[token]) revert PullInProgress();
         tokenPull[token] = true;
+        uint256 beforeBal = IERC20Minimal(token).balanceOf(address(this));
         bool ok = IERC20Minimal(token).transferFrom(msg.sender, address(this), amount);
+        uint256 afterBal = IERC20Minimal(token).balanceOf(address(this));
         tokenPull[token] = false;
         if (!ok) revert TransferInFailed();
         if (d.status != Status.Open) revert BadStatus();
 
+        uint256 received = afterBal > beforeBal ? afterBal - beforeBal : 0;
+        if (received == 0 || received > type(uint128).max) revert TransferInFailed();
+
+        d.amount = uint128(received);
         d.status = Status.Locked;
-        emit DealLocked(dealId, amount);
+        emit DealLocked(dealId, uint128(received));
     }
 
     /** Seller releases to buyer (classic "fiat received" path). Only while Locked. */
@@ -203,22 +213,34 @@ contract SovereignEscrow {
         uint128 amount = d.amount;
         uint128 fee = d.feeBps == 0 ? 0 : uint128((uint256(amount) * d.feeBps) / 10_000);
         uint128 net = amount - fee;
+        address token = d.token;
         d.status = Status.Released;
         d.amount = 0;
 
+        uint256 beforeBal = IERC20Minimal(token).balanceOf(address(this));
         if (fee > 0) {
-            if (!IERC20Minimal(d.token).transfer(d.feeRecipient, fee)) revert TransferOutFailed();
+            if (!IERC20Minimal(token).transfer(d.feeRecipient, fee)) revert TransferOutFailed();
         }
-        if (!IERC20Minimal(d.token).transfer(d.buyer, net)) revert TransferOutFailed();
+        if (!IERC20Minimal(token).transfer(d.buyer, net)) revert TransferOutFailed();
+        _boundSpend(token, beforeBal, amount);
         emit DealReleased(dealId, d.buyer, net, fee);
     }
 
     function _refund(uint256 dealId, Deal storage d) private {
         if (tokenPull[d.token]) revert PullInProgress();
         uint128 amount = d.amount;
+        address token = d.token;
         d.status = Status.Refunded;
         d.amount = 0;
-        if (!IERC20Minimal(d.token).transfer(d.seller, amount)) revert TransferOutFailed();
+        uint256 beforeBal = IERC20Minimal(token).balanceOf(address(this));
+        if (!IERC20Minimal(token).transfer(d.seller, amount)) revert TransferOutFailed();
+        _boundSpend(token, beforeBal, amount);
         emit DealRefunded(dealId, d.seller, amount);
+    }
+
+    /// This deal can reduce the pooled balance by at most the tokens it was credited.
+    function _boundSpend(address token, uint256 beforeBal, uint256 credit) private view {
+        uint256 afterBal = IERC20Minimal(token).balanceOf(address(this));
+        if (afterBal > beforeBal || beforeBal - afterBal > credit) revert TransferOutFailed();
     }
 }

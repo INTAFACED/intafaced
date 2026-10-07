@@ -184,3 +184,131 @@ contract SovereignEscrowLockReentrancyTest {
         (, status) = _peek(book, dealId);
     }
 }
+
+/// Takes `feeBps` out of every transfer. The recipient is credited the remainder.
+contract FeeOnTransferToken {
+    uint256 public immutable feeBps;
+    string public name = "Fee";
+    string public symbol = "FEE";
+    uint8 public decimals = 18;
+    uint256 public totalSupply;
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    constructor(uint256 feeBps_) {
+        require(feeBps_ > 0 && feeBps_ < 10_000, "fee");
+        feeBps = feeBps_;
+    }
+
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+        totalSupply += amount;
+    }
+
+    function approve(address spender, uint256 amount) external returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        return true;
+    }
+
+    function transfer(address to, uint256 amount) external returns (bool) {
+        return _move(msg.sender, to, amount);
+    }
+
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        uint256 allowed = allowance[from][msg.sender];
+        if (allowed != type(uint256).max) {
+            require(allowed >= amount, "allowance");
+            allowance[from][msg.sender] = allowed - amount;
+        }
+        return _move(from, to, amount);
+    }
+
+    function _move(address from, address to, uint256 amount) private returns (bool) {
+        require(balanceOf[from] >= amount, "balance");
+        uint256 fee = (amount * feeBps) / 10_000;
+        require(fee > 0 && fee < amount, "fee");
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount - fee;
+        totalSupply -= fee;
+        return true;
+    }
+}
+
+/// A fee-on-transfer pull must not let one deal spend another deal's tokens.
+contract SovereignEscrowFeeOnTransferTest {
+    uint256 internal constant FEE_BPS = 1_000;
+    uint128 internal constant VICTIM_PULL = 1_000;
+    uint128 internal constant SHORT_PULL = 500;
+
+    function test_fee_on_transfer_cannot_spend_another_deals_tokens() public {
+        FeeOnTransferToken token = new FeeOnTransferToken(FEE_BPS);
+        SovereignEscrow book = new SovereignEscrow();
+        token.mint(address(this), uint256(VICTIM_PULL) + uint256(SHORT_PULL));
+        token.approve(address(book), type(uint256).max);
+
+        address buyerVictim = address(0xA11CE);
+        address buyerShort = address(0xB0B);
+        uint256 victimDeal = _open(book, buyerVictim, address(token), VICTIM_PULL);
+        uint256 shortDeal = _open(book, buyerShort, address(token), SHORT_PULL);
+
+        book.lock(victimDeal);
+        uint256 victimReceived = token.balanceOf(address(book));
+        require(victimReceived < VICTIM_PULL, "token kept a fee");
+        require(_amount(book, victimDeal) == uint128(victimReceived), "victim credited the pre-fee pull");
+
+        book.lock(shortDeal);
+        uint256 shortReceived = token.balanceOf(address(book)) - victimReceived;
+        require(shortReceived < SHORT_PULL, "token kept a fee");
+        require(_amount(book, shortDeal) == uint128(shortReceived), "short credited the pre-fee pull");
+        require(token.balanceOf(address(book)) == victimReceived + shortReceived, "pool is both arrivals");
+        require(token.balanceOf(address(this)) == 0, "seller paid both pulls");
+
+        uint256 pool = token.balanceOf(address(book));
+        book.release(shortDeal);
+        uint256 spent = pool - token.balanceOf(address(book));
+        require(spent == shortReceived, "release spent another deal");
+        require(token.balanceOf(address(book)) == victimReceived, "victim tokens were spent");
+        require(_amount(book, victimDeal) == uint128(victimReceived), "victim credit changed");
+        require(_status(book, victimDeal) == SovereignEscrow.Status.Locked, "victim unlocked");
+        require(_status(book, shortDeal) == SovereignEscrow.Status.Released, "short not released");
+        require(_amount(book, shortDeal) == 0, "short amount remains");
+        require(token.balanceOf(buyerVictim) == 0, "victim buyer was paid");
+        uint256 shortBuyerGot = token.balanceOf(buyerShort);
+        require(shortBuyerGot > 0 && shortBuyerGot <= shortReceived, "buyer paid from another deal");
+
+        uint256 sellerBefore = token.balanceOf(address(this));
+        pool = token.balanceOf(address(book));
+        book.refund(victimDeal);
+        spent = pool - token.balanceOf(address(book));
+        require(spent == victimReceived, "refund spent another deal");
+        require(token.balanceOf(address(book)) == 0, "shortfall left locked");
+        require(token.balanceOf(address(this)) - sellerBefore <= victimReceived, "seller paid from another deal");
+        require(token.balanceOf(buyerShort) == shortBuyerGot, "short buyer changed");
+        require(token.balanceOf(buyerVictim) == 0, "victim buyer paid on refund");
+        require(_status(book, victimDeal) == SovereignEscrow.Status.Refunded, "victim not refunded");
+        require(_amount(book, victimDeal) == 0, "victim amount remains");
+        require(_status(book, shortDeal) == SovereignEscrow.Status.Released, "short deal reopened");
+    }
+
+    function _open(SovereignEscrow book, address buyer, address asset, uint128 amount) internal returns (uint256) {
+        return book.open(
+            buyer, asset, amount, address(0), address(0), 0, 3_600, SovereignEscrow.TimeoutDisposition.RefundSeller
+        );
+    }
+
+    function _peek(SovereignEscrow book, uint256 dealId)
+        internal
+        view
+        returns (uint128 amount, SovereignEscrow.Status status)
+    {
+        (,,, amount,,,,,, status,) = book.deals(dealId);
+    }
+
+    function _amount(SovereignEscrow book, uint256 dealId) internal view returns (uint128 amount) {
+        (amount,) = _peek(book, dealId);
+    }
+
+    function _status(SovereignEscrow book, uint256 dealId) internal view returns (SovereignEscrow.Status status) {
+        (, status) = _peek(book, dealId);
+    }
+}
