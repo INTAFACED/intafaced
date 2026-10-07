@@ -1137,7 +1137,8 @@ export class CardService {
    * pending — makes them share that row. The same kind stays open, because that
    * is the re-drive. A rejected row stays open too, including for the other
    * kind: the post never landed, and `reverse()` after a failed capture is how
-   * the hold goes back.
+   * the hold goes back. That call does not settle the rejected row. Sequence 0
+   * is claimed again, as the kind that is actually posting.
    */
   private async requireOpenAuthorization(
     card: CardRecord,
@@ -1258,13 +1259,46 @@ export class CardService {
           SELECT id, ledger_tx_id, amount::text AS amount, kind, status FROM bank.card_settlements
            WHERE authorization_id = ${input.authorization.id} AND sequence = ${input.sequence}
         `;
+        const prior = existing[0]!;
+        const priorAmount = parseAmount(prior.amount);
+        // A rejected full capture sits on sequence 0 with kind `capture` and
+        // the hold as its amount. The other kind may release that hold, but
+        // not by posting onto this row or by returning its ledger transaction.
+        // Retire the failed claim and insert a new one. A different amount is
+        // left for the conflict check below, which must still see the old row.
+        if (prior.kind !== input.kind && prior.status === 'rejected' && priorAmount === input.amount) {
+          const removed = await tx<Array<{ id: string }>>`
+            DELETE FROM bank.card_settlements
+             WHERE id = ${prior.id} AND status = 'rejected' AND kind = ${prior.kind}
+            RETURNING id
+          `;
+          if (removed.length === 0) {
+            throw new BankError(
+              `Settlement ${input.sequence} on this authorisation was claimed as ${prior.kind}, not ${input.kind}`,
+              'bank.card_settlement_kind_conflict',
+            );
+          }
+          const inserted = await tx<Array<{ id: string }>>`
+            INSERT INTO bank.card_settlements (authorization_id, sequence, kind, amount)
+            VALUES (${input.authorization.id}, ${input.sequence}, ${input.kind}, ${formatAmount(input.amount)}::numeric)
+            RETURNING id
+          `;
+          return {
+            claimed: true as const,
+            id: inserted[0]!.id,
+            ledgerTxId: null,
+            amount: input.amount,
+            kind: input.kind,
+            status: 'pending' as const,
+          };
+        }
         return {
           claimed: false as const,
-          id: existing[0]!.id,
-          ledgerTxId: existing[0]!.ledger_tx_id,
-          amount: parseAmount(existing[0]!.amount),
-          kind: existing[0]!.kind,
-          status: existing[0]!.status,
+          id: prior.id,
+          ledgerTxId: prior.ledger_tx_id,
+          amount: priorAmount,
+          kind: prior.kind,
+          status: prior.status,
         };
       },
       { isolation: 'read committed', maxAttempts: 5 },
@@ -1288,10 +1322,12 @@ export class CardService {
     // Kind is the other half. Capture and reverse both take sequence 0, so the
     // lost insert is not proof they asked for the same movement. Returning
     // `ledgerTxId` here would report the capture's transaction as the reversal.
-    // A rejected claim is the exception a failed post depends on: nothing was
-    // posted, and the other kind may still take the sequence — that is how
-    // `reverse()` releases a hold after a capture post threw.
-    if (!claim.claimed && claim.kind !== input.kind && claim.status !== 'rejected') {
+    // A rejected row is not an exception to that. Nothing was posted, so the
+    // other kind may still release the hold, but the claim above retires the
+    // failed row first. Settling it in place would leave kind `capture` and,
+    // when the reject left a ledger transaction id, hand that capture back as
+    // the reversal.
+    if (!claim.claimed && claim.kind !== input.kind) {
       throw new BankError(
         `Settlement ${input.sequence} on this authorisation was claimed as ${claim.kind}, not ${input.kind}`,
         'bank.card_settlement_kind_conflict',
@@ -1312,7 +1348,9 @@ export class CardService {
     } catch (err) {
       await this.sql`
         UPDATE bank.card_settlements
-           SET status = 'rejected', rejection_code = ${err instanceof LedgerError ? err.code : 'bank.post_failed'}
+           SET status = 'rejected',
+               rejection_code = ${err instanceof LedgerError ? err.code : 'bank.post_failed'},
+               ledger_tx_id = NULL
          WHERE id = ${claim.id}
       `;
       throw err;

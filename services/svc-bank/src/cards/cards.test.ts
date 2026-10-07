@@ -963,6 +963,69 @@ describe('svc-bank cards PG-hard', () => {
     });
 
     /**
+     * A rejected full capture leaves kind `capture` and an amount equal to the
+     * hold, on sequence 0. `reverse()` used to post onto that same row, and
+     * when the row already had a ledger transaction id it returned that id and
+     * called it the reversal.
+     *
+     * The hold still goes back — the capture post did not land — but the
+     * reversal is a different row and a different transaction.
+     */
+    it('does not reuse a rejected full capture row, or report its ledger transaction as the reversal', async () => {
+      await fund(HOLDER, 'USDT', '500');
+      const card = await issueCard();
+      const auth = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') });
+
+      const broken = ledgerFailingOn('withdraw.settle');
+      await expect(broken.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') })).rejects.toThrow(
+        'svc-ledger unreachable',
+      );
+
+      const captureRows = await sql<Array<{ id: string; kind: string; status: string; amount: string; ledger_tx_id: string | null }>>`
+        SELECT id, kind, status, amount::text AS amount, ledger_tx_id
+          FROM bank.card_settlements
+         WHERE authorization_id = ${auth.id} AND sequence = 0
+      `;
+      expect(captureRows).toHaveLength(1);
+      const captureRow = captureRows[0]!;
+      expect(captureRow.kind).toBe('capture');
+      expect(captureRow.status).toBe('rejected');
+      expect(captureRow.ledger_tx_id).toBeNull();
+      expect(formatAmount(amt(captureRow.amount))).toBe('120');
+      expect(await heldOn(auth.id)).toBe('120');
+
+      // The reject left the capture's ledger transaction id on the row.
+      const captureLedgerTxId = randomUUID();
+      await sql`
+        UPDATE bank.card_settlements
+           SET ledger_tx_id = ${captureLedgerTxId}
+         WHERE id = ${captureRow.id} AND status = 'rejected'
+      `;
+
+      const reversed = await cards.reverse({ cardId: card.id, authorizationRef: 'auth-1' });
+
+      expect(reversed.ledgerTxId).not.toBe(captureLedgerTxId);
+      expect(formatAmount(reversed.returned)).toBe('120');
+      const reversalTx = await ledger.getTx(reversed.ledgerTxId);
+      expect(reversalTx?.idempotencyKey).toBe(`withdraw.reverse:${auth.id}`);
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey === `withdraw.settle:${auth.id}`)).toHaveLength(0);
+
+      const rows = await sql<Array<{ id: string; kind: string; status: string; ledger_tx_id: string | null }>>`
+        SELECT id, kind, status, ledger_tx_id
+          FROM bank.card_settlements
+         WHERE authorization_id = ${auth.id}
+         ORDER BY sequence
+      `;
+      expect(rows).toEqual([
+        { id: expect.any(String), kind: 'reversal', status: 'settled', ledger_tx_id: reversed.ledgerTxId },
+      ]);
+      expect(rows[0]!.id).not.toBe(captureRow.id);
+      expect(await heldOn(auth.id)).toBe('0');
+      expect(await availableOf(HOLDER, 'USDT')).toBe('500');
+      expect(ledger.totalsByAsset().USDT).toBe('0');
+    });
+
+    /**
      * The remainder case, and the reason `resumeSettlements` exists as a CALL.
      *
      * Sequence 0 settled, so the authorisation is correctly closed to new
