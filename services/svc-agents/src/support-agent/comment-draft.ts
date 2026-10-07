@@ -23,7 +23,7 @@ export type CommentDraftResult = CommentDraftOk | CommentDraftRefuse;
 const MAX_BODY = 4_000;
 
 /** Language that pretends to move value or invent balances — refuse. */
-const MONEY_INVENT = /\b(i (have )?refunded|balance (is|now) \d|credited \$?\d|wired \$?\d|sent you \$?\d|payout of)\b/i;
+const MONEY_INVENT = /\b(i (have )?refunded|balance (is|now) \d+|credited \$?\d+|wired \$?\d+|sent you \$?\d+|payout of)\b/i;
 
 /**
  * Pure draft for support.ticket.comment. Caller still needs guardrail approval.
