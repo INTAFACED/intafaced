@@ -556,7 +556,7 @@ export class AutoInvestService {
     return report;
   }
 
-  private async driveRule(rule: AutoInvestRule, now: Date): Promise<'settled' | 'skipped' | 'rejected'> {
+  private async driveRule(rule: AutoInvestRule, now: Date): Promise<'settled' | 'skipped' | 'rejected' | 'pending'> {
     if (rule.kind === 'threshold_sweep') {
       return this.driveThresholdSweep(rule, now);
     }
@@ -566,7 +566,7 @@ export class AutoInvestService {
     throw new BankError('Card round-ups fire on capture, not on the runner', 'bank.auto_invest_run_failed');
   }
 
-  private async driveThresholdSweep(rule: AutoInvestRule, now: Date): Promise<'settled' | 'skipped' | 'rejected'> {
+  private async driveThresholdSweep(rule: AutoInvestRule, now: Date): Promise<'settled' | 'skipped' | 'rejected' | 'pending'> {
     return withMoneySpan(
       'bank.auto_invest.threshold_sweep',
       { operation: 'auto-invest-threshold-sweep', ruleId: rule.id, userId: rule.userId, assetId: rule.assetId },
@@ -595,8 +595,17 @@ export class AutoInvestService {
           RETURNING id
         `;
         if (claimed.length === 0) {
-          // Same client_run_id already finished or in flight — treat as settled.
-          return 'settled';
+          const existing = await this.sql<Array<{ status: AutoInvestRunStatus }>>`
+            SELECT status FROM bank.auto_invest_runs
+             WHERE rule_id = ${rule.id}::uuid AND client_run_id = ${clientRunId}
+          `;
+          const status = existing[0]?.status;
+          // The key is taken. Settled only if that row already settled — a
+          // pending, rejected, or skipped row did not deposit this excess.
+          if (status === 'settled') return 'settled';
+          if (status === 'rejected') return 'rejected';
+          if (status === 'pending') return 'pending';
+          return 'skipped';
         }
         const runId = claimed[0]!.id;
         const positionId = runId; // earn deposit idempotency key = run id
