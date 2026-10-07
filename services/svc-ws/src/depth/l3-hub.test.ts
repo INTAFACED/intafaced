@@ -413,6 +413,64 @@ describe('NativeL3Hub', () => {
     expect(next.closed).toBeNull();
   });
 
+  it('an in-flight tick rejection after the last watcher leaves does not tell the next subscriber the feed is down', async () => {
+    const source = new Source();
+    let l3Calls = 0;
+    let gate: Promise<void> = Promise.resolve();
+    let rejectPoll: (err: unknown) => void = () => undefined;
+    const readQueue = source.l3Queue.bind(source);
+    source.l3Queue = async (marketId: string) => {
+      l3Calls += 1;
+      await gate;
+      return readQueue(marketId);
+    };
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async () => true,
+    });
+
+    const watched = new RecordingSink();
+    const leave = hub.attach(MARKET, watched);
+    await new Promise((r) => setTimeout(r, 0));
+    gate = new Promise<void>((_resolve, reject) => {
+      rejectPoll = reject;
+    });
+    const poll = hub.tick();
+    leave!();
+    rejectPoll(new DepthL3UnavailableError(MARKET));
+    gate = Promise.resolve();
+    await poll;
+
+    const recovered: NativeL3Queue = {
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    };
+    source.queue = recovered;
+    const callsAtIdle = l3Calls;
+    const next = new RecordingSink();
+    hub.attach(MARKET, next);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(hub.stats.code).toBeNull();
+    expect(l3Calls).toBeGreaterThan(callsAtIdle);
+    expect(next.frames.some((frame) => JSON.parse(frame).code === DEPTH_L3_UNAVAILABLE)).toBe(false);
+    expect(next.frames.some((frame) => JSON.parse(frame).code === DEPTH_ENGINE_UNAVAILABLE)).toBe(false);
+    expect(JSON.parse(next.frames.at(-1)!)).toEqual({
+      type: 'snapshot',
+      transport: 'poll',
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    });
+    expect(next.closed).toBeNull();
+  });
+
   it('fan-out names depth.l3_unavailable without an L2 ladder', () => {
     const source = new Source();
     const hub = new NativeL3Hub(source, {

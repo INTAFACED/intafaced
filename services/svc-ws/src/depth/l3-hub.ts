@@ -257,6 +257,9 @@ export class NativeL3Hub {
           const queue = await this.#source.l3Queue!(marketId, limit);
           this.ingest(queue);
         } catch (err) {
+          // The last watcher can leave during this await. #forgetIdle already
+          // cleared the flags; marking down with nobody left would stick.
+          if (!this.#hasLive(marketId)) return;
           if (err instanceof DepthL3UnavailableError) this.markL3Unavailable(marketId);
           else if (err instanceof DepthNoBookError) this.noteNoBook(marketId);
           else this.markEngineUnavailable(marketId);
