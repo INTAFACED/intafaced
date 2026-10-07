@@ -40,7 +40,7 @@ function installRpc(
   rpc: {
     getBlockNumber: () => Promise<bigint>;
     getBlock: (args: { blockNumber: bigint }) => Promise<{ number: bigint; transactions: NativeTx[] }>;
-    getLogs?: () => Promise<Erc20Log[]>;
+    getLogs?: (args: { address?: string; fromBlock?: bigint; toBlock?: bigint }) => Promise<Erc20Log[]>;
     getTransactionReceipt?: (args: { hash: Hex }) => Promise<ReceiptStub | null>;
   },
 ): void {
@@ -261,6 +261,61 @@ describe('EvmLiveChain inbound identity', () => {
     expect(still.map((item) => item.transfer.amount)).toEqual(expect.arrayContaining([amountB, amountC]));
     expect(still.map((item) => item.transfer.amount)).not.toContain(amountA);
     expect(still.map((item) => item.transfer.txHash)).not.toContain(txDropped);
+  });
+});
+
+describe('EvmLiveChain ERC-20 scan cursor', () => {
+  it('records a Transfer older than the short confirmation window when it is inside the lookback', async () => {
+    const book = new MemoryDepositAddressBook();
+    const token = '0x00000000000000000000000000000000000000a1';
+    const minConfirmations = 2;
+    const shortWindow = BigInt(Math.max(minConfirmations * 4, 64));
+    const port = new EvmLiveChain({
+      rpcUrl: 'http://127.0.0.1:9',
+      chainId: 31337,
+      depositMnemonic: MNEMONIC,
+      hotWalletKey: HOT_KEY,
+      assets: parseEvmAssets(`USDC:${token}:18`),
+      broadcasts: new MemoryBroadcastStore(),
+      depositAddresses: book,
+      minConfirmations,
+    });
+    const deposit = await port.acceptanceAddress('pay-l322', 'USDC');
+    const tip = 2_500n;
+    const lookbackCursor = tip - LOOKBACK;
+    const landedBlock = lookbackCursor + 100n;
+    expect(tip - landedBlock).toBeGreaterThan(shortWindow);
+    expect(landedBlock).toBeGreaterThanOrEqual(lookbackCursor);
+
+    const amount = parseAmount('3.5');
+    const txHash = '0x4444444444444444444444444444444444444444444444444444444444444444' as Hex;
+    const log = erc20Log({ token, to: deposit, value: amount, txHash, logIndex: 4, blockNumber: landedBlock });
+    const getLogs = vi.fn(async (args: { fromBlock?: bigint; toBlock?: bigint }) => {
+      const fromBlock = args.fromBlock ?? 0n;
+      const toBlock = args.toBlock ?? tip;
+      if (log.blockNumber < fromBlock || log.blockNumber > toBlock) return [];
+      return [log];
+    });
+    installRpc(port, {
+      getBlockNumber: async () => tip,
+      getBlock: async ({ blockNumber }) => block(blockNumber),
+      getLogs,
+      getTransactionReceipt: async ({ hash }) => ({
+        status: 'success',
+        transactionHash: hash,
+        blockNumber: landedBlock,
+        logs: [log],
+      }),
+    });
+
+    await port.refresh();
+
+    expect(getLogs).toHaveBeenCalledTimes(1);
+    expect(getLogs.mock.calls[0]?.[0]).toMatchObject({ fromBlock: lookbackCursor, toBlock: tip });
+    expect(scanCursorOf(port)).toBe(tip + 1n);
+    const kept = listObserved(port);
+    expect(kept).toEqual([expect.objectContaining({ txHash, amount, logIndex: 4 })]);
+    expect(typeof kept[0]?.amount).toBe('bigint');
   });
 });
 

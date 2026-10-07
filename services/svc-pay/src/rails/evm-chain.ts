@@ -300,6 +300,11 @@ export class EvmLiveChain implements CryptoChainPort {
       return;
     }
 
+    // ERC-20 logs use the cursor this refresh is about to walk, including the
+    // first-refresh lookback. The loop moves scanCursor to tip+1; reading it
+    // afterward would request an empty range and drop every Transfer in it.
+    const erc20FromBlock = this.scanCursor;
+
     while (this.scanCursor <= this.tip) {
       const block = await this.public.getBlock({ blockNumber: this.scanCursor, includeTransactions: true });
       // Read the watch set for this block. acceptanceAddress may add an address
@@ -328,7 +333,7 @@ export class EvmLiveChain implements CryptoChainPort {
       this.scanCursor += 1n;
     }
 
-    await this.scanErc20();
+    await this.scanErc20(erc20FromBlock);
     await this.recomputeConfirmations();
   }
 
@@ -429,12 +434,11 @@ export class EvmLiveChain implements CryptoChainPort {
     this.observed.set(key, next);
   }
 
-  private async scanErc20(): Promise<void> {
+  private async scanErc20(fromBlock: bigint): Promise<void> {
     const erc20 = [...this.assets.values()].filter((a): a is Extract<EvmAsset, { kind: 'erc20' }> => a.kind === 'erc20');
     if (erc20.length === 0) return;
-
-    const window = BigInt(Math.max(this.minConfirmations * 4, 64));
-    const fromBlock = this.tip > window ? this.tip - window : 0n;
+    // Nothing new since the cursor already passed the tip.
+    if (fromBlock > this.tip) return;
 
     for (const asset of erc20) {
       const logs = await this.public.getLogs({
