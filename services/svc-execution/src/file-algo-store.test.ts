@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -195,6 +195,42 @@ describe('FileAlgoPauseStore', () => {
     const path = join(tempDir(), 'algo-pauses.jsonl');
     const store = new FileAlgoPauseStore(path);
     expect(store.isPaused({ parentClientOrderId: 'parent-1' })).toBe(false);
+  });
+
+  it('a thrown pause append leaves memory unpaused, and a retry writes the line', () => {
+    const path = join(tempDir(), 'algo-pauses.jsonl');
+    const store = new FileAlgoPauseStore(path);
+    writeFileSync(path, '');
+    chmodSync(path, 0o444);
+
+    expect(() => store.pause({ kind: 'parent', id: 'parent-1' })).toThrow(/EACCES/);
+    expect(store.isPaused({ parentClientOrderId: 'parent-1' })).toBe(false);
+    expect(new FileAlgoPauseStore(path).isPaused({ parentClientOrderId: 'parent-1' })).toBe(false);
+
+    chmodSync(path, 0o644);
+    expect(store.pause({ kind: 'parent', id: 'parent-1' })).toBe(true);
+    expect(readFileSync(path, 'utf8')).toBe('{"kind":"parent","id":"parent-1","paused":true}\n');
+    expect(store.isPaused({ parentClientOrderId: 'parent-1' })).toBe(true);
+    expect(new FileAlgoPauseStore(path).isPaused({ parentClientOrderId: 'parent-1' })).toBe(true);
+  });
+
+  it('a thrown resume append stays paused, and a retry writes the line', () => {
+    const path = join(tempDir(), 'algo-pauses.jsonl');
+    const store = new FileAlgoPauseStore(path);
+    expect(store.pause({ kind: 'parent', id: 'parent-1' })).toBe(true);
+    chmodSync(path, 0o444);
+
+    expect(() => store.resume({ kind: 'parent', id: 'parent-1' })).toThrow(/EACCES/);
+    expect(store.isPaused({ parentClientOrderId: 'parent-1' })).toBe(true);
+    expect(new FileAlgoPauseStore(path).isPaused({ parentClientOrderId: 'parent-1' })).toBe(true);
+
+    chmodSync(path, 0o644);
+    expect(store.resume({ kind: 'parent', id: 'parent-1' })).toBe(true);
+    expect(readFileSync(path, 'utf8')).toBe(
+      '{"kind":"parent","id":"parent-1","paused":true}\n{"kind":"parent","id":"parent-1","paused":false}\n',
+    );
+    expect(store.isPaused({ parentClientOrderId: 'parent-1' })).toBe(false);
+    expect(new FileAlgoPauseStore(path).isPaused({ parentClientOrderId: 'parent-1' })).toBe(false);
   });
 });
 
