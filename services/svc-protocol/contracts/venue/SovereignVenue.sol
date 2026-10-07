@@ -275,6 +275,12 @@ contract SovereignVenue {
                 _removeLevel(makerSide, px);
                 continue;
             }
+            // A partial fill can leave a remainder whose quote notional is zero.
+            // That dust is not the end of the book: unlink it and walk on.
+            if (_quoteAmount(orders[oid].remaining, px) == 0) {
+                _discardDust(oid, makerSide, px);
+                continue;
+            }
             address maker = orders[oid].trader;
             if (maker == taker) revert SelfTrade();
             uint256 fillQty = remaining < orders[oid].remaining ? remaining : orders[oid].remaining;
@@ -399,6 +405,20 @@ contract SovereignVenue {
         delete betterPrice[side][price];
         delete headAt[side][price];
         delete tailAt[side][price];
+    }
+
+    /// Remove a resting order that can no longer settle quote, and free its reserve.
+    function _discardDust(uint256 orderId, uint8 side, uint256 price) internal {
+        Order storage o = orders[orderId];
+        uint256 qty = o.remaining;
+        address trader = o.trader;
+        _unlink(orderId);
+        o.remaining = 0;
+        qtyAt[side][price] -= qty;
+        if (side == SIDE_ASK) reservedBase[trader] -= qty;
+        else reservedQuote[trader] -= _quoteAmount(qty, price);
+        emit BookLevel(marketId, side, price, qtyAt[side][price]);
+        if (qtyAt[side][price] == 0) _removeLevel(side, price);
     }
 
     function _unlink(uint256 orderId) internal {

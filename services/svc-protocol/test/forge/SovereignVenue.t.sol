@@ -250,3 +250,139 @@ contract SovereignVenueReceivedTest {
         return amount - (amount * FEE_BPS) / 10_000;
     }
 }
+
+/// L343: a 1-wei remainder priced below 1e18 is zero quote notional. Matching must
+/// unlink it and fill the next level. `place` still rejects a new zero-notional order.
+contract SovereignVenueDustTest {
+    uint256 private constant WAD = 1e18;
+    address private constant ALICE = address(0xA11CE);
+    address private constant BOB = address(0xB0B);
+    address private constant CAROL = address(0xCA201);
+
+    function test_one_wei_remainder_below_wad_does_not_block_next_level() public {
+        VenueMutableToken base = new VenueMutableToken(18);
+        VenueMutableToken quote = new VenueMutableToken(18);
+        SovereignVenue venue = new SovereignVenue(bytes32(uint256(1)), address(base), address(quote), 0, address(0));
+
+        uint256 dustPrice = 1e17;
+        uint256 nextPrice = 2e17;
+        uint256 dustOrderQty = 10 * WAD + 1;
+        uint256 nextQty = 1 * WAD;
+        uint256 partialQty = 10 * WAD;
+        uint256 partialNotional = (partialQty * dustPrice) / WAD;
+        uint256 nextNotional = (nextQty * nextPrice) / WAD;
+
+        _deposit(venue, base, quote, ALICE, dustOrderQty + nextQty, 0);
+        vm.startPrank(ALICE);
+        uint256 dustId = venue.place(uint8(1), dustPrice, dustOrderQty);
+        uint256 nextId = venue.place(uint8(1), nextPrice, nextQty);
+        vm.stopPrank();
+
+        _deposit(venue, base, quote, BOB, 0, partialNotional);
+        vm.startPrank(BOB);
+        require(venue.place(uint8(0), dustPrice, partialQty) == 0, "partial rested");
+        vm.stopPrank();
+
+        (,,, uint256 dustLeft,,) = venue.orders(dustId);
+        require(dustLeft == 1, "one wei remainder");
+        require(venue.bestAsk() == dustPrice, "dust is best ask");
+        require(venue.baseBal(BOB) == partialQty, "positive notional fill settled");
+        require(venue.quoteBal(ALICE) == partialNotional, "maker received partial quote");
+
+        _deposit(venue, base, quote, CAROL, 0, nextNotional);
+        vm.startPrank(CAROL);
+        require(venue.place(uint8(0), nextPrice, nextQty) == 0, "next level rested");
+        vm.stopPrank();
+
+        (,,, uint256 dustAfter,,) = venue.orders(dustId);
+        (,,, uint256 nextAfter,,) = venue.orders(nextId);
+        require(dustAfter == 0, "dust unlinked");
+        require(nextAfter == 0, "next level filled");
+        require(venue.bestAsk() == 0, "ask book clear");
+        require(venue.bestBid() == 0, "no bid left resting");
+        require(venue.baseBal(CAROL) == nextQty, "taker received next level");
+        require(venue.quoteBal(CAROL) == 0, "taker paid next notional");
+        require(venue.quoteBal(ALICE) == partialNotional + nextNotional, "maker paid at next price");
+        require(venue.baseBal(ALICE) == 1, "dust base stays with maker");
+        require(venue.reservedBase(ALICE) == 0, "dust base reserve released");
+
+        vm.startPrank(ALICE);
+        try venue.place(uint8(1), dustPrice, 1) {
+            revert("placed zero notional");
+        } catch (bytes memory reason) {
+            require(bytes4(reason) == SovereignVenue.BadAmount.selector, "zero notional reason");
+        }
+        venue.withdraw(1, 0);
+        vm.stopPrank();
+        require(venue.baseBal(ALICE) == 0, "dust base withdrawn");
+        require(base.balanceOf(ALICE) == 1, "dust base paid out");
+    }
+
+    function test_one_wei_bid_remainder_below_wad_does_not_block_next_level() public {
+        VenueMutableToken base = new VenueMutableToken(18);
+        VenueMutableToken quote = new VenueMutableToken(18);
+        SovereignVenue venue = new SovereignVenue(bytes32(uint256(1)), address(base), address(quote), 0, address(0));
+
+        uint256 dustPrice = 2e17;
+        uint256 nextPrice = 1e17;
+        uint256 dustOrderQty = 5 * WAD + 1;
+        uint256 nextQty = 1 * WAD;
+        uint256 partialQty = 5 * WAD;
+        uint256 partialNotional = (partialQty * dustPrice) / WAD;
+        uint256 nextNotional = (nextQty * nextPrice) / WAD;
+
+        _deposit(venue, base, quote, ALICE, 0, partialNotional);
+        _deposit(venue, base, quote, BOB, 0, nextNotional);
+        vm.startPrank(ALICE);
+        uint256 dustId = venue.place(uint8(0), dustPrice, dustOrderQty);
+        vm.stopPrank();
+        vm.startPrank(BOB);
+        uint256 nextId = venue.place(uint8(0), nextPrice, nextQty);
+        vm.stopPrank();
+
+        _deposit(venue, base, quote, CAROL, partialQty, 0);
+        vm.startPrank(CAROL);
+        require(venue.place(uint8(1), dustPrice, partialQty) == 0, "partial rested");
+        vm.stopPrank();
+
+        (,,, uint256 dustLeft,,) = venue.orders(dustId);
+        require(dustLeft == 1, "one wei bid remainder");
+        require(venue.bestBid() == dustPrice, "dust is best bid");
+        require(venue.baseBal(ALICE) == partialQty, "positive notional bid fill settled");
+        require(venue.quoteBal(CAROL) == partialNotional, "seller received partial quote");
+
+        _deposit(venue, base, quote, address(0xDA7E), nextQty, 0);
+        vm.startPrank(address(0xDA7E));
+        require(venue.place(uint8(1), nextPrice, nextQty) == 0, "next bid rested");
+        vm.stopPrank();
+
+        (,,, uint256 dustAfter,,) = venue.orders(dustId);
+        (,,, uint256 nextAfter,,) = venue.orders(nextId);
+        require(dustAfter == 0, "dust bid unlinked");
+        require(nextAfter == 0, "next bid filled");
+        require(venue.bestBid() == 0, "bid book clear");
+        require(venue.bestAsk() == 0, "no ask left resting");
+        require(venue.baseBal(BOB) == nextQty, "next bidder received base");
+        require(venue.quoteBal(address(0xDA7E)) == nextNotional, "seller paid at next bid");
+        require(venue.baseBal(ALICE) == partialQty, "dust bid did not take the later base");
+        require(venue.reservedQuote(ALICE) == 0, "dust quote reserve clear");
+        require(venue.reservedQuote(BOB) == 0, "next bid reserve consumed");
+    }
+
+    function _deposit(
+        SovereignVenue venue,
+        VenueMutableToken base,
+        VenueMutableToken quote,
+        address account,
+        uint256 baseAmount,
+        uint256 quoteAmount
+    ) internal {
+        if (baseAmount > 0) base.mint(account, baseAmount);
+        if (quoteAmount > 0) quote.mint(account, quoteAmount);
+        vm.startPrank(account);
+        base.approve(address(venue), type(uint256).max);
+        quote.approve(address(venue), type(uint256).max);
+        venue.deposit(baseAmount, quoteAmount);
+        vm.stopPrank();
+    }
+}
