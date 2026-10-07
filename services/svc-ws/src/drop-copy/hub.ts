@@ -319,6 +319,7 @@ export class DropCopyHub {
         continue;
       }
       if (isPublishedHighWaterBytes(this.#options.highWaterBytes) && sub.sink.bufferedBytes > this.#options.highWaterBytes) {
+        sub.gapped = true;
         this.#noteLag(sub);
         continue;
       }
@@ -431,7 +432,6 @@ export class DropCopyHub {
 
   #noteLag(sub: Subscription): void {
     sub.lagTicks++;
-    sub.gapped = true;
     this.#droppedFrames++;
     if (!isPublishedMaxLagTicks(this.#options.maxLagTicks) || sub.lagTicks < this.#options.maxLagTicks) return;
     this.#evictions++;
