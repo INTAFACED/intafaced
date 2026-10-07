@@ -378,6 +378,8 @@ export async function postBasketChildrenToMatching(input: {
   timeoutMs?: number;
   /** INTERNAL_SERVICE_SECRET. Blank / short refuses before unsigned POST. */
   internalServiceSecret?: string;
+  /** Fired only after matching accepts a child, before a later leg can refuse. */
+  onChildAccepted?: (child: OmsBasketMatchingChildAck) => void;
 }): Promise<OmsBasketMatchingResult> {
   const base = readMatchingUrl(input.matchingUrl);
   if (!base) {
@@ -426,6 +428,7 @@ export async function postBasketChildrenToMatching(input: {
       );
     }
     children.push(posted.ack);
+    input.onChildAccepted?.(posted.ack);
   }
 
   return {

@@ -3,7 +3,8 @@
  * Generic live slice (twap|vwap|pov) does not cover basket — no sliceBasket dual-implement.
  * tRPC startBasket calls handleStartBasketDoor. tRPC killBasket calls
  * handleKillBasketDoor. Writes require HMAC as svc-execution. Matching mill is not recut.
- * Ledger qty strings. Partial-failure refuse_all only. Paper never ledgers.
+ * Ledger qty strings. Partial-failure refuse_all only: a later refused leg kills
+ * children already accepted so they do not keep working. Paper never ledgers.
  * Kill-basket unknown matching cancel is killed false.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -77,7 +78,8 @@ export async function handleStartBasketDoor(
     matchingVenueHalt: await resolveMatchingVenueHalt(deps.matchingVenueHalt),
   });
   if (!started.ok) return started;
-  return postBasketChildrenToMatching({
+  const accepted: OmsBasketMatchingKillChild[] = [];
+  const posted = await postBasketChildrenToMatching({
     parent: started,
     legs: body.legs,
     accountId: body.accountId,
@@ -86,7 +88,18 @@ export async function handleStartBasketDoor(
     lifecycleProof: body.lifecycleProof,
     matchingUrl: deps.matchingUrl,
     fetch: deps.fetch,
+    onChildAccepted: (child) => {
+      accepted.push({ marketId: child.marketId, orderId: child.orderId });
+    },
   });
+  if (!posted.ok && accepted.length > 0) {
+    await killBasketMatchingChildren({
+      children: accepted,
+      matchingUrl: deps.matchingUrl,
+      fetch: deps.fetch,
+    });
+  }
+  return posted;
 }
 
 /** Pure door — unknown matching cancel is killed false. */

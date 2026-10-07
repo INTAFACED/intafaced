@@ -203,6 +203,48 @@ describe('handleStartBasketDoor', () => {
     expect(out).not.toHaveProperty('fills');
   });
 
+  it('a later refused leg kills children already accepted — they do not keep working while the door reports failure', async () => {
+    const working = new Set<string>();
+    const matchingUrl = await listen(async (req, res) => {
+      const text = await readBody(req);
+      const method = req.method ?? '';
+      const url = req.url ?? '';
+      recorded.push({ method, url, body: text });
+      if (method === 'POST') {
+        const posts = recorded.filter((row) => row.method === 'POST').length;
+        if (posts === 1) {
+          const body = JSON.parse(text) as { orderId?: string };
+          if (body.orderId) working.add(body.orderId);
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ accepted: true, sequence: 1 }));
+          return;
+        }
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ accepted: false }));
+        return;
+      }
+      if (method === 'DELETE') {
+        const orderId = decodeURIComponent(url.split('/').pop() ?? '');
+        working.delete(orderId);
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ cancelled: true }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    const out = await handleStartBasketDoor(BODY, OP, {
+      jobs: JOBS_ON,
+      matchingVenueHalt: MATCHING_OPEN,
+      matchingUrl,
+    });
+    expect(out).toMatchObject({ ok: false, reason: 'matching_rejected' });
+    expect(working).toEqual(new Set());
+    expect(recorded.map((row) => row.method)).toEqual(['POST', 'POST', 'DELETE']);
+    expect(recorded[2]?.url).toBe(`/markets/BTC-USDT/orders/${BTC_ID}`);
+    expect(recorded.some((row) => row.url.includes(ETH_ID) && row.method === 'DELETE')).toBe(false);
+  });
+
   it('paper flag refuses before matching POST — no ledger', async () => {
     const out = await handleStartBasketDoor({ ...BODY, paper: true }, OP, {
       jobs: JOBS_ON,
