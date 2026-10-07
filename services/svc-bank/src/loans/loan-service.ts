@@ -1532,6 +1532,34 @@ export class LoanService {
        WHERE id = ${loan.id}
     `;
 
+    // A sale that already posted can leave the row pending with shortfall still
+    // 0. Once the collateral is gone the ladder has nothing to sell and would
+    // return here without finishing that rung, so the shortfall would never be
+    // booked. Finish the stored sale. Do not plan another one.
+    const postedPending = await this.sql<
+      Array<{ ltv_bps: number; grace_waived: boolean; collateral_sold: string }>
+    >`
+      SELECT ltv_bps, grace_waived, collateral_sold::text AS collateral_sold
+        FROM bank.loan_liquidations
+       WHERE loan_id = ${loan.id} AND status = 'pending' AND ledger_tx_id IS NOT NULL
+       ORDER BY tranche ASC
+       LIMIT 1
+    `;
+    if (postedPending[0]) {
+      await this.liquidateTranche({
+        loan,
+        product,
+        ltv: Number(postedPending[0].ltv_bps),
+        graceWaived: postedPending[0].grace_waived,
+        collateralToSell: parseAmount(postedPending[0].collateral_sold),
+        closesPosition: collateral <= 0n,
+        collateralMark,
+        debt,
+        now,
+      });
+      return 'liquidated';
+    }
+
     if (rung.action === 'none') {
       // `none` means either LTV recovered (real cure) OR collateral is exhausted
       // with residual debt still outstanding. Only the first may clear to active.
@@ -1772,6 +1800,26 @@ export class LoanService {
 
     const tranche = pending ? Number(pending.tranche) : await this.nextSequence('loan_liquidations', loan.id, 'tranche');
 
+    // The claim is inserted with shortfall 0, and the column stays 0 until
+    // beforeSettle. A posted sale's shortfall is the splitProceeds rule on
+    // what is already stored: principal still owed minus principal repaid
+    // when the sale closed the position, and 0 when collateral remains.
+    // A figure already stored is kept. A later quote is not an input.
+    let shortfallToBook = split.shortfall;
+    let alreadyStored = false;
+    if (storedSale && pending?.ledger_tx_id) {
+      if (storedSale.shortfall > 0n) {
+        alreadyStored = true;
+      } else {
+        const heldNow = await this.collateralOf(loan);
+        const owed = input.debt.principal;
+        const repaid = storedSale.principalRepaid;
+        const gap = owed > repaid ? owed - repaid : 0n;
+        shortfallToBook = heldNow <= 0n ? gap : 0n;
+      }
+    }
+    const writeShortfall = shortfallToBook > 0n && !alreadyStored;
+
     await withMoneySpan('bank.loan.liquidate', { operation: 'loan-liquidate', loanId: loan.id, tranche }, async (span) => {
       span.setAttribute('intafaced.ltv_bps', input.ltv);
       span.setAttribute('intafaced.grace_waived', input.graceWaived);
@@ -1830,13 +1878,13 @@ export class LoanService {
         table: 'loan_liquidations',
         // Shortfall stays 0 on the claim. It is written in the same statement as
         // the bad-debt tx id, before status becomes settled, so the row never
-        // holds a shortfall with a null bad_debt_ledger_tx_id.
-        beforeSettle:
-          split.shortfall > 0n
-            ? async () => {
-                await this.coverShortfallTranche(loan, tranche, split.shortfall);
-              }
-            : undefined,
+        // holds a shortfall with a null bad_debt_ledger_tx_id. On a retry this
+        // is the figure implied by the stored sale, not the later quote.
+        beforeSettle: writeShortfall
+          ? async () => {
+              await this.coverShortfallTranche(loan, tranche, shortfallToBook);
+            }
+          : undefined,
       });
 
       void ledgerTxId;
@@ -1895,11 +1943,9 @@ export class LoanService {
   private async coverShortfallTranche(loan: LoanRecord, tranche: number, shortfall: Amount): Promise<void> {
     try {
       const posted = await this.ledger.post(recipes.loanBadDebt({ loanId: loan.id, debtAssetId: loan.debtAssetId, shortfall }));
-      // This is the quote that created the row. A retry whose ledger_tx_id is
-      // already stored settles in drivenPost and does not reach here, so a later
-      // quote cannot fill the claim's zero. A figure already stored is left
-      // alone: the update matches only while shortfall is still 0, and it writes
-      // that figure once, in the same statement as the bad-debt tx id.
+      // One write of the figure and the bad-debt tx id. The match is shortfall
+      // still 0, so a figure already stored is not replaced. A retry passes the
+      // shortfall implied by the stored sale, not a later quote.
       await this.sql`
         UPDATE bank.loan_liquidations
            SET bad_debt_ledger_tx_id = ${posted.id},
@@ -2168,14 +2214,14 @@ export class LoanService {
       //
       // A pending row that already names its ledger tx is the crash after that
       // id was stored and before shortfall was written. The sale on the row is
-      // the one that posted. Settle it. Do not post again, and do not run
-      // beforeSettle: that closure is this call's quote, and shortfall is still
-      // the claim's zero, so the update would write the later figure onto the
-      // first sale. The call that created the row writes its own shortfall,
-      // together with bad_debt_ledger_tx_id, before it marks the row settled.
+      // the one that posted. Do not post it again. beforeSettle, when the
+      // caller attached one, writes that sale's shortfall together with the
+      // bad-debt tx before status becomes settled. A caller that did not
+      // attach one is a stored shortfall of 0, or a shortfall already stored.
       const rows = await this.sql.unsafe<Array<{ status: string }>>(`SELECT status FROM bank.${input.table} WHERE id = $1`, [claim.id]);
       if (rows[0]?.status === 'settled') return claim.ledgerTxId;
       if (rows[0]?.status === 'pending') {
+        if (input.beforeSettle) await input.beforeSettle();
         await this.sql.unsafe(
           `UPDATE bank.${input.table} SET status = 'settled', ledger_tx_id = $1, settled_at = now() WHERE id = $2 AND status = 'pending' AND ledger_tx_id = $1`,
           [claim.ledgerTxId, claim.id],
