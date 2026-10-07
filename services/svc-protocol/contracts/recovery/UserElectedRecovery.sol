@@ -17,7 +17,9 @@ import {IERC1271} from "../interfaces/IAccount.sol";
  * threshold. Guardians may propose a new owner; after `delay` seconds AND M
  * distinct guardian calls (or ECDSA signatures over the recovery digest),
  * anyone may rotate `owner`. The sitting owner may `cancelRecovery` before that
- * rotation lands.
+ * rotation lands. An under-quorum proposal expires once `delay` has elapsed,
+ * and a later `proposeRecovery` for a different owner replaces it. A proposal
+ * that has reached the threshold cannot be replaced before `executeRecovery`.
  *
  * This contract answers ERC-1271 so a SmartAccount can set it as `owner` and
  * keep signing through the current recovery-owner (EOA or nested ERC-1271).
@@ -114,7 +116,9 @@ contract UserElectedRecovery is IERC1271 {
     /**
      * A guardian starts (or joins) recovery toward `newOwner`. First proposer
      * opens the delay window; further calls from other guardians count as
-     * approvals for the same pending owner.
+     * approvals for the same pending owner. Once `delay` has elapsed, an
+     * under-quorum proposal may be replaced by a different owner. A proposal
+     * that has reached `threshold` cannot be replaced before `executeRecovery`.
      */
     function proposeRecovery(address newOwner) external {
         _requireLiveGuardian(msg.sender);
@@ -199,6 +203,16 @@ contract UserElectedRecovery is IERC1271 {
         if (newOwner == address(0) || newOwner == address(this)) revert InvalidOwner();
         if (!_recoveryQuorumPossible()) revert RecoveryUnavailable();
 
+        // A different owner replaces this proposal only after `delay`, and only
+        // while it is still under quorum. At threshold it stays until execute
+        // or the sitting owner's cancel.
+        if (pendingOwner != address(0) && pendingOwner != newOwner) {
+            if (approvalCount >= threshold || block.timestamp < uint256(proposedAt) + uint256(delay)) {
+                revert RecoveryInProgress();
+            }
+            _clearRecovery();
+        }
+
         if (pendingOwner == address(0)) {
             unchecked {
                 recoveryRound += 1;
@@ -207,8 +221,6 @@ contract UserElectedRecovery is IERC1271 {
             proposedAt = uint64(block.timestamp);
             approvalCount = 0;
             emit RecoveryProposed(guardian, newOwner, proposedAt + delay);
-        } else if (pendingOwner != newOwner) {
-            revert RecoveryInProgress();
         }
 
         _approve(guardian);

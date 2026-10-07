@@ -10,6 +10,7 @@ interface Vm {
     function addr(uint256 privateKey) external returns (address);
     function sign(uint256 privateKey, bytes32 digest) external returns (uint8 v, bytes32 r, bytes32 s);
     function prank(address) external;
+    function warp(uint256 newTimestamp) external;
 }
 
 Vm constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
@@ -108,5 +109,51 @@ contract RecoveryApproveOwnerForgeTest {
         vm.prank(honestGuardian);
         recovery.approveRecovery(attacker);
         require(recovery.approvalCount() == approvals + 1, "named pending owner still counts");
+    }
+}
+
+/// L340: one guardian's under-quorum proposal expires after the delay.
+contract RecoveryExpiryForgeTest {
+    function test_under_quorum_proposal_after_delay_does_not_block_another_guardian() public {
+        address sitting = vm.addr(0x51);
+        address guardianA = vm.addr(0xA1);
+        address guardianB = vm.addr(0xB2);
+        address ownerA = vm.addr(0x0A);
+        address ownerB = vm.addr(0x0B);
+
+        uint64 delay = 86_400;
+        UserElectedRecovery recovery = new UserElectedRecovery(sitting, delay);
+
+        vm.prank(sitting);
+        recovery.addGuardian(guardianA);
+        vm.prank(sitting);
+        recovery.addGuardian(guardianB);
+        vm.prank(sitting);
+        recovery.setThreshold(2);
+
+        vm.prank(guardianA);
+        recovery.proposeRecovery(ownerA);
+        require(recovery.pendingOwner() == ownerA, "first pending");
+        require(recovery.approvalCount() == 1, "under quorum");
+        uint64 round = recovery.recoveryRound();
+
+        vm.prank(guardianB);
+        try recovery.proposeRecovery(ownerB) {
+            revert("live under-quorum proposal must block");
+        } catch {}
+        require(recovery.pendingOwner() == ownerA, "still the first pending owner");
+
+        vm.warp(block.timestamp + delay);
+
+        vm.prank(guardianB);
+        recovery.proposeRecovery(ownerB);
+
+        require(recovery.pendingOwner() == ownerB, "different guardian replaced the owner");
+        require(recovery.approvalCount() == 1, "only the new proposer");
+        require(recovery.recoveryRound() == round + 1, "replacement is a new round");
+        require(recovery.proposedAt() == uint64(block.timestamp), "fresh delay window");
+        require(recovery.approved(recovery.recoveryRound(), guardianB), "new proposer counted");
+        require(!recovery.approved(recovery.recoveryRound(), guardianA), "old vote not carried");
+        require(recovery.owner() == sitting, "execute still required");
     }
 }
