@@ -282,21 +282,25 @@ export class EvmLiveChain implements CryptoChainPort {
       this.started = true;
     }
 
-    const watched = [...this.byAddress.keys()];
-    if (watched.length === 0) {
-      this.scanCursor = this.tip + 1n;
+    // An empty watch set must not move the cursor to tip+1. The first refresh
+    // after a restart often runs before open payments are registered again;
+    // jumping the cursor would discard the lookback and skip native deposits
+    // already mined. The cursor stays at the lookback until a later refresh
+    // has addresses and scans those blocks.
+    if (this.byAddress.size === 0) {
       this.recomputeConfirmations();
       return;
     }
 
-    const watchedSet = new Set(watched);
     while (this.scanCursor <= this.tip) {
       const block = await this.public.getBlock({ blockNumber: this.scanCursor, includeTransactions: true });
+      // Read the watch set for this block. acceptanceAddress may add an address
+      // during the awaited getBlock; a snapshot taken before the walk would
+      // miss it on every block still ahead while the cursor still advances.
       for (const tx of block.transactions) {
         if (typeof tx === 'string') continue;
         if (!tx.to) continue;
         const to = tx.to.toLowerCase();
-        if (!watchedSet.has(to)) continue;
         const entry = this.byAddress.get(to);
         if (!entry) continue;
         const asset = this.assets.get(entry.assetId);
@@ -316,7 +320,7 @@ export class EvmLiveChain implements CryptoChainPort {
       this.scanCursor += 1n;
     }
 
-    await this.scanErc20(watchedSet);
+    await this.scanErc20();
     this.recomputeConfirmations();
   }
 
@@ -391,7 +395,7 @@ export class EvmLiveChain implements CryptoChainPort {
     this.observed.set(key, next);
   }
 
-  private async scanErc20(watchedSet: Set<string>): Promise<void> {
+  private async scanErc20(): Promise<void> {
     const erc20 = [...this.assets.values()].filter((a): a is Extract<EvmAsset, { kind: 'erc20' }> => a.kind === 'erc20');
     if (erc20.length === 0) return;
 
@@ -423,7 +427,6 @@ export class EvmLiveChain implements CryptoChainPort {
         if (log.topics[0]?.toLowerCase() !== ERC20_TRANSFER_TOPIC.toLowerCase()) continue;
 
         const to = getAddress(`0x${toTopic.slice(26)}`);
-        if (!watchedSet.has(to.toLowerCase())) continue;
         const entry = this.byAddress.get(to.toLowerCase());
         if (!entry || entry.assetId !== asset.assetId) continue;
 
