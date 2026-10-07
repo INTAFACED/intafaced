@@ -9,7 +9,7 @@
  * must already be a ledger amount; a successful slice subtracts the
  * submitted qty and never invents leftover.
  */
-import { formatAmount, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client';
+import { add, formatAmount, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client';
 import type { VenueExecution } from '@intafaced/venue-adapter';
 import { childIds } from './oms-execute.js';
 import type { AlgoPauseStore } from './oms-pause.js';
@@ -77,6 +77,37 @@ function liveStatus(status: string): boolean {
 function leftoverAfterRejectedFill(priorRemaining: string, filledAmount: Amount | undefined): string {
   if (typeof filledAmount !== 'bigint' || filledAmount <= ZERO) return priorRemaining;
   return formatAmount(sub(parseAmount(priorRemaining), filledAmount));
+}
+
+function storedRemaining(parentStore: ApprovedAlgoParentStore, parentClientOrderId: string): string | null {
+  const row = parentStore.get(parentClientOrderId);
+  if (!row) return null;
+  return retainedRemaining(row);
+}
+
+/**
+ * Credit this reservation's unfilled size onto the leftover stored now.
+ * A sibling may already have consumed some of the post-reserve leftover, so
+ * the credit is compare-and-swapped onto that current value.
+ */
+function restoreUnfilledReservation(
+  parentStore: ApprovedAlgoParentStore,
+  parentClientOrderId: string,
+  postReserveRemaining: string,
+  absoluteIfUnchanged: string,
+): string {
+  const credit = sub(parseAmount(absoluteIfUnchanged), parseAmount(postReserveRemaining));
+  let attemptedAt: string | null = null;
+  for (;;) {
+    const current = storedRemaining(parentStore, parentClientOrderId);
+    if (!current) return attemptedAt ?? postReserveRemaining;
+    if (credit === ZERO || current === attemptedAt) return current;
+    attemptedAt = current;
+    const next = formatAmount(add(parseAmount(current), credit));
+    const restored = parentStore.consumeResidual?.(parentClientOrderId, next, current);
+    const written = restored?.residual?.remaining?.trim() ?? '';
+    if (written) return written;
+  }
 }
 
 function ownerOf(parent: ApprovedAlgoParent): string | null {
@@ -208,15 +239,14 @@ export async function sliceLiveAlgoParent(input: {
       clientOrderId: ids.clientOrderId,
     });
   } catch (err) {
-    input.parentStore.consumeResidual?.(parentClientOrderId, priorRemaining, consumed.remaining);
+    restoreUnfilledReservation(input.parentStore, parentClientOrderId, consumed.remaining, priorRemaining);
     throw err;
   }
 
   let remaining = consumed.remaining;
   if (execution.status === 'rejected') {
     const restoreTo = leftoverAfterRejectedFill(priorRemaining, execution.filledAmount);
-    const restored = input.parentStore.consumeResidual?.(parentClientOrderId, restoreTo, consumed.remaining);
-    remaining = restored?.residual?.remaining ?? consumed.remaining;
+    remaining = restoreUnfilledReservation(input.parentStore, parentClientOrderId, consumed.remaining, restoreTo);
   }
 
   return {
