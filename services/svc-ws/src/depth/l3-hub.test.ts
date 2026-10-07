@@ -1002,6 +1002,480 @@ describe('NativeL3Hub', () => {
     expect(second.closed).toBeNull();
   });
 
+  it('a pre-idle tick that resolves does not hand its captured book to a subscriber still waiting to open', async () => {
+    const source = new Source();
+    let l3Calls = 0;
+    let holdPoll = false;
+    let releasePoll: () => void = () => undefined;
+    let pollGate: Promise<void> = Promise.resolve();
+    const readQueue = source.l3Queue.bind(source);
+    source.l3Queue = async (marketId: string) => {
+      l3Calls += 1;
+      if (holdPoll) {
+        holdPoll = false;
+        const captured = source.queue;
+        await pollGate;
+        if (captured instanceof DepthL3UnavailableError) throw captured;
+        return { ...captured, marketId };
+      }
+      return readQueue(marketId);
+    };
+    let holdKnown = false;
+    let releaseKnown: () => void = () => undefined;
+    let knownGate: Promise<void> = Promise.resolve();
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async () => {
+        if (holdKnown) await knownGate;
+        return true;
+      },
+    });
+
+    const watched = new RecordingSink();
+    const leave = hub.attach(MARKET, watched);
+    await new Promise((r) => setTimeout(r, 0));
+    holdPoll = true;
+    pollGate = new Promise<void>((resolve) => {
+      releasePoll = resolve;
+    });
+    const poll = hub.tick();
+    leave!();
+
+    source.queue = {
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    };
+    holdKnown = true;
+    knownGate = new Promise<void>((resolve) => {
+      releaseKnown = resolve;
+    });
+    const callsBeforeOpen = l3Calls;
+    const next = new RecordingSink();
+    hub.attach(MARKET, next);
+    releasePoll();
+    await poll;
+    releaseKnown();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(l3Calls).toBeGreaterThan(callsBeforeOpen);
+    expect(next.frames.map((frame) => JSON.parse(frame))).toEqual([
+      {
+        type: 'snapshot',
+        transport: 'poll',
+        level: 'L3',
+        marketId: MARKET,
+        bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+        asks: [],
+      },
+    ]);
+    expect(JSON.stringify(next.frames)).not.toContain('o1');
+    expect(next.closed).toBeNull();
+  });
+
+  it('a pre-idle tick that resolves empty does not replace the book the next subscriber refetched', async () => {
+    const source = new Source();
+    let l3Calls = 0;
+    let holdPoll = false;
+    let releasePoll: () => void = () => undefined;
+    let pollGate: Promise<void> = Promise.resolve();
+    const readQueue = source.l3Queue.bind(source);
+    source.l3Queue = async (marketId: string) => {
+      l3Calls += 1;
+      if (holdPoll) {
+        holdPoll = false;
+        const captured = source.queue;
+        await pollGate;
+        if (captured instanceof DepthL3UnavailableError) throw captured;
+        return { ...captured, marketId };
+      }
+      return readQueue(marketId);
+    };
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async () => true,
+    });
+
+    const watched = new RecordingSink();
+    const leave = hub.attach(MARKET, watched);
+    await new Promise((r) => setTimeout(r, 0));
+    source.queue = { level: 'L3', marketId: MARKET, bids: [], asks: [] };
+    holdPoll = true;
+    pollGate = new Promise<void>((resolve) => {
+      releasePoll = resolve;
+    });
+    const poll = hub.tick();
+    leave!();
+
+    source.queue = {
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    };
+    const next = new RecordingSink();
+    hub.attach(MARKET, next);
+    await new Promise((r) => setTimeout(r, 0));
+    const callsAfterRefetch = l3Calls;
+    releasePoll();
+    await poll;
+
+    const peer = new RecordingSink();
+    hub.attach(MARKET, peer);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(l3Calls).toBe(callsAfterRefetch);
+    expect(JSON.parse(next.frames.at(-1)!)).toEqual({
+      type: 'snapshot',
+      transport: 'poll',
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    });
+    expect(next.frames.some((frame) => JSON.parse(frame).code === 'depth.l3_no_resting')).toBe(false);
+    expect(peer.frames.map((frame) => JSON.parse(frame))).toEqual([
+      {
+        type: 'snapshot',
+        transport: 'poll',
+        level: 'L3',
+        marketId: MARKET,
+        bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+        asks: [],
+      },
+    ]);
+    expect(hub.stats.code).toBeNull();
+    expect(next.closed).toBeNull();
+    expect(peer.closed).toBeNull();
+  });
+
+  it('a pre-idle tick that resolves to its captured book does not replace the book the next subscriber refetched', async () => {
+    const source = new Source();
+    let l3Calls = 0;
+    let holdPoll = false;
+    let releasePoll: () => void = () => undefined;
+    let pollGate: Promise<void> = Promise.resolve();
+    const readQueue = source.l3Queue.bind(source);
+    source.l3Queue = async (marketId: string) => {
+      l3Calls += 1;
+      if (holdPoll) {
+        holdPoll = false;
+        const captured = source.queue;
+        await pollGate;
+        if (captured instanceof DepthL3UnavailableError) throw captured;
+        return { ...captured, marketId };
+      }
+      return readQueue(marketId);
+    };
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async () => true,
+    });
+
+    const watched = new RecordingSink();
+    const leave = hub.attach(MARKET, watched);
+    await new Promise((r) => setTimeout(r, 0));
+    holdPoll = true;
+    pollGate = new Promise<void>((resolve) => {
+      releasePoll = resolve;
+    });
+    const poll = hub.tick();
+    leave!();
+
+    source.queue = {
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    };
+    const next = new RecordingSink();
+    hub.attach(MARKET, next);
+    await new Promise((r) => setTimeout(r, 0));
+    const callsAfterRefetch = l3Calls;
+    releasePoll();
+    await poll;
+
+    const peer = new RecordingSink();
+    hub.attach(MARKET, peer);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(l3Calls).toBe(callsAfterRefetch);
+    expect(JSON.parse(next.frames.at(-1)!)).toEqual({
+      type: 'snapshot',
+      transport: 'poll',
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    });
+    expect(JSON.stringify(next.frames)).not.toContain('o1');
+    expect(peer.frames.map((frame) => JSON.parse(frame))).toEqual([
+      {
+        type: 'snapshot',
+        transport: 'poll',
+        level: 'L3',
+        marketId: MARKET,
+        bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+        asks: [],
+      },
+    ]);
+    expect(hub.stats.code).toBeNull();
+    expect(next.closed).toBeNull();
+    expect(peer.closed).toBeNull();
+  });
+
+  it('a pre-idle opener refetch that resolves to its captured book does not replace the book the next subscriber refetched', async () => {
+    const source = new Source();
+    let l3Calls = 0;
+    let holdPoll = false;
+    let releasePoll: () => void = () => undefined;
+    let pollGate: Promise<void> = Promise.resolve();
+    const readQueue = source.l3Queue.bind(source);
+    source.l3Queue = async (marketId: string) => {
+      l3Calls += 1;
+      if (holdPoll) {
+        holdPoll = false;
+        const captured = source.queue;
+        await pollGate;
+        if (captured instanceof DepthL3UnavailableError) throw captured;
+        return { ...captured, marketId };
+      }
+      return readQueue(marketId);
+    };
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async () => true,
+    });
+
+    holdPoll = true;
+    pollGate = new Promise<void>((resolve) => {
+      releasePoll = resolve;
+    });
+    const watched = new RecordingSink();
+    const leave = hub.attach(MARKET, watched);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(l3Calls).toBe(1);
+    leave!();
+
+    source.queue = {
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    };
+    const next = new RecordingSink();
+    hub.attach(MARKET, next);
+    await new Promise((r) => setTimeout(r, 0));
+    const callsAfterRefetch = l3Calls;
+    releasePoll();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const peer = new RecordingSink();
+    hub.attach(MARKET, peer);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(l3Calls).toBe(callsAfterRefetch);
+    expect(JSON.parse(next.frames.at(-1)!)).toEqual({
+      type: 'snapshot',
+      transport: 'poll',
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    });
+    expect(JSON.stringify(next.frames)).not.toContain('o1');
+    expect(peer.frames.map((frame) => JSON.parse(frame))).toEqual([
+      {
+        type: 'snapshot',
+        transport: 'poll',
+        level: 'L3',
+        marketId: MARKET,
+        bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+        asks: [],
+      },
+    ]);
+    expect(hub.stats.code).toBeNull();
+    expect(next.closed).toBeNull();
+    expect(peer.closed).toBeNull();
+  });
+
+  it('a pre-idle opener refetch that resolves empty does not replace the book the next subscriber refetched', async () => {
+    const source = new Source();
+    let l3Calls = 0;
+    let holdPoll = false;
+    let releasePoll: () => void = () => undefined;
+    let pollGate: Promise<void> = Promise.resolve();
+    const readQueue = source.l3Queue.bind(source);
+    source.l3Queue = async (marketId: string) => {
+      l3Calls += 1;
+      if (holdPoll) {
+        holdPoll = false;
+        const captured = source.queue;
+        await pollGate;
+        if (captured instanceof DepthL3UnavailableError) throw captured;
+        return { ...captured, marketId };
+      }
+      return readQueue(marketId);
+    };
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async () => true,
+    });
+
+    source.queue = { level: 'L3', marketId: MARKET, bids: [], asks: [] };
+    holdPoll = true;
+    pollGate = new Promise<void>((resolve) => {
+      releasePoll = resolve;
+    });
+    const watched = new RecordingSink();
+    const leave = hub.attach(MARKET, watched);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(l3Calls).toBe(1);
+    leave!();
+
+    source.queue = {
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    };
+    const next = new RecordingSink();
+    hub.attach(MARKET, next);
+    await new Promise((r) => setTimeout(r, 0));
+    const callsAfterRefetch = l3Calls;
+    releasePoll();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const peer = new RecordingSink();
+    hub.attach(MARKET, peer);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(l3Calls).toBe(callsAfterRefetch);
+    expect(JSON.parse(next.frames.at(-1)!)).toEqual({
+      type: 'snapshot',
+      transport: 'poll',
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    });
+    expect(next.frames.some((frame) => JSON.parse(frame).code === 'depth.l3_no_resting')).toBe(false);
+    expect(peer.frames.map((frame) => JSON.parse(frame))).toEqual([
+      {
+        type: 'snapshot',
+        transport: 'poll',
+        level: 'L3',
+        marketId: MARKET,
+        bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+        asks: [],
+      },
+    ]);
+    expect(hub.stats.code).toBeNull();
+    expect(next.closed).toBeNull();
+    expect(peer.closed).toBeNull();
+  });
+
+  it('two subscribers attaching together on a recovered idle market both receive the current book', async () => {
+    const source = new Source();
+    let l3Calls = 0;
+    const readQueue = source.l3Queue.bind(source);
+    source.l3Queue = async (marketId: string) => {
+      l3Calls += 1;
+      return readQueue(marketId);
+    };
+    let holdKnown = false;
+    let releaseKnown: () => void = () => undefined;
+    let knownGate: Promise<void> = Promise.resolve();
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async () => {
+        if (holdKnown) await knownGate;
+        return true;
+      },
+    });
+
+    const watched = new RecordingSink();
+    const leave = hub.attach(MARKET, watched);
+    await new Promise((r) => setTimeout(r, 0));
+    leave!();
+    source.queue = {
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    };
+    holdKnown = true;
+    knownGate = new Promise<void>((resolve) => {
+      releaseKnown = resolve;
+    });
+    const callsAtIdle = l3Calls;
+    const first = new RecordingSink();
+    const second = new RecordingSink();
+    hub.attach(MARKET, first);
+    hub.attach(MARKET, second);
+    releaseKnown();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const current = {
+      type: 'snapshot',
+      transport: 'poll',
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    };
+    expect(l3Calls).toBeGreaterThan(callsAtIdle);
+    expect(first.frames.map((frame) => JSON.parse(frame))).toEqual([current]);
+    expect(second.frames.map((frame) => JSON.parse(frame))).toEqual([current]);
+    expect(JSON.stringify(first.frames)).not.toContain('o1');
+    expect(JSON.stringify(second.frames)).not.toContain('o1');
+    expect(first.closed).toBeNull();
+    expect(second.closed).toBeNull();
+  });
+
+  it('a subscriber who stayed watched hears depth.l3_no_resting when the current poll is empty', async () => {
+    const source = new Source();
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async () => true,
+    });
+    const live = new RecordingSink();
+    hub.attach(MARKET, live);
+    await new Promise((r) => setTimeout(r, 0));
+    source.queue = { level: 'L3', marketId: MARKET, bids: [], asks: [] };
+    await hub.tick();
+
+    expect(JSON.parse(live.frames.at(-1)!)).toEqual({
+      type: 'status',
+      code: 'depth.l3_no_resting',
+      marketId: MARKET,
+    });
+    expect(live.closed).toBeNull();
+    expect(hub.stats.code).toBeNull();
+  });
+
   it('fan-out names depth.l3_unavailable without an L2 ladder', () => {
     const source = new Source();
     const hub = new NativeL3Hub(source, {
