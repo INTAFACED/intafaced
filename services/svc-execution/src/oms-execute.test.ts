@@ -248,6 +248,42 @@ describe('executeOmsRoute', () => {
     expect(retryVenue.calls).toHaveLength(0);
   });
 
+  it('fences an idempotent retry when a child drain is already CANCELED and keeps the stored execution', async () => {
+    const street = new FakeSource('street');
+    const store = new InMemoryEmsOrderStore();
+    const input = {
+      symbol: 'BTC/USDT',
+      side: 'buy' as const,
+      amount: '1',
+      parentClientOrderId: 'parent-canceled-retry',
+      executionGroupId: 'group-canceled-retry',
+      venues: [completeVenue({ id: 'street', price: '100' })],
+      submitByVenue: { street: street.submit },
+      emsStore: store,
+    };
+    const first = await executeOmsRoute(input);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const clientOrderId = first.children[0]!.clientOrderId;
+    const stored = store.get(clientOrderId);
+    expect(stored?.execution?.venueOrderId).toBe('v-street');
+    expect(stored?.execution?.status).toBe('filled');
+    store.record({ ...stored!, state: 'CANCELED' });
+
+    const retry = await executeOmsRoute(input);
+    expect(retry).toMatchObject({ ok: false, reason: 'submit_failed', outcome: 'OUTCOME_UNKNOWN' });
+    if (retry.ok || retry.reason !== 'submit_failed') return;
+    expect(retry.children[0]).toMatchObject({
+      outcome: 'OUTCOME_UNKNOWN',
+      state: 'CANCELED',
+      clientOrderId,
+    });
+    expect(retry.children[0]?.execution).toEqual(stored!.execution);
+    expect(street.calls).toHaveLength(1);
+    expect(store.get(clientOrderId)?.state).toBe('CANCELED');
+    expect(store.get(clientOrderId)?.execution?.venueOrderId).toBe('v-street');
+  });
+
   it('retains the completed first leg when a later leg is unknown', async () => {
     const store = new InMemoryEmsOrderStore();
     const first = new FakeSource('first');
