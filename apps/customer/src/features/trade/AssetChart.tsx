@@ -23,7 +23,7 @@ export function AssetChart({ asset, symbol }: { asset: string; symbol?: string }
   return (
     <div className="asset-chart">
       <MarketChart
-        key={market.id}
+        key={`${market.id}:${userId ?? 'signed-out'}`}
         api={api}
         market={market}
         orders={[]}

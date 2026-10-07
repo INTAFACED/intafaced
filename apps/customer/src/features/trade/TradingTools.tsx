@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { positionSchema, type Position } from '@intafaced/exchange-contract/schemas';
 import { useSession } from '../session/session';
-import { Button, DataTable, Dialog, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
+import { Button, DataTable, Dialog, EmptyState, Failure, Field, Loading, Page, Tabs } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
-import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
+import { decimalSchema, displayAmount, parseAmount, formatAmount } from '../../shared/money';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import type { Listing, TradeApi } from './trade-api';
 import { createToolApi, copyFollowSchema, type ToolApi } from './tool-api';
+import { MarketChart } from './Chart';
 
 function State<T>({
   value,
@@ -26,78 +27,150 @@ function State<T>({
     children(value.resource.data)
   );
 }
+const markerSchema = z.object({
+  kind: z.string(),
+  id: z.string(),
+  symbol: z.string(),
+  operation: z.string().optional(),
+  startedAt: z.number(),
+});
+type Marker = z.infer<typeof markerSchema>;
+function readMarker(key: string) {
+  try {
+    const wire = localStorage.getItem(key);
+    if (!wire) return { pending: null, blocked: false, available: true };
+    const parsed = markerSchema.safeParse(JSON.parse(wire));
+    return { pending: parsed.success ? parsed.data : null, blocked: true, available: true };
+  } catch {
+    return { pending: null, blocked: true, available: false };
+  }
+}
 function useWriteGuard() {
   const { userId, session } = useSession(),
-    key = `trade-pending:${userId ?? 'signed-out'}`;
+    key = `trade-pending:${userId ?? 'signed-out'}`,
+    initial = readMarker(key);
   const [busy, setBusy] = useState(false),
-    [locked, setLocked] = useState(() => Boolean(localStorage.getItem(key))),
-    [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null),
+    [locked, setLocked] = useState(initial.blocked),
+    [pending, setPending] = useState<Marker | null>(initial.pending),
+    [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(
+      initial.available
+        ? null
+        : { ok: false, reason: 'error', message: 'Device storage is unavailable. Trading cannot preserve a request identity.' },
+    ),
     [message, setMessage] = useState(''),
-    ref = useRef(false);
+    ref = useRef(false),
+    mounted = useRef(true);
   useEffect(() => {
-    const refresh = () => setLocked(Boolean(localStorage.getItem(key)));
+    mounted.current = true;
+    const refresh = () => {
+      const stored = readMarker(key);
+      setLocked(stored.blocked);
+      setPending(stored.pending);
+    };
     window.addEventListener('storage', refresh);
-    return () => window.removeEventListener('storage', refresh);
+    window.addEventListener('trade-pending-change', refresh);
+    return () => {
+      mounted.current = false;
+      window.removeEventListener('storage', refresh);
+      window.removeEventListener('trade-pending-change', refresh);
+    };
   }, [key]);
+  function resolve(id: string, expected: Marker | null = pending) {
+    const stored = readMarker(key);
+    if (
+      !stored.available ||
+      !expected ||
+      stored.pending?.id !== id ||
+      stored.pending.kind !== expected.kind ||
+      stored.pending.startedAt !== expected.startedAt ||
+      stored.pending.operation !== expected.operation
+    ) {
+      setLocked(stored.blocked);
+      setPending(stored.pending);
+      return false;
+    }
+    try {
+      localStorage.removeItem(key);
+      window.dispatchEvent(new Event('trade-pending-change'));
+      setLocked(false);
+      setPending(null);
+      return true;
+    } catch {
+      setLocked(true);
+      setFailure({
+        ok: false,
+        reason: 'error',
+        message: 'The outcome is confirmed, but its device marker could not be cleared. Storage access must return before another action.',
+      });
+      return false;
+    }
+  }
   async function run<T>(
-    identity: { kind: 'convert' | 'rfq' | 'position' | 'algo' | 'copy'; id: string; symbol: string },
+    identity: { kind: 'convert' | 'rfq' | 'position' | 'algo' | 'copy'; id: string; symbol: string; operation?: string },
     call: () => Promise<ApiResult<T>>,
     done: (data: T) => void,
   ) {
-    if (!session || ref.current || localStorage.getItem(key)) {
-      setLocked(Boolean(localStorage.getItem(key)));
+    const stored = readMarker(key);
+    if (!mounted.current || !session || ref.current || stored.blocked) {
+      setLocked(stored.blocked);
+      setPending(stored.pending);
       return;
     }
-    ref.current = true;
-    setBusy(true);
-    setFailure(null);
     if (!navigator.locks) {
       setFailure({
         ok: false,
         reason: 'error',
         message: 'This browser cannot coordinate trading requests across tabs. Use a browser with Web Locks.',
       });
-      setBusy(false);
-      ref.current = false;
       return;
     }
-    await navigator.locks.request(`trade-account:${userId ?? 'signed-out'}`, { ifAvailable: true }, async (lock) => {
-      if (!lock || localStorage.getItem(key)) {
-        setMessage('Another trading request is active.');
-        return;
-      }
-      try {
-        localStorage.setItem(key, JSON.stringify({ ...identity, startedAt: Date.now() }));
-      } catch {
-        setFailure({
-          ok: false,
-          reason: 'error',
-          message: 'The browser cannot preserve this request identity. Enable device storage before submitting.',
-        });
-        setBusy(false);
-        ref.current = false;
-        return;
-      }
-      const result = await call();
-      if (result.ok) {
-        localStorage.removeItem(key);
-        setLocked(false);
-        done(result.data);
-      } else {
-        setFailure(result);
-        if (result.reason === 'uncertain') {
-          setLocked(true);
-          setMessage(`Outcome unknown. Preserve request ${identity.id}; contact support before another trading action.`);
-        } else {
-          localStorage.removeItem(key);
-          setLocked(false);
+    ref.current = true;
+    setBusy(true);
+    setFailure(null);
+    try {
+      await navigator.locks.request(`trade-account:${userId ?? 'signed-out'}`, { ifAvailable: true }, async (lock) => {
+        if (!mounted.current || !lock || readMarker(key).blocked) {
+          setMessage('Another trading request is active.');
+          return;
         }
-      }
-    });
-    setBusy(false);
-    ref.current = false;
+        const marker = { ...identity, startedAt: Date.now() };
+        try {
+          localStorage.setItem(key, JSON.stringify(marker));
+          window.dispatchEvent(new Event('trade-pending-change'));
+          setPending(marker);
+        } catch {
+          setFailure({
+            ok: false,
+            reason: 'error',
+            message: 'The browser cannot preserve this request identity. Enable device storage before submitting.',
+          });
+          return;
+        }
+        const result = await call();
+        if (result.ok) {
+          done(result.data);
+          resolve(identity.id, marker);
+        } else {
+          setFailure(result);
+          if (result.reason === 'uncertain') {
+            setLocked(true);
+            setMessage(`Outcome unknown. Preserve request ${identity.id}; check its authoritative status before another trading action.`);
+          } else resolve(identity.id, marker);
+        }
+      });
+    } catch {
+      setLocked(true);
+      setFailure({
+        ok: false,
+        reason: 'uncertain',
+        message: 'The request ended without a verified outcome. Preserve the original request identity and check its status.',
+      });
+    } finally {
+      setBusy(false);
+      ref.current = false;
+    }
   }
-  return { busy, locked, failure, message, run, setMessage, setFailure, authenticated: Boolean(session) };
+  return { busy, locked, pending, failure, message, run, resolve, setMessage, setFailure, authenticated: Boolean(session) };
 }
 function GuardResult({ guard }: { guard: ReturnType<typeof useWriteGuard> }) {
   return (
@@ -111,6 +184,12 @@ function GuardResult({ guard }: { guard: ReturnType<typeof useWriteGuard> }) {
       {guard.locked && (
         <p className="trade-refusal" role="alert">
           A previous trade request is unresolved. New actions stay locked.{' '}
+          {guard.pending && (
+            <span>
+              {' '}
+              {guard.pending.kind} · {guard.pending.symbol} · Request {guard.pending.id}.{' '}
+            </span>
+          )}{' '}
           <a href="/support" className="text-link">
             Contact support with the original request ID.
           </a>
@@ -342,6 +421,9 @@ function Convert({ tools, markets, simulation }: { tools: ToolApi; markets: List
 }
 function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Listing[]; simulation: boolean }) {
   const status = useResource((signal) => tools.otcStatus(signal), 'quote-desk');
+  const linkedQuoteId = new URLSearchParams(location.search).get('quoteId') ?? '';
+  const [existingId, setExistingId] = useState(linkedQuoteId);
+  const lookupIdentity = useRef('');
   const [symbol, setSymbol] = useState(''),
     [side, setSide] = useState<'buy' | 'sell'>('buy'),
     [qty, setQty] = useState(''),
@@ -350,6 +432,33 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
     [bound, setBound] = useState(false),
     [loading, setLoading] = useState(false);
   const guard = useWriteGuard();
+  async function lookup(id: string) {
+    if (!id || simulation) return;
+    lookupIdentity.current = id;
+    setLoading(true);
+    const result = await tools.otcGet(id);
+    if (lookupIdentity.current !== id) return;
+    setLoading(false);
+    if (!result.ok) {
+      guard.setFailure(result);
+      return;
+    }
+    if (result.data.quoteId !== id) {
+      guard.setFailure({ ok: false, reason: 'invalid_response', message: 'The returned quote belongs to a different request.' });
+      return;
+    }
+    setQuote(result.data);
+    setSymbol(`${result.data.baseAsset}/${result.data.quoteAsset}`);
+    setSide(result.data.side);
+    setQty(result.data.qty);
+    setBound(result.data.lifecycle === 'bound');
+  }
+  useEffect(() => {
+    if (linkedQuoteId && !simulation) {
+      setExistingId(linkedQuoteId);
+      void lookup(linkedQuoteId);
+    }
+  }, [linkedQuoteId, simulation]);
   const requestIdentity = useRef('');
   requestIdentity.current = JSON.stringify({ symbol, side, qty });
   async function request() {
@@ -377,8 +486,38 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
       );
     setLoading(false);
   }
+  async function reconcileQuote() {
+    const original = guard.pending;
+    if (!original || original.kind !== 'rfq') return;
+    const result = await tools.otcGet(original.id);
+    if (!result.ok) {
+      guard.setFailure(result);
+      return;
+    }
+    const data = result.data;
+    setQuote(data);
+    setSymbol(`${data.baseAsset}/${data.quoteAsset}`);
+    setSide(data.side);
+    setQty(data.qty);
+    setBound(data.lifecycle === 'bound');
+    if (data.lifecycle === 'settled' || data.lifecycle === 'expired' || (data.lifecycle === 'bound' && original.operation === 'accept')) {
+      guard.resolve(original.id);
+      guard.setMessage(`Original quote ${original.id}: ${data.lifecycle}.`);
+    } else
+      guard.setMessage(
+        `Original quote ${original.id}: ${data.lifecycle ?? data.status}. Its ${original.operation ?? 'request'} outcome remains unresolved.`,
+      );
+  }
   return (
     <>
+      {!simulation && (
+        <div className="trade-tool-form">
+          <Field label="Existing quote ID" value={existingId} onChange={(event) => setExistingId(event.target.value)} />
+          <Button variant="secondary" disabled={!existingId || loading} onClick={() => void lookup(existingId)}>
+            Open quoted order
+          </Button>
+        </div>
+      )}
       <State value={status}>
         {(data) => (
           <Capability
@@ -475,10 +614,16 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
                 </div>
               </dl>
               <Button
-                disabled={guard.locked || guard.busy || (Date.parse(quote.expiresAt) <= Date.now() && !bound)}
+                disabled={
+                  guard.locked ||
+                  guard.busy ||
+                  quote.lifecycle === 'settled' ||
+                  quote.lifecycle === 'expired' ||
+                  (Date.parse(quote.expiresAt) <= Date.now() && !bound)
+                }
                 onClick={() =>
                   void guard.run(
-                    { kind: 'rfq', id: quote.quoteId, symbol },
+                    { kind: 'rfq', id: quote.quoteId, symbol, operation: bound ? 'settle' : 'accept' },
                     () => (bound ? tools.otcSettle(quote.quoteId) : tools.otcAccept(quote.quoteId, quote.quotedPrice)),
                     (data) => {
                       if (bound) {
@@ -492,11 +637,22 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
                   )
                 }
               >
-                {bound ? 'Settle accepted quote' : 'Accept firm quote'}
+                {quote.lifecycle === 'settled'
+                  ? 'Quote already settled'
+                  : quote.lifecycle === 'expired'
+                    ? 'Quote expired'
+                    : bound
+                      ? 'Settle accepted quote'
+                      : 'Accept firm quote'}
               </Button>
             </>
           )}
           <GuardResult guard={guard} />
+          {guard.pending?.kind === 'rfq' && (
+            <Button variant="secondary" onClick={reconcileQuote}>
+              Check original quote status
+            </Button>
+          )}
         </div>
       )}
       <Capability
@@ -519,22 +675,50 @@ function Futures({
   markets: Listing[];
   simulation: boolean;
 }) {
+  const { userId } = useSession();
   const positions = useResource((signal) => api.positions(undefined, signal), 'futures-positions'),
-    disclosure = useResource((signal) => tools.disclosure(signal), 'futures-adl');
+    disclosure = useResource((signal) => tools.disclosure(signal), 'futures-adl'),
+    history = useResource((signal) => tools.positionHistory(signal), 'futures-position-history');
+  const [positionTab, setPositionTab] = useState('Open positions');
   const [symbol, setSymbol] = useState(''),
     [side, setSide] = useState<'long' | 'short'>('long'),
     [size, setSize] = useState(''),
+    [sizeUnit, setSizeUnit] = useState<'base' | 'contracts'>('base'),
     [leverage, setLeverage] = useState(''),
     [preview, setPreview] = useState<z.infer<typeof import('./tool-api').positionPreviewSchema> | null>(null),
     [selected, setSelected] = useState<Position | null>(null),
     [loading, setLoading] = useState(false);
   const guard = useWriteGuard();
+  const simulationRef = useRef(simulation);
+  const selectedMarket = markets.find((market) => market.symbol === symbol);
+  const canSizeContracts = Boolean(
+    selectedMarket?.linear === true &&
+    selectedMarket.inverse !== true &&
+    selectedMarket.contractSize &&
+    parseAmount(selectedMarket.contractSize) > 0n,
+  );
+  let positionSize = size;
+  if (sizeUnit === 'contracts') {
+    try {
+      positionSize =
+        canSizeContracts && selectedMarket?.contractSize
+          ? formatAmount((parseAmount(size) * parseAmount(selectedMarket.contractSize)) / parseAmount('1'))
+          : '';
+    } catch {
+      positionSize = '';
+    }
+  }
+  simulationRef.current = simulation;
+  useEffect(() => {
+    setPreview(null);
+    setSelected(null);
+  }, [simulation]);
   const requestIdentity = useRef('');
-  requestIdentity.current = JSON.stringify({ symbol, side, size, leverage });
+  requestIdentity.current = JSON.stringify({ symbol, side, size: positionSize, leverage, simulation });
   async function risk() {
     const identity = requestIdentity.current;
     setLoading(true);
-    const result = await tools.positionPreview({ symbol, side, size, leverage, marginMode: 'isolated' });
+    const result = await tools.positionPreview({ symbol, side, size: positionSize, leverage, marginMode: 'isolated' });
     if (identity !== requestIdentity.current) {
       setLoading(false);
       return;
@@ -543,7 +727,7 @@ function Futures({
       result.ok &&
       result.data.symbol === symbol &&
       result.data.side === side &&
-      parseAmount(result.data.size) === parseAmount(size) &&
+      parseAmount(result.data.size) === parseAmount(positionSize) &&
       parseAmount(result.data.leverage) === parseAmount(leverage)
     )
       setPreview(result.data);
@@ -553,12 +737,38 @@ function Futures({
       );
     setLoading(false);
   }
+  if (simulation)
+    return (
+      <Capability
+        title="Simulated derivative positions are unavailable"
+        detail="The mounted position open, close, and history contracts do not publish a separate simulated account. This switch cannot display a live account as simulated or submit a ledger-funded position."
+      />
+    );
   return (
     <>
       <Capability
         title="Isolated position mode"
         detail="Cross margin and live margin-mode changes are unsupported. Reversing a position has no atomic reversal contract. A new position requires accepted mark, published leverage and liquidation policy, ADL acknowledgment, and a complete authoritative risk preview."
       />
+      {selectedMarket && (
+        <MarketChart
+          key={`${symbol}:${userId ?? 'guest'}`}
+          api={api}
+          market={selectedMarket}
+          orders={[]}
+          positions={positions.resource.status === 'ready' ? positions.resource.data : []}
+          accountKey={userId ?? 'signed-out'}
+          onStagePrice={(price) =>
+            guard.setMessage(
+              `Inspected actual candle close ${price}. Position execution uses its accepted mark; chart selection does not set an execution price.`,
+            )
+          }
+        />
+      )}
+      <p className="trade-note">
+        Entry, accepted mark, and liquidation overlays use published position values. Stop placement, liquidation-risk modification, and
+        atomic reversal are not mounted customer contracts; these lines do not imply those actions.
+      </p>
       <div className="trade-tool-form">
         <PairField
           markets={markets}
@@ -566,6 +776,8 @@ function Futures({
           onChange={(value) => {
             setSymbol(value);
             setPreview(null);
+            setSizeUnit('base');
+            setSize('');
           }}
         />
         <label className="field">
@@ -582,7 +794,18 @@ function Futures({
           </select>
         </label>
         <Field
-          label="Position size (base quantity; contract multiplier unpublished)"
+          label={
+            sizeUnit === 'contracts'
+              ? 'Position size (contracts)'
+              : selectedMarket?.contractSize
+                ? `Position size (${selectedMarket.base} quantity)`
+                : 'Position size (base quantity; contract multiplier unpublished)'
+          }
+          hint={
+            canSizeContracts && selectedMarket
+              ? `Published linear multiplier ${selectedMarket.contractSize} ${selectedMarket.base} per contract. Risk review receives exact base quantity.`
+              : 'Contract sizing needs a published linear base multiplier. An inverse or unspecified multiplier cannot be treated as base quantity.'
+          }
           value={size}
           inputMode="decimal"
           onChange={(event) => {
@@ -590,6 +813,23 @@ function Futures({
             setPreview(null);
           }}
         />
+        <label className="field">
+          Position size units
+          <select
+            aria-label="Position size units"
+            value={sizeUnit}
+            onChange={(event) => {
+              setSizeUnit(event.target.value as 'base' | 'contracts');
+              setSize('');
+              setPreview(null);
+            }}
+          >
+            <option value="base">{selectedMarket?.base ?? 'Base'} quantity</option>
+            <option value="contracts" disabled={!canSizeContracts}>
+              Contracts
+            </option>
+          </select>
+        </label>
         <Field
           label="Leverage (exact decimal)"
           value={leverage}
@@ -600,7 +840,7 @@ function Futures({
           }}
         />
         <Button
-          disabled={simulation || !guard.authenticated || loading || !symbol || !positive(size) || !positive(leverage)}
+          disabled={simulation || !guard.authenticated || loading || !symbol || !positive(positionSize) || !positive(leverage)}
           onClick={risk}
         >
           Review position risk
@@ -618,7 +858,7 @@ function Futures({
                 <div key={label}>
                   <dt>{label}</dt>
                   <dd>
-                    {displayAmount(value)} {symbol.split('/')[1]}
+                    {displayAmount(value)} {selectedMarket?.quote ?? ''}
                   </dd>
                 </div>
               ))}
@@ -630,14 +870,24 @@ function Futures({
             ))}
             <Button
               disabled={
+                simulation ||
                 !preview.orderable ||
+                preview.markPrice === null ||
+                preview.orderValue === null ||
+                preview.initialMargin === null ||
+                preview.estimatedFee === null ||
+                preview.liquidationPrice === null ||
+                preview.leverageCap === null ||
+                preview.refusals.length > 0 ||
                 guard.busy ||
                 guard.locked ||
                 disclosure.resource.status !== 'ready' ||
                 !disclosure.resource.data.acknowledged
               }
               onClick={async () => {
-                const refreshed = await tools.positionPreview({ symbol, side, size, leverage, marginMode: 'isolated' });
+                if (simulationRef.current) return;
+                const refreshed = await tools.positionPreview({ symbol, side, size: positionSize, leverage, marginMode: 'isolated' });
+                if (simulationRef.current) return;
                 if (!refreshed.ok) {
                   guard.setFailure(refreshed);
                   return;
@@ -651,10 +901,16 @@ function Futures({
                 void guard.run(
                   { kind: 'position', id, symbol },
                   () =>
-                    transport.rest('/positions', positionSchema, {
-                      method: 'POST',
-                      body: { symbol, side, size, leverage, marginMode: 'isolated', clientOpenId: id },
-                    }),
+                    simulationRef.current
+                      ? Promise.resolve({
+                          ok: false as const,
+                          reason: 'not_supported' as const,
+                          message: 'Simulated mode cannot open a live position.',
+                        })
+                      : transport.rest('/positions', positionSchema, {
+                          method: 'POST',
+                          body: { symbol, side, size: positionSize, leverage, marginMode: 'isolated', clientOpenId: id },
+                        }),
                   (data) => {
                     guard.setMessage(`Position ${data.id}: ${data.status}.`);
                     positions.reload();
@@ -697,7 +953,8 @@ function Futures({
       </div>
       <section>
         <h2>Your positions</h2>
-        <State value={positions}>
+        <Tabs items={['Open positions', 'Position history']} value={positionTab} onChange={setPositionTab} label="Position records" />
+        <State value={positionTab === 'Open positions' ? positions : history}>
           {(rows) =>
             rows.length ? (
               <DataTable
@@ -720,7 +977,7 @@ function Futures({
                       {row.closingReason && <small>{row.closingReason}</small>}
                     </td>
                     <td>
-                      <button disabled={simulation || !row.id || guard.locked || row.status === 'closing'} onClick={() => setSelected(row)}>
+                      <button disabled={simulation || !row.id || guard.locked || row.status !== 'open'} onClick={() => setSelected(row)}>
                         Close position
                       </button>
                     </td>
@@ -728,10 +985,11 @@ function Futures({
                 ))}
               </DataTable>
             ) : (
-              <EmptyState title="No open positions" />
+              <EmptyState title={positionTab === 'Open positions' ? 'No open positions' : 'No closed positions in this page'} />
             )
           }
         </State>
+        <p className="trade-note">Position history shows up to 100 service records; it is not a complete account history.</p>
       </section>
       {selected && (
         <Dialog title="Close futures position" onClose={() => setSelected(null)}>
@@ -740,12 +998,19 @@ function Futures({
             exists, the position may remain closing.
           </p>
           <Button
-            disabled={guard.busy || guard.locked}
+            disabled={simulation || guard.busy || guard.locked}
             onClick={() => {
-              if (!selected.id) return;
+              if (simulationRef.current || !selected.id) return;
               void guard.run(
                 { kind: 'position', id: selected.id, symbol: selected.symbol },
-                () => tools.positionClose(selected.id as string),
+                () =>
+                  simulationRef.current
+                    ? Promise.resolve({
+                        ok: false as const,
+                        reason: 'not_supported' as const,
+                        message: 'Simulated mode cannot close a live position.',
+                      })
+                    : tools.positionClose(selected.id as string),
                 (data) => {
                   guard.setMessage(`Position ${data.id}: ${data.status}.`);
                   positions.reload();

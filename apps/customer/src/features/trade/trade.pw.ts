@@ -72,17 +72,71 @@ function order(filled = '0', status = 'open') {
     trades: [],
   };
 }
-async function mount(page: Page, options: { working?: boolean; uncertain?: boolean; race?: boolean } = {}) {
+async function mount(
+  page: Page,
+  options: {
+    working?: boolean;
+    uncertain?: boolean;
+    race?: boolean;
+    unknownAmend?: boolean;
+    staleBook?: boolean;
+    futures?: boolean;
+    delayedPreview?: boolean;
+    replacementNoSubmit?: boolean;
+    delayedPlacement?: boolean;
+    uncertainCancel?: boolean;
+    contractMultiplier?: string;
+    paper?: boolean;
+  } = {},
+) {
   let previews = 0,
-    deletes = 0;
+    deletes = 0,
+    amended = false,
+    cancelled = false;
+  let balanceReads = 0;
+  let placedClientId = '',
+    placements = 0,
+    releasePlacement = () => {};
+  const placementGate = new Promise<void>((resolve) => {
+    releasePlacement = resolve;
+  });
+  let releasePreview = () => {};
+  const previewGate = new Promise<void>((resolve) => {
+    releasePreview = resolve;
+  });
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url()),
       path = url.pathname;
     let response: unknown = [];
-    if (path === '/api/v1/markets') response = [market('BTC'), market('ETH')];
+    if (path === '/api/v1/markets')
+      response = options.futures
+        ? [
+            {
+              ...market('BTC'),
+              id: 'futures-market',
+              symbol: 'BTC/USDT:PERP',
+              spot: false,
+              swap: true,
+              contract: true,
+              type: 'swap',
+              linear: true,
+              inverse: false,
+              contractSize: options.contractMultiplier ?? null,
+            },
+          ]
+        : options.paper
+          ? [{ ...market('BTC'), paper: true }]
+          : [market('BTC'), market('ETH')];
     else if (path.startsWith('/api/v1/orderbook/')) {
       const symbol = decodeURIComponent(path.split('/').at(-1) ?? '');
-      response = { symbol, bids: [['80000', '1']], asks: [['80001', '1']], timestamp: time, datetime, nonce: 1 };
+      response = {
+        symbol,
+        bids: [['80000', '1']],
+        asks: [['80001', '1']],
+        timestamp: options.staleBook ? Date.now() - 60000 : Date.now(),
+        datetime,
+        nonce: 1,
+      };
     } else if (path.startsWith('/api/v1/ticker/')) {
       const symbol = decodeURIComponent(path.split('/').at(-1) ?? '');
       response = {
@@ -107,25 +161,53 @@ async function mount(page: Page, options: { working?: boolean; uncertain?: boole
         quoteVolume: null,
       };
     } else if (path.startsWith('/api/v1/ohlcv/')) response = [[time - 60000, '80000', '80020', '79990', '80001', '1']];
-    else if (path === '/api/v1/account/balance')
+    else if (path === '/api/v1/account/balance') {
+      balanceReads++;
       response = {
         timestamp: time,
         datetime,
-        balances: {
-          USDT: { free: '7500', used: '500', total: '8000' },
-          BTC: { free: '0.05', used: '0', total: '0.05' },
-          ETH: { free: '2', used: '0', total: '2' },
-        },
+        balances: options.paper
+          ? {}
+          : {
+              USDT: { free: '7500', used: '500', total: '8000' },
+              BTC: { free: '0.05', used: '0', total: '0.05' },
+              ETH: { free: '2', used: '0', total: '2' },
+            },
       };
-    else if (path === '/api/v1/orders/open') response = options.working ? [order()] : [];
-    else if (path === '/api/v1/orders/preview') {
+    } else if (path === '/api/v1/orders/open')
+      response =
+        (options.working || placedClientId) && !cancelled
+          ? [amended ? { ...order(), amount: '0.010', remaining: '0.010' } : { ...order(), clientOrderId: placedClientId || 'original-1' }]
+          : [];
+    else if (path === '/api/v1/futures/adl-disclosure')
+      response = { version: 'test-adl', copy: 'Test ADL disclosure from service.', acknowledged: true };
+    else if (path === '/api/v1/positions/preview') {
+      const draft = route.request().postDataJSON();
+      response = {
+        ...draft,
+        markPrice: '100',
+        markSource: 'depth',
+        leverageCap: '10',
+        orderValue: '100',
+        initialMargin: '50',
+        estimatedFee: '0.1',
+        liquidationPrice: '70',
+        orderable: true,
+        refusals: [],
+      };
+    } else if (path === '/api/v1/orders/preview') {
       previews++;
       const draft = route.request().postDataJSON();
+      if (options.delayedPreview && previews > 1) await previewGate;
       response = {
         ...draft,
         price: draft.price ?? null,
         holdAsset: 'USDT',
-        holdAmount: previews > 1 && !options.uncertain ? '2001' : '2000',
+        holdAmount: options.paper
+          ? '0'
+          : previews > 1 && !options.uncertain && !options.delayedPreview && !options.replacementNoSubmit
+            ? '2001'
+            : '2000',
         protectionPrice: null,
         estimatedFee: '0.000025',
         feeAsset: 'BTC',
@@ -134,24 +216,119 @@ async function mount(page: Page, options: { working?: boolean; uncertain?: boole
         orderable: true,
         refusals: [],
       };
+    } else if (path === '/api/v1/orders/order-1/replace' && options.replacementNoSubmit) {
+      cancelled = true;
+      response = {
+        accepted: false,
+        idempotent: false,
+        code: 'REPLACEMENT_NOT_SUBMITTED',
+        reasonCode: 'trade.insufficient_balance',
+        reconciliationRequired: false,
+        path: 'CANCEL_REPLACE',
+        originalOrderId: 'order-1',
+        originalState: 'cancelled',
+        replacementOrderId: null,
+        replacementState: null,
+        original: order('0', 'canceled'),
+        replacement: null,
+      };
     } else if (path === '/api/v1/orders' && route.request().method() === 'POST') {
-      if (options.uncertain) {
+      if (options.delayedPlacement) {
+        placements++;
+        placedClientId = route.request().postDataJSON().clientOrderId;
+        await placementGate;
+      } else if (options.uncertain) {
         await route.fulfill({ status: 503, json: { message: 'Matching outcome unknown', code: 'trade.engine_unreachable' } });
         return;
       }
       response = { ...order(), clientOrderId: route.request().postDataJSON().clientOrderId };
     } else if (path === '/api/v1/orders/order-1') {
-      if (route.request().method() === 'DELETE') deletes++;
-      response = options.race ? order('0.005') : order();
+      if (route.request().method() === 'PATCH' && options.unknownAmend) {
+        amended = true;
+        await route.fulfill({ status: 503, json: { message: 'Amend response unknown' } });
+        return;
+      }
+      if (route.request().method() === 'DELETE') {
+        deletes++;
+        if (options.uncertainCancel) {
+          await route.fulfill({ status: 503, json: { message: 'Cancellation outcome unknown' } });
+          return;
+        }
+        cancelled = true;
+      }
+      response = amended
+        ? { ...order(), amount: '0.010', remaining: '0.010' }
+        : options.race
+          ? order('0.005')
+          : order('0', cancelled ? 'canceled' : 'open');
     }
     await route.fulfill({ json: response });
   });
   await page.routeWebSocket('**/ws/**', (socket) => {
+    if (options.staleBook) return;
     const id = new URL(socket.url()).searchParams.get('market');
     socket.send(JSON.stringify({ type: 'snapshot', marketId: id, sequence: 1, bids: [['80000', '1']], asks: [['80001', '1']] }));
   });
-  return { deletes: () => deletes };
+  return {
+    deletes: () => deletes,
+    previews: () => previews,
+    releasePreview,
+    placements: () => placements,
+    releasePlacement,
+    balanceReads: () => balanceReads,
+  };
 }
+
+test('switching to simulation while the final spot preview is pending prevents live dispatch', async ({ page }) => {
+  const server = await mount(page, { delayedPreview: true });
+  let placements = 0;
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/v1/orders' && request.method() === 'POST') placements++;
+  });
+  await page.goto('/exchange');
+  await page.getByLabel('Price (USDT per BTC)', { exact: true }).fill('80000');
+  await page.getByRole('textbox', { name: /^Amount \(BTC\)/ }).fill('0.025');
+  await page.getByRole('button', { name: 'Review buy', exact: true }).click();
+  await page.getByRole('button', { name: 'Place buy', exact: true }).click();
+  await expect.poll(server.previews).toBe(2);
+  await page.getByRole('checkbox', { name: 'Simulated', exact: true }).check();
+  await expect(page.getByRole('textbox', { name: /^Amount \(BTC\)/ })).toHaveCount(0);
+  server.releasePreview();
+  await expect.poll(() => placements).toBe(0);
+  await page.getByRole('checkbox', { name: 'Simulated', exact: true }).uncheck();
+  await expect(page.getByRole('button', { name: 'Review buy', exact: true })).toBeEnabled();
+  expect(placements).toBe(0);
+});
+test('published paper markets place simulated orders without reading or requiring live ledger funds', async ({ page }) => {
+  const server = await mount(page, { paper: true });
+  await page.goto('/exchange');
+  await page.getByRole('checkbox', { name: 'Simulated', exact: true }).check();
+  await expect(page.getByRole('button', { name: 'Review buy', exact: true })).toBeEnabled();
+  await page.getByLabel('Price (USDT per BTC)', { exact: true }).fill('80000');
+  await page.getByRole('textbox', { name: /^Amount \(BTC\)/ }).fill('0.025');
+  await page.getByRole('button', { name: 'Review buy', exact: true }).click();
+  await page.getByRole('button', { name: 'Place simulated buy', exact: true }).click();
+  await expect(page.getByText(/^Simulated order order-1 is open;/)).toBeVisible();
+  expect(server.balanceReads()).toBe(0);
+});
+test('price change reviews cancel/replace and reports a cancelled original with no replacement honestly', async ({ page }) => {
+  await mount(page, { working: true, replacementNoSubmit: true });
+  const writes: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST') writes.push(new URL(request.url()).pathname);
+  });
+  await page.goto('/exchange');
+  await page.getByRole('button', { name: 'Change price', exact: true }).click();
+  await page.getByLabel('Replacement limit price (USDT per BTC)', { exact: true }).fill('81000');
+  await page.getByRole('button', { name: 'Review replacement', exact: true }).click();
+  await expect(page.getByText('Replacement order value', { exact: true })).toBeVisible();
+  await expect(page.getByText('2,025 USDT', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Confirm cancel/replace', exact: true }).click();
+  await expect(page.getByText(/^Cancel\/replace: REPLACEMENT_NOT_SUBMITTED/)).toContainText(
+    'Original order-1: canceled. No replacement was submitted.',
+  );
+  expect(writes).toEqual(['/api/v1/orders/preview', '/api/v1/orders/preview', '/api/v1/orders/order-1/replace']);
+});
 
 test('market context resets the ticket and retains explicit base units', async ({ page }) => {
   await mount(page);
@@ -163,6 +340,33 @@ test('market context resets the ticket and retains explicit base units', async (
   await expect(page.getByRole('textbox', { name: /^Amount \(ETH\)/ })).toHaveValue('');
   await expect(page.getByRole('textbox', { name: /^Amount \(BTC\)/ })).toHaveCount(0);
   await expect(page.getByRole('img', { name: 'Actual ETH/USDT historical prices' })).toBeVisible();
+});
+test('quote-value limit entry sends only an exact lot-aligned base quantity for review', async ({ page }) => {
+  await mount(page);
+  let requested: { amount?: string; price?: string } = {};
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/v1/orders/preview') requested = request.postDataJSON();
+  });
+  await page.goto('/exchange');
+  await expect(page.getByLabel('Size units', { exact: true })).toBeVisible();
+  await page.getByLabel('Price (USDT per BTC)', { exact: true }).fill('80000');
+  await page.getByLabel('Size units', { exact: true }).selectOption('quote');
+  await page.getByRole('textbox', { name: /^Order value \(USDT\)/ }).fill('2000.39');
+  await page.getByRole('button', { name: 'Review buy', exact: true }).click();
+  await expect(page.getByText('0.025 BTC', { exact: true })).toBeVisible();
+  expect(requested).toMatchObject({ amount: '0.025', price: '80000' });
+  await page.getByRole('button', { name: 'Back to edit', exact: true }).click();
+  await page.getByRole('group', { name: 'Order type', exact: true }).getByRole('button', { name: 'Market', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: /^Amount \(BTC\)/ })).toHaveValue('');
+  await expect(page.getByLabel('Size units', { exact: true })).toHaveValue('base');
+  await page.getByRole('group', { name: 'Order side', exact: true }).getByRole('button', { name: 'Sell', exact: true }).click();
+  await page.getByRole('group', { name: 'Order type', exact: true }).getByRole('button', { name: 'Limit', exact: true }).click();
+  await page.getByLabel('Price (USDT per BTC)', { exact: true }).fill('');
+  await page.getByLabel('Size units', { exact: true }).selectOption('quote');
+  await expect(page.getByRole('button', { name: '25%', exact: true })).toBeDisabled();
+  await page.getByLabel('Price (USDT per BTC)', { exact: true }).fill('80000');
+  await page.getByRole('button', { name: '25%', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: /^Order value \(USDT\)/ })).toHaveValue('1000');
 });
 test('changed reservation requires a second review and creates no order', async ({ page }) => {
   await mount(page);
@@ -179,11 +383,14 @@ test('changed reservation requires a second review and creates no order', async 
   expect(placements).toBe(0);
 });
 test('uncertain placement remains locked across reload and cannot duplicate a request', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ confirmSend: false })));
   await mount(page, { uncertain: true });
   await page.goto('/exchange');
   await page.getByLabel('Price (USDT per BTC)', { exact: true }).fill('80000');
   await page.getByRole('textbox', { name: /^Amount \(BTC\)/ }).fill('0.025');
   await page.getByRole('button', { name: 'Review buy', exact: true }).click();
+  await expect(page.getByText('Base quantity', { exact: true })).toBeVisible();
+  await expect(page.getByText('Orders can fill before you can cancel.', { exact: false })).toHaveCount(0);
   await page.getByRole('button', { name: 'Place buy', exact: true }).click();
   await expect(page.getByText('Outcome not confirmed · place')).toBeVisible();
   await page.reload();
@@ -201,6 +408,51 @@ test('a fill during cancellation refreshes the remainder before any cancel is se
   ).toBeVisible();
   expect(transport.deletes()).toBe(0);
 });
+test('disabling the cancel warning still checks the authoritative order and sends one cancellation', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ confirmCancel: false })));
+  const server = await mount(page, { working: true });
+  await page.goto('/exchange');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByText(/^Order order-1: canceled\. Filled/)).toBeVisible();
+  expect(server.deletes()).toBe(1);
+});
+test('an old mutation response cannot clear the recovery marker for a later cancellation', async ({ page }) => {
+  const server = await mount(page, { delayedPlacement: true, uncertain: true, uncertainCancel: true });
+  await page.goto('/exchange');
+  await page.getByLabel('Price (USDT per BTC)', { exact: true }).fill('80000');
+  await page.getByRole('textbox', { name: /^Amount \(BTC\)/ }).fill('0.025');
+  await page.getByRole('button', { name: 'Review buy', exact: true }).click();
+  await page.getByRole('button', { name: 'Place buy', exact: true }).click();
+  await expect.poll(server.placements).toBe(1);
+  await page.getByRole('button', { name: 'Check original request status', exact: true }).click();
+  await expect(page.getByText(/^Order order-1: open\. Filled/)).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm cancellation', exact: true }).click();
+  await expect(page.getByText('Outcome not confirmed · cancel', { exact: true })).toBeVisible();
+  server.releasePlacement();
+  await expect(page.getByText(/^Order order-1 is open;/)).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => JSON.parse(localStorage.getItem(Object.keys(localStorage).find((key) => key.startsWith('trade-pending:'))!)!).kind,
+    ),
+  ).toBe('cancel');
+  await expect(page.getByRole('button', { name: 'Review buy', exact: true })).toBeDisabled();
+});
+test('contract quantity uses only the published multiplier for authoritative futures risk review', async ({ page }) => {
+  await mount(page, { futures: true, contractMultiplier: '0.001' });
+  let reviewedSize = '';
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/v1/positions/preview') reviewedSize = request.postDataJSON().size;
+  });
+  await page.goto('/trade/futures');
+  await page.getByRole('combobox').first().selectOption('BTC/USDT:PERP');
+  await page.getByLabel('Position size units', { exact: true }).selectOption('contracts');
+  await page.getByRole('textbox', { name: /^Position size \(contracts\)/ }).fill('10');
+  await page.getByLabel('Leverage (exact decimal)', { exact: true }).fill('2');
+  await page.getByRole('button', { name: 'Review position risk', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Confirm position', exact: true })).toBeEnabled();
+  expect(reviewedSize).toBe('0.01');
+});
 test('phone retains chart, ticket, and book without horizontal page overflow', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mount(page);
@@ -210,3 +462,157 @@ test('phone retains chart, ticket, and book without horizontal page overflow', a
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: '/tmp/intafaced-trade-phone.png', fullPage: true });
 });
+
+test('an uncertain native amendment reconciles while its reduced order is still open', async ({ page }) => {
+  await mount(page, { working: true, unknownAmend: true });
+  await page.goto('/exchange');
+  await page.getByRole('button', { name: 'Reduce', exact: true }).click();
+  await page.getByLabel('New remaining quantity (BTC)', { exact: true }).fill('0.010');
+  await page.getByRole('button', { name: 'Confirm reduction' }).click();
+  await expect(page.getByText('Outcome not confirmed · amend')).toBeVisible();
+  await page.getByRole('button', { name: 'Check original request status' }).click();
+  await expect(page.getByText('Outcome not confirmed · amend')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Review buy', exact: true })).toBeEnabled();
+});
+test('simulated toggle clears a live futures review and cannot submit its position', async ({ page }) => {
+  await mount(page, { futures: true });
+  let writes = 0;
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/v1/positions' && request.method() === 'POST') writes++;
+  });
+  await page.goto('/trade/futures');
+  await page.getByRole('combobox').first().selectOption('BTC/USDT:PERP');
+  await page.getByRole('textbox', { name: /^Position size \(base quantity/ }).fill('1');
+  await page.getByLabel('Leverage (exact decimal)', { exact: true }).fill('2');
+  await page.getByRole('button', { name: 'Review position risk' }).click();
+  await expect(page.getByRole('button', { name: 'Confirm position' })).toBeEnabled();
+  await page.getByRole('checkbox', { name: 'Simulated', exact: true }).check();
+  await expect(page.getByRole('button', { name: 'Confirm position' })).toHaveCount(0);
+  expect(writes).toBe(0);
+});
+test('old source depth cannot authorize a new order merely because it was just received', async ({ page }) => {
+  await mount(page, { staleBook: true });
+  await page.goto('/exchange');
+  await expect(page.getByText('Snapshot is stale', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Review buy', exact: true })).toBeDisabled();
+  await expect(page.getByText('This depth snapshot is too old to authorize a new order.')).toBeVisible();
+});
+test('candle inspection and depth staging retain the actual source prices', async ({ page }) => {
+  await mount(page);
+  await page.goto('/exchange');
+  const chart = page.getByRole('img', { name: 'Actual BTC/USDT historical prices', exact: true });
+  await expect(chart.locator('canvas').first()).toBeVisible();
+  await chart.focus();
+  await chart.press('ArrowLeft');
+  await expect(page.getByText('O 80000 · H 80020 · L 79990 · C 80001 USDT · V 1 BTC', { exact: true })).toBeVisible();
+  await chart.press('Enter');
+  await expect(page.getByLabel('Price (USDT per BTC)', { exact: true })).toHaveValue('80001');
+  await page.getByRole('button', { name: 'Depth', exact: true }).click();
+  await expect(page.getByRole('img', { name: 'Actual cumulative BTC/USDT depth', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '80,000 USDT', exact: true }).click();
+  await expect(page.getByLabel('Price (USDT per BTC)', { exact: true })).toHaveValue('80000');
+});
+test('a saved chart layout restores its type, interval, and indicator set', async ({ page }) => {
+  await mount(page);
+  await page.goto('/exchange');
+  await page.getByLabel('Chart type', { exact: true }).selectOption('Line');
+  await page.getByLabel('Chart interval', { exact: true }).selectOption('1m');
+  await page
+    .locator('summary')
+    .filter({ hasText: /^Indicators$/ })
+    .click();
+  await page.getByRole('checkbox', { name: 'RSI', exact: true }).check();
+  await page
+    .locator('summary')
+    .filter({ hasText: /^Indicators$/ })
+    .click();
+  await page
+    .locator('summary')
+    .filter({ hasText: /^Layouts$/ })
+    .click();
+  page.once('dialog', (dialog) => void dialog.accept('Momentum'));
+  await page.getByRole('button', { name: 'Save layout on device', exact: true }).click();
+  await page.reload();
+  await page
+    .locator('summary')
+    .filter({ hasText: /^Layouts$/ })
+    .click();
+  await page.getByRole('button', { name: 'Momentum', exact: true }).click();
+  await expect(page.getByLabel('Chart type', { exact: true })).toHaveValue('Line');
+  await expect(page.getByLabel('Chart interval', { exact: true })).toHaveValue('1m');
+  await page
+    .locator('summary')
+    .filter({ hasText: /^Indicators$/ })
+    .click();
+  await expect(page.getByRole('checkbox', { name: 'RSI', exact: true })).toBeChecked();
+});
+test('a delayed reconciliation cannot remove a newer request recovery marker', async ({ page }) => {
+  await mount(page, { uncertain: true });
+  await page.goto('/exchange');
+  await page.getByLabel('Price (USDT per BTC)', { exact: true }).fill('80000');
+  await page.getByRole('textbox', { name: /^Amount \(BTC\)/ }).fill('0.025');
+  await page.getByRole('button', { name: 'Review buy', exact: true }).click();
+  await page.getByRole('button', { name: 'Place buy', exact: true }).click();
+  await expect(page.getByText('Matching outcome unknown', { exact: true })).toBeVisible();
+  const saved = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((key) => key.startsWith('trade-pending:'))!;
+    return { key, request: JSON.parse(localStorage.getItem(key)!) };
+  });
+  let entered = false,
+    release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/v1/orders/open?**', async (route) => {
+    entered = true;
+    await gate;
+    await route.fulfill({ json: [{ ...order(), clientOrderId: saved.request.id }] });
+  });
+  await page.getByRole('button', { name: 'Check original request status', exact: true }).click();
+  await expect.poll(() => entered).toBe(true);
+  await page.evaluate(({ key, request }) => {
+    localStorage.setItem(key, JSON.stringify({ ...request, id: 'newer-request-b', startedAt: request.startedAt + 1 }));
+    window.dispatchEvent(new Event('trade-pending-change'));
+  }, saved);
+  release();
+  await expect(page.getByText(/^Order order-1: open\. Filled/)).toBeVisible();
+  expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!).id, saved.key)).toBe('newer-request-b');
+  await expect(page.getByRole('button', { name: 'Place buy', exact: true })).toBeDisabled();
+});
+test('dragging an open order stages an exact replacement price without submitting it', async ({ page }) => {
+  await mount(page, { working: true });
+  let replacements = 0;
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.endsWith('/replace')) replacements++;
+  });
+  await page.goto('/exchange');
+  const handle = page.getByRole('button', { name: 'Change price for order order-1', exact: true });
+  await expect(handle).toBeVisible();
+  const bounds = await handle.boundingBox();
+  if (!bounds) throw new Error('Order handle is unavailable');
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2 + 30, { steps: 5 });
+  await page.mouse.up();
+  const price = page.getByLabel('Replacement limit price (USDT per BTC)', { exact: true });
+  await expect(price).toBeVisible();
+  expect(await price.inputValue()).not.toBe('80000');
+  expect(await price.inputValue()).toMatch(/^\d+(?:\.\d{1,2})?$/);
+  expect(replacements).toBe(0);
+});
+for (const width of [1440, 768, 320])
+  test(`trade remains usable at ${width}px including its chart menu`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mount(page);
+    await page.goto('/exchange');
+    await expect(page.getByRole('img', { name: 'Actual BTC/USDT historical prices', exact: true }).locator('canvas').first()).toBeVisible();
+    await page
+      .locator('summary')
+      .filter({ hasText: /^View$/ })
+      .click();
+    await expect(
+      page.getByText('No customer alert creation, delivery, or alert history service is mounted.', { exact: true }),
+    ).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `/tmp/intafaced-trade-${width}.png`, fullPage: true });
+  });

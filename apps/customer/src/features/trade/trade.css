@@ -10,9 +10,19 @@
   padding-inline: 20px;
   border-bottom: 1px solid var(--color-divider);
   background: var(--color-shell);
-  overflow-x: auto;
   white-space: nowrap;
   font-size: 13px;
+}
+.trade-mode-links {
+  display: flex;
+  gap: 22px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.trade-mode-links::-webkit-scrollbar {
+  display: none;
 }
 .trade-modes a {
   color: var(--color-muted);
@@ -29,6 +39,7 @@
   align-items: center;
   gap: 6px;
   margin-left: auto;
+  flex-shrink: 0;
 }
 .trade-root input[type='checkbox'] {
   accent-color: var(--color-accent);
@@ -199,6 +210,27 @@
 .trade-chart-context strong {
   color: var(--color-text);
 }
+.trade-candle-inspection {
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 10px;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+.trade-depth-plot {
+  width: 100%;
+  max-height: 320px;
+}
+.trade-depth-plot circle {
+  cursor: pointer;
+}
+.trade-depth-ladder {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px;
+  font-size: 11px;
+}
 .trade-chart-context button:first-of-type {
   margin-left: auto;
 }
@@ -227,6 +259,20 @@
   stroke: var(--color-warning);
   stroke-width: 1.5;
   z-index: 2;
+}
+.trade-order-handle {
+  position: absolute;
+  left: 8px;
+  z-index: 3;
+  transform: translateY(-50%);
+  color: var(--color-warning);
+  background: var(--color-shell) !important;
+  border: 1px solid var(--color-warning) !important;
+  border-radius: 3px;
+  padding: 3px 6px;
+  font-size: 10px;
+  touch-action: none;
+  cursor: ns-resize !important;
 }
 .trade-chart-footer {
   display: flex;
@@ -380,7 +426,7 @@
   padding: 12px 16px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 6px;
   font-size: 12px;
 }
 .trade-ticket-context {
@@ -729,6 +775,9 @@
     margin-left: 0;
     padding-right: 12px;
   }
+  .trade-mode-links {
+    gap: 18px;
+  }
   .trade-market {
     padding-inline: 12px;
     gap: 8px;
@@ -763,12 +812,22 @@
     height: auto;
     min-height: 40px;
     padding-block: 6px;
+    position: relative;
   }
   .trade-chart-toolbar select {
     max-width: 100px;
   }
   .trade-chart-toolbar details {
     font-size: 11px;
+    position: static;
+  }
+  .trade-chart-toolbar .trade-menu {
+    left: 12px;
+    right: 12px;
+    top: 100%;
+    width: auto;
+    max-height: 55dvh;
+    overflow: auto;
   }
   .trade-chart-context {
     gap: 8px;
@@ -804,6 +863,7 @@
   .trade-blotter-toolbar .tabs {
     padding-inline: 0;
     gap: 16px;
+    flex: 1 0 100%;
   }
   .trade-root .tabs button {
     min-height: 40px;

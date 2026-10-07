@@ -5,11 +5,11 @@ const level = z.tuple([decimalSchema.refine((value) => parseAmount(value) > 0n),
 const snapshot = z.object({
   type: z.literal('snapshot'),
   marketId: z.string(),
-  sequence: z.number().int().nonnegative(),
+  sequence: z.number().int().nonnegative().safe(),
   bids: z.array(level),
   asks: z.array(level),
 });
-const delta = snapshot.extend({ type: z.literal('delta'), fromSequence: z.number().int().nonnegative() });
+const delta = snapshot.extend({ type: z.literal('delta'), fromSequence: z.number().int().nonnegative().safe() });
 const eventSchema = z.union([snapshot, delta]);
 type Levels = [string, string][];
 /** Public stream boundary. No socket-open event can establish freshness. */

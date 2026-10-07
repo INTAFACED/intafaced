@@ -33,6 +33,38 @@ const intent = {
 };
 
 describe('trading feature network boundary', () => {
+  it('refuses contradictory candles instead of presenting malformed prices as history', async () => {
+    const api = createTradeApi(createApiClient({ fetch: async () => new Response(JSON.stringify([[1, '100', '99', '101', '100', '1']])) }));
+    expect(await api.history('BTC/USDT', '1m')).toMatchObject({ ok: false, reason: 'invalid_response' });
+  });
+  it('refreshes replacement authority and leaves the original untouched when its reservation changes', async () => {
+    const requests: string[] = [];
+    const api = createTradeApi(
+      createApiClient({
+        fetch: async (url) => {
+          requests.push(String(url));
+          return new Response(JSON.stringify({ ...reviewed, holdAmount: '2001' }));
+        },
+      }),
+    );
+    const result = await api.replace('original-1', intent, reviewed);
+    expect(result).toMatchObject({ ok: false, reason: 'changed' });
+    expect(requests).toEqual(['/api/v1/orders/preview']);
+  });
+  it('does not dispatch a live placement after the originating account or mode changes during preview', async () => {
+    const requests: string[] = [];
+    const api = createTradeApi(
+      createApiClient({
+        fetch: async (url) => {
+          requests.push(String(url));
+          return new Response(JSON.stringify(reviewed));
+        },
+      }),
+    );
+    const result = await api.place(intent, reviewed, () => false);
+    expect(result).toMatchObject({ ok: false, reason: 'aborted' });
+    expect(requests).toEqual(['/api/v1/orders/preview']);
+  });
   it('refuses numeric money in order preview instead of offering confirmation', async () => {
     const api = createTradeApi(
       createApiClient({

@@ -4,8 +4,8 @@ import { useApi, useSession } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
 import { useResource, type Resource } from '../../shared/resource';
 import { Button, DataTable, Dialog, EmptyState, Failure, Field, Loading, Tabs } from '../../shared/ui';
-import type { ApiResult } from '../../shared/api';
-import { displayAmount, parseAmount, formatAmount } from '../../shared/money';
+import { unavailable, type ApiResult } from '../../shared/api';
+import { decimalSchema, displayAmount, parseAmount, formatAmount } from '../../shared/money';
 import {
   createTradeApi,
   type TradeApi,
@@ -15,14 +15,16 @@ import {
   type Order,
   draftSchema,
   exactValue,
+  baseQuantityForValue,
   portionInLots,
 } from './trade-api';
 import { useLinkedBook, usePolled } from './hooks';
 import { MarketChart } from './Chart';
 import { TradingTools } from './TradingTools';
+import { ReplaceOrder } from './ReplaceOrder';
 import './trade.css';
 
-const modes = ['Spot', 'Margin', 'Futures', 'Options', 'Copy', 'Bots', 'Execution', 'Convert', 'Quote desk'];
+const modes = ['Spot', 'Margin', 'Futures', 'Options', 'Copy', 'Bots', 'Execution', 'Quote desk'];
 const modeRoutes: Record<string, string> = {
   Spot: '/exchange',
   Margin: '/trade/margin',
@@ -48,14 +50,27 @@ export function TradeRoutes({ path }: { path: string }) {
       return [];
     }
   });
+  const [favoritesKey, setFavoritesKey] = useState(`trade-favorites:${userId ?? 'guest'}`);
+  useEffect(() => {
+    const key = `trade-favorites:${userId ?? 'guest'}`;
+    try {
+      const value: unknown = JSON.parse(localStorage.getItem(key) ?? '[]');
+      setFavorites(Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []);
+    } catch {
+      setFavorites([]);
+    }
+    setFavoritesKey(key);
+  }, [userId]);
   const [simulation, setSimulation] = useState(false),
     [picker, setPicker] = useState(false),
     [selected, setSelected] = useState<string | null>(null);
-  const activeMode = path.startsWith('/otc')
-    ? 'Quote desk'
-    : path.startsWith('/execution')
-      ? 'Execution'
-      : (modes.find((mode) => mode !== 'Spot' && path.includes(`/trade/${mode.toLowerCase()}`)) ?? 'Spot');
+  const activeMode = path.startsWith('/trade/convert')
+    ? 'Convert'
+    : path.startsWith('/otc')
+      ? 'Quote desk'
+      : path.startsWith('/execution')
+        ? 'Execution'
+        : (modes.find((mode) => mode !== 'Spot' && path.includes(`/trade/${mode.toLowerCase()}`)) ?? 'Spot');
   const query = new URLSearchParams(location.search),
     asset = query.get('asset')?.toUpperCase(),
     initialSide = query.get('side') === 'sell' ? 'sell' : 'buy';
@@ -70,12 +85,13 @@ export function TradeRoutes({ path }: { path: string }) {
   const requested = selected ?? routePair ?? assetSymbol;
   const market = visible.find((value) => value.symbol === requested) ?? ((routePair || asset) && !selected ? undefined : visible[0]);
   useEffect(() => {
+    if (favoritesKey !== `trade-favorites:${userId ?? 'guest'}`) return;
     try {
       localStorage.setItem(`trade-favorites:${userId ?? 'guest'}`, JSON.stringify(favorites));
     } catch {
       /* Favorites remain available in this tab. */
     }
-  }, [favorites, userId]);
+  }, [favorites, userId, favoritesKey]);
   useEffect(() => {
     setSelected(null);
   }, [path]);
@@ -86,11 +102,13 @@ export function TradeRoutes({ path }: { path: string }) {
   return (
     <div className="trade-root">
       <nav className="trade-modes" aria-label="Trading modes">
-        {modes.map((mode) => (
-          <a key={mode} aria-current={activeMode === mode ? 'page' : undefined} href={modeRoutes[mode]}>
-            {mode}
-          </a>
-        ))}
+        <div className="trade-mode-links">
+          {modes.map((mode) => (
+            <a key={mode} aria-current={activeMode === mode ? 'page' : undefined} href={modeRoutes[mode]}>
+              {mode}
+            </a>
+          ))}
+        </div>
         <label className="trade-simulation">
           <input
             type="checkbox"
@@ -104,7 +122,14 @@ export function TradeRoutes({ path }: { path: string }) {
         </label>
       </nav>
       {activeMode !== 'Spot' ? (
-        <TradingTools api={api} transport={transport} mode={activeMode} markets={visible} simulation={simulation} />
+        <TradingTools
+          key={`${activeMode}:${simulation}:${userId ?? 'guest'}`}
+          api={api}
+          transport={transport}
+          mode={activeMode}
+          markets={visible}
+          simulation={simulation}
+        />
       ) : (
         <>
           <header className="trade-market">
@@ -243,11 +268,13 @@ function MarketFacts({ api, market }: { api: TradeApi; market: Listing }) {
 }
 
 const pendingSchema = z.object({
-  kind: z.enum(['place', 'cancel', 'amend', 'convert', 'rfq', 'position', 'algo', 'copy']),
+  kind: z.enum(['place', 'cancel', 'amend', 'replace', 'convert', 'rfq', 'position', 'algo', 'copy']),
   symbol: z.string(),
   id: z.string(),
   orderId: z.string().optional(),
   startedAt: z.number(),
+  expectedAmount: decimalSchema.optional(),
+  originalAmount: decimalSchema.optional(),
 });
 type Pending = z.infer<typeof pendingSchema>;
 function pendingKey(userId: string) {
@@ -276,17 +303,28 @@ function SpotDesk({
     preferences = usePreferences();
   const accountKey = userId ?? 'signed-out';
   const book = useLinkedBook(api, market),
-    balances = usePolled((signal) => api.balances(signal), accountKey, 20),
-    open = usePolled((signal) => api.orders('open', undefined, 100, signal), accountKey, 10);
+    balances = usePolled(
+      (signal) =>
+        market.paper
+          ? Promise.resolve(unavailable('A simulated balance contract is not mounted. Paper orders do not use live ledger funds.'))
+          : api.balances(signal),
+      accountKey,
+      20,
+    ),
+    open = usePolled((signal) => api.orders('open', market.paper ? market.symbol : undefined, 100, signal), accountKey, 10);
   const [staged, setStaged] = useState(''),
     [pending, setPending] = useState<Pending | null>(() => readPending(accountKey)),
     [status, setStatus] = useState(''),
     [checking, setChecking] = useState(false),
-    [manage, setManage] = useState<{ order: Order; kind: 'cancel' | 'amend' } | null>(null);
+    [manage, setManage] = useState<{ order: Order; kind: 'cancel' | 'amend' | 'replace'; price?: string } | null>(null);
   useEffect(() => {
     const update = () => setPending(readPending(accountKey));
     window.addEventListener('storage', update);
-    return () => window.removeEventListener('storage', update);
+    window.addEventListener('trade-pending-change', update);
+    return () => {
+      window.removeEventListener('storage', update);
+      window.removeEventListener('trade-pending-change', update);
+    };
   }, [accountKey]);
   const releaseLock = useRef<(() => void) | null>(null);
   useEffect(
@@ -295,7 +333,7 @@ function SpotDesk({
     },
     [],
   );
-  const setIntent = (value: Pending | null) => {
+  const setIntent = (value: Pending | null, expected?: Pending) => {
     if (value) {
       try {
         localStorage.setItem(pendingKey(accountKey), JSON.stringify(value));
@@ -305,11 +343,27 @@ function SpotDesk({
       }
     } else {
       try {
+        const stored = readPending(accountKey);
+        if (
+          localStorage.getItem(pendingKey(accountKey)) &&
+          (!stored ||
+            !expected ||
+            stored.id !== expected.id ||
+            stored.kind !== expected.kind ||
+            stored.startedAt !== expected.startedAt ||
+            stored.orderId !== expected.orderId)
+        ) {
+          setPending(stored);
+          setStatus('The active trading request changed. This older result cannot clear its recovery marker.');
+          return false;
+        }
         localStorage.removeItem(pendingKey(accountKey));
       } catch {
-        /* Existing in-memory outcome remains authoritative. */
+        setStatus('The outcome is confirmed, but its device marker could not be cleared. Restore storage access before another action.');
+        return false;
       }
     }
+    window.dispatchEvent(new Event('trade-pending-change'));
     setPending(value);
     if (!value) {
       releaseLock.current?.();
@@ -335,6 +389,17 @@ function SpotDesk({
           resolve(false);
           return;
         }
+        try {
+          if (localStorage.getItem(pendingKey(accountKey))) {
+            setStatus('The saved trading request cannot be read. Preserve device storage and contact support before another action.');
+            resolve(false);
+            return;
+          }
+        } catch {
+          setStatus('Device storage is unavailable. Trading cannot preserve a request identity.');
+          resolve(false);
+          return;
+        }
         if (!setIntent(value)) {
           resolve(false);
           return;
@@ -352,22 +417,50 @@ function SpotDesk({
   }
   async function reconcile() {
     if (!pending || checking) return;
-    if (!['place', 'cancel', 'amend'].includes(pending.kind)) {
+    if (!['place', 'cancel', 'amend', 'replace'].includes(pending.kind)) {
       setStatus(
         `This ${pending.kind} request must be checked in its original trading tool. Contact support with ${pending.id} if its outcome cannot be read.`,
       );
       return;
     }
     setChecking(true);
+    if (pending.kind === 'replace' && pending.orderId) {
+      const [original, replacement] = await Promise.all([api.order(pending.orderId), api.reconcile(pending.id, pending.symbol)]);
+      if (
+        original.ok &&
+        replacement.ok &&
+        original.data.status !== 'open' &&
+        !original.data.recoveryRequired &&
+        !replacement.data.recoveryRequired
+      ) {
+        setIntent(null, pending);
+        setStatus(
+          `Original ${original.data.id}: ${original.data.status}. Replacement ${replacement.data.id}: ${replacement.data.status}, remaining ${replacement.data.remaining}.`,
+        );
+      } else
+        setStatus(
+          `Cancel/replace is unresolved. ${!original.ok ? original.message : `Original ${original.data.status}.`} ${!replacement.ok ? replacement.message : `Replacement ${replacement.data.status}.`} No new request has been sent.`,
+        );
+      refresh();
+      setChecking(false);
+      return;
+    }
     const result = pending.orderId ? await api.order(pending.orderId) : await api.reconcile(pending.id, pending.symbol);
     if (result.ok) {
       const resolved =
         !result.data.recoveryRequired &&
         (pending.kind === 'place' ||
           (pending.kind === 'cancel' && result.data.status !== 'open') ||
-          (pending.kind === 'amend' && result.data.status !== 'open'));
+          (pending.kind === 'amend' &&
+            (result.data.status !== 'open' ||
+              Boolean(
+                pending.expectedAmount &&
+                pending.originalAmount &&
+                parseAmount(result.data.amount) < parseAmount(pending.originalAmount) &&
+                parseAmount(result.data.remaining) <= parseAmount(pending.expectedAmount),
+              ))));
       if (resolved) {
-        setIntent(null);
+        setIntent(null, pending);
         setStatus(`Order ${result.data.id}: ${result.data.status}. Filled ${result.data.filled}; remaining ${result.data.remaining}.`);
       } else
         setStatus(
@@ -383,7 +476,16 @@ function SpotDesk({
       <div className="trade-workspace">
         <div className="trade-analysis">
           <div className="trade-analysis-top">
-            <MarketChart api={api} market={market} orders={orders} onStagePrice={setStaged} accountKey={accountKey} />
+            <MarketChart
+              api={api}
+              market={market}
+              orders={orders}
+              onStagePrice={setStaged}
+              accountKey={accountKey}
+              onStageAmend={(order, price) => {
+                if (!pending) setManage({ order, kind: 'replace', price });
+              }}
+            />
             <BookAndTape api={api} market={market} book={book} onStagePrice={setStaged} />
           </div>
           <OrderBlotter
@@ -405,31 +507,40 @@ function SpotDesk({
             balances={balances.resource}
             pending={pending}
             onIntent={reserveIntent}
-            onResolved={() => {
-              setIntent(null);
+            onResolved={(identity) => {
+              setIntent(null, identity);
               refresh();
             }}
             onStatus={setStatus}
           />
           <section className="trade-funds">
-            <h3>Funds · Personal</h3>
-            <ResourceView resource={balances.resource} retry={balances.reload}>
-              {(data) => (
-                <dl>
-                  {[market.quote, market.base].map((asset) => (
-                    <div key={asset}>
-                      <dt>Available {asset}</dt>
-                      <dd className="numeric">{preferences.hideBalances ? '••••' : displayAmount(data.balances[asset]?.free)}</dd>
-                      <dt>Held {asset}</dt>
-                      <dd className="numeric">{preferences.hideBalances ? '••••' : displayAmount(data.balances[asset]?.used)}</dd>
-                    </div>
-                  ))}
-                </dl>
-              )}
-            </ResourceView>
-            <a className="text-link" href="/money">
-              Manage in Money ↗
-            </a>
+            <h3>{market.paper ? 'Simulation · no live funds' : 'Funds · Personal'}</h3>
+            {market.paper ? (
+              <p className="muted">
+                Paper orders use the service’s isolated paper path and zero ledger reservation. A simulated balance history is not
+                published; live balances are not read here.
+              </p>
+            ) : (
+              <ResourceView resource={balances.resource} retry={balances.reload}>
+                {(data) => (
+                  <dl>
+                    {[market.quote, market.base].map((asset) => (
+                      <div key={asset}>
+                        <dt>Available {asset}</dt>
+                        <dd className="numeric">{preferences.hideBalances ? '••••' : displayAmount(data.balances[asset]?.free)}</dd>
+                        <dt>Held {asset}</dt>
+                        <dd className="numeric">{preferences.hideBalances ? '••••' : displayAmount(data.balances[asset]?.used)}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+              </ResourceView>
+            )}
+            {!market.paper && (
+              <a className="text-link" href="/money">
+                Manage in Money ↗
+              </a>
+            )}
           </section>
         </aside>
       </div>
@@ -453,14 +564,28 @@ function SpotDesk({
           {status}
         </p>
       )}
-      {manage && (
-        <ManageOrder
+      {manage?.kind === 'replace' && (
+        <ReplaceOrder
           api={api}
-          selection={manage}
+          order={manage.order}
+          initialPrice={manage.price}
           onClose={() => setManage(null)}
           onIntent={reserveIntent}
-          onResolved={() => {
-            setIntent(null);
+          onResolved={(identity) => {
+            setIntent(null, identity);
+            refresh();
+          }}
+          onStatus={setStatus}
+        />
+      )}
+      {manage && manage.kind !== 'replace' && (
+        <ManageOrder
+          api={api}
+          selection={{ order: manage.order, kind: manage.kind }}
+          onClose={() => setManage(null)}
+          onIntent={reserveIntent}
+          onResolved={(identity) => {
+            setIntent(null, identity);
             refresh();
           }}
           onStatus={setStatus}
@@ -503,8 +628,13 @@ function BookAndTape({
   }
   return (
     <section className="trade-book" aria-label="Linked order book and public trades">
-      <Tabs items={['Order book', 'Trades']} value={tab} onChange={setTab} label="Market data panel" />
-      {tab === 'Order book' ? (
+      <Tabs items={['Order book', 'Depth', 'Trades']} value={tab} onChange={setTab} label="Market data panel" />
+      {tab === 'Depth' ? (
+        <>
+          <p className="trade-note">{book.book.fresh ? book.status : 'Depth stale or loading'} · Published levels, up to 200 per side.</p>
+          {book.failure ? <Failure result={book.failure} /> : <DepthPlot market={market} book={book.book} onStagePrice={onStagePrice} />}
+        </>
+      ) : tab === 'Order book' ? (
         <>
           <div className="trade-book-controls">
             <select aria-label="Book side" value={sides} onChange={(event) => setSides(event.target.value)}>
@@ -564,6 +694,74 @@ function BookAndTape({
     </section>
   );
 }
+function DepthPlot({
+  market,
+  book,
+  onStagePrice,
+}: {
+  market: Listing;
+  book: { bids: [string, string][]; asks: [string, string][] };
+  onStagePrice: (price: string) => void;
+}) {
+  const rows = (levels: [string, string][]) => {
+    let total = 0n;
+    return levels.map(([price, quantity]) => {
+      total += parseAmount(quantity);
+      return { price, total: formatAmount(total) };
+    });
+  };
+  const bids = rows(book.bids),
+    asks = rows(book.asks),
+    all = [...bids, ...asks];
+  if (!all.length) return <EmptyState title="No published depth" />;
+  // Numeric conversion is confined to SVG coordinates; staging retains the original exact price string.
+  const minimum = Math.min(...all.map((row) => Number(row.price))),
+    maximum = Math.max(...all.map((row) => Number(row.price))),
+    size = Math.max(...all.map((row) => Number(row.total))),
+    width = maximum - minimum || 1;
+  const x = (price: string) => 12 + ((Number(price) - minimum) / width) * 256,
+    y = (total: string) => 240 - (Number(total) / (size || 1)) * 210;
+  if (![minimum, maximum, size].every(Number.isFinite))
+    return (
+      <p className="trade-refusal">Published depth exceeds chart rendering limits. Exact levels remain available in the order book.</p>
+    );
+  return (
+    <>
+      <svg className="trade-depth-plot" viewBox="0 0 280 260" role="img" aria-label={`Actual cumulative ${market.symbol} depth`}>
+        {[
+          { rows: bids, color: 'var(--color-positive)' },
+          { rows: asks, color: 'var(--color-negative)' },
+        ].map((side) => (
+          <g key={side.color}>
+            <polyline
+              fill="none"
+              stroke={side.color}
+              strokeWidth="2"
+              points={side.rows.map((row) => `${x(row.price)},${y(row.total)}`).join(' ')}
+            />
+            {side.rows.map((row) => (
+              <circle key={row.price} cx={x(row.price)} cy={y(row.total)} r="4" fill={side.color} onClick={() => onStagePrice(row.price)}>
+                <title>
+                  {row.price} {market.quote} · cumulative {row.total} {market.base}
+                </title>
+              </circle>
+            ))}
+          </g>
+        ))}
+      </svg>
+      <p className="trade-note">
+        X: price in {market.quote} · Y: cumulative size in {market.base}. Select a depth point to stage its exact limit price.
+      </p>
+      <div className="trade-depth-ladder">
+        {[...bids.slice(0, 3), ...asks.slice(0, 3)].map((row) => (
+          <button key={row.price} onClick={() => onStagePrice(row.price)}>
+            {displayAmount(row.price)} {market.quote}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
 function OrderTicket({
   api,
   market,
@@ -586,21 +784,46 @@ function OrderTicket({
     | Resource<import('@intafaced/exchange-contract/schemas').Balances>;
   pending: Pending | null;
   onIntent: (value: Pending) => Promise<boolean>;
-  onResolved: () => void;
+  onResolved: (identity: Pending) => void;
   onStatus: (value: string) => void;
 }) {
-  const { session } = useSession(),
+  const { session, userId } = useSession(),
     preferences = usePreferences();
+  const choiceKey = `trade-ticket-choices:${userId ?? 'guest'}:${market.id}`;
+  const [choices] = useState(() => {
+    const schema = z.object({ type: z.enum(['limit', 'market']), tif: z.enum(['GTC', 'IOC', 'FOK']), postOnly: z.boolean() });
+    try {
+      const parsed = schema.safeParse(JSON.parse(localStorage.getItem(choiceKey) ?? 'null'));
+      return parsed.success ? parsed.data : { type: 'limit' as const, tif: 'GTC' as const, postOnly: false };
+    } catch {
+      return { type: 'limit' as const, tif: 'GTC' as const, postOnly: false };
+    }
+  });
   const [side, setSide] = useState<'buy' | 'sell'>(initialSide),
-    [type, setType] = useState<'limit' | 'market'>('limit'),
+    [type, setType] = useState<'limit' | 'market'>(choices.type),
     [price, setPrice] = useState(''),
     [amount, setAmount] = useState(''),
-    [tif, setTif] = useState<'GTC' | 'IOC' | 'FOK'>('GTC'),
-    [postOnly, setPostOnly] = useState(false),
+    [sizeUnit, setSizeUnit] = useState<'base' | 'quote'>('base'),
+    [tif, setTif] = useState<'GTC' | 'IOC' | 'FOK'>(choices.tif),
+    [postOnly, setPostOnly] = useState(choices.postOnly && choices.type === 'limit' && choices.tif === 'GTC'),
     [review, setReview] = useState<{ draft: Draft; preview: Preview } | null>(null),
     [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null),
     [busy, setBusy] = useState(false);
-  const busyRef = useRef(false);
+  const busyRef = useRef(false),
+    mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(choiceKey, JSON.stringify({ type, tif, postOnly }));
+    } catch {
+      /* Ticket choices remain available in this tab. */
+    }
+  }, [choiceKey, type, tif, postOnly]);
   useEffect(() => {
     if (staged) {
       setType('limit');
@@ -615,16 +838,36 @@ function OrderTicket({
     setReview(null);
     setFailure(null);
   }
+  function previewMatchesMode(value: Preview) {
+    return value.holdAmount !== null && (market.paper ? parseAmount(value.holdAmount) === 0n : parseAmount(value.holdAmount) > 0n);
+  }
   async function preview() {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
     setFailure(null);
+    let baseAmount = amount;
+    if (sizeUnit === 'quote') {
+      try {
+        if (type !== 'limit')
+          throw new Error('Quote-value entry requires a known limit price. Market quote-budget admission is not mounted.');
+        baseAmount = baseQuantityForValue(amount, price, market.precision.amount);
+      } catch (error) {
+        setFailure({
+          ok: false,
+          reason: 'error',
+          message: error instanceof Error ? error.message : 'This quote value could not be converted into a base quantity.',
+        });
+        setBusy(false);
+        busyRef.current = false;
+        return;
+      }
+    }
     const draft = {
       symbol: market.symbol,
       side,
       type,
-      amount,
+      amount: baseAmount,
       ...(type === 'limit' ? { price } : {}),
       timeInForce: tif,
       postOnly,
@@ -635,7 +878,14 @@ function OrderTicket({
       setFailure({ ok: false, reason: 'error', message: parsed.error.issues.map((row) => row.message).join(' ') });
     } else {
       const result = await api.preview(parsed.data);
-      if (result.ok) setReview({ draft: parsed.data, preview: result.data });
+      if (result.ok && (!result.data.orderable || result.data.refusals.length > 0 || previewMatchesMode(result.data)))
+        setReview({ draft: parsed.data, preview: result.data });
+      else if (result.ok)
+        setFailure({
+          ok: false,
+          reason: 'invalid_response',
+          message: 'The reservation does not match this market’s live or simulated funding mode. No order was sent.',
+        });
       else setFailure(result);
     }
     setBusy(false);
@@ -645,32 +895,49 @@ function OrderTicket({
     if (!review || busyRef.current || pending || !fresh) return;
     busyRef.current = true;
     setBusy(true);
-    if (!(await onIntent({ kind: 'place', id: review.draft.clientOrderId, symbol: market.symbol, startedAt: Date.now() }))) {
+    const identity: Pending = { kind: 'place', id: review.draft.clientOrderId, symbol: market.symbol, startedAt: Date.now() };
+    if (!(await onIntent(identity))) {
       setBusy(false);
       busyRef.current = false;
       return;
     }
-    const result = await api.place(review.draft, review.preview);
+    const result = await api.place(review.draft, review.preview, (refreshed) => mounted.current && previewMatchesMode(refreshed));
     if (result.ok) {
-      onResolved();
+      onResolved(identity);
       setReview(null);
       setAmount('');
       onStatus(
         `${market.paper ? 'Simulated order' : 'Order'} ${result.data.id} is ${result.data.status}; filled ${result.data.filled} ${market.base}, remaining ${result.data.remaining} ${market.base}.`,
       );
     } else if (result.reason === 'changed') {
-      onResolved();
-      setReview({ draft: review.draft, preview: result.preview });
-      setFailure({ ok: false, reason: 'error', message: result.message });
+      onResolved(identity);
+      if (previewMatchesMode(result.preview)) {
+        setReview({ draft: review.draft, preview: result.preview });
+        setFailure({ ok: false, reason: 'error', message: result.message });
+      } else {
+        setReview(null);
+        setFailure({
+          ok: false,
+          reason: 'invalid_response',
+          message: 'The refreshed reservation does not match this live or simulated market. No order was sent.',
+        });
+      }
     } else {
       setFailure(result);
-      if (result.reason !== 'uncertain') onResolved();
+      if (result.reason !== 'uncertain') onResolved(identity);
     }
     setBusy(false);
     busyRef.current = false;
   }
   function size(percent: bigint) {
     if (available === undefined) return;
+    if (sizeUnit === 'quote') {
+      try {
+        if (type !== 'limit' || parseAmount(price) <= 0n) return;
+      } catch {
+        return;
+      }
+    }
     let base = available;
     if (side === 'buy') {
       if (type !== 'limit' || !price) return;
@@ -683,12 +950,41 @@ function OrderTicket({
       }
     }
     const value = portionInLots(base, percent, market.precision.amount);
-    if (value !== null) change(() => setAmount(value));
+    if (value !== null) change(() => setAmount(sizeUnit === 'quote' ? exactValue(price, value) : value));
   }
   const blocked =
-    !session || !market.orderable || !market.active || !market.sessionOpen || !fresh || Boolean(pending) || available === undefined;
+    !session ||
+    !market.orderable ||
+    !market.active ||
+    !market.sessionOpen ||
+    !fresh ||
+    Boolean(pending) ||
+    (available === undefined && !market.paper);
+  const knownLimitPrice = (() => {
+    try {
+      return type === 'limit' && parseAmount(price) > 0n;
+    } catch {
+      return false;
+    }
+  })();
   return (
-    <section className="trade-ticket" aria-label="Spot order ticket">
+    <section
+      className="trade-ticket"
+      aria-label="Spot order ticket"
+      onKeyDown={(event) => {
+        if (
+          event.key === 'Enter' &&
+          (event.ctrlKey || event.metaKey) &&
+          matchMedia('(pointer: fine)').matches &&
+          !blocked &&
+          !busyRef.current
+        ) {
+          event.preventDefault();
+          if (review) void send();
+          else void preview();
+        }
+      }}
+    >
       <div className="trade-panel-title">
         <h2>Trade</h2>
         <a href="/trade/bots">Tools ↗</a>
@@ -710,7 +1006,13 @@ function OrderTicket({
           onChange={(value) =>
             change(() => {
               setType(value === 'Limit' ? 'limit' : 'market');
-              if (value === 'Market') setPostOnly(false);
+              if (value === 'Market') {
+                setPostOnly(false);
+                if (sizeUnit === 'quote') {
+                  setSizeUnit('base');
+                  setAmount('');
+                }
+              }
             })
           }
           label="Order type"
@@ -718,6 +1020,9 @@ function OrderTicket({
         {review ? (
           <>
             <h3>Review {side}</h3>
+            {preferences.confirmSend && (
+              <p className="trade-refusal">Orders can fill before you can cancel. Confirm the market, side, and quantity before sending.</p>
+            )}
             <dl className="trade-review">
               <div>
                 <dt>Market</dt>
@@ -729,10 +1034,27 @@ function OrderTicket({
                   {displayAmount(review.draft.amount)} {market.base}
                 </dd>
               </div>
+              {sizeUnit === 'quote' && (
+                <div>
+                  <dt>Requested order value</dt>
+                  <dd>
+                    {displayAmount(amount)} {market.quote} before fees · rounded down to whole lots
+                  </dd>
+                </div>
+              )}
               <div>
                 <dt>Limit price</dt>
                 <dd>
                   {displayAmount(review.preview.price)} {market.quote}
+                </dd>
+              </div>
+              <div>
+                <dt>{review.preview.price ? 'Limit order value' : 'Protected maximum value'}</dt>
+                <dd>
+                  {review.preview.price || review.preview.protectionPrice
+                    ? displayAmount(exactValue(review.preview.price ?? review.preview.protectionPrice ?? '0', review.draft.amount))
+                    : 'Unavailable'}{' '}
+                  {market.quote}
                 </dd>
               </div>
               <div>
@@ -764,9 +1086,23 @@ function OrderTicket({
               </p>
             ))}
             <small>Fees and reservation refresh before confirmation. The final fill may differ.</small>
+            {(review.preview.estimatedFee === null ||
+              review.preview.feeAsset === null ||
+              review.preview.holdAmount === null ||
+              review.preview.holdAsset === null) && (
+              <p className="trade-refusal">
+                The service has not supplied a complete fee and reservation. Sending remains disabled until those values are available.
+              </p>
+            )}
             <Button
               disabled={
-                busy || blocked || !review.preview.orderable || review.preview.estimatedFee === null || review.preview.holdAmount === null
+                busy ||
+                blocked ||
+                !review.preview.orderable ||
+                review.preview.estimatedFee === null ||
+                review.preview.feeAsset === null ||
+                review.preview.holdAsset === null ||
+                !previewMatchesMode(review.preview)
               }
               onClick={send}
             >
@@ -788,18 +1124,45 @@ function OrderTicket({
               />
             )}
             <Field
-              label={`Amount (${market.base})`}
-              hint={`Base quantity only. Lot ${market.precision.amount} ${market.base}.`}
+              label={sizeUnit === 'base' ? `Amount (${market.base})` : `Order value (${market.quote})`}
+              hint={
+                sizeUnit === 'base'
+                  ? `Base quantity. Lot ${market.precision.amount} ${market.base}.`
+                  : `Before fees. Converts at your limit price, rounded down to ${market.precision.amount} ${market.base} lots.`
+              }
               inputMode="decimal"
               autoComplete="off"
               value={amount}
               onChange={(event) => change(() => setAmount(event.target.value))}
             />
+            <label className="trade-inline">
+              Size units
+              <select
+                aria-label="Size units"
+                value={sizeUnit}
+                onChange={(event) =>
+                  change(() => {
+                    setSizeUnit(event.target.value as 'base' | 'quote');
+                    setAmount('');
+                  })
+                }
+              >
+                <option value="base">{market.base} quantity</option>
+                <option value="quote" disabled={type !== 'limit'}>
+                  {market.quote} limit order value
+                </option>
+              </select>
+            </label>
+            {type === 'market' && (
+              <small className="muted">
+                Market orders use base quantity. Quote-budget execution has no mounted preview/admission contract.
+              </small>
+            )}
             <div className="trade-size-presets">
               {[25n, 50n, 75n, 100n].map((percent) => (
                 <button
                   key={percent.toString()}
-                  disabled={available === undefined || (side === 'buy' && type !== 'limit')}
+                  disabled={available === undefined || ((side === 'buy' || sizeUnit === 'quote') && !knownLimitPrice)}
                   onClick={() => size(percent)}
                 >
                   {percent.toString()}%
@@ -844,6 +1207,12 @@ function OrderTicket({
             <Button disabled={blocked || busy} onClick={preview}>
               {busy ? 'Checking order…' : `Review ${side}`}
             </Button>
+            <a className="text-link" href={`/trade/convert?asset=${encodeURIComponent(market.base)}`}>
+              Convert {market.base} ↗
+            </a>
+            <small className="muted">
+              Ctrl/⌘ Enter reviews; from a reviewed ticket it sends. Order type and timing stay on this device.
+            </small>
             <details>
               <summary>Advanced order capability</summary>
               <p>
@@ -889,12 +1258,13 @@ function OrderBlotter({
   initialTab: string;
   open: ReturnType<typeof usePolled<Order[]>>;
   market: Listing;
-  onManage: (order: Order, kind: 'cancel' | 'amend') => void;
+  onManage: (order: Order, kind: 'cancel' | 'amend' | 'replace') => void;
   locked: boolean;
 }) {
   const [tab, setTab] = useState(initialTab),
     [all, setAll] = useState(false),
     [limit, setLimit] = useState(100);
+  useEffect(() => setTab(initialTab), [initialTab]);
   const key = `${market.id}:${all}:${limit}`;
   const history = useResource((signal) => api.orders('closed', all ? undefined : market.symbol, limit, signal), key),
     fills = useResource((signal) => api.fills(all ? undefined : market.symbol, limit, signal), key);
@@ -904,7 +1274,17 @@ function OrderBlotter({
       <div className="trade-blotter-toolbar">
         <Tabs items={['Open orders', 'History', 'Fills']} value={tab} onChange={setTab} label="Order management" />
         <label className="trade-inline">
-          <input type="checkbox" checked={all} onChange={(event) => setAll(event.target.checked)} />
+          <input
+            type="checkbox"
+            checked={all}
+            disabled={market.paper}
+            title={
+              market.paper
+                ? 'Simulated history is scoped to this published paper market; the order wire has no account simulation discriminator.'
+                : undefined
+            }
+            onChange={(event) => setAll(event.target.checked)}
+          />
           All markets
         </label>
         <button
@@ -972,8 +1352,25 @@ function OrderBlotter({
                     <td>
                       {order.status === 'open' && (
                         <div className="trade-row-actions">
-                          <button disabled={locked} onClick={() => onManage(order, 'amend')}>
+                          <button
+                            disabled={locked || market.paper}
+                            title={market.paper ? 'Native amendment requires the live spot matching path.' : undefined}
+                            onClick={() => onManage(order, 'amend')}
+                          >
                             Reduce
+                          </button>
+                          <button
+                            disabled={
+                              locked ||
+                              order.type !== 'limit' ||
+                              parseAmount(order.filled) > 0n ||
+                              market.paper ||
+                              order.symbol !== market.symbol
+                            }
+                            title="Cancel/replace is available for unfilled limit orders in the selected live spot market."
+                            onClick={() => onManage(order, 'replace')}
+                          >
+                            Change price
                           </button>
                           <button disabled={locked} onClick={() => onManage(order, 'cancel')}>
                             Cancel
@@ -1017,20 +1414,32 @@ function ManageOrder({
   selection: { order: Order; kind: 'cancel' | 'amend' };
   onClose: () => void;
   onIntent: (pending: Pending) => Promise<boolean>;
-  onResolved: () => void;
+  onResolved: (identity: Pending) => void;
   onStatus: (status: string) => void;
 }) {
+  const preferences = usePreferences();
   const [amount, setAmount] = useState(selection.order.remaining),
     [busy, setBusy] = useState(false),
     [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null),
     [current, setCurrent] = useState(selection.order);
-  const busyRef = useRef(false);
+  const busyRef = useRef(false),
+    mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (selection.kind === 'cancel' && !preferences.confirmCancel) void commit();
+  }, []);
   async function commit() {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
     setFailure(null);
     const latest = await api.order(current.id);
+    if (!mounted.current) return;
     if (latest.ok && latest.data.recoveryRequired) {
       setFailure({
         ok: false,
@@ -1049,7 +1458,6 @@ function ManageOrder({
     }
     if (latest.data.status !== 'open') {
       onStatus(`Order ${current.id} is already ${latest.data.status}; filled ${latest.data.filled}.`);
-      onResolved();
       onClose();
       return;
     }
@@ -1072,15 +1480,28 @@ function ManageOrder({
           ok: false,
           reason: 'error',
           message:
-            'Enter a positive remaining quantity below the current remainder. Price changes need cancel/replace, which has no authoritative review contract here.',
+            'Enter a positive remaining quantity below the current remainder. Use Change price for a separately reviewed cancel/replace.',
         });
         setBusy(false);
         busyRef.current = false;
         return;
       }
     }
-    if (!(await onIntent({ kind: selection.kind, id: current.id, symbol: current.symbol, orderId: current.id, startedAt: Date.now() }))) {
+    if (!mounted.current) return;
+    const identity: Pending = {
+      kind: selection.kind,
+      id: current.id,
+      symbol: current.symbol,
+      orderId: current.id,
+      startedAt: Date.now(),
+      ...(selection.kind === 'amend' ? { expectedAmount: amount, originalAmount: current.amount } : {}),
+    };
+    if (!(await onIntent(identity))) {
       onClose();
+      return;
+    }
+    if (!mounted.current) {
+      onResolved(identity);
       return;
     }
     const result = selection.kind === 'cancel' ? await api.cancel(current.id) : await api.amend(current.id, amount);
@@ -1091,16 +1512,16 @@ function ManageOrder({
       ) {
         onStatus('Amendment outcome is unknown. Check the original order before any further action.');
       } else {
-        onResolved();
+        onResolved(identity);
         const order = 'order' in result.data ? result.data.order : result.data;
         onStatus(
-          `Order ${order.id}: ${order.status}. Filled ${order.filled}, remaining ${order.remaining}.${'priority' in result.data ? ` Queue priority: ${result.data.priority}.` : ''}`,
+          `${'accepted' in result.data ? `Amendment ${result.data.accepted ? 'accepted' : 'refused'}: ${result.data.code}. ` : ''}Order ${order.id}: ${order.status}. Filled ${order.filled}, remaining ${order.remaining}.${'priority' in result.data && result.data.priority ? ` Queue priority: ${result.data.priority}.` : ''}`,
         );
       }
       onClose();
     } else {
       setFailure(result);
-      if (result.reason !== 'uncertain') onResolved();
+      if (result.reason !== 'uncertain') onResolved(identity);
       else onClose();
     }
     setBusy(false);

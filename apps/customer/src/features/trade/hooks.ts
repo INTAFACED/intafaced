@@ -37,13 +37,22 @@ export function useLinkedBook(api: TradeApi, market: Listing) {
       inFlight = false;
       if (closed) return;
       if (result.ok) {
-        const verdict = depth.receive({
-          type: 'snapshot',
-          marketId: market.id,
-          sequence: result.data.nonce,
-          bids: result.data.bids,
-          asks: result.data.asks,
-        });
+        if (Date.now() - result.data.timestamp >= 15000 || result.data.timestamp > Date.now() + 5000) {
+          depth.invalidate();
+          source = 'Snapshot is stale';
+          publish({ ok: false, reason: 'invalid_response', message: 'This depth snapshot is too old to authorize a new order.' });
+          return;
+        }
+        const verdict = depth.receive(
+          {
+            type: 'snapshot',
+            marketId: market.id,
+            sequence: result.data.nonce,
+            bids: result.data.bids,
+            asks: result.data.asks,
+          },
+          result.data.timestamp,
+        );
         if (verdict === 'invalid') {
           source = 'Unverified depth';
           publish({ ok: false, reason: 'invalid_response', message: 'Depth contains an invalid price or quantity.' });

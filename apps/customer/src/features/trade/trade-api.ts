@@ -81,6 +81,47 @@ export const amendmentSchema = z.object({
   orderId: z.string(),
   order: orderSchema,
 });
+export const replacementSchema = z.object({
+  accepted: z.boolean(),
+  idempotent: z.boolean(),
+  code: z.string(),
+  reasonCode: z.string().nullable(),
+  reconciliationRequired: z.boolean(),
+  path: z.literal('CANCEL_REPLACE'),
+  originalOrderId: z.string(),
+  originalState: z.string(),
+  replacementOrderId: z.string().nullable(),
+  replacementState: z.string().nullable(),
+  original: orderSchema,
+  replacement: orderSchema.nullable(),
+});
+type ChangedReview = { ok: false; reason: 'changed'; message: string; preview: Preview };
+const historySchema = z.array(ohlcvSchema).superRefine((rows, ctx) => {
+  const timestamps = new Set<number>();
+  rows.forEach((row, index) => {
+    try {
+      const open = parseAmount(row[1]),
+        high = parseAmount(row[2]),
+        low = parseAmount(row[3]),
+        close = parseAmount(row[4]),
+        volume = parseAmount(row[5]);
+      if (
+        timestamps.has(row[0]) ||
+        [open, high, low, close].some((value) => value <= 0n) ||
+        volume < 0n ||
+        high < low ||
+        high < open ||
+        high < close ||
+        low > open ||
+        low > close
+      )
+        throw new Error();
+      timestamps.add(row[0]);
+    } catch {
+      ctx.addIssue({ code: 'custom', path: [index], message: 'History contains a duplicate timestamp or invalid exact candle.' });
+    }
+  });
+});
 export { TIMEFRAMES, type Market };
 const invalid = (message: string): ApiResult<never> => ({ ok: false, reason: 'invalid_response', message });
 const refused = (message: string): ApiResult<never> => ({ ok: false, reason: 'error', message });
@@ -95,6 +136,29 @@ function matchesPreview(draft: Draft, preview: Preview) {
   );
 }
 export function createTradeApi(api: ApiClient) {
+  async function currentReview(draft: Draft, reviewed: Preview): Promise<ApiResult<Preview> | ChangedReview> {
+    const result = await client.preview(draft);
+    if (!result.ok) return result;
+    if (
+      !result.data.orderable ||
+      result.data.refusals.length ||
+      result.data.holdAmount === null ||
+      result.data.holdAsset === null ||
+      result.data.estimatedFee === null ||
+      result.data.feeAsset === null
+    )
+      return refused(
+        result.data.refusals.map((row) => row.message).join(' ') || 'Fee or reservation is unavailable. Placement is disabled.',
+      );
+    if (JSON.stringify(result.data) !== JSON.stringify(reviewed))
+      return {
+        ok: false,
+        reason: 'changed',
+        message: 'Fee, price protection, or reservation changed. Review the refreshed values.',
+        preview: result.data,
+      };
+    return result;
+  }
   const client = {
     markets: (signal?: AbortSignal) => api.rest('/markets', z.array(listingSchema), { query: { limit: 500 }, signal }),
     book: async (symbol: string, signal?: AbortSignal) => {
@@ -106,7 +170,7 @@ export function createTradeApi(api: ApiClient) {
       return result.ok && result.data.symbol !== symbol ? invalid('The ticker belongs to another market.') : result;
     },
     history: (symbol: string, timeframe: string, signal?: AbortSignal, since?: number) =>
-      api.rest(`/ohlcv/${encodeURIComponent(symbol)}`, z.array(ohlcvSchema), { query: { timeframe, limit: 500, since }, signal }),
+      api.rest(`/ohlcv/${encodeURIComponent(symbol)}`, historySchema, { query: { timeframe, limit: 500, since }, signal }),
     tape: async (symbol: string, signal?: AbortSignal) => {
       const result = await api.rest(`/trades/${encodeURIComponent(symbol)}`, z.array(tradeSchema), { query: { limit: 40 }, signal });
       return result.ok && result.data.some((row) => row.symbol !== symbol)
@@ -141,27 +205,12 @@ export function createTradeApi(api: ApiClient) {
     async place(
       draft: Draft,
       reviewed: Preview,
-    ): Promise<ApiResult<Order> | { ok: false; reason: 'changed'; message: string; preview: Preview }> {
-      const result = await client.preview(draft);
+      canDispatch: (preview: Preview) => boolean = () => true,
+    ): Promise<ApiResult<Order> | ChangedReview> {
+      const result = await currentReview(draft, reviewed);
       if (!result.ok) return result;
-      if (
-        !result.data.orderable ||
-        result.data.refusals.length ||
-        result.data.holdAmount === null ||
-        result.data.holdAsset === null ||
-        result.data.estimatedFee === null ||
-        result.data.feeAsset === null
-      )
-        return refused(
-          result.data.refusals.map((row) => row.message).join(' ') || 'Fee or reservation is unavailable. Placement is disabled.',
-        );
-      if (JSON.stringify(result.data) !== JSON.stringify(reviewed))
-        return {
-          ok: false,
-          reason: 'changed',
-          message: 'Fee, price protection, or reservation changed. Review the refreshed values.',
-          preview: result.data,
-        };
+      if (!canDispatch(result.data))
+        return { ok: false, reason: 'aborted', message: 'Trading context changed before placement. No order was sent.' };
       const placed = await api.rest('/orders', orderSchema, { method: 'POST', body: draft });
       if (placed.ok && (placed.data.symbol !== draft.symbol || placed.data.clientOrderId !== draft.clientOrderId))
         return {
@@ -176,6 +225,40 @@ export function createTradeApi(api: ApiClient) {
           message: `Placement requires reconciliation: ${placed.data.recoveryReason ?? 'outcome unknown'}. Holds remain reserved.`,
         };
       return placed;
+    },
+    async replace(
+      id: string,
+      draft: Draft,
+      reviewed: Preview,
+      canDispatch: (preview: Preview) => boolean = () => true,
+    ): Promise<ApiResult<z.infer<typeof replacementSchema>> | ChangedReview> {
+      const result = await currentReview(draft, reviewed);
+      if (!result.ok) return result;
+      if (!canDispatch(result.data))
+        return { ok: false, reason: 'aborted', message: 'Trading context changed before replacement. No cancel/replace was sent.' };
+      const replaced = await api.rest(`/orders/${encodeURIComponent(id)}/replace`, replacementSchema, { method: 'POST', body: draft });
+      if (
+        replaced.ok &&
+        (replaced.data.original.id !== id ||
+          replaced.data.original.symbol !== draft.symbol ||
+          (replaced.data.replacement &&
+            (replaced.data.replacement.symbol !== draft.symbol || replaced.data.replacement.clientOrderId !== draft.clientOrderId)))
+      )
+        return {
+          ok: false,
+          reason: 'uncertain',
+          message: 'The response does not identify this replacement. Reconcile its original request.',
+        };
+      if (
+        replaced.ok &&
+        (replaced.data.reconciliationRequired || replaced.data.original.recoveryRequired || replaced.data.replacement?.recoveryRequired)
+      )
+        return {
+          ok: false,
+          reason: 'uncertain',
+          message: `Cancel/replace requires reconciliation: ${replaced.data.reasonCode ?? replaced.data.code}. Original and replacement funds remain as reported by the ledger.`,
+        };
+      return replaced;
     },
     async reconcile(clientOrderId: string, symbol: string): Promise<ApiResult<Order>> {
       const results = await Promise.all([client.orders('open', symbol, 500), client.orders('closed', symbol, 500)]);
@@ -204,6 +287,15 @@ export function createTradeApi(api: ApiClient) {
 export type TradeApi = ReturnType<typeof createTradeApi>;
 export function exactValue(price: string, amount: string) {
   return formatAmount((parseAmount(price) * parseAmount(amount)) / parseAmount('1'));
+}
+export function baseQuantityForValue(value: string, price: string, lot: string) {
+  const quoted = parseAmount(value),
+    reference = parseAmount(price),
+    step = parseAmount(lot);
+  if (quoted <= 0n || reference <= 0n || step <= 0n) throw new Error('Enter a positive value and limit price.');
+  const quantity = ((quoted * parseAmount('1')) / reference / step) * step;
+  if (quantity <= 0n) throw new Error('This value cannot buy one whole published lot.');
+  return formatAmount(quantity);
 }
 export function portionInLots(available: string, percent: bigint, lot: string) {
   const step = parseAmount(lot);
