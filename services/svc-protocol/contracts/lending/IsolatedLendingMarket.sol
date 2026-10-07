@@ -257,7 +257,9 @@ contract IsolatedLendingMarket {
     }
 
     function _debtToShares(uint256 debt) private view returns (uint256) {
-        if (totalDebtShares == 0 || borrowIndex == WAD) return debt;
+        // An empty book does not reset the index. Mint at the compounded index
+        // so the next borrow is not priced as a 1:1 share of a larger index.
+        if (borrowIndex == WAD) return debt;
         return (debt * WAD) / borrowIndex;
     }
 
