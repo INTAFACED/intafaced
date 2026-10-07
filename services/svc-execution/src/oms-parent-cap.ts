@@ -118,10 +118,11 @@ export function consumeCappedRemaining(
   parentStore: ApprovedAlgoParentStore,
   parentClientOrderId: string,
   nextRemaining: string,
+  expectedRemaining?: string,
 ): ParentRemainingCapRefuse | { readonly ok: true; readonly remaining: string } {
   const wired = parentRemainingWriterWired(parentStore);
   if (!wired.ok) return wired;
-  const consumed = parentStore.consumeResidual!(parentClientOrderId, nextRemaining);
+  const consumed = parentStore.consumeResidual!(parentClientOrderId, nextRemaining, expectedRemaining);
   if (!consumed) {
     return remainingRefuse(
       'missing_residual',

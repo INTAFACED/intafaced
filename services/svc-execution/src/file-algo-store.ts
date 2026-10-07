@@ -116,8 +116,8 @@ export class FileApprovedAlgoParentStore implements ApprovedAlgoParentStore {
     return this.commit(parentClientOrderId, () => this.inner.releaseResidual(parentClientOrderId));
   }
 
-  consumeResidual(parentClientOrderId: string, remaining: string): ApprovedAlgoParent | null {
-    return this.commit(parentClientOrderId, () => this.inner.consumeResidual(parentClientOrderId, remaining));
+  consumeResidual(parentClientOrderId: string, remaining: string, expectedRemaining?: string): ApprovedAlgoParent | null {
+    return this.commit(parentClientOrderId, () => this.inner.consumeResidual(parentClientOrderId, remaining, expectedRemaining));
   }
 
   paper(parentClientOrderId: string): ApprovedAlgoParent | null {
