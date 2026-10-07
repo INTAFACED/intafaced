@@ -811,6 +811,9 @@ export class MerchantWebhookService {
           method: 'POST',
           headers,
           body: rawBody,
+          // 307/308 keep the method and body. Following Location would send the
+          // payment JSON and signature to a host the merchant did not register.
+          redirect: 'error',
           signal: AbortSignal.timeout(10_000),
         });
         if (res.ok) {
