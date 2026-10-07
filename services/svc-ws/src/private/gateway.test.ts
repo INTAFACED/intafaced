@@ -6,6 +6,7 @@ import { ORDERS_ENGINE_UNAVAILABLE, PrivateOrderHub } from './hub.js';
 import {
   CLOSE_UNAUTHORIZED,
   createPrivateWebSocketGateway,
+  POSITIONS_SNAPSHOT_UNAVAILABLE,
   PRIVATE_STREAM_PATH,
   redactAccessTokenQuery,
   type PrivateWebSocketGateway,
@@ -892,7 +893,7 @@ describe('private WebSocket gateway', () => {
     client.socket.close();
   });
 
-  it('channel=orders sends empty snapshot when book read fails — not a live zero blotter', async () => {
+  it('channel=orders names a thrown book read — not an empty snapshot', async () => {
     await boot({
       tokens,
       book: {
@@ -906,12 +907,87 @@ describe('private WebSocket gateway', () => {
     });
     const token = await accessToken(['trade:read']);
     const client = new Client(`${baseUrl}${PRIVATE_STREAM_PATH}?access_token=${token}&channel=orders`);
-    await client.frameCount(1);
-    await client.untilSnapshot('orders');
-    const snap = client.parsed().find((f) => f.channel === 'orders' && f.type === 'snapshot');
-    expect(snap).toEqual({ channel: 'orders', type: 'snapshot', userId: USER, orders: [] });
+    for (;;) {
+      if (client.parsed().some((f) => f.type === 'status' && f.code === ORDERS_ENGINE_UNAVAILABLE)) break;
+      if (client.closed) throw new Error('closed before orders read failure');
+      await client.frameCount(client.frames.length + 1);
+    }
+    expect(client.parsed().find((f) => f.type === 'status')).toEqual({
+      type: 'status',
+      code: ORDERS_ENGINE_UNAVAILABLE,
+      channel: 'orders',
+      userId: USER,
+    });
+    expect(client.parsed().some((f) => f.channel === 'orders' && f.type === 'snapshot')).toBe(false);
     expect(client.parsed().every((f) => f.channel === 'orders')).toBe(true);
     client.socket.close();
+  });
+
+  it('a thrown open book read is not an empty snapshot; a successful empty read still is', async () => {
+    await boot({
+      tokens,
+      book: {
+        async listOpenOrders() {
+          throw new Error('open orders unread');
+        },
+        async listOpenPositions() {
+          throw new Error('open positions unread');
+        },
+      },
+    });
+    const token = await accessToken(['trade:read']);
+    const failed = new Client(`${baseUrl}${PRIVATE_STREAM_PATH}?access_token=${token}`);
+    for (;;) {
+      const parsed = failed.parsed();
+      const ordersNamed = parsed.some((f) => f.type === 'status' && f.code === ORDERS_ENGINE_UNAVAILABLE && f.channel === 'orders');
+      const positionsNamed = parsed.some(
+        (f) => f.type === 'status' && f.code === POSITIONS_SNAPSHOT_UNAVAILABLE && f.channel === 'positions',
+      );
+      if (ordersNamed && positionsNamed) break;
+      if (failed.closed) throw new Error('closed before failed book read was named');
+      await failed.frameCount(failed.frames.length + 1);
+    }
+    const failedFrames = failed.parsed();
+    expect(
+      failedFrames.some((f) => f.type === 'snapshot' && f.channel === 'orders' && Array.isArray(f.orders) && f.orders.length === 0),
+    ).toBe(false);
+    expect(
+      failedFrames.some(
+        (f) => f.type === 'snapshot' && f.channel === 'positions' && Array.isArray(f.positions) && f.positions.length === 0,
+      ),
+    ).toBe(false);
+    failed.socket.close();
+
+    await gateway.close('next case');
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+
+    await boot({
+      tokens,
+      book: {
+        async listOpenOrders() {
+          return [];
+        },
+        async listOpenPositions() {
+          return [];
+        },
+      },
+    });
+    const empty = new Client(`${baseUrl}${PRIVATE_STREAM_PATH}?access_token=${await accessToken(['trade:read'])}`);
+    await empty.untilSnapshot('orders');
+    await empty.untilSnapshot('positions');
+    expect(empty.parsed().find((f) => f.channel === 'orders' && f.type === 'snapshot')).toEqual({
+      channel: 'orders',
+      type: 'snapshot',
+      userId: USER,
+      orders: [],
+    });
+    expect(empty.parsed().find((f) => f.channel === 'positions' && f.type === 'snapshot')).toEqual({
+      channel: 'positions',
+      type: 'snapshot',
+      userId: USER,
+      positions: [],
+    });
+    empty.socket.close();
   });
 
   it('sends an empty orders snapshot when the user has none', async () => {

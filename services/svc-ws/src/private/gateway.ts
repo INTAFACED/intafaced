@@ -30,6 +30,12 @@ import { requestAccountIdFromUpgrade } from './key-account.js';
 
 export const PRIVATE_STREAM_PATH = '/private/stream';
 
+/**
+ * Open-positions hydrate threw. Not a snapshot, so a client cannot read it as
+ * `{ positions: [] }` — that frame is reserved for a read that succeeded empty.
+ */
+export const POSITIONS_SNAPSHOT_UNAVAILABLE = 'positions.snapshot_unavailable' as const;
+
 /** Application close: access token `exp` elapsed (HTTP 401 is upgrade-only). */
 export const CLOSE_UNAUTHORIZED = 4003;
 
@@ -210,25 +216,41 @@ async function hydratePrivateBook(input: {
   try {
     if (wantOrders) {
       let orders: Awaited<ReturnType<PrivateBookPort['listOpenOrders']>> = [];
+      let ordersReadFailed = false;
       try {
         orders = await book.listOpenOrders({ accessToken, userId });
       } catch (err) {
-        log.warn({ userId, err: String(err) }, 'ws-private: open-orders snapshot read failed — empty list');
+        ordersReadFailed = true;
+        log.warn({ userId, err: String(err) }, 'ws-private: open-orders snapshot read failed');
+        // Same disclosure as a matching-down seed: name it, do not publish [].
+        hub.markEngineUnavailable();
       }
       // Matching-down is named on the hub. An empty reconnect snapshot next to
-      // that still looks like a blank blotter — skip the empty one.
-      if (orders.length > 0 || !hub.isEngineUnavailable) {
+      // that — or in place of a thrown read — looks like a book that is empty.
+      if (!ordersReadFailed && (orders.length > 0 || !hub.isEngineUnavailable)) {
         hub.sendOrdersSnapshot(sink, userId, orders);
       }
     }
     if (wantPositions) {
       let positions: Awaited<ReturnType<PrivateBookPort['listOpenPositions']>> = [];
+      let positionsReadFailed = false;
       try {
         positions = await book.listOpenPositions({ accessToken, userId });
       } catch (err) {
-        log.warn({ userId, err: String(err) }, 'ws-private: open-positions snapshot read failed — empty list');
+        positionsReadFailed = true;
+        log.warn({ userId, err: String(err) }, 'ws-private: open-positions snapshot read failed');
+        sink.send(
+          JSON.stringify({
+            channel: 'positions',
+            type: 'status',
+            code: POSITIONS_SNAPSHOT_UNAVAILABLE,
+            userId,
+          }),
+        );
       }
-      hub.sendPositionsSnapshot(sink, userId, positions);
+      if (!positionsReadFailed) {
+        hub.sendPositionsSnapshot(sink, userId, positions);
+      }
     }
   } finally {
     hub.releaseSnapshot(sink);
