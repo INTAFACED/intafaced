@@ -626,6 +626,126 @@ describe('sliceLiveAlgoParent', () => {
     expect(street.calls).toHaveLength(1);
     expect(other.calls).toEqual([]);
   });
+
+  it('overlapping slices that both capped the same remaining leave one child and one subtraction', async () => {
+    const inner = new InMemoryApprovedAlgoParentStore();
+    inner.seed(withResidual({ parentClientOrderId: 'parent-twap', kind: 'twap' }, '10'));
+    let reads = 0;
+    const parentStore: ApprovedAlgoParentStore = {
+      get(id) {
+        reads += 1;
+        const row = inner.get(id);
+        if (!row?.residual || reads > 2) return row;
+        return { ...row, residual: { ...row.residual, remaining: '10' } };
+      },
+      approve: (row) => row,
+      start: () => null,
+      stop: () => null,
+      undeploy: () => null,
+      expire: () => null,
+      consumeResidual: (id, remaining, expected) => inner.consumeResidual(id, remaining, expected),
+    };
+    const calls: SubmitRequest[] = [];
+    const submit: OmsSubmitFn = async (req) => {
+      calls.push(req);
+      return ack(req);
+    };
+
+    const [first, second] = await Promise.all([
+      sliceLiveAlgoParent({
+        parentClientOrderId: 'parent-twap',
+        ...sliceFields,
+        amount: '6',
+        parentStore,
+        submit,
+      }),
+      sliceLiveAlgoParent({
+        parentClientOrderId: 'parent-twap',
+        ...sliceFields,
+        amount: '7',
+        parentStore,
+        submit,
+      }),
+    ]);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.amount).toBe(parseAmount('6'));
+    expect(inner.get('parent-twap')?.residual?.remaining).toBe('4');
+    expect(first).toMatchObject({
+      ok: true,
+      sliced: true,
+      residual: { remaining: '4' },
+      execution: { status: 'filled', venueOrderId: 'v-slice-1' },
+    });
+    expect(second.ok).toBe(false);
+    expect(reads).toBeGreaterThanOrEqual(2);
+  });
+
+  it('a consume that does not stick does not submit, and no live child is dropped', async () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(withResidual({ parentClientOrderId: 'parent-twap', kind: 'twap' }, '10'));
+    const refusing: ApprovedAlgoParentStore = {
+      get: (id) => parentStore.get(id),
+      approve: (row) => row,
+      start: () => null,
+      stop: () => null,
+      undeploy: () => null,
+      expire: () => null,
+      consumeResidual: () => null,
+    };
+    const street = trackingSubmit();
+    const out = await sliceLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      ...sliceFields,
+      parentStore: refusing,
+      submit: street.submit,
+    });
+    expect(out).toMatchObject({ ok: false, reason: 'missing_residual' });
+    expect(out).not.toHaveProperty('execution');
+    expect(street.calls).toEqual([]);
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('10');
+  });
+
+  it('puts the previous remaining back when the venue rejects the child, and returns that execution', async () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(withResidual({ parentClientOrderId: 'parent-twap', kind: 'twap' }, '10'));
+    const calls: SubmitRequest[] = [];
+    const submit: OmsSubmitFn = async (req) => {
+      calls.push(req);
+      return { ...ack(req), status: 'rejected', filledAmount: ZERO };
+    };
+    const out = await sliceLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      ...sliceFields,
+      parentStore,
+      submit,
+    });
+    expect(calls).toHaveLength(1);
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('10');
+    expect(out).toMatchObject({
+      ok: true,
+      sliced: true,
+      execution: { status: 'rejected', venueOrderId: 'v-slice-1' },
+      residual: { remaining: '10' },
+    });
+  });
+
+  it('puts the previous remaining back when submit throws after the reservation sticks', async () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(withResidual({ parentClientOrderId: 'parent-twap', kind: 'twap' }, '10'));
+    const submit: OmsSubmitFn = async () => {
+      throw new Error('venue down');
+    };
+    await expect(
+      sliceLiveAlgoParent({
+        parentClientOrderId: 'parent-twap',
+        ...sliceFields,
+        parentStore,
+        submit,
+      }),
+    ).rejects.toThrow('venue down');
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('10');
+  });
 });
 
 describe('execution.oms.slice tRPC', () => {

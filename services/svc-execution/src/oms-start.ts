@@ -51,8 +51,11 @@ export interface ApprovedAlgoParentStore {
   undeploy(parentClientOrderId: string): ApprovedAlgoParent | null;
   expire(parentClientOrderId: string): ApprovedAlgoParent | null;
   releaseResidual?(parentClientOrderId: string): ApprovedAlgoParent | null;
-  /** Writes leftover already computed by a door — never invents remaining. */
-  consumeResidual?(parentClientOrderId: string, remaining: string): ApprovedAlgoParent | null;
+  /**
+   * Writes leftover already computed by a door — never invents remaining.
+   * When expectedRemaining is set, the write sticks only if the stored remaining is still that value.
+   */
+  consumeResidual?(parentClientOrderId: string, remaining: string, expectedRemaining?: string): ApprovedAlgoParent | null;
   paper?(parentClientOrderId: string): ApprovedAlgoParent | null;
   promote?(parentClientOrderId: string): ApprovedAlgoParent | null;
   /** Park an approved parent as staged (not live). Never invents an operator. */
@@ -162,13 +165,14 @@ export class InMemoryApprovedAlgoParentStore implements ApprovedAlgoParentStore 
     return cloneParent(next);
   }
 
-  consumeResidual(parentClientOrderId: string, remaining: string): ApprovedAlgoParent | null {
+  consumeResidual(parentClientOrderId: string, remaining: string, expectedRemaining?: string): ApprovedAlgoParent | null {
     const row = this.rows.get(parentClientOrderId);
     if (!row) return null;
     const current = row.residual?.remaining?.trim();
     if (!current) return null;
     const nextRemaining = remaining.trim();
     if (!nextRemaining) return null;
+    if (expectedRemaining !== undefined && current !== expectedRemaining.trim()) return null;
     const next = cloneParent({
       ...row,
       residual: {

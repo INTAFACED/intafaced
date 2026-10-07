@@ -14,7 +14,13 @@ import type { VenueExecution } from '@intafaced/venue-adapter';
 import { childIds } from './oms-execute.js';
 import type { AlgoPauseStore } from './oms-pause.js';
 import type { EmsOrderStore } from './oms-ems-store.js';
-import { capAgainstParentPrice, capAgainstParentRemaining, consumeCappedRemaining, parentRemainingWriterWired } from './oms-parent-cap.js';
+import {
+  capAgainstParentPrice,
+  capAgainstParentRemaining,
+  consumeCappedRemaining,
+  parentRemainingWriterWired,
+  retainedRemaining,
+} from './oms-parent-cap.js';
 import type { AlgoKind, ApprovedAlgoParent, ApprovedAlgoParentStore } from './oms-start.js';
 import type { OmsSubmitFn } from './oms-trade-submit.js';
 
@@ -171,21 +177,39 @@ export async function sliceLiveAlgoParent(input: {
   if (!cap.ok) return cap;
   const writer = parentRemainingWriterWired(input.parentStore);
   if (!writer.ok) return writer;
+  const priorRemaining = retainedRemaining(existing);
+  if (!priorRemaining) {
+    return refuse(
+      'missing_residual',
+      'residual.remaining is missing — refusing to invent leftover from duration or slicesPlanned',
+    );
+  }
+
+  const consumed = consumeCappedRemaining(input.parentStore, parentClientOrderId, cap.nextRemaining, priorRemaining);
+  if (!consumed.ok) return consumed;
 
   const occurrence = input.emsStore?.list({ parentClientOrderId }).length ?? 0;
   const ids = childIds({ parentClientOrderId, executionGroupId: parentClientOrderId }, occurrence, occurrence, venueId);
 
-  const execution = await submit({
-    symbol,
-    side,
-    amount,
-    limitPrice,
-    clientOrderId: ids.clientOrderId,
-  });
+  let execution: VenueExecution;
+  try {
+    execution = await submit({
+      symbol,
+      side,
+      amount,
+      limitPrice,
+      clientOrderId: ids.clientOrderId,
+    });
+  } catch (err) {
+    input.parentStore.consumeResidual?.(parentClientOrderId, priorRemaining, consumed.remaining);
+    throw err;
+  }
 
-  const consumed = consumeCappedRemaining(input.parentStore, parentClientOrderId, cap.nextRemaining);
-  if (!consumed.ok) return consumed;
-  const nextRemaining = consumed.remaining;
+  let remaining = consumed.remaining;
+  if (execution.status === 'rejected') {
+    const restored = input.parentStore.consumeResidual?.(parentClientOrderId, priorRemaining, consumed.remaining);
+    remaining = restored?.residual?.remaining ?? consumed.remaining;
+  }
 
   return {
     ok: true,
@@ -197,6 +221,6 @@ export async function sliceLiveAlgoParent(input: {
       venueId,
     },
     execution,
-    residual: { remaining: nextRemaining },
+    residual: { remaining },
   };
 }
