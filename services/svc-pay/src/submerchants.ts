@@ -717,7 +717,7 @@ export class SubMerchantService {
       );
     }
 
-    return transaction(
+    const writtenId = await transaction(
       this.sql,
       async (tx) => {
         await this.assertMayDelegate(input, tx);
@@ -736,15 +736,14 @@ export class SubMerchantService {
           );
         }
 
-        const rows = await tx<PermissionEventRow[]>`
+        const rows = await tx<Array<{ id: string }>>`
           INSERT INTO pay.merchant_permission_events
             (grantee_merchant_id, subject_merchant_id, area, action, reason, actor_id, actor_merchant_id, actor_scope)
           VALUES (
             ${input.granteeMerchantId}, ${input.subjectMerchantId}, ${input.area}, ${action}, ${reason},
             ${input.actorId}, ${input.actorMerchantId}, ${input.actorScope}
           )
-          RETURNING id, seq, grantee_merchant_id, subject_merchant_id, area, action, reason,
-                    actor_id, actor_merchant_id, actor_scope, created_at
+          RETURNING id
         `;
         const row = rows[0];
         if (!row) {
@@ -753,10 +752,28 @@ export class SubMerchantService {
             'pay.submerchant_permission_not_written',
           );
         }
-        return toEvent(row);
+        // seq is assigned when this transaction commits. The value RETURNING
+        // would show here is still null, and it is not the order a later reader
+        // will use.
+        return row.id;
       },
       { isolation: 'read committed', maxAttempts: 5 },
     );
+
+    const committed = await this.sql<PermissionEventRow[]>`
+      SELECT id, seq, grantee_merchant_id, subject_merchant_id, area, action, reason,
+             actor_id, actor_merchant_id, actor_scope, created_at
+        FROM pay.merchant_permission_events
+       WHERE id = ${writtenId}
+    `;
+    const committedRow = committed[0];
+    if (!committedRow?.seq) {
+      throw new SubMerchantError(
+        `The ${action} of "${input.area}" committed without a seq. The effective permission is the greatest seq for the triple, so a row with none is not a permission change.`,
+        'pay.submerchant_permission_not_written',
+      );
+    }
+    return toEvent(committedRow);
   }
 
   /**
