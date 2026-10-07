@@ -71,7 +71,7 @@ Blank env → named refuse. Never git-default a number. Never ping.
 | 29  | Listing which assets            | P0-06                                                      | empty catalogue                  |
 | 30  | CORS prod origins               | `CORS_ALLOWED_ORIGINS`                                     | no `*` invented                  |
 
-**Already sealed — do not re-open:** isolated IM is the live margin product; 10×; house execution **external-only**; copy geo refuse; no second SPA/book.
+**Already sealed — do not re-open:** isolated IM is the live margin product; 10×; house execution **external-only**; copy geo refuse; no second money book. Replacing the one customer site is ADR `docs/adr/2026-10-02-redesign-may-replace-product-ui.md`, not a second book and not a second customer product.
 
 ---
 
@@ -324,10 +324,10 @@ Main still shows north-star **v1.22** until Wave 0 merges. Until then `git show`
 
 | Order | File                                                                                   | Owns                                                                                                                                                                 |
 | ----- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | `INTAFACED_DEFINITIVE_BUILD.md`                                                        | Constitution: ledger-client only; no money `number`; `pnpm wt`; one service/PR; never push `main`; vendored shell `:8090`; protocol ≠ ledger writes (`custody-scan`) |
+| 1     | `INTAFACED_DEFINITIVE_BUILD.md`                                                        | Constitution: ledger-client only; no money `number`; `pnpm wt`; one service/PR; never push `main`; customer site served today is the vendored shell `:8090` until UI replacement under ADR 2026-10-02; protocol ≠ ledger writes (`custody-scan`) |
 | 2     | `docs/DIRECTION-2026-07-31.md`                                                         | Sealed product: isolated IM, 10×, external-only house, empty options set                                                                                             |
 | 3     | `PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md` §0.2–0.3 §8                                  | Exchange universe + OSS take/keep/never + owner sockets                                                                                                              |
-| 4     | `docs/INTERNET-LEVERAGE-LAW.md` + `docs/BACKEND-INTERNET-LEVERAGE-PEACE-2026-08-31.md` | Extend `svc-*` + ledger + **existing shell**. No second SPA/book/CLOB                                                                                                |
+| 4     | `docs/INTERNET-LEVERAGE-LAW.md` + `docs/BACKEND-INTERNET-LEVERAGE-PEACE-2026-08-31.md` | Extend `svc-*` + ledger + the one active customer site. No second book or CLOB. Replacing that site is ADR 2026-10-02, not a second exchange                                                          |
 | 5     | `tooling/agent-protocol/AGENT_PROTOCOL.md`                                             | Graphify then one file; merge when done                                                                                                                              |
 | 6     | **This file**                                                                          | What to execute after go                                                                                                                                             |
 | 7     | Child `docs/SPEC-PRO-EXCHANGE-*-2026-08-2*.md` (PX-S01–S16)                            | Product semantics; do not rewrite                                                                                                                                    |
@@ -362,7 +362,7 @@ H1/H3/H7 **are** the OSS hitch. Do not hand-roll a parser to look busy.
 
 ## 20. Right shell (backend must not fight Codex)
 
-Sole product surface = vendored Vue shell **`:8090`** (`vendor/upstream-exchange/05_Web_Front`). `apps/web` retired. **Never a second SPA.** Charts/TradingView = Codex + licence; never pirate TV into git; never npm a fake Advanced Charts pack.
+The customer site served today is the vendored Vue shell **`:8090`** (`vendor/upstream-exchange/05_Web_Front`). `apps/web` stays retired. ADR `docs/adr/2026-10-02-redesign-may-replace-product-ui.md` permits a later replacement of that product UI. Keep one active customer site. Do not add a second exchange, a second ledger, or a second customer product beside it. Charts/TradingView stay licence-gated; never pirate TV into git; never npm a fake Advanced Charts pack.
 
 This owner:
 

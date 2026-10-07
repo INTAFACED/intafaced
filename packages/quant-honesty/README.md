@@ -31,8 +31,10 @@ the same visual weight when a future product surface shows both.
 - Law: `docs/adr/2026-08-04-predict-quant-connect-law.md`
 - Existing source boundary: §27 Connect and its future data lake provide model
   provenance; this package does not replace either.
-- Product surface: none. The vendored shell remains the sole UI, and the
-  front-end human lane is untouched.
+- Product surface: none in this package. The vendored shell is the customer
+  site served today. ADR `docs/adr/2026-10-02-redesign-may-replace-product-ui.md`
+  may replace that UI later. This package does not own a front-end lane, and it
+  does not freeze Vue as the permanent UI.
 
 ## Refusal examples
 
