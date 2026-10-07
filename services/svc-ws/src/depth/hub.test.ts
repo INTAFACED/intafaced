@@ -7,7 +7,7 @@ import {
   type DepthSnapshot,
   type WireLevel,
 } from '@intafaced/market-data';
-import { DEPTH_MARKET_HALTED } from '../matching-trading.js';
+import { DEPTH_MARKET_HALTED, type DepthMatchingTradingCode } from '../matching-trading.js';
 import { CLOSE_POLICY, CLOSE_TRY_LATER, DepthHub, type DepthHubOptions, type DepthSink } from './hub.js';
 import type { DepthSource } from './source.js';
 
@@ -77,6 +77,11 @@ class FakeSource implements DepthSource {
   pendingSnapshots = new Map<string, Promise<DepthSnapshot>>();
   /** When set, `markets()` awaits this before returning — concurrent miss tests. */
   marketsGate: Promise<void> | null = null;
+  /**
+   * Matching trading status `#seed` reads. `null` means tradable, same as a
+   * source that has not published a halt.
+   */
+  tradingStatus: DepthMatchingTradingCode | null = null;
 
   constructor(marketList: string[]) {
     this.marketList = marketList;
@@ -97,6 +102,10 @@ class FakeSource implements DepthSource {
     const s = this.current.get(marketId);
     if (!s) throw new Error(`no upstream book for ${marketId}`);
     return s;
+  }
+
+  trading(): DepthMatchingTradingCode | null {
+    return this.tradingStatus;
   }
 }
 
@@ -646,6 +655,83 @@ describe('DepthHub — book lifecycle', () => {
     detachSecond();
     expect(hub.bookFor(MARKET)).toBeUndefined();
     expect(hub.activeMarkets).toEqual([]);
+  });
+
+  it('does not restore a forgotten book when a poll ingests after the last watcher leaves', async () => {
+    const source = new FakeSource([MARKET]);
+    source.current.set(MARKET, snapshot(10, [['100', '1']], [['101', '1']]));
+    const hub = hubFor(source);
+
+    const first = new FakeSink();
+    const detach = hub.attach(MARKET, first)!;
+    await settle();
+    expect(first.messages()[0]).toMatchObject({ type: 'snapshot', sequence: 10 });
+    expect(hub.bookFor(MARKET)?.sequence).toBe(10);
+
+    // Still watched: a poll updates the book and the live subscriber hears it.
+    hub.ingest(snapshot(11, [['100', '2']], [['101', '1']]));
+    expect(hub.bookFor(MARKET)?.sequence).toBe(11);
+    expect(first.messages().at(-1)).toMatchObject({ type: 'delta', sequence: 11 });
+
+    detach();
+    expect(hub.bookFor(MARKET)).toBeUndefined();
+    expect(hub.activeMarkets).toEqual([]);
+
+    // Sampled before the detach, delivered after #forgetIdleBook.
+    hub.ingest(snapshot(12, [['999', '7']], [['1000', '8']]));
+    expect(hub.bookFor(MARKET)).toBeUndefined();
+
+    source.current.set(MARKET, snapshot(20, [['50', '2']], [['51', '3']]));
+    const next = new FakeSink();
+    hub.attach(MARKET, next);
+    await settle();
+
+    expect(next.messages()[0]).toMatchObject({
+      type: 'snapshot',
+      marketId: MARKET,
+      sequence: 20,
+      bids: [['50', '2']],
+      asks: [['51', '3']],
+    });
+    expect(next.messages().some((message) => message.sequence === 12)).toBe(false);
+    expect(canonical(rebuild(next))).toBe(canonical(hub.bookFor(MARKET) ?? null));
+  });
+
+  it('does not restore a forgotten book when a halted poll ingests after the last watcher leaves', async () => {
+    const source = new FakeSource([MARKET]);
+    source.tradingStatus = DEPTH_MARKET_HALTED;
+    source.current.set(MARKET, snapshot(10, [['100', '1']], [['101', '1']]));
+    const hub = hubFor(source);
+
+    const first = new FakeSink();
+    const detach = hub.attach(MARKET, first)!;
+    await settle();
+    expect(hub.bookFor(MARKET)?.sequence).toBe(10);
+
+    hub.noteMatchingTrading(MARKET, DEPTH_MARKET_HALTED);
+    expect(hub.isMatchingNotTradable(MARKET)).toBe(true);
+    // Halted and still watched: the book stays current, and no tradable ladder goes out.
+    hub.ingest(snapshot(11, [['100', '4']], [['101', '1']]));
+    expect(hub.bookFor(MARKET)?.sequence).toBe(11);
+    expect(first.messages().filter((message) => message.sequence === 11)).toEqual([]);
+
+    detach();
+    expect(hub.bookFor(MARKET)).toBeUndefined();
+
+    hub.ingest(snapshot(12, [['888', '4']], [['889', '5']]));
+    expect(hub.bookFor(MARKET)).toBeUndefined();
+    expect(hub.isMatchingNotTradable(MARKET)).toBe(true);
+
+    source.current.set(MARKET, snapshot(21, [['50', '2']], [['51', '4']]));
+    const next = new FakeSink();
+    hub.attach(MARKET, next);
+    await settle();
+
+    expect(hub.bookFor(MARKET)?.sequence).toBe(21);
+    expect(next.messages()).toEqual([]);
+    expect(next.frames.map((frame) => JSON.parse(frame))).toEqual([
+      { type: 'status', code: DEPTH_MARKET_HALTED, marketId: MARKET },
+    ]);
   });
 
   it('leaves no book behind when a client gives up mid-connect', async () => {

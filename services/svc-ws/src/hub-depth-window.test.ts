@@ -45,6 +45,26 @@ class FakeSource implements DepthSource {
   }
 }
 
+const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+/**
+ * A hub book exists only while someone is watching. Seed through that
+ * subscriber, then forget the seed's source calls so GET is what we measure.
+ */
+async function plantWatchedBook(hub: DepthHub, source: FakeSource, book: DepthSnapshot, wipeEmpty: boolean): Promise<void> {
+  source.snapshot.mockImplementation(async () => book);
+  const detach = hub.attach(MARKET, { bufferedBytes: 0, send() {}, close() {} });
+  if (!detach) throw new Error('depth attach refused');
+  await settle();
+  if (wipeEmpty) {
+    hub.ingest({ type: 'snapshot', marketId: MARKET, sequence: book.sequence + 1, bids: [], asks: [] });
+  }
+  source.snapshot.mockImplementation(async (marketId: string) => {
+    throw new DepthNoBookError(marketId);
+  });
+  source.snapshot.mockClear();
+}
+
 async function appFor(opts: { depthLimit: number | undefined; ingest?: DepthSnapshot; emptyHubBook?: boolean }) {
   const source = new FakeSource([MARKET]);
   const hub = new DepthHub(source, {
@@ -56,10 +76,8 @@ async function appFor(opts: { depthLimit: number | undefined; ingest?: DepthSnap
     registry: { markets: async () => [MARKET] },
   });
   await hub.refreshMarkets();
-  if (opts.ingest) hub.ingest(opts.ingest);
-  if (opts.emptyHubBook) {
-    hub.ingest(fatSnapshot(1));
-    hub.ingest({ type: 'snapshot', marketId: MARKET, sequence: 2, bids: [], asks: [] });
+  if (opts.depthLimit !== undefined && (opts.ingest || opts.emptyHubBook)) {
+    await plantWatchedBook(hub, source, opts.ingest ?? fatSnapshot(1), opts.emptyHubBook === true);
   }
   const tradeHub = new TradeHub({
     highWaterBytes: 1_000,
