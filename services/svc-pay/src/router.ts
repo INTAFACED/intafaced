@@ -1326,27 +1326,34 @@ export function createPayRouter(
 
       getDispute: scopedProcedure('pay:read', { module: 'pay' })
         .input(z.object({ disputeId: z.string().min(1) }))
-        .query(({ input }) => {
-          const c = defaultDisputeCaseStore.get(input.disputeId);
-          if (!c) {
-            throw new TRPCError({ code: 'NOT_FOUND', message: `pay.dispute_not_found: ${input.disputeId}` });
-          }
-          return {
-            disputeId: c.disputeId,
-            paymentId: c.paymentId,
-            merchantId: c.merchantId,
-            amount: c.amount,
-            assetId: c.assetId,
-            reasonCode: c.reasonCode,
-            status: c.status,
-            ledgerWire: c.ledgerWire,
-            ledgerTxId: c.ledgerTxId,
-            ledgerRefuseCode: c.ledgerRefuse?.code ?? null,
-            ledgerSocket: c.ledgerRefuse?.socket ?? null,
-            openedAt: c.openedAt,
-            closedAt: c.closedAt,
-          };
-        }),
+        .query(({ ctx, input }) =>
+          wrap(async () => {
+            // Fetched, then checked, then returned. The case has to be read to
+            // learn which merchant it belongs to — so what the check protects
+            // is the RESPONSE, and it must come before the return. A missing
+            // id stays not found. disputeId stays an arbitrary string.
+            const c = defaultDisputeCaseStore.get(input.disputeId);
+            if (!c) {
+              throw new TRPCError({ code: 'NOT_FOUND', message: `pay.dispute_not_found: ${input.disputeId}` });
+            }
+            await assertAccess(ctx.principal.userId, c.merchantId, 'trpc.payment.get');
+            return {
+              disputeId: c.disputeId,
+              paymentId: c.paymentId,
+              merchantId: c.merchantId,
+              amount: c.amount,
+              assetId: c.assetId,
+              reasonCode: c.reasonCode,
+              status: c.status,
+              ledgerWire: c.ledgerWire,
+              ledgerTxId: c.ledgerTxId,
+              ledgerRefuseCode: c.ledgerRefuse?.code ?? null,
+              ledgerSocket: c.ledgerRefuse?.socket ?? null,
+              openedAt: c.openedAt,
+              closedAt: c.closedAt,
+            };
+          }),
+        ),
     }),
 
     /**

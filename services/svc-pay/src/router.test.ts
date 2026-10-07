@@ -667,6 +667,33 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     expect(codeOf(err)).toBe('FORBIDDEN');
   });
 
+  it('refuses fraud.getDispute to a pay:read caller who does not own the merchant', async () => {
+    const disputeId = `dsp-stranger-${Date.now()}`;
+    const amount = '40.50';
+    const reasonCode = '4855';
+    const ledgerTxId = 'tx-dispute-owner-secret';
+    defaultDisputeCaseStore.open({
+      disputeId,
+      paymentId: PAYMENT,
+      merchantId: MERCHANT,
+      amount,
+      assetId: 'USDT',
+      reasonCode,
+      ledgerPost: { txId: ledgerTxId },
+    });
+    stub.ownedBy(ANOTHER_USER);
+    const api = await caller(['pay:read']);
+
+    const err = await api.fraud.getDispute({ disputeId }).catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('FORBIDDEN');
+    const disclosed = String((err as { message?: string }).message ?? '');
+    expect(disclosed).not.toContain(amount);
+    expect(disclosed).not.toContain(PAYMENT);
+    expect(disclosed).not.toContain(MERCHANT);
+    expect(disclosed).not.toContain(reasonCode);
+    expect(disclosed).not.toContain(ledgerTxId);
+  });
+
   it('still serves payment.get to the merchant who owns it', async () => {
     const api = await caller(['pay:read']);
     await expect(api.payment.get({ paymentId: PAYMENT })).resolves.toMatchObject({ id: PAYMENT, merchantId: MERCHANT });
