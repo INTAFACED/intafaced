@@ -556,10 +556,21 @@ describe('okx-spot — signed trade (FakeHttp, no live network)', () => {
   });
 
   it('market buy sends tgtCcy base_ccy so sz is base size, not quote notional', async () => {
-    const http = new FakeHttp((url, method) => {
+    let postedMarket = false;
+    const http = new FakeHttp((url, method, init) => {
       if (url.includes('/api/v5/market/books')) return json(200, thickBook());
-      if (method === 'POST') return json(200, ack());
-      return json(200, { code: '0', msg: '', data: [okxOrder('live', { ordType: 'market', px: '' })] });
+      if (method === 'POST') {
+        const body = init?.jsonBody;
+        postedMarket =
+          typeof body === 'object' && body !== null && 'ordType' in body && (body as { ordType?: unknown }).ordType === 'market';
+        return json(200, ack());
+      }
+      // The fetch after a base-sized market buy reports tgtCcy base_ccy, so sz and accFillSz stay one unit.
+      return json(200, {
+        code: '0',
+        msg: '',
+        data: [okxOrder('live', postedMarket ? { ordType: 'market', px: '', tgtCcy: 'base_ccy' } : {})],
+      });
     });
     const trade = new OkxSpotTrade(KEYS, { http, restBase: 'https://www.okx.com', clock: CLOCK, snapshotLimit: 5 });
     const amount = parseAmount('0.25');
