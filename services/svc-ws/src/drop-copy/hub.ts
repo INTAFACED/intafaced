@@ -337,9 +337,13 @@ export class DropCopyHub {
       if (sub.closed) continue;
       if (isPublishedHighWaterBytes(this.#options.highWaterBytes) && sub.sink.bufferedBytes > this.#options.highWaterBytes) {
         this.#noteLag(sub);
-      } else {
-        sub.lagTicks = 0;
+        continue;
       }
+      if (sub.gapped) {
+        sub.gapped = false;
+        this.#write(sub, this.#statusFrame(sub.userId, DROP_COPY_GAP));
+      }
+      sub.lagTicks = 0;
     }
   }
 
