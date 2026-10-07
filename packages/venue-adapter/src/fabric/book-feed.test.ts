@@ -203,3 +203,140 @@ describe('MaintainedBook.run — a failed seed completes on a quiet stream', () 
     expect(book.servable).toBe(false);
   });
 });
+
+describe('MaintainedBook.run — a stale seed cannot revive or tear down the feed', () => {
+  function heldSnapshots(): {
+    snapshotBook: MarketDataAdapter['snapshotBook'];
+    calls: () => number;
+    deliver(call: number, snapshot: VenueBookSnapshot): void;
+  } {
+    const waiting: Array<(snapshot: VenueBookSnapshot) => void> = [];
+    let calls = 0;
+    return {
+      calls: () => calls,
+      deliver(call, snapshot) {
+        const resolve = waiting[call];
+        if (!resolve) throw new Error(`snapshot call ${call} is not in flight`);
+        resolve(snapshot);
+      },
+      snapshotBook: () => {
+        const call = calls;
+        calls += 1;
+        return new Promise((resolve) => {
+          waiting[call] = resolve;
+        });
+      },
+    };
+  }
+
+  it('does not let an older refused snapshot stop a book a newer seed already joined', async () => {
+    const held = heldSnapshots();
+    const { queue, subscription } = quietStream('end');
+    const book = new MaintainedBook(fakeAdapter(held.snapshotBook, subscription), SYMBOL);
+    // Already live, so a gap starts a second seed while the first snapshot is still outstanding.
+    book.tracker.onSnapshot(absentSnapshot(4));
+
+    let settled = false;
+    const pending = statusOrHang(book).then((status) => {
+      settled = true;
+      return status;
+    });
+
+    try {
+      await flush();
+      expect(held.calls()).toBe(1);
+
+      queue.push(emptyDelta(10, 10));
+      await flush();
+      expect(held.calls()).toBe(2);
+      expect(book.status.kind).toBe('resyncing');
+
+      held.deliver(1, absentSnapshot(10));
+      await flush();
+      expect(book.status).toEqual({ kind: 'live', sequence: 10 });
+      expect(book.servable).toBe(true);
+      expect(settled).toBe(false);
+
+      held.deliver(0, absentSnapshot(1, 'OTHER/USDT'));
+      await flush();
+      expect(settled).toBe(false);
+      expect(book.status).toEqual({ kind: 'live', sequence: 10 });
+      expect(book.servable).toBe(true);
+      expect(book.top()?.bestBid ?? null).toBeNull();
+      expect(book.top()?.bestAsk ?? null).toBeNull();
+
+      queue.close();
+      const status = await pending;
+      expect(status).toEqual({ kind: 'stopped', reason: `${VENUE_ID}:${SYMBOL} stream ended` });
+    } finally {
+      queue.close();
+      await book.close();
+      await pending.catch(() => undefined);
+    }
+  });
+
+  it('does not let an older snapshot replace a book a newer seed already joined', async () => {
+    const held = heldSnapshots();
+    const { queue, subscription } = quietStream('end');
+    const book = new MaintainedBook(fakeAdapter(held.snapshotBook, subscription), SYMBOL);
+    book.tracker.onSnapshot(absentSnapshot(4));
+
+    const pending = statusOrHang(book);
+
+    try {
+      await flush();
+      queue.push(emptyDelta(10, 10));
+      await flush();
+
+      held.deliver(1, absentSnapshot(10));
+      await flush();
+      expect(book.status).toEqual({ kind: 'live', sequence: 10 });
+
+      held.deliver(0, absentSnapshot(3));
+      await flush();
+      expect(book.status).toEqual({ kind: 'live', sequence: 10 });
+      expect(book.servable).toBe(true);
+      expect(book.tracker.sequence).toBe(10);
+
+      queue.close();
+      const status = await pending;
+      expect(status).toEqual({ kind: 'stopped', reason: `${VENUE_ID}:${SYMBOL} stream ended` });
+    } finally {
+      queue.close();
+      await book.close();
+      await pending.catch(() => undefined);
+    }
+  });
+
+  it('does not let a late snapshot revive a feed that already stopped', async () => {
+    let release: ((snapshot: VenueBookSnapshot) => void) | undefined;
+    const { queue, subscription } = quietStream('end');
+    const book = new MaintainedBook(
+      fakeAdapter(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+        subscription,
+      ),
+      SYMBOL,
+    );
+
+    const pending = statusOrHang(book);
+    await flush();
+    queue.close();
+    const status = await pending;
+
+    expect(status).toEqual({ kind: 'stopped', reason: `${VENUE_ID}:${SYMBOL} stream ended` });
+
+    if (!release) throw new Error('snapshot was not requested');
+    release(absentSnapshot(4));
+    await flush();
+
+    expect(book.status).toEqual(status);
+    expect(book.servable).toBe(false);
+    expect(book.top()).toBeNull();
+    expect(book.levels('bids')).toEqual([]);
+    expect(book.levels('asks')).toEqual([]);
+  });
+});
