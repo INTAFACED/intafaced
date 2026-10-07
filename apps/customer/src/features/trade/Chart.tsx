@@ -44,13 +44,13 @@ declare global {
     LightweightCharts?: Engine;
   }
 }
-type Drawing = { kind: 'level' | 'trend' | 'rectangle'; points: [number, number][] };
+type Drawing = { kind: 'level' | 'trend' | 'rectangle'; points: [number, string][] };
 type Study = 'MA' | 'Volume' | 'VWAP' | 'RSI' | 'MACD' | 'Bollinger';
 const drawingsSchema = z.array(
   z.object({
     kind: z.enum(['level', 'trend', 'rectangle']),
     points: z
-      .array(z.tuple([z.number().finite(), z.number().finite()]))
+      .array(z.tuple([z.number().int().nonnegative().safe(), decimalSchema.refine((value) => parseAmount(value) > 0n)]))
       .min(1)
       .max(2),
   }),
@@ -240,7 +240,7 @@ export function MarketChart({
     frame = useRef<HTMLElement>(null),
     chartRef = useRef<ChartApi | null>(null),
     seriesRef = useRef<Series | null>(null),
-    pending = useRef<[number, number][]>([]),
+    pending = useRef<[number, string][]>([]),
     rawPrice = useRef<Map<number, string>>(new Map());
   const fills = useResource(
     (signal) =>
@@ -458,12 +458,13 @@ export function MarketChart({
             if (exact && !tool) onStagePrice(exact);
           }
           if (tool && event.point && event.time) {
-            const price = series.coordinateToPrice(event.point.y);
+            const price = priceAtGeometry(event.point.y);
             if (price === null) return;
             pending.current.push([event.time, price]);
             if (tool === 'level' || pending.current.length === 2) {
-              setDrawings((current) => [...current, { kind: tool, points: pending.current }]);
+              const points = pending.current;
               pending.current = [];
+              setDrawings((current) => [...current, { kind: tool, points }]);
               setTool(null);
             }
           }
@@ -600,7 +601,7 @@ export function MarketChart({
   const draw = (drawing: Drawing, index: number) => {
     const positions = drawing.points.map(([time, price]) => [
       chartRef.current?.timeScale().timeToCoordinate(time),
-      seriesRef.current?.priceToCoordinate(price),
+      seriesRef.current?.priceToCoordinate(Number(price)),
     ]);
     const [a, b] = positions;
     if (!a || a[0] == null || a[1] == null) return null;
@@ -788,7 +789,15 @@ export function MarketChart({
             setInspected(rows[inspectionIndex.current] ?? null);
           } else if (event.key === 'Enter' && inspected) {
             event.preventDefault();
-            onStagePrice(inspected[4]);
+            if (tool) {
+              pending.current.push([Math.floor(inspected[0] / 1000), inspected[4]]);
+              if (tool === 'level' || pending.current.length === 2) {
+                const points = pending.current;
+                pending.current = [];
+                setDrawings((current) => [...current, { kind: tool, points }]);
+                setTool(null);
+              }
+            } else onStagePrice(inspected[4]);
           }
         }}
       >

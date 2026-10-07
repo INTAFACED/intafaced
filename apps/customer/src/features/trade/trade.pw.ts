@@ -546,6 +546,27 @@ test('a saved chart layout restores its type, interval, and indicator set', asyn
     .click();
   await expect(page.getByRole('checkbox', { name: 'RSI', exact: true })).toBeChecked();
 });
+test('a keyboard level drawing persists and restores its exact source price', async ({ page }) => {
+  await mount(page);
+  await page.goto('/exchange');
+  const chart = page.getByRole('img', { name: 'Actual BTC/USDT historical prices', exact: true });
+  await expect(chart.locator('canvas').first()).toBeVisible();
+  await page
+    .locator('summary')
+    .filter({ hasText: /^Draw$/ })
+    .click();
+  await page.getByRole('button', { name: 'level', exact: true }).click();
+  await chart.focus();
+  await chart.press('ArrowLeft');
+  await chart.press('Enter');
+  await expect(chart.locator('svg line')).toHaveCount(1);
+  const saved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem(Object.keys(localStorage).find((key) => key.startsWith('trade-drawings:'))!)!),
+  );
+  expect(saved[0].points[0][1]).toBe('80001');
+  await page.reload();
+  await expect(page.getByRole('img', { name: 'Actual BTC/USDT historical prices', exact: true }).locator('svg line')).toHaveCount(1);
+});
 test('a delayed reconciliation cannot remove a newer request recovery marker', async ({ page }) => {
   await mount(page, { uncertain: true });
   await page.goto('/exchange');
