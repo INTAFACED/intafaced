@@ -55,12 +55,23 @@ export function mapOkxSpotOrder(row: Record<string, unknown>, unified: string, n
   assertKnownOrderStatus(VENUE.id, status, stateRaw, 'order state');
   const amount = readDecimal(row.sz, VENUE.id, 'sz');
   const filled = readDecimal(row.accFillSz, VENUE.id, 'accFillSz');
+  const typeRaw = String(row.ordType ?? '');
+  const type: VenueOrder['type'] = typeRaw === 'market' ? 'market' : 'limit';
+  const side: VenueOrder['side'] = String(row.side).toLowerCase() === 'sell' ? 'sell' : 'buy';
+  const tgtRaw = row.tgtCcy;
+  const tgtCcy = tgtRaw === undefined || tgtRaw === null ? '' : String(tgtRaw);
+  // Spot market buys default sz to quote. accFillSz is always base, so sz - accFillSz mixes units.
+  if (type === 'market' && side === 'buy' && tgtCcy !== 'base_ccy') {
+    throw new VenueUnavailableError(
+      VENUE.id,
+      'malformed',
+      'spot market buy sz is quote currency while accFillSz is base',
+    );
+  }
   const remaining = amount - filled;
   if (remaining < 0n) {
     throw new VenueUnavailableError(VENUE.id, 'malformed', 'accFillSz exceeds sz');
   }
-  const typeRaw = String(row.ordType ?? '');
-  const type: VenueOrder['type'] = typeRaw === 'market' ? 'market' : 'limit';
   const px = row.px;
   const price =
     type === 'market' || px === undefined || px === null || String(px) === '' || String(px) === '0'
@@ -79,7 +90,7 @@ export function mapOkxSpotOrder(row: Record<string, unknown>, unified: string, n
     venueOrderId: row.ordId === undefined || row.ordId === null ? null : String(row.ordId),
     clientOrderId: String(row.clOrdId ?? ''),
     symbol: unified,
-    side: String(row.side).toLowerCase() === 'sell' ? 'sell' : 'buy',
+    side,
     type,
     price,
     amount,
