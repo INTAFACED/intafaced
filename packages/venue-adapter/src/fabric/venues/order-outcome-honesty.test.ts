@@ -144,6 +144,15 @@ describe('order-outcome-honesty — M22 unknown stays unknown', () => {
     expect(() => assertFillReportMatchesStatus('binance-spot', 'open', 0n, null)).not.toThrow();
     expect(() => assertFillReportMatchesStatus('binance-spot', 'filled', 1n, 100n)).not.toThrow();
   });
+
+  it('refuses a sized partial fill with a null or zero average price and still accepts a decimal price', () => {
+    const filled = parseAmount('0.4');
+    expectUnknownNotFill(() => assertFillReportMatchesStatus('bybit-spot', 'partially_filled', filled, null));
+    expectUnknownNotFill(() => assertFillReportMatchesStatus('bybit-spot', 'partially_filled', filled, 0n));
+    expect(() => assertFillReportMatchesStatus('bybit-spot', 'partially_filled', filled, parseAmount('29950.5'))).not.toThrow();
+    expectUnknownNotFill(() => assertFillReportMatchesStatus('binance-spot', 'filled', parseAmount('1'), null));
+    expect(() => assertFillReportMatchesStatus('binance-spot', 'filled', parseAmount('1'), parseAmount('100.5'))).not.toThrow();
+  });
 });
 
 describe('CEX mappers — unknown / missing fill / no invented fee', () => {

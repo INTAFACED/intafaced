@@ -31,9 +31,15 @@ export function assertKnownOrderStatus<S extends VenueOrder['status']>(
   }
 }
 
+/** Null, or a non-positive scaled amount. Zero is not an execution price. */
+function blankAveragePrice(averagePrice: VenueOrder['averagePrice']): boolean {
+  return averagePrice === null || averagePrice <= 0n;
+}
+
 /**
- * A venue saying "filled" without executed size + average price is missing the
- * fill report. Partial with zero size is the same hole.
+ * A venue saying "filled" without executed size and an average price is missing
+ * the fill report. A partial with zero size is the same hole, and so is a sized
+ * partial whose average price is null or zero. Never invent a price, including 0.
  */
 export function assertFillReportMatchesStatus(
   venueId: string,
@@ -41,10 +47,10 @@ export function assertFillReportMatchesStatus(
   filled: bigint,
   averagePrice: VenueOrder['averagePrice'],
 ): void {
-  if (status === 'partially_filled' && filled <= 0n) {
+  if (status === 'partially_filled' && (filled <= 0n || blankAveragePrice(averagePrice))) {
     throw new VenueUnavailableError(venueId, 'malformed', 'partially_filled without a fill report — outcome unknown, not a fill');
   }
-  if (status === 'filled' && (filled <= 0n || averagePrice === null)) {
+  if (status === 'filled' && (filled <= 0n || blankAveragePrice(averagePrice))) {
     throw new VenueUnavailableError(venueId, 'malformed', 'filled status without a fill report — outcome unknown, not a fill');
   }
 }
