@@ -34,7 +34,11 @@ export function withdrawalPermissionHits(permissions: VenueKeyPermissions): stri
     if (WITHDRAW_TOKEN.test(scope)) hits.push(`scope:${scope}`);
   }
   for (const [key, value] of Object.entries(permissions.flags ?? {})) {
-    if (value === true && WITHDRAW_TOKEN.test(key)) hits.push(`flag:${key}`);
+    const enabled =
+      value === true ||
+      (typeof value === 'number' && value !== 0) ||
+      (typeof value === 'string' && value.toLowerCase() === 'true');
+    if (enabled && WITHDRAW_TOKEN.test(key)) hits.push(`flag:${key}`);
     if (typeof value === 'string' && WITHDRAW_TOKEN.test(value)) hits.push(`flag:${key}=${value}`);
   }
   return hits;

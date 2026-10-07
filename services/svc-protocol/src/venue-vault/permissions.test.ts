@@ -10,6 +10,19 @@ describe('S-L6 venue key permissions — refuse at registration', () => {
   it('refuses withdraw scopes and enableWithdraw flags', () => {
     expect(withdrawalPermissionHits({ scopes: ['trade', 'withdraw'] })).toEqual(['scope:withdraw']);
     expect(withdrawalPermissionHits({ scopes: ['spot'], flags: { enableWithdraw: true } })).toEqual(['flag:enableWithdraw']);
+    expect(withdrawalPermissionHits({ scopes: ['spot'], flags: { enableWithdraw: 1 } })).toEqual(['flag:enableWithdraw']);
+    expect(withdrawalPermissionHits({ scopes: ['spot'], flags: { enableWithdraw: 'true' } })).toEqual(['flag:enableWithdraw']);
+    expect(withdrawalPermissionHits({ scopes: ['spot'], flags: { enableWithdraw: 'TRUE' } })).toEqual(['flag:enableWithdraw']);
+    expect(() => assertTradeOnly({ scopes: ['spot'], flags: { enableWithdraw: 1 } })).toThrow(WithdrawalPermissionRefusedError);
+    expect(() => assertTradeOnly({ scopes: ['spot'], flags: { enableWithdraw: 'true' } })).toThrow(
+      WithdrawalPermissionRefusedError,
+    );
+    expect(withdrawalPermissionHits({ scopes: ['spot'], flags: { enableWithdraw: false } })).toEqual([]);
+    expect(withdrawalPermissionHits({ scopes: ['spot'], flags: { enableWithdraw: 0 } })).toEqual([]);
+    expect(withdrawalPermissionHits({ scopes: ['spot'], flags: { enableWithdraw: 'false' } })).toEqual([]);
+    expect(withdrawalPermissionHits({ scopes: ['spot'], flags: { enableWithdraw: '0' } })).toEqual([]);
+    expect(withdrawalPermissionHits({ scopes: ['spot'], flags: { enableSpot: 1 } })).toEqual([]);
+    expect(withdrawalPermissionHits({ scopes: ['trade'], flags: { note: 'withdraw' } })).toEqual(['flag:note=withdraw']);
     expect(withdrawalPermissionHits({ scopes: ['universalTransfer'] })[0]).toMatch(/universalTransfer/i);
     expect(() => assertTradeOnly({ scopes: ['withdraw'] })).toThrow(WithdrawalPermissionRefusedError);
   });
