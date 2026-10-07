@@ -12,7 +12,9 @@ export type VenueKeyPermissions = {
   readonly flags?: Readonly<Record<string, boolean | string | number>>;
 };
 
-const WITHDRAW_TOKEN = /withdraw|enablewithdraw|universaltransfer|internaltransfer|fund.?out|wallet_withdraw|perm\.withdraw|canwithdraw/i;
+// `_` and `-` sit inside the token (`universal_transfer`, `funds_out`), same as the contiguous form.
+const WITHDRAW_TOKEN =
+  /withdraw|enablewithdraw|universal[-_]?transfer|internal[-_]?transfer|funds?.?out|wallet_withdraw|perm\.withdraw|canwithdraw/i;
 
 export class WithdrawalPermissionRefusedError extends Error {
   readonly code = 'venue_vault.withdrawal_permission_refused' as const;
