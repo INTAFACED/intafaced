@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DepthSnapshot } from '@intafaced/market-data';
 import { DEPTH_ENGINE_UNAVAILABLE, DEPTH_L3_UNAVAILABLE } from '../gateway-policy.js';
 import { NativeL3Hub } from './l3-hub.js';
-import { DepthL3UnavailableError, type DepthSource, type NativeL3Queue } from './source.js';
+import { DepthL3UnavailableError, DepthNoBookError, type DepthSource, type NativeL3Queue } from './source.js';
 import type { DepthSink } from './hub.js';
 
 const MARKET = 'BTC-USDT';
@@ -469,6 +469,270 @@ describe('NativeL3Hub', () => {
       asks: [],
     });
     expect(next.closed).toBeNull();
+  });
+
+  it('a tick rejection sampled before the market went idle does not leave the next opener on that down frame', async () => {
+    const source = new Source();
+    let l3Calls = 0;
+    let holdPoll = false;
+    let rejectPoll: (err: unknown) => void = () => undefined;
+    let pollGate: Promise<void> = Promise.resolve();
+    const readQueue = source.l3Queue.bind(source);
+    source.l3Queue = async (marketId: string) => {
+      l3Calls += 1;
+      if (holdPoll) {
+        holdPoll = false;
+        await pollGate;
+      }
+      return readQueue(marketId);
+    };
+    let holdKnown = false;
+    let releaseKnown: () => void = () => undefined;
+    let knownGate: Promise<void> = Promise.resolve();
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async () => {
+        if (holdKnown) await knownGate;
+        return true;
+      },
+    });
+
+    const watched = new RecordingSink();
+    const leave = hub.attach(MARKET, watched);
+    await new Promise((r) => setTimeout(r, 0));
+    holdPoll = true;
+    pollGate = new Promise<void>((_resolve, reject) => {
+      rejectPoll = reject;
+    });
+    const poll = hub.tick();
+    leave!();
+
+    holdKnown = true;
+    knownGate = new Promise<void>((resolve) => {
+      releaseKnown = resolve;
+    });
+    const recovered: NativeL3Queue = {
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    };
+    source.queue = recovered;
+    const callsBeforeOpen = l3Calls;
+    const next = new RecordingSink();
+    hub.attach(MARKET, next);
+
+    rejectPoll(new DepthL3UnavailableError(MARKET));
+    await poll;
+    releaseKnown();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(JSON.parse(next.frames.at(-1)!)).toEqual({
+      type: 'snapshot',
+      transport: 'poll',
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    });
+    expect(l3Calls).toBeGreaterThan(callsBeforeOpen);
+    expect(next.frames.some((frame) => JSON.parse(frame).code === DEPTH_L3_UNAVAILABLE)).toBe(false);
+    expect(next.frames.some((frame) => JSON.parse(frame).code === DEPTH_ENGINE_UNAVAILABLE)).toBe(false);
+    expect(hub.stats.code).toBeNull();
+    expect(next.closed).toBeNull();
+  });
+
+  it('a tick rejection sampled before the market went idle does not replace the queue the next subscriber already refetched', async () => {
+    const source = new Source();
+    let l3Calls = 0;
+    let holdPoll = false;
+    let rejectPoll: (err: unknown) => void = () => undefined;
+    let pollGate: Promise<void> = Promise.resolve();
+    const readQueue = source.l3Queue.bind(source);
+    source.l3Queue = async (marketId: string) => {
+      l3Calls += 1;
+      if (holdPoll) {
+        holdPoll = false;
+        await pollGate;
+      }
+      return readQueue(marketId);
+    };
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async () => true,
+    });
+
+    const watched = new RecordingSink();
+    const leave = hub.attach(MARKET, watched);
+    await new Promise((r) => setTimeout(r, 0));
+    holdPoll = true;
+    pollGate = new Promise<void>((_resolve, reject) => {
+      rejectPoll = reject;
+    });
+    const poll = hub.tick();
+    leave!();
+
+    const recovered: NativeL3Queue = {
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    };
+    source.queue = recovered;
+    const callsAtLeave = l3Calls;
+    const next = new RecordingSink();
+    hub.attach(MARKET, next);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(l3Calls).toBeGreaterThan(callsAtLeave);
+    expect(JSON.parse(next.frames.at(-1)!)).toEqual({
+      type: 'snapshot',
+      transport: 'poll',
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    });
+    const callsAfterRefetch = l3Calls;
+    rejectPoll(new Error('matching engine down'));
+    await poll;
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(l3Calls).toBe(callsAfterRefetch);
+    expect(JSON.parse(next.frames.at(-1)!)).toEqual({
+      type: 'snapshot',
+      transport: 'poll',
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    });
+    expect(next.frames.some((frame) => JSON.parse(frame).code === DEPTH_L3_UNAVAILABLE)).toBe(false);
+    expect(next.frames.some((frame) => JSON.parse(frame).code === DEPTH_ENGINE_UNAVAILABLE)).toBe(false);
+    expect(hub.stats.code).toBeNull();
+    expect(next.closed).toBeNull();
+  });
+
+  it('a no-book error sampled before the market went idle does not forget the queue the next subscriber refetched', async () => {
+    const source = new Source();
+    let l3Calls = 0;
+    let holdPoll = false;
+    let rejectPoll: (err: unknown) => void = () => undefined;
+    let pollGate: Promise<void> = Promise.resolve();
+    const readQueue = source.l3Queue.bind(source);
+    source.l3Queue = async (marketId: string) => {
+      l3Calls += 1;
+      if (holdPoll) {
+        holdPoll = false;
+        await pollGate;
+      }
+      return readQueue(marketId);
+    };
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async () => true,
+    });
+
+    const watched = new RecordingSink();
+    const leave = hub.attach(MARKET, watched);
+    await new Promise((r) => setTimeout(r, 0));
+    holdPoll = true;
+    pollGate = new Promise<void>((_resolve, reject) => {
+      rejectPoll = reject;
+    });
+    const poll = hub.tick();
+    leave!();
+
+    const recovered: NativeL3Queue = {
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    };
+    source.queue = recovered;
+    const next = new RecordingSink();
+    hub.attach(MARKET, next);
+    await new Promise((r) => setTimeout(r, 0));
+    const callsAfterRefetch = l3Calls;
+
+    rejectPoll(new DepthNoBookError(MARKET));
+    await poll;
+
+    const peer = new RecordingSink();
+    hub.attach(MARKET, peer);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(l3Calls).toBe(callsAfterRefetch);
+    expect(peer.frames.map((frame) => JSON.parse(frame))).toEqual([
+      {
+        type: 'snapshot',
+        transport: 'poll',
+        level: 'L3',
+        marketId: MARKET,
+        bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+        asks: [],
+      },
+    ]);
+    expect(JSON.parse(next.frames.at(-1)!)).toEqual({
+      type: 'snapshot',
+      transport: 'poll',
+      level: 'L3',
+      marketId: MARKET,
+      bids: [{ price: '99', orders: [{ orderId: 'o9', remaining: '4', sequence: 11 }] }],
+      asks: [],
+    });
+    expect(hub.stats.code).toBeNull();
+    expect(next.closed).toBeNull();
+    expect(peer.closed).toBeNull();
+  });
+
+  it('a tick rejection still marks a market that stayed watched while subscribers changed', async () => {
+    const source = new Source();
+    let gate: Promise<void> = Promise.resolve();
+    let rejectPoll: (err: unknown) => void = () => undefined;
+    const readQueue = source.l3Queue.bind(source);
+    source.l3Queue = async (marketId: string) => {
+      await gate;
+      return readQueue(marketId);
+    };
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async () => true,
+    });
+
+    const first = new RecordingSink();
+    const leave = hub.attach(MARKET, first);
+    await new Promise((r) => setTimeout(r, 0));
+    gate = new Promise<void>((_resolve, reject) => {
+      rejectPoll = reject;
+    });
+    const poll = hub.tick();
+    const second = new RecordingSink();
+    hub.attach(MARKET, second);
+    await new Promise((r) => setTimeout(r, 0));
+    leave!();
+    rejectPoll(new DepthL3UnavailableError(MARKET));
+    await poll;
+
+    expect(JSON.parse(second.frames.at(-1)!)).toEqual({
+      type: 'status',
+      code: DEPTH_L3_UNAVAILABLE,
+      marketId: MARKET,
+    });
+    expect(hub.stats.code).toBe(DEPTH_L3_UNAVAILABLE);
+    expect(second.closed).toBeNull();
   });
 
   it('fan-out names depth.l3_unavailable without an L2 ladder', () => {

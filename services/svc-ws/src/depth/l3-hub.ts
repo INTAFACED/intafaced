@@ -92,6 +92,8 @@ export class NativeL3Hub {
   readonly #last = new Map<string, string>();
   readonly #l3Down = new Set<string>();
   readonly #engineDown = new Set<string>();
+  /** Bumped only when #forgetIdle actually drops the market. A poll captures this before it awaits. */
+  readonly #idleGeneration = new Map<string, number>();
 
   constructor(source: DepthSource, options: NativeL3HubOptions, log: HubLogger = NO_LOG) {
     this.#source = source;
@@ -253,12 +255,19 @@ export class NativeL3Hub {
     if (!isPublishedDepthLimit(limit)) return;
     await Promise.all(
       markets.map(async (marketId) => {
+        const generation = this.#idleGeneration.get(marketId) ?? 0;
         try {
           const queue = await this.#source.l3Queue!(marketId, limit);
           this.ingest(queue);
         } catch (err) {
-          // The last watcher can leave during this await. #forgetIdle already
-          // cleared the flags; marking down with nobody left would stick.
+          // The last watcher can leave during this await. #forgetIdle bumps
+          // the generation when it drops the market. A newer subscriber can
+          // already be in the set — attach runs before #open reads the flags —
+          // so an empty-set check is not enough. Applying this rejection would
+          // mark them down or wipe the book they just refetched. A market that
+          // stayed watched keeps its generation, and that live subscriber
+          // still hears the rejection.
+          if ((this.#idleGeneration.get(marketId) ?? 0) !== generation) return;
           if (!this.#hasLive(marketId)) return;
           if (err instanceof DepthL3UnavailableError) this.markL3Unavailable(marketId);
           else if (err instanceof DepthNoBookError) this.noteNoBook(marketId);
@@ -350,6 +359,7 @@ export class NativeL3Hub {
     this.#last.delete(marketId);
     this.#l3Down.delete(marketId);
     this.#engineDown.delete(marketId);
+    this.#idleGeneration.set(marketId, (this.#idleGeneration.get(marketId) ?? 0) + 1);
   }
 
   #fanout(marketId: string, frame: string): void {
