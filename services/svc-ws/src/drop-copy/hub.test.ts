@@ -153,6 +153,65 @@ describe('DropCopyHub', () => {
     expect(bob.parsed().filter((f) => f.type === 'execution')).toHaveLength(0);
   });
 
+  it('refuses a blank or non-decimal price, qty, or fee before fan-out and does not copy a numeric quote amount', () => {
+    const h = hub();
+    h.announceBus(true);
+    const sink = new FakeSink();
+    h.attach(USER, sink);
+    const before = sink.frames.length;
+
+    const blankPrice = '11111111-1111-4111-8111-111111111111';
+    const refused: DropCopyExecutionInput[] = [
+      fill({ fillId: blankPrice, price: '' }),
+      fill({ fillId: '22222222-2222-4222-8222-222222222222', price: 'not-a-price' }),
+      fill({ fillId: '33333333-3333-4333-8333-333333333333', qty: '' }),
+      fill({ fillId: '44444444-4444-4444-8444-444444444444', qty: '1.2.3' }),
+      fill({ fillId: '55555555-5555-4555-8555-555555555555', feeAmount: '' }),
+      fill({ fillId: '66666666-6666-4666-8666-666666666666', feeAmount: 'nope' }),
+      fill({ fillId: '77777777-7777-4777-8777-777777777777', quoteAmount: 1.005 as unknown as string }),
+      fill({ fillId: '88888888-8888-4888-8888-888888888888', quoteAmount: '' }),
+    ];
+    for (const input of refused) {
+      expect(h.publishExecution(input)).toBeNull();
+    }
+
+    expect(sink.parsed().slice(before).filter((frame) => frame.type === 'execution')).toEqual([]);
+    expect(h.lastSeq(USER)).toBe(0);
+    expect(h.recentFor(USER)).toEqual([]);
+
+    const later = new FakeSink();
+    h.attach(USER, later);
+    expect(later.parsed().find((frame) => frame.type === 'snapshot')).toMatchObject({ executions: [] });
+
+    const published = h.publishExecution(fill({ fillId: blankPrice }));
+    expect(published).toMatchObject({
+      fillId: blankPrice,
+      price: '100.5',
+      qty: '0.01',
+      quoteAmount: '1.005',
+      feeAmount: '0.001005',
+      dropCopySeq: 1,
+    });
+    const live = sink.parsed().slice(before).filter((frame) => frame.type === 'execution');
+    expect(live).toEqual([
+      expect.objectContaining({
+        fillId: blankPrice,
+        price: '100.5',
+        qty: '0.01',
+        quoteAmount: '1.005',
+        feeAmount: '0.001005',
+        dropCopySeq: 1,
+      }),
+    ]);
+    expect(typeof live[0]!.price).toBe('string');
+    expect(typeof live[0]!.qty).toBe('string');
+    expect(typeof live[0]!.quoteAmount).toBe('string');
+    expect(typeof live[0]!.feeAmount).toBe('string');
+    const raw = sink.frames.slice(before).find((frame) => frame.includes('"type":"execution"'));
+    expect(raw).toContain('"price":"100.5"');
+    expect(raw).toContain('"quoteAmount":"1.005"');
+  });
+
   it('dedupes fillId so a redelivery is not a second print', () => {
     const h = hub();
     h.announceBus(true);
