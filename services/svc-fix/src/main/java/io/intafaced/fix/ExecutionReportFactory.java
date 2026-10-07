@@ -2,7 +2,6 @@ package io.intafaced.fix;
 
 import quickfix.FixVersions;
 import quickfix.Message;
-import quickfix.field.AvgPx;
 import quickfix.field.ClOrdID;
 import quickfix.field.CumQty;
 import quickfix.field.ExecID;
@@ -20,9 +19,10 @@ import quickfix.field.Text;
 
 /**
  * ExecutionReport from matching's named ack, or from an ingest fill.
- * Ack path: no last/fills/account. Fill path: LastPx/LastQty only when those
- * strings are on the payload. ExecID is matching sequence or fillId/sequence
- * already on the fill. Never a UUID. No ledger.
+ * Ack path: no last/fills/account. Fill path: LastPx/LastQty are this print's
+ * decimal strings. A null price or qty is refused. This print is not CumQty
+ * or AvgPx. ExecID is matching sequence or fillId/sequence already on the
+ * fill. Never a UUID. No ledger.
  */
 public final class ExecutionReportFactory {
     private ExecutionReportFactory() {}
@@ -49,11 +49,13 @@ public final class ExecutionReportFactory {
     }
 
     /**
-     * House-book fill. Missing fillId and sequence refuse — do not mint ExecID.
-     * LastPx/LastQty only when price/qty are decimal strings on the fill.
+     * House-book partial fill. Missing fillId and sequence refuse — do not mint ExecID.
+     * A null price or qty refuses the report. LastPx and LastQty are this print.
+     * CumQty and AvgPx are not copied from this print, and no price is invented.
+     * FIX 4.2 ExecType is partial fill, never a complete fill.
      */
     public static Message fromFill(String beginString, DropCopyFill fill) {
-        if (fill == null || fill.execId() == null) {
+        if (fill == null || fill.execId() == null || fill.price == null || fill.qty == null) {
             return null;
         }
         Message er = newReport(beginString);
@@ -64,7 +66,7 @@ public final class ExecutionReportFactory {
         er.setString(ExecID.FIELD, fill.execId());
         if (FixVersions.BEGINSTRING_FIX42.equals(beginString)) {
             er.setChar(ExecTransType.FIELD, ExecTransType.NEW);
-            er.setChar(ExecType.FIELD, ExecType.FILL);
+            er.setChar(ExecType.FIELD, ExecType.PARTIAL_FILL);
         } else {
             er.setChar(ExecType.FIELD, ExecType.TRADE);
         }
@@ -75,14 +77,8 @@ public final class ExecutionReportFactory {
         if (fill.marketId != null && !fill.marketId.isBlank()) {
             er.setString(Symbol.FIELD, fill.marketId);
         }
-        if (fill.qty != null) {
-            er.setString(LastQty.FIELD, fill.qty);
-            er.setString(CumQty.FIELD, fill.qty);
-        }
-        if (fill.price != null) {
-            er.setString(LastPx.FIELD, fill.price);
-            er.setString(AvgPx.FIELD, fill.price);
-        }
+        er.setString(LastQty.FIELD, fill.qty);
+        er.setString(LastPx.FIELD, fill.price);
         return er;
     }
 

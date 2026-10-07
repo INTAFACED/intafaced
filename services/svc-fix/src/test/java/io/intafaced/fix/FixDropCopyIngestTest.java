@@ -21,9 +21,12 @@ import org.junit.jupiter.api.Timeout;
 import quickfix.FixVersions;
 import quickfix.Message;
 import quickfix.field.AvgPx;
+import quickfix.field.CumQty;
 import quickfix.field.ExecID;
+import quickfix.field.ExecType;
 import quickfix.field.LastPx;
 import quickfix.field.LastQty;
+import quickfix.field.OrdStatus;
 
 class FixDropCopyIngestTest {
     private static final String SECRET = "a".repeat(32);
@@ -38,8 +41,9 @@ class FixDropCopyIngestTest {
         assertEquals("fill-7", er.getString(ExecID.FIELD));
         assertFalse(er.getString(ExecID.FIELD).matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"));
         assertEquals("100.25", er.getString(LastPx.FIELD));
-        assertEquals("100.25", er.getString(AvgPx.FIELD));
         assertEquals("1.50", er.getString(LastQty.FIELD));
+        assertFalse(er.isSetField(AvgPx.FIELD));
+        assertFalse(er.isSetField(CumQty.FIELD));
         assertFalse(er.toString().toLowerCase().contains("ledger"));
 
         DropCopyFill.ParseResult seqOnly = DropCopyFill.parse(
@@ -60,6 +64,35 @@ class FixDropCopyIngestTest {
         assertFalse(ieee.ok);
         assertEquals("invalid_decimal", ieee.errorCode);
         assertNull(ExecutionReportFactory.fromFill(FixVersions.BEGINSTRING_FIX44, null));
+    }
+
+    @Test
+    void partialFillIsNotACompleteFillAndThisPrintIsNotCumulative() throws Exception {
+        DropCopyFill.ParseResult parsed = DropCopyFill.parse(FILL);
+        assertTrue(parsed.ok, parsed.errorMessage);
+
+        Message fix42 = ExecutionReportFactory.fromFill(FixVersions.BEGINSTRING_FIX42, parsed.fill);
+        assertEquals(OrdStatus.PARTIALLY_FILLED, fix42.getChar(OrdStatus.FIELD));
+        assertEquals(ExecType.PARTIAL_FILL, fix42.getChar(ExecType.FIELD));
+        assertEquals("100.25", fix42.getString(LastPx.FIELD));
+        assertEquals("1.50", fix42.getString(LastQty.FIELD));
+        assertFalse(fix42.isSetField(CumQty.FIELD));
+        assertFalse(fix42.isSetField(AvgPx.FIELD));
+
+        Message fix44 = ExecutionReportFactory.fromFill(FixVersions.BEGINSTRING_FIX44, parsed.fill);
+        assertEquals(OrdStatus.PARTIALLY_FILLED, fix44.getChar(OrdStatus.FIELD));
+        assertEquals(ExecType.TRADE, fix44.getChar(ExecType.FIELD));
+        assertEquals("100.25", fix44.getString(LastPx.FIELD));
+        assertEquals("1.50", fix44.getString(LastQty.FIELD));
+        assertFalse(fix44.isSetField(CumQty.FIELD));
+        assertFalse(fix44.isSetField(AvgPx.FIELD));
+
+        assertNull(ExecutionReportFactory.fromFill(
+                FixVersions.BEGINSTRING_FIX42,
+                fill("fill-7", null, "1.50")));
+        assertNull(ExecutionReportFactory.fromFill(
+                FixVersions.BEGINSTRING_FIX44,
+                fill("fill-7", "100.25", null)));
     }
 
     @Test
@@ -88,6 +121,11 @@ class FixDropCopyIngestTest {
                 "{\"fillId\":\"fill-7\",\"price\":\"100.25\",\"qty\":false,\"source\":\"rest\"}", "invalid_decimal");
         assertFillRefused(
                 "{\"fillId\":\"fill-7\",\"price\":\"100.25\",\"qty\":[],\"source\":\"rest\"}", "invalid_decimal");
+    }
+
+    private static DropCopyFill fill(String fillId, String price, String qty) {
+        return new DropCopyFill(
+                fillId, "ord-1", "user-1", "BTC/USDT", "buy", price, qty, null, null, null, 11L, null, "rest");
     }
 
     private static void assertFillRefused(String raw, String code) {
