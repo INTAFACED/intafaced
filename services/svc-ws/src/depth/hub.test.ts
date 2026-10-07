@@ -7,6 +7,7 @@ import {
   type DepthSnapshot,
   type WireLevel,
 } from '@intafaced/market-data';
+import { DEPTH_MARKET_HALTED } from '../matching-trading.js';
 import { CLOSE_POLICY, CLOSE_TRY_LATER, DepthHub, type DepthHubOptions, type DepthSink } from './hub.js';
 import type { DepthSource } from './source.js';
 
@@ -859,6 +860,49 @@ describe('DepthHub — the listing decides, not the engine', () => {
       { type: 'status', code: 'depth.engine_unavailable', marketId: MARKET },
     ]);
     expect(hub.bookFor(MARKET)?.sequence).toBe(10);
+  });
+
+  it('does not send the cached ladder when a halted market comes back before ingest and the engine is still down', async () => {
+    // Halted, book already cached, failed tick marks the engine down. A subscriber
+    // connects, then the next tick calls noteMatchingTrading(null) before ingest.
+    // That subscriber must not receive the cached snapshot while the engine is still down.
+    const source = new FakeSource([MARKET]);
+    source.current.set(MARKET, snapshot(10, [['100', '2']], [['101', '3']]));
+    const hub = hubFor(source);
+
+    const already = new FakeSink();
+    hub.attach(MARKET, already);
+    await settle();
+    expect(already.messages()[0]).toMatchObject({ type: 'snapshot', marketId: MARKET, sequence: 10 });
+
+    hub.noteMatchingTrading(MARKET, DEPTH_MARKET_HALTED);
+    hub.markEngineUnavailable(MARKET);
+    expect(hub.isEngineUnavailable(MARKET)).toBe(true);
+    expect(hub.isMatchingNotTradable(MARKET)).toBe(true);
+    expect(hub.bookFor(MARKET)?.sequence).toBe(10);
+
+    const late = new FakeSink();
+    hub.attach(MARKET, late);
+    await settle();
+
+    const framesBeforeResume = late.frames.length;
+    hub.noteMatchingTrading(MARKET, null);
+
+    expect(hub.isEngineUnavailable(MARKET)).toBe(true);
+    expect(hub.bookFor(MARKET)?.sequence).toBe(10);
+    expect(late.closed).toBeNull();
+    expect(late.messages()).toEqual([]);
+    expect(late.frames.slice(framesBeforeResume)).toEqual([]);
+    expect(late.frames.map((f) => JSON.parse(f))).toEqual([
+      { type: 'status', code: 'depth.engine_unavailable', marketId: MARKET },
+    ]);
+    expect(already.messages()).toEqual([expect.objectContaining({ type: 'snapshot', sequence: 10 })]);
+
+    hub.ingest(snapshot(11, [['100', '4']], [['101', '3']]));
+
+    expect(hub.isEngineUnavailable(MARKET)).toBe(false);
+    expect(hub.bookFor(MARKET)?.sequence).toBe(11);
+    expect(late.messages()).toEqual([expect.objectContaining({ type: 'snapshot', marketId: MARKET, sequence: 11 })]);
   });
 });
 
