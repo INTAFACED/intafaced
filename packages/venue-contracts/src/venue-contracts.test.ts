@@ -281,6 +281,25 @@ describe('credentials — the loud failure', () => {
     const dangerous: VenueCredentials = { ...tradeOnly, scopes: ['trade', 'universal-transfer'] };
     expect(() => requireCredentials('v', 'placeOrder', dangerous)).toThrow(VenueCredentialScopeError);
   });
+
+  it('refuses a folded withdrawal scope, a plural transfer, an empty scope list, and a blank scope', () => {
+    const universalUnderscore: VenueCredentials = { ...tradeOnly, scopes: ['trade', 'universal_transfer'] };
+    const pluralTransfer: VenueCredentials = { ...tradeOnly, scopes: ['trade', 'transfers'] };
+    const internalTransfer: VenueCredentials = { ...tradeOnly, scopes: ['internal_transfer'] };
+    const emptyScopes: VenueCredentials = { ...tradeOnly, scopes: [] };
+    const blankScope: VenueCredentials = { ...tradeOnly, scopes: [''] };
+    const whitespaceScope: VenueCredentials = { ...tradeOnly, scopes: ['   '] };
+    const trade: VenueCredentials = { ...tradeOnly, scopes: ['trade'] };
+
+    expect(() => requireCredentials('v', 'placeOrder', universalUnderscore)).toThrow(VenueCredentialScopeError);
+    expect(() => requireCredentials('v', 'placeOrder', pluralTransfer)).toThrow(VenueCredentialScopeError);
+    expect(() => requireCredentials('v', 'placeOrder', internalTransfer)).toThrow(VenueCredentialScopeError);
+    expect(() => requireCredentials('v', 'placeOrder', emptyScopes)).toThrow(VenueCredentialScopeError);
+    expect(() => requireCredentials('v', 'placeOrder', blankScope)).toThrow(VenueCredentialScopeError);
+    expect(() => requireCredentials('v', 'placeOrder', whitespaceScope)).toThrow(VenueCredentialScopeError);
+    expect(requireCredentials('v', 'placeOrder', trade)).toBe(trade);
+    expect(requireCredentials('v', 'placeOrder', tradeOnly)).toBe(tradeOnly);
+  });
 });
 
 describe('LatencyMeasurement — closed union of REST and WS handshake', () => {
