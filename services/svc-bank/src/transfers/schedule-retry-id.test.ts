@@ -21,7 +21,14 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import { MemoryLedger, parseAmount as amt } from '@intafaced/ledger-client';
+import {
+  MemoryLedger,
+  formatAmount,
+  parseAmount as amt,
+  recipes,
+  subAccountAvailable,
+  userAvailable,
+} from '@intafaced/ledger-client';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankServices } from '../bank-service.js';
 import { createBankRouter, type BankRouter } from '../router.js';
@@ -212,6 +219,219 @@ describe('TransferService.schedule — retry with the same scheduleId is one row
         scheduleId,
       }),
     ).rejects.toMatchObject({ code: 'bank.schedule_conflict' });
+  });
+
+  it('same scheduleId with the same window returns the stored schedule and posts nothing', async () => {
+    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger));
+    const from = await bank.spaces.ensurePrimary(USER, 'USDT');
+    const to = await bank.spaces.create({ userId: USER, assetId: 'USDT', name: 'Rent' });
+    await ledger.post(
+      recipes.deposit({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('50'),
+        rail: 'test',
+        railRef: 'schedule-window-same',
+      }),
+    );
+    const startsAt = new Date('2026-01-01T09:00:00.000Z');
+    const endsAt = new Date('2026-06-01T09:00:00.000Z');
+    const scheduleId = randomUUID();
+    const first = await bank.transfers.schedule({
+      userId: USER,
+      fromSpaceId: from.id,
+      toSpaceId: to.id,
+      amount: amt('10'),
+      cadence: 'monthly',
+      startsAt,
+      endsAt,
+      scheduleId,
+    });
+    const posts = ledger.journal().length;
+    const retry = await bank.transfers.schedule({
+      userId: USER,
+      fromSpaceId: from.id,
+      toSpaceId: to.id,
+      amount: amt('10'),
+      cadence: 'monthly',
+      startsAt: new Date(startsAt.toISOString()),
+      endsAt: new Date(endsAt.toISOString()),
+      scheduleId,
+    });
+
+    expect(retry.id).toBe(first.id);
+    expect(retry.startsAt.getTime()).toBe(startsAt.getTime());
+    expect(retry.endsAt?.getTime()).toBe(endsAt.getTime());
+    expect(ledger.journal().length).toBe(posts);
+    expect(formatAmount((await ledger.balance(userAvailable(USER, 'USDT'))).amount)).toBe('50');
+    const rows = await sql<Array<{ id: string }>>`SELECT id FROM bank.scheduled_transfers WHERE user_id = ${USER}`;
+    expect(rows).toHaveLength(1);
+    const executions = await sql`SELECT id FROM bank.transfer_executions`;
+    expect(executions).toHaveLength(0);
+  });
+
+  it('refuses a same-id retry that changes startsAt and keeps the stored window firing', async () => {
+    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger));
+    const from = await bank.spaces.ensurePrimary(USER, 'USDT');
+    const to = await bank.spaces.create({ userId: USER, assetId: 'USDT', name: 'Rent' });
+    const startsAt = new Date('2026-01-01T00:00:00.000Z');
+    const scheduleId = randomUUID();
+    await bank.transfers.schedule({
+      userId: USER,
+      fromSpaceId: from.id,
+      toSpaceId: to.id,
+      amount: amt('10'),
+      cadence: 'daily',
+      startsAt,
+      scheduleId,
+    });
+    await ledger.post(
+      recipes.deposit({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('100'),
+        rail: 'test',
+        railRef: 'schedule-window-start',
+      }),
+    );
+    const posts = ledger.journal().length;
+
+    await expect(
+      bank.transfers.schedule({
+        userId: USER,
+        fromSpaceId: from.id,
+        toSpaceId: to.id,
+        amount: amt('10'),
+        cadence: 'daily',
+        startsAt: new Date('2026-02-01T00:00:00.000Z'),
+        scheduleId,
+      }),
+    ).rejects.toMatchObject({ code: 'bank.schedule_conflict' });
+
+    expect(ledger.journal().length).toBe(posts);
+    const stored = await sql<Array<{ starts_at: Date; ends_at: Date | null }>>`
+      SELECT starts_at, ends_at FROM bank.scheduled_transfers WHERE id = ${scheduleId}
+    `;
+    expect(stored).toHaveLength(1);
+    expect(stored[0]!.starts_at.getTime()).toBe(startsAt.getTime());
+    expect(stored[0]!.ends_at).toBeNull();
+
+    const report = await bank.transfers.runDueTransfers({ now: new Date('2026-01-01T10:00:00.000Z'), limit: 200 });
+    expect(report.settled).toBe(1);
+    expect(formatAmount((await ledger.balance(subAccountAvailable(to.id, 'USDT'))).amount)).toBe('10');
+    expect(formatAmount((await ledger.balance(userAvailable(USER, 'USDT'))).amount)).toBe('90');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('refuses a same-id retry that changes endsAt and keeps firing past that end', async () => {
+    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger));
+    const from = await bank.spaces.ensurePrimary(USER, 'USDT');
+    const to = await bank.spaces.create({ userId: USER, assetId: 'USDT', name: 'Rent' });
+    const startsAt = new Date('2026-01-01T00:00:00.000Z');
+    const scheduleId = randomUUID();
+    await bank.transfers.schedule({
+      userId: USER,
+      fromSpaceId: from.id,
+      toSpaceId: to.id,
+      amount: amt('10'),
+      cadence: 'daily',
+      startsAt,
+      scheduleId,
+    });
+    await ledger.post(
+      recipes.deposit({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('100'),
+        rail: 'test',
+        railRef: 'schedule-window-end',
+      }),
+    );
+    const posts = ledger.journal().length;
+
+    await expect(
+      bank.transfers.schedule({
+        userId: USER,
+        fromSpaceId: from.id,
+        toSpaceId: to.id,
+        amount: amt('10'),
+        cadence: 'daily',
+        startsAt,
+        endsAt: new Date('2026-01-03T00:00:00.000Z'),
+        scheduleId,
+      }),
+    ).rejects.toMatchObject({ code: 'bank.schedule_conflict' });
+
+    expect(ledger.journal().length).toBe(posts);
+    const stored = await sql<Array<{ starts_at: Date; ends_at: Date | null }>>`
+      SELECT starts_at, ends_at FROM bank.scheduled_transfers WHERE id = ${scheduleId}
+    `;
+    expect(stored).toHaveLength(1);
+    expect(stored[0]!.starts_at.getTime()).toBe(startsAt.getTime());
+    expect(stored[0]!.ends_at).toBeNull();
+
+    const report = await bank.transfers.runDueTransfers({ now: new Date('2026-01-08T10:00:00.000Z'), limit: 200 });
+    expect(report.settled).toBe(8);
+    expect(formatAmount((await ledger.balance(subAccountAvailable(to.id, 'USDT'))).amount)).toBe('80');
+    expect(formatAmount((await ledger.balance(userAvailable(USER, 'USDT'))).amount)).toBe('20');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('refuses a same-id retry that moves a stored endsAt and does not replace that end', async () => {
+    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger));
+    const from = await bank.spaces.ensurePrimary(USER, 'USDT');
+    const to = await bank.spaces.create({ userId: USER, assetId: 'USDT', name: 'Rent' });
+    const startsAt = new Date('2026-01-01T00:00:00.000Z');
+    const endsAt = new Date('2026-01-04T00:00:00.000Z');
+    const scheduleId = randomUUID();
+    await bank.transfers.schedule({
+      userId: USER,
+      fromSpaceId: from.id,
+      toSpaceId: to.id,
+      amount: amt('10'),
+      cadence: 'daily',
+      startsAt,
+      endsAt,
+      scheduleId,
+    });
+    await ledger.post(
+      recipes.deposit({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('100'),
+        rail: 'test',
+        railRef: 'schedule-window-end-move',
+      }),
+    );
+    const posts = ledger.journal().length;
+
+    await expect(
+      bank.transfers.schedule({
+        userId: USER,
+        fromSpaceId: from.id,
+        toSpaceId: to.id,
+        amount: amt('10'),
+        cadence: 'daily',
+        startsAt,
+        endsAt: new Date('2026-01-02T00:00:00.000Z'),
+        scheduleId,
+      }),
+    ).rejects.toMatchObject({ code: 'bank.schedule_conflict' });
+
+    expect(ledger.journal().length).toBe(posts);
+    const stored = await sql<Array<{ starts_at: Date; ends_at: Date | null }>>`
+      SELECT starts_at, ends_at FROM bank.scheduled_transfers WHERE id = ${scheduleId}
+    `;
+    expect(stored).toHaveLength(1);
+    expect(stored[0]!.starts_at.getTime()).toBe(startsAt.getTime());
+    expect(stored[0]!.ends_at?.getTime()).toBe(endsAt.getTime());
+
+    const report = await bank.transfers.runDueTransfers({ now: new Date('2026-02-01T00:00:00.000Z'), limit: 200 });
+    expect(report.settled).toBe(3);
+    const executions = await bank.transfers.executions(scheduleId, 50);
+    expect(executions.map((row) => row.occurrence)).toEqual([0, 1, 2]);
+    expect(formatAmount((await ledger.balance(subAccountAvailable(to.id, 'USDT'))).amount)).toBe('30');
+    expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
   it('two caller scheduleIds still create two rows', async () => {
