@@ -29,7 +29,7 @@ export async function listProjectedPayMetrics(
       COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_count,
       MAX(updated_at) AS as_of
     FROM pay.payments
-    WHERE updated_at >= now() - (${windowMs} * interval '1 millisecond')
+    WHERE updated_at >= now() - ${`${windowMs} milliseconds`}::interval
       AND status IN ('captured', 'settled', 'failed')
     GROUP BY rail_adapter
     HAVING COUNT(*) > 0
