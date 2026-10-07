@@ -766,12 +766,55 @@ export class SubscriptionService {
 
     const report: RunReport = { examined: due.length, fired: 0, retried: 0, stalled: 0, outcomes: [] };
 
+    /*
+     * ONE THROW BELONGS TO ONE SUBSCRIPTION.
+     *
+     * `getMandate`, amount parsing, and the charge transaction can throw. Left
+     * uncaught, that throw discarded this report and left `next_run_at` in the
+     * past, so the earliest due row stayed first and every later subscription
+     * was skipped on this pass and the next. Stall that row and continue. Do
+     * not charge it and do not invent an amount.
+     */
     for (const row of due) {
       const sub = toSub(row);
-      await this.runOneSubscription(sub, now, report);
+      try {
+        await this.runOneSubscription(sub, now, report);
+      } catch (err) {
+        await this.quarantineDuePassThrow(sub.id, now, report, err);
+      }
     }
 
     return report;
+  }
+
+  /**
+   * A due-pass throw is this subscription's, not the batch's.
+   *
+   * Stall with `due_pass_fault` so the row leaves the active due set. If that
+   * write fails, move `next_run_at` past this pass so the row cannot remain the
+   * permanent first due row. Neither arm charges and neither invents an amount.
+   */
+  private async quarantineDuePassThrow(subscriptionId: string, now: Date, report: RunReport, err: unknown): Promise<void> {
+    const rejectionCode = err instanceof PayError ? err.code : 'pay.subscription_due_pass_fault';
+    let stallReason: StallReason | undefined;
+    try {
+      await this.stall(subscriptionId, 'due_pass_fault', now);
+      stallReason = 'due_pass_fault';
+      report.stalled += 1;
+    } catch {
+      try {
+        await this.setNextRun(subscriptionId, new Date(now.getTime() + 1), now);
+      } catch {
+        // The report still records the fault. Later subscriptions in this pass still run.
+      }
+    }
+    report.outcomes.push({
+      subscriptionId,
+      occurrence: null,
+      outcome: stallReason === undefined ? 'skipped' : 'stalled',
+      ...(stallReason === undefined ? {} : { stallReason }),
+      rejectionCode,
+    });
   }
 
   /** One subscription, one pass, at most one charge. */

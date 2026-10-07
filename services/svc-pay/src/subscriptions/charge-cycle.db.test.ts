@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryLedger, formatAmount, merchantClearing, parseAmount as amt } from '@intafaced/ledger-client';
 import { PayError, PayService } from '../payment-service.js';
 import { RailRegistry } from '../rails/registry.js';
@@ -1003,6 +1003,83 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
       expect(cycle!.notifyStatus).toBeNull();
       expect(opened).toHaveLength(0);
       expect(await clearingOf(m.id)).toBe('0');
+    });
+  });
+
+  describe('a due-pass throw stays on that subscription', () => {
+    it('the earlier due row throws, the later one still runs, and the next pass is not stuck on the thrower', async () => {
+      const { subs } = build({ defaultFeeBps: 250 });
+      const m = await merchant();
+      const early = await mandateAndSubscription(subs, { merchantId: m.id, amount: '10' });
+      const late = await mandateAndSubscription(subs, { merchantId: m.id, amount: '12' });
+
+      const earlyAt = utc(2026, 1, 1, 0);
+      const lateAt = utc(2026, 1, 1, 1);
+      const now = utc(2026, 1, 1, 2);
+      await sql`UPDATE pay.subscriptions SET next_run_at = ${earlyAt} WHERE id = ${early.sub.id}`;
+      await sql`UPDATE pay.subscriptions SET next_run_at = ${lateAt} WHERE id = ${late.sub.id}`;
+
+      const original = subs.getMandate.bind(subs);
+      const spy = vi.spyOn(subs, 'getMandate').mockImplementation(async (mandateId: string) => {
+        if (mandateId === early.mandate.id) {
+          throw new PayError(`Mandate ${mandateId} not found`, 'pay.mandate_not_found');
+        }
+        return original(mandateId);
+      });
+
+      try {
+        const first = await subs.runDueSubscriptions({ limit: 50, now });
+        expect(first.examined).toBe(2);
+        expect(first.fired).toBe(1);
+        expect(first.stalled).toBe(1);
+        expect(first.outcomes).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              subscriptionId: early.sub.id,
+              occurrence: null,
+              outcome: 'stalled',
+              stallReason: 'due_pass_fault',
+              rejectionCode: 'pay.mandate_not_found',
+            }),
+            expect.objectContaining({
+              subscriptionId: late.sub.id,
+              outcome: 'invoiced',
+            }),
+          ]),
+        );
+
+        expect(await cyclesOf(subs, early.sub.id)).toEqual([]);
+        expect(opened).toHaveLength(1);
+        expect(opened[0]!.idempotencyKey).toBe(chargeIdempotencyKey({ subscriptionId: late.sub.id, occurrence: 0 }));
+        const amounts = await sql<Array<{ amount: string }>>`
+          SELECT amount::text AS amount FROM pay.payments WHERE id = ${opened[0]!.paymentId}
+        `;
+        expect(formatAmount(amt(amounts[0]!.amount))).toBe('12');
+
+        await payInvoice(opened[0]!.paymentId, '12');
+        expect(await clearingOf(m.id)).toBe('12');
+        expect(ledger.journal().some((tx) => tx.idempotencyKey.includes(early.sub.id))).toBe(false);
+
+        const stalled = await subs.getSubscription(early.sub.id);
+        expect(stalled.status).toBe('paused');
+        expect(stalled.stallReason).toBe('due_pass_fault');
+
+        const second = await subs.runDueSubscriptions({ limit: 1, now });
+        expect(second.examined).toBe(0);
+        expect(second.outcomes.some((outcome) => outcome.subscriptionId === early.sub.id)).toBe(false);
+        expect(opened).toHaveLength(1);
+        expect(await clearingOf(m.id)).toBe('12');
+
+        const stillFirst = await sql<Array<{ id: string }>>`
+          SELECT id FROM pay.subscriptions
+           WHERE status = 'active' AND next_run_at <= ${now}
+           ORDER BY next_run_at ASC
+           LIMIT 1
+        `;
+        expect(stillFirst.some((row) => row.id === early.sub.id)).toBe(false);
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 });

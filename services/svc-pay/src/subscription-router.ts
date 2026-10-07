@@ -74,7 +74,9 @@ const subscriptionView = z.object({
    * thing again. A single `paused` word owes the merchant an answer it does not
    * have.
    */
-  stallReason: z.enum(['operator_pause', 'runner_outage', 'arrears', 'fee_unpublished', 'window_exhausted']).nullable(),
+  stallReason: z
+    .enum(['operator_pause', 'runner_outage', 'arrears', 'fee_unpublished', 'window_exhausted', 'due_pass_fault'])
+    .nullable(),
 });
 
 /** One recorded period. The journal, not a status word. */

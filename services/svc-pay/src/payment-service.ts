@@ -308,6 +308,12 @@ export type PayErrorCode =
    */
   | 'pay.subscription_invoice_unpaid'
   /**
+   * A due-pass throw (mandate read, amount parse, or the charge transaction)
+   * was caught for this subscription alone. The row is stalled. No charge is
+   * opened and no amount is invented.
+   */
+  | 'pay.subscription_due_pass_fault'
+  /**
    * Resuming would re-space periods past the mandate's `endsAt`.
    *
    * `adr/2026-08-08-twap-overdue-slice-disposition.md` forbids compressing the

@@ -92,8 +92,15 @@ import { dueOccurrence, lastOccurrenceBefore, occurrenceStart, type Cadence } fr
  */
 export const MAX_ATTEMPTS_PER_CYCLE = 3;
 
-/** Why a subscription stopped advancing. Four different facts, four words. */
-export const STALL_REASONS = ['operator_pause', 'runner_outage', 'arrears', 'fee_unpublished', 'window_exhausted'] as const;
+/** Why a subscription stopped advancing. Each word is a different fact. */
+export const STALL_REASONS = [
+  'operator_pause',
+  'runner_outage',
+  'arrears',
+  'fee_unpublished',
+  'window_exhausted',
+  'due_pass_fault',
+] as const;
 export type StallReason = (typeof STALL_REASONS)[number];
 
 /** Statuses an execution row can carry (0010's enum). */
