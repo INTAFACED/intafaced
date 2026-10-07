@@ -155,6 +155,42 @@ function toApproval(row: ApprovalRow): BusinessApproval {
   };
 }
 
+/**
+ * One decision for a client id that already has a row: the opening lookup and
+ * the insert that loses ON CONFLICT DO NOTHING. Different terms conflict.
+ * Pending retries. An approved row with a ledger tx is the original post.
+ * Anything else is inactive.
+ */
+function decideExistingProposal(
+  existing: BusinessApproval,
+  input: {
+    clientId: string;
+    accountId: string;
+    makerUserId: string;
+    fromSpaceId: string;
+    toSpaceId: string;
+    amount: Amount;
+  },
+): { kind: 'posted'; transferId: string; ledgerTxId: string } | { kind: 'pending'; approval: BusinessApproval } {
+  if (
+    existing.accountId !== input.accountId ||
+    existing.makerUserId !== input.makerUserId ||
+    existing.fromSpaceId !== input.fromSpaceId ||
+    existing.toSpaceId !== input.toSpaceId ||
+    existing.amount !== input.amount
+  ) {
+    throw new BankError(
+      `Proposal ${input.clientId} already exists on different terms — a retry must carry the same instruction`,
+      'bank.business_request_conflict',
+    );
+  }
+  if (existing.status === 'pending') return { kind: 'pending', approval: existing };
+  if (existing.status === 'approved' && existing.ledgerTxId) {
+    return { kind: 'posted', transferId: existing.transferId ?? existing.id, ledgerTxId: existing.ledgerTxId };
+  }
+  throw new BankError(`Approval ${existing.id} is ${existing.status}`, 'bank.business_approval_inactive');
+}
+
 export class BusinessService {
   constructor(
     private readonly sql: Sql,
@@ -252,26 +288,7 @@ export class BusinessService {
              rejection_code, created_at, decided_at
         FROM bank.business_approvals WHERE id = ${clientId}::uuid
     `;
-    if (existingRows[0]) {
-      const existing = toApproval(existingRows[0]);
-      if (
-        existing.accountId !== input.accountId ||
-        existing.makerUserId !== input.makerUserId ||
-        existing.fromSpaceId !== input.fromSpaceId ||
-        existing.toSpaceId !== input.toSpaceId ||
-        existing.amount !== input.amount
-      ) {
-        throw new BankError(
-          `Proposal ${clientId} already exists on different terms — a retry must carry the same instruction`,
-          'bank.business_request_conflict',
-        );
-      }
-      if (existing.status === 'pending') return { kind: 'pending', approval: existing };
-      if (existing.status === 'approved' && existing.ledgerTxId) {
-        return { kind: 'posted', transferId: existing.transferId ?? existing.id, ledgerTxId: existing.ledgerTxId };
-      }
-      throw new BankError(`Approval ${existing.id} is ${existing.status}`, 'bank.business_approval_inactive');
-    }
+    if (existingRows[0]) return decideExistingProposal(toApproval(existingRows[0]), input);
 
     if (input.amount < account.spendThreshold) {
       const posted = await this.transfers.transfer({
@@ -342,7 +359,7 @@ export class BusinessService {
                  rejection_code, created_at, decided_at
             FROM bank.business_approvals WHERE id = ${approvalId}::uuid
         `;
-        return { kind: 'pending' as const, approval: toApproval(raced[0]!) };
+        return decideExistingProposal(toApproval(raced[0]!), input);
       },
     );
   }
