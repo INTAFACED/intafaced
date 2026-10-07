@@ -1098,6 +1098,58 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
     expect(http.requests[0]).not.toMatch(/^POST /);
   });
 
+  it('reads a unified wallet instead of an empty spot wallet or the deprecated transferable amount', async () => {
+    const wallet = (coin: unknown[]) => ({
+      retCode: 0,
+      retMsg: 'OK',
+      result: { list: [{ accountType: 'UNIFIED', coin }] },
+    });
+    const http = new FakeHttp()
+      .queue(
+        wallet([
+          {
+            coin: 'USDT',
+            walletBalance: '100',
+            locked: '10',
+            availableToWithdraw: '40',
+            free: '',
+          },
+        ]),
+      )
+      .queue(
+        wallet([
+          {
+            coin: 'BTC',
+            walletBalance: '1.5',
+            locked: '0.25',
+            availableToWithdraw: '',
+            free: '',
+          },
+        ]),
+      );
+    const account = new BybitSpotAccount(keys, { http, clock: () => 1_700_000_000_000 });
+
+    const withdrawableOnly = await account.balances();
+    expect(withdrawableOnly).toHaveLength(1);
+    expect(withdrawableOnly[0]!.asset).toBe('USDT');
+    expect(typeof withdrawableOnly[0]!.free).toBe('bigint');
+    expect(typeof withdrawableOnly[0]!.used).toBe('bigint');
+    expect(typeof withdrawableOnly[0]!.total).toBe('bigint');
+    expect(formatAmount(withdrawableOnly[0]!.free)).toBe('90');
+    expect(formatAmount(withdrawableOnly[0]!.used)).toBe('10');
+    expect(formatAmount(withdrawableOnly[0]!.total)).toBe('100');
+    expect(http.requests[0]).toContain('/v5/account/wallet-balance?accountType=UNIFIED');
+    expect(http.requests[0]).not.toContain('accountType=SPOT');
+
+    const blankDeprecated = await account.balances();
+    expect(blankDeprecated).toHaveLength(1);
+    expect(blankDeprecated[0]!.asset).toBe('BTC');
+    expect(typeof blankDeprecated[0]!.free).toBe('bigint');
+    expect(formatAmount(blankDeprecated[0]!.free)).toBe('1.25');
+    expect(formatAmount(blankDeprecated[0]!.used)).toBe('0.25');
+    expect(formatAmount(blankDeprecated[0]!.total)).toBe('1.5');
+  });
+
   // Coin rows are the wallet-balance body. No live Bybit call.
   it('a blank availableToWithdraw does not win over a real free or availableToTrade decimal', () => {
     const now = new Date('2026-10-07T00:00:00.000Z');
