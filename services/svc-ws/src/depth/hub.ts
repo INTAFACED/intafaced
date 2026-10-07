@@ -507,11 +507,16 @@ export class DepthHub {
 
   /** Nothing is watching this market any more, so its book stops being truth. */
   #forgetIdleBook(marketId: string): void {
-    for (const sub of this.#subscriptions) if (!sub.closed && sub.marketId === marketId) return;
+    if (this.#hasLiveSubscriber(marketId)) return;
     // Kept only while someone is watching. A book left behind goes stale, and a
     // stale book handed to the next connection as a "snapshot" is a lie with a
     // sequence number on it.
     this.#books.delete(marketId);
+  }
+
+  #hasLiveSubscriber(marketId: string): boolean {
+    for (const sub of this.#subscriptions) if (!sub.closed && sub.marketId === marketId) return true;
+    return false;
   }
 
   // ── The tick ──────────────────────────────────────────────────────────────
@@ -525,6 +530,12 @@ export class DepthHub {
    */
   ingest(snapshot: DepthSnapshot): DepthDelta | null {
     this.#noteEngineUp(snapshot.marketId);
+    // A poll samples activeMarkets, then the last watcher can leave and
+    // #forgetIdleBook deletes the book before this snapshot arrives. Storing
+    // it would make the next #open skip #seed and flush that leftover ladder.
+    // Both stores below — the not-tradable keep and the normal book — wait
+    // until someone is still watching.
+    if (!this.#hasLiveSubscriber(snapshot.marketId)) return null;
     const previous = this.#books.get(snapshot.marketId);
     const next = bookFromSnapshot(snapshot);
     if (this.isMatchingNotTradable(snapshot.marketId)) {
