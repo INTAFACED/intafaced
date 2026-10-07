@@ -450,6 +450,167 @@ describe('BinanceSpotTrade / BinanceSpotAccount without credentials', () => {
     expect(http.requests[1]).toMatch(/^POST https:\/\/rest\.test\/api\/v3\/order\?/);
     expect(http.requests[1]).toContain('signature=');
     expect(http.requests[1]).toContain('newClientOrderId=abc');
+    expect(http.requests[1]).toContain('type=LIMIT');
+    expect(http.requests[1]).toContain('timeInForce=GTC');
+    expect(http.requests[1]).toContain('quantity=1');
+  });
+
+  it('refuses a market order that sets postOnly before any signed request', async () => {
+    const http = new FakeHttp().queue(depthSnapshot(1)).queue({
+      symbol: 'BTCUSDT',
+      orderId: 99,
+      clientOrderId: 'mkt-po',
+      transactTime: 1_500_000_000_000,
+      price: '0.00000000',
+      origQty: '1',
+      executedQty: '0',
+      cummulativeQuoteQty: '0',
+      status: 'NEW',
+      type: 'MARKET',
+      side: 'BUY',
+    });
+    const keys = { venueId: 'binance-spot' as const, apiKey: 'k', apiSecret: 's', scopes: ['read', 'trade'] as const };
+    const trade = new BinanceSpotTrade(keys, {
+      http,
+      restBase: 'https://rest.test',
+      clock: () => 1_700_000_000_000,
+      snapshotLimit: 5,
+    });
+
+    await expect(
+      trade.placeOrder({
+        symbol: 'BTC/USDT',
+        side: 'buy',
+        type: 'market',
+        amount: 1n * 10n ** 18n,
+        postOnly: true,
+        clientOrderId: 'mkt-po',
+      }),
+    ).rejects.toMatchObject({ reason: 'malformed', message: expect.stringMatching(/postOnly/) });
+
+    expect(http.requests.some((url) => url.includes('/api/v3/order'))).toBe(false);
+    expect(http.requests.some((url) => url.includes('signature='))).toBe(false);
+    expect(http.requests.some((url) => url.includes('type=MARKET'))).toBe(false);
+  });
+
+  it('signs a market order without postOnly as MARKET', async () => {
+    const http = new FakeHttp().queue(depthSnapshot(1)).queue({
+      symbol: 'BTCUSDT',
+      orderId: 7,
+      clientOrderId: 'mkt',
+      transactTime: 1_500_000_000_000,
+      price: '0.00000000',
+      origQty: '1',
+      executedQty: '0',
+      cummulativeQuoteQty: '0',
+      status: 'NEW',
+      type: 'MARKET',
+      side: 'BUY',
+    });
+    const keys = { venueId: 'binance-spot' as const, apiKey: 'k', apiSecret: 's', scopes: ['read', 'trade'] as const };
+    const trade = new BinanceSpotTrade(keys, {
+      http,
+      restBase: 'https://rest.test',
+      clock: () => 1_700_000_000_000,
+      snapshotLimit: 5,
+    });
+    const placed = await trade.placeOrder({
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      type: 'market',
+      amount: 1n * 10n ** 18n,
+      clientOrderId: 'mkt',
+    });
+    expect(placed.type).toBe('market');
+    expect(placed.filled).toBe(0n);
+    expect(placed.price).toBeNull();
+    expect(http.requests[1]).toContain('type=MARKET');
+    expect(http.requests[1]).not.toContain('LIMIT_MAKER');
+    expect(http.requests[1]).toContain('quantity=1');
+  });
+
+  it('signs a post-only limit as LIMIT_MAKER', async () => {
+    const http = new FakeHttp().queue(depthSnapshot(1)).queue({
+      symbol: 'BTCUSDT',
+      orderId: 8,
+      clientOrderId: 'po',
+      transactTime: 1_500_000_000_000,
+      price: '100.00',
+      origQty: '1',
+      executedQty: '0',
+      cummulativeQuoteQty: '0',
+      status: 'NEW',
+      type: 'LIMIT_MAKER',
+      side: 'BUY',
+    });
+    const keys = { venueId: 'binance-spot' as const, apiKey: 'k', apiSecret: 's', scopes: ['read', 'trade'] as const };
+    const trade = new BinanceSpotTrade(keys, {
+      http,
+      restBase: 'https://rest.test',
+      clock: () => 1_700_000_000_000,
+      snapshotLimit: 5,
+    });
+    const placed = await trade.placeOrder({
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      type: 'limit',
+      amount: 1n * 10n ** 18n,
+      price: 100n * 10n ** 18n,
+      postOnly: true,
+      clientOrderId: 'po',
+    });
+    expect(placed.type).toBe('limit');
+    expect(placed.filled).toBe(0n);
+    expect(http.requests[1]).toContain('type=LIMIT_MAKER');
+    expect(http.requests[1]).not.toContain('timeInForce=');
+    expect(http.requests[1]).toContain('quantity=1');
+  });
+
+  it('refuses reduceOnly, a limit without a price, and a market that carries a price before signing', async () => {
+    const keys = { venueId: 'binance-spot' as const, apiKey: 'k', apiSecret: 's', scopes: ['read', 'trade'] as const };
+    const clock = () => 1_700_000_000_000;
+    const reduceOnly = new FakeHttp().queue(depthSnapshot(1));
+    const limitBare = new FakeHttp().queue(depthSnapshot(1));
+    const marketPriced = new FakeHttp().queue(depthSnapshot(1));
+    const options = { restBase: 'https://rest.test', clock, snapshotLimit: 5 as const };
+
+    await expect(
+      new BinanceSpotTrade(keys, { ...options, http: reduceOnly }).placeOrder({
+        symbol: 'BTC/USDT',
+        side: 'buy',
+        type: 'limit',
+        amount: 1n * 10n ** 18n,
+        price: 100n * 10n ** 18n,
+        reduceOnly: true,
+        clientOrderId: 'ro',
+      }),
+    ).rejects.toMatchObject({ reason: 'not_ready', message: expect.stringMatching(/reduceOnly/) });
+
+    await expect(
+      new BinanceSpotTrade(keys, { ...options, http: limitBare }).placeOrder({
+        symbol: 'BTC/USDT',
+        side: 'buy',
+        type: 'limit',
+        amount: 1n * 10n ** 18n,
+        clientOrderId: 'bare',
+      }),
+    ).rejects.toMatchObject({ reason: 'malformed', message: expect.stringMatching(/requires price/) });
+
+    await expect(
+      new BinanceSpotTrade(keys, { ...options, http: marketPriced }).placeOrder({
+        symbol: 'BTC/USDT',
+        side: 'buy',
+        type: 'market',
+        amount: 1n * 10n ** 18n,
+        price: 100n * 10n ** 18n,
+        clientOrderId: 'priced',
+      }),
+    ).rejects.toMatchObject({ reason: 'malformed', message: expect.stringMatching(/must not carry price/) });
+
+    for (const http of [reduceOnly, limitBare, marketPriced]) {
+      expect(http.requests.some((url) => url.includes('/api/v3/order'))).toBe(false);
+      expect(http.requests.some((url) => url.includes('signature='))).toBe(false);
+    }
   });
 
   it('keeps average fill price in the shared 18-decimal scale', () => {
