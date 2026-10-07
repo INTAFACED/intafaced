@@ -1709,6 +1709,87 @@ describe('svc-bank money PG-hard', () => {
       });
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
+
+    it('closes the row on retry when earn withdraw already posted and the close did not commit', async () => {
+      const pool = await openPool({ apr: 3650 });
+      await accrueBankFees('USDT', '10000');
+      await bank.earn.fundPool({ poolId: pool.id, fundingId: 'crash-close-seed', amount: amt('10000') });
+
+      await fund(USER_A, 'USDT', '1000');
+      await fund(USER_B, 'USDT', '1000');
+      const opened = new Date('2026-03-01T00:00:00Z');
+      const crashed = await bank.earn.deposit({
+        positionId: randomUUID(),
+        poolId: pool.id,
+        userId: USER_A,
+        amount: amt('1000'),
+        now: opened,
+      });
+      const healthy = await bank.earn.deposit({
+        positionId: randomUUID(),
+        poolId: pool.id,
+        userId: USER_B,
+        amount: amt('1000'),
+        now: opened,
+      });
+
+      // The ledger commit landed; the bank close did not. Pot is 0, available
+      // already holds the principal, and the row is still active.
+      await ledger.post(
+        recipes.earnWithdraw({
+          positionId: crashed.id,
+          poolId: pool.id,
+          userId: USER_A,
+          assetId: 'USDT',
+          amount: amt('1000'),
+        }),
+      );
+
+      const potOf = async (userId: string, positionId: string) =>
+        formatAmount((await ledger.balance(earnStakeAccount(userId, 'USDT', positionId))).amount);
+      const statusOf = async (positionId: string) => {
+        const rows = await sql<Array<{ status: string }>>`
+          SELECT status FROM bank.earn_positions WHERE id = ${positionId}
+        `;
+        return rows[0]!.status;
+      };
+      const withdrawPosts = () =>
+        ledger.journal().filter((tx) => tx.idempotencyKey === `bank.earn.withdraw:${crashed.id}`);
+
+      expect(await statusOf(crashed.id)).toBe('active');
+      expect(await potOf(USER_A, crashed.id)).toBe('0');
+      expect(await availableOf(USER_A, 'USDT')).toBe('1000');
+      expect(withdrawPosts()).toHaveLength(1);
+      await expect(bank.earn.principalOf(USER_A, 'USDT')).rejects.toMatchObject({
+        code: 'bank.earn_principal_mismatch',
+      });
+      await expect(bank.earn.poolSize(pool.id)).rejects.toMatchObject({
+        code: 'bank.earn_principal_mismatch',
+      });
+      await expect(bank.earn.accrue({ poolId: pool.id, at: new Date('2026-03-02T00:00:00Z') })).rejects.toMatchObject({
+        code: 'bank.earn_principal_mismatch',
+      });
+
+      const closed = await bank.earn.withdraw(crashed.id);
+
+      expect(closed.status).toBe('closed');
+      expect(await statusOf(crashed.id)).toBe('closed');
+      expect(await availableOf(USER_A, 'USDT')).toBe('1000');
+      expect(await potOf(USER_A, crashed.id)).toBe('0');
+      expect(await potOf(USER_B, healthy.id)).toBe('1000');
+      expect(await statusOf(healthy.id)).toBe('active');
+      expect(withdrawPosts()).toHaveLength(1);
+      expect(formatAmount(await bank.earn.principalOf(USER_A, 'USDT'))).toBe('0');
+      expect(formatAmount(await bank.earn.principalOf(USER_B, 'USDT'))).toBe('1000');
+      expect(formatAmount(await bank.earn.poolSize(pool.id))).toBe('1000');
+
+      const day = await bank.earn.accrue({ poolId: pool.id, at: new Date('2026-03-02T00:00:00Z') });
+      expect(formatAmount(day.paid)).toBe('1');
+      expect(day.recipients).toBe(1);
+      expect(await availableOf(USER_B, 'USDT')).toBe('1');
+      expect(await availableOf(USER_A, 'USDT')).toBe('1000');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
   });
 
   // ══ Interest accrual ══════════════════════════════════════════════════════
