@@ -79,6 +79,8 @@ interface Subscription {
   readonly marketId: string;
   readonly sink: NativeL3Sink;
   lagTicks: number;
+  /** A high-water drop. An identical queue still has to try this client. */
+  lagging: boolean;
   closed: boolean;
   /** Set once #open is past the cache check, so a later arrival does not refetch an absent book. */
   opened: boolean;
@@ -191,7 +193,7 @@ export class NativeL3Hub {
       sink.close(CLOSE_TRY_LATER, resolveWsCopy(WS_COPY.atCapacity));
       return null;
     }
-    const sub: Subscription = { marketId, sink, lagTicks: 0, closed: false, opened: false };
+    const sub: Subscription = { marketId, sink, lagTicks: 0, lagging: false, closed: false, opened: false };
     this.#subscriptions.add(sub);
     void this.#open(sub);
     return () => {
@@ -220,9 +222,12 @@ export class NativeL3Hub {
     if (!this.#hasLive(windowed.marketId)) return;
     // markEngineUnavailable keeps #last. An unchanged queue still has to
     // replace the down frame the live subscriber is holding.
-    if (!recovering && this.#last.get(windowed.marketId) === frame) return;
+    // #last is written before #fanout. A high-water drop is not delivery:
+    // an identical queue still reaches a client who missed that frame.
+    const unchanged = !recovering && this.#last.get(windowed.marketId) === frame;
+    if (unchanged && !this.#hasLagging(windowed.marketId)) return;
     this.#last.set(windowed.marketId, frame);
-    this.#fanout(windowed.marketId, frame);
+    this.#fanout(windowed.marketId, frame, unchanged);
   }
 
   markL3Unavailable(marketId: string): void {
@@ -344,6 +349,13 @@ export class NativeL3Hub {
     return false;
   }
 
+  #hasLagging(marketId: string): boolean {
+    for (const sub of this.#subscriptions) {
+      if (!sub.closed && sub.lagging && sub.marketId === marketId) return true;
+    }
+    return false;
+  }
+
   #hasOpen(marketId: string): boolean {
     for (const sub of this.#subscriptions) if (!sub.closed && sub.opened && sub.marketId === marketId) return true;
     return false;
@@ -390,9 +402,10 @@ export class NativeL3Hub {
     this.#idleGeneration.set(marketId, (this.#idleGeneration.get(marketId) ?? 0) + 1);
   }
 
-  #fanout(marketId: string, frame: string): void {
+  #fanout(marketId: string, frame: string, onlyLagging = false): void {
     for (const sub of this.#subscriptions) {
       if (sub.closed || sub.marketId !== marketId) continue;
+      if (onlyLagging && !sub.lagging) continue;
       this.#write(sub, frame);
     }
   }
@@ -400,6 +413,7 @@ export class NativeL3Hub {
   #write(sub: Subscription, frame: string): void {
     if (sub.closed) return;
     if (isPublishedHighWaterBytes(this.#options.highWaterBytes) && sub.sink.bufferedBytes > this.#options.highWaterBytes) {
+      sub.lagging = true;
       sub.lagTicks += 1;
       if (isPublishedMaxLagTicks(this.#options.maxLagTicks) && sub.lagTicks >= this.#options.maxLagTicks) {
         this.#evict(sub, CLOSE_TRY_LATER, resolveWsCopy(WS_COPY.atCapacity));
@@ -407,6 +421,7 @@ export class NativeL3Hub {
       return;
     }
     sub.lagTicks = 0;
+    sub.lagging = false;
     try {
       sub.sink.send(frame);
     } catch {
