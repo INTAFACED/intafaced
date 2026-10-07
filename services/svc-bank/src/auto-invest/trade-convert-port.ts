@@ -49,8 +49,10 @@ interface ConvertQuoteWire {
 interface ConvertExecuteWire {
   id: string;
   filled: string;
-  remaining: string;
-  status: string;
+  remaining?: string;
+  status?: string;
+  /** Quote asset the fill received on a sell. Decimal string on the wire. */
+  outAmount?: string;
 }
 
 const RATE_UNSET = 'bank.auto_invest_rate_unset' as const;
@@ -59,6 +61,16 @@ export const CONVERT_MARKETS_LIMIT_MAX = 500;
 
 function rateUnset(detail: string): never {
   throw new BankError(`Auto-invest DCA convert refused — trade did not supply a rate (${detail})`, RATE_UNSET);
+}
+
+/** Decimal string → scaled bigint. Missing, blank, or unreadable refuses. Never a number. */
+function parseWireAmount(raw: unknown, detail: string): Amount {
+  if (typeof raw !== 'string' || raw.trim() === '') rateUnset(detail);
+  try {
+    return parseAmount(raw);
+  } catch {
+    rateUnset(detail);
+  }
 }
 
 /** Owner-published convert markets page. Blank / non-int / out of 1..500 refuses — never invent 50. */
@@ -191,8 +203,7 @@ export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort 
     });
     if (!Array.isArray(markets)) rateUnset('markets listing unreadable');
     const match = markets.find((m) => {
-      if (m.spot === false) return false;
-      if (m.active === false) return false;
+      if (m.spot !== true || m.active !== true) return false;
       const pair = (m.base === fromAsset && m.quote === toAsset) || (m.base === toAsset && m.quote === fromAsset);
       return pair && typeof m.symbol === 'string';
     });
@@ -212,7 +223,7 @@ export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort 
     if (!q || typeof q.avgPrice !== 'string' || typeof q.userNotional !== 'string' || typeof q.filledQty !== 'string') {
       rateUnset('convert quote missing amounts');
     }
-    if (q.fullyFilled === false) rateUnset('trade.convert_insufficient_depth');
+    if (q.fullyFilled !== true) rateUnset('trade.convert_insufficient_depth');
     const avg = parseAmount(q.avgPrice);
     if (avg <= 0n) rateUnset('convert quote avgPrice is not a positive rate');
     return q;
@@ -241,7 +252,10 @@ export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort 
     if (!order || typeof order.filled !== 'string' || typeof order.id !== 'string') {
       rateUnset('convert execute missing fill');
     }
-    const filled = parseAmount(order.filled);
+    if (order.status !== 'filled') rateUnset('convert execute status is not filled');
+    const remaining = parseWireAmount(order.remaining, 'convert execute remaining');
+    if (remaining !== 0n) rateUnset('convert execute remaining is not zero');
+    const filled = parseWireAmount(order.filled, 'convert execute filled');
     if (filled <= 0n) rateUnset('convert execute filled nothing');
     return order;
   }
@@ -256,9 +270,9 @@ export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort 
       if (sellingBase) {
         const q = await quote(input.userId, market.symbol, 'sell', input.fromAmount);
         const order = await execute(input.userId, market.symbol, 'sell', input.fromAmount, input.clientConvertId, parseAmount(q.avgPrice));
-        // Quote asset received is trade's convert userNotional, not a bank mid.
-        if (parseAmount(order.filled) <= 0n) rateUnset('sell convert filled nothing');
-        return { toAmount: parseAmount(q.userNotional), ledgerTxId: order.id };
+        const received = parseWireAmount(order.outAmount, 'sell convert outAmount');
+        if (received <= 0n) rateUnset('sell convert received nothing');
+        return { toAmount: received, ledgerTxId: order.id };
       }
 
       // Spend quote, receive base: size the base qty from convert's own avg.
