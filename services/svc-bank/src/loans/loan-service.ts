@@ -1834,11 +1834,17 @@ export class LoanService {
   private async coverShortfallTranche(loan: LoanRecord, tranche: number, shortfall: Amount): Promise<void> {
     try {
       const posted = await this.ledger.post(recipes.loanBadDebt({ loanId: loan.id, debtAssetId: loan.debtAssetId, shortfall }));
+      // A retry after this statement has already run comes back with a later
+      // quote. loanBadDebt is keyed by loan id, so the post above returns the
+      // original transaction. Writing that quote's shortfall here would replace
+      // the figure stored with the first bad-debt tx. Only the still-zero claim
+      // takes a shortfall, and it takes it once, in this same statement.
       await this.sql`
         UPDATE bank.loan_liquidations
            SET bad_debt_ledger_tx_id = ${posted.id},
                shortfall = ${formatAmount(shortfall)}::numeric
          WHERE loan_id = ${loan.id} AND tranche = ${tranche}
+           AND shortfall = 0
       `;
     } catch (err) {
       if (isInsufficientFunds(err)) {

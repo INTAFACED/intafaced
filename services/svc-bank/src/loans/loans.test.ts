@@ -2014,6 +2014,132 @@ describe('svc-bank loans PG-hard', () => {
         // The BTC loan was marked; the ETH one has no mark and is reported.
         expect(sweep.marked + sweep.refused.length).toBeGreaterThanOrEqual(1);
       });
+
+      /**
+       * Crash after the sale and the bad-debt post, before status becomes
+       * settled. The row already holds the first quote. A later quote must not
+       * replace that shortfall, the proceeds, or the split, and must not post
+       * a second ledger transaction. The pending rung is finished as stored.
+       */
+      it('keeps the stored shortfall when a pending liquidation with a ledger tx is retried on a later quote', async () => {
+        await fundReserve('USDT', '100000');
+        await fund(BORROWER, 'BTC', '1');
+        await fund(MM_SWEEP, 'USDT', '100000');
+        await ledger.post({
+          idempotencyKey: 'seed-mm-retry-shortfall',
+          module: 'test',
+          reason: 'seed',
+          entries: [
+            { account: userAvailable(MM_SWEEP, 'USDT'), direction: 'credit', amount: amt('100000') },
+            { account: marketMaker('USDT'), direction: 'debit', amount: amt('100000') },
+          ],
+        });
+        await fund(INSURANCE_FUNDER, 'USDT', '10000');
+        await ledger.post({
+          idempotencyKey: 'seed-ins-retry-shortfall',
+          module: 'test',
+          reason: 'seed',
+          entries: [
+            { account: userAvailable(INSURANCE_FUNDER, 'USDT'), direction: 'credit', amount: amt('10000') },
+            { account: insuranceFund('USDT'), direction: 'debit', amount: amt('10000') },
+          ],
+        });
+
+        const product = await makeProduct({
+          policy: { ...DEFAULT_LIQUIDATION_POLICY, maxTrancheBps: 10_000 },
+        });
+        const opened = await loans.open({
+          productId: product.id,
+          userId: BORROWER,
+          collateralAmount: amt('1'),
+          principal: amt('5000'),
+          now,
+        });
+
+        const sold = await ledger.post(
+          recipes.loanLiquidate({
+            loanId: opened.loan.id,
+            userId: BORROWER,
+            tranche: 0,
+            collateralAssetId: 'BTC',
+            collateralSold: amt('0.25'),
+            debtAssetId: 'USDT',
+            proceeds: amt('1000'),
+            principalRepaid: amt('1000'),
+            interestRepaid: 0n,
+            penalty: 0n,
+            surplusToBorrower: 0n,
+            buyer: { collateralTo: marketMaker('BTC'), proceedsFrom: marketMaker('USDT') },
+            markPrice: amt('10000'),
+          }),
+        );
+        const bad = await ledger.post(
+          recipes.loanBadDebt({ loanId: opened.loan.id, debtAssetId: 'USDT', shortfall: amt('4000') }),
+        );
+
+        await sql`
+          INSERT INTO bank.loan_liquidations (
+            loan_id, tranche, ltv_bps, mark_price, grace_waived, collateral_sold, proceeds,
+            principal_repaid, interest_repaid, penalty, surplus_returned, shortfall,
+            ledger_tx_id, bad_debt_ledger_tx_id, status
+          ) VALUES (
+            ${opened.loan.id}, 0, 9000, '10000'::numeric, true, '0.25'::numeric, '1000'::numeric,
+            '1000'::numeric, '0'::numeric, '0'::numeric, '0'::numeric, '4000'::numeric,
+            ${sold.id}, ${bad.id}, 'pending'
+          )
+        `;
+
+        const insuranceBefore = (await ledger.balance(insuranceFund('USDT'))).amount;
+        const laterQuote: LiquidationVenue = {
+          quote: async () => ({
+            proceeds: amt('100'),
+            buyer: { collateralTo: marketMaker('BTC'), proceedsFrom: marketMaker('USDT') },
+          }),
+        };
+        loans = new LoanService(sql, ledger, {
+          priceSource: price('1'),
+          venue: laterQuote,
+          marginCalls: { send: async () => undefined },
+        });
+
+        const sweep = await sweepAt(now);
+        expect(sweep.refused).toEqual([]);
+        expect(sweep.liquidated).toBe(1);
+
+        const rows = await sql<
+          Array<{
+            status: string;
+            shortfall: string;
+            proceeds: string;
+            principal_repaid: string;
+            interest_repaid: string;
+            penalty: string;
+            surplus_returned: string;
+            ledger_tx_id: string | null;
+            bad_debt_ledger_tx_id: string | null;
+          }>
+        >`
+          SELECT status, shortfall::text AS shortfall, proceeds::text AS proceeds,
+                 principal_repaid::text AS principal_repaid, interest_repaid::text AS interest_repaid,
+                 penalty::text AS penalty, surplus_returned::text AS surplus_returned,
+                 ledger_tx_id, bad_debt_ledger_tx_id
+            FROM bank.loan_liquidations WHERE loan_id = ${opened.loan.id}
+        `;
+        expect(rows).toHaveLength(1);
+        const row = rows[0]!;
+        expect(row.status).toBe('settled');
+        expect(formatAmount(amt(row.shortfall))).toBe('4000');
+        expect(formatAmount(amt(row.proceeds))).toBe('1000');
+        expect(formatAmount(amt(row.principal_repaid))).toBe('1000');
+        expect(formatAmount(amt(row.interest_repaid))).toBe('0');
+        expect(formatAmount(amt(row.penalty))).toBe('0');
+        expect(formatAmount(amt(row.surplus_returned))).toBe('0');
+        expect(row.ledger_tx_id).toBe(sold.id);
+        expect(row.bad_debt_ledger_tx_id).toBe(bad.id);
+        expect((await ledger.getTxByKey(`bank.loan.liquidate:${opened.loan.id}:0`))!.id).toBe(sold.id);
+        expect((await ledger.getTxByKey(`bank.loan.baddebt:${opened.loan.id}`))!.id).toBe(bad.id);
+        expect((await ledger.balance(insuranceFund('USDT'))).amount).toBe(insuranceBefore);
+      });
     });
 
     // ── Reconciliation ───────────────────────────────────────────────────────
