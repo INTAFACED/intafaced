@@ -465,9 +465,18 @@ export class CardService {
     // Idempotency, before anything else. An issuer redelivering an
     // authorisation must receive the decision it already got, and must not cause
     // a second hold against the same purchase — nor a second QUOTE, which is why
-    // this returns before the rate source is touched.
+    // a finished row returns before the rate source is touched.
+    //
+    // An approved row still pending with no hold is not that decision. The
+    // process died after the insert and before hold_ledger_tx_id was written.
+    // Returning it leaves a hold capture and reverse both refuse, because they
+    // require status settled. Re-drive the stored amount. Do not quote again.
     const already = await this.authorizationByRef(card.id, input.authorizationRef);
-    if (already) return already;
+    if (already) {
+      const strandedHold = already.decision === 'approved' && already.status === 'pending' && already.holdLedgerTxId === null;
+      if (!strandedHold) return already;
+      return this.redriveHold(card, already);
+    }
 
     return withMoneySpan(
       'bank.card.authorize',
@@ -492,59 +501,94 @@ export class CardService {
         }
 
         const claimed = await this.recordDecision({ card, input, fundingAmount, quote, decision: 'approved', declineCode: null });
-
-        try {
-          const posted = await this.ledger.post(
-            recipes.withdrawHold({
-              userId: card.userId,
-              assetId: card.assetId,
-              // THE CLAIMED ROW'S AMOUNT, not this call's quote. A second
-              // delivery that lost the decision insert has its own quote in
-              // hand and must not hold against it — the frozen rate is the one
-              // that won, and `claimed.amount` is what it converted to.
-              amount: claimed.amount,
-              // The rail label IS the programme id, so the boundary account a
-              // capture lands in is greppable back to the card that made it.
-              rail: card.issuer,
-              // OUR uuid, not the issuer's reference: the hold account is keyed
-              // on it, and an id chosen by a counterparty must not name an
-              // account in our book.
-              withdrawalId: claimed.id,
-            }),
-          );
-
-          await this.sql`
-            UPDATE bank.card_authorizations
-               SET status = 'settled', hold_ledger_tx_id = ${posted.id}, settled_at = now()
-             WHERE id = ${claimed.id}
-          `;
-        } catch (err) {
-          // The ledger is the authority and it just said no. The DECISION
-          // becomes a decline — a purchase the user was told about at the till —
-          // rather than an exception that leaves an `approved` row with no hold.
-          if (err instanceof InsufficientFundsError || (err instanceof LedgerError && err.code === 'ledger.insufficient_funds')) {
-            await this.sql`
-              UPDATE bank.card_authorizations
-                 SET decision = 'declined', decline_code = 'ledger.insufficient_funds', status = 'rejected'
-               WHERE id = ${claimed.id}
-            `;
-            const declined = (await this.authorizationByRef(card.id, input.authorizationRef))!;
-            await this.tellIssuer(card, declined, { decision: 'declined', reason: 'ledger.insufficient_funds' });
-            return declined;
-          }
-          // Anything else — svc-ledger unreachable, a frozen module — must NOT
-          // be turned into a decline. A decline is an answer, and answering
-          // "no" on behalf of a ledger that never spoke is a lie the user pays
-          // for at the till. The row stays `pending` and a redelivery re-drives.
-          throw err;
-        }
+        const finished = await this.commitHold(card, claimed, input.amount);
+        if (finished.decision === 'declined') return finished;
 
         span.setAttribute('intafaced.card_decision', 'approved');
-        const approved = (await this.authorizationByRef(card.id, input.authorizationRef))!;
-        await this.tellIssuer(card, approved, { decision: 'approved', amount: input.amount });
-        return approved;
+        return finished;
       },
     );
+  }
+
+  /**
+   * The hold for an approved row that never received one.
+   *
+   * No quote. The amount and the withdrawal id are the ones already stored.
+   * A second post of `withdraw.hold:<authorisation uuid>` finds the original
+   * transaction or makes it once.
+   */
+  private async redriveHold(card: CardRecord, already: AuthorizationRecord): Promise<AuthorizationRecord> {
+    const merchantAmount = already.conversion ? already.conversion.settlementAmount : already.amount;
+    return withMoneySpan(
+      'bank.card.authorize',
+      {
+        operation: 'card-authorize',
+        cardId: card.id,
+        amount: formatAmount(merchantAmount),
+        assetId: card.settlementAssetId,
+      },
+      async (span) => {
+        span.setAttribute('intafaced.card_funding_amount', formatAmount(already.amount));
+        const finished = await this.commitHold(card, already, merchantAmount);
+        span.setAttribute('intafaced.card_decision', finished.decision);
+        return finished;
+      },
+    );
+  }
+
+  /**
+   * Post the hold for a claimed authorisation, then write the row.
+   *
+   * THE CLAIMED ROW'S AMOUNT, not this call's quote. A second delivery that
+   * lost the decision insert has its own quote in hand and must not hold
+   * against it — the frozen rate is the one that won, and `claimed.amount` is
+   * what it converted to. The withdrawal id is OUR uuid, not the issuer's
+   * reference: the hold account is keyed on it, and an id chosen by a
+   * counterparty must not name an account in our book. The rail label is the
+   * programme id, so the boundary account a capture lands in is greppable back
+   * to the card that made it.
+   */
+  private async commitHold(card: CardRecord, claimed: AuthorizationRecord, merchantAmount: Amount): Promise<AuthorizationRecord> {
+    try {
+      const posted = await this.ledger.post(
+        recipes.withdrawHold({
+          userId: card.userId,
+          assetId: card.assetId,
+          amount: claimed.amount,
+          rail: card.issuer,
+          withdrawalId: claimed.id,
+        }),
+      );
+
+      await this.sql`
+        UPDATE bank.card_authorizations
+           SET status = 'settled', hold_ledger_tx_id = ${posted.id}, settled_at = now()
+         WHERE id = ${claimed.id}
+      `;
+    } catch (err) {
+      // The ledger is the authority and it just said no. The DECISION
+      // becomes a decline — a purchase the user was told about at the till —
+      // rather than an exception that leaves an `approved` row with no hold.
+      if (err instanceof InsufficientFundsError || (err instanceof LedgerError && err.code === 'ledger.insufficient_funds')) {
+        await this.sql`
+          UPDATE bank.card_authorizations
+             SET decision = 'declined', decline_code = 'ledger.insufficient_funds', status = 'rejected'
+           WHERE id = ${claimed.id}
+        `;
+        const declined = (await this.authorizationByRef(card.id, claimed.authorizationRef))!;
+        await this.tellIssuer(card, declined, { decision: 'declined', reason: 'ledger.insufficient_funds' });
+        return declined;
+      }
+      // Anything else — svc-ledger unreachable, a frozen module — must NOT
+      // be turned into a decline. A decline is an answer, and answering
+      // "no" on behalf of a ledger that never spoke is a lie the user pays
+      // for at the till. The row stays `pending` and a redelivery re-drives.
+      throw err;
+    }
+
+    const approved = (await this.authorizationByRef(card.id, claimed.authorizationRef))!;
+    await this.tellIssuer(card, approved, { decision: 'approved', amount: merchantAmount });
+    return approved;
   }
 
   /**

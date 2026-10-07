@@ -651,15 +651,173 @@ describe('svc-bank cards PG-hard', () => {
         'svc-ledger unreachable',
       );
 
-      const rows = await sql<Array<{ decision: string; status: string }>>`
-        SELECT decision, status FROM bank.card_authorizations WHERE card_id = ${card.id}
+      const rows = await sql<Array<{ decision: string; status: string; hold_ledger_tx_id: string | null }>>`
+        SELECT decision, status, hold_ledger_tx_id FROM bank.card_authorizations WHERE card_id = ${card.id}
       `;
-      expect(rows[0]).toMatchObject({ decision: 'approved', status: 'pending' });
+      expect(rows[0]).toMatchObject({ decision: 'approved', status: 'pending', hold_ledger_tx_id: null });
 
-      // And re-driving completes it, because the hold post is idempotent on the
-      // authorisation's own uuid.
+      // And re-driving completes it, at the stored amount, not the number this
+      // delivery arrived with. The hold post is idempotent on the authorisation's
+      // own uuid.
+      const redriven = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('80') });
+      expect(redriven.status).toBe('settled');
+      expect(redriven.decision).toBe('approved');
+      expect(redriven.holdLedgerTxId).not.toBeNull();
+      expect(formatAmount(redriven.amount)).toBe('10');
+      expect(await heldOn(redriven.id)).toBe('10');
+      expect(await availableOf(HOLDER, 'USDT')).toBe('490');
+    });
+
+    /**
+     * A crash after the approved pending insert and before hold_ledger_tx_id is
+     * written. Redelivery must post the stored hold, not hand back the pending
+     * row, and not size the hold from whatever amount arrived this time.
+     */
+    it('re-drives an approved pending hold at the stored amount, and a second post does not move it again', async () => {
+      await fund(HOLDER, 'USDT', '500');
+      const card = await issueCard();
+
+      const broken = new CardService(
+        sql,
+        {
+          ...ledger,
+          balance: ledger.balance.bind(ledger),
+          post: async (tx: Parameters<MemoryLedger['post']>[0]) => {
+            if (tx.idempotencyKey.startsWith('withdraw.hold:')) throw new Error('svc-ledger unreachable');
+            return ledger.post(tx);
+          },
+        } as unknown as MemoryLedger,
+        { issuer: cardSim() },
+      );
+
+      await expect(broken.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('10') })).rejects.toThrow(
+        'svc-ledger unreachable',
+      );
+
+      const stranded = await sql<Array<{ id: string; amount: string }>>`
+        SELECT id, amount::text AS amount FROM bank.card_authorizations WHERE card_id = ${card.id}
+      `;
+      const authorizationId = stranded[0]!.id;
+      expect(formatAmount(amt(stranded[0]!.amount))).toBe('10');
+
+      // The post landed; the row update did not. The redelivery must reuse this key.
+      const posted = await ledger.post(
+        recipes.withdrawHold({
+          userId: HOLDER,
+          assetId: 'USDT',
+          amount: amt('10'),
+          rail: 'card-sim',
+          withdrawalId: authorizationId,
+        }),
+      );
+      const journalLength = ledger.journal().length;
+
+      // A different number on the redelivery is not a new quote to hold against.
+      const redriven = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('80') });
+
+      expect(redriven.id).toBe(authorizationId);
+      expect(redriven.status).toBe('settled');
+      expect(redriven.decision).toBe('approved');
+      expect(redriven.holdLedgerTxId).toBe(posted.id);
+      expect(formatAmount(redriven.amount)).toBe('10');
+      expect(ledger.journal().length).toBe(journalLength);
+      expect(await heldOn(authorizationId)).toBe('10');
+      expect(await availableOf(HOLDER, 'USDT')).toBe('490');
+      expect(ledger.totalsByAsset().USDT).toBe('0');
+
+      const hold = await ledger.getTxByKey(`withdraw.hold:${authorizationId}`);
+      expect(hold?.meta).toMatchObject({ withdrawalId: authorizationId });
+      expect(formatAmount(hold!.entries[0]!.amount)).toBe('10');
+
+      const again = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('80') });
+      expect(again.holdLedgerTxId).toBe(posted.id);
+      expect(ledger.journal().length).toBe(journalLength);
+      expect(await heldOn(authorizationId)).toBe('10');
+    });
+
+    it('returns a declined authorisation on redelivery and does not hold', async () => {
+      await fund(HOLDER, 'USDT', '50');
+      const card = await issueCard();
+
+      const first = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') });
+      const again = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('1') });
+
+      expect(again.id).toBe(first.id);
+      expect(again.decision).toBe('declined');
+      expect(again.status).toBe('rejected');
+      expect(again.declineCode).toBe('ledger.insufficient_funds');
+      expect(again.holdLedgerTxId).toBeNull();
+      expect(await availableOf(HOLDER, 'USDT')).toBe('50');
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('withdraw.hold:'))).toHaveLength(0);
+    });
+
+    it('declines a re-driven hold when the ledger answers insufficient funds', async () => {
+      await fund(HOLDER, 'USDT', '500');
+      const card = await issueCard();
+
+      const broken = new CardService(
+        sql,
+        {
+          ...ledger,
+          balance: ledger.balance.bind(ledger),
+          post: async (tx: Parameters<MemoryLedger['post']>[0]) => {
+            if (tx.idempotencyKey.startsWith('withdraw.hold:')) throw new Error('svc-ledger unreachable');
+            return ledger.post(tx);
+          },
+        } as unknown as MemoryLedger,
+        { issuer: cardSim() },
+      );
+
+      await expect(broken.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('10') })).rejects.toThrow(
+        'svc-ledger unreachable',
+      );
+
+      // The balance is gone before the re-drive. The ledger's answer is the decline.
+      await cards.authorize({ cardId: card.id, authorizationRef: 'auth-other', amount: amt('500') });
       const redriven = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('10') });
-      expect(redriven.status).toBe('pending');
+
+      expect(redriven.decision).toBe('declined');
+      expect(redriven.declineCode).toBe('ledger.insufficient_funds');
+      expect(redriven.status).toBe('rejected');
+      expect(redriven.holdLedgerTxId).toBeNull();
+      expect(await availableOf(HOLDER, 'USDT')).toBe('0');
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey === `withdraw.hold:${redriven.id}`)).toHaveLength(0);
+      expect(ledger.totalsByAsset().USDT).toBe('0');
+    });
+
+    it('leaves the pending hold and throws when a re-drive cannot reach the ledger', async () => {
+      await fund(HOLDER, 'USDT', '500');
+      const card = await issueCard();
+
+      const broken = new CardService(
+        sql,
+        {
+          ...ledger,
+          balance: ledger.balance.bind(ledger),
+          post: async (tx: Parameters<MemoryLedger['post']>[0]) => {
+            if (tx.idempotencyKey.startsWith('withdraw.hold:')) throw new Error('svc-ledger unreachable');
+            return ledger.post(tx);
+          },
+        } as unknown as MemoryLedger,
+        { issuer: cardSim() },
+      );
+
+      await expect(broken.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('10') })).rejects.toThrow(
+        'svc-ledger unreachable',
+      );
+      await expect(broken.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('80') })).rejects.toThrow(
+        'svc-ledger unreachable',
+      );
+
+      const rows = await sql<Array<{ decision: string; status: string; hold_ledger_tx_id: string | null; amount: string }>>`
+        SELECT decision, status, hold_ledger_tx_id, amount::text AS amount
+          FROM bank.card_authorizations WHERE card_id = ${card.id}
+      `;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ decision: 'approved', status: 'pending', hold_ledger_tx_id: null });
+      expect(formatAmount(amt(rows[0]!.amount))).toBe('10');
+      expect(await availableOf(HOLDER, 'USDT')).toBe('500');
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('withdraw.hold:'))).toHaveLength(0);
     });
 
     // ── Capture, reversal, and the hold that must end at zero ────────────────
@@ -1315,6 +1473,51 @@ describe('svc-bank cards PG-hard', () => {
        * re-quoted on redelivery would hold twice, at two different sizes, for
        * one swipe.
        */
+      it('re-drives a pending converted hold at the stored funding amount, not a fresh quote', async () => {
+        await fund(HOLDER, 'BTC', '1');
+        const { source, state } = movableRates({ rate: '50000' });
+        const failing = {
+          ...ledger,
+          balance: ledger.balance.bind(ledger),
+          post: async (tx: Parameters<MemoryLedger['post']>[0]) => {
+            if (tx.idempotencyKey.startsWith('withdraw.hold:')) throw new Error('svc-ledger unreachable');
+            return ledger.post(tx);
+          },
+        } as unknown as MemoryLedger;
+        const broken = new CardService(sql, failing, { issuer: cardSim(), rates: source, clock: () => NOW });
+        const card = await broken.issue({
+          cardId: randomUUID(),
+          userId: HOLDER,
+          assetId: 'BTC',
+          settlementAssetId: 'USDT',
+          perAuthorizationLimit: amt('1'),
+        });
+
+        await expect(broken.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('100') })).rejects.toThrow(
+          'svc-ledger unreachable',
+        );
+        const callsAfterDecision = state.calls;
+
+        // Inside the deviation breaker, so a fresh quote would be a different hold.
+        state.rate = '45000';
+        const healthy = new CardService(sql, ledger, { issuer: cardSim(), rates: source, clock: () => NOW });
+        const redriven = await healthy.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('100') });
+
+        expect(state.calls).toBe(callsAfterDecision);
+        expect(redriven.status).toBe('settled');
+        expect(redriven.decision).toBe('approved');
+        expect(formatAmount(redriven.amount)).toBe('0.002');
+        expect(formatAmount(redriven.conversion!.rate)).toBe('50000');
+        expect(await heldOn(redriven.id, HOLDER, 'BTC')).toBe('0.002');
+        expect(await availableOf(HOLDER, 'BTC')).toBe('0.998');
+        expect(ledger.totalsByAsset().BTC).toBe('0');
+
+        const again = await healthy.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('100') });
+        expect(again.holdLedgerTxId).toBe(redriven.holdLedgerTxId);
+        expect(state.calls).toBe(callsAfterDecision);
+        expect(await heldOn(redriven.id, HOLDER, 'BTC')).toBe('0.002');
+      });
+
       it('re-quotes nothing on a redelivered authorisation, and holds exactly once', async () => {
         await fund(HOLDER, 'BTC', '1');
         const { source, state } = movableRates({ rate: '50000' });
