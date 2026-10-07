@@ -26,17 +26,14 @@ export type OmsPaperDoorDeps = {
   readonly paper?: PaperGate;
 };
 
-function paperGate(body: OmsPaperDoorBody, deps: OmsPaperDoorDeps): PaperGate | undefined {
-  if (body.paper && typeof body.paper === 'object') return body.paper;
-  return deps.paper;
-}
-
-/** Pure door — tests call this. Hitch mill; stores stay unwired unless passed. */
+/** Pure door — tests call this. Hitch mill; stores stay unwired unless passed.
+ * The body cannot open the server paper gate or shadow the server parent store.
+ */
 export function handleOmsPaperDoor(body: OmsPaperDoorBody, deps: OmsPaperDoorDeps = { edgeContext: () => ({}) }): OmsPaperResult {
   return paperRunAlgoParent({
     parentClientOrderId: body.parentClientOrderId,
-    parentStore: body.parentStore ?? deps.parentStore,
-    paper: paperGate(body, deps),
+    parentStore: deps.parentStore,
+    paper: deps.paper,
   });
 }
 
