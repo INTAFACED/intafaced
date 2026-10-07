@@ -624,6 +624,18 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           return { archived: true as const };
         }),
       ),
+
+    unarchive: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ spaceId: z.string().uuid() }))
+      .output(z.object({ archived: z.literal(false) }))
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const space = await bank.spaces.get(input.spaceId);
+          assertSelf(ctx.principal.userId, space.userId);
+          await bank.spaces.unarchive(input.spaceId);
+          return { archived: false as const };
+        }),
+      ),
   });
 
   const transfers = router({

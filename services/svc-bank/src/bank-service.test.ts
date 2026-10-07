@@ -342,6 +342,108 @@ describe('svc-bank money PG-hard', () => {
       const primary = await bank.spaces.ensurePrimary(USER_A, 'USDT');
       await expect(bank.spaces.archive(primary.id)).rejects.toMatchObject({ code: 'bank.space_archived' });
     });
+
+    it('archive of a funded named space leaves the subaccount balance and closes the books', async () => {
+      const primary = await bank.spaces.ensurePrimary(USER_A, 'USDT');
+      const pot = await bank.spaces.create({ userId: USER_A, assetId: 'USDT', name: 'Holiday' });
+      await fund(USER_A, 'USDT', '100');
+      await bank.transfers.transfer({ transferId: 'seed-holiday-archive', fromSpaceId: primary.id, toSpaceId: pot.id, amount: amt('40') });
+
+      const posts = ledger.journal().length;
+      await bank.spaces.archive(pot.id);
+
+      expect(ledger.journal().length).toBe(posts);
+      expect(formatAmount((await ledger.balance(subAccountAvailable(pot.id, 'USDT'))).amount)).toBe('40');
+      expect(await availableOf(USER_A, 'USDT')).toBe('60');
+      expect(ledger.totalsByAsset().USDT).toBe('0');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('overview still returns an archived named space while its balance is greater than zero', async () => {
+      const primary = await bank.spaces.ensurePrimary(USER_A, 'USDT');
+      const pot = await bank.spaces.create({ userId: USER_A, assetId: 'USDT', name: 'Holiday' });
+      await fund(USER_A, 'USDT', '100');
+      await bank.transfers.transfer({ transferId: 'seed-holiday-visible', fromSpaceId: primary.id, toSpaceId: pot.id, amount: amt('40') });
+      await bank.spaces.archive(pot.id);
+
+      const overview = await bank.spaces.overview(USER_A, undefined, 50);
+      const visible = overview.find((space) => space.id === pot.id);
+      expect(visible).toMatchObject({ name: 'Holiday', balance: '40', kind: 'named' });
+      expect(visible?.archivedAt).toBeInstanceOf(Date);
+      expect(typeof visible?.balance).toBe('string');
+    });
+
+    it('overview omits an archived named space whose balance is zero', async () => {
+      await bank.spaces.ensurePrimary(USER_A, 'USDT');
+      const empty = await bank.spaces.create({ userId: USER_A, assetId: 'USDT', name: 'Empty jar' });
+      await bank.spaces.archive(empty.id);
+
+      const overview = await bank.spaces.overview(USER_A, undefined, 50);
+      expect(overview.map((space) => space.id)).not.toContain(empty.id);
+      expect(overview.map((space) => space.name)).toContain('Main');
+    });
+
+    it('resolveForDebit and resolveForCredit still refuse an archived space', async () => {
+      const primary = await bank.spaces.ensurePrimary(USER_A, 'USDT');
+      const pot = await bank.spaces.create({ userId: USER_A, assetId: 'USDT', name: 'Holiday' });
+      await fund(USER_A, 'USDT', '100');
+      await bank.transfers.transfer({ transferId: 'seed-holiday-refuse', fromSpaceId: primary.id, toSpaceId: pot.id, amount: amt('40') });
+      await bank.spaces.archive(pot.id);
+
+      await expect(bank.spaces.resolveForDebit(pot.id, new Date())).rejects.toMatchObject({ code: 'bank.space_archived' });
+      await expect(bank.spaces.resolveForCredit(pot.id)).rejects.toMatchObject({ code: 'bank.space_archived' });
+      expect(formatAmount((await ledger.balance(subAccountAvailable(pot.id, 'USDT'))).amount)).toBe('40');
+    });
+
+    it('unarchive posts nothing, returns the space to list, and a transfer out closes the books', async () => {
+      const primary = await bank.spaces.ensurePrimary(USER_A, 'USDT');
+      const pot = await bank.spaces.create({ userId: USER_A, assetId: 'USDT', name: 'Holiday' });
+      await fund(USER_A, 'USDT', '100');
+      await bank.transfers.transfer({ transferId: 'seed-holiday-out', fromSpaceId: primary.id, toSpaceId: pot.id, amount: amt('40') });
+      await bank.spaces.archive(pot.id);
+
+      const posts = ledger.journal().length;
+      await bank.spaces.unarchive(pot.id);
+      expect(ledger.journal().length).toBe(posts);
+      expect(formatAmount((await ledger.balance(subAccountAvailable(pot.id, 'USDT'))).amount)).toBe('40');
+      expect(ledger.totalsByAsset().USDT).toBe('0');
+
+      const listed = await bank.spaces.list(USER_A, 'USDT', 50);
+      const back = listed.find((space) => space.id === pot.id);
+      expect(back?.archivedAt).toBeNull();
+      expect(back?.name).toBe('Holiday');
+
+      await bank.transfers.transfer({ transferId: 'unarchive-to-primary', fromSpaceId: pot.id, toSpaceId: primary.id, amount: amt('40') });
+      expect(formatAmount((await ledger.balance(subAccountAvailable(pot.id, 'USDT'))).amount)).toBe('0');
+      expect(await availableOf(USER_A, 'USDT')).toBe('100');
+      expect(ledger.totalsByAsset().USDT).toBe('0');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('unarchive of a live named space is a no-op and posts nothing', async () => {
+      const pot = await bank.spaces.create({ userId: USER_A, assetId: 'USDT', name: 'Holiday' });
+      const before = await sql<Array<{ updated_at: Date; archived_at: Date | null }>>`
+        SELECT updated_at, archived_at FROM bank.spaces WHERE id = ${pot.id}
+      `;
+      const posts = ledger.journal().length;
+
+      await bank.spaces.unarchive(pot.id);
+
+      const after = await sql<Array<{ updated_at: Date; archived_at: Date | null }>>`
+        SELECT updated_at, archived_at FROM bank.spaces WHERE id = ${pot.id}
+      `;
+      expect(ledger.journal().length).toBe(posts);
+      expect(after[0]?.archived_at).toBeNull();
+      expect(after[0]?.updated_at?.getTime()).toBe(before[0]?.updated_at?.getTime());
+    });
+
+    it('refuses to unarchive a missing space or the primary space', async () => {
+      const primary = await bank.spaces.ensurePrimary(USER_A, 'USDT');
+      await expect(bank.spaces.unarchive('44444444-4444-4444-8444-444444444444')).rejects.toMatchObject({
+        code: 'bank.space_not_found',
+      });
+      await expect(bank.spaces.unarchive(primary.id)).rejects.toMatchObject({ code: 'bank.space_archived' });
+    });
   });
 
   // ══ Transfers ═════════════════════════════════════════════════════════════
@@ -3048,6 +3150,23 @@ describe('svc-bank money PG-hard', () => {
 
       const err = await api.spaces.archive({ spaceId: space.id }).catch((e: unknown) => e);
       expect(codeOf(err)).toBe('FORBIDDEN');
+    });
+
+    it('spaces.unarchive uses the same ownership refusal as spaces.archive', async () => {
+      const space = await bank.spaces.create({ userId: USER_A, assetId: 'USDT', name: 'Rent' });
+      const owner = await caller(USER_A, ['bank:write']);
+      const stranger = await caller(USER_B, ['bank:write']);
+      await owner.spaces.archive({ spaceId: space.id });
+
+      const archived = await stranger.spaces.archive({ spaceId: space.id }).catch((e: unknown) => e);
+      const unarchived = await stranger.spaces.unarchive({ spaceId: space.id }).catch((e: unknown) => e);
+
+      expect(codeOf(unarchived)).toBe('FORBIDDEN');
+      expect((unarchived as Error).message).toBe((archived as Error).message);
+      expect((await bank.spaces.get(space.id)).archivedAt).toBeInstanceOf(Date);
+
+      await expect(owner.spaces.unarchive({ spaceId: space.id })).resolves.toEqual({ archived: false });
+      expect((await bank.spaces.get(space.id)).archivedAt).toBeNull();
     });
   });
 
