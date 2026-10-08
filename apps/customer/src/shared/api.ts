@@ -48,6 +48,7 @@ export function createApiClient(
     raw: boolean,
     requestOptions: RequestOptions & { idempotencyKey?: string },
   ): Promise<ApiResult<T>> {
+    if (requestOptions.signal?.aborted) return { ok: false, reason: 'aborted', message: 'Request stopped before dispatch.' };
     if (method !== 'GET' && options.canWrite && !options.canWrite())
       return { ok: false, reason: 'aborted', message: 'The account context changed. Review the action again in the current account.' };
     const headers: Record<string, string> = { 'content-type': 'application/json' };
@@ -148,7 +149,7 @@ export function createApiClient(
         };
       return { ok: true, data: data.data };
     } catch (error) {
-      if (requestOptions.signal?.aborted) return { ok: false, reason: 'aborted', message: 'Request stopped.' };
+      if (method === 'GET' && requestOptions.signal?.aborted) return { ok: false, reason: 'aborted', message: 'Request stopped.' };
       return {
         ok: false,
         reason: method === 'GET' ? 'unreachable' : 'uncertain',

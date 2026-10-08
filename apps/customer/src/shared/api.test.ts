@@ -33,4 +33,15 @@ describe('customer transport boundary', () => {
     expect(result).toMatchObject({ ok: false, reason: 'aborted' });
     expect(sent).toHaveLength(0);
   });
+  it('keeps a dispatched write uncertain when its caller aborts the wait', async () => {
+    const controller = new AbortController();
+    const api = createApiClient({
+      fetch: async () => {
+        controller.abort();
+        throw new DOMException('Wait stopped', 'AbortError');
+      },
+    });
+    const result = await api.rest('/orders', z.unknown(), { method: 'POST', body: {}, signal: controller.signal });
+    expect(result).toMatchObject({ ok: false, reason: 'uncertain' });
+  });
 });
