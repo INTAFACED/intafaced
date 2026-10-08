@@ -123,8 +123,8 @@ function addStudies(chart: ChartApi, engine: Engine, bars: Bar[], studies: Study
     const series = chart.addSeries(engine.HistogramSeries, { priceFormat: { type: 'volume' }, priceLineVisible: false }, 1);
     updates.push((rows) => {
       const css = getComputedStyle(document.documentElement),
-        up = css.getPropertyValue('--color-positive').trim(),
-        down = css.getPropertyValue('--color-negative').trim();
+        up = css.getPropertyValue('--chart-up').trim() || css.getPropertyValue('--color-positive').trim(),
+        down = css.getPropertyValue('--chart-down').trim() || css.getPropertyValue('--color-negative').trim();
       series.setData(rows.map((row) => ({ time: row.time, value: row.volume, color: row.close >= row.open ? up : down })));
     });
   }
@@ -409,8 +409,8 @@ export function MarketChart({
       if (closed || !host.current || !window.LightweightCharts) return;
       const engine = window.LightweightCharts;
       const css = getComputedStyle(document.documentElement),
-        up = css.getPropertyValue('--color-positive').trim() || '#c8f64a',
-        down = css.getPropertyValue('--color-negative').trim() || '#f05a68',
+        up = css.getPropertyValue('--chart-up').trim() || css.getPropertyValue('--color-positive').trim() || '#c8f64a',
+        down = css.getPropertyValue('--chart-down').trim() || css.getPropertyValue('--color-negative').trim() || '#f05a68',
         background = css.getPropertyValue('--color-shell').trim() || '#111111',
         text = css.getPropertyValue('--color-muted').trim() || '#a3a3a3',
         divider = css.getPropertyValue('--color-divider').trim() || '#262626';
@@ -537,7 +537,9 @@ export function MarketChart({
         fillLines.current.push(
           series.createPriceLine({
             price: Number(fill.price),
-            color: css.getPropertyValue(fill.side === 'buy' ? '--color-positive' : '--color-negative').trim(),
+            color:
+              css.getPropertyValue(fill.side === 'buy' ? '--chart-up' : '--chart-down').trim() ||
+              css.getPropertyValue(fill.side === 'buy' ? '--color-positive' : '--color-negative').trim(),
             lineStyle: 3,
             lineWidth: 1,
             title: `Fill ${fill.id.slice(0, 6)}`,
@@ -912,6 +914,7 @@ export function SecondaryChart({
 }) {
   const host = useRef<HTMLDivElement>(null);
   const [failure, setFailure] = useState('');
+  const preferences = usePreferences();
   const result = useResource((signal) => api.history(symbol, interval, signal), `${symbol}:${interval}`);
   useEffect(() => {
     if (!host.current || result.resource.status !== 'ready' || !result.resource.data.length) return;
@@ -936,8 +939,8 @@ export function SecondaryChart({
           rightPriceScale: { borderColor: css.getPropertyValue('--color-divider').trim() },
           timeScale: { borderColor: css.getPropertyValue('--color-divider').trim(), timeVisible: true },
         });
-        const color = css.getPropertyValue('--color-positive').trim(),
-          down = css.getPropertyValue('--color-negative').trim();
+        const color = css.getPropertyValue('--chart-up').trim() || css.getPropertyValue('--color-positive').trim(),
+          down = css.getPropertyValue('--chart-down').trim() || css.getPropertyValue('--color-negative').trim();
         const series = chart.addSeries(type === 'Line' ? engine.LineSeries : engine.CandlestickSeries, {
           color,
           upColor: color,
@@ -958,7 +961,7 @@ export function SecondaryChart({
       closed = true;
       chart?.remove();
     };
-  }, [result.resource, type]);
+  }, [result.resource, type, preferences.upColor, preferences.theme]);
   return (
     <section className={workspace ? 'trade-secondary-view' : undefined} aria-label={`Second linked ${symbol} chart`}>
       <small className="trade-note">

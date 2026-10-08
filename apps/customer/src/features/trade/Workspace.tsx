@@ -453,7 +453,7 @@ export function UnavailableDesk({
         </section>
       }
       book={
-        <section className="trade-book" aria-label="Order book unavailable">
+        <section className="trade-book trade-book--absent" aria-label="Order book unavailable">
           <div className="trade-chart-toolbar">
             <strong>Order book</strong>
           </div>
@@ -470,18 +470,15 @@ export function UnavailableDesk({
           </div>
           <div className="trade-absent-content">
             <h3>Order management unavailable</h3>
-            <p>
-              Select a published market to inspect scoped orders and fills. No empty-success collection or released funds have been
-              inferred.
-            </p>
+            <p>Select a published market to inspect its orders and fills. Order and fund status cannot be verified yet.</p>
           </div>
         </section>
       }
       ticket={
-        <aside className="trade-ticket-column" aria-label="Order ticket unavailable">
+        <aside className="trade-ticket-column trade-ticket-column--absent" aria-label="Order ticket unavailable">
           <div className="trade-ticket-body">
             <h2>{simulation ? 'Simulated order' : 'Spot order'}</h2>
-            <p className="muted">Order entry needs published units, tick and lot rules, market state and authoritative review.</p>
+            <p className="muted">A published market is required to verify trading rules and review your order.</p>
             <Field label="Order amount" value="" disabled placeholder="Market units unavailable" />
             <Field label="Limit price" value="" disabled placeholder="Quote unit unavailable" />
             <Button disabled>Review order</Button>
@@ -491,7 +488,7 @@ export function UnavailableDesk({
             <p>
               {simulation
                 ? 'This workspace does not read live balances. A published paper market is required before a simulated order can be reviewed.'
-                : 'No balance has been substituted for unavailable account or market information.'}
+                : 'Available account funds cannot be verified until published market information is available.'}
             </p>
             <a className="text-link" href="/money">
               Manage in Money ↗

@@ -201,7 +201,15 @@ export function TradeRoutes({ path }: { path: string }) {
           )}
         </>
       )}
-      {picker && <MarketPicker markets={visible} onSelect={choose} onClose={() => setPicker(false)} />}
+      {picker && (
+        <MarketPicker
+          markets={visible}
+          resource={catalogue.resource}
+          retry={catalogue.reload}
+          onSelect={choose}
+          onClose={() => setPicker(false)}
+        />
+      )}
     </div>
   );
 }
@@ -232,12 +240,26 @@ function ResourceView<T>({
     (children(resource.data) ?? <EmptyState title={empty ?? 'No records'} />)
   );
 }
-function MarketPicker({ markets, onSelect, onClose }: { markets: Listing[]; onSelect: (market: Listing) => void; onClose: () => void }) {
+function MarketPicker({
+  markets,
+  resource,
+  retry,
+  onSelect,
+  onClose,
+}: {
+  markets: Listing[];
+  resource: Resource<Listing[]>;
+  retry: () => void;
+  onSelect: (market: Listing) => void;
+  onClose: () => void;
+}) {
   const [query, setQuery] = useState('');
   return (
     <Dialog title="Choose market" onClose={onClose}>
       <Field label="Search markets" autoFocus value={query} onChange={(event) => setQuery(event.target.value)} />
       <div className="trade-picker">
+        {resource.status === 'loading' && <Loading label="Loading published markets" />}
+        {resource.status === 'failed' && <Failure result={resource.failure} retry={retry} />}
         {markets
           .filter((market) => `${market.symbol} ${market.base} ${market.quote}`.toLowerCase().includes(query.toLowerCase()))
           .map((market) => (
@@ -246,7 +268,10 @@ function MarketPicker({ markets, onSelect, onClose }: { markets: Listing[]; onSe
               <span>{market.paper ? 'Simulated' : market.orderable && market.sessionOpen ? 'Published for trading' : 'Restricted'}</span>
             </button>
           ))}
-        {!markets.length && <p>No matching published markets in this mode.</p>}
+        {resource.status === 'ready' &&
+          !markets.some((market) => `${market.symbol} ${market.base} ${market.quote}`.toLowerCase().includes(query.toLowerCase())) && (
+            <p>No matching published markets in this mode.</p>
+          )}
       </div>
     </Dialog>
   );
@@ -746,8 +771,8 @@ function DepthPlot({
     <>
       <svg className="trade-depth-plot" viewBox="0 0 280 260" role="img" aria-label={`Actual cumulative ${market.symbol} depth`}>
         {[
-          { rows: bids, color: 'var(--color-positive)' },
-          { rows: asks, color: 'var(--color-negative)' },
+          { rows: bids, color: 'var(--chart-up, var(--color-positive))' },
+          { rows: asks, color: 'var(--chart-down, var(--color-negative))' },
         ].map((side) => (
           <g key={side.color}>
             <polyline

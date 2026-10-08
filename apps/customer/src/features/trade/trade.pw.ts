@@ -16,6 +16,16 @@ test('an unavailable catalog retains the four Desk work areas and retries withou
   await expect(page.locator('.trade-workspace canvas')).toHaveCount(0);
   await page.getByRole('button', { name: 'Retry published markets', exact: true }).click();
   await expect.poll(() => reads).toBe(2);
+  const proof = '/Users/Nitro/Desktop/intafaced-interface-overview/named-look/build/desk-completion-proof';
+  await mkdir(proof, { recursive: true });
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: `${proof}/catalog-unavailable-${width}.png`, fullPage: true });
+  }
+  await page.getByRole('button', { name: 'All markets', exact: true }).click();
+  await expect(page.getByRole('dialog').getByText('Published markets are unavailable.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog').getByText('No matching published markets in this mode.', { exact: true })).toHaveCount(0);
 });
 
 // Financial examples are test-only network responses, never application fallback data.
@@ -296,6 +306,48 @@ async function mount(
     balanceReads: () => balanceReads,
   };
 }
+
+test('the actual View red-up preference colors market data without recoloring cancellation danger', async ({ page }) => {
+  const server = await mount(page, { working: true });
+  await page.goto('/account/view');
+  await page.getByRole('combobox', { name: 'Theme', exact: true }).selectOption('dark');
+  await page.getByRole('combobox', { name: 'Up and down colors', exact: true }).selectOption('red');
+  await expect(page.getByText('Preferences saved on this device.', { exact: true })).toBeVisible();
+  await page.goto('/exchange/BTC%2FUSDT');
+  await expect(page.locator('.trade-book-row.positive').first()).toHaveCSS('color', 'rgb(240, 90, 104)');
+  await expect(page.locator('.trade-book-row.negative').first()).toHaveCSS('color', 'rgb(200, 246, 74)');
+  await expect
+    .poll(async () =>
+      page.locator('.trade-chart-canvas canvas').evaluateAll((canvases) => {
+        let pixels = 0;
+        for (const canvas of canvases as HTMLCanvasElement[]) {
+          const data = canvas.getContext('2d')?.getImageData(0, 0, canvas.width, canvas.height).data;
+          if (data)
+            for (let index = 0; index < data.length; index += 4)
+              if (data[index] === 240 && data[index + 1] === 90 && data[index + 2] === 104 && (data[index + 3] ?? 0) > 0) pixels++;
+        }
+        return pixels;
+      }),
+    )
+    .toBeGreaterThan(20);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Confirm cancellation', exact: true })).toHaveCSS(
+    'background-color',
+    'rgb(240, 90, 104)',
+  );
+  await page.getByRole('button', { name: 'Keep order', exact: true }).click();
+  await page.goto('/account/view');
+  await page.getByRole('combobox', { name: 'Theme', exact: true }).selectOption('light');
+  await page.goto('/exchange/BTC%2FUSDT');
+  await expect(page.locator('.trade-book-row.positive').first()).toHaveCSS('color', 'rgb(186, 36, 59)');
+  await expect(page.locator('.trade-book-row.negative').first()).toHaveCSS('color', 'rgb(60, 101, 0)');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Confirm cancellation', exact: true })).toHaveCSS(
+    'background-color',
+    'rgb(186, 36, 59)',
+  );
+  expect(server.deletes()).toBe(0);
+});
 
 test('an explicit Academy simulation link opens only a published paper row and preserves its navigation mode', async ({ page }) => {
   const server = await mount(page, { paper: true });
