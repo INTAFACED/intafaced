@@ -38,7 +38,7 @@ contract SovereignRouterForgeTest {
             0
         );
         vm.expectRevert(SovereignRouter.BadAmount.selector);
-        router.swapExactIn(address(pool), address(tokenIn), amountIn, 0, address(this));
+        router.swapExactIn(address(pool), address(tokenIn), amountIn, 0, address(this), block.timestamp);
 
         require(tokenIn.balanceOf(address(this)) == before, "input not pulled");
         require(tokenIn.balanceOf(address(router)) == 0, "router holds nothing");

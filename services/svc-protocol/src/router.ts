@@ -874,16 +874,25 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             amountIn: z.string().regex(/^\d+$/),
             minAmountOut: z.string().regex(/^\d+$/),
             to: addressSchema,
+            deadline: z.string({ required_error: 'deadline is unset — will not invent one' }).regex(/^\d+$/),
           }),
         )
         .output(unsignedCallOutput)
         .query(({ input }) => {
+          const deadline = BigInt(input.deadline);
+          if (deadline === 0n) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'deadline is unset — will not invent one',
+            });
+          }
           const call = buildSwapExactIn(
             input.pool as Address,
             input.tokenIn as Address,
             BigInt(input.amountIn),
             BigInt(input.minAmountOut),
             input.to as Address,
+            deadline,
           );
           return { to: call.to, data: call.data, value: call.value, summary: call.summary };
         }),

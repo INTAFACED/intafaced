@@ -154,7 +154,8 @@ export const SUITES = [
      *
      * Was pinned `fails` while `swapExactIn` called `external swap` by name
      * (Undeclared identifier). Fixed via private `_swap` shared by both
-     * entrypoints — external ABI of `swap` unchanged for calldata builders.
+     * entrypoints. `swap` and `swapExactIn` take a caller deadline;
+     * `swap` also takes the caller's maximum input.
      */
     sources: ['amm/ConstantProductPool.sol', 'amm/IERC20Minimal.sol', 'amm/PoolFactory.sol'],
   },

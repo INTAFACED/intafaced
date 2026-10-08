@@ -54,6 +54,10 @@ contract ConstantProductPool {
     error TransferFailed();
     error K();
     error Overflow();
+    error DeadlineMissing();
+    error DeadlineExpired();
+    error MaxInputMissing();
+    error ExcessiveInput();
 
     constructor(address tokenA, address tokenB, uint16 feeBps_) {
         if (tokenA == address(0) || tokenB == address(0) || tokenA == tokenB) revert InvalidTokens();
@@ -175,23 +179,31 @@ contract ConstantProductPool {
     }
 
     /**
-     * Swap exact input for output. `amountOut` is the minimum the caller accepts.
-     * Tokens must already be transferred in (or use swapExactIn with pull).
+     * Swap exact output. Tokens must already be transferred in (or use swapExactIn).
      *
-     * External ABI stays `swap(...)` for calldata builders. The shared body is
-     * `_swap` so `swapExactIn` can call it without changing visibility of the
-     * external entrypoint (Solidity forbids calling an `external` function
-     * from inside the same contract).
+     * `deadline` is the caller's last valid timestamp. Zero is missing.
+     * `maxAmountIn` is the caller's ceiling on tokens paid. Zero is missing.
+     * The shared body is `_swap` so `swapExactIn` can call it without an
+     * external self-call.
      */
-    function swap(uint256 amount0Out, uint256 amount1Out, address to) external {
-        _swap(amount0Out, amount1Out, to);
+    function swap(
+        uint256 amount0Out,
+        uint256 amount1Out,
+        address to,
+        uint256 deadline,
+        uint256 maxAmountIn
+    ) external {
+        _requireDeadline(deadline);
+        if (maxAmountIn == 0) revert MaxInputMissing();
+        _swap(amount0Out, amount1Out, to, maxAmountIn);
     }
 
     /** Pull-and-swap convenience for a single exact-in hop. */
-    function swapExactIn(address tokenIn, uint256 amountIn, uint256 minAmountOut, address to)
+    function swapExactIn(address tokenIn, uint256 amountIn, uint256 minAmountOut, address to, uint256 deadline)
         external
         returns (uint256 amountOut)
     {
+        _requireDeadline(deadline);
         if (amountIn == 0) revert InsufficientInput();
         (uint112 r0, uint112 r1,) = getReserves();
         bool zeroIn = tokenIn == token0;
@@ -201,14 +213,21 @@ contract ConstantProductPool {
         amountOut = _getAmountOut(amountIn, zeroIn ? r0 : r1, zeroIn ? r1 : r0);
         if (amountOut < minAmountOut) revert InsufficientOutput();
 
+        // The pull is the whole payment. Zero skips a second ceiling inside `_swap`.
         if (zeroIn) {
-            _swap(0, amountOut, to);
+            _swap(0, amountOut, to, 0);
         } else {
-            _swap(amountOut, 0, to);
+            _swap(amountOut, 0, to, 0);
         }
     }
 
-    function _swap(uint256 amount0Out, uint256 amount1Out, address to) private {
+    /// Zero is a missing deadline. A timestamp before this block has already passed.
+    function _requireDeadline(uint256 deadline) private view {
+        if (deadline == 0) revert DeadlineMissing();
+        if (deadline < block.timestamp) revert DeadlineExpired();
+    }
+
+    function _swap(uint256 amount0Out, uint256 amount1Out, address to, uint256 maxAmountIn) private {
         if (amount0Out == 0 && amount1Out == 0) revert InsufficientOutput();
         if (amount0Out > 0 && amount1Out > 0) revert InsufficientOutput();
         (uint112 r0, uint112 r1,) = getReserves();
@@ -223,6 +242,8 @@ contract ConstantProductPool {
         uint256 amount0In = balance0 > uint256(r0) - amount0Out ? balance0 - (uint256(r0) - amount0Out) : 0;
         uint256 amount1In = balance1 > uint256(r1) - amount1Out ? balance1 - (uint256(r1) - amount1Out) : 0;
         if (amount0In == 0 && amount1In == 0) revert InsufficientInput();
+        // `swap` rejects a zero ceiling before this. Exact-in passes zero: the pull is the payment.
+        if (maxAmountIn != 0 && amount0In + amount1In > maxAmountIn) revert ExcessiveInput();
 
         // (x - dx*(1-fee)) * (y - dy) >= x*y  with fee on input
         {

@@ -172,11 +172,13 @@ describeOnChain('AMM mint + swapExactIn onchain', () => {
       args: [clients.deployer],
     })) as bigint;
 
+    // Caller-supplied. This shared anvil is not warped; the case checks reserves, not the clock.
+    const deadline = 2n ** 256n - 1n;
     const swapHash = await clients.walletClient.writeContract({
       address: pool,
       abi: poolAbi,
       functionName: 'swapExactIn',
-      args: [token0, amountIn, 1n, clients.deployer],
+      args: [token0, amountIn, 1n, clients.deployer, deadline],
       account: clients.walletClient.account!,
       chain: clients.walletClient.chain,
     });

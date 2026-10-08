@@ -24,16 +24,23 @@ export function buildCreatePool(factory: Address, tokenA: Address, tokenB: Addre
   };
 }
 
-export function buildSwapExactIn(pool: Address, tokenIn: Address, amountIn: bigint, minAmountOut: bigint, to: Address): UnsignedAmmCall {
+export function buildSwapExactIn(
+  pool: Address,
+  tokenIn: Address,
+  amountIn: bigint,
+  minAmountOut: bigint,
+  to: Address,
+  deadline: bigint,
+): UnsignedAmmCall {
   return {
     to: pool,
     data: encodeFunctionData({
       abi: poolAbi,
       functionName: 'swapExactIn',
-      args: [tokenIn, amountIn, minAmountOut, to],
+      args: [tokenIn, amountIn, minAmountOut, to, deadline],
     }),
     value: '0',
-    summary: `swapExactIn pool=${pool} tokenIn=${tokenIn} amountIn=${amountIn.toString()} minOut=${minAmountOut.toString()}`,
+    summary: `swapExactIn pool=${pool} tokenIn=${tokenIn} amountIn=${amountIn.toString()} minOut=${minAmountOut.toString()} deadline=${deadline.toString()}`,
   };
 }
 

@@ -9,7 +9,7 @@ interface IConstantProductPool {
     function feeBps() external view returns (uint16);
     function getReserves() external view returns (uint112, uint112, uint32);
     function getAmountOut(uint256 amountIn, address tokenIn) external view returns (uint256);
-    function swapExactIn(address tokenIn, uint256 amountIn, uint256 minAmountOut, address to)
+    function swapExactIn(address tokenIn, uint256 amountIn, uint256 minAmountOut, address to, uint256 deadline)
         external
         returns (uint256 amountOut);
 }
@@ -20,7 +20,8 @@ interface IConstantProductPool {
  * On-chain execution is pool-only. Book quotes are compared off-chain (TypeScript)
  * from real matching marks — never invented here.
  *
- * `swapExactIn` fails closed on slippage (`minAmountOut`). No admin, no invented mid.
+ * `swapExactIn` fails closed on slippage (`minAmountOut`) and a missing deadline.
+ * No admin, no invented mid, no invented deadline.
  */
 contract SovereignRouter {
     error BadPool();
@@ -33,11 +34,18 @@ contract SovereignRouter {
         return IConstantProductPool(pool).getAmountOut(amountIn, tokenIn);
     }
 
-    function swapExactIn(address pool, address tokenIn, uint256 amountIn, uint256 minAmountOut, address to)
-        external
-        returns (uint256 amountOut)
-    {
-        if (pool == address(0) || tokenIn == address(0) || to == address(0) || amountIn == 0 || minAmountOut == 0) {
+    function swapExactIn(
+        address pool,
+        address tokenIn,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        address to,
+        uint256 deadline
+    ) external returns (uint256 amountOut) {
+        if (
+            pool == address(0) || tokenIn == address(0) || to == address(0) || amountIn == 0 || minAmountOut == 0
+                || deadline == 0
+        ) {
             revert BadAmount();
         }
         IConstantProductPool p = IConstantProductPool(pool);
@@ -48,7 +56,7 @@ contract SovereignRouter {
         if (!IERC20Minimal(tokenIn).transferFrom(msg.sender, address(this), amountIn)) revert TransferFailed();
         if (!IERC20Minimal(tokenIn).approve(pool, amountIn)) revert TransferFailed();
 
-        amountOut = p.swapExactIn(tokenIn, amountIn, minAmountOut, to);
+        amountOut = p.swapExactIn(tokenIn, amountIn, minAmountOut, to, deadline);
         if (amountOut < minAmountOut) revert InsufficientOut();
     }
 }
