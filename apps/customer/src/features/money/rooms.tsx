@@ -201,7 +201,7 @@ function Spaces({ open }: { open: (spec: ActionSpec) => void }) {
     </BankPage>
   );
 }
-function ScheduleExecutions({ id }: { id: string }) {
+function ScheduleExecutions({ id, asset }: { id: string; asset: string }) {
   const [limit, setLimit] = usePageLimit();
   const query = useBankRead('transfers.executions', { scheduleId: id, limit });
   return (
@@ -217,7 +217,7 @@ function ScheduleExecutions({ id }: { id: string }) {
                 {rows.map((row) => (
                   <tr key={row.occurrence}>
                     <td>{row.occurrence}</td>
-                    <td className="numeric">{row.amount}</td>
+                    <td className="numeric">{funds(row.amount, asset)}</td>
                     <td>
                       {row.status}
                       {row.rejectionCode && <small className="money-block">{row.rejectionCode}</small>}
@@ -238,7 +238,7 @@ function ScheduleExecutions({ id }: { id: string }) {
 }
 function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
   const [limit, setLimit] = usePageLimit();
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<{ id: string; asset: string } | null>(null);
   const query = useBankRead('transfers.listSchedules', { limit });
   return (
     <>
@@ -266,7 +266,7 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
                       <strong className="numeric">{funds(row.amount, row.assetId)}</strong>
                     </header>
                     <div className="actions">
-                      <Button variant="secondary" onClick={() => setSelected(row.id)}>
+                      <Button variant="secondary" onClick={() => setSelected({ id: row.id, asset: row.assetId })}>
                         Execution history
                       </Button>
                       {row.status !== 'cancelled' && (
@@ -319,7 +319,7 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
           )}
         </ResourceView>
       </Section>
-      {selected && <ScheduleExecutions id={selected} />}
+      {selected && <ScheduleExecutions id={selected.id} asset={selected.asset} />}
     </>
   );
 }
@@ -547,6 +547,7 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
                       onClick={() =>
                         open({
                           title: 'Withdraw earn principal',
+                          unit: position.assetId,
                           procedure: 'earn.withdraw',
                           facts: [
                             ['Position', position.id],
@@ -800,6 +801,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                         onClick={() =>
                           open({
                             title: 'Release settled collateral',
+                            unit: loan.collateralAssetId,
                             procedure: 'loans.close',
                             facts: [
                               ['Loan', loan.id],
@@ -1333,7 +1335,7 @@ function Business() {
             Creating a company bank record, adding members, proposing transfers, approval decisions and payroll stay unavailable until those
             dependencies are connected.
           </p>
-          <a className="text-link" href="/account">
+          <a className="text-link" href="/uc/account">
             Account identity and verification ↗
           </a>
         </div>

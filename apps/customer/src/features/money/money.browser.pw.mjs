@@ -188,3 +188,18 @@ test('honest absence fits desktop, tablet, phone and narrow phone and has no ser
   expect(scan.violations.filter((violation) => ['serious', 'critical'].includes(violation.impact))).toEqual([]);
   await page.screenshot({ path: '/tmp/intafaced-money-bank-absence-320.png', fullPage: true });
 });
+
+test('a confirmed transfer outcome retains its exact asset units', async ({ page }) => {
+  await defaultApi(page, {
+    'spaces.list': (route) => reply(route, [primary]),
+    'transfers.create': (route) => reply(route, { ledgerTxId: 'confirmed-original-transfer', amount: '0.000000000000000001' }),
+  });
+  await mount(page, `/bank/transfers?from=${fromId}`);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByLabel('Destination space ID').fill(toId);
+  await page.getByLabel('Amount (BTC)').fill('0.000000000000000001');
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Confirmed by the service');
+  await expect(page.getByRole('dialog')).toContainText('0.000000000000000001 BTC');
+});

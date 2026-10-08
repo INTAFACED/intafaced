@@ -107,6 +107,7 @@ export type ActionSpec = {
   validate?: (input: Record<string, unknown>) => string | null;
   transferSpaces?: Space[];
   submit?: string;
+  unit?: string;
 };
 export const positiveMoney = (asset: string, name = 'amount', label = 'Amount'): ActionField => ({
   name,
@@ -152,7 +153,17 @@ const outputNames: Record<string, string> = {
   id: 'Record',
   name: 'Name',
 };
-function Outcome({ data }: { data: unknown }) {
+const monetaryOutcomeKeys = new Set([
+  'amount',
+  'principal',
+  'threshold',
+  'interestPaid',
+  'principalPaid',
+  'remainingPrincipal',
+  'remainingInterest',
+  'released',
+]);
+function Outcome({ data, unit }: { data: unknown; unit?: string }) {
   if (Array.isArray(data)) return <span>{data.map((item) => String(item)).join(', ') || 'None'}</span>;
   if (data && typeof data === 'object')
     return (
@@ -161,7 +172,17 @@ function Outcome({ data }: { data: unknown }) {
           <div key={key}>
             <dt>{outputNames[key] ?? key.replace(/([A-Z])/g, ' $1')}</dt>
             <dd>
-              <Outcome data={value} />
+              {monetaryOutcomeKeys.has(key) && typeof value === 'string' ? (
+                unit || typeof (data as Record<string, unknown>).assetId === 'string' ? (
+                  amount(value, String((data as Record<string, unknown>).assetId ?? unit))
+                ) : (
+                  `${displayAmount(value)} · unit unavailable`
+                )
+              ) : key === 'ltvBps' && typeof value === 'number' ? (
+                bps(value)
+              ) : (
+                <Outcome data={value} unit={unit} />
+              )}
             </dd>
           </div>
         ))}
@@ -327,7 +348,13 @@ export function MutationDialog({
             {result.ok ? (
               <>
                 <h3>Confirmed by the service</h3>
-                <Outcome data={result.data} />
+                <Outcome
+                  data={result.data}
+                  unit={
+                    spec.unit ??
+                    spec.fields?.find((field) => field.name === 'amount' || field.name === 'principal')?.label.match(/\(([^)]+)\)$/)?.[1]
+                  }
+                />
               </>
             ) : (
               <Failure result={result} />
