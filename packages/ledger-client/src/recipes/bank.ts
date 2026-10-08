@@ -163,9 +163,19 @@ export interface EarnPoolFundInput {
  * Interest is not minted. `earnInterest` debits users out of this reserve, so
  * an under-funded pool fails to accrue rather than paying out of thin air —
  * which is the correct failure, loudly, on the day the yield stops being real.
+ *
+ * A supplied source must already be the pool asset. Cross-asset funding is
+ * rejected outright rather than silently priced — converting between assets is
+ * a trade, and a trade has an execution price this function has no business
+ * inventing.
  */
 export function earnPoolFund(input: EarnPoolFundInput): PostRequest {
   requirePositive('pool funding amount', input.amount);
+  if (input.from !== undefined && input.from.assetId !== input.assetId) {
+    throw new InvalidEntryError(
+      `A transfer cannot change asset (${input.from.assetId} → ${input.assetId}); route it through a conversion instead`,
+    );
+  }
   return {
     idempotencyKey: `bank.earn.fund:${input.poolId}:${input.fundingId}`,
     module: 'bank',
