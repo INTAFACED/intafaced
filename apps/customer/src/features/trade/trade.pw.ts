@@ -633,6 +633,42 @@ test('Trade authored Spanish controls keep native order enums, IDs, units and ex
   await expect(page.getByText('open', { exact: true })).toBeVisible();
 });
 
+test('the actual Desk keeps working orders and an uncertain cancellation within resized phone viewports', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const transport = await mount(page, { working: true, uncertainCancel: true });
+  await page.goto('/exchange?fullApp=1');
+  const chart = page.getByRole('img', { name: 'Actual BTC/USDT historical prices', exact: true });
+  await expect(chart.locator('canvas').first()).toBeVisible();
+  const originalCanvases = await chart.locator('canvas').elementHandles();
+  await chart.focus();
+  await chart.press('ArrowLeft');
+  await page.getByLabel('Price (USDT per BTC)', { exact: true }).fill('80000');
+  await page.getByRole('textbox', { name: /^Amount \(BTC/ }).fill('0.025');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm cancellation', exact: true }).click();
+  await expect(page.getByText('Outcome not confirmed · cancel', { exact: true })).toBeVisible();
+  for (const width of [390, 768, 320, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const bounds = await chart.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+    await expect(page.getByRole('textbox', { name: /^Amount \(BTC/ })).toHaveValue('0.025');
+    await expect(page.getByText('O 80000 · H 80020 · L 79990 · C 80001 USDT · V 1 BTC', { exact: true })).toBeVisible();
+    await expect(page.getByText('Outcome not confirmed · cancel', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Review buy', exact: true })).toBeDisabled();
+    await expect(chart.locator('canvas')).toHaveCount(originalCanvases.length);
+    for (let index = 0; index < originalCanvases.length; index++)
+      expect(
+        await chart
+          .locator('canvas')
+          .nth(index)
+          .evaluate((node, original) => node === original, originalCanvases[index]),
+      ).toBe(true);
+  }
+  expect(transport.deletes()).toBe(1);
+});
+
 test('device appearance repaints both mounted charts while preserving the analysis and order draft', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.addInitScript(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ theme: 'system', showFills: true })));
