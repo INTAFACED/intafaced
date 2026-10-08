@@ -311,17 +311,24 @@ export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGateway
           }
           continue;
         }
-        // Ping already went out and no pong came back. terminate() emits close,
-        // which detaches the hub seat so the dead client stops counting toward
-        // the per-user ceiling. A failed live credential still closes 4003.
-        // A pong that lands before terminate runs puts the socket back in alive.
+        // Ping already went out and no pong has been applied yet. A failed
+        // live credential still closes 4003. A seat that stays silent is
+        // terminate()'d so the hub seat is released.
+        //
+        // The credential promise resolves as a microtask, before a pong already
+        // in the I/O queue can mark this socket alive. terminate() in that
+        // turn is an abnormal 1006 on a client that answered (the 40ms KEEP
+        // tests). Decide after that poll. Do not re-ping a silent seat.
         if (seat && liveCredential) {
           void assertLiveCredential(liveCredential, liveCredentialInput(seat)).then(
             () => {
-              if (alive.has(ws)) return;
-              if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
-                ws.terminate();
-              }
+              const decide = setImmediate(() => {
+                if (alive.has(ws)) return;
+                if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
+                  ws.terminate();
+                }
+              });
+              decide.unref?.();
             },
             () => {
               if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
