@@ -263,7 +263,7 @@ export function OperatorQueuesView(props: OperatorQueuesViewProps) {
           </div>
         )}
         {hasRows && (
-          <div className="adm-scroll">
+          <div className="adm-scroll" tabIndex={0} role="region" aria-label="Operator queue records">
             <table className="adm-table adm-queue-table">
               <caption className="adm-visually-hidden">Pending KYC records returned by identity.kyc.pending</caption>
               <thead>

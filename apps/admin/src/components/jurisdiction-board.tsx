@@ -98,7 +98,7 @@ export function JurisdictionBoard() {
             </div>
           )}
 
-          <div className="adm-scroll">
+          <div className="adm-scroll" tabIndex={0} role="region" aria-label="Jurisdiction rules table">
             <table className="adm-table">
               <thead>
                 <tr>
@@ -148,7 +148,7 @@ export function JurisdictionBoard() {
       </Panel>
 
       <Panel title="Effective rules — module × region" className="adm-flush">
-        <div className="adm-scroll">
+        <div className="adm-scroll" tabIndex={0} role="region" aria-label="Jurisdiction rules table">
           <table className="adm-table">
             <thead>
               <tr>

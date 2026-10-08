@@ -9,6 +9,7 @@ const ROUTES = [
   { href: '/jurisdiction', label: 'Jurisdiction' },
   { href: '/ledger', label: 'Ledger ops' },
   { href: '/tools', label: 'Operator tools' },
+  { href: '/ops', label: 'Business operations' },
 ] as const;
 
 export function Nav() {
