@@ -33,6 +33,52 @@ describe('marketPurchase', () => {
     ).toThrow(InvalidEntryError);
   });
 
+  it('refuses a blank purchase identity before any post', async () => {
+    const ledger = new MemoryLedger();
+    await ledger.post(
+      recipes.deposit({
+        userId: BUYER,
+        assetId: 'USDT',
+        amount: amt('1000'),
+        rail: 'test',
+        railRef: 'seed-blank-ids',
+      }),
+    );
+    const journalBefore = ledger.journal().length;
+
+    const real = {
+      purchaseId: 'p-real-ids',
+      listingId: 'l1',
+      buyerId: BUYER,
+      vendorUserId: VENDOR,
+      assetId: 'USDT',
+      price: amt('10'),
+      commissionBps: 250,
+    };
+
+    let posted = false;
+    try {
+      await ledger.post(marketPurchase({ ...real, buyerId: '   ' }));
+      posted = true;
+    } catch (err) {
+      expect(err).toBeInstanceOf(InvalidEntryError);
+      expect((err as Error).message).toMatch(/buyerId is required/);
+    }
+    expect(posted).toBe(false);
+    expect(ledger.journal()).toHaveLength(journalBefore);
+    expect(ledger.journal().some((tx) => tx.reason === 'market.purchase')).toBe(false);
+
+    expect(() => marketPurchase({ ...real, vendorUserId: '' })).toThrow(/vendorUserId is required/);
+    expect(() => marketPurchase({ ...real, assetId: '' })).toThrow(/assetId is required/);
+    expect(() => marketPurchase({ ...real, listingId: '' })).toThrow(/listingId is required/);
+    expect(ledger.journal()).toHaveLength(journalBefore);
+
+    const tx = await ledger.post(marketPurchase(real));
+    expect(tx.reason).toBe('market.purchase');
+    expect(ledger.journal().filter((row) => row.reason === 'market.purchase')).toHaveLength(1);
+    expect(formatAmount((await ledger.balance(userAvailable(BUYER, 'USDT'))).amount)).toBe('990');
+  });
+
   it('refuses self-purchase', () => {
     expect(() =>
       marketPurchase({
