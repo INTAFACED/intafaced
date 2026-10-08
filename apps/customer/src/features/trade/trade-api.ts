@@ -192,9 +192,10 @@ export function createTradeApi(api: ApiClient) {
     fills: (symbol?: string, limit = 100, signal?: AbortSignal, since?: number) =>
       api.rest('/account/trades', z.array(tradeSchema), { query: { symbol, limit, since }, signal }),
     positions: (symbol?: string, signal?: AbortSignal) => api.rest('/positions', z.array(positionSchema), { query: { symbol }, signal }),
-    async order(id: string): Promise<ApiResult<Order>> {
+    async order(reviewed: ReviewedOrder): Promise<ApiResult<Order>> {
+      const { id, symbol } = reviewed;
       const result = await api.rest(`/orders/${encodeURIComponent(id)}`, orderSchema);
-      return result.ok && result.data.id !== id ? invalid('The order response does not identify the requested original order.') : result;
+      return result.ok && (result.data.id !== id || result.data.symbol !== symbol) ? invalid('The order response does not identify the requested original order and reviewed market.') : result;
     },
     async cancel(reviewed: ReviewedOrder): Promise<ApiResult<Order>> {
       const { id, symbol } = reviewed;
