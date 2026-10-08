@@ -69,7 +69,13 @@ export class CardSandboxAdapter implements RailAdapter {
 
   /** The mock acquirer's books. A real adapter holds no state; this one is the counterparty. */
   private readonly charges = new Map<string, AcquirerCharge>();
-  private readonly payouts = new Map<string, { ref: string; amount: Amount; assetId: string }>();
+  /**
+   * Successful payouts by settlement reference.
+   *
+   * A retried payout must return this result. Rebuilding it from the new call
+   * would keep the stored amount and report it under the new asset and destination.
+   */
+  private readonly payouts = new Map<string, RailResult>();
   /**
    * Successful refunds by durable refund id.
    *
@@ -299,20 +305,23 @@ export class CardSandboxAdapter implements RailAdapter {
       });
     }
 
-    // Keyed on the settlement: a retried payout finds the original rather than
-    // sending the merchant their window twice.
+    // Keyed on the settlement. The stored success is that payout: amount, asset,
+    // and destination stay the ones that were paid. Rebuilding from this call
+    // would report the stored amount under a new asset and destination.
     const existing = this.payouts.get(ref);
-    if (!existing) this.payouts.set(ref, { ref, amount: s.amount, assetId: s.assetId });
+    if (existing) return existing;
 
-    return {
+    const ok: RailResult = {
       ok: true,
       railRef: ref,
       status: 'paid_out',
-      amount: existing?.amount ?? s.amount,
+      amount: s.amount,
       assetId: s.assetId,
       at: this.now(),
       raw: { destination: s.destination.kind },
     };
+    this.payouts.set(ref, ok);
+    return ok;
   }
 
   verifyWebhook(req: RailWebhookRequest): RailEvent | null {
