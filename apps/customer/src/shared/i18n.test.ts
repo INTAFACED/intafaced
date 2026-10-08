@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { defineCopy } from './i18n';
 
 describe('typed customer copy boundary', () => {
+  it('refuses a written translation that drops or invents an original reference placeholder', () => {
+    expect(() => defineCopy('test.bad-translation', { reference: 'Reference {id}' } as const, { es: { reference: 'Referencia' } })).toThrow(/placeholder/i);
+    expect(() => defineCopy('test.bad-translation', { reference: 'Reference {id}' } as const, { fr: { reference: 'Référence {amount}' } })).toThrow(/placeholder/i);
+  });
   it('renders authored translations and identifies English fallback without translating domain parameters', () => {
     const copy = defineCopy('test.customer', {
       title: 'Confirm',
