@@ -20,6 +20,8 @@ interface IERC2981Royalty {
  * The buyer (or highest bidder) pays a quote ERC-20; this contract pays the
  * ERC-2981 royalty to the receiver and the remainder to the seller, then
  * transfers the NFT. That split is not optional and is not honour-system.
+ * A bid or sale is credited only the quote balance the transfer actually
+ * added. A short or zero receipt is not a winning bid and is not a sale.
  *
  * No platform fee. No owner. NOT AUDITED.
  */
@@ -115,9 +117,10 @@ contract RoyaltyMarket {
         if (escrowedFrom[L.nft][L.tokenId] != L.seller) revert Inactive();
         L.active = false;
         escrowedFrom[L.nft][L.tokenId] = address(0);
-        (uint256 royalty, address receiver) = _takePayment(L.nft, L.tokenId, L.quote, L.price, L.seller, msg.sender);
+        (uint256 royalty, address receiver, uint256 paid) =
+            _takePayment(L.nft, L.tokenId, L.quote, L.price, L.seller, msg.sender);
         IERC721Escrow(L.nft).transferFrom(address(this), msg.sender, L.tokenId);
-        emit Sold(listingId, msg.sender, L.price, royalty, receiver);
+        emit Sold(listingId, msg.sender, paid, royalty, receiver);
     }
 
     function startAuction(
@@ -144,15 +147,13 @@ contract RoyaltyMarket {
         if (escrowedFrom[A.nft][A.tokenId] != A.seller) revert Inactive();
         if (block.timestamp >= A.endTime) revert AuctionOver();
         if (amount < A.minBid || amount <= A.highestBid) revert BidTooLow();
-        if (!IERC20Minimal(A.quote).transferFrom(msg.sender, address(this), amount)) revert PaymentTooLow();
+        uint256 received = _creditQuote(A.quote, msg.sender, amount);
         address prev = A.highestBidder;
         uint256 prevBid = A.highestBid;
         A.highestBidder = msg.sender;
-        A.highestBid = amount;
-        if (prev != address(0)) {
-            if (!IERC20Minimal(A.quote).transfer(prev, prevBid)) revert TransferFailed();
-        }
-        emit BidPlaced(auctionId, msg.sender, amount);
+        A.highestBid = received;
+        if (prev != address(0)) _payHeld(A.quote, prev, prevBid);
+        emit BidPlaced(auctionId, msg.sender, received);
     }
 
     function endAuction(uint256 auctionId) external {
@@ -203,9 +204,19 @@ contract RoyaltyMarket {
         uint256 price,
         address seller,
         address payer
-    ) private returns (uint256 royalty, address receiver) {
-        if (!IERC20Minimal(quote).transferFrom(payer, address(this), price)) revert PaymentTooLow();
-        return _splitHeld(nft, tokenId, quote, price, seller);
+    ) private returns (uint256 royalty, address receiver, uint256 paid) {
+        paid = _creditQuote(quote, payer, price);
+        (royalty, receiver) = _splitHeld(nft, tokenId, quote, paid, seller);
+    }
+
+    /// @dev Credits the quote balance added by this pull. Zero or a shortfall reverts, so the caller-stated amount is never booked.
+    function _creditQuote(address quote, address from, uint256 requiredAmount) private returns (uint256 received) {
+        uint256 beforeBal = IERC20Minimal(quote).balanceOf(address(this));
+        if (!IERC20Minimal(quote).transferFrom(from, address(this), requiredAmount)) revert PaymentTooLow();
+        uint256 afterBal = IERC20Minimal(quote).balanceOf(address(this));
+        if (afterBal <= beforeBal) revert PaymentTooLow();
+        received = afterBal - beforeBal;
+        if (received == 0 || received < requiredAmount) revert PaymentTooLow();
     }
 
     function _splitHeld(
@@ -220,11 +231,19 @@ contract RoyaltyMarket {
         if (royalty == 0 || receiver == address(0)) {
             royalty = 0;
             receiver = address(0);
-            if (!IERC20Minimal(quote).transfer(seller, price)) revert TransferFailed();
+            _payHeld(quote, seller, price);
             return (0, address(0));
         }
-        if (!IERC20Minimal(quote).transfer(receiver, royalty)) revert TransferFailed();
-        if (!IERC20Minimal(quote).transfer(seller, price - royalty)) revert TransferFailed();
+        _payHeld(quote, receiver, royalty);
+        _payHeld(quote, seller, price - royalty);
+    }
+
+    /// @dev Sends `amount` and reverts unless this contract's quote balance fell by exactly that amount.
+    function _payHeld(address quote, address to, uint256 amount) private {
+        uint256 beforeBal = IERC20Minimal(quote).balanceOf(address(this));
+        if (beforeBal < amount) revert TransferFailed();
+        if (!IERC20Minimal(quote).transfer(to, amount)) revert TransferFailed();
+        if (beforeBal - IERC20Minimal(quote).balanceOf(address(this)) != amount) revert TransferFailed();
     }
 
     function _royaltyOf(address nft, uint256 tokenId, uint256 price) private view returns (address receiver, uint256 amount) {
