@@ -49,6 +49,15 @@ describe('refuseGlobalConnectedLie', () => {
     expect(refuseGlobalConnectedLie({ connected: true, depth: true, tradesBus: false, privateBus: true })).toMatchObject({
       ok: false, reason: 'connected_lie',
     });
+    expect(refuseGlobalConnectedLie({ connected: true, tradesBus: true, privateBus: true })).toMatchObject({
+      ok: false, reason: 'connected_lie',
+    });
+    expect(refuseGlobalConnectedLie({ connected: true, depth: true, privateBus: true })).toMatchObject({
+      ok: false, reason: 'connected_lie',
+    });
+    expect(refuseGlobalConnectedLie({ connected: true, depth: true, tradesBus: true })).toMatchObject({
+      ok: false, reason: 'connected_lie',
+    });
     expect(refuseGlobalConnectedLie({ connected: true, depth: true, tradesBus: true, privateBus: true })).toBeNull();
     expect(refuseGlobalConnectedLie({})).toBeNull();
   });

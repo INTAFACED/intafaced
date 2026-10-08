@@ -86,14 +86,12 @@ export function refuseGlobalConnectedLie(input: {
   readonly privateBus?: boolean;
 }): TapeLabelRefusal | null {
   if (input.connected !== true) return null;
+  if (input.depth === true && input.tradesBus === true && input.privateBus === true) return null;
   const sources = [input.depth, input.tradesBus, input.privateBus];
-  if (sources.every((s) => s === undefined)) {
-    return refuse('connected_lie', 'global connected refuses — per-source depth/trades/private is required');
-  }
   if (sources.some((s) => s === false)) {
     return refuse('connected_lie', 'global connected refuses — a source is down');
   }
-  return null;
+  return refuse('connected_lie', 'global connected refuses — per-source depth/trades/private is required');
 }
 
 /** Adapters cannot reinterpret instruments. */
