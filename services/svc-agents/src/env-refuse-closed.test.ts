@@ -4,8 +4,9 @@
  * 1. Promise: unset / blank AGENTS_METERING_ENABLED refuses
  *    `agents.metering_enabled_unset` (never invent true, never silent false);
  *    garbage / untrimmed non-boolean metering strings refuse; unset LEDGER_URL
- *    must refuse (no silent localhost); unset AGENTS_FEE_ASSET_ID must refuse
- *    (no invent IFC); unset AGENTS_USAGE_WINDOW_MINUTES must refuse (never 60).
+ *    must refuse (no silent localhost); unset / blank / whitespace-only
+ *    AGENTS_FEE_ASSET_ID must refuse (no invent IFC); a padded owner id boots
+ *    as the trimmed value; unset AGENTS_USAGE_WINDOW_MINUTES must refuse (never 60).
  * 2. Break: bool.default(true) / compose `:-true` / LEDGER_URL localhost / fee
  *    asset default IFC still feeCharge or invent an owner asset when the
  *    operator never set them. A forked Zod slice stays green while production
@@ -72,7 +73,7 @@ describe('svc-agents money env refuse-closed', () => {
     expect(envTs).not.toMatch(/LEDGER_URL:\s*z\.string\(\)\.url\(\)\.default\('http:\/\/localhost:4001'\)/);
     expect(envTs).toMatch(/LEDGER_URL:\s*z\.string\(\)\.url\(\)/);
     expect(envTs).not.toMatch(/AGENTS_FEE_ASSET_ID:\s*z\.string\(\)\.default\('IFC'\)/);
-    expect(envTs).toMatch(/AGENTS_FEE_ASSET_ID:\s*z\.string\(\)\.min\(1\)/);
+    expect(envTs).toMatch(/AGENTS_FEE_ASSET_ID:\s*z\.string\(\)\.trim\(\)\.min\(1\)/);
     expect(envTs).not.toMatch(/AGENTS_METERING_ENABLED:\s*bool\.default\(true\)/);
     expect(envTs).toMatch(/AGENTS_METERING_ENABLED:\s*z\.preprocess\(/);
     expect(envTs).toMatch(/agents\.metering_enabled_unset/);
@@ -92,6 +93,16 @@ describe('svc-agents money env refuse-closed', () => {
 
   it('blank AGENTS_FEE_ASSET_ID refuses', async () => {
     await expect(loadWith({ AGENTS_FEE_ASSET_ID: '' })).rejects.toThrow(/AGENTS_FEE_ASSET_ID/);
+  });
+
+  it('whitespace AGENTS_FEE_ASSET_ID refuses the same way a blank fee asset does', async () => {
+    await expect(loadWith({ AGENTS_FEE_ASSET_ID: '   ' })).rejects.toThrow(/AGENTS_FEE_ASSET_ID/);
+    await expect(loadWith({ AGENTS_FEE_ASSET_ID: '\t\n' })).rejects.toThrow(/AGENTS_FEE_ASSET_ID/);
+  });
+
+  it('a real fee asset id boots after trim', async () => {
+    const parsed = await loadWith({ AGENTS_FEE_ASSET_ID: '  X  ' });
+    expect(parsed.AGENTS_FEE_ASSET_ID).toBe('X');
   });
 
   it('unset AGENTS_USAGE_WINDOW_MINUTES refuses (no invent 60)', async () => {

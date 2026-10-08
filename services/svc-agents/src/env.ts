@@ -146,9 +146,10 @@ const schema = serviceEnvSchema
 
       /**
        * Asset premium agent tiers are billed in (§8.2). Owner-published.
-       * Required min(1) — unset / blank refuses boot. Never invent IFC.
+       * Trim, then min(1) — unset, blank, and whitespace-only refuse boot.
+       * Never invent IFC. A padded owner id boots as the trimmed value.
        */
-      AGENTS_FEE_ASSET_ID: z.string().min(1),
+      AGENTS_FEE_ASSET_ID: z.string().trim().min(1),
 
       /**
        * Billing window length. Must divide 1440 so a window never straddles

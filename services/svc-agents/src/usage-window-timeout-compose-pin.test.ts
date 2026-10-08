@@ -60,7 +60,7 @@ describe('compose usage window and upstream timeout for svc-agents', () => {
     expect(envTs).toMatch(/AGENTS_METERING_ENABLED:\s*z\.preprocess\(/);
     expect(envTs).toMatch(/agents\.metering_enabled_unset/);
     expect(envTs).not.toMatch(/AGENTS_FEE_ASSET_ID:\s*z\.string\(\)\.default\('IFC'\)/);
-    expect(envTs).toMatch(/AGENTS_FEE_ASSET_ID:\s*z\.string\(\)\.min\(1\)/);
+    expect(envTs).toMatch(/AGENTS_FEE_ASSET_ID:\s*z\.string\(\)\.trim\(\)\.min\(1\)/);
     const feeDecl = envTs.slice(envTs.indexOf('AGENTS_FEE_ASSET_ID:'));
     expect(feeDecl.slice(0, 120)).not.toMatch(/\.default\(/);
   });
