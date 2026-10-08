@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 
 test('an unavailable catalog retains the four Desk work areas and retries without inventing market data', async ({ page }) => {
   let reads = 0;
@@ -307,6 +307,51 @@ async function mount(
   };
 }
 
+test('the actual App default desktop Desk fits chart and management within the R5 viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mount(page);
+  await page.route('**/api/v1/markets*', (route) => route.fulfill({ status: 503, json: { message: 'Market service unavailable' } }));
+  for (const endpoint of ['orders/open', 'orders/closed', 'account/trades'])
+    await page.route(`**/api/v1/${endpoint}*`, (route) => route.fulfill({ status: 503, json: { message: 'Source unavailable' } }));
+  await page.goto('/exchange?fullApp=1');
+  await expect(page.getByRole('button', { name: 'Retry published markets', exact: true })).toBeVisible();
+  const chart = await page.locator('.trade-chart--absent').boundingBox();
+  const management = await page.locator('.trade-management').boundingBox();
+  expect(chart?.y).toBe(144);
+  expect(chart?.height).toBe(548);
+  expect(management?.height).toBe(184);
+  expect(management!.y + management!.height).toBeLessThanOrEqual(900);
+  const proof = '/Users/Nitro/Desktop/intafaced-interface-overview/named-look/build/desk-completion-proof';
+  await mkdir(proof, { recursive: true });
+  await page.screenshot({ path: `${proof}/actual-app-r5-1440x900.png`, fullPage: true });
+  await writeFile(
+    `${proof}/actual-app-r5-fit.json`,
+    JSON.stringify(
+      {
+        viewport: { width: 1440, height: 900 },
+        chart,
+        management,
+        source: 'Actual App; authenticated test seam; financial reads unavailable',
+      },
+      null,
+      2,
+    ),
+  );
+  await page.locator('.trade-mode-menu > summary').focus();
+  await page.keyboard.press('Enter');
+  for (const mode of ['Spot', 'Margin', 'Futures', 'Options', 'Copy', 'Bots', 'Execution', 'Quote desk'])
+    await expect(page.getByRole('link', { name: mode, exact: true })).toBeVisible();
+  await page.locator('.trade-mode-menu > summary').click();
+  await page.locator('.trade-workspace-controls summary').focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'Restore default workspace', exact: true })).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Simulated', exact: true }).focus();
+  await page.keyboard.press('Space');
+  await expect(page.getByRole('checkbox', { name: 'Simulated', exact: true })).toBeChecked();
+  await expect(page).toHaveURL(/simulated=true/);
+  await expect(page.getByRole('separator', { name: 'Resize chart height', exact: true })).toBeAttached();
+});
+
 test('account orders and verified-ID cancellation remain accessible when no market catalog is published', async ({ page }) => {
   const server = await mount(page, { working: true });
   await page.route('**/api/v1/markets*', (route) => route.fulfill({ json: [] }));
@@ -387,6 +432,7 @@ test('the actual App Trade door follows a checkbox switch into paper mode on des
 test('simulated tool return and Margin links preserve paper intent after room navigation', async ({ page }) => {
   await mount(page, { paper: true });
   await page.goto('/exchange/BTC%2FUSDT?simulated=true');
+  await page.locator('.trade-mode-menu > summary').click();
   await page.getByRole('link', { name: 'Futures', exact: true }).click();
   await expect(page.getByRole('checkbox', { name: 'Simulated', exact: true })).toBeChecked();
   await page.getByRole('link', { name: 'Back to spot desk ↗', exact: true }).click();
@@ -431,7 +477,8 @@ test('an unrelated valid order response cannot resolve the saved original cancel
 for (const phase of ['review', 'confirmation'] as const)
   test(`the actual App refuses a replacement wrong-market original read during ${phase} before dispatch`, async ({ page }) => {
     await mount(page, { working: true, replacementNoSubmit: true });
-    let reads = 0, replacements = 0;
+    let reads = 0,
+      replacements = 0;
     page.on('request', (request) => {
       if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/orders/order-1/replace') replacements++;
     });
@@ -458,11 +505,22 @@ for (const mutation of ['cancel', 'amend'] as const)
       if (method === 'DELETE' || method === 'PATCH') {
         writes++;
         const wrongMarket = { ...order('0', mutation === 'cancel' ? 'canceled' : 'open'), symbol: 'ETH/USDT' };
-        await route.fulfill({ json: mutation === 'cancel' ? wrongMarket : {
-          accepted: true, idempotent: false, code: 'AMENDED', reasonCode: null,
-          reconciliationRequired: false, path: 'NATIVE_AMEND', priority: 'retained',
-          orderId: 'order-1', order: wrongMarket,
-        } });
+        await route.fulfill({
+          json:
+            mutation === 'cancel'
+              ? wrongMarket
+              : {
+                  accepted: true,
+                  idempotent: false,
+                  code: 'AMENDED',
+                  reasonCode: null,
+                  reconciliationRequired: false,
+                  path: 'NATIVE_AMEND',
+                  priority: 'retained',
+                  orderId: 'order-1',
+                  order: wrongMarket,
+                },
+        });
       } else await route.fulfill({ json: order() });
     });
     await page.goto('/exchange?fullApp=1');
@@ -470,7 +528,9 @@ for (const mutation of ['cancel', 'amend'] as const)
     if (mutation === 'amend') await page.getByLabel('New remaining quantity (BTC)', { exact: true }).fill('0.010');
     await page.getByRole('button', { name: mutation === 'cancel' ? 'Confirm cancellation' : 'Confirm reduction', exact: true }).click();
     await expect(page.getByText(`Outcome not confirmed · ${mutation}`, { exact: true })).toBeVisible();
-    const pending = await page.evaluate(() => JSON.parse(localStorage.getItem('trade-pending:00000000-0000-4000-8000-000000000001') || 'null'));
+    const pending = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem('trade-pending:00000000-0000-4000-8000-000000000001') || 'null'),
+    );
     expect(pending).toMatchObject({ kind: mutation, id: 'order-1', symbol: 'BTC/USDT', orderId: 'order-1' });
     await expect(page.getByText(/^Order order-1: canceled/)).toHaveCount(0);
     await expect(page.getByText(/^Amendment accepted:/)).toHaveCount(0);
@@ -555,6 +615,44 @@ for (const delayedPreflight of [false, true])
     await expect.poll(() => server.deletes()).toBe(0);
   });
 
+test('Trade authored Spanish controls keep native order enums, IDs, units and exact request amounts', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ language: 'es' })));
+  await mount(page, { working: true });
+  let draft: unknown;
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/v1/orders/preview') draft = request.postDataJSON();
+  });
+  await page.goto('/exchange/BTC%2FUSDT');
+  await expect(page.getByRole('button', { name: 'Comprar', exact: true })).toBeVisible();
+  await page.getByLabel('Cantidad (BTC)', { exact: true }).fill('0.025');
+  await page.getByLabel('Precio (USDT por BTC)', { exact: true }).fill('80000');
+  await page.getByRole('button', { name: 'Revisar compra', exact: true }).click();
+  expect(draft).toMatchObject({ symbol: 'BTC/USDT', side: 'buy', amount: '0.025', price: '80000', timeInForce: 'GTC' });
+  await expect(page.locator('[data-i18n^="trade."][lang="en"]').first()).toBeVisible();
+  await expect(page.getByText('open', { exact: true })).toBeVisible();
+});
+
+test('French chart labels preserve native saved workspace types and verified order identity', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ language: 'fr' })));
+  await mount(page, { working: true });
+  await page.goto('/exchange?fullApp=1');
+  await expect(page.getByRole('button', { name: 'Acheter', exact: true })).toBeVisible();
+  const chartType = page.getByRole('combobox', { name: 'Chart type', exact: true });
+  await chartType.selectOption({ label: 'Ligne' });
+  await expect(chartType).toHaveValue('Line');
+  await page.getByText('Espace de travail', { exact: true }).click();
+  await page.getByLabel('Workspace name', { exact: true }).fill('Lecture');
+  await page.getByRole('button', { name: 'Save workspace on device', exact: true }).click();
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('trade-desk-workspaces:v1') || '[]'));
+  expect(saved[0]).toMatchObject({ name: 'Lecture', paper: false, primary: { type: 'Line', studies: ['Volume'] } });
+  await expect(page.locator('[data-i18n="trade.controlBuy"]')).toHaveAttribute('lang', 'fr');
+  await expect(page.locator('[data-i18n="trade.saveWorkspaceOnDevice"]')).toHaveAttribute('lang', 'en');
+  await page.getByText('Espace de travail', { exact: true }).click();
+  await expect(page.getByText('open', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Reduce', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('BTC/USDT · buy limit · order-1');
+});
+
 test('the actual View red-up preference colors market data without recoloring cancellation danger', async ({ page }) => {
   const server = await mount(page, { working: true });
   await page.goto('/account/view');
@@ -624,6 +722,7 @@ test('an explicit Academy simulation link opens only a published paper row and p
   await expect(page.getByRole('checkbox', { name: 'Simulated', exact: true })).toBeChecked();
   await expect(page.getByRole('button', { name: 'Review buy', exact: true })).toBeEnabled();
   await expect(page.getByText('Simulation · no live funds', { exact: true })).toBeVisible();
+  await page.locator('.trade-mode-menu > summary').click();
   await expect(page.getByRole('link', { name: 'Spot', exact: true })).toHaveAttribute('href', '/exchange?simulated=true');
   await page.evaluate(() => {
     history.pushState(null, '', '/exchange/BTC%2FUSDT');
@@ -768,17 +867,32 @@ test('published paper markets place simulated orders without reading or requirin
 });
 test('the actual App reports an untouched refused replacement without claiming lost queue priority', async ({ page }) => {
   await mount(page, { working: true, replacementNoSubmit: true });
-  await page.route('**/api/v1/orders/order-1/replace', (route) => route.fulfill({ json: {
-    accepted: false, idempotent: false, code: 'LIFECYCLE_REFUSED', reasonCode: 'SESSION_CLOSED',
-    reconciliationRequired: false, path: 'CANCEL_REPLACE', originalOrderId: 'order-1', originalState: 'open',
-    replacementOrderId: null, replacementState: null, original: order(), replacement: null,
-  } }));
+  await page.route('**/api/v1/orders/order-1/replace', (route) =>
+    route.fulfill({
+      json: {
+        accepted: false,
+        idempotent: false,
+        code: 'LIFECYCLE_REFUSED',
+        reasonCode: 'SESSION_CLOSED',
+        reconciliationRequired: false,
+        path: 'CANCEL_REPLACE',
+        originalOrderId: 'order-1',
+        originalState: 'open',
+        replacementOrderId: null,
+        replacementState: null,
+        original: order(),
+        replacement: null,
+      },
+    }),
+  );
   await page.goto('/exchange?fullApp=1');
   await page.getByRole('button', { name: 'Change price', exact: true }).click();
   await page.getByLabel('Replacement limit price (USDT per BTC)', { exact: true }).fill('81000');
   await page.getByRole('button', { name: 'Review replacement', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm cancel/replace', exact: true }).click();
-  await expect(page.getByText(/^Cancel\/replace: LIFECYCLE_REFUSED/)).toContainText('The original remains working; no cancellation or queue-priority change is confirmed by this refusal.');
+  await expect(page.getByText(/^Cancel\/replace: LIFECYCLE_REFUSED/)).toContainText(
+    'The original remains working; no cancellation or queue-priority change is confirmed by this refusal.',
+  );
   await expect(page.getByText(/^Cancel\/replace: LIFECYCLE_REFUSED/)).not.toContainText('Queue priority is not retained');
   expect(await page.evaluate(() => localStorage.getItem('trade-pending:00000000-0000-4000-8000-000000000001'))).toBeNull();
 });

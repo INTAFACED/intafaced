@@ -1,3 +1,4 @@
+import { tradeCopy as copy, CopyText, choiceText } from './copy';
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { z } from 'zod';
 import type { Resource } from '../../shared/resource';
@@ -15,11 +16,11 @@ type Geometry = z.infer<typeof geometrySchema>;
 const R5_GEOMETRY: Geometry = { ticket: 320, book: 288, chart: 548, management: 184 };
 const GEOMETRY_KEY = 'trade-desk-geometry:v1';
 type Axis = keyof Geometry;
-const LABELS: Record<Axis, string> = {
-  ticket: 'Resize order ticket',
-  book: 'Resize order book',
-  chart: 'Resize chart height',
-  management: 'Resize order management height',
+const LABELS: Record<Axis, 'resizeTicket' | 'resizeBook' | 'resizeChart' | 'resizeManagement'> = {
+  ticket: 'resizeTicket',
+  book: 'resizeBook',
+  chart: 'resizeChart',
+  management: 'resizeManagement',
 };
 const MIN: Geometry = { ticket: 260, book: 220, chart: 380, management: 184 };
 const MAX: Geometry = { ticket: 460, book: 420, chart: 900, management: 600 };
@@ -113,7 +114,7 @@ export function DeskFrame({
     try {
       localStorage.setItem(GEOMETRY_KEY, JSON.stringify(geometry));
     } catch {
-      setNotice('Panel sizes remain in this tab because device storage is unavailable.');
+      setNotice(copy.t('panelSizesRemainInThisTabBecauseDeviceStorageIsUnavailable'));
     }
   }, [geometry]);
   useEffect(() => {
@@ -137,21 +138,21 @@ export function DeskFrame({
     if (!market || !name.trim()) return;
     const entry = workspaceSchema.safeParse({ name: name.trim(), paper: market.paper, geometry, layout, primary, extras });
     if (!entry.success) {
-      setNotice('This workspace could not be saved. Review its view settings.');
+      setNotice(copy.t('thisWorkspaceCouldNotBeSavedReviewItsViewSettings'));
       return;
     }
     const next = [...saved.filter((row) => row.name !== entry.data.name), entry.data].slice(-12);
     try {
       localStorage.setItem(WORKSPACES_KEY, JSON.stringify(next));
       setSaved(next);
-      setNotice('Workspace saved on this device. Account synchronization is not connected.');
+      setNotice(copy.t('workspaceSavedOnThisDeviceAccountSynchronizationIsNotConnected'));
     } catch {
-      setNotice('Device storage is unavailable; this workspace was not saved.');
+      setNotice(copy.t('deviceStorageIsUnavailableThisWorkspaceWasNotSaved'));
     }
   }
   function restore(value: SavedWorkspace) {
     if (!market || value.paper !== market.paper) {
-      setNotice('Switch to the saved workspace’s live or simulated mode before restoring it.');
+      setNotice(copy.t('switchToTheSavedWorkspaceSLiveOrSimulatedModeBefore'));
       return;
     }
     const ticket = width > 980 ? Math.min(value.geometry.ticket, Math.floor(width) - MIN.book - 400) : value.geometry.ticket;
@@ -166,16 +167,16 @@ export function DeskFrame({
     setPrimary(value.primary);
     setExtras(value.extras);
     setViewRevision((current) => current + 1);
-    setNotice(`Restored ${value.name} on this device. Unpublished linked markets remain unavailable.`);
+    setNotice(copy.t('restoredOnThisDeviceUnpublishedLinkedMarketsRemainUnavailable', { valueName: String(value.name) }));
   }
   function remove(value: SavedWorkspace) {
     const next = saved.filter((row) => row.name !== value.name);
     try {
       localStorage.setItem(WORKSPACES_KEY, JSON.stringify(next));
       setSaved(next);
-      setNotice(`Deleted ${value.name} from this device.`);
+      setNotice(copy.t('deletedFromThisDevice', { valueName: String(value.name) }));
     } catch {
-      setNotice('Device storage is unavailable; this workspace was not deleted.');
+      setNotice(copy.t('deviceStorageIsUnavailableThisWorkspaceWasNotDeleted'));
     }
   }
   function maximum(axis: Axis) {
@@ -198,12 +199,12 @@ export function DeskFrame({
         className={`trade-resize trade-resize--${axis}`}
         role="separator"
         tabIndex={0}
-        aria-label={LABELS[axis]}
+        aria-label={copy.t(LABELS[axis])}
         aria-orientation={horizontal ? 'horizontal' : 'vertical'}
         aria-valuemin={minimum(axis)}
         aria-valuemax={maximum(axis)}
         aria-valuenow={geometry[axis]}
-        aria-valuetext={`${geometry[axis]} pixels`}
+        aria-valuetext={copy.t('pixels', { value: geometry[axis] })}
         onKeyDown={(event) => {
           const increase = horizontal ? 'ArrowDown' : 'ArrowLeft',
             decrease = horizontal ? 'ArrowUp' : 'ArrowRight';
@@ -248,19 +249,25 @@ export function DeskFrame({
     '--trade-management-height': `${geometry.management}px`,
   } as CSSProperties;
   return (
-    <>
+    <div className="trade-desk-frame">
       <div className="trade-workspace-controls">
         <details>
-          <summary>Workspace</summary>
+          <summary>
+            <CopyText k="workspace" />
+          </summary>
           <div className="trade-menu">
-            <strong>Chart arrangement</strong>
-            <small>The primary chart follows the selected market and ticket. Linked charts are analysis only.</small>
+            <strong>
+              <CopyText k="chartArrangement" />
+            </strong>
+            <small>
+              <CopyText k="thePrimaryChartFollowsTheSelectedMarketAndTicketLinkedCharts" />
+            </small>
             {(
               [
-                ['single', 'Focused chart'],
-                ['dual', 'Two timeframes'],
-                ['grid', 'Four timeframes'],
-                ['stacked', 'Stacked comparison'],
+                ['single', <CopyText k={'focusedChart'} />],
+                ['dual', <CopyText k={'twoTimeframes'} />],
+                ['grid', <CopyText k={'fourTimeframes'} />],
+                ['stacked', <CopyText k={'stackedComparison'} />],
               ] as const
             ).map(([value, label]) => (
               <button key={value} aria-pressed={layout === value} disabled={!market} onClick={() => template(value)}>
@@ -268,9 +275,9 @@ export function DeskFrame({
               </button>
             ))}
             <label className="trade-workspace-name">
-              Workspace name
+              <CopyText k="workspaceName" />
               <input
-                aria-label="Workspace name"
+                aria-label={copy.t('workspaceName961964')}
                 value={name}
                 maxLength={64}
                 disabled={!market}
@@ -278,14 +285,18 @@ export function DeskFrame({
               />
             </label>
             <button disabled={!market || !name.trim()} onClick={save}>
-              Save workspace on device
+              <CopyText k="saveWorkspaceOnDevice" />
             </button>
             {saved.map((value) => (
               <div className="trade-saved-workspace" key={value.name}>
-                <button disabled={!market} aria-label={`Restore workspace ${value.name}`} onClick={() => restore(value)}>
-                  {value.name} · {value.paper ? 'simulated' : 'live'}
+                <button
+                  disabled={!market}
+                  aria-label={copy.t('restoreWorkspace', { valueName: String(value.name) })}
+                  onClick={() => restore(value)}
+                >
+                  {value.name} · {value.paper ? <CopyText k={'simulateddaeb30'} /> : <CopyText k={'live'} />}
                 </button>
-                <button aria-label={`Delete workspace ${value.name}`} onClick={() => remove(value)}>
+                <button aria-label={copy.t('deleteWorkspace', { valueName: String(value.name) })} onClick={() => remove(value)}>
                   ×
                 </button>
               </div>
@@ -297,18 +308,17 @@ export function DeskFrame({
                 setExtras([]);
                 setPrimary(DEFAULT_VIEW);
                 setViewRevision((current) => current + 1);
-                setNotice('Default R5 panel sizes restored on this device.');
+                setNotice(copy.t('defaultRPanelSizesRestoredOnThisDevice'));
               }}
             >
-              Restore default workspace
+              <CopyText k="restoreDefaultWorkspace" />
             </button>
             <small>
-              Drag a divider or use its arrow keys; Shift makes a larger step. Home and End set its bounds. Panel geometry stays on this
-              device.
+              <CopyText k="dragADividerOrUseItsArrowKeysShiftMakesA" />
             </small>
+            {notice && <span role="status">{notice}</span>}
           </div>
         </details>
-        {notice && <span role="status">{notice}</span>}
       </div>
       <div className="trade-workspace trade-workspace--resizable" ref={host} style={style}>
         <div className="trade-analysis">
@@ -322,25 +332,29 @@ export function DeskFrame({
                     view.symbol === null
                       ? market
                       : markets.find((candidate) => candidate.symbol === view.symbol && candidate.paper === market.paper);
-                  const label = `Linked chart ${index + 1}`;
+                  const label = copy.t('linkedChart', { index: String(index + 1) });
                   function change(patch: Partial<Extra>) {
                     setExtras((current) => current.map((row, slot) => (slot === index ? { ...row, ...patch } : row)));
                   }
                   return (
-                    <section className="trade-extra-chart" aria-label={`${label} · ${selected?.symbol ?? 'unavailable'}`} key={index}>
+                    <section
+                      className="trade-extra-chart"
+                      aria-label={`${label} · ${selected?.symbol ?? copy.t('unavailableba691b')}`}
+                      key={index}
+                    >
                       <div className="trade-extra-toolbar">
                         <strong>{label}</strong>
                         <label>
-                          Market
+                          <CopyText k="market4af4ec" />
                           <select
-                            aria-label={`${label} market`}
+                            aria-label={copy.t('linkedChartMarket', { label })}
                             value={view.symbol ?? ''}
                             onChange={(event) => change({ symbol: event.target.value || null })}
                           >
-                            <option value="">Follow primary market</option>
+                            <option value="">{copy.t('followPrimaryMarket')}</option>
                             {view.symbol && !selected && (
                               <option value={view.symbol} disabled>
-                                {view.symbol} · unavailable
+                                {view.symbol} {copy.t('unavailabledfd38f')}
                               </option>
                             )}
                             {markets
@@ -353,9 +367,9 @@ export function DeskFrame({
                           </select>
                         </label>
                         <label>
-                          Interval
+                          <CopyText k="interval" />
                           <select
-                            aria-label={`${label} interval`}
+                            aria-label={copy.t('linkedChartInterval', { label })}
                             value={view.interval}
                             onChange={(event) => change({ interval: event.target.value })}
                           >
@@ -365,14 +379,16 @@ export function DeskFrame({
                           </select>
                         </label>
                         <label>
-                          Type
+                          <CopyText k="type" />
                           <select
-                            aria-label={`${label} type`}
+                            aria-label={copy.t('linkedChartType', { label })}
                             value={view.type}
                             onChange={(event) => change({ type: event.target.value as Extra['type'] })}
                           >
                             {['Candles', 'Line', 'Heikin Ashi'].map((type) => (
-                              <option key={type}>{type}</option>
+                              <option key={type} value={type}>
+                                {choiceText(type)}
+                              </option>
                             ))}
                           </select>
                         </label>
@@ -387,9 +403,8 @@ export function DeskFrame({
                           workspace
                         />
                       ) : (
-                        <EmptyState title="Linked market unavailable">
-                          This saved market is not published in the current live or simulated catalog. Choose an actual market; no
-                          replacement has been inferred.
+                        <EmptyState title={<CopyText k={'linkedMarketUnavailable'} />}>
+                          <CopyText k="thisSavedMarketIsNotPublishedInTheCurrentLiveOr" />
                         </EmptyState>
                       )}
                     </section>
@@ -408,7 +423,7 @@ export function DeskFrame({
         {ticket}
         {handle('ticket')}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -422,80 +437,94 @@ export function UnavailableDesk({
 }: {
   resource: Resource<Listing[]>;
   retry: () => void;
-  title: string;
+  title: ReactNode;
   simulation: boolean;
   management?: ReactNode;
 }) {
   return (
     <DeskFrame
       chart={
-        <section className="trade-chart trade-chart--absent" aria-label="Market chart unavailable">
+        <section className="trade-chart trade-chart--absent" aria-label={copy.t('marketChartUnavailable')}>
           <div className="trade-chart-toolbar">
-            <strong>Chart</strong>
-            <span className="muted">Published market required</span>
+            <strong>
+              <CopyText k="chart3e5b90" />
+            </strong>
+            <span className="muted">
+              <CopyText k="publishedMarketRequired" />
+            </span>
           </div>
           <div className="trade-absent-content">
             {resource.status === 'loading' ? (
-              <Loading label="Loading published markets" />
+              <Loading label={<CopyText k={'loadingPublishedMarkets'} />} />
             ) : resource.status === 'failed' ? (
               <Failure result={resource.failure} />
             ) : (
               <EmptyState title={title}>
-                {simulation
-                  ? 'Only explicitly published simulated markets can open this workspace. Live markets cannot supply its data or funds.'
-                  : 'Choose a published spot market to load its actual history, book and trading rules.'}
+                {simulation ? copy.t('paperMarketRequiredForWorkspace') : copy.t('choosePublishedSpotMarket')}
               </EmptyState>
             )}
             {resource.status !== 'loading' && (
               <Button variant="secondary" onClick={retry}>
-                Retry published markets
+                <CopyText k="retryPublishedMarkets" />
               </Button>
             )}
           </div>
         </section>
       }
       book={
-        <section className="trade-book trade-book--absent" aria-label="Order book unavailable">
+        <section className="trade-book trade-book--absent" aria-label={copy.t('orderBookUnavailable')}>
           <div className="trade-chart-toolbar">
-            <strong>Order book</strong>
+            <strong>
+              <CopyText k="orderBook" />
+            </strong>
           </div>
           <div className="trade-absent-content">
-            <h3>Liquidity unavailable</h3>
-            <p>The book and recent trades need a published market identity. Prices, quantities and spread remain absent.</p>
+            <h3>
+              <CopyText k="liquidityUnavailable" />
+            </h3>
+            <p>
+              <CopyText k="theBookAndRecentTradesNeedAPublishedMarketIdentityPrices" />
+            </p>
           </div>
         </section>
       }
       management={
         management ?? (
-          <section className="trade-blotter" aria-label="Order management unavailable">
+          <section className="trade-blotter" aria-label={copy.t('orderManagementUnavailable')}>
             <div className="trade-chart-toolbar">
-              <strong>Open orders · History · Fills</strong>
+              <strong>
+                <CopyText k="openOrdersHistoryFills" />
+              </strong>
             </div>
             <div className="trade-absent-content">
-              <h3>Order management unavailable</h3>
-              <p>Select a published market to inspect its orders and fills. Order and fund status cannot be verified yet.</p>
+              <h3>
+                <CopyText k="orderManagementUnavailable" />
+              </h3>
+              <p>
+                <CopyText k="selectAPublishedMarketToInspectItsOrdersAndFillsOrder" />
+              </p>
             </div>
           </section>
         )
       }
       ticket={
-        <aside className="trade-ticket-column trade-ticket-column--absent" aria-label="Order ticket unavailable">
+        <aside className="trade-ticket-column trade-ticket-column--absent" aria-label={copy.t('orderTicketUnavailable')}>
           <div className="trade-ticket-body">
-            <h2>{simulation ? 'Simulated order' : 'Spot order'}</h2>
-            <p className="muted">A published market is required to verify trading rules and review your order.</p>
-            <Field label="Order amount" value="" disabled placeholder="Market units unavailable" />
-            <Field label="Limit price" value="" disabled placeholder="Quote unit unavailable" />
-            <Button disabled>Review order</Button>
+            <h2>{copy.t(simulation ? 'absentSimulatedOrder' : 'absentSpotOrder')}</h2>
+            <p className="muted">
+              <CopyText k="aPublishedMarketIsRequiredToVerifyTradingRulesAndReview" />
+            </p>
+            <Field label={<CopyText k={'orderAmount'} />} value="" disabled placeholder={copy.t('marketUnitsUnavailable')} />
+            <Field label={<CopyText k={'limitPrice'} />} value="" disabled placeholder={copy.t('quoteUnitUnavailable')} />
+            <Button disabled>
+              <CopyText k="reviewOrder" />
+            </Button>
           </div>
           <section className="trade-funds">
-            <h3>{simulation ? 'Simulation · no live funds' : 'Funds unavailable'}</h3>
-            <p>
-              {simulation
-                ? 'This workspace does not read live balances. A published paper market is required before a simulated order can be reviewed.'
-                : 'Available account funds cannot be verified until published market information is available.'}
-            </p>
+            <h3>{copy.t(simulation ? 'simulationFundsHeading' : 'absentFunds')}</h3>
+            <p>{simulation ? copy.t('paperWorkspaceReadsNoLiveBalances') : copy.t('fundsRequirePublishedMarket')}</p>
             <a className="text-link" href="/money">
-              Manage in Money ↗
+              <CopyText k="manageInMoney" />
             </a>
           </section>
         </aside>

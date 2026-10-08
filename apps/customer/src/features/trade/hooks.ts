@@ -1,3 +1,4 @@
+import { tradeCopy as copy } from './copy';
 import { useEffect, useMemo, useState } from 'react';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
@@ -18,7 +19,7 @@ export function useLinkedBook(api: TradeApi, market: Listing) {
     book: ReturnType<LinkedDepth['read']>;
     status: string;
     failure: Extract<ApiResult<unknown>, { ok: false }> | null;
-  }>({ key: market.id, book: new LinkedDepth(market.id).read(), status: 'Loading depth', failure: null });
+  }>({ key: market.id, book: new LinkedDepth(market.id).read(), status: copy.t('loadingDepth'), failure: null });
   useEffect(() => {
     const controller = new AbortController(),
       depth = new LinkedDepth(market.id);
@@ -26,7 +27,7 @@ export function useLinkedBook(api: TradeApi, market: Listing) {
       closed = false,
       inFlight = false,
       retry: ReturnType<typeof setTimeout> | undefined,
-      source = 'Snapshot';
+      source = copy.t('snapshot');
     const publish = (failure: Extract<ApiResult<unknown>, { ok: false }> | null = null) => {
       if (!closed) setState({ key: market.id, book: depth.read(), status: source, failure });
     };
@@ -39,8 +40,8 @@ export function useLinkedBook(api: TradeApi, market: Listing) {
       if (result.ok) {
         if (Date.now() - result.data.timestamp >= 15000 || result.data.timestamp > Date.now() + 5000) {
           depth.invalidate();
-          source = 'Snapshot is stale';
-          publish({ ok: false, reason: 'invalid_response', message: 'This depth snapshot is too old to authorize a new order.' });
+          source = copy.t('snapshotIsStale');
+          publish({ ok: false, reason: 'invalid_response', message: copy.t('thisDepthSnapshotIsTooOldToAuthorizeANewOrder') });
           return;
         }
         const verdict = depth.receive(
@@ -54,12 +55,12 @@ export function useLinkedBook(api: TradeApi, market: Listing) {
           result.data.timestamp,
         );
         if (verdict === 'invalid') {
-          source = 'Unverified depth';
-          publish({ ok: false, reason: 'invalid_response', message: 'Depth contains an invalid price or quantity.' });
+          source = copy.t('unverifiedDepth');
+          publish({ ok: false, reason: 'invalid_response', message: copy.t('depthContainsAnInvalidPriceOrQuantity') });
         } else publish();
       } else {
         depth.invalidate();
-        source = 'Depth unavailable';
+        source = copy.t('depthUnavailable');
         publish(result);
       }
     };
@@ -75,30 +76,30 @@ export function useLinkedBook(api: TradeApi, market: Listing) {
           wire = JSON.parse(String(event.data));
         } catch {
           depth.invalidate();
-          source = 'Unverified stream';
+          source = copy.t('unverifiedStream');
           publish();
           void snapshot();
           return;
         }
         const verdict = depth.receive(wire);
         if (verdict === 'accepted') {
-          source = 'Live depth';
+          source = copy.t('liveDepth');
           publish();
         } else if (verdict === 'gap' || verdict === 'invalid') {
-          source = 'Resynchronizing depth';
+          source = copy.t('resynchronizingDepth');
           publish();
           void snapshot();
         }
       };
       socket.onerror = () => {
         depth.invalidate();
-        source = 'Stream interrupted';
+        source = copy.t('streamInterrupted');
         publish();
       };
       socket.onclose = () => {
         if (closed) return;
         depth.invalidate();
-        source = 'Reconnecting';
+        source = copy.t('reconnecting');
         publish();
         retry = setTimeout(() => {
           void snapshot();
@@ -110,7 +111,7 @@ export function useLinkedBook(api: TradeApi, market: Listing) {
     connect();
     const clock = setInterval(() => publish(), 1000),
       poll = setInterval(() => {
-        source = 'Snapshot';
+        source = copy.t('snapshot');
         void snapshot();
       }, 10000);
     return () => {
@@ -124,7 +125,7 @@ export function useLinkedBook(api: TradeApi, market: Listing) {
   }, [api, market.id, market.symbol]);
   return state.key === market.id
     ? state
-    : { key: market.id, book: new LinkedDepth(market.id).read(), status: 'Loading depth', failure: null };
+    : { key: market.id, book: new LinkedDepth(market.id).read(), status: copy.t('loadingDepth'), failure: null };
 }
 export function useDeviceSetting<T>(key: string, initial: T, validate: (value: unknown) => value is T) {
   const [value, setValue] = useState<T>(() => {
