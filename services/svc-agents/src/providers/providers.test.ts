@@ -60,6 +60,12 @@ function stubFetch(handler: (url: string, init: RequestInit) => Response | Promi
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
+const sse = (events: readonly unknown[]) =>
+  new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''), {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+  });
+
 const upstream = (over: Partial<ConstructorParameters<typeof UpstreamModelProvider>[0]> = {}) =>
   new UpstreamModelProvider({
     id: 'primary',
@@ -247,6 +253,61 @@ describe('UpstreamModelProvider — the real adapter', () => {
   it('declares embed only when an embeddings endpoint is configured', () => {
     expect(supports(upstream(), 'embed')).toBe(false);
     expect(supports(upstream({ embeddingsPath: '/v1/embeddings' }), 'embed')).toBe(true);
+  });
+
+  it('bills input tokens from message_start and output tokens from message_delta', async () => {
+    stubFetch(() =>
+      sse([
+        { type: 'message_start', usage: { input_tokens: 25 } },
+        { type: 'content_block_delta', delta: { text: 'Hello' } },
+        { type: 'content_block_delta', delta: { text: ' there' } },
+        { type: 'message_delta', usage: { output_tokens: 4 }, delta: { stop_reason: 'end_turn' } },
+        { type: 'message_stop' },
+      ]),
+    );
+
+    const chunks = [];
+    for await (const chunk of upstream().stream(request())) chunks.push(chunk);
+
+    expect(chunks.filter((chunk) => !chunk.done).map((chunk) => chunk.delta).join('')).toBe('Hello there');
+    expect(chunks.filter((chunk) => chunk.done)).toEqual([
+      { delta: '', done: true, usage: { inputTokens: 25, outputTokens: 4 }, stopReason: 'end' },
+    ]);
+  });
+
+  it('bills input tokens nested under message.usage when message_delta reports only output', async () => {
+    stubFetch(() =>
+      sse([
+        { type: 'message_start', message: { usage: { input_tokens: 25 } } },
+        { type: 'content_block_delta', delta: { text: 'Hello there' } },
+        { type: 'message_delta', usage: { output_tokens: 4 }, delta: { stop_reason: 'end_turn' } },
+      ]),
+    );
+
+    const chunks = [];
+    for await (const chunk of upstream().stream(request())) chunks.push(chunk);
+
+    expect(chunks.filter((chunk) => !chunk.done).map((chunk) => chunk.delta).join('')).toBe('Hello there');
+    expect(chunks.filter((chunk) => chunk.done)).toEqual([
+      { delta: '', done: true, usage: { inputTokens: 25, outputTokens: 4 }, stopReason: 'end' },
+    ]);
+  });
+
+  it('refuses an input-only usage object instead of billing zero output tokens', async () => {
+    stubFetch(() =>
+      sse([
+        { type: 'content_block_delta', delta: { text: 'Hello' } },
+        { type: 'message_delta', usage: { input_tokens: 25 }, delta: { stop_reason: 'end_turn' } },
+      ]),
+    );
+
+    const chunks = [];
+    await expect(async () => {
+      for await (const chunk of upstream().stream(request())) chunks.push(chunk);
+    }).rejects.toBeInstanceOf(ProviderError);
+    expect(chunks.map((chunk) => chunk.delta).join('')).toBe('Hello');
+    expect(chunks.some((chunk) => chunk.done)).toBe(false);
+    expect(chunks.some((chunk) => chunk.usage?.outputTokens === 0)).toBe(false);
   });
 });
 
