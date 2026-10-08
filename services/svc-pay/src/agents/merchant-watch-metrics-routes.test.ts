@@ -140,6 +140,130 @@ describe('merchant watch metrics internal route', () => {
     await app.close();
   });
 
+  it('publish refuses a junk approvalRate and does not store the point', async () => {
+    const app = Fastify();
+    const store = memoryStore();
+    registerMerchantWatchMetricsRoutes(app, { internalSecret: SECRET, store });
+    await app.ready();
+
+    const payload = JSON.stringify({
+      railId: 'card',
+      approvalRate: 'not-a-rate',
+      attempts: 100,
+      asOf: '2026-01-01T00:00:00.000Z',
+      maxAgeMs: 60_000,
+    });
+    const publish = await app.inject({
+      method: 'POST',
+      url: MERCHANT_WATCH_METRICS_PUBLISH_PATH,
+      headers: serviceHeaders(payload),
+      payload,
+    });
+    expect(publish.statusCode).toBe(400);
+    expect(publish.json()).toEqual({ ok: false, reason: 'invalid_publish_body' });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: MERCHANT_WATCH_METRICS_PATH,
+      headers: serviceHeaders(),
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toEqual({ ok: false, reason: 'no_live_metrics' });
+    await app.close();
+  });
+
+  it('publish refuses a negative attempts and does not store the point', async () => {
+    const app = Fastify();
+    const store = memoryStore();
+    registerMerchantWatchMetricsRoutes(app, { internalSecret: SECRET, store });
+    await app.ready();
+
+    const payload = JSON.stringify({
+      railId: 'card',
+      approvalRate: '0.91',
+      attempts: -1,
+      asOf: '2026-01-01T00:00:00.000Z',
+      maxAgeMs: 60_000,
+    });
+    const publish = await app.inject({
+      method: 'POST',
+      url: MERCHANT_WATCH_METRICS_PUBLISH_PATH,
+      headers: serviceHeaders(payload),
+      payload,
+    });
+    expect(publish.statusCode).toBe(400);
+    expect(publish.json()).toEqual({ ok: false, reason: 'invalid_publish_body' });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: MERCHANT_WATCH_METRICS_PATH,
+      headers: serviceHeaders(),
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toEqual({ ok: false, reason: 'no_live_metrics' });
+    await app.close();
+  });
+
+  it('publish refuses a non-finite attempts and does not store the point', async () => {
+    const app = Fastify();
+    const store = memoryStore();
+    registerMerchantWatchMetricsRoutes(app, { internalSecret: SECRET, store });
+    await app.ready();
+
+    // JSON has no Infinity token. 1e309 parses as Infinity and must not be stored.
+    const payload =
+      '{"railId":"card","approvalRate":"0.91","attempts":1e309,"asOf":"2026-01-01T00:00:00.000Z","maxAgeMs":60000}';
+    const publish = await app.inject({
+      method: 'POST',
+      url: MERCHANT_WATCH_METRICS_PUBLISH_PATH,
+      headers: serviceHeaders(payload),
+      payload,
+    });
+    expect(publish.statusCode).toBe(400);
+    expect(publish.json()).toEqual({ ok: false, reason: 'invalid_publish_body' });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: MERCHANT_WATCH_METRICS_PATH,
+      headers: serviceHeaders(),
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toEqual({ ok: false, reason: 'no_live_metrics' });
+    await app.close();
+  });
+
+  it('publish refuses a junk asOf and does not store the point', async () => {
+    const app = Fastify();
+    const store = memoryStore();
+    registerMerchantWatchMetricsRoutes(app, { internalSecret: SECRET, store });
+    await app.ready();
+
+    const payload = JSON.stringify({
+      railId: 'card',
+      approvalRate: '0.91',
+      attempts: 100,
+      asOf: 'not-a-timestamp',
+      maxAgeMs: 60_000,
+    });
+    const publish = await app.inject({
+      method: 'POST',
+      url: MERCHANT_WATCH_METRICS_PUBLISH_PATH,
+      headers: serviceHeaders(payload),
+      payload,
+    });
+    expect(publish.statusCode).toBe(400);
+    expect(publish.json()).toEqual({ ok: false, reason: 'invalid_publish_body' });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: MERCHANT_WATCH_METRICS_PATH,
+      headers: serviceHeaders(),
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toEqual({ ok: false, reason: 'no_live_metrics' });
+    await app.close();
+  });
+
   it('refresh materializes projected metrics then GET succeeds', async () => {
     const projected = [{ railId: 'card', approvalRate: '0.91', attempts: 100, asOf: '2026-01-01T00:00:00.000Z', maxAgeMs: 60_000 }];
     const app = Fastify();
