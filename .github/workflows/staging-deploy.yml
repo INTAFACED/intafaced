@@ -189,7 +189,7 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for f in Dockerfile docker-compose.yml docker-compose.apps.yml vendor/upstream-exchange/05_Web_Front/Dockerfile; do
+          for f in Dockerfile docker-compose.yml docker-compose.apps.yml apps/customer/Dockerfile apps/customer/nginx.conf; do
             if [ ! -f "$f" ]; then
               echo "::error::deployment unit incomplete — $f is missing"
               missing=1
@@ -256,9 +256,9 @@ jobs:
           printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_USER" --password-stdin
 
       # Two images, because the deployment unit is two images: the monorepo
-      # runtime that every service and both apps share, and the vendored trading
-      # shell, which is Vue 2.5 / webpack 3 with its own lockfile and its own
-      # Dockerfile deliberately outside the pnpm workspace.
+      # runtime for services and the separate Next team desk, and the React
+      # customer static site in the existing vendor-shell image slot. Native
+      # staging remains separate and requires its verified HTTPS origin.
       #
       # Tagged by commit SHA, and the DIGEST is what gets handed to the deploy
       # job. A tag can be moved to different bytes after review; a digest is the
@@ -271,6 +271,7 @@ jobs:
         env:
           IMAGE_REPO: ${{ github.repository }}
           DEPLOY_SHA: ${{ needs.preflight.outputs.sha }}
+          VITE_TEAM_URL: ${{ vars.VITE_TEAM_URL }}
         run: |
           set -euo pipefail
           repo=$(printf '%s' "$IMAGE_REPO" | tr '[:upper:]' '[:lower:]')
@@ -286,11 +287,12 @@ jobs:
             --push \
             .
           docker buildx build \
-            --file vendor/upstream-exchange/05_Web_Front/Dockerfile \
+            --file apps/customer/Dockerfile \
             --target runtime \
             --tag "$shell_ref" \
+            --build-arg "VITE_TEAM_URL=$VITE_TEAM_URL" \
             --push \
-            vendor/upstream-exchange/05_Web_Front
+            .
 
           app_digest=$(docker buildx imagetools inspect "$app_ref" --format '{{.Manifest.Digest}}')
           shell_digest=$(docker buildx imagetools inspect "$shell_ref" --format '{{.Manifest.Digest}}')
