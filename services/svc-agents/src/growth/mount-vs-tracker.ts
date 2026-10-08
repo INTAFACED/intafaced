@@ -16,12 +16,31 @@ export const GROWTH_DONE_BAR_TEST_FILES = ['campaign-proposal.test.ts', 'growth-
 
 export const GROWTH_HONEST_GAPS = ['gap.incentive_budget_class_x', 'gap.warehouse_live_cubes'] as const;
 
-export function growthDoorsInRouterSource(): readonly (typeof GROWTH_MOUNTED_DOORS)[number][] {
+function readAgentsRouterSource(): string {
   const here = dirname(fileURLToPath(import.meta.url));
-  const src = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-  const start = src.search(/^\s{4}growth:\s*router\(\{/m);
-  if (start === -1) return [];
-  const block = src.slice(start);
+  return readFileSync(join(here, '..', 'router.ts'), 'utf8');
+}
+
+/** Text of the `growth: router({ ... })` object, or null when that mount is absent or unclosed. */
+function growthRouterObjectBlock(src: string): string | null {
+  const match = /^\s{4}growth:\s*router\(\{/m.exec(src);
+  if (match === null) return null;
+  const open = match.index + match[0].length - 1;
+  let depth = 0;
+  for (let i = open; i < src.length; i += 1) {
+    const ch = src[i];
+    if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return src.slice(open, i + 1);
+    }
+  }
+  return null;
+}
+
+export function growthDoorsInRouterSource(src: string = readAgentsRouterSource()): readonly (typeof GROWTH_MOUNTED_DOORS)[number][] {
+  const block = growthRouterObjectBlock(src);
+  if (block === null) return [];
   return GROWTH_MOUNTED_DOORS.filter((door) => new RegExp(`\\b${door}\\s*:`).test(block));
 }
 

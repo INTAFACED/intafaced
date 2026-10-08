@@ -14,4 +14,16 @@ describe('agents.growth mount vs tracker honest gaps (D26-P1-G1)', () => {
     expect(agentsGrowthTrackerBackendDoneBarMet()).toBe(true);
     expect(agentsGrowthMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
   });
+
+  it('does not count a propose door that sits after the growth router object', () => {
+    const src = [
+      '    growth: router({',
+      '      draft: scopedProcedure(),',
+      '    }),',
+      '    other: router({',
+      '      propose: scopedProcedure(),',
+      '    }),',
+    ].join('\n');
+    expect(growthDoorsInRouterSource(src)).toEqual([]);
+  });
 });
