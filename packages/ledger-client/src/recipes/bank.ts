@@ -205,14 +205,26 @@ function gregorianLeapYear(year: number): boolean {
 }
 
 /**
+ * Calendar index from the written digits. Year, month, and day are indexes,
+ * not amounts, so they stay a small integer built from character codes.
+ */
+function writtenCalendarIndex(date: string, start: number, end: number): number {
+  let index = 0;
+  for (let i = start; i < end; i += 1) {
+    index = index * 10 + (date.charCodeAt(i) - 48);
+  }
+  return index;
+}
+
+/**
  * A real calendar day, read from the written year, month, and day.
  * The original string is what the idempotency key keeps.
  */
 function accrualCalendarDay(date: string): boolean {
   if (!ISO_DATE.test(date)) return false;
-  const year = Number(date.slice(0, 4));
-  const month = Number(date.slice(5, 7));
-  const day = Number(date.slice(8, 10));
+  const year = writtenCalendarIndex(date, 0, 4);
+  const month = writtenCalendarIndex(date, 5, 7);
+  const day = writtenCalendarIndex(date, 8, 10);
   if (day < 1) return false;
   const length = daysInGregorianMonth(year, month);
   return length !== undefined && day <= length;
