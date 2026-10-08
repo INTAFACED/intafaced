@@ -230,6 +230,54 @@ describe('loan recipe refusals — balanced lies are still refused', () => {
     ).toThrow(/fully allocated/);
   });
 
+  it('refuses a zero or negative mark and still posts a positive mark', async () => {
+    await deposit('BTC', '1', 'btc-mark');
+    await fundReserveFromBorrower('5000', 'mark-rsv');
+    await ledger.post(recipes.marketMakerSeedFund({ assetId: 'USDT', amount: amt('6000'), seedId: 'mm-mark' }));
+    await ledger.post(
+      recipes.loanCollateralLock({
+        loanId: LOAN,
+        userId: BORROWER,
+        collateralAssetId: 'BTC',
+        amount: amt('1'),
+        sequence: 0,
+      }),
+    );
+    await ledger.post(recipes.loanDraw({ loanId: LOAN, userId: BORROWER, debtAssetId: 'USDT', principal: amt('5000') }));
+
+    const base = {
+      loanId: LOAN,
+      userId: BORROWER,
+      tranche: 0,
+      collateralAssetId: 'BTC' as const,
+      debtAssetId: 'USDT' as const,
+      collateralSold: amt('1'),
+      proceeds: amt('5500'),
+      principalRepaid: amt('5000'),
+      interestRepaid: amt('100'),
+      penalty: amt('200'),
+      surplusToBorrower: amt('200'),
+      buyer: { collateralTo: marketMaker('BTC'), proceedsFrom: marketMaker('USDT') },
+    };
+    const key = `bank.loan.liquidate:${LOAN}:0`;
+
+    for (const markPrice of [0n, -1n]) {
+      expect(() => recipes.loanLiquidate({ ...base, markPrice })).toThrow(InvalidEntryError);
+      expect(() => recipes.loanLiquidate({ ...base, markPrice })).toThrow(/mark price must be positive/);
+      expect(await ledger.getTxByKey(key)).toBeNull();
+    }
+    expect(ledger.journal().some((tx) => tx.reason === 'loan.liquidated')).toBe(false);
+
+    const markPrice = amt('1');
+    const posted = await ledger.post(recipes.loanLiquidate({ ...base, markPrice }));
+    expect(posted.meta.markPrice).toBe(markPrice.toString());
+    const collateralLegs = posted.entries.filter((entry) => entry.assetId === 'BTC');
+    const proceedsLeg = posted.entries.find((entry) => entry.assetId === 'USDT' && entry.direction === 'credit');
+    expect(collateralLegs.every((entry) => entry.amount === base.collateralSold)).toBe(true);
+    expect(proceedsLeg?.amount).toBe(base.proceeds);
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
   it('bad debt draws insurance → reserve; empty fund fails at the book', async () => {
     // Top-up insurance from house trade fees.
     await deposit('USDT', '100', 'ins');

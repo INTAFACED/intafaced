@@ -323,6 +323,7 @@ export function loanLiquidate(input: LoanLiquidationInput): PostRequest {
   requireSequence('liquidation tranche', input.tranche);
   requirePositive('collateral sold', input.collateralSold);
   requirePositive('liquidation proceeds', input.proceeds);
+  requirePositive('mark price', input.markPrice);
   requireNonNegative('principal repaid', input.principalRepaid);
   requireNonNegative('interest repaid', input.interestRepaid);
   requireNonNegative('liquidation penalty', input.penalty);
