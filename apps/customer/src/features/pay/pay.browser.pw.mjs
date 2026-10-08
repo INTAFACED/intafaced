@@ -289,3 +289,35 @@ test('Pay uses accessible control names, page regions and contrast in the browse
   await expect(page.getByRole('heading', { name: 'Access is restricted' })).toBeVisible();
   expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()).violations).toEqual([]);
 });
+
+test('an unwritten Pay locale uses honest English fallback and preserves the exact reviewed transfer', async ({ page }) => {
+  const posted = [];
+  await page.route('**/api/**', async (route) => {
+    if (route.request().url().includes('spaces.list')) return reply(route, [source]);
+    posted.push(route.request().postDataJSON());
+    return route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'Original source explanation' }),
+    });
+  });
+  await mount(page, '/pay/send');
+  await page.evaluate(async () => {
+    const { savePreferences } = await import('/src/shared/preferences.ts');
+    savePreferences({ language: 'fr' });
+  });
+  const heading = page.getByRole('heading', { name: 'Send money', exact: true });
+  await expect(heading).toBeVisible();
+  expect(await heading.evaluate((element) => element.closest('[lang]')?.getAttribute('lang'))).toBe('en');
+  await page.getByLabel('Source account').selectOption(spaceId);
+  await page.getByLabel('Recipient account ID').fill(merchantId);
+  await page.getByLabel('Amount · USDT', { exact: true }).fill('0.000000000000000001');
+  await page.getByRole('button', { name: 'Review transfer' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Review transfer' });
+  await expect(dialog.getByText('0.000000000000000001 USDT', { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Confirm transfer' }).click();
+  await expect(dialog.getByRole('heading', { name: 'Résultat non confirmé' })).toBeVisible();
+  await expect(dialog.getByText('Original source explanation', { exact: true })).toBeVisible();
+  expect(posted).toHaveLength(1);
+  expect(posted[0]).toMatchObject({ amount: '0.000000000000000001', fromSpaceId: spaceId, toUserId: merchantId });
+});

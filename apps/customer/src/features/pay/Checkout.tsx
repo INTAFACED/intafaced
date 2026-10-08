@@ -1,3 +1,4 @@
+import { payCopy, PayCopy } from './copy';
 import { useMemo, useState } from 'react';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
@@ -25,7 +26,7 @@ export function Checkout({ path }: { path: string }) {
         : Promise.resolve({
             ok: false as const,
             reason: 'not_supported' as const,
-            message: 'Open a payment link provided by the merchant.',
+            message: payCopy.t('openAPaymentLinkProvidedByThe'),
           }),
     `pay:checkout-link:${token}`,
   );
@@ -33,22 +34,22 @@ export function Checkout({ path }: { path: string }) {
     (signal) =>
       sessionToken
         ? checkout.status(sessionToken, signal)
-        : Promise.resolve({ ok: false as const, reason: 'not_supported' as const, message: 'No checkout session has been opened.' }),
+        : Promise.resolve({ ok: false as const, reason: 'not_supported' as const, message: payCopy.t('noCheckoutSessionHasBeenOpened') }),
     `pay:checkout-status:${sessionToken}`,
   );
   const active = status.resource.status === 'ready' ? status.resource.data : session;
   return (
     <Page
-      eyebrow="Hosted checkout"
-      title={active?.label ?? 'Pay a merchant'}
-      description="The merchant link defines the payment. Only the payment service confirms completion."
+      eyebrow={payCopy.t('hostedCheckout')}
+      title={active?.label ?? payCopy.t('payAMerchant')}
+      description={payCopy.t('theMerchantLinkDefinesThePaymentOnly')}
     >
       {sessionToken ? (
         <PaySection
-          title="Payment session"
+          title={payCopy.t('paymentSession')}
           action={
             <Button variant="secondary" onClick={status.reload}>
-              Refresh payment status
+              <PayCopy k="refreshPaymentStatus" />
             </Button>
           }
         >
@@ -56,9 +57,9 @@ export function Checkout({ path }: { path: string }) {
             {(data) => <CheckoutStatus session={data} />}
           </PayState>
           {active && status.resource.status === 'failed' && (
-            <PayNotice title="Showing the original session">
-              Current payment status is unavailable. The original session was {session?.status ?? 'opened'}; completion has not been
-              verified by this refresh.
+            <PayNotice title={payCopy.t('showingTheOriginalSession')}>
+              <PayCopy k="currentPaymentStatusIsUnavailableTheOriginal" /> {session?.status ?? payCopy.t('opened')}
+              <PayCopy k="completionHasNotBeenVerifiedByThis" />
             </PayNotice>
           )}
         </PaySection>
@@ -81,7 +82,7 @@ export function Checkout({ path }: { path: string }) {
           )}
         </PayState>
       ) : (
-        <PaySection title="Open your payment link">
+        <PaySection title={payCopy.t('openYourPaymentLink')}>
           <form
             className="form-stack pay-form"
             onSubmit={(event) => {
@@ -90,16 +91,18 @@ export function Checkout({ path }: { path: string }) {
             }}
           >
             <Field
-              label="Payment link token"
+              label={payCopy.t('paymentLinkToken')}
               value={tokenDraft}
               onChange={(event) => setTokenDraft(event.target.value)}
               minLength={8}
               maxLength={200}
               autoComplete="off"
               required
-              hint="Use the exact capability from the merchant’s link. This does not sign in to a merchant account."
+              hint={payCopy.t('useTheExactCapabilityFromTheMerchant')}
             />
-            <Button type="submit">Open payment link</Button>
+            <Button type="submit">
+              <PayCopy k="openPaymentLink" />
+            </Button>
           </form>
         </PaySection>
       )}
@@ -126,17 +129,26 @@ function CheckoutForm({
       <div className="form-stack pay-form">
         <PayDetails
           values={[
-            ['Amount', link.amount === null ? 'Payer chooses the amount' : `${displayAmount(link.amount)} ${link.currency ?? ''}`],
-            ['Expires', link.expiresAt ?? 'Not provided'],
-            ['Remaining uses', link.remainingUses === null ? 'Not limited by this response' : String(link.remainingUses)],
+            [
+              payCopy.t('amount'),
+              link.amount === null ? payCopy.t('payerChoosesTheAmount') : `${displayAmount(link.amount)} ${link.currency ?? ''}`,
+            ],
+            [payCopy.t('expires'), link.expiresAt ?? payCopy.t('notProvided')],
+            [payCopy.t('remainingUses'), link.remainingUses === null ? payCopy.t('notLimitedByThisResponse') : String(link.remainingUses)],
           ]}
         />
         {link.amount === null && (
-          <Field label="Payment amount" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} required />
+          <Field
+            label={payCopy.t('paymentAmount')}
+            inputMode="decimal"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+            required
+          />
         )}
         {link.currency === null && (
           <Field
-            label="Payment asset"
+            label={payCopy.t('paymentAsset')}
             value={asset}
             onChange={(event) => setAsset(event.target.value.toUpperCase())}
             maxLength={16}
@@ -144,37 +156,36 @@ function CheckoutForm({
           />
         )}
         <Field
-          label="Your country"
+          label={payCopy.t('yourCountry')}
           value={country}
           onChange={(event) => setCountry(event.target.value.toUpperCase())}
           minLength={2}
           maxLength={2}
-          hint="Two-letter country code. The service uses it for routing and eligibility."
+          hint={payCopy.t('twoLetterCountryCodeTheServiceUses')}
           required
         />
         <label className="field">
-          Payment method
-          <select aria-label="Payment method" value={method} onChange={(event) => setMethod(event.target.value)} required>
-            <option value="">Choose a method</option>
-            <option value="card">Card</option>
-            <option value="crypto">Crypto</option>
+          <PayCopy k="paymentMethod" />
+          <select aria-label={payCopy.t('paymentMethod')} value={method} onChange={(event) => setMethod(event.target.value)} required>
+            <option value="">{payCopy.t('chooseAMethod')}</option>
+            <option value="card">{payCopy.t('card')}</option>
+            <option value="crypto">{payCopy.t('crypto')}</option>
           </select>
         </label>
-        <PayNotice title="Payment availability is checked by the service">
-          A method selection does not promise a connected payment rail. If no eligible live rail exists, the session refuses. Opening a
-          session does not mark anything paid.
+        <PayNotice title={payCopy.t('paymentAvailabilityIsCheckedByTheService')}>
+          <PayCopy k="aMethodSelectionDoesNotPromiseA" />
         </PayNotice>
         <ReviewedAction
-          title="Open payment session"
+          title={payCopy.t('openPaymentSession')}
           variant="primary"
-          description="Review the merchant’s amount and your routing details. The service selects the payment rail. You cannot select a sandbox or mark this link paid."
+          description={payCopy.t('reviewTheMerchantSAmountAndYour')}
           review={
             <PayDetails
               values={[
-                ['Merchant label', link.label],
-                ['Payment', `${link.amount ?? amount} ${link.currency ?? asset}`],
-                ['Country', country],
-                ['Method', method],
+                [payCopy.t('merchantLabel'), link.label],
+                [payCopy.t('payment'), `${link.amount ?? amount} ${link.currency ?? asset}`],
+                [payCopy.t('country'), country],
+                [payCopy.t('method'), method],
               ]}
             />
           }
@@ -189,9 +200,8 @@ function CheckoutForm({
           onConfirmed={onOpened}
         />
         {checkout.guard.status('checkout:open') && (
-          <PayNotice title="Original checkout opening is unresolved">
-            No new session is opened while the first result is unknown. If you have the original session link, open it to check status.
-            Otherwise contact the merchant; do not start another payment.
+          <PayNotice title={payCopy.t('originalCheckoutOpeningIsUnresolved')}>
+            <PayCopy k="noNewSessionIsOpenedWhileThe" />
           </PayNotice>
         )}
       </div>
@@ -203,36 +213,35 @@ function CheckoutStatus({ session }: { session: z.infer<typeof checkoutSchema> }
     <div className="stack">
       <PayDetails
         values={[
-          ['Status', <Status value={session.status} />],
-          ['Payment', `${displayAmount(session.amount)} ${session.currency}`],
-          ['Method', session.method],
-          ['Expires', session.expiresAt],
+          [payCopy.t('status'), <Status value={session.status} />],
+          [payCopy.t('payment'), `${displayAmount(session.amount)} ${session.currency}`],
+          [payCopy.t('method'), session.method],
+          [payCopy.t('expires'), session.expiresAt],
         ]}
       />
       {session.status === 'open' ? (
         session.instruction ? (
-          <PaySection title="Payment instructions">
+          <PaySection title={payCopy.t('paymentInstructions')}>
             <PayDetails
               values={[
-                ['Reference', session.instruction.reference],
-                ['Exact amount', `${displayAmount(session.instruction.amount)} ${session.instruction.currency}`],
+                [payCopy.t('reference'), session.instruction.reference],
+                [payCopy.t('exactAmount'), `${displayAmount(session.instruction.amount)} ${session.instruction.currency}`],
               ]}
             />
             <p className="muted">
-              Follow only these returned instructions, then refresh status. A receipt or button click does not confirm payment.
+              <PayCopy k="followOnlyTheseReturnedInstructionsThenRefresh" />
             </p>
           </PaySection>
         ) : (
-          <PayNotice title="Payment instructions were not returned">
-            This session is open, but it supplies no payment destination or hosted card handoff. Do not send money to an invented address.
-            Ask the merchant for a supported payment path.
+          <PayNotice title={payCopy.t('paymentInstructionsWereNotReturned')}>
+            <PayCopy k="thisSessionIsOpenButItSupplies" />
           </PayNotice>
         )
       ) : (
         <p role="status">
           {session.status === 'completed'
-            ? 'The service confirmed this session completed.'
-            : `This session is ${session.status}. No new payment is initiated from this screen.`}
+            ? payCopy.t('theServiceConfirmedThisSessionCompleted')
+            : payCopy.t('thisSessionIsNoNewPaymentIs', { status: session.status })}
         </p>
       )}
     </div>
