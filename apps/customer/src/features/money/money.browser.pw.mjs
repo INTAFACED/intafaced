@@ -56,6 +56,66 @@ async function mount(page, path) {
     { path, session },
   );
 }
+
+test('Bank journals the original request before dispatch and survives closing its tab before any outcome', async ({ page, context }) => {
+  let request;
+  let journalAtDispatch;
+  await defaultApi(page, {
+    'spaces.list': (route) => reply(route, [primary]),
+    'transfers.create': async (route) => {
+      request = route.request().postDataJSON();
+      journalAtDispatch = await page.evaluate((owner) => localStorage.getItem('intafaced.customer.bank-unconfirmed.v1:' + owner), userId);
+      // Leave the response unresolved: closing the tab must not erase identity.
+      await new Promise((resolve) => page.once('close', resolve));
+    },
+  });
+  await mount(page, `/bank/transfers?from=${fromId}`);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByLabel('Destination space ID').fill(toId);
+  await page.getByLabel('Amount (BTC)').fill('0.000000000000000001');
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect.poll(() => request).toBeTruthy();
+  await expect.poll(() => journalAtDispatch).not.toBeUndefined();
+  expect(journalAtDispatch).toBeTruthy();
+  const marker = JSON.parse(journalAtDispatch)[0];
+  expect(marker.recordRefs.transferId).toBe(request.transferId);
+  expect(marker.recordRefs).not.toHaveProperty('amount');
+  expect(journalAtDispatch).not.toContain(session.accessToken);
+  expect(journalAtDispatch).not.toContain(session.refreshToken);
+  await page.close();
+  const reopened = await context.newPage();
+  await defaultApi(reopened, { 'spaces.list': (route) => reply(route, [primary]) });
+  await mount(reopened, `/bank/transfers?from=${fromId}`);
+  await expect(reopened.getByText('Bank writes are paused while an outcome is unconfirmed.')).toBeVisible();
+  await expect(reopened.locator('#bank-unconfirmed')).toContainText(request.transferId);
+  await reopened.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(reopened.getByRole('dialog')).toHaveCount(0);
+  await reopened.close();
+});
+
+test('Bank refuses to dispatch when the original request cannot be durably saved', async ({ page }) => {
+  let sends = 0;
+  await defaultApi(page, {
+    'spaces.list': (route) => reply(route, [primary]),
+    'transfers.create': (route) => { sends++; return reply(route, { ledgerTxId: 'unexpected', amount: '0.000000000000000001' }); },
+  });
+  await mount(page, `/bank/transfers?from=${fromId}`);
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith('intafaced.customer.bank-unconfirmed')) throw new DOMException('storage disabled', 'SecurityError');
+      return original.call(this, key, value);
+    };
+  });
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByLabel('Destination space ID').fill(toId);
+  await page.getByLabel('Amount (BTC)').fill('0.000000000000000001');
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(page.getByText('Recovery storage is unavailable. No Bank request was sent.')).toBeVisible();
+  expect(sends).toBe(0);
+});
 async function defaultApi(page, overrides = {}) {
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
