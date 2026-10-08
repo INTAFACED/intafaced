@@ -404,8 +404,30 @@ export class DropCopyHub {
     if (!isPublishedDropCopyRecentLimit(limit) || limit <= 0) return;
     const ring = this.#recent.get(execution.userId) ?? [];
     ring.push(execution);
-    if (ring.length > limit) ring.splice(0, ring.length - limit);
+    if (ring.length > limit) {
+      const dropped = ring.splice(0, ring.length - limit);
+      this.#forgetTrimmedFills(execution.userId, dropped);
+    }
     this.#recent.set(execution.userId, ring);
+  }
+
+  /**
+   * A seated session's dedup set follows the replay ring. Fill ids that the
+   * ring just trimmed are no longer duplicates. An idle user keeps every
+   * printed id: `#forgetIdleUser` drops the ring and leaves `#seenFill` alone.
+   */
+  #forgetTrimmedFills(userId: string, dropped: readonly DropCopyExecution[]): void {
+    let seated = false;
+    for (const sub of this.#subscriptions) {
+      if (!sub.closed && sub.userId === userId) {
+        seated = true;
+        break;
+      }
+    }
+    if (!seated) return;
+    const seen = this.#seenFill.get(userId);
+    if (!seen) return;
+    for (const row of dropped) seen.delete(row.fillId);
   }
 
   #forgetIdleUser(userId: string): void {

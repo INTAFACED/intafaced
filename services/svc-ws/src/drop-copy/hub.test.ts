@@ -228,6 +228,77 @@ describe('DropCopyHub', () => {
     ).toHaveLength(1);
   });
 
+  it('publishes a fill the replay ring trimmed from a seated session and still refuses one still in the ring', () => {
+    const h = hub(2);
+    h.announceBus(true);
+    const sink = new FakeSink();
+    expect(h.attach(USER, sink)).toEqual(expect.any(Function));
+
+    const oldest = '11111111-1111-4111-8111-111111111111';
+    const kept = '22222222-2222-4222-8222-222222222222';
+    const newest = '33333333-3333-4333-8333-333333333333';
+
+    expect(h.publishExecution(fill({ fillId: oldest, engineSequence: 1 }))).toMatchObject({
+      fillId: oldest,
+      price: '100.5',
+      qty: '0.01',
+      quoteAmount: '1.005',
+      feeAmount: '0.001005',
+      dropCopySeq: 1,
+    });
+    expect(h.publishExecution(fill({ fillId: kept, engineSequence: 2 }))).toMatchObject({ dropCopySeq: 2 });
+    expect(h.publishExecution(fill({ fillId: newest, engineSequence: 3 }))).toMatchObject({ dropCopySeq: 3 });
+
+    expect(h.recentFor(USER).map((row) => row.fillId)).toEqual([kept, newest]);
+    expect(h.lastSeq(USER)).toBe(3);
+
+    const before = sink.frames.length;
+    expect(h.publishExecution(fill({ fillId: newest }))).toBeNull();
+    expect(h.lastSeq(USER)).toBe(3);
+    expect(h.recentFor(USER).map((row) => row.fillId)).toEqual([kept, newest]);
+    expect(sink.parsed().slice(before).filter((frame) => frame.type === 'execution')).toEqual([]);
+
+    const again = h.publishExecution(
+      fill({
+        fillId: oldest,
+        price: '101.25',
+        qty: '0.02',
+        quoteAmount: '2.025',
+        feeAmount: '0.002',
+        engineSequence: 4,
+      }),
+    );
+    expect(again).toMatchObject({
+      fillId: oldest,
+      price: '101.25',
+      qty: '0.02',
+      quoteAmount: '2.025',
+      feeAmount: '0.002',
+      dropCopySeq: 4,
+    });
+    expect(typeof again!.price).toBe('string');
+    expect(typeof again!.qty).toBe('string');
+    expect(typeof again!.quoteAmount).toBe('string');
+    expect(typeof again!.feeAmount).toBe('string');
+    expect(h.lastSeq(USER)).toBe(4);
+    expect(h.recentFor(USER).map((row) => row.fillId)).toEqual([newest, oldest]);
+    const live = sink.parsed().slice(before).filter((frame) => frame.type === 'execution');
+    expect(live).toEqual([
+      expect.objectContaining({
+        fillId: oldest,
+        price: '101.25',
+        qty: '0.02',
+        quoteAmount: '2.025',
+        feeAmount: '0.002',
+        dropCopySeq: 4,
+      }),
+    ]);
+    expect(typeof live[0]!.price).toBe('string');
+    expect(typeof live[0]!.qty).toBe('string');
+    expect(typeof live[0]!.quoteAmount).toBe('string');
+    expect(typeof live[0]!.feeAmount).toBe('string');
+  });
+
   it('does not print a fill again after the last subscriber leaves', () => {
     const h = hub();
     h.announceBus(true);
