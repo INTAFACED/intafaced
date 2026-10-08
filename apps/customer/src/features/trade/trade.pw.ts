@@ -11,7 +11,7 @@ test('an unavailable catalog retains the four Desk work areas and retries withou
   await expect(page.getByRole('region', { name: 'Market chart unavailable' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Order book unavailable' })).toBeVisible();
   await expect(page.getByRole('complementary', { name: 'Order ticket unavailable' })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Order management unavailable' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Account order management' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Review order', exact: true })).toBeDisabled();
   await expect(page.locator('.trade-workspace canvas')).toHaveCount(0);
   await page.getByRole('button', { name: 'Retry published markets', exact: true }).click();
@@ -307,6 +307,65 @@ async function mount(
   };
 }
 
+test('account orders and verified-ID cancellation remain accessible when no market catalog is published', async ({ page }) => {
+  const server = await mount(page, { working: true });
+  await page.route('**/api/v1/markets*', (route) => route.fulfill({ json: [] }));
+  await page.route('**/api/v1/orders/closed*', (route) => route.fulfill({ json: [{ ...order('0.025', 'closed'), remaining: '0' }] }));
+  await page.goto('/uc/entrust/current');
+  await expect(page.getByRole('region', { name: 'Open orders', exact: true }).getByRole('table')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Reduce', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Change price', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'History', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'History', exact: true }).getByRole('table')).toContainText('closed');
+  await page.getByRole('button', { name: 'Open orders', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm cancellation', exact: true }).click();
+  await expect.poll(() => server.deletes()).toBe(1);
+  await expect(page.getByText(/Order order-1: canceled/)).toBeVisible();
+  await page.goto('/uc/entrust/history');
+  await expect(page.getByRole('region', { name: 'History', exact: true }).getByRole('table')).toContainText('closed');
+  await page.getByRole('button', { name: 'Fills', exact: true }).click();
+  await expect(page.getByText('No fills in this page', { exact: true })).toBeVisible();
+  expect(server.balanceReads()).toBe(0);
+});
+
+test('missing-catalog recovery checks only the saved request and retains an absent original as unknown', async ({ page }) => {
+  const server = await mount(page);
+  await page.route('**/api/v1/markets*', (route) => route.fulfill({ status: 503, json: { message: 'Published markets unavailable' } }));
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      'trade-pending:00000000-0000-4000-8000-000000000001',
+      JSON.stringify({
+        kind: 'place',
+        symbol: 'BTC/USDT',
+        id: 'earlier-unknown',
+        startedAt: Date.now(),
+      }),
+    ),
+  );
+  const lookups: URL[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === '/api/v1/orders/open' || url.pathname === '/api/v1/orders/closed') lookups.push(url);
+  });
+  await page.goto('/uc/entrust/current');
+  await expect(page.getByRole('button', { name: 'Check original request status', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Check original request status', exact: true }).click();
+  await expect(page.getByText('The request was not found in the returned order pages.', { exact: false })).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText('earlier-unknown');
+  expect(await page.evaluate(() => localStorage.getItem('trade-pending:00000000-0000-4000-8000-000000000001'))).toContain(
+    'earlier-unknown',
+  );
+  expect(lookups.filter((url) => url.searchParams.get('limit') === '500')).toHaveLength(2);
+  expect(lookups.every((url) => !url.searchParams.has('symbol'))).toBe(true);
+  await page.route('**/api/v1/orders/open*', (route) => route.fulfill({ json: [{ ...order(), clientOrderId: 'earlier-unknown' }] }));
+  await page.getByRole('button', { name: 'Check original request status', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem('trade-pending:00000000-0000-4000-8000-000000000001'))).toBeNull();
+  expect(server.placements()).toBe(0);
+  expect(server.deletes()).toBe(0);
+});
+
 test('the actual View red-up preference colors market data without recoloring cancellation danger', async ({ page }) => {
   const server = await mount(page, { working: true });
   await page.goto('/account/view');
@@ -349,6 +408,27 @@ test('the actual View red-up preference colors market data without recoloring ca
   expect(server.deletes()).toBe(0);
 });
 
+test('the full sell deep link resolves only its requested published market, keeping query outside the pair', async ({ page }) => {
+  await mount(page);
+  await page.goto('/exchange/BTC_USDT?side=sell');
+  await expect(page.getByRole('img', { name: 'Actual BTC/USDT historical prices', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review sell', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Choose trading market', exact: true })).toContainText('BTC/USDT');
+  await page.getByLabel('Amount (BTC)', { exact: true }).fill('0.003');
+  await page.evaluate(() => {
+    history.pushState(null, '', '/exchange/BTC_USDT?side=buy');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await expect(page.getByRole('button', { name: 'Review buy', exact: true })).toBeEnabled();
+  await expect(page.getByLabel('Amount (BTC)', { exact: true })).toHaveValue('');
+  await page.goBack();
+  await expect(page.getByRole('button', { name: 'Review sell', exact: true })).toBeEnabled();
+  await page.goto('/exchange/UNPUBLISHED_USDT?side=sell');
+  await expect(page.getByText('This market is not available in this mode', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review order', exact: true })).toBeDisabled();
+  await expect(page.locator('.trade-workspace canvas')).toHaveCount(0);
+});
+
 test('an explicit Academy simulation link opens only a published paper row and preserves its navigation mode', async ({ page }) => {
   const server = await mount(page, { paper: true });
   await page.goto('/exchange/BTC%2FUSDT?simulated=true');
@@ -356,6 +436,15 @@ test('an explicit Academy simulation link opens only a published paper row and p
   await expect(page.getByRole('button', { name: 'Review buy', exact: true })).toBeEnabled();
   await expect(page.getByText('Simulation · no live funds', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Spot', exact: true })).toHaveAttribute('href', '/exchange?simulated=true');
+  await page.evaluate(() => {
+    history.pushState(null, '', '/exchange/BTC%2FUSDT');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await expect(page.getByRole('checkbox', { name: 'Simulated', exact: true })).not.toBeChecked();
+  await expect(page.getByRole('button', { name: 'Review order', exact: true })).toBeDisabled();
+  await page.goBack();
+  await expect(page.getByRole('checkbox', { name: 'Simulated', exact: true })).toBeChecked();
+  await expect(page.getByRole('button', { name: 'Review buy', exact: true })).toBeEnabled();
   expect(server.balanceReads()).toBe(0);
 });
 

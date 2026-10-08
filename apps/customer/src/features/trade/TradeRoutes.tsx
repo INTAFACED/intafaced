@@ -38,6 +38,8 @@ const modeRoutes: Record<string, string> = {
   'Quote desk': '/otc',
 };
 export function TradeRoutes({ path }: { path: string }) {
+  const route = new URL(path, location.origin),
+    pathname = route.pathname;
   const preferences = usePreferences();
   const transport = useApi(),
     api = useMemo(() => createTradeApi(transport), [transport]),
@@ -62,20 +64,20 @@ export function TradeRoutes({ path }: { path: string }) {
     }
     setFavoritesKey(key);
   }, [userId]);
-  const [simulation, setSimulation] = useState(() => new URLSearchParams(location.search).get('simulated') === 'true'),
+  const [simulation, setSimulation] = useState(() => route.searchParams.get('simulated') === 'true'),
     [picker, setPicker] = useState(false),
     [selected, setSelected] = useState<string | null>(null);
-  const activeMode = path.startsWith('/trade/convert')
+  const activeMode = pathname.startsWith('/trade/convert')
     ? 'Convert'
-    : path.startsWith('/otc')
+    : pathname.startsWith('/otc')
       ? 'Quote desk'
-      : path.startsWith('/execution')
+      : pathname.startsWith('/execution')
         ? 'Execution'
-        : (modes.find((mode) => mode !== 'Spot' && path.includes(`/trade/${mode.toLowerCase()}`)) ?? 'Spot');
-  const query = new URLSearchParams(location.search),
+        : (modes.find((mode) => mode !== 'Spot' && pathname.includes(`/trade/${mode.toLowerCase()}`)) ?? 'Spot');
+  const query = route.searchParams,
     asset = query.get('asset')?.toUpperCase(),
     initialSide = query.get('side') === 'sell' ? 'sell' : 'buy';
-  const routePair = path.startsWith('/exchange/') ? decodePair(path.split('?')[0]!.slice('/exchange/'.length)) : null;
+  const routePair = pathname.startsWith('/exchange/') ? decodePair(pathname.slice('/exchange/'.length)) : null;
   const markets = catalogue.resource.status === 'ready' ? catalogue.resource.data : [];
   const visible = markets.filter(
     (market) =>
@@ -95,7 +97,7 @@ export function TradeRoutes({ path }: { path: string }) {
   }, [favorites, userId, favoritesKey]);
   useEffect(() => {
     setSelected(null);
-    setSimulation(new URLSearchParams(location.search).get('simulated') === 'true');
+    setSimulation(route.searchParams.get('simulated') === 'true');
   }, [path]);
   function choose(value: Listing) {
     setSelected(value.symbol);
@@ -178,10 +180,10 @@ export function TradeRoutes({ path }: { path: string }) {
           </div>
           {catalogue.resource.status === 'ready' && market ? (
             <SpotDesk
-              key={`${market.id}:${userId ?? 'guest'}`}
+              key={`${market.id}:${userId ?? 'guest'}:${initialSide}`}
               market={market}
               api={api}
-              initialTab={path.includes('history') ? 'History' : 'Open orders'}
+              initialTab={pathname === '/uc/entrust/history' ? 'History' : 'Open orders'}
               initialSide={initialSide}
               markets={visible}
             />
@@ -190,6 +192,14 @@ export function TradeRoutes({ path }: { path: string }) {
               resource={catalogue.resource}
               retry={catalogue.reload}
               simulation={simulation}
+              management={
+                <AccountOrders
+                  key={userId ?? 'guest'}
+                  api={api}
+                  initialTab={pathname === '/uc/entrust/history' ? 'History' : 'Open orders'}
+                  simulation={simulation}
+                />
+              }
               title={
                 simulation
                   ? 'No simulated spot market is published'
@@ -320,37 +330,10 @@ function readPending(userId: string): Pending | null {
     return null;
   }
 }
-function SpotDesk({
-  api,
-  market,
-  initialTab,
-  initialSide,
-  markets,
-}: {
-  api: TradeApi;
-  market: Listing;
-  initialTab: string;
-  initialSide: 'buy' | 'sell';
-  markets: Listing[];
-}) {
-  const { userId } = useSession(),
-    preferences = usePreferences();
-  const accountKey = userId ?? 'signed-out';
-  const book = useLinkedBook(api, market),
-    balances = usePolled(
-      (signal) =>
-        market.paper
-          ? Promise.resolve(unavailable('A simulated balance contract is not mounted. Paper orders do not use live ledger funds.'))
-          : api.balances(signal),
-      accountKey,
-      20,
-    ),
-    open = usePolled((signal) => api.orders('open', market.paper ? market.symbol : undefined, 100, signal), accountKey, 10);
-  const [staged, setStaged] = useState(''),
-    [pending, setPending] = useState<Pending | null>(() => readPending(accountKey)),
+function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void, accountWide = false) {
+  const [pending, setPending] = useState<Pending | null>(() => readPending(accountKey)),
     [status, setStatus] = useState(''),
-    [checking, setChecking] = useState(false),
-    [manage, setManage] = useState<{ order: Order; kind: 'cancel' | 'amend' | 'replace'; price?: string } | null>(null);
+    [checking, setChecking] = useState(false);
   useEffect(() => {
     const update = () => setPending(readPending(accountKey));
     window.addEventListener('storage', update);
@@ -445,10 +428,6 @@ function SpotDesk({
       });
     });
   };
-  function refresh() {
-    balances.reload();
-    open.reload();
-  }
   async function reconcile() {
     if (!pending || checking) return;
     if (!['place', 'cancel', 'amend', 'replace'].includes(pending.kind)) {
@@ -459,7 +438,10 @@ function SpotDesk({
     }
     setChecking(true);
     if (pending.kind === 'replace' && pending.orderId) {
-      const [original, replacement] = await Promise.all([api.order(pending.orderId), api.reconcile(pending.id, pending.symbol)]);
+      const [original, replacement] = await Promise.all([
+        api.order(pending.orderId),
+        api.reconcile(pending.id, pending.symbol, accountWide),
+      ]);
       if (
         original.ok &&
         replacement.ok &&
@@ -479,7 +461,7 @@ function SpotDesk({
       setChecking(false);
       return;
     }
-    const result = pending.orderId ? await api.order(pending.orderId) : await api.reconcile(pending.id, pending.symbol);
+    const result = pending.orderId ? await api.order(pending.orderId) : await api.reconcile(pending.id, pending.symbol, accountWide);
     if (result.ok) {
       const resolved =
         !result.data.recoveryRequired &&
@@ -503,6 +485,41 @@ function SpotDesk({
     } else setStatus(result.message);
     refresh();
     setChecking(false);
+  }
+  return { pending, status, checking, setIntent, reserveIntent, reconcile, setStatus };
+}
+function SpotDesk({
+  api,
+  market,
+  initialTab,
+  initialSide,
+  markets,
+}: {
+  api: TradeApi;
+  market: Listing;
+  initialTab: string;
+  initialSide: 'buy' | 'sell';
+  markets: Listing[];
+}) {
+  const { userId } = useSession(),
+    preferences = usePreferences();
+  const accountKey = userId ?? 'signed-out';
+  const book = useLinkedBook(api, market),
+    balances = usePolled(
+      (signal) =>
+        market.paper
+          ? Promise.resolve(unavailable('A simulated balance contract is not mounted. Paper orders do not use live ledger funds.'))
+          : api.balances(signal),
+      accountKey,
+      20,
+    ),
+    open = usePolled((signal) => api.orders('open', market.paper ? market.symbol : undefined, 100, signal), accountKey, 10);
+  const [staged, setStaged] = useState(''),
+    [manage, setManage] = useState<{ order: Order; kind: 'cancel' | 'amend' | 'replace'; price?: string } | null>(null);
+  const { pending, status, checking, setIntent, reserveIntent, reconcile, setStatus } = useTradeRequests(api, accountKey, refresh);
+  function refresh() {
+    balances.reload();
+    open.reload();
   }
   const orders = open.resource.status === 'ready' ? open.resource.data : [];
   return (
@@ -634,6 +651,73 @@ function SpotDesk({
         />
       )}
     </>
+  );
+}
+function AccountOrders({ api, initialTab, simulation }: { api: TradeApi; initialTab: string; simulation: boolean }) {
+  const { userId } = useSession();
+  const accountKey = userId ?? 'signed-out';
+  const open = usePolled(
+    (signal) =>
+      simulation
+        ? Promise.resolve(unavailable<Order[]>('Account-wide simulation history cannot be verified without a published paper market.'))
+        : api.orders('open', undefined, 100, signal),
+    `${accountKey}:account-orders:${simulation}`,
+    10,
+  );
+  const [manage, setManage] = useState<Order | null>(null);
+  const { pending, status, checking, reserveIntent, setIntent, reconcile, setStatus } = useTradeRequests(
+    api,
+    accountKey,
+    open.reload,
+    true,
+  );
+  return (
+    <section aria-label="Account order management">
+      <OrderBlotter
+        api={api}
+        initialTab={initialTab}
+        open={open}
+        locked={Boolean(pending)}
+        accountWideAllowed={!simulation}
+        allowCancel={!simulation}
+        onManage={(order, kind) => {
+          if (kind === 'cancel') setManage(order);
+        }}
+      />
+      {pending && (
+        <div className="trade-uncertain" role="alert">
+          <strong>Outcome not confirmed · {pending.kind}</strong>
+          <p>
+            {pending.symbol} · Request {pending.id}. Resolve this original request before another trading action. No funds have been assumed
+            released.
+          </p>
+          <Button variant="secondary" disabled={checking} onClick={reconcile}>
+            {checking ? 'Checking status…' : 'Check original request status'}
+          </Button>
+          <a className="text-link" href="/support">
+            Contact support
+          </a>
+        </div>
+      )}
+      {status && (
+        <p className="trade-status" role="status">
+          {status}
+        </p>
+      )}
+      {manage && (
+        <ManageOrder
+          api={api}
+          selection={{ order: manage, kind: 'cancel' }}
+          onClose={() => setManage(null)}
+          onIntent={reserveIntent}
+          onResolved={(identity) => {
+            setIntent(null, identity);
+            open.reload();
+          }}
+          onStatus={setStatus}
+        />
+      )}
+    </section>
   );
 }
 function BookAndTape({
@@ -1301,21 +1385,37 @@ function OrderBlotter({
   market,
   onManage,
   locked,
+  accountWideAllowed = true,
+  allowCancel = true,
 }: {
   api: TradeApi;
   initialTab: string;
   open: ReturnType<typeof usePolled<Order[]>>;
-  market: Listing;
+  market?: Listing;
   onManage: (order: Order, kind: 'cancel' | 'amend' | 'replace') => void;
   locked: boolean;
+  accountWideAllowed?: boolean;
+  allowCancel?: boolean;
 }) {
   const [tab, setTab] = useState(initialTab),
-    [all, setAll] = useState(false),
+    [all, setAll] = useState(!market),
     [limit, setLimit] = useState(100);
   useEffect(() => setTab(initialTab), [initialTab]);
-  const key = `${market.id}:${all}:${limit}`;
-  const history = useResource((signal) => api.orders('closed', all ? undefined : market.symbol, limit, signal), key),
-    fills = useResource((signal) => api.fills(all ? undefined : market.symbol, limit, signal), key);
+  const { userId } = useSession();
+  const key = `${userId}:${market?.id ?? 'account'}:${all}:${limit}:${accountWideAllowed}`;
+  const scope = all || !market ? undefined : market.symbol;
+  const unavailableHistory = 'Account-wide simulation history cannot be verified without a published paper market.';
+  const history = useResource(
+      (signal) =>
+        !market && !accountWideAllowed
+          ? Promise.resolve(unavailable<Order[]>(unavailableHistory))
+          : api.orders('closed', scope, limit, signal),
+      key,
+    ),
+    fills = useResource(
+      (signal) => (!market && !accountWideAllowed ? Promise.resolve(unavailable(unavailableHistory)) : api.fills(scope, limit, signal)),
+      key,
+    );
   const data = tab === 'Open orders' ? open : history;
   return (
     <section className="trade-blotter">
@@ -1325,9 +1425,9 @@ function OrderBlotter({
           <input
             type="checkbox"
             checked={all}
-            disabled={market.paper}
+            disabled={!market || market.paper}
             title={
-              market.paper
+              market?.paper
                 ? 'Simulated history is scoped to this published paper market; the order wire has no account simulation discriminator.'
                 : undefined
             }
@@ -1356,10 +1456,10 @@ function OrderBlotter({
                     <td>{row.symbol}</td>
                     <td>{row.side}</td>
                     <td>
-                      {displayAmount(row.price)} {row.symbol.split('/')[1]}
+                      {displayAmount(row.price)} {market?.symbol === row.symbol ? market.quote : ''}
                     </td>
                     <td>
-                      {displayAmount(row.amount)} {row.symbol.split('/')[0]}
+                      {displayAmount(row.amount)} {market?.symbol === row.symbol ? market.base : ''}
                     </td>
                     <td>{displayAmount(row.cost)}</td>
                     <td>{row.fee ? `${displayAmount(row.fee.cost)} ${row.fee.currency}` : 'Unavailable'}</td>
@@ -1374,7 +1474,7 @@ function OrderBlotter({
       ) : (
         <ResourceView resource={data.resource} retry={data.reload}>
           {(rows) => {
-            const scoped = all ? rows : rows.filter((row) => row.symbol === market.symbol);
+            const scoped = all || !market ? rows : rows.filter((row) => row.symbol === market.symbol);
             return scoped.length ? (
               <DataTable
                 label={tab}
@@ -1388,21 +1488,27 @@ function OrderBlotter({
                       {order.side} · {order.type}
                     </td>
                     <td>
-                      {displayAmount(order.price)} {order.symbol.split('/')[1]}
+                      {displayAmount(order.price)} {market?.symbol === order.symbol ? market.quote : ''}
                     </td>
                     <td>
-                      {displayAmount(order.amount)} / {displayAmount(order.filled)} {order.symbol.split('/')[0]}
+                      {displayAmount(order.amount)} / {displayAmount(order.filled)} {market?.symbol === order.symbol ? market.base : ''}
                     </td>
                     <td>
-                      {displayAmount(order.remaining)} {order.symbol.split('/')[0]}
+                      {displayAmount(order.remaining)} {market?.symbol === order.symbol ? market.base : ''}
                     </td>
                     <td>{order.status}</td>
                     <td>
                       {order.status === 'open' && (
                         <div className="trade-row-actions">
                           <button
-                            disabled={locked || market.paper}
-                            title={market.paper ? 'Native amendment requires the live spot matching path.' : undefined}
+                            disabled={locked || !market || market.paper || order.symbol !== market.symbol}
+                            title={
+                              !market || order.symbol !== market.symbol
+                                ? 'Quantity changes require this order’s published market rules.'
+                                : market.paper
+                                  ? 'Native amendment requires the live spot matching path.'
+                                  : undefined
+                            }
                             onClick={() => onManage(order, 'amend')}
                           >
                             Reduce
@@ -1410,6 +1516,7 @@ function OrderBlotter({
                           <button
                             disabled={
                               locked ||
+                              !market ||
                               order.type !== 'limit' ||
                               parseAmount(order.filled) > 0n ||
                               market.paper ||
@@ -1420,7 +1527,7 @@ function OrderBlotter({
                           >
                             Change price
                           </button>
-                          <button disabled={locked} onClick={() => onManage(order, 'cancel')}>
+                          <button disabled={locked || !allowCancel || order.recoveryRequired} onClick={() => onManage(order, 'cancel')}>
                             Cancel
                           </button>
                         </div>
@@ -1443,6 +1550,7 @@ function OrderBlotter({
         </Button>
       )}
       <small className="trade-note">
+        {!market && 'Account-wide records. Unit labels and quantity/price changes require published market rules. '}
         {tab === 'Open orders'
           ? 'First 100 working orders; refresh confirms current state.'
           : 'Newest records, up to 500 per service page. A page is not your complete history.'}

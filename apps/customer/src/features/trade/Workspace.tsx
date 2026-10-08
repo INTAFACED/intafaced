@@ -418,11 +418,13 @@ export function UnavailableDesk({
   retry,
   title,
   simulation,
+  management,
 }: {
   resource: Resource<Listing[]>;
   retry: () => void;
   title: string;
   simulation: boolean;
+  management?: ReactNode;
 }) {
   return (
     <DeskFrame
@@ -464,15 +466,17 @@ export function UnavailableDesk({
         </section>
       }
       management={
-        <section className="trade-blotter" aria-label="Order management unavailable">
-          <div className="trade-chart-toolbar">
-            <strong>Open orders · History · Fills</strong>
-          </div>
-          <div className="trade-absent-content">
-            <h3>Order management unavailable</h3>
-            <p>Select a published market to inspect its orders and fills. Order and fund status cannot be verified yet.</p>
-          </div>
-        </section>
+        management ?? (
+          <section className="trade-blotter" aria-label="Order management unavailable">
+            <div className="trade-chart-toolbar">
+              <strong>Open orders · History · Fills</strong>
+            </div>
+            <div className="trade-absent-content">
+              <h3>Order management unavailable</h3>
+              <p>Select a published market to inspect its orders and fills. Order and fund status cannot be verified yet.</p>
+            </div>
+          </section>
+        )
       }
       ticket={
         <aside className="trade-ticket-column trade-ticket-column--absent" aria-label="Order ticket unavailable">
