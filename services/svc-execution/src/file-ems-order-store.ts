@@ -2,11 +2,24 @@
  * File-backed EMS order-ack journal — survives process restart (D29).
  *
  * JSONL append-only log. Missing file is an honest empty journal, not invented acks.
+ * A blank or whitespace clientOrderId refuses. The ack is not written and not kept.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { EmsOrderEvidence, EmsOrderStore, EmsListFilter } from './oms-ems-store.js';
+
+export const EXECUTION_EMS_CLIENT_ORDER_ID_REQUIRED = 'execution.ems_client_order_id_required' as const;
+
+/** Blank clientOrderId — the venue ack is not stored, and the caller can see the refusal. */
+export class EmsClientOrderIdRequiredError extends Error {
+  readonly code = EXECUTION_EMS_CLIENT_ORDER_ID_REQUIRED;
+
+  constructor() {
+    super('clientOrderId is blank — refusing to journal the venue ack');
+    this.name = 'EmsClientOrderIdRequiredError';
+  }
+}
 
 type StoredLine = {
   readonly clientOrderId: string;
@@ -100,9 +113,9 @@ function fromStoredLine(line: StoredLine): EmsOrderEvidence {
   };
 }
 
-function normalizeAck(input: Omit<EmsOrderEvidence, 'recordedAtMs'> & { readonly recordedAtMs?: number }): EmsOrderEvidence | null {
+function normalizeAck(input: Omit<EmsOrderEvidence, 'recordedAtMs'> & { readonly recordedAtMs?: number }): EmsOrderEvidence {
   const clientOrderId = input.clientOrderId.trim();
-  if (!clientOrderId) return null;
+  if (!clientOrderId) throw new EmsClientOrderIdRequiredError();
   return {
     clientOrderId,
     requestFingerprint: input.requestFingerprint,
@@ -145,7 +158,6 @@ export class FileEmsOrderStore implements EmsOrderStore {
 
   record(input: Omit<EmsOrderEvidence, 'recordedAtMs'> & { readonly recordedAtMs?: number }): void {
     const ack = normalizeAck(input);
-    if (!ack) return;
     appendFileSync(this.filePath, `${JSON.stringify(toStoredLine(ack))}\n`, 'utf8');
     this.byClientOrderId.set(ack.clientOrderId, ack);
   }

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
-import { FileEmsOrderStore } from './file-ems-order-store.js';
+import { EXECUTION_EMS_CLIENT_ORDER_ID_REQUIRED, EmsClientOrderIdRequiredError, FileEmsOrderStore } from './file-ems-order-store.js';
 
 const dirs: string[] = [];
 
@@ -47,6 +47,72 @@ describe('FileEmsOrderStore', () => {
     expect(store.get('client-1')?.venueId).toBe('binance-spot');
     const reloaded = new FileEmsOrderStore(path);
     expect(reloaded.get('client-1')?.symbol).toBe('BTC/USDT');
+  });
+
+  it('a blank or whitespace clientOrderId refuses and is not journaled', () => {
+    const path = tempStorePath();
+    const store = new FileEmsOrderStore(path);
+    store.record({
+      clientOrderId: 'kept',
+      venueId: 'binance-spot',
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      execution: sampleExecution('v-kept'),
+      recordedAtMs: 1,
+    });
+    const dropped = {
+      clientOrderId: '   ',
+      venueId: 'bybit-spot',
+      symbol: 'ETH/USDT',
+      side: 'sell' as const,
+      execution: sampleExecution('v-dropped'),
+      reconciliationKey: 'lookup:blank',
+      recordedAtMs: 2,
+    };
+
+    for (const clientOrderId of ['', '   ', '\n\t ']) {
+      try {
+        store.record({ ...dropped, clientOrderId });
+        throw new Error('expected refuse');
+      } catch (err) {
+        expect(err).toBeInstanceOf(EmsClientOrderIdRequiredError);
+        expect((err as EmsClientOrderIdRequiredError).code).toBe(EXECUTION_EMS_CLIENT_ORDER_ID_REQUIRED);
+      }
+    }
+
+    expect(store.get('kept')?.execution?.venueOrderId).toBe('v-kept');
+    expect(store.get('')).toBeNull();
+    expect(store.get('   ')).toBeNull();
+    expect(store.getByReconciliationKey('lookup:blank')).toBeNull();
+    expect(store.list().map((row) => row.clientOrderId)).toEqual(['kept']);
+    const lines = readFileSync(path, 'utf8').trim().split('\n');
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!).clientOrderId).toBe('kept');
+    expect(readFileSync(path, 'utf8')).not.toContain('v-dropped');
+
+    const reloaded = new FileEmsOrderStore(path);
+    expect(reloaded.get('kept')?.execution?.venueOrderId).toBe('v-kept');
+    expect(reloaded.getByReconciliationKey('lookup:blank')).toBeNull();
+    expect(reloaded.list().map((row) => row.clientOrderId)).toEqual(['kept']);
+
+    const execution = sampleExecution('v-real');
+    store.record({
+      clientOrderId: 'client-real',
+      venueId: 'binance-spot',
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      execution,
+      recordedAtMs: 3,
+    });
+    expect(store.get('client-real')?.execution?.venueOrderId).toBe('v-real');
+    expect(store.get('client-real')?.execution?.filledAmount).toBe(execution.filledAmount);
+    expect(store.get('client-real')?.execution?.averagePrice).toBe(execution.averagePrice);
+    expect(store.get('client-real')?.execution?.status).toBe('filled');
+    const after = new FileEmsOrderStore(path);
+    expect(after.get('client-real')?.execution?.venueOrderId).toBe('v-real');
+    expect(after.get('client-real')?.execution?.filledAmount).toBe(parseAmount('1'));
+    expect(after.get('client-real')?.execution?.averagePrice).toBe(parseAmount('100'));
+    expect(after.list().map((row) => row.clientOrderId).sort()).toEqual(['client-real', 'kept']);
   });
 
   it('duplicate clientOrderId overwrites in memory — latest wins on reload', () => {
