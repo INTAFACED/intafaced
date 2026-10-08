@@ -1357,6 +1357,13 @@ describe('svc-pay money PG-hard', () => {
       const overflow = await plantCaptured('80', new Date('2026-03-03T12:00:00.000Z'), 'rail-overflow');
       const before = await plantCaptured('100', new Date(start.getTime() - 1), 'rail-before');
       const atEnd = await plantCaptured('100', end, 'rail-at-end');
+      // 0001-01-01 is that UTC day. Date.UTC(1, 0, 1) is 1901-01-01; this window must not follow it.
+      const yearOne = '0001-01-01';
+      const yearOneStart = new Date(`${yearOne}T00:00:00.000Z`);
+      const yearOneEnd = new Date(yearOneStart.getTime() + 24 * 60 * 60 * 1000);
+      const atYearOne = await plantCaptured('4', yearOneStart, 'rail-year-one');
+      const atYearOneEnd = await plantCaptured('100', yearOneEnd, 'rail-year-one-end');
+      await fund(atYearOne, '4', 'rail-year-one');
 
       for (const window of ['2026-02-31', '2026-02-29', '2026-04-31']) {
         await expect(pay.settleWindow({ merchantId: m.id, window, assetId: 'USDT' })).rejects.toMatchObject({
@@ -1392,7 +1399,7 @@ describe('svc-pay money PG-hard', () => {
         SELECT COUNT(*)::text AS n FROM pay.settlements WHERE merchant_id = ${m.id}
       `;
       expect(frozen[0]?.n).toBe('0');
-      for (const paymentId of [overflow, before, atEnd, atStart, atEndMinus]) {
+      for (const paymentId of [overflow, before, atEnd, atStart, atEndMinus, atYearOne, atYearOneEnd]) {
         expect((await pay.getPayment(paymentId)).status).toBe('captured');
         expect(await events(paymentId)).not.toContain('settlement.included');
       }
@@ -1403,7 +1410,7 @@ describe('svc-pay money PG-hard', () => {
       expect(formatAmount(posted.gross)).toBe('25');
       expect((await pay.getPayment(atStart)).status).toBe('settled');
       expect((await pay.getPayment(atEndMinus)).status).toBe('settled');
-      for (const paymentId of [overflow, before, atEnd]) {
+      for (const paymentId of [overflow, before, atEnd, atYearOne, atYearOneEnd]) {
         expect((await pay.getPayment(paymentId)).status).toBe('captured');
         expect(await events(paymentId)).not.toContain('settlement.included');
       }
@@ -1411,6 +1418,18 @@ describe('svc-pay money PG-hard', () => {
         SELECT COUNT(*)::text AS n FROM pay.settlements WHERE merchant_id = ${m.id} AND "window" = '2026-02-31'
       `;
       expect(overflowKey[0]?.n).toBe('0');
+
+      const ancient = await pay.settleWindow({ merchantId: m.id, window: yearOne, assetId: 'USDT' });
+      expect(ancient.status).toBe('posted');
+      expect(ancient.window).toBe(yearOne);
+      expect(formatAmount(ancient.gross)).toBe('4');
+      expect(yearOneStart.toISOString()).toBe('0001-01-01T00:00:00.000Z');
+      expect(yearOneEnd.toISOString()).toBe('0001-01-02T00:00:00.000Z');
+      expect((await pay.getPayment(atYearOne)).status).toBe('settled');
+      for (const paymentId of [atYearOneEnd, overflow]) {
+        expect((await pay.getPayment(paymentId)).status).toBe('captured');
+        expect(await events(paymentId)).not.toContain('settlement.included');
+      }
 
       // Both explicit bounds still win, including when the label is not a calendar day.
       const from = new Date(Date.now() - 60_000);
@@ -1428,7 +1447,7 @@ describe('svc-pay money PG-hard', () => {
       expect(formatAmount(bounded.gross)).toBe('7');
       expect((await pay.getPayment(live.id)).status).toBe('settled');
       expect((await pay.getPayment(overflow)).status).toBe('captured');
-      expect(await availableOf(MERCHANT_USER)).toBe('32');
+      expect(await availableOf(MERCHANT_USER)).toBe('36');
       expect(await clearingOf(m.id)).toBe('0');
       expect(ledger.reconcile()).toEqual({ ok: true });
     });

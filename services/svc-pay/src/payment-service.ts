@@ -3740,9 +3740,10 @@ function assertFeeBps(feeBps: number): void {
 
 /**
  * `'2026-07-27'` → that UTC day, half-open, ending 24 hours later.
- * Both explicit bounds win. Exactly one bound refuses. A label that matches
- * YYYY-MM-DD but is not a real UTC calendar day (2026-02-31) refuses — it is
- * not rolled through Date and not frozen under the original window key.
+ * A year 0000–0099 label is that written year. Both explicit bounds win.
+ * Exactly one bound refuses. A label that matches YYYY-MM-DD but is not a
+ * real UTC calendar day (2026-02-31) refuses — it is not rolled through Date
+ * and not frozen under the original window key.
  */
 function windowBounds(window: string, from?: Date, to?: Date): { from: Date; to: Date } {
   if (from && to) return { from, to };
@@ -3764,9 +3765,10 @@ function windowBounds(window: string, from?: Date, to?: Date): { from: Date; to:
 
 /**
  * UTC midnight of a real calendar day, or null.
- * Impossible dates are rejected from the year/month/day fields. Date is only
- * asked to build a day that those fields already accept, then checked so a
- * rollover cannot be returned.
+ * Impossible dates are rejected from the year/month/day fields. The instant is
+ * then `YYYY-MM-DDT00:00:00.000Z`, which keeps years 0000–0099. Date.UTC maps
+ * years 0–99 onto 1900–1999, so it is the wrong construction here. The result
+ * is checked so a rollover cannot be returned.
  */
 function utcCalendarDay(window: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(window);
@@ -3776,7 +3778,7 @@ function utcCalendarDay(window: string): Date | null {
   const day = Number(match[3]);
   if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
   if (month < 1 || month > 12 || day < 1 || day > daysInUtcMonth(year, month)) return null;
-  const start = new Date(Date.UTC(year, month - 1, day));
+  const start = new Date(`${window}T00:00:00.000Z`);
   if (start.getUTCFullYear() !== year || start.getUTCMonth() !== month - 1 || start.getUTCDate() !== day) return null;
   return start;
 }
