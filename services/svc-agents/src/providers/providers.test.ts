@@ -60,6 +60,18 @@ function stubFetch(handler: (url: string, init: RequestInit) => Response | Promi
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
+/** Reject the way `fetch` does once the request signal aborts. */
+function abortedFetch(signal: AbortSignal | null | undefined): Promise<Response> {
+  return new Promise<Response>((_resolve, reject) => {
+    const fail = () => reject(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }));
+    if (!signal || signal.aborted) {
+      fail();
+      return;
+    }
+    signal.addEventListener('abort', fail, { once: true });
+  });
+}
+
 const sse = (events: readonly unknown[]) =>
   new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''), {
     status: 200,
@@ -248,6 +260,107 @@ describe('UpstreamModelProvider — the real adapter', () => {
     stubFetch(() => json({ content: [{ text: 'back' }], usage: { input_tokens: 1, output_tokens: 1 } }));
     await provider.complete(request());
     expect(provider.health().healthy).toBe(true);
+  });
+
+  it('does not call upstream when the caller has already aborted, and does not record that as a timeout', async () => {
+    const fetchSpy = stubFetch(() => json({ content: [{ text: 'hi' }], usage: { input_tokens: 1, output_tokens: 1 } }));
+    const provider = upstream();
+
+    const error = (await provider.complete(request({ signal: AbortSignal.abort() })).catch((err: unknown) => err)) as ProviderError;
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(error.message).toBe('Upstream call cancelled');
+    expect(error.retryable).toBe(false);
+    // Never attempted, so the cancellation cannot be the first consecutive failure.
+    expect(provider.health()).toMatchObject({ healthy: false, reason: PROVIDER_UNPROBED_REASON });
+  });
+
+  it('does not let already-aborted callers push a live provider over the outage threshold', async () => {
+    stubFetch(() => json({ content: [{ text: 'hi' }], usage: { input_tokens: 1, output_tokens: 1 } }));
+    const provider = upstream();
+    await provider.complete(request());
+    expect(provider.health().healthy).toBe(true);
+
+    const signal = AbortSignal.abort();
+    for (let i = 0; i < 3; i++) {
+      const error = (await provider.complete(request({ signal })).catch((err: unknown) => err)) as ProviderError;
+      expect(error.message).toBe('Upstream call cancelled');
+      expect(error.retryable).toBe(false);
+    }
+
+    expect(provider.health().healthy).toBe(true);
+    expect(provider.health().reason).toBeUndefined();
+  });
+
+  it('treats an in-flight caller abort as a cancellation, not an upstream timeout', async () => {
+    stubFetch(() => json({ content: [{ text: 'hi' }], usage: { input_tokens: 1, output_tokens: 1 } }));
+    const provider = upstream({ timeoutMs: 60_000 });
+    await provider.complete(request());
+
+    let caller: AbortController | undefined;
+    stubFetch((_url, init) => {
+      caller?.abort();
+      return abortedFetch(init.signal);
+    });
+
+    for (let i = 0; i < 3; i++) {
+      caller = new AbortController();
+      const error = (await provider.complete(request({ signal: caller.signal })).catch((err: unknown) => err)) as ProviderError;
+      expect(caller.signal.aborted).toBe(true);
+      expect(error).toBeInstanceOf(ProviderError);
+      expect(error.message).toBe('Upstream call cancelled');
+      expect(error.retryable).toBe(false);
+    }
+
+    expect(provider.health().healthy).toBe(true);
+    expect(provider.health().reason).toBeUndefined();
+  });
+
+  it('records a timer timeout as a retryable upstream failure while the caller signal is still live', async () => {
+    const caller = new AbortController();
+    stubFetch((_url, init) => abortedFetch(init.signal));
+    const provider = upstream({ timeoutMs: 15 });
+
+    const errors: ProviderError[] = [];
+    for (let i = 0; i < 3; i++) {
+      errors.push((await provider.complete(request({ signal: caller.signal })).catch((err: unknown) => err)) as ProviderError);
+    }
+
+    expect(caller.signal.aborted).toBe(false);
+    for (const error of errors) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect(error.message).toBe('Upstream call timed out');
+      expect(error.retryable).toBe(true);
+    }
+    expect(provider.health().healthy).toBe(false);
+    expect(provider.health().reason).toBe('upstream timed out');
+  });
+
+  it('records a 429 and a 5xx as consecutive upstream failures', async () => {
+    const limited = upstream();
+    stubFetch(() => new Response('nope', { status: 429 }));
+    for (let i = 0; i < 2; i++) {
+      const error = (await limited.complete(request()).catch((err: unknown) => err)) as ProviderError;
+      expect(error.retryable).toBe(true);
+      expect(error.status).toBe(429);
+      expect(limited.health().healthy).toBe(true);
+    }
+    await limited.complete(request()).catch(() => undefined);
+    expect(limited.health().healthy).toBe(false);
+    expect(limited.health().reason).toBe('upstream status 429');
+
+    const broken = upstream();
+    stubFetch(() => new Response('nope', { status: 503 }));
+    for (let i = 0; i < 2; i++) {
+      const error = (await broken.complete(request()).catch((err: unknown) => err)) as ProviderError;
+      expect(error.retryable).toBe(true);
+      expect(error.status).toBe(503);
+      expect(broken.health().healthy).toBe(true);
+    }
+    await broken.complete(request()).catch(() => undefined);
+    expect(broken.health().healthy).toBe(false);
+    expect(broken.health().reason).toBe('upstream status 503');
   });
 
   it('declares embed only when an embeddings endpoint is configured', () => {

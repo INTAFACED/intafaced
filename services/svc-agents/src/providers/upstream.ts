@@ -291,8 +291,18 @@ export class UpstreamModelProvider implements ModelProvider {
   }
 
   private async send(path: string, body: unknown, signal: AbortSignal | undefined, accept: string): Promise<Response> {
+    // A caller who has already cancelled must not hit upstream. That cancellation
+    // is not an upstream timeout and must not count toward the outage threshold.
+    if (signal?.aborted) {
+      throw new ProviderError('Upstream call cancelled', this.id, false);
+    }
+
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, this.timeoutMs);
     const onAbort = () => controller.abort();
     signal?.addEventListener('abort', onAbort, { once: true });
 
@@ -330,8 +340,13 @@ export class UpstreamModelProvider implements ModelProvider {
       return response;
     } catch (err) {
       if (err instanceof ProviderError) throw err;
+      // The caller aborted while the call was in flight. That is a cancellation
+      // even if the timer also fired, and it does not count as a failure.
+      if (signal?.aborted) {
+        throw new ProviderError('Upstream call cancelled', this.id, false);
+      }
       this.lastLatencyMs = Date.now() - started;
-      const aborted = controller.signal.aborted;
+      const aborted = timedOut || controller.signal.aborted;
       this.recordFailure(aborted ? 'upstream timed out' : 'upstream transport error');
       throw new ProviderError(aborted ? 'Upstream call timed out' : 'Upstream call failed in transport', this.id, true);
     } finally {
