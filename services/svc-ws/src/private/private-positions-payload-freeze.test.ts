@@ -67,4 +67,42 @@ describe('private positions payload freeze', () => {
     expect(parsed.positions[0]?.inventedMid).toBeUndefined();
     assertPrivatePositionWireHonest(parsed);
   });
+
+  it('refuses a positions snapshot whose positions value is not an array, including an invented envelope key', () => {
+    expect(() =>
+      assertPrivatePositionWireHonest({
+        channel: 'positions',
+        type: 'snapshot',
+        userId: 'user-a',
+        positions: { blotter: true },
+        inventedMid: '1',
+      }),
+    ).toThrow(/unknown position wire key inventedMid/);
+    expect(() =>
+      assertPrivatePositionWireHonest({
+        channel: 'positions',
+        type: 'snapshot',
+        userId: 'user-a',
+        positions: { blotter: true },
+      }),
+    ).toThrow(/positions snapshot must be an array/);
+    expect(() =>
+      assertPrivatePositionWireHonest({
+        channel: 'positions',
+        type: 'snapshot',
+        userId: 'user-a',
+        positions: [freezePrivatePositionUpdate(position())],
+        inventedMid: '1',
+      }),
+    ).toThrow(/unknown position wire key inventedMid/);
+    expect(() =>
+      assertPrivatePositionWireHonest({
+        channel: 'positions',
+        type: 'snapshot',
+        userId: 'user-a',
+        positions: [{ ...freezePrivatePositionUpdate(position()), inventedMid: '1' }],
+      }),
+    ).toThrow(/unknown position wire key inventedMid/);
+    expect(() => assertPrivatePositionWireHonest(JSON.parse(encodePrivatePositionsSnapshotFrame('user-a', [position()])))).not.toThrow();
+  });
 });
