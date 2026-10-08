@@ -1,12 +1,13 @@
 import { Component, lazy, Suspense, useEffect, type MouseEvent, type ReactNode } from 'react';
 import { Page, EmptyState, Button, Loading } from '../shared/ui';
-import { findRoom } from './navigation';
+import { findRoom, roomTitle } from './navigation';
 import { useLocation, navigate } from './location';
 import { Shell } from './Shell';
 import { PublicRoutes } from '../features/public/PublicRoutes';
 import { useSession } from '../features/session/session';
 import { AccountRoutes } from '../features/account/AccountRoutes';
 import { ApplyView } from '../features/account/View';
+import { appCopy } from './app-copy';
 
 function configuredTeamHref(path: string): string | undefined {
   const configured: string | undefined = import.meta.env.VITE_TEAM_URL;
@@ -33,19 +34,24 @@ class RoomBoundary extends Component<{ children: ReactNode }, { failed: boolean 
     return { failed: true };
   }
   override render() {
-    return this.state.failed ? (
-      <Page title="This room could not open">
-        <EmptyState title="The interface encountered an error" action={<Button onClick={() => location.reload()}>Reload the app</Button>}>
-          Reload to try again. You will need to sign in again. An unconfirmed financial request must still be checked before retrying.
-        </EmptyState>
-      </Page>
-    ) : (
+    return this.state.failed ? <RoomFailure /> : (
       this.props.children
     );
   }
 }
+function RoomFailure() {
+  const { t } = appCopy.useCopy();
+  return (
+    <Page title={t('This room could not open')}>
+      <EmptyState title={t('The interface encountered an error')} action={<Button onClick={() => location.reload()}>{t('Reload the app')}</Button>}>
+        {t('Reload to try again. You will need to sign in again. An unconfirmed financial request must still be checked before retrying.')}
+      </EmptyState>
+    </Page>
+  );
+}
 
 export function App() {
+  const { t, requestedLocale } = appCopy.useCopy();
   const current = useLocation();
   const path = current.split('?')[0] ?? '/';
   const room = findRoom(path);
@@ -53,8 +59,8 @@ export function App() {
   const teamHref = room?.area === 'team' ? configuredTeamHref(current) : undefined;
   useEffect(() => {
     if (room?.alias) navigate(room.alias + location.search, true);
-    document.title = `${room?.title ?? 'Page not found'} · Intafaced`;
-  }, [path, room]);
+    document.title = `${room ? roomTitle(room, requestedLocale) : t('Page not found')} · Intafaced`;
+  }, [path, room, requestedLocale]);
   function followLink(event: MouseEvent<HTMLDivElement>) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const anchor = event.target instanceof Element ? event.target.closest('a') : null;
@@ -77,9 +83,9 @@ export function App() {
     ) : room?.area === 'more' ? (
       <MoreRoutes path={current} />
     ) : (
-      <Page title="Page not found">
-        <EmptyState title="This address is not available">
-          Return to one of the four customer doors.
+      <Page title={t('Page not found')}>
+        <EmptyState title={t('This address is not available')}>
+          {t('Return to one of the four customer doors.')}
         </EmptyState>
       </Page>
     );
@@ -87,48 +93,48 @@ export function App() {
     room?.area === 'public' ? (
       <PublicRoutes path={path} />
     ) : room?.area === 'team' ? (
-      <Page title="Separate team desk">
+      <Page title={t('Separate team desk')}>
         <EmptyState
-          title="Open the operator console"
+          title={t('Open the operator console')}
           action={
             teamHref ? (
               <a className="button button--primary" href={teamHref}>
-                Open Team
+                {t('Open Team')}
               </a>
             ) : undefined
           }
         >
           {teamHref
-            ? 'The team desk uses separate operator authentication.'
-            : 'The Team deployment address is not configured. Ask your operator for the verified console address.'}
+            ? t('The team desk uses separate operator authentication.')
+            : t('The Team deployment address is not configured. Ask your operator for the verified console address.')}
         </EmptyState>
       </Page>
     ) : room?.area === 'parked' ? (
-      <Page title="This room is parked">
-        <EmptyState title="Chain services are not active">
-          This room remains reserved until owner activation. It is not available from customer navigation or search.
+      <Page title={t('This room is parked')}>
+        <EmptyState title={t('Chain services are not active')}>
+          {t('This room remains reserved until owner activation. It is not available from customer navigation or search.')}
         </EmptyState>
       </Page>
     ) : (
       <Shell door={room?.door}>
         {needsSession && !session ? (
-          <Page title={room?.title ?? 'Sign in'}>
+          <Page title={room ? roomTitle(room, requestedLocale) : t('Sign in')}>
             <EmptyState
-              title="Sign in to continue"
+              title={t('Sign in to continue')}
               action={
                 <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(current)}`}>
-                  Sign in
+                  {t('Sign in')}
                 </a>
               }
             >
-              Your account context is needed before this room can show private information.
+              {t('Your account context is needed before this room can show private information.')}
             </EmptyState>
           </Page>
         ) : (
           <Suspense
             fallback={
               <div className="page">
-                <Loading label="Opening room" />
+                <Loading label={t('Opening room')} />
               </div>
             }
           >

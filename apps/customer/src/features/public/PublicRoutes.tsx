@@ -4,10 +4,11 @@ import { Button, Field, Failure, Page, EmptyState, Loading } from '../../shared/
 import type { ApiResult } from '../../shared/api';
 import { useApi, useSession, sessionSchema, type Session } from '../session/session';
 import { signInWithPasskey } from '../session/webauthn';
-import { safeReturnTo, findRoom } from '../../app/navigation';
+import { safeReturnTo, findRoom, roomTitle } from '../../app/navigation';
 import { navigate } from '../../app/location';
 import { useResource } from '../../shared/resource';
 import './public.css';
+import { publicCopy } from './public-copy';
 import { publishedCopy } from '../../shared/copy';
 
 function Brand() {
@@ -18,6 +19,7 @@ function Brand() {
   );
 }
 export function PublicRoutes({ path }: { path: string }) {
+  const { t } = publicCopy.useCopy();
   const auth = path.startsWith('/login') || path === '/register';
   const invitation = z.string().uuid().safeParse(new URLSearchParams(location.search).get('invite'));
   const alternateAuth = path.startsWith('/login') ? '/register' : '/login';
@@ -26,13 +28,13 @@ export function PublicRoutes({ path }: { path: string }) {
     <div className="public-shell">
       <header className="public-header">
         <Brand />
-        <nav aria-label="Public navigation">
-          <a href="/exchange">Trade</a>
-          <a href="/help">Help</a>
-          <a href="/about-us">About</a>
+        <nav aria-label={t("Public navigation")}>
+          <a href="/exchange">{t("Trade")}</a>
+          <a href="/help">{t("Help")}</a>
+          <a href="/about-us">{t("About")}</a>
         </nav>
         <a href={authHref} className="public-signin">
-          {path.startsWith('/login') ? 'Create account' : 'Sign in'} <span aria-hidden="true">↗</span>
+          {path.startsWith('/login') ? t("Create account") : t("Sign in")} <span aria-hidden="true">↗</span>
         </a>
       </header>
       <main id="main">
@@ -51,103 +53,79 @@ export function PublicRoutes({ path }: { path: string }) {
       <footer className="public-footer">
         <Brand />
         <div>
-          <a href="/help">Help</a>
-          <a href="/notice">Notices</a>
-          <a href="/partner">Partners</a>
+          <a href="/help">{t("Help")}</a>
+          <a href="/notice">{t("Notices")}</a>
+          <a href="/partner">{t("Partners")}</a>
         </div>
-        <p>Your money. Your decisions.</p>
+        <p>{t("Your money. Your decisions.")}</p>
       </footer>
     </div>
   );
 }
 function Home() {
+  const { t } = publicCopy.useCopy();
   return (
     <>
       <section className="home-hero">
-        <p className="eyebrow">ONE ACCOUNT. YOUR NEXT MOVE.</p>
-        <h1>
-          Money in view.
-          <br />
-          <span>Possibility ahead.</span>
+        <p className="eyebrow">{t("ONE ACCOUNT. YOUR NEXT MOVE.")}</p>
+        <h1>{t("Money in view.")}<br />
+          <span>{t("Possibility ahead.")}</span>
         </h1>
-        <p className="hero-description">
-          Keep your money, trading and payments connected. A clear everyday account. A trading desk built for focus.
-        </p>
+        <p className="hero-description">{t("Keep your money, trading and payments connected. A clear everyday account. A trading desk built for focus.")}</p>
         <div className="actions">
-          <a className="button button--primary" href="/register">
-            Create your account <span aria-hidden="true">↗</span>
+          <a className="button button--primary" href="/register">{t("Create your account")}<span aria-hidden="true">↗</span>
           </a>
-          <a className="button button--secondary" href="/exchange">
-            Explore the desk
-          </a>
+          <a className="button button--secondary" href="/exchange">{t("Explore the desk")}</a>
         </div>
-        <p className="hero-note">Product availability depends on your account, region and connected services.</p>
-        <div className="hero-doors" aria-label="Four connected experiences">
+        <p className="hero-note">{t("Product availability depends on your account, region and connected services.")}</p>
+        <div className="hero-doors" aria-label={t("Four connected experiences")}>
           <a href="/money">
             <span>01</span>
-            <h2>Money</h2>
-            <p>
-              What you hold.
-              <br />
-              What you can use.
-            </p>
+            <h2>{t("Money")}</h2>
+            <p>{t("What you hold.")}<br />{t("What you can use.")}</p>
           </a>
           <a href="/exchange">
             <span>02</span>
-            <h2>Trade</h2>
-            <p>
-              The full picture.
-              <br />A considered order.
-            </p>
+            <h2>{t("Trade")}</h2>
+            <p>{t("The full picture.")}<br />{t("A considered order.")}</p>
           </a>
           <a href="/pay">
             <span>03</span>
-            <h2>Pay</h2>
-            <p>
-              Send and receive.
-              <br />
-              Keep things moving.
-            </p>
+            <h2>{t("Pay")}</h2>
+            <p>{t("Send and receive.")}<br />{t("Keep things moving.")}</p>
           </a>
           <a href="/more">
             <span>04</span>
-            <h2>More</h2>
-            <p>
-              Learn. Research.
-              <br />
-              Find your next step.
-            </p>
+            <h2>{t("More")}</h2>
+            <p>{t("Learn. Research.")}<br />{t("Find your next step.")}</p>
           </a>
         </div>
       </section>
       <section className="home-detail">
         <div>
-          <p className="eyebrow">BUILT AROUND YOUR WORKFLOW</p>
-          <h2>
-            A calm account.
-            <br />A capable desk.
-          </h2>
+          <p className="eyebrow">{t("BUILT AROUND YOUR WORKFLOW")}</p>
+          <h2>{t("A calm account.")}<br />{t("A capable desk.")}</h2>
         </div>
         <div className="home-detail-list">
           <article>
             <span>↗</span>
             <div>
-              <h3>See the funds behind the decision</h3>
-              <p>Available and held funds stay distinct, so you can see what is ready to use.</p>
+              <h3>{t("See the funds behind the decision")}</h3>
+              <p>{t("Available and held funds stay distinct, so you can see what is ready to use.")}</p>
             </div>
           </article>
           <article>
             <span>↗</span>
             <div>
-              <h3>Keep your market in context</h3>
-              <p>Chart, order book and ticket work together. Review the details before you place an order.</p>
+              <h3>{t("Keep your market in context")}</h3>
+              <p>{t("Chart, order book and ticket work together. Review the details before you place an order.")}</p>
             </div>
           </article>
           <article>
             <span>↗</span>
             <div>
-              <h3>Know when something is unavailable</h3>
-              <p>Check what is available to your account before you act. Unsupported actions explain what is missing.</p>
+              <h3>{t("Know when something is unavailable")}</h3>
+              <p>{t("Check what is available to your account before you act. Unsupported actions explain what is missing.")}</p>
             </div>
           </article>
         </div>
@@ -156,6 +134,7 @@ function Home() {
   );
 }
 function Invitation() {
+  const { t } = publicCopy.useCopy();
   const { api, session } = useSession();
   const token = new URLSearchParams(location.search).get('token');
   const parsed = z.string().uuid().safeParse(token);
@@ -174,56 +153,45 @@ function Invitation() {
     setResult(response);
   }
   return (
-    <Page title="An invitation to Intafaced" description="Money, trading and payments through one account.">
+    <Page title={t("An invitation to Intafaced")} description={t("Money, trading and payments through one account.")}>
       {!parsed.success ? (
         <EmptyState
-          title={token ? 'This invitation address is invalid' : 'Create an invitation from your account'}
+          title={token ? t("This invitation address is invalid") : t("Create an invitation from your account")}
           action={
-            <a className="button button--primary" href="/uc/promotion">
-              Open invitations
-            </a>
+            <a className="button button--primary" href="/uc/promotion">{t("Open invitations")}</a>
           }
         >
-          {token ? 'Ask the sender for a complete invitation link.' : 'Your personal invitation tools are available after sign-in.'}
+          {token ? t("Ask the sender for a complete invitation link.") : t("Your personal invitation tools are available after sign-in.")}
         </EmptyState>
       ) : (
         <section className="public-prose">
-          <h2>Your account comes first.</h2>
-          <p>
-            Sign in or create your account, then accept this invitation. The service checks whether the link is active and whether a
-            referral can be attached. Rewards are not promised by this link.
-          </p>
+          <h2>{t("Your account comes first.")}</h2>
+          <p>{t("Sign in or create your account, then accept this invitation. The service checks whether the link is active and whether a referral can be attached. Rewards are not promised by this link.")}</p>
           {session ? (
             <Button
               disabled={pending || result?.ok === true || (result?.ok === false && result.reason === 'uncertain')}
               onClick={() => void accept()}
             >
-              {pending ? 'Checking invitation…' : 'Accept invitation'}
+              {pending ? t("Checking invitation…") : t("Accept invitation")}
             </Button>
           ) : (
             <div className="actions">
-              <a className="button button--primary" href={`/register?invite=${encodeURIComponent(parsed.data)}`}>
-                Create account
-              </a>
-              <a className="button button--secondary" href={`/login?invite=${encodeURIComponent(parsed.data)}`}>
-                Sign in
-              </a>
+              <a className="button button--primary" href={`/register?invite=${encodeURIComponent(parsed.data)}`}>{t("Create account")}</a>
+              <a className="button button--secondary" href={`/login?invite=${encodeURIComponent(parsed.data)}`}>{t("Sign in")}</a>
             </div>
           )}
           {result &&
             (result.ok ? (
               <p className="notice" role="status">
                 {result.data.attributed
-                  ? 'Your referral status is recorded by the service.'
-                  : 'The invitation was checked. No referral relationship was attached.'}
+                  ? t("Your referral status is recorded by the service.")
+                  : t("The invitation was checked. No referral relationship was attached.")}
               </p>
             ) : (
               <Failure result={result} />
             ))}
           {result?.ok && (
-            <a className="text-link" href="/money">
-              Continue to Money ↗
-            </a>
+            <a className="text-link" href="/money">{t("Continue to Money ↗")}</a>
           )}
         </section>
       )}
@@ -232,6 +200,7 @@ function Invitation() {
 }
 
 function AuthForm({ register }: { register: boolean }) {
+  const { t } = publicCopy.useCopy();
   const { api, commit } = useSession();
   const active = useRef(true);
   useEffect(() => {
@@ -291,36 +260,26 @@ function AuthForm({ register }: { register: boolean }) {
   return (
     <section className="auth-layout">
       <div className="auth-story">
-        <p className="eyebrow">YOUR ACCOUNT, CONNECTED</p>
+        <p className="eyebrow">{t("YOUR ACCOUNT, CONNECTED")}</p>
         <p className="auth-story-title">
           {register ? (
-            <>
-              Make your
-              <br />
-              next move.
-            </>
+            <>{t("Make your")}<br />{t("next move.")}</>
           ) : (
-            <>
-              Welcome
-              <br />
-              <span>back.</span>
+            <>{t("Welcome")}<br />
+              <span>{t("back.")}</span>
             </>
           )}
         </p>
-        <p>
-          Money, trading and payments.
-          <br />
-          One place to keep perspective.
-        </p>
+        <p>{t("Money, trading and payments.")}<br />{t("One place to keep perspective.")}</p>
         <div className="auth-story-line" />
       </div>
       <div className="auth-form">
-        <p className="eyebrow">{register ? 'GET STARTED' : 'SIGN IN'}</p>
-        <h1>{register ? 'Create your account' : 'Sign in to your account'}</h1>
+        <p className="eyebrow">{register ? t("GET STARTED") : t("SIGN IN")}</p>
+        <h1>{register ? t("Create your account") : t("Sign in to your account")}</h1>
         <form className="form-stack" onSubmit={submit}>
           {register && (
             <Field
-              label="Handle"
+              label={t("Handle")}
               name="handle"
               autoComplete="username"
               required
@@ -332,7 +291,7 @@ function AuthForm({ register }: { register: boolean }) {
             />
           )}
           <Field
-            label={register ? 'Email' : 'Email or handle'}
+            label={register ? t("Email") : t("Email or handle")}
             name="identifier"
             type={register ? 'email' : 'text'}
             autoComplete={register ? 'email' : 'username'}
@@ -341,30 +300,30 @@ function AuthForm({ register }: { register: boolean }) {
             onChange={(event) => setIdentifier(event.target.value)}
           />
           <Field
-            label="Password"
+            label={t("Password")}
             name="password"
             type="password"
             autoComplete={register ? 'new-password' : 'current-password'}
             required
             minLength={register ? 12 : 1}
             maxLength={200}
-            hint={register ? 'At least 12 characters.' : undefined}
+            hint={register ? t("At least 12 characters.") : undefined}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
           />
           {register ? (
             <Field
-              label="Country code (optional)"
+              label={t("Country code (optional)")}
               name="region"
               maxLength={2}
               minLength={2}
-              placeholder="ISO two-letter code"
+              placeholder={t("ISO two-letter code")}
               value={region}
               onChange={(event) => setRegion(event.target.value)}
             />
           ) : (
             <Field
-              label="Two-factor or recovery code (if enabled)"
+              label={t("Two-factor or recovery code (if enabled)")}
               name="totp"
               autoComplete="one-time-code"
               value={totp}
@@ -372,35 +331,25 @@ function AuthForm({ register }: { register: boolean }) {
             />
           )}
           <Button type="submit" disabled={pending}>
-            {pending ? 'Connecting…' : register ? 'Create account' : 'Sign in'}
+            {pending ? t("Connecting…") : register ? t("Create account") : t("Sign in")}
           </Button>
           {!register && (
-            <Button variant="secondary" disabled={pending} onClick={() => void finish(() => signInWithPasskey(api, identifier.trim()))}>
-              Use a passkey
-            </Button>
+            <Button variant="secondary" disabled={pending} onClick={() => void finish(() => signInWithPasskey(api, identifier.trim()))}>{t("Use a passkey")}</Button>
           )}
           {result && !result.ok && <Failure result={result} />}
           <p className="muted">
             {register ? (
-              <>
-                Already have an account?{' '}
-                <a className="text-link" href={inviteToken ? `/login?invite=${encodeURIComponent(inviteToken)}` : '/login'}>
-                  Sign in
-                </a>
+              <>{t("Already have an account?")}{' '}
+                <a className="text-link" href={inviteToken ? `/login?invite=${encodeURIComponent(inviteToken)}` : '/login'}>{t("Sign in")}</a>
               </>
             ) : (
-              <>
-                Need an account?{' '}
-                <a className="text-link" href={inviteToken ? `/register?invite=${encodeURIComponent(inviteToken)}` : '/register'}>
-                  Create one
-                </a>
+              <>{t("Need an account?")}{' '}
+                <a className="text-link" href={inviteToken ? `/register?invite=${encodeURIComponent(inviteToken)}` : '/register'}>{t("Create one")}</a>
               </>
             )}
           </p>
           {!register && (
-            <a className="text-link" href="/findPwd">
-              Recover account access
-            </a>
+            <a className="text-link" href="/findPwd">{t("Recover account access")}</a>
           )}
         </form>
       </div>
@@ -416,6 +365,7 @@ const kbSchema = z.object({
   revision: z.number().optional(),
 });
 function Help() {
+  const { t, requestedLocale } = publicCopy.useCopy();
   const api = useApi();
   const [query, setQuery] = useState('');
   const [submitted, setSubmitted] = useState('');
@@ -425,7 +375,7 @@ function Help() {
   );
   const articleId = new URLSearchParams(location.search).get('id');
   return (
-    <Page title="How can we help?" description="Search published answers, or open a support ticket for your account.">
+    <Page title={t("How can we help?")} description={t("Search published answers, or open a support ticket for your account.")}>
       <form
         className="help-search"
         onSubmit={(event) => {
@@ -434,102 +384,89 @@ function Help() {
         }}
       >
         <Field
-          label="Search help"
+          label={t("Search help")}
           name="help-search"
-          placeholder="Account access, orders, payments…"
+          placeholder={t("Account access, orders, payments…")}
           maxLength={200}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
-        <Button type="submit">Search</Button>
+        <Button type="submit">{t("Search")}</Button>
       </form>
       {resource.status === 'loading' ? (
-        <Loading label="Loading published answers" />
+        <Loading label={t("Loading published answers")} />
       ) : resource.status === 'failed' ? (
         <Failure result={resource.failure} retry={reload} />
       ) : resource.data.filter((article) => article.published !== false && (!articleId || article.id === articleId)).length === 0 ? (
         <EmptyState
-          title="No published answers found"
+          title={t("No published answers found")}
           action={
-            <a href="/support" className="text-link">
-              Open support
-            </a>
+            <a href="/support" className="text-link">{t("Open support")}</a>
           }
-        >
-          Try another search, or contact support about your account.
-        </EmptyState>
+        >{t("Try another search, or contact support about your account.")}</EmptyState>
       ) : (
         <div className="help-articles">
           {resource.data
             .filter((article) => article.published !== false && (!articleId || article.id === articleId))
             .map((article) => (
               <article key={article.id}>
-                <h2>{publishedCopy(article.titleKey) ?? 'Article text unavailable'}</h2>
-                <p>{publishedCopy(article.bodyKey) ?? 'The published article has no readable text in the available language catalogue.'}</p>
+                <h2>{publishedCopy(article.titleKey) ?? t("Article text unavailable")}</h2>
+                <p>{publishedCopy(article.bodyKey) ?? t("The published article has no readable text in the available language catalogue.")}</p>
               </article>
             ))}
         </div>
       )}
-      <a className="text-link" href="/support">
-        View your support tickets ↗
-      </a>
+      <a className="text-link" href="/support">{t("View your support tickets ↗")}</a>
     </Page>
   );
 }
 function PublicInformation({ path }: { path: string }) {
+  const { t, requestedLocale } = publicCopy.useCopy();
   const room = findRoom(path);
   if (path === '/about-us')
     return (
       <Page
-        title="A connected view of your money."
-        description="Intafaced brings money, trading, payments and product tools into one account."
+        title={t("A connected view of your money.")}
+        description={t("Intafaced brings money, trading, payments and product tools into one account.")}
       >
         <div className="public-prose">
-          <h2>Four doors. One account.</h2>
-          <p>
-            Money is your everyday starting point. Trade gives you the market and the order details. Pay keeps your payments in context.
-            More brings together learning, research and the rest of the product.
-          </p>
-          <h2>Clear information comes first.</h2>
-          <p>
-            Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the
-            product explains the limitation before you act.
-          </p>
-          <a className="text-link" href="/register">
-            Create an account ↗
-          </a>
+          <h2>{t("Four doors. One account.")}</h2>
+          <p>{t("Money is your everyday starting point. Trade gives you the market and the order details. Pay keeps your payments in context. More brings together learning, research and the rest of the product.")}</p>
+          <h2>{t("Clear information comes first.")}</h2>
+          <p>{t("Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.")}</p>
+          <a className="text-link" href="/register">{t("Create an account ↗")}</a>
         </div>
       </Page>
     );
   const details: Record<string, { title: string; body: string; action?: string }> = {
     '/findPwd': {
-      title: 'Password recovery is not connected',
-      body: 'The identity service has sign-in, refresh and security procedures, but no customer password-reset contract. No reset email can be requested here yet.',
-      action: 'Contact support',
+      title: t("Password recovery is not connected"),
+      body: t("The identity service has sign-in, refresh and security procedures, but no customer password-reset contract. No reset email can be requested here yet."),
+      action: t("Contact support"),
     },
     '/notice': {
-      title: 'No public announcements service is connected',
-      body: 'Account notifications belong to your private inbox. They are not public announcements.',
-      action: 'Open account inbox',
+      title: t("No public announcements service is connected"),
+      body: t("Account notifications belong to your private inbox. They are not public announcements."),
+      action: t("Open account inbox"),
     },
     '/app': {
-      title: 'Mobile download links are not published',
-      body: 'No verified App Store or Google Play release has been provided. You can use the responsive web app on your phone.',
-      action: 'Open the web app',
+      title: t("Mobile download links are not published"),
+      body: t("No verified App Store or Google Play release has been provided. You can use the responsive web app on your phone."),
+      action: t("Open the web app"),
     },
     '/partner': {
-      title: 'Partner intake is not connected',
-      body: 'A published partner contact or intake form is not available. This screen does not submit an application.',
-      action: 'Contact support',
+      title: t("Partner intake is not connected"),
+      body: t("A published partner contact or intake form is not available. This screen does not submit an application."),
+      action: t("Contact support"),
     },
     '/lab': {
-      title: 'Campaign catalogue is not connected',
-      body: 'No public campaign contract or published campaign list is available. There are no invented promotions here.',
+      title: t("Campaign catalogue is not connected"),
+      body: t("No public campaign contract or published campaign list is available. There are no invented promotions here."),
     },
     '/invite': {
-      title: 'Invite from your account',
-      body: 'Referral relationships and invitation activity belong to the signed-in account. Sign in to view the supported referral tools.',
-      action: 'Open invitations',
+      title: t("Invite from your account"),
+      body: t("Referral relationships and invitation activity belong to the signed-in account. Sign in to view the supported referral tools."),
+      action: t("Open invitations"),
     },
   };
   const info =
@@ -548,9 +485,9 @@ function PublicInformation({ path }: { path: string }) {
           ? '/uc/promotion'
           : '/support';
   return (
-    <Page title={room?.title ?? 'Page unavailable'}>
+    <Page title={room ? roomTitle(room, requestedLocale) : t("Page unavailable")}>
       <EmptyState
-        title={info?.title ?? 'This page is not published'}
+        title={info?.title ?? t("This page is not published")}
         action={
           info?.action ? (
             <a className="text-link" href={href}>
@@ -559,7 +496,7 @@ function PublicInformation({ path }: { path: string }) {
           ) : undefined
         }
       >
-        {info?.body ?? 'There is no published content available for this address.'}
+        {info?.body ?? t("There is no published content available for this address.")}
       </EmptyState>
     </Page>
   );

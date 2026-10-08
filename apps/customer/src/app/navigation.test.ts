@@ -20,3 +20,12 @@ it('does not expose merchant, team or parked chain rooms in Personal search', ()
   expect(searchRooms('chain', 'Personal')).toHaveLength(0);
   expect(searchRooms('operator', 'Personal')).toHaveLength(0);
 });
+
+it('finds translated and canonical room labels while preserving customer scope', () => {
+  expect(searchRooms('transferencias', 'Personal', 'es').map((room) => room.path)).toContain('/bank/transfers');
+  expect(searchRooms('transfers', 'Personal', 'es').map((room) => room.path)).toContain('/bank/transfers');
+  expect(searchRooms('sécurité', 'Personal', 'fr').map((room) => room.path)).toContain('/uc/safe');
+  expect(searchRooms('paiements entreprise', 'Personal', 'fr')).toHaveLength(0);
+  expect(searchRooms('operador', 'Personal', 'es')).toHaveLength(0);
+  expect(searchRooms('chaîne', 'Personal', 'fr')).toHaveLength(0);
+});
