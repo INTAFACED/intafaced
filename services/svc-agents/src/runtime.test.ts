@@ -758,6 +758,189 @@ if (!available) {
       ).rejects.toMatchObject({ refusal: { code: 'agents.tool_call_limit' } });
     });
 
+    it('overlapping places with the same key execute once, and a later retry returns that result', async () => {
+      const session = await open();
+      let entered = 0;
+      let releaseHold!: () => void;
+      const hold = new Promise<void>((resolve) => {
+        releaseHold = resolve;
+      });
+      let markReady!: () => void;
+      const ready = new Promise<void>((resolve) => {
+        markReady = resolve;
+      });
+
+      const first = runtime.act({
+        sessionId: session.id,
+        tool: 'trade.order',
+        approved: true,
+        idempotencyKey: 'overlap-place',
+        execute: async () => {
+          entered += 1;
+          markReady();
+          await hold;
+          return 'first-place';
+        },
+      });
+      await ready;
+
+      const second = runtime.act({
+        sessionId: session.id,
+        tool: 'trade.order',
+        approved: true,
+        idempotencyKey: 'overlap-place',
+        execute: async () => {
+          entered += 1;
+          return 'second-place';
+        },
+      });
+      await expect(second).rejects.toMatchObject({ refusal: { code: 'agents.place_key_conflict' } });
+      expect(entered).toBe(1);
+
+      releaseHold();
+      const winner = await first;
+      expect(winner.result).toBe('first-place');
+      expect(winner.replayed).toBeUndefined();
+
+      let third = 0;
+      const replay = await runtime.act({
+        sessionId: session.id,
+        tool: 'trade.order',
+        approved: true,
+        idempotencyKey: 'overlap-place',
+        execute: async () => {
+          third += 1;
+          return 'placed again';
+        },
+      });
+      expect(replay.replayed).toBe(true);
+      expect(replay.result).toBe('first-place');
+      expect(third).toBe(0);
+      expect(entered).toBe(1);
+    });
+
+    it('a different place tool reusing the key is refused by the guardrail and does not receive the first result', async () => {
+      const session = await open();
+      await runtime.act({
+        sessionId: session.id,
+        tool: 'trade.order',
+        approved: true,
+        idempotencyKey: 'shared-key',
+        execute: async () => 'order-result',
+      });
+
+      let ran = false;
+      await expect(
+        runtime.act({
+          sessionId: session.id,
+          tool: 'trade.place',
+          approved: true,
+          idempotencyKey: 'shared-key',
+          execute: async () => {
+            ran = true;
+            return 'place-result';
+          },
+        }),
+      ).rejects.toMatchObject({ refusal: { code: 'agents.tool_not_declared' } });
+      expect(ran).toBe(false);
+    });
+
+    it('a different place tool the guardrail would allow still does not place', async () => {
+      await runtime.registerAgent({
+        ...PROBE,
+        agentId: 'both-place',
+        tools: [
+          { name: 'trade.order', module: 'trade', mode: 'write', maxCallsPerSession: 1, requiresApproval: true },
+          { name: 'trade.place', module: 'trade', mode: 'write', maxCallsPerSession: 1, requiresApproval: true },
+        ],
+      });
+      const session = await open(USER_A, 'both-place');
+      await runtime.act({
+        sessionId: session.id,
+        tool: 'trade.order',
+        approved: true,
+        idempotencyKey: 'shared-key',
+        execute: async () => 'order-result',
+      });
+
+      let unapproved = false;
+      await expect(
+        runtime.act({
+          sessionId: session.id,
+          tool: 'trade.place',
+          idempotencyKey: 'shared-key',
+          execute: async () => {
+            unapproved = true;
+            return 'place-result';
+          },
+        }),
+      ).rejects.toMatchObject({ refusal: { code: 'agents.approval_required' } });
+      expect(unapproved).toBe(false);
+
+      let ran = false;
+      await expect(
+        runtime.act({
+          sessionId: session.id,
+          tool: 'trade.place',
+          approved: true,
+          idempotencyKey: 'shared-key',
+          execute: async () => {
+            ran = true;
+            return 'place-result';
+          },
+        }),
+      ).rejects.toMatchObject({ refusal: { code: 'agents.place_key_conflict' } });
+      expect(ran).toBe(false);
+    });
+
+    it('a failed place releases the key so one later retry can place', async () => {
+      const session = await open();
+      let calls = 0;
+
+      await expect(
+        runtime.act({
+          sessionId: session.id,
+          tool: 'trade.order',
+          approved: true,
+          idempotencyKey: 'retry-place',
+          execute: async () => {
+            calls += 1;
+            throw new Error('venue rejected');
+          },
+        }),
+      ).rejects.toThrow('venue rejected');
+
+      const placed = await runtime.act({
+        sessionId: session.id,
+        tool: 'trade.order',
+        approved: true,
+        idempotencyKey: 'retry-place',
+        execute: async () => {
+          calls += 1;
+          return 'placed-after-failure';
+        },
+      });
+
+      expect(placed.result).toBe('placed-after-failure');
+      expect(placed.replayed).toBeUndefined();
+      expect(calls).toBe(2);
+
+      let again = 0;
+      const replay = await runtime.act({
+        sessionId: session.id,
+        tool: 'trade.order',
+        approved: true,
+        idempotencyKey: 'retry-place',
+        execute: async () => {
+          again += 1;
+          return 'placed twice';
+        },
+      });
+      expect(replay.replayed).toBe(true);
+      expect(replay.result).toBe('placed-after-failure');
+      expect(again).toBe(0);
+    });
+
     it('refuses an engine call the agent is not permitted to make, and bills nothing', async () => {
       const session = await open();
 
