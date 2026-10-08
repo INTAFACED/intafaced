@@ -62,7 +62,28 @@ function mapMarket(row: z.infer<typeof tradeMarketWireSchema>): MarketListFixtur
   };
 }
 
-function mapQuote(marketId: string, row: z.infer<typeof tradeTickerWireSchema>, maxAgeMs: number): QuoteFixture | null {
+/** Ticker body names a different instrument than the symbol on the ticker URL. */
+export class TradeTickerSymbolMismatchError extends Error {
+  readonly code = 'trade.ticker_symbol_mismatch' as const;
+
+  constructor(
+    readonly urlSymbol: string,
+    readonly bodySymbol: string,
+  ) {
+    super(`ticker body symbol ${bodySymbol} does not match ticker URL symbol ${urlSymbol}`);
+    this.name = 'TradeTickerSymbolMismatchError';
+  }
+}
+
+function mapQuote(
+  marketId: string,
+  urlSymbol: string,
+  row: z.infer<typeof tradeTickerWireSchema>,
+  maxAgeMs: number,
+): QuoteFixture | null {
+  if (row.symbol !== urlSymbol) {
+    throw new TradeTickerSymbolMismatchError(urlSymbol, row.symbol);
+  }
   if (row.last === null || row.last.trim() === '') return null;
   return {
     marketId,
@@ -116,7 +137,7 @@ export function createHttpNavigatorTradeDataPort(options: HttpNavigatorTradeData
       const body: unknown = await response.json().catch(() => null);
       const parsed = tradeTickerWireSchema.safeParse(body);
       if (!parsed.success) throw new Error('trade ticker parse failed');
-      const quote = mapQuote(marketId, parsed.data, maxAgeMs);
+      const quote = mapQuote(marketId, symbol, parsed.data, maxAgeMs);
       if (quote === null) throw new Error('trade ticker empty last');
       return quote;
     },
