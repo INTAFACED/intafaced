@@ -859,6 +859,7 @@ const choiceKeys = {
   Bots: 'modeBots',
   Execution: 'modeExecution',
   'Quote desk': 'modeQuoteDesk',
+  Convert: 'convert',
   Candles: 'chartCandles',
   Line: 'chartLine',
   'Heikin Ashi': 'chartHeikinAshi',

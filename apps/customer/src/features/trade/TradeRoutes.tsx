@@ -1,4 +1,4 @@
-import { tradeCopy as copy, CopyText, tradeLabels, choiceText } from './copy';
+import { tradeCopy as copy, CopyText, tradeLabels, choiceText, choiceNode } from './copy';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
@@ -121,25 +121,7 @@ export function TradeRoutes({ path }: { path: string }) {
                   aria-current={activeMode === mode ? 'page' : undefined}
                   href={`${modeRoutes[mode]}${simulation ? '?simulated=true' : ''}`}
                 >
-                  <CopyText
-                    k={
-                      mode === 'Spot'
-                        ? 'modeSpot'
-                        : mode === 'Margin'
-                          ? 'modeMargin'
-                          : mode === 'Futures'
-                            ? 'modeFutures'
-                            : mode === 'Options'
-                              ? 'modeOptions'
-                              : mode === 'Copy'
-                                ? 'modeCopy'
-                                : mode === 'Bots'
-                                  ? 'modeBots'
-                                  : mode === 'Execution'
-                                    ? 'modeExecution'
-                                    : 'modeQuoteDesk'
-                    }
-                  />
+                  {choiceNode(mode)}
                 </a>
               ))}
             </div>
@@ -152,25 +134,7 @@ export function TradeRoutes({ path }: { path: string }) {
                 aria-current={activeMode === mode ? 'page' : undefined}
                 href={`${modeRoutes[mode]}${simulation ? '?simulated=true' : ''}`}
               >
-                <CopyText
-                  k={
-                    mode === 'Spot'
-                      ? 'modeSpot'
-                      : mode === 'Margin'
-                        ? 'modeMargin'
-                        : mode === 'Futures'
-                          ? 'modeFutures'
-                          : mode === 'Options'
-                            ? 'modeOptions'
-                            : mode === 'Copy'
-                              ? 'modeCopy'
-                              : mode === 'Bots'
-                                ? 'modeBots'
-                                : mode === 'Execution'
-                                  ? 'modeExecution'
-                                  : 'modeQuoteDesk'
-                  }
-                />
+                {choiceNode(mode)}
               </a>
             ))}
           </div>
