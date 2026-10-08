@@ -8,8 +8,9 @@ import {IPriceOracle} from "../oracle/IPriceOracle.sol";
  * ISOLATED LENDING MARKET — Protocol Plane (board S-A4 / `protocol.lending`).
  *
  * Over-collateralised only. One collateral token, one borrow token.
- * Collateral is never rehypothecated. LTV / liquidation use FailClosedOracle marks —
- * borrow and liquidate revert when the oracle refuses (stale / disagreement).
+ * Collateral is never rehypothecated. LTV / liquidation read any IPriceOracle.
+ * Borrow and liquidate revert when that oracle refuses. A zero priceWad is not
+ * a usable mark: it does not value debt at nothing, and it is not a divisor.
  *
  * Interest: immutable utilisation kink curve; index accrues on interaction.
  * Rates are construction params, not invented mid-flight.
@@ -84,6 +85,7 @@ contract IsolatedLendingMarket {
 
     error BadConfig();
     error BadAmount();
+    error BadPrice();
     error TransferFailed();
     error Unhealthy();
     error Healthy();
@@ -184,8 +186,8 @@ contract IsolatedLendingMarket {
         uint256 maxRepay = (debt * closeFactorBps) / BPS;
         if (repayAmount > maxRepay) repayAmount = maxRepay;
 
-        (uint256 colPrice,) = oracle.getMark(collateralAssetForOracle);
-        (uint256 borPrice,) = oracle.getMark(borrowAssetForOracle);
+        uint256 colPrice = _price(collateralAssetForOracle);
+        uint256 borPrice = _price(borrowAssetForOracle);
 
         uint256 seize = (repayAmount * borPrice * (BPS + liquidationBonusBps) * collateralUnit)
             / (borrowUnit * colPrice * BPS);
@@ -249,11 +251,17 @@ contract IsolatedLendingMarket {
     function _isHealthy(address user, uint16 thresholdBps) private view returns (bool) {
         uint256 debt = _sharesToDebt(debtSharesOf[user]);
         if (debt == 0) return true;
-        (uint256 colPrice,) = oracle.getMark(collateralAssetForOracle);
-        (uint256 borPrice,) = oracle.getMark(borrowAssetForOracle);
+        uint256 colPrice = _price(collateralAssetForOracle);
+        uint256 borPrice = _price(borrowAssetForOracle);
         uint256 colValue = (collateralOf[user] * colPrice) / collateralUnit;
         uint256 debtValue = (debt * borPrice) / borrowUnit;
         return colValue * thresholdBps >= debtValue * BPS;
+    }
+
+    /// Zero is not a price. The market accepts any IPriceOracle, so it checks priceWad itself.
+    function _price(address asset) private view returns (uint256 priceWad) {
+        (priceWad,) = oracle.getMark(asset);
+        if (priceWad == 0) revert BadPrice();
     }
 
     function _debtToShares(uint256 debt) private view returns (uint256) {
