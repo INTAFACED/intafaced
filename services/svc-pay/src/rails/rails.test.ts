@@ -396,6 +396,54 @@ describe('card-sandbox — a mock acquirer with real decline behaviour', () => {
     adapter.setHealthy(false);
     expect(isUsable(adapter)).toBe(false);
   });
+
+  it('returns the stored success when the same refund is delivered again', async () => {
+    const auth = await adapter.authorize(intent());
+    await adapter.capture(auth.railRef);
+
+    const first = await adapter.refund(auth.railRef, amt('40'), { refundId: 'rf-1' });
+    expect(first.ok).toBe(true);
+    expect(first.raw).toMatchObject({ refundedTotal: '40' });
+
+    const retry = await adapter.refund(auth.railRef, amt('40'), { refundId: 'rf-1' });
+    expect(retry).toBe(first);
+    expect(retry.failureCode).toBeUndefined();
+
+    // The 40 was not added a second time, so the remaining 60 still fits.
+    const rest = await adapter.refund(auth.railRef, amt('60'), { refundId: 'rf-2' });
+    expect(rest.ok).toBe(true);
+    expect(rest.raw).toMatchObject({ refundedTotal: '100' });
+  });
+
+  it('returns the stored success for a retried full refund', async () => {
+    const auth = await adapter.authorize(intent());
+    await adapter.capture(auth.railRef);
+
+    const first = await adapter.refund(auth.railRef, amt('100'), { refundId: 'full-1' });
+    expect(first.ok).toBe(true);
+    expect(first.status).toBe('refunded');
+
+    const retry = await adapter.refund(auth.railRef, amt('100'), { refundId: 'full-1' });
+    expect(retry).toBe(first);
+    expect(retry.ok).toBe(true);
+    expect(retry.failureCode).toBeUndefined();
+  });
+
+  it('still refuses a new refund that exceeds what remains captured', async () => {
+    const auth = await adapter.authorize(intent());
+    await adapter.capture(auth.railRef);
+
+    const first = await adapter.refund(auth.railRef, amt('40'), { refundId: 'rf-1' });
+    expect(first.ok).toBe(true);
+
+    const over = await adapter.refund(auth.railRef, amt('70'), { refundId: 'rf-new' });
+    expect(over.ok).toBe(false);
+    expect(over.failureCode).toBe('refund.exceeds_captured');
+
+    const full = await adapter.refund(auth.railRef, amt('100'), { refundId: 'full-other' });
+    expect(full.ok).toBe(false);
+    expect(full.failureCode).toBe('refund.exceeds_captured');
+  });
 });
 
 // ── The signature primitive itself ───────────────────────────────────────────

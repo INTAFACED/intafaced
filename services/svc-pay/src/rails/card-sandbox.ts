@@ -6,6 +6,7 @@ import {
   type RailCapability,
   type RailEvent,
   type RailHealth,
+  type RailRefundOptions,
   type RailResult,
   type RailWebhookRequest,
   type SettlementInstruction,
@@ -69,6 +70,15 @@ export class CardSandboxAdapter implements RailAdapter {
   /** The mock acquirer's books. A real adapter holds no state; this one is the counterparty. */
   private readonly charges = new Map<string, AcquirerCharge>();
   private readonly payouts = new Map<string, { ref: string; amount: Amount; assetId: string }>();
+  /**
+   * Successful refunds by durable refund id.
+   *
+   * A redelivery of a refund that already moved money must return this result.
+   * Reading `captured - refunded` first would answer `refund.exceeds_captured`
+   * once a full refund has shrunk the remainder to zero, and would add the
+   * amount again for a partial that still fits.
+   */
+  private readonly completedRefunds = new Map<string, RailResult>();
   private readonly now: () => Date;
   private readonly toleranceSeconds: number;
   private lastContact: Date;
@@ -108,6 +118,7 @@ export class CardSandboxAdapter implements RailAdapter {
   reset(): void {
     this.charges.clear();
     this.payouts.clear();
+    this.completedRefunds.clear();
     this.forcedFailure = null;
     this.up = true;
     this.lastContact = this.now();
@@ -209,7 +220,7 @@ export class CardSandboxAdapter implements RailAdapter {
     return this.resultFor(charge, 'captured');
   }
 
-  async refund(ref: string, amount: Amount): Promise<RailResult> {
+  async refund(ref: string, amount: Amount, opts?: RailRefundOptions): Promise<RailResult> {
     this.lastContact = this.now();
 
     const charge = this.charges.get(ref);
@@ -227,6 +238,15 @@ export class CardSandboxAdapter implements RailAdapter {
         failureReason: 'Refund amount must be positive',
         at: this.now(),
       });
+    }
+
+    // Before the remainder check. A full refund has already set refundable to
+    // zero, so the comparison below would refuse the redelivery that consumed
+    // it. The stored success is that refund; the amount is not added again.
+    const durableRefundId = opts?.refundId?.trim() || undefined;
+    if (durableRefundId) {
+      const prior = this.completedRefunds.get(refundReplayKey(ref, durableRefundId));
+      if (prior) return prior;
     }
 
     const refundable = charge.captured - charge.refunded;
@@ -248,7 +268,7 @@ export class CardSandboxAdapter implements RailAdapter {
     charge.refunded += amount;
     if (charge.refunded === charge.captured) charge.status = 'refunded';
 
-    return {
+    const ok: RailResult = {
       ok: true,
       railRef: ref,
       status: 'refunded',
@@ -257,6 +277,8 @@ export class CardSandboxAdapter implements RailAdapter {
       at: this.now(),
       raw: { refundedTotal: formatAmount(charge.refunded) },
     };
+    if (durableRefundId) this.completedRefunds.set(refundReplayKey(ref, durableRefundId), ok);
+    return ok;
   }
 
   async payout(s: SettlementInstruction): Promise<RailResult> {
@@ -368,6 +390,10 @@ export class CardSandboxAdapter implements RailAdapter {
 
 function chargeRef(paymentId: string): string {
   return `ch_${paymentId}`;
+}
+
+function refundReplayKey(ref: string, refundId: string): string {
+  return `pay.refund:${ref}:${refundId}`;
 }
 
 const EVENT_TYPES = new Set([
