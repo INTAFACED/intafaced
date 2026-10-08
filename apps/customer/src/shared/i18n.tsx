@@ -16,6 +16,16 @@ let revision = 0;
 export function defineCopy<const T extends Record<string, string>>(
   namespace: string, en: T, written: { es?: Written<T>; fr?: Written<T> } = {},
 ) {
+  const placeholders = (value: string) => [...new Set([...value.matchAll(/\{(\w+)\}/g)].map((match) => match[1]))].sort().join(',');
+  for (const [key, source] of Object.entries(en)) {
+    if (!source.trim()) throw new Error(`Empty authored UI message: ${namespace}.${key}`);
+    for (const locale of ['es', 'fr'] as const) {
+      const translated = written[locale]?.[key];
+      if (translated !== undefined && (!translated.trim() || placeholders(translated) !== placeholders(source))) {
+        throw new Error(`Translation placeholder mismatch: ${namespace}.${key} (${locale})`);
+      }
+    }
+  }
   const messages = { en, ...written };
   registered.set(namespace, messages);
   revision++;
