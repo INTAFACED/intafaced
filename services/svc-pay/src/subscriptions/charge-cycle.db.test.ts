@@ -107,6 +107,11 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
   let opened: Array<{ occurrence: number; idempotencyKey: string; paymentId: string }>;
   /** Occurrences the opener should fail on, so a failure can be driven. */
   let failOn: Set<number>;
+  /**
+   * Occurrences whose payment create commits, then the opener throws before
+   * returning the id. The execution therefore never receives payment_id.
+   */
+  let commitThenThrow: Set<number>;
 
   beforeAll(async () => {
     const admin = await openH8aAdmin();
@@ -126,6 +131,7 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
     card = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
     opened = [];
     failOn = new Set();
+    commitThenThrow = new Set();
   });
 
   afterAll(async () => {
@@ -161,6 +167,10 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
       },
     });
     opened.push({ occurrence: input.occurrence, idempotencyKey: input.idempotencyKey, paymentId: payment.id });
+    if (commitThenThrow.has(input.occurrence)) {
+      commitThenThrow.delete(input.occurrence);
+      throw new Error('invoice link write failed');
+    }
     return { paymentId: payment.id };
   };
 
@@ -570,6 +580,66 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
       // The period it had already invoiced still settles — that money is real.
       expect((await cyclesOf(subs, sub.id))[0]!.status).toBe('settled');
       expect(await clearingOf(m.id)).toBe('10');
+    });
+
+    /**
+     * Last attempt: the invoice payment has committed, and the write that
+     * follows throws before payment_id is stored. The cycle is rejected and
+     * exhausted with no payment_id. The next pass attaches the existing
+     * payment and does not open another invoice. Capture of that payment
+     * settles the period.
+     */
+    it('links the payment a last attempt already opened, then a capture settles the period', async () => {
+      const { subs } = build({ defaultFeeBps: 250 });
+      const m = await merchant();
+      const { sub } = await mandateAndSubscription(subs, { merchantId: m.id });
+
+      failOn.add(0);
+      await subs.runDueSubscriptions({ limit: 50, now: utc(2026, 1, 1) });
+      await subs.runDueSubscriptions({ limit: 50, now: utc(2026, 1, 10) });
+      failOn.delete(0);
+      commitThenThrow.add(0);
+
+      await subs.runDueSubscriptions({ limit: 50, now: utc(2026, 1, 20) });
+
+      expect(opened).toHaveLength(1);
+      const payments = await sql<Array<{ n: string; amount: string }>>`
+        SELECT count(*)::text AS n, min(amount)::text AS amount FROM pay.payments
+      `;
+      expect(payments[0]!.n).toBe('1');
+      expect(formatAmount(amt(payments[0]!.amount))).toBe('10');
+
+      const [exhausted] = await cyclesOf(subs, sub.id);
+      expect(exhausted!.status).toBe('rejected');
+      expect(exhausted!.attemptCount).toBe(MAX_ATTEMPTS_PER_CYCLE);
+      expect(exhausted!.exhaustedAt).not.toBeNull();
+      expect(exhausted!.paymentId).toBeNull();
+      expect(formatAmount(exhausted!.amount)).toBe('10');
+      expect(await clearingOf(m.id)).toBe('0');
+
+      const again = await subs.runDueSubscriptions({ limit: 50, now: utc(2026, 1, 25) });
+      expect(again.fired).toBe(0);
+      expect(opened).toHaveLength(1);
+      const stillOne = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.payments`;
+      expect(stillOne[0]!.n).toBe('1');
+
+      const [linked] = await cyclesOf(subs, sub.id);
+      expect(linked!.paymentId).toBe(opened[0]!.paymentId);
+      expect(linked!.status).toBe('rejected');
+      expect(formatAmount(linked!.amount)).toBe('10');
+      expect((await subs.getSubscription(sub.id)).stallReason).toBe('arrears');
+
+      await payInvoice(opened[0]!.paymentId, '10');
+
+      const [settled] = await cyclesOf(subs, sub.id);
+      expect(settled!.status).toBe('settled');
+      expect(settled!.paymentId).toBe(opened[0]!.paymentId);
+      expect(settled!.exhaustedAt).toBeNull();
+      expect(await clearingOf(m.id)).toBe('10');
+      const healed = await subs.getSubscription(sub.id);
+      expect(healed.stallReason).toBeNull();
+      expect(healed.status).toBe('active');
+      expect(opened).toHaveLength(1);
     });
   });
 

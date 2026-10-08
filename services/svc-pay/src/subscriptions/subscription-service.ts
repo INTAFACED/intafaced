@@ -864,6 +864,9 @@ export class SubscriptionService {
 
       case 'blocked': {
         // An unsettled period does not roll forward. It stalls, with a reason.
+        // A payment openInvoice already committed is stored first, or the stall
+        // gives up while that invoice is still unlinked.
+        await this.rememberUnlinkedCreatedPayment(sub.id, plan.occurrence);
         await this.stall(sub.id, plan.reason, now);
         report.stalled += 1;
         report.outcomes.push({ subscriptionId: sub.id, occurrence: plan.occurrence, outcome: 'stalled', stallReason: plan.reason });
@@ -1036,8 +1039,15 @@ export class SubscriptionService {
             // Already collected, or already asked for. Not asked again.
             return { outcome: 'already-fired' as const, idempotencyKey };
           }
-          if (row.exhausted_at !== null) return { outcome: 'already-fired' as const, idempotencyKey };
-          if (row.status === 'rejected' && row.attempt_count >= MAX_ATTEMPTS_PER_CYCLE) {
+          /*
+           * Giving up while a created payment is still unlinked leaves a paid
+           * invoice off this row. Attach that id before already-fired. Do not
+           * open another invoice and do not change the amount.
+           */
+          if (row.exhausted_at !== null || (row.status === 'rejected' && row.attempt_count >= MAX_ATTEMPTS_PER_CYCLE)) {
+            if (row.payment_id === null) {
+              await this.attachCreatedPayment(tx, row.id, sub.id, occurrence);
+            }
             return { outcome: 'already-fired' as const, idempotencyKey };
           }
           executionId = row.id;
@@ -1106,24 +1116,18 @@ export class SubscriptionService {
           return { outcome: 'rejected' as const, rejectionCode: 'pay.subscription_driver_absent', idempotencyKey };
         }
 
+        /*
+         * openInvoice commits on its own connection. The id it returns is kept
+         * for the rejection write: a later statement in this transaction can
+         * throw after that commit, and rejectCycle would otherwise record the
+         * failure without the payment.
+         */
+        let openedPaymentId: string | null = null;
         try {
-          // openInvoice commits on its own connection. A crash after that create
-          // and before this UPDATE left a pending execution + an orphan payment.
           // Reuse any payment already tagged for this occurrence so a re-fire
           // never opens a second invoice.
           let paymentId = priorPaymentId;
-          if (!paymentId) {
-            const prior = await tx<Array<{ payment_id: string }>>`
-              SELECT payment_id
-                FROM pay.payment_events
-               WHERE event = 'created'
-                 AND payload#>>'{metadata,subscriptionId}' = ${sub.id}
-                 AND payload#>>'{metadata,occurrence}' = ${String(occurrence)}
-               ORDER BY seq ASC
-               LIMIT 1
-            `;
-            paymentId = prior[0]?.payment_id ?? null;
-          }
+          if (!paymentId) paymentId = await this.createdPaymentId(tx, sub.id, occurrence);
           /*
            * SPEC §4 pre-charge notify — record the attempt BEFORE money work,
            * including invoice reuse. Unwired is skipped_unwired, never silent
@@ -1160,12 +1164,21 @@ export class SubscriptionService {
               idempotencyKey,
             });
             paymentId = opened.paymentId;
+            openedPaymentId = opened.paymentId;
           }
-          await tx`
-            UPDATE pay.subscription_executions
-               SET status = 'invoiced', payment_id = ${paymentId}
-             WHERE id = ${executionId}
-          `;
+          /*
+           * The link write is its own savepoint. If it throws, the payment
+           * openInvoice already committed stays on the rejection instead of
+           * the aborted transaction dropping both the link and the rejection.
+           */
+          const linkedId = paymentId;
+          await tx.savepoint(async (sp) => {
+            await sp`
+              UPDATE pay.subscription_executions
+                 SET status = 'invoiced', payment_id = ${linkedId}
+               WHERE id = ${executionId}
+            `;
+          });
           return {
             outcome: 'invoiced' as const,
             idempotencyKey,
@@ -1174,7 +1187,7 @@ export class SubscriptionService {
           };
         } catch (err) {
           const code = err instanceof PayError ? err.code : err instanceof Error ? err.message.slice(0, 120) : 'invoice.failed';
-          await this.rejectCycle(tx, executionId, code, attemptCount, now);
+          await this.rejectCycle(tx, executionId, code, attemptCount, now, openedPaymentId);
           return { outcome: 'rejected' as const, rejectionCode: code, idempotencyKey };
         }
       },
@@ -1348,15 +1361,70 @@ export class SubscriptionService {
     return resolveSubscriptionFeeBps({ merchantFeeBps, defaultFeeBps: this.defaultFeeBps });
   }
 
-  private async rejectCycle(tx: Sql, executionId: string, code: string, attemptCount: number, now: Date): Promise<void> {
+  private async rejectCycle(
+    tx: Sql,
+    executionId: string,
+    code: string,
+    attemptCount: number,
+    now: Date,
+    paymentId: string | null = null,
+  ): Promise<void> {
     const exhausted = attemptCount >= MAX_ATTEMPTS_PER_CYCLE;
     await tx`
       UPDATE pay.subscription_executions
          SET status = 'rejected', rejection_code = ${code},
              last_attempt_at = ${now},
-             exhausted_at = ${exhausted ? now : null}
+             exhausted_at = ${exhausted ? now : null},
+             payment_id = COALESCE(payment_id, ${paymentId}::uuid)
        WHERE id = ${executionId}
     `;
+  }
+
+  /** The payment openInvoice already committed for this period, if one exists. */
+  private async createdPaymentId(tx: Sql, subscriptionId: string, occurrence: number): Promise<string | null> {
+    const prior = await tx<Array<{ payment_id: string }>>`
+      SELECT payment_id
+        FROM pay.payment_events
+       WHERE event = 'created'
+         AND payload#>>'{metadata,subscriptionId}' = ${subscriptionId}
+         AND payload#>>'{metadata,occurrence}' = ${String(occurrence)}
+       ORDER BY seq ASC
+       LIMIT 1
+    `;
+    return prior[0]?.payment_id ?? null;
+  }
+
+  /**
+   * Store that payment on the execution. The amount and the status stay as
+   * they are: this is the invoice already created, not a new charge.
+   */
+  private async attachCreatedPayment(tx: Sql, executionId: string, subscriptionId: string, occurrence: number): Promise<void> {
+    const paymentId = await this.createdPaymentId(tx, subscriptionId, occurrence);
+    if (!paymentId) return;
+    await tx`
+      UPDATE pay.subscription_executions
+         SET payment_id = ${paymentId}
+       WHERE id = ${executionId} AND payment_id IS NULL
+    `;
+  }
+
+  /** Before an exhausted period is given up, keep the invoice it already opened. */
+  private async rememberUnlinkedCreatedPayment(subscriptionId: string, occurrence: number): Promise<void> {
+    await transaction(
+      this.sql,
+      async (tx) => {
+        const rows = await tx<Array<{ id: string; payment_id: string | null }>>`
+          SELECT id, payment_id
+            FROM pay.subscription_executions
+           WHERE subscription_id = ${subscriptionId} AND occurrence = ${occurrence}
+           FOR UPDATE
+        `;
+        const row = rows[0];
+        if (!row || row.payment_id !== null) return;
+        await this.attachCreatedPayment(tx, row.id, subscriptionId, occurrence);
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
   }
 
   private async setNextRun(subscriptionId: string, nextRunAt: Date, now: Date): Promise<void> {
