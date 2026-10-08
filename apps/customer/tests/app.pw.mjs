@@ -116,13 +116,13 @@ test('invitation survives sign-in and requires an explicit acceptance', async ({
   expect(accepted).toBe(1);
 });
 
-test('View works at 320px; English fallback has the correct document language and no serious accessibility defects', async ({ page }) => {
+test('View uses the selected document language at 320px and has no serious accessibility defects', async ({ page }) => {
   await setup(page);
   await page.setViewportSize({ width: 320, height: 740 });
   await signIn(page, '/view');
-  await page.getByLabel('Language', { exact: true }).selectOption('fr');
   await page.getByLabel('Theme', { exact: true }).selectOption('light');
-  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await page.getByLabel('Language', { exact: true }).selectOption('fr');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'fr');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const audit = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();

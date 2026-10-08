@@ -1,8 +1,8 @@
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
-  testDir: '.',
-  testMatch: 'public.browser.pw.mjs',
+  testDir: process.env.PUBLIC_APP_TESTS ? '../../../tests' : '.',
+  testMatch: process.env.PUBLIC_APP_TESTS ? 'app.pw.mjs' : 'public.browser.pw.mjs',
   workers: 1,
   fullyParallel: false,
   reporter: 'list',

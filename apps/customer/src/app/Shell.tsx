@@ -33,6 +33,11 @@ export function Shell({ door, children }: { door?: Door; children: ReactNode }) 
     window.addEventListener('popstate', handler);
     return () => window.removeEventListener('popstate', handler);
   }, []);
+  useEffect(() => {
+    if (overlay !== 'search') return;
+    const frame = requestAnimationFrame(() => document.querySelector<HTMLInputElement>('input[name="global-search"]')?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [overlay]);
   const list = searchRooms(query, mode, language).slice(0, 15);
   const brand = (
     <a className="brand" href="/money">

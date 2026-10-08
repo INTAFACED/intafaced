@@ -65,8 +65,9 @@ test('French registration submits canonical identity fields and preserves an inv
 test('translated Trade doors and the room search preserve explicit Paper mode', async ({ page }) => {
   await setup(page, 'es');
   await page.goto('/exchange?simulated=true');
-  await expect(page.getByRole('navigation', { name: 'Secciones del cliente', exact: true }).getByRole('link', { name: 'Operar', exact: true }))
-    .toHaveAttribute('href', '/exchange?simulated=true');
+  await expect(
+    page.getByRole('navigation', { name: 'Secciones del cliente', exact: true }).getByRole('link', { name: 'Operar', exact: true }),
+  ).toHaveAttribute('href', '/exchange?simulated=true');
   await page.keyboard.press('Control+k');
   const search = page.getByRole('dialog', { name: 'Buscar en Intafaced' });
   await search.getByLabel('Busca una sección o acción').fill('spot trading terminal');
