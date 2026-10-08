@@ -902,6 +902,103 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
     });
   });
 
+  describe('a cancel that commits after the due snapshot does not open an invoice', () => {
+    /**
+     * The due pass already holds an active subscription and an active mandate.
+     * Cancel commits on another connection. The charge must wait on that row,
+     * see the cancel, and not call openInvoice.
+     */
+    it('does not call openInvoice when the loaded mandate or subscription is cancelled', async () => {
+      const { subs } = build({ defaultFeeBps: 250 });
+      const m = await merchant();
+      const frame = {
+        cadence: 'monthly' as const,
+        mandateStartsAt: JAN,
+        mandateEndsAt: null,
+        anchorAt: null,
+        anchorOccurrence: 0,
+      };
+
+      async function stillPending<T>(pending: Promise<T>, ms: number): Promise<boolean> {
+        const winner = await Promise.race([
+          pending.then(
+            () => 'settled' as const,
+            () => 'settled' as const,
+          ),
+          new Promise<'pending'>((resolve) => setTimeout(() => resolve('pending'), ms)),
+        ]);
+        return winner === 'pending';
+      }
+
+      async function parkCancel(which: 'subscription' | 'mandate', id: string) {
+        let announceLocked!: () => void;
+        let release!: () => void;
+        const locked = new Promise<void>((resolve) => {
+          announceLocked = resolve;
+        });
+        const mayCommit = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const done = sql.begin(async (tx) => {
+          if (which === 'subscription') {
+            await tx`
+              UPDATE pay.subscriptions
+                 SET status = 'cancelled', cancelled_at = ${JAN}, updated_at = ${JAN}
+               WHERE id = ${id}
+            `;
+          } else {
+            await tx`
+              UPDATE pay.subscription_mandates
+                 SET status = 'cancelled', cancelled_at = ${JAN}, updated_at = ${JAN}
+               WHERE id = ${id}
+            `;
+          }
+          announceLocked();
+          await mayCommit;
+        });
+        await locked;
+        let released = false;
+        return {
+          async commit() {
+            if (released) return;
+            released = true;
+            release();
+            await done;
+          },
+        };
+      }
+
+      for (const which of ['subscription', 'mandate'] as const) {
+        const loaded = await mandateAndSubscription(subs, { merchantId: m.id });
+        const hold = await parkCancel(which, which === 'subscription' ? loaded.sub.id : loaded.mandate.id);
+        const attempt = subs.attemptCycle({
+          sub: loaded.sub,
+          mandate: loaded.mandate,
+          frame,
+          occurrence: 0,
+          isRetry: false,
+          now: JAN,
+        });
+        const guarded = attempt.then(
+          (value) => ({ ok: true as const, value }),
+          (error: unknown) => ({ ok: false as const, error }),
+        );
+        try {
+          expect(await stillPending(guarded, 400)).toBe(true);
+          await hold.commit();
+          const result = await guarded;
+          expect(result.ok).toBe(true);
+          if (result.ok) expect(result.value.outcome).toBe('skipped');
+          expect(opened).toHaveLength(0);
+        } finally {
+          await hold.commit();
+        }
+      }
+
+      expect(await clearingOf(m.id)).toBe('0');
+    }, 20_000);
+  });
+
   // ── 5. AN UNSET FEE REFUSES BY CODE ───────────────────────────────────────
 
   describe('an unset fee is refuse-closed', () => {

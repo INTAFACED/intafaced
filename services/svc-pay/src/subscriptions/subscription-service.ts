@@ -991,15 +991,46 @@ export class SubscriptionService {
     notifyStatus?: CycleRecord['notifyStatus'];
     idempotencyKey: string;
   }> {
-    const { sub, mandate, occurrence, now } = input;
-    if (sub.status !== 'active')
-      return { outcome: 'skipped', idempotencyKey: chargeIdempotencyKey({ subscriptionId: sub.id, occurrence }) };
+    const { sub: loadedSub, mandate: loadedMandate, occurrence, now } = input;
+    if (loadedSub.status !== 'active')
+      return { outcome: 'skipped', idempotencyKey: chargeIdempotencyKey({ subscriptionId: loadedSub.id, occurrence }) };
 
-    const idempotencyKey = chargeIdempotencyKey({ subscriptionId: sub.id, occurrence });
+    const idempotencyKey = chargeIdempotencyKey({ subscriptionId: loadedSub.id, occurrence });
 
     return transaction(
       this.sql,
       async (tx) => {
+        /*
+         * The due pass already loaded this pair. Cancel commits on another
+         * connection. Lock the mandate, then the subscription, and charge from
+         * those rows. A cancel that committed after the snapshot is visible
+         * here, so the invoice does not open and no amount is invented.
+         */
+        const lockedMandateRows = await tx<MandateRow[]>`
+          SELECT id, merchant_id, customer_id, asset_id, amount::text, ceiling::text,
+                 cadence, starts_at, ends_at, rail_adapter, rail_mandate_ref,
+                 status, cancelled_at, created_at
+            FROM pay.subscription_mandates
+           WHERE id = ${loadedMandate.id}
+           FOR UPDATE
+        `;
+        const lockedSubRows = await tx<SubRow[]>`
+          SELECT id, mandate_id, merchant_id, customer_id, next_run_at, status,
+                 cancelled_at, path, created_at, anchor_at, anchor_occurrence,
+                 paused_at, resumed_at, stalled_at, stall_reason
+            FROM pay.subscriptions
+           WHERE id = ${loadedSub.id}
+           FOR UPDATE
+        `;
+        const lockedMandateRow = lockedMandateRows[0];
+        const lockedSubRow = lockedSubRows[0];
+        if (!lockedMandateRow || !lockedSubRow) return { outcome: 'skipped' as const, idempotencyKey };
+        const mandate = toMandate(lockedMandateRow);
+        const sub = toSub(lockedSubRow);
+        if (sub.status !== 'active' || mandate.status !== 'active' || sub.mandateId !== mandate.id) {
+          return { outcome: 'skipped' as const, idempotencyKey };
+        }
+
         const claimed = await tx<Array<{ id: string; amount: string; attempt_count: number }>>`
           INSERT INTO pay.subscription_executions (
             subscription_id, occurrence, amount, status, idempotency_key,
@@ -1071,10 +1102,11 @@ export class SubscriptionService {
          * THE MANDATE IS THE CEILING — checked here, at the moment of the charge.
          *
          * `chargeAmount` is the amount recorded when the period was claimed; the
-         * mandate is re-read on every attempt. A retry of a period claimed under
-         * terms that have since been lowered or replaced must refuse, and it
-         * must refuse TERMINALLY: retrying cannot make an unauthorised charge
-         * authorised, so the attempts are spent rather than burned one per pass.
+         * mandate is the row locked above, not the due-pass snapshot. A retry of
+         * a period claimed under terms that have since been lowered or replaced
+         * must refuse, and it must refuse TERMINALLY: retrying cannot make an
+         * unauthorised charge authorised, so the attempts are spent rather than
+         * burned one per pass.
          */
         try {
           assertWithinMandateCeiling(mandate, chargeAmount);
