@@ -309,6 +309,44 @@ describe('UpstreamModelProvider — the real adapter', () => {
     expect(chunks.some((chunk) => chunk.done)).toBe(false);
     expect(chunks.some((chunk) => chunk.usage?.outputTokens === 0)).toBe(false);
   });
+
+  it('sends temperature and stop sequences on a stream, and omits both when the request leaves them unset', async () => {
+    const fetchSpy = stubFetch(() =>
+      sse([
+        { type: 'message_start', usage: { input_tokens: 3 } },
+        { type: 'content_block_delta', delta: { text: 'ok' } },
+        { type: 'message_delta', usage: { output_tokens: 1 }, delta: { stop_reason: 'end_turn' } },
+      ]),
+    );
+
+    const chunks = [];
+    for await (const chunk of upstream().stream(
+      request({ temperature: 0.2, stopSequences: ['END', 'STOP'] }),
+    )) {
+      chunks.push(chunk);
+    }
+
+    const controlled = JSON.parse(String((fetchSpy.mock.calls[0]![1] as RequestInit).body));
+    expect(controlled.temperature).toBe(0.2);
+    expect(controlled.stop_sequences).toEqual(['END', 'STOP']);
+    expect(controlled.stream).toBe(true);
+    expect(controlled.model).toBe('internal-model-7');
+    expect(chunks.filter((chunk) => chunk.done)).toEqual([
+      { delta: '', done: true, usage: { inputTokens: 3, outputTokens: 1 }, stopReason: 'end' },
+    ]);
+
+    const bareChunks = [];
+    for await (const chunk of upstream().stream(request())) bareChunks.push(chunk);
+    const bare = JSON.parse(String((fetchSpy.mock.calls[1]![1] as RequestInit).body));
+    expect(bare.temperature).toBeUndefined();
+    expect(bare.stop_sequences).toBeUndefined();
+    expect(bare.stream).toBe(true);
+    expect(bare.model).toBe('internal-model-7');
+    expect(bare.max_tokens).toBe(128);
+    expect(bareChunks.filter((chunk) => chunk.done)).toEqual([
+      { delta: '', done: true, usage: { inputTokens: 3, outputTokens: 1 }, stopReason: 'end' },
+    ]);
+  });
 });
 
 describe('readUsage — a call we cannot price is a call we must not bill', () => {

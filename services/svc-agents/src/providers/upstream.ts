@@ -202,6 +202,8 @@ export class UpstreamModelProvider implements ModelProvider {
       ...(request.system ? { system: request.system } : {}),
       messages: request.messages.map((m) => ({ role: m.role, content: m.content })),
       max_tokens: request.maxOutputTokens,
+      ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
+      ...(request.stopSequences?.length ? { stop_sequences: [...request.stopSequences] } : {}),
       stream: true,
     };
 
