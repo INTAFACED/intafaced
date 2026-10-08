@@ -462,11 +462,23 @@ export interface LoanReserveFundInput {
   from?: AccountRef;
 }
 
-/** Put lendable value into the reserve. Nothing can be borrowed before this runs. */
+/**
+ * Put lendable value into the reserve. Nothing can be borrowed before this runs.
+ *
+ * A supplied source must already be the debt asset. Cross-asset funding is
+ * rejected outright rather than silently priced — converting between assets is
+ * a trade, and a trade has an execution price this function has no business
+ * inventing.
+ */
 export function loanReserveFund(input: LoanReserveFundInput): PostRequest {
   requireId('fundingId', input.fundingId);
   requireId('debtAssetId', input.debtAssetId);
   requirePositive('reserve funding amount', input.amount);
+  if (input.from !== undefined && input.from.assetId !== input.debtAssetId) {
+    throw new InvalidEntryError(
+      `A transfer cannot change asset (${input.from.assetId} → ${input.debtAssetId}); route it through a conversion instead`,
+    );
+  }
   return {
     idempotencyKey: `bank.loan.reserve.fund:${input.debtAssetId}:${input.fundingId}`,
     module: 'bank',

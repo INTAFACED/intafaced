@@ -210,6 +210,56 @@ describe('loan recipe refusals — balanced lies are still refused', () => {
     ).toThrow(InvalidEntryError);
   });
 
+  it('refuses a reserve funding source in a different asset and still funds the debt asset', async () => {
+    const amount = amt('25');
+    const mismatchKey = 'bank.loan.reserve.fund:USDT:mismatch';
+    expectNoPost(() =>
+      recipes.loanReserveFund({
+        fundingId: 'mismatch',
+        debtAssetId: 'USDT',
+        amount,
+        from: userAvailable(BORROWER, 'BTC'),
+      }),
+    );
+    expect(await ledger.getTxByKey(mismatchKey)).toBeNull();
+    expect(ledger.journal().some((tx) => tx.reason === 'loan.reserve.funded')).toBe(false);
+
+    await deposit('USDT', '25', 'omit-fees');
+    await ledger.post(
+      recipes.feeCharge({
+        chargeId: 'omit-fee',
+        userId: BORROWER,
+        module: 'bank',
+        mode: 'asset',
+        assetId: 'USDT',
+        amount,
+      }),
+    );
+    const omitted = recipes.loanReserveFund({ fundingId: 'omit', debtAssetId: 'USDT', amount });
+    expect(omitted.entries).toEqual([
+      { account: houseFees('bank', 'USDT'), direction: 'credit', amount },
+      { account: loanReserve('USDT'), direction: 'debit', amount },
+    ]);
+    const omittedTx = await ledger.post(omitted);
+    expect(omittedTx.entries.every((entry) => entry.assetId === 'USDT' && entry.amount === amount)).toBe(true);
+    expect(formatAmount((await ledger.balance(houseFees('bank', 'USDT'))).amount)).toBe('0');
+    expect(formatAmount((await ledger.balance(loanReserve('USDT'))).amount)).toBe('25');
+
+    await deposit('USDT', '25', 'match-from');
+    const from = userAvailable(BORROWER, 'USDT');
+    const matched = recipes.loanReserveFund({ fundingId: 'match', debtAssetId: 'USDT', amount, from });
+    expect(matched.entries).toEqual([
+      { account: from, direction: 'credit', amount },
+      { account: loanReserve('USDT'), direction: 'debit', amount },
+    ]);
+    expect(matched.entries.every((entry) => entry.account.assetId === 'USDT')).toBe(true);
+    const matchedTx = await ledger.post(matched);
+    expect(matchedTx.entries.every((entry) => entry.assetId === 'USDT' && entry.amount === amount)).toBe(true);
+    expect(formatAmount((await ledger.balance(userAvailable(BORROWER, 'USDT'))).amount)).toBe('0');
+    expect(formatAmount((await ledger.balance(loanReserve('USDT'))).amount)).toBe('50');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
   it('refuses proceeds that do not fully allocate', () => {
     expect(() =>
       recipes.loanLiquidate({
