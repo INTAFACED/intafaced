@@ -2584,7 +2584,11 @@ export class PayService {
     /** Window label, e.g. '2026-07-27'. Half the business key. */
     window: string;
     assetId: string;
-    /** Defaults to the UTC day named by `window`. */
+    /**
+     * Both bounds replace the label. Exactly one is `pay.invalid_window`
+     * (the missing side is not invented, and the label's day is not substituted).
+     * Neither: `window` must be a real UTC calendar day, half-open for 24 hours.
+     */
     from?: Date;
     to?: Date;
   }): Promise<SettlementRecord> {
@@ -3734,15 +3738,55 @@ function assertFeeBps(feeBps: number): void {
   }
 }
 
-/** `'2026-07-27'` → that UTC day, half-open. Explicit bounds win. */
+/**
+ * `'2026-07-27'` → that UTC day, half-open, ending 24 hours later.
+ * Both explicit bounds win. Exactly one bound refuses. A label that matches
+ * YYYY-MM-DD but is not a real UTC calendar day (2026-02-31) refuses — it is
+ * not rolled through Date and not frozen under the original window key.
+ */
 function windowBounds(window: string, from?: Date, to?: Date): { from: Date; to: Date } {
   if (from && to) return { from, to };
-  const day = /^\d{4}-\d{2}-\d{2}$/.test(window) ? new Date(`${window}T00:00:00.000Z`) : null;
-  if (!day || Number.isNaN(day.getTime())) {
+  if (from || to) {
+    throw new PayError(
+      `Window "${window}" was given only one of from/to; pass both bounds or neither`,
+      'pay.invalid_window',
+    );
+  }
+  const day = utcCalendarDay(window);
+  if (!day) {
     throw new PayError(
       `Window "${window}" is not a YYYY-MM-DD date; pass explicit from/to bounds for a custom window`,
       'pay.invalid_window',
     );
   }
   return { from: day, to: new Date(day.getTime() + 24 * 60 * 60 * 1000) };
+}
+
+/**
+ * UTC midnight of a real calendar day, or null.
+ * Impossible dates are rejected from the year/month/day fields. Date is only
+ * asked to build a day that those fields already accept, then checked so a
+ * rollover cannot be returned.
+ */
+function utcCalendarDay(window: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(window);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > daysInUtcMonth(year, month)) return null;
+  const start = new Date(Date.UTC(year, month - 1, day));
+  if (start.getUTCFullYear() !== year || start.getUTCMonth() !== month - 1 || start.getUTCDate() !== day) return null;
+  return start;
+}
+
+function daysInUtcMonth(year: number, month: number): number {
+  if (month === 2) return isUtcLeapYear(year) ? 29 : 28;
+  if (month === 4 || month === 6 || month === 9 || month === 11) return 30;
+  return 31;
+}
+
+function isUtcLeapYear(year: number): boolean {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
 }
