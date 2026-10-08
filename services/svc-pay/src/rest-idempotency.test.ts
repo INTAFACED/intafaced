@@ -125,6 +125,46 @@ describe('MemoryRestIdempotencyStore', () => {
   });
 
   /**
+   * A duplicate that arrived while the handler was in flight is parked on the
+   * pending slot. `abandon` deletes that slot and wakes the parkers. Each
+   * parker must claim again: one takes the freed key, and any other waits for
+   * that new owner. Throwing "stalled while pending" turns a failed mutation
+   * into an error for the retry the key exists to allow.
+   */
+  it('lets a concurrent waiter take a key abandon freed', async () => {
+    const store = new MemoryRestIdempotencyStore();
+    const fp = fingerprintRequest('POST', '/p', { a: 1 });
+    const other = fingerprintRequest('POST', '/p', { a: 2 });
+
+    const failed = await store.claim('owner', 'key-retry', fp);
+    const firstWaiter = store.claim('owner', 'key-retry', fp);
+    const secondWaiter = store.claim('owner', 'key-retry', fp);
+
+    expect(await store.claim('owner', 'key-retry', other)).toEqual({ kind: 'conflict' });
+
+    await store.abandon('owner', 'key-retry', tokenOf(failed));
+
+    const winner = await Promise.race([
+      firstWaiter.then((claim) => ({ claim, other: secondWaiter })),
+      secondWaiter.then((claim) => ({ claim, other: firstWaiter })),
+    ]);
+    expect(winner.claim.kind).toBe('mine');
+    expect(tokenOf(winner.claim)).not.toBe(tokenOf(failed));
+
+    await store.put('owner', 'key-retry', { statusCode: 201, body: { retried: true } }, tokenOf(winner.claim));
+
+    expect(await winner.other).toEqual({
+      kind: 'replay',
+      record: { statusCode: 201, body: { retried: true } },
+    });
+    expect(await store.claim('owner', 'key-retry', fp)).toEqual({
+      kind: 'replay',
+      record: { statusCode: 201, body: { retried: true } },
+    });
+    expect(await store.claim('owner', 'key-retry', other)).toEqual({ kind: 'conflict' });
+  });
+
+  /**
    * THE HANDLER THAT CAME BACK FROM THE DEAD.
    *
    * A claim can be taken over once its owner is presumed dead (see
