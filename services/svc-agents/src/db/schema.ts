@@ -176,7 +176,11 @@ export const agentActions = agents.table(
     occurredAt: tstz('occurred_at').notNull().defaultNow(),
   },
   (t) => [
-    /** The chain's ordering, and the anti-reordering constraint. */
+    /**
+     * One sequence number per session. A duplicate `(session_id, sequence)`
+     * fails this index. Monotonic `occurred_at` is the insert trigger, not
+     * this index.
+     */
     uniqueIndex('agent_actions_session_sequence_idx').on(t.sessionId, t.sequence),
     /** "Show me everything this agent has done for me" — the user-visible log. */
     index('agent_actions_user_time_idx').on(t.userId, t.occurredAt),

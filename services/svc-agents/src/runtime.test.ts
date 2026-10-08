@@ -1248,6 +1248,122 @@ if (!available) {
       expect(log.some((a) => a.status === 'refused')).toBe(true);
     });
 
+    /**
+     * Copy one stored action, changing only sequence and occurred_at.
+     * The hash is not checked by the database; the insert is.
+     */
+    async function insertClone(sourceId: string, sequence: number, occurredAt: Date) {
+      await sql`
+        INSERT INTO agents.agent_actions (
+          session_id, user_id, agent_id, sequence, kind, status,
+          tool, task, provider_id, model,
+          input_tokens, output_tokens, cost,
+          refusal_code, user_message_key, user_message_params,
+          input_digest, output_digest, prev_hash, hash, occurred_at
+        )
+        SELECT
+          session_id, user_id, agent_id, ${sequence}, kind, status,
+          tool, task, provider_id, model,
+          input_tokens, output_tokens, cost,
+          refusal_code, user_message_key, user_message_params,
+          input_digest, output_digest, prev_hash, hash, ${occurredAt}
+        FROM agents.agent_actions
+        WHERE id = ${sourceId}
+      `;
+    }
+
+    it('refuses a back-dated insert in the same session', async () => {
+      const session = await open();
+      const [first] = await sql<Array<{ id: string; occurred_at: Date }>>`
+        SELECT id, occurred_at FROM agents.agent_actions WHERE session_id = ${session.id}
+      `;
+      const earlier = new Date(first!.occurred_at.getTime() - 60_000);
+
+      await expect(insertClone(first!.id, 1, earlier)).rejects.toMatchObject({
+        code: '23001',
+        message: expect.stringMatching(/back-dated/),
+      });
+
+      const rows = await sql`SELECT id FROM agents.agent_actions WHERE session_id = ${session.id}`;
+      expect(rows).toHaveLength(1);
+    });
+
+    it('refuses a re-ordered insert behind the session tip', async () => {
+      const session = await open();
+      const [first] = await sql<Array<{ id: string; occurred_at: Date }>>`
+        SELECT id, occurred_at FROM agents.agent_actions WHERE session_id = ${session.id}
+      `;
+      const later = new Date(first!.occurred_at.getTime() + 60_000);
+      const afterThat = new Date(first!.occurred_at.getTime() + 120_000);
+
+      await insertClone(first!.id, 2, later);
+
+      await expect(insertClone(first!.id, 1, afterThat)).rejects.toMatchObject({
+        code: '23001',
+        message: expect.stringMatching(/re-ordered/),
+      });
+
+      const rows = await sql<Array<{ sequence: number }>>`
+        SELECT sequence FROM agents.agent_actions WHERE session_id = ${session.id} ORDER BY sequence
+      `;
+      expect(rows.map((row) => row.sequence)).toEqual([0, 2]);
+    });
+
+    it('still refuses a duplicate (session_id, sequence)', async () => {
+      const session = await open();
+      const [first] = await sql<Array<{ id: string; occurred_at: Date }>>`
+        SELECT id, occurred_at FROM agents.agent_actions WHERE session_id = ${session.id}
+      `;
+      const later = new Date(first!.occurred_at.getTime() + 60_000);
+
+      await expect(insertClone(first!.id, 0, later)).rejects.toMatchObject({
+        code: '23505',
+        message: expect.stringMatching(/agent_actions_session_sequence_idx/),
+      });
+    });
+
+    it('accepts a later action at or after the session tip', async () => {
+      const session = await open();
+      const [first] = await sql<Array<{ id: string; occurred_at: Date }>>`
+        SELECT id, occurred_at FROM agents.agent_actions WHERE session_id = ${session.id}
+      `;
+      const same = new Date(first!.occurred_at.getTime());
+      const later = new Date(first!.occurred_at.getTime() + 60_000);
+
+      await insertClone(first!.id, 1, same);
+      await insertClone(first!.id, 2, later);
+
+      const mine = await sql<Array<{ sequence: number; occurred_at: Date }>>`
+        SELECT sequence, occurred_at FROM agents.agent_actions
+         WHERE session_id = ${session.id}
+         ORDER BY sequence
+      `;
+      expect(mine.map((row) => row.sequence)).toEqual([0, 1, 2]);
+      expect(mine[1]!.occurred_at.getTime()).toBeGreaterThanOrEqual(mine[0]!.occurred_at.getTime());
+      expect(mine[2]!.occurred_at.getTime()).toBeGreaterThanOrEqual(mine[1]!.occurred_at.getTime());
+    });
+
+    it('lets another session record a time before this session’s tip', async () => {
+      const session = await open();
+      const other = await open(USER_B);
+      const [first] = await sql<Array<{ id: string; occurred_at: Date }>>`
+        SELECT id, occurred_at FROM agents.agent_actions WHERE session_id = ${session.id}
+      `;
+      const [second] = await sql<Array<{ id: string; occurred_at: Date }>>`
+        SELECT id, occurred_at FROM agents.agent_actions WHERE session_id = ${other.id}
+      `;
+      const later = new Date(Math.max(first!.occurred_at.getTime(), second!.occurred_at.getTime()) + 60_000);
+
+      await insertClone(first!.id, 1, later);
+      await insertClone(second!.id, 1, new Date(second!.occurred_at.getTime()));
+
+      const theirs = await sql<Array<{ occurred_at: Date }>>`
+        SELECT occurred_at FROM agents.agent_actions
+         WHERE session_id = ${other.id} AND sequence = 1
+      `;
+      expect(theirs[0]!.occurred_at.getTime()).toBeLessThan(later.getTime());
+    });
+
     it('cannot be edited even to correct it — the correction is another row', async () => {
       const session = await open();
       await runtime.think({ sessionId: session.id, requestId: 'r-a', task: 'plan', messages: MESSAGES });
