@@ -42,6 +42,22 @@ function moneyIsIeee(value: unknown): boolean {
   return typeof value === 'number';
 }
 
+function blankMoneyField(price: unknown, qty: unknown): 'price' | 'qty' | null {
+  if (typeof price === 'string' && price.trim().length === 0) return 'price';
+  if (typeof qty === 'string' && qty.trim().length === 0) return 'qty';
+  return null;
+}
+
+function refuseBlankLevel(linked: boolean, field: 'price' | 'qty'): EncodeL2Refuse {
+  return {
+    ok: false,
+    linked,
+    reason: 'missing_input',
+    field,
+    message: 'L2 price or size is blank',
+  };
+}
+
 export function encodeL2Snapshot(codec: SbeCodec, snap: L2Ladder): EncodeL2Ok | EncodeL2Refuse {
   const sequence = String(snap.sequence);
   const payloads: Uint8Array[] = [];
@@ -56,6 +72,8 @@ export function encodeL2Snapshot(codec: SbeCodec, snap: L2Ladder): EncodeL2Ok | 
         message: 'L2 money stays decimal strings',
       };
     }
+    const blankBid = blankMoneyField(row[0], row[1]);
+    if (blankBid) return refuseBlankLevel(codec.linked, blankBid);
     levels.push({ side: 'buy', price: row[0], qty: row[1] });
   }
   for (const row of snap.asks) {
@@ -68,6 +86,8 @@ export function encodeL2Snapshot(codec: SbeCodec, snap: L2Ladder): EncodeL2Ok | 
         message: 'L2 money stays decimal strings',
       };
     }
+    const blankAsk = blankMoneyField(row[0], row[1]);
+    if (blankAsk) return refuseBlankLevel(codec.linked, blankAsk);
     levels.push({ side: 'sell', price: row[0], qty: row[1] });
   }
   for (const level of levels) {
@@ -91,7 +111,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function asLadder(value: Record<string, unknown>): L2Ladder | 'ieee' | null {
+function asLadder(value: Record<string, unknown>): L2Ladder | 'ieee' | 'blank-price' | 'blank-qty' | null {
   if (typeof value.marketId !== 'string' || value.marketId.length === 0) return null;
   if (value.sequence === undefined || value.sequence === null) return null;
   if (!Array.isArray(value.bids) || !Array.isArray(value.asks)) return null;
@@ -107,6 +127,9 @@ function asLadder(value: Record<string, unknown>): L2Ladder | 'ieee' | null {
       if (!Array.isArray(row) || row.length < 2) return null;
       if (typeof row[0] === 'number' || typeof row[1] === 'number') return 'ieee';
       if (typeof row[0] !== 'string' || typeof row[1] !== 'string') return null;
+      const blank = blankMoneyField(row[0], row[1]);
+      if (blank === 'price') return 'blank-price';
+      if (blank === 'qty') return 'blank-qty';
       out.push([row[0], row[1]]);
     }
   }
@@ -135,6 +158,9 @@ export function encodeL2JsonFrame(codec: SbeCodec, frame: string): EncodeL2Resul
       field: 'price',
       message: 'L2 money stays decimal strings',
     };
+  }
+  if (ladder === 'blank-price' || ladder === 'blank-qty') {
+    return refuseBlankLevel(codec.linked, ladder === 'blank-price' ? 'price' : 'qty');
   }
   if (ladder === null) {
     return { ok: false, linked: codec.linked, reason: 'invalid_message', message: 'L2 frame is not a book' };
