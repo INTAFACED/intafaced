@@ -1,3 +1,4 @@
+import { payCopy, PayCopy } from './copy';
 import { useMemo, useState } from 'react';
 import { z } from 'zod';
 import { useSession } from '../session/session';
@@ -14,37 +15,37 @@ import { MerchantNetwork, MerchantPermissions, MerchantDeveloper } from './Merch
 import * as s from './schemas';
 
 const rooms = [
-  ['/pay/merchant', 'Overview'],
-  ['/pay/money', 'Balance'],
-  ['/pay/links', 'Payment links'],
-  ['/pay/checkout', 'Checkout'],
-  ['/pay/payments', 'Payments'],
-  ['/pay/customers', 'Customers'],
-  ['/pay/payouts', 'Payouts'],
-  ['/pay/settlements', 'Settlements'],
-  ['/pay/disputes', 'Disputes'],
-  ['/pay/invoices', 'Invoices'],
-  ['/pay/subscriptions', 'Subscriptions'],
-  ['/pay/reports', 'Reports'],
-  ['/pay/network', 'Network'],
-  ['/pay/permissions', 'Permissions'],
-  ['/pay/developer', 'Developer test mode'],
+  ['/pay/merchant', 'overview'],
+  ['/pay/money', 'balance'],
+  ['/pay/links', 'paymentLinks'],
+  ['/pay/checkout', 'checkout'],
+  ['/pay/payments', 'payments'],
+  ['/pay/customers', 'customers'],
+  ['/pay/payouts', 'payouts'],
+  ['/pay/settlements', 'settlements'],
+  ['/pay/disputes', 'disputes'],
+  ['/pay/invoices', 'invoices'],
+  ['/pay/subscriptions', 'subscriptions'],
+  ['/pay/reports', 'reports'],
+  ['/pay/network', 'network'],
+  ['/pay/permissions', 'permissions'],
+  ['/pay/developer', 'developerTestMode'],
 ] as const;
 export function BusinessPay({ path, authority }: { path: string; authority: PayBusinessAuthority | null }) {
   const { api, userId } = useSession();
   const pay = useMemo(() => createBusinessPayApi(api, userId, authority), [api, userId, authority]);
   const current = path.split('?')[0];
-  const room = rooms.find(([route]) => route === current)?.[1] ?? 'Merchant desk';
+  const room = rooms.find(([route]) => route === current)?.[1] ?? 'merchantDesk';
   const merchant = useResource((signal) => pay.merchant(signal), `pay:merchant:${userId}:${authority?.companyId ?? 'unavailable'}`);
   return (
-    <Page eyebrow="Business Pay" title={room} description={authority?.companyName}>
+    <Page eyebrow={payCopy.t('businessPay')} title={<PayCopy k={room} />} description={authority?.companyName}>
       <PayState resource={merchant.resource} retry={merchant.reload}>
         {(record) => (
           <div className="pay-business">
-            <nav aria-label="Business Pay rooms" className="pay-business-nav">
+            <nav aria-label={payCopy.t('businessPayRooms')} className="pay-business-nav">
               {rooms.map(([route, label]) => (
                 <a href={route} key={route} aria-current={route === current ? 'page' : undefined}>
-                  {label}
+                  <PayCopy k={label} />
                 </a>
               ))}
             </nav>
@@ -69,9 +70,8 @@ export function BusinessPay({ path, authority }: { path: string; authority: PayB
               ) : current === '/pay/developer' ? (
                 <MerchantDeveloper pay={pay} />
               ) : current === '/pay/customers' ? (
-                <PayNotice title="Customer directory is unavailable">
-                  Payments accept an opaque customer reference, but no merchant-scoped customer list, customer profile or customer
-                  management contract is published. Payment events and subscription customer IDs remain visible in their own records.
+                <PayNotice title={payCopy.t('customerDirectoryIsUnavailable')}>
+                  <PayCopy k="paymentsAcceptAnOpaqueCustomerReferenceBut" />
                 </PayNotice>
               ) : (
                 <MerchantHome pay={pay} merchant={record} />
@@ -83,10 +83,10 @@ export function BusinessPay({ path, authority }: { path: string; authority: PayB
       {merchant.resource.status === 'failed' && (
         <div className="pay-return-links">
           <a className="text-link" href="/pay">
-            Return to Personal Pay →
+            <PayCopy k="returnToPersonalPay" />
           </a>
           <a className="text-link" href="/identbusiness">
-            Open Business verification →
+            <PayCopy k="openBusinessVerification" />
           </a>
         </div>
       )}
@@ -107,7 +107,7 @@ export async function validatedMutation<I, O>(
     return {
       ok: false,
       reason: 'error',
-      message: parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; '),
+      message: payCopy.t('invalidInput'),
     };
   return pay.mutate(procedure, parsed.data, output, scope, operation);
 }
@@ -128,29 +128,32 @@ function MerchantHome({ pay, merchant }: { pay: BusinessPayApi; merchant: s.Merc
   const rails = useResource((signal) => pay.query('railHealth', undefined, railHealthSchema, signal), `pay:rails:${merchant.id}`);
   return (
     <div className="stack">
-      <PaySection title="Your merchant account">
+      <PaySection title={payCopy.t('yourMerchantAccount')}>
         <PayDetails
           values={[
-            ['Merchant', merchant.id],
-            ['Account state', <Status value={merchant.status} />],
-            ['Business verification', merchant.kybStatus],
-            ['Acquiring mode', merchant.mode],
-            ['Merchant fee', merchant.feeBps === null ? 'Not published' : `${merchant.feeBps} basis points`],
+            [payCopy.t('merchant'), merchant.id],
+            [payCopy.t('accountState'), <Status value={merchant.status} />],
+            [payCopy.t('businessVerification'), merchant.kybStatus],
+            [payCopy.t('acquiringMode'), merchant.mode],
+            [
+              payCopy.t('merchantFee'),
+              merchant.feeBps === null ? payCopy.t('notPublished') : payCopy.t('basisPoints', { feeBps: merchant.feeBps }),
+            ],
           ]}
         />
       </PaySection>
-      <PaySection title="Payment rail availability">
-        <PayState resource={rails.resource} retry={rails.reload} empty="No payment rails returned">
+      <PaySection title={payCopy.t('paymentRailAvailability')}>
+        <PayState resource={rails.resource} retry={rails.reload} empty={payCopy.t('noPaymentRailsReturned')}>
           {(rows) => (
             <div>
               {rows.map((rail) => (
                 <div className="pay-destination" key={rail.id}>
                   <span>
                     {rail.id}
-                    <small>{rail.reason ?? (rail.healthy ? 'Service healthy' : 'Service unhealthy')}</small>
+                    <small>{rail.reason ?? (rail.healthy ? payCopy.t('serviceHealthy') : payCopy.t('serviceUnhealthy'))}</small>
                   </span>
                   <span>
-                    {rail.mode} · {rail.usable ? 'usable' : 'unavailable'}
+                    {rail.mode} · {rail.usable ? payCopy.t('usable') : payCopy.t('unavailable')}
                   </span>
                 </div>
               ))}
@@ -158,20 +161,17 @@ function MerchantHome({ pay, merchant }: { pay: BusinessPayApi; merchant: s.Merc
           )}
         </PayState>
       </PaySection>
-      <PaySection
-        title="Checkout domains"
-        description="Save domains for a new checkout profile. Existing profiles are not silently rewritten."
-      >
+      <PaySection title={payCopy.t('checkoutDomains')} description={payCopy.t('saveDomainsForANewCheckoutProfile')}>
         <div className="form-stack pay-form">
           <Field
-            label="Domains"
+            label={payCopy.t('domains')}
             value={domains}
             onChange={(event) => setDomains(event.target.value)}
-            hint="Comma-separated domains supplied by your business. No current-profile read is published, so the field starts empty."
+            hint={payCopy.t('commaSeparatedDomainsSuppliedByYourBusiness')}
           />
           <ReviewedAction
-            title="Create checkout profile"
-            description="Create a profile for the entered checkout domains. The returned profile ID can be used on a payment link."
+            title={payCopy.t('createCheckoutProfile')}
+            description={payCopy.t('createAProfileForTheEnteredCheckout')}
             review={<p>{domains}</p>}
             perform={() =>
               validatedMutation(
@@ -198,7 +198,7 @@ function MerchantHome({ pay, merchant }: { pay: BusinessPayApi; merchant: s.Merc
           />
           {profileCreated && (
             <p className="pay-confirmed" role="status">
-              Checkout profile created: {profileCreated}
+              <PayCopy k="checkoutProfileCreated" /> {profileCreated}
             </p>
           )}
         </div>
@@ -217,13 +217,13 @@ function MerchantBalance({ pay }: { pay: BusinessPayApi }) {
         : Promise.resolve({
             ok: false as const,
             reason: 'not_supported' as const,
-            message: 'Choose the asset to read its ledger projection. No portfolio asset discovery is published for this merchant.',
+            message: payCopy.t('chooseTheAssetToReadItsLedger'),
           }),
     `pay:balance:${pay.authority!.merchantId}:${asset}`,
   );
   return (
     <div className="stack">
-      <PaySection title="Merchant ledger balance" description="Clearing and available are read projections of the ledger.">
+      <PaySection title={payCopy.t('merchantLedgerBalance')} description={payCopy.t('clearingAndAvailableAreReadProjectionsOf')}>
         <form
           className="pay-filters"
           onSubmit={(event) => {
@@ -232,14 +232,14 @@ function MerchantBalance({ pay }: { pay: BusinessPayApi }) {
           }}
         >
           <Field
-            label="Asset"
+            label={payCopy.t('asset')}
             value={assetDraft}
             onChange={(event) => setAssetDraft(event.target.value.toUpperCase())}
             required
             maxLength={16}
           />
           <Button type="submit" variant="secondary">
-            Read balance
+            <PayCopy k="readBalance" />
           </Button>
         </form>
         {asset && (
@@ -247,12 +247,16 @@ function MerchantBalance({ pay }: { pay: BusinessPayApi }) {
             {(data) => (
               <div className="pay-balance-grid">
                 <div>
-                  <p className="muted">Available · {asset}</p>
-                  <strong className="pay-value numeric">{hideBalances ? 'Hidden' : displayAmount(data.available)}</strong>
+                  <p className="muted">
+                    <PayCopy k="available" /> {asset}
+                  </p>
+                  <strong className="pay-value numeric">{hideBalances ? payCopy.t('hidden') : displayAmount(data.available)}</strong>
                 </div>
                 <div>
-                  <p className="muted">Clearing · {asset}</p>
-                  <strong className="pay-value numeric">{hideBalances ? 'Hidden' : displayAmount(data.clearing)}</strong>
+                  <p className="muted">
+                    <PayCopy k="clearing" /> {asset}
+                  </p>
+                  <strong className="pay-value numeric">{hideBalances ? payCopy.t('hidden') : displayAmount(data.clearing)}</strong>
                 </div>
               </div>
             )}
@@ -261,13 +265,15 @@ function MerchantBalance({ pay }: { pay: BusinessPayApi }) {
       </PaySection>
       <a className="pay-destination" href="/pay/settlements">
         <span>
-          Settlement records<small>Gross, fees, net and payout status</small>
+          <PayCopy k="settlementRecords" />
+          <small>
+            <PayCopy k="grossFeesNetAndPayoutStatus" />
+          </small>
         </span>
         <span>→</span>
       </a>
-      <PayNotice title="Personal balances stay on Money">
-        The merchant projection is not replaced with the principal’s personal withdrawal balance. Business cash accounts belong under the
-        bank on Money.
+      <PayNotice title={payCopy.t('personalBalancesStayOnMoney')}>
+        <PayCopy k="theMerchantProjectionIsNotReplacedWith" />
       </PayNotice>
     </div>
   );
@@ -295,33 +301,40 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
   };
   return (
     <div className="stack">
-      <PaySection
-        title="Create a payment link"
-        description="Blank amount allows the payer to choose. The service supplies and caps an expiry."
-      >
+      <PaySection title={payCopy.t('createAPaymentLink')} description={payCopy.t('blankAmountAllowsThePayerToChoose')}>
         <div className="form-stack pay-form">
-          <Field label="Link label" value={label} onChange={(event) => setLabel(event.target.value)} required maxLength={120} />
+          <Field label={payCopy.t('linkLabel')} value={label} onChange={(event) => setLabel(event.target.value)} required maxLength={120} />
           <div className="form-row">
-            <Field label="Fixed amount (optional)" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} />
             <Field
-              label="Asset (optional)"
+              label={payCopy.t('fixedAmountOptional')}
+              inputMode="decimal"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+            />
+            <Field
+              label={payCopy.t('assetOptional')}
               value={currency}
               onChange={(event) => setCurrency(event.target.value.toUpperCase())}
               maxLength={16}
             />
           </div>
-          <Field label="Profile ID (optional)" value={profileId} onChange={(event) => setProfileId(event.target.value)} />
-          <Field label="Expiry (optional)" type="datetime-local" value={expires} onChange={(event) => setExpires(event.target.value)} />
+          <Field label={payCopy.t('profileIdOptional')} value={profileId} onChange={(event) => setProfileId(event.target.value)} />
+          <Field
+            label={payCopy.t('expiryOptional')}
+            type="datetime-local"
+            value={expires}
+            onChange={(event) => setExpires(event.target.value)}
+          />
           <ReviewedAction
-            title="Create payment link"
+            title={payCopy.t('createPaymentLink')}
             variant="primary"
-            description="The link is a shareable payment capability. Save the returned URL now; the secret token is returned only once."
+            description={payCopy.t('theLinkIsAShareablePaymentCapability')}
             review={
               <PayDetails
                 values={[
-                  ['Label', label],
-                  ['Amount', amount ? `${amount} ${currency}` : 'Payer chooses'],
-                  ['Expiry', expires || 'Service default'],
+                  [payCopy.t('label'), label],
+                  [payCopy.t('amount'), amount ? `${amount} ${currency}` : payCopy.t('payerChooses')],
+                  [payCopy.t('expiry'), expires || payCopy.t('serviceDefault')],
                 ]}
               />
             }
@@ -352,27 +365,35 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
             }}
           />
           {created && (
-            <PayNotice title="New payment link">
+            <PayNotice title={payCopy.t('newPaymentLink')}>
               <a className="text-link pay-secret" href={`/pay/checkout?token=${encodeURIComponent(created.token)}`}>
-                {location.origin}/pay/checkout?token={created.token}
+                {location.origin}
+                <PayCopy k="payCheckoutToken" />
+                {created.token}
               </a>
-              <span className="pay-cell-note">Expires {created.expiresAt}. Copy the link before leaving this page.</span>
+              <span className="pay-cell-note">
+                <PayCopy k="expires" /> {created.expiresAt}
+                <PayCopy k="copyTheLinkBeforeLeavingThisPage" />
+              </span>
             </PayNotice>
           )}
         </div>
       </PaySection>
       <PaySection
-        title="Your payment links"
+        title={payCopy.t('yourPaymentLinks')}
         action={
           <Button variant="secondary" onClick={links.reload}>
-            Refresh links
+            <PayCopy k="refreshLinks" />
           </Button>
         }
       >
-        <PayState resource={links.resource} retry={links.reload} empty="No payment links returned">
+        <PayState resource={links.resource} retry={links.reload} empty={payCopy.t('noPaymentLinksReturned')}>
           {(rows) => (
             <>
-              <DataTable headers={['Label', 'Amount', 'Uses', 'Expires / state', '']} label="Payment links">
+              <DataTable
+                headers={[payCopy.t('label'), payCopy.t('amount'), payCopy.t('uses'), payCopy.t('expiresState'), '']}
+                label={payCopy.t('paymentLinks')}
+              >
                 {rows.map((link) => (
                   <tr key={link.id}>
                     <td>
@@ -380,20 +401,22 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
                       <small className="pay-cell-note">{link.prefix}</small>
                     </td>
                     <td className="numeric">
-                      {link.amount === null ? 'Payer chooses' : `${displayAmount(link.amount)} ${link.currency ?? 'Asset chosen by payer'}`}
+                      {link.amount === null
+                        ? payCopy.t('payerChooses')
+                        : `${displayAmount(link.amount)} ${link.currency ?? payCopy.t('assetChosenByPayer')}`}
                     </td>
                     <td>
-                      {link.uses} / {link.maxUses ?? 'Unbounded'}
+                      {link.uses} / {link.maxUses ?? payCopy.t('unbounded')}
                     </td>
                     <td>
-                      {link.expiresAt ?? 'Not supplied'}
-                      <small className="pay-cell-note">{link.active ? 'Active' : 'Deactivated'}</small>
+                      {link.expiresAt ?? payCopy.t('notSupplied')}
+                      <small className="pay-cell-note">{link.active ? payCopy.t('active') : payCopy.t('deactivated')}</small>
                     </td>
                     <td>
                       {link.active && (
                         <ReviewedAction
-                          title="Deactivate"
-                          description="Prevent new payments through this link. The server reports whether deactivation was confirmed."
+                          title={payCopy.t('deactivate')}
+                          description={payCopy.t('preventNewPaymentsThroughThisLinkThe')}
                           perform={() =>
                             pay.mutate(
                               'merchant.deactivateLink',
@@ -437,7 +460,7 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
     (signal) =>
       selected
         ? pay.query('settlement.get', { settlementId: selected }, s.settlementSchema, signal)
-        : Promise.resolve({ ok: false as const, reason: 'not_supported' as const, message: 'Open a settlement record.' }),
+        : Promise.resolve({ ok: false as const, reason: 'not_supported' as const, message: payCopy.t('openASettlementRecord') }),
     `pay:settlement:${merchantId}:${selected}`,
   );
   const rails = useResource((signal) => pay.query('railHealth', undefined, railHealthSchema, signal), `pay:payout-rails:${merchantId}`);
@@ -448,32 +471,34 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
   return (
     <div className="stack">
       {!payouts && (
-        <PaySection
-          title="Create a settlement window"
-          description="The service freezes eligible payments and computes gross, published fees and net."
-        >
+        <PaySection title={payCopy.t('createASettlementWindow')} description={payCopy.t('theServiceFreezesEligiblePaymentsAndComputes')}>
           <div className="form-stack pay-form">
             <Field
-              label="Settlement window"
+              label={payCopy.t('settlementWindow')}
               value={window}
               onChange={(event) => setWindow(event.target.value)}
-              hint="Use your actual business window identifier. No window or fee is invented."
+              hint={payCopy.t('useYourActualBusinessWindowIdentifierNo')}
             />
-            <Field label="Settlement asset" value={asset} onChange={(event) => setAsset(event.target.value.toUpperCase())} maxLength={16} />
+            <Field
+              label={payCopy.t('settlementAsset')}
+              value={asset}
+              onChange={(event) => setAsset(event.target.value.toUpperCase())}
+              maxLength={16}
+            />
             {feeBps === null && (
-              <PayNotice title="Merchant fee is not published">
-                Creating a settlement is unavailable until the merchant pricing rate exists.
+              <PayNotice title={payCopy.t('merchantFeeIsNotPublished')}>
+                <PayCopy k="creatingASettlementIsUnavailableUntilThe" />
               </PayNotice>
             )}
             <ReviewedAction
-              title="Create settlement"
-              description="Freeze eligible payments into the named window and ask the service to post its authoritative settlement. This does not initiate a bank payout."
+              title={payCopy.t('createSettlement')}
+              description={payCopy.t('freezeEligiblePaymentsIntoTheNamedWindow')}
               review={
                 <PayDetails
                   values={[
-                    ['Window', window],
-                    ['Asset', asset],
-                    ['Published fee', feeBps === null ? 'Absent' : `${feeBps} basis points`],
+                    [payCopy.t('window'), window],
+                    [payCopy.t('asset'), asset],
+                    [payCopy.t('publishedFee'), feeBps === null ? payCopy.t('absent') : payCopy.t('basisPoints', { feeBps: feeBps })],
                   ]}
                 />
               }
@@ -498,17 +523,20 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
         </PaySection>
       )}
       <PaySection
-        title={payouts ? 'Payout records' : 'Settlement records'}
+        title={payouts ? payCopy.t('payoutRecords') : payCopy.t('settlementRecords')}
         action={
           <Button variant="secondary" onClick={refresh}>
-            Refresh records
+            <PayCopy k="refreshRecords" />
           </Button>
         }
       >
-        <PayState resource={records.resource} retry={records.reload} empty="No settlements returned">
+        <PayState resource={records.resource} retry={records.reload} empty={payCopy.t('noSettlementsReturned')}>
           {(rows) => (
             <>
-              <DataTable label="Settlements" headers={['Window / asset', 'Gross', 'Fees', 'Net', 'Status', '']}>
+              <DataTable
+                label={payCopy.t('settlements')}
+                headers={[payCopy.t('windowAsset'), payCopy.t('gross'), payCopy.t('fees'), payCopy.t('net'), payCopy.t('status'), '']}
+              >
                 {rows.map((record) => (
                   <tr key={record.id}>
                     <td>
@@ -523,7 +551,7 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
                     </td>
                     <td>
                       <Button variant="ghost" onClick={() => setSelected(record.id)}>
-                        Open
+                        <PayCopy k="open" />
                       </Button>
                     </td>
                   </tr>
@@ -535,24 +563,28 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
         </PayState>
       </PaySection>
       {selected && (
-        <PaySection title="Settlement details">
+        <PaySection title={payCopy.t('settlementDetails')}>
           <PayState resource={details.resource} retry={details.reload}>
             {(record) => (
               <div className="form-stack">
                 <PayDetails
                   values={[
-                    ['Settlement', record.id],
-                    ['Net amount', `${displayAmount(record.net)} ${record.assetId}`],
-                    ['Status', record.status],
-                    ['Payout reference', record.payoutRef ?? 'Not confirmed'],
+                    [payCopy.t('settlement'), record.id],
+                    [payCopy.t('netAmount'), `${displayAmount(record.net)} ${record.assetId}`],
+                    [payCopy.t('status'), record.status],
+                    [payCopy.t('payoutReference'), record.payoutRef ?? payCopy.t('notConfirmed')],
                   ]}
                 />
                 {record.status === 'pending' && (
                   <>
-                    <Field label="Why release this pending window?" value={reason} onChange={(event) => setReason(event.target.value)} />
+                    <Field
+                      label={payCopy.t('whyReleaseThisPendingWindow')}
+                      value={reason}
+                      onChange={(event) => setReason(event.target.value)}
+                    />
                     <ReviewedAction
-                      title="Release pending window"
-                      description="Unfreeze pending payments so they can enter a later window. This does not release funds to a bank or recipient."
+                      title={payCopy.t('releasePendingWindow')}
+                      description={payCopy.t('unfreezePendingPaymentsSoTheyCanEnter')}
                       review={<p>{reason}</p>}
                       perform={() =>
                         pay.mutate(
@@ -571,9 +603,9 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
                 {record.status === 'posted' && (
                   <>
                     <label className="field">
-                      Live payout rail
+                      <PayCopy k="livePayoutRail" />
                       <select value={rail} onChange={(event) => setRail(event.target.value)}>
-                        <option value="">Choose a connected live payout rail</option>
+                        <option value="">{payCopy.t('chooseAConnectedLivePayoutRail')}</option>
                         {rails.resource.status === 'ready' &&
                           rails.resource.data
                             .filter((row) => row.mode === 'live' && row.usable && row.healthy && row.capabilities.includes('payout'))
@@ -588,28 +620,32 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
                       !rails.resource.data.some(
                         (row) => row.mode === 'live' && row.usable && row.healthy && row.capabilities.includes('payout'),
                       ) && (
-                        <PayNotice title="No live payout rail returned">
-                          A healthy sandbox cannot move merchant money. Payout remains unavailable until an eligible live rail is connected.
+                        <PayNotice title={payCopy.t('noLivePayoutRailReturned')}>
+                          <PayCopy k="aHealthySandboxCannotMoveMerchantMoney" />
                         </PayNotice>
                       )}
                     <Field
-                      label="Destination kind"
+                      label={payCopy.t('destinationKind')}
                       value={kind}
                       onChange={(event) => setKind(event.target.value)}
-                      hint="Use the destination kind supplied for the selected live rail. The service validates the permitted kind."
+                      hint={payCopy.t('useTheDestinationKindSuppliedForThe')}
                     />
-                    <Field label="Destination reference" value={destination} onChange={(event) => setDestination(event.target.value)} />
+                    <Field
+                      label={payCopy.t('destinationReference')}
+                      value={destination}
+                      onChange={(event) => setDestination(event.target.value)}
+                    />
                     <ReviewedAction
-                      title="Pay out settlement"
+                      title={payCopy.t('payOutSettlement')}
                       variant="primary"
-                      description="Send the posted net amount through the selected live payout rail. The server checks ownership, permissions, destination and rail posture again."
+                      description={payCopy.t('sendThePostedNetAmountThroughThe')}
                       review={
                         <PayDetails
                           values={[
-                            ['Settlement', record.id],
-                            ['Net amount', `${displayAmount(record.net)} ${record.assetId}`],
-                            ['Rail', rail],
-                            ['Destination', `${kind}: ${destination}`],
+                            [payCopy.t('settlement'), record.id],
+                            [payCopy.t('netAmount'), `${displayAmount(record.net)} ${record.assetId}`],
+                            [payCopy.t('rail'), rail],
+                            [payCopy.t('destination'), `${kind}: ${destination}`],
                           ]}
                         />
                       }

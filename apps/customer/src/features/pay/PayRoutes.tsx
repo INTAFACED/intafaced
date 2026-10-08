@@ -14,6 +14,13 @@ export function PayBusinessProvider({ authority, children }: { authority: PayBus
   return <BusinessContext.Provider value={authority}>{children}</BusinessContext.Provider>;
 }
 export function PayRoutes({ path }: { path: string }) {
+  return (
+    <div lang="en" style={{ display: 'contents' }}>
+      <PayRooms path={path} />
+    </div>
+  );
+}
+function PayRooms({ path }: { path: string }) {
   const authority = useContext(BusinessContext);
   const current = path.split('?')[0] ?? '/pay';
   const query = new URLSearchParams(

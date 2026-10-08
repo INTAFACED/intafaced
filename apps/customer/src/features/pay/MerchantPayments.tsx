@@ -1,3 +1,4 @@
+import { payCopy, PayCopy } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
 import { useResource } from '../../shared/resource';
@@ -35,28 +36,32 @@ export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'pa
         />
       )}
       {room === 'disputes' && (
-        <PayNotice title="Disputed payment records">
-          This list reads payments marked disputed. Case opening and adjudication are treasury procedures, so they are not merchant
-          controls. A merchant evidence submission or case-status read is not published.
+        <PayNotice title={payCopy.t('disputedPaymentRecords')}>
+          <PayCopy k="thisListReadsPaymentsMarkedDisputedCase" />
         </PayNotice>
       )}
       {room === 'reports' && (
-        <PayNotice title="Accounting export scope">
-          Export the exact payment rows loaded below. This is an activity extract, not a complete accounting report. The service has no
-          continuation cursor, tax report or accounting pack endpoint.
+        <PayNotice title={payCopy.t('accountingExportScope')}>
+          <PayCopy k="exportTheExactPaymentRowsLoadedBelow" />
         </PayNotice>
       )}
       <PaySection
-        title={room === 'disputes' ? 'Disputed payments' : room === 'reports' ? 'Payment activity extract' : 'Payments'}
+        title={
+          room === 'disputes'
+            ? payCopy.t('disputedPayments')
+            : room === 'reports'
+              ? payCopy.t('paymentActivityExtract')
+              : payCopy.t('payments')
+        }
         action={
           <Button variant="secondary" onClick={payments.reload}>
-            Refresh payments
+            <PayCopy k="refreshPayments" />
           </Button>
         }
       >
         {room !== 'disputes' && (
           <label className="field pay-filter-select">
-            Payment status
+            <PayCopy k="paymentStatus" />
             <select
               value={status}
               onChange={(event) => {
@@ -64,7 +69,7 @@ export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'pa
                 setOpenedId('');
               }}
             >
-              <option value="">All returned states</option>
+              <option value="">{payCopy.t('allReturnedStates')}</option>
               {s.paymentSchema.shape.status.options.map((state) => (
                 <option key={state} value={state}>
                   {state}
@@ -76,16 +81,26 @@ export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'pa
         <PayState
           resource={payments.resource}
           retry={payments.reload}
-          empty={room === 'disputes' ? 'No disputed payments returned' : 'No payments returned'}
+          empty={room === 'disputes' ? payCopy.t('noDisputedPaymentsReturned') : payCopy.t('noPaymentsReturned')}
         >
           {(rows) => (
             <>
               {room === 'reports' && (
                 <Button variant="secondary" onClick={() => downloadPayments(rows)}>
-                  Export these {rows.length} records as CSV
+                  <PayCopy k="exportRecords" params={{ count: rows.length }} />
                 </Button>
               )}
-              <DataTable label="Merchant payments" headers={['Payment / created', 'Amount', 'Captured', 'Refunded', 'Status', '']}>
+              <DataTable
+                label={payCopy.t('merchantPayments')}
+                headers={[
+                  payCopy.t('paymentCreated'),
+                  payCopy.t('amount'),
+                  payCopy.t('captured'),
+                  payCopy.t('refunded'),
+                  payCopy.t('status'),
+                  '',
+                ]}
+              >
                 {rows.map((payment) => (
                   <tr key={payment.id}>
                     <td>
@@ -107,7 +122,7 @@ export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'pa
                     </td>
                     <td>
                       <Button variant="ghost" onClick={() => setOpenedId(payment.id)}>
-                        Open
+                        <PayCopy k="open" />
                       </Button>
                     </td>
                   </tr>
@@ -167,20 +182,26 @@ function CreatePayment({ pay, onCreated }: { pay: BusinessPayApi; onCreated: (pa
       : undefined;
   return (
     <PaySection
-      title="Create a payment"
-      description="Create an intent on a connected live rail, then authorize and capture its actual record."
+      title={payCopy.t('createAPayment')}
+      description={payCopy.t('createAnIntentOnAConnectedLive')}
       action={
         <Button variant="secondary" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
-          {expanded ? 'Hide form' : 'New payment'}
+          {expanded ? payCopy.t('hideForm') : payCopy.t('newPayment')}
         </Button>
       }
     >
       {expanded && (
         <div className="form-stack pay-form">
           <div className="form-row">
-            <Field label="Amount" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} required />
             <Field
-              label="Asset"
+              label={payCopy.t('amount')}
+              inputMode="decimal"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              required
+            />
+            <Field
+              label={payCopy.t('asset')}
               value={assetId}
               onChange={(event) => setAssetId(event.target.value.toUpperCase())}
               maxLength={16}
@@ -188,16 +209,16 @@ function CreatePayment({ pay, onCreated }: { pay: BusinessPayApi; onCreated: (pa
             />
           </div>
           <Field
-            label="Processor method identifier"
+            label={payCopy.t('processorMethodIdentifier')}
             value={method}
             onChange={(event) => setMethod(event.target.value)}
-            hint="Use the method supplied by your connected processor. The service validates method support; no instrument is invented."
+            hint={payCopy.t('useTheMethodSuppliedByYourConnected')}
             required
           />
           <label className="field">
-            Live payment rail
+            <PayCopy k="livePaymentRail" />
             <select value={railAdapter} onChange={(event) => setRailAdapter(event.target.value)}>
-              <option value="">Choose a connected live rail</option>
+              <option value="">{payCopy.t('chooseAConnectedLiveRail')}</option>
               {rails.resource.status === 'ready' &&
                 rails.resource.data
                   .filter((row) => row.mode === 'live' && row.healthy && row.usable && row.capabilities.includes('authorize'))
@@ -211,28 +232,28 @@ function CreatePayment({ pay, onCreated }: { pay: BusinessPayApi; onCreated: (pa
           <PayState resource={rails.resource} retry={rails.reload}>
             {(rows) =>
               !rows.some((row) => row.mode === 'live' && row.healthy && row.usable && row.capabilities.includes('authorize')) ? (
-                <PayNotice title="No live payment rail available">
-                  A sandbox rail cannot be used to create a live payment. The server has not returned an eligible live authorizing rail.
+                <PayNotice title={payCopy.t('noLivePaymentRailAvailable')}>
+                  <PayCopy k="aSandboxRailCannotBeUsedTo" />
                 </PayNotice>
               ) : null
             }
           </PayState>
           <Field
-            label="Customer reference (optional)"
+            label={payCopy.t('customerReferenceOptional')}
             value={customerRef}
             onChange={(event) => setCustomerRef(event.target.value)}
             maxLength={128}
           />
           <ReviewedAction
-            title="Create payment intent"
+            title={payCopy.t('createPaymentIntent')}
             variant="primary"
-            description="Create a payment record for this exact amount. This does not claim the payment is captured. The server checks business eligibility and live rail posture."
+            description={payCopy.t('createAPaymentRecordForThisExact')}
             review={
               <PayDetails
                 values={[
-                  ['Amount', `${amount} ${assetId}`],
-                  ['Method', method],
-                  ['Rail', railAdapter],
+                  [payCopy.t('amount'), `${amount} ${assetId}`],
+                  [payCopy.t('method'), method],
+                  [payCopy.t('rail'), railAdapter],
                 ]}
               />
             }
@@ -257,7 +278,7 @@ function CreatePayment({ pay, onCreated }: { pay: BusinessPayApi; onCreated: (pa
                 : Promise.resolve({
                     ok: false as const,
                     reason: 'not_supported' as const,
-                    message: 'No eligible live payment rail was verified.',
+                    message: payCopy.t('noEligibleLivePaymentRailWasVerified'),
                   })
             }
             onConfirmed={(data) => {
@@ -298,10 +319,10 @@ function PaymentDetail({ pay, paymentId, refreshList }: { pay: BusinessPayApi; p
   const locked = Boolean(pay.guard.status(`${pay.authority!.userId}:payment:${paymentId}`));
   return (
     <PaySection
-      title="Payment details"
+      title={payCopy.t('paymentDetails')}
       action={
         <Button variant="secondary" onClick={refresh}>
-          Refresh payment status
+          <PayCopy k="refreshPaymentStatus" />
         </Button>
       }
     >
@@ -310,28 +331,27 @@ function PaymentDetail({ pay, paymentId, refreshList }: { pay: BusinessPayApi; p
           <div className="form-stack">
             <PayDetails
               values={[
-                ['Payment', payment.id],
-                ['Amount', `${displayAmount(payment.amount)} ${payment.assetId}`],
-                ['Status', <Status value={payment.status} />],
-                ['Rail', payment.railAdapter],
-                ['Rail reference', payment.railRef ?? 'Not confirmed'],
+                [payCopy.t('payment'), payment.id],
+                [payCopy.t('amount'), `${displayAmount(payment.amount)} ${payment.assetId}`],
+                [payCopy.t('status'), <Status value={payment.status} />],
+                [payCopy.t('rail'), payment.railAdapter],
+                [payCopy.t('railReference'), payment.railRef ?? payCopy.t('notConfirmed')],
                 [
-                  'Refundable captured amount',
+                  payCopy.t('refundableCapturedAmount'),
                   `${displayAmount(formatAmount(parseAmount(payment.capturedAmount) - parseAmount(payment.refundedAmount)))} ${payment.assetId}`,
                 ],
               ]}
             />
             {locked && (
-              <PayNotice title="Original payment action is unresolved">
-                Refresh payment status and inspect the history. No new financial action can start on this payment while the original outcome
-                is unknown.
+              <PayNotice title={payCopy.t('originalPaymentActionIsUnresolved')}>
+                <PayCopy k="refreshPaymentStatusAndInspectTheHistory" />
               </PayNotice>
             )}
             <div className="actions">
               {payment.status === 'created' && (
                 <ReviewedAction
-                  title="Authorize payment"
-                  description="Ask the connected rail to authorize this exact payment. An authorization alone is not capture."
+                  title={payCopy.t('authorizePayment')}
+                  description={payCopy.t('askTheConnectedRailToAuthorizeThis')}
                   perform={() => pay.mutate('payment.authorize', { paymentId }, s.paymentSchema, 'pay:write', `payment:${paymentId}`)}
                   disabled={locked || Boolean(pay.access('pay:write'))}
                   onConfirmed={refresh}
@@ -339,10 +359,10 @@ function PaymentDetail({ pay, paymentId, refreshList }: { pay: BusinessPayApi; p
               )}
               {payment.status === 'authorized' && (
                 <ReviewedAction
-                  title="Capture full amount"
+                  title={payCopy.t('captureFullAmount')}
                   variant="primary"
-                  description="Capture the full authorized amount. Partial capture is unsupported by the current payment service."
-                  review={<PayDetails values={[['Capture', `${displayAmount(payment.amount)} ${payment.assetId}`]]} />}
+                  description={payCopy.t('captureTheFullAuthorizedAmountPartialCapture')}
+                  review={<PayDetails values={[[payCopy.t('capture'), `${displayAmount(payment.amount)} ${payment.assetId}`]]} />}
                   perform={() => pay.mutate('payment.capture', { paymentId }, s.paymentSchema, 'pay:write', `payment:${paymentId}`)}
                   disabled={locked || Boolean(pay.access('pay:write'))}
                   onConfirmed={refresh}
@@ -353,19 +373,19 @@ function PaymentDetail({ pay, paymentId, refreshList }: { pay: BusinessPayApi; p
               parseAmount(payment.capturedAmount) > parseAmount(payment.refundedAmount) && (
                 <>
                   <Field
-                    label={`Refund amount · ${payment.assetId}`}
+                    label={payCopy.t('refundAmount', { assetId: payment.assetId })}
                     value={refund}
                     inputMode="decimal"
                     onChange={(event) => setRefund(event.target.value)}
                   />
                   <ReviewedAction
-                    title="Refund payment"
-                    description="Refund the reviewed captured quantity through the original payment. The stable refund reference is retained if the response is lost."
+                    title={payCopy.t('refundPayment')}
+                    description={payCopy.t('refundTheReviewedCapturedQuantityThroughThe')}
                     review={
                       <PayDetails
                         values={[
-                          ['Refund', `${refund} ${payment.assetId}`],
-                          ['Refund identity', refundId],
+                          [payCopy.t('refund'), `${refund} ${payment.assetId}`],
+                          [payCopy.t('refundIdentity'), refundId],
                         ]}
                       />
                     }
@@ -378,7 +398,7 @@ function PaymentDetail({ pay, paymentId, refreshList }: { pay: BusinessPayApi; p
                         return Promise.resolve({
                           ok: false as const,
                           reason: 'error' as const,
-                          message: 'Enter an exact positive amount no greater than the remaining captured amount.',
+                          message: payCopy.t('enterAnExactPositiveAmountNoGreater'),
                         });
                       return pay.mutate(
                         'payment.refund',
@@ -397,8 +417,8 @@ function PaymentDetail({ pay, paymentId, refreshList }: { pay: BusinessPayApi; p
                   />
                 </>
               )}
-            <PaySection title="Recorded payment history">
-              <PayState resource={history.resource} retry={history.reload} empty="No payment history returned">
+            <PaySection title={payCopy.t('recordedPaymentHistory')}>
+              <PayState resource={history.resource} retry={history.reload} empty={payCopy.t('noPaymentHistoryReturned')}>
                 {(events) => (
                   <>
                     <div className="pay-timeline">

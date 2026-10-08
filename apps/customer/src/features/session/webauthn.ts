@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ApiClient, ApiResult } from '../../shared/api';
+import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { sessionSchema, type Session } from './session';
 
 const credentialDescriptor = z.object({ id: z.string(), type: z.literal('public-key'), transports: z.array(z.string()).optional() });
@@ -40,9 +40,8 @@ export function base64url(value: ArrayBuffer): string {
 }
 
 export async function signInWithPasskey(api: ApiClient, identifier: string): Promise<ApiResult<Session>> {
-  if (!identifier.trim()) return { ok: false, reason: 'error', message: 'Enter your email or handle before using a passkey.' };
-  if (!window.isSecureContext || !window.PublicKeyCredential)
-    return { ok: false, reason: 'not_supported', message: 'Passkeys require a secure browser connection.' };
+  if (!identifier.trim()) return authoredRefusal('error', { key: 'passkeyIdentifier' });
+  if (!window.isSecureContext || !window.PublicKeyCredential) return authoredRefusal('not_supported', { key: 'passkeySecure' });
   const options = await api.mutate('identity', 'webauthn.authOptions', { identifier }, authenticationOptions);
   if (!options.ok) return options;
   try {
@@ -59,7 +58,7 @@ export async function signInWithPasskey(api: ApiClient, identifier: string): Pro
       },
     });
     if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAssertionResponse))
-      return { ok: false, reason: 'error', message: 'No passkey assertion was returned.' };
+      return authoredRefusal('error', { key: 'passkeyAssertion' });
     const response = credential.response;
     return api.mutate(
       'identity',
@@ -82,20 +81,14 @@ export async function signInWithPasskey(api: ApiClient, identifier: string): Pro
       sessionSchema,
     );
   } catch (error) {
-    return {
-      ok: false,
-      reason: 'error',
-      message:
-        error instanceof DOMException && error.name === 'NotAllowedError'
-          ? 'Passkey sign-in was cancelled or timed out.'
-          : 'The browser could not complete passkey sign-in.',
-    };
+    return authoredRefusal('error', {
+      key: error instanceof DOMException && error.name === 'NotAllowedError' ? 'passkeySignInStopped' : 'passkeySignInFailed',
+    });
   }
 }
 
 export async function enrollPasskey(api: ApiClient): Promise<ApiResult<{ credentialId: string }>> {
-  if (!window.isSecureContext || !window.PublicKeyCredential)
-    return { ok: false, reason: 'not_supported', message: 'Passkeys require a secure browser connection.' };
+  if (!window.isSecureContext || !window.PublicKeyCredential) return authoredRefusal('not_supported', { key: 'passkeySecure' });
   const options = await api.mutate('identity', 'webauthn.registerOptions', {}, registrationOptions);
   if (!options.ok) return options;
   try {
@@ -113,7 +106,7 @@ export async function enrollPasskey(api: ApiClient): Promise<ApiResult<{ credent
       },
     });
     if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAttestationResponse))
-      return { ok: false, reason: 'error', message: 'The browser did not return a new passkey.' };
+      return authoredRefusal('error', { key: 'passkeyMissing' });
     const response = credential.response;
     return api.mutate(
       'identity',
@@ -132,13 +125,8 @@ export async function enrollPasskey(api: ApiClient): Promise<ApiResult<{ credent
       z.object({ credentialId: z.string() }),
     );
   } catch (error) {
-    return {
-      ok: false,
-      reason: 'error',
-      message:
-        error instanceof DOMException && error.name === 'NotAllowedError'
-          ? 'Passkey creation was cancelled or timed out.'
-          : 'The browser could not create this passkey.',
-    };
+    return authoredRefusal('error', {
+      key: error instanceof DOMException && error.name === 'NotAllowedError' ? 'passkeyCreateStopped' : 'passkeyCreateFailed',
+    });
   }
 }

@@ -1,3 +1,4 @@
+import { payCopy, PayCopy } from './copy';
 import { useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
@@ -17,7 +18,11 @@ export function PayState<T>({
   if (resource.status === 'loading') return <Loading />;
   if (resource.status === 'failed') return <Failure result={resource.failure} retry={retry} />;
   if (Array.isArray(resource.data) && !resource.data.length && empty)
-    return <EmptyState title={empty}>Refresh when activity is available for this account.</EmptyState>;
+    return (
+      <EmptyState title={empty}>
+        <PayCopy k="refreshWhenActivityIsAvailableForThis" />
+      </EmptyState>
+    );
   return <>{children(resource.data)}</>;
 }
 export function PayNotice({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
@@ -70,16 +75,18 @@ export function PayPagination({
   return (
     <div className="pay-pagination">
       <p className="muted">
-        {count} records returned · window of {limit}
-        {count === limit ? '. More records may exist.' : ''}
+        <PayCopy k="recordsWindow" params={{ count, limit }} />
+        {count === limit ? payCopy.t('moreRecordsMayExist') : ''}
       </p>
       {count === limit && limit < max && (
         <Button variant="secondary" onClick={() => setLimit(max)}>
-          Show up to {max}
+          <PayCopy k="showRecords" params={{ max }} />
         </Button>
       )}
       {count === limit && limit === max && (
-        <p className="muted">This service has no continuation cursor. This window is not the whole history.</p>
+        <p className="muted">
+          <PayCopy k="thisServiceHasNoContinuationCursorThis" />
+        </p>
       )}
     </div>
   );
@@ -103,7 +110,7 @@ export function MutationResult({ result }: { result: ApiResult<unknown> | null }
   if (!result) return null;
   return result.ok ? (
     <p className="pay-confirmed" role="status">
-      The service confirmed the action. Refresh the record to see its current state.
+      <PayCopy k="theServiceConfirmedTheActionRefreshThe" />
     </p>
   ) : (
     <Failure result={result} />
@@ -161,7 +168,7 @@ export function ReviewedAction<T>({
       <MutationResult result={result} />
       {opened && (
         <Dialog
-          title={`Review: ${title}`}
+          title={payCopy.t('review', { title: title })}
           onClose={() => {
             if (!busy) setOpened(false);
           }}
@@ -175,7 +182,7 @@ export function ReviewedAction<T>({
               disabled={busy || Boolean(result && !result.ok && result.reason === 'uncertain')}
               onClick={() => void confirm()}
             >
-              {busy ? 'Waiting for confirmation…' : `Confirm ${title.toLowerCase()}`}
+              {busy ? payCopy.t('waitingForConfirmation') : payCopy.t('confirm', { value1: title.toLowerCase() })}
             </Button>
           </div>
         </Dialog>

@@ -1,3 +1,4 @@
+import { payCopy, PayCopy } from './copy';
 import { useMemo, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useSession } from '../session/session';
@@ -27,33 +28,33 @@ export function P2P({ path }: { path: string }) {
   const counterparty = params.get('userId') ?? params.get('userid') ?? (current === '/checkuser' ? params.get('id') : null);
   return (
     <Page
-      eyebrow="Personal Pay"
+      eyebrow={payCopy.t('personalPay')}
       title={
         current === '/chat' || tradeId
-          ? 'P2P order'
+          ? payCopy.t('p2pOrder')
           : current === '/checkuser'
-            ? 'Counterparty'
+            ? payCopy.t('counterparty')
             : publish
-              ? 'Create an offer'
-              : 'Person-to-person'
+              ? payCopy.t('createAnOffer')
+              : payCopy.t('personToPerson')
       }
-      description="External payment, ledger escrow, and a recorded order status."
+      description={payCopy.t('externalPaymentLedgerEscrowAndARecorded')}
     >
-      <nav className="pay-room-tabs" aria-label="P2P rooms">
+      <nav className="pay-room-tabs" aria-label={payCopy.t('p2pRooms')}>
         <a href="/p2p" aria-current={!showOrders && !showMine && !showMethods && !showAccess && !publish && !tradeId ? 'page' : undefined}>
-          Offers
+          <PayCopy k="offers" />
         </a>
         <a href="/uc/order" aria-current={showOrders ? 'page' : undefined}>
-          Your orders
+          <PayCopy k="yourOrders" />
         </a>
         <a href="/uc/ad" aria-current={showMine ? 'page' : undefined}>
-          Your offers
+          <PayCopy k="yourOffers" />
         </a>
         <a href="/p2p?view=methods" aria-current={showMethods ? 'page' : undefined}>
-          Payment methods
+          <PayCopy k="paymentMethods" />
         </a>
         <a href="/p2p?view=access" aria-current={showAccess ? 'page' : undefined}>
-          Trading access
+          <PayCopy k="tradingAccess" />
         </a>
       </nav>
       {current === '/chat' || tradeId ? (
@@ -62,7 +63,9 @@ export function P2P({ path }: { path: string }) {
         counterparty && id.safeParse(counterparty).success ? (
           <Counterparty pay={pay} userId={counterparty} />
         ) : (
-          <PayNotice title="Choose a counterparty">Open a counterparty from an offer to see the authoritative trade reputation.</PayNotice>
+          <PayNotice title={payCopy.t('chooseACounterparty')}>
+            <PayCopy k="openACounterpartyFromAnOfferTo" />
+          </PayNotice>
         )
       ) : showOrders ? (
         <OrderList pay={pay} userId={userId} />
@@ -91,15 +94,11 @@ function OfferBoard({ pay, userId, mine }: { pay: PersonalPayApi; userId: string
   return (
     <div className="stack">
       <PaySection
-        title={mine ? 'Your offers' : 'Offer board'}
-        description={
-          mine
-            ? 'Your offers inside the loaded market window. The service has no maker-specific list or continuation.'
-            : 'Prices and remaining quantities come from the P2P service.'
-        }
+        title={mine ? payCopy.t('yourOffers') : payCopy.t('offerBoard')}
+        description={mine ? payCopy.t('yourOffersInsideTheLoadedMarketWindow') : payCopy.t('pricesAndRemainingQuantitiesComeFromThe')}
         action={
           <a className="text-link" href="/uc/ad/create">
-            Create offer →
+            <PayCopy k="createOffer" />
           </a>
         }
       >
@@ -108,7 +107,7 @@ function OfferBoard({ pay, userId, mine }: { pay: PersonalPayApi; userId: string
           onSubmit={(event) => {
             event.preventDefault();
             if (fiat && fiat.length !== 3) {
-              setError('Fiat currency must use its three-letter code.');
+              setError(payCopy.t('fiatCurrencyMustUseItsThreeLetter'));
               return;
             }
             setError('');
@@ -120,11 +119,11 @@ function OfferBoard({ pay, userId, mine }: { pay: PersonalPayApi; userId: string
             setOpened(null);
           }}
         >
-          <Field label="Asset" value={asset} onChange={(event) => setAsset(event.target.value.toUpperCase())} maxLength={16} />
+          <Field label={payCopy.t('asset')} value={asset} onChange={(event) => setAsset(event.target.value.toUpperCase())} maxLength={16} />
           <label className="field">
-            Fiat currency
+            <PayCopy k="fiatCurrency" />
             <select value={fiat} onChange={(event) => setFiat(event.target.value)}>
-              <option value="">All returned currencies</option>
+              <option value="">{payCopy.t('allReturnedCurrencies')}</option>
               {currencies.resource.status === 'ready' &&
                 currencies.resource.data.map((currency) => (
                   <option key={currency.code} value={currency.code}>
@@ -134,15 +133,15 @@ function OfferBoard({ pay, userId, mine }: { pay: PersonalPayApi; userId: string
             </select>
           </label>
           <label className="field">
-            Maker side
+            <PayCopy k="makerSide" />
             <select value={side} onChange={(event) => setSide(event.target.value)}>
-              <option value="">Buy and sell</option>
-              <option value="sell">Selling asset</option>
-              <option value="buy">Buying asset</option>
+              <option value="">{payCopy.t('buyAndSell')}</option>
+              <option value="sell">{payCopy.t('sellingAsset')}</option>
+              <option value="buy">{payCopy.t('buyingAsset')}</option>
             </select>
           </label>
           <Button type="submit" variant="secondary">
-            Apply filters
+            <PayCopy k="applyFilters" />
           </Button>
         </form>
         {error && (
@@ -150,45 +149,50 @@ function OfferBoard({ pay, userId, mine }: { pay: PersonalPayApi; userId: string
             {error}
           </p>
         )}
-        <PayState resource={list.resource} retry={list.reload} empty="No offers returned for these filters">
+        <PayState resource={list.resource} retry={list.reload} empty={payCopy.t('noOffersReturnedForTheseFilters')}>
           {(rows) => {
             const visible = mine ? rows.filter((offer) => offer.makerId === userId) : rows;
             return (
               <>
                 {visible.length ? (
-                  <DataTable label="P2P offers" headers={['Maker / asset', 'Price', 'Asset limits', 'Status', '']}>
+                  <DataTable
+                    label={payCopy.t('p2pOffers')}
+                    headers={[payCopy.t('makerAsset'), payCopy.t('price'), payCopy.t('assetLimits'), payCopy.t('status'), '']}
+                  >
                     {visible.map((offer) => (
                       <tr key={offer.id}>
                         <td>
                           <strong>
-                            {offer.side === 'sell' ? 'Selling' : 'Buying'} {offer.asset}
+                            {offer.side === 'sell' ? payCopy.t('selling') : payCopy.t('buying')} {offer.asset}
                           </strong>
                           <small className="pay-cell-note">{offer.makerId}</small>
                         </td>
                         <td className="numeric">
                           {displayAmount(offer.price)} {offer.fiatCurrency}
                           <small className="pay-cell-note">
-                            {offer.priceType === 'float' ? 'Floating price parameter' : `Per ${offer.asset}`}
+                            {offer.priceType === 'float' ? payCopy.t('floatingPriceParameter') : payCopy.t('per', { asset: offer.asset })}
                           </small>
                         </td>
                         <td className="numeric">
                           {displayAmount(offer.minAmount)} – {displayAmount(offer.maxAmount)} {offer.asset}
-                          <small className="pay-cell-note">{displayAmount(offer.remainingAmount)} remaining</small>
+                          <small className="pay-cell-note">
+                            {displayAmount(offer.remainingAmount)} <PayCopy k="remaining" />
+                          </small>
                         </td>
                         <td>
                           <Status value={offer.status} />
                         </td>
                         <td>
                           <Button variant="ghost" onClick={() => setOpened(offer)}>
-                            Details
+                            <PayCopy k="details" />
                           </Button>
                         </td>
                       </tr>
                     ))}
                   </DataTable>
                 ) : (
-                  <PayNotice title="No own offers in this window">
-                    Increase the window or choose filters to find older offers. An empty subset does not prove the account has no offers.
+                  <PayNotice title={payCopy.t('noOwnOffersInThisWindow')}>
+                    <PayCopy k="increaseTheWindowOrChooseFiltersTo" />
                   </PayNotice>
                 )}
                 <PayPagination count={rows.length} limit={limit} setLimit={setLimit} />
@@ -233,19 +237,19 @@ function OfferDetail({
         : [],
   );
   return (
-    <PaySection title={`${offer.side === 'sell' ? 'Sell' : 'Buy'} ${offer.asset}`}>
+    <PaySection title={`${offer.side === 'sell' ? payCopy.t('sell') : payCopy.t('buy')} ${offer.asset}`}>
       <PayDetails
         values={[
-          ['Offer', offer.id],
-          ['Remaining quantity', `${displayAmount(offer.remainingAmount)} ${offer.asset}`],
-          ['Agreed payment methods', methodIds.join(', ') || 'No usable methods declared'],
-          ['Terms', offer.terms || 'No terms supplied'],
+          [payCopy.t('offer'), offer.id],
+          [payCopy.t('remainingQuantity'), `${displayAmount(offer.remainingAmount)} ${offer.asset}`],
+          [payCopy.t('agreedPaymentMethods'), methodIds.join(', ') || payCopy.t('noUsableMethodsDeclared')],
+          [payCopy.t('terms'), offer.terms || payCopy.t('noTermsSupplied')],
         ]}
       />
       {own && pay.guard.status(`${userId}:offer:${offer.id}`) && (
         <div className="stack">
-          <PayNotice title="Original offer action is unresolved">
-            Read this offer again to verify the intended state. A new action will remain blocked if that state is not confirmed.
+          <PayNotice title={payCopy.t('originalOfferActionIsUnresolved')}>
+            <PayCopy k="readThisOfferAgainToVerifyThe" />
           </PayNotice>
           <Button
             variant="secondary"
@@ -256,7 +260,7 @@ function OfferDetail({
               });
             }}
           >
-            Check original offer action
+            <PayCopy k="checkOriginalOfferAction" />
           </Button>
           <MutationResult result={reconciled} />
         </div>
@@ -266,13 +270,13 @@ function OfferDetail({
           {offer.status !== 'closed' && (
             <>
               <ReviewedAction
-                title={offer.status === 'active' ? 'Pause offer' : 'Resume offer'}
-                description="The service checks that you own this offer and applies its current state."
+                title={offer.status === 'active' ? payCopy.t('pauseOffer') : payCopy.t('resumeOffer')}
+                description={payCopy.t('theServiceChecksThatYouOwnThis')}
                 review={
                   <PayDetails
                     values={[
-                      ['Offer', offer.id],
-                      ['Current state', offer.status],
+                      [payCopy.t('offer'), offer.id],
+                      [payCopy.t('currentState'), offer.status],
                     ]}
                   />
                 }
@@ -281,8 +285,8 @@ function OfferDetail({
                 disabled={Boolean(pay.guard.status(`${userId}:offer:${offer.id}`))}
               />
               <ReviewedAction
-                title="Close offer"
-                description="Close this offer to new orders. Existing order escrow remains governed by each order."
+                title={payCopy.t('closeOffer')}
+                description={payCopy.t('closeThisOfferToNewOrdersExisting')}
                 perform={() => pay.manageOffer(offer.id, 'close')}
                 onConfirmed={onChanged}
                 disabled={Boolean(pay.guard.status(`${userId}:offer:${offer.id}`))}
@@ -293,11 +297,10 @@ function OfferDetail({
       ) : (
         <>
           <a className="text-link" href={`/checkuser?userId=${encodeURIComponent(offer.makerId)}`}>
-            Review counterparty →
+            <PayCopy k="reviewCounterparty" />
           </a>
-          <PayNotice title="New order review is unavailable">
-            An authoritative fee and reservation preview is not published. Payment instruments also lack the required encryption rail. A new
-            order cannot be safely reviewed here, so no escrow take is submitted.
+          <PayNotice title={payCopy.t('newOrderReviewIsUnavailable')}>
+            <PayCopy k="anAuthoritativeFeeAndReservationPreviewIs" />
           </PayNotice>
         </>
       )}
@@ -309,28 +312,29 @@ function PublishAvailability({ pay }: { pay: PersonalPayApi }) {
   const methods = useResource((signal) => pay.methods(signal), 'pay:registered-methods');
   return (
     <div className="stack">
-      <PayNotice title="Offer publication is unavailable">
-        The P2P service refuses live offer creation until the owner’s instrument encryption provider is connected. Existing offers can still
-        be read and managed. Updating an offer has no amendment contract; create is not an update.
+      <PayNotice title={payCopy.t('offerPublicationIsUnavailable')}>
+        <PayCopy k="theP2pServiceRefusesLiveOfferCreation" />
       </PayNotice>
-      <PaySection title="Service readiness">
+      <PaySection title={payCopy.t('serviceReadiness')}>
         <PayState resource={health.resource} retry={health.reload}>
           {(data) => (
             <PayDetails
               values={[
-                ['Instrument encryption', data.instrumentKmsConfigured ? 'Configured' : 'Not connected'],
-                ['Offer limits', data.offerLimitsPosture],
+                [payCopy.t('instrumentEncryption'), data.instrumentKmsConfigured ? payCopy.t('configured') : payCopy.t('notConnected')],
+                [payCopy.t('offerLimits'), data.offerLimitsPosture],
                 [
-                  'Moderation',
-                  data.moderation.status === 'configured' ? 'Configured; live reachability is unprobed' : 'No moderators configured',
+                  payCopy.t('moderation'),
+                  data.moderation.status === 'configured'
+                    ? payCopy.t('configuredLiveReachabilityIsUnprobed')
+                    : payCopy.t('noModeratorsConfigured'),
                 ],
               ]}
             />
           )}
         </PayState>
       </PaySection>
-      <PaySection title="Registered payment methods">
-        <PayState resource={methods.resource} retry={methods.reload} empty="No payment methods registered">
+      <PaySection title={payCopy.t('registeredPaymentMethods')}>
+        <PayState resource={methods.resource} retry={methods.reload} empty={payCopy.t('noPaymentMethodsRegistered')}>
           {(rows) => (
             <div>
               {rows.map((method) => (
@@ -357,25 +361,35 @@ function OrderList({ pay, userId }: { pay: PersonalPayApi; userId: string | null
   const list = useResource((signal) => pay.trades(limit, signal), `pay:orders:${userId}:${limit}`);
   return (
     <PaySection
-      title="Your orders"
-      description="Terminal status and ledger settlement time stay separate."
+      title={payCopy.t('yourOrders')}
+      description={payCopy.t('terminalStatusAndLedgerSettlementTimeStay')}
       action={
         <Button variant="secondary" onClick={list.reload}>
-          Refresh orders
+          <PayCopy k="refreshOrders" />
         </Button>
       }
     >
-      <PayState resource={list.resource} retry={list.reload} empty="No P2P orders returned">
+      <PayState resource={list.resource} retry={list.reload} empty={payCopy.t('noP2pOrdersReturned')}>
         {(rows) => (
           <>
-            <DataTable headers={['Order', 'You', 'Asset quantity', 'External payment', 'Status', '']} label="Your P2P orders">
+            <DataTable
+              headers={[
+                payCopy.t('order'),
+                payCopy.t('you'),
+                payCopy.t('assetQuantity'),
+                payCopy.t('externalPayment'),
+                payCopy.t('status'),
+                '',
+              ]}
+              label={payCopy.t('yourP2pOrders')}
+            >
               {rows.map((trade) => (
                 <tr key={trade.id}>
                   <td>
                     {trade.id.slice(0, 8)}
                     <small className="pay-cell-note">{trade.createdAt}</small>
                   </td>
-                  <td>{trade.buyerId === userId ? 'Buy' : 'Sell'}</td>
+                  <td>{trade.buyerId === userId ? payCopy.t('buy') : payCopy.t('sell')}</td>
                   <td className="numeric">
                     {displayAmount(trade.amount)} {trade.asset}
                   </td>
@@ -384,11 +398,13 @@ function OrderList({ pay, userId }: { pay: PersonalPayApi; userId: string | null
                   </td>
                   <td>
                     <Status value={trade.status} />
-                    <small className="pay-cell-note">{trade.settledAt ? 'Ledger settled' : 'Ledger settlement not confirmed'}</small>
+                    <small className="pay-cell-note">
+                      {trade.settledAt ? payCopy.t('ledgerSettled') : payCopy.t('ledgerSettlementNotConfirmed')}
+                    </small>
                   </td>
                   <td>
                     <a className="text-link" href={`/chat?tradeId=${encodeURIComponent(trade.id)}`}>
-                      Open →
+                      <PayCopy k="open2" />
                     </a>
                   </td>
                 </tr>
@@ -407,7 +423,7 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
     (signal) =>
       valid
         ? pay.trade(tradeId, signal)
-        : Promise.resolve({ ok: false as const, reason: 'error' as const, message: 'Open a valid P2P order from Your orders.' }),
+        : Promise.resolve({ ok: false as const, reason: 'error' as const, message: payCopy.t('openAValidP2pOrderFromYour') }),
     `pay:order:${userId}:${tradeId}`,
   );
   const [destinationRequested, setDestinationRequested] = useState(false);
@@ -418,7 +434,7 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
         : Promise.resolve({
             ok: false as const,
             reason: 'not_supported' as const,
-            message: 'Payment details are revealed only on your explicit request.',
+            message: payCopy.t('paymentDetailsAreRevealedOnlyOnYour'),
           }),
     `pay:order-destination:${userId}:${tradeId}:${destinationRequested}`,
   );
@@ -428,42 +444,44 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
         <div className="pay-order-grid">
           <div className="stack">
             <PaySection
-              title="Order details"
+              title={payCopy.t('orderDetails')}
               action={
                 <Button variant="secondary" onClick={order.reload}>
-                  Refresh status
+                  <PayCopy k="refreshStatus" />
                 </Button>
               }
             >
               <PayDetails
                 values={[
-                  ['Order', trade.id],
-                  ['You', trade.buyerId === userId ? 'Buyer' : 'Seller'],
-                  ['Order status', <Status value={trade.status} />],
-                  ['Asset quantity', `${displayAmount(trade.amount)} ${trade.asset}`],
-                  ['External payment', `${displayAmount(trade.fiatAmount)} ${trade.fiatCurrency}`],
-                  ['Price', `${displayAmount(trade.price)} ${trade.fiatCurrency} per ${trade.asset}`],
-                  ['Payment method', trade.method],
-                  ['Deadline', trade.deadlineAt ?? 'Not supplied'],
-                  ['Ledger settlement', trade.settledAt ?? 'Not confirmed'],
+                  [payCopy.t('order'), trade.id],
+                  [payCopy.t('you'), trade.buyerId === userId ? payCopy.t('buyer') : payCopy.t('seller')],
+                  [payCopy.t('orderStatus'), <Status value={trade.status} />],
+                  [payCopy.t('assetQuantity'), `${displayAmount(trade.amount)} ${trade.asset}`],
+                  [payCopy.t('externalPayment'), `${displayAmount(trade.fiatAmount)} ${trade.fiatCurrency}`],
+                  [
+                    payCopy.t('price'),
+                    payCopy.t('per2', { value1: displayAmount(trade.price), fiatCurrency: trade.fiatCurrency, asset: trade.asset }),
+                  ],
+                  [payCopy.t('paymentMethod'), trade.method],
+                  [payCopy.t('deadline'), trade.deadlineAt ?? payCopy.t('notSupplied')],
+                  [payCopy.t('ledgerSettlement'), trade.settledAt ?? payCopy.t('notConfirmed')],
                 ]}
               />
               {['released', 'cancelled'].includes(trade.status) && !trade.settledAt && (
-                <PayNotice title="Ledger settlement is not confirmed">
-                  The order reached a terminal state, but no settlement timestamp has been returned. Refresh status before treating escrow
-                  as released or refunded.
+                <PayNotice title={payCopy.t('ledgerSettlementIsNotConfirmed')}>
+                  <PayCopy k="theOrderReachedATerminalStateBut" />
                 </PayNotice>
               )}
               <OrderActions trade={trade} pay={pay} userId={userId} reload={order.reload} />
             </PaySection>
-            <PaySection title="External payment destination" description="Revealing details is logged by the service.">
+            <PaySection title={payCopy.t('externalPaymentDestination')} description={payCopy.t('revealingDetailsIsLoggedByTheService')}>
               {destinationRequested ? (
                 <PayState resource={destination.resource} retry={destination.reload}>
                   {(data) => (
                     <PayDetails
                       values={[
-                        ['Destination label', data.label],
-                        ['Country / currency', `${data.country} / ${data.fiatCurrency}`],
+                        [payCopy.t('destinationLabel'), data.label],
+                        [payCopy.t('countryCurrency'), `${data.country} / ${data.fiatCurrency}`],
                         ...Object.entries(data.details),
                       ]}
                     />
@@ -475,16 +493,15 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
                   disabled={!['escrowed', 'fiat_sent', 'disputed'].includes(trade.status)}
                   onClick={() => setDestinationRequested(true)}
                 >
-                  Reveal agreed payment details
+                  <PayCopy k="revealAgreedPaymentDetails" />
                 </Button>
               )}
             </PaySection>
           </div>
           <div className="stack">
-            <PaySection title="Order chat">
-              <PayNotice title="Message thread is not connected">
-                The legacy chat transport is absent from the current edge. Messages cannot be sent or read here. Order status and recorded
-                dispute evidence remain available below.
+            <PaySection title={payCopy.t('orderChat')}>
+              <PayNotice title={payCopy.t('messageThreadIsNotConnected')}>
+                <PayCopy k="theLegacyChatTransportIsAbsentFrom" />
               </PayNotice>
             </PaySection>
             <OrderDispute trade={trade} pay={pay} reloadOrder={order.reload} />
@@ -501,9 +518,8 @@ function OrderActions({ trade, pay, userId, reload }: { trade: Trade; pay: Perso
   return (
     <div className="stack">
       {locked && (
-        <PayNotice title="Original order action is unresolved">
-          Refresh order status. Do not repeat the action or infer release from a missing response. If the intended transition is still
-          unclear, contact Support with this order ID.
+        <PayNotice title={payCopy.t('originalOrderActionIsUnresolved')}>
+          <PayCopy k="refreshOrderStatusDoNotRepeatThe" />
           <Button
             variant="secondary"
             onClick={() => {
@@ -513,7 +529,7 @@ function OrderActions({ trade, pay, userId, reload }: { trade: Trade; pay: Perso
               });
             }}
           >
-            Check original order action
+            <PayCopy k="checkOriginalOrderAction" />
           </Button>
         </PayNotice>
       )}
@@ -521,13 +537,13 @@ function OrderActions({ trade, pay, userId, reload }: { trade: Trade; pay: Perso
       <div className="actions">
         {trade.buyerId === userId && trade.status === 'escrowed' && (
           <ReviewedAction
-            title="Mark payment sent"
-            description="Confirm only after sending the external payment to the agreed destination. This does not prove the seller received it."
+            title={payCopy.t('markPaymentSent')}
+            description={payCopy.t('confirmOnlyAfterSendingTheExternalPayment')}
             review={
               <PayDetails
                 values={[
-                  ['External payment', `${displayAmount(trade.fiatAmount)} ${trade.fiatCurrency}`],
-                  ['Order', trade.id],
+                  [payCopy.t('externalPayment'), `${displayAmount(trade.fiatAmount)} ${trade.fiatCurrency}`],
+                  [payCopy.t('order'), trade.id],
                 ]}
               />
             }
@@ -538,14 +554,14 @@ function OrderActions({ trade, pay, userId, reload }: { trade: Trade; pay: Perso
         )}
         {trade.sellerId === userId && trade.status === 'fiat_sent' && (
           <ReviewedAction
-            title="Release escrow"
+            title={payCopy.t('releaseEscrow')}
             variant="primary"
-            description="Confirm only after the external payment has arrived in your account. This asks the ledger to release the escrowed asset to the buyer."
+            description={payCopy.t('confirmOnlyAfterTheExternalPaymentHas')}
             review={
               <PayDetails
                 values={[
-                  ['Release', `${displayAmount(trade.amount)} ${trade.asset}`],
-                  ['Payment to verify', `${displayAmount(trade.fiatAmount)} ${trade.fiatCurrency}`],
+                  [payCopy.t('release'), `${displayAmount(trade.amount)} ${trade.asset}`],
+                  [payCopy.t('paymentToVerify'), `${displayAmount(trade.fiatAmount)} ${trade.fiatCurrency}`],
                 ]}
               />
             }
@@ -557,10 +573,15 @@ function OrderActions({ trade, pay, userId, reload }: { trade: Trade; pay: Perso
       </div>
       {['created', 'escrowed'].includes(trade.status) && (
         <>
-          <Field label="Cancellation reason" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={200} />
+          <Field
+            label={payCopy.t('cancellationReason')}
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            maxLength={200}
+          />
           <ReviewedAction
-            title="Cancel order"
-            description="The service checks current order state. An external payment already sent must not be treated as refunded by cancelling an order."
+            title={payCopy.t('cancelOrder')}
+            description={payCopy.t('theServiceChecksCurrentOrderStateAn')}
             perform={() => pay.manageTrade(trade.id, 'cancel', reason)}
             onConfirmed={reload}
             disabled={locked}
@@ -575,9 +596,9 @@ function OrderDispute({ trade, pay, reloadOrder }: { trade: Trade; pay: Personal
   const [evidence, setEvidence] = useState('');
   const dispute = useResource((signal) => pay.dispute(trade.id, signal), `pay:dispute:${trade.id}:${trade.status}`);
   return (
-    <PaySection title="Dispute and evidence">
+    <PaySection title={payCopy.t('disputeAndEvidence')}>
       <p className="muted">
-        An unattended dispute escalates and keeps escrow held. Configured moderators are not a live availability promise.
+        <PayCopy k="anUnattendedDisputeEscalatesAndKeepsEscrow" />
       </p>
       {trade.status === 'disputed' ? (
         <PayState resource={dispute.resource} retry={dispute.reload}>
@@ -585,26 +606,31 @@ function OrderDispute({ trade, pay, reloadOrder }: { trade: Trade; pay: Personal
             <>
               <PayDetails
                 values={[
-                  ['Reason', data.reason],
-                  ['Status', data.status],
-                  ['Resolution', data.resolution ?? 'No ruling'],
-                  ['Ruling notes', data.resolutionNotes ?? 'No notes'],
-                  ['Deadline', data.deadlineAt],
-                  ['Escalations', String(data.escalations)],
+                  [payCopy.t('reason'), data.reason],
+                  [payCopy.t('status'), data.status],
+                  [payCopy.t('resolution'), data.resolution ?? payCopy.t('noRuling')],
+                  [payCopy.t('rulingNotes'), data.resolutionNotes ?? payCopy.t('noNotes')],
+                  [payCopy.t('deadline'), data.deadlineAt],
+                  [payCopy.t('escalations'), String(data.escalations)],
                 ]}
               />
               {data.evidence.map((item) => (
                 <div className="pay-evidence" key={item.seq}>
-                  <small className="muted">{item.submittedAt ?? 'Time not recorded'}</small>
+                  <small className="muted">{item.submittedAt ?? payCopy.t('timeNotRecorded')}</small>
                   <p>{typeof item.item === 'string' ? item.item : JSON.stringify(item.item)}</p>
                 </div>
               ))}
               {data.status === 'open' && (
                 <>
-                  <Field label="Add evidence" value={evidence} onChange={(event) => setEvidence(event.target.value)} maxLength={4000} />
+                  <Field
+                    label={payCopy.t('addEvidence')}
+                    value={evidence}
+                    onChange={(event) => setEvidence(event.target.value)}
+                    maxLength={4000}
+                  />
                   <ReviewedAction
-                    title="Append evidence"
-                    description="Evidence is appended to the dispute and cannot be edited or removed."
+                    title={payCopy.t('appendEvidence')}
+                    description={payCopy.t('evidenceIsAppendedToTheDisputeAnd')}
                     review={<p>{evidence}</p>}
                     perform={() => pay.appendEvidence(trade.id, evidence.trim())}
                     disabled={!evidence.trim()}
@@ -620,10 +646,15 @@ function OrderDispute({ trade, pay, reloadOrder }: { trade: Trade; pay: Personal
         </PayState>
       ) : ['escrowed', 'fiat_sent'].includes(trade.status) ? (
         <>
-          <Field label="Describe the payment issue" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={2000} />
+          <Field
+            label={payCopy.t('describeThePaymentIssue')}
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            maxLength={2000}
+          />
           <ReviewedAction
-            title="Open dispute"
-            description="The service records your reason, opens the dispute and keeps escrow held until a ruling. This is not a refund."
+            title={payCopy.t('openDispute')}
+            description={payCopy.t('theServiceRecordsYourReasonOpensThe')}
             review={<p>{reason}</p>}
             perform={() => pay.openDispute(trade.id, reason.trim())}
             disabled={!reason.trim()}
@@ -634,7 +665,9 @@ function OrderDispute({ trade, pay, reloadOrder }: { trade: Trade; pay: Personal
           />
         </>
       ) : (
-        <p className="muted">No open dispute action is available for this order state.</p>
+        <p className="muted">
+          <PayCopy k="noOpenDisputeActionIsAvailableFor" />
+        </p>
       )}
     </PaySection>
   );
@@ -644,18 +677,20 @@ function PaymentMethods({ pay, userId }: { pay: PersonalPayApi; userId: string |
   const instruments = useResource((signal) => pay.instruments(limit, signal), `pay:instruments:${userId}:${limit}`);
   return (
     <div className="stack">
-      <PayNotice title="New payment destinations are unavailable">
-        The required instrument encryption provider is absent. This screen reads existing destination headers; it does not invent methods,
-        collect unprotected account details or show them on the public offer board.
+      <PayNotice title={payCopy.t('newPaymentDestinationsAreUnavailable')}>
+        <PayCopy k="theRequiredInstrumentEncryptionProviderIsAbsent" />
       </PayNotice>
-      <PaySection title="Your payment destination labels">
-        <PayState resource={instruments.resource} retry={instruments.reload} empty="No payment destination headers returned">
+      <PaySection title={payCopy.t('yourPaymentDestinationLabels')}>
+        <PayState resource={instruments.resource} retry={instruments.reload} empty={payCopy.t('noPaymentDestinationHeadersReturned')}>
           {(rows) => (
             <>
-              <DataTable label="Payment destinations" headers={['Label', 'Method', 'Currency / country', 'State', '']}>
+              <DataTable
+                label={payCopy.t('paymentDestinations')}
+                headers={[payCopy.t('label'), payCopy.t('method'), payCopy.t('currencyCountry'), payCopy.t('state'), '']}
+              >
                 {rows.map((instrument) => (
                   <tr key={instrument.id}>
-                    <td>{instrument.label || 'Unlabelled destination'}</td>
+                    <td>{instrument.label || payCopy.t('unlabelledDestination')}</td>
                     <td>{instrument.methodId}</td>
                     <td>
                       {instrument.fiatCurrency} / {instrument.country}
@@ -666,8 +701,8 @@ function PaymentMethods({ pay, userId }: { pay: PersonalPayApi; userId: string |
                     <td>
                       {instrument.status === 'active' && (
                         <ReviewedAction
-                          title="Remove destination"
-                          description="This removes the destination from future trades. Existing trades keep their frozen payment snapshot."
+                          title={payCopy.t('removeDestination')}
+                          description={payCopy.t('thisRemovesTheDestinationFromFutureTrades')}
                           perform={() => pay.removeInstrument(instrument.id)}
                           onConfirmed={instruments.reload}
                         />
@@ -687,21 +722,25 @@ function PaymentMethods({ pay, userId }: { pay: PersonalPayApi; userId: string |
 function Counterparty({ pay, userId }: { pay: PersonalPayApi; userId: string }) {
   const reputation = useResource((signal) => pay.reputation(userId, signal), `pay:reputation:${userId}`);
   return (
-    <PaySection title="Counterparty record">
+    <PaySection title={payCopy.t('counterpartyRecord')}>
       <p className="pay-account-id">{userId}</p>
       <PayState resource={reputation.resource} retry={reputation.reload}>
         {(data) => (
           <PayDetails
             values={[
-              ['Trades recorded', String(data.tradesTotal)],
-              ['Completed', String(data.completed)],
-              ['Cancelled', String(data.cancelled)],
-              ['Disputed', String(data.disputed)],
+              [payCopy.t('tradesRecorded'), String(data.tradesTotal)],
+              [payCopy.t('completed'), String(data.completed)],
+              [payCopy.t('cancelled'), String(data.cancelled)],
+              [payCopy.t('disputed'), String(data.disputed)],
               [
-                'Programme standing',
-                data.merchant === null ? 'Programme unavailable' : data.merchant ? 'Approved P2P merchant' : 'Not approved',
+                payCopy.t('programmeStanding'),
+                data.merchant === null
+                  ? payCopy.t('programmeUnavailable')
+                  : data.merchant
+                    ? payCopy.t('approvedP2pMerchant')
+                    : payCopy.t('notApproved'),
               ],
-              ['Badges', data.badges.join(', ') || 'None returned'],
+              [payCopy.t('badges'), data.badges.join(', ') || payCopy.t('noneReturned')],
             ]}
           />
         )}
@@ -719,15 +758,14 @@ function TradingProgramme({ pay, userId }: { pay: PersonalPayApi; userId: string
   }
   return (
     <div className="stack">
-      <PayNotice title="P2P trading standing">
-        This programme is your personal P2P trading record. It does not create a Business account, company membership or acquiring
-        permissions.
+      <PayNotice title={payCopy.t('p2pTradingStanding')}>
+        <PayCopy k="thisProgrammeIsYourPersonalP2pTrading" />
       </PayNotice>
       <PaySection
-        title="Your programme status"
+        title={payCopy.t('yourProgrammeStatus')}
         action={
           <Button variant="secondary" onClick={refresh}>
-            Refresh standing
+            <PayCopy k="refreshStanding" />
           </Button>
         }
       >
@@ -737,18 +775,18 @@ function TradingProgramme({ pay, userId }: { pay: PersonalPayApi; userId: string
               <div className="form-stack">
                 <PayDetails
                   values={[
-                    ['Standing', data.status],
-                    ['Application submitted', data.appliedAt],
-                    ['Decision', data.decidedAt ?? 'Not recorded'],
-                    ['Trades at application', String(data.appliedTradesTotal)],
+                    [payCopy.t('standing'), data.status],
+                    [payCopy.t('applicationSubmitted'), data.appliedAt],
+                    [payCopy.t('decision'), data.decidedAt ?? payCopy.t('notRecorded')],
+                    [payCopy.t('tradesAtApplication'), String(data.appliedTradesTotal)],
                   ]}
                 />
                 {['applied', 'approved', 'suspended'].includes(data.status) && (
                   <>
-                    <Field label="Reason for leaving" value={reason} onChange={(event) => setReason(event.target.value)} />
+                    <Field label={payCopy.t('reasonForLeaving')} value={reason} onChange={(event) => setReason(event.target.value)} />
                     <ReviewedAction
-                      title="Leave P2P programme"
-                      description="Withdraw your personal P2P programme membership. Your existing order escrow is not released by leaving."
+                      title={payCopy.t('leaveP2pProgramme')}
+                      description={payCopy.t('withdrawYourPersonalP2pProgrammeMembershipYour')}
                       review={<p>{reason}</p>}
                       perform={() => pay.withdrawProgramme(reason.trim())}
                       onConfirmed={refresh}
@@ -758,8 +796,8 @@ function TradingProgramme({ pay, userId }: { pay: PersonalPayApi; userId: string
                 )}
                 {['rejected', 'withdrawn'].includes(data.status) && (
                   <ReviewedAction
-                    title="Reapply to P2P programme"
-                    description="Submit a new application based on current earned reputation. The previous decision is not automatically restored."
+                    title={payCopy.t('reapplyToP2pProgramme')}
+                    description={payCopy.t('submitANewApplicationBasedOnCurrent')}
                     perform={() => pay.applyProgramme()}
                     onConfirmed={refresh}
                   />
@@ -767,10 +805,12 @@ function TradingProgramme({ pay, userId }: { pay: PersonalPayApi; userId: string
               </div>
             ) : (
               <div className="stack">
-                <p className="muted">No P2P programme application exists for this account.</p>
+                <p className="muted">
+                  <PayCopy k="noP2pProgrammeApplicationExistsForThis" />
+                </p>
                 <ReviewedAction
-                  title="Apply to P2P programme"
-                  description="Submit an application on your own behalf. The service checks your actual trading record; an application is not an approval or an offer limit increase."
+                  title={payCopy.t('applyToP2pProgramme')}
+                  description={payCopy.t('submitAnApplicationOnYourOwnBehalf')}
                   perform={() => pay.applyProgramme()}
                   onConfirmed={refresh}
                 />
@@ -779,14 +819,17 @@ function TradingProgramme({ pay, userId }: { pay: PersonalPayApi; userId: string
           }
         </PayState>
       </PaySection>
-      <PaySection title="P2P API eligibility">
+      <PaySection title={payCopy.t('p2pApiEligibility')}>
         <PayState resource={access.resource} retry={access.reload}>
           {(data) => (
             <PayDetails
               values={[
-                ['API standing', data.eligible ? 'Eligible by current programme standing' : 'Not eligible by current programme standing'],
-                ['Current credential', data.credential],
-                ['Dispute decisions', 'Interactive human only'],
+                [
+                  payCopy.t('apiStanding'),
+                  data.eligible ? payCopy.t('eligibleByCurrentProgrammeStanding') : payCopy.t('notEligibleByCurrentProgrammeStanding'),
+                ],
+                [payCopy.t('currentCredential'), data.credential],
+                [payCopy.t('disputeDecisions'), payCopy.t('interactiveHumanOnly')],
               ]}
             />
           )}

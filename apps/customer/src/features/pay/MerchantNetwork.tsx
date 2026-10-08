@@ -1,3 +1,4 @@
+import { payCopy, PayCopy } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
 import { useResource } from '../../shared/resource';
@@ -25,8 +26,8 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
   return (
     <div className="stack">
       <PaySection
-        title="Sub-merchant network"
-        description="The service resolves your own merchant node and enforces its subtree. Trading subaccounts are not companies."
+        title={payCopy.t('subMerchantNetwork')}
+        description={payCopy.t('theServiceResolvesYourOwnMerchantNode')}
         action={
           <Button
             variant="secondary"
@@ -35,17 +36,26 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
               setOpened('');
             }}
           >
-            Return to your root
+            <PayCopy k="returnToYourRoot" />
           </Button>
         }
       >
-        <p className="pay-account-id">Current parent: {node}</p>
-        <PayState resource={children.resource} retry={children.reload} empty="No direct children returned">
+        <p className="pay-account-id">
+          <PayCopy k="currentParent" /> {node}
+        </p>
+        <PayState resource={children.resource} retry={children.reload} empty={payCopy.t('noDirectChildrenReturned')}>
           {(rows) => (
             <>
               <DataTable
-                label="Direct sub-merchants"
-                headers={['Merchant / user', 'Verification', 'Fee rate', 'Settling party', 'State', '']}
+                label={payCopy.t('directSubMerchants')}
+                headers={[
+                  payCopy.t('merchantUser'),
+                  payCopy.t('verification'),
+                  payCopy.t('feeRate'),
+                  payCopy.t('settlingParty'),
+                  payCopy.t('state'),
+                  '',
+                ]}
               >
                 {rows.map((child) => (
                   <tr key={child.id}>
@@ -54,7 +64,7 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
                       <small className="pay-cell-note">{child.userId}</small>
                     </td>
                     <td>{child.kybStatus}</td>
-                    <td>{child.feeBps === null ? 'Not published' : `${child.feeBps} bps`}</td>
+                    <td>{child.feeBps === null ? payCopy.t('notPublished') : payCopy.t('bps', { feeBps: child.feeBps })}</td>
                     <td>{child.settlingParty}</td>
                     <td>
                       <Status value={child.status} />
@@ -62,7 +72,7 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
                     <td>
                       <div className="actions">
                         <Button variant="ghost" onClick={() => setOpened(child.id)}>
-                          Details
+                          <PayCopy k="details" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -71,7 +81,7 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
                             setOpened('');
                           }}
                         >
-                          Children
+                          <PayCopy k="children" />
                         </Button>
                       </div>
                     </td>
@@ -83,51 +93,48 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
           )}
         </PayState>
       </PaySection>
-      <PaySection title="Selected merchant">
+      <PaySection title={payCopy.t('selectedMerchant')}>
         <PayState resource={record.resource} retry={record.reload}>
           {(data) => (
             <PayDetails
               values={[
-                ['Merchant', data.id],
-                ['User', data.userId],
-                ['Parent', data.parentMerchantId ?? 'Root'],
-                ['Depth', String(data.depth)],
-                ['Acquiring mode', data.mode],
-                ['State', data.status],
-                ['Business verification', data.kybStatus],
-                ['Settling party', data.settlingParty],
-                ['Fee rate', data.feeBps === null ? 'Not published' : `${data.feeBps} bps`],
+                [payCopy.t('merchant'), data.id],
+                [payCopy.t('user'), data.userId],
+                [payCopy.t('parent'), data.parentMerchantId ?? payCopy.t('root')],
+                [payCopy.t('depth'), String(data.depth)],
+                [payCopy.t('acquiringMode'), data.mode],
+                [payCopy.t('state'), data.status],
+                [payCopy.t('businessVerification'), data.kybStatus],
+                [payCopy.t('settlingParty'), data.settlingParty],
+                [payCopy.t('feeRate'), data.feeBps === null ? payCopy.t('notPublished') : payCopy.t('bps', { feeBps: data.feeBps })],
               ]}
             />
           )}
         </PayState>
       </PaySection>
-      <PaySection
-        title="Onboard a sub-merchant"
-        description="Create a new node under the selected parent. An existing merchant cannot be adopted into your tree."
-      >
+      <PaySection title={payCopy.t('onboardASubMerchant')} description={payCopy.t('createANewNodeUnderTheSelected')}>
         <div className="form-stack pay-form">
-          <Field label="Account ID to onboard" value={user} onChange={(event) => setUser(event.target.value)} maxLength={128} />
+          <Field label={payCopy.t('accountIdToOnboard')} value={user} onChange={(event) => setUser(event.target.value)} maxLength={128} />
           <Field
-            label="Agreed fee rate · basis points"
+            label={payCopy.t('agreedFeeRateBasisPoints')}
             inputMode="numeric"
             value={fee}
             onChange={(event) => setFee(event.target.value)}
-            hint="Enter the actual agreed rate. No fee is prefilled."
+            hint={payCopy.t('enterTheActualAgreedRateNoFee')}
           />
-          <PayNotice title="Settling party">
-            The current contract supports self settlement only. Sponsored settlement is unavailable.
+          <PayNotice title={payCopy.t('settlingParty')}>
+            <PayCopy k="theCurrentContractSupportsSelfSettlementOnly" />
           </PayNotice>
           <ReviewedAction
-            title="Create sub-merchant"
-            description="Create a new payfac node for the named account under this parent with its supplied fee rate. The backend verifies subtree and onboarding authority."
+            title={payCopy.t('createSubMerchant')}
+            description={payCopy.t('createANewPayfacNodeForThe')}
             review={
               <PayDetails
                 values={[
-                  ['Parent', node],
-                  ['Account', user],
-                  ['Fee', `${fee} basis points`],
-                  ['Settling party', 'self'],
+                  [payCopy.t('parent'), node],
+                  [payCopy.t('account'), user],
+                  [payCopy.t('fee'), payCopy.t('basisPoints2', { fee: fee })],
+                  [payCopy.t('settlingParty'), payCopy.t('self')],
                 ]}
               />
             }
@@ -187,10 +194,7 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
   const allowedArea = areas.resource.status === 'ready' && areas.resource.data.includes(area);
   return (
     <div className="stack">
-      <PaySection
-        title="Permission subject"
-        description="Authority over a subject merchant is checked by the service; implicit ownership is not a listed grant."
-      >
+      <PaySection title={payCopy.t('permissionSubject')} description={payCopy.t('authorityOverASubjectMerchantIsChecked')}>
         <form
           className="pay-filters"
           onSubmit={(event) => {
@@ -204,20 +208,23 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
           }}
         >
           <Field
-            label="Subject merchant ID"
+            label={payCopy.t('subjectMerchantId')}
             value={subjectDraft}
             onChange={(event) => setSubjectDraft(event.target.value)}
             required
             pattern="[0-9a-fA-F-]{36}"
           />
           <Button type="submit" variant="secondary">
-            Read permissions
+            <PayCopy k="readPermissions" />
           </Button>
         </form>
-        <PayState resource={grants.resource} retry={grants.reload} empty="No explicit grants returned">
+        <PayState resource={grants.resource} retry={grants.reload} empty={payCopy.t('noExplicitGrantsReturned')}>
           {(rows) => (
             <>
-              <DataTable label="Permission grants" headers={['Grantee', 'Area', 'Reason', 'Granted by / at']}>
+              <DataTable
+                label={payCopy.t('permissionGrants')}
+                headers={[payCopy.t('grantee'), payCopy.t('area'), payCopy.t('reason'), payCopy.t('grantedByAt')]}
+              >
                 {rows.map((grant) => (
                   <tr key={`${grant.granteeMerchantId}:${grant.area}`}>
                     <td>{grant.granteeMerchantId}</td>
@@ -235,13 +242,13 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
           )}
         </PayState>
       </PaySection>
-      <PaySection title="Change a delegated permission">
+      <PaySection title={payCopy.t('changeADelegatedPermission')}>
         <div className="form-stack pay-form">
-          <Field label="Grantee merchant ID" value={grantee} onChange={(event) => setGrantee(event.target.value)} />
+          <Field label={payCopy.t('granteeMerchantId')} value={grantee} onChange={(event) => setGrantee(event.target.value)} />
           <label className="field">
-            Permission area
+            <PayCopy k="permissionArea" />
             <select value={area} onChange={(event) => setArea(event.target.value)}>
-              <option value="">Choose an area returned by the service</option>
+              <option value="">{payCopy.t('chooseAnAreaReturnedByTheService')}</option>
               {areas.resource.status === 'ready' &&
                 areas.resource.data.map((value) => (
                   <option value={value} key={value}>
@@ -254,7 +261,7 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
             {() => null}
           </PayState>
           <Field
-            label="Reason for this change"
+            label={payCopy.t('reasonForThisChange')}
             value={reason}
             onChange={(event) => setReason(event.target.value)}
             minLength={3}
@@ -264,15 +271,15 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
             {(['grant', 'revoke'] as const).map((action) => (
               <ReviewedAction
                 key={action}
-                title={`${action === 'grant' ? 'Grant' : 'Revoke'} permission`}
-                description="The service checks the subtree and authority you already hold. Every change appends an attributed journal record; it cannot create platform scopes."
+                title={action === 'grant' ? payCopy.t('grantPermission') : payCopy.t('revokePermission')}
+                description={payCopy.t('theServiceChecksTheSubtreeAndAuthority')}
                 review={
                   <PayDetails
                     values={[
-                      ['Grantee', grantee],
-                      ['Subject', subject],
-                      ['Area', area],
-                      ['Reason', reason],
+                      [payCopy.t('grantee'), grantee],
+                      [payCopy.t('subject'), subject],
+                      [payCopy.t('area'), area],
+                      [payCopy.t('reason'), reason],
                     ]}
                   />
                 }
@@ -299,11 +306,14 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
           </div>
         </div>
       </PaySection>
-      <PaySection title="Permission history">
-        <PayState resource={history.resource} retry={history.reload} empty="No permission changes returned">
+      <PaySection title={payCopy.t('permissionHistory')}>
+        <PayState resource={history.resource} retry={history.reload} empty={payCopy.t('noPermissionChangesReturned')}>
           {(rows) => (
             <>
-              <DataTable label="Permission journal" headers={['Sequence / action', 'Grantee / area', 'Reason', 'Actor / time']}>
+              <DataTable
+                label={payCopy.t('permissionJournal')}
+                headers={[payCopy.t('sequenceAction'), payCopy.t('granteeArea'), payCopy.t('reason'), payCopy.t('actorTime')]}
+              >
                 {rows.map((event) => (
                   <tr key={event.id}>
                     <td>
@@ -333,7 +343,13 @@ export function MerchantDeveloper({ pay }: { pay: BusinessPayApi }) {
   const [tab, setTab] = useState('Sandbox keys');
   return (
     <div className="stack">
-      <Tabs label="Developer settings" items={['Sandbox keys', 'Merchant webhooks']} value={tab} onChange={setTab} />
+      <Tabs
+        label={payCopy.t('developerSettings')}
+        items={['Sandbox keys', 'Merchant webhooks']}
+        labels={{ 'Sandbox keys': <PayCopy k="sandboxKeys" />, 'Merchant webhooks': <PayCopy k="merchantWebhooks" /> }}
+        value={tab}
+        onChange={setTab}
+      />
       {tab === 'Sandbox keys' ? <SandboxKeys pay={pay} /> : <MerchantWebhooks pay={pay} />}
     </div>
   );
@@ -346,18 +362,16 @@ function SandboxKeys({ pay }: { pay: BusinessPayApi }) {
   const permitted = ['pay:read', 'pay:write', 'pay:refund'].filter((scope) => pay.authority!.scopes.includes(scope));
   return (
     <div className="stack">
-      <PayNotice title="Sandbox credentials only">
-        This view creates keys with an explicit sandbox mode. It never exchanges a sandbox key into your live session, and has no payment,
-        capture, refund or payout controls. Sandbox mode cannot be omitted from key creation.
+      <PayNotice title={payCopy.t('sandboxCredentialsOnly')}>
+        <PayCopy k="thisViewCreatesKeysWithAnExplicit" />
       </PayNotice>
-      <PaySection
-        title="Create a sandbox Pay key"
-        description="These are keys owned by your login. A key is not a separate verified company identity."
-      >
+      <PaySection title={payCopy.t('createASandboxPayKey')} description={payCopy.t('theseAreKeysOwnedByYourLogin')}>
         <div className="form-stack pay-form">
-          <Field label="Key name" value={name} onChange={(event) => setName(event.target.value)} maxLength={64} />
+          <Field label={payCopy.t('keyName')} value={name} onChange={(event) => setName(event.target.value)} maxLength={64} />
           <fieldset className="pay-checkboxes">
-            <legend>Permissions held by this session</legend>
+            <legend>
+              <PayCopy k="permissionsHeldByThisSession" />
+            </legend>
             {permitted.map((scope) => (
               <label key={scope}>
                 <input
@@ -370,14 +384,14 @@ function SandboxKeys({ pay }: { pay: BusinessPayApi }) {
             ))}
           </fieldset>
           <ReviewedAction
-            title="Create sandbox key"
-            description="Create an explicitly sandbox credential with only the selected held Pay scopes. The secret is returned once and remains only in this view."
+            title={payCopy.t('createSandboxKey')}
+            description={payCopy.t('createAnExplicitlySandboxCredentialWithOnly')}
             review={
               <PayDetails
                 values={[
-                  ['Key name', name],
-                  ['Mode', 'sandbox'],
-                  ['Scopes', scopes.join(', ')],
+                  [payCopy.t('keyName'), name],
+                  [payCopy.t('mode'), payCopy.t('sandbox')],
+                  [payCopy.t('scopes'), scopes.join(', ')],
                 ]}
               />
             }
@@ -389,23 +403,26 @@ function SandboxKeys({ pay }: { pay: BusinessPayApi }) {
             }}
           />
           {secret && (
-            <PayNotice title="Sandbox secret returned once">
+            <PayNotice title={payCopy.t('sandboxSecretReturnedOnce')}>
               <code className="pay-secret">{secret}</code>
               <Button variant="secondary" onClick={() => setSecret('')}>
-                Hide secret
+                <PayCopy k="hideSecret" />
               </Button>
             </PayNotice>
           )}
         </div>
       </PaySection>
-      <PaySection title="Your sandbox Pay keys">
-        <PayState resource={keys.resource} retry={keys.reload} empty="No keys returned">
+      <PaySection title={payCopy.t('yourSandboxPayKeys')}>
+        <PayState resource={keys.resource} retry={keys.reload} empty={payCopy.t('noKeysReturned')}>
           {(rows) => {
             const sandbox = rows.filter((key) => key.mode === 'sandbox' && key.scopes.some((scope) => scope.startsWith('pay:')));
             return (
               <>
                 {sandbox.length ? (
-                  <DataTable label="Sandbox Pay keys" headers={['Name / prefix', 'Mode / scopes', 'Last used', 'State', '']}>
+                  <DataTable
+                    label={payCopy.t('sandboxPayKeys')}
+                    headers={[payCopy.t('namePrefix'), payCopy.t('modeScopes'), payCopy.t('lastUsed'), payCopy.t('state'), '']}
+                  >
                     {sandbox.map((key) => (
                       <tr key={key.id}>
                         <td>
@@ -413,15 +430,16 @@ function SandboxKeys({ pay }: { pay: BusinessPayApi }) {
                           <small className="pay-cell-note">{key.prefix}</small>
                         </td>
                         <td>
-                          Sandbox<small className="pay-cell-note">{key.scopes.join(', ')}</small>
+                          <PayCopy k="sandbox2" />
+                          <small className="pay-cell-note">{key.scopes.join(', ')}</small>
                         </td>
-                        <td>{key.lastUsedAt ?? 'Not used'}</td>
-                        <td>{key.revoked ? 'Revoked' : 'Active'}</td>
+                        <td>{key.lastUsedAt ?? payCopy.t('notUsed')}</td>
+                        <td>{key.revoked ? payCopy.t('revoked') : payCopy.t('active')}</td>
                         <td>
                           {!key.revoked && (
                             <ReviewedAction
-                              title="Revoke sandbox key"
-                              description="Revoke this sandbox credential. Existing live keys are not changed by this action."
+                              title={payCopy.t('revokeSandboxKey')}
+                              description={payCopy.t('revokeThisSandboxCredentialExistingLiveKeys')}
                               perform={() => pay.revokeKey(key.id)}
                               onConfirmed={keys.reload}
                             />
@@ -431,7 +449,9 @@ function SandboxKeys({ pay }: { pay: BusinessPayApi }) {
                     ))}
                   </DataTable>
                 ) : (
-                  <p className="muted">No sandbox Pay keys in the returned window.</p>
+                  <p className="muted">
+                    <PayCopy k="noSandboxPayKeysInTheReturned" />
+                  </p>
                 )}
                 <PayPagination count={rows.length} limit={200} setLimit={() => {}} />
               </>
@@ -447,16 +467,18 @@ function MerchantWebhooks({ pay }: { pay: BusinessPayApi }) {
   const deliveries = useResource((signal) => pay.webhookDeliveries(signal), `pay:webhook-deliveries:${pay.authority!.merchantId}`);
   return (
     <div className="stack">
-      <PayNotice title="Merchant webhook environment">
-        The webhook contract has no sandbox endpoint mode or test delivery action. These are actual merchant endpoints and recorded
-        deliveries; this view never simulates a successful test. Endpoint changes affect merchant delivery configuration.
+      <PayNotice title={payCopy.t('merchantWebhookEnvironment')}>
+        <PayCopy k="theWebhookContractHasNoSandboxEndpoint" />
       </PayNotice>
       <CreateWebhook pay={pay} reload={endpoints.reload} />
-      <PaySection title="Merchant webhook endpoints">
-        <PayState resource={endpoints.resource} retry={endpoints.reload} empty="No webhook endpoints returned">
+      <PaySection title={payCopy.t('merchantWebhookEndpoints')}>
+        <PayState resource={endpoints.resource} retry={endpoints.reload} empty={payCopy.t('noWebhookEndpointsReturned')}>
           {(rows) => (
             <>
-              <DataTable label="Webhook endpoints" headers={['Endpoint', 'State', 'Failures', 'Updated', '']}>
+              <DataTable
+                label={payCopy.t('webhookEndpoints')}
+                headers={[payCopy.t('endpoint'), payCopy.t('state'), payCopy.t('failures'), payCopy.t('updated'), '']}
+              >
                 {rows.map((endpoint) => (
                   <tr key={endpoint.id}>
                     <td>{endpoint.url}</td>
@@ -477,11 +499,20 @@ function MerchantWebhooks({ pay }: { pay: BusinessPayApi }) {
           )}
         </PayState>
       </PaySection>
-      <PaySection title="Recorded webhook deliveries">
-        <PayState resource={deliveries.resource} retry={deliveries.reload} empty="No webhook deliveries returned">
+      <PaySection title={payCopy.t('recordedWebhookDeliveries')}>
+        <PayState resource={deliveries.resource} retry={deliveries.reload} empty={payCopy.t('noWebhookDeliveriesReturned')}>
           {(rows) => (
             <>
-              <DataTable label="Webhook deliveries" headers={['Event / endpoint', 'Status', 'Attempts', 'Last response', 'Next attempt']}>
+              <DataTable
+                label={payCopy.t('webhookDeliveries')}
+                headers={[
+                  payCopy.t('eventEndpoint'),
+                  payCopy.t('status'),
+                  payCopy.t('attempts'),
+                  payCopy.t('lastResponse'),
+                  payCopy.t('nextAttempt'),
+                ]}
+              >
                 {rows.map((delivery) => (
                   <tr key={delivery.id}>
                     <td>
@@ -491,7 +522,7 @@ function MerchantWebhooks({ pay }: { pay: BusinessPayApi }) {
                     <td>{delivery.status}</td>
                     <td>{delivery.attempts}</td>
                     <td>
-                      {delivery.lastStatusCode ?? 'No response'}
+                      {delivery.lastStatusCode ?? payCopy.t('noResponse')}
                       <small className="pay-cell-note">{delivery.lastError ?? ''}</small>
                     </td>
                     <td>{delivery.nextAttemptAt}</td>
@@ -511,26 +542,23 @@ function CreateWebhook({ pay, reload }: { pay: BusinessPayApi; reload: () => voi
   const [idempotencyKey, setIdempotencyKey] = useState(() => `webhook-register:${crypto.randomUUID()}`);
   const [secret, setSecret] = useState('');
   return (
-    <PaySection
-      title="Register a merchant webhook"
-      description="Configure an actual receiver. A signing secret is returned once; it is never saved by this page."
-    >
+    <PaySection title={payCopy.t('registerAMerchantWebhook')} description={payCopy.t('configureAnActualReceiverASigningSecret')}>
       <div className="form-stack pay-form">
         <Field
-          label="Webhook receiver URL"
+          label={payCopy.t('webhookReceiverUrl')}
           type="url"
           value={url}
           onChange={(event) => setUrl(event.target.value)}
-          hint="HTTPS is required except for a local development receiver."
+          hint={payCopy.t('httpsIsRequiredExceptForALocal')}
         />
         <ReviewedAction
-          title="Register webhook"
-          description="Register this receiver for the merchant. This is merchant configuration, not a sandbox delivery test. Verify your receiver before enabling it for real event delivery."
+          title={payCopy.t('registerWebhook')}
+          description={payCopy.t('registerThisReceiverForTheMerchantThis')}
           review={
             <PayDetails
               values={[
-                ['Receiver', url],
-                ['Merchant', pay.authority!.merchantId],
+                [payCopy.t('receiver'), url],
+                [payCopy.t('merchant'), pay.authority!.merchantId],
               ]}
             />
           }
@@ -544,10 +572,10 @@ function CreateWebhook({ pay, reload }: { pay: BusinessPayApi; reload: () => voi
           }}
         />
         {secret && (
-          <PayNotice title="Webhook signing secret returned once">
+          <PayNotice title={payCopy.t('webhookSigningSecretReturnedOnce')}>
             <code className="pay-secret">{secret}</code>
             <Button variant="secondary" onClick={() => setSecret('')}>
-              Hide signing secret
+              <PayCopy k="hideSigningSecret" />
             </Button>
           </PayNotice>
         )}
@@ -560,11 +588,11 @@ function WebhookToggle({ endpoint, pay, reload }: { endpoint: z.infer<typeof s.w
   const action = endpoint.status === 'active' ? 'disable' : 'enable';
   return (
     <ReviewedAction<unknown>
-      title={action === 'disable' ? 'Disable receiver' : 'Enable receiver'}
+      title={action === 'disable' ? payCopy.t('disableReceiver') : payCopy.t('enableReceiver')}
       description={
         action === 'disable'
-          ? 'Disable this merchant receiver. Existing delivery records remain visible.'
-          : 'Re-enable the repaired receiver and reset its failure counter. This does not send a fabricated test event.'
+          ? payCopy.t('disableThisMerchantReceiverExistingDeliveryRecords')
+          : payCopy.t('reEnableTheRepairedReceiverAndReset')
       }
       review={<p>{endpoint.url}</p>}
       perform={() => pay.manageWebhook(endpoint.id, action, key)}
