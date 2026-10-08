@@ -7,12 +7,13 @@ import { decimalSchema, parseAmount, formatAmount } from '../../shared/money';
 import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
 import type { Listing, TradeApi, Order } from './trade-api';
-import { usePreferences, savePreferences } from '../../shared/preferences';
+import { usePreferences, useResolvedTheme, savePreferences } from '../../shared/preferences';
 import { TIMEFRAMES } from './trade-api';
 
 type Point = { time: number; value: number };
 type Bar = { time: number; open: number; high: number; low: number; close: number; volume: number };
 type Series = {
+  applyOptions: (options: Record<string, unknown>) => void;
   update: (data: Point | Omit<Bar, 'volume'>) => void;
   setData: (data: (Point | Omit<Bar, 'volume'> | { time: number; value: number; color: string })[]) => void;
   createPriceLine: (options: Record<string, unknown>) => unknown;
@@ -21,6 +22,7 @@ type Series = {
   coordinateToPrice: (coordinate: number) => number | null;
 };
 type ChartApi = {
+  applyOptions: (options: Record<string, unknown>) => void;
   addSeries: (type: unknown, options?: Record<string, unknown>, pane?: number) => Series;
   remove: () => void;
   timeScale: () => {
@@ -40,6 +42,23 @@ type Engine = {
   LineSeries: unknown;
   HistogramSeries: unknown;
 };
+function chartAppearance() {
+  const css = getComputedStyle(document.documentElement),
+    up = css.getPropertyValue('--chart-up').trim() || css.getPropertyValue('--color-positive').trim() || '#c8f64a',
+    down = css.getPropertyValue('--chart-down').trim() || css.getPropertyValue('--color-negative').trim() || '#f05a68',
+    background = css.getPropertyValue('--color-shell').trim() || '#111111',
+    text = css.getPropertyValue('--color-muted').trim() || '#a3a3a3',
+    divider = css.getPropertyValue('--color-divider').trim() || '#262626';
+  return {
+    chart: {
+      layout: { background: { color: background }, textColor: text },
+      grid: { vertLines: { color: divider }, horzLines: { color: divider } },
+      rightPriceScale: { borderColor: divider },
+      timeScale: { borderColor: divider },
+    },
+    series: { color: up, upColor: up, downColor: down, wickUpColor: up, wickDownColor: down },
+  };
+}
 declare global {
   interface Window {
     LightweightCharts?: Engine;
@@ -213,6 +232,7 @@ export function MarketChart({
   onViewChange?: (view: ChartView) => void;
 }) {
   const preferences = usePreferences();
+  const theme = useResolvedTheme(preferences.theme);
   const [feedStatus, setFeedStatus] = useState(copy.t('chartHistoricalPrices')),
     [countdown, setCountdown] = useState<number | null>(null);
   const barHistory = useRef<OHLCV[]>([]),
@@ -409,21 +429,15 @@ export function MarketChart({
     void import('./vendor/lightweight-charts.standalone.production.js').then(() => {
       if (closed || !host.current || !window.LightweightCharts) return;
       const engine = window.LightweightCharts;
-      const css = getComputedStyle(document.documentElement),
-        up = css.getPropertyValue('--chart-up').trim() || css.getPropertyValue('--color-positive').trim() || '#c8f64a',
-        down = css.getPropertyValue('--chart-down').trim() || css.getPropertyValue('--color-negative').trim() || '#f05a68',
-        background = css.getPropertyValue('--color-shell').trim() || '#111111',
-        text = css.getPropertyValue('--color-muted').trim() || '#a3a3a3',
-        divider = css.getPropertyValue('--color-divider').trim() || '#262626';
+      const appearance = chartAppearance();
       try {
         const bars = chartBars(barHistory.current, type);
         rawPrice.current = new Map(barHistory.current.map((row) => [Math.floor(row[0] / 1000), row[4]]));
         chart = engine.createChart(host.current, {
           autoSize: true,
-          layout: { background: { color: background }, textColor: text, fontFamily: 'Inter', fontSize: 11, attributionLogo: true },
-          grid: { vertLines: { color: divider }, horzLines: { color: divider } },
-          rightPriceScale: { borderColor: divider },
-          timeScale: { borderColor: divider, timeVisible: true },
+          ...appearance.chart,
+          layout: { ...appearance.chart.layout, fontFamily: 'Inter', fontSize: 11, attributionLogo: true },
+          timeScale: { ...appearance.chart.timeScale, timeVisible: true },
           localization: {
             timeFormatter: (timestamp: number) =>
               new Intl.DateTimeFormat(preferences.language, {
@@ -435,12 +449,8 @@ export function MarketChart({
           crosshair: { mode: 0 },
         });
         const series = chart.addSeries(type === 'Line' ? engine.LineSeries : engine.CandlestickSeries, {
-          upColor: up,
-          downColor: down,
-          wickUpColor: up,
-          wickDownColor: down,
+          ...appearance.series,
           borderVisible: false,
-          color: up,
         });
         series.setData(type === 'Line' ? bars.map((bar) => ({ time: bar.time, value: bar.close })) : bars);
         studyUpdate.current = addStudies(chart, engine, chartBars(barHistory.current, 'Candles'), studies);
@@ -488,20 +498,15 @@ export function MarketChart({
       chart?.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      studyUpdate.current = null;
     };
-  }, [
-    resource,
-    comparison.resource,
-    type,
-    studies,
-    tool,
-    market.symbol,
-    compare,
-    preferences.upColor,
-    preferences.theme,
-    preferences.timeZone,
-    preferences.language,
-  ]);
+  }, [resource, comparison.resource, type, studies, tool, market.symbol, compare, preferences.timeZone, preferences.language]);
+  useEffect(() => {
+    const appearance = chartAppearance();
+    chartRef.current?.applyOptions(appearance.chart);
+    seriesRef.current?.applyOptions(appearance.series);
+    studyUpdate.current?.(chartBars(barHistory.current, 'Candles'));
+  }, [theme, preferences.upColor]);
   useEffect(() => {
     if (!host.current) return;
     const resize = new ResizeObserver(() => setChartRevision((value) => value + 1));
@@ -970,9 +975,12 @@ export function SecondaryChart({
   type?: string;
   workspace?: boolean;
 }) {
-  const host = useRef<HTMLDivElement>(null);
+  const host = useRef<HTMLDivElement>(null),
+    chartRef = useRef<ChartApi | null>(null),
+    seriesRef = useRef<Series | null>(null);
   const [failure, setFailure] = useState('');
   const preferences = usePreferences();
+  const theme = useResolvedTheme(preferences.theme);
   const result = useResource((signal) => api.history(symbol, interval, signal), `${symbol}:${interval}`);
   useEffect(() => {
     if (!host.current || result.resource.status !== 'ready' || !result.resource.data.length) return;
@@ -983,33 +991,21 @@ export function SecondaryChart({
       if (closed || !host.current || !window.LightweightCharts) return;
       try {
         const engine = window.LightweightCharts,
-          css = getComputedStyle(document.documentElement);
+          appearance = chartAppearance();
         chart = engine.createChart(host.current, {
           autoSize: true,
-          layout: {
-            background: { color: css.getPropertyValue('--color-shell').trim() },
-            textColor: css.getPropertyValue('--color-muted').trim(),
-          },
-          grid: {
-            vertLines: { color: css.getPropertyValue('--color-divider').trim() },
-            horzLines: { color: css.getPropertyValue('--color-divider').trim() },
-          },
-          rightPriceScale: { borderColor: css.getPropertyValue('--color-divider').trim() },
-          timeScale: { borderColor: css.getPropertyValue('--color-divider').trim(), timeVisible: true },
+          ...appearance.chart,
+          timeScale: { ...appearance.chart.timeScale, timeVisible: true },
         });
-        const color = css.getPropertyValue('--chart-up').trim() || css.getPropertyValue('--color-positive').trim(),
-          down = css.getPropertyValue('--chart-down').trim() || css.getPropertyValue('--color-negative').trim();
         const series = chart.addSeries(type === 'Line' ? engine.LineSeries : engine.CandlestickSeries, {
-          color,
-          upColor: color,
-          downColor: down,
-          wickUpColor: color,
-          wickDownColor: down,
+          ...appearance.series,
           borderVisible: false,
         });
         const bars = chartBars(rows, type);
         series.setData(type === 'Line' ? bars.map((row) => ({ time: row.time, value: row.close })) : bars);
         chart.timeScale().fitContent();
+        chartRef.current = chart;
+        seriesRef.current = series;
         setFailure('');
       } catch (error) {
         setFailure(error instanceof Error ? error.message : copy.t('secondaryChartFailure'));
@@ -1018,8 +1014,15 @@ export function SecondaryChart({
     return () => {
       closed = true;
       chart?.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
     };
-  }, [result.resource, type, preferences.upColor, preferences.theme]);
+  }, [result.resource, type]);
+  useEffect(() => {
+    const appearance = chartAppearance();
+    chartRef.current?.applyOptions(appearance.chart);
+    seriesRef.current?.applyOptions(appearance.series);
+  }, [theme, preferences.upColor]);
   return (
     <section
       className={workspace ? 'trade-secondary-view' : undefined}

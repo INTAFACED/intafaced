@@ -633,6 +633,57 @@ test('Trade authored Spanish controls keep native order enums, IDs, units and ex
   await expect(page.getByText('open', { exact: true })).toBeVisible();
 });
 
+test('device appearance repaints both mounted charts while preserving the analysis and order draft', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.addInitScript(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ theme: 'system' })));
+  const server = await mount(page, { working: true });
+  await page.goto('/exchange?fullApp=1');
+  await page.getByText('Workspace', { exact: true }).click();
+  await page.getByRole('button', { name: 'Two timeframes', exact: true }).click();
+  await expect(page.locator('.trade-secondary-chart canvas').first()).toBeVisible();
+  await page.getByLabel('Amount (BTC)', { exact: true }).fill('0.025');
+  const primary = page.getByRole('img', { name: 'Actual BTC/USDT historical prices', exact: true });
+  await primary.focus();
+  await primary.press('ArrowLeft');
+  const inspection = page.getByText('O 80000 · H 80020 · L 79990 · C 80001 USDT · V 1 BTC', { exact: true });
+  await expect(inspection).toBeVisible();
+  await page.evaluate(() => {
+    (window as Window & { appearanceCanvases?: Element[] }).appearanceCanvases = [...document.querySelectorAll('canvas')];
+  });
+  const followsAppearance = async () =>
+    page.evaluate(() => {
+      const color = getComputedStyle(document.documentElement).getPropertyValue('--color-shell').trim();
+      const rgb = color
+        .slice(1)
+        .match(/../g)!
+        .map((channel) => parseInt(channel, 16));
+      return ['[role="img"] canvas', '.trade-secondary-chart canvas'].map((selector) =>
+        [...document.querySelectorAll<HTMLCanvasElement>(selector)].some((canvas) => {
+          const pixels = canvas.getContext('2d')!.getImageData(2, 2, 1, 1).data;
+          return pixels[3] === 255 && rgb.every((channel, index) => pixels[index] === channel);
+        }),
+      );
+    });
+  await expect.poll(followsAppearance).toEqual([true, true]);
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    await expect(page.locator('html')).toHaveAttribute('data-theme', colorScheme);
+    await expect.poll(followsAppearance).toEqual([true, true]);
+    expect(
+      await page.evaluate(() => {
+        const before = (window as Window & { appearanceCanvases?: Element[] }).appearanceCanvases!;
+        const after = [...document.querySelectorAll('canvas')];
+        return before.length === after.length && before.every((canvas, index) => canvas === after[index]);
+      }),
+    ).toBe(true);
+    await expect(inspection).toBeVisible();
+    await expect(page.getByLabel('Amount (BTC)', { exact: true })).toHaveValue('0.025');
+  }
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('intafaced.customer.view.v1')!).theme)).toBe('system');
+  expect(server.placements()).toBe(0);
+  expect(server.deletes()).toBe(0);
+});
+
 test('a light Desk cancellation review has a readable danger action without dispatching it', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ theme: 'light' })));
   const server = await mount(page, { working: true });

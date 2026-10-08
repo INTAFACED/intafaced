@@ -51,3 +51,17 @@ export function usePreferences() {
 export function currentPreferences() {
   return snapshot;
 }
+
+const deviceAppearanceQuery = '(prefers-color-scheme: light)';
+function subscribeDeviceAppearance(notify: () => void) {
+  const media = window.matchMedia(deviceAppearanceQuery);
+  media.addEventListener('change', notify);
+  return () => media.removeEventListener('change', notify);
+}
+function deviceUsesLightAppearance() {
+  return typeof window !== 'undefined' && window.matchMedia(deviceAppearanceQuery).matches;
+}
+export function useResolvedTheme(theme: Preferences['theme']): 'light' | 'dark' {
+  const deviceIsLight = useSyncExternalStore(subscribeDeviceAppearance, deviceUsesLightAppearance, () => false);
+  return theme === 'system' ? (deviceIsLight ? 'light' : 'dark') : theme;
+}

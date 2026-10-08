@@ -1,24 +1,19 @@
 import { copy, t as copyText, Text } from './copy';
-import { useEffect, useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import { Page, Button } from '../../shared/ui';
-import { usePreferences, savePreferences } from '../../shared/preferences';
+import { usePreferences, useResolvedTheme, savePreferences } from '../../shared/preferences';
 import { renderedUiLanguage, useCopyRevision } from '../../shared/i18n';
 
 export function ApplyView() {
   const preferences = usePreferences();
+  const theme = useResolvedTheme(preferences.theme);
   const copyRevision = useCopyRevision();
-  useEffect(() => {
-    const media = matchMedia('(prefers-color-scheme: light)');
-    const apply = () => {
-      document.documentElement.dataset.theme = preferences.theme === 'system' ? (media.matches ? 'light' : 'dark') : preferences.theme;
-      document.documentElement.dataset.upColor = preferences.upColor;
-      document.documentElement.dataset.phoneChart = preferences.phoneChart;
-      document.documentElement.lang = renderedUiLanguage(preferences.language);
-    };
-    apply();
-    media.addEventListener('change', apply);
-    return () => media.removeEventListener('change', apply);
-  }, [preferences, copyRevision]);
+  useLayoutEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.dataset.upColor = preferences.upColor;
+    document.documentElement.dataset.phoneChart = preferences.phoneChart;
+    document.documentElement.lang = renderedUiLanguage(preferences.language);
+  }, [preferences, theme, copyRevision]);
   return null;
 }
 export function View() {
