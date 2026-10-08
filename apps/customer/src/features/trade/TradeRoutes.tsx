@@ -22,6 +22,7 @@ import { useLinkedBook, usePolled } from './hooks';
 import { MarketChart } from './Chart';
 import { TradingTools } from './TradingTools';
 import { ReplaceOrder } from './ReplaceOrder';
+import { DeskFrame, UnavailableDesk } from './Workspace';
 import './trade.css';
 
 const modes = ['Spot', 'Margin', 'Futures', 'Options', 'Copy', 'Bots', 'Execution', 'Quote desk'];
@@ -61,7 +62,7 @@ export function TradeRoutes({ path }: { path: string }) {
     }
     setFavoritesKey(key);
   }, [userId]);
-  const [simulation, setSimulation] = useState(false),
+  const [simulation, setSimulation] = useState(() => new URLSearchParams(location.search).get('simulated') === 'true'),
     [picker, setPicker] = useState(false),
     [selected, setSelected] = useState<string | null>(null);
   const activeMode = path.startsWith('/trade/convert')
@@ -74,7 +75,7 @@ export function TradeRoutes({ path }: { path: string }) {
   const query = new URLSearchParams(location.search),
     asset = query.get('asset')?.toUpperCase(),
     initialSide = query.get('side') === 'sell' ? 'sell' : 'buy';
-  const routePair = path.startsWith('/exchange/') ? decodePair(path.slice('/exchange/'.length)) : null;
+  const routePair = path.startsWith('/exchange/') ? decodePair(path.split('?')[0]!.slice('/exchange/'.length)) : null;
   const markets = catalogue.resource.status === 'ready' ? catalogue.resource.data : [];
   const visible = markets.filter(
     (market) =>
@@ -94,6 +95,7 @@ export function TradeRoutes({ path }: { path: string }) {
   }, [favorites, userId, favoritesKey]);
   useEffect(() => {
     setSelected(null);
+    setSimulation(new URLSearchParams(location.search).get('simulated') === 'true');
   }, [path]);
   function choose(value: Listing) {
     setSelected(value.symbol);
@@ -104,7 +106,11 @@ export function TradeRoutes({ path }: { path: string }) {
       <nav className="trade-modes" aria-label="Trading modes">
         <div className="trade-mode-links">
           {modes.map((mode) => (
-            <a key={mode} aria-current={activeMode === mode ? 'page' : undefined} href={modeRoutes[mode]}>
+            <a
+              key={mode}
+              aria-current={activeMode === mode ? 'page' : undefined}
+              href={`${modeRoutes[mode]}${simulation ? '?simulated=true' : ''}`}
+            >
               {mode}
             </a>
           ))}
@@ -116,6 +122,10 @@ export function TradeRoutes({ path }: { path: string }) {
             onChange={(event) => {
               setSimulation(event.target.checked);
               setSelected(null);
+              const target = new URL(location.href);
+              if (event.target.checked) target.searchParams.set('simulated', 'true');
+              else target.searchParams.delete('simulated');
+              history.replaceState(history.state, '', `${target.pathname}${target.search}${target.hash}`);
             }}
           />
           Simulated
@@ -166,20 +176,20 @@ export function TradeRoutes({ path }: { path: string }) {
               ))}
             <button onClick={() => setPicker(true)}>All markets</button>
           </div>
-          {catalogue.resource.status === 'loading' ? (
-            <Loading label="Loading published markets" />
-          ) : catalogue.resource.status === 'failed' ? (
-            <Failure result={catalogue.resource.failure} retry={catalogue.reload} />
-          ) : market ? (
+          {catalogue.resource.status === 'ready' && market ? (
             <SpotDesk
               key={`${market.id}:${userId ?? 'guest'}`}
               market={market}
               api={api}
               initialTab={path.includes('history') ? 'History' : 'Open orders'}
               initialSide={initialSide}
+              markets={visible}
             />
           ) : (
-            <EmptyState
+            <UnavailableDesk
+              resource={catalogue.resource}
+              retry={catalogue.reload}
+              simulation={simulation}
               title={
                 simulation
                   ? 'No simulated spot market is published'
@@ -187,11 +197,7 @@ export function TradeRoutes({ path }: { path: string }) {
                     ? 'This market is not available in this mode'
                     : 'No spot markets are published'
               }
-            >
-              {simulation
-                ? 'Simulation uses only markets explicitly marked simulated by the service. It cannot fall back to a live market.'
-                : 'Select a published spot market to open its chart, book, and order ticket.'}
-            </EmptyState>
+            />
           )}
         </>
       )}
@@ -201,7 +207,8 @@ export function TradeRoutes({ path }: { path: string }) {
 }
 function decodePair(value: string) {
   try {
-    return decodeURIComponent(value).replace('_', '/').replace('-', '/').toUpperCase();
+    const decoded = decodeURIComponent(value).toUpperCase();
+    return decoded.includes('/') ? decoded : decoded.replace('_', '/').replace('-', '/');
   } catch {
     return null;
   }
@@ -293,11 +300,13 @@ function SpotDesk({
   market,
   initialTab,
   initialSide,
+  markets,
 }: {
   api: TradeApi;
   market: Listing;
   initialTab: string;
   initialSide: 'buy' | 'sell';
+  markets: Listing[];
 }) {
   const { userId } = useSession(),
     preferences = usePreferences();
@@ -473,21 +482,27 @@ function SpotDesk({
   const orders = open.resource.status === 'ready' ? open.resource.data : [];
   return (
     <>
-      <div className="trade-workspace">
-        <div className="trade-analysis">
-          <div className="trade-analysis-top">
-            <MarketChart
-              api={api}
-              market={market}
-              orders={orders}
-              onStagePrice={setStaged}
-              accountKey={accountKey}
-              onStageAmend={(order, price) => {
-                if (!pending) setManage({ order, kind: 'replace', price });
-              }}
-            />
-            <BookAndTape api={api} market={market} book={book} onStagePrice={setStaged} />
-          </div>
+      <DeskFrame
+        api={api}
+        market={market}
+        markets={markets}
+        chart={(view, revision, onViewChange) => (
+          <MarketChart
+            key={revision}
+            api={api}
+            market={market}
+            orders={orders}
+            onStagePrice={setStaged}
+            accountKey={accountKey}
+            initialView={view}
+            onViewChange={onViewChange}
+            onStageAmend={(order, price) => {
+              if (!pending) setManage({ order, kind: 'replace', price });
+            }}
+          />
+        )}
+        book={<BookAndTape api={api} market={market} book={book} onStagePrice={setStaged} />}
+        management={
           <OrderBlotter
             api={api}
             initialTab={initialTab}
@@ -496,54 +511,56 @@ function SpotDesk({
             onManage={(order, kind) => setManage({ order, kind })}
             locked={Boolean(pending)}
           />
-        </div>
-        <aside className="trade-ticket-column">
-          <OrderTicket
-            api={api}
-            market={market}
-            initialSide={initialSide}
-            staged={staged}
-            fresh={book.book.fresh}
-            balances={balances.resource}
-            pending={pending}
-            onIntent={reserveIntent}
-            onResolved={(identity) => {
-              setIntent(null, identity);
-              refresh();
-            }}
-            onStatus={setStatus}
-          />
-          <section className="trade-funds">
-            <h3>{market.paper ? 'Simulation · no live funds' : 'Funds · Personal'}</h3>
-            {market.paper ? (
-              <p className="muted">
-                Paper orders use the service’s isolated paper path and zero ledger reservation. A simulated balance history is not
-                published; live balances are not read here.
-              </p>
-            ) : (
-              <ResourceView resource={balances.resource} retry={balances.reload}>
-                {(data) => (
-                  <dl>
-                    {[market.quote, market.base].map((asset) => (
-                      <div key={asset}>
-                        <dt>Available {asset}</dt>
-                        <dd className="numeric">{preferences.hideBalances ? '••••' : displayAmount(data.balances[asset]?.free)}</dd>
-                        <dt>Held {asset}</dt>
-                        <dd className="numeric">{preferences.hideBalances ? '••••' : displayAmount(data.balances[asset]?.used)}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                )}
-              </ResourceView>
-            )}
-            {!market.paper && (
-              <a className="text-link" href="/money">
-                Manage in Money ↗
-              </a>
-            )}
-          </section>
-        </aside>
-      </div>
+        }
+        ticket={
+          <aside className="trade-ticket-column">
+            <OrderTicket
+              api={api}
+              market={market}
+              initialSide={initialSide}
+              staged={staged}
+              fresh={book.book.fresh}
+              balances={balances.resource}
+              pending={pending}
+              onIntent={reserveIntent}
+              onResolved={(identity) => {
+                setIntent(null, identity);
+                refresh();
+              }}
+              onStatus={setStatus}
+            />
+            <section className="trade-funds">
+              <h3>{market.paper ? 'Simulation · no live funds' : 'Funds · Personal'}</h3>
+              {market.paper ? (
+                <p className="muted">
+                  Paper orders use the service’s isolated paper path and zero ledger reservation. A simulated balance history is not
+                  published; live balances are not read here.
+                </p>
+              ) : (
+                <ResourceView resource={balances.resource} retry={balances.reload}>
+                  {(data) => (
+                    <dl>
+                      {[market.quote, market.base].map((asset) => (
+                        <div key={asset}>
+                          <dt>Available {asset}</dt>
+                          <dd className="numeric">{preferences.hideBalances ? '••••' : displayAmount(data.balances[asset]?.free)}</dd>
+                          <dt>Held {asset}</dt>
+                          <dd className="numeric">{preferences.hideBalances ? '••••' : displayAmount(data.balances[asset]?.used)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
+                </ResourceView>
+              )}
+              {!market.paper && (
+                <a className="text-link" href="/money">
+                  Manage in Money ↗
+                </a>
+              )}
+            </section>
+          </aside>
+        }
+      />
       {pending && (
         <div className="trade-uncertain" role="alert">
           <strong>Outcome not confirmed · {pending.kind}</strong>
@@ -987,7 +1004,7 @@ function OrderTicket({
     >
       <div className="trade-panel-title">
         <h2>Trade</h2>
-        <a href="/trade/bots">Tools ↗</a>
+        <a href={`/trade/bots${market.paper ? '?simulated=true' : ''}`}>Tools ↗</a>
       </div>
       <div className="trade-ticket-body">
         <div className="trade-ticket-context">
@@ -1207,7 +1224,10 @@ function OrderTicket({
             <Button disabled={blocked || busy} onClick={preview}>
               {busy ? 'Checking order…' : `Review ${side}`}
             </Button>
-            <a className="text-link" href={`/trade/convert?asset=${encodeURIComponent(market.base)}`}>
+            <a
+              className="text-link"
+              href={`/trade/convert?asset=${encodeURIComponent(market.base)}${market.paper ? '&simulated=true' : ''}`}
+            >
               Convert {market.base} ↗
             </a>
             <small className="muted">
@@ -1223,7 +1243,10 @@ function OrderTicket({
           </>
         )}
         {!session ? (
-          <a className="text-link" href={`/login?redirect=${encodeURIComponent(`/exchange/${market.symbol.replace('/', '_')}`)}`}>
+          <a
+            className="text-link"
+            href={`/login?redirect=${encodeURIComponent(`/exchange/${encodeURIComponent(market.symbol)}${market.paper ? '?simulated=true' : ''}`)}`}
+          >
             Sign in to trade
           </a>
         ) : (

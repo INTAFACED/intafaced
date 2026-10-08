@@ -1,4 +1,22 @@
 import { test, expect, type Page } from '@playwright/test';
+import { mkdir } from 'node:fs/promises';
+
+test('an unavailable catalog retains the four Desk work areas and retries without inventing market data', async ({ page }) => {
+  let reads = 0;
+  await page.route('**/api/**', async (route) => {
+    if (new URL(route.request().url()).pathname === '/api/v1/markets') reads++;
+    await route.fulfill({ status: 503, json: { code: 'trade.catalog_unavailable', message: 'Published markets are unavailable.' } });
+  });
+  await page.goto('/exchange');
+  await expect(page.getByRole('region', { name: 'Market chart unavailable' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Order book unavailable' })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Order ticket unavailable' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Order management unavailable' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review order', exact: true })).toBeDisabled();
+  await expect(page.locator('.trade-workspace canvas')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Retry published markets', exact: true }).click();
+  await expect.poll(() => reads).toBe(2);
+});
 
 // Financial examples are test-only network responses, never application fallback data.
 const time = Date.now(),
@@ -278,6 +296,113 @@ async function mount(
     balanceReads: () => balanceReads,
   };
 }
+
+test('an explicit Academy simulation link opens only a published paper row and preserves its navigation mode', async ({ page }) => {
+  const server = await mount(page, { paper: true });
+  await page.goto('/exchange/BTC%2FUSDT?simulated=true');
+  await expect(page.getByRole('checkbox', { name: 'Simulated', exact: true })).toBeChecked();
+  await expect(page.getByRole('button', { name: 'Review buy', exact: true })).toBeEnabled();
+  await expect(page.getByText('Simulation · no live funds', { exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Spot', exact: true })).toHaveAttribute('href', '/exchange?simulated=true');
+  expect(server.balanceReads()).toBe(0);
+});
+
+test('a requested paper market cannot fall back to the identically named live catalog row', async ({ page }) => {
+  const server = await mount(page);
+  await page.goto('/exchange/BTC%2FUSDT?simulated=true');
+  await expect(page.getByRole('checkbox', { name: 'Simulated', exact: true })).toBeChecked();
+  await expect(page.getByText('No simulated spot market is published', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review order', exact: true })).toBeDisabled();
+  expect(server.balanceReads()).toBe(0);
+});
+
+test('Desk panels resize by keyboard and pointer, keep bounds, persist geometry and restore R5 defaults', async ({ page }) => {
+  await mount(page);
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto('/exchange');
+  const ticket = page.getByRole('separator', { name: 'Resize order ticket' });
+  await ticket.focus();
+  await ticket.press('ArrowLeft');
+  await expect(ticket).toHaveAttribute('aria-valuenow', '340');
+  const book = page.getByRole('separator', { name: 'Resize order book' });
+  const box = (await book.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 - 60, box.y + 20);
+  await page.mouse.up();
+  await expect(book).toHaveAttribute('aria-valuenow', '348');
+  const chart = page.getByRole('separator', { name: 'Resize chart height' });
+  await chart.press('Home');
+  await expect(chart).toHaveAttribute('aria-valuenow', '380');
+  await chart.press('End');
+  await expect(chart).toHaveAttribute('aria-valuenow', '900');
+  await page.reload();
+  await expect(ticket).toHaveAttribute('aria-valuenow', '340');
+  await expect(chart).toHaveAttribute('aria-valuenow', '900');
+  await page.getByText('Workspace', { exact: true }).click();
+  await page.getByRole('button', { name: 'Restore default workspace' }).click();
+  await expect(ticket).toHaveAttribute('aria-valuenow', '320');
+  await expect(chart).toHaveAttribute('aria-valuenow', '548');
+});
+
+test('a named multi-chart workspace restores its market views and panel sizes without carrying order amounts', async ({ page }) => {
+  await mount(page);
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto('/exchange');
+  await page.getByText('Workspace', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Two timeframes', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Two timeframes', exact: true }).click();
+  await page.getByLabel('Linked chart 1 market').selectOption('ETH/USDT');
+  await page.getByLabel('Linked chart 1 interval').selectOption('4h');
+  await page.getByLabel('Linked chart 1 type').selectOption('Candles');
+  await expect(page.getByRole('region', { name: 'Linked chart 1 · ETH/USDT' }).locator('canvas').first()).toBeVisible();
+  await page.getByRole('separator', { name: 'Resize order ticket' }).press('ArrowLeft');
+  await page.getByLabel('Workspace name').fill('Research views');
+  await page.getByRole('button', { name: 'Save workspace on device', exact: true }).click();
+  await page.getByRole('button', { name: 'Focused chart', exact: true }).click();
+  await page.reload();
+  await page.getByText('Workspace', { exact: true }).click();
+  await page.getByRole('button', { name: 'Restore workspace Research views' }).click();
+  await expect(page.getByLabel('Linked chart 1 market')).toHaveValue('ETH/USDT');
+  await expect(page.getByLabel('Linked chart 1 interval')).toHaveValue('4h');
+  await expect(page.getByRole('separator', { name: 'Resize order ticket' })).toHaveAttribute('aria-valuenow', '340');
+  const saved = await page.evaluate(() => localStorage.getItem('trade-desk-workspaces:v1'));
+  expect(saved).not.toMatch(/balance|amount|price|credential|token|accessToken/i);
+});
+
+test('four actual history views fit between desktop and phone widths and retain their controls', async ({ page }) => {
+  await mount(page);
+  const proof = '/Users/Nitro/Desktop/intafaced-interface-overview/named-look/build/desk-completion-proof';
+  await mkdir(proof, { recursive: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto('/exchange');
+  await page.getByText('Workspace', { exact: true }).click();
+  await page.getByRole('button', { name: 'Four timeframes', exact: true }).click();
+  await page.getByText('Workspace', { exact: true }).click();
+  for (const width of [1440, 1010, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect(page.getByLabel('Linked chart 3 interval')).toHaveValue('1d');
+    await expect(page.getByRole('region', { name: 'Linked chart 3 · BTC/USDT' }).locator('canvas').first()).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth), `${width}px document`).toBeLessThanOrEqual(width);
+    const primary = page.getByRole('img', { name: 'Actual BTC/USDT historical prices', exact: true });
+    const parent = page.locator('.trade-chart-grid > .trade-chart');
+    const chartBox = (await primary.boundingBox())!,
+      panelBox = (await parent.boundingBox())!;
+    expect(chartBox.y + chartBox.height, `${width}px primary chart bounds`).toBeLessThanOrEqual(panelBox.y + panelBox.height);
+    await page.screenshot({ path: `${proof}/four-views-${width}.png` });
+  }
+});
+
+test('an empty history draws no synthetic price axes on either workspace chart', async ({ page }) => {
+  await mount(page);
+  await page.route('**/api/v1/ohlcv/**', (route) => route.fulfill({ json: [] }));
+  await page.goto('/exchange');
+  await expect(page.getByText('No price history', { exact: true })).toBeVisible();
+  await page.getByText('Workspace', { exact: true }).click();
+  await page.getByRole('button', { name: 'Two timeframes', exact: true }).click();
+  await expect(page.getByText('No history for the second chart', { exact: true })).toBeVisible();
+  await expect(page.locator('.trade-chart-grid canvas')).toHaveCount(0);
+});
 
 test('switching to simulation while the final spot preview is pending prevents live dispatch', async ({ page }) => {
   const server = await mount(page, { delayedPreview: true });
