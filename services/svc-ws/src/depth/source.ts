@@ -314,17 +314,21 @@ export class HttpDepthSource implements DepthSource {
     if (typeof raw.sequence !== 'number' || !Number.isInteger(raw.sequence)) {
       throw new DepthSourceError(`${marketId}: depth response carries no integer sequence`, null);
     }
+    // The engine's sequence is the only thing that makes a delta stream safe.
+    // If we cannot read it, we must not invent one. Both sides of the ladder
+    // parse before the trading flag is stored: a refused book must not leave
+    // this body's halt in trading(), and must not invent OPEN.
+    const bids = parseLevels(raw.bids, 'bids', marketId);
+    const asks = parseLevels(raw.asks, 'asks', marketId);
     // Matching trading flags ride on the same public read. Omitted flags stay
     // unknown — never invented OPEN, never invented halt from an empty ladder.
     this.#depthTrading.set(marketId, parseMatchingTrading(body));
-    // The engine's sequence is the only thing that makes a delta stream safe.
-    // If we cannot read it, we must not invent one.
     return {
       type: 'snapshot',
       marketId,
       sequence: raw.sequence,
-      bids: parseLevels(raw.bids, 'bids', marketId),
-      asks: parseLevels(raw.asks, 'asks', marketId),
+      bids,
+      asks,
     };
   }
 

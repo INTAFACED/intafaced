@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEPTH_MARKET_HALTED } from '../matching-trading.js';
 import { DepthL3UnavailableError, DepthNoBookError, DepthSourceError, HttpDepthSource, parseNativeL3 } from './source.js';
 
 /**
@@ -33,6 +34,57 @@ describe('HttpDepthSource', () => {
   it('refuses a level carrying a JSON number instead of a decimal string', async () => {
     const s = source(respondWith({ bids: [[100.5, 2]], asks: [], sequence: 1 }));
     await expect(s.snapshot('BTC-USDT', 50)).rejects.toThrow(/decimal strings/);
+  });
+
+  it("does not leave a refused book's trading flag in trading()", async () => {
+    // The halt rides on the same body as the ladder. A refused ladder must not
+    // store that body's flag: a market with no prior flag stays unknown, and a
+    // prior flag stays as it was. Do not invent OPEN, and do not serve the halt
+    // from the body that was refused.
+    const fresh = source(
+      respondWith({
+        marketId: 'BTC-USDT',
+        sequence: 9,
+        bids: [['100', '1']],
+        asks: [['101', 1]],
+        halted: true,
+      }),
+    );
+    await expect(fresh.snapshot('BTC-USDT', 50)).rejects.toThrow(/decimal strings/);
+    expect(fresh.trading('BTC-USDT')).toBeNull();
+
+    let serveGood = true;
+    const held = source((async () => {
+      const body = serveGood
+        ? {
+            marketId: 'BTC-USDT',
+            sequence: 4,
+            bids: [['100', '1']],
+            asks: [['101', '1']],
+            halted: true,
+          }
+        : {
+            marketId: 'BTC-USDT',
+            sequence: 5,
+            bids: [['100', '1']],
+            asks: [['101', 1]],
+            delisted: true,
+          };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof globalThis.fetch);
+
+    await expect(held.snapshot('BTC-USDT', 50)).resolves.toEqual({
+      type: 'snapshot',
+      marketId: 'BTC-USDT',
+      sequence: 4,
+      bids: [['100', '1']],
+      asks: [['101', '1']],
+    });
+    expect(held.trading('BTC-USDT')).toBe(DEPTH_MARKET_HALTED);
+
+    serveGood = false;
+    await expect(held.snapshot('BTC-USDT', 50)).rejects.toThrow(/decimal strings/);
+    expect(held.trading('BTC-USDT')).toBe(DEPTH_MARKET_HALTED);
   });
 
   it('refuses a response with no integer sequence', async () => {
