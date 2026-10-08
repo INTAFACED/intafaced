@@ -99,6 +99,11 @@ contract SessionPayoutVenue {
     }
 }
 
+/// Native sink for a session call. Payable so the spend cap is the only limit.
+contract SessionGasSink {
+    function hold() external payable {}
+}
+
 /// S-A8: session-key escalation, spend-limit re-entrancy, validateUserOp gate.
 contract SessionKeyForgeTest {
     uint256 internal constant SESSION_PRIV = 0xA11CE;
@@ -160,6 +165,32 @@ contract SessionKeyForgeTest {
         op.callData = callData;
         op.signature = signature;
     }
+
+    function _sessionExecuteOp(
+        SmartAccount account,
+        SessionKeyLib.SessionSpec memory spec,
+        address target,
+        uint256 value,
+        bytes32 userOpHash
+    ) internal returns (PackedUserOperation memory) {
+        bytes memory guarded = abi.encodeWithSelector(
+            SmartAccount.executeWithSession.selector,
+            spec,
+            target,
+            value,
+            abi.encodeWithSelector(SessionGasSink.hold.selector)
+        );
+        return _blankOp(address(account), guarded, _sessionEnvelope(SESSION_PRIV, userOpHash));
+    }
+
+    function _selector(bytes memory reason) internal pure returns (bytes4 sel) {
+        require(reason.length >= 4, "revert data");
+        assembly {
+            sel := mload(add(reason, 32))
+        }
+    }
+
+    receive() external payable {}
 
     // ── assertGrantable: self-target ─────────────────────────────────────────
 
@@ -363,6 +394,178 @@ contract SessionKeyForgeTest {
         require(uint160(data) == 0, "authorizer must be zero on success");
         require(uint256(uint48(data >> 160)) == spec.validUntil, "validUntil packed");
         require(uint256(uint48(data >> 208)) == spec.validAfter, "validAfter packed");
+    }
+
+    function test_validateUserOp_session_gas_over_spend_limit_does_not_pay() public {
+        SmartAccount account = _deployClone();
+        SessionGasSink sink = new SessionGasSink();
+        address sessionKey = vm.addr(SESSION_PRIV);
+        SessionKeyLib.SessionSpec memory spec = _legalSpec(sessionKey, address(sink));
+        spec.selectors[0] = SessionGasSink.hold.selector;
+        account.grantSession(spec);
+
+        uint256 grant = spec.spendLimitWei;
+        uint256 over = grant + 1;
+        vm.deal(address(account), grant * 3);
+        uint256 accountBefore = address(account).balance;
+        uint256 entryBefore = address(this).balance;
+
+        PackedUserOperation memory op = _sessionExecuteOp(account, spec, address(sink), 0, keccak256("session-gas-over-grant"));
+        try account.validateUserOp(op, keccak256("session-gas-over-grant"), over) {
+            revert("gas above the stored grant must revert");
+        } catch (bytes memory reason) {
+            require(_selector(reason) == SmartAccount.SessionSpendLimitExceeded.selector, "stored grant");
+        }
+        require(address(account).balance == accountBefore, "over-grant gas moved account eth");
+        require(address(this).balance == entryBefore, "over-grant gas paid the entry point");
+        require(account.getSession(sessionKey).spentWei == 0, "over-grant gas counted");
+
+        SessionKeyLib.SessionSpec memory inflated = _legalSpec(sessionKey, address(sink));
+        inflated.selectors[0] = SessionGasSink.hold.selector;
+        inflated.spendLimitWei = spec.spendLimitWei * 2;
+        op = _sessionExecuteOp(account, inflated, address(sink), 0, keccak256("session-gas-inflated-grant"));
+        try account.validateUserOp(op, keccak256("session-gas-inflated-grant"), over) {
+            revert("calldata spend limit must not raise the stored grant");
+        } catch (bytes memory reason) {
+            require(_selector(reason) == SmartAccount.SessionSpecMismatch.selector, "stored spec");
+        }
+        require(address(account).balance == accountBefore, "inflated grant moved account eth");
+        require(address(this).balance == entryBefore, "inflated grant paid the entry point");
+        require(account.getSession(sessionKey).spentWei == 0, "inflated grant counted");
+
+        _assertExactStoredGrantPays(account, sink, spec, grant);
+    }
+
+    /// Equality with the stored grant is still inside it. A second draw is not.
+    function _assertExactStoredGrantPays(
+        SmartAccount account,
+        SessionGasSink sink,
+        SessionKeyLib.SessionSpec memory spec,
+        uint256 grant
+    ) internal {
+        uint256 accountBefore = address(account).balance;
+        uint256 entryBefore = address(this).balance;
+        bytes32 payHash = keccak256("session-gas-exact-grant");
+        uint256 data = account.validateUserOp(_sessionExecuteOp(account, spec, address(sink), 0, payHash), payHash, grant);
+        require(data != SIG_VALIDATION_FAILED, "gas equal to the stored grant must validate");
+        require(address(account).balance == accountBefore - grant, "exact grant left the account");
+        require(address(this).balance == entryBefore + grant, "entry point received the exact grant");
+        require(account.getSession(spec.key).spentWei == grant, "exact grant counted");
+        _assertSecondGrantDrawRefused(account, sink, spec, grant);
+    }
+
+    function _assertSecondGrantDrawRefused(
+        SmartAccount account,
+        SessionGasSink sink,
+        SessionKeyLib.SessionSpec memory spec,
+        uint256 grant
+    ) internal {
+        uint256 accountBefore = address(account).balance;
+        uint256 entryBefore = address(this).balance;
+        bytes32 again = keccak256("session-gas-after-exact-grant");
+        try account.validateUserOp(_sessionExecuteOp(account, spec, address(sink), 0, again), again, grant) {
+            revert("a second grant of gas must revert");
+        } catch (bytes memory reason) {
+            require(_selector(reason) == SmartAccount.SessionSpendLimitExceeded.selector, "grant already used");
+        }
+        require(address(account).balance == accountBefore, "second gas payment moved account eth");
+        require(address(this).balance == entryBefore, "second gas payment reached the entry point");
+        require(account.getSession(spec.key).spentWei == grant, "second gas payment counted");
+    }
+
+    function test_validateUserOp_session_gas_within_remaining_grant_proceeds() public {
+        SmartAccount account = _deployClone();
+        SessionGasSink sink = new SessionGasSink();
+        address sessionKey = vm.addr(SESSION_PRIV);
+        SessionKeyLib.SessionSpec memory spec = _legalSpec(sessionKey, address(sink));
+        spec.selectors[0] = SessionGasSink.hold.selector;
+        account.grantSession(spec);
+
+        uint256 grant = spec.spendLimitWei;
+        uint256 prior = grant / 2;
+        vm.deal(address(account), grant * 2);
+        bytes memory hold = abi.encodeWithSelector(SessionGasSink.hold.selector);
+        account.executeWithSession(spec, address(sink), prior, hold);
+        require(account.getSession(sessionKey).spentWei == prior, "call value inside the grant");
+        require(address(sink).balance == prior, "capped call value paid the target");
+
+        _assertGasAboveRemainingRefused(account, sink, spec, prior, grant - prior);
+        _assertGasInsideRemainingPays(account, sink, spec, prior, grant);
+        _assertCallValueStillCapped(account, sink, spec, prior, grant);
+    }
+
+    function _assertGasAboveRemainingRefused(
+        SmartAccount account,
+        SessionGasSink sink,
+        SessionKeyLib.SessionSpec memory spec,
+        uint256 prior,
+        uint256 remaining
+    ) internal {
+        uint256 accountBefore = address(account).balance;
+        uint256 entryBefore = address(this).balance;
+        bytes32 overHash = keccak256("session-gas-over-remaining");
+        PackedUserOperation memory overOp = _sessionExecuteOp(account, spec, address(sink), 0, overHash);
+        try account.validateUserOp(overOp, overHash, remaining + 1) {
+            revert("gas above the remaining grant must revert");
+        } catch (bytes memory reason) {
+            require(_selector(reason) == SmartAccount.SessionSpendLimitExceeded.selector, "remaining grant");
+        }
+        require(address(account).balance == accountBefore, "over-remaining gas moved account eth");
+        require(address(this).balance == entryBefore, "over-remaining gas paid the entry point");
+        require(account.getSession(spec.key).spentWei == prior, "over-remaining gas counted");
+    }
+
+    function _assertGasInsideRemainingPays(
+        SmartAccount account,
+        SessionGasSink sink,
+        SessionKeyLib.SessionSpec memory spec,
+        uint256 prior,
+        uint256 grant
+    ) internal {
+        uint256 pay = (grant - prior) / 2;
+        uint256 accountBefore = address(account).balance;
+        uint256 entryBefore = address(this).balance;
+        bytes32 payHash = keccak256("session-gas-within-remaining");
+        uint256 data = account.validateUserOp(_sessionExecuteOp(account, spec, address(sink), 0, payHash), payHash, pay);
+        require(data != SIG_VALIDATION_FAILED, "gas inside the remaining grant must validate");
+        require(uint160(data) == 0, "authorizer must be zero on success");
+        require(address(account).balance == accountBefore - pay, "account paid the remaining grant");
+        require(address(this).balance == entryBefore + pay, "entry point received the grant");
+        require(account.getSession(spec.key).spentWei == prior + pay, "gas draws the stored grant");
+    }
+
+    function _assertCallValueStillCapped(
+        SmartAccount account,
+        SessionGasSink sink,
+        SessionKeyLib.SessionSpec memory spec,
+        uint256 prior,
+        uint256 grant
+    ) internal {
+        bytes memory hold = abi.encodeWithSelector(SessionGasSink.hold.selector);
+        uint256 pay = (grant - prior) / 2;
+        uint256 leftover = grant - prior - pay;
+        account.executeWithSession(spec, address(sink), leftover, hold);
+        require(account.getSession(spec.key).spentWei == grant, "call value uses what the grant has left");
+        require(address(sink).balance == prior + leftover, "in-cap call value still pays");
+        _assertCallValueOverGrantRefused(account, sink, spec, grant - prior);
+    }
+
+    function _assertCallValueOverGrantRefused(
+        SmartAccount account,
+        SessionGasSink sink,
+        SessionKeyLib.SessionSpec memory spec,
+        uint256 value
+    ) internal {
+        bytes memory hold = abi.encodeWithSelector(SessionGasSink.hold.selector);
+        uint256 sinkBefore = address(sink).balance;
+        uint256 accountBefore = address(account).balance;
+        try account.executeWithSession(spec, address(sink), value, hold) {
+            revert("call value above the grant must revert");
+        } catch (bytes memory reason) {
+            require(_selector(reason) == SmartAccount.SessionSpendLimitExceeded.selector, "call value cap");
+        }
+        require(address(sink).balance == sinkBefore, "over-cap call moved value");
+        require(address(account).balance == accountBefore, "over-cap call drained the account");
     }
 
     function testFuzz_validateUserOp_session_refuses_foreign_selector(bytes4 selector) public {

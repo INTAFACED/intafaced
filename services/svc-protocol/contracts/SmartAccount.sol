@@ -173,7 +173,9 @@ contract SmartAccount is IAccount, IERC1271 {
      * which means every guardrail in that function is unavoidable. A session
      * key physically cannot reach `execute`, `grantSession`, `revokeSession`,
      * or `proposeOwner`, because validation refuses the operation before the
-     * EntryPoint ever calls the account back.
+     * EntryPoint ever calls the account back. The prefund paid below is native
+     * value too: an accepted session draws it from the spendLimitWei already
+     * stored on that grant, the same book executeWithSession uses for call value.
      */
     function validateUserOp(
         PackedUserOperation calldata userOp,
@@ -186,13 +188,41 @@ contract SmartAccount is IAccount, IERC1271 {
 
         // Repay the bundler what the EntryPoint says is outstanding. This is the
         // only outbound native value this contract moves without an explicit
-        // instruction, it is bounded by the EntryPoint's own accounting, and it
-        // happens after validation so a failed signature still pays for the
-        // gas the bundler already burned (as the spec requires).
+        // call instruction, and it happens after validation so a failed
+        // signature still pays for the gas the bundler already burned. An
+        // accepted session cannot use that payment to move more than the grant.
         if (missingAccountFunds != 0) {
+            if (_acceptedSession(userOp, validationData)) {
+                _chargeSessionPayment(userOp, missingAccountFunds);
+            }
             (bool ok, ) = payable(msg.sender).call{value: missingAccountFunds}("");
             ok; // EntryPoint reverts on shortfall; nothing useful to do here.
         }
+    }
+
+    /** True when this operation is a session validateUserOp has already accepted. */
+    function _acceptedSession(PackedUserOperation calldata userOp, uint256 validationData) private pure returns (bool) {
+        return
+            validationData != SIG_VALIDATION_FAILED &&
+            userOp.signature.length != 0 &&
+            uint8(userOp.signature[0]) == MODE_SESSION;
+    }
+
+    /**
+     * Count the EntryPoint prefund against the granted session before the wei
+     * leaves. The cap is the spendLimitWei committed in the stored spec.
+     */
+    function _chargeSessionPayment(PackedUserOperation calldata userOp, uint256 missingAccountFunds) private {
+        (SessionKeyLib.SessionSpec memory spec, , , ) = abi.decode(
+            userOp.callData[4:],
+            (SessionKeyLib.SessionSpec, address, uint256, bytes)
+        );
+        SessionRecord storage record = _sessions[spec.key];
+        if (record.specHash != SessionKeyLib.hash(spec)) revert SessionSpecMismatch();
+
+        uint256 attempted = uint256(record.spentWei) + missingAccountFunds;
+        if (attempted > spec.spendLimitWei) revert SessionSpendLimitExceeded(attempted, spec.spendLimitWei);
+        record.spentWei = uint128(attempted);
     }
 
     function _validateSignature(
