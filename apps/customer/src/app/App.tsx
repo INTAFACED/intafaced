@@ -25,6 +25,7 @@ function configuredTeamHref(path: string): string | undefined {
 const TradeRoutes = lazy(() => import('../features/trade').then((module) => ({ default: module.TradeRoutes })));
 const PayRoutes = lazy(() => import('../features/pay').then((module) => ({ default: module.PayRoutes })));
 const MoneyRoutes = lazy(() => import('../features/money').then((module) => ({ default: module.MoneyRoutes })));
+const MoreRoutes = lazy(() => import('../features/more').then((module) => ({ default: module.MoreRoutes })));
 
 class RoomBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   override state = { failed: false };
@@ -73,10 +74,12 @@ export function App() {
       <PayRoutes path={current} />
     ) : room?.area === 'person' ? (
       <AccountRoutes path={current} />
+    ) : room?.area === 'more' ? (
+      <MoreRoutes path={current} />
     ) : (
-      <Page title={room?.title ?? 'Page not found'}>
-        <EmptyState title={room ? 'Journey implementation in progress' : 'This address is not available'}>
-          {room ? 'This feature is being connected to its verified contracts.' : 'Return to one of the four customer doors.'}
+      <Page title="Page not found">
+        <EmptyState title="This address is not available">
+          Return to one of the four customer doors.
         </EmptyState>
       </Page>
     );
