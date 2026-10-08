@@ -15,6 +15,7 @@ import { AgentError, assertSessionLogPageLimit, assertUserLogPageLimit } from '.
 import { requireSettleService } from './settle-hmac.js';
 import type { AuditedAction } from './fleet/audit.js';
 import type { ModelGateway } from './gateway/gateway.js';
+import { requireMeterPrice } from './gateway/routing.js';
 import type { UsageMeter } from './metering/meter.js';
 import type { AgentRuntime } from './runtime.js';
 import { rankFixtures } from './scanner/rank.js';
@@ -394,14 +395,19 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
           ),
         )
         .query(() =>
-          gateway.routingTable.routes.map((route) => ({
-            task: route.task,
-            maxOutputTokens: route.maxOutputTokens,
-            capability: route.capability,
-            inputPerMillion: formatAmount(route.price.inputPerMillion),
-            outputPerMillion: formatAmount(route.price.outputPerMillion),
-            assetId: feeAssetId,
-          })),
+          guard(async () =>
+            gateway.routingTable.routes.map((route) => {
+              const price = requireMeterPrice(route);
+              return {
+                task: route.task,
+                maxOutputTokens: route.maxOutputTokens,
+                capability: route.capability,
+                inputPerMillion: formatAmount(price.inputPerMillion),
+                outputPerMillion: formatAmount(price.outputPerMillion),
+                assetId: feeAssetId,
+              };
+            }),
+          ),
         ),
     }),
 

@@ -184,6 +184,31 @@ export class UsageMeter {
   }
 
   /**
+   * Commit a claim on `(session, request id)` before the provider is called.
+   *
+   * `hasRequest` alone loses the race: both callers read no usage row, both
+   * invoke the model, and the loser's insert is discarded at cost 0. The
+   * unique insert is the claim. False means the other call already owns it.
+   */
+  async claimRequest(sessionId: string, requestId: string): Promise<boolean> {
+    const rows = await this.sql<Array<{ request_id: string }>>`
+      INSERT INTO agents.think_claims (session_id, request_id)
+      VALUES (${sessionId}, ${requestId})
+      ON CONFLICT (session_id, request_id) DO NOTHING
+      RETURNING request_id
+    `;
+    return rows.length > 0;
+  }
+
+  /** Drop a claim when the provider never returned a completion. */
+  async releaseClaim(sessionId: string, requestId: string): Promise<void> {
+    await this.sql`
+      DELETE FROM agents.think_claims
+       WHERE session_id = ${sessionId} AND request_id = ${requestId}
+    `;
+  }
+
+  /**
    * True when this session already recorded a usage row for `requestId`.
    *
    * The anti-double-bill key is unique on `(session_id, request_id)`. A second
@@ -231,8 +256,8 @@ export class UsageMeter {
    * settlement uses, so "what have I been charged" and "what does my limit see"
    * cannot disagree.
    */
-  async sessionSpend(sessionId: string): Promise<Amount> {
-    const rows = await this.sql<Array<{ input_tokens: string; output_tokens: string; in_price: string; out_price: string }>>`
+  async sessionSpend(sessionId: string, db: Sql = this.sql): Promise<Amount> {
+    const rows = await db<Array<{ input_tokens: string; output_tokens: string; in_price: string; out_price: string }>>`
       SELECT SUM(input_tokens)::text  AS input_tokens,
              SUM(output_tokens)::text AS output_tokens,
              input_price_per_million  AS in_price,
@@ -282,8 +307,11 @@ export class UsageMeter {
     const chargeKey = chargeKeyFor(input.sessionId, input.windowId);
 
     // ── Step 1 · seal ───────────────────────────────────────────────────────
-    // Freezes the amount. The row lock also blocks concurrent usage inserts,
-    // because the FK from usage_records takes a KEY SHARE lock on this row.
+    // Freezes the amount under FOR UPDATE. usage_records_reject_sealed takes
+    // that same lock before it trusts sealed_at, and holds it until the insert
+    // commits. A seal therefore cannot commit over a usage row that has already
+    // passed the check, and an insert that acquires the lock after this commit
+    // reads the sealed row and is refused.
     const sealed = await transaction(
       this.sql,
       async (tx) => {

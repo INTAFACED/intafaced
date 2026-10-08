@@ -44,7 +44,11 @@ export interface RouteDef {
   readonly model: string;
   /** Hard output ceiling for this task. An unbounded generation is an unbounded bill. */
   readonly maxOutputTokens: number;
-  readonly price: ModelPrice;
+  /**
+   * Absent when no rate is configured. A blank price is not zero and is not
+   * a stand-in magnitude — metering it refuses.
+   */
+  readonly price?: ModelPrice;
   /** Which capability this route needs. Checked before the provider is called. */
   readonly capability: ProviderCapability;
 }
@@ -71,12 +75,17 @@ export const modelPriceSchema = z.object({
   outputPerMillion: amountString,
 });
 
+const priceConfigSchema = z.object({
+  inputPerMillion: z.string(),
+  outputPerMillion: z.string(),
+});
+
 export const routeSchema = z.object({
   task: z.string().min(1).max(120),
   providerId: z.string().min(1).max(64),
   model: z.string().min(1).max(200),
   maxOutputTokens: z.number().int().min(1).max(1_000_000),
-  price: modelPriceSchema,
+  price: priceConfigSchema.optional(),
   capability: z.enum(['complete', 'stream', 'embed']).default('complete'),
 });
 
@@ -88,12 +97,35 @@ export const routingTableSchema = z.object({
 export type RoutingTableConfig = z.infer<typeof routingTableSchema>;
 
 /**
+ * A configured price is two decimal strings. A missing or blank side is not a
+ * rate: it stays unset so metering can refuse, and the other side is not filled in.
+ * A non-blank side that is not a decimal string is a bad config and still fails parse.
+ */
+function configuredPrice(
+  raw: { inputPerMillion: string; outputPerMillion: string } | undefined,
+): ModelPrice | undefined {
+  if (!raw) return undefined;
+  const inputPerMillion = raw.inputPerMillion.trim();
+  const outputPerMillion = raw.outputPerMillion.trim();
+  if (inputPerMillion === '' || outputPerMillion === '') {
+    if (inputPerMillion !== '') amountString.parse(inputPerMillion);
+    if (outputPerMillion !== '') amountString.parse(outputPerMillion);
+    return undefined;
+  }
+  const price = modelPriceSchema.parse({ inputPerMillion, outputPerMillion });
+  return {
+    inputPerMillion: parseAmount(price.inputPerMillion),
+    outputPerMillion: parseAmount(price.outputPerMillion),
+  };
+}
+
+/**
  * Parse a routing table from configuration.
  *
  * Prices become `Amount` (scaled bigint) here and stay that way. A price that
  * lived as a `number` even briefly would already have lost precision before the
  * first multiplication — Doctrine's "never a float near money" applies to rates
- * exactly as it applies to balances.
+ * exactly as it applies to balances. A blank price is omitted; metering it refuses.
  */
 export function parseRoutingTable(input: unknown): RoutingTable {
   const config = routingTableSchema.parse(input);
@@ -111,19 +143,36 @@ export function parseRoutingTable(input: unknown): RoutingTable {
   }
 
   return {
-    routes: config.routes.map((r) => ({
-      task: r.task,
-      providerId: r.providerId,
-      model: r.model,
-      maxOutputTokens: r.maxOutputTokens,
-      capability: r.capability,
-      price: {
-        inputPerMillion: parseAmount(r.price.inputPerMillion),
-        outputPerMillion: parseAmount(r.price.outputPerMillion),
-      },
-    })),
+    routes: config.routes.map((r) => {
+      const price = configuredPrice(r.price);
+      return {
+        task: r.task,
+        providerId: r.providerId,
+        model: r.model,
+        maxOutputTokens: r.maxOutputTokens,
+        capability: r.capability,
+        ...(price ? { price } : {}),
+      };
+    }),
     ...(config.fallbackTask ? { fallbackTask: config.fallbackTask } : {}),
   };
+}
+
+/**
+ * The rate a route may be metered at.
+ *
+ * A blank price stays blank. Billing must refuse here rather than substitute a magnitude.
+ */
+export function requireMeterPrice(route: RouteDef): ModelPrice {
+  if (!route.price) {
+    throw new AgentError(
+      `No token price is configured for task "${route.task}"`,
+      'agents.price_not_configured',
+      'agents.error.price_not_configured',
+      { task: route.task },
+    );
+  }
+  return route.price;
 }
 
 export function resolveRoute(table: RoutingTable, task: string): RouteDef {
@@ -146,10 +195,9 @@ export function tasksOf(table: RoutingTable): string[] {
  * The default table.
  *
  * Model values are capability TIERS, not product names: a deployment maps them
- * to whatever it has contracted for, through `AGENTS_UPSTREAM_MODELS`. Prices
- * are placeholders in the fee asset and are expected to be overridden — they
- * are here so that a dev environment meters end-to-end rather than metering
- * zero and hiding a whole money path behind "not configured yet".
+ * to whatever it has contracted for, through `AGENTS_UPSTREAM_MODELS`. Token
+ * prices are not shipped on this table. A blank price refuses when metering
+ * asks for it. A deployment that has a rate configures it as a decimal string.
  *
  * `providerId: 'primary'` is likewise logical. Locally that id is registered to
  * the deterministic mock; in production it is the upstream adapter. Nothing
@@ -163,14 +211,12 @@ export const DEFAULT_ROUTING_TABLE: RoutingTable = parseRoutingTable({
       providerId: 'primary',
       model: 'reasoning-lg',
       maxOutputTokens: 4096,
-      price: { inputPerMillion: '3', outputPerMillion: '15' },
     },
     {
       task: 'navigator.tool_select',
       providerId: 'primary',
       model: 'reasoning-md',
       maxOutputTokens: 1024,
-      price: { inputPerMillion: '1', outputPerMillion: '5' },
     },
 
     // Grounded, high-volume, latency-sensitive paths.
@@ -179,14 +225,12 @@ export const DEFAULT_ROUTING_TABLE: RoutingTable = parseRoutingTable({
       providerId: 'primary',
       model: 'reasoning-md',
       maxOutputTokens: 2048,
-      price: { inputPerMillion: '1', outputPerMillion: '5' },
     },
     {
       task: 'support.classify',
       providerId: 'primary',
       model: 'fast-sm',
       maxOutputTokens: 256,
-      price: { inputPerMillion: '0.25', outputPerMillion: '1.25' },
     },
 
     // Batch/analytical paths.
@@ -195,21 +239,18 @@ export const DEFAULT_ROUTING_TABLE: RoutingTable = parseRoutingTable({
       providerId: 'primary',
       model: 'reasoning-md',
       maxOutputTokens: 2048,
-      price: { inputPerMillion: '1', outputPerMillion: '5' },
     },
     {
       task: 'merchant.watch',
       providerId: 'primary',
       model: 'fast-sm',
       maxOutputTokens: 1024,
-      price: { inputPerMillion: '0.25', outputPerMillion: '1.25' },
     },
     {
       task: 'copy_intel.stats',
       providerId: 'primary',
       model: 'reasoning-md',
       maxOutputTokens: 2048,
-      price: { inputPerMillion: '1', outputPerMillion: '5' },
     },
 
     // Retrieval.
@@ -218,7 +259,6 @@ export const DEFAULT_ROUTING_TABLE: RoutingTable = parseRoutingTable({
       providerId: 'primary',
       model: 'embed-sm',
       maxOutputTokens: 1,
-      price: { inputPerMillion: '0.1', outputPerMillion: '0' },
       capability: 'embed',
     },
   ],

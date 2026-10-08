@@ -50,7 +50,7 @@ describe('compose usage window and upstream timeout for svc-agents', () => {
   const block = agentsServiceBlock(compose);
 
   it('env.ts still declares the flags this pin tracks, matching compose defaults', () => {
-    expect(envTs).toMatch(/AGENTS_USAGE_WINDOW_MINUTES:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(1440\),/);
+    expect(envTs).toMatch(/AGENTS_USAGE_WINDOW_MINUTES:\s*z\.coerce\s*\.number\(\)\s*\.int\(\)\s*\.min\(1\)\s*\.max\(1440\)/);
     expect(envTs).not.toMatch(/AGENTS_USAGE_WINDOW_MINUTES:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(1440\)\.default\(60\)/);
     expect(envTs).toMatch(/AGENTS_UPSTREAM_TIMEOUT_MS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1_000\)\.max\(600_000\)\.default\(60_000\)/);
   });

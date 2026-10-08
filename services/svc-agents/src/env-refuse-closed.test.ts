@@ -78,7 +78,7 @@ describe('svc-agents money env refuse-closed', () => {
     expect(envTs).toMatch(/agents\.metering_enabled_unset/);
     expect(envTs).not.toMatch(/return trimmed === '' \? false : trimmed/);
     expect(envTs).not.toMatch(/!\['0', 'false', 'off', 'no'\]\.includes/);
-    expect(envTs).toMatch(/AGENTS_USAGE_WINDOW_MINUTES:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(1440\),/);
+    expect(envTs).toMatch(/AGENTS_USAGE_WINDOW_MINUTES:\s*z\.coerce\s*\.number\(\)\s*\.int\(\)\s*\.min\(1\)\s*\.max\(1440\)/);
     expect(envTs).not.toMatch(/AGENTS_USAGE_WINDOW_MINUTES:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(1440\)\.default\(60\)/);
   });
 
@@ -105,6 +105,20 @@ describe('svc-agents money env refuse-closed', () => {
   it('explicit 60 is owner-published (not invented)', async () => {
     const parsed = await loadWith({ AGENTS_USAGE_WINDOW_MINUTES: '60' });
     expect(parsed.AGENTS_USAGE_WINDOW_MINUTES).toBe(60);
+  });
+
+  it('refuses a configured usage window that does not divide 1440', async () => {
+    // 7, 61, and 100 sit inside 1..1440 and do not divide the day.
+    for (const minutes of ['7', '61', '100'] as const) {
+      await expect(loadWith({ AGENTS_USAGE_WINDOW_MINUTES: minutes }), minutes).rejects.toThrow(/must divide 1440/);
+    }
+  });
+
+  it('accepts a configured usage window that divides 1440', async () => {
+    for (const minutes of ['1', '15', '1440'] as const) {
+      const parsed = await loadWith({ AGENTS_USAGE_WINDOW_MINUTES: minutes });
+      expect(parsed.AGENTS_USAGE_WINDOW_MINUTES, minutes).toBe(Number(minutes));
+    }
   });
 
   it('unset AGENTS_METERING_ENABLED refuses agents.metering_enabled_unset', async () => {

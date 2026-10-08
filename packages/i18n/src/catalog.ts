@@ -229,6 +229,7 @@ export const en = {
   'agents.refused.module_not_allowed': 'Refused: this agent is not permitted to act in {module}.',
   'agents.refused.step_limit': 'Refused: this session has reached its limit of {limit} action(s).',
   'agents.refused.spend_limit': 'Refused: this session has reached its spend limit of {limit} {asset}.',
+  'agents.refused.spend_limit_unset': 'Refused: this session has no spend limit, so the call was not run.',
   'agents.refused.output_limit': 'Refused: the request asked for more output than this agent is allowed to produce.',
   'agents.refused.approval_required': 'Held for your approval: {tool} needs you to confirm before it runs.',
   'agents.refused.session_closed': 'Refused: this session is closed. Start a new one to continue.',
@@ -237,6 +238,8 @@ export const en = {
   'agents.refused.withdraw_scope_required': 'Refused: agent credentials do not include withdrawal, so {tool} was not run.',
   'agents.refused.place_idempotency_required':
     'Refused: placing an order needs a stable intent key so a repeated message cannot duplicate it.',
+  'agents.refused.place_key_conflict':
+    'Refused: this intent key is already in use for a place on this session, so {tool} was not run.',
   'agents.refused.log_mine_limit_unset': 'Refused: a page size is required for your activity log — none was given.',
   'agents.refused.kb_search_limit_unset': 'Refused: a page size is required to search support knowledge — none was given.',
   'agents.error.route_not_found': 'No Sovereign Intelligence route is configured for “{task}”.',
@@ -245,6 +248,8 @@ export const en = {
   'agents.error.window_sealed': 'This usage period is already settled.',
   'agents.error.request_id_replay':
     'That request was already processed for this session — start a new request rather than reusing the same id.',
+  'agents.error.price_not_configured':
+    'Refused: no token price is configured for “{task}”, so nothing was metered.',
   'agents.scanner.empty': 'No markets were provided to rank.',
   'agents.scanner.unavailable': 'Market signals are unavailable right now — quotes are missing or too old to trust.',
   'agents.scanner.tier_closed':

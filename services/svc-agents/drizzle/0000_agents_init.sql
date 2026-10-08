@@ -272,6 +272,13 @@ ALTER TABLE "agents"."usage_records" ADD CONSTRAINT "usage_records_non_negative_
 -- row could arrive afterwards, either it would never be billed, or a second
 -- settlement would post a second charge under a key that is supposed to be
 -- unique per window. Refusing the insert makes the seal mean what it says.
+--
+-- The read is FOR UPDATE. That conflicts with settlement's own FOR UPDATE and
+-- with the UPDATE that writes sealed_at. An unlocked read can see a still-open
+-- window and then sit in usage_records_window_fk until that UPDATE commits, and
+-- it does not run again. The locked read waits with the seal, then sees the
+-- committed sealed_at. The lock is held until this insert commits, so a seal
+-- cannot land in the gap after the check.
 CREATE OR REPLACE FUNCTION "agents"."usage_records_reject_sealed"()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -281,7 +288,8 @@ DECLARE
 BEGIN
   SELECT w."sealed_at" INTO sealed
     FROM "agents"."usage_windows" w
-   WHERE w."session_id" = NEW."session_id" AND w."window_id" = NEW."window_id";
+   WHERE w."session_id" = NEW."session_id" AND w."window_id" = NEW."window_id"
+   FOR UPDATE;
 
   IF sealed IS NOT NULL THEN
     RAISE EXCEPTION 'usage window % for session % was settled at % and accepts no further usage',
