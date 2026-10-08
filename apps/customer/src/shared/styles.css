@@ -8,6 +8,8 @@
 :root {
   --color-positive: #c8f64a;
   --color-negative: #f05a68;
+  --chart-up: var(--color-positive);
+  --chart-down: var(--color-negative);
   --color-warning: #e4bf72;
   --if-base: var(--color-background);
   --if-surface: var(--color-surface);

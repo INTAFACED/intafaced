@@ -111,12 +111,12 @@ html[data-theme='light'] .mobile-doors a[aria-current='page'] {
   color: #365900;
 }
 html[data-up-color='red'] {
-  --color-positive: #f05a68;
-  --color-negative: #c8f64a;
+  --chart-up: #f05a68;
+  --chart-down: #c8f64a;
 }
 html[data-theme='light'][data-up-color='red'] {
-  --color-positive: #ba243b;
-  --color-negative: #3c6500;
+  --chart-up: #ba243b;
+  --chart-down: #3c6500;
 }
 @media (max-width: 800px) {
   .settings-grid {
