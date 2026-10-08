@@ -1,3 +1,4 @@
+import { t as copyText, Text } from './copy';
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import { tradeSchema } from '@intafaced/exchange-contract/schemas';
@@ -73,7 +74,9 @@ export function Workbook({ slug }: { slug: string }) {
     (signal) =>
       api.rest(
         '/markets',
-        z.array(marketSchema).refine((rows) => new Set(rows.map((r) => r.id)).size === rows.length, 'Market IDs are duplicated'),
+        z
+          .array(marketSchema)
+          .refine((rows) => new Set(rows.map((r) => r.id)).size === rows.length, copyText('workbook.market.ids.are.duplicated')),
         { query: { limit: 500 }, signal },
       ),
     'workbook-markets',
@@ -89,7 +92,7 @@ export function Workbook({ slug }: { slug: string }) {
               { slug, market: flag },
               drill.refine(
                 (r) => !r.ok || (r.marketId === flag.marketId && r.symbol === flag.symbol),
-                'Drill does not match this published market',
+                copyText('workbook.drill.does.not.match.this.published.market'),
               ),
               { signal },
             )
@@ -105,7 +108,7 @@ export function Workbook({ slug }: { slug: string }) {
                 .array(tradeSchema.extend({ price: decimalSchema, amount: decimalSchema, cost: decimalSchema }))
                 .refine(
                   (rows) => rows.every((r) => r.symbol === market.symbol) && new Set(rows.map((r) => r.id)).size === rows.length,
-                  'Fill identity does not match this drill',
+                  copyText('workbook.fill.identity.does.not.match.this.drill'),
                 ),
               { query: { symbol: market.symbol, limit: 100 }, signal },
             )
@@ -125,15 +128,15 @@ export function Workbook({ slug }: { slug: string }) {
     setRequest(null);
   }, [selected, userId, slug]);
   return (
-    <Panel title="Simulated workbook drill">
+    <Panel title={copyText('workbook.simulated.workbook.drill')}>
       <Read resource={catalogue.resource} retry={catalogue.reload}>
         {(rows) => (
           <Select
-            label="Simulated market"
+            label={copyText('workbook.simulated.market')}
             value={selected}
             onChange={setSelected}
             options={[
-              { value: '', label: 'Choose a published paper market' },
+              { value: '', label: copyText('workbook.choose.a.published.paper.market') },
               ...rows.filter((r) => r.paper).map((r) => ({ value: r.id, label: r.symbol })),
             ]}
           />
@@ -141,21 +144,26 @@ export function Workbook({ slug }: { slug: string }) {
       </Read>
       {market && (
         <a className="text-link" href={`/exchange/${encodeURIComponent(market.symbol)}?simulated=true`}>
-          Open {market.symbol} on the simulated desk
+          <Text k="workbook.open" />
+          {market.symbol}
+          <Text k="workbook.on.the.simulated.desk" />
         </a>
       )}
-      <Read resource={gate.resource} retry={gate.reload} empty="Choose a published simulated market to begin">
+      <Read resource={gate.resource} retry={gate.reload} empty={copyText('workbook.choose.a.published.simulated.market.to.begin')}>
         {(d) =>
           d ? (
             d.ok ? (
               <>
-                <p className="more-badge">{d.disclaimer} · no real ledger · not withdrawable</p>
+                <p className="more-badge">
+                  {d.disclaimer}
+                  <Text k="workbook.no.real.ledger.not.withdrawable" />
+                </p>
                 <div className="more-grid">
                   {d.steps.map((s) => (
                     <label key={s.id}>
                       <input
                         type="checkbox"
-                        aria-label={`Complete: ${s.instruction}`}
+                        aria-label={copyText('workbook.complete.2', { value1: s.instruction })}
                         checked={steps.includes(s.id)}
                         onChange={(e) => setSteps((ids) => (e.target.checked ? [...ids, s.id] : ids.filter((id) => id !== s.id)))}
                       />{' '}
@@ -163,16 +171,27 @@ export function Workbook({ slug }: { slug: string }) {
                     </label>
                   ))}
                 </div>
-                <h3>Attach your published fills</h3>
-                <Read resource={fills.resource} retry={fills.reload} empty="No fills for this simulated market">
+                <h3>
+                  <Text k="workbook.attach.your.published.fills" />
+                </h3>
+                <Read resource={fills.resource} retry={fills.reload} empty={copyText('workbook.no.fills.for.this.simulated.market')}>
                   {(rows) => (
-                    <DataTable headers={['Attach', 'Fill', 'Side', 'Price', 'Quantity']} label="Published simulated fills">
+                    <DataTable
+                      headers={[
+                        copyText('workbook.attach'),
+                        copyText('workbook.fill'),
+                        copyText('workbook.side'),
+                        copyText('workbook.price'),
+                        copyText('workbook.quantity'),
+                      ]}
+                      label={copyText('workbook.published.simulated.fills')}
+                    >
                       {rows.map((f) => (
                         <tr key={f.id}>
                           <td>
                             <input
                               type="checkbox"
-                              aria-label={`Attach fill ${f.id}`}
+                              aria-label={copyText('workbook.attach.fill', { value1: f.id })}
                               checked={fillIds.includes(f.id)}
                               onChange={(e) => setFillIds((ids) => (e.target.checked ? [...ids, f.id] : ids.filter((id) => id !== f.id)))}
                             />
@@ -187,8 +206,7 @@ export function Workbook({ slug }: { slug: string }) {
                   )}
                 </Read>
                 <p className="muted">
-                  A maximum of 100 fills can be read for this symbol. No fill price, quantity or future mark is typed into this drill. The
-                  last traded price is not substituted for an authoritative mark.
+                  <Text k="workbook.a.maximum.of.100.fills.can.be" />
                 </p>
                 <Button
                   variant="secondary"
@@ -206,7 +224,7 @@ export function Workbook({ slug }: { slug: string }) {
                     });
                   }}
                 >
-                  Read drill result
+                  <Text k="workbook.read.drill.result" />
                 </Button>
               </>
             ) : (
@@ -224,16 +242,22 @@ export function Workbook({ slug }: { slug: string }) {
                   <p>{r.disclaimer}</p>
                   <Details
                     items={[
-                      ['Progress', `${r.result.completedCount} of ${r.result.stepCount}`],
-                      ['Complete', r.result.complete ? 'Yes' : 'No'],
-                      ['Attached fills', r.result.valuation.fillCount],
-                      ['Open size', r.result.valuation.openSize],
+                      [copyText('workbook.progress'), `${r.result.completedCount} of ${r.result.stepCount}`],
+                      [copyText('workbook.complete'), r.result.complete ? 'Yes' : 'No'],
+                      [copyText('workbook.attached.fills'), r.result.valuation.fillCount],
+                      [copyText('workbook.open.size'), r.result.valuation.openSize],
                       [
-                        'Realised P&L',
-                        `${r.result.valuation.realisedPnl} simulated ${market?.quote ?? 'quote asset identity unavailable'}`,
+                        copyText('workbook.realised.p.l'),
+                        `${r.result.valuation.realisedPnl} simulated ${market?.quote ?? copyText('workbook.quote.asset.identity.unavailable')}`,
                       ],
-                      ['Unrealised P&L', r.result.valuation.unrealisedPnl ?? 'Unavailable: no authoritative mark'],
-                      ['Total P&L', r.result.valuation.totalPnl ?? 'Unavailable: no authoritative mark'],
+                      [
+                        copyText('workbook.unrealised.p.l'),
+                        r.result.valuation.unrealisedPnl ?? copyText('workbook.unavailable.no.authoritative.mark'),
+                      ],
+                      [
+                        copyText('workbook.total.p.l'),
+                        r.result.valuation.totalPnl ?? copyText('workbook.unavailable.no.authoritative.mark'),
+                      ],
                     ]}
                   />
                 </>

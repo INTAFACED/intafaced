@@ -1,3 +1,4 @@
+import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
@@ -67,14 +68,22 @@ export function Limit({ count, limit, cap, onChange }: { count: number; limit: n
   return (
     <div className="more-continuation">
       <small>
-        Showing {count} · requested limit {limit}. This service publishes no continuation cursor.
+        <Text k="common.showing" />
+        {count}
+        <Text k="common.requested.limit" />
+        {limit}
+        <Text k="common.this.service.publishes.no.continuation.cursor" />
       </small>
       {count >= limit && limit < cap ? (
         <Button variant="secondary" onClick={() => onChange(Math.min(cap, limit + 50))}>
-          Load a larger window
+          <Text k="common.load.a.larger.window" />
         </Button>
       ) : count >= cap ? (
-        <small>The published limit is {cap}; older rows cannot be requested here.</small>
+        <small>
+          <Text k="common.the.published.limit.is" />
+          {cap}
+          <Text k="common.older.rows.cannot.be.requested.here" />
+        </small>
       ) : null}
     </div>
   );
@@ -104,7 +113,7 @@ function pendingAt(key: string): Pending | null {
     const parsed = JSON.parse(raw) as Pending;
     if (typeof parsed.id === 'string' && typeof parsed.title === 'string') return parsed;
   } catch {}
-  return { id: 'legacy', title: 'earlier request with unreadable recovery metadata' };
+  return { id: 'legacy', title: copyText('common.earlier.request.with.unreadable.recovery.metadata') };
 }
 
 export function useAction(room: string, recovery?: { recover: (reference: string) => Promise<ApiResult<unknown>>; done?: () => void }) {
@@ -165,12 +174,12 @@ export function useAction(room: string, recovery?: { recover: (reference: string
     setState({ key, busy: true, result: null, success: '' });
     const operation = async (): Promise<ApiResult<unknown>> => {
       if (!mounted.current || actor.current !== identity || pendingAt(key))
-        return { ok: false, reason: 'aborted', message: 'The account or pending request changed. Review again.' };
+        return { ok: false, reason: 'aborted', message: copyText('common.the.account.or.pending.request.changed.review') };
       const marker = { id: crypto.randomUUID(), title: request.title, ...(request.reference ? { reference: request.reference } : {}) };
       try {
         localStorage.setItem(key, JSON.stringify(marker));
       } catch {
-        return { ok: false, reason: 'error', message: 'Recovery storage is unavailable. No action was sent.' };
+        return { ok: false, reason: 'error', message: copyText('common.recovery.storage.is.unavailable.no.action.was') };
       }
       let result: ApiResult<unknown>;
       try {
@@ -179,8 +188,7 @@ export function useAction(room: string, recovery?: { recover: (reference: string
         result = {
           ok: false,
           reason: 'uncertain',
-          message:
-            'The connection ended before the service confirmed this action. Check its original record before sending another request.',
+          message: copyText('common.the.connection.ended.before.the.service.confirmed'),
         };
       }
       if (result.ok || result.reason !== 'uncertain') clear(marker);
@@ -194,10 +202,10 @@ export function useAction(room: string, recovery?: { recover: (reference: string
           : Promise.resolve({
               ok: false as const,
               reason: 'error' as const,
-              message: 'This account has an action running in another tab. No second action was sent.',
+              message: copyText('common.this.account.has.an.action.running.in'),
             }),
       );
-    else result = { ok: false, reason: 'not_supported', message: 'This browser has no cross-tab mutation lock. No action was sent.' };
+    else result = { ok: false, reason: 'not_supported', message: copyText('common.this.browser.has.no.cross.tab.mutation') };
     running.current.delete(key);
     if (!mounted.current || actor.current !== identity) return;
     setState({ key, busy: false, result, success: result.ok ? request.success : '' });
@@ -213,7 +221,7 @@ export function useAction(room: string, recovery?: { recover: (reference: string
     try {
       result = await recovery.recover(marker.reference);
     } catch {
-      result = { ok: false, reason: 'unreachable', message: 'The original outcome lookup could not be reached.' };
+      result = { ok: false, reason: 'unreachable', message: copyText('common.the.original.outcome.lookup.could.not.be') };
     }
     running.current.delete(key);
     if (!mounted.current || actor.current !== identity) return;
@@ -221,12 +229,12 @@ export function useAction(room: string, recovery?: { recover: (reference: string
       clear(marker);
       recovery.done?.();
     }
-    setState({ key, busy: false, result, success: result.ok ? 'Original outcome verified' : '' });
+    setState({ key, busy: false, result, success: result.ok ? copyText('common.original.outcome.verified') : '' });
   }
   const feedback = (
     <>
       {current.busy ? (
-        <Loading label="Waiting for the service" />
+        <Loading label={copyText('common.waiting.for.the.service')} />
       ) : current.result && !current.result.ok ? (
         <Failure result={current.result} />
       ) : current.success ? (
@@ -236,17 +244,24 @@ export function useAction(room: string, recovery?: { recover: (reference: string
       ) : null}
       {pending && !current.busy ? (
         <div className="failure" role="alert">
-          {!current.result && <h3>Outcome not confirmed</h3>}
+          {!current.result && (
+            <h3>
+              <Text k="common.outcome.not.confirmed" />
+            </h3>
+          )}
           <p>
-            Earlier request: {pending.title}. {pending.reference && <code>{pending.reference}</code>} Read its original records before
-            continuing.
+            <Text k="common.earlier.request" />
+            {pending.title}. {pending.reference && <code>{pending.reference}</code>}
+            <Text k="common.read.its.original.records.before.continuing" />
           </p>
           {pending.reference && recovery ? (
             <Button variant="secondary" onClick={() => void recover()}>
-              Check original outcome
+              <Text k="common.check.original.outcome" />
             </Button>
           ) : (
-            <p>This action has no universal recovery lookup. Keep its records and contact Support before sending another request.</p>
+            <p>
+              <Text k="common.this.action.has.no.universal.recovery.lookup" />
+            </p>
           )}
         </div>
       ) : null}
@@ -257,11 +272,13 @@ export function useAction(room: string, recovery?: { recover: (reference: string
       <Dialog title={review.title} onClose={() => setReview(null)}>
         {review.content}
         <p className="muted">
-          Acting as account <code>{userId}</code>. The service enforces your scope and jurisdiction.
+          <Text k="common.acting.as.account" />
+          <code>{userId}</code>
+          <Text k="common.the.service.enforces.your.scope.and.jurisdiction" />
         </p>
         <div className="actions">
           <Button variant="secondary" onClick={() => setReview(null)}>
-            Back
+            <Text k="common.back" />
           </Button>
           <Button onClick={() => void send()}>{review.confirm}</Button>
         </div>

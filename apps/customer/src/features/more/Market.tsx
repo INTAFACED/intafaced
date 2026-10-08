@@ -1,3 +1,4 @@
+import { t as copyText, Text } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
@@ -24,7 +25,7 @@ export const listingSchema = z
   })
   .superRefine((row, ctx) => {
     if (row.offerType === 'subscription' && row.periodSeconds === null)
-      ctx.addIssue({ code: 'custom', message: 'Subscription period is missing' });
+      ctx.addIssue({ code: 'custom', message: copyText('market.subscription.period.is.missing') });
   });
 const purchaseSchema = z.object({
   id: uuid,
@@ -43,12 +44,13 @@ const purchaseSchema = z.object({
   accessUntil: time.nullable(),
 });
 function originalPurchaseOutcome(row: z.infer<typeof purchaseSchema>): ApiResult<z.infer<typeof purchaseSchema>> {
-  if (row.status === 'pending') return { ok: false, reason: 'uncertain', message: 'Original purchase is still pending. Settlement is not confirmed.' };
+  if (row.status === 'pending')
+    return { ok: false, reason: 'uncertain', message: copyText('market.original.purchase.is.still.pending.settlement.is') };
   if (row.status === 'settled' && row.ledgerTxId && row.settledAt) return { ok: true, data: row };
   // The service marks rejected only for a definitive failed ledger admission;
   // it retains the rejection code and has no settlement evidence for that row.
   if (row.status === 'rejected' && row.rejectionCode && row.ledgerTxId === null && row.settledAt === null) return { ok: true, data: row };
-  return { ok: false, reason: 'uncertain', message: 'The original settlement evidence is incomplete. Keep its purchase reference.' };
+  return { ok: false, reason: 'uncertain', message: copyText('market.the.original.settlement.evidence.is.incomplete.keep') };
 }
 const vendorSchema = z.object({
   id: uuid,
@@ -79,7 +81,9 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           'market',
           'myPurchases',
           { limit: 50 },
-          z.array(purchaseSchema).refine((rows) => rows.every((r) => r.buyerId === userId), 'Purchase list belongs to another account'),
+          z
+            .array(purchaseSchema)
+            .refine((rows) => rows.every((r) => r.buyerId === userId), copyText('market.purchase.list.belongs.to.another.account')),
         );
         if (!rows.ok) return rows;
         const row = rows.data.find((r) => r.id === reference);
@@ -88,8 +92,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           : {
               ok: false as const,
               reason: 'uncertain' as const,
-              message:
-                'The original purchase is not present in this bounded history. Absence does not prove it was refused. No retry was sent.',
+              message: copyText('market.the.original.purchase.is.not.present.in'),
             };
       },
       done: () => purchases.reload(),
@@ -109,7 +112,9 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           'market',
           'mine',
           undefined,
-          vendorSchema.nullable().refine((row) => !row || row.userId === userId, 'Seller ownership does not match this account'),
+          vendorSchema
+            .nullable()
+            .refine((row) => !row || row.userId === userId, copyText('market.seller.ownership.does.not.match.this.account')),
           { signal },
         );
         if (!owner.ok) return owner;
@@ -121,7 +126,10 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           { limit },
           z
             .array(listingSchema)
-            .refine((rows) => rows.every((row) => row.vendorId === vendorId), 'Listing ownership does not match this seller'),
+            .refine(
+              (rows) => rows.every((row) => row.vendorId === vendorId),
+              copyText('market.listing.ownership.does.not.match.this.seller'),
+            ),
           { signal },
         );
       },
@@ -139,7 +147,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
         { limit },
         z
           .array(purchaseSchema)
-          .refine((rows) => rows.every((row) => row.buyerId === userId), 'Purchase ownership does not match this account'),
+          .refine((rows) => rows.every((row) => row.buyerId === userId), copyText('market.purchase.ownership.does.not.match.this.account')),
         { signal },
       ),
     `purchases:${userId}:${limit}`,
@@ -151,7 +159,9 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
               'market',
               'mine',
               undefined,
-              vendorSchema.nullable().refine((row) => !row || row.userId === userId, 'Seller ownership does not match this account'),
+              vendorSchema
+                .nullable()
+                .refine((row) => !row || row.userId === userId, copyText('market.seller.ownership.does.not.match.this.account')),
               { signal },
             )
           : Promise.resolve({ ok: true as const, data: null }),
@@ -167,17 +177,22 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
   function buy(row: z.infer<typeof listingSchema>) {
     const purchaseId = crypto.randomUUID();
     action.stage({
-      title: 'Review purchase',
+      title: copyText('market.review.purchase'),
       reference: purchaseId,
-      confirm: 'Confirm purchase',
-      success: 'Purchase outcome received. Read its settlement status below.',
+      confirm: copyText('market.confirm.purchase'),
+      success: copyText('market.purchase.outcome.received.read.its.settlement.status'),
       content: (
         <Details
           items={[
-            ['Listing', row.title],
-            ['Price', `${displayAmount(row.price)} ${row.assetId}`],
-            ['Access', row.periodSeconds ? `${row.periodSeconds} seconds · one paid period` : 'One-time purchase'],
-            ['Renewal', 'Automatic recurring charges are not built.'],
+            [copyText('market.listing'), row.title],
+            [copyText('market.price'), `${displayAmount(row.price)} ${row.assetId}`],
+            [
+              copyText('market.access'),
+              row.periodSeconds
+                ? copyText('market.seconds.one.paid.period', { seconds: row.periodSeconds })
+                : copyText('market.one.time.purchase'),
+            ],
+            [copyText('market.renewal'), copyText('market.automatic.recurring.charges.are.not.built')],
           ]}
         />
       ),
@@ -193,8 +208,9 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           current.periodSeconds !== row.periodSeconds ||
           current.offerType !== row.offerType
         )
-          return { ok: false, reason: 'error', message: 'The listing terms changed. Reload the catalogue and review again.' };
-        if (!canDispatch()) return { ok: false, reason: 'aborted', message: 'The account changed. Review this purchase again.' };
+          return { ok: false, reason: 'error', message: copyText('market.the.listing.terms.changed.reload.the.catalogue') };
+        if (!canDispatch())
+          return { ok: false, reason: 'aborted', message: copyText('market.the.account.changed.review.this.purchase.again') };
         const result = await api.mutate(
           'market',
           'purchase',
@@ -202,12 +218,16 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           purchaseSchema.refine(
             (p) =>
               p.id === purchaseId && p.listingId === row.id && p.buyerId === userId && p.assetId === row.assetId && p.price === row.price,
-            'Purchase response does not match the reviewed request',
+            copyText('market.purchase.response.does.not.match.the.reviewed'),
           ),
         );
         if (result.ok) return originalPurchaseOutcome(result.data);
         if (result.reason === 'aborted' || result.status === 401 || result.status === 403) return result;
-        return { ...result, reason: 'uncertain', message: result.message + ' Check the original purchase record before another purchase.' };
+        return {
+          ...result,
+          reason: 'uncertain',
+          message: result.message + copyText('market.check.the.original.purchase.record.before.another'),
+        };
       },
       done: purchases.reload,
     });
@@ -218,36 +238,36 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
     <div className="more-grid">
       <div className="more-toolbar">
         <a className="text-link" href="/market">
-          Catalogue
+          <Text k="market.catalogue" />
         </a>
         <a className="text-link" href="/market/mine">
-          My listings
+          <Text k="market.my.listings" />
         </a>
         <a className="text-link" href="/market/strategy">
-          Publish a strategy subscription
+          <Text k="market.publish.a.strategy.subscription" />
         </a>
       </div>
       <Read resource={programme.resource} retry={programme.reload}>
         {(p) => (
           <p className="muted">
             {p.commissionConfigured && p.commissionBps !== null
-              ? `Published house commission: ${p.commissionBps} basis points, charged to the seller.`
-              : 'The house commission is unpublished. The service refuses listing creation and purchases until it is configured.'}
+              ? copyText('market.published.house.commission.basis.points.charged.to', { value1: p.commissionBps })
+              : copyText('market.the.house.commission.is.unpublished.the.service')}
           </p>
         )}
       </Read>
       {(mine || strategy) && (
         <div className="more-columns">
           <div>
-            <Panel title="Seller application">
+            <Panel title={copyText('market.seller.application')}>
               <Read resource={vendor.resource} retry={vendor.reload}>
                 {(row) =>
                   row ? (
                     <Details
                       items={[
-                        ['Seller', row.displayName],
-                        ['Status', row.status],
-                        ['Description', row.description],
+                        [copyText('market.seller'), row.displayName],
+                        [copyText('market.status'), row.status],
+                        [copyText('market.description'), row.description],
                       ]}
                     />
                   ) : (
@@ -255,14 +275,14 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                       onSubmit={(e) => {
                         e.preventDefault();
                         action.stage({
-                          title: 'Review seller application',
-                          confirm: 'Submit application',
-                          success: 'Application received',
+                          title: copyText('market.review.seller.application'),
+                          confirm: copyText('market.submit.application'),
+                          success: copyText('market.application.received'),
                           content: (
                             <Details
                               items={[
-                                ['Display name', name],
-                                ['Description', description],
+                                [copyText('market.display.name'), name],
+                                [copyText('market.description'), description],
                               ]}
                             />
                           ),
@@ -277,27 +297,38 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                         });
                       }}
                     >
-                      <Field label="Seller display name" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} required />
-                      <TextArea label="Seller description" value={description} onChange={setDescription} maxLength={2000} />
+                      <Field
+                        label={copyText('market.seller.display.name')}
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        maxLength={80}
+                        required
+                      />
+                      <TextArea
+                        label={copyText('market.seller.description')}
+                        value={description}
+                        onChange={setDescription}
+                        maxLength={2000}
+                      />
                       <Button type="submit" disabled={action.disabled || !name.trim() || !description.trim()}>
-                        Review application
+                        <Text k="market.review.application" />
                       </Button>
                     </form>
                   )
                 }
               </Read>
             </Panel>
-            <Panel title="Listing capacity">
+            <Panel title={copyText('market.listing.capacity')}>
               <Read resource={slots.resource} retry={slots.reload}>
                 {(s) =>
                   s ? (
                     <>
                       <Details
                         items={[
-                          ['Stake tier', s.tier],
-                          ['Capacity', s.capacity],
-                          ['Held slots', s.held],
-                          ['Usable listings', s.usable],
+                          [copyText('market.stake.tier'), s.tier],
+                          [copyText('market.capacity'), s.capacity],
+                          [copyText('market.held.slots'), s.held],
+                          [copyText('market.usable.listings'), s.usable],
                         ]}
                       />
                       {s.slots
@@ -310,16 +341,22 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                               disabled={action.disabled}
                               onClick={() =>
                                 action.stage({
-                                  title: 'Release listing slot',
-                                  confirm: 'Release slot',
-                                  success: 'Slot release confirmed',
-                                  content: <p>Release {slot.ref}. A listing without a slot will no longer be available publicly.</p>,
+                                  title: copyText('market.release.listing.slot'),
+                                  confirm: copyText('market.release.slot'),
+                                  success: copyText('market.slot.release.confirmed'),
+                                  content: (
+                                    <p>
+                                      <Text k="market.release" />
+                                      {slot.ref}
+                                      <Text k="market.a.listing.without.a.slot.will.no" />
+                                    </p>
+                                  ),
                                   run: () => api.mutate('market', 'releaseSlot', { ref: slot.ref }, z.object({ released: z.boolean() })),
                                   done: slots.reload,
                                 })
                               }
                             >
-                              Release
+                              <Text k="market.release.2" />
                             </Button>
                           </div>
                         ))}
@@ -329,10 +366,9 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
               </Read>
             </Panel>
           </div>
-          <Panel title={strategy ? 'Publish a strategy subscription' : 'Create a listing'}>
+          <Panel title={strategy ? copyText('market.publish.a.strategy.subscription') : copyText('market.create.a.listing')}>
             <p className="muted">
-              Approval and stake capacity are enforced by the service. Strategy subscriptions sell access for one paid period; return
-              ranking and profit share are unavailable.
+              <Text k="market.approval.and.stake.capacity.are.enforced.by" />
             </p>
             <form
               onSubmit={(e) => {
@@ -346,17 +382,20 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                   ...(!strategy ? { offerType: offer } : {}),
                 };
                 action.stage({
-                  title: 'Review listing',
-                  confirm: 'Publish listing',
-                  success: 'Listing published',
+                  title: copyText('market.review.listing'),
+                  confirm: copyText('market.publish.listing'),
+                  success: copyText('market.listing.published'),
                   content: (
                     <Details
                       items={[
-                        ['Title', title],
-                        ['Description', description],
-                        ['Price', `${price} ${asset}`],
-                        ['Offer', strategy ? 'Strategy subscription' : offer],
-                        ['Period', offer === 'subscription' || strategy ? `${period} seconds` : 'Not applicable'],
+                        [copyText('market.title'), title],
+                        [copyText('market.description'), description],
+                        [copyText('market.price'), `${price} ${asset}`],
+                        [copyText('market.offer'), strategy ? copyText('market.strategy.subscription') : offer],
+                        [
+                          copyText('market.period'),
+                          offer === 'subscription' || strategy ? `${period} seconds` : copyText('market.not.applicable'),
+                        ],
                       ]}
                     />
                   ),
@@ -368,13 +407,20 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                 });
               }}
             >
-              <Field label="Listing title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} />
-              <TextArea label="Listing description" value={description} onChange={setDescription} maxLength={4000} />
-              {!strategy && <Select label="Offer type" value={offer} onChange={setOffer} options={['one_time', 'subscription']} />}
-              <Field label="Price asset ID" value={asset} onChange={(e) => setAsset(e.target.value)} maxLength={32} />
-              <Field label="Price" value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" />
+              <Field label={copyText('market.listing.title')} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} />
+              <TextArea label={copyText('market.listing.description')} value={description} onChange={setDescription} maxLength={4000} />
+              {!strategy && (
+                <Select label={copyText('market.offer.type')} value={offer} onChange={setOffer} options={['one_time', 'subscription']} />
+              )}
+              <Field label={copyText('market.price.asset.id')} value={asset} onChange={(e) => setAsset(e.target.value)} maxLength={32} />
+              <Field label={copyText('market.price')} value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" />
               {(offer === 'subscription' || strategy) && (
-                <Field label="Paid period in seconds" value={period} onChange={(e) => setPeriod(e.target.value)} inputMode="numeric" />
+                <Field
+                  label={copyText('market.paid.period.in.seconds')}
+                  value={period}
+                  onChange={(e) => setPeriod(e.target.value)}
+                  inputMode="numeric"
+                />
               )}
               <Button
                 type="submit"
@@ -387,17 +433,17 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                   ((offer === 'subscription' || strategy) && !validPeriod)
                 }
               >
-                Review listing
+                <Text k="market.review.listing" />
               </Button>
             </form>
           </Panel>
         </div>
       )}
-      <Panel title={mine || strategy ? 'Your listings' : 'Browse listings'}>
+      <Panel title={mine || strategy ? copyText('market.your.listings') : copyText('market.browse.listings')}>
         <Read
           resource={listings.resource}
           retry={listings.reload}
-          empty={mine || strategy ? 'You have no listings' : 'No listings are available'}
+          empty={mine || strategy ? copyText('market.you.have.no.listings') : copyText('market.no.listings.are.available')}
         >
           {(rows) => (
             <>
@@ -408,7 +454,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                     <p>{row.description}</p>
                     <p>
                       {displayAmount(row.price)} {row.assetId}
-                      {row.periodSeconds ? ` / ${row.periodSeconds} seconds` : ''}
+                      {row.periodSeconds ? copyText('market.seconds', { value1: row.periodSeconds }) : ''}
                     </p>
                     <small>{row.status}</small>
                     {mine || strategy ? (
@@ -417,10 +463,15 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                         disabled={action.disabled || row.status === 'archived'}
                         onClick={() =>
                           action.stage({
-                            title: 'Archive listing',
-                            confirm: 'Archive listing',
-                            success: 'Listing archived',
-                            content: <p>{row.title} will leave the public catalogue.</p>,
+                            title: copyText('market.archive.listing'),
+                            confirm: copyText('market.archive.listing'),
+                            success: copyText('market.listing.archived'),
+                            content: (
+                              <p>
+                                {row.title}
+                                <Text k="market.will.leave.the.public.catalogue" />
+                              </p>
+                            ),
                             run: () => api.mutate('market', 'archiveListing', { listingId: row.id }, listingSchema),
                             done: () => {
                               listings.reload();
@@ -429,15 +480,15 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                           })
                         }
                       >
-                        Archive
+                        <Text k="market.archive" />
                       </Button>
                     ) : (
                       <Button
                         disabled={action.disabled || row.status !== 'active'}
                         onClick={() => buy(row)}
-                        aria-label={`Buy ${row.title}`}
+                        aria-label={copyText('market.buy.2', { value1: row.title })}
                       >
-                        {row.offerType === 'subscription' ? 'Buy one period' : 'Buy'}
+                        {row.offerType === 'subscription' ? copyText('market.buy.one.period') : copyText('market.buy')}
                       </Button>
                     )}
                   </article>
@@ -448,11 +499,14 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           )}
         </Read>
       </Panel>
-      <Panel title="Your purchases">
-        <Read resource={purchases.resource} retry={purchases.reload} empty="You have no purchases">
+      <Panel title={copyText('market.your.purchases')}>
+        <Read resource={purchases.resource} retry={purchases.reload} empty={copyText('market.you.have.no.purchases')}>
           {(rows) => (
             <>
-              <DataTable headers={['Purchase', 'Amount', 'Settlement', 'Access']} label="Purchase history">
+              <DataTable
+                headers={[copyText('market.purchase'), copyText('market.amount'), copyText('market.settlement'), copyText('market.access')]}
+                label={copyText('market.purchase.history')}
+              >
                 {rows.map((r) => (
                   <tr key={r.id}>
                     <td>
@@ -464,20 +518,31 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                     <td>
                       {r.status}
                       {r.rejectionCode && <p>{r.rejectionCode}</p>}
-                      {r.ledgerTxId && <small>Ledger {r.ledgerTxId}</small>}
+                      {r.ledgerTxId && (
+                        <small>
+                          <Text k="market.ledger" />
+                          {r.ledgerTxId}
+                        </small>
+                      )}
                     </td>
                     <td>
-                      {r.accessUntil ?? 'No expiring access'}
+                      {r.accessUntil ?? copyText('market.no.expiring.access')}
                       {r.accessUntil && (
                         <Button
                           variant="secondary"
                           disabled={action.disabled}
                           onClick={() =>
                             action.stage({
-                              title: 'Cancel subscription access',
-                              confirm: 'Cancel access',
-                              success: 'Access cancellation recorded',
-                              content: <p>Cancel access for listing {r.listingId}. This does not issue a refund.</p>,
+                              title: copyText('market.cancel.subscription.access'),
+                              confirm: copyText('market.cancel.access'),
+                              success: copyText('market.access.cancellation.recorded'),
+                              content: (
+                                <p>
+                                  <Text k="market.cancel.access.for.listing" />
+                                  {r.listingId}
+                                  <Text k="market.this.does.not.issue.a.refund" />
+                                </p>
+                              ),
                               run: () =>
                                 api.mutate(
                                   'market',
@@ -489,7 +554,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                             })
                           }
                         >
-                          Cancel access
+                          <Text k="market.cancel.access" />
                         </Button>
                       )}
                     </td>
