@@ -1093,8 +1093,12 @@ export function createPayRouter(
               .optional(),
           }),
         )
-        .mutation(({ input }) => {
+        .mutation(async ({ ctx, input }) => {
           try {
+            // merchantId, thresholds, and blocklists stay caller-supplied.
+            // The principal must hold this merchant before the review lands in
+            // the process-global queue that admin:treasury lists.
+            await assertAccess(ctx.principal.userId, input.merchantId, 'trpc.payment.create');
             const decision = evaluateFraud({
               merchantId: input.merchantId,
               amount: input.amount,
@@ -1125,7 +1129,7 @@ export function createPayRouter(
             if (e instanceof FraudReviewError) {
               throw new TRPCError({ code: 'BAD_REQUEST', message: `${e.code}: ${e.message}`, cause: e });
             }
-            throw e;
+            throw toTrpcError(e);
           }
         }),
 

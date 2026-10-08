@@ -694,6 +694,44 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     expect(disclosed).not.toContain(ledgerTxId);
   });
 
+  it('refuses fraud.enqueueReview to a pay:write caller who does not hold the merchant, and does not plant the review', async () => {
+    stub.ownedBy(ANOTHER_USER);
+    const api = await caller(['pay:write']);
+    const id = `rev-stranger-${Date.now()}`;
+
+    const err = await api.fraud
+      .enqueueReview({
+        id,
+        merchantId: MERCHANT,
+        amount: '99',
+        assetId: 'USDT',
+        recentPaymentCount: 50,
+        thresholds: { maxPaymentsInWindow: 5, velocityCountAction: 'review' },
+      })
+      .catch((e: unknown) => e);
+
+    expect(codeOf(err)).toBe('FORBIDDEN');
+    expect(defaultFraudReviewQueue.get(id)).toBeNull();
+    const listed = await (await caller(['admin:treasury'])).fraud.listOpenReviews({ limit: 50 });
+    expect(listed.some((row) => row.id === id)).toBe(false);
+  });
+
+  it('still lets the merchant who holds the id enqueue a fraud review', async () => {
+    const api = await caller(['pay:write']);
+    const id = `rev-owner-${Date.now()}`;
+    await expect(
+      api.fraud.enqueueReview({
+        id,
+        merchantId: MERCHANT,
+        amount: '99',
+        assetId: 'USDT',
+        recentPaymentCount: 50,
+        thresholds: { maxPaymentsInWindow: 5, velocityCountAction: 'review' },
+      }),
+    ).resolves.toMatchObject({ id, merchantId: MERCHANT, status: 'open' });
+    expect(defaultFraudReviewQueue.get(id)?.merchantId).toBe(MERCHANT);
+  });
+
   it('still serves payment.get to the merchant who owns it', async () => {
     const api = await caller(['pay:read']);
     await expect(api.payment.get({ paymentId: PAYMENT })).resolves.toMatchObject({ id: PAYMENT, merchantId: MERCHANT });
