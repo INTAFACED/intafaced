@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, displayAmount } from '../../shared/money';
+import { usePreferences } from '../../shared/preferences';
 import { Button, DataTable, Field, Panel, Tabs } from '../../shared/ui';
 import { Details, Limit, Read, Select, TextArea, useAction } from './common';
 const uuid = z.string().uuid();
@@ -32,6 +33,7 @@ const tally = z.object({
   voterCount: z.number().int().nonnegative(),
 });
 export function Token() {
+  const { hideBalances } = usePreferences();
   const api = useApi(),
     { userId } = useSession(),
     action = useAction('token');
@@ -81,7 +83,10 @@ export function Token() {
                 {(a) => (
                   <Details
                     items={[
-                      ['Staked amount', `${displayAmount(a.staked)} · asset identity unavailable`],
+                      [
+                        'Staked amount',
+                        hideBalances ? 'Hidden · asset identity unavailable' : `${displayAmount(a.staked)} · asset identity unavailable`,
+                      ],
                       ['Access tier', a.tier],
                       ['Fee discount', `${a.feeDiscountBps} basis points`],
                     ]}
