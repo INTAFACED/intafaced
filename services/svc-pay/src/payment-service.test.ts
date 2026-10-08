@@ -1919,6 +1919,93 @@ describe('svc-pay money PG-hard', () => {
       expect(await availableOf(MERCHANT_USER)).toBe('15');
     });
 
+    /**
+     * The freeze can commit while the merchant is still active. The credit is
+     * authorized only by the eligibility lock inside the posting transaction.
+     * A suspend that lands before that lock must not credit available and must
+     * not mark the window posted. The pending row, and its frozen numbers, stay.
+     */
+    it('does not credit a pending settlement when the merchant is suspended before the posting lock', async () => {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '40');
+      await pay.capture(payment.id);
+
+      const realPost = ledger.post.bind(ledger);
+      ledger.post = async (req) => {
+        if (req.reason === 'pay.settled') throw new Error('freeze the window without posting');
+        return realPost(req);
+      };
+      try {
+        await expect(settle(m.id, 'w-post-suspend')).rejects.toThrow(/freeze the window without posting/);
+      } finally {
+        ledger.post = realPost;
+      }
+
+      const frozen = await pay.getSettlement(
+        (
+          await sql<Array<{ id: string }>>`
+            SELECT id FROM pay.settlements WHERE merchant_id = ${m.id} AND "window" = 'w-post-suspend'
+          `
+        )[0]!.id,
+      );
+      expect(frozen.status).toBe('pending');
+      expect(formatAmount(frozen.gross)).toBe('40');
+      expect(formatAmount(frozen.fees)).toBe('0');
+      expect(formatAmount(frozen.net)).toBe('40');
+      expect(await availableOf(MERCHANT_USER)).toBe('0');
+      expect(await clearingOf(m.id)).toBe('40');
+      expect((await pay.getPayment(payment.id)).status).toBe('captured');
+
+      let commitCutoff: (() => Promise<void>) | undefined;
+      const posting = new PayService(sql, ledger, rails, {
+        checkoutRiskBand: 'low',
+        payoutDestinations: dests,
+        routingProfiles: TEST_CHECKOUT_PROFILES,
+        linkDefaultTtlDays: 30,
+        linkMaxTtlDays: 365,
+        checkoutSessionTtlSeconds: 900,
+        maxOpenSessionsPerLink: 25,
+        beforeSettlementPostMerchantLock: async () => {
+          const cutoff = await beginMerchantCutoff(m.id, 'suspended');
+          commitCutoff = () => cutoff.commit();
+        },
+      });
+
+      const settling = posting.settleWindow({
+        merchantId: m.id,
+        window: 'w-post-suspend',
+        assetId: 'USDT',
+        from: new Date(Date.now() - 24 * 3600_000),
+        to: new Date(Date.now() + 24 * 3600_000),
+      });
+
+      try {
+        for (let attempt = 0; attempt < 100 && !commitCutoff; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        if (!commitCutoff) throw new Error('settlement post never reached the merchant lock');
+        await expectEligibilityReadWaiting();
+        await commitCutoff();
+        commitCutoff = undefined;
+        await expect(settling).rejects.toMatchObject({ code: 'pay.merchant_inactive' });
+      } finally {
+        if (commitCutoff) await commitCutoff();
+      }
+
+      const still = await pay.getSettlement(frozen.id);
+      expect(still.status).toBe('pending');
+      expect(still.gross).toBe(frozen.gross);
+      expect(still.fees).toBe(frozen.fees);
+      expect(still.net).toBe(frozen.net);
+      expect(await availableOf(MERCHANT_USER)).toBe('0');
+      expect(await clearingOf(m.id)).toBe('40');
+      expect((await pay.getPayment(payment.id)).status).toBe('captured');
+      expect(await events(payment.id)).toContain('settlement.included');
+      expect(await events(payment.id)).not.toContain('settled');
+      expect(ledger.journal().filter((entry) => entry.reason === 'pay.settled')).toHaveLength(0);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
     it('rounds the fee in the house’s favour by at most one unit of precision', async () => {
       const m = await merchant(1); // 0.01%
       const payment = await cardPayment(m.id, '0.000000000000000101');

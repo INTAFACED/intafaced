@@ -726,6 +726,12 @@ export interface PayServiceOptions {
   readonly afterSettlementMerchantLock?: () => void | Promise<void>;
 
   /**
+   * Test failpoint inside the settlement posting transaction, before the
+   * merchant eligibility lock that authorizes the credit. Never wired at boot.
+   */
+  readonly beforeSettlementPostMerchantLock?: () => void | Promise<void>;
+
+  /**
    * Outbound merchant webhook notifier (pay.public-api step 3 / ADR §2.4).
    *
    * Called AFTER the money transaction commits. Must never move value. Failures
@@ -907,6 +913,7 @@ export class PayService {
       }) => void | Promise<void>)
     | undefined;
   private readonly afterSettlementMerchantLock: (() => void | Promise<void>) | undefined;
+  private readonly beforeSettlementPostMerchantLock: (() => void | Promise<void>) | undefined;
   private readonly affiliateAccrue: AffiliateAccruePort;
   private readonly affiliatePayout: AffiliatePayoutPort;
   private readonly payoutDestinations: MerchantPayoutDestinations;
@@ -930,6 +937,7 @@ export class PayService {
     this.now = options.now ?? (() => new Date());
     this.afterPaymentEvent = options.afterPaymentEvent;
     this.afterSettlementMerchantLock = options.afterSettlementMerchantLock;
+    this.beforeSettlementPostMerchantLock = options.beforeSettlementPostMerchantLock;
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
     this.affiliatePayout = options.affiliatePayout ?? new NoopAffiliatePayout();
     this.payoutDestinations = options.payoutDestinations ?? assertOnlyPayoutDestinations();
@@ -2564,7 +2572,12 @@ export class PayService {
    * one. `createPayment` and public checkout already refuse non-active; until
    * this gate, a suspended merchant could still settle captured volume and take
    * it out via `payoutSettlement` — suspension that stopped inbound only.
-   * Re-reading an already-posted settlement is still fine (no value moves).
+   * The credit itself is authorized inside the posting transaction:
+   * `lockMerchantEligibility` then `assertMerchantActive`, on that
+   * transaction, before the ledger post. A suspend after the freeze refuses
+   * `pay.merchant_inactive`, leaves the window pending, and does not credit
+   * available. Re-reading an already-posted settlement is still fine (no
+   * value moves).
    */
   async settleWindow(input: {
     merchantId: string;
@@ -2603,11 +2616,9 @@ export class PayService {
     if (!current) throw new PayError(`Settlement ${settlementId} not found`, 'pay.settlement_not_found');
     if (current.status !== 'pending') return toSettlement(current);
 
-    const merchant = await this.getMerchant(current.merchant_id);
-    // About to post gross → merchant available. Suspension mid-freeze must
-    // not finish the move; captured volume stays in clearing until reopen.
-    this.assertMerchantActive(merchant);
-
+    // The unlocked merchant read is not the credit gate. Eligibility is locked
+    // below, on this transaction, before the ledger post.
+    let merchantUserId: string | undefined;
     const posted = await transaction(
       this.sql,
       async (tx) => {
@@ -2617,6 +2628,14 @@ export class PayService {
         `;
         const row = rows[0]!;
         if (row.status !== 'pending') return toSettlement(row);
+
+        // Merchant eligibility, then payment rows — the same order as capture.
+        // A suspend that commits before this lock must not credit available
+        // or mark the window posted. Frozen gross, fees, and net stay as frozen.
+        await this.beforeSettlementPostMerchantLock?.();
+        const merchant = await this.lockMerchantEligibility(tx, row.merchant_id);
+        this.assertMerchantActive(merchant);
+        merchantUserId = merchant.userId;
 
         const gross = parseAmount(row.gross);
         const fees = parseAmount(row.fees);
@@ -2703,8 +2722,11 @@ export class PayService {
       },
       { isolation: 'read committed', maxAttempts: 5 },
     );
-    await this.notifyPayAffiliateAccrue(posted, merchant.userId);
-    await this.notifyPayAffiliatePayout(posted, merchant.userId);
+    // Already posted by a concurrent winner: no credit happened here. Accrue
+    // still wants the merchant user id, and that read is not a credit gate.
+    const userId = merchantUserId ?? (await this.getMerchant(posted.merchantId)).userId;
+    await this.notifyPayAffiliateAccrue(posted, userId);
+    await this.notifyPayAffiliatePayout(posted, userId);
     return posted;
   }
 
