@@ -727,14 +727,22 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
       await resumed.runDueSubscriptions({ limit: 50, now: resumeAt });
       await payInvoice(opened[1]!.paymentId, '10');
 
-      // Two weeks on: nothing more is owed yet.
+      // Two weeks on: nothing more is owed yet. Opening an invoice does not
+      // pay it, so clearing stays 20 whether or not a third invoice exists.
+      // The count is the bill. Two weeks after resume is not the next period.
       await resumed.runDueSubscriptions({ limit: 50, now: utc(2026, 5, 24) });
+      expect(opened).toHaveLength(2);
       expect(await clearingOf(m.id)).toBe('20');
 
       // A month on from the RESUME instant, not from the mandate's start.
+      // Pay the invoice this pass opened. A length of 3 is also true when
+      // 24 May already opened the third invoice and 10 June opened nothing.
+      const openedBeforeJune = opened.map((invoice) => invoice.paymentId);
       await resumed.runDueSubscriptions({ limit: 50, now: utc(2026, 6, 10) });
       expect(opened).toHaveLength(3);
-      await payInvoice(opened[2]!.paymentId, '10');
+      const openedInJune = opened.filter((invoice) => !openedBeforeJune.includes(invoice.paymentId));
+      expect(openedInJune).toHaveLength(1);
+      await payInvoice(openedInJune[0]!.paymentId, '10');
       expect(await clearingOf(m.id)).toBe('30');
     });
 
