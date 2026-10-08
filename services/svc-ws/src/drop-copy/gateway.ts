@@ -311,19 +311,16 @@ export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGateway
           }
           continue;
         }
-        // Missed pong on a still-live drop-copy seat is not 1006 — identity
-        // heartbeat already drops revoked seats 4003. terminate() here killed
-        // KEEP across 40ms tests (`recovery-drop-other-streams`, session-revoked).
+        // Ping already went out and no pong came back. terminate() emits close,
+        // which detaches the hub seat so the dead client stops counting toward
+        // the per-user ceiling. A failed live credential still closes 4003.
+        // A pong that lands before terminate runs puts the socket back in alive.
         if (seat && liveCredential) {
           void assertLiveCredential(liveCredential, liveCredentialInput(seat)).then(
             () => {
+              if (alive.has(ws)) return;
               if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
-                awaitingPong.add(ws);
-                try {
-                  ws.ping();
-                } catch {
-                  ws.terminate();
-                }
+                ws.terminate();
               }
             },
             () => {

@@ -1,10 +1,16 @@
 import { createServer, request as httpRequest, type Server } from 'node:http';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { PRIVATE_STREAM_PATH } from '../private/gateway.js';
+import type { LiveCredentialPort, OwnershipSnapshot } from '../private/live-credential.js';
 import { DROP_COPY_CHANNEL, DropCopyHub } from './hub.js';
-import { createDropCopyWebSocketGateway, DROP_COPY_STREAM_PATH, type DropCopyWebSocketGateway } from './gateway.js';
+import {
+  CLOSE_UNAUTHORIZED,
+  createDropCopyWebSocketGateway,
+  DROP_COPY_STREAM_PATH,
+  type DropCopyWebSocketGateway,
+} from './gateway.js';
 
 const SECRET = 'test-access-secret-at-least-32-chars!!';
 const USER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -17,14 +23,42 @@ const tokens: TokenConfig = {
   accessTtlSeconds: 900,
 };
 
+const HEARTBEAT_MS = 30_000;
+
+/** Heartbeat only. Leave nextTick and setImmediate real so the socket can open. */
+const FAKE_CLOCK = {
+  toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+} as const;
+
+async function yieldIo(): Promise<void> {
+  for (let i = 0; i < 8; i++) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
+function liveCredential(): LiveCredentialPort & { revoke(): void } {
+  const state = { revoked: false };
+  return {
+    revoke() {
+      state.revoked = true;
+    },
+    async getSession(): Promise<OwnershipSnapshot> {
+      return { id: SESSION, userId: USER, revoked: state.revoked };
+    },
+    async getApiKey(): Promise<OwnershipSnapshot> {
+      return { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', userId: USER, revoked: false };
+    },
+  };
+}
+
 class Client {
   readonly socket: WebSocket;
   readonly frames: string[] = [];
   closed: { code: number; reason: string } | null = null;
   readonly #waiters: Array<{ count: number; resolve: () => void }> = [];
 
-  constructor(url: string) {
-    this.socket = new WebSocket(url);
+  constructor(url: string, opts?: { autoPong?: boolean }) {
+    this.socket = new WebSocket(url, opts?.autoPong === false ? { autoPong: false } : undefined);
     this.socket.on('message', (data) => {
       this.frames.push(data.toString());
       this.#settle();
@@ -50,6 +84,13 @@ class Client {
     await new Promise<void>((resolve) => this.#waiters.push({ count, resolve }));
   }
 
+  untilClosed(): Promise<void> {
+    if (this.closed) return Promise.resolve();
+    return new Promise((resolve) => {
+      this.socket.once('close', () => resolve());
+    });
+  }
+
   parsed(): Array<Record<string, unknown>> {
     return this.frames.map((f) => JSON.parse(f) as Record<string, unknown>);
   }
@@ -73,12 +114,19 @@ describe('drop-copy WebSocket gateway', () => {
     }
   });
 
-  async function boot(opts: { tokens: TokenConfig | null } = { tokens }): Promise<void> {
+  async function boot(
+    opts: {
+      tokens: TokenConfig | null;
+      liveCredential?: LiveCredentialPort | null;
+      heartbeatMs?: number;
+      maxConnectionsPerUser?: number;
+    } = { tokens },
+  ): Promise<void> {
     hub = new DropCopyHub({
       highWaterBytes: 1_000_000,
       maxLagTicks: 5,
       maxConnections: 10,
-      maxConnectionsPerUser: 10,
+      maxConnectionsPerUser: opts.maxConnectionsPerUser ?? 10,
       recentLimit: 10,
     });
     hub.announceBus(true);
@@ -96,10 +144,11 @@ describe('drop-copy WebSocket gateway', () => {
     gateway = createDropCopyWebSocketGateway({
       server: http,
       hub,
-      heartbeatMs: 30_000,
+      heartbeatMs: opts.heartbeatMs ?? 30_000,
       log: { info: () => undefined, warn: () => undefined },
       enabled: () => enabled,
       tokens: opts.tokens,
+      liveCredential: opts.liveCredential ?? null,
     });
   }
 
@@ -201,5 +250,141 @@ describe('drop-copy WebSocket gateway', () => {
       qty: '0.2',
       feeAmount: '0.02',
     });
+  });
+
+  it('terminates a live-credential seat that misses a pong and frees the per-user ceiling', async () => {
+    vi.useFakeTimers(FAKE_CLOCK);
+    try {
+      const credential = liveCredential();
+      await boot({ tokens, liveCredential: credential, heartbeatMs: HEARTBEAT_MS, maxConnectionsPerUser: 1 });
+      const token = await accessToken(['trade:read']);
+      const url = `${baseUrl}${DROP_COPY_STREAM_PATH}?access_token=${token}`;
+      const dead = new Client(url, { autoPong: false });
+      let pings = 0;
+      dead.socket.on('ping', () => {
+        pings += 1;
+      });
+      await dead.frameCount(2);
+      expect(hub.connections).toBe(1);
+      expect(dead.closed).toBeNull();
+
+      await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
+      await yieldIo();
+      expect(pings).toBe(1);
+      expect(dead.closed).toBeNull();
+      expect(hub.connections).toBe(1);
+
+      const blocked = new Client(url, { autoPong: false });
+      await blocked.untilClosed();
+      expect(hub.connections).toBe(1);
+      expect(blocked.parsed().some((frame) => frame.type === 'ready')).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
+      await yieldIo();
+      expect(pings).toBe(1);
+      expect(dead.closed).not.toBeNull();
+      expect(hub.connections).toBe(0);
+
+      const next = new Client(url);
+      await next.frameCount(2);
+      expect(next.closed).toBeNull();
+      expect(next.parsed().some((frame) => frame.type === 'ready')).toBe(true);
+      expect(hub.connections).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('pings a live-credential seat on the first heartbeat and keeps it', async () => {
+    vi.useFakeTimers(FAKE_CLOCK);
+    try {
+      await boot({
+        tokens,
+        liveCredential: liveCredential(),
+        heartbeatMs: HEARTBEAT_MS,
+        maxConnectionsPerUser: 1,
+      });
+      const token = await accessToken(['trade:read']);
+      const url = `${baseUrl}${DROP_COPY_STREAM_PATH}?access_token=${token}`;
+      const seat = new Client(url, { autoPong: false });
+      let pings = 0;
+      seat.socket.on('ping', () => {
+        pings += 1;
+      });
+      await seat.frameCount(2);
+      expect(hub.connections).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
+      await yieldIo();
+      expect(pings).toBe(1);
+      expect(seat.closed).toBeNull();
+      expect(hub.connections).toBe(1);
+
+      const blocked = new Client(url, { autoPong: false });
+      await blocked.untilClosed();
+      expect(hub.connections).toBe(1);
+      expect(blocked.parsed().some((frame) => frame.type === 'ready')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps a live-credential seat when a pong arrives before the next heartbeat', async () => {
+    vi.useFakeTimers(FAKE_CLOCK);
+    try {
+      await boot({
+        tokens,
+        liveCredential: liveCredential(),
+        heartbeatMs: HEARTBEAT_MS,
+        maxConnectionsPerUser: 1,
+      });
+      const token = await accessToken(['trade:read']);
+      const url = `${baseUrl}${DROP_COPY_STREAM_PATH}?access_token=${token}`;
+      const seat = new Client(url, { autoPong: false });
+      let pings = 0;
+      seat.socket.on('ping', () => {
+        pings += 1;
+        seat.socket.pong();
+      });
+      await seat.frameCount(2);
+      expect(hub.connections).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
+      await yieldIo();
+      expect(pings).toBe(1);
+      await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
+      await yieldIo();
+
+      expect(pings).toBe(2);
+      expect(seat.closed).toBeNull();
+      expect(hub.connections).toBe(1);
+      const blocked = new Client(url, { autoPong: false });
+      await blocked.untilClosed();
+      expect(hub.connections).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('closes 4003 when a live credential fails on heartbeat', async () => {
+    vi.useFakeTimers(FAKE_CLOCK);
+    try {
+      const credential = liveCredential();
+      await boot({ tokens, liveCredential: credential, heartbeatMs: HEARTBEAT_MS, maxConnectionsPerUser: 1 });
+      const token = await accessToken(['trade:read']);
+      const url = `${baseUrl}${DROP_COPY_STREAM_PATH}?access_token=${token}`;
+      const seat = new Client(url);
+      await seat.frameCount(2);
+      expect(hub.connections).toBe(1);
+
+      credential.revoke();
+      await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
+      await yieldIo();
+
+      expect(seat.closed?.code).toBe(CLOSE_UNAUTHORIZED);
+      expect(hub.connections).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
