@@ -2,6 +2,8 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import {
   formatAmount,
+  InsufficientFundsError,
+  LedgerError,
   parseAmount,
   recipes,
   userAvailable,
@@ -385,18 +387,35 @@ export class UserMoneyService {
       // ── Phase 1: the ledger. Funds leave `available` for a hold that names
       // this withdrawal and this attempt.
       //
-      // IF THIS THROWS (insufficient funds), NOTHING HAS MOVED. The user's
-      // balance is untouched, the row is marked failed, and the caller is told
-      // why. That is the correct place for a withdrawal the user cannot afford
-      // to fail — before a rail has been asked to send anything.
+      // A throw while the row is still `pending` and the ledger reports
+      // insufficient funds means the hold did not land. Nothing has moved.
+      // The row is marked failed with that code, and only while it is still
+      // `pending` — a `held` or `sent` row is not "the user cannot afford
+      // this". Any other throw leaves the row alone so a retry can post again.
+      //
+      // A throw while the row is already `held` is a retry of a hold that
+      // already left `available`. Marking that row failed without
+      // `withdrawReverse` leaves the hold immobilised under a terminal status,
+      // and `ledger.insufficient_funds` would say the funds never left. Release
+      // it through the same path a rail refusal uses: `withdrawReverse`, then
+      // `failed`, and `attempts + 1`. The code is `rail.failed`, which this
+      // service already records when an attempt cannot finish. If the release
+      // does not land, the row stays `held` (the refusal stamp may be set) so
+      // the next call finishes the reverse instead of failing a live hold.
       try {
         await this.ledger.post(recipes.withdrawHold(ledgerInput));
       } catch (err) {
-        await this.sql`
-            UPDATE pay.withdrawals
-               SET status = 'failed', failure_code = 'ledger.insufficient_funds', updated_at = now()
-             WHERE id = ${claimed.id} AND status <> 'sent'
-          `;
+        if (claimed.status === 'held') {
+          await this.finalizeRailRefusal(claimed, 'rail.failed');
+          throw err;
+        }
+        if (isInsufficientFunds(err)) {
+          await this.sql`
+              UPDATE pay.withdrawals
+                 SET status = 'failed', failure_code = 'ledger.insufficient_funds', updated_at = now()
+               WHERE id = ${claimed.id} AND status = 'pending'
+            `;
+        }
         throw err;
       }
 
@@ -754,6 +773,10 @@ function toDeposit(row: DepositRow): DepositRecord {
     status: row.status,
     createdAt: row.created_at,
   };
+}
+
+function isInsufficientFunds(err: unknown): boolean {
+  return err instanceof InsufficientFundsError || (err instanceof LedgerError && err.code === 'ledger.insufficient_funds');
 }
 
 function toWithdrawal(row: WithdrawalRow): WithdrawalRecord {

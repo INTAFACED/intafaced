@@ -531,6 +531,124 @@ describe('svc-pay user money PG-hard', () => {
     });
 
     /**
+     * CRASH POINT: held, and the idempotent hold re-post throws.
+     *
+     * The funds already left `available`. Failing the row here used to stamp
+     * `ledger.insufficient_funds` and skip `withdrawReverse`, so the hold stayed
+     * put under a terminal status and `attempts` never moved. The release has
+     * to land before the row is failed, on the same attempt key.
+     */
+    it('releases a held withdrawal when the hold re-post throws', async () => {
+      const rows = await sql<Array<{ id: string }>>`
+        INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status)
+        VALUES (${USER}, 'USDT', 40, 'card-sandbox', ${sql.json({ kind: 'bank', ref: 'DE89370400440532013000' } as never)}, 'w-1', 'held')
+        RETURNING id
+      `;
+      const id = rows[0]!.id;
+      await ledger.post(
+        recipes.withdrawHold({ userId: USER, assetId: 'USDT', amount: amt('40'), rail: 'card-sandbox', withdrawalId: `${id}:0` }),
+      );
+      expect(await availableOf()).toBe('60');
+      expect(await holdOf(id, 0)).toBe('40');
+
+      let heldReposts = 0;
+      const throwing = new Proxy(ledger, {
+        get(target, prop, receiver) {
+          if (prop === 'post') {
+            return async (request: Parameters<MemoryLedger['post']>[0]) => {
+              if (request.idempotencyKey.startsWith('withdraw.hold:')) {
+                heldReposts += 1;
+                if (heldReposts === 1) throw new Error('hold re-post failed');
+              }
+              return target.post(request);
+            };
+          }
+          return Reflect.get(target, prop, receiver);
+        },
+      });
+      money = new UserMoneyService(sql, throwing, rails, { operatorCreditRails: ['card-sandbox'] });
+
+      await expect(withdraw()).rejects.toThrow(/hold re-post failed/);
+
+      const failed = (await money.listWithdrawals(USER, 50))[0]!;
+      expect(failed.id).toBe(id);
+      expect(failed.status).toBe('failed');
+      expect(failed.failureCode).toBe('rail.failed');
+      expect(failed.attempts).toBe(1);
+      expect(await holdOf(id, 0)).toBe('0');
+      expect(await availableOf()).toBe('100');
+      expect(await ledger.getTxByKey(`withdraw.reverse:${id}:0`)).not.toBeNull();
+
+      const retried = await withdraw();
+      expect(retried.id).toBe(id);
+      expect(retried.status).toBe('sent');
+      expect(retried.attempts).toBe(1);
+      expect(await availableOf()).toBe('60');
+      expect(await holdOf(id, 0)).toBe('0');
+      expect(await holdOf(id, 1)).toBe('0');
+    });
+
+    it('does not fail a held withdrawal when the release does not land', async () => {
+      const rows = await sql<Array<{ id: string }>>`
+        INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status)
+        VALUES (${USER}, 'USDT', 40, 'card-sandbox', ${sql.json({ kind: 'bank', ref: 'DE89370400440532013000' } as never)}, 'w-1', 'held')
+        RETURNING id
+      `;
+      const id = rows[0]!.id;
+      await ledger.post(
+        recipes.withdrawHold({ userId: USER, assetId: 'USDT', amount: amt('40'), rail: 'card-sandbox', withdrawalId: `${id}:0` }),
+      );
+
+      const throwing = new Proxy(ledger, {
+        get(target, prop, receiver) {
+          if (prop === 'post') {
+            return async (request: Parameters<MemoryLedger['post']>[0]) => {
+              if (request.idempotencyKey.startsWith('withdraw.hold:') || request.idempotencyKey.startsWith('withdraw.reverse:')) {
+                throw new Error('ledger post failed');
+              }
+              return target.post(request);
+            };
+          }
+          return Reflect.get(target, prop, receiver);
+        },
+      });
+      money = new UserMoneyService(sql, throwing, rails, { operatorCreditRails: ['card-sandbox'] });
+
+      await expect(withdraw()).rejects.toThrow(/ledger post failed/);
+
+      const record = (await money.listWithdrawals(USER, 50))[0]!;
+      expect(record.status).toBe('held');
+      expect(record.attempts).toBe(0);
+      expect(record.failureCode).not.toBe('ledger.insufficient_funds');
+      expect(await holdOf(id, 0)).toBe('40');
+      expect(await availableOf()).toBe('60');
+    });
+
+    it('does not label a hold post that throws before funds leave as insufficient funds', async () => {
+      const throwing = new Proxy(ledger, {
+        get(target, prop, receiver) {
+          if (prop === 'post') {
+            return async (request: Parameters<MemoryLedger['post']>[0]) => {
+              if (request.idempotencyKey.startsWith('withdraw.hold:')) throw new Error('ledger unavailable');
+              return target.post(request);
+            };
+          }
+          return Reflect.get(target, prop, receiver);
+        },
+      });
+      money = new UserMoneyService(sql, throwing, rails, { operatorCreditRails: ['card-sandbox'] });
+
+      await expect(withdraw()).rejects.toThrow(/ledger unavailable/);
+
+      const rows = await sql<Array<{ status: string; failure_code: string | null; attempts: number }>>`
+        SELECT status, failure_code, attempts FROM pay.withdrawals
+      `;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ status: 'pending', failure_code: null, attempts: 0 });
+      expect(await availableOf()).toBe('100');
+    });
+
+    /**
      * CRASH POINT: rail sent, settle not posted.
      *
      * Nobody's money is lost, but the PLATFORM is short: the rail has paid out
