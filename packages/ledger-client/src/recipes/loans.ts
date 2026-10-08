@@ -71,6 +71,19 @@ function requireSequence(name: string, value: number): void {
   if (!Number.isInteger(value) || value < 0) throw new InvalidEntryError(`${name} must be a non-negative integer, got ${value}`);
 }
 
+/**
+ * Blank, whitespace-only, and missing ids are one failure. Interpolating them
+ * builds a shared account and a shared key (`bank.loan.draw:`,
+ * `bank.loan.liquidate::0`), so a later post is an idempotent no-op.
+ * Refuse before any account ref or idempotency key is built. A present id is
+ * used as given — this does not invent or rewrite one.
+ */
+function requireId(name: string, value: string): void {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new InvalidEntryError(`${name} must be a non-blank id`);
+  }
+}
+
 // ── Collateral ───────────────────────────────────────────────────────────────
 
 export interface LoanCollateralInput {
@@ -102,6 +115,9 @@ export interface LoanCollateralInput {
  * not.
  */
 export function loanCollateralLock(input: LoanCollateralInput): PostRequest {
+  requireId('loanId', input.loanId);
+  requireId('userId', input.userId);
+  requireId('collateralAssetId', input.collateralAssetId);
   requirePositive('collateral amount', input.amount);
   requireSequence('collateral lock sequence', input.sequence);
   return {
@@ -127,6 +143,9 @@ export function loanCollateralLock(input: LoanCollateralInput): PostRequest {
  * already withdrawn.
  */
 export function loanCollateralRelease(input: LoanCollateralInput): PostRequest {
+  requireId('loanId', input.loanId);
+  requireId('userId', input.userId);
+  requireId('collateralAssetId', input.collateralAssetId);
   requirePositive('collateral release amount', input.amount);
   requireSequence('collateral release sequence', input.sequence);
   return {
@@ -169,6 +188,9 @@ export interface LoanDrawInput {
  * already agreed the terms of.
  */
 export function loanDraw(input: LoanDrawInput): PostRequest {
+  requireId('loanId', input.loanId);
+  requireId('userId', input.userId);
+  requireId('debtAssetId', input.debtAssetId);
   requirePositive('loan principal', input.principal);
   return {
     idempotencyKey: `bank.loan.draw:${input.loanId}`,
@@ -207,6 +229,9 @@ export interface LoanRepayInput extends LoanDrawInput {
  * catching it here says so in the caller's language.
  */
 export function loanRepay(input: LoanRepayInput): PostRequest {
+  requireId('loanId', input.loanId);
+  requireId('userId', input.userId);
+  requireId('debtAssetId', input.debtAssetId);
   requireNonNegative('repaid principal', input.principal);
   requireNonNegative('repaid interest', input.interest);
   requireSequence('repayment sequence', input.sequence);
@@ -320,6 +345,10 @@ export interface LoanLiquidationInput {
  * gets told which figure is wrong instead of "USDT off by 3".
  */
 export function loanLiquidate(input: LoanLiquidationInput): PostRequest {
+  requireId('loanId', input.loanId);
+  requireId('userId', input.userId);
+  requireId('collateralAssetId', input.collateralAssetId);
+  requireId('debtAssetId', input.debtAssetId);
   requireSequence('liquidation tranche', input.tranche);
   requirePositive('collateral sold', input.collateralSold);
   requirePositive('liquidation proceeds', input.proceeds);
@@ -412,6 +441,8 @@ export interface LoanBadDebtInput {
  * something true on the day it became true.
  */
 export function loanBadDebt(input: LoanBadDebtInput): PostRequest {
+  requireId('loanId', input.loanId);
+  requireId('debtAssetId', input.debtAssetId);
   requirePositive('bad debt shortfall', input.shortfall);
   return {
     idempotencyKey: `bank.loan.baddebt:${input.loanId}`,
@@ -433,6 +464,8 @@ export interface LoanReserveFundInput {
 
 /** Put lendable value into the reserve. Nothing can be borrowed before this runs. */
 export function loanReserveFund(input: LoanReserveFundInput): PostRequest {
+  requireId('fundingId', input.fundingId);
+  requireId('debtAssetId', input.debtAssetId);
   requirePositive('reserve funding amount', input.amount);
   return {
     idempotencyKey: `bank.loan.reserve.fund:${input.debtAssetId}:${input.fundingId}`,
