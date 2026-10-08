@@ -213,9 +213,59 @@ contract FairLaunch {
         emit SaleReclaimed(amount);
     }
 
+    /// Floor of `saleCredited * contribution / totalRaised`.
+    /// A failed sale or a zero credit pays nothing. The product is taken at full
+    /// width: finalize has already sent the quote to the creator, so a multiply
+    /// that does not fit in uint256 must not revert the only sale-token payout.
     function allocationOf(address account) public view returns (uint256) {
-        if (!success || totalRaised == 0) return 0;
-        return (saleCredited * contributed[account]) / totalRaised;
+        if (!success || totalRaised == 0 || saleCredited == 0) return 0;
+        return _floorMulDiv(saleCredited, contributed[account], totalRaised);
+    }
+
+    /// Floor of `a * b / denominator` when `a * b` may exceed uint256 and the quotient fits.
+    function _floorMulDiv(uint256 a, uint256 b, uint256 denominator) private pure returns (uint256 result) {
+        unchecked {
+            uint256 prod0;
+            uint256 prod1;
+            assembly {
+                let mm := mulmod(a, b, not(0))
+                prod0 := mul(a, b)
+                prod1 := sub(sub(mm, prod0), lt(mm, prod0))
+            }
+
+            if (prod1 == 0) {
+                return prod0 / denominator;
+            }
+
+            // Quotient does not fit in uint256. Also rejects denominator == 0.
+            if (denominator <= prod1) revert();
+
+            uint256 remainder;
+            assembly {
+                remainder := mulmod(a, b, denominator)
+                prod1 := sub(prod1, gt(remainder, prod0))
+                prod0 := sub(prod0, remainder)
+            }
+
+            uint256 twos = denominator & (0 - denominator);
+            assembly {
+                denominator := div(denominator, twos)
+                prod0 := div(prod0, twos)
+                twos := add(div(sub(0, twos), twos), 1)
+            }
+
+            prod0 |= prod1 * twos;
+
+            uint256 inverse = (3 * denominator) ^ 2;
+            inverse *= 2 - denominator * inverse;
+            inverse *= 2 - denominator * inverse;
+            inverse *= 2 - denominator * inverse;
+            inverse *= 2 - denominator * inverse;
+            inverse *= 2 - denominator * inverse;
+            inverse *= 2 - denominator * inverse;
+
+            result = prod0 * inverse;
+        }
     }
 
     function vestedOf(address account) public view returns (uint256) {
