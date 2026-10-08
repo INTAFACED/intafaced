@@ -153,6 +153,18 @@ test('Money keeps exact scoped quantities, excludes aliases and follows shared a
   await expect(holding).not.toContainText('0.300000000000000001');
 });
 
+for (const path of ['/portfolio/BTC', '/money/asset/BTC']) {
+  test(`holding detail at ${path} preserves exact asset quantities and action context`, async ({ page }) => {
+    await defaultApi(page, { balance: (route) => reply(route, balances, true), 'spaces.list': (route) => reply(route, [primary]) });
+    await mount(page, path);
+    await expect(page.getByRole('heading', { name: 'BTC', exact: true, level: 1 })).toBeVisible();
+    await expect(page.locator('.detail-list .numeric')).toHaveText(['0.300000000000000001 BTC', '0.200000000000000001 BTC', '0.1 BTC']);
+    await expect(page.getByRole('link', { name: 'Buy BTC', exact: true })).toHaveAttribute('href', '/exchange?asset=BTC&side=buy');
+    await expect(page.getByRole('link', { name: 'Sell BTC', exact: true })).toHaveAttribute('href', '/exchange?asset=BTC&side=sell');
+    await expect(page.getByRole('link', { name: 'Repeat buy', exact: true })).toHaveAttribute('href', '/portfolio/BTC/repeat-buy');
+  });
+}
+
 test('a reviewed transfer sends exact units and an unknown outcome offers no resubmit', async ({ page }) => {
   const sent = [];
   await defaultApi(page, {

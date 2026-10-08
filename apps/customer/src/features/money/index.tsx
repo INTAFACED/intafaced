@@ -441,7 +441,7 @@ function MoneyRooms({ path }: { path: string }) {
     setAction(spec);
   }
   const pathname = path.split('?')[0]!.replace(/\/$/, '') || '/';
-  const match = pathname.match(/^\/portfolio\/([^/]+)(\/repeat-buy)?$/);
+  const match = pathname.match(/^\/(?:portfolio|money\/asset)\/([^/]+)(\/repeat-buy)?$/);
   let content;
   if (pathname === '/bank') content = <MoneyOverviewPage bank />;
   else if (pathname.startsWith('/bank/') || pathname === '/uc/record')
