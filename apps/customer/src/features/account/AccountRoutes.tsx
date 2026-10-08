@@ -6,6 +6,7 @@ import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { enrollPasskey } from '../session/webauthn';
 import { View } from './View';
+import { IdentitySessions } from './IdentitySessions';
 import { customerRoomHref } from '../../app/navigation';
 import './account.css';
 
@@ -341,9 +342,9 @@ function Security() {
           )}
           <Panel title="Sessions">
             <p className="muted">
-              Session refresh follows the identity service. Credentials stay in memory; reloading this app requires sign-in. A per-device
-              session list is not mounted.
+              Session refresh follows the identity service. Credentials stay in memory; reloading this app requires sign-in.
             </p>
+            <IdentitySessions />
             <Button variant="secondary" onClick={() => setSignOut(true)} disabled={pending}>
               Sign out everywhere
             </Button>

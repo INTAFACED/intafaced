@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test';
+process.env.PLAYWRIGHT_NO_COPY_PROMPT = '1';
 export default defineConfig({
   testDir: '.',
   testMatch: 'more.pw.ts',
