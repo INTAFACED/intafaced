@@ -11,8 +11,8 @@ import type { LeaderPerformanceFixture } from './stats.js';
 
 export type CopyLeaderFixturesPort = {
   /**
-   * Grounded live leader fixtures. Empty array or throw = unavailable.
-   * Never invent PnL inside the port.
+   * Grounded live leader fixtures. An empty array is no rows.
+   * Throw when the sample is unavailable. Never invent PnL inside the port.
    */
   sample(): Promise<readonly LeaderPerformanceFixture[]>;
 };
@@ -22,8 +22,10 @@ export type LiveLeaderFixtures =
   | { readonly ok: false; readonly reason: 'no_live_leaders' };
 
 /**
- * Resolve live fixtures. Missing port, empty series, or sample failure all
- * collapse to the same named refuse — not an empty board and not invented PnL.
+ * Resolve live fixtures. A missing port, a non-array sample, or a thrown
+ * sample is `no_live_leaders`. An empty array is a successful read with no
+ * rows. The caller returns unbilled empty once the plane is allowlisted.
+ * Never invent PnL.
  */
 export async function readLiveLeaderFixtures(port: CopyLeaderFixturesPort | undefined): Promise<LiveLeaderFixtures> {
   if (port === undefined) {
@@ -31,7 +33,7 @@ export async function readLiveLeaderFixtures(port: CopyLeaderFixturesPort | unde
   }
   try {
     const fixtures = await port.sample();
-    if (!Array.isArray(fixtures) || fixtures.length === 0) {
+    if (!Array.isArray(fixtures)) {
       return { ok: false, reason: 'no_live_leaders' };
     }
     return { ok: true, fixtures };

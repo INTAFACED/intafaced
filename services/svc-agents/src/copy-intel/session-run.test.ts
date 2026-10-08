@@ -282,6 +282,44 @@ describe('copy_intel.stats metered session run', () => {
     expect(fake.toolCalls.some((t) => t === 'trade.order' || t === 'ledger.post' || t.includes('fee'))).toBe(false);
   });
 
+  it('returns unbilled empty when a live allowlisted port has no rows', async () => {
+    const prevOpen = process.env.LIVE_TRADE_COPY_LEADER_PLANE_OPEN;
+    const prevIds = process.env.LIVE_TRADE_COPY_LEADER_IDS;
+    process.env.LIVE_TRADE_COPY_LEADER_PLANE_OPEN = 'true';
+    process.env.LIVE_TRADE_COPY_LEADER_IDS = 'leader-a';
+    try {
+      const fake = new FakeRuntime();
+      const result = await runCopyIntelStatsSession({
+        ...baseInput(fake),
+        fixtures: [fixture('leader-a')],
+        leaderAllowlist: ['leader-a'],
+        copyLeaderFixturesPort: { sample: async () => [] },
+      });
+
+      expect(result).toEqual({
+        status: 'empty',
+        userMessageKey: 'agents.copy_intel.empty',
+        metering: {
+          sessionId: null,
+          billedAmount: '0',
+          assetId: 'IFC',
+          sessionClosed: false,
+          settlements: [],
+        },
+      });
+      expect(fake.openCalls).toBe(0);
+      expect(fake.settleCalls).toBe(0);
+      expect(fake.closeCalls).toBe(0);
+      expect(fake.toolCalls).toEqual([]);
+      expect(fake.chargedAmounts).toEqual([]);
+    } finally {
+      if (prevOpen === undefined) delete process.env.LIVE_TRADE_COPY_LEADER_PLANE_OPEN;
+      else process.env.LIVE_TRADE_COPY_LEADER_PLANE_OPEN = prevOpen;
+      if (prevIds === undefined) delete process.env.LIVE_TRADE_COPY_LEADER_IDS;
+      else process.env.LIVE_TRADE_COPY_LEADER_IDS = prevIds;
+    }
+  });
+
   it('does not settle again when close throws after the charge', async () => {
     const prevOpen = process.env.LIVE_TRADE_COPY_LEADER_PLANE_OPEN;
     const prevIds = process.env.LIVE_TRADE_COPY_LEADER_IDS;

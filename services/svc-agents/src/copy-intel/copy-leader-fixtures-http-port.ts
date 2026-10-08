@@ -1,7 +1,8 @@
 /**
  * Live leader fixtures from svc-trade S2S (`GET /internal/agents/copy-leader-fixtures`).
  *
- * Unset TRADE_URL = honest `no_live_leaders`. Empty or 503 body = same refuse.
+ * Unset TRADE_URL = honest `no_live_leaders`. A non-200, a thrown fetch, or an
+ * empty body returns no rows (`[]`).
  */
 
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';

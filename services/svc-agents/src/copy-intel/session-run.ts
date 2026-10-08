@@ -22,7 +22,8 @@
  * A dark copy plane is known before any tool is touched. Opening a metered
  * session to discover it would bill a user for the platform's own unreadiness.
  * A live plane without a sealed trade.copy leaders allowlist is the same class
- * of unreadiness (Class X) — refuse unbilled.
+ * of unreadiness (Class X) — refuse unbilled. An allowlisted live port that
+ * returns no rows takes the unbilled empty return before `openSession`.
  */
 
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
@@ -202,7 +203,10 @@ export async function runCopyIntelStatsSession(input: CopyIntelRunInput): Promis
         metering: unmetered(input.feeAssetId),
       };
     }
-  } else if (fixtures.length === 0) {
+  }
+
+  if (fixtures.length === 0) {
+    // No rows to read. Opening a session would run settleAndClose for an empty result.
     return {
       status: 'empty',
       userMessageKey: 'agents.copy_intel.empty',
