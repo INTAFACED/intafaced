@@ -1,4 +1,4 @@
-import { tradeCopy as copy, CopyText, choiceText } from './copy';
+import { tradeCopy as copy, CopyText, choiceText, choiceLanguage } from './copy';
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { z } from 'zod';
 import type { Resource } from '../../shared/resource';
@@ -386,7 +386,7 @@ export function DeskFrame({
                             onChange={(event) => change({ type: event.target.value as Extra['type'] })}
                           >
                             {['Candles', 'Line', 'Heikin Ashi'].map((type) => (
-                              <option key={type} value={type}>
+                              <option key={type} value={type} lang={choiceLanguage(type)}>
                                 {choiceText(type)}
                               </option>
                             ))}

@@ -1,4 +1,5 @@
 import { defineCopy } from '../../shared/i18n';
+import { currentPreferences } from '../../shared/preferences';
 
 // Authored presentation only. Native symbols, IDs, statuses and monetary values
 // enter through explicit parameters and never become translated wire values.
@@ -881,6 +882,11 @@ export const tradeLabels = Object.fromEntries(Object.entries(choiceKeys).map(([v
 export function choiceText(value: string) {
   const key = choiceKeys[value as keyof typeof choiceKeys];
   return key ? tradeCopy.t(key) : value;
+}
+
+export function choiceLanguage(value: string) {
+  const key = choiceKeys[value as keyof typeof choiceKeys];
+  return key ? tradeCopy.forLocale(currentPreferences().language).languageFor(key) : 'en';
 }
 
 export function choiceNode(value: string) {

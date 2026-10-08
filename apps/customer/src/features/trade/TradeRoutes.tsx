@@ -1,4 +1,4 @@
-import { tradeCopy as copy, CopyText, tradeLabels, choiceText, choiceNode } from './copy';
+import { tradeCopy as copy, CopyText, tradeLabels, choiceText, choiceNode, choiceLanguage } from './copy';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
@@ -44,6 +44,7 @@ export function TradeRoutes({ path }: { path: string }) {
   const route = new URL(path, location.origin),
     pathname = route.pathname;
   const preferences = usePreferences();
+  const { languageFor } = copy.forLocale(preferences.language);
   const transport = useApi(),
     api = useMemo(() => createTradeApi(transport), [transport]),
     { userId } = useSession();
@@ -107,8 +108,8 @@ export function TradeRoutes({ path }: { path: string }) {
     setPicker(false);
   }
   return (
-    <div className={`trade-root ${activeMode === 'Spot' ? 'trade-root--spot' : ''}`}>
-      <nav className="trade-modes" aria-label={copy.t('tradingModes')}>
+    <div className={`trade-root ${activeMode === 'Spot' ? 'trade-root--spot' : ''}`} lang="en">
+      <nav className="trade-modes" aria-label={copy.t('tradingModes')} lang={languageFor('tradingModes')}>
         {activeMode === 'Spot' ? (
           <details className="trade-mode-menu">
             <summary>
@@ -167,7 +168,12 @@ export function TradeRoutes({ path }: { path: string }) {
       ) : (
         <>
           <header className="trade-market">
-            <button className="trade-market-select" onClick={() => setPicker(true)} aria-label={copy.t('chooseTradingMarket')}>
+            <button
+              className="trade-market-select"
+              onClick={() => setPicker(true)}
+              aria-label={copy.t('chooseTradingMarket')}
+              lang={languageFor('chooseTradingMarket')}
+            >
               <strong>{market?.symbol ?? <CopyText k={'chooseMarket'} />}</strong>
               <span>⌄</span>
             </button>
@@ -880,7 +886,7 @@ function BookAndTape({
           <div className="trade-book-controls">
             <select aria-label={copy.t('bookSide')} value={sides} onChange={(event) => setSides(event.target.value)}>
               {['Both', 'Bids', 'Asks'].map((value) => (
-                <option key={value} value={value}>
+                <option key={value} value={value} lang={choiceLanguage(value)}>
                   {choiceText(value)}
                 </option>
               ))}

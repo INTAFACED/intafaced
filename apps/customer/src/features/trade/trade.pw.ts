@@ -632,6 +632,24 @@ test('Trade authored Spanish controls keep native order enums, IDs, units and ex
   await expect(page.getByText('open', { exact: true })).toBeVisible();
 });
 
+test('the French Desk identifies English absence copy without mislabeling written controls', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ language: 'fr' })));
+  await mount(page);
+  await page.route('**/api/v1/markets*', (route) => route.fulfill({ status: 503, json: { message: 'Market service unavailable' } }));
+  await page.goto('/exchange?fullApp=1');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'fr');
+  for (const content of [
+    page.getByRole('heading', { name: 'Spot order', exact: true }),
+    page.getByRole('heading', { name: 'Funds unavailable', exact: true }),
+    page.getByText('Available account funds cannot be verified until published market information is available.', { exact: true }),
+  ]) {
+    await expect(content).toBeVisible();
+    expect(await content.evaluate((node) => node.closest('[lang]')?.getAttribute('lang'))).toBe('en');
+  }
+  await expect(page.getByRole('navigation', { name: 'Modes de négociation', exact: true })).toHaveAttribute('lang', 'fr');
+  await expect(page.getByRole('button', { name: 'Choisir un marché de négociation', exact: true })).toHaveAttribute('lang', 'fr');
+});
+
 test('French chart labels preserve native saved workspace types and verified order identity', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ language: 'fr' })));
   await mount(page, { working: true });
@@ -640,6 +658,7 @@ test('French chart labels preserve native saved workspace types and verified ord
   const chartType = page.getByRole('combobox', { name: 'Chart type', exact: true });
   await chartType.selectOption({ label: 'Ligne' });
   await expect(chartType).toHaveValue('Line');
+  await expect(chartType.locator('option:checked')).toHaveAttribute('lang', 'fr');
   await page.getByText('Espace de travail', { exact: true }).click();
   await page.getByLabel('Workspace name', { exact: true }).fill('Lecture');
   await page.getByRole('button', { name: 'Save workspace on device', exact: true }).click();

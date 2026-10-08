@@ -1,4 +1,4 @@
-import { tradeCopy as copy, CopyText, choiceText } from './copy';
+import { tradeCopy as copy, CopyText, choiceText, choiceNode, choiceLanguage } from './copy';
 import { useEffect, useRef, useState } from 'react';
 import type { OHLCV, Position } from '@intafaced/exchange-contract/schemas';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
@@ -642,7 +642,7 @@ export function MarketChart({
           <CopyText k="interval" />
           <select aria-label={copy.t('chartInterval')} value={interval} onChange={(event) => setIntervalValue(event.target.value)}>
             {TIMEFRAMES.map((value) => (
-              <option key={value} value={value}>
+              <option key={value} value={value} lang={choiceLanguage(value)}>
                 {choiceText(value)}
               </option>
             ))}
@@ -650,7 +650,7 @@ export function MarketChart({
         </label>
         <select aria-label={copy.t('chartType')} value={type} onChange={(event) => setType(event.target.value)}>
           {['Candles', 'Line', 'Heikin Ashi'].map((value) => (
-            <option key={value} value={value}>
+            <option key={value} value={value} lang={choiceLanguage(value)}>
               {choiceText(value)}
             </option>
           ))}
@@ -669,7 +669,7 @@ export function MarketChart({
                     setStudies((current) => (current.includes(study) ? current.filter((value) => value !== study) : [...current, study]))
                   }
                 />
-                {choiceText(study)}
+                {choiceNode(study)}
               </label>
             ))}
             <small>
@@ -684,13 +684,13 @@ export function MarketChart({
           <div className="trade-menu">
             {(['level', 'trend', 'rectangle'] as const).map((value) => (
               <button
-                key={choiceText(value)}
+                key={value}
                 onClick={() => {
                   setTool(value);
                   pending.current = [];
                 }}
               >
-                {choiceText(value)}
+                {choiceNode(value)}
               </button>
             ))}
             <button onClick={() => setDrawings([])}>

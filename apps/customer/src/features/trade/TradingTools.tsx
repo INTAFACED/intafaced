@@ -1,4 +1,4 @@
-import { tradeCopy as copy, CopyText, tradeLabels, choiceText, choiceNode } from './copy';
+import { tradeCopy as copy, CopyText, tradeLabels, choiceNode } from './copy';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { positionSchema, type Position } from '@intafaced/exchange-contract/schemas';
@@ -1302,7 +1302,7 @@ function Copy({ tools, transport, simulation }: { tools: ToolApi; transport: Api
                       <div className="trade-row-actions">
                         {(['pause', 'stop', 'detach', 'resume'] as const).map((action) => (
                           <button
-                            key={choiceText(action)}
+                            key={action}
                             disabled={guard.locked || guard.busy}
                             onClick={() =>
                               void guard.run(
@@ -1320,7 +1320,7 @@ function Copy({ tools, transport, simulation }: { tools: ToolApi; transport: Api
                               )
                             }
                           >
-                            {choiceText(action)}
+                            {choiceNode(action)}
                           </button>
                         ))}
                       </div>
@@ -1420,7 +1420,7 @@ function Bots({ tools, simulation }: { tools: ToolApi; simulation: boolean }) {
                   <div className="actions">
                     {(['pause', 'resume', 'cancel'] as const).map((action) => (
                       <Button
-                        key={choiceText(action)}
+                        key={action}
                         variant="secondary"
                         disabled={guard.locked || guard.busy}
                         onClick={() =>
@@ -1437,7 +1437,7 @@ function Bots({ tools, simulation }: { tools: ToolApi; simulation: boolean }) {
                           )
                         }
                       >
-                        {action === 'cancel' ? <CopyText k={'stopRemainingSlices'} /> : choiceText(action)}
+                        {action === 'cancel' ? <CopyText k={'stopRemainingSlices'} /> : choiceNode(action)}
                       </Button>
                     ))}
                   </div>
