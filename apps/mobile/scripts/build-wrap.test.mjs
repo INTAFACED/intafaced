@@ -50,7 +50,9 @@ test('native staging rejects unsafe origins without making HTTP requests', () =>
   }
 });
 
-test('verified HTTPS React deployment stages assets and the actual Capacitor loader binds the same origin', async () => {
+test('verified HTTPS React deployment stages assets and the actual Capacitor loader binds the same origin', {
+  skip: process.env.MOBILE_STAGING_SMOKE !== '1' && 'Set MOBILE_STAGING_SMOKE=1 after building apps/customer for the production-bundle/native-copy smoke',
+}, async () => {
   const temp = mkdtempSync(join(tmpdir(), 'intafaced-native-stage-'));
   const key = join(temp, 'key.pem'), cert = join(temp, 'cert.pem');
   const generated = spawnSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-keyout', key, '-out', cert, '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost'], { encoding: 'utf8' });
