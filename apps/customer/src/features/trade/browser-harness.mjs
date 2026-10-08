@@ -21,6 +21,7 @@ await writeFile(
 const server = await createServer({
   configFile: false,
   root,
+  publicDir: resolve(app, 'public'),
   esbuild: { jsx: 'automatic' },
   resolve: {
     alias: [
