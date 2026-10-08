@@ -57,6 +57,7 @@ contract MemeLaunch {
         uint256 tokenAmount;
         uint256 quoteAmount;
         uint64 unlockTime;
+        /** Mixed with the launching user into the `createToken` salt. */
         bytes32 userSalt;
     }
 
@@ -83,6 +84,19 @@ contract MemeLaunch {
     }
 
     /**
+     * Salt passed to `TokenFactory.createToken`.
+     *
+     * The factory binds its caller (`salt = keccak256(caller, userSalt)`), and
+     * that caller is this contract. Folding the launching user in here is what
+     * makes the address theirs: a copy with the same token parameters and
+     * `userSalt` is a different caller, so it deploys a different token and
+     * cannot take this launch's leftover supply.
+     */
+    function tokenSalt(address user, bytes32 userSalt) public pure returns (bytes32) {
+        return keccak256(abi.encode(user, userSalt));
+    }
+
+    /**
      * Create (or take) a token, create the pool if missing, seed LP, park LP
      * at a fresh `LaunchLpLock` whose beneficiary is `msg.sender`.
      */
@@ -97,7 +111,7 @@ contract MemeLaunch {
         token = p.existingToken;
         if (token == address(0)) {
             token = ITokenFactory(tokenFactory).createToken(
-                p.userSalt,
+                tokenSalt(msg.sender, p.userSalt),
                 ITokenFactory.TokenParams({
                     name: p.name,
                     symbol: p.symbol,
