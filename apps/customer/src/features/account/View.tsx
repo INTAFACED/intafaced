@@ -10,8 +10,7 @@ export function ApplyView() {
   useEffect(() => {
     const media = matchMedia('(prefers-color-scheme: light)');
     const apply = () => {
-      document.documentElement.dataset.theme =
-        preferences.theme === 'system' ? (media.matches ? copyText('view.light.2') : copyText('view.dark.2')) : preferences.theme;
+      document.documentElement.dataset.theme = preferences.theme === 'system' ? (media.matches ? 'light' : 'dark') : preferences.theme;
       document.documentElement.dataset.upColor = preferences.upColor;
       document.documentElement.dataset.phoneChart = preferences.phoneChart;
       document.documentElement.lang = renderedUiLanguage(preferences.language);

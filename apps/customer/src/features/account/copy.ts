@@ -178,8 +178,6 @@ const messages = {
   'view.restore.defaults': 'Restore defaults',
   'accountroutes.no.purpose.supplied': 'No purpose supplied.',
   'accountroutes.transport.not.published': 'Transport not published',
-  'view.light.2': 'light',
-  'view.dark.2': 'dark',
   'accountroutes.show.all': 'Show all',
   'accountroutes.unread.only': 'Unread only',
   'accountroutes.copied.invitation.link': 'Copied invitation link.',

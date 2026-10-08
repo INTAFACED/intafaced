@@ -67,6 +67,9 @@ test('View renders written French and Spanish controls while preserving device e
   await mount(page, '/view');
   await expect(page.getByRole('heading', { name: 'Affichage', exact: true })).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('lang', 'fr');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.getByRole('combobox', { name: 'Thème', exact: true }).selectOption('system');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   const fallback = page.getByText('A converted total requires a complete valuation source. Asset quantities retain their own units.');
   await expect(fallback).toHaveAttribute('lang', 'en');
   await page.getByRole('combobox', { name: 'Graphique sur téléphone' }).selectOption('bottom');
