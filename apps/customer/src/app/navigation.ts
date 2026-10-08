@@ -1,8 +1,8 @@
 export type Door = 'Money' | 'Trade' | 'Pay' | 'More';
 export type Room = {
   path: string;
-  title: string;
-  description: string;
+  title: NavigationCopyKey;
+  description: NavigationCopyKey;
   door?: Door;
   area: 'money' | 'trade' | 'pay' | 'more' | 'person' | 'public' | 'parked' | 'team';
   business?: boolean;
@@ -93,26 +93,28 @@ export const rooms: readonly Room[] = [
   { path: '/uc/order', title: 'Person-to-person orders', description: 'Your active and past trades', door: 'Pay', area: 'pay' },
   { path: '/chat', title: 'Order conversation', description: 'Communicate about your order', door: 'Pay', area: 'pay', hidden: true },
   { path: '/checkuser', title: 'Counterparty', description: 'Check trade context', door: 'Pay', area: 'pay', hidden: true },
-  ...[
-    ['merchant', 'Merchant home', 'Manage your business payments'],
-    ['money', 'Merchant balance', 'Funds belonging to your merchant account'],
-    ['links', 'Payment links', 'Share a payment link'],
-    ['checkout', 'Checkout', 'Hosted payment checkout'],
-    ['payments', 'Payments', 'Customer payment activity'],
-    ['customers', 'Customers', 'Business customer records'],
-    ['payouts', 'Payouts', 'Review outgoing business payments'],
-    ['settlements', 'Settlements', 'Settlement activity'],
-    ['disputes', 'Disputes', 'Manage payment disputes'],
-    ['network', 'Sub-merchants', 'Your merchant network'],
-    ['permissions', 'Permissions', 'Merchant access controls'],
-    ['invoices', 'Invoices', 'Issue and manage invoices'],
-    ['subscriptions', 'Subscriptions', 'Recurring billing'],
-    ['reports', 'Reports', 'Export business activity'],
-    ['developer', 'Developer', 'Test keys and webhooks'],
-  ].map(([slug, title, description]) => ({
+  ...(
+    [
+      ['merchant', 'Merchant home', 'Manage your business payments'],
+      ['money', 'Merchant balance', 'Funds belonging to your merchant account'],
+      ['links', 'Payment links', 'Share a payment link'],
+      ['checkout', 'Checkout', 'Hosted payment checkout'],
+      ['payments', 'Payments', 'Customer payment activity'],
+      ['customers', 'Customers', 'Business customer records'],
+      ['payouts', 'Payouts', 'Review outgoing business payments'],
+      ['settlements', 'Settlements', 'Settlement activity'],
+      ['disputes', 'Disputes', 'Manage payment disputes'],
+      ['network', 'Sub-merchants', 'Your merchant network'],
+      ['permissions', 'Permissions', 'Merchant access controls'],
+      ['invoices', 'Invoices', 'Issue and manage invoices'],
+      ['subscriptions', 'Subscriptions', 'Recurring billing'],
+      ['reports', 'Reports', 'Export business activity'],
+      ['developer', 'Developer', 'Test keys and webhooks'],
+    ] as const
+  ).map(([slug, title, description]) => ({
     path: `/pay/${slug}`,
-    title: title!,
-    description: description!,
+    title,
+    description,
     door: 'Pay' as const,
     area: 'pay' as const,
     business: true,
@@ -127,25 +129,27 @@ export const rooms: readonly Room[] = [
     area: 'more',
     hidden: true,
   },
-  ...[
-    ['academy', 'Academy', 'Rooms, learning and certifications'],
-    ['agents', 'Agents', 'Your agent fleet'],
-    ['quant', 'Quant', 'Research and strategy sandbox'],
-    ['quant/studio', 'Quant Studio', 'Build and run strategies'],
-    ['quant/backtest', 'Backtest', 'Review strategy results'],
-    ['launch', 'Launch', 'Issue and list an asset'],
-    ['market', 'Market catalogue', 'Browse available listings'],
-    ['market/mine', 'My listings', 'Your market listings'],
-    ['predict', 'Prediction markets', 'Browse and trade predictions'],
-    ['mining', 'Mining', 'Pool activity and payouts'],
-    ['token', 'Token', 'Access and staking'],
-    ['blueprint', 'Identity Blueprint', 'Your profile and connected intelligence'],
-    ['support', 'Support', 'Tickets and published answers'],
-    ['campaigns', 'Activities', 'Signed-in campaigns'],
-  ].map(([slug, title, description]) => ({
+  ...(
+    [
+      ['academy', 'Academy', 'Rooms, learning and certifications'],
+      ['agents', 'Agents', 'Your agent fleet'],
+      ['quant', 'Quant', 'Research and strategy sandbox'],
+      ['quant/studio', 'Quant Studio', 'Build and run strategies'],
+      ['quant/backtest', 'Backtest', 'Review strategy results'],
+      ['launch', 'Launch', 'Issue and list an asset'],
+      ['market', 'Market catalogue', 'Browse available listings'],
+      ['market/mine', 'My listings', 'Your market listings'],
+      ['predict', 'Prediction markets', 'Browse and trade predictions'],
+      ['mining', 'Mining', 'Pool activity and payouts'],
+      ['token', 'Token', 'Access and staking'],
+      ['blueprint', 'Identity Blueprint', 'Your profile and connected intelligence'],
+      ['support', 'Support', 'Tickets and published answers'],
+      ['campaigns', 'Activities', 'Signed-in campaigns'],
+    ] as const
+  ).map(([slug, title, description]) => ({
     path: `/${slug}`,
-    title: title!,
-    description: description!,
+    title,
+    description,
     door: 'More' as const,
     area: 'more' as const,
   })),
@@ -165,10 +169,10 @@ export const rooms: readonly Room[] = [
   { path: '/uc/trade', title: 'Trading settings', description: 'Personal trade settings', area: 'person', alias: '/view' },
   { path: '/ops', title: 'Team desk', description: 'Separate operator console', area: 'team', hidden: true },
   { path: '/platform', title: 'Team inspection', description: 'Operator module inspection', area: 'team', hidden: true },
-  ...['chain', 'dex', 'protocol'].map((slug) => ({
+  ...(['chain', 'dex', 'protocol'] as const).map((slug) => ({
     path: `/${slug}`,
     title: slug,
-    description: 'Parked until owner activation',
+    description: 'Parked until owner activation' as const,
     area: 'parked' as const,
     hidden: true,
   })),
@@ -201,7 +205,16 @@ export function safeReturnTo(candidate: string | null | undefined): string {
   const room = href ? findRoom(href.split('?')[0] ?? '') : undefined;
   return href && room?.area !== 'public' ? href : '/money';
 }
-export function searchRooms(query: string, mode: 'Personal' | 'Business'): Room[] {
+export function roomTitle(room: Room, locale: UiLocale = currentPreferences().language): string {
+  return navigationCopy.forLocale(locale).t(room.title);
+}
+export function roomDescription(room: Room, locale: UiLocale = currentPreferences().language): string {
+  return navigationCopy.forLocale(locale).t(room.description);
+}
+export function doorLabel(door: Door, locale: UiLocale = currentPreferences().language): string {
+  return navigationCopy.forLocale(locale).t(door);
+}
+export function searchRooms(query: string, mode: 'Personal' | 'Business', locale: UiLocale = currentPreferences().language): Room[] {
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
   return rooms.filter(
     (room) =>
@@ -209,7 +222,11 @@ export function searchRooms(query: string, mode: 'Personal' | 'Business'): Room[
       !room.alias &&
       !['team', 'parked'].includes(room.area) &&
       (!room.business || mode === 'Business') &&
-      words.every((word) => `${room.title} ${room.description} ${room.door ?? ''}`.toLowerCase().includes(word)),
+      words.every((word) =>
+        `${room.title} ${room.description} ${room.door ?? ''} ${roomTitle(room, locale)} ${roomDescription(room, locale)} ${room.door ? doorLabel(room.door, locale) : ''}`
+          .toLowerCase()
+          .includes(word),
+      ),
   );
 }
 export const doors: ReadonlyArray<{ name: Door; path: string; icon: 'money' | 'trade' | 'pay' | 'more' }> = [
@@ -218,3 +235,6 @@ export const doors: ReadonlyArray<{ name: Door; path: string; icon: 'money' | 't
   { name: 'Pay', path: '/pay', icon: 'pay' },
   { name: 'More', path: '/more', icon: 'more' },
 ];
+import { navigationCopy, type NavigationCopyKey } from './navigation-copy';
+import { currentPreferences } from '../shared/preferences';
+import type { UiLocale } from '../shared/i18n';
