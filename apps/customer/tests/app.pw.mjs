@@ -18,7 +18,11 @@ async function setup(page) {
   );
   await page.route('**/api/identity/trpc/auth.login', (route) => reply(route, session));
   await page.route('**/api/identity/trpc/webauthn.list?*', (route) => reply(route, []));
-  await page.route('**/api/v1/markets', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/v1/markets*', (route) => {
+    if (new URL(route.request().url()).searchParams.get('limit') !== '500')
+      return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'trade.markets_limit_unset' }) });
+    return route.fulfill({ contentType: 'application/json', body: '[]' });
+  });
 }
 async function signIn(page, destination) {
   await page.goto(`/login?redirect=${encodeURIComponent(destination)}`);
@@ -44,6 +48,7 @@ test('search is keyboard reachable and excludes Business, Team and parked chain 
   await page.keyboard.press('Control+k');
   const dialog = page.getByRole('dialog', { name: 'Search Intafaced' });
   await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('No published markets match this search.')).toBeVisible();
   await dialog.getByLabel('Find a room or action').fill('ledger');
   await expect(dialog.getByRole('link', { name: /Operator|Ledger ops|Business bank|Merchant/ })).toHaveCount(0);
   await dialog.getByLabel('Find a room or action').fill('chain');
