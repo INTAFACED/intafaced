@@ -428,6 +428,27 @@ test('an unrelated valid order response cannot resolve the saved original cancel
   await expect(page.getByRole('alert')).toContainText('order-1');
 });
 
+for (const phase of ['review', 'confirmation'] as const)
+  test(`the actual App refuses a replacement wrong-market original read during ${phase} before dispatch`, async ({ page }) => {
+    await mount(page, { working: true, replacementNoSubmit: true });
+    let reads = 0, replacements = 0;
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/orders/order-1/replace') replacements++;
+    });
+    await page.route('**/api/v1/orders/order-1', (route) => {
+      reads++;
+      return route.fulfill({ json: { ...order(), symbol: phase === 'review' || reads > 1 ? 'ETH/USDT' : 'BTC/USDT' } });
+    });
+    await page.goto('/exchange?fullApp=1');
+    await page.getByRole('button', { name: 'Change price', exact: true }).click();
+    await page.getByLabel('Replacement limit price (USDT per BTC)', { exact: true }).fill('81000');
+    await page.getByRole('button', { name: 'Review replacement', exact: true }).click();
+    if (phase === 'confirmation') await page.getByRole('button', { name: 'Confirm cancel/replace', exact: true }).click();
+    await expect(page.getByRole('dialog')).toContainText('does not identify the requested original order');
+    expect(replacements).toBe(0);
+    expect(await page.evaluate(() => localStorage.getItem('trade-pending:00000000-0000-4000-8000-000000000001'))).toBeNull();
+  });
+
 for (const mutation of ['cancel', 'amend'] as const)
   test(`the actual App retains the original ${mutation} after a same-ID wrong-market acknowledgement`, async ({ page }) => {
     await mount(page, { working: true });
@@ -745,6 +766,23 @@ test('published paper markets place simulated orders without reading or requirin
   await expect(page.getByText(/^Simulated order order-1 is open;/)).toBeVisible();
   expect(server.balanceReads()).toBe(0);
 });
+test('the actual App reports an untouched refused replacement without claiming lost queue priority', async ({ page }) => {
+  await mount(page, { working: true, replacementNoSubmit: true });
+  await page.route('**/api/v1/orders/order-1/replace', (route) => route.fulfill({ json: {
+    accepted: false, idempotent: false, code: 'LIFECYCLE_REFUSED', reasonCode: 'SESSION_CLOSED',
+    reconciliationRequired: false, path: 'CANCEL_REPLACE', originalOrderId: 'order-1', originalState: 'open',
+    replacementOrderId: null, replacementState: null, original: order(), replacement: null,
+  } }));
+  await page.goto('/exchange?fullApp=1');
+  await page.getByRole('button', { name: 'Change price', exact: true }).click();
+  await page.getByLabel('Replacement limit price (USDT per BTC)', { exact: true }).fill('81000');
+  await page.getByRole('button', { name: 'Review replacement', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm cancel/replace', exact: true }).click();
+  await expect(page.getByText(/^Cancel\/replace: LIFECYCLE_REFUSED/)).toContainText('The original remains working; no cancellation or queue-priority change is confirmed by this refusal.');
+  await expect(page.getByText(/^Cancel\/replace: LIFECYCLE_REFUSED/)).not.toContainText('Queue priority is not retained');
+  expect(await page.evaluate(() => localStorage.getItem('trade-pending:00000000-0000-4000-8000-000000000001'))).toBeNull();
+});
+
 test('price change reviews cancel/replace and reports a cancelled original with no replacement honestly', async ({ page }) => {
   await mount(page, { working: true, replacementNoSubmit: true });
   const writes: string[] = [];

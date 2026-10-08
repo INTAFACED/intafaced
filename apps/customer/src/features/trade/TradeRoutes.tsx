@@ -441,7 +441,7 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
     setChecking(true);
     if (pending.kind === 'replace' && pending.orderId) {
       const [original, replacement] = await Promise.all([
-        api.order(pending.orderId),
+        api.order({ id: pending.orderId, symbol: pending.symbol }),
         api.reconcile(pending.id, pending.symbol, accountWide),
       ]);
       if (
@@ -464,7 +464,7 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
       setChecking(false);
       return;
     }
-    const result = pending.orderId ? await api.order(pending.orderId) : await api.reconcile(pending.id, pending.symbol, accountWide);
+    const result = pending.orderId ? await api.order({ id: pending.orderId, symbol: pending.symbol }) : await api.reconcile(pending.id, pending.symbol, accountWide);
     if (result.ok) {
       const resolved =
         !result.data.recoveryRequired &&
@@ -1605,7 +1605,7 @@ function ManageOrder({
     busyRef.current = true;
     setBusy(true);
     setFailure(null);
-    const latest = await api.order(current.id);
+    const latest = await api.order(current);
     if (!mounted.current || !canDispatch()) return;
     if (latest.ok && latest.data.recoveryRequired) {
       setFailure({

@@ -38,7 +38,7 @@ export function ReplaceOrder({
   }, []);
   const [base, quote] = current.symbol.split('/');
   async function latestOrder() {
-    const result = await api.order(current.id);
+    const result = await api.order(current);
     if (!mounted.current) return null;
     if (!result.ok) {
       setFailure(result);
@@ -103,7 +103,7 @@ export function ReplaceOrder({
       if (result.ok) {
         onResolved(identity);
         onStatus(
-          `Cancel/replace: ${result.data.code}${result.data.reasonCode ? ` (${result.data.reasonCode})` : ''}. Original ${result.data.original.id}: ${result.data.original.status}. ${result.data.replacement ? `Replacement ${result.data.replacement.id}: ${result.data.replacement.status}; remaining ${result.data.replacement.remaining} ${base}.` : 'No replacement was submitted.'} Queue priority is not retained.`,
+          `Cancel/replace: ${result.data.code}${result.data.reasonCode ? ` (${result.data.reasonCode})` : ''}. Original ${result.data.original.id}: ${result.data.original.status}. ${result.data.replacement ? `Replacement ${result.data.replacement.id}: ${result.data.replacement.status}; remaining ${result.data.replacement.remaining} ${base}.` : 'No replacement was submitted.'}${result.data.replacement ? ' A replacement enters with new queue priority.' : result.data.original.status === 'open' ? ' The original remains working; no cancellation or queue-priority change is confirmed by this refusal.' : ''}`,
         );
         onClose();
       } else if (result.reason === 'changed') {

@@ -78,7 +78,7 @@ describe('trading feature network boundary', () => {
     const api = createTradeApi(createApiClient({ fetch: async () => new Response(JSON.stringify(response)) }));
     const result =
       kind === 'read'
-        ? await api.order('original-1')
+        ? await api.order(sourceOrder)
         : kind === 'cancel'
           ? await api.cancel(sourceOrder)
           : await api.amend(sourceOrder, '0.010');
@@ -109,16 +109,16 @@ describe('trading feature network boundary', () => {
       expect(await api.amend(sourceOrder, '0.010')).toMatchObject({ ok: false, reason: 'uncertain' });
     }
   });
-  it.each(['cancel', 'amend'] as const)('retains %s when the matching order ID has another reviewed market', async (kind) => {
+  it.each(['read', 'cancel', 'amend'] as const)('retains %s when the matching order ID has another reviewed market', async (kind) => {
     const wrongMarket = { ...sourceOrder, symbol: 'ETH/USDT', status: 'canceled' };
-    const response = kind === 'cancel' ? wrongMarket : {
+    const response = kind !== 'amend' ? wrongMarket : {
       accepted: true, idempotent: false, code: 'AMENDED', reasonCode: null,
       reconciliationRequired: false, path: 'NATIVE_AMEND', priority: 'retained',
       orderId: sourceOrder.id, order: wrongMarket,
     };
     const api = createTradeApi(createApiClient({ fetch: async () => new Response(JSON.stringify(response)) }));
-    expect(kind === 'cancel' ? await api.cancel(sourceOrder) : await api.amend(sourceOrder, '0.010'))
-      .toMatchObject({ ok: false, reason: 'uncertain' });
+    expect(kind === 'read' ? await api.order(sourceOrder) : kind === 'cancel' ? await api.cancel(sourceOrder) : await api.amend(sourceOrder, '0.010'))
+      .toMatchObject({ ok: false, reason: kind === 'read' ? 'invalid_response' : 'uncertain' });
   });
   it.each(['original envelope', 'replacement envelope', 'original market', 'replacement market', 'original still open'] as const)
     ('retains replacement when its %s contradicts the reviewed identities', async (kind) => {
