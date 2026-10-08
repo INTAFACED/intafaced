@@ -110,6 +110,10 @@ small {
 .text-link {
   color: var(--color-accent);
 }
+.text-link {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .negative,
 .error-text {
   color: var(--color-negative);
