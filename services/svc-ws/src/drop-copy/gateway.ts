@@ -235,10 +235,16 @@ export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGateway
           const sink = sinkFor(ws, seat);
           const detach = hub.attach(userId, sink);
           if (!detach) {
-            try {
-              ws.terminate();
-            } catch {
-              /* ignore */
+            // Attach already queued the policy close. terminate() destroys the
+            // socket and can drop that frame, so the client sees 1006.
+            // Leave a closing socket alone. A socket attach left open is not
+            // given an invented code.
+            if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
+              try {
+                ws.terminate();
+              } catch {
+                /* ignore */
+              }
             }
             return;
           }

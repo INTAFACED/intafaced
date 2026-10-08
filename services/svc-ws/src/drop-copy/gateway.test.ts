@@ -2,6 +2,8 @@ import { createServer, request as httpRequest, type Server } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
+import { resolveWsCopy, WS_COPY } from '../copy.js';
+import { CLOSE_POLICY, CLOSE_TRY_LATER } from '../depth/hub.js';
 import { PRIVATE_STREAM_PATH } from '../private/gateway.js';
 import type { LiveCredentialPort, OwnershipSnapshot } from '../private/live-credential.js';
 import { DROP_COPY_CHANNEL, DropCopyHub } from './hub.js';
@@ -119,15 +121,18 @@ describe('drop-copy WebSocket gateway', () => {
       tokens: TokenConfig | null;
       liveCredential?: LiveCredentialPort | null;
       heartbeatMs?: number;
+      maxConnections?: number;
       maxConnectionsPerUser?: number;
+      /** `null` leaves the session replay window unpublished. */
+      recentLimit?: number | null;
     } = { tokens },
   ): Promise<void> {
     hub = new DropCopyHub({
       highWaterBytes: 1_000_000,
       maxLagTicks: 5,
-      maxConnections: 10,
+      maxConnections: opts.maxConnections ?? 10,
       maxConnectionsPerUser: opts.maxConnectionsPerUser ?? 10,
-      recentLimit: 10,
+      recentLimit: opts.recentLimit === null ? undefined : (opts.recentLimit ?? 10),
     });
     hub.announceBus(true);
     const http = createServer((_req, res) => {
@@ -250,6 +255,51 @@ describe('drop-copy WebSocket gateway', () => {
       qty: '0.2',
       feeAmount: '0.02',
     });
+  });
+
+  it('keeps the typed close when recent-limit is unset', async () => {
+    await boot({ tokens, recentLimit: null });
+    const token = await accessToken(['trade:read']);
+    const client = new Client(`${baseUrl}${DROP_COPY_STREAM_PATH}?access_token=${token}`);
+    await client.untilClosed();
+    expect(client.closed).toEqual({
+      code: CLOSE_POLICY,
+      reason: resolveWsCopy(WS_COPY.dropCopyRecentLimitUnset),
+    });
+    expect(client.parsed().some((frame) => frame.type === 'ready')).toBe(false);
+    expect(hub.connections).toBe(0);
+  });
+
+  it('keeps the typed close when the hub is at capacity', async () => {
+    await boot({ tokens, maxConnections: 1, maxConnectionsPerUser: 1 });
+    const token = await accessToken(['trade:read']);
+    const url = `${baseUrl}${DROP_COPY_STREAM_PATH}?access_token=${token}`;
+    const holder = new Client(url);
+    await holder.frameCount(2);
+    const blocked = new Client(url);
+    await blocked.untilClosed();
+    expect(blocked.closed).toEqual({
+      code: CLOSE_TRY_LATER,
+      reason: resolveWsCopy(WS_COPY.privateAtCapacity),
+    });
+    expect(blocked.parsed().some((frame) => frame.type === 'ready')).toBe(false);
+    expect(hub.connections).toBe(1);
+  });
+
+  it('keeps the typed close when the per-user ceiling is full', async () => {
+    await boot({ tokens, maxConnections: 10, maxConnectionsPerUser: 1 });
+    const token = await accessToken(['trade:read']);
+    const url = `${baseUrl}${DROP_COPY_STREAM_PATH}?access_token=${token}`;
+    const holder = new Client(url);
+    await holder.frameCount(2);
+    const blocked = new Client(url);
+    await blocked.untilClosed();
+    expect(blocked.closed).toEqual({
+      code: CLOSE_TRY_LATER,
+      reason: resolveWsCopy(WS_COPY.privateUserLimit),
+    });
+    expect(blocked.parsed().some((frame) => frame.type === 'ready')).toBe(false);
+    expect(hub.connections).toBe(1);
   });
 
   it('terminates a live-credential seat that misses a pong and frees the per-user ceiling', async () => {
