@@ -215,13 +215,20 @@ export const MAX_SUBMERCHANT_DEPTH = 4;
  */
 const MAX_ANCESTOR_WALK = MAX_SUBMERCHANT_DEPTH + 2;
 
+type StoredMerchantStatus = 'pending' | 'active' | 'suspended' | 'closed';
+type StoredKybStatus = 'none' | 'pending' | 'approved' | 'rejected';
+
 export interface SubMerchantRecord {
   id: string;
-  userId: string;
+  /**
+   * The child's sovereign account. Null on a list row when the caller may see
+   * the node (`submerchant`) and does not hold `merchant.profile` over it.
+   */
+  userId: string | null;
   parentMerchantId: string | null;
   mode: 'gateway' | 'psp' | 'payfac';
-  status: 'pending' | 'active' | 'suspended' | 'closed';
-  kybStatus: 'none' | 'pending' | 'approved' | 'rejected';
+  status: StoredMerchantStatus | null;
+  kybStatus: StoredKybStatus | null;
   settlingParty: string;
   feeBps: number | null;
   /** Distance below the root of its tree. A top-level merchant is 0. */
@@ -258,8 +265,8 @@ interface MerchantNodeRow {
   user_id: string;
   parent_merchant_id: string | null;
   mode: SubMerchantRecord['mode'];
-  status: SubMerchantRecord['status'];
-  kyb_status: SubMerchantRecord['kybStatus'];
+  status: StoredMerchantStatus;
+  kyb_status: StoredKybStatus;
   settling_party: string;
   pricing: Record<string, unknown>;
   created_at: Date;
@@ -605,6 +612,14 @@ export class SubMerchantService {
    * time, and because a flattened subtree answer would hand a caller the whole
    * structure in one response, which is a different disclosure decision from the
    * one `submerchant` permission expresses.
+   *
+   * Seeing the child and reading its profile are different grants. `submerchant`
+   * on the parent is enough to return the node. `feeBps`, `status`, `kybStatus`,
+   * and `userId` are `merchant.profile` on THAT child. `holds` answers true for
+   * every area when the actor is the subject, so a profile check against the
+   * parent being listed cannot stand in for one against the child. A revoked
+   * profile grant leaves those four null. The stored fee, status, KYB status,
+   * and account id are not copied into the response.
    */
   async listSubMerchants(actorMerchantId: string, merchantId: string, limit?: number): Promise<SubMerchantRecord[]> {
     const page = assertSubMerchantListLimit(limit);
@@ -619,9 +634,32 @@ export class SubMerchantService {
        LIMIT ${page}
     `;
     // The parent's depth is `chain.length - 1` from the subject's own walk, so
-    // every child sits one below it. No second walk per row.
+    // every child sits one below it. Prepending the child id is that child's
+    // ancestry: [child, parent, …, root]. No second walk per row.
     const childDepth = chain.length;
-    return rows.map((r) => toRecord(r, childDepth));
+    const listed: SubMerchantRecord[] = [];
+    for (const row of rows) {
+      const record = toRecord(row, childDepth);
+      const childChain = [row.id, ...chain];
+      const profile = await this.holds(actorMerchantId, row.id, 'merchant.profile', this.sql, childChain);
+      if (profile) {
+        listed.push(record);
+        continue;
+      }
+      listed.push({
+        id: record.id,
+        userId: null,
+        parentMerchantId: record.parentMerchantId,
+        mode: record.mode,
+        status: null,
+        kybStatus: null,
+        settlingParty: record.settlingParty,
+        feeBps: null,
+        depth: record.depth,
+        createdAt: record.createdAt,
+      });
+    }
+    return listed;
   }
 
   /**
