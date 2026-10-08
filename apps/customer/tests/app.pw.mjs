@@ -33,6 +33,98 @@ async function signIn(page, destination) {
   await expect(page).toHaveURL(new RegExp(destination.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$'));
 }
 
+for (const publishedMarket of [false, true]) test(`working orders beyond the first 100 remain reachable ${publishedMarket ? 'in Spot' : 'account-wide'} without financial writes`, async ({ page }) => {
+  await setup(page);
+  if (publishedMarket) await page.route('**/api/v1/markets*', (route) => route.fulfill({ json: [{
+    id: 'market-BTC', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', settle: null,
+    baseId: 'BTC', quoteId: 'USDT', type: 'spot', spot: true, swap: false, future: false,
+    option: false, contract: false, linear: null, inverse: null, active: true, orderable: true,
+    paper: false, schedule: 'crypto-24x7', sessionOpen: true, nextSessionChange: null,
+    hours: { kind: 'continuous' }, taker: '0.001', maker: '0.001', contractSize: null,
+    expiry: null, expiryDatetime: null, strike: null, optionType: null, precisionMode: 'TICK_SIZE',
+    precision: { amount: '0.00001', price: '0.01' }, limits: {
+      amount: { min: '0.00001', max: null }, price: { min: null, max: null },
+      cost: { min: '5', max: null }, leverage: { min: null, max: null },
+    },
+  }] }));
+  const limits = [], writes = [];
+  page.on('request', (request) => {
+    if (request.url().includes('/api/v1/') && request.method() !== 'GET') writes.push(request.method());
+  });
+  const orders = Array.from({ length: 501 }, (_, index) => ({
+      id: `working-order-${index + 1}`, clientOrderId: null,
+      timestamp: 1791417600000, datetime: '2026-10-08T00:00:00.000Z', lastTradeTimestamp: null,
+      symbol: 'BTC/USDT', type: 'limit', side: 'buy', timeInForce: 'GTC', postOnly: false,
+      reduceOnly: false, price: '1', stopPrice: null, average: null, amount: '1', filled: '0',
+      remaining: '1', cost: '0', status: 'open', fee: null, trades: [], recoveryRequired: false,
+      recoveryReason: null, reconciliationKey: null,
+  }));
+  await page.route('**/api/v1/orders/working-order-*', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify(orders.find((order) => route.request().url().endsWith('/' + order.id))),
+  }));
+  await page.route('**/api/v1/orders/open?*', (route) => {
+    const limit = Number(new URL(route.request().url()).searchParams.get('limit'));
+    limits.push(limit);
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(orders.slice(0, limit)) });
+  });
+  await signIn(page, '/exchange');
+  const management = page.locator('.trade-blotter');
+  await expect(management.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(100);
+  await management.getByRole('button', { name: 'Load more records', exact: true }).click();
+  await expect(management.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(200);
+  await management.getByRole('button', { name: 'Cancel', exact: true }).nth(100).click();
+  await expect(page.getByRole('dialog').getByText(/working-order-101$/)).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: 'Close dialog', exact: true }).click();
+  for (let i = 0; i < 3; i++) await management.getByRole('button', { name: 'Load more records', exact: true }).click();
+  await expect(management.getByRole('button', { name: /page limit reached/i })).toBeDisabled();
+  await expect(management.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(500);
+  expect(limits).toContain(200);
+  expect(Math.max(...limits)).toBe(500);
+  expect(writes).toEqual([]);
+});
+
+test('Hide balances masks each owned stake on desktop and phone and can reveal it again', async ({ page }) => {
+  await setup(page);
+  const amount = '123.456789123456789123';
+  await page.route('**/api/token/trpc/accessOf*', (route) => reply(route, { staked: amount, tier: 'm3', feeDiscountBps: 10 }));
+  await page.route('**/api/token/trpc/listStakes?*', (route) => reply(route, [{
+    id: invitationId, userId, amount, tier: 'm3', startedAt: '2026-10-08T00:00:00Z',
+    unlocksAt: '2027-01-08T00:00:00Z', status: 'active',
+  }]));
+  await signIn(page, '/view');
+  await page.getByLabel('Hide balance values', { exact: true }).check();
+  await signIn(page, '/token');
+  const stakes = page.getByRole('region', { name: 'Your token stakes', exact: true }).getByRole('table');
+  await expect(stakes.getByText('active', { exact: true })).toBeVisible();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect(stakes).not.toContainText(amount);
+    await expect(stakes).toContainText('••••');
+    await expect(page.getByRole('main')).not.toContainText(amount);
+  }
+  await signIn(page, '/view');
+  await page.getByLabel('Hide balance values', { exact: true }).uncheck();
+  await signIn(page, '/token');
+  await expect(stakes).toContainText(amount);
+});
+
+test('customer campaigns represent participation and its unavailable service without growth authoring', async ({ page }) => {
+  await setup(page);
+  const proposals = [];
+  page.on('request', (request) => {
+    if (request.url().includes('growth.propose')) proposals.push(request.method());
+  });
+  await signIn(page, '/campaigns');
+  await expect(page.getByRole('heading', { name: 'Your campaign activity', exact: true })).toBeVisible();
+  await expect(page.getByText('Campaign activity unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Campaign headline', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/Prepare a grounded proposal/)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Review campaign proposal', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Open public campaigns', exact: true })).toHaveAttribute('href', '/lab');
+  expect(proposals).toEqual([]);
+});
+
 test('safe sign-in return opens the actual Bank room without persisting credentials', async ({ page }) => {
   await setup(page);
   await signIn(page, '/bank/spaces');

@@ -193,7 +193,7 @@ const en = {
   loadMoreRecords: 'Load more records',
   accountWideRecordsUnitLabelsAndQuantityPriceChangesRequirePublished:
     'Account-wide records. Unit labels and quantity/price changes require published market rules. ',
-  firstWorkingOrdersRefreshConfirmsCurrentState: 'First 100 working orders; refresh confirms current state.',
+  workingOrderWindowRefreshConfirmsCurrentState: 'First {limit} working orders, up to 500 per service window. A window is not the whole collection; refresh confirms current state.',
   newestRecordsUpToPerServicePageAPageIsNot: 'Newest records, up to 500 per service page. A page is not your complete history.',
   thisOrderIsRecoveringResolveItsOriginalOutcomeBeforeAnotherAction:
     'This order is recovering. Resolve its original outcome before another action.',

@@ -603,6 +603,7 @@ function SpotDesk({
   const { userId } = useSession(),
     preferences = usePreferences();
   const accountKey = userId ?? 'signed-out';
+  const [openLimit, setOpenLimit] = useState(100);
   const book = useLinkedBook(api, market),
     balances = usePolled(
       (signal) =>
@@ -610,7 +611,11 @@ function SpotDesk({
       accountKey,
       20,
     ),
-    open = usePolled((signal) => api.orders('open', market.paper ? market.symbol : undefined, 100, signal), accountKey, 10);
+    open = usePolled(
+      (signal) => api.orders('open', market.paper ? market.symbol : undefined, openLimit, signal),
+      `${accountKey}:${market.id}:open:${openLimit}`,
+      10,
+    );
   const [staged, setStaged] = useState(''),
     [manage, setManage] = useState<{ order: Order; kind: 'cancel' | 'amend' | 'replace'; price?: string } | null>(null);
   const { pending, status, checking, setIntent, reserveIntent, reconcile, setStatus } = useTradeRequests(api, accountKey, refresh);
@@ -646,6 +651,8 @@ function SpotDesk({
             api={api}
             initialTab={initialTab}
             open={open}
+            openLimit={openLimit}
+            onOpenLimitChange={setOpenLimit}
             market={market}
             onManage={(order, kind) => setManage({ order, kind })}
             locked={Boolean(pending)}
@@ -764,12 +771,13 @@ function SpotDesk({
 function AccountOrders({ api, initialTab, simulation }: { api: TradeApi; initialTab: string; simulation: boolean }) {
   const { userId } = useSession();
   const accountKey = userId ?? 'signed-out';
+  const [openLimit, setOpenLimit] = useState(100);
   const open = usePolled(
     (signal) =>
       simulation
         ? Promise.resolve(unavailable<Order[]>(copy.t('accountWideSimulationHistoryCannotBeVerifiedWithoutAPublishedPaper')))
-        : api.orders('open', undefined, 100, signal),
-    `${accountKey}:account-orders:${simulation}`,
+        : api.orders('open', undefined, openLimit, signal),
+    `${accountKey}:account-orders:${simulation}:${openLimit}`,
     10,
   );
   const [manage, setManage] = useState<Order | null>(null);
@@ -785,6 +793,8 @@ function AccountOrders({ api, initialTab, simulation }: { api: TradeApi; initial
         api={api}
         initialTab={initialTab}
         open={open}
+        openLimit={openLimit}
+        onOpenLimitChange={setOpenLimit}
         locked={Boolean(pending)}
         accountWideAllowed={!simulation}
         allowCancel={!simulation}
@@ -1621,6 +1631,8 @@ function OrderBlotter({
   api,
   initialTab,
   open,
+  openLimit,
+  onOpenLimitChange,
   market,
   onManage,
   locked,
@@ -1630,6 +1642,8 @@ function OrderBlotter({
   api: TradeApi;
   initialTab: string;
   open: ReturnType<typeof usePolled<Order[]>>;
+  openLimit: number;
+  onOpenLimitChange: (limit: number) => void;
   market?: Listing;
   onManage: (order: Order, kind: 'cancel' | 'amend' | 'replace') => void;
   locked: boolean;
@@ -1803,6 +1817,11 @@ function OrderBlotter({
           }}
         </ResourceView>
       )}
+      {tab === 'Open orders' && open.resource.status === 'ready' && open.resource.data.length >= openLimit && (
+        <Button variant="ghost" disabled={openLimit === 500} onClick={() => onOpenLimitChange(Math.min(500, openLimit + 100))}>
+          {openLimit === 500 ? <CopyText k={'rowPageLimitReached'} /> : <CopyText k={'loadMoreRecords'} />}
+        </Button>
+      )}
       {(tab === 'Fills'
         ? fills.resource.status === 'ready' && fills.resource.data.length >= limit
         : tab === 'History' && history.resource.status === 'ready' && history.resource.data.length >= limit) && (
@@ -1813,7 +1832,7 @@ function OrderBlotter({
       <small className="trade-note">
         {!market && <CopyText k={'accountWideRecordsUnitLabelsAndQuantityPriceChangesRequirePublished'} />}
         {tab === 'Open orders' ? (
-          <CopyText k={'firstWorkingOrdersRefreshConfirmsCurrentState'} />
+          <CopyText k={'workingOrderWindowRefreshConfirmsCurrentState'} params={{ limit: String(openLimit) }} />
         ) : (
           <CopyText k={'newestRecordsUpToPerServicePageAPageIsNot'} />
         )}

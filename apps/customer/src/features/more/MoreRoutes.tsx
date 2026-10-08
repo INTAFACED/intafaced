@@ -24,7 +24,7 @@ const rooms = [
   ['/token', copyText('moreroutes.token'), copyText('moreroutes.your.exact.stake.projection.access.and.governance')],
   ['/blueprint', copyText('moreroutes.blueprint'), copyText('moreroutes.your.profile.share.card.mentor.shortlist.and')],
   ['/support', copyText('moreroutes.support'), copyText('moreroutes.published.help.and.your.support.conversations')],
-  ['/campaigns', copyText('moreroutes.campaigns'), copyText('moreroutes.signed.in.draft.assessment.and.publication.boundaries')],
+  ['/campaigns', copyText('moreroutes.campaigns'), copyText('moreroutes.campaign.participation')],
   ['/trade/copy', copyText('moreroutes.copy'), copyText('moreroutes.follow.leaders.through.the.trade.permission.and')],
   ['/trade/bots', copyText('moreroutes.bots'), copyText('moreroutes.inspect.existing.trading.algorithms.and.their.actual')],
 ] as const;
@@ -73,7 +73,7 @@ function MoreRooms({ path }: { path: string }) {
     content = <Blueprint />;
   } else if (p === '/campaigns') {
     title = copyText('moreroutes.campaigns');
-    description = copyText('moreroutes.prepare.a.grounded.proposal.for.human.review');
+    description = copyText('moreroutes.your.campaign.participation');
     content = <Campaigns />;
   } else if (p === '/launch' || p === '/uc/innovation/myorders') {
     title = p === '/launch' ? copyText('moreroutes.launch') : copyText('moreroutes.my.launch.orders');

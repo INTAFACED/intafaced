@@ -128,7 +128,7 @@ export function Token() {
                       {rows.map((row) => (
                         <tr key={row.id}>
                           <td>
-                            {displayAmount(row.amount)}
+                            {hideBalances ? '••••' : displayAmount(row.amount)}
                             <Text k="token.asset.identity.unavailable" />
                             <small className="more-receipt">{row.id}</small>
                           </td>

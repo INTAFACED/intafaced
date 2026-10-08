@@ -364,6 +364,13 @@ const messages = {
   'blueprint.birth.date.optional': 'Birth date (optional)',
   'blueprint.birth.time.optional': 'Birth time (optional)',
   'blueprint.birth.place.optional': 'Birth place (optional)',
+  'campaigns.your.activity': 'Your campaign activity',
+  'campaigns.activity.unavailable': 'Campaign activity unavailable',
+  'campaigns.participation.unavailable':
+    'Your joined campaigns, eligibility and reward status cannot be loaded because the campaign activity service is not connected. This does not mean you have no participation records.',
+  'campaigns.discover': 'Discover campaigns',
+  'campaigns.public.details':
+    'Open the public campaign room to check published campaign details. Joining and reward claims need verified eligibility and a connected participation service.',
   'campaigns.signed.in.campaign.proposal': 'Signed-in campaign proposal',
   'campaigns.prepare.a.proposal.for.human.review.the':
     'Prepare a proposal for human review. The service requires an available analytics warehouse, rejects return claims and undecided incentive budgets, and never publishes automatically.',
@@ -486,6 +493,8 @@ const messages = {
   'moreroutes.support': 'Support',
   'moreroutes.published.help.and.your.support.conversations': 'Published help and your support conversations.',
   'moreroutes.campaigns': 'Campaigns',
+  'moreroutes.campaign.participation': 'Your joined campaigns, eligibility and reward status.',
+  'moreroutes.your.campaign.participation': 'Follow your campaign participation and published campaign details.',
   'moreroutes.signed.in.draft.assessment.and.publication.boundaries': 'Signed-in draft assessment and publication boundaries.',
   'moreroutes.copy': 'Copy',
   'moreroutes.follow.leaders.through.the.trade.permission.and': 'Follow leaders through the Trade permission and grant flow.',
