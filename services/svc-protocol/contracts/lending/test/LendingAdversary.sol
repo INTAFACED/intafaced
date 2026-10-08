@@ -8,8 +8,9 @@ import {IsolatedLendingMarket} from "../IsolatedLendingMarket.sol";
  * S-A4 adversarial harness — NOT a product contract.
  *
  * Same-tx open/borrow/repay and reentrancy probes. The market has no flash-loan
- * entrypoint; SPEC §6 still requires "any position opened and closed in one
- * transaction must not extract value" and "reentrancy attempts fail, asserted".
+ * entrypoint. A nested borrow during the outbound transfer is the in-flight
+ * recipient's call. The token does not borrow, and a zero-collateral Unhealthy
+ * from the token is not that call's result.
  */
 contract LendingSameTxRoundTrip {
     IsolatedLendingMarket public immutable market;
@@ -51,8 +52,13 @@ contract LendingSameTxRoundTrip {
 }
 
 /**
- * Borrow-token that tries to reenter `borrow` during the market's outbound transfer.
+ * Borrow-token that, during the market's outbound transfer, asks the in-flight
+ * recipient to call `borrow`. The token is not that caller.
  */
+interface IInFlightBorrower {
+    function onBorrowTransfer(IsolatedLendingMarket market_, uint256 amount) external;
+}
+
 contract ReenteringBorrowToken {
     string public name = "ReenterBor";
     string public symbol = "REB";
@@ -105,12 +111,43 @@ contract ReenteringBorrowToken {
         if (armed && address(market) != address(0) && from == address(market) && !reenterAttempted) {
             reenterAttempted = true;
             armed = false;
-            try market.borrow(reenterAmount) {
-                reenterSucceeded = true;
-            } catch {
-                reenterSucceeded = false;
+            uint256 sharesBefore = market.debtSharesOf(to);
+            // Low-level call: a high-level call to an EOA reverts in this token,
+            // outside try/catch, and would fail the outer borrow. A revert here
+            // leaves the flag false. It is not set from a borrow by this token.
+            (bool returned,) = to.call(abi.encodeCall(IInFlightBorrower.onBorrowTransfer, (market, reenterAmount)));
+            if (returned) {
+                reenterSucceeded = market.debtSharesOf(to) > sharesBefore;
             }
         }
         return true;
+    }
+}
+
+/**
+ * Borrower that receives the outbound borrow transfer and borrows again as itself.
+ */
+contract InFlightBorrower {
+    IsolatedLendingMarket public immutable market;
+    address public immutable collateral;
+    ReenteringBorrowToken public immutable borrowToken;
+
+    constructor(IsolatedLendingMarket market_, address collateral_, ReenteringBorrowToken borrowToken_) {
+        market = market_;
+        collateral = collateral_;
+        borrowToken = borrowToken_;
+    }
+
+    function depositAndBorrow(uint256 collateralAmount, uint256 borrowAmount) external {
+        require(IERC20Minimal(collateral).transferFrom(msg.sender, address(this), collateralAmount), "col in");
+        require(IERC20Minimal(collateral).approve(address(market), collateralAmount), "col approve");
+        market.depositCollateral(collateralAmount);
+        market.borrow(borrowAmount);
+    }
+
+    function onBorrowTransfer(IsolatedLendingMarket market_, uint256 amount) external {
+        require(msg.sender == address(borrowToken), "token");
+        require(address(market_) == address(market), "market");
+        market.borrow(amount);
     }
 }

@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {IPriceOracle} from "../../contracts/oracle/IPriceOracle.sol";
 import {IsolatedLendingMarket} from "../../contracts/lending/IsolatedLendingMarket.sol";
+import {InFlightBorrower, ReenteringBorrowToken} from "../../contracts/lending/test/LendingAdversary.sol";
 import {MockERC20} from "../../contracts/test/MockERC20.sol";
 
 interface Vm {
@@ -208,5 +209,130 @@ contract IsolatedLendingZeroMarkTest {
         b.market.liquidate(address(this), b.market.debtOf(address(this)));
         require(b.market.collateralOf(address(this)) < before, "underwater collateral seized");
         require(b.col.balanceOf(address(this)) > 0, "keeper received collateral");
+    }
+}
+
+/// Callback that returns without borrowing. That return is not a nested borrow.
+contract SilentBorrowRecipient {
+    function onBorrowTransfer(IsolatedLendingMarket, uint256) external {}
+}
+
+/// L988: the nested borrow is the in-flight recipient. A zero-collateral Unhealthy
+/// from the token is not proof that recipient was blocked.
+contract IsolatedLendingBorrowReenterTest {
+    uint256 private constant WAD = 1e18;
+
+    function _book() internal returns (ReenteringBorrowToken token, MockERC20 col, IsolatedLendingMarket market) {
+        token = new ReenteringBorrowToken();
+        col = new MockERC20();
+        FixedMarkOracle oracle = new FixedMarkOracle();
+        market = new IsolatedLendingMarket(
+            IsolatedLendingMarket.MarketConfig({
+                collateralToken: address(col),
+                borrowToken: address(token),
+                oracle: address(oracle),
+                collateralAssetForOracle: address(col),
+                borrowAssetForOracle: address(token),
+                maxLtvBps: 5000,
+                liquidationThresholdBps: 8000,
+                liquidationBonusBps: 500,
+                closeFactorBps: 5000,
+                reserveFactorBps: 1000,
+                baseRateBps: 200,
+                slope1Bps: 400,
+                slope2Bps: 8000,
+                kinkBps: 8000
+            })
+        );
+        token.mint(address(this), 1000 * WAD);
+        token.approve(address(market), type(uint256).max);
+        market.supplyLiquidity(1000 * WAD);
+    }
+
+    function test_recipient_borrow_sets_the_flag_when_it_returns() public {
+        (ReenteringBorrowToken token, MockERC20 col, IsolatedLendingMarket market) = _book();
+        InFlightBorrower borrower = new InFlightBorrower(market, address(col), token);
+        col.mint(address(this), 50 * WAD);
+        col.approve(address(borrower), 50 * WAD);
+        token.arm(market, 10 * WAD);
+        borrower.depositAndBorrow(50 * WAD, 10 * WAD);
+
+        require(token.reenterAttempted(), "recipient was not asked");
+        require(token.reenterSucceeded(), "recipient borrow returned");
+        require(market.debtOf(address(borrower)) == 10 * WAD + 10 * WAD, "both borrows are the recipient's");
+        require(market.debtOf(address(token)) == 0, "token did not borrow");
+
+        vm.prank(address(token));
+        try market.borrow(10 * WAD) {
+            revert("zero-collateral token borrow");
+        } catch (bytes memory reason) {
+            require(bytes4(reason) == IsolatedLendingMarket.Unhealthy.selector, "token has no collateral");
+        }
+        require(token.reenterSucceeded(), "token Unhealthy replaced the recipient result");
+        require(market.debtOf(address(token)) == 0, "token Unhealthy minted debt");
+    }
+
+    function test_callback_that_does_not_borrow_leaves_the_flag_false() public {
+        (ReenteringBorrowToken token, MockERC20 col, IsolatedLendingMarket market) = _book();
+        SilentBorrowRecipient borrower = new SilentBorrowRecipient();
+        col.mint(address(borrower), 50 * WAD);
+        vm.prank(address(borrower));
+        col.approve(address(market), 50 * WAD);
+        vm.prank(address(borrower));
+        market.depositCollateral(50 * WAD);
+        token.arm(market, 10 * WAD);
+        vm.prank(address(borrower));
+        market.borrow(10 * WAD);
+
+        require(token.reenterAttempted(), "hook ran");
+        require(token.reenterSucceeded() == false, "empty callback is not a borrow");
+        require(market.debtOf(address(borrower)) == 10 * WAD, "only the outer borrow");
+        require(market.debtOf(address(token)) == 0, "token did not borrow");
+    }
+
+    function test_recipient_borrow_that_reverts_does_not_set_the_flag() public {
+        (ReenteringBorrowToken token, MockERC20 col, IsolatedLendingMarket market) = _book();
+        InFlightBorrower borrower = new InFlightBorrower(market, address(col), token);
+        col.mint(address(this), 50 * WAD);
+        col.approve(address(borrower), 50 * WAD);
+        // The collateral amount cannot fit under the 50% LTV once 10 is already borrowed.
+        token.arm(market, 50 * WAD);
+        borrower.depositAndBorrow(50 * WAD, 10 * WAD);
+
+        require(token.reenterAttempted(), "recipient was asked");
+        require(token.reenterSucceeded() == false, "reverted borrow did not return");
+        require(market.debtOf(address(borrower)) == 10 * WAD, "nested borrow rolled back");
+        require(market.debtOf(address(token)) == 0, "token did not borrow");
+    }
+
+    function test_token_unhealthy_is_not_proof_the_borrower_was_blocked() public {
+        (ReenteringBorrowToken token, MockERC20 col, IsolatedLendingMarket market) = _book();
+        address eoa = address(0xB0B);
+        col.mint(eoa, 50 * WAD);
+        vm.prank(eoa);
+        col.approve(address(market), 50 * WAD);
+        vm.prank(eoa);
+        market.depositCollateral(50 * WAD);
+        token.arm(market, 10 * WAD);
+        vm.prank(eoa);
+        market.borrow(10 * WAD);
+
+        require(token.reenterAttempted(), "hook ran");
+        require(token.reenterSucceeded() == false, "eoa did not borrow during the transfer");
+        require(market.debtOf(eoa) == 10 * WAD, "outer borrow only");
+        require(market.debtOf(address(token)) == 0, "token did not borrow");
+
+        vm.prank(address(token));
+        try market.borrow(10 * WAD) {
+            revert("zero-collateral token borrow");
+        } catch (bytes memory reason) {
+            require(bytes4(reason) == IsolatedLendingMarket.Unhealthy.selector, "token has no collateral");
+        }
+
+        vm.prank(eoa);
+        market.borrow(10 * WAD);
+        require(market.debtOf(eoa) == 10 * WAD + 10 * WAD, "borrower was not blocked");
+        require(token.reenterSucceeded() == false, "token Unhealthy is not a recipient result");
+        require(market.debtOf(address(token)) == 0, "token still has no debt");
     }
 }

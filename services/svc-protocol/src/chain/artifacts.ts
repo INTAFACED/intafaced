@@ -59,6 +59,7 @@ export type ArtifactName =
   | 'MockERC20Dec'
   | 'LendingSameTxRoundTrip'
   | 'ReenteringBorrowToken'
+  | 'InFlightBorrower'
   | 'PasskeyOwner'
   | 'P256'
   | 'EntryPointGetUserOpHash'

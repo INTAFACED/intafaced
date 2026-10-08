@@ -381,8 +381,9 @@ describeOnChain('S-A4 cascade + flash adversarial on chain', () => {
     expect(borAfter).toBeLessThanOrEqual(borBefore);
   }, 30_000);
 
-  it('flash pack: reentrancy during borrow transfer cannot open a second borrow', async () => {
+  it('flash pack: nested borrow during transfer is the recipient, not the token', async () => {
     const reTok = loadArtifact('ReenteringBorrowToken');
+    const borrowerArt = loadArtifact('InFlightBorrower');
     const mock = loadArtifact('MockERC20');
     const oc = loadArtifact('FailClosedOracle');
     const mk = loadArtifact('IsolatedLendingMarket');
@@ -495,40 +496,38 @@ describeOnChain('S-A4 cascade + flash adversarial on chain', () => {
       }),
     );
 
-    const victim = await devChainMod.devSuiteClients(`${import.meta.url}#reenter`);
+    const borrowerTx = await a.walletClient.deployContract({
+      abi: borrowerArt.abi,
+      bytecode: borrowerArt.bytecode,
+      args: [market2, col2, bor2],
+      account: a.walletClient.account!,
+      chain: a.walletClient.chain,
+    });
+    const borrower = (await a.publicClient.waitForTransactionReceipt({ hash: borrowerTx })).contractAddress!;
+
     await write(a.publicClient, () =>
       a.walletClient.writeContract({
         address: col2,
         abi: mock.abi,
         functionName: 'mint',
-        args: [victim.deployer, 80n * WAD],
+        args: [a.deployer, 80n * WAD],
         account: a.walletClient.account!,
         chain: a.walletClient.chain,
       }),
     );
-    await write(victim.publicClient, () =>
-      victim.walletClient.writeContract({
+    await write(a.publicClient, () =>
+      a.walletClient.writeContract({
         address: col2,
         abi: mock.abi,
         functionName: 'approve',
-        args: [market2, 80n * WAD],
-        account: victim.walletClient.account!,
-        chain: victim.walletClient.chain,
-      }),
-    );
-    await write(victim.publicClient, () =>
-      victim.walletClient.writeContract({
-        address: market2,
-        abi: mk.abi,
-        functionName: 'depositCollateral',
-        args: [80n * WAD],
-        account: victim.walletClient.account!,
-        chain: victim.walletClient.chain,
+        args: [borrower, 80n * WAD],
+        account: a.walletClient.account!,
+        chain: a.walletClient.chain,
       }),
     );
 
     // Re-assert marks: sibling files warp the shared anvil; a stale/disagreed
-    // oracle turns this borrow into Unhealthy even though 20/80 is inside 50% LTV.
+    // oracle turns this borrow into Unhealthy. Two borrows of 20 against 80 sit on the 50% LTV line.
     for (const [asset, price] of [
       [col2, 100n * WAD],
       [bor2, 100n * WAD],
@@ -555,7 +554,7 @@ describeOnChain('S-A4 cascade + flash adversarial on chain', () => {
       );
     }
 
-    // Arm: during the outbound borrow transfer, try to borrow another 20
+    // Arm: during the outbound borrow transfer, the recipient borrows another 20.
     await write(a.publicClient, () =>
       a.walletClient.writeContract({
         address: bor2,
@@ -567,14 +566,14 @@ describeOnChain('S-A4 cascade + flash adversarial on chain', () => {
       }),
     );
 
-    await write(victim.publicClient, () =>
-      victim.walletClient.writeContract({
-        address: market2,
-        abi: mk.abi,
-        functionName: 'borrow',
-        args: [20n * WAD],
-        account: victim.walletClient.account!,
-        chain: victim.walletClient.chain,
+    await write(a.publicClient, () =>
+      a.walletClient.writeContract({
+        address: borrower,
+        abi: borrowerArt.abi,
+        functionName: 'depositAndBorrow',
+        args: [80n * WAD, 20n * WAD],
+        account: a.walletClient.account!,
+        chain: a.walletClient.chain,
       }),
     );
 
@@ -592,12 +591,20 @@ describeOnChain('S-A4 cascade + flash adversarial on chain', () => {
       address: market2,
       abi: mk.abi,
       functionName: 'debtOf',
-      args: [victim.deployer],
+      args: [borrower],
+    })) as bigint;
+    const tokenDebt = (await a.publicClient.readContract({
+      address: market2,
+      abi: mk.abi,
+      functionName: 'debtOf',
+      args: [bor2],
     })) as bigint;
 
     expect(attempted).toBe(true);
-    expect(succeeded).toBe(false);
-    // Only the outer borrow landed
-    expect(debt).toBe(20n * WAD);
+    // True only because the recipient's borrow returned. A false flag from the
+    // token's own zero-collateral Unhealthy is not this assertion.
+    expect(succeeded).toBe(true);
+    expect(debt).toBe(20n * WAD + 20n * WAD);
+    expect(tokenDebt).toBe(0n);
   }, 30_000);
 });
