@@ -268,17 +268,37 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
     await settleLanded(paymentId);
   }
 
-  /** Polls until the capture hook has settled the period this payment belongs to. */
+  /**
+   * Polls until the capture hook has settled the period this payment belongs to.
+   *
+   * A missing `subscription_executions` row is not a landed settlement. The
+   * payment may not be linked yet, or the period may never have been written.
+   * Keep polling. A row that exists and is not settled keeps polling too. Only
+   * `status = settled` returns. When the attempts are exhausted, throw: a
+   * period that never settles times out and the test fails.
+   */
   async function settleLanded(paymentId: string): Promise<void> {
     for (let attempt = 0; attempt < 100; attempt++) {
       const rows = await sql<Array<{ status: string }>>`
         SELECT status FROM pay.subscription_executions WHERE payment_id = ${paymentId}
       `;
-      if (rows.length === 0 || rows[0]!.status === 'settled') return;
+      if (rows.length > 0 && rows[0]!.status === 'settled') return;
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     throw new Error(`capture of ${paymentId} never settled its subscription period`);
   }
+
+  describe('settleLanded does not treat a missing execution as landed', () => {
+    it('a payment id with no subscription_executions row times out instead of landing', async () => {
+      const paymentId = '00000000-0000-4000-8000-000000000099';
+      const started = Date.now();
+      await expect(settleLanded(paymentId)).rejects.toThrow(
+        `capture of ${paymentId} never settled its subscription period`,
+      );
+      // The loop is 100 attempts of 20ms. Returning on the first empty poll finishes far under this.
+      expect(Date.now() - started).toBeGreaterThanOrEqual(1_500);
+    }, 15_000);
+  });
 
   const clearingOf = async (merchantId: string, assetId = 'USDT') =>
     formatAmount((await ledger.balance(merchantClearing(merchantId, assetId))).amount);
