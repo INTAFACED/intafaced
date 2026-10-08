@@ -315,7 +315,7 @@ export function KillSwitchBoard({ drop, flagEnv, initialControlPlane }: KillSwit
       {changes.length > 0 && (
         <Panel title={`Staged — ${changes.length} flag${changes.length === 1 ? '' : 's'} would change`} className="adm-panel--warn">
           <div className="adm-stack">
-            <div className="adm-scroll">
+            <div className="adm-scroll" tabIndex={0} role="region" aria-label="Flag and module inspector table">
               <table className="adm-table">
                 <thead>
                   <tr>
@@ -346,7 +346,7 @@ export function KillSwitchBoard({ drop, flagEnv, initialControlPlane }: KillSwit
 
       {plane.snapshot.audit.length > 0 && (
         <Panel title="Live kill-switch audit (newest first)">
-          <div className="adm-scroll">
+          <div className="adm-scroll" tabIndex={0} role="region" aria-label="Flag and module inspector table">
             <table className="adm-table">
               <thead>
                 <tr>
@@ -388,7 +388,7 @@ export function KillSwitchBoard({ drop, flagEnv, initialControlPlane }: KillSwit
           <strong>The per-flag switches in this table change nothing outside this browser tab</strong>
           {stageNotice}
         </div>
-        <div className="adm-scroll">
+        <div className="adm-scroll" tabIndex={0} role="region" aria-label="Flag and module inspector table">
           <table className="adm-table">
             <thead>
               <tr>

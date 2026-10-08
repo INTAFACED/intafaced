@@ -88,7 +88,7 @@ export function LaunchSequence({ currentDrop, flagEnv }: LaunchSequenceProps) {
       )}
 
       <Panel title="§11 drop table" className="adm-flush">
-        <div className="adm-scroll">
+        <div className="adm-scroll" tabIndex={0} role="region" aria-label="Launch flags table">
           <table className="adm-table">
             <thead>
               <tr>
@@ -162,7 +162,7 @@ export function LaunchSequence({ currentDrop, flagEnv }: LaunchSequenceProps) {
           {newlyLive.length === 0 ? (
             <p className="adm-empty">Nothing changes. Drop {preview} turns on no flag that is not already live.</p>
           ) : (
-            <div className="adm-scroll">
+            <div className="adm-scroll" tabIndex={0} role="region" aria-label="Launch flags table">
               <table className="adm-table">
                 <thead>
                   <tr>
