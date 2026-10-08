@@ -211,6 +211,26 @@ export const agentPlaceIntents = agents.table(
 );
 
 /**
+ * In-flight think claim.
+ *
+ * Committed before the provider call, unique on `(session_id, request_id)`, so
+ * a second overlapping think loses the insert and never reaches the model.
+ * It is not a bill: token counts live in `usage_records`, and a provider
+ * failure deletes the row so a retry can still be metered once.
+ */
+export const thinkClaims = agents.table(
+  'think_claims',
+  {
+    sessionId: uuid('session_id')
+      .notNull()
+      .references(() => agentSessions.id),
+    requestId: text('request_id').notNull(),
+    claimedAt: tstz('claimed_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.sessionId, t.requestId] })],
+);
+
+/**
  * A billing period for one session.
  *
  * The row exists before any usage lands in it, and `sealed_at` is what makes

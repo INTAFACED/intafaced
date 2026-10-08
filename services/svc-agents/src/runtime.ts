@@ -90,6 +90,14 @@ export interface SessionRecord {
  * audit row that was written, so a caller cannot claim the refusal went
  * unrecorded.
  */
+/** Thrown inside the metering transaction so the charge rolls back. */
+class SessionSpendCeilingError extends Error {
+  constructor(readonly cap: Amount) {
+    super('session spend ceiling');
+    this.name = 'SessionSpendCeilingError';
+  }
+}
+
 export class RefusedError extends AgentError {
   constructor(
     readonly refusal: Refusal,
@@ -426,6 +434,24 @@ export class AgentRuntime {
       throw err;
     }
 
+    // The hasRequest read above is not the claim. Overlapping thinks both see
+    // no usage row. The unique insert commits before the provider is called,
+    // and only while metering is on — metering-off must not invent a replay.
+    let claimed = false;
+    if (shouldMeter) {
+      claimed = await this.meter.claimRequest(session.id, input.requestId);
+      if (!claimed) {
+        const err = new AgentError(
+          `Request id "${input.requestId}" was already metered on session ${session.id}`,
+          'agents.request_id_replay',
+          'agents.error.request_id_replay',
+          { requestId: input.requestId },
+        );
+        await this.appendFailure(session, { kind: 'completion', task: input.task, error: err });
+        throw err;
+      }
+    }
+
     // 3 · Execute.
     let completion: Awaited<ReturnType<ModelGateway['complete']>>;
     try {
@@ -438,7 +464,9 @@ export class AgentRuntime {
     } catch (err) {
       // Nothing was metered: usage is only recorded from a provider's own
       // reported counts, and there are none. A failed call cannot be billed,
-      // and cannot be double-billed.
+      // and cannot be double-billed. Release the claim so the same request id
+      // can be retried once the engine answers.
+      if (claimed) await this.meter.releaseClaim(session.id, input.requestId);
       await this.appendFailure(session, {
         kind: 'completion',
         task: input.task,
@@ -458,11 +486,21 @@ export class AgentRuntime {
     // user is NOT billed — the house absorbs a call it cannot account for,
     // which is the only acceptable direction for that error. The attempt is
     // still logged, because §8.2 admits no gaps.
+    const ceiling = session.guardrail.limits.maxSpendPerSession;
     const committed = await transaction(
       this.sql,
       async (tx) => {
         let recorded = false;
         let window: string | null = null;
+
+        // The pre-call worst-case check is not the bill. Two thinks that each
+        // fit alone both pass it, then both would commit. The session row lock
+        // orders the charges; a null ceiling stays null.
+        if (shouldMeter && ceiling !== null) {
+          await tx`SELECT id FROM agents.agent_sessions WHERE id = ${session.id} FOR UPDATE`;
+          const spend = await this.meter.sessionSpend(session.id, tx);
+          if (spend + cost > ceiling) throw new SessionSpendCeilingError(ceiling);
+        }
 
         if (shouldMeter) {
           const result = await this.meter.record(tx, {
@@ -502,6 +540,18 @@ export class AgentRuntime {
       },
       { isolation: 'read committed', maxAttempts: 5 },
     ).catch(async (err: unknown) => {
+      if (err instanceof SessionSpendCeilingError) {
+        throw await this.appendRefusal(
+          session,
+          {
+            allowed: false,
+            code: 'agents.spend_limit',
+            userMessageKey: 'agents.refused.spend_limit',
+            userMessageParams: { limit: formatAmount(err.cap), asset: this.feeAssetId },
+          },
+          { kind: 'completion', task: input.task },
+        );
+      }
       await this.appendFailure(session, {
         kind: 'completion',
         task: input.task,
