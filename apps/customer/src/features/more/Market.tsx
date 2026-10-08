@@ -5,6 +5,7 @@ import { useResource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, Select, TextArea, useAction } from './common';
+import type { ApiResult } from '../../shared/api';
 const uuid = z.string().uuid(),
   time = z.string().datetime();
 export const listingSchema = z
@@ -41,6 +42,14 @@ const purchaseSchema = z.object({
   settledAt: time.nullable(),
   accessUntil: time.nullable(),
 });
+function originalPurchaseOutcome(row: z.infer<typeof purchaseSchema>): ApiResult<z.infer<typeof purchaseSchema>> {
+  if (row.status === 'pending') return { ok: false, reason: 'uncertain', message: 'Original purchase is still pending. Settlement is not confirmed.' };
+  if (row.status === 'settled' && row.ledgerTxId && row.settledAt) return { ok: true, data: row };
+  // The service marks rejected only for a definitive failed ledger admission;
+  // it retains the rejection code and has no settlement evidence for that row.
+  if (row.status === 'rejected' && row.rejectionCode && row.ledgerTxId === null && row.settledAt === null) return { ok: true, data: row };
+  return { ok: false, reason: 'uncertain', message: 'The original settlement evidence is incomplete. Keep its purchase reference.' };
+}
 const vendorSchema = z.object({
   id: uuid,
   userId: uuid,
@@ -75,7 +84,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
         if (!rows.ok) return rows;
         const row = rows.data.find((r) => r.id === reference);
         return row
-          ? { ok: true as const, data: row }
+          ? originalPurchaseOutcome(row)
           : {
               ok: false as const,
               reason: 'uncertain' as const,
@@ -83,6 +92,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                 'The original purchase is not present in this bounded history. Absence does not prove it was refused. No retry was sent.',
             };
       },
+      done: () => purchases.reload(),
     });
   const [limit, setLimit] = useState(50),
     [name, setName] = useState(''),
@@ -185,7 +195,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
         )
           return { ok: false, reason: 'error', message: 'The listing terms changed. Reload the catalogue and review again.' };
         if (!canDispatch()) return { ok: false, reason: 'aborted', message: 'The account changed. Review this purchase again.' };
-        return api.mutate(
+        const result = await api.mutate(
           'market',
           'purchase',
           { listingId: row.id, purchaseId },
@@ -195,6 +205,9 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
             'Purchase response does not match the reviewed request',
           ),
         );
+        if (result.ok) return originalPurchaseOutcome(result.data);
+        if (result.reason === 'aborted' || result.status === 401 || result.status === 403) return result;
+        return { ...result, reason: 'uncertain', message: result.message + ' Check the original purchase record before another purchase.' };
       },
       done: purchases.reload,
     });
