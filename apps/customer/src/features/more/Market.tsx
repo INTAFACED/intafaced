@@ -394,7 +394,9 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                         [copyText('market.offer'), strategy ? copyText('market.strategy.subscription') : offer],
                         [
                           copyText('market.period'),
-                          offer === 'subscription' || strategy ? `${period} seconds` : copyText('market.not.applicable'),
+                          offer === 'subscription' || strategy
+                            ? copyText('market.period.seconds', { seconds: period })
+                            : copyText('market.not.applicable'),
                         ],
                       ]}
                     />

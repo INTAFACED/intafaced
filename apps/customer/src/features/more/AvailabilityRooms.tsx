@@ -21,7 +21,7 @@ export function Mining() {
           {(s) => (
             <Details
               items={[
-                [copyText('availabilityrooms.pool.process'), s.ok ? 'Responding' : 'Unavailable'],
+                [copyText('availabilityrooms.pool.process'), copyText(s.ok ? 'common.responding' : 'common.unavailable')],
                 [copyText('availabilityrooms.ledger.configuration'), `${s.ledger.status} · ${s.ledger.code}`],
                 [copyText('availabilityrooms.window.store.configuration'), `${s.pg.status} · ${s.pg.code}`],
                 [

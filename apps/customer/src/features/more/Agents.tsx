@@ -181,7 +181,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                       <Details
                         items={[
                           [copyText('agents.agent'), g.agentId],
-                          [copyText('agents.enabled'), g.enabled ? 'Yes' : 'No'],
+                          [copyText('agents.enabled'), copyText(g.enabled ? 'common.yes' : 'common.no')],
                           [copyText('agents.guardrail.version'), g.version],
                           [copyText('agents.actions.per.session'), g.limits.maxActionsPerSession],
                           [copyText('agents.output.token.cap'), g.limits.maxOutputTokensPerCall],

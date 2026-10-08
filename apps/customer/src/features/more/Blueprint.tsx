@@ -378,7 +378,7 @@ export function Blueprint() {
                   items={[
                     [copyText('blueprint.answers'), responses.map((r) => `${r.key}: ${r.value}`).join('\n')],
                     [copyText('blueprint.visibility'), visibility],
-                    [copyText('blueprint.mentor.opt.in'), mentorAvailable ? 'Yes' : 'No'],
+                    [copyText('blueprint.mentor.opt.in'), copyText(mentorAvailable ? 'common.yes' : 'common.no')],
                     [
                       copyText('blueprint.birth.data'),
                       birthDate ? copyText('blueprint.included.for.this.request.only') : copyText('blueprint.not.included'),

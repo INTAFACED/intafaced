@@ -384,6 +384,12 @@ function MoneyOverviewPage({ bank = false, asset }: { bank?: boolean; asset?: st
   );
 }
 function CustodyUnavailable({ kind }: { kind: 'Deposit' | 'Withdraw' | 'Withdrawal addresses' }) {
+  const labelKeys = {
+    Deposit: 'custody.deposit',
+    Withdraw: 'custody.withdraw',
+    'Withdrawal addresses': 'custody.addresses',
+  } as const;
+  const labelKey = labelKeys[kind];
   const text =
     kind === 'Deposit'
       ? copyText('index.a.live.deposit.address.or.bank.funding')
@@ -391,11 +397,8 @@ function CustodyUnavailable({ kind }: { kind: 'Deposit' | 'Withdraw' | 'Withdraw
         ? copyText('index.live.custody.withdrawal.and.delivery.confirmation.are')
         : copyText('index.live.custody.address.listing.and.address.verification');
   return (
-    <Page
-      eyebrow={copyText('index.money')}
-      title={<Text k={kind === 'Deposit' ? 'custody.deposit' : kind === 'Withdraw' ? 'custody.withdraw' : 'custody.addresses'} />}
-    >
-      <Section title={copyText('index.is.unavailable', { value1: kind })}>
+    <Page eyebrow={copyText('index.money')} title={<Text k={labelKey} />}>
+      <Section title={copyText('index.is.unavailable', { value1: copyText(labelKey) })}>
         <EmptyState title={copyText('index.custody.is.not.connected')}>{text}</EmptyState>
         <div className="actions">
           <a className="button button--secondary" href="/portfolio">
@@ -460,7 +463,7 @@ function MoneyRooms({ path }: { path: string }) {
           </p>
           {pending.map((record) => (
             <p className="money-reference" key={record.reference}>
-              {record.title} · {record.procedure}
+              {record.title} · {record.reference === 'unreadable' ? <Text k="pending-outcomes.recovery.required" /> : record.procedure}
               <Text k="index.reference" />
               {record.reference}
               {Object.entries(record.recordRefs).map(([key, value]) => (

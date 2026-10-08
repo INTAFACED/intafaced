@@ -242,13 +242,19 @@ export function Workbook({ slug }: { slug: string }) {
                   <p>{r.disclaimer}</p>
                   <Details
                     items={[
-                      [copyText('workbook.progress'), `${r.result.completedCount} of ${r.result.stepCount}`],
-                      [copyText('workbook.complete'), r.result.complete ? 'Yes' : 'No'],
+                      [
+                        copyText('workbook.progress'),
+                        copyText('common.progress.count', { completed: r.result.completedCount, required: r.result.stepCount }),
+                      ],
+                      [copyText('workbook.complete'), copyText(r.result.complete ? 'common.yes' : 'common.no')],
                       [copyText('workbook.attached.fills'), r.result.valuation.fillCount],
                       [copyText('workbook.open.size'), r.result.valuation.openSize],
                       [
                         copyText('workbook.realised.p.l'),
-                        `${r.result.valuation.realisedPnl} simulated ${market?.quote ?? copyText('workbook.quote.asset.identity.unavailable')}`,
+                        copyText('workbook.simulated.amount', {
+                          amount: r.result.valuation.realisedPnl,
+                          asset: market?.quote ?? copyText('workbook.quote.asset.identity.unavailable'),
+                        }),
                       ],
                       [
                         copyText('workbook.unrealised.p.l'),

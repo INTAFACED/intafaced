@@ -86,7 +86,7 @@ function spaceName(space: Space) {
     value1: space.name,
     value2: space.assetId,
     value3: funds(space.balance, space.assetId),
-    value4: space.lockedUntil && Date.parse(space.lockedUntil) > Date.now() ? ' · locked' : '',
+    value4: space.lockedUntil && Date.parse(space.lockedUntil) > Date.now() ? copyText('rooms.locked.suffix') : '',
   });
 }
 function Spaces({ open }: { open: (spec: ActionSpec) => void }) {
@@ -530,7 +530,12 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
                             facts: [
                               [copyText('rooms.pool'), pool.name],
                               [copyText('rooms.apr.2'), bps(pool.aprBps)],
-                              [copyText('rooms.term'), pool.termDays === null ? 'Flexible' : `${pool.termDays} days`],
+                              [
+                                copyText('rooms.term'),
+                                pool.termDays === null
+                                  ? copyText('rooms.flexible.term')
+                                  : copyText('rooms.days', { value1: pool.termDays }),
+                              ],
                               [copyText('rooms.minimum'), amount(pool.minDeposit, pool.assetId)],
                             ],
                             notes: [

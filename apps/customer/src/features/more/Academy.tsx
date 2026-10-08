@@ -307,9 +307,12 @@ function Certificates({ action }: { action: ReturnType<typeof useAction> }) {
                 <h2>{p.title}</h2>
                 <Details
                   items={[
-                    [copyText('academy.completed'), `${p.completedCount} of ${p.requiredCount}`],
+                    [
+                      copyText('academy.completed'),
+                      copyText('common.progress.count', { completed: p.completedCount, required: p.requiredCount }),
+                    ],
                     [copyText('academy.ratio'), p.ratio],
-                    [copyText('academy.granted'), p.granted ? 'Yes' : 'No'],
+                    [copyText('academy.granted'), copyText(p.granted ? 'common.yes' : 'common.no')],
                   ]}
                 />
                 <ul>
@@ -362,7 +365,7 @@ function Certificates({ action }: { action: ReturnType<typeof useAction> }) {
               items={[
                 [copyText('academy.certification'), receipt.data.grant.certId],
                 [copyText('academy.granted'), receipt.data.grant.grantedAt],
-                [copyText('academy.already.granted'), receipt.data.alreadyGranted ? 'Yes' : 'No'],
+                [copyText('academy.already.granted'), copyText(receipt.data.alreadyGranted ? 'common.yes' : 'common.no')],
                 [
                   copyText('academy.xp.delivery'),
                   receipt.data.xp.emitted

@@ -259,10 +259,10 @@ export function Prediction() {
             {decimalSchema.safeParse(amount).success && (
               <Details
                 items={[
-                  [copyText('prediction.instrument'), instrument?.symbol ?? 'Unavailable'],
+                  [copyText('prediction.instrument'), instrument?.symbol ?? copyText('common.unavailable')],
                   [copyText('prediction.full.collateral.by.published.rule'), `${displayAmount(amount)} ${market.settlementAssetId}`],
-                  [copyText('prediction.authoritative.fee'), 'Unavailable'],
-                  [copyText('prediction.order.admission'), 'Unavailable'],
+                  [copyText('prediction.authoritative.fee'), copyText('common.unavailable')],
+                  [copyText('prediction.order.admission'), copyText('common.unavailable')],
                 ]}
               />
             )}

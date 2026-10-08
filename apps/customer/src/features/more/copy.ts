@@ -2,6 +2,13 @@ import { defineCopy, type CopyCatalog } from '../../shared/i18n';
 
 // Authored UI messages only. API values, identifiers, units and user content stay outside this catalog.
 const messages = {
+  'common.yes': 'Yes',
+  'common.no': 'No',
+  'common.unavailable': 'Unavailable',
+  'common.responding': 'Responding',
+  'common.progress.count': '{completed} of {required}',
+  'workbook.simulated.amount': '{amount} simulated {asset}',
+  'market.period.seconds': '{seconds} seconds',
   'academy.academy.sections': 'Academy sections',
   'academy.learning.item': 'Learning item',
   'academy.minutes': ' minutes',

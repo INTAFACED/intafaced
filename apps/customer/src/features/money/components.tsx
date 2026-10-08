@@ -175,7 +175,9 @@ const outputNames: Record<string, string> = {
   get amount() {
     return copyText('components.confirmed.amount');
   },
-  status: 'Status',
+  get status() {
+    return copyText('components.status');
+  },
   get remainingPrincipal() {
     return copyText('components.remaining.principal');
   },
@@ -191,7 +193,9 @@ const outputNames: Record<string, string> = {
   get skipped() {
     return copyText('components.missed.occurrences.skipped');
   },
-  kind: 'Outcome',
+  get kind() {
+    return copyText('components.outcome');
+  },
   get approval() {
     return copyText('components.approval');
   },
