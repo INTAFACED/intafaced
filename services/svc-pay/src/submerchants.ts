@@ -488,9 +488,10 @@ export class SubMerchantService {
    *
    * AN ACCOUNT THAT IS ALREADY SOMEBODY ELSE'S MERCHANT. `merchants.user_id` is
    * UNIQUE and stays that way, so onboarding a user who already trades as a
-   * merchant elsewhere is refused by name rather than silently adopting their
-   * existing row into this tree — which would hand the actor authority over a
-   * merchant that predates them.
+   * merchant elsewhere is refused as out of scope rather than silently adopting
+   * their existing row into this tree — which would hand the actor authority over
+   * a merchant that predates them. The refusal names neither that merchant nor
+   * its parent, and it does not say whether the other row is a root.
    *
    * ── WHY IT IS IDEMPOTENT ───────────────────────────────────────────────────
    *
@@ -560,12 +561,12 @@ export class SubMerchantService {
           // The account already had a merchant, and it is not this node's child.
           // Adopting it would give the actor authority over a merchant that
           // existed before them, which no onboarding call is entitled to do.
+          // The caller supplied only a userId, so the refusal is the same
+          // out-of-scope code as a cross-tree read and names nothing from the
+          // other row.
           throw new SubMerchantError(
-            `Account ${input.userId} is already a merchant${
-              row.parent_merchant_id === null ? ' in its own right' : ' under another parent'
-            }. One merchant per sovereign account is a database rule, and onboarding does not adopt an existing one.`,
-            'pay.submerchant_user_already_merchant',
-            { merchantId: row.id },
+            `Account ${input.userId} is outside this sub-merchant tree. Onboarding does not adopt an existing merchant.`,
+            'pay.submerchant_out_of_scope',
           );
         }
 
