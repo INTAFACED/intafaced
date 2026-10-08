@@ -270,6 +270,48 @@ describe('evaluateToolCall', () => {
       code: 'agents.module_not_allowed',
     });
   });
+
+  it('reapplies the product-agent money-write denylist when the snapshot skipped parseGuardrail', () => {
+    // parseGuardrail would throw on this grant. A snapshot that never went
+    // through the parser must still refuse at the dispatch decision.
+    const skipped: Guardrail = {
+      agentId: 'navigator',
+      version: 1,
+      scopes: ['withdraw'],
+      tools: [
+        { name: 'trade.quote', module: 'trade', mode: 'read', requiresApproval: false },
+        { name: 'ledger.post', module: 'ledger', mode: 'write', requiresApproval: false },
+        { name: 'pay.capture', module: 'pay', mode: 'write', requiresApproval: false },
+        { name: 'pay.refund', module: 'pay', mode: 'write', requiresApproval: false },
+        { name: 'bank.loan', module: 'bank', mode: 'write', requiresApproval: false },
+        { name: 'p2p.release', module: 'p2p', mode: 'write', requiresApproval: false },
+        { name: 'bank.withdraw', module: 'bank', mode: 'write', requiresApproval: false },
+      ],
+      limits: {
+        maxActionsPerSession: 5,
+        maxOutputTokensPerCall: 512,
+        maxSpendPerSession: amt('1'),
+        allowedModules: ['trade', 'ledger', 'pay', 'bank', 'p2p'],
+        allowedTasks: ['navigator.plan'],
+      },
+    };
+
+    // These are not live-write tools, so a missing capacity mode does not stop them.
+    for (const tool of ['ledger.post', 'pay.capture', 'pay.refund', 'bank.loan', 'p2p.release'] as const) {
+      expect(evaluateToolCall(skipped, state(), { tool }), tool).toMatchObject({ allowed: false });
+    }
+    expect(evaluateToolCall(skipped, state(), { tool: 'trade.quote' })).toEqual({ allowed: true });
+
+    // A capacity mode that allows live writes, plus withdraw scope, still must not
+    // dispatch a product-agent money write — including cash-out.
+    const permissive: Guardrail = { ...skipped, capacityMode: 'confirm_each' };
+    for (const tool of ['ledger.post', 'pay.capture', 'pay.refund', 'bank.loan', 'p2p.release'] as const) {
+      expect(evaluateToolCall(permissive, state(), { tool }), tool).toMatchObject({ allowed: false });
+    }
+    expect(evaluateToolCall(permissive, state(), { tool: 'bank.withdraw', approved: true })).toMatchObject({
+      allowed: false,
+    });
+  });
 });
 
 describe('evaluateCompletion', () => {

@@ -385,6 +385,13 @@ export function evaluateToolCall(guardrail: Guardrail, state: SessionState, requ
     return refuse('agents.tool_not_declared', 'agents.refused.tool_not_declared', { tool: request.tool });
   }
 
+  if (isProductAgentId(guardrail.agentId) && isFleetHardMoneyWriteTool(request.tool)) {
+    // parseGuardrail rejects this grant. A snapshot that skipped the parser
+    // must not dispatch it: capacity mode is not consulted for every money
+    // write, and withdraw scope must not reopen cash-out on a product agent.
+    return refuse('agents.tool_not_declared', 'agents.refused.tool_not_declared', { tool: request.tool });
+  }
+
   if (!guardrail.limits.allowedModules.includes(grant.module)) {
     // Unreachable via `parseGuardrail`, which rejects this combination — kept
     // because a guardrail can also arrive as a jsonb snapshot written by an
