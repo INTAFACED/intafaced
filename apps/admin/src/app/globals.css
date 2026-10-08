@@ -1,14 +1,9 @@
 /**
  * apps/admin — operator console styles.
  *
- * Every colour, font, radius and shadow here is a `--if-*` custom property from
- * `@intafaced/ui/tokens.css`. There is not one hex literal in this file, and
- * there must never be: a colour that is not in the token file does not exist in
- * the product (§3). Tints are produced with `color-mix()` against the tokens
- * rather than by writing a new rgba by hand.
- *
- * Density is the brief. This is a console: small type, tight rows, tabular
- * numerics, no decorative whitespace.
+ * The accepted Shell Craft R5 family is scoped to .adm-theme. Shared package
+ * tokens remain untouched. Risk colours keep their existing operator meaning.
+ * Local density choices serve inspectors; they are not new shared tokens.
  */
 
 *,
@@ -24,12 +19,35 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Self-hosted Orbitron / Inter from next/font are exposed as --adm-font-*.
-   The token fallbacks stay in the stack so the console degrades to the same
-   families if a font file ever fails to load. */
-:root {
-  --if-font-display: var(--adm-font-display), 'Orbitron', 'Rajdhani', system-ui, sans-serif;
-  --if-font-body: var(--adm-font-body), 'Inter', system-ui, -apple-system, sans-serif;
+@font-face {
+  font-family: 'Inter';
+  src: url('/assets/inter-latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+.adm-theme {
+  --if-base: #000000;
+  --if-surface: #0d0d0d;
+  --if-surface-raised: #171717;
+  --if-surface-overlay: #202020;
+  --if-accent: #c8f64a;
+  --if-accent-bright: #c8f64a;
+  --if-accent-dim: #c8f64a;
+  --if-accent-glow: transparent;
+  --if-border: #262626;
+  --if-border-strong: #303030;
+  --if-border-accent: #30352b;
+  --if-text: #f5f5f5;
+  --if-text-muted: #a3a3a3;
+  --if-text-faint: #a3a3a3;
+  --if-text-on-accent: #000000;
+  --if-font-display: 'Inter', system-ui, sans-serif;
+  --if-font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --if-blur-panel: none;
+  --if-shadow-glow: none;
+  --if-shadow-panel: none;
   --if-phosphor: var(--if-accent);
   /*
    * tokens.css does not define --if-black / --if-glass*. Undefined --if-black
@@ -43,7 +61,7 @@ body {
   --if-glass-border-strong: var(--if-border-strong);
 
   --adm-row: 1px solid color-mix(in srgb, var(--if-glass-border) 70%, transparent);
-  --adm-gap: 12px;
+  --adm-gap: 28px;
 }
 
 html {
@@ -1291,5 +1309,454 @@ code {
 
   .adm-tools-page .adm-tool-row__meta code {
     overflow-wrap: anywhere;
+  }
+}
+
+/* Team desk composition — open work areas with local inspector boundaries. */
+.adm-theme {
+  font-size: 14px;
+  line-height: 1.5;
+  font-feature-settings: 'tnum';
+}
+
+.adm-skip {
+  position: fixed;
+  top: 8px;
+  left: 12px;
+  z-index: 200;
+  padding: 12px 16px;
+  border: 2px solid var(--if-accent);
+  background: var(--if-base);
+  transform: translateY(-150%);
+}
+.adm-skip:focus {
+  transform: none;
+}
+
+.adm-topbar {
+  gap: 12px 28px;
+  padding: 8px 28px;
+  min-height: 72px;
+  background: #111111;
+}
+.adm-brand {
+  color: var(--if-text);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.adm-brand small {
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.adm-nav {
+  gap: 4px;
+}
+.adm-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  border-radius: 4px;
+}
+.adm-nav a[aria-current='page'] {
+  border-color: var(--if-border-accent);
+  background: var(--if-surface-raised);
+}
+.adm-envstrip {
+  gap: 10px;
+  font-family: var(--if-font-body);
+  font-size: 12px;
+}
+.adm-envstrip b {
+  color: var(--if-text);
+}
+
+.adm-access-notice {
+  display: flex;
+  gap: 12px;
+  padding: 12px 28px;
+  border-bottom: 1px solid var(--if-border);
+  color: var(--if-text-muted);
+  font-size: 12px;
+  background: var(--if-base);
+}
+.adm-access-notice__label {
+  flex-shrink: 0;
+  color: var(--if-text);
+  font-weight: 500;
+}
+.adm-alertstrip {
+  padding: 12px 28px;
+  font-size: 13px;
+}
+.adm-main {
+  padding: 32px 28px 48px;
+  min-width: 0;
+}
+.adm-pagehead {
+  align-items: flex-start;
+  margin-bottom: 4px;
+}
+.adm-pagehead h1 {
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  text-transform: none;
+}
+.adm-pagehead p {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 22px;
+  max-width: 100ch;
+}
+.adm-stack {
+  gap: 16px;
+  min-width: 0;
+}
+.adm-tools-page {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+}
+.adm-cols {
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+}
+.adm-split > *,
+.adm-cols > * {
+  min-width: 0;
+}
+
+.adm-theme .if-panel,
+.adm-tools-page .if-panel {
+  background: var(--if-base);
+  border: 0;
+  border-top: 1px solid var(--if-border);
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.adm-theme .if-panel__header {
+  padding: 16px 0;
+  flex-wrap: wrap;
+  border-bottom: 0;
+}
+.adm-theme .if-panel__title {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+.adm-theme .if-panel__body {
+  padding: 0;
+}
+.adm-theme .if-stat__label {
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.adm-theme .if-stat__value {
+  font-family: var(--if-font-body);
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 500;
+}
+.adm-theme .if-stat__delta {
+  font-family: var(--if-font-body);
+  font-size: 12px;
+}
+.adm-statrow {
+  padding: 8px 0;
+}
+.adm-panel--danger > .if-panel__header .if-panel__title {
+  color: var(--if-short);
+}
+.adm-panel--warn > .if-panel__header .if-panel__title {
+  color: var(--if-warn);
+}
+
+.adm-table,
+.adm-queue-table {
+  font-size: 13px;
+}
+.adm-table th {
+  position: static;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 12px;
+}
+.adm-table td,
+.adm-queue-table td {
+  padding: 12px;
+}
+.adm-scroll {
+  max-width: 100%;
+  min-width: 0;
+}
+.adm-subhead {
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.adm-meta,
+.adm-subhead .adm-meta,
+.adm-queue-detail {
+  font-size: 12px;
+}
+.adm-chip {
+  padding: 4px 8px;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.adm-chip__dot {
+  box-shadow: none;
+}
+.adm-field > label,
+.adm-kv dt {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.adm-input,
+.adm-select,
+.adm-textarea {
+  min-height: 44px;
+  padding: 10px 12px;
+  font-family: var(--if-font-body);
+  font-size: 14px;
+  border-color: #3a3a3a;
+}
+.adm-textarea {
+  min-height: 88px;
+}
+.adm-btn,
+.adm-btn--compact,
+.adm-queue-table .adm-btn--compact {
+  min-height: 44px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: 0;
+  text-transform: none;
+  border-radius: 4px;
+}
+.adm-btn:not([data-tone='danger']):not(:disabled) {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--if-surface), var(--if-surface)) padding-box,
+    linear-gradient(140deg, #858585, #303030 28%, #303030 74%, #a3a3a3) border-box;
+}
+.adm-btn:disabled {
+  opacity: 1;
+  color: #b8b8b8;
+  border-color: var(--if-border);
+  background: var(--if-surface);
+}
+.adm-switch {
+  min-height: 44px;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  border-radius: 4px;
+}
+.adm-switch span {
+  padding: 10px;
+}
+.adm-switch:disabled {
+  opacity: 0.7;
+}
+.adm-check {
+  font-size: 14px;
+  line-height: 22px;
+  min-height: 44px;
+  align-items: flex-start;
+}
+.adm-check input {
+  min-width: 20px;
+  min-height: 20px;
+  margin-top: 2px;
+}
+.adm-callout {
+  font-size: 13px;
+  line-height: 21px;
+  padding: 14px 16px;
+}
+.adm-callout strong {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.adm-footnote,
+.adm-blocked {
+  font-size: 12px;
+  line-height: 20px;
+}
+.adm-banner {
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+.adm-kv {
+  font-size: 13px;
+}
+.adm-boundary-head {
+  padding: 12px 0;
+  font-size: 12px;
+}
+.adm-boundary-head strong {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.adm-boundary-grid {
+  gap: 1px;
+}
+.adm-boundary-row {
+  padding: 12px;
+  grid-template-columns: 90px minmax(0, 1fr) auto;
+}
+.adm-boundary-row__lane,
+.adm-boundary-row__state {
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.adm-boundary-row__queue {
+  font-size: 13px;
+}
+.adm-boundary-row__fact {
+  font-size: 12px;
+}
+.adm-tool-row {
+  padding: 16px 12px;
+}
+.adm-tool-row__label {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.adm-tool-row__meta {
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.adm-pre {
+  font-size: 12px;
+}
+.adm-theme :is(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--if-accent);
+  outline-offset: 3px;
+}
+.adm-ops-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.adm-ops-tabs button[aria-pressed='true'] {
+  color: var(--if-accent);
+  border-color: var(--if-border-accent);
+}
+.adm-ops-records {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.adm-ops-records li {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 16px 0;
+  border-bottom: var(--adm-row);
+  overflow-wrap: anywhere;
+}
+.adm-ops-records dl {
+  margin: 0;
+}
+
+@media (max-width: 1250px) {
+  .adm-nav {
+    order: 3;
+    flex-basis: 100%;
+  }
+  .adm-topbar {
+    position: static;
+  }
+}
+@media (max-width: 600px) {
+  .adm-topbar {
+    padding: 12px 16px;
+    gap: 8px;
+  }
+  .adm-brand small,
+  .adm-envstrip {
+    display: flex;
+  }
+  .adm-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .adm-nav a {
+    padding: 8px;
+    font-size: 12px;
+  }
+  .adm-main {
+    padding: 24px 16px 40px;
+  }
+  .adm-access-notice,
+  .adm-alertstrip {
+    padding: 12px 16px;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .adm-alertstrip__body,
+  .adm-pagehead--compact p {
+    font-size: 12px;
+    line-height: 20px;
+  }
+  .adm-boundary-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .adm-boundary-row__lane,
+  .adm-boundary-row__fact {
+    grid-column: 1 / -1;
+  }
+  .adm-boundary-row__state {
+    grid-column: 2;
+    grid-row: 2;
+    font-size: 11px;
+  }
+  .adm-kv {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .adm-kv dd {
+    margin-bottom: 8px;
+  }
+  .adm-tools-page .adm-tool-row {
+    padding: 14px 12px;
+  }
+  .adm-ops-records li {
+    flex-direction: column;
   }
 }
