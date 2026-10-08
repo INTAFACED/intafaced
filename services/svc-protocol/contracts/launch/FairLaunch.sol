@@ -33,6 +33,8 @@ contract FairLaunch {
     uint64 public immutable linearSeconds;
 
     uint256 public totalRaised;
+    /// @dev Sale-token balance `fund` actually received. Claims use this, not the pull size.
+    uint256 public saleCredited;
     uint64 public finalizedAt;
     bool public funded;
     bool public finalized;
@@ -41,6 +43,7 @@ contract FairLaunch {
 
     mapping(address => uint256) public contributed;
     mapping(address => uint256) public claimed;
+    uint256 private entered;
 
     event Funded(uint256 amount);
     event Contributed(address indexed account, uint256 amount);
@@ -66,6 +69,14 @@ contract FairLaunch {
     error TransferFailed();
     error NotCreator();
     error AlreadyReclaimed();
+    error Reentered();
+
+    modifier nonReentrant() {
+        if (entered != 0) revert Reentered();
+        entered = 1;
+        _;
+        entered = 0;
+    }
 
     constructor(
         address saleToken_,
@@ -100,46 +111,58 @@ contract FairLaunch {
     }
 
     /**
-     * Deposit the exact `saleAmount` of sale token. Anyone may fund before
-     * `endTime`. Once in, inventory cannot be withdrawn except via fail-path
-     * `reclaimSale`. At or after `endTime`, contribute is already closed, so
-     * a pull would sit at `totalRaised == 0` and `reclaimSale` would pay it
-     * to the creator.
+     * Pull `saleAmount` of sale token and credit the balance actually received.
+     * Anyone may fund before `endTime`. Once in, inventory cannot be withdrawn
+     * except via fail-path `reclaimSale`. At or after `endTime`, contribute is
+     * already closed, so a pull would sit at `totalRaised == 0` and
+     * `reclaimSale` would pay it to the creator.
      */
-    function fund() external {
+    function fund() external nonReentrant {
         if (funded) revert AlreadyFunded();
         if (finalized) revert AlreadyFinalized();
         if (block.timestamp >= endTime) revert WindowClosed();
+        uint256 received = _pull(saleToken, saleAmount);
+        saleCredited = received;
         funded = true;
-        if (!IERC20Minimal(saleToken).transferFrom(msg.sender, address(this), saleAmount)) revert TransferFailed();
-        emit Funded(saleAmount);
+        emit Funded(received);
     }
 
-    function contribute(uint256 amount) external {
+    function contribute(uint256 amount) external nonReentrant {
         if (!funded) revert NotFunded();
         if (finalized) revert AlreadyFinalized();
         if (amount == 0) revert BadAmount();
         if (block.timestamp < startTime || block.timestamp >= endTime) revert WindowClosed();
         if (totalRaised >= raiseCap) revert CapExceeded();
 
-        uint256 nextTotal = totalRaised + amount;
-        if (nextTotal > raiseCap) revert CapExceeded();
+        uint256 room = raiseCap - totalRaised;
+        if (amount > room) revert CapExceeded();
         if (perWalletCap != 0) {
-            uint256 nextWallet = contributed[msg.sender] + amount;
-            if (nextWallet > perWalletCap) revert WalletCapExceeded();
+            uint256 used = contributed[msg.sender];
+            if (amount > perWalletCap - used) revert WalletCapExceeded();
         }
 
-        totalRaised = nextTotal;
-        contributed[msg.sender] += amount;
-        if (!IERC20Minimal(quoteToken).transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
-        emit Contributed(msg.sender, amount);
+        uint256 received = _pull(quoteToken, amount);
+        if (received > room) revert CapExceeded();
+        if (perWalletCap != 0 && received > perWalletCap - contributed[msg.sender]) revert WalletCapExceeded();
+
+        totalRaised += received;
+        contributed[msg.sender] += received;
+        emit Contributed(msg.sender, received);
+    }
+
+    /// Pull `amount` and return the balance this contract actually gained.
+    function _pull(address token, uint256 amount) private returns (uint256 received) {
+        uint256 beforeBal = IERC20Minimal(token).balanceOf(address(this));
+        if (!IERC20Minimal(token).transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
+        received = IERC20Minimal(token).balanceOf(address(this)) - beforeBal;
+        if (received == 0) revert BadAmount();
     }
 
     /**
      * Permissionless. After the window, or the moment the cap is filled.
      * Success pays quote to the creator in this tx; sale tokens stay for vesting.
      */
-    function finalize() external {
+    function finalize() external nonReentrant {
         if (finalized) revert AlreadyFinalized();
         if (totalRaised < raiseCap && block.timestamp < endTime) revert WindowOpen();
 
@@ -156,7 +179,7 @@ contract FairLaunch {
         }
     }
 
-    function claim() external {
+    function claim() external nonReentrant {
         if (!finalized) revert NotFinalized();
         if (!success) revert SaleFailed();
 
@@ -167,7 +190,7 @@ contract FairLaunch {
         emit Claimed(msg.sender, out);
     }
 
-    function refund() external {
+    function refund() external nonReentrant {
         if (!finalized) revert NotFinalized();
         if (success) revert SaleSucceeded();
 
@@ -178,7 +201,7 @@ contract FairLaunch {
         emit Refunded(msg.sender, amount);
     }
 
-    function reclaimSale() external {
+    function reclaimSale() external nonReentrant {
         if (msg.sender != creator) revert NotCreator();
         if (!finalized) revert NotFinalized();
         if (success) revert SaleSucceeded();
@@ -192,7 +215,7 @@ contract FairLaunch {
 
     function allocationOf(address account) public view returns (uint256) {
         if (!success || totalRaised == 0) return 0;
-        return (saleAmount * contributed[account]) / totalRaised;
+        return (saleCredited * contributed[account]) / totalRaised;
     }
 
     function vestedOf(address account) public view returns (uint256) {
