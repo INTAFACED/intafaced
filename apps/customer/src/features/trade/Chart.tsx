@@ -553,7 +553,7 @@ export function MarketChart({
           }),
         );
     }
-  }, [fills.resource, preferences.showFills, chartRevision]);
+  }, [fills.resource, preferences.showFills, chartRevision, theme, preferences.upColor]);
   useEffect(() => {
     const series = seriesRef.current;
     if (!series) return;
@@ -581,7 +581,7 @@ export function MarketChart({
         );
       }
     }
-  }, [positions, market.symbol, chartRevision, showPosition, showMark, showLiquidation, preferences.language]);
+  }, [positions, market.symbol, chartRevision, showPosition, showMark, showLiquidation, preferences.language, theme]);
 
   function saveLayout() {
     const name = window.prompt(copy.t('layoutNamePrompt'));

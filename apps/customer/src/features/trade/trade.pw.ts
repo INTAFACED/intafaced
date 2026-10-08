@@ -635,8 +635,37 @@ test('Trade authored Spanish controls keep native order enums, IDs, units and ex
 
 test('device appearance repaints both mounted charts while preserving the analysis and order draft', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
-  await page.addInitScript(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ theme: 'system' })));
+  await page.addInitScript(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ theme: 'system', showFills: true })));
   const server = await mount(page, { working: true });
+  await page.route('**/api/v1/ohlcv/**', (route) =>
+    route.fulfill({
+      json: [
+        [time - 180000, '80010', '80020', '79990', '80001', '1'],
+        [time - 120000, '80010', '80020', '79990', '80001', '1'],
+        [time - 60000, '80010', '80020', '79990', '80001', '1'],
+      ],
+    }),
+  );
+  await page.route('**/api/v1/account/trades*', (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: 'fill-theme',
+          order: 'order-1',
+          timestamp: time,
+          datetime,
+          symbol: 'BTC/USDT',
+          type: 'limit',
+          side: 'buy',
+          takerOrMaker: 'maker',
+          price: '80015',
+          amount: '0.001',
+          cost: '80.015',
+          fee: null,
+        },
+      ],
+    }),
+  );
   await page.goto('/exchange?fullApp=1');
   await page.getByText('Workspace', { exact: true }).click();
   await page.getByRole('button', { name: 'Two timeframes', exact: true }).click();
@@ -645,7 +674,7 @@ test('device appearance repaints both mounted charts while preserving the analys
   const primary = page.getByRole('img', { name: 'Actual BTC/USDT historical prices', exact: true });
   await primary.focus();
   await primary.press('ArrowLeft');
-  const inspection = page.getByText('O 80000 · H 80020 · L 79990 · C 80001 USDT · V 1 BTC', { exact: true });
+  const inspection = page.getByText('O 80010 · H 80020 · L 79990 · C 80001 USDT · V 1 BTC', { exact: true });
   await expect(inspection).toBeVisible();
   await page.evaluate(() => {
     (window as Window & { appearanceCanvases?: Element[] }).appearanceCanvases = [...document.querySelectorAll('canvas')];
@@ -665,10 +694,23 @@ test('device appearance repaints both mounted charts while preserving the analys
       );
     });
   await expect.poll(followsAppearance).toEqual([true, true]);
+  const oldGreenPixels = async () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll<HTMLCanvasElement>('.trade-chart canvas')].reduce((total, canvas) => {
+        const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+        let count = 0;
+        for (let index = 0; index < pixels.length; index += 4)
+          if (pixels[index] === 200 && pixels[index + 1] === 246 && pixels[index + 2] === 74 && pixels[index + 3] === 255) count++;
+        return total + count;
+      }, 0),
+    );
+  await expect.poll(oldGreenPixels).toBeGreaterThan(0);
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
     await expect(page.locator('html')).toHaveAttribute('data-theme', colorScheme);
     await expect.poll(followsAppearance).toEqual([true, true]);
+    if (colorScheme === 'light') await expect.poll(oldGreenPixels).toBe(0);
+    else await expect.poll(oldGreenPixels).toBeGreaterThan(0);
     expect(
       await page.evaluate(() => {
         const before = (window as Window & { appearanceCanvases?: Element[] }).appearanceCanvases!;
