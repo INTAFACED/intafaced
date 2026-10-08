@@ -341,3 +341,42 @@ function listObserved(chain: EvmLiveChain): Array<{ txHash: string; amount: bigi
   const observed = (chain as unknown as { observed: Map<string, { txHash: string; amount: bigint; logIndex: number }> }).observed;
   return [...observed.values()];
 }
+
+/** Reads `description` only. No JSON-RPC method is called. */
+function described(rpcUrl: string): string {
+  return new EvmLiveChain({
+    rpcUrl,
+    chainId: 31337,
+    depositMnemonic: MNEMONIC,
+    hotWalletKey: HOT_KEY,
+    assets: parseEvmAssets('ETH:native'),
+    broadcasts: new MemoryBroadcastStore(),
+    minConfirmations: 1,
+  }).description;
+}
+
+describe('EvmLiveChain description', () => {
+  it('keeps the host and drops a path key, a single-segment key, and a query secret', () => {
+    const multi = described('https://example/v2/SECRET');
+    expect(multi).toContain('rpc=https://example/***');
+    expect(multi).not.toContain('SECRET');
+
+    const single = described('https://example/SECRET');
+    expect(single).toContain('rpc=https://example/***');
+    expect(single).not.toContain('SECRET');
+
+    const query = described('https://example?apikey=SECRET');
+    expect(query).toContain('rpc=https://example/');
+    expect(query).not.toContain('SECRET');
+    expect(query).not.toContain('apikey');
+  });
+
+  it('still blanks userinfo when the path and query also hold a key', () => {
+    const published = described('https://rpc-user:rpc-pass@example/v2/SECRET?apikey=SECRET');
+    expect(published).toContain('rpc=https://***:***@example/***');
+    expect(published).not.toContain('rpc-user');
+    expect(published).not.toContain('rpc-pass');
+    expect(published).not.toContain('SECRET');
+    expect(published).not.toContain('apikey');
+  });
+});

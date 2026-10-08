@@ -575,15 +575,22 @@ function deriveDepositAddress(mnemonic: string, index: number): Address {
   return mnemonicToAccount(mnemonic, { addressIndex: index }).address;
 }
 
+/**
+ * Host stays so an operator can see which endpoint failed.
+ * Userinfo, every path segment, and the query are blank: providers put the
+ * key in the last segment (`/v2/<key>`), in a single segment (`/<key>`),
+ * or in the query (`?apikey=`). This string is what `description` publishes.
+ */
 function redactRpc(url: string): string {
   try {
     const u = new URL(url);
     if (u.password) u.password = '***';
     if (u.username) u.username = '***';
-    const parts = u.pathname.split('/').filter(Boolean);
-    if (parts.length > 1) {
-      u.pathname = `/***/${parts[parts.length - 1]}`;
+    if (u.pathname.split('/').filter(Boolean).length > 0) {
+      u.pathname = '/***';
     }
+    u.search = '';
+    u.hash = '';
     return u.toString();
   } catch {
     return '(rpc)';
