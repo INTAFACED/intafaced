@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
+import { navigate } from '../../app/location';
 import { useResource, type Resource } from '../../shared/resource';
 import { Button, DataTable, Dialog, EmptyState, Failure, Field, Loading, Tabs } from '../../shared/ui';
 import { unavailable, type ApiResult } from '../../shared/api';
@@ -17,6 +18,7 @@ import {
   exactValue,
   baseQuantityForValue,
   portionInLots,
+  isTerminalOrder,
 } from './trade-api';
 import { useLinkedBook, usePolled } from './hooks';
 import { MarketChart } from './Chart';
@@ -127,7 +129,7 @@ export function TradeRoutes({ path }: { path: string }) {
               const target = new URL(location.href);
               if (event.target.checked) target.searchParams.set('simulated', 'true');
               else target.searchParams.delete('simulated');
-              history.replaceState(history.state, '', `${target.pathname}${target.search}${target.hash}`);
+              navigate(`${target.pathname}${target.search}${target.hash}`, true);
             }}
           />
           Simulated
@@ -194,7 +196,7 @@ export function TradeRoutes({ path }: { path: string }) {
               simulation={simulation}
               management={
                 <AccountOrders
-                  key={userId ?? 'guest'}
+                  key={`${userId ?? 'guest'}:${simulation}`}
                   api={api}
                   initialTab={pathname === '/uc/entrust/history' ? 'History' : 'Open orders'}
                   simulation={simulation}
@@ -445,7 +447,8 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
       if (
         original.ok &&
         replacement.ok &&
-        original.data.status !== 'open' &&
+        isTerminalOrder(original.data) &&
+        original.data.symbol === pending.symbol &&
         !original.data.recoveryRequired &&
         !replacement.data.recoveryRequired
       ) {
@@ -465,10 +468,11 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
     if (result.ok) {
       const resolved =
         !result.data.recoveryRequired &&
+        result.data.symbol === pending.symbol &&
         (pending.kind === 'place' ||
-          (pending.kind === 'cancel' && result.data.status !== 'open') ||
+          (pending.kind === 'cancel' && isTerminalOrder(result.data)) ||
           (pending.kind === 'amend' &&
-            (result.data.status !== 'open' ||
+            (isTerminalOrder(result.data) ||
               Boolean(
                 pending.expectedAmount &&
                 pending.originalAmount &&
@@ -640,6 +644,8 @@ function SpotDesk({
       {manage && manage.kind !== 'replace' && (
         <ManageOrder
           api={api}
+          market={markets.find((row) => row.symbol === manage.order.symbol)}
+          canDispatch={() => (new URLSearchParams(location.search).get('simulated') === 'true') === market.paper}
           selection={{ order: manage.order, kind: manage.kind }}
           onClose={() => setManage(null)}
           onIntent={reserveIntent}
@@ -707,6 +713,7 @@ function AccountOrders({ api, initialTab, simulation }: { api: TradeApi; initial
       {manage && (
         <ManageOrder
           api={api}
+          canDispatch={() => !simulation && new URLSearchParams(location.search).get('simulated') !== 'true'}
           selection={{ order: manage, kind: 'cancel' }}
           onClose={() => setManage(null)}
           onIntent={reserveIntent}
@@ -1560,18 +1567,22 @@ function OrderBlotter({
 }
 function ManageOrder({
   api,
+  market,
   selection,
   onClose,
   onIntent,
   onResolved,
   onStatus,
+  canDispatch,
 }: {
   api: TradeApi;
+  market?: Listing;
   selection: { order: Order; kind: 'cancel' | 'amend' };
   onClose: () => void;
   onIntent: (pending: Pending) => Promise<boolean>;
   onResolved: (identity: Pending) => void;
   onStatus: (status: string) => void;
+  canDispatch: () => boolean;
 }) {
   const preferences = usePreferences();
   const [amount, setAmount] = useState(selection.order.remaining),
@@ -1590,12 +1601,12 @@ function ManageOrder({
     if (selection.kind === 'cancel' && !preferences.confirmCancel) void commit();
   }, []);
   async function commit() {
-    if (busyRef.current) return;
+    if (busyRef.current || !mounted.current || !canDispatch()) return;
     busyRef.current = true;
     setBusy(true);
     setFailure(null);
     const latest = await api.order(current.id);
-    if (!mounted.current) return;
+    if (!mounted.current || !canDispatch()) return;
     if (latest.ok && latest.data.recoveryRequired) {
       setFailure({
         ok: false,
@@ -1608,6 +1619,16 @@ function ManageOrder({
     }
     if (!latest.ok) {
       setFailure(latest);
+      setBusy(false);
+      busyRef.current = false;
+      return;
+    }
+    if (latest.data.symbol !== current.symbol) {
+      setFailure({
+        ok: false,
+        reason: 'invalid_response',
+        message: 'The original order’s market could not be verified. No new action was sent.',
+      });
       setBusy(false);
       busyRef.current = false;
       return;
@@ -1643,7 +1664,7 @@ function ManageOrder({
         return;
       }
     }
-    if (!mounted.current) return;
+    if (!mounted.current || !canDispatch()) return;
     const identity: Pending = {
       kind: selection.kind,
       id: current.id,
@@ -1656,7 +1677,7 @@ function ManageOrder({
       onClose();
       return;
     }
-    if (!mounted.current) {
+    if (!mounted.current || !canDispatch()) {
       onResolved(identity);
       return;
     }
@@ -1666,7 +1687,9 @@ function ManageOrder({
         ('reconciliationRequired' in result.data && result.data.reconciliationRequired) ||
         ('recoveryRequired' in result.data && result.data.recoveryRequired)
       ) {
-        onStatus('Amendment outcome is unknown. Check the original order before any further action.');
+        onStatus(
+          `${selection.kind === 'cancel' ? 'Cancellation' : 'Amendment'} outcome is unknown. Check the original order before any further action.`,
+        );
       } else {
         onResolved(identity);
         const order = 'order' in result.data ? result.data.order : result.data;
@@ -1697,25 +1720,25 @@ function ManageOrder({
         <div>
           <dt>Filled</dt>
           <dd>
-            {displayAmount(current.filled)} {current.symbol.split('/')[0]}
+            {displayAmount(current.filled)} {market?.symbol === current.symbol ? market.base : ''}
           </dd>
         </div>
         <div>
           <dt>Remaining</dt>
           <dd>
-            {displayAmount(current.remaining)} {current.symbol.split('/')[0]}
+            {displayAmount(current.remaining)} {market?.symbol === current.symbol ? market.base : ''}
           </dd>
         </div>
         <div>
           <dt>Limit price</dt>
           <dd>
-            {displayAmount(current.price)} {current.symbol.split('/')[1]}
+            {displayAmount(current.price)} {market?.symbol === current.symbol ? market.quote : ''}
           </dd>
         </div>
       </dl>
       {selection.kind === 'amend' && (
         <Field
-          label={`New remaining quantity (${current.symbol.split('/')[0]})`}
+          label={`New remaining quantity${market?.symbol === current.symbol ? ` (${market.base})` : ''}`}
           value={amount}
           inputMode="decimal"
           onChange={(event) => setAmount(event.target.value)}

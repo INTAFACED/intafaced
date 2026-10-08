@@ -33,6 +33,9 @@ export const orderSchema = contractOrderSchema.extend({
   reconciliationKey: z.string().nullable(),
 });
 export type Order = z.infer<typeof orderSchema>;
+export function isTerminalOrder(order: Order) {
+  return !order.recoveryRequired && ['closed', 'canceled', 'expired', 'rejected'].includes(order.status);
+}
 export const previewSchema = z.object({
   symbol: z.string(),
   side: z.enum(['buy', 'sell']),
@@ -188,10 +191,36 @@ export function createTradeApi(api: ApiClient) {
     fills: (symbol?: string, limit = 100, signal?: AbortSignal, since?: number) =>
       api.rest('/account/trades', z.array(tradeSchema), { query: { symbol, limit, since }, signal }),
     positions: (symbol?: string, signal?: AbortSignal) => api.rest('/positions', z.array(positionSchema), { query: { symbol }, signal }),
-    order: (id: string) => api.rest(`/orders/${encodeURIComponent(id)}`, orderSchema),
-    cancel: (id: string) => api.rest(`/orders/${encodeURIComponent(id)}`, orderSchema, { method: 'DELETE' }),
-    amend: (id: string, amount: string) =>
-      api.rest(`/orders/${encodeURIComponent(id)}`, amendmentSchema, { method: 'PATCH', body: { qty: amount } }),
+    async order(id: string): Promise<ApiResult<Order>> {
+      const result = await api.rest(`/orders/${encodeURIComponent(id)}`, orderSchema);
+      return result.ok && result.data.id !== id ? invalid('The order response does not identify the requested original order.') : result;
+    },
+    async cancel(id: string): Promise<ApiResult<Order>> {
+      const result = await api.rest(`/orders/${encodeURIComponent(id)}`, orderSchema, { method: 'DELETE' });
+      if (result.ok && (result.data.id !== id || !isTerminalOrder(result.data)))
+        return {
+          ok: false,
+          reason: 'uncertain',
+          message: 'Cancellation does not confirm the original order’s terminal outcome. Check its original status before another action.',
+        };
+      return result;
+    },
+    async amend(id: string, amount: string): Promise<ApiResult<z.infer<typeof amendmentSchema>>> {
+      const result = await api.rest(`/orders/${encodeURIComponent(id)}`, amendmentSchema, { method: 'PATCH', body: { qty: amount } });
+      if (result.ok && (result.data.orderId !== id || result.data.order.id !== id))
+        return {
+          ok: false,
+          reason: 'uncertain',
+          message: 'The amendment response does not identify the original order. Check its original status before another action.',
+        };
+      if (result.ok && (result.data.reconciliationRequired || result.data.order.recoveryRequired))
+        return {
+          ok: false,
+          reason: 'uncertain',
+          message: 'The original amendment is still recovering. Check its original status before another action.',
+        };
+      return result;
+    },
     async preview(input: Draft): Promise<ApiResult<Preview>> {
       const draft = draftSchema.safeParse(input);
       if (!draft.success) return refused(draft.error.issues.map((row) => row.message).join(' '));
