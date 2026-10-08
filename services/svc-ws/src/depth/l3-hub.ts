@@ -132,7 +132,15 @@ export class NativeL3Hub {
    */
   async probe(marketId: string): Promise<NativeL3Probe> {
     if (typeof this.#source.l3Queue !== 'function') return 'unavailable';
-    if (!(await this.#options.ensureKnownMarket(marketId))) return 'unknown';
+    try {
+      // A registry throw is not "unknown" and not a missing L3 hitch. L2
+      // catches that throw and closes 1013. Rejecting this classification
+      // skips the upgrade, so the socket never gets that close.
+      if (!(await this.#options.ensureKnownMarket(marketId))) return 'unknown';
+    } catch (err) {
+      this.#log.warn({ marketId, err: String(err) }, 'ws: native L3 probe failed');
+      return 'engine';
+    }
     try {
       const limit = this.#options.depthLimit;
       if (!isPublishedDepthLimit(limit)) {

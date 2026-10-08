@@ -71,6 +71,44 @@ describe('NativeL3Hub', () => {
     expect(JSON.parse(sink.frames[0]!).asks).not.toEqual([['100', '9']]);
   });
 
+  it('a registry throw returns a probe so the upgrade can close 1013, and a known market still probes', async () => {
+    const source = new Source();
+    const queued: string[] = [];
+    const readQueue = source.l3Queue.bind(source);
+    source.l3Queue = async (marketId: string) => {
+      queued.push(marketId);
+      return readQueue(marketId);
+    };
+    let registryDown = true;
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async (marketId) => {
+        if (registryDown) throw new Error('every market registry source failed');
+        return marketId === MARKET;
+      },
+    });
+
+    await expect(hub.probe(MARKET)).resolves.toBe('engine');
+    expect(queued).toEqual([]);
+    expect(hub.stats.code).toBeNull();
+
+    const sink = new RecordingSink();
+    hub.attach(MARKET, sink);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sink.closed?.code).toBe(CLOSE_TRY_LATER);
+    expect(sink.frames).toEqual([]);
+    expect(queued).toEqual([]);
+
+    registryDown = false;
+    await expect(hub.probe(MARKET)).resolves.toBe('ok');
+    expect(queued).toEqual([MARKET]);
+    await expect(hub.probe('ETH-USDT')).resolves.toBe('unknown');
+    expect(queued).toEqual([MARKET]);
+  });
+
   it('probe names unavailable when matching hitch is missing — does not copy L2', async () => {
     const source = new Source();
     source.queue = new DepthL3UnavailableError(MARKET);
