@@ -78,6 +78,15 @@ const sse = (events: readonly unknown[]) =>
     headers: { 'content-type': 'text/event-stream' },
   });
 
+/** Exact event-stream bytes, so a test can omit the trailing blank line or use CRLF. */
+const sseRaw = (body: string) =>
+  new Response(body, {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+  });
+
+const dataFrame = (event: unknown) => `data: ${JSON.stringify(event)}`;
+
 const upstream = (over: Partial<ConstructorParameters<typeof UpstreamModelProvider>[0]> = {}) =>
   new UpstreamModelProvider({
     id: 'primary',
@@ -458,6 +467,62 @@ describe('UpstreamModelProvider — the real adapter', () => {
     expect(bare.max_tokens).toBe(128);
     expect(bareChunks.filter((chunk) => chunk.done)).toEqual([
       { delta: '', done: true, usage: { inputTokens: 3, outputTokens: 1 }, stopReason: 'end' },
+    ]);
+  });
+
+  it('reads a final usage frame that arrives without a trailing blank line', async () => {
+    const start = dataFrame({ type: 'message_start', usage: { input_tokens: 25 } });
+    const delta = dataFrame({ type: 'content_block_delta', delta: { text: 'Hello' } });
+    const usage = dataFrame({
+      type: 'message_delta',
+      usage: { output_tokens: 4 },
+      delta: { stop_reason: 'end_turn' },
+    });
+    stubFetch(() => sseRaw(`${start}\n\n${delta}\n\n${usage}`));
+
+    const chunks = [];
+    for await (const chunk of upstream().stream(request())) chunks.push(chunk);
+
+    expect(chunks.filter((chunk) => !chunk.done).map((chunk) => chunk.delta).join('')).toBe('Hello');
+    expect(chunks.filter((chunk) => chunk.done)).toEqual([
+      { delta: '', done: true, usage: { inputTokens: 25, outputTokens: 4 }, stopReason: 'end' },
+    ]);
+  });
+
+  it('reads a CRLF-delimited stream, including a final usage frame with no trailing blank line', async () => {
+    const start = dataFrame({ type: 'message_start', usage: { input_tokens: 11 } });
+    const delta = dataFrame({ type: 'content_block_delta', delta: { text: 'CRLF' } });
+    const usage = dataFrame({
+      type: 'message_delta',
+      usage: { output_tokens: 2 },
+      delta: { stop_reason: 'end_turn' },
+    });
+    stubFetch(() => sseRaw(`${start}\r\n\r\n${delta}\r\n\r\n${usage}`));
+
+    const chunks = [];
+    for await (const chunk of upstream().stream(request())) chunks.push(chunk);
+
+    expect(chunks.filter((chunk) => !chunk.done).map((chunk) => chunk.delta).join('')).toBe('CRLF');
+    expect(chunks.filter((chunk) => chunk.done)).toEqual([
+      { delta: '', done: true, usage: { inputTokens: 11, outputTokens: 2 }, stopReason: 'end' },
+    ]);
+  });
+
+  it('reads an LF-delimited event that ends with a blank line', async () => {
+    stubFetch(() =>
+      sse([
+        { type: 'message_start', usage: { input_tokens: 8 } },
+        { type: 'content_block_delta', delta: { text: 'LF' } },
+        { type: 'message_delta', usage: { output_tokens: 1 }, delta: { stop_reason: 'end_turn' } },
+      ]),
+    );
+
+    const chunks = [];
+    for await (const chunk of upstream().stream(request())) chunks.push(chunk);
+
+    expect(chunks.filter((chunk) => !chunk.done).map((chunk) => chunk.delta).join('')).toBe('LF');
+    expect(chunks.filter((chunk) => chunk.done)).toEqual([
+      { delta: '', done: true, usage: { inputTokens: 8, outputTokens: 1 }, stopReason: 'end' },
     ]);
   });
 });

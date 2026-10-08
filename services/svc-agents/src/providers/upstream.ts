@@ -381,37 +381,54 @@ export function readUsage(raw: UpstreamUsage | undefined, providerId: string, op
   return { inputTokens: input as number, outputTokens: output as number };
 }
 
-/** Minimal SSE reader: `data:` lines carrying JSON, blank line terminates an event. */
+/** Minimal SSE reader: `data:` lines carrying JSON. A blank line terminates an event. */
 async function* readServerSentEvents(body: ReadableStream<Uint8Array>): AsyncIterable<Record<string, unknown>> {
   const decoder = new TextDecoder();
   const reader = body.getReader();
   let buffer = '';
 
+  // CRLF and bare CR are the same line ending as LF. A trailing CR is held so
+  // a CRLF pair split across reads is not treated as a finished line.
+  const pullEvents = function* (eof: boolean): Generator<Record<string, unknown>> {
+    let pending = buffer;
+    let held = '';
+    if (!eof && pending.endsWith('\r')) {
+      held = '\r';
+      pending = pending.slice(0, -1);
+    }
+    const normalized = pending.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const parts = normalized.split('\n\n');
+    // Mid-stream, the last part may be an unfinished event. At EOF that same
+    // part is a final frame that arrived without a trailing blank line.
+    buffer = eof ? '' : (parts.pop() ?? '') + held;
+
+    for (const block of parts) {
+      if (block.length === 0) continue;
+      for (const line of block.split('\n')) {
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+        try {
+          yield JSON.parse(payload) as Record<string, unknown>;
+        } catch {
+          // A malformed frame is skipped rather than killing the stream; the
+          // terminal usage frame is what the caller actually needs, and it is
+          // validated separately.
+        }
+      }
+    }
+  };
+
   try {
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      let boundary = buffer.indexOf('\n\n');
-      while (boundary !== -1) {
-        const block = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
-        boundary = buffer.indexOf('\n\n');
-
-        for (const line of block.split('\n')) {
-          if (!line.startsWith('data:')) continue;
-          const payload = line.slice(5).trim();
-          if (!payload || payload === '[DONE]') continue;
-          try {
-            yield JSON.parse(payload) as Record<string, unknown>;
-          } catch {
-            // A malformed frame is skipped rather than killing the stream; the
-            // terminal usage frame is what the caller actually needs, and it is
-            // validated separately.
-          }
-        }
+      if (done) {
+        buffer += decoder.decode();
+        yield* pullEvents(true);
+        break;
       }
+      buffer += decoder.decode(value, { stream: true });
+      yield* pullEvents(false);
     }
   } finally {
     reader.releaseLock();
