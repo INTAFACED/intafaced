@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes } from 'react';
 import { Panel } from '@intafaced/ui';
 import type { ApiResult } from './api';
+import { uiCopy, uiMessage } from './ui-copy';
 export { Panel };
 
 export function Button({
@@ -15,9 +16,9 @@ export function Field({
   hint,
   error,
   ...input
-}: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string; error?: string }) {
+}: InputHTMLAttributes<HTMLInputElement> & { label: ReactNode; hint?: ReactNode; error?: ReactNode }) {
   const generatedId = useId();
-  const id = input.id ?? `${input.name ?? label.toLowerCase().replace(/\W+/g, '-')}-${generatedId}`;
+  const id = input.id ?? `${input.name ?? 'field'}-${generatedId}`;
   return (
     <label className="field" htmlFor={id}>
       <span id={`${id}-label`}>{label}</span>
@@ -43,9 +44,9 @@ export function Page({
   actions,
   children,
 }: {
-  eyebrow?: string;
-  title: string;
-  description?: string;
+  eyebrow?: ReactNode;
+  title: ReactNode;
+  description?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
 }) {
@@ -63,7 +64,7 @@ export function Page({
     </div>
   );
 }
-export function EmptyState({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) {
+export function EmptyState({ title, children, action }: { title: ReactNode; children?: ReactNode; action?: ReactNode }) {
   return (
     <div className="empty-state">
       <span className="empty-mark" aria-hidden="true">
@@ -76,41 +77,36 @@ export function EmptyState({ title, children, action }: { title: string; childre
   );
 }
 export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
-  const headings = {
-    unauthorized: 'Sign in to continue',
-    forbidden: 'Access is restricted',
-    not_mounted: 'This service is not connected',
-    not_supported: 'This action is unavailable',
-    unreachable: 'Connection unavailable',
-    invalid_response: 'Information could not be verified',
-    aborted: 'Request stopped',
-    error: 'The request was refused',
-    uncertain: 'Outcome not confirmed',
-  };
+  const { Copy, languageFor, requestedLocale } = uiCopy.useCopy();
   return (
     <div className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
-      <h3>{headings[result.reason]}</h3>
-      <p>{result.message}</p>
+      <h3>
+        <Copy k={result.reason} />
+      </h3>
+      <p lang={result.messageCopy ? languageFor(result.messageCopy.key) : undefined}>
+        {result.messageCopy ? uiMessage(result.messageCopy, requestedLocale) : result.message}
+      </p>
       {result.reason === 'unauthorized' ? (
         <a className="text-link" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
-          Sign in
+          <Copy k="signIn" />
         </a>
       ) : (
         retry &&
         result.reason !== 'uncertain' && (
           <Button variant="secondary" onClick={retry}>
-            Try again
+            <Copy k="retry" />
           </Button>
         )
       )}
     </div>
   );
 }
-export function Loading({ label = 'Loading information' }: { label?: string }) {
+export function Loading({ label }: { label?: ReactNode }) {
+  const { Copy } = uiCopy.useCopy();
   return (
     <div className="loading" role="status">
       <span className="loading-dot" />
-      {label}…
+      {label ?? <Copy k="loading" />}…
     </div>
   );
 }
@@ -119,11 +115,13 @@ export function Tabs({
   value,
   onChange,
   label,
+  labels,
 }: {
   items: readonly string[];
   value: string;
   onChange: (value: string) => void;
   label: string;
+  labels?: Readonly<Record<string, ReactNode>>;
 }) {
   return (
     <div className="tabs" role="group" aria-label={label}>
@@ -135,13 +133,14 @@ export function Tabs({
           aria-pressed={value === item}
           onClick={() => onChange(item)}
         >
-          {item}
+          {labels?.[item] ?? item}
         </button>
       ))}
     </div>
   );
 }
-export function Dialog({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+export function Dialog({ title, children, onClose }: { title: ReactNode; children: ReactNode; onClose: () => void }) {
+  const { t, languageFor } = uiCopy.useCopy();
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   useEffect(() => {
@@ -168,7 +167,7 @@ export function Dialog({ title, children, onClose }: { title: string; children: 
     >
       <header>
         <h2 id={titleId}>{title}</h2>
-        <Button variant="ghost" aria-label="Close dialog" onClick={onClose}>
+        <Button variant="ghost" aria-label={t('closeDialog')} lang={languageFor('closeDialog')} onClick={onClose}>
           ×
         </Button>
       </header>
@@ -176,14 +175,14 @@ export function Dialog({ title, children, onClose }: { title: string; children: 
     </dialog>
   );
 }
-export function DataTable({ headers, children, label }: { headers: readonly string[]; children: ReactNode; label: string }) {
+export function DataTable({ headers, children, label }: { headers: readonly ReactNode[]; children: ReactNode; label: string }) {
   return (
     <div className="table-scroll" tabIndex={0} role="region" aria-label={label}>
       <table>
         <thead>
           <tr>
-            {headers.map((head) => (
-              <th key={head} scope="col">
+            {headers.map((head, index) => (
+              <th key={index} scope="col">
                 {head}
               </th>
             ))}
@@ -194,7 +193,7 @@ export function DataTable({ headers, children, label }: { headers: readonly stri
     </div>
   );
 }
-export function Stat({ label, value, note }: { label: string; value: ReactNode; note?: string }) {
+export function Stat({ label, value, note }: { label: ReactNode; value: ReactNode; note?: ReactNode }) {
   return (
     <div className="stat">
       <span>{label}</span>
