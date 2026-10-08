@@ -263,7 +263,17 @@ export class HttpDepthSource implements DepthSource {
     }
     if (response.status === 404) return null;
     if (!response.ok) throw new DepthSourceError(`svc-matching answered ${response.status} for ${path}`, response.status);
-    return response.json();
+    try {
+      return await response.json();
+    } catch (err) {
+      // A 200 that will not parse is not a book. SyntaxError would look like a
+      // bug in this process, and a stand-in ladder, price, or sequence would
+      // invent one matching never sent.
+      throw new DepthSourceError(
+        `svc-matching returned a body that is not JSON for ${path}: ${err instanceof Error ? err.message : String(err)}`,
+        null,
+      );
+    }
   }
 
   async markets(): Promise<readonly string[]> {

@@ -53,6 +53,18 @@ describe('HttpDepthSource', () => {
     }) as typeof globalThis.fetch);
 
     await expect(s.snapshot('BTC-USDT', 50)).rejects.toThrow(/svc-matching unreachable/);
+    await expect(s.snapshot('BTC-USDT', 50)).rejects.toBeInstanceOf(DepthSourceError);
+  });
+
+  it('rejects a 200 whose body is not JSON as DepthSourceError', async () => {
+    // A body that will not parse is not a book. Letting response.json() throw
+    // SyntaxError would look like a bug here, and filling in a ladder, a price,
+    // or a sequence would invent one matching never sent.
+    for (const body of ['{', 'not-json']) {
+      const s = source((async () => new Response(body, { status: 200 })) as typeof globalThis.fetch);
+      await expect(s.snapshot('BTC-USDT', 50)).rejects.toBeInstanceOf(DepthSourceError);
+      await expect(s.snapshot('BTC-USDT', 50)).rejects.not.toBeInstanceOf(SyntaxError);
+    }
   });
 
   it('sends no credential of any kind', async () => {
