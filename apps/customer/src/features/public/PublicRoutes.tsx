@@ -133,7 +133,7 @@ function Home() {
             <span>↗</span>
             <div>
               <h3>See the funds behind the decision</h3>
-              <p>Available and held funds stay distinct. Trading and spending read the same ledger.</p>
+              <p>Available and held funds stay distinct, so you can see what is ready to use.</p>
             </div>
           </article>
           <article>
@@ -147,7 +147,7 @@ function Home() {
             <span>↗</span>
             <div>
               <h3>Know when something is unavailable</h3>
-              <p>Missing prices, permissions and connected rails stay visible. Your interface should never fill in the facts.</p>
+              <p>Check what is available to your account before you act. Unsupported actions explain what is missing.</p>
             </div>
           </article>
         </div>
