@@ -91,7 +91,9 @@ function parseSignedAmount(s: string): Amount | null {
 }
 
 function winRate(closed: number, winning: number): string | null {
-  if (closed <= 0) return '0.0000';
+  // A negative closed count is incomplete. Do not invent 0.0000 and skip the range check.
+  if (closed < 0) return null;
+  if (closed === 0) return '0.0000';
   if (winning < 0 || winning > closed) return null;
   return (winning / closed).toFixed(4);
 }
