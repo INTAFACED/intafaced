@@ -33,6 +33,7 @@ export const orderSchema = contractOrderSchema.extend({
   reconciliationKey: z.string().nullable(),
 });
 export type Order = z.infer<typeof orderSchema>;
+export type ReviewedOrder = Pick<Order, 'id' | 'symbol'>;
 export function isTerminalOrder(order: Order) {
   return !order.recoveryRequired && ['closed', 'canceled', 'expired', 'rejected'].includes(order.status);
 }
@@ -195,9 +196,10 @@ export function createTradeApi(api: ApiClient) {
       const result = await api.rest(`/orders/${encodeURIComponent(id)}`, orderSchema);
       return result.ok && result.data.id !== id ? invalid('The order response does not identify the requested original order.') : result;
     },
-    async cancel(id: string): Promise<ApiResult<Order>> {
+    async cancel(reviewed: ReviewedOrder): Promise<ApiResult<Order>> {
+      const { id, symbol } = reviewed;
       const result = await api.rest(`/orders/${encodeURIComponent(id)}`, orderSchema, { method: 'DELETE' });
-      if (result.ok && (result.data.id !== id || !isTerminalOrder(result.data)))
+      if (result.ok && (result.data.id !== id || result.data.symbol !== symbol || !isTerminalOrder(result.data)))
         return {
           ok: false,
           reason: 'uncertain',
@@ -205,9 +207,10 @@ export function createTradeApi(api: ApiClient) {
         };
       return result;
     },
-    async amend(id: string, amount: string): Promise<ApiResult<z.infer<typeof amendmentSchema>>> {
+    async amend(reviewed: ReviewedOrder, amount: string): Promise<ApiResult<z.infer<typeof amendmentSchema>>> {
+      const { id, symbol } = reviewed;
       const result = await api.rest(`/orders/${encodeURIComponent(id)}`, amendmentSchema, { method: 'PATCH', body: { qty: amount } });
-      if (result.ok && (result.data.orderId !== id || result.data.order.id !== id))
+      if (result.ok && (result.data.orderId !== id || result.data.order.id !== id || result.data.order.symbol !== symbol))
         return {
           ok: false,
           reason: 'uncertain',
@@ -256,11 +259,13 @@ export function createTradeApi(api: ApiClient) {
       return placed;
     },
     async replace(
-      id: string,
+      original: ReviewedOrder,
       draft: Draft,
       reviewed: Preview,
       canDispatch: (preview: Preview) => boolean = () => true,
     ): Promise<ApiResult<z.infer<typeof replacementSchema>> | ChangedReview> {
+      const { id, symbol } = original;
+      if (draft.symbol !== symbol) return refused('The replacement market does not match the reviewed original order.');
       const result = await currentReview(draft, reviewed);
       if (!result.ok) return result;
       if (!canDispatch(result.data))
@@ -268,8 +273,11 @@ export function createTradeApi(api: ApiClient) {
       const replaced = await api.rest(`/orders/${encodeURIComponent(id)}/replace`, replacementSchema, { method: 'POST', body: draft });
       if (
         replaced.ok &&
-        (replaced.data.original.id !== id ||
-          replaced.data.original.symbol !== draft.symbol ||
+        (replaced.data.originalOrderId !== id ||
+          replaced.data.original.id !== id ||
+          replaced.data.original.symbol !== symbol ||
+          replaced.data.replacementOrderId !== (replaced.data.replacement?.id ?? null) ||
+          (replaced.data.accepted && !isTerminalOrder(replaced.data.original)) ||
           (replaced.data.replacement &&
             (replaced.data.replacement.symbol !== draft.symbol || replaced.data.replacement.clientOrderId !== draft.clientOrderId)))
       )
