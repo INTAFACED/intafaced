@@ -49,7 +49,13 @@ export async function readLiveNavigatorQuote(port: NavigatorTradeDataPort | unde
   }
   try {
     const quote = await port.quote(marketId);
-    if (quote === null || !quote.marketId.trim() || quote.last === null || quote.last.trim() === '') {
+    if (
+      quote === null ||
+      !quote.marketId.trim() ||
+      quote.marketId !== marketId ||
+      quote.last === null ||
+      quote.last.trim() === ''
+    ) {
       return { ok: false, reason: 'no_live_quote' };
     }
     return { ok: true, quote };

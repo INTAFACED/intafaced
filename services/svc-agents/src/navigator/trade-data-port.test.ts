@@ -44,4 +44,15 @@ describe('readLiveNavigatorQuote', () => {
       expect(result.quote.last).toBe('1.50');
     }
   });
+
+  it('refuses a quote whose market is not the requested market', async () => {
+    const quote: QuoteFixture = {
+      marketId: 'ETH-USDT',
+      last: '1.50',
+      asOf: '2023-11-14T22:13:20.000Z',
+      maxAgeMs: 30_000,
+    };
+    const result = await readLiveNavigatorQuote(stubPort(quote), 'BTC-USDT');
+    expect(result).toEqual({ ok: false, reason: 'no_live_quote' });
+  });
 });
