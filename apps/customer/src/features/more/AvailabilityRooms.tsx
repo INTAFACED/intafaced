@@ -95,12 +95,14 @@ export function Launch({ orders = false }: { orders?: boolean }) {
             [copyText('availabilityrooms.issuance'), copyText('availabilityrooms.parked.chain.work.remains.unstarted.no.chain')],
           ]}
         />
-        <a className="text-link" href="/market/mine">
-          <Text k="availabilityrooms.open.your.market.listings" />
-        </a>
-        <a className="text-link" href="/support">
-          <Text k="availabilityrooms.contact.support" />
-        </a>
+        <div className="more-toolbar">
+          <a className="text-link" href="/market/mine">
+            <Text k="availabilityrooms.open.your.market.listings" />
+          </a>
+          <a className="text-link" href="/support">
+            <Text k="availabilityrooms.contact.support" />
+          </a>
+        </div>
       </Panel>
     </div>
   );
