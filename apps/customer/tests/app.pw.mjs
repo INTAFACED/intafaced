@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
@@ -130,7 +131,8 @@ test('View works at 320px; English fallback has the correct document language an
 
 test('authenticator confirmation submits the real contract without reloading or persisting setup secrets', async ({ page }) => {
   await setup(page);
-  const secret = 'ISOLATEDTESTSECRET';
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  const secret = Array.from(randomBytes(32), (byte) => alphabet[byte % 32]).join('');
   await page.route('**/api/identity/trpc/totp.enrol', (route) =>
     reply(route, { secret, uri: `otpauth://totp/Test?secret=${secret}`, recoveryCodes: ['isolated-recovery'] }),
   );
@@ -145,4 +147,38 @@ test('authenticator confirmation submits the real contract without reloading or 
   await expect(page.getByText('Authenticator enrollment confirmed.')).toBeVisible();
   await expect(page).toHaveURL(/\/uc\/safe$/);
   expect(await page.evaluate(() => JSON.stringify(localStorage) + JSON.stringify(sessionStorage))).not.toContain(secret);
+});
+
+test('assembled customer rooms remain usable at desktop and 320px when services are unavailable', async ({ page }) => {
+  test.setTimeout(90000);
+  await setup(page);
+  await signIn(page, '/money');
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const paths = await page.evaluate(async () => {
+    const { rooms } = await import('/src/app/navigation.ts');
+    return rooms
+      .filter(
+        (room) =>
+          !room.alias &&
+          !room.path.includes(':') &&
+          !room.path.includes('*') &&
+          ['money', 'trade', 'pay', 'more', 'person'].includes(room.area),
+      )
+      .map((room) => room.path);
+  });
+  for (const width of [1440, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const path of paths) {
+      await page.evaluate(async (destination) => {
+        const { navigate } = await import('/src/app/location.ts');
+        navigate(destination);
+      }, path);
+      await expect(page.getByText('Opening room', { exact: false })).toHaveCount(0);
+      await expect(page.getByText('The interface encountered an error', { exact: true })).toHaveCount(0);
+      await expect(page.getByText('Journey implementation in progress', { exact: true })).toHaveCount(0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${path} at ${width}px`).toBe(true);
+    }
+  }
+  expect(errors).toEqual([]);
 });
