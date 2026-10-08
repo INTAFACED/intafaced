@@ -356,11 +356,7 @@ export class UserMoneyService {
       // — never re-ask the rail. Caller may open a *new* clientRef (or the same
       // clientRef after status is `failed` and attempts advanced) for another try.
       if (claimed.status === 'held' && claimed.failureCode) {
-        await this.finalizeRailRefusal(claimed, claimed.failureCode);
-        throw new PayError('Rail refused the withdrawal', 'pay.rail_failed', {
-          failureCode: claimed.failureCode,
-          withdrawalId: claimed.id,
-        });
+        return this.refuseOrReturnSent(claimed, claimed.failureCode, 'Rail refused the withdrawal');
       }
 
       // Residual #8: a terminal `failed` row is "this attempt is done", not
@@ -437,22 +433,22 @@ export class UserMoneyService {
 
       // ── Phase 3a: the rail refused. Put the money back, durably.
       //
-      // L3-1: stamp failure_code WHILE still `held` before reverse, so a crash
-      // between reverse and the final status update is recoverable: retry
-      // re-enters finalizeRailRefusal (idempotent reverse) and marks failed.
-      // `attempts` advances only on finalization.
+      // L3-1: stamp failure_code WHILE still `held`, and commit that stamp,
+      // before reverse. A crash between reverse and the final status update
+      // is recoverable: retry re-enters finalizeRailRefusal (idempotent
+      // reverse) and marks failed. `attempts` advances only on finalization.
+      //
+      // The claim transaction's `FOR UPDATE` is already gone. This call and an
+      // overlapping one can both be here. Refusal re-locks before it posts, so
+      // it does not leave `withdrawReverse` on the book and then let the other
+      // call mark the same attempt `sent`.
       if (!result.ok) {
         const code = result.failureCode ?? 'rail.failed';
-        await this.sql`
-            UPDATE pay.withdrawals
-               SET failure_code = ${code}, updated_at = now()
-             WHERE id = ${claimed.id} AND status = 'held'
-          `;
-        await this.finalizeRailRefusal({ ...claimed, failureCode: code }, code);
-        throw new PayError(result.failureReason ?? 'Rail refused the withdrawal', 'pay.rail_failed', {
-          failureCode: code,
-          withdrawalId: claimed.id,
-        });
+        return this.refuseOrReturnSent(
+          { ...claimed, failureCode: code },
+          code,
+          result.failureReason ?? 'Rail refused the withdrawal',
+        );
       }
 
       // ── Phase 3b: the rail sent it. Value leaves the book.
@@ -463,16 +459,15 @@ export class UserMoneyService {
       // settle is keyed on the same attempt, so repeating the call posts it
       // once and squares the book. The rail is not asked again, because its
       // own idempotency key is the same string.
-      await this.ledger.post(recipes.withdrawSettle(ledgerInput));
-
-      await this.sql`
-          UPDATE pay.withdrawals
-             SET status = 'sent', rail_ref = ${result.railRef}, failure_code = NULL, updated_at = now()
-           WHERE id = ${claimed.id}
-        `;
-
-      span.setAttribute('intafaced.amount', formatAmount(claimed.amount));
-      return { ...claimed, status: 'sent' as const, railRef: result.railRef };
+      //
+      // Settle and reverse are different recipes. The ledger will not cancel
+      // one with the other, so this post happens only after a fresh lock shows
+      // the row is still `held` with no refusal stamp. A row that is already
+      // `failed` or stamped for reverse stays that way. A zero-row update is
+      // not a successful send.
+      const settled = await this.settleHeldWithdrawal(claimed.id, result.railRef);
+      span.setAttribute('intafaced.amount', formatAmount(settled.amount));
+      return settled;
     });
   }
 
@@ -483,6 +478,9 @@ export class UserMoneyService {
    * the same client reference with a different amount, asset or destination is a
    * client bug, and resuming it against the ORIGINAL numbers would send money
    * somewhere the caller did not just ask for.
+   *
+   * The `FOR UPDATE` below ends when this transaction commits. Later settle
+   * and refusal steps lock the row again; they do not inherit this one.
    */
   private async claimWithdrawal(input: {
     userId: string;
@@ -534,29 +532,172 @@ export class UserMoneyService {
   }
 
   /**
+   * Rail refusal, or the sent row if the overlapping call already settled.
+   *
+   * A `sent` return is the book. Anything else throws: a reversed withdrawal
+   * is not reported as sent.
+   */
+  private async refuseOrReturnSent(claimed: WithdrawalRecord, failureCode: string, failureReason: string): Promise<WithdrawalRecord> {
+    const finished = await this.finalizeRailRefusal(claimed, failureCode);
+    if (finished.status === 'sent') return finished;
+    throw new PayError(failureReason, 'pay.rail_failed', {
+      failureCode,
+      withdrawalId: claimed.id,
+    });
+  }
+
+  /**
+   * Post `withdrawSettle` only while this attempt is still allowed to settle.
+   *
+   * Allowed means `held` and `failure_code` is null: the hold is in place and
+   * nobody has claimed the reverse. `sent` is already done — return it, do not
+   * post again. `failed`, or `held` with a refusal stamp, stays that way.
+   *
+   * The lock is held across the post and the status update. `withdrawSettle`
+   * and `withdrawReverse` do not share an idempotency key, so posting first
+   * and noticing a lost update afterwards would leave both recipes on the book.
+   */
+  private async settleHeldWithdrawal(withdrawalId: string, railRef: string): Promise<WithdrawalRecord> {
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const row = await this.lockWithdrawal(tx, withdrawalId);
+        if (row.status === 'sent') return row;
+        if (row.status === 'failed' || row.failureCode) {
+          throw new PayError('Rail refused the withdrawal', 'pay.rail_failed', {
+            failureCode: row.failureCode,
+            withdrawalId: row.id,
+          });
+        }
+        if (row.status !== 'held') {
+          throw new PayError(`Withdrawal ${row.id} cannot settle from ${row.status}`, 'pay.invalid_transition', {
+            withdrawalId: row.id,
+          });
+        }
+
+        await this.ledger.post(recipes.withdrawSettle(this.attemptLedgerInput(row)));
+
+        const updated = await tx<WithdrawalRow[]>`
+          UPDATE pay.withdrawals
+             SET status = 'sent', rail_ref = ${railRef}, failure_code = NULL, updated_at = now()
+           WHERE id = ${row.id} AND status = 'held' AND failure_code IS NULL
+          RETURNING id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
+        `;
+        if (!updated[0]) {
+          throw new PayError(`Withdrawal ${row.id} settle matched 0 rows`, 'pay.invalid_transition', {
+            withdrawalId: row.id,
+          });
+        }
+        return toWithdrawal(updated[0]);
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
+  }
+
+  /**
    * Complete a rail-refusal reverse. Idempotent on the attempt key.
    *
-   * Preconditions: row is `held` with `failure_code` set (intent to reverse).
-   * Steps: reverse hold → status `failed` + attempts++. Either step may be
-   * re-run after a crash; reverse is ledger-idempotent and the final UPDATE
-   * is guarded on `status = 'held'`.
+   * The refusal stamp commits on its own, while the row is locked and still
+   * `held`, before `withdrawReverse` is posted. A crash after that stamp and
+   * before `failed` resumes here. A crash after the post and before commit
+   * leaves the stamp in place, so the retry reverses again (a no-op if the
+   * post already landed) instead of asking the rail and settling.
+   *
+   * The post takes a second lock. If the row is already `sent`, the reverse
+   * is not posted. If it is already `failed`, it stays `failed`. A zero-row
+   * update throws — it is not a completed refusal.
    */
-  private async finalizeRailRefusal(claimed: WithdrawalRecord, failureCode: string): Promise<void> {
-    const attempt = claimed.attempts;
-    const ledgerInput = {
-      userId: claimed.userId,
-      assetId: claimed.assetId,
-      amount: claimed.amount,
-      rail: claimed.rail,
-      withdrawalId: `${claimed.id}:${attempt}`,
+  private async finalizeRailRefusal(claimed: WithdrawalRecord, failureCode: string): Promise<WithdrawalRecord> {
+    const stamped = await transaction(
+      this.sql,
+      async (tx) => {
+        const row = await this.lockWithdrawal(tx, claimed.id);
+        if (row.status === 'sent' || row.status === 'failed') return row;
+        if (row.status !== 'held') {
+          throw new PayError(`Withdrawal ${row.id} cannot reverse from ${row.status}`, 'pay.invalid_transition', {
+            withdrawalId: row.id,
+          });
+        }
+
+        const marked = await tx<Array<{ id: string }>>`
+          UPDATE pay.withdrawals
+             SET failure_code = ${failureCode}, updated_at = now()
+           WHERE id = ${row.id} AND status = 'held'
+          RETURNING id
+        `;
+        if (!marked[0]) {
+          throw new PayError(`Withdrawal ${row.id} refusal stamp matched 0 rows`, 'pay.invalid_transition', {
+            withdrawalId: row.id,
+          });
+        }
+        return null;
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
+    if (stamped) return stamped;
+
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const row = await this.lockWithdrawal(tx, claimed.id);
+        if (row.status === 'sent' || row.status === 'failed') return row;
+        if (row.status !== 'held') {
+          throw new PayError(`Withdrawal ${row.id} cannot reverse from ${row.status}`, 'pay.invalid_transition', {
+            withdrawalId: row.id,
+          });
+        }
+
+        await this.ledger.post(recipes.withdrawReverse(this.attemptLedgerInput(row)));
+
+        const updated = await tx<WithdrawalRow[]>`
+          UPDATE pay.withdrawals
+             SET status = 'failed', attempts = attempts + 1,
+                 failure_code = ${failureCode}, updated_at = now()
+           WHERE id = ${row.id} AND status = 'held'
+          RETURNING id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
+        `;
+        if (!updated[0]) {
+          throw new PayError(`Withdrawal ${row.id} refusal matched 0 rows`, 'pay.invalid_transition', {
+            withdrawalId: row.id,
+          });
+        }
+        return toWithdrawal(updated[0]);
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
+  }
+
+  /** The claim lock is over. Re-read this row and hold it until the caller commits. */
+  private async lockWithdrawal(tx: Sql, withdrawalId: string): Promise<WithdrawalRecord> {
+    const rows = await tx<WithdrawalRow[]>`
+      SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
+        FROM pay.withdrawals
+       WHERE id = ${withdrawalId}
+         FOR UPDATE
+    `;
+    const row = rows[0];
+    if (!row) throw new PayError(`Withdrawal ${withdrawalId} not found`, 'pay.withdrawal_not_found');
+    return toWithdrawal(row);
+  }
+
+  /**
+   * Ledger body for one attempt. The amount is the row's decimal string, parsed
+   * back to the scaled bigint the claim already stored. Nothing new is invented.
+   */
+  private attemptLedgerInput(row: WithdrawalRecord): {
+    userId: string;
+    assetId: string;
+    amount: Amount;
+    rail: string;
+    withdrawalId: string;
+  } {
+    return {
+      userId: row.userId,
+      assetId: row.assetId,
+      amount: row.amount,
+      rail: row.rail,
+      withdrawalId: `${row.id}:${row.attempts}`,
     };
-    await this.ledger.post(recipes.withdrawReverse(ledgerInput));
-    await this.sql`
-        UPDATE pay.withdrawals
-           SET status = 'failed', attempts = attempts + 1,
-               failure_code = ${failureCode}, updated_at = now()
-         WHERE id = ${claimed.id} AND status = 'held'
-      `;
   }
 
   // ── Reads ──────────────────────────────────────────────────────────────────
