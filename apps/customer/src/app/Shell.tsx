@@ -219,7 +219,7 @@ export function Shell({ door, children }: { door?: Door; children: ReactNode }) 
 function MarketSearch({ query }: { query: string }) {
   const { api, userId } = useSession();
   const { resource, reload } = useResource(
-    (signal) => api.rest('/markets', z.array(marketSchema), { signal }),
+    (signal) => api.rest('/markets', z.array(marketSchema), { query: { limit: 500 }, signal }),
     `global-markets:${userId ?? 'public'}`,
   );
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
@@ -235,6 +235,7 @@ function MarketSearch({ query }: { query: string }) {
   return (
     <section className="section" aria-label="Published markets">
       <h3>Spot markets</h3>
+      <p className="muted">Search the first 500 published markets.</p>
       {resource.status === 'loading' ? (
         <Loading label="Finding published markets" />
       ) : resource.status === 'failed' ? (

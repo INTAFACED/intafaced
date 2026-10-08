@@ -130,6 +130,29 @@
   grid-template-columns: minmax(0, 1fr) 320px;
   background: var(--color-shell);
 }
+.trade-absent-content {
+  padding: 24px 16px;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.trade-absent-content h3 {
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 500;
+}
+.trade-absent-content p {
+  margin-top: 10px;
+}
+.trade-chart--absent .trade-absent-content {
+  margin-block: auto;
+  align-self: stretch;
+}
+.trade-absent-content .failure,
+.trade-absent-content .empty-state {
+  padding: 0;
+  margin-bottom: 16px;
+}
 .trade-analysis {
   min-width: 0;
 }
@@ -384,6 +407,12 @@
   padding: 9px 12px;
   font-size: 12px;
   color: var(--color-text);
+}
+.trade-book .trade-book-row.positive {
+  color: var(--chart-up, var(--color-positive));
+}
+.trade-book .trade-book-row.negative {
+  color: var(--chart-down, var(--color-negative));
 }
 .trade-book .empty-state {
   min-height: 120px;
@@ -909,4 +938,236 @@
   border: 1px solid var(--color-border) !important;
   border-radius: 4px;
   padding: 6px 10px;
+}
+
+.trade-workspace-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--color-divider);
+  background: var(--color-shell);
+  font-size: 12px;
+}
+.trade-workspace-controls details {
+  position: relative;
+}
+.trade-workspace-controls .trade-menu {
+  top: 24px;
+  z-index: 10;
+}
+.trade-workspace-controls .trade-menu {
+  width: 280px;
+  max-height: min(560px, 75dvh);
+  overflow: auto;
+}
+.trade-workspace-controls button:disabled {
+  color: var(--color-unavailable-text);
+  cursor: not-allowed;
+}
+.trade-workspace-controls button[aria-pressed='true'] {
+  color: var(--color-accent);
+}
+.trade-workspace-name {
+  align-items: stretch !important;
+  flex-direction: column;
+}
+.trade-workspace-name input {
+  width: 100%;
+  min-height: 36px;
+}
+.trade-saved-workspace {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.trade-saved-workspace > button:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.trade-chart-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.trade-chart-grid--dual,
+.trade-chart-grid--grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.trade-extra-chart {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--color-divider);
+  border-bottom: 1px solid var(--color-divider);
+}
+.trade-extra-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-divider);
+  font-size: 11px;
+}
+.trade-extra-toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.trade-extra-toolbar select {
+  max-width: 120px;
+}
+.trade-secondary-view {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.trade-secondary-chart--workspace {
+  flex: 1;
+  height: auto;
+  min-height: 120px;
+}
+.trade-secondary-view > .failure,
+.trade-secondary-view > .empty-state {
+  margin: auto 0;
+  padding: 16px;
+}
+.trade-chart-grid:not(.trade-chart-grid--single) .trade-chart-toolbar {
+  height: auto;
+  min-height: 40px;
+  padding-block: 6px;
+  flex-wrap: wrap;
+}
+.trade-chart-grid:not(.trade-chart-grid--single) .trade-chart-toolbar .trade-inline {
+  font-size: 0;
+}
+.trade-workspace-controls > span {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.trade-workspace--resizable {
+  position: relative;
+}
+.trade-workspace--resizable .trade-analysis-top,
+.trade-management {
+  position: relative;
+}
+.trade-chart-group {
+  min-width: 0;
+}
+.trade-resize {
+  position: absolute;
+  z-index: 6;
+  touch-action: none;
+}
+.trade-resize::after {
+  content: '';
+  position: absolute;
+  background: var(--color-divider);
+}
+.trade-resize:is(:hover, :focus-visible)::after {
+  background: var(--color-accent);
+}
+.trade-resize:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -4px;
+}
+.trade-resize--ticket,
+.trade-resize--book {
+  width: 16px;
+  top: 0;
+  bottom: 0;
+  cursor: ew-resize;
+}
+.trade-resize--ticket {
+  right: calc(var(--trade-ticket-width) - 8px);
+}
+.trade-resize--book {
+  right: calc(var(--trade-book-width) - 8px);
+}
+.trade-resize--ticket::after,
+.trade-resize--book::after {
+  top: 0;
+  bottom: 0;
+  left: 7px;
+  width: 1px;
+}
+.trade-resize--chart,
+.trade-resize--management {
+  height: 16px;
+  left: 0;
+  right: 0;
+  bottom: -8px;
+  cursor: ns-resize;
+}
+.trade-resize--chart::after,
+.trade-resize--management::after {
+  left: 0;
+  right: 0;
+  top: 7px;
+  height: 1px;
+}
+@media (min-width: 981px) {
+  .trade-workspace--resizable {
+    grid-template-columns: minmax(0, 1fr) var(--trade-ticket-width);
+  }
+  .trade-workspace--resizable .trade-analysis-top {
+    grid-template-columns: minmax(0, 1fr) var(--trade-book-width);
+  }
+  .trade-workspace--resizable .trade-chart,
+  .trade-workspace--resizable .trade-book {
+    height: var(--trade-chart-height);
+  }
+  .trade-workspace--resizable .trade-chart-grid {
+    height: var(--trade-chart-height);
+    grid-auto-rows: minmax(0, 1fr);
+  }
+  .trade-workspace--resizable .trade-chart-grid .trade-chart {
+    height: 100%;
+    min-height: 0;
+  }
+  .trade-workspace--resizable .trade-blotter {
+    height: var(--trade-management-height);
+    max-height: none;
+  }
+  .trade-workspace--resizable .trade-chart--fullscreen {
+    height: 100dvh;
+  }
+}
+@media (max-width: 980px) {
+  .trade-book--absent {
+    height: auto;
+    min-height: 184px;
+  }
+  .trade-ticket-column--absent .trade-funds {
+    min-height: 0;
+  }
+  .trade-resize {
+    display: none;
+  }
+  .trade-chart-group {
+    grid-row: 1;
+  }
+  .trade-chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .trade-extra-chart {
+    height: 380px;
+  }
+  .trade-management {
+    grid-row: 4;
+  }
+  html[data-phone-chart='hidden'] .trade-root .trade-chart-group {
+    display: none;
+  }
+  html[data-phone-chart='bottom'] .trade-root .trade-chart-group {
+    grid-row: 4;
+  }
+  html[data-phone-chart='bottom'] .trade-root .trade-management {
+    grid-row: 5;
+  }
 }

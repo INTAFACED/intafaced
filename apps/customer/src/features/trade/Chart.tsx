@@ -45,7 +45,8 @@ declare global {
   }
 }
 type Drawing = { kind: 'level' | 'trend' | 'rectangle'; points: [number, string][] };
-type Study = 'MA' | 'Volume' | 'VWAP' | 'RSI' | 'MACD' | 'Bollinger';
+export type Study = 'MA' | 'Volume' | 'VWAP' | 'RSI' | 'MACD' | 'Bollinger';
+export type ChartView = { interval: string; type: string; studies: Study[] };
 const drawingsSchema = z.array(
   z.object({
     kind: z.enum(['level', 'trend', 'rectangle']),
@@ -122,8 +123,8 @@ function addStudies(chart: ChartApi, engine: Engine, bars: Bar[], studies: Study
     const series = chart.addSeries(engine.HistogramSeries, { priceFormat: { type: 'volume' }, priceLineVisible: false }, 1);
     updates.push((rows) => {
       const css = getComputedStyle(document.documentElement),
-        up = css.getPropertyValue('--color-positive').trim(),
-        down = css.getPropertyValue('--color-negative').trim();
+        up = css.getPropertyValue('--chart-up').trim() || css.getPropertyValue('--color-positive').trim(),
+        down = css.getPropertyValue('--chart-down').trim() || css.getPropertyValue('--color-negative').trim();
       series.setData(rows.map((row) => ({ time: row.time, value: row.volume, color: row.close >= row.open ? up : down })));
     });
   }
@@ -197,6 +198,8 @@ export function MarketChart({
   accountKey,
   onStageAmend,
   positions,
+  initialView,
+  onViewChange,
 }: {
   api: TradeApi;
   market: Listing;
@@ -205,6 +208,8 @@ export function MarketChart({
   accountKey: string;
   onStageAmend?: (order: Order, price: string) => void;
   positions?: Position[];
+  initialView?: ChartView;
+  onViewChange?: (view: ChartView) => void;
 }) {
   const preferences = usePreferences();
   const [feedStatus, setFeedStatus] = useState('Historical prices'),
@@ -218,9 +223,9 @@ export function MarketChart({
     fillLines = useRef<unknown[]>([]);
   const positionLines = useRef<unknown[]>([]);
   const [chartRevision, setChartRevision] = useState(0);
-  const [interval, setIntervalValue] = useState('15m'),
-    [type, setType] = useState('Candles'),
-    [studies, setStudies] = useState<Study[]>(['Volume']),
+  const [interval, setIntervalValue] = useState(initialView?.interval ?? '15m'),
+    [type, setType] = useState(initialView?.type ?? 'Candles'),
+    [studies, setStudies] = useState<Study[]>(initialView?.studies ?? ['Volume']),
     [drawings, setDrawings] = useState<Drawing[]>([]),
     [tool, setTool] = useState<Drawing['kind'] | null>(null),
     [compare, setCompare] = useState(''),
@@ -235,6 +240,9 @@ export function MarketChart({
     [showMark, setShowMark] = useState(true),
     [showLiquidation, setShowLiquidation] = useState(true);
   const [dragging, setDragging] = useState<{ id: string; price: string; y: number } | null>(null);
+  useEffect(() => {
+    onViewChange?.({ interval, type, studies });
+  }, [interval, type, studies, onViewChange]);
   const inspectionIndex = useRef<number | null>(null);
   const host = useRef<HTMLDivElement>(null),
     frame = useRef<HTMLElement>(null),
@@ -394,15 +402,15 @@ export function MarketChart({
     }
   }, [accountKey]);
   useEffect(() => {
-    if (!host.current || resource.status !== 'ready') return;
+    if (!host.current || resource.status !== 'ready' || !resource.data.length) return;
     let closed = false;
     let chart: ChartApi | null = null;
     void import('./vendor/lightweight-charts.standalone.production.js').then(() => {
       if (closed || !host.current || !window.LightweightCharts) return;
       const engine = window.LightweightCharts;
       const css = getComputedStyle(document.documentElement),
-        up = css.getPropertyValue('--color-positive').trim() || '#c8f64a',
-        down = css.getPropertyValue('--color-negative').trim() || '#f05a68',
+        up = css.getPropertyValue('--chart-up').trim() || css.getPropertyValue('--color-positive').trim() || '#c8f64a',
+        down = css.getPropertyValue('--chart-down').trim() || css.getPropertyValue('--color-negative').trim() || '#f05a68',
         background = css.getPropertyValue('--color-shell').trim() || '#111111',
         text = css.getPropertyValue('--color-muted').trim() || '#a3a3a3',
         divider = css.getPropertyValue('--color-divider').trim() || '#262626';
@@ -529,7 +537,9 @@ export function MarketChart({
         fillLines.current.push(
           series.createPriceLine({
             price: Number(fill.price),
-            color: css.getPropertyValue(fill.side === 'buy' ? '--color-positive' : '--color-negative').trim(),
+            color:
+              css.getPropertyValue(fill.side === 'buy' ? '--chart-up' : '--chart-down').trim() ||
+              css.getPropertyValue(fill.side === 'buy' ? '--color-positive' : '--color-negative').trim(),
             lineStyle: 3,
             lineWidth: 1,
             title: `Fill ${fill.id.slice(0, 6)}`,
@@ -889,12 +899,25 @@ export function MarketChart({
     </section>
   );
 }
-function SecondaryChart({ api, symbol, interval }: { api: TradeApi; symbol: string; interval: string }) {
+export function SecondaryChart({
+  api,
+  symbol,
+  interval,
+  type = 'Line',
+  workspace = false,
+}: {
+  api: TradeApi;
+  symbol: string;
+  interval: string;
+  type?: string;
+  workspace?: boolean;
+}) {
   const host = useRef<HTMLDivElement>(null);
   const [failure, setFailure] = useState('');
+  const preferences = usePreferences();
   const result = useResource((signal) => api.history(symbol, interval, signal), `${symbol}:${interval}`);
   useEffect(() => {
-    if (!host.current || result.resource.status !== 'ready') return;
+    if (!host.current || result.resource.status !== 'ready' || !result.resource.data.length) return;
     const rows = result.resource.data;
     let closed = false,
       chart: ChartApi | null = null;
@@ -909,10 +932,25 @@ function SecondaryChart({ api, symbol, interval }: { api: TradeApi; symbol: stri
             background: { color: css.getPropertyValue('--color-shell').trim() },
             textColor: css.getPropertyValue('--color-muted').trim(),
           },
+          grid: {
+            vertLines: { color: css.getPropertyValue('--color-divider').trim() },
+            horzLines: { color: css.getPropertyValue('--color-divider').trim() },
+          },
+          rightPriceScale: { borderColor: css.getPropertyValue('--color-divider').trim() },
+          timeScale: { borderColor: css.getPropertyValue('--color-divider').trim(), timeVisible: true },
         });
-        chart
-          .addSeries(engine.LineSeries, { color: css.getPropertyValue('--color-positive').trim() })
-          .setData(chartBars(rows, 'Line').map((row) => ({ time: row.time, value: row.close })));
+        const color = css.getPropertyValue('--chart-up').trim() || css.getPropertyValue('--color-positive').trim(),
+          down = css.getPropertyValue('--chart-down').trim() || css.getPropertyValue('--color-negative').trim();
+        const series = chart.addSeries(type === 'Line' ? engine.LineSeries : engine.CandlestickSeries, {
+          color,
+          upColor: color,
+          downColor: down,
+          wickUpColor: color,
+          wickDownColor: down,
+          borderVisible: false,
+        });
+        const bars = chartBars(rows, type);
+        series.setData(type === 'Line' ? bars.map((row) => ({ time: row.time, value: row.close })) : bars);
         chart.timeScale().fitContent();
         setFailure('');
       } catch (error) {
@@ -923,9 +961,9 @@ function SecondaryChart({ api, symbol, interval }: { api: TradeApi; symbol: stri
       closed = true;
       chart?.remove();
     };
-  }, [result.resource]);
+  }, [result.resource, type, preferences.upColor, preferences.theme]);
   return (
-    <section aria-label={`Second linked ${symbol} chart`}>
+    <section className={workspace ? 'trade-secondary-view' : undefined} aria-label={`Second linked ${symbol} chart`}>
       <small className="trade-note">
         Second chart · {symbol} · {interval} · Published history
       </small>
@@ -937,7 +975,7 @@ function SecondaryChart({ api, symbol, interval }: { api: TradeApi; symbol: stri
         <EmptyState title="No history for the second chart" />
       ) : null}
       {failure && <p className="trade-refusal">{failure}</p>}
-      <div className="trade-secondary-chart" ref={host} />
+      <div className={`trade-secondary-chart ${workspace ? 'trade-secondary-chart--workspace' : ''}`} ref={host} />
     </section>
   );
 }

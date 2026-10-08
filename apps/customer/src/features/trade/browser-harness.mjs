@@ -16,11 +16,12 @@ await writeFile(
 );
 await writeFile(
   resolve(root, 'main.tsx'),
-  `import React,{useEffect} from 'react';import {createRoot} from 'react-dom/client';import {SessionProvider,useSession} from '/@fs${feature}/../session/session.tsx';import {TradeRoutes} from '/@fs${feature}/TradeRoutes.tsx';import '/@fs${feature}/../../shared/tokens.css';import '/@fs${feature}/../../shared/styles.css';function TestSession(){const {commit}=useSession();useEffect(()=>{commit({accessToken:'browser-test-token',refreshToken:'browser-test-refresh',userId:'00000000-0000-4000-8000-000000000001',expiresAt:new Date(Date.now()+3600000).toISOString()});},[]);return <TradeRoutes path={location.pathname}/>;}createRoot(document.getElementById('root')!).render(<SessionProvider><TestSession/></SessionProvider>);`,
+  `import React,{useEffect} from 'react';import {createRoot} from 'react-dom/client';import {SessionProvider,useSession} from '/@fs${feature}/../session/session.tsx';import {useLocation} from '/@fs${feature}/../../app/location.ts';import {TradeRoutes} from '/@fs${feature}/TradeRoutes.tsx';import {ApplyView,View} from '/@fs${feature}/../account/View.tsx';import '/@fs${feature}/../../shared/tokens.css';import '/@fs${feature}/../../shared/styles.css';import '/@fs${feature}/../account/account.css';function TestSession(){const {commit}=useSession(),path=useLocation();useEffect(()=>{commit({accessToken:'browser-test-token',refreshToken:'browser-test-refresh',userId:'00000000-0000-4000-8000-000000000001',expiresAt:new Date(Date.now()+3600000).toISOString()});},[]);return <><ApplyView/>{path==='/account/view'?<View/>:<TradeRoutes path={path}/>}</>;}createRoot(document.getElementById('root')!).render(<SessionProvider><TestSession/></SessionProvider>);`,
 );
 const server = await createServer({
   configFile: false,
   root,
+  publicDir: resolve(app, 'public'),
   esbuild: { jsx: 'automatic' },
   resolve: {
     alias: [

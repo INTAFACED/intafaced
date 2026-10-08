@@ -260,11 +260,12 @@ export function createTradeApi(api: ApiClient) {
         };
       return replaced;
     },
-    async reconcile(clientOrderId: string, symbol: string): Promise<ApiResult<Order>> {
-      const results = await Promise.all([client.orders('open', symbol, 500), client.orders('closed', symbol, 500)]);
+    async reconcile(clientOrderId: string, symbol: string, accountWide = false): Promise<ApiResult<Order>> {
+      const scope = accountWide ? undefined : symbol;
+      const results = await Promise.all([client.orders('open', scope, 500), client.orders('closed', scope, 500)]);
       for (const result of results) {
         if (!result.ok) return result;
-        const found = result.data.find((order) => order.clientOrderId === clientOrderId);
+        const found = result.data.find((order) => order.clientOrderId === clientOrderId && order.symbol === symbol);
         if (found)
           return found.recoveryRequired
             ? {
