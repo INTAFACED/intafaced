@@ -357,4 +357,18 @@ describe('earn — stake stays user-owned; interest is not minted', () => {
       }),
     ).toThrow(/YYYY-MM-DD/);
   });
+
+  it('refuses a nonsense accrual day and keeps a real calendar day in the written key', async () => {
+    const payouts = [{ userId: USER, amount: amt('1') }];
+    for (const date of ['2026-02-31', '2026-13-40', '2026-02-29']) {
+      expect(() => recipes.earnInterest({ poolId: POOL, date, assetId: 'USDT', payouts })).toThrow(InvalidEntryError);
+      expect(await ledger.getTxByKey(`bank.interest:${POOL}:${date}`)).toBeNull();
+    }
+
+    for (const date of ['2026-07-27', '0001-01-01', '2024-02-29']) {
+      const request = recipes.earnInterest({ poolId: POOL, date, assetId: 'USDT', payouts });
+      expect(request.idempotencyKey).toBe(`bank.interest:${POOL}:${date}`);
+      expect(request.entries.every((entry) => typeof entry.amount === 'bigint')).toBe(true);
+    }
+  });
 });
