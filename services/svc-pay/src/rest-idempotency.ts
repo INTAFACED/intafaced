@@ -69,7 +69,18 @@ function sortKeys(value: unknown): unknown {
   if (value && typeof value === 'object') {
     const obj = value as Record<string, unknown>;
     const out: Record<string, unknown> = {};
-    for (const key of Object.keys(obj).sort()) out[key] = sortKeys(obj[key]);
+    for (const key of Object.keys(obj).sort()) {
+      // Ordinary assignment of `__proto__` invokes the prototype setter, so the
+      // key is not an own property and JSON.stringify drops it. Two bodies that
+      // differ only by that member would then share a fingerprint, and a
+      // repeated Idempotency-Key would replay the stored response.
+      Object.defineProperty(out, key, {
+        value: sortKeys(obj[key]),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
     return out;
   }
   return value;
