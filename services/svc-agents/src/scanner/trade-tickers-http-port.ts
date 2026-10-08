@@ -11,6 +11,7 @@ import type { TickerFixture } from './data-tools.js';
 import type { SpotTickersPort } from './spot-tickers-port.js';
 
 const tradeTickerWireSchema = z.object({
+  symbol: z.string(),
   timestamp: z.number(),
   last: z.string().nullable(),
   quoteVolume: z.string().nullable(),
@@ -46,6 +47,7 @@ function mapTicker(symbol: string, raw: unknown, maxAgeMs: number): TickerFixtur
   const parsed = tradeTickerWireSchema.safeParse(raw);
   if (!parsed.success) return null;
   const row = parsed.data;
+  if (symbolToScannerMarketId(row.symbol) !== symbolToScannerMarketId(symbol)) return null;
   return {
     marketId: symbolToScannerMarketId(symbol),
     last: row.last,
