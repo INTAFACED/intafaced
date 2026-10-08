@@ -16,6 +16,9 @@ import {P256} from "./P256.sol";
  *   messageHash = sha256( authenticatorData || sha256(clientDataJSON) )
  * then P-256 ECDSA over that hash (RIP-7212), with low-s enforced.
  *
+ * authenticatorData must be exactly 37 bytes, and flags bit 0 (User Present)
+ * must be set. UV is not required here. A miss returns ERC-1271 failure.
+ *
  * The `hash` argument to `isValidSignature` is the user-op / authorisation
  * digest the account is checking. It MUST appear as the WebAuthn `challenge`
  * (base64url of the 32 bytes) inside `clientDataJSON`, or the signature is
@@ -52,6 +55,13 @@ contract PasskeyOwner is IERC1271 {
         (bytes memory authenticatorData, bytes memory clientDataJSON, bytes32 r, bytes32 s) = _decode(signature);
 
         if (!_clientDataOk(clientDataJSON, hash)) return ERC1271_FAIL;
+
+        // rpIdHash (32) || flags (1) || signCount (4). User Present is flags bit 0,
+        // the same bit svc-identity checks. Wrong length or UP clear is a failure
+        // magic, including when P-256 would accept the assertion. UV is not required.
+        if (authenticatorData.length != 37 || (uint8(authenticatorData[32]) & 0x01) == 0) {
+            return ERC1271_FAIL;
+        }
 
         bytes32 clientDataHash = sha256(clientDataJSON);
         bytes32 messageHash = sha256(bytes.concat(authenticatorData, bytes32ToBytes(clientDataHash)));
