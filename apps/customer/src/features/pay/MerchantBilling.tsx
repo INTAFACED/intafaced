@@ -1,3 +1,4 @@
+import { payCopy, PayCopy } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
 import { useResource } from '../../shared/resource';
@@ -33,35 +34,34 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
   }
   return (
     <div className="stack">
-      <PaySection title="Billing availability">
+      <PaySection title={payCopy.t('billingAvailability')}>
         <PayState resource={posture.resource} retry={posture.reload}>
           {(data) => (
             <>
-              <PayNotice title="Recurring charge posture">
-                {data.paths.map((item) => `${item.path}: ${item.posture}`).join(' · ')}. Card mandate charging is refused with{' '}
-                {data.card.code}.
+              <PayNotice title={payCopy.t('recurringChargePosture')}>
+                {data.paths.map((item) => `${item.path}: ${item.posture}`).join(' · ')}
+                <PayCopy k="cardMandateChargingIsRefusedWith" /> {data.card.code}.
               </PayNotice>
-              <PayNotice title="Pre-charge notice is not connected">
-                {data.preChargeNotify.merchantReadable} Customers have not been notified by this service.
+              <PayNotice title={payCopy.t('preChargeNoticeIsNotConnected')}>
+                {data.preChargeNotify.merchantReadable} <PayCopy k="customersHaveNotBeenNotifiedByThis" />
               </PayNotice>
             </>
           )}
         </PayState>
       </PaySection>
       {invoices ? (
-        <PayNotice title="Standalone invoicing is unavailable">
-          There is no independent invoice create, list or delivery contract. The recorded subscription executions below show actual
-          generated payment references and their outcomes. Internal invoice runners are not customer controls.
+        <PayNotice title={payCopy.t('standaloneInvoicingIsUnavailable')}>
+          <PayCopy k="thereIsNoIndependentInvoiceCreateList" />
         </PayNotice>
       ) : (
         <>
           <CreateMandate pay={pay} refresh={refresh} />
-          <PaySection title="Start a subscription" description="Use an existing mandate and a path reported by the service.">
+          <PaySection title={payCopy.t('startASubscription')} description={payCopy.t('useAnExistingMandateAndAPath')}>
             <div className="form-stack pay-form">
               <label className="field">
-                Active mandate
+                <PayCopy k="activeMandate" />
                 <select value={mandateId} onChange={(event) => setMandateId(event.target.value)}>
-                  <option value="">Choose a mandate</option>
+                  <option value="">{payCopy.t('chooseAMandate')}</option>
                   {mandates.resource.status === 'ready' &&
                     mandates.resource.data
                       .filter((mandate) => mandate.status === 'active')
@@ -73,9 +73,9 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                 </select>
               </label>
               <label className="field">
-                Subscription charge path
+                <PayCopy k="subscriptionChargePath" />
                 <select value={path} onChange={(event) => setPath(event.target.value)}>
-                  <option value="">Choose a supported path</option>
+                  <option value="">{payCopy.t('chooseASupportedPath')}</option>
                   {posture.resource.status === 'ready' &&
                     posture.resource.data.paths
                       .filter((row) => row.charge !== 'refuse')
@@ -87,13 +87,13 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                 </select>
               </label>
               <ReviewedAction
-                title="Create subscription"
-                description="Create the schedule under the existing customer mandate. This does not fire a charge. A missing rail, fee, notification or mandate permission will remain a named service refusal."
+                title={payCopy.t('createSubscription')}
+                description={payCopy.t('createTheScheduleUnderTheExistingCustomer')}
                 review={
                   <PayDetails
                     values={[
-                      ['Mandate', mandateId],
-                      ['Path', path],
+                      [payCopy.t('mandate'), mandateId],
+                      [payCopy.t('path'), path],
                     ]}
                   />
                 }
@@ -119,17 +119,20 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
         </>
       )}
       <PaySection
-        title={invoices ? 'Subscription invoice sources' : 'Subscriptions'}
+        title={invoices ? payCopy.t('subscriptionInvoiceSources') : payCopy.t('subscriptions')}
         action={
           <Button variant="secondary" onClick={refresh}>
-            Refresh billing
+            <PayCopy k="refreshBilling" />
           </Button>
         }
       >
-        <PayState resource={subscriptions.resource} retry={subscriptions.reload} empty="No subscriptions returned">
+        <PayState resource={subscriptions.resource} retry={subscriptions.reload} empty={payCopy.t('noSubscriptionsReturned')}>
           {(rows) => (
             <>
-              <DataTable label="Subscriptions" headers={['Customer / subscription', 'Charge path', 'Next run', 'State / reason', '']}>
+              <DataTable
+                label={payCopy.t('subscriptions')}
+                headers={[payCopy.t('customerSubscription'), payCopy.t('chargePath'), payCopy.t('nextRun'), payCopy.t('stateReason'), '']}
+              >
                 {rows.map((subscription) => (
                   <tr key={subscription.id}>
                     <td>
@@ -140,7 +143,7 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                     <td>{subscription.nextRunAt}</td>
                     <td>
                       <Status value={subscription.status} />
-                      <small className="pay-cell-note">{subscription.stallReason ?? 'No stall reason returned'}</small>
+                      <small className="pay-cell-note">{subscription.stallReason ?? payCopy.t('noStallReasonReturned')}</small>
                     </td>
                     <td>
                       <Button
@@ -150,7 +153,7 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                           setProjectedEnd(undefined);
                         }}
                       >
-                        Open
+                        <PayCopy k="open" />
                       </Button>
                     </td>
                   </tr>
@@ -172,11 +175,21 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
         />
       )}
       {!invoices && (
-        <PaySection title="Customer mandates">
-          <PayState resource={mandates.resource} retry={mandates.reload} empty="No mandates returned">
+        <PaySection title={payCopy.t('customerMandates')}>
+          <PayState resource={mandates.resource} retry={mandates.reload} empty={payCopy.t('noMandatesReturned')}>
             {(rows) => (
               <>
-                <DataTable label="Mandates" headers={['Customer', 'Authorized amount', 'Ceiling', 'Cadence / window', 'Status', '']}>
+                <DataTable
+                  label={payCopy.t('mandates')}
+                  headers={[
+                    payCopy.t('customer'),
+                    payCopy.t('authorizedAmount'),
+                    payCopy.t('ceiling'),
+                    payCopy.t('cadenceWindow'),
+                    payCopy.t('status'),
+                    '',
+                  ]}
+                >
                   {rows.map((mandate) => (
                     <tr key={mandate.id}>
                       <td>{mandate.customerId}</td>
@@ -184,12 +197,12 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                         {displayAmount(mandate.amount)} {mandate.assetId}
                       </td>
                       <td className="numeric">
-                        {mandate.ceiling === null ? 'No ceiling supplied' : `${displayAmount(mandate.ceiling)} ${mandate.assetId}`}
+                        {mandate.ceiling === null ? payCopy.t('noCeilingSupplied') : `${displayAmount(mandate.ceiling)} ${mandate.assetId}`}
                       </td>
                       <td>
                         {mandate.cadence}
                         <small className="pay-cell-note">
-                          {mandate.startsAt} → {mandate.endsAt ?? 'Open ended'}
+                          {mandate.startsAt} → {mandate.endsAt ?? payCopy.t('openEnded')}
                         </small>
                       </td>
                       <td>
@@ -198,13 +211,13 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                       <td>
                         {mandate.status === 'active' && (
                           <ReviewedAction
-                            title="Cancel mandate"
-                            description="Cancel this mandate immediately and cascade cancellation to its active subscriptions. Settled executions are not reversed."
+                            title={payCopy.t('cancelMandate')}
+                            description={payCopy.t('cancelThisMandateImmediatelyAndCascadeCancellation')}
                             review={
                               <PayDetails
                                 values={[
-                                  ['Customer', mandate.customerId],
-                                  ['Mandate', mandate.id],
+                                  [payCopy.t('customer'), mandate.customerId],
+                                  [payCopy.t('mandate'), mandate.id],
                                 ]}
                               />
                             }
@@ -242,61 +255,86 @@ function CreateMandate({ pay, refresh }: { pay: BusinessPayApi; refresh: () => v
   const [created, setCreated] = useState('');
   return (
     <PaySection
-      title="Record a customer mandate"
-      description="Record existing customer authorization. This form does not collect or prove consent and does not charge."
+      title={payCopy.t('recordACustomerMandate')}
+      description={payCopy.t('recordExistingCustomerAuthorizationThisFormDoes')}
       action={
         <Button variant="secondary" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
-          {expanded ? 'Hide form' : 'New mandate'}
+          {expanded ? payCopy.t('hideForm') : payCopy.t('newMandate')}
         </Button>
       }
     >
       {expanded && (
         <div className="form-stack pay-form">
-          <Field label="Authorized customer ID" value={customer} onChange={(event) => setCustomer(event.target.value)} maxLength={128} />
+          <Field
+            label={payCopy.t('authorizedCustomerId')}
+            value={customer}
+            onChange={(event) => setCustomer(event.target.value)}
+            maxLength={128}
+          />
           <div className="form-row">
-            <Field label="Authorized amount" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} />
-            <Field label="Asset" value={asset} onChange={(event) => setAsset(event.target.value.toUpperCase())} maxLength={16} />
+            <Field
+              label={payCopy.t('authorizedAmount')}
+              inputMode="decimal"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+            />
+            <Field
+              label={payCopy.t('asset')}
+              value={asset}
+              onChange={(event) => setAsset(event.target.value.toUpperCase())}
+              maxLength={16}
+            />
           </div>
           <Field
-            label="Authorized ceiling (optional)"
+            label={payCopy.t('authorizedCeilingOptional')}
             inputMode="decimal"
             value={ceiling}
             onChange={(event) => setCeiling(event.target.value)}
           />
           <label className="field">
-            Cadence
+            <PayCopy k="cadence" />
             <select value={cadence} onChange={(event) => setCadence(event.target.value)}>
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
+              <option value="daily">{payCopy.t('daily')}</option>
+              <option value="weekly">{payCopy.t('weekly')}</option>
+              <option value="monthly">{payCopy.t('monthly')}</option>
             </select>
           </label>
           <div className="form-row">
-            <Field label="Authorization starts" type="datetime-local" value={starts} onChange={(event) => setStarts(event.target.value)} />
             <Field
-              label="Authorization ends (optional)"
+              label={payCopy.t('authorizationStarts')}
+              type="datetime-local"
+              value={starts}
+              onChange={(event) => setStarts(event.target.value)}
+            />
+            <Field
+              label={payCopy.t('authorizationEndsOptional')}
               type="datetime-local"
               value={ends}
               onChange={(event) => setEnds(event.target.value)}
             />
           </div>
-          <Field label="Existing mandate rail (optional)" value={rail} onChange={(event) => setRail(event.target.value)} maxLength={64} />
           <Field
-            label="Existing rail mandate reference (optional)"
+            label={payCopy.t('existingMandateRailOptional')}
+            value={rail}
+            onChange={(event) => setRail(event.target.value)}
+            maxLength={64}
+          />
+          <Field
+            label={payCopy.t('existingRailMandateReferenceOptional')}
             value={reference}
             onChange={(event) => setReference(event.target.value)}
             maxLength={256}
           />
           <ReviewedAction
-            title="Record mandate"
-            description="Store the supplied authorized terms. Changing amount or ceiling later requires a newly consented mandate. Recording terms does not activate an absent charging rail."
+            title={payCopy.t('recordMandate')}
+            description={payCopy.t('storeTheSuppliedAuthorizedTermsChangingAmount')}
             review={
               <PayDetails
                 values={[
-                  ['Customer', customer],
-                  ['Amount / ceiling', `${amount} / ${ceiling || 'Not supplied'} ${asset}`],
-                  ['Cadence', cadence],
-                  ['Authorization window', `${starts} → ${ends || 'Open ended'}`],
+                  [payCopy.t('customer'), customer],
+                  [payCopy.t('amountCeiling'), `${amount} / ${ceiling || payCopy.t('notSupplied')} ${asset}`],
+                  [payCopy.t('cadence'), cadence],
+                  [payCopy.t('authorizationWindow'), `${starts} → ${ends || payCopy.t('openEnded')}`],
                 ]}
               />
             }
@@ -344,7 +382,7 @@ function CreateMandate({ pay, refresh }: { pay: BusinessPayApi; refresh: () => v
       )}
       {created && (
         <p className="pay-confirmed" role="status">
-          Mandate recorded: {created}
+          <PayCopy k="mandateRecorded" /> {created}
         </p>
       )}
     </PaySection>
@@ -380,10 +418,10 @@ function SubscriptionDetail({
   const locked = Boolean(pay.guard.status(`${pay.authority!.userId}:subscription:${subscriptionId}`));
   return (
     <PaySection
-      title="Subscription and invoice history"
+      title={payCopy.t('subscriptionAndInvoiceHistory')}
       action={
         <Button variant="secondary" onClick={reload}>
-          Refresh subscription
+          <PayCopy k="refreshSubscription" />
         </Button>
       }
     >
@@ -392,26 +430,30 @@ function SubscriptionDetail({
           <div className="form-stack">
             <PayDetails
               values={[
-                ['Subscription', subscription.id],
-                ['Mandate', subscription.mandateId],
-                ['State', subscription.status],
-                ['Next run', subscription.nextRunAt],
-                ['Paused', subscription.pausedAt ?? 'No recorded pause'],
-                ['Resumed', subscription.resumedAt ?? 'No recorded resume'],
-                ['Stall reason', subscription.stallReason ?? 'None returned'],
+                [payCopy.t('subscription'), subscription.id],
+                [payCopy.t('mandate'), subscription.mandateId],
+                [payCopy.t('state'), subscription.status],
+                [payCopy.t('nextRun'), subscription.nextRunAt],
+                [payCopy.t('paused'), subscription.pausedAt ?? payCopy.t('noRecordedPause')],
+                [payCopy.t('resumed'), subscription.resumedAt ?? payCopy.t('noRecordedResume')],
+                [payCopy.t('stallReason'), subscription.stallReason ?? payCopy.t('noneReturned')],
               ]}
             />
-            {projectedEnd !== undefined && <p role="status">The service projected the resumed end as {projectedEnd ?? 'open ended'}.</p>}
+            {projectedEnd !== undefined && (
+              <p role="status">
+                <PayCopy k="theServiceProjectedTheResumedEndAs" /> {projectedEnd ?? payCopy.t('openEnded2')}.
+              </p>
+            )}
             {locked && (
-              <PayNotice title="Original subscription action is unresolved">
-                Refresh the schedule and status. No new action starts while the original outcome remains unknown.
+              <PayNotice title={payCopy.t('originalSubscriptionActionIsUnresolved')}>
+                <PayCopy k="refreshTheScheduleAndStatusNoNew" />
               </PayNotice>
             )}
             <div className="actions">
               {subscription.status === 'active' && (
                 <ReviewedAction
-                  title="Pause subscription"
-                  description="Pause the subscription without reversing settled invoices. The service records an operator pause."
+                  title={payCopy.t('pauseSubscription')}
+                  description={payCopy.t('pauseTheSubscriptionWithoutReversingSettledInvoices')}
                   perform={() =>
                     pay.mutate(
                       'subscription.pause',
@@ -427,8 +469,8 @@ function SubscriptionDetail({
               )}
               {subscription.status === 'paused' && (
                 <ReviewedAction
-                  title="Resume subscription"
-                  description="The service re-spaces the schedule and returns a projected end. A resume past the customer’s mandate window refuses; missed periods are not compressed."
+                  title={payCopy.t('resumeSubscription')}
+                  description={payCopy.t('theServiceReSpacesTheScheduleAnd')}
                   perform={() =>
                     pay.mutate(
                       'subscription.resume',
@@ -447,8 +489,8 @@ function SubscriptionDetail({
               )}
               {['active', 'paused'].includes(subscription.status) && (
                 <ReviewedAction
-                  title="Cancel subscription"
-                  description="Cancel this subscription immediately. Settled invoice executions remain recorded and are not refunded."
+                  title={payCopy.t('cancelSubscription')}
+                  description={payCopy.t('cancelThisSubscriptionImmediatelySettledInvoiceExecutions')}
                   perform={() =>
                     pay.mutate(
                       'subscription.cancel',
@@ -463,12 +505,18 @@ function SubscriptionDetail({
                 />
               )}
             </div>
-            <PayState resource={executions.resource} retry={executions.reload} empty="No executions recorded for this subscription">
+            <PayState resource={executions.resource} retry={executions.reload} empty={payCopy.t('noExecutionsRecordedForThisSubscription')}>
               {(rows) => (
                 <>
                   <DataTable
-                    label="Subscription invoice executions"
-                    headers={['Period / attempted', 'Exact amount', 'Outcome', 'Payment reference', 'Notice']}
+                    label={payCopy.t('subscriptionInvoiceExecutions')}
+                    headers={[
+                      payCopy.t('periodAttempted'),
+                      payCopy.t('exactAmount'),
+                      payCopy.t('outcome'),
+                      payCopy.t('paymentReference'),
+                      payCopy.t('notice'),
+                    ]}
                   >
                     {rows.map((execution) => (
                       <tr key={execution.id}>
@@ -478,15 +526,17 @@ function SubscriptionDetail({
                         </td>
                         <td className="numeric">
                           {displayAmount(execution.amount)}
-                          <small className="pay-cell-note">Asset defined by the mandate</small>
+                          <small className="pay-cell-note">
+                            <PayCopy k="assetDefinedByTheMandate" />
+                          </small>
                         </td>
                         <td>
                           <Status value={execution.status} />
                           <small className="pay-cell-note">{execution.rejectionCode ?? ''}</small>
                         </td>
-                        <td>{execution.paymentId ?? 'No payment created'}</td>
+                        <td>{execution.paymentId ?? payCopy.t('noPaymentCreated')}</td>
                         <td>
-                          {execution.notifyStatus ?? 'Not supplied'}
+                          {execution.notifyStatus ?? payCopy.t('notSupplied')}
                           <small className="pay-cell-note">{execution.notifyCode ?? ''}</small>
                         </td>
                       </tr>

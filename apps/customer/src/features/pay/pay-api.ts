@@ -1,3 +1,4 @@
+import { payCopy } from './copy';
 import { z, type ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { parseAmount } from '../../shared/money';
@@ -56,27 +57,14 @@ export function createPayMutationGuard(storage?: Pick<Storage, 'getItem' | 'setI
     }
   }
   async function run<T>(key: string, action: () => Promise<ApiResult<T>>, reference?: string): Promise<ApiResult<T>> {
-    if (status(key))
-      return refuse(
-        'The original action has not been confirmed. Refresh its status before starting another action.',
-        'pay.operation_unresolved',
-        'uncertain',
-      );
+    if (status(key)) return refuse(payCopy.t('theOriginalActionHasNotBeenConfirmed'), 'pay.operation_unresolved', 'uncertain');
     try {
       if (requirePersistence && !storage)
-        return refuse(
-          'Device recovery storage is unavailable. Enable session storage before starting this action.',
-          'pay.recovery_journal_unavailable',
-          'not_supported',
-        );
+        return refuse(payCopy.t('deviceRecoveryStorageIsUnavailableEnableSession'), 'pay.recovery_journal_unavailable', 'not_supported');
       storage?.setItem(`pay.unresolved:${key}`, JSON.stringify({ status: 'uncertain', ...(reference ? { reference } : {}) }));
     } catch {
       if (requirePersistence)
-        return refuse(
-          'The original action could not be recorded for recovery. No request was sent. Enable session storage and try again.',
-          'pay.recovery_journal_unavailable',
-          'not_supported',
-        );
+        return refuse(payCopy.t('theOriginalActionCouldNotBeRecorded'), 'pay.recovery_journal_unavailable', 'not_supported');
     }
     states.set(key, 'pending');
     if (reference) references.set(key, reference);
@@ -84,11 +72,7 @@ export function createPayMutationGuard(storage?: Pick<Storage, 'getItem' | 'setI
     try {
       result = await action();
     } catch {
-      result = refuse(
-        'The connection ended before the outcome was confirmed. Check the original action.',
-        'pay.operation_unresolved',
-        'uncertain',
-      );
+      result = refuse(payCopy.t('theConnectionEndedBeforeTheOutcomeWas'), 'pay.operation_unresolved', 'uncertain');
     }
     if (!result.ok && (result.reason === 'uncertain' || result.reason === 'aborted')) states.set(key, 'uncertain');
     else resolve(key);
@@ -120,7 +104,7 @@ export function payMutationGuard() {
 }
 
 export function createPersonalPayApi(api: ApiClient, userId: string | null, guard = payMutationGuard()) {
-  const signedIn = () => (userId ? null : refuse('Sign in to use your own Pay account.', 'pay.session_required', 'unauthorized'));
+  const signedIn = () => (userId ? null : refuse(payCopy.t('signInToUseYourOwnPay'), 'pay.session_required', 'unauthorized'));
   async function spaces(signal?: AbortSignal) {
     const denied = signedIn();
     if (denied) return denied;
@@ -135,7 +119,7 @@ export function createPersonalPayApi(api: ApiClient, userId: string | null, guar
             : space.ledgerAccount.ownerType !== 'subaccount' || space.ledgerAccount.ownerId !== space.id),
       )
     )
-      return refuse('The source account projection does not match this account.', 'pay.source_projection_invalid', 'invalid_response');
+      return refuse(payCopy.t('theSourceAccountProjectionDoesNotMatch'), 'pay.source_projection_invalid', 'invalid_response');
     return result;
   }
   return {
@@ -144,16 +128,16 @@ export function createPersonalPayApi(api: ApiClient, userId: string | null, guar
       const denied = signedIn();
       if (denied) return denied;
       const parsed = s.sendInput.safeParse(input);
-      if (!parsed.success) return refuse(parsed.error.issues.map((i) => i.message).join('; '), 'pay.input_invalid', 'error');
-      if (parsed.data.toUserId === userId) return refuse('Choose another recipient account.', 'pay.recipient_self', 'error');
+      if (!parsed.success) return refuse(payCopy.t('invalidSendInput'), 'pay.input_invalid', 'error');
+      if (parsed.data.toUserId === userId) return refuse(payCopy.t('chooseAnotherRecipientAccount'), 'pay.recipient_self', 'error');
       const sources = await spaces();
       if (!sources.ok) return sources;
       const source = sources.data.find((space) => space.id === parsed.data.fromSpaceId);
-      if (!source) return refuse('Select one of your own source spaces.', 'pay.source_invalid');
+      if (!source) return refuse(payCopy.t('selectOneOfYourOwnSourceSpaces'), 'pay.source_invalid');
       if (source.lockedUntil && Date.parse(source.lockedUntil) > Date.now())
-        return refuse('This space is locked. Choose an unlocked source.', 'pay.source_locked');
+        return refuse(payCopy.t('thisSpaceIsLockedChooseAnUnlocked'), 'pay.source_locked');
       if (parseAmount(parsed.data.amount) > parseAmount(source.balance))
-        return refuse('The amount exceeds the source’s ledger balance.', 'pay.amount_exceeds_balance', 'error');
+        return refuse(payCopy.t('theAmountExceedsTheSourceSLedger'), 'pay.amount_exceeds_balance', 'error');
       return guard.run(
         `${userId}:send`,
         () =>
@@ -196,7 +180,7 @@ export function createPersonalPayApi(api: ApiClient, userId: string | null, guar
       if (denied) return denied;
       const latest = await api.query('p2p', 'offers.get', { offerId }, s.offerSchema);
       if (!latest.ok) return latest;
-      if (latest.data.makerId !== userId) return refuse('Only the offer’s maker can manage it.', 'pay.offer_not_owned');
+      if (latest.data.makerId !== userId) return refuse(payCopy.t('onlyTheOfferSMakerCanManage'), 'pay.offer_not_owned');
       return guard.run(`${userId}:offer:${offerId}`, () => api.mutate('p2p', `offers.${action}`, { offerId }, s.offerSchema), action);
     },
     async manageTrade(tradeId: string, action: 'markFiatSent' | 'confirmReceived' | 'cancel', reason?: string) {
@@ -206,13 +190,13 @@ export function createPersonalPayApi(api: ApiClient, userId: string | null, guar
       if (!latest.ok) return latest;
       const trade = latest.data;
       if (trade.buyerId !== userId && trade.sellerId !== userId)
-        return refuse('This order belongs to another account.', 'pay.trade_not_owned');
+        return refuse(payCopy.t('thisOrderBelongsToAnotherAccount'), 'pay.trade_not_owned');
       if (action === 'markFiatSent' && (trade.buyerId !== userId || trade.status !== 'escrowed'))
-        return refuse('Only the buyer of an escrowed order can mark the external payment sent.', 'pay.trade_action_invalid');
+        return refuse(payCopy.t('onlyTheBuyerOfAnEscrowedOrder'), 'pay.trade_action_invalid');
       if (action === 'confirmReceived' && (trade.sellerId !== userId || trade.status !== 'fiat_sent'))
-        return refuse('Release requires the seller to confirm an order marked paid.', 'pay.trade_action_invalid');
+        return refuse(payCopy.t('releaseRequiresTheSellerToConfirmAn'), 'pay.trade_action_invalid');
       if (action === 'cancel' && !['created', 'escrowed'].includes(trade.status))
-        return refuse('This order cannot be cancelled in its current state.', 'pay.trade_action_invalid');
+        return refuse(payCopy.t('thisOrderCannotBeCancelledInIts'), 'pay.trade_action_invalid');
       return guard.run(
         `${userId}:trade:${tradeId}`,
         () => api.mutate('p2p', `trades.${action}`, { tradeId, ...(action === 'cancel' && reason ? { reason } : {}) }, s.tradeSchema),
@@ -228,7 +212,7 @@ export function createPersonalPayApi(api: ApiClient, userId: string | null, guar
       if (!latest.ok) return latest;
       const trade = latest.data;
       if (trade.buyerId !== userId && trade.sellerId !== userId)
-        return refuse('This order belongs to another account.', 'pay.trade_not_owned');
+        return refuse(payCopy.t('thisOrderBelongsToAnotherAccount'), 'pay.trade_not_owned');
       const confirmed =
         action === 'markFiatSent'
           ? ['fiat_sent', 'disputed', 'released', 'cancelled'].includes(trade.status)
@@ -237,12 +221,7 @@ export function createPersonalPayApi(api: ApiClient, userId: string | null, guar
             : action === 'cancel'
               ? trade.status === 'cancelled' && trade.settledAt !== null
               : false;
-      if (!confirmed)
-        return refuse(
-          'The original order action is still unresolved. The current status does not prove its ledger outcome.',
-          'pay.operation_unresolved',
-          'uncertain',
-        );
+      if (!confirmed) return refuse(payCopy.t('theOriginalOrderActionIsStillUnresolved'), 'pay.operation_unresolved', 'uncertain');
       guard.resolve(key);
       return latest;
     },
@@ -251,10 +230,10 @@ export function createPersonalPayApi(api: ApiClient, userId: string | null, guar
       const action = guard.reference(key);
       const latest = await api.query('p2p', 'offers.get', { offerId }, s.offerSchema);
       if (!latest.ok) return latest;
-      if (latest.data.makerId !== userId) return refuse('Only the offer’s maker can manage it.', 'pay.offer_not_owned');
+      if (latest.data.makerId !== userId) return refuse(payCopy.t('onlyTheOfferSMakerCanManage'), 'pay.offer_not_owned');
       const expected = action === 'pause' ? 'paused' : action === 'resume' ? 'active' : action === 'close' ? 'closed' : null;
       if (!expected || latest.data.status !== expected)
-        return refuse('The original offer action has not been confirmed by its current state.', 'pay.operation_unresolved', 'uncertain');
+        return refuse(payCopy.t('theOriginalOfferActionHasNotBeen'), 'pay.operation_unresolved', 'uncertain');
       guard.resolve(key);
       return latest;
     },
@@ -286,12 +265,9 @@ export function createBusinessPayApi(
 ) {
   function access(scope: string) {
     if (!authority || !authority.verified || !authority.companyId || !authority.companyName || authority.userId !== userId || !userId)
-      return refuse(
-        'A verified Business account and company membership are not available on this session. Return to Personal Pay or open Business verification.',
-        'pay.business_authority_missing',
-      );
+      return refuse(payCopy.t('aVerifiedBusinessAccountAndCompanyMembership'), 'pay.business_authority_missing');
     if (!authority.scopes.includes(scope))
-      return refuse(`This Business account does not hold ${scope} permission.`, 'pay.business_permission_missing');
+      return refuse(payCopy.t('thisBusinessAccountDoesNotHoldPermission', { scope: scope }), 'pay.business_permission_missing');
     return null;
   }
   async function merchant(signal?: AbortSignal) {
@@ -300,12 +276,9 @@ export function createBusinessPayApi(
     const result = await api.query('pay', 'merchant.me', undefined, s.merchantSchema.nullable(), { signal });
     if (!result.ok) return result;
     if (!result.data || result.data.id !== authority!.merchantId || result.data.userId !== userId)
-      return refuse('The merchant record does not match the verified Business account.', 'pay.business_merchant_mismatch');
+      return refuse(payCopy.t('theMerchantRecordDoesNotMatchThe'), 'pay.business_merchant_mismatch');
     if (result.data.status !== 'active' || result.data.kybStatus !== 'approved')
-      return refuse(
-        'The merchant must be active and its business verification approved before using this desk.',
-        'pay.business_merchant_inactive',
-      );
+      return refuse(payCopy.t('theMerchantMustBeActiveAndIts'), 'pay.business_merchant_inactive');
     return { ok: true as const, data: result.data };
   }
   async function query<T>(procedure: string, input: unknown, schema: ZodType<T>, signal?: AbortSignal): Promise<ApiResult<T>> {
@@ -315,11 +288,7 @@ export function createBusinessPayApi(
     if (result.ok) {
       const rows: unknown[] = Array.isArray(result.data) ? result.data : [result.data];
       if (rows.some((row) => row && typeof row === 'object' && 'merchantId' in row && row.merchantId !== authority!.merchantId))
-        return refuse(
-          'The returned record belongs to another merchant. No merchant activity is displayed.',
-          'pay.merchant_projection_mismatch',
-          'invalid_response',
-        );
+        return refuse(payCopy.t('theReturnedRecordBelongsToAnotherMerchant'), 'pay.merchant_projection_mismatch', 'invalid_response');
     }
     return result;
   }
@@ -366,7 +335,7 @@ export function createBusinessPayApi(
         !scopes.length ||
         scopes.some((scope) => !authority!.scopes.includes(scope) || !['pay:read', 'pay:write', 'pay:refund'].includes(scope))
       )
-        return refuse('Choose only Pay permissions held by this account.', 'pay.key_permission_invalid');
+        return refuse(payCopy.t('chooseOnlyPayPermissionsHeldByThis'), 'pay.key_permission_invalid');
       const checked = await merchant();
       if (!checked.ok) return checked;
       return guard.run(`${userId}:sandbox-key-create`, () =>
@@ -415,7 +384,7 @@ export function createBusinessPayApi(
           );
         }, 'Use HTTPS or a localhost development URL with no embedded credentials.')
         .safeParse(url);
-      if (!parsed.success) return refuse(parsed.error.issues.map((issue) => issue.message).join('; '), 'pay.webhook_url_invalid', 'error');
+      if (!parsed.success) return refuse(payCopy.t('invalidWebhookUrl'), 'pay.webhook_url_invalid', 'error');
       return guard.run(`${userId}:webhook-create`, () =>
         api.scopedRest('pay', '/v1/webhook-endpoints', s.webhookSchema.extend({ secret: z.string() }), {
           method: 'POST',
@@ -474,7 +443,7 @@ export function createCheckoutApi(api: ApiClient, guard = payMutationGuard()) {
           ...(link.currency === null ? { assetId: input.assetId } : {}),
         });
       if (!parsed.success || (link.amount === null && !parsed.data?.amount) || (link.currency === null && !parsed.data?.assetId))
-        return refuse('Enter the required country, payment method, amount and asset for this link.', 'pay.checkout_input_invalid', 'error');
+        return refuse(payCopy.t('enterTheRequiredCountryPaymentMethodAmount'), 'pay.checkout_input_invalid', 'error');
       return guard.run('checkout:open', () =>
         api.mutate('pay', 'checkout.open', parsed.data, z.object({ sessionToken: z.string().min(8).max(200), session: s.checkoutSchema })),
       );

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AssetChart } from '../trade';
 import { usePreferences, savePreferences } from '../../shared/preferences';
 import { useSession } from '../session/session';
@@ -8,7 +8,7 @@ import { createMoneyClient, type Holding, type MoneyOverview } from './client';
 import { amount, Continuation, MutationDialog, ResourceView, Section, usePageLimit, type ActionSpec } from './components';
 import { BankRoutes, BankNavigation } from './rooms';
 import { RepeatBuy } from './repeat-buy';
-import { pendingOutcomes, rememberPendingOutcome } from './pending-outcomes';
+import { pendingKey, pendingOutcomes } from './pending-outcomes';
 import './money.css';
 
 const coverage =
@@ -349,6 +349,11 @@ export function MoneyRoutes({ path }: { path: string }) {
   const pending = pendingOutcomes(userId);
   const [action, setAction] = useState<ActionSpec | null>(null);
   const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    const changed = (event: StorageEvent) => { if (userId && event.key === pendingKey(userId)) setRevision((value) => value + 1); };
+    window.addEventListener('storage', changed);
+    return () => window.removeEventListener('storage', changed);
+  }, [userId]);
   function open(spec: ActionSpec) {
     if (pending.length) {
       document.getElementById('bank-unconfirmed')?.scrollIntoView({ block: 'start' });
@@ -399,14 +404,7 @@ export function MoneyRoutes({ path }: { path: string }) {
           spec={action}
           onClose={() => setAction(null)}
           onDone={() => setRevision((value) => value + 1)}
-          onUncertain={(reference, input) => {
-            if (!userId) return;
-            const recordRefs = Object.fromEntries(
-              Object.entries(input).filter(([key, value]) => key.endsWith('Id') && typeof value === 'string'),
-            ) as Record<string, string>;
-            rememberPendingOutcome(userId, { reference, title: action.title, procedure: action.procedure, recordRefs });
-            setRevision((value) => value + 1);
-          }}
+          onPendingChange={() => setRevision((value) => value + 1)}
         />
       )}
     </>

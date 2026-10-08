@@ -29,6 +29,14 @@ const messages = {
   serviceUnreachable: 'The service could not be reached. Try again when the connection returns.',
   connectionUncertain: 'The connection ended before an outcome was confirmed. Check the original request before trying again.',
   loadFailed: 'This information could not be loaded.',
+  passkeyIdentifier: 'Enter your email or handle before using a passkey.',
+  passkeySecure: 'Passkeys require a secure browser connection.',
+  passkeyAssertion: 'No passkey assertion was returned.',
+  passkeySignInStopped: 'Passkey sign-in was cancelled or timed out.',
+  passkeySignInFailed: 'The browser could not complete passkey sign-in.',
+  passkeyMissing: 'The browser did not return a new passkey.',
+  passkeyCreateStopped: 'Passkey creation was cancelled or timed out.',
+  passkeyCreateFailed: 'The browser could not create this passkey.',
 } as const;
 export const uiCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('shared.ui', messages, {
   es: {
@@ -60,6 +68,14 @@ export const uiCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy
     connectionUncertain:
       'La conexión terminó antes de confirmar el resultado. Comprueba la solicitud original antes de volver a intentarlo.',
     loadFailed: 'No se pudo cargar esta información.',
+    passkeyIdentifier: 'Introduce tu correo o nombre de usuario antes de usar una clave de acceso.',
+    passkeySecure: 'Las claves de acceso requieren una conexión segura en el navegador.',
+    passkeyAssertion: 'No se recibió una respuesta de la clave de acceso.',
+    passkeySignInStopped: 'El inicio de sesión con clave de acceso se canceló o agotó el tiempo.',
+    passkeySignInFailed: 'El navegador no pudo completar el inicio de sesión con la clave de acceso.',
+    passkeyMissing: 'El navegador no devolvió una nueva clave de acceso.',
+    passkeyCreateStopped: 'La creación de la clave de acceso se canceló o agotó el tiempo.',
+    passkeyCreateFailed: 'El navegador no pudo crear esta clave de acceso.',
   },
   fr: {
     unauthorized: 'Connectez-vous pour continuer',
@@ -90,6 +106,14 @@ export const uiCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy
     connectionUncertain:
       'La connexion a été interrompue avant la confirmation du résultat. Vérifiez la requête initiale avant de réessayer.',
     loadFailed: 'Ces informations n’ont pas pu être chargées.',
+    passkeyIdentifier: 'Saisissez votre e-mail ou pseudonyme avant d’utiliser une clé d’accès.',
+    passkeySecure: 'Les clés d’accès nécessitent une connexion sécurisée dans le navigateur.',
+    passkeyAssertion: 'Aucune réponse de la clé d’accès n’a été reçue.',
+    passkeySignInStopped: 'La connexion par clé d’accès a été annulée ou a expiré.',
+    passkeySignInFailed: 'Le navigateur n’a pas pu terminer la connexion par clé d’accès.',
+    passkeyMissing: 'Le navigateur n’a pas renvoyé de nouvelle clé d’accès.',
+    passkeyCreateStopped: 'La création de la clé d’accès a été annulée ou a expiré.',
+    passkeyCreateFailed: 'Le navigateur n’a pas pu créer cette clé d’accès.',
   },
 });
 
@@ -105,7 +129,15 @@ type SharedKey =
   | 'stopped'
   | 'serviceUnreachable'
   | 'connectionUncertain'
-  | 'loadFailed';
+  | 'loadFailed'
+  | 'passkeyIdentifier'
+  | 'passkeySecure'
+  | 'passkeyAssertion'
+  | 'passkeySignInStopped'
+  | 'passkeySignInFailed'
+  | 'passkeyMissing'
+  | 'passkeyCreateStopped'
+  | 'passkeyCreateFailed';
 export type UiMessage = { key: SharedKey } | { key: 'unreadableRefusal' | 'serviceRefusal'; status: number };
 
 export function uiMessage(message: UiMessage, locale: UiLocale = currentPreferences().language) {

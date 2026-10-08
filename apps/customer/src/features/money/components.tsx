@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
 import { currentPreferences } from '../../shared/preferences';
 import { useApi, useSession } from '../session/session';
@@ -8,6 +8,7 @@ import { Button, Dialog, EmptyState, Failure, Field, Loading } from '../../share
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { bankReads, bankWrites, type BankRead, type BankWrite } from './contracts';
 import { createMoneyClient, type Space, type TransferDraft } from './client';
+import { clearPendingOutcome, originalRecordRefs, pendingOutcomes, rememberPendingOutcome } from './pending-outcomes';
 
 export const PAGE_SIZE = 50;
 export const amount = (value: string | null | undefined, asset: string) =>
@@ -90,6 +91,7 @@ export function usePageLimit() {
 export type ActionField = {
   name: string;
   label: string;
+  unit?: string;
   hint?: string;
   type?: 'text' | 'datetime-local';
   options?: { value: string; label: string }[];
@@ -111,6 +113,7 @@ export type ActionSpec = {
 };
 export const positiveMoney = (asset: string, name = 'amount', label = 'Amount'): ActionField => ({
   name,
+  unit: asset,
   label: `${label} (${asset})`,
   hint: 'Exact decimal amount. Available funds only.',
   validate: (value) =>
@@ -194,14 +197,16 @@ export function MutationDialog({
   spec,
   onClose,
   onDone,
-  onUncertain,
+  onPendingChange,
 }: {
   spec: ActionSpec;
   onClose: () => void;
   onDone: () => void;
-  onUncertain: (reference: string, input: Record<string, unknown>) => void;
+  onPendingChange: () => void;
 }) {
-  const api = useApi();
+  const { api, userId } = useSession();
+  const sending = useRef(false);
+  const [clearFailure, setClearFailure] = useState(false);
   const [values, setValues] = useState(spec.initial ?? {});
   const [requestId] = useState(() => crypto.randomUUID());
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -231,16 +236,47 @@ export function MutationDialog({
     setStage('review');
   }
   async function submit() {
-    if (stage !== 'review') return;
+    if (stage !== 'review' || sending.current) return;
+    sending.current = true;
     const input = reviewInput ?? spec.input(values, requestId);
     setStage('sending');
-    const outcome = spec.transferSpaces
-      ? await createMoneyClient(api).transfer(spec.transferSpaces, input as TransferDraft)
-      : await api.mutate('bank', spec.procedure, input, bankWrites[spec.procedure] as ZodType<unknown>);
+    const dispatch = async (): Promise<ApiResult<unknown>> => {
+      if (!userId) return { ok: false, reason: 'unauthorized', message: 'Sign in before sending a Bank request.' };
+      if (pendingOutcomes(userId).length) return { ok: false, reason: 'uncertain', message: 'An original Bank request still requires recovery. No new request was sent.' };
+      try {
+        rememberPendingOutcome(userId, { reference: requestId, title: spec.title, procedure: spec.procedure, recordRefs: originalRecordRefs(input) });
+      } catch {
+        return { ok: false, reason: 'error', message: 'Recovery storage is unavailable. No Bank request was sent.' };
+      }
+      onPendingChange();
+      let outcome: ApiResult<unknown>;
+      try {
+        outcome = spec.transferSpaces
+          ? await createMoneyClient(api).transfer(spec.transferSpaces, input as TransferDraft)
+          : await api.mutate('bank', spec.procedure, input, bankWrites[spec.procedure] as ZodType<unknown>);
+      } catch {
+        outcome = { ok: false, reason: 'uncertain', message: 'The original Bank outcome could not be confirmed. Keep its reference before making another request.' };
+      }
+      // Local transfer validation precedes HTTP dispatch. Auth refusals occur
+      // before the Bank handler. Other failures cannot prove non-settlement.
+      const definitive = outcome.ok || outcome.code === 'money.invalid_transfer' || outcome.status === 401 || outcome.status === 403;
+      if (definitive) {
+        try { clearPendingOutcome(userId, requestId); } catch { setClearFailure(true); }
+      } else if (!outcome.ok && outcome.reason !== 'uncertain') {
+        outcome = { ...outcome, reason: 'uncertain', message: outcome.message + ' The original request remains guarded until its outcome is reconciled.' };
+      }
+      onPendingChange();
+      return outcome;
+    };
+    const outcome = navigator.locks
+      ? await navigator.locks.request(`bank-write:${userId}`, { ifAvailable: true }, (lock) => lock
+        ? dispatch()
+        : Promise.resolve({ ok: false as const, reason: 'error' as const, message: 'Another tab has a Bank request running. No second request was sent.' }))
+      : { ok: false as const, reason: 'not_supported' as const, message: 'This browser cannot coordinate Bank requests across tabs. No request was sent.' };
+    sending.current = false;
     setResult(outcome);
     setStage('outcome');
     if (outcome.ok) onDone();
-    else if (outcome.reason === 'uncertain') onUncertain(requestId, input);
   }
   const terminalUnknown = result && !result.ok && result.reason === 'uncertain';
   return (
@@ -345,6 +381,7 @@ export function MutationDialog({
         )}
         {stage === 'outcome' && result && (
           <div aria-live="polite">
+            {clearFailure && <p className="notice">The original request received a definitive outcome, but recovery storage could not be cleared. Keep its original reference before another Bank action.</p>}
             {result.ok ? (
               <>
                 <h3>Confirmed by the service</h3>
@@ -352,7 +389,7 @@ export function MutationDialog({
                   data={result.data}
                   unit={
                     spec.unit ??
-                    spec.fields?.find((field) => field.name === 'amount' || field.name === 'principal')?.label.match(/\(([^)]+)\)$/)?.[1]
+                    spec.fields?.find((field) => field.name === 'amount' || field.name === 'principal')?.unit
                   }
                 />
               </>
