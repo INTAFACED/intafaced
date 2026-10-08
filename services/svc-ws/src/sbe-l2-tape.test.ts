@@ -138,4 +138,75 @@ describe('sbe L2 tape — DepthLevel via sbe-codec, never L3', () => {
     expect(encoded.message.toLowerCase()).toContain('blank');
     expect('payloads' in encoded).toBe(false);
   });
+
+  it.each([
+    ['boolean', true, 'true'],
+    ['array', ['9', '10'], '9,10'],
+    ['object', { n: 10 }, '[object Object]'],
+  ] as const)('refuses a %s sequence on encodeL2Snapshot before the codec encodes', (_label, sequence, published) => {
+    const { codec, encodes } = codecThatCountsEncodes();
+    const encoded = encodeL2Snapshot(codec, {
+      marketId: 'BTC-USDT',
+      sequence: sequence as unknown as number,
+      bids: [['100', '1']],
+      asks: [['101', '1']],
+    });
+    expect(encodes()).toBe(0);
+    expect(encoded.ok).toBe(false);
+    if (encoded.ok) return;
+    expect(encoded.reason).toBe('invalid_message');
+    expect(encoded.field).toBe('sequence');
+    expect(encoded.message.toLowerCase()).toContain('sequence');
+    expect('payloads' in encoded).toBe(false);
+    expect(JSON.stringify(encoded)).not.toContain(`"${published}"`);
+  });
+
+  it.each([
+    ['boolean', true, 'true'],
+    ['array', ['9', '10'], '9,10'],
+    ['object', { n: 10 }, '[object Object]'],
+  ] as const)('refuses a %s sequence on encodeL2JsonFrame before the codec encodes', (_label, sequence, published) => {
+    const { codec, encodes } = codecThatCountsEncodes();
+    const encoded = encodeL2JsonFrame(
+      codec,
+      JSON.stringify({
+        type: 'snapshot',
+        marketId: 'BTC-USDT',
+        sequence,
+        bids: [['100', '1']],
+        asks: [['101', '1']],
+      }),
+    );
+    expect(encodes()).toBe(0);
+    expect(encoded.ok).toBe(false);
+    if (encoded.ok) return;
+    expect(encoded.reason).toBe('invalid_message');
+    expect(encoded.field).toBe('sequence');
+    expect(encoded.message.toLowerCase()).toContain('sequence');
+    expect('payloads' in encoded).toBe(false);
+    expect(JSON.stringify(encoded)).not.toContain(`"${published}"`);
+  });
+
+  it('encodes a string sequence and a finite number sequence', () => {
+    const codec = createSbeCodec({ java: stubJava() });
+    const fromText = encodeL2Snapshot(codec, { ...BOOK, sequence: '42' });
+    expect(fromText.ok).toBe(true);
+    if (!fromText.ok) return;
+    expect(fromText.sequence).toBe('42');
+    expect(Buffer.from(fromText.payloads[0]!).toString('utf8')).toBe('DepthLevel:BTC-USDT:buy:100:1:42');
+
+    const fromNumber = encodeL2Snapshot(codec, { ...BOOK, sequence: 10.5 });
+    expect(fromNumber.ok).toBe(true);
+    if (!fromNumber.ok) return;
+    expect(fromNumber.sequence).toBe('10.5');
+    expect(Buffer.from(fromNumber.payloads[0]!).toString('utf8')).toBe('DepthLevel:BTC-USDT:buy:100:1:10.5');
+
+    const framed = encodeL2JsonFrame(
+      codec,
+      JSON.stringify({ type: 'snapshot', marketId: 'BTC-USDT', sequence: '42', bids: [['100', '1']], asks: [['101', '1']] }),
+    );
+    expect(framed.ok).toBe(true);
+    if (!framed.ok || framed.skip) return;
+    expect(framed.sequence).toBe('42');
+  });
 });
