@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ApiResult } from './api';
+import { authoredRefusal, type ApiResult } from './api';
 
 export type Resource<T> =
   { status: 'loading' } | { status: 'ready'; data: T } | { status: 'failed'; failure: Extract<ApiResult<T>, { ok: false }> };
@@ -26,7 +26,7 @@ export function useResource<T>(
         if (!controller.signal.aborted)
           setState({
             key: effectiveKey,
-            resource: { status: 'failed', failure: { ok: false, reason: 'error', message: 'This information could not be loaded.' } },
+            resource: { status: 'failed', failure: authoredRefusal('error', { key: 'loadFailed' }) },
           });
       });
     return () => controller.abort();

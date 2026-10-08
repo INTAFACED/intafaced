@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { createApiClient } from './api';
+import { savePreferences } from './preferences';
 
 describe('customer transport boundary', () => {
   it('refuses a monetary JSON number instead of rendering a successful balance', async () => {
@@ -43,5 +44,34 @@ describe('customer transport boundary', () => {
     });
     const result = await api.rest('/orders', z.unknown(), { method: 'POST', body: {}, signal: controller.signal });
     expect(result).toMatchObject({ ok: false, reason: 'uncertain' });
+  });
+  it('localizes authored transport explanations while preserving the service explanation and exact payload', async () => {
+    savePreferences({ language: 'es' });
+    try {
+      const bodies: string[] = [];
+      const offline = createApiClient({
+        fetch: async (_url, options) => {
+          bodies.push(String(options?.body));
+          return new Response('', { status: 503 });
+        },
+      });
+      const result = await offline.rest('/orders', z.unknown(), { method: 'POST', body: { quantity: '0.000000000000000001' } });
+      expect(result).toMatchObject({
+        ok: false,
+        reason: 'uncertain',
+        message: 'La pasarela no confirmó el resultado. Comprueba la solicitud original antes de volver a intentarlo.',
+      });
+      expect(bodies).toEqual(['{"quantity":"0.000000000000000001"}']);
+      const refused = createApiClient({
+        fetch: async () => new Response(JSON.stringify({ message: 'Opaque service explanation', code: 'order.original' }), { status: 403 }),
+      });
+      expect(await refused.rest('/orders', z.unknown())).toMatchObject({
+        ok: false,
+        message: 'Opaque service explanation',
+        code: 'order.original',
+      });
+    } finally {
+      savePreferences({ language: 'en' });
+    }
   });
 });
