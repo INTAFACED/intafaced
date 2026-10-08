@@ -31,8 +31,84 @@ const intent = {
   postOnly: false,
   clientOrderId: 'intent-1',
 };
+const sourceOrder = {
+  id: 'original-1',
+  clientOrderId: 'original-client',
+  timestamp: 1,
+  datetime: '2026-10-07T00:00:00Z',
+  lastTradeTimestamp: null,
+  symbol: 'BTC/USDT',
+  type: 'limit',
+  side: 'buy',
+  timeInForce: 'GTC',
+  postOnly: false,
+  reduceOnly: false,
+  price: '80000',
+  stopPrice: null,
+  average: null,
+  amount: '0.025',
+  filled: '0',
+  remaining: '0.025',
+  cost: '0',
+  status: 'open',
+  fee: null,
+  trades: [],
+  recoveryRequired: false,
+  recoveryReason: null,
+  reconciliationKey: null,
+};
 
 describe('trading feature network boundary', () => {
+  it.each(['read', 'cancel', 'amend'] as const)('refuses another valid order identity returned by %s', async (kind) => {
+    const wrongOrder = { ...sourceOrder, id: 'another-order', status: 'canceled' };
+    const response =
+      kind === 'amend'
+        ? {
+            accepted: true,
+            idempotent: false,
+            code: 'AMENDED',
+            reasonCode: null,
+            reconciliationRequired: false,
+            path: 'NATIVE_AMEND',
+            priority: 'retained',
+            orderId: 'original-1',
+            order: wrongOrder,
+          }
+        : wrongOrder;
+    const api = createTradeApi(createApiClient({ fetch: async () => new Response(JSON.stringify(response)) }));
+    const result =
+      kind === 'read'
+        ? await api.order('original-1')
+        : kind === 'cancel'
+          ? await api.cancel('original-1')
+          : await api.amend('original-1', '0.010');
+    expect(result).toMatchObject({ ok: false, reason: kind === 'read' ? 'invalid_response' : 'uncertain' });
+  });
+  it('retains an amendment whose envelope names another order or whose original is still recovering', async () => {
+    for (const response of [
+      { orderId: 'another-order', order: sourceOrder },
+      { orderId: 'original-1', order: { ...sourceOrder, recoveryRequired: true } },
+    ]) {
+      const api = createTradeApi(
+        createApiClient({
+          fetch: async () =>
+            new Response(
+              JSON.stringify({
+                accepted: true,
+                idempotent: false,
+                code: 'AMENDED',
+                reasonCode: null,
+                reconciliationRequired: false,
+                path: 'NATIVE_AMEND',
+                priority: 'retained',
+                ...response,
+              }),
+            ),
+        }),
+      );
+      expect(await api.amend('original-1', '0.010')).toMatchObject({ ok: false, reason: 'uncertain' });
+    }
+  });
   it('refuses contradictory candles instead of presenting malformed prices as history', async () => {
     const api = createTradeApi(createApiClient({ fetch: async () => new Response(JSON.stringify([[1, '100', '99', '101', '100', '1']])) }));
     expect(await api.history('BTC/USDT', '1m')).toMatchObject({ ok: false, reason: 'invalid_response' });

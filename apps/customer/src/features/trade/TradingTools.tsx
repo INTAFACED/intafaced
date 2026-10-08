@@ -218,7 +218,7 @@ export function TradingTools({
       title={mode}
       description={descriptions[mode]}
       actions={
-        <a className="text-link" href="/exchange">
+        <a className="text-link" href={`/exchange${simulation ? '?simulated=true' : ''}`}>
           Back to spot desk ↗
         </a>
       }
@@ -235,11 +235,11 @@ export function TradingTools({
         ) : mode === 'Bots' ? (
           <Bots tools={tools} simulation={simulation} />
         ) : mode === 'Execution' ? (
-          <Execution tools={tools} />
+          <Execution tools={tools} simulation={simulation} />
         ) : mode === 'Options' ? (
           <Options markets={markets} />
         ) : (
-          <Margin />
+          <Margin simulation={simulation} />
         )}
       </div>
     </Page>
@@ -1336,7 +1336,7 @@ function Bots({ tools, simulation }: { tools: ToolApi; simulation: boolean }) {
     </>
   );
 }
-function Execution({ tools }: { tools: ToolApi }) {
+function Execution({ tools, simulation }: { tools: ToolApi; simulation: boolean }) {
   const spine = useResource((signal) => tools.executionSpine(signal), 'execution-spine');
   return (
     <>
@@ -1366,7 +1366,7 @@ function Execution({ tools }: { tools: ToolApi }) {
           <Capability key={title} title={title ?? ''} detail={detail ?? ''} />
         ))}
       </div>
-      <a className="text-link" href="/quant/studio">
+      <a className="text-link" href={`/quant/studio${simulation ? '?simulated=true' : ''}`}>
         Open Quant studio ↗
       </a>
     </>
@@ -1400,7 +1400,7 @@ function Options({ markets }: { markets: Listing[] }) {
     </>
   );
 }
-function Margin() {
+function Margin({ simulation }: { simulation: boolean }) {
   return (
     <>
       <Capability
@@ -1418,10 +1418,10 @@ function Margin() {
         />
       </div>
       <div className="actions">
-        <a className="text-link" href="/exchange">
+        <a className="text-link" href={`/exchange${simulation ? '?simulated=true' : ''}`}>
           Trade fully funded spot ↗
         </a>
-        <a className="text-link" href="/trade/futures">
+        <a className="text-link" href={`/trade/futures${simulation ? '?simulated=true' : ''}`}>
           View isolated futures risk ↗
         </a>
       </div>

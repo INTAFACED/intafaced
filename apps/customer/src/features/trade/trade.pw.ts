@@ -366,6 +366,142 @@ test('missing-catalog recovery checks only the saved request and retains an abse
   expect(server.deletes()).toBe(0);
 });
 
+test('the actual App Trade door follows a checkbox switch into paper mode on desktop and phone', async ({ page }) => {
+  const server = await mount(page, { paper: true });
+  await page.goto('/exchange?fullApp=1');
+  for (const width of [1440, 320]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const simulation = page.getByRole('checkbox', { name: 'Simulated', exact: true });
+    await simulation.uncheck();
+    await simulation.check();
+    const door = page.locator(width > 800 ? '.trade-top-nav' : '.mobile-doors').getByRole('link', { name: 'Trade', exact: true });
+    await expect(door).toHaveAttribute('href', '/exchange?simulated=true');
+    await door.click();
+    await expect(page).toHaveURL(/\/exchange\?simulated=true$/);
+    await expect(simulation).toBeChecked();
+    await expect(page.getByText('Simulation · no live funds', { exact: true })).toBeVisible();
+  }
+  expect(server.balanceReads()).toBe(0);
+});
+
+test('simulated tool return and Margin links preserve paper intent after room navigation', async ({ page }) => {
+  await mount(page, { paper: true });
+  await page.goto('/exchange/BTC%2FUSDT?simulated=true');
+  await page.getByRole('link', { name: 'Futures', exact: true }).click();
+  await expect(page.getByRole('checkbox', { name: 'Simulated', exact: true })).toBeChecked();
+  await page.getByRole('link', { name: 'Back to spot desk ↗', exact: true }).click();
+  await expect(page).toHaveURL(/\/exchange\?simulated=true$/);
+  await expect(page.getByRole('checkbox', { name: 'Simulated', exact: true })).toBeChecked();
+  await page.goto('/trade/margin?simulated=true');
+  const links = page.locator('.trade-tools a');
+  await expect(links).toHaveCount(2);
+  for (const link of await links.all()) await expect(link).toHaveAttribute('href', /[?&]simulated=true$/);
+});
+
+test('an unrelated valid order response cannot resolve the saved original cancellation', async ({ page }) => {
+  await mount(page);
+  await page.route('**/api/v1/markets*', (route) => route.fulfill({ json: [] }));
+  await page.route('**/api/v1/orders/order-1', (route) => route.fulfill({ json: { ...order('0', 'canceled'), id: 'different-order' } }));
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      'trade-pending:00000000-0000-4000-8000-000000000001',
+      JSON.stringify({
+        kind: 'cancel',
+        symbol: 'BTC/USDT',
+        id: 'order-1',
+        orderId: 'order-1',
+        startedAt: Date.now(),
+      }),
+    ),
+  );
+  await page.goto('/uc/entrust/current');
+  await page.getByRole('button', { name: 'Check original request status', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('order-1');
+  expect(await page.evaluate(() => localStorage.getItem('trade-pending:00000000-0000-4000-8000-000000000001'))).toContain('order-1');
+  await expect(page.getByText(/Order different-order:/)).toHaveCount(0);
+  await page.evaluate(() => {
+    history.pushState(null, '', '/uc/entrust/current?simulated=true');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await expect(page.getByRole('checkbox', { name: 'Simulated', exact: true })).toBeChecked();
+  await page.getByRole('button', { name: 'Check original request status', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('order-1');
+});
+
+for (const responseKind of ['wrong ID', 'open', 'malformed'] as const)
+  test(`an unverified cancellation ${responseKind} response retains the original durable request`, async ({ page }) => {
+    const server = await mount(page, { working: true });
+    await page.route('**/api/v1/markets*', (route) => route.fulfill({ json: [] }));
+    let writes = 0;
+    await page.route('**/api/v1/orders/order-1', async (route) => {
+      if (route.request().method() === 'DELETE') {
+        writes++;
+        await route.fulfill({
+          json:
+            responseKind === 'malformed'
+              ? {}
+              : {
+                  ...order('0', responseKind === 'open' ? 'open' : 'canceled'),
+                  id: responseKind === 'wrong ID' ? 'different-order' : 'order-1',
+                },
+        });
+      } else await route.fulfill({ json: order() });
+    });
+    await page.goto('/uc/entrust/current');
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.getByRole('button', { name: 'Confirm cancellation', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText('order-1');
+    expect(writes).toBe(1);
+    expect(await page.evaluate(() => localStorage.getItem('trade-pending:00000000-0000-4000-8000-000000000001'))).toContain('order-1');
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Check original request status', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled();
+    expect(writes).toBe(1);
+    expect(server.balanceReads()).toBe(0);
+  });
+
+for (const delayedPreflight of [false, true])
+  test(`a catalog-free live cancellation is fenced after Back enters paper mode${delayedPreflight ? ' during preflight' : ''}`, async ({
+    page,
+  }) => {
+    const server = await mount(page, { working: true });
+    await page.route('**/api/v1/markets*', (route) => route.fulfill({ json: [] }));
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let preflight = false;
+    let cancellations = 0;
+    page.on('request', (request) => {
+      if (request.method() === 'DELETE' && new URL(request.url()).pathname === '/api/v1/orders/order-1') cancellations++;
+    });
+    if (delayedPreflight)
+      await page.route('**/api/v1/orders/order-1', async (route) => {
+        if (route.request().method() === 'GET') {
+          preflight = true;
+          await gate;
+        }
+        await route.fulfill({ json: order() });
+      });
+    await page.goto('/exchange?simulated=true');
+    await page.evaluate(() => {
+      history.pushState(null, '', '/exchange');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    if (delayedPreflight) {
+      await page.getByRole('button', { name: 'Confirm cancellation', exact: true }).click();
+      await expect.poll(() => preflight).toBe(true);
+    }
+    await page.goBack();
+    await expect(page.getByRole('checkbox', { name: 'Simulated', exact: true })).toBeChecked();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    release();
+    await page.waitForLoadState('networkidle');
+    expect(cancellations).toBe(0);
+    await expect.poll(() => server.deletes()).toBe(0);
+  });
+
 test('the actual View red-up preference colors market data without recoloring cancellation danger', async ({ page }) => {
   const server = await mount(page, { working: true });
   await page.goto('/account/view');

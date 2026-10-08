@@ -12,6 +12,8 @@ export function Shell({ door, children }: { door?: Door; children: ReactNode }) 
   const [query, setQuery] = useState('');
   const [logoutNote, setLogoutNote] = useState('');
   const trade = door === 'Trade';
+  const explicitPaper = new URLSearchParams(location.search).get('simulated') === 'true';
+  const doorHref = (item: (typeof doors)[number]) => (item.name === 'Trade' && explicitPaper ? `${item.path}?simulated=true` : item.path);
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
@@ -42,7 +44,7 @@ export function Shell({ door, children }: { door?: Door; children: ReactNode }) 
         {brand}
         <nav className="door-nav" aria-label="Customer doors">
           {doors.map((item) => (
-            <a key={item.name} href={item.path} aria-current={door === item.name ? 'page' : undefined}>
+            <a key={item.name} href={doorHref(item)} aria-current={door === item.name ? 'page' : undefined}>
               <Icon name={item.icon} />
               {item.name}
             </a>
@@ -61,7 +63,7 @@ export function Shell({ door, children }: { door?: Door; children: ReactNode }) 
               {brand}
               <nav aria-label="Customer doors">
                 {doors.map((item) => (
-                  <a key={item.name} href={item.path} aria-current={door === item.name ? 'page' : undefined}>
+                  <a key={item.name} href={doorHref(item)} aria-current={door === item.name ? 'page' : undefined}>
                     {item.name}
                   </a>
                 ))}
@@ -107,7 +109,7 @@ export function Shell({ door, children }: { door?: Door; children: ReactNode }) 
       </div>
       <nav className="mobile-doors" aria-label="Customer doors on phone">
         {doors.map((item) => (
-          <a key={item.name} href={item.path} aria-current={door === item.name ? 'page' : undefined}>
+          <a key={item.name} href={doorHref(item)} aria-current={door === item.name ? 'page' : undefined}>
             <Icon name={item.icon} />
             {item.name}
           </a>
