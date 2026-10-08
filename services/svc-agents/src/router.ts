@@ -39,7 +39,7 @@ import { auditNavigatorDataTool, emptyNavigatorAuditLog } from './navigator/acti
 import { supportAgentGuardrail } from './support-agent/guardrail.js';
 import { buildLeaderStats } from './copy-intel/stats.js';
 import { presentLeaderDirectory, sortDirectoryByLeaderId } from './copy-intel/directory.js';
-import { runCopyIntelStatsSession } from './copy-intel/session-run.js';
+import { COPY_INTEL_RUN_REFUSE_REASONS, runCopyIntelStatsSession } from './copy-intel/session-run.js';
 import { describeMerchantPolicy } from './merchant/policy.js';
 import { describeNavigatorPolicy } from './navigator/policy.js';
 import { describeCopyIntelPolicy } from './copy-intel/policy.js';
@@ -3054,7 +3054,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
             }),
             z.object({
               status: z.literal('refuse'),
-              reason: z.enum(['copy_plane_dark', 'no_live_leaders', 'writes_refused']),
+              reason: z.enum(COPY_INTEL_RUN_REFUSE_REASONS),
               userMessageKey: z.literal('agents.copy_intel.unavailable'),
               fixturesRefusedByGuardrail: z.number().int(),
               writesRefusedByGuardrail: z.number().int(),

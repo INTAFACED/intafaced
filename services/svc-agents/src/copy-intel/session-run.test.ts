@@ -360,4 +360,45 @@ describe('copy_intel.stats metered session run', () => {
       else process.env.LIVE_TRADE_COPY_LEADER_IDS = prevIds;
     }
   });
+
+  it('reports the guardrail refusal when every fixture read is refused', async () => {
+    const prevOpen = process.env.LIVE_TRADE_COPY_LEADER_PLANE_OPEN;
+    const prevIds = process.env.LIVE_TRADE_COPY_LEADER_IDS;
+    process.env.LIVE_TRADE_COPY_LEADER_PLANE_OPEN = 'true';
+    process.env.LIVE_TRADE_COPY_LEADER_IDS = 'leader-a,leader-b';
+    try {
+      const fake = new FakeRuntime();
+      fake.guardrail = copyIntelAgentGuardrail();
+      (fake.guardrail as { limits: { maxActionsPerSession: number } }).limits.maxActionsPerSession = 0;
+
+      const result = await runCopyIntelStatsSession({
+        ...baseInput(fake),
+        fixtures: [fixture('other')],
+        leaderAllowlist: ['leader-a', 'leader-b'],
+        copyLeaderFixturesPort: {
+          sample: async () => [fixture('leader-a'), fixture('leader-b')],
+        },
+      });
+
+      expect(result).toMatchObject({
+        status: 'refuse',
+        reason: 'agents.action_limit',
+        userMessageKey: 'agents.copy_intel.unavailable',
+        fixturesRefusedByGuardrail: 2,
+        writesRefusedByGuardrail: 0,
+      });
+      expect(fake.openCalls).toBe(1);
+      expect(fake.settleCalls).toBe(1);
+      expect(fake.closeCalls).toBe(1);
+      expect(result.metering.billedAmount).toBe('0');
+      expect(result.metering.settlements).toEqual([]);
+      expect(fake.chargedAmounts).toEqual([]);
+      expect(fake.toolCalls).toEqual([]);
+    } finally {
+      if (prevOpen === undefined) delete process.env.LIVE_TRADE_COPY_LEADER_PLANE_OPEN;
+      else process.env.LIVE_TRADE_COPY_LEADER_PLANE_OPEN = prevOpen;
+      if (prevIds === undefined) delete process.env.LIVE_TRADE_COPY_LEADER_IDS;
+      else process.env.LIVE_TRADE_COPY_LEADER_IDS = prevIds;
+    }
+  });
 });

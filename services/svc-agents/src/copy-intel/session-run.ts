@@ -28,6 +28,7 @@
 
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
+import { REFUSAL_CODES, type RefusalCode } from '../fleet/guardrails.js';
 import { RefusedError, type AgentRuntime } from '../runtime.js';
 import { isLiveLeaderPlaneAllowlisted, refuseLiveLeaderPlane } from './live-leader-plane-refuse.js';
 import { readLiveLeaderFixtures, type CopyLeaderFixturesPort } from './live-leader-fixtures-port.js';
@@ -88,9 +89,14 @@ export type CopyIntelRunUnavailable = {
   readonly metering: CopyIntelRunMetering;
 };
 
+/** Product refusals plus the guardrail code that actually refused a read. */
+export const COPY_INTEL_RUN_REFUSE_REASONS = ['copy_plane_dark', 'no_live_leaders', 'writes_refused', ...REFUSAL_CODES] as const;
+
+export type CopyIntelRunRefuseReason = (typeof COPY_INTEL_RUN_REFUSE_REASONS)[number];
+
 export type CopyIntelRunRefuse = {
   readonly status: 'refuse';
-  readonly reason: 'copy_plane_dark' | 'no_live_leaders' | 'writes_refused';
+  readonly reason: CopyIntelRunRefuseReason;
   readonly userMessageKey: 'agents.copy_intel.unavailable';
   readonly fixturesRefusedByGuardrail: number;
   readonly writesRefusedByGuardrail: number;
@@ -101,6 +107,25 @@ export type CopyIntelRunResult = CopyIntelRunOk | CopyIntelRunEmpty | CopyIntelR
 
 function unmetered(assetId: string): CopyIntelRunMetering {
   return { sessionId: null, billedAmount: '0', assetId, sessionClosed: false, settlements: [] };
+}
+
+/**
+ * Nothing was accepted. A dark plane is `copy_plane_dark`. Every read that
+ * threw `RefusedError` keeps that guardrail code. A live plane that was not
+ * refused by the guardrail may still be `no_live_leaders`.
+ */
+function reasonWhenNoFixtureAccepted(
+  plane: CopyPlaneState,
+  fixtureCount: number,
+  fixturesRefusedByGuardrail: number,
+  guardrailRefusal: RefusalCode | null,
+): CopyIntelRunRefuseReason {
+  if (plane === 'dark') return 'copy_plane_dark';
+  if (fixtureCount > 0 && fixturesRefusedByGuardrail === fixtureCount && guardrailRefusal !== null) {
+    return guardrailRefusal;
+  }
+  if (plane !== 'live') return 'copy_plane_dark';
+  return 'no_live_leaders';
 }
 
 async function settleAndClose(
@@ -221,6 +246,7 @@ export async function runCopyIntelStatsSession(input: CopyIntelRunInput): Promis
   try {
     const accepted: LeaderPerformanceFixture[] = [];
     let fixturesRefusedByGuardrail = 0;
+    let guardrailRefusal: RefusalCode | null = null;
 
     for (const fixture of fixtures) {
       try {
@@ -233,6 +259,7 @@ export async function runCopyIntelStatsSession(input: CopyIntelRunInput): Promis
       } catch (err) {
         if (err instanceof RefusedError) {
           fixturesRefusedByGuardrail += 1;
+          if (guardrailRefusal === null) guardrailRefusal = err.refusal.code;
           continue;
         }
         throw err;
@@ -243,7 +270,7 @@ export async function runCopyIntelStatsSession(input: CopyIntelRunInput): Promis
       metering = await settleAndClose(input.runtime, session.id, input.feeAssetId, charge);
       return {
         status: 'refuse',
-        reason: 'no_live_leaders',
+        reason: reasonWhenNoFixtureAccepted(input.plane, fixtures.length, fixturesRefusedByGuardrail, guardrailRefusal),
         userMessageKey: 'agents.copy_intel.unavailable',
         fixturesRefusedByGuardrail,
         writesRefusedByGuardrail: 0,
