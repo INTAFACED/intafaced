@@ -99,7 +99,7 @@ export function ReplaceOrder({
         startedAt: Date.now(),
       };
       if (!(await onIntent(identity))) return;
-      const result = await api.replace(current.id, review.draft, review.preview, () => mounted.current);
+      const result = await api.replace(current, review.draft, review.preview, () => mounted.current);
       if (result.ok) {
         onResolved(identity);
         onStatus(

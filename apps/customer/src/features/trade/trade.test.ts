@@ -80,8 +80,8 @@ describe('trading feature network boundary', () => {
       kind === 'read'
         ? await api.order('original-1')
         : kind === 'cancel'
-          ? await api.cancel('original-1')
-          : await api.amend('original-1', '0.010');
+          ? await api.cancel(sourceOrder)
+          : await api.amend(sourceOrder, '0.010');
     expect(result).toMatchObject({ ok: false, reason: kind === 'read' ? 'invalid_response' : 'uncertain' });
   });
   it('retains an amendment whose envelope names another order or whose original is still recovering', async () => {
@@ -106,9 +106,39 @@ describe('trading feature network boundary', () => {
             ),
         }),
       );
-      expect(await api.amend('original-1', '0.010')).toMatchObject({ ok: false, reason: 'uncertain' });
+      expect(await api.amend(sourceOrder, '0.010')).toMatchObject({ ok: false, reason: 'uncertain' });
     }
   });
+  it.each(['cancel', 'amend'] as const)('retains %s when the matching order ID has another reviewed market', async (kind) => {
+    const wrongMarket = { ...sourceOrder, symbol: 'ETH/USDT', status: 'canceled' };
+    const response = kind === 'cancel' ? wrongMarket : {
+      accepted: true, idempotent: false, code: 'AMENDED', reasonCode: null,
+      reconciliationRequired: false, path: 'NATIVE_AMEND', priority: 'retained',
+      orderId: sourceOrder.id, order: wrongMarket,
+    };
+    const api = createTradeApi(createApiClient({ fetch: async () => new Response(JSON.stringify(response)) }));
+    expect(kind === 'cancel' ? await api.cancel(sourceOrder) : await api.amend(sourceOrder, '0.010'))
+      .toMatchObject({ ok: false, reason: 'uncertain' });
+  });
+  it.each(['original envelope', 'replacement envelope', 'original market', 'replacement market', 'original still open'] as const)
+    ('retains replacement when its %s contradicts the reviewed identities', async (kind) => {
+      const original = { ...sourceOrder, status: 'canceled' };
+      const replacement = { ...sourceOrder, id: 'replacement-1', clientOrderId: intent.clientOrderId };
+      const response = {
+        accepted: true, idempotent: false, code: 'REPLACED', reasonCode: null,
+        reconciliationRequired: false, path: 'CANCEL_REPLACE', originalOrderId: sourceOrder.id,
+        originalState: 'cancelled', replacementOrderId: replacement.id, replacementState: 'open', original, replacement,
+      };
+      if (kind === 'original envelope') response.originalOrderId = 'different-original';
+      if (kind === 'replacement envelope') response.replacementOrderId = 'different-replacement';
+      if (kind === 'original market') original.symbol = 'ETH/USDT';
+      if (kind === 'replacement market') replacement.symbol = 'ETH/USDT';
+      if (kind === 'original still open') original.status = 'open';
+      const api = createTradeApi(createApiClient({ fetch: async (url) => new Response(JSON.stringify(
+        String(url).endsWith('/preview') ? reviewed : response,
+      )) }));
+      expect(await api.replace(sourceOrder, intent, reviewed)).toMatchObject({ ok: false, reason: 'uncertain' });
+    });
   it('refuses contradictory candles instead of presenting malformed prices as history', async () => {
     const api = createTradeApi(createApiClient({ fetch: async () => new Response(JSON.stringify([[1, '100', '99', '101', '100', '1']])) }));
     expect(await api.history('BTC/USDT', '1m')).toMatchObject({ ok: false, reason: 'invalid_response' });
@@ -123,7 +153,7 @@ describe('trading feature network boundary', () => {
         },
       }),
     );
-    const result = await api.replace('original-1', intent, reviewed);
+    const result = await api.replace(sourceOrder, intent, reviewed);
     expect(result).toMatchObject({ ok: false, reason: 'changed' });
     expect(requests).toEqual(['/api/v1/orders/preview']);
   });

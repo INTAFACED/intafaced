@@ -428,6 +428,38 @@ test('an unrelated valid order response cannot resolve the saved original cancel
   await expect(page.getByRole('alert')).toContainText('order-1');
 });
 
+for (const mutation of ['cancel', 'amend'] as const)
+  test(`the actual App retains the original ${mutation} after a same-ID wrong-market acknowledgement`, async ({ page }) => {
+    await mount(page, { working: true });
+    let writes = 0;
+    await page.route('**/api/v1/orders/order-1', async (route) => {
+      const method = route.request().method();
+      if (method === 'DELETE' || method === 'PATCH') {
+        writes++;
+        const wrongMarket = { ...order('0', mutation === 'cancel' ? 'canceled' : 'open'), symbol: 'ETH/USDT' };
+        await route.fulfill({ json: mutation === 'cancel' ? wrongMarket : {
+          accepted: true, idempotent: false, code: 'AMENDED', reasonCode: null,
+          reconciliationRequired: false, path: 'NATIVE_AMEND', priority: 'retained',
+          orderId: 'order-1', order: wrongMarket,
+        } });
+      } else await route.fulfill({ json: order() });
+    });
+    await page.goto('/exchange?fullApp=1');
+    await page.getByRole('button', { name: mutation === 'cancel' ? 'Cancel' : 'Reduce', exact: true }).click();
+    if (mutation === 'amend') await page.getByLabel('New remaining quantity (BTC)', { exact: true }).fill('0.010');
+    await page.getByRole('button', { name: mutation === 'cancel' ? 'Confirm cancellation' : 'Confirm reduction', exact: true }).click();
+    await expect(page.getByText(`Outcome not confirmed · ${mutation}`, { exact: true })).toBeVisible();
+    const pending = await page.evaluate(() => JSON.parse(localStorage.getItem('trade-pending:00000000-0000-4000-8000-000000000001') || 'null'));
+    expect(pending).toMatchObject({ kind: mutation, id: 'order-1', symbol: 'BTC/USDT', orderId: 'order-1' });
+    await expect(page.getByText(/^Order order-1: canceled/)).toHaveCount(0);
+    await expect(page.getByText(/^Amendment accepted:/)).toHaveCount(0);
+    expect(writes).toBe(1);
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Check original request status', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled();
+    expect(writes).toBe(1);
+  });
+
 for (const responseKind of ['wrong ID', 'open', 'malformed'] as const)
   test(`an unverified cancellation ${responseKind} response retains the original durable request`, async ({ page }) => {
     const server = await mount(page, { working: true });

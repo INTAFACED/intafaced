@@ -1681,7 +1681,7 @@ function ManageOrder({
       onResolved(identity);
       return;
     }
-    const result = selection.kind === 'cancel' ? await api.cancel(current.id) : await api.amend(current.id, amount);
+    const result = selection.kind === 'cancel' ? await api.cancel(current) : await api.amend(current, amount);
     if (result.ok) {
       if (
         ('reconciliationRequired' in result.data && result.data.reconciliationRequired) ||
