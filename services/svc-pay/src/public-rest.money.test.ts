@@ -10,7 +10,7 @@ import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { MemoryLedger, formatAmount, merchantClearing, userAvailable, type LedgerClient, type PostRequest } from '@intafaced/ledger-client';
 import { PayService } from './payment-service.js';
 import { registerPublicPayRest } from './public-rest.js';
-import { MemoryRestIdempotencyStore, type RestIdempotencyStore } from './rest-idempotency.js';
+import { MemoryRestIdempotencyStore, PostgresRestIdempotencyStore, type RestIdempotencyStore } from './rest-idempotency.js';
 import { RailRegistry } from './rails/registry.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
 
@@ -70,7 +70,13 @@ import { CardSandboxAdapter } from './rails/card-sandbox.js';
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
-const MIGRATIONS = ['0000_pay_init.sql', '0002_pay_payment_links.sql', '0003_pay_checkout_sessions.sql', '0005_pay_merchant_kyb.sql'].map(
+const MIGRATIONS = [
+  '0000_pay_init.sql',
+  '0002_pay_payment_links.sql',
+  '0003_pay_checkout_sessions.sql',
+  '0005_pay_merchant_kyb.sql',
+  '0007_pay_rest_idempotency.sql',
+].map(
   (f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'),
 );
 
@@ -546,6 +552,100 @@ describe('svc-pay public REST money paths PG-hard', () => {
 
       expect(res.json().clearing).toBe(await clearingOf(m.id));
       expect(res.json().available).toBe(await availableOf(OWNER));
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 6 · CREATE IDENTITY — put FAILS AFTER THE 2xx
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('a create whose journal put fails after the payment exists', () => {
+    /**
+     * `withIdempotency` used to abandon on every throw, including `put` failing
+     * after `run` had already sent the payment. The next call then claimed the
+     * key again, and `createPayment` — which never saw the Idempotency-Key —
+     * inserted a second `created` row that could be captured on its own.
+     *
+     * The claim stays pending, so the same journal does not run create again.
+     * A later retry that does run (the journal is gone) returns that same
+     * payment. One row, one capture.
+     */
+    it('put throws after a 2xx create, the claim is not abandoned, and a retry does not insert a second capturable payment', async () => {
+      if (!db) throw new Error('H8a: svc-pay public-rest PG was not opened');
+      const idempotencyKey = 'create:put-throws:keep-claim';
+      let abandoned = 0;
+      const inner = new PostgresRestIdempotencyStore(db.sql, { pollMs: 1, maxWaits: 1 });
+      const journal: RestIdempotencyStore = {
+        claim: (ownerId, key, fingerprint) => inner.claim(ownerId, key, fingerprint),
+        async put() {
+          throw new Error('idempotency put failed');
+        },
+        async abandon(ownerId, key, token) {
+          abandoned += 1;
+          await inner.abandon(ownerId, key, token);
+        },
+      };
+
+      const http = await build(journal);
+      const m = await merchant();
+      const headers = { ...signed(), 'idempotency-key': idempotencyKey };
+      const payload = {
+        merchantId: m.id,
+        amount: '40',
+        assetId: ASSET,
+        method: 'card',
+        railAdapter: 'card-sandbox',
+        instrument: { kind: 'card', token: 'tok_ok' },
+      };
+
+      const first = await http.inject({ method: 'POST', url: '/v1/payments', headers, payload });
+      expect(first.statusCode, first.payload).toBe(200);
+      const createdId = first.json().id as string;
+      expect(abandoned).toBe(0);
+
+      const pending = await db.sql<Array<{ status_code: number }>>`
+        SELECT status_code FROM pay.rest_idempotency WHERE idempotency_key = ${idempotencyKey}
+      `;
+      expect(pending.map((row) => Number(row.status_code))).toEqual([0]);
+
+      const held = await http.inject({ method: 'POST', url: '/v1/payments', headers, payload });
+      expect(held.statusCode).toBeGreaterThanOrEqual(500);
+      expect(abandoned).toBe(0);
+      const pendingAfterRetry = await db.sql<Array<{ status_code: number }>>`
+        SELECT status_code FROM pay.rest_idempotency WHERE idempotency_key = ${idempotencyKey}
+      `;
+      expect(pendingAfterRetry.map((row) => Number(row.status_code))).toEqual([0]);
+
+      // The handler runs again: same merchant, same sandbox key, same key.
+      const retried = await build(new MemoryRestIdempotencyStore());
+      const second = await retried.inject({ method: 'POST', url: '/v1/payments', headers, payload });
+      expect(second.statusCode, second.payload).toBe(200);
+      expect(second.json().id).toBe(createdId);
+
+      const rows = await db.sql<Array<{ id: string; status: string }>>`
+        SELECT id, status FROM pay.payments WHERE merchant_id = ${m.id}
+      `;
+      expect(rows).toEqual([{ id: createdId, status: 'created' }]);
+
+      const authorized = await retried.inject({
+        method: 'POST',
+        url: `/v1/payments/${createdId}/authorize`,
+        headers: { ...signed(), 'idempotency-key': `authorize:${createdId}` },
+        payload: {},
+      });
+      expect(authorized.statusCode, authorized.payload).toBe(200);
+      const captured = await retried.inject({
+        method: 'POST',
+        url: `/v1/payments/${createdId}/capture`,
+        headers: { ...signed(), 'idempotency-key': `capture:${createdId}` },
+        payload: {},
+      });
+      expect(captured.statusCode, captured.payload).toBe(200);
+      expect(await clearingOf(m.id)).toBe('40');
+      const after = await db.sql<Array<{ id: string }>>`
+        SELECT id FROM pay.payments WHERE merchant_id = ${m.id}
+      `;
+      expect(after).toHaveLength(1);
     });
   });
 });

@@ -519,7 +519,10 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
 
   /**
    * Run a mutating handler behind the Idempotency-Key claim→put journal.
-   * 5xx abandons the claim so a retry may execute; 2xx/4xx are stored and replayed.
+   * 2xx/4xx are stored and replayed. A 5xx, or a throw before any response was
+   * sent, abandons the claim so a retry may execute. A response below 500 whose
+   * `put` then throws keeps the claim: the handler already finished, and
+   * abandoning it is what lets the retry run again.
    */
   async function withIdempotency(
     req: FastifyRequest,
@@ -563,7 +566,12 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       }
       return reply;
     } catch (err) {
-      await idempotency.abandon(journalOwner, key, claim.token);
+      // `put` throws only after `run` returns. If that run already sent a
+      // response below 500, the work is done — dropping the claim here is what
+      // lets the next call execute it again. A 5xx, or a throw before any
+      // response was sent, still abandons so a retry may execute.
+      const kept = reply.sent && captured !== undefined && captured.statusCode < 500;
+      if (!kept) await idempotency.abandon(journalOwner, key, claim.token);
       throw err;
     }
   }
@@ -727,6 +735,8 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
             instrument: req.body.instrument,
             customerRef: req.body.customerRef,
             metadata: req.body.metadata,
+            idempotencyKey: key,
+            keyEnv: principal.key_env,
           });
           assertSandboxKeyDoesNotLookLive(principal.key_env, payment.railAdapter);
           return reply.send(toPaymentBody(payment));
