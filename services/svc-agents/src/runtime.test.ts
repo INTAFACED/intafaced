@@ -1041,28 +1041,34 @@ if (!available) {
       expect(typeof stored!.guardrail.limits.maxSpendPerSession).toBe('bigint');
     });
 
-    it('a null spend ceiling stays null while overlapping thinks commit their real costs', async () => {
-      const session = await open();
+    it('a null spend ceiling is refused and overlapping thinks commit nothing', async () => {
+      await runtime.registerAgent({
+        ...PROBE,
+        agentId: 'no-ceiling',
+        limits: { ...PROBE.limits, maxSpendPerSession: null },
+      });
+      const session = await open(USER_A, 'no-ceiling');
+      expect(session.agentId).toBe('no-ceiling');
       expect(session.guardrail.limits.maxSpendPerSession).toBeNull();
-      const gate = gateComplete(gateway, 'both');
-      const local = meteredRuntime(gate.gateway);
-      const { route, usage } = expectedUsage('plan');
-      const expected = usageCost(usage, route.price);
 
-      const left = local.think({ sessionId: session.id, requestId: 'null-a', task: 'plan', messages: MESSAGES });
-      const right = local.think({ sessionId: session.id, requestId: 'null-b', task: 'plan', messages: MESSAGES });
-      await gate.ready;
-      gate.release();
-      const [a, b] = await Promise.all([left, right]);
+      const left = runtime.think({ sessionId: session.id, requestId: 'null-a', task: 'plan', messages: MESSAGES });
+      const right = runtime.think({ sessionId: session.id, requestId: 'null-b', task: 'plan', messages: MESSAGES });
+      const settled = await Promise.allSettled([left, right]);
 
-      expect(typeof a.cost).toBe('bigint');
-      expect(typeof b.cost).toBe('bigint');
-      expect(a.cost).toBe(expected);
-      expect(b.cost).toBe(expected);
+      expect(settled).toHaveLength(2);
+      for (const result of settled) {
+        expect(result.status).toBe('rejected');
+        if (result.status === 'rejected') {
+          expect(result.reason).toMatchObject({ refusal: { code: 'agents.spend_limit_unset' } });
+        }
+      }
+
       const stored = await runtime.session(session.id);
+      expect(stored!.agentId).toBe('no-ceiling');
       expect(stored!.guardrail.limits.maxSpendPerSession).toBeNull();
       const rows = await sql`SELECT id FROM agents.usage_records WHERE session_id = ${session.id}`;
-      expect(rows).toHaveLength(2);
+      expect(rows).toHaveLength(0);
+      expect(provider.callCount).toBe(0);
     });
 
     it('research-only never reaches place even when the tool is granted and approved', async () => {
