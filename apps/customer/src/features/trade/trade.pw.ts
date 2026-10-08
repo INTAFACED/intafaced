@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import { mkdir, writeFile } from 'node:fs/promises';
 
 test('an unavailable catalog retains the four Desk work areas and retries without inventing market data', async ({ page }) => {
@@ -630,6 +631,18 @@ test('Trade authored Spanish controls keep native order enums, IDs, units and ex
   expect(draft).toMatchObject({ symbol: 'BTC/USDT', side: 'buy', amount: '0.025', price: '80000', timeInForce: 'GTC' });
   await expect(page.locator('[data-i18n^="trade."][lang="en"]').first()).toBeVisible();
   await expect(page.getByText('open', { exact: true })).toBeVisible();
+});
+
+test('a light Desk cancellation review has a readable danger action without dispatching it', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ theme: 'light' })));
+  const server = await mount(page, { working: true });
+  await page.goto('/exchange?fullApp=1');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Confirm cancellation', exact: true })).toBeVisible();
+  const audit = await new AxeBuilder({ page }).include('dialog').withTags(['wcag2a', 'wcag2aa']).analyze();
+  expect(audit.violations.filter((item) => item.impact === 'serious' || item.impact === 'critical')).toEqual([]);
+  expect(server.deletes()).toBe(0);
 });
 
 test('the French Desk identifies English absence copy without mislabeling written controls', async ({ page }) => {

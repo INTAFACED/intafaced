@@ -290,6 +290,36 @@ test('Pay uses accessible control names, page regions and contrast in the browse
   expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()).violations).toEqual([]);
 });
 
+test('light appearance keeps the real Pay chrome action readable', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ theme: 'light' })));
+  await mount(page, '/pay');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  const action = page.getByRole('link', { name: 'Send money', exact: true });
+  await expect(action).toBeVisible();
+  // Axe cannot resolve gradient images. Check the actual flat face under the
+  // label separately; the metallic border is outside that painted area.
+  const contrast = await action.evaluate((node) => {
+    const style = getComputedStyle(node);
+    const faces = [...style.backgroundImage.matchAll(/rgb\(([^)]+)\)/g)].slice(0, 2).map((match) => match[1]);
+    if (faces.length !== 2 || faces[0] !== faces[1]) throw new Error('The chrome face is not a flat opaque surface');
+    const luminance = (rgb) =>
+      rgb
+        .split(',')
+        .map(Number)
+        .map((channel) => {
+          const value = channel / 255;
+          return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+        })
+        .reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+    const text = luminance(style.color.match(/rgb\(([^)]+)\)/)[1]);
+    const face = luminance(faces[0]);
+    return (Math.max(text, face) + 0.05) / (Math.min(text, face) + 0.05);
+  });
+  expect(contrast).toBeGreaterThanOrEqual(4.5);
+  const audit = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
+  expect(audit.violations.filter((item) => ['serious', 'critical'].includes(item.impact))).toEqual([]);
+});
+
 test('an unwritten Pay locale uses honest English fallback and preserves the exact reviewed transfer', async ({ page }) => {
   const posted = [];
   await page.route('**/api/**', async (route) => {
