@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it, beforeEach } from 'vitest';
-import { MemoryLedger } from './memory-ledger.js';
+import { MemoryLedger, hashTx } from './memory-ledger.js';
+import { crossShardAnchor, hashAssetTx } from './sharding.js';
 import { runLedgerConformance } from './testing/conformance.js';
 
 /**
@@ -665,6 +667,100 @@ describe('INVARIANT 5 — hash chain', () => {
     const result = ledger.verifyChain();
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.brokenAt).toBe(target.id);
+  });
+
+  it('breaks when an asset hash names a forged parent instead of the prior tip', async () => {
+    await fund(USER_A, 'USDT', '10');
+    await fund(USER_A, 'USDT', '20');
+    expect(ledger.verifyChain()).toEqual({ ok: true });
+
+    const second = ledger.journal()[1]!;
+    const assetId = second.entries[0]!.assetId;
+    const forgedParent = 'f'.repeat(64);
+    expect(second.previousAssetHashes?.[assetId]).not.toBe(forgedParent);
+
+    const previousAssetHashes = { ...second.previousAssetHashes, [assetId]: forgedParent };
+    const assetHashes = {
+      ...second.assetHashes,
+      [assetId]: hashAssetTx(second, assetId, forgedParent),
+    };
+    Object.assign(second, {
+      previousAssetHashes,
+      assetHashes,
+      crossShardAnchor: crossShardAnchor(assetHashes),
+    });
+
+    expect(ledger.verifyChain()).toEqual({ ok: false, brokenAt: second.id });
+
+    Object.assign(second, {
+      hash: hashTx(
+        {
+          id: second.id,
+          module: second.module,
+          reason: second.reason,
+          postedAt: second.postedAt,
+          entries: second.entries,
+          assetHashes: second.assetHashes,
+          previousAssetHashes: second.previousAssetHashes,
+          crossShardAnchor: second.crossShardAnchor,
+        },
+        second.previousHash,
+      ),
+    });
+    expect(ledger.verifyChain()).toEqual({ ok: false, brokenAt: second.id });
+  });
+
+  it('keeps today\'s digest when a transaction omits the asset-chain fields', () => {
+    const postedAt = new Date('2026-01-02T00:00:00.000Z');
+    const tx = {
+      id: 'tx-old',
+      module: 'ledger',
+      reason: 'deposit.credited',
+      postedAt,
+      entries: [
+        {
+          id: 'e1',
+          txId: 'tx-old',
+          accountId: 'acct',
+          assetId: 'USDT',
+          direction: 'debit' as const,
+          amount: amt('1'),
+          balanceAfter: amt('1'),
+        },
+      ],
+    };
+    const canonical = JSON.stringify({
+      id: 'tx-old',
+      module: 'ledger',
+      reason: 'deposit.credited',
+      postedAt: '2026-01-02T00:00:00.000Z',
+      entries: [{ accountId: 'acct', assetId: 'USDT', direction: 'debit', amount: '1' }],
+    });
+    const digest = createHash('sha256').update('').update(' ').update(canonical).digest('hex');
+    expect(hashTx(tx, null)).toBe(digest);
+
+    const coveredCanonical = JSON.stringify({
+      id: 'tx-old',
+      module: 'ledger',
+      reason: 'deposit.credited',
+      postedAt: '2026-01-02T00:00:00.000Z',
+      entries: [{ accountId: 'acct', assetId: 'USDT', direction: 'debit', amount: '1' }],
+      assetHashes: { USDT: 'aa' },
+      previousAssetHashes: { USDT: null },
+      crossShardAnchor: 'bb',
+    });
+    const covered = createHash('sha256').update('').update(' ').update(coveredCanonical).digest('hex');
+    expect(
+      hashTx(
+        {
+          ...tx,
+          assetHashes: { USDT: 'aa' },
+          previousAssetHashes: { USDT: null },
+          crossShardAnchor: 'bb',
+        },
+        null,
+      ),
+    ).toBe(covered);
   });
 });
 
