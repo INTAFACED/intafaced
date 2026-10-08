@@ -19,7 +19,11 @@ describe('describeRoutingPolicy', () => {
   it('states mechanism honesty without inventing approval rates or payer rails', () => {
     const p = describeRoutingPolicy();
     expect(p.requiredDimensions).toEqual([...ROUTING_REQUIRED_DIMENSIONS]);
-    expect(p.refuseCodes).toEqual([ROUTING_INPUT_MISSING, ROUTING_NO_RAIL]);
+    expect(p.refuseCodes).toEqual([
+      ROUTING_INPUT_MISSING,
+      ROUTING_NO_RAIL,
+      'pay.routing_approval_rate_unset',
+    ]);
     expect(p.decisionKind).toBe(ROUTING_DECISION_KIND);
     expect(p.forbiddenScoreFields).toEqual([...FORBIDDEN_ROUTING_SCORE_FIELDS]);
     expect(p.referenceProfileRailIds).toEqual([...REFERENCE_PROFILE_RAIL_IDS]);
