@@ -8,6 +8,7 @@
  * stale / undeclared / money-write → typed refuse. Agents never ledger.post.
  */
 
+import { isNegative, MoneyError, parseAmount } from '@intafaced/ledger-client';
 import { isNavigatorMoneyWriteTool, navigatorAgentGuardrail } from './guardrail.js';
 import { navigatorGrounded, type TradeDataPlane } from './grounded.js';
 import { navigatorTierGate, type NavigatorTierLaw, type TierGateRefuse } from './tier-gate.js';
@@ -82,7 +83,15 @@ export type DataToolRefuse = {
 export type DataToolResult = DataToolOk | DataToolRefuse;
 
 function parseUnsignedDecimal(s: string): boolean {
-  return /^-?\d+(\.\d{1,18})?$/.test(s) && Number.isFinite(Number(s));
+  if (!/^\d+(\.\d{1,18})?$/.test(s)) return false;
+  try {
+    const amount = parseAmount(s);
+    if (isNegative(amount)) return false;
+    return true;
+  } catch (err) {
+    if (err instanceof MoneyError) return false;
+    throw err;
+  }
 }
 
 function isFresh(asOf: string, maxAgeMs: number, nowMs: number): boolean {
