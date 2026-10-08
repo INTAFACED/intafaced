@@ -55,6 +55,17 @@ describe('growth campaign proposals — never autonomous publication', () => {
     expect(proposeGrowthCampaign({ headline: 'Invite a friend', spendAmount: '50', warehouse: live })).toMatchObject({
       reason: 'budget_undecided',
     });
+    expect(
+      proposeGrowthCampaign({
+        headline: 'Invite a friend',
+        incentiveBudget: '   ',
+        spendAmount: '50',
+        warehouse: live,
+      }),
+    ).toMatchObject({
+      reason: 'budget_undecided',
+      inventedBudget: false,
+    });
   });
 
   it('a live warehouse yields a proposal, never a publication', () => {
