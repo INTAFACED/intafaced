@@ -1694,8 +1694,9 @@ services:
 
   # ── Apps ───────────────────────────────────────────────
   #
-  # The customer surface is `vendor-shell` below, on :8090. It is the SOLE
-  # product surface — ADR `docs/adr/2026-08-03-retire-apps-web-port-to-vue-shell.md`.
+  # The sole customer site is apps/customer (React), served by the existing
+  # vendor-shell slot on :8090. The redesign ADR permits replacing the UI;
+  # the legacy Vue source remains on disk and is no longer configured here.
   #
   # There WAS a `web` service here (apps/web, Next, `3000:3000`). It is removed,
   # and removing it is the point rather than a tidy-up: that ADR's own root cause
@@ -1703,10 +1704,11 @@ services:
   # the de-facto product. Nobody decided that." A running port outranks a stated
   # direction every time, so the port goes with the direction.
   #
-  # no-deploy: mobile — Capacitor wrap of the vendored Vue shell (`apps/mobile`,
-  # bundle id app.intafaced.mobile). Sideload / WebView from this repo; not a
-  # fleet HTTP service. Store listing is a Class X residual. `/app` on the
-  # shell tells that truth. A compose port here would mint a second surface.
+  # no-deploy: mobile — Capacitor wrapper of the same customer site. Staging
+  # requires an explicit verified HTTPS customer origin; app.intafaced.mobile
+  # remains a sideload/WebView wrapper, with no store listing. No fleet port.
+  # no-deploy: 05_Web_Front — retained legacy Vue source, replaced by
+  # apps/customer in the existing vendor-shell deployment slot. Not served.
   #
   # no-deploy: web — `apps/web`, the retired Next scaffold. Deliberate, and this
   # line is the deliberateness: the gate below is right that an app nobody serves
@@ -1716,28 +1718,16 @@ services:
   # on it. The directory is still on disk pending an owner go on deletion, and
   # the tracker row `web.shell` carries the same statement.
   #
-  # The one Next app still served is `admin` (the operator console, 3100). It
-  # declares no `depends_on`, and that is not an oversight: its service URLs are
-  # BROWSER-side, so ordering the container behind a service would buy nothing —
-  # a browser that loads before a service is up sees the panel say so and
-  # recovers on the next render, which is the behaviour we want anyway.
-
-  # The vendored trading shell — the app the product direction has always said
-  # we ARE, and which until now could not be run at all.
-  #
-  # 74 Vue screens with no `dist`, no Dockerfile and no compose entry. Every
-  # document pointing readers at `:8090` was pointing at a port nothing served,
-  # while `web` above quietly became the de-facto product. That is how a stated
-  # direction and a running system drift apart without anyone deciding to.
-  #
-  # It does NOT use *app: this tree is Vue 2.5 / webpack 3 with its own npm
-  # lockfile, deliberately outside the pnpm workspace so a 2017 dependency graph
-  # cannot reach our services. Its own Dockerfile builds it and nginx serves it.
+  # admin remains the separate Next team desk on :3100 with its existing BFF
+  # protections. VITE_TEAM_URL is an optional public HTTPS base for its link.
+  # The customer runtime contains static browser assets only, no team secrets.
   vendor-shell:
     build:
-      context: ./vendor/upstream-exchange/05_Web_Front
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/customer/Dockerfile
       target: runtime
+      args:
+        VITE_TEAM_URL: ${VITE_TEAM_URL:-}
     image: intafaced/vendor-shell:dev
     container_name: intafaced-vendor-shell
     restart: unless-stopped
