@@ -105,7 +105,11 @@ export function Shell({ door, children }: { door?: Door; children: ReactNode }) 
         <main id="main" tabIndex={-1}>
           {logoutNote && (
             <p className="notice" role="status">
-              {logoutNote === 'confirmed' ? t('Signed out.') : t('Signed out on this device. The server could not confirm session revocation; use Sign out everywhere after reconnecting.')}
+              {logoutNote === 'confirmed'
+                ? t('Signed out.')
+                : t(
+                    'Signed out on this device. The server could not confirm session revocation; use Sign out everywhere after reconnecting.',
+                  )}
             </p>
           )}
           {children}
@@ -132,7 +136,7 @@ export function Shell({ door, children }: { door?: Door; children: ReactNode }) 
           <div className="search-results">
             {list.length ? (
               list.map((item) => (
-                <a key={item.path} href={item.path}>
+                <a key={item.path} href={item.path === '/exchange' && explicitPaper ? `${item.path}?simulated=true` : item.path}>
                   <span>{roomTitle(item, language)}</span>
                   <small>
                     {item.door ? doorLabel(item.door, language) : t('Account')} · {roomDescription(item, language)}
@@ -204,7 +208,9 @@ export function Shell({ door, children }: { door?: Door; children: ReactNode }) 
             <div>
               <h3>{t('Business')}</h3>
               <p className="muted">
-                {t('A verified company account is not available through the current account contract. Merchant records and strategy subaccounts do not establish Business ownership.')}
+                {t(
+                  'A verified company account is not available through the current account contract. Merchant records and strategy subaccounts do not establish Business ownership.',
+                )}
               </p>
               <a className="text-link" href="/identbusiness">
                 {t('Business verification ↗')}

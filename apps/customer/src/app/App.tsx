@@ -34,16 +34,17 @@ class RoomBoundary extends Component<{ children: ReactNode }, { failed: boolean 
     return { failed: true };
   }
   override render() {
-    return this.state.failed ? <RoomFailure /> : (
-      this.props.children
-    );
+    return this.state.failed ? <RoomFailure /> : this.props.children;
   }
 }
 function RoomFailure() {
   const { t } = appCopy.useCopy();
   return (
     <Page title={t('This room could not open')}>
-      <EmptyState title={t('The interface encountered an error')} action={<Button onClick={() => location.reload()}>{t('Reload the app')}</Button>}>
+      <EmptyState
+        title={t('The interface encountered an error')}
+        action={<Button onClick={() => location.reload()}>{t('Reload the app')}</Button>}
+      >
         {t('Reload to try again. You will need to sign in again. An unconfirmed financial request must still be checked before retrying.')}
       </EmptyState>
     </Page>
@@ -84,9 +85,7 @@ export function App() {
       <MoreRoutes path={current} />
     ) : (
       <Page title={t('Page not found')}>
-        <EmptyState title={t('This address is not available')}>
-          {t('Return to one of the four customer doors.')}
-        </EmptyState>
+        <EmptyState title={t('This address is not available')}>{t('Return to one of the four customer doors.')}</EmptyState>
       </Page>
     );
   const content =

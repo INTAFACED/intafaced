@@ -93,23 +93,25 @@ export const rooms: readonly Room[] = [
   { path: '/uc/order', title: 'Person-to-person orders', description: 'Your active and past trades', door: 'Pay', area: 'pay' },
   { path: '/chat', title: 'Order conversation', description: 'Communicate about your order', door: 'Pay', area: 'pay', hidden: true },
   { path: '/checkuser', title: 'Counterparty', description: 'Check trade context', door: 'Pay', area: 'pay', hidden: true },
-  ...([
-    ['merchant', 'Merchant home', 'Manage your business payments'],
-    ['money', 'Merchant balance', 'Funds belonging to your merchant account'],
-    ['links', 'Payment links', 'Share a payment link'],
-    ['checkout', 'Checkout', 'Hosted payment checkout'],
-    ['payments', 'Payments', 'Customer payment activity'],
-    ['customers', 'Customers', 'Business customer records'],
-    ['payouts', 'Payouts', 'Review outgoing business payments'],
-    ['settlements', 'Settlements', 'Settlement activity'],
-    ['disputes', 'Disputes', 'Manage payment disputes'],
-    ['network', 'Sub-merchants', 'Your merchant network'],
-    ['permissions', 'Permissions', 'Merchant access controls'],
-    ['invoices', 'Invoices', 'Issue and manage invoices'],
-    ['subscriptions', 'Subscriptions', 'Recurring billing'],
-    ['reports', 'Reports', 'Export business activity'],
-    ['developer', 'Developer', 'Test keys and webhooks'],
-  ] as const).map(([slug, title, description]) => ({
+  ...(
+    [
+      ['merchant', 'Merchant home', 'Manage your business payments'],
+      ['money', 'Merchant balance', 'Funds belonging to your merchant account'],
+      ['links', 'Payment links', 'Share a payment link'],
+      ['checkout', 'Checkout', 'Hosted payment checkout'],
+      ['payments', 'Payments', 'Customer payment activity'],
+      ['customers', 'Customers', 'Business customer records'],
+      ['payouts', 'Payouts', 'Review outgoing business payments'],
+      ['settlements', 'Settlements', 'Settlement activity'],
+      ['disputes', 'Disputes', 'Manage payment disputes'],
+      ['network', 'Sub-merchants', 'Your merchant network'],
+      ['permissions', 'Permissions', 'Merchant access controls'],
+      ['invoices', 'Invoices', 'Issue and manage invoices'],
+      ['subscriptions', 'Subscriptions', 'Recurring billing'],
+      ['reports', 'Reports', 'Export business activity'],
+      ['developer', 'Developer', 'Test keys and webhooks'],
+    ] as const
+  ).map(([slug, title, description]) => ({
     path: `/pay/${slug}`,
     title,
     description,
@@ -127,22 +129,24 @@ export const rooms: readonly Room[] = [
     area: 'more',
     hidden: true,
   },
-  ...([
-    ['academy', 'Academy', 'Rooms, learning and certifications'],
-    ['agents', 'Agents', 'Your agent fleet'],
-    ['quant', 'Quant', 'Research and strategy sandbox'],
-    ['quant/studio', 'Quant Studio', 'Build and run strategies'],
-    ['quant/backtest', 'Backtest', 'Review strategy results'],
-    ['launch', 'Launch', 'Issue and list an asset'],
-    ['market', 'Market catalogue', 'Browse available listings'],
-    ['market/mine', 'My listings', 'Your market listings'],
-    ['predict', 'Prediction markets', 'Browse and trade predictions'],
-    ['mining', 'Mining', 'Pool activity and payouts'],
-    ['token', 'Token', 'Access and staking'],
-    ['blueprint', 'Identity Blueprint', 'Your profile and connected intelligence'],
-    ['support', 'Support', 'Tickets and published answers'],
-    ['campaigns', 'Activities', 'Signed-in campaigns'],
-  ] as const).map(([slug, title, description]) => ({
+  ...(
+    [
+      ['academy', 'Academy', 'Rooms, learning and certifications'],
+      ['agents', 'Agents', 'Your agent fleet'],
+      ['quant', 'Quant', 'Research and strategy sandbox'],
+      ['quant/studio', 'Quant Studio', 'Build and run strategies'],
+      ['quant/backtest', 'Backtest', 'Review strategy results'],
+      ['launch', 'Launch', 'Issue and list an asset'],
+      ['market', 'Market catalogue', 'Browse available listings'],
+      ['market/mine', 'My listings', 'Your market listings'],
+      ['predict', 'Prediction markets', 'Browse and trade predictions'],
+      ['mining', 'Mining', 'Pool activity and payouts'],
+      ['token', 'Token', 'Access and staking'],
+      ['blueprint', 'Identity Blueprint', 'Your profile and connected intelligence'],
+      ['support', 'Support', 'Tickets and published answers'],
+      ['campaigns', 'Activities', 'Signed-in campaigns'],
+    ] as const
+  ).map(([slug, title, description]) => ({
     path: `/${slug}`,
     title,
     description,
@@ -218,7 +222,11 @@ export function searchRooms(query: string, mode: 'Personal' | 'Business', locale
       !room.alias &&
       !['team', 'parked'].includes(room.area) &&
       (!room.business || mode === 'Business') &&
-      words.every((word) => `${room.title} ${room.description} ${room.door ?? ''} ${roomTitle(room, locale)} ${roomDescription(room, locale)} ${room.door ? doorLabel(room.door, locale) : ''}`.toLowerCase().includes(word)),
+      words.every((word) =>
+        `${room.title} ${room.description} ${room.door ?? ''} ${roomTitle(room, locale)} ${roomDescription(room, locale)} ${room.door ? doorLabel(room.door, locale) : ''}`
+          .toLowerCase()
+          .includes(word),
+      ),
   );
 }
 export const doors: ReadonlyArray<{ name: Door; path: string; icon: 'money' | 'trade' | 'pay' | 'more' }> = [
