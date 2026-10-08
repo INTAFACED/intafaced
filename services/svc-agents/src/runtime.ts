@@ -15,7 +15,7 @@ import {
   type SessionState,
 } from './fleet/guardrails.js';
 import { digestOfText, type ModelGateway } from './gateway/gateway.js';
-import type { RouteDef } from './gateway/routing.js';
+import { requireMeterPrice, type ModelPrice, type RouteDef } from './gateway/routing.js';
 import { type SettlementResult, type UsageMeter } from './metering/meter.js';
 import { meteringOffSettlementStub, shouldMeterUsage } from './metering/product-law.js';
 import { usageCost } from './metering/pricing.js';
@@ -376,8 +376,10 @@ export class AgentRuntime {
     // 1 · Route. A missing route is logged as a failed action rather than
     //     thrown silently — the user asked for something and the log must say so.
     let route: RouteDef;
+    let price: ModelPrice;
     try {
       route = this.gateway.routeFor(input.task);
+      price = requireMeterPrice(route);
     } catch (err) {
       await this.appendFailure(session, { kind: 'completion', task: input.task, error: err });
       throw err;
@@ -396,7 +398,7 @@ export class AgentRuntime {
         maxOutputTokens,
         worstCaseCost: usageCost(
           { inputTokens: estimateInputTokens(input.system, input.messages), outputTokens: maxOutputTokens },
-          route.price,
+          price,
         ),
       },
       this.feeAssetId,
@@ -448,7 +450,7 @@ export class AgentRuntime {
     }
 
     const usage = completion.result.usage;
-    const cost = usageCost(usage, route.price);
+    const cost = usageCost(usage, price);
 
     // 4 · Meter and audit together.
     //
@@ -470,7 +472,7 @@ export class AgentRuntime {
             providerId: completion.result.providerId,
             model: route.model,
             usage,
-            price: route.price,
+            price,
           });
           recorded = result.recorded;
           window = result.windowId;

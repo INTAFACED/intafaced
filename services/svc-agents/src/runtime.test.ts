@@ -9,7 +9,7 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafa
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, formatAmount, parseAmount as amt, recipes, houseFees, userAvailable } from '@intafaced/ledger-client';
 import { ModelGateway } from './gateway/gateway.js';
-import { parseRoutingTable, type RoutingTable } from './gateway/routing.js';
+import { parseRoutingTable, requireMeterPrice, type RoutingTable } from './gateway/routing.js';
 import { UsageMeter, chargeKeyFor } from './metering/meter.js';
 import { usageCost, windowCost } from './metering/pricing.js';
 import { MockModelProvider, mockUsage } from './providers/mock.js';
@@ -297,7 +297,7 @@ if (!available) {
       expect(result.metered).toBe(true);
 
       const expected = windowCost([
-        { inputTokens: BigInt(usage.inputTokens), outputTokens: BigInt(usage.outputTokens), price: route.price },
+        { inputTokens: BigInt(usage.inputTokens), outputTokens: BigInt(usage.outputTokens), price: requireMeterPrice(route) },
       ]);
       expect(expected).toBeGreaterThan(0n);
 
@@ -323,7 +323,7 @@ if (!available) {
         messages: [{ role: 'user', content: 'And how do I unstake?' }],
       });
 
-      const price = a.route.price;
+      const price = requireMeterPrice(a.route);
       const expected = windowCost([
         {
           inputTokens: BigInt(a.usage.inputTokens + b.usage.inputTokens),
@@ -357,7 +357,7 @@ if (!available) {
       expect(rows).toHaveLength(1);
 
       const settlement = await runtime.settleWindow(session.id, first.windowId!);
-      expect(settlement.amount).toBe(usageCost(first.usage, first.route.price));
+      expect(settlement.amount).toBe(usageCost(first.usage, requireMeterPrice(first.route)));
       expect(await houseOf()).toBe(formatAmount(settlement.amount));
       expect(ledger.totalsByAsset().IFC).toBe('0');
     });
@@ -390,7 +390,7 @@ if (!available) {
 
       // Manually seal with a known positive amount and NO charge_tx_id — the
       // state a process death between seal and post produces.
-      const expected = usageCost(call.usage, call.route.price);
+      const expected = usageCost(call.usage, requireMeterPrice(call.route));
       expect(expected).toBeGreaterThan(0n);
       await sql`
         UPDATE agents.usage_windows
@@ -1001,7 +1001,7 @@ if (!available) {
       const ok = await flakyRuntime.think({ sessionId: session.id, requestId: 'same-request', task: 'plan', messages: MESSAGES });
       const settlement = await flakyRuntime.settleWindow(session.id, ok.windowId!);
 
-      expect(settlement.amount).toBe(usageCost(ok.usage, ok.route.price));
+      expect(settlement.amount).toBe(usageCost(ok.usage, requireMeterPrice(ok.route)));
       expect(await houseOf()).toBe(formatAmount(settlement.amount));
       expect(ledger.totalsByAsset().IFC).toBe('0');
       expect(ledger.reconcile()).toEqual({ ok: true });
@@ -1028,7 +1028,7 @@ if (!available) {
       const ok = await runtime.think({ sessionId: session.id, requestId: 'r-2', task: 'plan', messages: MESSAGES });
       const settlement = await runtime.settleWindow(session.id, ok.windowId!);
 
-      expect(settlement.amount).toBe(usageCost(ok.usage, ok.route.price));
+      expect(settlement.amount).toBe(usageCost(ok.usage, requireMeterPrice(ok.route)));
       expect(ledger.totalsByAsset().IFC).toBe('0');
     });
   });

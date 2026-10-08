@@ -27,7 +27,8 @@ export type AgentErrorCode =
   | 'agents.session_log_limit_unset'
   | 'agents.kb_search_limit_unset'
   | 'agents.tickers_limit_unset'
-  | 'agents.navigator_markets_limit_unset';
+  | 'agents.navigator_markets_limit_unset'
+  | 'agents.price_not_configured';
 
 export class AgentError extends Error {
   constructor(
@@ -80,6 +81,7 @@ export const AGENT_ERROR_CODES: readonly AgentErrorCode[] = [
   'agents.kb_search_limit_unset',
   'agents.tickers_limit_unset',
   'agents.navigator_markets_limit_unset',
+  'agents.price_not_configured',
 ] as const;
 
 /** Owner-published page size. Blank / non-finite / <1 refuses. Never invent 100. */
