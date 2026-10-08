@@ -1,3 +1,4 @@
+import { t as copyText, Text } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
 import { useApi } from '../session/session';
@@ -5,6 +6,7 @@ import { useResource } from '../../shared/resource';
 import { decimalSchema, signedDecimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, Select, TextArea, useAction } from './common';
+import { preservePaperHref } from './trade-context';
 const stamp = z.object({
   environment: z.enum(['paper', 'backtest', 'shadow']),
   kind: z.enum(['paper', 'simulated']),
@@ -45,7 +47,7 @@ const backtestSchema = stamp.extend({
   claimLabel: z.literal('Historical simulation — not a forecast'),
   outOfSampleLabel: z.string(),
 });
-export function Quant({ mode }: { mode: 'sandbox' | 'studio' | 'backtest' }) {
+export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'backtest'; paper?: boolean }) {
   const api = useApi(),
     action = useAction(`quant-${mode}`);
   const [language, setLanguage] = useState('javascript'),
@@ -98,27 +100,32 @@ export function Quant({ mode }: { mode: 'sandbox' | 'studio' | 'backtest' }) {
   return (
     <div className="more-grid">
       <div className="more-toolbar">
-        <a className="text-link" href="/quant">
-          Sandbox
+        <a className="text-link" href={preservePaperHref('/quant', paper)}>
+          <Text k="quant.sandbox" />
         </a>
-        <a className="text-link" href="/quant/studio">
-          Studio
+        <a className="text-link" href={preservePaperHref('/quant/studio', paper)}>
+          <Text k="quant.studio" />
         </a>
-        <a className="text-link" href="/quant/backtest">
-          Backtest
+        <a className="text-link" href={preservePaperHref('/quant/backtest', paper)}>
+          <Text k="quant.backtest" />
         </a>
-        <a className="text-link" href="/execution">
-          Execution
+        <a className="text-link" href={preservePaperHref('/execution', paper)}>
+          <Text k="quant.execution" />
         </a>
       </div>
-      <p className="more-badge">Simulated · no live trading authority</p>
+      <p className="more-badge">
+        <Text k="quant.simulated.no.live.trading.authority" />
+      </p>
       {mode === 'sandbox' ? (
         <div className="more-columns">
-          <Panel title="Strategy sandbox">
+          <Panel title={copyText('quant.strategy.sandbox')}>
             <Read resource={capabilities.resource} retry={capabilities.reload}>
               {(c) => (
                 <p className="muted">
-                  Isolate: {c.isolate}. Trade-only vault: {c.venueVault}.{c.refuse && ` ${c.refuse}.`}
+                  <Text k="quant.isolate" />
+                  {c.isolate}
+                  <Text k="quant.trade.only.vault" />
+                  {c.venueVault}.{c.refuse && ` ${c.refuse}.`}
                 </p>
               )}
             </Read>
@@ -126,15 +133,15 @@ export function Quant({ mode }: { mode: 'sandbox' | 'studio' | 'backtest' }) {
               onSubmit={(e) => {
                 e.preventDefault();
                 action.stage({
-                  title: 'Review simulated run',
-                  confirm: 'Run simulation',
-                  success: 'Simulation received',
+                  title: copyText('quant.review.simulated.run'),
+                  confirm: copyText('quant.run.simulation'),
+                  success: copyText('quant.simulation.received'),
                   content: (
                     <Details
                       items={[
-                        ['Language', language],
-                        ['Starting cash', `${cash} simulated units`],
-                        ['Environment', 'Paper · never live performance'],
+                        [copyText('quant.language'), language],
+                        [copyText('quant.starting.cash'), copyText('quant.simulated.units', { amount: cash })],
+                        [copyText('quant.environment'), copyText('quant.paper.never.live.performance')],
                       ]}
                     />
                   ),
@@ -151,15 +158,20 @@ export function Quant({ mode }: { mode: 'sandbox' | 'studio' | 'backtest' }) {
                 });
               }}
             >
-              <Select label="Language" value={language} onChange={setLanguage} options={['javascript', 'typescript', 'python']} />
+              <Select
+                label={copyText('quant.language')}
+                value={language}
+                onChange={setLanguage}
+                options={['javascript', 'typescript', 'python']}
+              />
               <Field
-                label="Simulated starting cash"
+                label={copyText('quant.simulated.starting.cash')}
                 value={cash}
                 onChange={(e) => setCash(e.target.value)}
                 inputMode="decimal"
-                hint="User-supplied simulation input, separate from your ledger balance."
+                hint={copyText('quant.user.supplied.simulation.input.separate.from.your')}
               />
-              <TextArea label="Strategy source" value={source} onChange={setSource} maxLength={200000} />
+              <TextArea label={copyText('quant.strategy.source')} value={source} onChange={setSource} maxLength={200000} />
               <Button
                 type="submit"
                 disabled={
@@ -170,24 +182,29 @@ export function Quant({ mode }: { mode: 'sandbox' | 'studio' | 'backtest' }) {
                   capabilities.resource.data.isolate !== 'wired'
                 }
               >
-                Review simulation
+                <Text k="quant.review.simulation" />
               </Button>
             </form>
-            <p className="muted">Live deployment requires a separate, approved execution contract. This sandbox does not grant it.</p>
+            <p className="muted">
+              <Text k="quant.live.deployment.requires.a.separate.approved.execution" />
+            </p>
           </Panel>
-          <Panel title="Simulation result">
+          <Panel title={copyText('quant.simulation.result')}>
             {result ? (
               <>
                 <p>{result.claimLabel}</p>
                 <Details
                   items={[
-                    ['Cash', `${displayAmount(result.cash)} simulated units`],
-                    ['P&L', `${displayAmount(result.pnl)} simulated units`],
-                    ['Venue', result.venue],
+                    [copyText('quant.cash'), copyText('quant.simulated.units', { amount: displayAmount(result.cash) })],
+                    [copyText('quant.p.l'), copyText('quant.simulated.units', { amount: displayAmount(result.pnl) })],
+                    [copyText('quant.venue'), result.venue],
                   ]}
                 />
                 <pre className="more-body">{result.logs.join('\n')}</pre>
-                <DataTable headers={['Side', 'Symbol', 'Quantity', 'Price']} label="Simulated fills">
+                <DataTable
+                  headers={[copyText('quant.side'), copyText('quant.symbol'), copyText('quant.quantity'), copyText('quant.price')]}
+                  label={copyText('quant.simulated.fills')}
+                >
                   {result.fills.map((f, i) => (
                     <tr key={i}>
                       <td>{f.side}</td>
@@ -198,7 +215,10 @@ export function Quant({ mode }: { mode: 'sandbox' | 'studio' | 'backtest' }) {
                   ))}
                 </DataTable>
                 {result.positions.length > 0 && (
-                  <DataTable headers={['Position', 'Quantity']} label="Simulated positions">
+                  <DataTable
+                    headers={[copyText('quant.position'), copyText('quant.quantity')]}
+                    label={copyText('quant.simulated.positions')}
+                  >
                     {result.positions.map((p) => (
                       <tr key={p.symbol}>
                         <td>{p.symbol}</td>
@@ -209,29 +229,31 @@ export function Quant({ mode }: { mode: 'sandbox' | 'studio' | 'backtest' }) {
                 )}
               </>
             ) : (
-              <p className="muted">Run the connected isolate to receive its logs, fills, and positions.</p>
+              <p className="muted">
+                <Text k="quant.run.the.connected.isolate.to.receive.its" />
+              </p>
             )}
           </Panel>
         </div>
       ) : mode === 'studio' ? (
         <div className="more-columns">
-          <Panel title="Build a strategy">
+          <Panel title={copyText('quant.build.a.strategy')}>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 action.stage({
-                  title: 'Review strategy',
-                  confirm: 'Save strategy',
-                  success: 'Strategy saved in the deployment catalogue',
+                  title: copyText('quant.review.strategy'),
+                  confirm: copyText('quant.save.strategy'),
+                  success: copyText('quant.strategy.saved.in.the.deployment.catalogue'),
                   content: (
                     <Details
                       items={[
-                        ['Name', name],
-                        ['Blocks', blocks.map((b) => `${b.side} ${b.qty} ${b.symbol}`).join('\n')],
-                        ['Simulation cash', cash],
-                        ['Max drawdown', drawdown],
-                        ['Max notional', notional],
-                        ['Kill threshold', kill],
+                        [copyText('quant.name'), name],
+                        [copyText('quant.blocks'), blocks.map((b) => `${b.side} ${b.qty} ${b.symbol}`).join('\n')],
+                        [copyText('quant.simulation.cash'), cash],
+                        [copyText('quant.max.drawdown'), drawdown],
+                        [copyText('quant.max.notional'), notional],
+                        [copyText('quant.kill.threshold'), kill],
                       ]}
                     />
                   ),
@@ -253,44 +275,65 @@ export function Quant({ mode }: { mode: 'sandbox' | 'studio' | 'backtest' }) {
                 });
               }}
             >
-              <Field label="Strategy name" value={name} onChange={(e) => setName(e.target.value)} maxLength={128} />
-              <Field label="Simulated starting cash" value={cash} onChange={(e) => setCash(e.target.value)} inputMode="decimal" />
+              <Field label={copyText('quant.strategy.name')} value={name} onChange={(e) => setName(e.target.value)} maxLength={128} />
+              <Field
+                label={copyText('quant.simulated.starting.cash')}
+                value={cash}
+                onChange={(e) => setCash(e.target.value)}
+                inputMode="decimal"
+              />
               {blocks.map((b, i) => (
                 <fieldset key={i}>
-                  <legend>Order block {i + 1}</legend>
+                  <legend>
+                    <Text k="quant.order.block" />
+                    {i + 1}
+                  </legend>
                   <Select
-                    label={`Block ${i + 1} side`}
+                    label={copyText('quant.block.side', { value1: i + 1 })}
                     value={b.side}
                     onChange={(v) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, side: v as 'buy' | 'sell' } : r)))}
                     options={['buy', 'sell']}
                   />
                   <Field
-                    label={`Block ${i + 1} symbol`}
+                    label={copyText('quant.block.symbol', { value1: i + 1 })}
                     value={b.symbol}
                     onChange={(e) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, symbol: e.target.value } : r)))}
                     maxLength={32}
                   />
                   <Field
-                    label={`Block ${i + 1} quantity`}
+                    label={copyText('quant.block.quantity', { value1: i + 1 })}
                     value={b.qty}
                     onChange={(e) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, qty: e.target.value } : r)))}
                     inputMode="decimal"
                   />
                   {blocks.length > 1 && (
                     <Button variant="ghost" onClick={() => setBlocks((rows) => rows.filter((_, j) => j !== i))}>
-                      Remove block {i + 1}
+                      <Text k="quant.remove.block" />
+                      {i + 1}
                     </Button>
                   )}
                 </fieldset>
               ))}
               <Button variant="secondary" onClick={() => setBlocks((rows) => [...rows, { side: 'buy', symbol: '', qty: '' }])}>
-                Add block
+                <Text k="quant.add.block" />
               </Button>
-              <Field label="Max drawdown (service unit unspecified)" value={drawdown} onChange={(e) => setDrawdown(e.target.value)} />
-              <Field label="Max notional (service unit unspecified)" value={notional} onChange={(e) => setNotional(e.target.value)} />
-              <Field label="Kill threshold (service unit unspecified)" value={kill} onChange={(e) => setKill(e.target.value)} />
+              <Field
+                label={copyText('quant.max.drawdown.service.unit.unspecified')}
+                value={drawdown}
+                onChange={(e) => setDrawdown(e.target.value)}
+              />
+              <Field
+                label={copyText('quant.max.notional.service.unit.unspecified')}
+                value={notional}
+                onChange={(e) => setNotional(e.target.value)}
+              />
+              <Field
+                label={copyText('quant.kill.threshold.service.unit.unspecified')}
+                value={kill}
+                onChange={(e) => setKill(e.target.value)}
+              />
               <Button type="submit" disabled={action.disabled || !name.trim() || !validCash || !validRisk || !validBlocks}>
-                Review strategy
+                <Text k="quant.review.strategy" />
               </Button>
             </form>
           </Panel>
@@ -311,26 +354,26 @@ export function Quant({ mode }: { mode: 'sandbox' | 'studio' | 'backtest' }) {
       ) : (
         <div className="more-columns">
           <div>
-            <Panel title="Walk-forward backtest">
+            <Panel title={copyText('quant.walk.forward.backtest')}>
               <p className="muted">
-                The service reads historical fills from its data lake. Ordered, disjoint windows and evidence for all costs are required.
+                <Text k="quant.the.service.reads.historical.fills.from.its" />
               </p>
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
                   action.stage({
-                    title: 'Review historical simulation',
-                    confirm: 'Run backtest',
-                    success: 'Historical simulation received',
+                    title: copyText('quant.review.historical.simulation'),
+                    confirm: copyText('quant.run.backtest'),
+                    success: copyText('quant.historical.simulation.received'),
                     content: (
                       <Details
                         items={[
-                          ['Strategy', strategyId],
-                          ['Symbol', symbol],
-                          ['In sample', `${isFrom} → ${isTo}`],
-                          ['Out of sample', `${oosFrom} → ${oosTo}`],
-                          ['Evidence verdict', verdict],
-                          ['Variants tested', variants],
+                          [copyText('quant.strategy'), strategyId],
+                          [copyText('quant.symbol'), symbol],
+                          [copyText('quant.in.sample'), `${isFrom} → ${isTo}`],
+                          [copyText('quant.out.of.sample'), `${oosFrom} → ${oosTo}`],
+                          [copyText('quant.evidence.verdict'), verdict],
+                          [copyText('quant.variants.tested'), variants],
                         ]}
                       />
                     ),
@@ -365,13 +408,13 @@ export function Quant({ mode }: { mode: 'sandbox' | 'studio' | 'backtest' }) {
                   });
                 }}
               >
-                <Field label="Strategy ID" value={strategyId} onChange={(e) => setStrategyId(e.target.value)} />
-                <Field label="Historical symbol" value={symbol} onChange={(e) => setSymbol(e.target.value)} />
+                <Field label={copyText('quant.strategy.id')} value={strategyId} onChange={(e) => setStrategyId(e.target.value)} />
+                <Field label={copyText('quant.historical.symbol')} value={symbol} onChange={(e) => setSymbol(e.target.value)} />
                 {[
-                  ['In-sample start', isFrom, setIsFrom],
-                  ['In-sample end', isTo, setIsTo],
-                  ['Out-of-sample start', oosFrom, setOosFrom],
-                  ['Out-of-sample end', oosTo, setOosTo],
+                  [copyText('quant.in.sample.start'), isFrom, setIsFrom],
+                  [copyText('quant.in.sample.end'), isTo, setIsTo],
+                  [copyText('quant.out.of.sample.start'), oosFrom, setOosFrom],
+                  [copyText('quant.out.of.sample.end'), oosTo, setOosTo],
                 ].map(([label, value, set]) => (
                   <Field
                     key={label as string}
@@ -382,22 +425,25 @@ export function Quant({ mode }: { mode: 'sandbox' | 'studio' | 'backtest' }) {
                   />
                 ))}
                 <Select
-                  label="Evidence-based out-of-sample verdict"
+                  label={copyText('quant.evidence.based.out.of.sample.verdict')}
                   value={verdict}
                   onChange={setVerdict}
                   options={['passed', 'failed', 'inconclusive']}
                 />
                 <Field
-                  label="Number of strategy variants tested"
+                  label={copyText('quant.number.of.strategy.variants.tested')}
                   value={variants}
                   onChange={(e) => setVariants(e.target.value)}
                   inputMode="numeric"
                 />
                 {(['fees', 'slippage', 'latency'] as const).map((key) => (
                   <fieldset key={key}>
-                    <legend>{key} evidence</legend>
+                    <legend>
+                      {key}
+                      <Text k="quant.evidence" />
+                    </legend>
                     <Select
-                      label={`${key} model`}
+                      label={copyText('quant.model', { value1: key })}
                       value={models[key]}
                       onChange={(value) => setModels((v) => ({ ...v, [key]: value }))}
                       options={
@@ -409,7 +455,7 @@ export function Quant({ mode }: { mode: 'sandbox' | 'studio' | 'backtest' }) {
                       }
                     />
                     <Field
-                      label={`${key} evidence source`}
+                      label={copyText('quant.evidence.source', { value1: key })}
                       value={evidence[key]}
                       onChange={(e) => setEvidence((v) => ({ ...v, [key]: e.target.value }))}
                     />
@@ -432,30 +478,33 @@ export function Quant({ mode }: { mode: 'sandbox' | 'studio' | 'backtest' }) {
                     !Object.values(evidence).every((v) => v.trim())
                   }
                 >
-                  Review backtest
+                  <Text k="quant.review.backtest" />
                 </Button>
               </form>
             </Panel>
             <Saved resource={saved} limit={limit} setLimit={setLimit} onPick={(s) => setStrategyId(s.id)} />
           </div>
-          <Panel title="Historical result">
+          <Panel title={copyText('quant.historical.result')}>
             {bt ? (
               <>
                 <p>{bt.claimLabel}</p>
                 <p>{bt.outOfSampleLabel}</p>
                 <Details
                   items={[
-                    ['Run', bt.runId],
-                    ['In-sample fills', bt.inSample.fillCount],
-                    ['In-sample notional', `${bt.inSample.notional} historical quote units`],
-                    ['Out-of-sample fills', bt.outOfSample.fillCount],
-                    ['Out-of-sample notional', `${bt.outOfSample.notional} historical quote units`],
+                    [copyText('quant.run'), bt.runId],
+                    [copyText('quant.in.sample.fills'), bt.inSample.fillCount],
+                    [copyText('quant.in.sample.notional'), copyText('quant.historical.quote.units', { amount: bt.inSample.notional })],
+                    [copyText('quant.out.of.sample.fills'), bt.outOfSample.fillCount],
+                    [
+                      copyText('quant.out.of.sample.notional'),
+                      copyText('quant.historical.quote.units', { amount: bt.outOfSample.notional }),
+                    ],
                   ]}
                 />
               </>
             ) : (
               <p className="muted">
-                A connected data lake and valid evidence are needed. This screen creates no forecast or return percentage.
+                <Text k="quant.a.connected.data.lake.and.valid.evidence" />
               </p>
             )}
           </Panel>
@@ -478,11 +527,11 @@ function Saved({
   onPick: (s: z.infer<typeof strategy>) => void;
 }) {
   return (
-    <Panel title="Deployment strategy catalogue">
+    <Panel title={copyText('quant.deployment.strategy.catalogue')}>
       <p className="muted">
-        This service stores a shared in-process catalogue. It publishes no private per-account storage or durable history.
+        <Text k="quant.this.service.stores.a.shared.in.process" />
       </p>
-      <Read resource={resource.resource} retry={resource.reload} empty="No strategies are saved">
+      <Read resource={resource.resource} retry={resource.reload} empty={copyText('quant.no.strategies.are.saved')}>
         {(data) => (
           <>
             <div className="more-grid">
@@ -494,7 +543,8 @@ function Saved({
                   </small>
                   <pre className="more-body">{s.source}</pre>
                   <Button variant="secondary" onClick={() => onPick(s)}>
-                    Use {s.name}
+                    <Text k="quant.use" />
+                    {s.name}
                   </Button>
                 </article>
               ))}

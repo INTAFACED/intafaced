@@ -98,7 +98,10 @@ test('Bank refuses to dispatch when the original request cannot be durably saved
   let sends = 0;
   await defaultApi(page, {
     'spaces.list': (route) => reply(route, [primary]),
-    'transfers.create': (route) => { sends++; return reply(route, { ledgerTxId: 'unexpected', amount: '0.000000000000000001' }); },
+    'transfers.create': (route) => {
+      sends++;
+      return reply(route, { ledgerTxId: 'unexpected', amount: '0.000000000000000001' });
+    },
   });
   await mount(page, `/bank/transfers?from=${fromId}`);
   await page.evaluate(() => {
@@ -115,6 +118,16 @@ test('Bank refuses to dispatch when the original request cannot be durably saved
   await page.getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(page.getByText('Recovery storage is unavailable. No Bank request was sent.')).toBeVisible();
   expect(sends).toBe(0);
+});
+
+test('failed Bank balance sources stay unavailable instead of claiming an empty returned projection', async ({ page }) => {
+  await page.route('**/api/**', (route) =>
+    route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { message: 'Unavailable' } }) }),
+  );
+  await mount(page, '/bank');
+  await expect(page.getByText('Holdings could not be loaded.')).toBeVisible();
+  await expect(page.getByText('No available quantities returned')).toHaveCount(0);
+  await expect(page.getByText(/An empty projection/)).toHaveCount(0);
 });
 async function defaultApi(page, overrides = {}) {
   await page.route('**/api/**', async (route) => {
@@ -239,7 +252,7 @@ test('Bank membership never enables company writes or duplicates personal money 
 test('honest absence fits desktop, tablet, phone and narrow phone and has no serious accessibility issues', async ({ page }) => {
   await defaultApi(page);
   await mount(page, '/bank');
-  await expect(page.getByText('No user ledger accounts returned')).toBeVisible();
+  await expect(page.getByText('No account balances returned')).toBeVisible();
   for (const width of [1440, 1024, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

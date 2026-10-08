@@ -1,3 +1,4 @@
+import { copy, t as copyText, Text } from './copy';
 import { useEffect, useState } from 'react';
 import { Page, Button } from '../../shared/ui';
 import { usePreferences, savePreferences } from '../../shared/preferences';
@@ -9,7 +10,8 @@ export function ApplyView() {
   useEffect(() => {
     const media = matchMedia('(prefers-color-scheme: light)');
     const apply = () => {
-      document.documentElement.dataset.theme = preferences.theme === 'system' ? (media.matches ? 'light' : 'dark') : preferences.theme;
+      document.documentElement.dataset.theme =
+        preferences.theme === 'system' ? (media.matches ? copyText('view.light.2') : copyText('view.dark.2')) : preferences.theme;
       document.documentElement.dataset.upColor = preferences.upColor;
       document.documentElement.dataset.phoneChart = preferences.phoneChart;
       document.documentElement.lang = renderedUiLanguage(preferences.language);
@@ -24,206 +26,264 @@ export function View() {
   const preferences = usePreferences();
   const [note, setNote] = useState('');
   function saved() {
-    setNote('Preferences saved on this device.');
+    setNote(copyText('view.preferences.saved.on.this.device'));
   }
   return (
-    <Page title="View" description="Choose how the product feels on this device. Account-wide preference sync is not connected.">
-      <div className="settings-grid">
-        <section className="settings-section">
-          <h2>Appearance</h2>
-          <label className="field">
-            <span>Theme</span>
-            <select
-              aria-label="Theme"
-              value={preferences.theme}
-              onChange={(event) => {
-                savePreferences({ theme: event.target.value as 'dark' | 'light' | 'system' });
+    <div lang={preferences.language} style={{ display: 'contents' }}>
+      <Page title={copyText('view.view')} description={copyText('view.choose.how.the.product.feels.on.this')}>
+        <div className="settings-grid">
+          <section className="settings-section">
+            <h2>
+              <Text k="view.appearance" />
+            </h2>
+            <label className="field">
+              <span>
+                <Text k="view.theme" />
+              </span>
+              <select
+                aria-label={copyText('view.theme')}
+                value={preferences.theme}
+                onChange={(event) => {
+                  savePreferences({ theme: event.target.value as 'dark' | 'light' | 'system' });
+                  saved();
+                }}
+              >
+                <option value="dark" lang={copy.forLocale(preferences.language).languageFor('view.dark')}>
+                  {copyText('view.dark')}
+                </option>
+                <option value="light" lang={copy.forLocale(preferences.language).languageFor('view.light')}>
+                  {copyText('view.light')}
+                </option>
+                <option value="system" lang={copy.forLocale(preferences.language).languageFor('view.match.device')}>
+                  {copyText('view.match.device')}
+                </option>
+              </select>
+            </label>
+            <label className="field">
+              <span>
+                <Text k="view.language" />
+              </span>
+              <select
+                aria-label={copyText('view.language')}
+                value={preferences.language}
+                onChange={(event) => {
+                  savePreferences({ language: event.target.value as 'en' | 'es' | 'fr' });
+                  saved();
+                }}
+              >
+                <option value="en" lang={copy.forLocale(preferences.language).languageFor('view.english')}>
+                  {copyText('view.english')}
+                </option>
+                <option value="es" lang={copy.forLocale(preferences.language).languageFor('view.espa.ol.partial')}>
+                  {copyText('view.espa.ol.partial')}
+                </option>
+                <option value="fr" lang={copy.forLocale(preferences.language).languageFor('view.fran.ais.partial')}>
+                  {copyText('view.fran.ais.partial')}
+                </option>
+              </select>
+              <small>
+                <Text k="view.published.translations.are.used.where.available.new" />
+              </small>
+            </label>
+          </section>
+          <section className="settings-section">
+            <h2>
+              <Text k="view.money" />
+            </h2>
+            <Toggle
+              label={copyText('view.hide.balance.values')}
+              checked={preferences.hideBalances}
+              onChange={(value) => {
+                savePreferences({ hideBalances: value });
                 saved();
               }}
-            >
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-              <option value="system">Match device</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>Language</span>
-            <select
-              aria-label="Language"
-              value={preferences.language}
-              onChange={(event) => {
-                savePreferences({ language: event.target.value as 'en' | 'es' | 'fr' });
+            />
+            <label className="field">
+              <span>
+                <Text k="view.display.currency" />
+              </span>
+              <select
+                aria-label={copyText('view.display.currency')}
+                value={preferences.displayCurrency}
+                onChange={(event) => {
+                  savePreferences({ displayCurrency: event.target.value as 'USD' | 'BTC' });
+                  saved();
+                }}
+              >
+                <option value="USD">USD</option>
+                <option value="BTC">BTC</option>
+              </select>
+              <small>
+                <Text k="view.a.converted.total.requires.a.complete.valuation" />
+              </small>
+            </label>
+            <div className="notice">
+              <Text k="view.hiding.small.balances.requires.a.valuation.threshold" />
+            </div>
+          </section>
+          <section className="settings-section">
+            <h2>
+              <Text k="view.chart.display" />
+            </h2>
+            <label className="field">
+              <span>
+                <Text k="view.up.and.down.colors" />
+              </span>
+              <select
+                aria-label={copyText('view.up.and.down.colors')}
+                value={preferences.upColor}
+                onChange={(event) => {
+                  savePreferences({ upColor: event.target.value as 'green' | 'red' });
+                  saved();
+                }}
+              >
+                <option value="green" lang={copy.forLocale(preferences.language).languageFor('view.green.up.red.down')}>
+                  {copyText('view.green.up.red.down')}
+                </option>
+                <option value="red" lang={copy.forLocale(preferences.language).languageFor('view.red.up.green.down')}>
+                  {copyText('view.red.up.green.down')}
+                </option>
+              </select>
+            </label>
+            <label className="field">
+              <span>
+                <Text k="view.chart.on.phone" />
+              </span>
+              <select
+                aria-label={copyText('view.chart.on.phone')}
+                value={preferences.phoneChart}
+                onChange={(event) => {
+                  savePreferences({ phoneChart: event.target.value as 'top' | 'bottom' | 'hidden' });
+                  saved();
+                }}
+              >
+                <option value="top" lang={copy.forLocale(preferences.language).languageFor('view.top')}>
+                  {copyText('view.top')}
+                </option>
+                <option value="bottom" lang={copy.forLocale(preferences.language).languageFor('view.bottom')}>
+                  {copyText('view.bottom')}
+                </option>
+                <option value="hidden" lang={copy.forLocale(preferences.language).languageFor('view.hidden')}>
+                  {copyText('view.hidden')}
+                </option>
+              </select>
+            </label>
+            <label className="field">
+              <span>
+                <Text k="view.chart.time.labels" />
+              </span>
+              <select
+                aria-label={copyText('view.chart.time.labels')}
+                value={preferences.timeZone}
+                onChange={(event) => {
+                  savePreferences({ timeZone: event.target.value as 'UTC' | 'UTC+8' | 'device' });
+                  saved();
+                }}
+              >
+                <option value="UTC">UTC</option>
+                <option value="UTC+8">UTC+8</option>
+                <option value="device" lang={copy.forLocale(preferences.language).languageFor('view.device.time.zone')}>
+                  {copyText('view.device.time.zone')}
+                </option>
+              </select>
+              <small>
+                <Text k="view.daily.candle.boundaries.follow.the.history.service" />
+              </small>
+            </label>
+            <Toggle
+              label={copyText('view.show.working.orders')}
+              checked={preferences.showOrders}
+              onChange={(value) => {
+                savePreferences({ showOrders: value });
                 saved();
               }}
-            >
-              <option value="en">English</option>
-              <option value="es">Español — partial</option>
-              <option value="fr">Français — partial</option>
-            </select>
-            <small>Published translations are used where available. New interface copy currently uses English.</small>
-          </label>
-        </section>
-        <section className="settings-section">
-          <h2>Money</h2>
-          <Toggle
-            label="Hide balance values"
-            checked={preferences.hideBalances}
-            onChange={(value) => {
-              savePreferences({ hideBalances: value });
+            />
+            <Toggle
+              label={copyText('view.show.old.fills')}
+              checked={preferences.showFills}
+              onChange={(value) => {
+                savePreferences({ showFills: value });
+                saved();
+              }}
+            />
+          </section>
+          <section className="settings-section">
+            <h2>
+              <Text k="view.trading.preferences" />
+            </h2>
+            <Toggle
+              label={copyText('view.confirm.before.send')}
+              checked={preferences.confirmSend}
+              onChange={(value) => {
+                savePreferences({ confirmSend: value });
+                saved();
+              }}
+            />
+            <Toggle
+              label={copyText('view.confirm.before.cancel')}
+              checked={preferences.confirmCancel}
+              onChange={(value) => {
+                savePreferences({ confirmCancel: value });
+                saved();
+              }}
+            />
+            <p className="muted">
+              <Text k="view.an.authoritative.price.fee.and.funds.review" />
+            </p>
+            <label className="field">
+              <span>
+                <Text k="view.favorites.view" />
+              </span>
+              <select
+                aria-label={copyText('view.favorites.view')}
+                value={preferences.favoritesView}
+                onChange={(event) => {
+                  savePreferences({ favoritesView: event.target.value as 'list' | 'cards' });
+                  saved();
+                }}
+              >
+                <option value="list" lang={copy.forLocale(preferences.language).languageFor('view.list')}>
+                  {copyText('view.list')}
+                </option>
+                <option value="cards" lang={copy.forLocale(preferences.language).languageFor('view.cards')}>
+                  {copyText('view.cards')}
+                </option>
+              </select>
+            </label>
+            <div className="notice">
+              <Text k="view.futures.cooling.off.and.shared.drawings.require" />
+            </div>
+          </section>
+        </div>
+        <div className="actions section">
+          <Button
+            variant="secondary"
+            onClick={() => {
+              savePreferences({
+                theme: 'dark',
+                language: 'en',
+                hideBalances: false,
+                displayCurrency: 'USD',
+                phoneChart: 'top',
+                upColor: 'green',
+                timeZone: 'UTC',
+                showOrders: true,
+                showFills: false,
+                confirmSend: true,
+                confirmCancel: true,
+                favoritesView: 'list',
+              });
               saved();
             }}
-          />
-          <label className="field">
-            <span>Display currency</span>
-            <select
-              aria-label="Display currency"
-              value={preferences.displayCurrency}
-              onChange={(event) => {
-                savePreferences({ displayCurrency: event.target.value as 'USD' | 'BTC' });
-                saved();
-              }}
-            >
-              <option value="USD">USD</option>
-              <option value="BTC">BTC</option>
-            </select>
-            <small>A converted total requires a complete valuation source. Asset quantities retain their own units.</small>
-          </label>
-          <div className="notice">
-            Hiding small balances requires a valuation threshold. That control is unavailable while valuation coverage is missing.
-          </div>
-        </section>
-        <section className="settings-section">
-          <h2>Chart display</h2>
-          <label className="field">
-            <span>Up and down colors</span>
-            <select
-              aria-label="Up and down colors"
-              value={preferences.upColor}
-              onChange={(event) => {
-                savePreferences({ upColor: event.target.value as 'green' | 'red' });
-                saved();
-              }}
-            >
-              <option value="green">Green up · red down</option>
-              <option value="red">Red up · green down</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>Chart on phone</span>
-            <select
-              aria-label="Chart on phone"
-              value={preferences.phoneChart}
-              onChange={(event) => {
-                savePreferences({ phoneChart: event.target.value as 'top' | 'bottom' | 'hidden' });
-                saved();
-              }}
-            >
-              <option value="top">Top</option>
-              <option value="bottom">Bottom</option>
-              <option value="hidden">Hidden</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>Chart time labels</span>
-            <select
-              aria-label="Chart time labels"
-              value={preferences.timeZone}
-              onChange={(event) => {
-                savePreferences({ timeZone: event.target.value as 'UTC' | 'UTC+8' | 'device' });
-                saved();
-              }}
-            >
-              <option value="UTC">UTC</option>
-              <option value="UTC+8">UTC+8</option>
-              <option value="device">Device time zone</option>
-            </select>
-            <small>Daily candle boundaries follow the history service. Changing their start is not supported by that contract.</small>
-          </label>
-          <Toggle
-            label="Show working orders"
-            checked={preferences.showOrders}
-            onChange={(value) => {
-              savePreferences({ showOrders: value });
-              saved();
-            }}
-          />
-          <Toggle
-            label="Show old fills"
-            checked={preferences.showFills}
-            onChange={(value) => {
-              savePreferences({ showFills: value });
-              saved();
-            }}
-          />
-        </section>
-        <section className="settings-section">
-          <h2>Trading preferences</h2>
-          <Toggle
-            label="Confirm before send"
-            checked={preferences.confirmSend}
-            onChange={(value) => {
-              savePreferences({ confirmSend: value });
-              saved();
-            }}
-          />
-          <Toggle
-            label="Confirm before cancel"
-            checked={preferences.confirmCancel}
-            onChange={(value) => {
-              savePreferences({ confirmCancel: value });
-              saved();
-            }}
-          />
-          <p className="muted">
-            An authoritative price, fee and funds review is still required. An uncertain request stays locked until its outcome is checked.
+          >
+            <Text k="view.restore.defaults" />
+          </Button>
+          <p role="status" className="muted">
+            {note}
           </p>
-          <label className="field">
-            <span>Favorites view</span>
-            <select
-              aria-label="Favorites view"
-              value={preferences.favoritesView}
-              onChange={(event) => {
-                savePreferences({ favoritesView: event.target.value as 'list' | 'cards' });
-                saved();
-              }}
-            >
-              <option value="list">List</option>
-              <option value="cards">Cards</option>
-            </select>
-          </label>
-          <div className="notice">
-            Futures cooling-off and shared drawings require authoritative account contracts. They cannot be enforced by a device preference.
-          </div>
-        </section>
-      </div>
-      <div className="actions section">
-        <Button
-          variant="secondary"
-          onClick={() => {
-            savePreferences({
-              theme: 'dark',
-              language: 'en',
-              hideBalances: false,
-              displayCurrency: 'USD',
-              phoneChart: 'top',
-              upColor: 'green',
-              timeZone: 'UTC',
-              showOrders: true,
-              showFills: false,
-              confirmSend: true,
-              confirmCancel: true,
-              favoritesView: 'list',
-            });
-            saved();
-          }}
-        >
-          Restore defaults
-        </Button>
-        <p role="status" className="muted">
-          {note}
-        </p>
-      </div>
-    </Page>
+        </div>
+      </Page>
+    </div>
   );
 }
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {

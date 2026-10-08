@@ -1,3 +1,4 @@
+import { t as copyText, Text } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
@@ -57,8 +58,8 @@ export function AcademyRooms({ action }: { action: ReturnType<typeof useAction> 
   return (
     <div className="more-columns">
       <div>
-        <Panel title="Learning rooms">
-          <Read resource={rooms.resource} retry={rooms.reload} empty="No learning rooms are open">
+        <Panel title={copyText('academyrooms.learning.rooms')}>
+          <Read resource={rooms.resource} retry={rooms.reload} empty={copyText('academyrooms.no.learning.rooms.are.open')}>
             {(rows) => (
               <>
                 <div className="more-rooms">
@@ -66,7 +67,9 @@ export function AcademyRooms({ action }: { action: ReturnType<typeof useAction> 
                     <article className="more-room-link" key={r.id}>
                       <strong>{r.name}</strong>
                       <p>
-                        {r.kind} · {r.access} · capacity {r.capacity}
+                        {r.kind} · {r.access}
+                        <Text k="academyrooms.capacity" />
+                        {r.capacity}
                       </p>
                       <Button
                         variant="secondary"
@@ -75,7 +78,8 @@ export function AcademyRooms({ action }: { action: ReturnType<typeof useAction> 
                           setSceneId('');
                         }}
                       >
-                        Open {r.name}
+                        <Text k="academyrooms.open" />
+                        {r.name}
                       </Button>
                     </article>
                   ))}
@@ -85,36 +89,45 @@ export function AcademyRooms({ action }: { action: ReturnType<typeof useAction> 
             )}
           </Read>
         </Panel>
-        <Panel title="Room and sessions">
-          <Read resource={detail.resource} retry={detail.reload} empty="Choose a room">
+        <Panel title={copyText('academyrooms.room.and.sessions')}>
+          <Read resource={detail.resource} retry={detail.reload} empty={copyText('academyrooms.choose.a.room')}>
             {(data) =>
               data ? (
                 <>
                   <h2>{data.room.name}</h2>
                   <Details
                     items={[
-                      ['Access', data.room.access],
-                      ['Stake threshold', `${data.room.minStake} · configured token units`],
-                      ['Capacity', data.room.capacity],
-                      ['Host', data.room.hostId],
+                      [copyText('academyrooms.access'), data.room.access],
+                      [
+                        copyText('academyrooms.stake.threshold'),
+                        copyText('academyrooms.configured.token.units', { amount: data.room.minStake }),
+                      ],
+                      [copyText('academyrooms.capacity.2'), data.room.capacity],
+                      [copyText('academyrooms.host'), data.room.hostId],
                     ]}
                   />
                   {data.sessions.map((s) => (
                     <article key={s.id} className="more-session">
                       <h3>{s.title}</h3>
                       <p>
-                        {s.status} · starts {s.startsAt}
+                        {s.status}
+                        <Text k="academyrooms.starts" />
+                        {s.startsAt}
                       </p>
                       <div className="actions">
                         <Button
                           disabled={action.disabled || s.status !== 'live'}
                           onClick={() =>
                             action.stage({
-                              title: 'Review room seat',
-                              confirm: 'Join session',
-                              success: 'Seat confirmed',
+                              title: copyText('academyrooms.review.room.seat'),
+                              confirm: copyText('academyrooms.join.session'),
+                              success: copyText('academyrooms.seat.confirmed'),
                               content: (
-                                <p>Join {s.title}. The service enforces room capacity, invitations and stake access for your account.</p>
+                                <p>
+                                  <Text k="academyrooms.join" />
+                                  {s.title}
+                                  <Text k="academyrooms.the.service.enforces.room.capacity.invitations.and" />
+                                </p>
                               ),
                               run: async () => {
                                 const result = await api.mutate(
@@ -130,17 +143,22 @@ export function AcademyRooms({ action }: { action: ReturnType<typeof useAction> 
                             })
                           }
                         >
-                          Join
+                          <Text k="academyrooms.join.2" />
                         </Button>
                         <Button
                           variant="secondary"
                           disabled={action.disabled}
                           onClick={() =>
                             action.stage({
-                              title: 'Leave session',
-                              confirm: 'Leave session',
-                              success: 'Seat released',
-                              content: <p>Leave {s.title}.</p>,
+                              title: copyText('academyrooms.leave.session'),
+                              confirm: copyText('academyrooms.leave.session'),
+                              success: copyText('academyrooms.seat.released'),
+                              content: (
+                                <p>
+                                  <Text k="academyrooms.leave" />
+                                  {s.title}.
+                                </p>
+                              ),
                               run: () => api.mutate('academy', 'leave', { sessionId: s.id }, z.object({ ok: z.literal(true) })),
                               done: () => {
                                 setSeat('');
@@ -149,10 +167,10 @@ export function AcademyRooms({ action }: { action: ReturnType<typeof useAction> 
                             })
                           }
                         >
-                          Leave
+                          <Text k="academyrooms.leave.2" />
                         </Button>
                         <Button variant="secondary" onClick={() => setSceneId(s.id)}>
-                          Open scene
+                          <Text k="academyrooms.open.scene" />
                         </Button>
                         {s.hostId === userId && (
                           <>
@@ -161,63 +179,86 @@ export function AcademyRooms({ action }: { action: ReturnType<typeof useAction> 
                               disabled={action.disabled || s.status !== 'scheduled'}
                               onClick={() =>
                                 action.stage({
-                                  title: 'Start hosted session',
-                                  confirm: 'Start session',
-                                  success: 'Session started',
-                                  content: <p>Start {s.title} for its participants.</p>,
+                                  title: copyText('academyrooms.start.hosted.session'),
+                                  confirm: copyText('academyrooms.start.session'),
+                                  success: copyText('academyrooms.session.started'),
+                                  content: (
+                                    <p>
+                                      <Text k="academyrooms.start" />
+                                      {s.title}
+                                      <Text k="academyrooms.for.its.participants" />
+                                    </p>
+                                  ),
                                   run: () => api.mutate('academy', 'startSession', { sessionId: s.id }, session),
                                   done: detail.reload,
                                 })
                               }
                             >
-                              Start
+                              <Text k="academyrooms.start.2" />
                             </Button>
                             <Button
                               variant="secondary"
                               disabled={action.disabled || s.status !== 'live'}
                               onClick={() =>
                                 action.stage({
-                                  title: 'End hosted session',
-                                  confirm: 'End session',
-                                  success: 'Session ended',
-                                  content: <p>End {s.title} for all participants.</p>,
+                                  title: copyText('academyrooms.end.hosted.session'),
+                                  confirm: copyText('academyrooms.end.session'),
+                                  success: copyText('academyrooms.session.ended'),
+                                  content: (
+                                    <p>
+                                      <Text k="academyrooms.end" />
+                                      {s.title}
+                                      <Text k="academyrooms.for.all.participants" />
+                                    </p>
+                                  ),
                                   run: () => api.mutate('academy', 'endSession', { sessionId: s.id }, session),
                                   done: detail.reload,
                                 })
                               }
                             >
-                              End
+                              <Text k="academyrooms.end.2" />
                             </Button>
                           </>
                         )}
                       </div>
                       <p className="muted">
                         {s.streamProvider === 'livekit'
-                          ? 'Audio/video uses the service-granted LiveKit connection.'
+                          ? copyText('academyrooms.audio.video.uses.the.service.granted.livekit')
                           : s.streamProvider
-                            ? `No client adapter is published for provider ${s.streamProvider}.`
-                            : 'No audio/video provider is connected. The session scene remains readable.'}
+                            ? copyText('academyrooms.no.client.adapter.is.published.for.provider', { value1: s.streamProvider })
+                            : copyText('academyrooms.no.audio.video.provider.is.connected.the')}
                       </p>
                       {s.streamProvider === 'livekit' && <SessionMedia sessionId={s.id} sessionStatus={s.status} />}
                     </article>
                   ))}
-                  {seat && <p role="status">Your confirmed seat: {seat}</p>}
-                  {data.sessions.length === 0 && <p>No sessions are scheduled.</p>}
+                  {seat && (
+                    <p role="status">
+                      <Text k="academyrooms.your.confirmed.seat" />
+                      {seat}
+                    </p>
+                  )}
+                  {data.sessions.length === 0 && (
+                    <p>
+                      <Text k="academyrooms.no.sessions.are.scheduled" />
+                    </p>
+                  )}
                   {data.room.hostId === userId && (
                     <>
-                      <h3>Host tools</h3>
+                      <h3>
+                        <Text k="academyrooms.host.tools" />
+                      </h3>
                       <form
                         onSubmit={(e) => {
                           e.preventDefault();
                           action.stage({
-                            title: 'Review session schedule',
-                            confirm: 'Schedule session',
-                            success: 'Session scheduled',
+                            title: copyText('academyrooms.review.session.schedule'),
+                            confirm: copyText('academyrooms.schedule.session'),
+                            success: copyText('academyrooms.session.scheduled'),
                             content: (
                               <Details
                                 items={[
-                                  ['Title', title],
-                                  ['Starts', starts],
+                                  [copyText('academyrooms.title'), title],
+                                  [copyText('academyrooms.starts.2'), starts],
                                 ]}
                               />
                             ),
@@ -232,24 +273,34 @@ export function AcademyRooms({ action }: { action: ReturnType<typeof useAction> 
                           });
                         }}
                       >
-                        <Field label="Session title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={160} />
-                        <Field label="Session starts at" type="datetime-local" value={starts} onChange={(e) => setStarts(e.target.value)} />
+                        <Field
+                          label={copyText('academyrooms.session.title')}
+                          value={title}
+                          onChange={(e) => setTitle(e.target.value)}
+                          maxLength={160}
+                        />
+                        <Field
+                          label={copyText('academyrooms.session.starts.at')}
+                          type="datetime-local"
+                          value={starts}
+                          onChange={(e) => setStarts(e.target.value)}
+                        />
                         <Button type="submit" disabled={action.disabled || !title.trim() || !starts}>
-                          Review schedule
+                          <Text k="academyrooms.review.schedule" />
                         </Button>
                       </form>
                       <form
                         onSubmit={(e) => {
                           e.preventDefault();
                           action.stage({
-                            title: 'Review room invitation',
-                            confirm: 'Send invitation',
-                            success: 'Invitation recorded',
+                            title: copyText('academyrooms.review.room.invitation'),
+                            confirm: copyText('academyrooms.send.invitation'),
+                            success: copyText('academyrooms.invitation.recorded'),
                             content: (
                               <Details
                                 items={[
-                                  ['Account', invite],
-                                  ['Expires', expires || 'No expiry supplied'],
+                                  [copyText('academyrooms.account'), invite],
+                                  [copyText('academyrooms.expires'), expires || copyText('academyrooms.no.expiry.supplied')],
                                 ]}
                               />
                             ),
@@ -263,15 +314,19 @@ export function AcademyRooms({ action }: { action: ReturnType<typeof useAction> 
                           });
                         }}
                       >
-                        <Field label="Invite account ID" value={invite} onChange={(e) => setInvite(e.target.value)} />
                         <Field
-                          label="Invitation expires (optional)"
+                          label={copyText('academyrooms.invite.account.id')}
+                          value={invite}
+                          onChange={(e) => setInvite(e.target.value)}
+                        />
+                        <Field
+                          label={copyText('academyrooms.invitation.expires.optional')}
                           type="datetime-local"
                           value={expires}
                           onChange={(e) => setExpires(e.target.value)}
                         />
                         <Button type="submit" disabled={action.disabled || !uuid.safeParse(invite).success}>
-                          Review invitation
+                          <Text k="academyrooms.review.invitation" />
                         </Button>
                       </form>
                     </>
@@ -283,24 +338,26 @@ export function AcademyRooms({ action }: { action: ReturnType<typeof useAction> 
         </Panel>
         {sceneId && <Scene id={sceneId} action={action} />}
       </div>
-      <Panel title="Host a room">
-        <p className="muted">Hosting rights come from your identity rank. The service checks them before creating a room.</p>
+      <Panel title={copyText('academyrooms.host.a.room')}>
+        <p className="muted">
+          <Text k="academyrooms.hosting.rights.come.from.your.identity.rank" />
+        </p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
             action.stage({
-              title: 'Review new room',
-              confirm: 'Create room',
-              success: 'Room created',
+              title: copyText('academyrooms.review.new.room'),
+              confirm: copyText('academyrooms.create.room'),
+              success: copyText('academyrooms.room.created'),
               content: (
                 <Details
                   items={[
-                    ['Name', name],
-                    ['Slug', slug],
-                    ['Kind', kind],
-                    ['Access', access],
-                    ['Capacity', capacity],
-                    ['Stake threshold', stake || 'No threshold supplied'],
+                    [copyText('academyrooms.name'), name],
+                    [copyText('academyrooms.slug'), slug],
+                    [copyText('academyrooms.kind'), kind],
+                    [copyText('academyrooms.access'), access],
+                    [copyText('academyrooms.capacity.2'), capacity],
+                    [copyText('academyrooms.stake.threshold'), stake || copyText('academyrooms.no.threshold.supplied')],
                   ]}
                 />
               ),
@@ -315,23 +372,28 @@ export function AcademyRooms({ action }: { action: ReturnType<typeof useAction> 
             });
           }}
         >
-          <Field label="Room name" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} />
-          <Field label="Room slug" value={slug} onChange={(e) => setSlug(e.target.value)} maxLength={64} />
+          <Field label={copyText('academyrooms.room.name')} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} />
+          <Field label={copyText('academyrooms.room.slug')} value={slug} onChange={(e) => setSlug(e.target.value)} maxLength={64} />
           <Select
-            label="Room kind"
+            label={copyText('academyrooms.room.kind')}
             value={kind}
             onChange={setKind}
             options={['general', 'futures', 'options', 'meme_war_room', 'forex', 'defi_lab', 'merchant_clinic']}
           />
-          <Select label="Room access" value={access} onChange={setAccess} options={['free', 'staked', 'invite']} />
-          <Field label="Room capacity" value={capacity} onChange={(e) => setCapacity(e.target.value)} inputMode="numeric" />
+          <Select label={copyText('academyrooms.room.access')} value={access} onChange={setAccess} options={['free', 'staked', 'invite']} />
+          <Field
+            label={copyText('academyrooms.room.capacity')}
+            value={capacity}
+            onChange={(e) => setCapacity(e.target.value)}
+            inputMode="numeric"
+          />
           {access === 'staked' && (
             <Field
-              label="Minimum stake (configured token units)"
+              label={copyText('academyrooms.minimum.stake.configured.token.units')}
               value={stake}
               onChange={(e) => setStake(e.target.value)}
               inputMode="decimal"
-              hint="Access threshold only; creating a room does not stake or debit funds."
+              hint={copyText('academyrooms.access.threshold.only.creating.a.room.does')}
             />
           )}
           <Button
@@ -345,7 +407,7 @@ export function AcademyRooms({ action }: { action: ReturnType<typeof useAction> 
               (access === 'staked' && !decimalSchema.safeParse(stake).success)
             }
           >
-            Review room
+            <Text k="academyrooms.review.room" />
           </Button>
         </form>
       </Panel>
@@ -393,18 +455,19 @@ function Scene({ id, action }: { id: string; action: ReturnType<typeof useAction
     `scene:${userId}:${id}`,
   );
   return (
-    <Panel title="Session scene">
+    <Panel title={copyText('academyrooms.session.scene')}>
       <Read resource={data.resource} retry={data.reload}>
         {(d) => (
           <>
             <p>
-              {d.session.title} · {d.occupancy} occupied seats
+              {d.session.title} · {d.occupancy}
+              <Text k="academyrooms.occupied.seats" />
             </p>
             <svg
               viewBox={`0 0 ${d.session.scene.stage?.width ?? 640} ${d.session.scene.stage?.height ?? 360}`}
               style={{ width: '100%', height: 300, border: '1px solid var(--color-border)' }}
               role="img"
-              aria-label="Session scene with participant positions"
+              aria-label={copyText('academyrooms.session.scene.with.participant.positions')}
               onClick={(event) => {
                 if (d.session.hostId !== userId) return;
                 const rect = event.currentTarget.getBoundingClientRect();
@@ -433,15 +496,17 @@ function Scene({ id, action }: { id: string; action: ReturnType<typeof useAction
             </svg>
             {d.session.hostId === userId && (
               <>
-                <p className="muted">Choose a location or use the coordinates, then review a host-position change.</p>
+                <p className="muted">
+                  <Text k="academyrooms.choose.a.location.or.use.the.coordinates" />
+                </p>
                 <Field
-                  label="Host X coordinate"
+                  label={copyText('academyrooms.host.x.coordinate')}
                   type="number"
                   value={point?.x ?? ''}
                   onChange={(e) => setPoint({ x: Number(e.target.value), y: point?.y ?? 0 })}
                 />
                 <Field
-                  label="Host Y coordinate"
+                  label={copyText('academyrooms.host.y.coordinate')}
                   type="number"
                   value={point?.y ?? ''}
                   onChange={(e) => setPoint({ x: point?.x ?? 0, y: Number(e.target.value) })}
@@ -458,13 +523,14 @@ function Scene({ id, action }: { id: string; action: ReturnType<typeof useAction
                       ],
                     };
                     action.stage({
-                      title: 'Review session scene',
-                      confirm: 'Save scene',
-                      success: 'Scene saved',
+                      title: copyText('academyrooms.review.session.scene'),
+                      confirm: copyText('academyrooms.save.scene'),
+                      success: copyText('academyrooms.scene.saved'),
                       content: (
                         <p>
-                          Move your host position to ({point.x}, {point.y}). Other scene objects remain present. A stale scene fingerprint
-                          is refused.
+                          <Text k="academyrooms.move.your.host.position.to" />
+                          {point.x}, {point.y}
+                          <Text k="academyrooms.other.scene.objects.remain.present.a.stale" />
                         </p>
                       ),
                       run: () =>
@@ -481,11 +547,13 @@ function Scene({ id, action }: { id: string; action: ReturnType<typeof useAction
                     });
                   }}
                 >
-                  Review host position
+                  <Text k="academyrooms.review.host.position" />
                 </Button>
               </>
             )}
-            <p className="muted">This is the published 2D scene. A VR client is not connected.</p>
+            <p className="muted">
+              <Text k="academyrooms.this.is.the.published.2d.scene.a" />
+            </p>
           </>
         )}
       </Read>

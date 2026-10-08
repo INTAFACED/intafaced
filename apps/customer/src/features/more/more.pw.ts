@@ -133,7 +133,7 @@ test('private support data with another account identity is refused before rende
     });
   });
   await page.goto('/support');
-  await expect(page.getByText(/The response could not be verified:/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Information could not be verified' })).toBeVisible();
   await expect(page.getByText('Foreign private content')).toHaveCount(0);
 });
 test('numeric listing money is refused at the network boundary', async ({ page }) => {
@@ -162,7 +162,7 @@ test('numeric listing money is refused at the network boundary', async ({ page }
     await route.fulfill({ json: { result: { data } } });
   });
   await page.goto('/market');
-  await expect(page.getByText(/The response could not be verified:/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Information could not be verified' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Buy Numeric offer' })).toHaveCount(0);
 });
 test('Academy media requests a real seat credential and never labels an expired credential connected', async ({ page }) => {
@@ -374,26 +374,48 @@ test('an uncertain purchase survives reload and is recovered only by its origina
 });
 const user = '00000000-0000-4000-8000-000000000001';
 test('Market keeps the original purchase guard for pending responses and pending or unproved recovery rows', async ({ page }) => {
-  let original = '', writes = 0, state: 'pending' | 'unproved' | 'settled' = 'pending';
+  let original = '',
+    writes = 0,
+    state: 'pending' | 'unproved' | 'settled' = 'pending';
   const listing = {
-    id: '00000000-0000-4000-8000-000000000011', vendorId: '00000000-0000-4000-8000-000000000012',
-    title: 'Access', description: 'Published access', offerType: 'one_time', assetId: 'USD',
-    price: '0.000000000000000123', periodSeconds: null, status: 'active',
-    createdAt: '2026-10-08T00:00:00Z', updatedAt: '2026-10-08T00:00:00Z',
+    id: '00000000-0000-4000-8000-000000000011',
+    vendorId: '00000000-0000-4000-8000-000000000012',
+    title: 'Access',
+    description: 'Published access',
+    offerType: 'one_time',
+    assetId: 'USD',
+    price: '0.000000000000000123',
+    periodSeconds: null,
+    status: 'active',
+    createdAt: '2026-10-08T00:00:00Z',
+    updatedAt: '2026-10-08T00:00:00Z',
   };
   const record = () => ({
-    id: original, listingId: listing.id, buyerId: user, vendorId: listing.vendorId,
-    vendorUserId: '00000000-0000-4000-8000-000000000013', assetId: listing.assetId,
-    price: listing.price, commissionBps: 100, status: state === 'pending' ? 'pending' : 'settled',
+    id: original,
+    listingId: listing.id,
+    buyerId: user,
+    vendorId: listing.vendorId,
+    vendorUserId: '00000000-0000-4000-8000-000000000013',
+    assetId: listing.assetId,
+    price: listing.price,
+    commissionBps: 100,
+    status: state === 'pending' ? 'pending' : 'settled',
     ledgerTxId: state === 'settled' ? '00000000-0000-4000-8000-000000000014' : null,
-    rejectionCode: null, createdAt: listing.createdAt, settledAt: state === 'pending' ? null : listing.createdAt, accessUntil: null,
+    rejectionCode: null,
+    createdAt: listing.createdAt,
+    settledAt: state === 'pending' ? null : listing.createdAt,
+    accessUntil: null,
   });
   await page.route('**/api/**', async (route) => {
     const procedure = new URL(route.request().url()).pathname.split('/').at(-1);
     let data: unknown = [];
     if (procedure === 'listings') data = [listing];
     if (procedure === 'commerceProgramme') data = { commissionBps: 100, commissionConfigured: true };
-    if (procedure === 'purchase') { writes++; original = route.request().postDataJSON().purchaseId; data = record(); }
+    if (procedure === 'purchase') {
+      writes++;
+      original = route.request().postDataJSON().purchaseId;
+      data = record();
+    }
     if (procedure === 'myPurchases' && original) data = [record()];
     await route.fulfill({ json: { result: { data } } });
   });
@@ -402,7 +424,9 @@ test('Market keeps the original purchase guard for pending responses and pending
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm purchase' }).click();
   await expect(page.getByText('Original purchase is still pending. Settlement is not confirmed.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Buy Access' })).toBeDisabled();
-  expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!).reference, `intafaced:more:pending:${user}:market`)).toBe(original);
+  expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!).reference, `intafaced:more:pending:${user}:market`)).toBe(
+    original,
+  );
   await page.reload();
   await page.getByRole('button', { name: 'Check original outcome' }).click();
   await expect(page.getByText('Original purchase is still pending. Settlement is not confirmed.')).toBeVisible();

@@ -1,3 +1,4 @@
+import { t as copyText, Text } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
@@ -40,7 +41,10 @@ export function AcademyProgrammes({ action }: { action: ReturnType<typeof useAct
           { limit },
           z
             .array(residency)
-            .refine((rows) => rows.every((row) => row.userId === userId), 'Residency ownership does not match this account'),
+            .refine(
+              (rows) => rows.every((row) => row.userId === userId),
+              copyText('academyprogrammes.residency.ownership.does.not.match.this.account'),
+            ),
           { signal },
         ),
       `residencies:${userId}:${limit}`,
@@ -65,32 +69,45 @@ export function AcademyProgrammes({ action }: { action: ReturnType<typeof useAct
   return (
     <div className="more-columns">
       <div>
-        <Panel title="Your residency applications">
-          <Read resource={mine.resource} retry={mine.reload} empty="You have no residency applications">
+        <Panel title={copyText('academyprogrammes.your.residency.applications')}>
+          <Read resource={mine.resource} retry={mine.reload} empty={copyText('academyprogrammes.you.have.no.residency.applications')}>
             {(rows) => (
               <>
-                <DataTable headers={['Cohort', 'Status', 'Decision', 'Action']} label="Residency applications">
+                <DataTable
+                  headers={[
+                    copyText('academyprogrammes.cohort'),
+                    copyText('academyprogrammes.status'),
+                    copyText('academyprogrammes.decision'),
+                    copyText('academyprogrammes.action'),
+                  ]}
+                  label={copyText('academyprogrammes.residency.applications')}
+                >
                   {rows.map((r) => (
                     <tr key={r.id}>
                       <td>{r.cohortSlug}</td>
                       <td>{r.status}</td>
-                      <td>{r.decisionNote ?? 'No decision recorded'}</td>
+                      <td>{r.decisionNote ?? copyText('academyprogrammes.no.decision.recorded')}</td>
                       <td>
                         <Button
                           variant="secondary"
                           disabled={action.disabled || r.status !== 'applied'}
                           onClick={() =>
                             action.stage({
-                              title: 'Withdraw residency application',
-                              confirm: 'Withdraw application',
-                              success: 'Application withdrawn',
-                              content: <p>Withdraw your application for {r.cohortSlug}.</p>,
+                              title: copyText('academyprogrammes.withdraw.residency.application'),
+                              confirm: copyText('academyprogrammes.withdraw.application'),
+                              success: copyText('academyprogrammes.application.withdrawn'),
+                              content: (
+                                <p>
+                                  <Text k="academyprogrammes.withdraw.your.application.for" />
+                                  {r.cohortSlug}.
+                                </p>
+                              ),
                               run: () => api.mutate('academy', 'withdrawResidency', { id: r.id }, residency),
                               done: mine.reload,
                             })
                           }
                         >
-                          Withdraw
+                          <Text k="academyprogrammes.withdraw" />
                         </Button>
                       </td>
                     </tr>
@@ -101,8 +118,12 @@ export function AcademyProgrammes({ action }: { action: ReturnType<typeof useAct
             )}
           </Read>
         </Panel>
-        <Panel title="Tournament seasons">
-          <Read resource={seasons.resource} retry={seasons.reload} empty="No tournament seasons are published">
+        <Panel title={copyText('academyprogrammes.tournament.seasons')}>
+          <Read
+            resource={seasons.resource}
+            retry={seasons.reload}
+            empty={copyText('academyprogrammes.no.tournament.seasons.are.published')}
+          >
             {(rows) => (
               <>
                 {rows.map((s) => (
@@ -110,10 +131,10 @@ export function AcademyProgrammes({ action }: { action: ReturnType<typeof useAct
                     <h3>{s.title}</h3>
                     <p>{s.rulesSummary}</p>
                     <small>
-                      {s.status} · {s.startsAt} → {s.endsAt ?? 'End not supplied'}
+                      {s.status} · {s.startsAt} → {s.endsAt ?? copyText('academyprogrammes.end.not.supplied')}
                     </small>
                     <Button variant="secondary" onClick={() => setSelected(s.id)}>
-                      Read standings
+                      <Text k="academyprogrammes.read.standings" />
                     </Button>
                   </article>
                 ))}
@@ -122,9 +143,20 @@ export function AcademyProgrammes({ action }: { action: ReturnType<typeof useAct
             )}
           </Read>
           {selected && (
-            <Read resource={standings.resource} retry={standings.reload} empty="No standings have been recorded">
+            <Read
+              resource={standings.resource}
+              retry={standings.reload}
+              empty={copyText('academyprogrammes.no.standings.have.been.recorded')}
+            >
               {(rows) => (
-                <DataTable headers={['Rank', 'Participant', 'Score']} label="Tournament standings">
+                <DataTable
+                  headers={[
+                    copyText('academyprogrammes.rank'),
+                    copyText('academyprogrammes.participant'),
+                    copyText('academyprogrammes.score'),
+                  ]}
+                  label={copyText('academyprogrammes.tournament.standings')}
+                >
                   {rows.map((s) => (
                     <tr key={s.userId}>
                       <td>{s.rank}</td>
@@ -137,28 +169,26 @@ export function AcademyProgrammes({ action }: { action: ReturnType<typeof useAct
             </Read>
           )}
           <p className="muted">
-            Scores are published records. Season control and scoring belong to operators. Prize pools and beneficiary pay are unavailable
-            without published funding and ledger recipes.
+            <Text k="academyprogrammes.scores.are.published.records.season.control.and" />
           </p>
         </Panel>
       </div>
-      <Panel title="Apply for a residency">
+      <Panel title={copyText('academyprogrammes.apply.for.a.residency')}>
         <p className="muted">
-          Use a cohort slug supplied by the programme. The API has no public cohort catalogue. Applications record your statement and move
-          no funds.
+          <Text k="academyprogrammes.use.a.cohort.slug.supplied.by.the" />
         </p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
             action.stage({
-              title: 'Review residency application',
-              confirm: 'Submit application',
-              success: 'Residency application received',
+              title: copyText('academyprogrammes.review.residency.application'),
+              confirm: copyText('academyprogrammes.submit.application'),
+              success: copyText('academyprogrammes.residency.application.received'),
               content: (
                 <Details
                   items={[
-                    ['Cohort', cohort],
-                    ['Statement', statement],
+                    [copyText('academyprogrammes.cohort'), cohort],
+                    [copyText('academyprogrammes.statement'), statement],
                   ]}
                 />
               ),
@@ -167,10 +197,20 @@ export function AcademyProgrammes({ action }: { action: ReturnType<typeof useAct
             });
           }}
         >
-          <Field label="Programme cohort slug" value={cohort} onChange={(e) => setCohort(e.target.value)} maxLength={48} />
-          <TextArea label="Application statement" value={statement} onChange={setStatement} maxLength={2000} />
+          <Field
+            label={copyText('academyprogrammes.programme.cohort.slug')}
+            value={cohort}
+            onChange={(e) => setCohort(e.target.value)}
+            maxLength={48}
+          />
+          <TextArea
+            label={copyText('academyprogrammes.application.statement')}
+            value={statement}
+            onChange={setStatement}
+            maxLength={2000}
+          />
           <Button type="submit" disabled={action.disabled || cohort.length < 3 || statement.trim().length < 20}>
-            Review residency application
+            <Text k="academyprogrammes.review.residency.application" />
           </Button>
         </form>
       </Panel>

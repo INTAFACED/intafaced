@@ -1,3 +1,4 @@
+import { t as copyText, Text } from './copy';
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
@@ -6,6 +7,7 @@ import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { Button, DataTable, Field, Panel, Tabs } from '../../shared/ui';
 import { Details, Limit, Read, Select, TextArea, useAction } from './common';
 import { Campaigns } from './Campaigns';
+import { preservePaperHref } from './trade-context';
 const uuid = z.string().uuid();
 const routeSchema = z.object({
   task: z.string(),
@@ -63,7 +65,7 @@ const actionSchema = z.object({
   messageParams: z.record(z.union([z.string(), z.number()])),
   occurredAt: z.string(),
 });
-export function Agents() {
+export function Agents({ paper = false }: { paper?: boolean }) {
   const api = useApi(),
     { userId } = useSession(),
     action = useAction('agents');
@@ -151,51 +153,60 @@ export function Agents() {
     <div className="more-grid">
       <Tabs
         items={['Sessions', 'Activity', 'Coach', 'Product boundaries', 'Campaigns']}
+        labels={{
+          Sessions: copyText('agents.sessions'),
+          Activity: copyText('agents.activity'),
+          Coach: copyText('agents.coach'),
+          'Product boundaries': copyText('agents.product.boundaries'),
+          Campaigns: copyText('agents.campaigns'),
+        }}
         value={tab}
         onChange={setTab}
-        label="Agent sections"
+        label={copyText('agents.agent.sections')}
       />
       {tab === 'Sessions' ? (
         <div className="more-columns">
           <div>
-            <Panel title="Agent permissions">
+            <Panel title={copyText('agents.agent.permissions')}>
               <Select
-                label="Product agent"
+                label={copyText('agents.product.agent')}
                 value={agent}
                 onChange={setAgent}
                 options={['navigator', 'support', 'scanner', 'merchant', 'copy-intel']}
               />
-              <Read resource={guard.resource} retry={guard.reload} empty="This agent is not registered in the service">
+              <Read resource={guard.resource} retry={guard.reload} empty={copyText('agents.this.agent.is.not.registered.in.the')}>
                 {(g) =>
                   g ? (
                     <>
                       <Details
                         items={[
-                          ['Agent', g.agentId],
-                          ['Enabled', g.enabled ? 'Yes' : 'No'],
-                          ['Guardrail version', g.version],
-                          ['Actions per session', g.limits.maxActionsPerSession],
-                          ['Output token cap', g.limits.maxOutputTokensPerCall],
+                          [copyText('agents.agent'), g.agentId],
+                          [copyText('agents.enabled'), g.enabled ? 'Yes' : 'No'],
+                          [copyText('agents.guardrail.version'), g.version],
+                          [copyText('agents.actions.per.session'), g.limits.maxActionsPerSession],
+                          [copyText('agents.output.token.cap'), g.limits.maxOutputTokensPerCall],
                           [
-                            'Spend cap',
+                            copyText('agents.spend.cap'),
                             cap && selectedRoute
-                              ? `${displayAmount(cap)} ${selectedRoute.assetId} per session`
-                              : 'A spend cap or its fee asset is unavailable',
+                              ? copyText('agents.per.session', { amount: displayAmount(cap), asset: selectedRoute.assetId })
+                              : copyText('agents.a.spend.cap.or.its.fee.asset'),
                           ],
                         ]}
                       />
-                      <DataTable headers={['Tool', 'Access', 'Approval']} label="Agent tool permissions">
+                      <DataTable
+                        headers={[copyText('agents.tool'), copyText('agents.access'), copyText('agents.approval')]}
+                        label={copyText('agents.agent.tool.permissions')}
+                      >
                         {g.tools.map((t) => (
                           <tr key={t.name}>
                             <td>{t.name}</td>
                             <td>{t.mode}</td>
-                            <td>{t.requiresApproval ? 'Required' : 'No additional approval'}</td>
+                            <td>{t.requiresApproval ? copyText('agents.required') : copyText('agents.no.additional.approval')}</td>
                           </tr>
                         ))}
                       </DataTable>
                       <p className="muted">
-                        Opening a session permits engine tasks within these server guardrails. It grants no undeclared trading or withdrawal
-                        tool.
+                        <Text k="agents.opening.a.session.permits.engine.tasks.within" />
                       </p>
                       <Button
                         disabled={
@@ -209,17 +220,32 @@ export function Agents() {
                         onClick={() => {
                           if (!selectedRoute || !cap) return;
                           action.stage({
-                            title: 'Review agent session',
-                            confirm: 'Open agent session',
-                            success: 'Agent session opened',
+                            title: copyText('agents.review.agent.session'),
+                            confirm: copyText('agents.open.agent.session'),
+                            success: copyText('agents.agent.session.opened'),
                             content: (
                               <Details
                                 items={[
-                                  ['Agent', g.agentId],
-                                  ['Maximum spend', `${cap} ${selectedRoute.assetId} maximum per session`],
-                                  ['Input rate', `${selectedRoute.inputPerMillion} ${selectedRoute.assetId} / million tokens`],
-                                  ['Output rate', `${selectedRoute.outputPerMillion} ${selectedRoute.assetId} / million tokens`],
-                                  ['Tool authority', g.tools.map((t) => `${t.name}: ${t.mode}`).join('\n')],
+                                  [copyText('agents.agent'), g.agentId],
+                                  [
+                                    copyText('agents.maximum.spend'),
+                                    copyText('agents.maximum.per.session', { amount: cap, asset: selectedRoute.assetId }),
+                                  ],
+                                  [
+                                    copyText('agents.input.rate'),
+                                    copyText('agents.million.tokens', {
+                                      amount: selectedRoute.inputPerMillion,
+                                      asset: selectedRoute.assetId,
+                                    }),
+                                  ],
+                                  [
+                                    copyText('agents.output.rate'),
+                                    copyText('agents.million.tokens', {
+                                      amount: selectedRoute.outputPerMillion,
+                                      asset: selectedRoute.assetId,
+                                    }),
+                                  ],
+                                  [copyText('agents.tool.authority'), g.tools.map((t) => `${t.name}: ${t.mode}`).join('\n')],
                                 ]}
                               />
                             ),
@@ -232,9 +258,17 @@ export function Agents() {
                                 !fresh.data.enabled ||
                                 fresh.data.limits.maxSpendPerSession !== cap
                               )
-                                return { ok: false, reason: 'error', message: 'The agent guardrails changed. Reload and review again.' };
+                                return {
+                                  ok: false,
+                                  reason: 'error',
+                                  message: copyText('agents.the.agent.guardrails.changed.reload.and.review'),
+                                };
                               if (!canDispatch())
-                                return { ok: false, reason: 'aborted', message: 'The account changed. Review this session again.' };
+                                return {
+                                  ok: false,
+                                  reason: 'aborted',
+                                  message: copyText('agents.the.account.changed.review.this.session.again'),
+                                };
                               const res = await api.mutate(
                                 'agents',
                                 'session.open',
@@ -248,19 +282,24 @@ export function Agents() {
                           });
                         }}
                       >
-                        Review session
+                        <Text k="agents.review.session" />
                       </Button>
                     </>
                   ) : null
                 }
               </Read>
             </Panel>
-            <Panel title="Published routing prices">
-              <Read resource={routes.resource} retry={routes.reload} empty="No engine routes are published">
+            <Panel title={copyText('agents.published.routing.prices')}>
+              <Read resource={routes.resource} retry={routes.reload} empty={copyText('agents.no.engine.routes.are.published')}>
                 {(rows) => (
                   <DataTable
-                    headers={['Task', 'Capability', 'Input / million', 'Output / million']}
-                    label="Published engine routing prices"
+                    headers={[
+                      copyText('agents.task'),
+                      copyText('agents.capability'),
+                      copyText('agents.input.million'),
+                      copyText('agents.output.million'),
+                    ]}
+                    label={copyText('agents.published.engine.routing.prices')}
                   >
                     {rows.map((r) => (
                       <tr key={r.task}>
@@ -279,7 +318,7 @@ export function Agents() {
               </Read>
             </Panel>
           </div>
-          <Panel title="Session workspace">
+          <Panel title={copyText('agents.session.workspace')}>
             {active ? (
               <>
                 <p>
@@ -290,36 +329,41 @@ export function Agents() {
                     u ? (
                       <Details
                         items={[
-                          ['Pending window charge', `${u.pending} ${u.assetId}`],
-                          ['Session spend', `${u.sessionTotal} ${u.assetId}`],
+                          [copyText('agents.pending.window.charge'), `${u.pending} ${u.assetId}`],
+                          [copyText('agents.session.spend'), `${u.sessionTotal} ${u.assetId}`],
                         ]}
                       />
                     ) : null
                   }
                 </Read>
                 <Select
-                  label="Allowed engine task"
+                  label={copyText('agents.allowed.engine.task')}
                   value={task || available[0]?.task || ''}
                   onChange={setTask}
                   options={available.map((r) => r.task)}
                 />
-                <TextArea label="Task request" value={ask} onChange={setAsk} maxLength={200000} />
+                <TextArea label={copyText('agents.task.request')} value={ask} onChange={setAsk} maxLength={200000} />
                 <Button
                   disabled={action.disabled || active.status !== 'open' || !ask.trim() || !selectedRoute}
                   onClick={() => {
                     if (!selectedRoute || !defs) return;
                     const requestId = crypto.randomUUID();
                     action.stage({
-                      title: 'Review metered engine request',
-                      confirm: 'Run engine request',
-                      success: 'Engine response received',
+                      title: copyText('agents.review.metered.engine.request'),
+                      confirm: copyText('agents.run.engine.request'),
+                      success: copyText('agents.engine.response.received'),
                       content: (
                         <Details
                           items={[
-                            ['Task', selectedRoute.task],
-                            ['Request', ask],
-                            ['Spend ceiling', `${cap} ${selectedRoute.assetId} for the entire session`],
-                            ['Output cap', Math.min(defs.limits.maxOutputTokensPerCall, selectedRoute.maxOutputTokens)],
+                            [copyText('agents.task'), selectedRoute.task],
+                            [copyText('agents.request'), ask],
+                            [
+                              copyText('agents.spend.ceiling'),
+                              cap == null
+                                ? copyText('agents.a.spend.cap.or.its.fee.asset')
+                                : copyText('agents.for.the.entire.session', { amount: cap, asset: selectedRoute.assetId }),
+                            ],
+                            [copyText('agents.output.cap'), Math.min(defs.limits.maxOutputTokensPerCall, selectedRoute.maxOutputTokens)],
                           ]}
                         />
                       ),
@@ -347,10 +391,10 @@ export function Agents() {
                           return {
                             ok: false,
                             reason: 'error',
-                            message: 'Agent permissions or routing prices changed. Reload and review this request again.',
+                            message: copyText('agents.agent.permissions.or.routing.prices.changed.reload'),
                           };
                         if (!canDispatch())
-                          return { ok: false, reason: 'aborted', message: 'The account or session changed. Review again.' };
+                          return { ok: false, reason: 'aborted', message: copyText('agents.the.account.or.session.changed.review.again') };
                         const res = await api.mutate(
                           'agents',
                           'run.complete',
@@ -374,7 +418,7 @@ export function Agents() {
                             .refine(
                               (row) =>
                                 row.assetId === selectedRoute.assetId && row.action.sessionId === active.id && row.action.agentId === agent,
-                              'Engine response does not match this session and reviewed fee asset',
+                              copyText('agents.engine.response.does.not.match.this.session'),
                             ),
                         );
                         if (res.ok && action.isCurrent()) setReply(res.data);
@@ -388,14 +432,16 @@ export function Agents() {
                     });
                   }}
                 >
-                  Review engine request
+                  <Text k="agents.review.engine.request" />
                 </Button>
                 {reply && (
                   <>
                     <p className="more-body">{reply.text}</p>
                     <p className="muted">
-                      {reply.metered ? `Metered cost: ${reply.cost} ${reply.assetId}` : 'The service labeled this response unmetered.'}{' '}
-                      Engine text is a response to your request; no order or withdrawal is executed by displaying it.
+                      {reply.metered
+                        ? copyText('agents.metered.cost', { value1: reply.cost, value2: reply.assetId })
+                        : copyText('agents.the.service.labeled.this.response.unmetered')}{' '}
+                      <Text k="agents.engine.text.is.a.response.to.your" />
                     </p>
                   </>
                 )}
@@ -404,13 +450,12 @@ export function Agents() {
                   disabled={action.disabled || active.status !== 'open'}
                   onClick={() =>
                     action.stage({
-                      title: 'Close agent session',
-                      confirm: 'Settle and close session',
-                      success: 'Session closure received',
+                      title: copyText('agents.close.agent.session'),
+                      confirm: copyText('agents.settle.and.close.session'),
+                      success: copyText('agents.session.closure.received'),
                       content: (
                         <p>
-                          The service settles outstanding metered windows before closing this session. Read the final charges in your
-                          activity log.
+                          <Text k="agents.the.service.settles.outstanding.metered.windows.before" />
                         </p>
                       ),
                       run: async () => {
@@ -420,7 +465,7 @@ export function Agents() {
                           { sessionId: active.id },
                           sessionSchema.refine(
                             (row) => row.id === active.id && row.agentId === agent && row.status === 'closed',
-                            'Session closure does not match the active session',
+                            copyText('agents.session.closure.does.not.match.the.active'),
                           ),
                         );
                         if (res.ok && action.isCurrent()) setActive(res.data);
@@ -434,21 +479,23 @@ export function Agents() {
                     })
                   }
                 >
-                  Review session closure
+                  <Text k="agents.review.session.closure" />
                 </Button>
-                <Read resource={sessionLog.resource} retry={sessionLog.reload} empty="No actions in this session">
+                <Read resource={sessionLog.resource} retry={sessionLog.reload} empty={copyText('agents.no.actions.in.this.session')}>
                   {(rows) => <Activity rows={rows} />}
                 </Read>
               </>
             ) : (
-              <p className="muted">Review a registered agent and open its session to use allowed engine tasks.</p>
+              <p className="muted">
+                <Text k="agents.review.a.registered.agent.and.open.its" />
+              </p>
             )}
             {action.feedback}
           </Panel>
         </div>
       ) : tab === 'Activity' ? (
-        <Panel title="Your agent action log">
-          <Read resource={log.resource} retry={log.reload} empty="No agent actions have been recorded">
+        <Panel title={copyText('agents.your.agent.action.log')}>
+          <Read resource={log.resource} retry={log.reload} empty={copyText('agents.no.agent.actions.have.been.recorded')}>
             {(rows) => (
               <>
                 <Activity rows={rows} />
@@ -457,30 +504,41 @@ export function Agents() {
             )}
           </Read>
           <p className="muted">
-            The log reports exact costs but does not include a fee asset on each row. Use a matching session usage record for asset
-            identity.
+            <Text k="agents.the.log.reports.exact.costs.but.does" />
           </p>
         </Panel>
       ) : tab === 'Coach' ? (
-        <Panel title="Curriculum coach">
+        <Panel title={copyText('agents.curriculum.coach')}>
           <form
             onSubmit={(e) => {
               e.preventDefault();
               setCoachQuery(coachAsk);
             }}
           >
-            <Field label="Learning question" value={coachAsk} onChange={(e) => setCoachAsk(e.target.value)} maxLength={2000} />
+            <Field
+              label={copyText('agents.learning.question')}
+              value={coachAsk}
+              onChange={(e) => setCoachAsk(e.target.value)}
+              maxLength={2000}
+            />
             <Button type="submit" variant="secondary">
-              Find grounded lessons
+              <Text k="agents.find.grounded.lessons" />
             </Button>
           </form>
           <Read resource={coach.resource} retry={coach.reload}>
             {(c) =>
               c.status === 'refuse' ? (
-                <p role="status">The coach cannot ground this request: {c.reason}. No advice or position claim was generated.</p>
+                <p role="status">
+                  <Text k="agents.the.coach.cannot.ground.this.request" />
+                  {c.reason}
+                  <Text k="agents.no.advice.or.position.claim.was.generated" />
+                </p>
               ) : (
                 <>
-                  <p>{c.citedCount} curriculum citations · no investment advice</p>
+                  <p>
+                    {c.citedCount}
+                    <Text k="agents.curriculum.citations.no.investment.advice" />
+                  </p>
                   <ul>
                     {c.citations.map((r) => (
                       <li key={r.slug}>
@@ -498,40 +556,25 @@ export function Agents() {
       ) : tab === 'Campaigns' ? (
         <Campaigns />
       ) : (
-        <Panel title="Product agent boundaries">
+        <Panel title={copyText('agents.product.agent.boundaries')}>
           <Details
             items={[
               [
-                'Navigator and Support data sessions',
-                'The runSession contracts require a caller-supplied tier matrix. No authoritative customer tier-law publication is mounted. A customer cannot declare their own entitlement matrix, so grounded tool runs remain unavailable.',
+                copyText('agents.navigator.and.support.data.sessions'),
+                copyText('agents.the.runsession.contracts.require.a.caller.supplied'),
               ],
-              [
-                'Market Scanner',
-                'Signal ranking also requires a sealed input law and tier matrix. Neither is published through a customer-owned read. No quotes, ranking recipe, or signal count is invented.',
-              ],
-              [
-                'Merchant watcher',
-                'A published threshold, minimum sample count, rail allowlist, and owned merchant metrics context are required. These are not available as a customer configuration contract.',
-              ],
-              [
-                'Copy intelligence',
-                'Leader fixtures must come from the live source with an allowlist. User-typed P&L is not an authoritative input. Copy grants and actual leader data are on Trade.',
-              ],
-              [
-                'Portfolio planner',
-                'The service portfolio port is unconnected. No holdings, target order legs or live rebalancing are manufactured.',
-              ],
-              [
-                'Launch and risk drafts',
-                'Draft assessment is not issuance, screening-list publication, or KYC approval. Those actions require their owned source contracts.',
-              ],
+              [copyText('agents.market.scanner'), copyText('agents.signal.ranking.also.requires.a.sealed.input')],
+              [copyText('agents.merchant.watcher'), copyText('agents.a.published.threshold.minimum.sample.count.rail')],
+              [copyText('agents.copy.intelligence'), copyText('agents.leader.fixtures.must.come.from.the.live')],
+              [copyText('agents.portfolio.planner'), copyText('agents.the.service.portfolio.port.is.unconnected.no')],
+              [copyText('agents.launch.and.risk.drafts'), copyText('agents.draft.assessment.is.not.issuance.screening.list')],
             ]}
           />
-          <a className="text-link" href="/trade/copy">
-            Open Copy
+          <a className="text-link" href={preservePaperHref('/trade/copy', paper)}>
+            <Text k="agents.open.copy" />
           </a>
           <a className="text-link" href="/support">
-            Open Support
+            <Text k="agents.open.support" />
           </a>
         </Panel>
       )}
@@ -541,7 +584,16 @@ export function Agents() {
 }
 function Activity({ rows }: { rows: z.infer<typeof actionSchema>[] }) {
   return (
-    <DataTable headers={['Time', 'Agent / session', 'Action', 'Outcome', 'Cost']} label="Agent audit activity">
+    <DataTable
+      headers={[
+        copyText('agents.time'),
+        copyText('agents.agent.session'),
+        copyText('agents.action'),
+        copyText('agents.outcome'),
+        copyText('agents.cost'),
+      ]}
+      label={copyText('agents.agent.audit.activity')}
+    >
       {rows.map((r) => (
         <tr key={r.id}>
           <td>{r.occurredAt}</td>
@@ -557,7 +609,10 @@ function Activity({ rows }: { rows: z.infer<typeof actionSchema>[] }) {
             {r.status}
             {r.refusalCode && <small>{r.refusalCode}</small>}
           </td>
-          <td>{r.cost} · asset not supplied by log</td>
+          <td>
+            {r.cost}
+            <Text k="agents.asset.not.supplied.by.log" />
+          </td>
         </tr>
       ))}
     </DataTable>

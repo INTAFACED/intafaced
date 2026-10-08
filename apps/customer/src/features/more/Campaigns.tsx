@@ -1,3 +1,4 @@
+import { t as copyText, Text } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
 import { useApi } from '../session/session';
@@ -33,24 +34,23 @@ export function Campaigns() {
     [response, setResponse] = useState<z.infer<typeof result> | null>(null);
   return (
     <div className="more-columns">
-      <Panel title="Signed-in campaign proposal">
+      <Panel title={copyText('campaigns.signed.in.campaign.proposal')}>
         <p className="muted">
-          Prepare a proposal for human review. The service requires an available analytics warehouse, rejects return claims and undecided
-          incentive budgets, and never publishes automatically.
+          <Text k="campaigns.prepare.a.proposal.for.human.review.the" />
         </p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
             action.stage({
-              title: 'Review campaign proposal',
-              confirm: 'Request draft assessment',
-              success: 'Draft assessment received',
+              title: copyText('campaigns.review.campaign.proposal'),
+              confirm: copyText('campaigns.request.draft.assessment'),
+              success: copyText('campaigns.draft.assessment.received'),
               content: (
                 <Details
                   items={[
-                    ['Headline', headline],
-                    ['Copy', copy],
-                    ['Publication', 'No publication requested'],
+                    [copyText('campaigns.headline'), headline],
+                    [copyText('campaigns.copy'), copy],
+                    [copyText('campaigns.publication'), copyText('campaigns.no.publication.requested')],
                   ]}
                 />
               ),
@@ -62,32 +62,35 @@ export function Campaigns() {
             });
           }}
         >
-          <Field label="Campaign headline" value={headline} onChange={(e) => setHeadline(e.target.value)} maxLength={200} />
-          <TextArea label="Campaign copy" value={copy} onChange={setCopy} maxLength={2000} />
+          <Field
+            label={copyText('campaigns.campaign.headline')}
+            value={headline}
+            onChange={(e) => setHeadline(e.target.value)}
+            maxLength={200}
+          />
+          <TextArea label={copyText('campaigns.campaign.copy')} value={copy} onChange={setCopy} maxLength={2000} />
           <Button type="submit" disabled={action.disabled || !headline.trim() || !copy.trim()}>
-            Review campaign proposal
+            <Text k="campaigns.review.campaign.proposal" />
           </Button>
         </form>
         {action.feedback}
         {response && (
           <p role="status">
             {response.status === 'refuse'
-              ? `No campaign proposal was produced: ${response.reason}.`
-              : `Proposal received: ${response.headline}. Publication remains a separate human action.`}
+              ? copyText('campaigns.no.campaign.proposal.was.produced', { value1: response.reason })
+              : copyText('campaigns.proposal.received.publication.remains.a.separate.human', { value1: response.headline })}
           </p>
         )}
       </Panel>
-      <Panel title="Campaign activity">
+      <Panel title={copyText('campaigns.campaign.activity')}>
         <p>
-          The service publishes draft assessment, but no customer campaign catalogue, participation history, reward budget or publication
-          endpoint. These records cannot be shown as an empty list of completed campaigns.
+          <Text k="campaigns.the.service.publishes.draft.assessment.but.no" />
         </p>
         <p>
-          Email, push and SMS campaign delivery require a published channel configuration and audience permission contract. This room cannot
-          trigger an operator broadcast.
+          <Text k="campaigns.email.push.and.sms.campaign.delivery.require" />
         </p>
         <a className="text-link" href="/lab">
-          Open public campaigns
+          <Text k="campaigns.open.public.campaigns" />
         </a>
       </Panel>
       {action.dialog}
