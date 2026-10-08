@@ -208,8 +208,17 @@ export function sum(amounts: readonly Amount[]): Amount {
  * can only come from entries that truncated, a zero weight never truncates, so
  * every unit is consumed before the sort reaches one. Ordering by magnitude is
  * also what the doc comment above always claimed — "the largest remainders".
+ *
+ * A negative individual weight is refused even when the other weights keep the
+ * total positive. That participant would receive a negative share and the
+ * others would be increased until the shares still added up to `total`. The
+ * split would conserve, and the ledger would post the misallocation. A zero
+ * weight still receives zero.
  */
 export function proRata(total: Amount, weights: readonly Amount[]): Amount[] {
+  for (const weight of weights) {
+    if (weight < 0n) throw new MoneyError('proRata refuses a negative weight');
+  }
   const totalWeight = sum(weights);
   if (totalWeight <= 0n) throw new MoneyError('proRata requires a positive total weight');
 

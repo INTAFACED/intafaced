@@ -129,6 +129,22 @@ describe('proRata — distributions must sum back exactly', () => {
   it('refuses a zero total weight', () => {
     expect(() => proRata(parseAmount('10'), [0n, 0n])).toThrow(MoneyError);
   });
+
+  it('refuses a negative weight even when the other weights keep the total positive', () => {
+    // 4 + -1 + 1 = 4. Paying the -1 a negative share and lifting the others
+    // would still sum to 10, and the ledger would post that misallocation.
+    expect(() => proRata(parseAmount('10'), [parseAmount('4'), parseAmount('-1'), parseAmount('1')])).toThrow(MoneyError);
+  });
+
+  it('pays a zero weight nothing, including the dust on either sign', () => {
+    const weights = [88n, 7n, 0n, 5n, 0n];
+    const positive = proRata(3n, weights);
+    const negative = proRata(-3n, weights);
+    expect(positive).toEqual([3n, 0n, 0n, 0n, 0n]);
+    expect(negative).toEqual([-3n, 0n, 0n, 0n, 0n]);
+    expect(sum(positive)).toBe(3n);
+    expect(sum(negative)).toBe(-3n);
+  });
 });
 
 describe('no IEEE-754 money', () => {

@@ -436,4 +436,21 @@ describe('proRata — the conservation law', () => {
       }),
     );
   });
+
+  it('refuses a negative individual weight even when the total weight stays positive', () => {
+    fc.assert(
+      fc.property(
+        anyAmount(),
+        fc.bigInt({ min: 1n, max: 10n ** 18n }),
+        fc.bigInt({ min: -(10n ** 18n), max: -1n }),
+        fc.array(fc.bigInt({ min: 0n, max: 10n ** 18n }), { minLength: 0, maxLength: 8 }),
+        (total, positive, negative, rest) => {
+          const cover = positive > -negative ? positive : -negative + 1n;
+          const w = [cover, negative, ...rest];
+          expect(sum(w) > 0n).toBe(true);
+          expect(() => proRata(total, w)).toThrow(MoneyError);
+        },
+      ),
+    );
+  });
 });
