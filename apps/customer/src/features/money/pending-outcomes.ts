@@ -1,21 +1,40 @@
+import { t as copyText } from './copy';
 import { z } from 'zod';
 
 // Only original record references live here. Credentials, reviewed amounts,
 // balances and the request body are never recovery metadata.
 const referenceNames = new Set([
-  'transferId', 'scheduleId', 'fromSpaceId', 'toSpaceId', 'toUserId',
-  'loanId', 'eventId', 'ruleId', 'positionId', 'poolId', 'cardId',
-  'approvalId', 'accountId', 'payrollId', 'id',
+  'transferId',
+  'scheduleId',
+  'fromSpaceId',
+  'toSpaceId',
+  'toUserId',
+  'loanId',
+  'eventId',
+  'ruleId',
+  'positionId',
+  'poolId',
+  'cardId',
+  'approvalId',
+  'accountId',
+  'payrollId',
+  'id',
 ]);
-const pendingSchema = z.object({
-  reference: z.string().uuid(), title: z.string(), procedure: z.string(),
-  recordRefs: z.record(z.string()).refine((refs) => Object.keys(refs).every((key) => referenceNames.has(key))),
-}).strict();
+const pendingSchema = z
+  .object({
+    reference: z.string().uuid(),
+    title: z.string(),
+    procedure: z.string(),
+    recordRefs: z.record(z.string()).refine((refs) => Object.keys(refs).every((key) => referenceNames.has(key))),
+  })
+  .strict();
 export type PendingOutcome = z.infer<typeof pendingSchema>;
 export const pendingKey = (userId: string) => 'intafaced.customer.bank-unconfirmed.v1:' + userId;
 const unreadable: PendingOutcome = {
-  reference: 'unreadable', title: 'Bank recovery metadata is unavailable or unreadable',
-  procedure: 'Recovery required', recordRefs: {},
+  reference: 'unreadable',
+  title: copyText('pending-outcomes.bank.recovery.metadata.is.unavailable.or.unreadable'),
+  procedure: 'Recovery required',
+  recordRefs: {},
 };
 
 function stored(userId: string): PendingOutcome[] {
@@ -34,7 +53,11 @@ function stored(userId: string): PendingOutcome[] {
 }
 export function pendingOutcomes(userId: string | null): PendingOutcome[] {
   if (!userId) return [];
-  try { return stored(userId); } catch { return [unreadable]; }
+  try {
+    return stored(userId);
+  } catch {
+    return [unreadable];
+  }
 }
 export function originalRecordRefs(input: Record<string, unknown>): Record<string, string> {
   const refs: Record<string, string> = {};

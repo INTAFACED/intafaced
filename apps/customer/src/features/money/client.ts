@@ -1,3 +1,4 @@
+import { t as copyText } from './copy';
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { decimalSchema, parseAmount } from '../../shared/money';
@@ -15,7 +16,7 @@ export const spaceSchema = z
   })
   .refine(
     (space) => space.assetId === space.ledgerAccount.assetId && space.ledgerAccount.kind === 'available',
-    'Space account must match its asset and available account',
+    copyText('client.space.account.must.match.its.asset.and'),
   );
 export type Space = z.infer<typeof spaceSchema>;
 export type Holding = { assetId: string; available: string; held: string | null; quantity: string | null };
@@ -23,7 +24,7 @@ const balanceEntry = z
   .object({ free: decimalSchema, used: decimalSchema, total: decimalSchema })
   .refine(
     (row) => parseAmount(row.free) + parseAmount(row.used) === parseAmount(row.total),
-    'Available and restricted must match the scoped quantity',
+    copyText('client.available.and.restricted.must.match.the.scoped'),
   );
 const balancesSchema = z.object({
   timestamp: z.number().int(),
@@ -34,18 +35,18 @@ const unnamedSchema = z.array(z.object({ assetId: z.string(), balance: decimalSc
 export type TransferDraft = { transferId: string; fromSpaceId: string; toSpaceId?: string; toUserId?: string; amount: string };
 export function validateTransfer(spaces: Space[], input: TransferDraft): string | null {
   const from = spaces.find((space) => space.id === input.fromSpaceId);
-  if (!from) return 'Choose one of your available spaces.';
-  if (from.lockedUntil && Date.parse(from.lockedUntil) > Date.now()) return 'This space is locked. Choose an unlocked source.';
+  if (!from) return copyText('client.choose.one.of.your.available.spaces');
+  if (from.lockedUntil && Date.parse(from.lockedUntil) > Date.now()) return copyText('client.this.space.is.locked.choose.an.unlocked');
   const amount = decimalSchema.safeParse(input.amount);
-  if (!amount.success || parseAmount(amount.data) <= 0n) return 'Enter an exact amount greater than zero.';
-  if (parseAmount(input.amount) > parseAmount(from.balance)) return 'The amount exceeds the available quantity in this space.';
+  if (!amount.success || parseAmount(amount.data) <= 0n) return copyText('client.enter.an.exact.amount.greater.than.zero');
+  if (parseAmount(input.amount) > parseAmount(from.balance)) return copyText('client.the.amount.exceeds.the.available.quantity.in');
   if (input.toSpaceId) {
-    if (input.toSpaceId === from.id) return 'Choose a different destination space.';
+    if (input.toSpaceId === from.id) return copyText('client.choose.a.different.destination.space');
     const destination = spaces.find((space) => space.id === input.toSpaceId);
-    if (destination && destination.assetId !== from.assetId) return 'Both spaces must use the same asset.';
-    if (!z.string().uuid().safeParse(input.toSpaceId).success) return 'Enter a valid destination space ID.';
-  } else if (!input.toUserId?.trim()) return 'Enter the recipient user ID.';
-  if (!z.string().uuid().safeParse(input.fromSpaceId).success) return 'Choose a valid source space.';
+    if (destination && destination.assetId !== from.assetId) return copyText('client.both.spaces.must.use.the.same.asset');
+    if (!z.string().uuid().safeParse(input.toSpaceId).success) return copyText('client.enter.a.valid.destination.space.id');
+  } else if (!input.toUserId?.trim()) return copyText('client.enter.the.recipient.user.id');
+  if (!z.string().uuid().safeParse(input.fromSpaceId).success) return copyText('client.choose.a.valid.source.space');
   return null;
 }
 export function createMoneyClient(api: ApiClient) {
@@ -102,7 +103,7 @@ export function createMoneyClient(api: ApiClient) {
           ledgerTxId: z.string().min(1),
           amount: decimalSchema.refine(
             (amount) => parseAmount(amount) === parseAmount(input.amount),
-            'The settled amount must match the review',
+            copyText('client.the.settled.amount.must.match.the.review'),
           ),
         }),
       );

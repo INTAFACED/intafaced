@@ -1,3 +1,4 @@
+import { t as copyText, Text } from './copy';
 import { useRef, useState, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
 import { currentPreferences } from '../../shared/preferences';
@@ -12,18 +13,22 @@ import { clearPendingOutcome, originalRecordRefs, pendingOutcomes, rememberPendi
 
 export const PAGE_SIZE = 50;
 export const amount = (value: string | null | undefined, asset: string) =>
-  value == null ? 'Unavailable' : `${displayAmount(value)} ${asset}`;
+  value == null ? copyText('components.unavailable') : `${displayAmount(value)} ${asset}`;
 export const funds = (value: string | null | undefined, asset: string) =>
   currentPreferences().hideBalances && value != null ? `•••• ${asset}` : amount(value, asset);
 export const date = (value: string | null) =>
-  value ? (Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString() : 'Date unavailable') : 'None';
+  value
+    ? Number.isFinite(Date.parse(value))
+      ? new Date(value).toLocaleString()
+      : copyText('components.date.unavailable')
+    : copyText('components.none');
 export const bps = (value: number) => `${value / 100}%`;
 export function useBankRead<K extends BankRead>(procedure: K, input: unknown, enabled = true) {
   const { api, userId } = useSession();
   return useResource<z.infer<(typeof bankReads)[K]>>(
     async (signal) => {
-      if (!enabled) return { ok: false, reason: 'not_supported', message: 'Select a record to load its details.' };
-      if (!userId) return { ok: false, reason: 'unauthorized', message: 'Sign in to read your Bank information.' };
+      if (!enabled) return { ok: false, reason: 'not_supported', message: copyText('components.select.a.record.to.load.its.details') };
+      if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('components.sign.in.to.read.your.bank.information') };
       return api.query('bank', procedure, input, bankReads[procedure] as ZodType<z.infer<(typeof bankReads)[K]>>, { signal });
     },
     `${userId}:${procedure}:${JSON.stringify(input)}:${enabled}`,
@@ -70,16 +75,19 @@ export function Continuation({ count, limit, onMore }: { count: number; limit: n
   return (
     <div className="money-continuation">
       <span>
-        {count} records returned · requested limit {limit}.{' '}
+        {count}
+        <Text k="components.records.returned.requested.limit" />
+        {limit}.{' '}
         {count >= limit
           ? limit < 200
-            ? 'More records may exist.'
-            : 'This service has no continuation beyond 200 records.'
-          : 'This list has no total-count or continuation cursor.'}
+            ? copyText('components.more.records.may.exist')
+            : copyText('components.this.service.has.no.continuation.beyond.200')
+          : copyText('components.this.list.has.no.total.count.or')}
       </span>
       {count >= limit && limit < 200 && (
         <Button variant="secondary" onClick={onMore}>
-          Load up to {Math.min(200, limit + 50)}
+          <Text k="components.load.up.to" />
+          {Math.min(200, limit + 50)}
         </Button>
       )}
     </div>
@@ -111,50 +119,94 @@ export type ActionSpec = {
   submit?: string;
   unit?: string;
 };
-export const positiveMoney = (asset: string, name = 'amount', label = 'Amount'): ActionField => ({
+export const positiveMoney = (asset: string | undefined, name = 'amount', label = copyText('form.amount')): ActionField => ({
   name,
   unit: asset,
-  label: `${label} (${asset})`,
-  hint: 'Exact decimal amount. Available funds only.',
+  label: asset ? `${label} (${asset})` : label,
+  hint: copyText('components.exact.decimal.amount.available.funds.only'),
   validate: (value) =>
-    decimalSchema.safeParse(value).success && parseAmount(value) > 0n ? null : 'Enter an exact decimal amount greater than zero.',
+    decimalSchema.safeParse(value).success && parseAmount(value) > 0n
+      ? null
+      : copyText('components.enter.an.exact.decimal.amount.greater.than'),
 });
 export const uuidField = (name: string, label: string): ActionField => ({
   name,
   label,
-  validate: (value) => (z.string().uuid().safeParse(value).success ? null : 'Enter a valid ID.'),
+  validate: (value) => (z.string().uuid().safeParse(value).success ? null : copyText('components.enter.a.valid.id')),
 });
 export const startsField: ActionField = {
   name: 'startsAt',
-  label: 'First run',
+  get label() {
+    return copyText('components.first.run');
+  },
   type: 'datetime-local',
-  validate: (value) => (Number.isFinite(Date.parse(value)) && Date.parse(value) > Date.now() ? null : 'Choose a future date and time.'),
+  validate: (value) =>
+    Number.isFinite(Date.parse(value)) && Date.parse(value) > Date.now() ? null : copyText('components.choose.a.future.date.and.time'),
 };
 export const cadenceField: ActionField = {
   name: 'cadence',
-  label: 'Cadence',
-  options: ['daily', 'weekly', 'monthly'].map((value) => ({ value, label: value[0]!.toUpperCase() + value.slice(1) })),
+  get label() {
+    return copyText('components.cadence');
+  },
+  get options() {
+    return ['daily', 'weekly', 'monthly'].map((value) => ({
+      value,
+      label: copyText(value === 'daily' ? 'form.daily' : value === 'weekly' ? 'form.weekly' : 'form.monthly'),
+    }));
+  },
 };
 export const iso = (value: string) => new Date(value).toISOString();
 const outputNames: Record<string, string> = {
-  ledgerTxId: 'Ledger transaction',
-  drawLedgerTxId: 'Draw transaction',
-  holdLedgerTxId: 'Reservation transaction',
-  positionId: 'Position',
-  maturesAt: 'Matures at',
-  amount: 'Confirmed amount',
+  get ledgerTxId() {
+    return copyText('components.ledger.transaction');
+  },
+  get drawLedgerTxId() {
+    return copyText('components.draw.transaction');
+  },
+  get holdLedgerTxId() {
+    return copyText('components.reservation.transaction');
+  },
+  get positionId() {
+    return copyText('components.position');
+  },
+  get maturesAt() {
+    return copyText('components.matures.at');
+  },
+  get amount() {
+    return copyText('components.confirmed.amount');
+  },
   status: 'Status',
-  remainingPrincipal: 'Remaining principal',
-  remainingInterest: 'Remaining interest',
-  principalPaid: 'Principal paid',
-  interestPaid: 'Interest paid',
-  skipped: 'Missed occurrences skipped',
+  get remainingPrincipal() {
+    return copyText('components.remaining.principal');
+  },
+  get remainingInterest() {
+    return copyText('components.remaining.interest');
+  },
+  get principalPaid() {
+    return copyText('components.principal.paid');
+  },
+  get interestPaid() {
+    return copyText('components.interest.paid');
+  },
+  get skipped() {
+    return copyText('components.missed.occurrences.skipped');
+  },
   kind: 'Outcome',
-  approval: 'Approval',
-  released: 'Released quantity',
-  nextRunAt: 'Next run',
-  id: 'Record',
-  name: 'Name',
+  get approval() {
+    return copyText('components.approval');
+  },
+  get released() {
+    return copyText('components.released.quantity');
+  },
+  get nextRunAt() {
+    return copyText('components.next.run');
+  },
+  get id() {
+    return copyText('outcome.record');
+  },
+  get name() {
+    return copyText('outcome.name');
+  },
 };
 const monetaryOutcomeKeys = new Set([
   'amount',
@@ -167,19 +219,19 @@ const monetaryOutcomeKeys = new Set([
   'released',
 ]);
 function Outcome({ data, unit }: { data: unknown; unit?: string }) {
-  if (Array.isArray(data)) return <span>{data.map((item) => String(item)).join(', ') || 'None'}</span>;
+  if (Array.isArray(data)) return <span>{data.map((item) => String(item)).join(', ') || copyText('components.none')}</span>;
   if (data && typeof data === 'object')
     return (
       <dl className="detail-list">
         {Object.entries(data).map(([key, value]) => (
           <div key={key}>
-            <dt>{outputNames[key] ?? key.replace(/([A-Z])/g, ' $1')}</dt>
+            <dt>{outputNames[key] ?? key}</dt>
             <dd>
               {monetaryOutcomeKeys.has(key) && typeof value === 'string' ? (
                 unit || typeof (data as Record<string, unknown>).assetId === 'string' ? (
                   amount(value, String((data as Record<string, unknown>).assetId ?? unit))
                 ) : (
-                  `${displayAmount(value)} · unit unavailable`
+                  copyText('components.unit.unavailable', { value1: displayAmount(value) })
                 )
               ) : key === 'ltvBps' && typeof value === 'number' ? (
                 bps(value)
@@ -191,7 +243,7 @@ function Outcome({ data, unit }: { data: unknown; unit?: string }) {
         ))}
       </dl>
     );
-  return <span>{data === null ? 'None' : String(data)}</span>;
+  return <span>{data === null ? copyText('components.none') : String(data)}</span>;
 }
 export function MutationDialog({
   spec,
@@ -217,10 +269,10 @@ export function MutationDialog({
     const next: Record<string, string> = {};
     for (const field of spec.fields ?? []) {
       const value = values[field.name]?.trim() ?? '';
-      if (!value && !field.optional) next[field.name] = 'Complete this field.';
+      if (!value && !field.optional) next[field.name] = copyText('components.complete.this.field');
       else if (value && field.validate?.(value)) next[field.name] = field.validate(value)!;
       if (value && field.options && !field.options.some((option) => option.value === value))
-        next[field.name] = 'Choose a supported option.';
+        next[field.name] = copyText('components.choose.a.supported.option');
     }
     if (Object.keys(next).length) {
       setErrors(next);
@@ -241,12 +293,18 @@ export function MutationDialog({
     const input = reviewInput ?? spec.input(values, requestId);
     setStage('sending');
     const dispatch = async (): Promise<ApiResult<unknown>> => {
-      if (!userId) return { ok: false, reason: 'unauthorized', message: 'Sign in before sending a Bank request.' };
-      if (pendingOutcomes(userId).length) return { ok: false, reason: 'uncertain', message: 'An original Bank request still requires recovery. No new request was sent.' };
+      if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('components.sign.in.before.sending.a.bank.request') };
+      if (pendingOutcomes(userId).length)
+        return { ok: false, reason: 'uncertain', message: copyText('components.an.original.bank.request.still.requires.recovery') };
       try {
-        rememberPendingOutcome(userId, { reference: requestId, title: spec.title, procedure: spec.procedure, recordRefs: originalRecordRefs(input) });
+        rememberPendingOutcome(userId, {
+          reference: requestId,
+          title: spec.title,
+          procedure: spec.procedure,
+          recordRefs: originalRecordRefs(input),
+        });
       } catch {
-        return { ok: false, reason: 'error', message: 'Recovery storage is unavailable. No Bank request was sent.' };
+        return { ok: false, reason: 'error', message: copyText('components.recovery.storage.is.unavailable.no.bank.request') };
       }
       onPendingChange();
       let outcome: ApiResult<unknown>;
@@ -255,24 +313,42 @@ export function MutationDialog({
           ? await createMoneyClient(api).transfer(spec.transferSpaces, input as TransferDraft)
           : await api.mutate('bank', spec.procedure, input, bankWrites[spec.procedure] as ZodType<unknown>);
       } catch {
-        outcome = { ok: false, reason: 'uncertain', message: 'The original Bank outcome could not be confirmed. Keep its reference before making another request.' };
+        outcome = { ok: false, reason: 'uncertain', message: copyText('components.the.original.bank.outcome.could.not.be') };
       }
       // Local transfer validation precedes HTTP dispatch. Auth refusals occur
       // before the Bank handler. Other failures cannot prove non-settlement.
       const definitive = outcome.ok || outcome.code === 'money.invalid_transfer' || outcome.status === 401 || outcome.status === 403;
       if (definitive) {
-        try { clearPendingOutcome(userId, requestId); } catch { setClearFailure(true); }
+        try {
+          clearPendingOutcome(userId, requestId);
+        } catch {
+          setClearFailure(true);
+        }
       } else if (!outcome.ok && outcome.reason !== 'uncertain') {
-        outcome = { ...outcome, reason: 'uncertain', message: outcome.message + ' The original request remains guarded until its outcome is reconciled.' };
+        outcome = {
+          ...outcome,
+          reason: 'uncertain',
+          message: outcome.message + copyText('components.the.original.request.remains.guarded.until.its'),
+        };
       }
       onPendingChange();
       return outcome;
     };
     const outcome = navigator.locks
-      ? await navigator.locks.request(`bank-write:${userId}`, { ifAvailable: true }, (lock) => lock
-        ? dispatch()
-        : Promise.resolve({ ok: false as const, reason: 'error' as const, message: 'Another tab has a Bank request running. No second request was sent.' }))
-      : { ok: false as const, reason: 'not_supported' as const, message: 'This browser cannot coordinate Bank requests across tabs. No request was sent.' };
+      ? await navigator.locks.request(`bank-write:${userId}`, { ifAvailable: true }, (lock) =>
+          lock
+            ? dispatch()
+            : Promise.resolve({
+                ok: false as const,
+                reason: 'error' as const,
+                message: copyText('components.another.tab.has.a.bank.request.running'),
+              }),
+        )
+      : {
+          ok: false as const,
+          reason: 'not_supported' as const,
+          message: copyText('components.this.browser.cannot.coordinate.bank.requests.across'),
+        };
     sending.current = false;
     setResult(outcome);
     setStage('outcome');
@@ -281,7 +357,7 @@ export function MutationDialog({
   const terminalUnknown = result && !result.ok && result.reason === 'uncertain';
   return (
     <Dialog
-      title={stage === 'review' ? `Review ${spec.title.toLowerCase()}` : spec.title}
+      title={stage === 'review' ? copyText('components.review.3', { value1: spec.title.toLowerCase() }) : spec.title}
       onClose={() => {
         if (stage !== 'sending') onClose();
       }}
@@ -311,7 +387,9 @@ export function MutationDialog({
                     aria-invalid={Boolean(errors[field.name])}
                     aria-describedby={field.hint || errors[field.name] ? `${field.name}-help` : undefined}
                   >
-                    <option value="">Choose…</option>
+                    <option value="">
+                      <Text k="components.choose" />
+                    </option>
                     {field.options.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
@@ -345,7 +423,9 @@ export function MutationDialog({
                 {errors.form}
               </p>
             )}
-            <Button type="submit">Review</Button>
+            <Button type="submit">
+              <Text k="components.review.2" />
+            </Button>
           </form>
         )}
         {(stage === 'review' || stage === 'sending') && (
@@ -360,19 +440,26 @@ export function MutationDialog({
               {spec.fields?.map((field) => (
                 <div key={field.name}>
                   <dt>{field.label}</dt>
-                  <dd>{field.options?.find((option) => option.value === values[field.name])?.label ?? values[field.name] ?? 'None'}</dd>
+                  <dd>
+                    {field.options?.find((option) => option.value === values[field.name])?.label ??
+                      values[field.name] ??
+                      copyText('components.none')}
+                  </dd>
                 </div>
               ))}
             </dl>
-            <p className="money-reference">Request reference: {requestId}</p>
+            <p className="money-reference">
+              <Text k="components.request.reference" />
+              {requestId}
+            </p>
             {stage === 'sending' ? (
-              <Loading label="Waiting for the authoritative outcome" />
+              <Loading label={copyText('components.waiting.for.the.authoritative.outcome')} />
             ) : (
               <div className="actions">
-                <Button onClick={() => void submit()}>{spec.submit ?? 'Confirm'}</Button>
+                <Button onClick={() => void submit()}>{spec.submit ?? copyText('components.confirm')}</Button>
                 {Boolean(spec.fields?.length) && (
                   <Button variant="secondary" onClick={() => setStage('form')}>
-                    Edit
+                    <Text k="components.edit" />
                   </Button>
                 )}
               </div>
@@ -381,16 +468,19 @@ export function MutationDialog({
         )}
         {stage === 'outcome' && result && (
           <div aria-live="polite">
-            {clearFailure && <p className="notice">The original request received a definitive outcome, but recovery storage could not be cleared. Keep its original reference before another Bank action.</p>}
+            {clearFailure && (
+              <p className="notice">
+                <Text k="components.the.original.request.received.a.definitive.outcome" />
+              </p>
+            )}
             {result.ok ? (
               <>
-                <h3>Confirmed by the service</h3>
+                <h3>
+                  <Text k="components.confirmed.by.the.service" />
+                </h3>
                 <Outcome
                   data={result.data}
-                  unit={
-                    spec.unit ??
-                    spec.fields?.find((field) => field.name === 'amount' || field.name === 'principal')?.unit
-                  }
+                  unit={spec.unit ?? spec.fields?.find((field) => field.name === 'amount' || field.name === 'principal')?.unit}
                 />
               </>
             ) : (
@@ -399,17 +489,20 @@ export function MutationDialog({
             {terminalUnknown && (
               <>
                 <p className="notice">
-                  This request may have completed. Keep this reference and inspect the original record before making another request.
+                  <Text k="components.this.request.may.have.completed.keep.this" />
                 </p>
-                <p className="money-reference">Request reference: {requestId}</p>
+                <p className="money-reference">
+                  <Text k="components.request.reference" />
+                  {requestId}
+                </p>
                 <Button variant="secondary" onClick={onDone}>
-                  Refresh original records
+                  <Text k="components.refresh.original.records" />
                 </Button>
               </>
             )}
             <div className="actions">
               <Button variant="secondary" onClick={onClose}>
-                Close
+                <Text k="components.close" />
               </Button>
               {!result.ok && !terminalUnknown && (
                 <Button
@@ -418,7 +511,7 @@ export function MutationDialog({
                     setStage('form');
                   }}
                 >
-                  Edit request
+                  <Text k="components.edit.request" />
                 </Button>
               )}
             </div>

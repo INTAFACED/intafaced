@@ -1,6 +1,7 @@
+import { t as copyText, Text } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
-import { en } from '@intafaced/i18n/catalog';
+import { publishedCopy, publishedLanguageFor } from '../../shared/copy';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
@@ -32,9 +33,7 @@ const kbSchema = z.object({
   published: z.boolean().optional(),
 });
 function text(key: string) {
-  return typeof en[key as keyof typeof en] === 'string'
-    ? (en[key as keyof typeof en] as string)
-    : `Published article text is unavailable for ${key}.`;
+  return publishedCopy(key) ?? copyText('support.published.article.text.is.unavailable.for', { value1: key });
 }
 export function Support() {
   const api = useApi(),
@@ -58,7 +57,9 @@ export function Support() {
         'support',
         'listMine',
         { limit },
-        z.array(ticketSchema).refine((rows) => rows.every((row) => row.userId === userId), 'Ticket ownership does not match this account'),
+        z
+          .array(ticketSchema)
+          .refine((rows) => rows.every((row) => row.userId === userId), copyText('support.ticket.ownership.does.not.match.this.account')),
         { signal },
       ),
     `support:${userId}:${limit}`,
@@ -66,7 +67,7 @@ export function Support() {
   return (
     <div className="more-columns">
       <div>
-        <Panel title="Help articles">
+        <Panel title={copyText('support.help.articles')}>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -74,23 +75,24 @@ export function Support() {
             }}
             className="more-inline"
           >
-            <Field label="Search help" value={q} onChange={(e) => setQ(e.target.value)} maxLength={200} />
+            <Field label={copyText('support.search.help')} value={q} onChange={(e) => setQ(e.target.value)} maxLength={200} />
             <Button type="submit" variant="secondary">
-              Search
+              <Text k="support.search" />
             </Button>
           </form>
-          <Read resource={kb.resource} retry={kb.reload} empty="No published articles match this search">
+          <Read resource={kb.resource} retry={kb.reload} empty={copyText('support.no.published.articles.match.this.search')}>
             {(rows) => (
               <div className="more-articles">
                 {rows
                   .filter((r) => r.published !== false)
                   .map((r) => (
                     <details key={r.id}>
-                      <summary>{text(r.titleKey)}</summary>
-                      <p>{text(r.bodyKey)}</p>
+                      <summary lang={publishedLanguageFor(r.titleKey) ?? 'en'}>{text(r.titleKey)}</summary>
+                      <p lang={publishedLanguageFor(r.bodyKey) ?? 'en'}>{text(r.bodyKey)}</p>
                       <small>
-                        Article {r.id}
-                        {r.version ? ` · version ${r.version}` : ''}
+                        <Text k="support.article" />
+                        {r.id}
+                        {r.version ? copyText('support.version', { value1: r.version }) : ''}
                       </small>
                     </details>
                   ))}
@@ -98,11 +100,14 @@ export function Support() {
             )}
           </Read>
         </Panel>
-        <Panel title="Your requests">
-          <Read resource={tickets.resource} retry={tickets.reload} empty="You have no support requests">
+        <Panel title={copyText('support.your.requests')}>
+          <Read resource={tickets.resource} retry={tickets.reload} empty={copyText('support.you.have.no.support.requests')}>
             {(rows) => (
               <>
-                <DataTable headers={['Request', 'Status', 'Updated']} label="Your support requests">
+                <DataTable
+                  headers={[copyText('support.request'), copyText('support.status'), copyText('support.updated')]}
+                  label={copyText('support.your.support.requests')}
+                >
                   {rows.map((row) => (
                     <tr key={row.id}>
                       <td>
@@ -112,7 +117,7 @@ export function Support() {
                             setSelected(row.id);
                             setComment('');
                           }}
-                          aria-label={`Open ${row.subject}`}
+                          aria-label={copyText('support.open', { value1: row.subject })}
                         >
                           {row.subject}
                         </Button>
@@ -129,21 +134,23 @@ export function Support() {
         </Panel>
         {selected && <Conversation id={selected} action={action} comment={comment} setComment={setComment} />}
       </div>
-      <Panel title="Contact Support">
-        <p className="muted">Send the details of your issue. A refund request is a support conversation; this form cannot move funds.</p>
+      <Panel title={copyText('support.contact.support')}>
+        <p className="muted">
+          <Text k="support.send.the.details.of.your.issue.a" />
+        </p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
             action.stage({
-              title: 'Review support request',
-              confirm: 'Send request',
-              success: 'Request created',
+              title: copyText('support.review.support.request'),
+              confirm: copyText('support.send.request'),
+              success: copyText('support.request.created'),
               content: (
                 <Details
                   items={[
-                    ['Category', category],
-                    ['Subject', subject],
-                    ['Message', body],
+                    [copyText('support.category'), category],
+                    [copyText('support.subject'), subject],
+                    [copyText('support.message'), body],
                   ]}
                 />
               ),
@@ -155,7 +162,7 @@ export function Support() {
                   ticketSchema.refine(
                     (row) =>
                       row.userId === userId && row.subject === subject.trim() && row.body === body.trim() && row.category === category,
-                    'Created ticket does not match this account request',
+                    copyText('support.created.ticket.does.not.match.this.account'),
                   ),
                 ),
               done: () => {
@@ -166,11 +173,22 @@ export function Support() {
             });
           }}
         >
-          <Select label="Category" value={category} onChange={setCategory} options={['account', 'trading', 'deposit_withdraw', 'other']} />
-          <Field label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} required maxLength={200} />
-          <TextArea label="Message" value={body} onChange={setBody} />
+          <Select
+            label={copyText('support.category')}
+            value={category}
+            onChange={setCategory}
+            options={['account', 'trading', 'deposit_withdraw', 'other']}
+          />
+          <Field
+            label={copyText('support.subject')}
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            required
+            maxLength={200}
+          />
+          <TextArea label={copyText('support.message')} value={body} onChange={setBody} />
           <Button type="submit" disabled={action.disabled || !subject.trim() || !body.trim()}>
-            Review request
+            <Text k="support.review.request" />
           </Button>
         </form>
         {action.feedback}
@@ -199,7 +217,10 @@ function Conversation({
           'support',
           'get',
           { ticketId: id },
-          ticketSchema.refine((row) => row.id === id && row.userId === userId, 'Ticket identity does not match this account'),
+          ticketSchema.refine(
+            (row) => row.id === id && row.userId === userId,
+            copyText('support.ticket.identity.does.not.match.this.account'),
+          ),
           { signal },
         ),
       `support-detail:${userId}:${id}`,
@@ -210,13 +231,15 @@ function Conversation({
           'support',
           'listComments',
           { ticketId: id, limit },
-          z.array(commentSchema).refine((rows) => rows.every((row) => row.ticketId === id), 'Comments belong to another ticket'),
+          z
+            .array(commentSchema)
+            .refine((rows) => rows.every((row) => row.ticketId === id), copyText('support.comments.belong.to.another.ticket')),
           { signal },
         ),
       `support-comments:${userId}:${id}:${limit}`,
     );
   return (
-    <Panel title="Conversation">
+    <Panel title={copyText('support.conversation')}>
       <Read resource={detail.resource} retry={detail.reload}>
         {(ticket) => (
           <>
@@ -225,7 +248,7 @@ function Conversation({
             <small>
               {ticket.status} · {ticket.id}
             </small>
-            <Read resource={comments.resource} retry={comments.reload} empty="No replies yet">
+            <Read resource={comments.resource} retry={comments.reload} empty={copyText('support.no.replies.yet')}>
               {(rows) => (
                 <>
                   <ol className="more-conversation">
@@ -242,14 +265,14 @@ function Conversation({
                 </>
               )}
             </Read>
-            <TextArea label="Reply" value={comment} onChange={setComment} />
+            <TextArea label={copyText('support.reply')} value={comment} onChange={setComment} />
             <Button
               disabled={action.disabled || !comment.trim() || ['closed', 'resolved'].includes(ticket.status)}
               onClick={() =>
                 action.stage({
-                  title: 'Review reply',
-                  confirm: 'Send reply',
-                  success: 'Reply posted',
+                  title: copyText('support.review.reply'),
+                  confirm: copyText('support.send.reply'),
+                  success: copyText('support.reply.posted'),
                   content: <p>{comment}</p>,
                   run: () =>
                     api.mutate(
@@ -258,7 +281,7 @@ function Conversation({
                       { ticketId: id, body: comment.trim() },
                       commentSchema.refine(
                         (row) => row.ticketId === id && row.authorId === userId && row.authorRole === 'user',
-                        'Posted comment does not match this account request',
+                        copyText('support.posted.comment.does.not.match.this.account'),
                       ),
                     ),
                   done: () => {
@@ -269,10 +292,14 @@ function Conversation({
                 })
               }
             >
-              Review reply
+              <Text k="support.review.reply" />
             </Button>
             {['closed', 'resolved'].includes(ticket.status) && (
-              <p className="muted">This request is {ticket.status}; the service refuses further comments.</p>
+              <p className="muted">
+                <Text k="support.this.request.is" />
+                {ticket.status}
+                <Text k="support.the.service.refuses.further.comments" />
+              </p>
             )}
           </>
         )}

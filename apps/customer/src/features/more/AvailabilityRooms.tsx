@@ -1,3 +1,4 @@
+import { t as copyText, Text } from './copy';
 import { z } from 'zod';
 import { useApi } from '../session/session';
 import { useResource } from '../../shared/resource';
@@ -15,34 +16,35 @@ export function Mining() {
   const status = useResource((signal) => api.plain('mining', '/health', mining, { signal }), 'mining-health');
   return (
     <div className="more-columns">
-      <Panel title="Mining pool connection">
+      <Panel title={copyText('availabilityrooms.mining.pool.connection')}>
         <Read resource={status.resource} retry={status.reload}>
           {(s) => (
             <Details
               items={[
-                ['Pool process', s.ok ? 'Responding' : 'Unavailable'],
-                ['Ledger configuration', `${s.ledger.status} · ${s.ledger.code}`],
-                ['Window-store configuration', `${s.pg.status} · ${s.pg.code}`],
-                ['Scheduled job registrations', s.jobs.length ? s.jobs.join(', ') : 'None registered'],
+                [copyText('availabilityrooms.pool.process'), s.ok ? 'Responding' : 'Unavailable'],
+                [copyText('availabilityrooms.ledger.configuration'), `${s.ledger.status} · ${s.ledger.code}`],
+                [copyText('availabilityrooms.window.store.configuration'), `${s.pg.status} · ${s.pg.code}`],
+                [
+                  copyText('availabilityrooms.scheduled.job.registrations'),
+                  s.jobs.length ? s.jobs.join(', ') : copyText('availabilityrooms.none.registered'),
+                ],
               ]}
             />
           )}
         </Read>
         <p className="muted">
-          Configured dependencies are unprobed. Process liveness does not confirm a working ledger, accepted shares or a payout.
+          <Text k="availabilityrooms.configured.dependencies.are.unprobed.process.liveness.does" />
         </p>
       </Panel>
-      <Panel title="Your mining activity">
+      <Panel title={copyText('availabilityrooms.your.mining.activity')}>
         <p>
-          The pool has a signed service endpoint for submitting observed shares and scheduled PPLNS payout jobs. It publishes no customer
-          worker registration, owned share history, hashrate projection, reward balance or payout read.
+          <Text k="availabilityrooms.the.pool.has.a.signed.service.endpoint" />
         </p>
         <p>
-          Those customer capabilities must be connected before this room can show your miners or accept an instruction. The internal
-          submitShare job is not a customer form.
+          <Text k="availabilityrooms.those.customer.capabilities.must.be.connected.before" />
         </p>
         <a className="text-link" href="/support">
-          Ask about pool access
+          <Text k="availabilityrooms.ask.about.pool.access" />
         </a>
       </Panel>
     </div>
@@ -51,55 +53,53 @@ export function Mining() {
 export function Launch({ orders = false }: { orders?: boolean }) {
   return (
     <div className="more-columns">
-      <Panel title={orders ? 'Your Launch participation' : 'Issue and list an asset'}>
+      <Panel
+        title={orders ? copyText('availabilityrooms.your.launch.participation') : copyText('availabilityrooms.issue.and.list.an.asset')}
+      >
         {orders ? (
           <>
             <p>
-              No service records sale rounds or per-account participation. The retired order page read venue records with no ledger-backed
-              subscription or allocation.
+              <Text k="availabilityrooms.no.service.records.sale.rounds.or.per" />
             </p>
             <p>
-              A customer-owned participation read and ledger-backed subscription/allocation recipes are needed before an amount or order
-              state can be shown.
+              <Text k="availabilityrooms.a.customer.owned.participation.read.and.ledger" />
             </p>
           </>
         ) : (
           <>
             <p>
-              Asset issuance currently belongs to the parked chain plane. INTACHAIN has not been started, so this room cannot deploy a
-              token, predict a live address, sign calldata or present a usable factory.
+              <Text k="availabilityrooms.asset.issuance.currently.belongs.to.the.parked" />
             </p>
-            <p>The existing template is explicitly unaudited. Compiler artifacts do not establish an audit or permission to launch.</p>
+            <p>
+              <Text k="availabilityrooms.the.existing.template.is.explicitly.unaudited.compiler" />
+            </p>
           </>
         )}
         <div className="more-toolbar">
           <a className="text-link" href="/launch">
-            Launch overview
+            <Text k="availabilityrooms.launch.overview" />
           </a>
           <a className="text-link" href="/uc/innovation/myorders">
-            My Launch orders
+            <Text k="availabilityrooms.my.launch.orders" />
           </a>
         </div>
       </Panel>
-      <Panel title="Listing and sale prerequisites">
+      <Panel title={copyText('availabilityrooms.listing.and.sale.prerequisites')}>
         <Details
           items={[
             [
-              'House-book listing',
-              'The Market seller lifecycle can publish catalogue access listings. It cannot create a tradeable asset or sale round.',
+              copyText('availabilityrooms.house.book.listing'),
+              copyText('availabilityrooms.the.market.seller.lifecycle.can.publish.catalogue'),
             ],
-            [
-              'Launchpad sale',
-              'Missing a round service, published sale terms, jurisdiction/tier admission, scoped participation records and ledger subscribe/allocate recipes.',
-            ],
-            ['Issuance', 'Parked chain work remains unstarted. No chain or deployment procedure is called by this room.'],
+            [copyText('availabilityrooms.launchpad.sale'), copyText('availabilityrooms.missing.a.round.service.published.sale.terms')],
+            [copyText('availabilityrooms.issuance'), copyText('availabilityrooms.parked.chain.work.remains.unstarted.no.chain')],
           ]}
         />
         <a className="text-link" href="/market/mine">
-          Open your Market listings
+          <Text k="availabilityrooms.open.your.market.listings" />
         </a>
         <a className="text-link" href="/support">
-          Contact Support
+          <Text k="availabilityrooms.contact.support" />
         </a>
       </Panel>
     </div>

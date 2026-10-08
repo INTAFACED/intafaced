@@ -1,3 +1,4 @@
+import { t as copyText, Text } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
@@ -59,7 +60,9 @@ export function Token() {
           'token',
           'listStakes',
           { status, limit },
-          z.array(stakeSchema).refine((rows) => rows.every((row) => row.userId === userId), 'Stake ownership does not match this account'),
+          z
+            .array(stakeSchema)
+            .refine((rows) => rows.every((row) => row.userId === userId), copyText('token.stake.ownership.does.not.match.this.account')),
           { signal },
         ),
       `token-stakes:${userId}:${status}:${limit}`,
@@ -74,42 +77,68 @@ export function Token() {
     );
   return (
     <div className="more-grid">
-      <Tabs items={['Staking', 'Governance', 'Economy']} value={tab} onChange={setTab} label="Token sections" />
+      <Tabs
+        items={['Staking', 'Governance', 'Economy']}
+        labels={{ Staking: copyText('token.staking'), Governance: copyText('token.governance'), Economy: copyText('token.economy') }}
+        value={tab}
+        onChange={setTab}
+        label={copyText('token.token.sections')}
+      />
       {tab === 'Staking' ? (
         <div className="more-columns">
           <div>
-            <Panel title="Your token access">
+            <Panel title={copyText('token.your.token.access')}>
               <Read resource={access.resource} retry={access.reload}>
                 {(a) => (
                   <Details
                     items={[
                       [
-                        'Staked amount',
-                        hideBalances ? 'Hidden · asset identity unavailable' : `${displayAmount(a.staked)} · asset identity unavailable`,
+                        copyText('token.staked.amount'),
+                        hideBalances
+                          ? copyText('token.hidden.asset.identity.unavailable')
+                          : copyText('token.asset.identity.unavailable.2', { amount: displayAmount(a.staked) }),
                       ],
-                      ['Access tier', a.tier],
-                      ['Fee discount', `${a.feeDiscountBps} basis points`],
+                      [copyText('token.access.tier'), a.tier],
+                      [copyText('token.fee.discount'), copyText('token.basis.points', { bps: a.feeDiscountBps })],
                     ]}
                   />
                 )}
               </Read>
             </Panel>
-            <Panel title="Your stakes">
-              <Select label="Stake status" value={status} onChange={setStatus} options={['all', 'active', 'pending', 'closed']} />
-              <Read resource={stakes.resource} retry={stakes.reload} empty="You have no stakes">
+            <Panel title={copyText('token.your.stakes')}>
+              <Select
+                label={copyText('token.stake.status')}
+                value={status}
+                onChange={setStatus}
+                options={['all', 'active', 'pending', 'closed']}
+              />
+              <Read resource={stakes.resource} retry={stakes.reload} empty={copyText('token.you.have.no.stakes')}>
                 {(rows) => (
                   <>
-                    <DataTable headers={['Amount', 'Term', 'Status', 'Unlock', 'Action']} label="Your token stakes">
+                    <DataTable
+                      headers={[
+                        copyText('token.amount'),
+                        copyText('token.term'),
+                        copyText('token.status'),
+                        copyText('token.unlock'),
+                        copyText('token.action'),
+                      ]}
+                      label={copyText('token.your.token.stakes')}
+                    >
                       {rows.map((row) => (
                         <tr key={row.id}>
                           <td>
-                            {displayAmount(row.amount)} · asset identity unavailable<small className="more-receipt">{row.id}</small>
+                            {displayAmount(row.amount)}
+                            <Text k="token.asset.identity.unavailable" />
+                            <small className="more-receipt">{row.id}</small>
                           </td>
                           <td>{row.tier}</td>
                           <td>{row.status}</td>
-                          <td>{row.unlocksAt ?? 'Flexible'}</td>
+                          <td>{row.unlocksAt ?? copyText('token.flexible')}</td>
                           <td>
-                            <span className="muted">Unstake unavailable: asset identity missing</span>
+                            <span className="muted">
+                              <Text k="token.unstake.unavailable.asset.identity.missing" />
+                            </span>
                           </td>
                         </tr>
                       ))}
@@ -120,15 +149,15 @@ export function Token() {
               </Read>
             </Panel>
           </div>
-          <Panel title="Staking asset identity">
-            <p role="status">Staking and unstaking are unavailable until the service publishes its configured asset ID.</p>
-            <p className="muted">
-              The token asset is deployment-configurable. Stake and access responses contain amounts but no asset binding. A default name
-              cannot establish which ledger asset will move.
+          <Panel title={copyText('token.staking.asset.identity')}>
+            <p role="status">
+              <Text k="token.staking.and.unstaking.are.unavailable.until.the" />
             </p>
             <p className="muted">
-              Your existing stake records remain readable. A published asset identity and authoritative movement review are needed before
-              these actions can open.
+              <Text k="token.the.token.asset.is.deployment.configurable.stake" />
+            </p>
+            <p className="muted">
+              <Text k="token.your.existing.stake.records.remain.readable.a" />
             </p>
             {action.feedback}
           </Panel>
@@ -136,15 +165,22 @@ export function Token() {
       ) : tab === 'Governance' ? (
         <div className="more-columns">
           <div>
-            <Panel title="Proposals">
-              <Read resource={proposals.resource} retry={proposals.reload} empty="No proposals are published">
+            <Panel title={copyText('token.proposals')}>
+              <Read resource={proposals.resource} retry={proposals.reload} empty={copyText('token.no.proposals.are.published')}>
                 {(rows) => (
                   <>
-                    <DataTable headers={['Proposal', 'Kind', 'Status', 'Closes']} label="Governance proposals">
+                    <DataTable
+                      headers={[copyText('token.proposal'), copyText('token.kind'), copyText('token.status'), copyText('token.closes')]}
+                      label={copyText('token.governance.proposals')}
+                    >
                       {rows.map((p) => (
                         <tr key={p.id}>
                           <td>
-                            <Button variant="ghost" aria-label={`Open proposal ${p.id}`} onClick={() => setSelected(p.id)}>
+                            <Button
+                              variant="ghost"
+                              aria-label={copyText('token.open.proposal', { value1: p.id })}
+                              onClick={() => setSelected(p.id)}
+                            >
                               {p.id}
                             </Button>
                           </td>
@@ -161,10 +197,9 @@ export function Token() {
             </Panel>
             {selected && <Proposal id={selected} action={action} />}
           </div>
-          <Panel title="Create a proposal">
+          <Panel title={copyText('token.create.a.proposal')}>
             <p className="muted">
-              The service decides which proposal kinds your stake permits. Grant and listing execution remain unconnected after a passed
-              vote.
+              <Text k="token.the.service.decides.which.proposal.kinds.your" />
             </p>
             <form
               onSubmit={(e) => {
@@ -174,33 +209,33 @@ export function Token() {
                 try {
                   body = JSON.parse(proposalBody);
                 } catch {
-                  setValidation('Enter a valid JSON object for the proposal body.');
+                  setValidation(copyText('token.enter.a.valid.json.object.for.the'));
                   return;
                 }
                 if (!z.record(z.unknown()).safeParse(body).success) {
-                  setValidation('Enter a valid JSON object for the proposal body.');
+                  setValidation(copyText('token.enter.a.valid.json.object.for.the'));
                   return;
                 }
                 if ((opens && !Number.isFinite(Date.parse(opens))) || (closes && !Number.isFinite(Date.parse(closes)))) {
-                  setValidation('Enter valid opening and closing dates.');
+                  setValidation(copyText('token.enter.valid.opening.and.closing.dates'));
                   return;
                 }
                 if (opens && closes && Date.parse(closes) <= Date.parse(opens)) {
-                  setValidation('The closing date must be after the opening date.');
+                  setValidation(copyText('token.the.closing.date.must.be.after.the'));
                   return;
                 }
                 const proposalId = crypto.randomUUID();
                 action.stage({
-                  title: 'Review proposal',
-                  confirm: 'Submit proposal',
-                  success: 'Proposal created',
+                  title: copyText('token.review.proposal'),
+                  confirm: copyText('token.submit.proposal'),
+                  success: copyText('token.proposal.created'),
                   content: (
                     <Details
                       items={[
-                        ['Kind', kind],
-                        ['Body', proposalBody],
-                        ['Opens', opens || 'Service policy'],
-                        ['Closes', closes || 'Service policy'],
+                        [copyText('token.kind'), kind],
+                        [copyText('token.body'), proposalBody],
+                        [copyText('token.opens'), opens || copyText('token.service.policy')],
+                        [copyText('token.closes'), closes || copyText('token.service.policy')],
                       ]}
                     />
                   ),
@@ -221,13 +256,28 @@ export function Token() {
                 });
               }}
             >
-              <Select label="Proposal kind" value={kind} onChange={setKind} options={['curriculum', 'fee_param', 'listing', 'grant']} />
-              <TextArea label="Proposal body as JSON object" value={proposalBody} onChange={setProposalBody} />
-              <Field label="Opens at (optional)" type="datetime-local" value={opens} onChange={(e) => setOpens(e.target.value)} />
-              <Field label="Closes at (optional)" type="datetime-local" value={closes} onChange={(e) => setCloses(e.target.value)} />
+              <Select
+                label={copyText('token.proposal.kind')}
+                value={kind}
+                onChange={setKind}
+                options={['curriculum', 'fee_param', 'listing', 'grant']}
+              />
+              <TextArea label={copyText('token.proposal.body.as.json.object')} value={proposalBody} onChange={setProposalBody} />
+              <Field
+                label={copyText('token.opens.at.optional')}
+                type="datetime-local"
+                value={opens}
+                onChange={(e) => setOpens(e.target.value)}
+              />
+              <Field
+                label={copyText('token.closes.at.optional')}
+                type="datetime-local"
+                value={closes}
+                onChange={(e) => setCloses(e.target.value)}
+              />
               {validation && <p role="alert">{validation}</p>}
               <Button type="submit" disabled={action.disabled || !proposalBody.trim()}>
-                Review proposal
+                <Text k="token.review.proposal" />
               </Button>
             </form>
             {action.feedback}
@@ -235,20 +285,26 @@ export function Token() {
         </div>
       ) : (
         <div className="more-columns">
-          <Panel title="Recorded burn">
+          <Panel title={copyText('token.recorded.burn')}>
             <Read resource={burned.resource} retry={burned.reload}>
-              {(b) => <Details items={[['Burned supply', `${displayAmount(b.burned)} · asset identity unavailable`]]} />}
+              {(b) => (
+                <Details
+                  items={[
+                    [copyText('token.burned.supply'), copyText('token.asset.identity.unavailable.2', { amount: displayAmount(b.burned) })],
+                  ]}
+                />
+              )}
             </Read>
           </Panel>
-          <Panel title="Economy boundaries">
-            <p>Emission, buyback and revenue-distribution windows are signed service jobs. They are not customer actions.</p>
+          <Panel title={copyText('token.economy.boundaries')}>
             <p>
-              The customer API publishes no personal yield history, upcoming distribution quote, or buyback execution history. Those values
-              stay absent.
+              <Text k="token.emission.buyback.and.revenue.distribution.windows.are" />
             </p>
             <p>
-              Governance closure depends on published quorum and threshold rules. A passed listing or grant does not execute while the
-              executor is unconnected.
+              <Text k="token.the.customer.api.publishes.no.personal.yield" />
+            </p>
+            <p>
+              <Text k="token.governance.closure.depends.on.published.quorum.and" />
             </p>
           </Panel>
         </div>
@@ -266,18 +322,18 @@ function Proposal({ id, action }: { id: string; action: ReturnType<typeof useAct
     `proposal:${userId}:${id}`,
   );
   return (
-    <Panel title="Proposal detail">
+    <Panel title={copyText('token.proposal.detail')}>
       <Read resource={detail.resource} retry={detail.reload}>
         {(p) => (
           <>
             <Details
               items={[
-                ['Proposal', p.id],
-                ['Status', p.status],
-                ['For weight', p.tally.forWeight],
-                ['Against weight', p.tally.againstWeight],
-                ['Abstain weight', p.tally.abstainWeight],
-                ['Voters', p.tally.voterCount],
+                [copyText('token.proposal'), p.id],
+                [copyText('token.status'), p.status],
+                [copyText('token.for.weight'), p.tally.forWeight],
+                [copyText('token.against.weight'), p.tally.againstWeight],
+                [copyText('token.abstain.weight'), p.tally.abstainWeight],
+                [copyText('token.voters'), p.tally.voterCount],
               ]}
             />
             <pre className="more-body">{JSON.stringify(p.body, null, 2)}</pre>
@@ -289,15 +345,15 @@ function Proposal({ id, action }: { id: string; action: ReturnType<typeof useAct
                   disabled={action.disabled || p.status !== 'open' || Date.parse(p.closesAt) <= Date.now()}
                   onClick={() =>
                     action.stage({
-                      title: 'Review vote',
-                      confirm: 'Cast vote',
-                      success: 'Vote recorded',
+                      title: copyText('token.review.vote'),
+                      confirm: copyText('token.cast.vote'),
+                      success: copyText('token.vote.recorded'),
                       content: (
                         <Details
                           items={[
-                            ['Proposal', id],
-                            ['Choice', choice],
-                            ['Weight', 'Determined by your authoritative stake when cast'],
+                            [copyText('token.proposal'), id],
+                            [copyText('token.choice'), choice],
+                            [copyText('token.weight'), copyText('token.determined.by.your.authoritative.stake.when.cast')],
                           ]}
                         />
                       ),
@@ -319,7 +375,8 @@ function Proposal({ id, action }: { id: string; action: ReturnType<typeof useAct
                     })
                   }
                 >
-                  Vote {choice}
+                  <Text k="token.vote" />
+                  {choice}
                 </Button>
               ))}
               <Button
@@ -327,11 +384,13 @@ function Proposal({ id, action }: { id: string; action: ReturnType<typeof useAct
                 disabled={action.disabled || p.status !== 'open' || Date.parse(p.closesAt) > Date.now()}
                 onClick={() =>
                   action.stage({
-                    title: 'Close proposal after voting',
-                    confirm: 'Close proposal',
-                    success: 'Proposal closure received',
+                    title: copyText('token.close.proposal.after.voting'),
+                    confirm: copyText('token.close.proposal'),
+                    success: copyText('token.proposal.closure.received'),
                     content: (
-                      <p>The service applies its published quorum and threshold. This request does not execute a grant or listing.</p>
+                      <p>
+                        <Text k="token.the.service.applies.its.published.quorum.and" />
+                      </p>
                     ),
                     run: () =>
                       api.mutate(
@@ -344,7 +403,7 @@ function Proposal({ id, action }: { id: string; action: ReturnType<typeof useAct
                   })
                 }
               >
-                Close voting
+                <Text k="token.close.voting" />
               </Button>
             </div>
           </>

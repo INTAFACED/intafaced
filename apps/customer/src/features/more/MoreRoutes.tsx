@@ -1,3 +1,4 @@
+import { copy, t as copyText, Text } from './copy';
 import { Page, Panel, EmptyState } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { Academy } from './Academy';
@@ -10,32 +11,42 @@ import { Prediction } from './Prediction';
 import { Quant } from './Quant';
 import { Support } from './Support';
 import { Token } from './Token';
+import { preservePaperHref } from './trade-context';
 import './more.css';
 const rooms = [
-  ['/academy', 'Academy', 'Learning paths, certificates, hosted sessions and programmes.'],
-  ['/agents', 'Agents', 'Read permissions, run approved tasks and inspect your action log.'],
-  ['/quant', 'Quant', 'Write strategies in a simulation sandbox and inspect historical evidence.'],
-  ['/launch', 'Launch', 'Issuance, listing and sale-participation prerequisites.'],
-  ['/market', 'Market', 'Browse published listings and manage your seller workspace.'],
-  ['/predict', 'Prediction', 'Read listed events and their actual yes/no instruments.'],
-  ['/mining', 'Mining', 'Pool connection and the customer activity contracts still needed.'],
-  ['/token', 'Token', 'Your exact stake projection, access and governance proposals.'],
-  ['/blueprint', 'Blueprint', 'Your profile, share card, mentor shortlist and data controls.'],
-  ['/support', 'Support', 'Published help and your support conversations.'],
-  ['/campaigns', 'Campaigns', 'Signed-in draft assessment and publication boundaries.'],
-  ['/trade/copy', 'Copy', 'Follow leaders through the Trade permission and grant flow.'],
-  ['/trade/bots', 'Bots', 'Inspect existing trading algorithms and their actual controls.'],
+  ['/academy', copyText('moreroutes.academy'), copyText('moreroutes.learning.paths.certificates.hosted.sessions.and.programmes')],
+  ['/agents', copyText('moreroutes.agents'), copyText('moreroutes.read.permissions.run.approved.tasks.and.inspect')],
+  ['/quant', copyText('moreroutes.quant'), copyText('moreroutes.write.strategies.in.a.simulation.sandbox.and')],
+  ['/launch', copyText('moreroutes.launch'), copyText('moreroutes.issuance.listing.and.sale.participation.prerequisites')],
+  ['/market', copyText('moreroutes.market'), copyText('moreroutes.browse.published.listings.and.manage.your.seller')],
+  ['/predict', copyText('moreroutes.prediction'), copyText('moreroutes.read.listed.events.and.their.actual.yes')],
+  ['/mining', copyText('moreroutes.mining'), copyText('moreroutes.pool.connection.and.the.customer.activity.contracts')],
+  ['/token', copyText('moreroutes.token'), copyText('moreroutes.your.exact.stake.projection.access.and.governance')],
+  ['/blueprint', copyText('moreroutes.blueprint'), copyText('moreroutes.your.profile.share.card.mentor.shortlist.and')],
+  ['/support', copyText('moreroutes.support'), copyText('moreroutes.published.help.and.your.support.conversations')],
+  ['/campaigns', copyText('moreroutes.campaigns'), copyText('moreroutes.signed.in.draft.assessment.and.publication.boundaries')],
+  ['/trade/copy', copyText('moreroutes.copy'), copyText('moreroutes.follow.leaders.through.the.trade.permission.and')],
+  ['/trade/bots', copyText('moreroutes.bots'), copyText('moreroutes.inspect.existing.trading.algorithms.and.their.actual')],
 ] as const;
 export function MoreRoutes({ path }: { path: string }) {
+  copy.useCopy();
+  return (
+    <div lang="en" style={{ display: 'contents' }}>
+      <MoreRooms path={path} />
+    </div>
+  );
+}
+function MoreRooms({ path }: { path: string }) {
   const { userId } = useSession();
   const url = new URL(path, location.origin),
     p = url.pathname;
-  let title = 'More',
-    description = 'Explore the rooms behind your everyday account.',
+  const paper = url.searchParams.get('simulated') === 'true';
+  let title = copyText('moreroutes.more'),
+    description = copyText('moreroutes.explore.the.rooms.behind.your.everyday.account'),
     content = (
       <div className="more-rooms">
         {rooms.map(([href, name, copy]) => (
-          <a className="more-room-link" href={href} key={href}>
+          <a className="more-room-link" href={preservePaperHref(href, paper)} key={href}>
             <strong>{name}</strong>
             <p>{copy}</p>
           </a>
@@ -43,8 +54,8 @@ export function MoreRoutes({ path }: { path: string }) {
       </div>
     );
   if (p === '/academy' || p.startsWith('/academy/')) {
-    title = 'Academy';
-    description = 'Learn, practise and join hosted sessions.';
+    title = copyText('moreroutes.academy');
+    description = copyText('moreroutes.learn.practise.and.join.hosted.sessions');
     let slug = url.searchParams.get('slug') ?? undefined;
     try {
       if (p.split('/')[2]) slug = decodeURIComponent(p.split('/')[2]!);
@@ -53,58 +64,70 @@ export function MoreRoutes({ path }: { path: string }) {
     }
     content = <Academy key={`${p}:${url.search}`} slug={slug} initialPath={url.searchParams.get('path') ?? undefined} />;
   } else if (p === '/agents') {
-    title = 'Agents';
-    description = 'Permissions, bounded engine sessions and your activity log.';
-    content = <Agents />;
+    title = copyText('moreroutes.agents');
+    description = copyText('moreroutes.permissions.bounded.engine.sessions.and.your.activity');
+    content = <Agents paper={paper} />;
   } else if (p === '/blueprint') {
-    title = 'Identity Blueprint';
-    description = 'A profile you can keep private, share, export and erase.';
+    title = copyText('moreroutes.identity.blueprint');
+    description = copyText('moreroutes.a.profile.you.can.keep.private.share');
     content = <Blueprint />;
   } else if (p === '/campaigns') {
-    title = 'Campaigns';
-    description = 'Prepare a grounded proposal for human review.';
+    title = copyText('moreroutes.campaigns');
+    description = copyText('moreroutes.prepare.a.grounded.proposal.for.human.review');
     content = <Campaigns />;
   } else if (p === '/launch' || p === '/uc/innovation/myorders') {
-    title = p === '/launch' ? 'Launch' : 'My Launch orders';
-    description = 'Issuance and sale participation require their owned contracts.';
+    title = p === '/launch' ? copyText('moreroutes.launch') : copyText('moreroutes.my.launch.orders');
+    description = copyText('moreroutes.issuance.and.sale.participation.require.their.owned');
     content = <Launch orders={p !== '/launch'} />;
   } else if (p === '/market' || p === '/market/mine' || p === '/market/strategy') {
-    title = p === '/market' ? 'Market' : p === '/market/mine' ? 'My listings' : 'Strategy subscriptions';
-    description = 'Published catalogue terms and your seller workspace.';
+    title =
+      p === '/market'
+        ? copyText('moreroutes.market')
+        : p === '/market/mine'
+          ? copyText('moreroutes.my.listings')
+          : copyText('moreroutes.strategy.subscriptions');
+    description = copyText('moreroutes.published.catalogue.terms.and.your.seller.workspace');
     content = <Market key={p} mine={p === '/market/mine'} strategy={p === '/market/strategy'} />;
   } else if (p === '/predict') {
-    title = 'Prediction';
-    description = 'Listed questions, result sources and fully collateralized instruments.';
+    title = copyText('moreroutes.prediction');
+    description = copyText('moreroutes.listed.questions.result.sources.and.fully.collateralized');
     content = <Prediction />;
   } else if (p === '/mining') {
-    title = 'Mining';
-    description = 'Pool status without invented miners or rewards.';
+    title = copyText('moreroutes.mining');
+    description = copyText('moreroutes.pool.status.without.invented.miners.or.rewards');
     content = <Mining />;
   } else if (p === '/token') {
-    title = 'Token';
-    description = 'Exact stake records, access and governance.';
+    title = copyText('moreroutes.token');
+    description = copyText('moreroutes.exact.stake.records.access.and.governance');
     content = <Token />;
   } else if (p === '/quant' || p === '/quant/studio' || p === '/quant/backtest') {
-    title = p === '/quant' ? 'Quant sandbox' : p === '/quant/studio' ? 'Quant Studio' : 'Backtest';
-    description = 'Simulated strategy research with explicit historical evidence.';
-    content = <Quant key={p} mode={p === '/quant/studio' ? 'studio' : p === '/quant/backtest' ? 'backtest' : 'sandbox'} />;
+    title =
+      p === '/quant'
+        ? copyText('moreroutes.quant.sandbox')
+        : p === '/quant/studio'
+          ? copyText('moreroutes.quant.studio')
+          : copyText('moreroutes.backtest');
+    description = copyText('moreroutes.simulated.strategy.research.with.explicit.historical.evidence');
+    content = <Quant key={p} paper={paper} mode={p === '/quant/studio' ? 'studio' : p === '/quant/backtest' ? 'backtest' : 'sandbox'} />;
   } else if (p === '/support') {
-    title = 'Support';
-    description = 'Help, requests and your conversation with the desk.';
+    title = copyText('moreroutes.support');
+    description = copyText('moreroutes.help.requests.and.your.conversation.with.the');
     content = <Support />;
   } else if (p !== '/more') {
     content = (
-      <Panel title="More destination unavailable">
-        <EmptyState title="This destination has no customer route">Use a published More room to continue.</EmptyState>
+      <Panel title={copyText('moreroutes.more.destination.unavailable')}>
+        <EmptyState title={copyText('moreroutes.this.destination.has.no.customer.route')}>
+          <Text k="moreroutes.use.a.published.more.room.to.continue" />
+        </EmptyState>
         <a className="text-link" href="/more">
-          Open More
+          <Text k="moreroutes.open.more" />
         </a>
       </Panel>
     );
   }
   return (
     <div className="more-feature">
-      <Page key={userId ?? 'anonymous'} eyebrow="More" title={title} description={description}>
+      <Page key={userId ?? 'anonymous'} eyebrow={copyText('moreroutes.more')} title={title} description={description}>
         {content}
       </Page>
     </div>

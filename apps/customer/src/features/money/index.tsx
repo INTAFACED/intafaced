@@ -1,3 +1,4 @@
+import { copy, t as copyText, Text } from './copy';
 import { useEffect, useState } from 'react';
 import { AssetChart } from '../trade';
 import { usePreferences, savePreferences } from '../../shared/preferences';
@@ -11,25 +12,27 @@ import { RepeatBuy } from './repeat-buy';
 import { pendingKey, pendingOutcomes } from './pending-outcomes';
 import './money.css';
 
-const coverage =
-  'User ledger accounts are shown by asset. Named and archived spaces are outside this projection. Primary space labels are already included. Separate reads do not establish one ledger snapshot.';
+const coverage = copyText('index.user.ledger.accounts.are.shown.by.asset');
 const destinations = [
-  { href: '/bank/spaces', label: 'Spaces', description: 'Organize quantities within the same ledger' },
-  { href: '/bank/transfers', label: 'Transfers', description: 'Move available funds and manage standing orders' },
-  { href: '/bank/earn', label: 'Earn', description: 'Configured pools and your positions' },
-  { href: '/bank/loans', label: 'Loans', description: 'Borrowing, collateral and loan health' },
-  { href: '/bank/analytics', label: 'Analytics', description: 'Movement by asset and date' },
+  { href: '/bank/spaces', label: copyText('index.spaces'), description: copyText('index.organize.quantities.within.the.same.ledger') },
+  {
+    href: '/bank/transfers',
+    label: copyText('index.transfers'),
+    description: copyText('index.move.available.funds.and.manage.standing.orders'),
+  },
+  { href: '/bank/earn', label: copyText('index.earn'), description: copyText('index.configured.pools.and.your.positions') },
+  { href: '/bank/loans', label: copyText('index.loans'), description: copyText('index.borrowing.collateral.and.loan.health') },
+  { href: '/bank/analytics', label: copyText('index.analytics'), description: copyText('index.movement.by.asset.and.date') },
 ];
 function useOverview(limit: number) {
   const { api, userId, mode } = useSession();
   return useResource<MoneyOverview>(async (signal) => {
-    if (!userId) return { ok: false, reason: 'unauthorized', message: 'Sign in to see your Money.' };
+    if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('index.sign.in.to.see.your.money') };
     if (mode === 'Business')
       return {
         ok: false,
         reason: 'not_supported',
-        message:
-          'A verified company ledger owner and company balance projection are not connected. Personal quantities cannot be shown as company money.',
+        message: copyText('index.a.verified.company.ledger.owner.and.company'),
       };
     return { ok: true, data: await createMoneyClient(api).overview(userId, limit, signal) };
   }, `${userId}:${mode}:money:${limit}`);
@@ -42,11 +45,15 @@ export function HoldingPresenter({ holding, hidden = false }: { holding: Holding
       </span>
       <span className="money-holding-name">
         <strong>{holding.assetId}</strong>
-        <small>{holding.quantity === null ? 'Available projection only' : 'User ledger quantity'}</small>
+        <small>{holding.quantity === null ? copyText('index.available.projection.only') : copyText('index.user.ledger.quantity')}</small>
       </span>
       <span className="money-holding-values">
         <strong className="numeric">{hidden ? '••••' : amount(holding.quantity ?? holding.available, holding.assetId)}</strong>
-        <small>{hidden ? 'Amounts hidden' : `${amount(holding.available, holding.assetId)} available`}</small>
+        <small>
+          {hidden
+            ? copyText('index.amounts.hidden')
+            : copyText('index.available.2', { value1: amount(holding.available, holding.assetId) })}
+        </small>
       </span>
       <span className="money-chevron" aria-hidden="true">
         ↗
@@ -59,23 +66,27 @@ function ValueHero({ bank, hidden, onHide }: { bank: boolean; hidden: boolean; o
   return (
     <div className="money-value">
       <div className="money-value-label">
-        <span>Total account value</span>
+        <span>
+          <Text k="index.total.account.value" />
+        </span>
         <Button variant="ghost" onClick={onHide} aria-pressed={hidden}>
-          {hidden ? 'Show amounts' : 'Hide amounts'}
+          {hidden ? copyText('index.show.amounts') : copyText('index.hide.amounts')}
         </Button>
       </div>
-      <div className="money-total">{hidden ? '••••' : 'Unavailable'}</div>
+      <div className="money-total">{hidden ? '••••' : copyText('index.unavailable')}</div>
       <p className="muted">
-        Valuation and complete holdings coverage are not connected.{' '}
-        {bank ? 'Your ledger quantities remain available below.' : 'Amounts remain in their own asset.'}
+        <Text k="index.valuation.and.complete.holdings.coverage.are.not" />{' '}
+        {bank ? copyText('index.your.ledger.quantities.remain.available.below') : copyText('index.amounts.remain.in.their.own.asset')}
       </p>
       <label className="money-currency">
-        Display currency{' '}
+        <Text k="index.display.currency" />{' '}
         <select value={currency} onChange={(event) => savePreferences({ displayCurrency: event.target.value as 'USD' | 'BTC' })}>
           <option value="USD">USD</option>
           <option value="BTC">BTC</option>
         </select>
-        <span>No conversion or total is supplied.</span>
+        <span>
+          <Text k="index.no.conversion.or.total.is.supplied" />
+        </span>
       </label>
     </div>
   );
@@ -84,56 +95,74 @@ function HoldingDetails({ asset, overview, hidden }: { asset: string; overview: 
   const holding = overview.holdings.find((row) => row.assetId === asset);
   return (
     <>
-      <Section title="Your quantity" description="Exact quantities in this asset. Available excludes held and restricted accounts.">
+      <Section title={copyText('index.your.quantity')} description={copyText('index.exact.quantities.in.this.asset.available.excludes')}>
         {holding ? (
           <dl className="detail-list">
             <div>
-              <dt>User ledger quantity</dt>
+              <dt>
+                <Text k="index.user.ledger.quantity" />
+              </dt>
               <dd className="numeric">{hidden ? '••••' : amount(holding.quantity, asset)}</dd>
             </div>
             <div>
-              <dt>Available</dt>
+              <dt>
+                <Text k="index.available" />
+              </dt>
               <dd className="numeric">{hidden ? '••••' : amount(holding.available, asset)}</dd>
             </div>
             <div>
-              <dt>Held & restricted</dt>
+              <dt>
+                <Text k="index.held.restricted" />
+              </dt>
               <dd className="numeric">{hidden ? '••••' : amount(holding.held, asset)}</dd>
             </div>
           </dl>
+        ) : !overview.balances.ok ? (
+          <p className="notice">
+            <Text k="availability.asset.unavailable" />
+          </p>
         ) : (
-          <EmptyState title="No holding returned for this asset">
-            This projection does not establish a zero amount or include every owned account.
+          <EmptyState title={copyText('index.no.holding.returned.for.this.asset')}>
+            <Text k="index.this.projection.does.not.establish.a.zero" />
           </EmptyState>
         )}
       </Section>
-      <Section title="Price and simple analysis" description="Published live spot markets supply their own quote currency and history.">
+      <Section
+        title={copyText('index.price.and.simple.analysis')}
+        description={copyText('index.published.live.spot.markets.supply.their.own')}
+      >
         <AssetChart asset={asset} />
         <a className="button button--secondary" href={`/exchange?asset=${encodeURIComponent(asset)}`}>
-          Open this asset in Trade
+          <Text k="index.open.this.asset.in.trade" />
         </a>
       </Section>
-      <Section title="Actions" description="The selected asset follows you into the review and trading workflow.">
+      <Section title={copyText('index.actions')} description={copyText('index.the.selected.asset.follows.you.into.the')}>
         <div className="money-action-grid">
           <a className="button button--chrome" href={`/exchange?asset=${encodeURIComponent(asset)}&side=buy`}>
-            Buy {asset}
+            <Text k="index.buy" />
+            {asset}
           </a>
           <a className="button button--chrome" href={`/exchange?asset=${encodeURIComponent(asset)}&side=sell`}>
-            Sell {asset}
+            <Text k="index.sell" />
+            {asset}
           </a>
           <a className="button button--secondary" href={`/trade/convert?asset=${encodeURIComponent(asset)}`}>
-            Convert
+            <Text k="index.convert" />
           </a>
           <a className="button button--secondary" href={`/portfolio/${encodeURIComponent(asset)}/repeat-buy`}>
-            Repeat buy
+            <Text k="index.repeat.buy" />
           </a>
           <a className="button button--secondary" href={`/pay/send?asset=${encodeURIComponent(asset)}`}>
-            Send available {asset}
+            <Text k="index.send.available" />
+            {asset}
           </a>
           <a className="button button--secondary" href={`/uc/record?asset=${encodeURIComponent(asset)}`}>
-            Activity
+            <Text k="index.activity" />
           </a>
         </div>
-        <p className="money-caption">Held and restricted amounts are not available to send. Pending-deposit buying is not connected.</p>
+        <p className="money-caption">
+          <Text k="index.held.and.restricted.amounts.are.not.available" />
+        </p>
       </Section>
     </>
   );
@@ -144,11 +173,11 @@ function MoneyOverviewPage({ bank = false, asset }: { bank?: boolean; asset?: st
   const { hideBalances: hidden } = usePreferences();
   return (
     <Page
-      eyebrow={bank ? 'Money / Bank' : 'Your money'}
-      title={asset ?? (bank ? 'Bank' : 'Money')}
+      eyebrow={bank ? copyText('index.money.bank') : copyText('index.your.money')}
+      title={asset ?? (bank ? copyText('index.bank') : copyText('index.money'))}
       actions={
         <a className="button button--secondary" href={asset ? '/portfolio' : '/uc/record'}>
-          {asset ? 'All holdings' : 'Money activity'}
+          {asset ? copyText('index.all.holdings') : copyText('index.money.activity')}
         </a>
       }
     >
@@ -158,12 +187,20 @@ function MoneyOverviewPage({ bank = false, asset }: { bank?: boolean; asset?: st
           <ValueHero bank={bank} hidden={hidden} onHide={() => savePreferences({ hideBalances: !hidden })} />
           <div className="money-availability">
             <div>
-              <h3>Available</h3>
-              <p>Spendable quantities stay in their asset. Primary space labels the same ledger account.</p>
+              <h3>
+                <Text k="index.available" />
+              </h3>
+              <p>
+                <Text k="index.spendable.quantities.stay.in.their.asset.primary" />
+              </p>
             </div>
             <div>
-              <h3>Held & restricted</h3>
-              <p>Order holds, earn and collateral stay separate from available funds. Pending-deposit buying is unavailable.</p>
+              <h3>
+                <Text k="index.held.restricted" />
+              </h3>
+              <p>
+                <Text k="index.order.holds.earn.and.collateral.stay.separate" />
+              </p>
             </div>
           </div>
           <ResourceView resource={resource} reload={reload}>
@@ -172,42 +209,56 @@ function MoneyOverviewPage({ bank = false, asset }: { bank?: boolean; asset?: st
                 {!overview.balances.ok && <Failure result={overview.balances} retry={reload} />}
                 {overview.conflicts.length > 0 && (
                   <p className="notice" role="status">
-                    Separate reads disagree for {overview.conflicts.join(', ')}. Their available projection is omitted; refresh to
-                    reconcile.
+                    <Text k="index.separate.reads.disagree.for" />
+                    {overview.conflicts.join(', ')}
+                    <Text k="index.their.available.projection.is.omitted.refresh.to" />
                   </p>
                 )}
                 {asset ? (
                   <HoldingDetails asset={asset} overview={overview} hidden={hidden} />
                 ) : (
                   <Section
-                    title="Holdings"
+                    title={copyText('index.holdings')}
                     description={
                       overview.balances.ok
-                        ? `User ledger projection · response time ${new Date(overview.balances.data.datetime).toLocaleString()}`
-                        : 'Available projections from Bank. Held quantities are unavailable.'
+                        ? copyText('index.user.ledger.projection.response.time', {
+                            value1: new Date(overview.balances.data.datetime).toLocaleString(),
+                          })
+                        : overview.holdings.length
+                          ? copyText('index.available.projections.from.bank.held.quantities.are')
+                          : copyText('availability.quantities.unavailable')
                     }
                     actions={
                       <Button variant="ghost" onClick={reload}>
-                        Refresh
+                        <Text k="index.refresh" />
                       </Button>
                     }
                   >
                     {overview.holdings.length ? (
                       overview.holdings.map((holding) => <HoldingPresenter key={holding.assetId} holding={holding} hidden={hidden} />)
-                    ) : (
-                      <EmptyState title={overview.balances.ok ? 'No user ledger accounts returned' : 'No available quantities returned'}>
-                        An empty projection is not a complete account total.
+                    ) : overview.balances.ok ? (
+                      <EmptyState title={copyText('index.no.user.ledger.accounts.returned')}>
+                        <Text k="index.an.empty.projection.is.not.a.complete" />
                       </EmptyState>
+                    ) : (
+                      <div className="notice" role="status">
+                        <h3>
+                          <Text k="availability.holdings.unavailable" />
+                        </h3>
+                        <p>
+                          <Text k="availability.refresh.balances" />
+                        </p>
+                      </div>
                     )}
                   </Section>
                 )}
                 <p className="notice">{coverage}</p>
                 {bank && (
                   <Section
-                    title="Your spaces"
+                    title={copyText('index.your.spaces')}
                     actions={
                       <a className="text-link" href="/bank/spaces">
-                        Manage spaces ↗
+                        <Text k="index.manage.spaces" />
                       </a>
                     }
                   >
@@ -220,16 +271,16 @@ function MoneyOverviewPage({ bank = false, asset }: { bank?: boolean; asset?: st
                                 <strong>{space.name}</strong>
                                 <small>
                                   {space.kind === 'primary'
-                                    ? 'Primary · already in the user ledger projection'
-                                    : 'Named · separate ledger subaccount'}
+                                    ? copyText('index.primary.already.in.the.user.ledger.projection')
+                                    : copyText('index.named.separate.ledger.subaccount')}
                                 </small>
                               </div>
                               <div className="numeric">{hidden ? '••••' : amount(space.balance, space.assetId)}</div>
                             </a>
                           ))
                         ) : (
-                          <EmptyState title="No spaces returned">
-                            Name a space to organize one asset. It stays inside the same ledger.
+                          <EmptyState title={copyText('index.no.spaces.returned')}>
+                            <Text k="index.name.a.space.to.organize.one.asset" />
                           </EmptyState>
                         )}
                         <Continuation
@@ -248,44 +299,50 @@ function MoneyOverviewPage({ bank = false, asset }: { bank?: boolean; asset?: st
           </ResourceView>
           <a className="link-row" href="/uc/record">
             <span>
-              <strong>Money activity</strong>
-              <small>Schedules, executions and ramp outcomes</small>
+              <strong>
+                <Text k="index.money.activity" />
+              </strong>
+              <small>
+                <Text k="index.schedules.executions.and.ramp.outcomes" />
+              </small>
             </span>
             <span>↗</span>
           </a>
         </div>
         <aside className="money-action-lane">
-          <Section title={bank ? 'Organize your money' : 'Move money'}>
+          <Section title={bank ? copyText('index.organize.your.money') : copyText('index.move.money')}>
             <div className="money-action-grid">
               {bank ? (
                 <>
                   <a className="button button--chrome" href="/bank/spaces#create">
-                    ＋ Create space
+                    <Text k="index.create.space" />
                   </a>
                   <a className="button button--chrome" href="/bank/transfers">
-                    ↔ Transfer
+                    <Text k="index.transfer" />
                   </a>
                 </>
               ) : (
                 <>
                   <a className="button button--chrome" href="/pay/send">
-                    Send
+                    <Text k="index.send" />
                   </a>
                   <a className="button button--chrome" href="/pay/receive">
-                    Receive
+                    <Text k="index.receive" />
                   </a>
                 </>
               )}
               <a className="button button--secondary" href="/uc/recharge">
-                Deposit · unavailable
+                <Text k="index.deposit.unavailable" />
               </a>
               <a className="button button--secondary" href="/uc/withdraw">
-                Withdraw · unavailable
+                <Text k="index.withdraw.unavailable" />
               </a>
             </div>
-            <p className="money-caption">Transfers use available funds. Locked spaces cannot be debited.</p>
+            <p className="money-caption">
+              <Text k="index.transfers.use.available.funds.locked.spaces.cannot" />
+            </p>
           </Section>
-          <Section title={bank ? 'Put money to work' : 'Bank'}>
+          <Section title={bank ? copyText('index.put.money.to.work') : copyText('index.bank')}>
             {destinations.map((destination) => (
               <a className="link-row" href={destination.href} key={destination.href}>
                 <span>
@@ -297,23 +354,29 @@ function MoneyOverviewPage({ bank = false, asset }: { bank?: boolean; asset?: st
             ))}
           </Section>
           <div className="money-capability">
-            <h3>Cards & cash rails</h3>
-            <p>Issuer connectivity must be verified. Simulated rails cannot become a live card or bank withdrawal.</p>
+            <h3>
+              <Text k="index.cards.cash.rails" />
+            </h3>
+            <p>
+              <Text k="index.issuer.connectivity.must.be.verified.simulated.rails" />
+            </p>
             <div className="actions">
               <a className="text-link" href="/bank/cards">
-                Cards ↗
+                <Text k="index.cards" />
               </a>
               <a className="text-link" href="/bank/ramps">
-                Ramps ↗
+                <Text k="index.ramps" />
               </a>
             </div>
             <a className="text-link" href="/bank/business">
-              Business bank ↗
+              <Text k="index.business.bank" />
             </a>
-            <p>Membership and approval policies. Company balances remain unavailable.</p>
+            <p>
+              <Text k="index.membership.and.approval.policies.company.balances.remain" />
+            </p>
           </div>
           <a className="text-link" href="/uc/withdraw/address">
-            Withdrawal addresses ↗
+            <Text k="index.withdrawal.addresses" />
           </a>
         </aside>
       </div>
@@ -323,20 +386,23 @@ function MoneyOverviewPage({ bank = false, asset }: { bank?: boolean; asset?: st
 function CustodyUnavailable({ kind }: { kind: 'Deposit' | 'Withdraw' | 'Withdrawal addresses' }) {
   const text =
     kind === 'Deposit'
-      ? 'A live deposit address or bank funding instruction is not supplied by the connected customer custody contracts. No address is generated.'
+      ? copyText('index.a.live.deposit.address.or.bank.funding')
       : kind === 'Withdraw'
-        ? 'Live custody withdrawal and delivery confirmation are not connected. Bank ramp records are ledger simulations and cannot deliver funds to a real destination.'
-        : 'Live custody address listing and address-verification contracts are not connected. No address is stored here.';
+        ? copyText('index.live.custody.withdrawal.and.delivery.confirmation.are')
+        : copyText('index.live.custody.address.listing.and.address.verification');
   return (
-    <Page eyebrow="Money" title={kind}>
-      <Section title={`${kind} is unavailable`}>
-        <EmptyState title="Custody is not connected">{text}</EmptyState>
+    <Page
+      eyebrow={copyText('index.money')}
+      title={<Text k={kind === 'Deposit' ? 'custody.deposit' : kind === 'Withdraw' ? 'custody.withdraw' : 'custody.addresses'} />}
+    >
+      <Section title={copyText('index.is.unavailable', { value1: kind })}>
+        <EmptyState title={copyText('index.custody.is.not.connected')}>{text}</EmptyState>
         <div className="actions">
           <a className="button button--secondary" href="/portfolio">
-            Back to holdings
+            <Text k="index.back.to.holdings" />
           </a>
           <a className="text-link" href="/bank/ramps">
-            Inspect Bank rail capabilities ↗
+            <Text k="index.inspect.bank.rail.capabilities" />
           </a>
         </div>
       </Section>
@@ -344,13 +410,23 @@ function CustodyUnavailable({ kind }: { kind: 'Deposit' | 'Withdraw' | 'Withdraw
   );
 }
 export function MoneyRoutes({ path }: { path: string }) {
+  copy.useCopy();
+  return (
+    <div lang="en" style={{ display: 'contents' }}>
+      <MoneyRooms path={path} />
+    </div>
+  );
+}
+function MoneyRooms({ path }: { path: string }) {
   usePreferences();
   const { userId } = useSession();
   const pending = pendingOutcomes(userId);
   const [action, setAction] = useState<ActionSpec | null>(null);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
-    const changed = (event: StorageEvent) => { if (userId && event.key === pendingKey(userId)) setRevision((value) => value + 1); };
+    const changed = (event: StorageEvent) => {
+      if (userId && event.key === pendingKey(userId)) setRevision((value) => value + 1);
+    };
     window.addEventListener('storage', changed);
     return () => window.removeEventListener('storage', changed);
   }, [userId]);
@@ -376,14 +452,17 @@ export function MoneyRoutes({ path }: { path: string }) {
     <>
       {pending.length > 0 && (
         <div id="bank-unconfirmed" className="page money-pending" role="alert">
-          <h2>Bank writes are paused while an outcome is unconfirmed.</h2>
+          <h2>
+            <Text k="index.bank.writes.are.paused.while.an.outcome" />
+          </h2>
           <p>
-            Refreshing quantities cannot prove the outcome of an original write. Keep these references and ask Support to reconcile the
-            original record.
+            <Text k="index.refreshing.quantities.cannot.prove.the.outcome.of" />
           </p>
           {pending.map((record) => (
             <p className="money-reference" key={record.reference}>
-              {record.title} · {record.procedure} · reference {record.reference}
+              {record.title} · {record.procedure}
+              <Text k="index.reference" />
+              {record.reference}
               {Object.entries(record.recordRefs).map(([key, value]) => (
                 <span key={key}>
                   {' '}
@@ -393,7 +472,7 @@ export function MoneyRoutes({ path }: { path: string }) {
             </p>
           ))}
           <a className="button button--secondary" href="/support">
-            Open Support
+            <Text k="index.open.support" />
           </a>
         </div>
       )}

@@ -1,3 +1,4 @@
+import { t as copyText, Text } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
@@ -119,7 +120,9 @@ export function Blueprint() {
           'blueprint',
           'me',
           undefined,
-          blueprint.nullable().refine((row) => !row || row.userId === userId, 'Blueprint ownership does not match this account'),
+          blueprint
+            .nullable()
+            .refine((row) => !row || row.userId === userId, copyText('blueprint.blueprint.ownership.does.not.match.this.account')),
           { signal },
         ),
       `blueprint:${userId}`,
@@ -130,7 +133,12 @@ export function Blueprint() {
           'blueprint',
           'mentors',
           undefined,
-          z.array(mentor).refine((rows) => rows.every((row) => row.studentId === userId), 'Mentor shortlist belongs to another account'),
+          z
+            .array(mentor)
+            .refine(
+              (rows) => rows.every((row) => row.studentId === userId),
+              copyText('blueprint.mentor.shortlist.belongs.to.another.account'),
+            ),
           { signal },
         ),
       `mentors:${userId}`,
@@ -144,40 +152,42 @@ export function Blueprint() {
   return (
     <div className="more-columns">
       <div>
-        <Panel title="Identity Blueprint">
-          <Read resource={me.resource} retry={me.reload} empty="Your Blueprint has not been created">
+        <Panel title={copyText('blueprint.identity.blueprint')}>
+          <Read resource={me.resource} retry={me.reload} empty={copyText('blueprint.your.blueprint.has.not.been.created')}>
             {(record) =>
               record ? (
                 <>
                   <Details
                     items={[
-                      ['Decision style', record.profile.decisionStyle],
-                      ['Risk temperament', record.profile.riskTemperament],
-                      ['Energy rhythm', record.profile.energyRhythm],
-                      ['Learning mode', record.profile.learningMode],
-                      ['Crew role', record.profile.crewRole],
-                      ['Visibility', record.visibility],
-                      ['Engine build', record.engineVersion],
+                      [copyText('blueprint.decision.style'), record.profile.decisionStyle],
+                      [copyText('blueprint.risk.temperament'), record.profile.riskTemperament],
+                      [copyText('blueprint.energy.rhythm'), record.profile.energyRhythm],
+                      [copyText('blueprint.learning.mode'), record.profile.learningMode],
+                      [copyText('blueprint.crew.role'), record.profile.crewRole],
+                      [copyText('blueprint.visibility'), record.visibility],
+                      [copyText('blueprint.engine.build'), record.engineVersion],
                     ]}
                   />
                   <a className="text-link" href={`/academy?path=${encodeURIComponent(record.profile.curriculumPath)}`}>
-                    Open your {record.profile.curriculumPath} learning path
+                    <Text k="blueprint.open.your" />
+                    {record.profile.curriculumPath}
+                    <Text k="blueprint.learning.path" />
                   </a>
                   <Select
-                    label="Blueprint visibility"
+                    label={copyText('blueprint.blueprint.visibility')}
                     value={record.visibility}
                     onChange={(value) =>
                       action.stage({
-                        title: 'Review visibility change',
-                        confirm: 'Change visibility',
-                        success: 'Visibility updated',
+                        title: copyText('blueprint.review.visibility.change'),
+                        confirm: copyText('blueprint.change.visibility'),
+                        success: copyText('blueprint.visibility.updated'),
                         content: (
                           <p>
                             {value === 'private'
-                              ? 'Only you can view your share card.'
+                              ? copyText('blueprint.only.you.can.view.your.share.card')
                               : value === 'crew'
-                                ? 'Signed crew members can view your share card.'
-                                : 'Any signed-in account can view your share card. Public unfurl URLs are not built.'}
+                                ? copyText('blueprint.signed.crew.members.can.view.your.share')
+                                : copyText('blueprint.any.signed.in.account.can.view.your')}
                           </p>
                         ),
                         run: () => api.mutate('blueprint', 'setVisibility', { visibility: value }, blueprint),
@@ -191,8 +201,8 @@ export function Blueprint() {
             }
           </Read>
         </Panel>
-        <Panel title="Share card">
-          <Select label="Card size" value={size} onChange={setSize} options={['portrait', 'landscape']} />
+        <Panel title={copyText('blueprint.share.card')}>
+          <Select label={copyText('blueprint.card.size')} value={size} onChange={setSize} options={['portrait', 'landscape']} />
           <Read resource={share.resource} retry={share.reload}>
             {(c) => (
               <>
@@ -201,46 +211,61 @@ export function Blueprint() {
                     <img
                       className="more-card-image"
                       src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(c.svg)}`}
-                      alt={`${c.size} Identity Blueprint card`}
+                      alt={copyText('blueprint.identity.blueprint.card', { value1: c.size })}
                       width={c.width}
                       height={c.height}
                     />
                     <Button variant="secondary" onClick={() => download(`identity-blueprint-${c.size}.svg`, c.svg, 'image/svg+xml')}>
-                      Download SVG card
+                      <Text k="blueprint.download.svg.card" />
                     </Button>
                   </>
                 ) : (
-                  <p role="alert">The card contains unsupported active or external content and cannot be rendered.</p>
+                  <p role="alert">
+                    <Text k="blueprint.the.card.contains.unsupported.active.or.external" />
+                  </p>
                 )}
                 {c.raster.status === 'unavailable' ? (
-                  <p className="muted">PNG unavailable: {c.raster.reason}</p>
+                  <p className="muted">
+                    <Text k="blueprint.png.unavailable" />
+                    {c.raster.reason}
+                  </p>
                 ) : c.raster.url.startsWith('https:') ? (
                   <a className="text-link" href={c.raster.url} target="_blank" rel="noreferrer">
-                    Open rendered PNG
+                    <Text k="blueprint.open.rendered.png" />
                   </a>
                 ) : (
-                  <p>PNG URL cannot be verified as a secure destination.</p>
+                  <p>
+                    <Text k="blueprint.png.url.cannot.be.verified.as.a" />
+                  </p>
                 )}
-                <p className="muted">Share mode: {c.shareMode}. Card reads require a signed viewer and follow your visibility.</p>
+                <p className="muted">
+                  <Text k="blueprint.share.mode" />
+                  {c.shareMode}
+                  <Text k="blueprint.card.reads.require.a.signed.viewer.and" />
+                </p>
               </>
             )}
           </Read>
         </Panel>
-        <Panel title="Mentor shortlist">
-          <Read resource={mentors.resource} retry={mentors.reload} empty="No mentors are shortlisted">
+        <Panel title={copyText('blueprint.mentor.shortlist')}>
+          <Read resource={mentors.resource} retry={mentors.reload} empty={copyText('blueprint.no.mentors.are.shortlisted')}>
             {(rows) => (
               <ul>
                 {rows.map((m) => (
                   <li key={m.mentorId}>
-                    <code>{m.mentorId}</code> · {m.fitScore} basis points of fit · {m.status}
+                    <code>{m.mentorId}</code> · {m.fitScore}
+                    <Text k="blueprint.basis.points.of.fit" />
+                    {m.status}
                   </li>
                 ))}
               </ul>
             )}
           </Read>
-          <p className="muted">Mentorship accept and decline actions are not published by this customer API.</p>
+          <p className="muted">
+            <Text k="blueprint.mentorship.accept.and.decline.actions.are.not" />
+          </p>
         </Panel>
-        <Panel title="Your data">
+        <Panel title={copyText('blueprint.your.data')}>
           <Button
             variant="secondary"
             disabled={exporting || !userId}
@@ -273,25 +298,30 @@ export function Blueprint() {
                 });
             }}
           >
-            Export Blueprint JSON
+            <Text k="blueprint.export.blueprint.json" />
           </Button>
           {exportError && <p role="alert">{exportError}</p>}
           <div className="more-danger">
-            <h3>Erase your Blueprint</h3>
+            <h3>
+              <Text k="blueprint.erase.your.blueprint" />
+            </h3>
             <p>
-              Hard-delete the profile, crew membership, match records and mentor relationships held by this service. Your financial account
-              is separate.
+              <Text k="blueprint.hard.delete.the.profile.crew.membership.match" />
             </p>
-            <Field label="Type ERASE BLUEPRINT" value={erase} onChange={(e) => setErase(e.target.value)} />
+            <Field label={copyText('blueprint.type.erase.blueprint')} value={erase} onChange={(e) => setErase(e.target.value)} />
             <Button
               variant="danger"
               disabled={action.disabled || erase !== 'ERASE BLUEPRINT'}
               onClick={() =>
                 action.stage({
-                  title: 'Permanently erase Blueprint',
-                  confirm: 'Erase Blueprint permanently',
-                  success: 'Blueprint erasure confirmed',
-                  content: <p>This cannot be undone. The service returns a receipt for the records removed.</p>,
+                  title: copyText('blueprint.permanently.erase.blueprint'),
+                  confirm: copyText('blueprint.erase.blueprint.permanently'),
+                  success: copyText('blueprint.blueprint.erasure.confirmed'),
+                  content: (
+                    <p>
+                      <Text k="blueprint.this.cannot.be.undone.the.service.returns" />
+                    </p>
+                  ),
                   run: () =>
                     api.mutate(
                       'blueprint',
@@ -316,15 +346,14 @@ export function Blueprint() {
                 })
               }
             >
-              Review permanent erasure
+              <Text k="blueprint.review.permanent.erasure" />
             </Button>
           </div>
         </Panel>
       </div>
-      <Panel title="Guided Blueprint session">
+      <Panel title={copyText('blueprint.guided.blueprint.session')}>
         <p className="muted">
-          Provide keyed answers for the Neural Engine. Raw answers and optional birth data are forwarded, then dropped by the service. Birth
-          data clears when submitted.
+          <Text k="blueprint.provide.keyed.answers.for.the.neural.engine" />
         </p>
         <form
           onSubmit={(e) => {
@@ -341,16 +370,19 @@ export function Blueprint() {
                 : {}),
             };
             action.stage({
-              title: 'Review Blueprint session',
-              confirm: 'Run Blueprint session',
-              success: 'Blueprint session completed',
+              title: copyText('blueprint.review.blueprint.session'),
+              confirm: copyText('blueprint.run.blueprint.session'),
+              success: copyText('blueprint.blueprint.session.completed'),
               content: (
                 <Details
                   items={[
-                    ['Answers', responses.map((r) => `${r.key}: ${r.value}`).join('\n')],
-                    ['Visibility', visibility],
-                    ['Mentor opt-in', mentorAvailable ? 'Yes' : 'No'],
-                    ['Birth data', birthDate ? 'Included for this request only' : 'Not included'],
+                    [copyText('blueprint.answers'), responses.map((r) => `${r.key}: ${r.value}`).join('\n')],
+                    [copyText('blueprint.visibility'), visibility],
+                    [copyText('blueprint.mentor.opt.in'), mentorAvailable ? 'Yes' : 'No'],
+                    [
+                      copyText('blueprint.birth.data'),
+                      birthDate ? copyText('blueprint.included.for.this.request.only') : copyText('blueprint.not.included'),
+                    ],
                   ]}
                 />
               ),
@@ -381,22 +413,26 @@ export function Blueprint() {
         >
           {responses.map((r, i) => (
             <fieldset key={i}>
-              <legend>Answer {i + 1}</legend>
+              <legend>
+                <Text k="blueprint.answer" />
+                {i + 1}
+              </legend>
               <Field
-                label={i === 0 ? 'Answer key' : `Answer ${i + 1} key`}
+                label={i === 0 ? copyText('blueprint.answer.key') : copyText('blueprint.answer.key.2', { value1: i + 1 })}
                 value={r.key}
                 onChange={(e) => setResponses((rows) => rows.map((row, j) => (i === j ? { ...row, key: e.target.value } : row)))}
                 maxLength={64}
               />
               <TextArea
-                label={i === 0 ? 'Your answer' : `Your answer ${i + 1}`}
+                label={i === 0 ? copyText('blueprint.your.answer') : copyText('blueprint.your.answer.2', { value1: i + 1 })}
                 value={r.value}
                 onChange={(value) => setResponses((rows) => rows.map((row, j) => (i === j ? { ...row, value } : row)))}
                 maxLength={2000}
               />
               {responses.length > 1 && (
                 <Button variant="ghost" onClick={() => setResponses((rows) => rows.filter((_, j) => j !== i))}>
-                  Remove answer {i + 1}
+                  <Text k="blueprint.remove.answer" />
+                  {i + 1}
                 </Button>
               )}
             </fieldset>
@@ -406,23 +442,45 @@ export function Blueprint() {
             disabled={responses.length >= 64}
             onClick={() => setResponses((rows) => [...rows, { key: '', value: '' }])}
           >
-            Add answer
+            <Text k="blueprint.add.answer" />
           </Button>
-          <Select label="Initial visibility" value={visibility} onChange={setVisibility} options={['private', 'crew', 'public']} />
+          <Select
+            label={copyText('blueprint.initial.visibility')}
+            value={visibility}
+            onChange={setVisibility}
+            options={['private', 'crew', 'public']}
+          />
           <label className="field">
             <span>
-              <input type="checkbox" checked={mentorAvailable} onChange={(e) => setMentorAvailable(e.target.checked)} /> Opt in to mentor
-              availability
+              <input type="checkbox" checked={mentorAvailable} onChange={(e) => setMentorAvailable(e.target.checked)} />
+              <Text k="blueprint.opt.in.to.mentor.availability" />
             </span>
           </label>
           <details open>
-            <summary>Optional birth data</summary>
-            <Field label="Birth date (optional)" type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
-            <Field label="Birth time (optional)" type="time" value={birthTime} onChange={(e) => setBirthTime(e.target.value)} />
-            <Field label="Birth place (optional)" value={birthPlace} onChange={(e) => setBirthPlace(e.target.value)} maxLength={200} />
+            <summary>
+              <Text k="blueprint.optional.birth.data" />
+            </summary>
+            <Field
+              label={copyText('blueprint.birth.date.optional')}
+              type="date"
+              value={birthDate}
+              onChange={(e) => setBirthDate(e.target.value)}
+            />
+            <Field
+              label={copyText('blueprint.birth.time.optional')}
+              type="time"
+              value={birthTime}
+              onChange={(e) => setBirthTime(e.target.value)}
+            />
+            <Field
+              label={copyText('blueprint.birth.place.optional')}
+              value={birthPlace}
+              onChange={(e) => setBirthPlace(e.target.value)}
+              maxLength={200}
+            />
           </details>
           <Button type="submit" disabled={action.disabled || !responses.every((r) => r.key.trim() && r.value.trim())}>
-            Review Blueprint session
+            <Text k="blueprint.review.blueprint.session" />
           </Button>
         </form>
         {action.feedback}

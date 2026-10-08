@@ -1,3 +1,4 @@
+import { t as copyText, Text } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
@@ -56,22 +57,41 @@ export function Academy({ slug, initialPath }: { slug?: string; initialPath?: st
   );
   return (
     <div className="more-grid">
-      <Tabs items={['Learning', 'Certificates', 'Rooms', 'Videos', 'Programmes']} value={tab} onChange={setTab} label="Academy sections" />
+      <Tabs
+        items={['Learning', 'Certificates', 'Rooms', 'Videos', 'Programmes']}
+        labels={{
+          Learning: copyText('academy.learning'),
+          Certificates: copyText('academy.certificates'),
+          Rooms: copyText('academy.rooms'),
+          Videos: copyText('academy.videos'),
+          Programmes: copyText('academy.programmes'),
+        }}
+        value={tab}
+        onChange={setTab}
+        label={copyText('academy.academy.sections')}
+      />
       {tab === 'Learning' ? (
         slug ? (
-          <Panel title="Learning item">
+          <Panel title={copyText('academy.learning.item')}>
             <Read resource={reader.resource} retry={reader.reload}>
               {(lesson) =>
                 lesson ? (
                   <>
                     <h2>{lesson.title}</h2>
                     <p className="muted">
-                      {lesson.kind} · {lesson.path} · {lesson.estimatedMinutes} minutes
+                      {lesson.kind} · {lesson.path} · {lesson.estimatedMinutes}
+                      <Text k="academy.minutes" />
                     </p>
                     {lesson.fellBack && (
-                      <p className="muted">This lesson is available in {lesson.locale}; your requested translation is unavailable.</p>
+                      <p className="muted">
+                        <Text k="academy.this.lesson.is.available.in" />
+                        {lesson.locale}
+                        <Text k="academy.your.requested.translation.is.unavailable" />
+                      </p>
                     )}
-                    <h3>Learning objectives</h3>
+                    <h3>
+                      <Text k="academy.learning.objectives" />
+                    </h3>
                     <ul>
                       {lesson.objectives.map((t) => (
                         <li key={t}>{t}</li>
@@ -82,9 +102,13 @@ export function Academy({ slug, initialPath }: { slug?: string; initialPath?: st
                         .split('\n')
                         .map((line, i) => (/^#{1,3} /.test(line) ? <h3 key={i}>{line.replace(/^#+ /, '')}</h3> : <p key={i}>{line}</p>))}
                     </article>
-                    <h3>Key terms</h3>
+                    <h3>
+                      <Text k="academy.key.terms" />
+                    </h3>
                     <Details items={lesson.keyTerms.map((t) => [t.term, t.definition])} />
-                    <h3>Check your understanding</h3>
+                    <h3>
+                      <Text k="academy.check.your.understanding" />
+                    </h3>
                     <ul>
                       {lesson.selfCheck.map((t) => (
                         <li key={t}>{t}</li>
@@ -94,13 +118,14 @@ export function Academy({ slug, initialPath }: { slug?: string; initialPath?: st
                       disabled={action.disabled}
                       onClick={() =>
                         action.stage({
-                          title: 'Review lesson completion',
-                          confirm: 'Mark complete',
-                          success: 'Lesson completion recorded',
+                          title: copyText('academy.review.lesson.completion'),
+                          confirm: copyText('academy.mark.complete'),
+                          success: copyText('academy.lesson.completion.recorded'),
                           content: (
                             <p>
-                              Record {lesson.title} as completed for this account. This records progress; certification and XP are separate
-                              service outcomes.
+                              <Text k="academy.record" />
+                              {lesson.title}
+                              <Text k="academy.as.completed.for.this.account.this.records" />
                             </p>
                           ),
                           run: () =>
@@ -113,10 +138,11 @@ export function Academy({ slug, initialPath }: { slug?: string; initialPath?: st
                         })
                       }
                     >
-                      Review lesson completion
+                      <Text k="academy.review.lesson.completion" />
                     </Button>
                     <a className="text-link" href={`/academy?path=${lesson.path}`}>
-                      Back to {lesson.path}
+                      <Text k="academy.back.to" />
+                      {lesson.path}
                     </a>
                     {lesson.kind === 'workbook' && <Workbook slug={lesson.slug} />}
                   </>
@@ -125,24 +151,30 @@ export function Academy({ slug, initialPath }: { slug?: string; initialPath?: st
             </Read>
           </Panel>
         ) : (
-          <Panel title="Learning library">
+          <Panel title={copyText('academy.learning.library')}>
             <div className="more-inline">
               <Select
-                label="Learning path"
+                label={copyText('academy.learning.path')}
                 value={path}
                 onChange={setPath}
                 options={['all', 'foundations', 'markets', 'builder', 'sovereign']}
               />
-              <Select label="Content kind" value={kind} onChange={setKind} options={['all', 'playbook', 'workbook', 'lesson']} />
+              <Select
+                label={copyText('academy.content.kind')}
+                value={kind}
+                onChange={setKind}
+                options={['all', 'playbook', 'workbook', 'lesson']}
+              />
             </div>
-            <Read resource={list.resource} retry={list.reload} empty="No curriculum items match this path">
+            <Read resource={list.resource} retry={list.reload} empty={copyText('academy.no.curriculum.items.match.this.path')}>
               {(rows) => (
                 <>
                   <div className="more-rooms">
                     {rows.map((r) => (
                       <a className="more-room-link" key={r.slug} href={`/academy/${encodeURIComponent(r.slug)}?path=${r.path}`}>
                         <small>
-                          {r.kind} · {r.estimatedMinutes} min
+                          {r.kind} · {r.estimatedMinutes}
+                          <Text k="academy.min" />
                         </small>
                         <strong>{r.title}</strong>
                         <p>{r.summary}</p>
@@ -213,9 +245,9 @@ function Certificates({ action }: { action: ReturnType<typeof useAction> }) {
     );
   return (
     <div className="more-columns">
-      <Panel title="Certificate paths">
+      <Panel title={copyText('academy.certificate.paths')}>
         <Select
-          label="Path to enrol in"
+          label={copyText('academy.path.to.enrol.in')}
           value={enrolPath}
           onChange={setEnrolPath}
           options={['foundations', 'markets', 'builder', 'sovereign']}
@@ -224,10 +256,16 @@ function Certificates({ action }: { action: ReturnType<typeof useAction> }) {
           disabled={action.disabled}
           onClick={() =>
             action.stage({
-              title: 'Review path enrolment',
-              confirm: 'Enrol in path',
-              success: 'Enrolment recorded',
-              content: <p>Enrol in {enrolPath} for this account.</p>,
+              title: copyText('academy.review.path.enrolment'),
+              confirm: copyText('academy.enrol.in.path'),
+              success: copyText('academy.enrolment.recorded'),
+              content: (
+                <p>
+                  <Text k="academy.enrol.in" />
+                  {enrolPath}
+                  <Text k="academy.for.this.account" />
+                </p>
+              ),
               run: () =>
                 api.mutate(
                   'academy',
@@ -239,17 +277,21 @@ function Certificates({ action }: { action: ReturnType<typeof useAction> }) {
             })
           }
         >
-          Review enrolment
+          <Text k="academy.review.enrolment" />
         </Button>
-        <Read resource={definitions.resource} retry={definitions.reload} empty="No certificate paths are published">
+        <Read resource={definitions.resource} retry={definitions.reload} empty={copyText('academy.no.certificate.paths.are.published')}>
           {(rows) => (
             <div className="more-grid">
               {rows.map((c) => (
                 <article key={c.id}>
                   <h3>{c.title}</h3>
-                  <p>{c.requiredItemSlugs.length} required learning items</p>
+                  <p>
+                    {c.requiredItemSlugs.length}
+                    <Text k="academy.required.learning.items" />
+                  </p>
                   <Button variant="secondary" onClick={() => setSelected(c.id)}>
-                    Open {c.title}
+                    <Text k="academy.open" />
+                    {c.title}
                   </Button>
                 </article>
               ))}
@@ -257,17 +299,17 @@ function Certificates({ action }: { action: ReturnType<typeof useAction> }) {
           )}
         </Read>
       </Panel>
-      <Panel title="Your progress">
-        <Read resource={detail.resource} retry={detail.reload} empty="Choose a certificate path">
+      <Panel title={copyText('academy.your.progress')}>
+        <Read resource={detail.resource} retry={detail.reload} empty={copyText('academy.choose.a.certificate.path')}>
           {(p) =>
             p ? (
               <>
                 <h2>{p.title}</h2>
                 <Details
                   items={[
-                    ['Completed', `${p.completedCount} of ${p.requiredCount}`],
-                    ['Ratio', p.ratio],
-                    ['Granted', p.granted ? 'Yes' : 'No'],
+                    [copyText('academy.completed'), `${p.completedCount} of ${p.requiredCount}`],
+                    [copyText('academy.ratio'), p.ratio],
+                    [copyText('academy.granted'), p.granted ? 'Yes' : 'No'],
                   ]}
                 />
                 <ul>
@@ -283,13 +325,12 @@ function Certificates({ action }: { action: ReturnType<typeof useAction> }) {
                   disabled={action.disabled || !p.complete}
                   onClick={() =>
                     action.stage({
-                      title: 'Review certification grant',
-                      confirm: p.granted ? 'Recover certification award' : 'Request certification',
-                      success: 'Certification outcome received; XP delivery is shown separately',
+                      title: copyText('academy.review.certification.grant'),
+                      confirm: p.granted ? copyText('academy.recover.certification.award') : copyText('academy.request.certification'),
+                      success: copyText('academy.certification.outcome.received.xp.delivery.is.shown'),
                       content: (
                         <p>
-                          The service checks completed items and issues an idempotent certification. XP depends on the identity publisher
-                          and its policy.
+                          <Text k="academy.the.service.checks.completed.items.and.issues" />
                         </p>
                       ),
                       run: () =>
@@ -299,35 +340,39 @@ function Certificates({ action }: { action: ReturnType<typeof useAction> }) {
                           { certId: p.certId },
                           grantReceipt.refine(
                             (r) => r.grant.userId === userId && r.grant.certId === p.certId,
-                            'Certification does not match this account and path',
+                            copyText('academy.certification.does.not.match.this.account.and'),
                           ),
                         ),
                       done: detail.reload,
                     })
                   }
                 >
-                  {p.granted ? 'Recover certification award' : 'Request certification'}
+                  {p.granted ? copyText('academy.recover.certification.award') : copyText('academy.request.certification')}
                 </Button>
               </>
             ) : null
           }
         </Read>
         {receipt?.success && (
-          <section aria-label="Certification receipt">
-            <h3>Certification receipt</h3>
+          <section aria-label={copyText('academy.certification.receipt')}>
+            <h3>
+              <Text k="academy.certification.receipt" />
+            </h3>
             <Details
               items={[
-                ['Certification', receipt.data.grant.certId],
-                ['Granted', receipt.data.grant.grantedAt],
-                ['Already granted', receipt.data.alreadyGranted ? 'Yes' : 'No'],
+                [copyText('academy.certification'), receipt.data.grant.certId],
+                [copyText('academy.granted'), receipt.data.grant.grantedAt],
+                [copyText('academy.already.granted'), receipt.data.alreadyGranted ? 'Yes' : 'No'],
                 [
-                  'XP delivery',
-                  receipt.data.xp.emitted ? `${receipt.data.xp.xpDelta} XP emitted` : `Not emitted: ${receipt.data.xp.reason}`,
+                  copyText('academy.xp.delivery'),
+                  receipt.data.xp.emitted
+                    ? copyText('academy.xp.emitted', { xp: receipt.data.xp.xpDelta })
+                    : copyText('academy.not.emitted', { reason: receipt.data.xp.reason }),
                 ],
                 [
-                  'Perks',
+                  copyText('academy.perks'),
                   receipt.data.perks.status === 'real'
-                    ? 'Authoritative identity-rank perks returned; Academy holds no perk money'
+                    ? copyText('academy.authoritative.identity.rank.perks.returned.academy.holds')
                     : receipt.data.perks.message,
                 ],
               ]}
@@ -362,8 +407,8 @@ function Videos() {
     );
   return (
     <div className="more-columns">
-      <Panel title="Video library">
-        <Read resource={list.resource} retry={list.reload} empty="No videos are available">
+      <Panel title={copyText('academy.video.library')}>
+        <Read resource={list.resource} retry={list.reload} empty={copyText('academy.no.videos.are.available')}>
           {(rows) => (
             <ul>
               {rows.map((v) => (
@@ -378,17 +423,22 @@ function Videos() {
           )}
         </Read>
       </Panel>
-      <Panel title="Playback">
-        <Read resource={playback.resource} retry={playback.reload} empty="Choose a video">
+      <Panel title={copyText('academy.playback')}>
+        <Read resource={playback.resource} retry={playback.reload} empty={copyText('academy.choose.a.video')}>
           {(p) =>
             p ? (
               Date.parse(p.expiresAt) > Date.now() && p.playbackUrl.startsWith('https:') ? (
                 <>
                   <video controls style={{ width: '100%' }} src={p.playbackUrl} />
-                  <p className="muted">Playback grant expires {p.expiresAt}.</p>
+                  <p className="muted">
+                    <Text k="academy.playback.grant.expires" />
+                    {p.expiresAt}.
+                  </p>
                 </>
               ) : (
-                <p>The playback grant is expired or cannot be verified as a secure URL.</p>
+                <p>
+                  <Text k="academy.the.playback.grant.is.expired.or.cannot" />
+                </p>
               )
             ) : null
           }

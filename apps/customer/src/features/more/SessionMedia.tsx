@@ -1,3 +1,4 @@
+import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
@@ -104,7 +105,7 @@ export function SessionMedia({ sessionId, sessionStatus }: { sessionId: string; 
       setFailure({
         ok: false,
         reason: 'invalid_response',
-        message: 'The service returned an expired media credential. No connection was started.',
+        message: copyText('sessionmedia.the.service.returned.an.expired.media.credential'),
       });
       setPhase('disconnected');
       return;
@@ -114,7 +115,7 @@ export function SessionMedia({ sessionId, sessionStatus }: { sessionId: string; 
       !['https:', 'wss:'].includes(endpoint.protocol) &&
       !(endpoint.protocol === 'ws:' && ['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname))
     ) {
-      setFailure({ ok: false, reason: 'invalid_response', message: 'The service media URL is not secure. No credential was sent to it.' });
+      setFailure({ ok: false, reason: 'invalid_response', message: copyText('sessionmedia.the.service.media.url.is.not.secure') });
       setPhase('disconnected');
       return;
     }
@@ -133,7 +134,10 @@ export function SessionMedia({ sessionId, sessionStatus }: { sessionId: string; 
         element.autoplay = true;
         element.setAttribute('playsinline', '');
         if (local) element.muted = true;
-        element.setAttribute('aria-label', local ? 'Your published media' : 'Session participant media');
+        element.setAttribute(
+          'aria-label',
+          local ? copyText('sessionmedia.your.published.media') : copyText('sessionmedia.session.participant.media'),
+        );
         media.current?.appendChild(element);
       };
       room.on(client.RoomEvent.TrackSubscribed!, (value) => attach(value));
@@ -185,7 +189,7 @@ export function SessionMedia({ sessionId, sessionStatus }: { sessionId: string; 
       setFailure({
         ok: false,
         reason: 'unreachable',
-        message: 'The audio/video server could not establish a connection. Your session seat and scene are separate.',
+        message: copyText('sessionmedia.the.audio.video.server.could.not.establish'),
       });
     }
   }
@@ -203,7 +207,7 @@ export function SessionMedia({ sessionId, sessionStatus }: { sessionId: string; 
         setFailure({
           ok: false,
           reason: 'error',
-          message: `The ${kind} could not be enabled. Check browser device permissions and the service publish grant.`,
+          message: copyText('sessionmedia.the.could.not.be.enabled.check.browser', { value1: kind }),
         });
     }
   }
@@ -215,47 +219,56 @@ export function SessionMedia({ sessionId, sessionStatus }: { sessionId: string; 
       if (current.current === room) setRevision((v) => v + 1);
     } catch {
       if (current.current === room)
-        setFailure({ ok: false, reason: 'error', message: 'Session audio could not be started. Check the browser audio permission.' });
+        setFailure({ ok: false, reason: 'error', message: copyText('sessionmedia.session.audio.could.not.be.started.check') });
     }
   }
   const room = current.current,
     publish = room?.localParticipant.permissions?.canPublish === true;
   return (
-    <section className="more-media" aria-label="Session audio and video" data-revision={revision}>
-      <p role="status">Audio/video: {phase}</p>
+    <section className="more-media" aria-label={copyText('sessionmedia.session.audio.and.video')} data-revision={revision}>
+      <p role="status">
+        <Text k="sessionmedia.audio.video" />
+        {phase}
+      </p>
       {phase === 'connected' ? (
         <div className="actions">
           <Button variant="secondary" onClick={leave}>
-            Disconnect media
+            <Text k="sessionmedia.disconnect.media" />
           </Button>
           {!room?.canPlaybackAudio && (
             <Button variant="secondary" onClick={() => void enableAudio()}>
-              Enable session audio
+              <Text k="sessionmedia.enable.session.audio" />
             </Button>
           )}
           {publish ? (
             <>
               <Button variant="secondary" onClick={() => void toggle('microphone')}>
-                {room?.localParticipant.isMicrophoneEnabled ? 'Mute microphone' : 'Enable microphone'}
+                {room?.localParticipant.isMicrophoneEnabled
+                  ? copyText('sessionmedia.mute.microphone')
+                  : copyText('sessionmedia.enable.microphone')}
               </Button>
               <Button variant="secondary" onClick={() => void toggle('camera')}>
-                {room?.localParticipant.isCameraEnabled ? 'Disable camera' : 'Enable camera'}
+                {room?.localParticipant.isCameraEnabled ? copyText('sessionmedia.disable.camera') : copyText('sessionmedia.enable.camera')}
               </Button>
               <Button variant="secondary" onClick={() => void toggle('screen')}>
-                {room?.localParticipant.isScreenShareEnabled ? 'Stop screen share' : 'Share screen'}
+                {room?.localParticipant.isScreenShareEnabled
+                  ? copyText('sessionmedia.stop.screen.share')
+                  : copyText('sessionmedia.share.screen')}
               </Button>
             </>
           ) : (
-            <p className="muted">Your service grant permits receiving media. Publishing microphone, camera or screen is not granted.</p>
+            <p className="muted">
+              <Text k="sessionmedia.your.service.grant.permits.receiving.media.publishing" />
+            </p>
           )}
         </div>
       ) : (
         <Button variant="secondary" disabled={!userId || connecting || sessionStatus !== 'live'} onClick={() => void connect()}>
-          Connect audio/video
+          <Text k="sessionmedia.connect.audio.video" />
         </Button>
       )}
       <p className="muted">
-        Join the session seat first. Camera and microphone start disabled. The service credential decides whether you can publish.
+        <Text k="sessionmedia.join.the.session.seat.first.camera.and" />
       </p>
       {failure && <Failure result={failure} />}
       <div className="more-media-tracks" ref={media} />

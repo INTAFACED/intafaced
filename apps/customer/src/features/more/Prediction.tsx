@@ -1,3 +1,4 @@
+import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { orderBookSchema, tradeSchema } from '@intafaced/exchange-contract/schemas';
@@ -20,7 +21,7 @@ const catalogue = z.array(
     })
     .superRefine((row, ctx) => {
       if (row.instruments[0]?.symbol === row.instruments[1]?.symbol || new Set(row.instruments.map((i) => i.outcome)).size !== 2)
-        ctx.addIssue({ code: 'custom', message: 'Outcome catalogue must publish two distinct yes/no instruments' });
+        ctx.addIssue({ code: 'custom', message: copyText('prediction.outcome.catalogue.must.publish.two.distinct.yes') });
     }),
 );
 export function Prediction() {
@@ -39,12 +40,16 @@ export function Prediction() {
     const r = await api.rest(`/orderbook/${encodeURIComponent(instrument.symbol)}`, orderBookSchema, { query: { limit: 20 }, signal });
     if (!r.ok) return r;
     if (r.data.symbol !== instrument.symbol)
-      return { ok: false as const, reason: 'invalid_response' as const, message: 'The book belongs to another outcome.' };
+      return {
+        ok: false as const,
+        reason: 'invalid_response' as const,
+        message: copyText('prediction.the.book.belongs.to.another.outcome'),
+      };
     if (r.data.timestamp === null || Date.now() - r.data.timestamp > 15000 || r.data.timestamp > Date.now() + 5000)
       return {
         ok: false as const,
         reason: 'invalid_response' as const,
-        message: 'This outcome book is stale or has no verified timestamp.',
+        message: copyText('prediction.this.outcome.book.is.stale.or.has'),
       };
     if (
       sequence.current.symbol === instrument.symbol &&
@@ -52,7 +57,11 @@ export function Prediction() {
       r.data.nonce !== null &&
       r.data.nonce < sequence.current.nonce
     )
-      return { ok: false as const, reason: 'invalid_response' as const, message: 'This outcome book sequence moved backwards.' };
+      return {
+        ok: false as const,
+        reason: 'invalid_response' as const,
+        message: copyText('prediction.this.outcome.book.sequence.moved.backwards'),
+      };
     sequence.current = { symbol: instrument.symbol, nonce: r.data.nonce };
     return r;
   }, `outcome-book:${instrument?.symbol}`);
@@ -92,25 +101,26 @@ export function Prediction() {
   return (
     <div className="more-columns">
       <div>
-        <Panel title="Prediction markets">
-          <Read resource={markets.resource} retry={markets.reload} empty="No prediction events are listed">
+        <Panel title={copyText('prediction.prediction.markets')}>
+          <Read resource={markets.resource} retry={markets.reload} empty={copyText('prediction.no.prediction.events.are.listed')}>
             {(rows) => (
               <div className="more-grid">
                 {rows.map((m) => (
                   <article key={m.id}>
                     <h3>{m.question}</h3>
                     <small>
-                      Closes {m.closeAt} · {m.settlementSource}
+                      <Text k="prediction.closes" />
+                      {m.closeAt} · {m.settlementSource}
                     </small>
                     <Button
                       variant="secondary"
-                      aria-label={`Open ${m.question}`}
+                      aria-label={copyText('prediction.open', { value1: m.question })}
                       onClick={() => {
                         setSelected(m.id);
                         setOutcome('Yes');
                       }}
                     >
-                      Open event
+                      <Text k="prediction.open.event" />
                     </Button>
                   </article>
                 ))}
@@ -118,8 +128,7 @@ export function Prediction() {
             )}
           </Read>
           <p className="muted">
-            The current service boot publishes an empty catalogue and no ledger-backed outcome placement adapter. Event results are
-            controlled by the signed settlement service.
+            <Text k="prediction.the.current.service.boot.publishes.an.empty" />
           </p>
         </Panel>
         {market && (
@@ -127,21 +136,32 @@ export function Prediction() {
             <Panel title={market.question}>
               <Details
                 items={[
-                  ['Close time', market.closeAt],
-                  ['Settlement asset', market.settlementAssetId],
-                  ['Result source', market.settlementSource],
-                  ['Collateralization', 'Full · one settlement unit per contract'],
+                  [copyText('prediction.close.time'), market.closeAt],
+                  [copyText('prediction.settlement.asset'), market.settlementAssetId],
+                  [copyText('prediction.result.source'), market.settlementSource],
+                  [copyText('prediction.collateralization'), copyText('prediction.full.one.settlement.unit.per.contract')],
                 ]}
               />
-              <Tabs items={['Yes', 'No']} value={outcome} onChange={setOutcome} label="Outcome selection" />
+              <Tabs
+                items={['Yes', 'No']}
+                labels={{ Yes: copyText('prediction.yes'), No: copyText('prediction.no') }}
+                value={outcome}
+                onChange={setOutcome}
+                label={copyText('prediction.outcome.selection')}
+              />
               <strong>{instrument?.symbol}</strong>
               <Read resource={book.resource} retry={book.reload}>
                 {(b) =>
                   b ? (
                     <>
                       <DataTable
-                        headers={['Bid price', 'Bid quantity', 'Ask price', 'Ask quantity']}
-                        label={`${outcome} outcome order book`}
+                        headers={[
+                          copyText('prediction.bid.price'),
+                          copyText('prediction.bid.quantity'),
+                          copyText('prediction.ask.price'),
+                          copyText('prediction.ask.quantity'),
+                        ]}
+                        label={copyText('prediction.outcome.order.book', { value1: outcome })}
                       >
                         {Array.from({ length: Math.max(b.bids.length, b.asks.length) }, (_, i) => (
                           <tr key={i}>
@@ -153,17 +173,29 @@ export function Prediction() {
                         ))}
                       </DataTable>
                       <small>
-                        Snapshot {b.datetime} · sequence {b.nonce ?? 'unpublished'} · limit 20
+                        <Text k="prediction.snapshot" />
+                        {b.datetime}
+                        <Text k="prediction.sequence" />
+                        {b.nonce ?? copyText('prediction.unpublished')}
+                        <Text k="prediction.limit.20" />
                       </small>
                     </>
                   ) : null
                 }
               </Read>
             </Panel>
-            <Panel title="Recent outcome trades">
-              <Read resource={tape.resource} retry={tape.reload} empty="No public trades for this outcome">
+            <Panel title={copyText('prediction.recent.outcome.trades')}>
+              <Read resource={tape.resource} retry={tape.reload} empty={copyText('prediction.no.public.trades.for.this.outcome')}>
                 {(rows) => (
-                  <DataTable headers={['Time', 'Side', 'Price', 'Quantity']} label="Outcome public trades">
+                  <DataTable
+                    headers={[
+                      copyText('prediction.time'),
+                      copyText('prediction.side'),
+                      copyText('prediction.price'),
+                      copyText('prediction.quantity'),
+                    ]}
+                    label={copyText('prediction.outcome.public.trades')}
+                  >
                     {rows.map((r) => (
                       <tr key={r.id}>
                         <td>{r.datetime}</td>
@@ -176,16 +208,24 @@ export function Prediction() {
                 )}
               </Read>
             </Panel>
-            <Panel title="Your outcome fills">
-              <Read resource={fills.resource} retry={fills.reload} empty="No fills for this outcome">
+            <Panel title={copyText('prediction.your.outcome.fills')}>
+              <Read resource={fills.resource} retry={fills.reload} empty={copyText('prediction.no.fills.for.this.outcome')}>
                 {(rows) => (
-                  <DataTable headers={['Fill', 'Price', 'Quantity', 'Fee']} label="Your outcome fills">
+                  <DataTable
+                    headers={[
+                      copyText('prediction.fill'),
+                      copyText('prediction.price'),
+                      copyText('prediction.quantity'),
+                      copyText('prediction.fee'),
+                    ]}
+                    label={copyText('prediction.your.outcome.fills')}
+                  >
                     {rows.map((r) => (
                       <tr key={r.id}>
                         <td>{r.id}</td>
                         <td>{r.price}</td>
                         <td>{r.amount}</td>
-                        <td>{r.fee ? `${r.fee.cost} ${r.fee.currency}` : 'Fee unavailable'}</td>
+                        <td>{r.fee ? `${r.fee.cost} ${r.fee.currency}` : copyText('prediction.fee.unavailable')}</td>
                       </tr>
                     ))}
                   </DataTable>
@@ -195,17 +235,23 @@ export function Prediction() {
           </>
         )}
       </div>
-      <Panel title="Outcome order review">
-        <p role="status">Outcome order preview is not published. No order can be sent from this room.</p>
+      <Panel title={copyText('prediction.outcome.order.review')}>
+        <p role="status">
+          <Text k="prediction.outcome.order.preview.is.not.published.no" />
+        </p>
         <p className="muted">
-          The POST contract names a fully collateralized hold, but provides no outcome-specific admission, fee quote, precision or preview.
-          A spot preview would size its hold differently and cannot establish this consent.
+          <Text k="prediction.the.post.contract.names.a.fully.collateralized" />
         </p>
         {market && (
           <>
-            <Field label="Outcome contract quantity" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" />
             <Field
-              label={`Limit price in ${market.settlementAssetId} per contract`}
+              label={copyText('prediction.outcome.contract.quantity')}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              inputMode="decimal"
+            />
+            <Field
+              label={copyText('prediction.limit.price.in.per.contract', { value1: market.settlementAssetId })}
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               inputMode="decimal"
@@ -213,14 +259,16 @@ export function Prediction() {
             {decimalSchema.safeParse(amount).success && (
               <Details
                 items={[
-                  ['Instrument', instrument?.symbol ?? 'Unavailable'],
-                  ['Full collateral by published rule', `${displayAmount(amount)} ${market.settlementAssetId}`],
-                  ['Authoritative fee', 'Unavailable'],
-                  ['Order admission', 'Unavailable'],
+                  [copyText('prediction.instrument'), instrument?.symbol ?? 'Unavailable'],
+                  [copyText('prediction.full.collateral.by.published.rule'), `${displayAmount(amount)} ${market.settlementAssetId}`],
+                  [copyText('prediction.authoritative.fee'), 'Unavailable'],
+                  [copyText('prediction.order.admission'), 'Unavailable'],
                 ]}
               />
             )}
-            <p className="muted">Closing or settling an event is not a customer control.</p>
+            <p className="muted">
+              <Text k="prediction.closing.or.settling.an.event.is.not" />
+            </p>
           </>
         )}
       </Panel>

@@ -1,3 +1,4 @@
+import { t as copyText, Text } from './copy';
 import { Button, Page } from '../../shared/ui';
 import {
   amount,
@@ -21,11 +22,11 @@ export function AutoInvestRules({ asset, open }: { asset?: string; open: (spec: 
   const { resource, reload } = useBankRead('autoInvest.list', { limit });
   return (
     <Section
-      title="Your automation"
-      description="Instructions over the same ledger. Rules hold no independent balance."
+      title={copyText('repeat-buy.your.automation')}
+      description={copyText('repeat-buy.instructions.over.the.same.ledger.rules.hold')}
       actions={
         <Button variant="ghost" onClick={reload}>
-          Refresh
+          <Text k="repeat-buy.refresh" />
         </Button>
       }
     >
@@ -41,24 +42,28 @@ export function AutoInvestRules({ asset, open }: { asset?: string; open: (spec: 
                       <div>
                         <h3>
                           {rule.kind === 'dca'
-                            ? `Repeat buy ${rule.buyAssetId ?? 'asset unavailable'}`
+                            ? copyText('repeat-buy.repeat.buy', { value1: rule.buyAssetId ?? copyText('repeat-buy.asset.unavailable') })
                             : rule.kind === 'threshold_sweep'
-                              ? 'Threshold sweep'
-                              : 'Card round-up'}
+                              ? copyText('repeat-buy.threshold.sweep')
+                              : copyText('repeat-buy.card.round.up')}
                         </h3>
                         <p>
-                          {rule.status} · {rule.cadence ?? 'Event driven'}
+                          {rule.status} · {rule.cadence ?? copyText('repeat-buy.event.driven')}
                         </p>
                       </div>
                       <span className="numeric">{funds(rule.amount ?? rule.threshold, rule.assetId)}</span>
                     </header>
                     <dl className="detail-list">
                       <div>
-                        <dt>Next run</dt>
+                        <dt>
+                          <Text k="repeat-buy.next.run" />
+                        </dt>
                         <dd>{date(rule.nextRunAt)}</dd>
                       </div>
                       <div>
-                        <dt>Rule reference</dt>
+                        <dt>
+                          <Text k="repeat-buy.rule.reference" />
+                        </dt>
                         <dd>{rule.id}</dd>
                       </div>
                     </dl>
@@ -70,48 +75,48 @@ export function AutoInvestRules({ asset, open }: { asset?: string; open: (spec: 
                               variant="secondary"
                               onClick={() =>
                                 open({
-                                  title: 'Resume automation',
+                                  title: copyText('repeat-buy.resume.automation'),
                                   procedure: 'autoInvest.resume',
-                                  notes: ['The runner applies normal due rules. It does not invent a catch-up batch.'],
+                                  notes: [copyText('repeat-buy.the.runner.applies.normal.due.rules.it')],
                                   facts: [
-                                    ['Rule', rule.id],
-                                    ['Asset', rule.assetId],
+                                    [copyText('repeat-buy.rule'), rule.id],
+                                    [copyText('repeat-buy.asset'), rule.assetId],
                                   ],
                                   input: () => ({ ruleId: rule.id }),
                                 })
                               }
                             >
-                              Resume
+                              <Text k="repeat-buy.resume" />
                             </Button>
                           ) : (
                             <Button
                               variant="secondary"
                               onClick={() =>
                                 open({
-                                  title: 'Pause automation',
+                                  title: copyText('repeat-buy.pause.automation'),
                                   procedure: 'autoInvest.pause',
-                                  notes: ['Pause future runner activity. Funds already moved remain in their ledger accounts.'],
-                                  facts: [['Rule', rule.id]],
+                                  notes: [copyText('repeat-buy.pause.future.runner.activity.funds.already.moved')],
+                                  facts: [[copyText('repeat-buy.rule'), rule.id]],
                                   input: () => ({ ruleId: rule.id }),
                                 })
                               }
                             >
-                              Pause
+                              <Text k="repeat-buy.pause" />
                             </Button>
                           )}
                           <Button
                             variant="ghost"
                             onClick={() =>
                               open({
-                                title: 'Cancel automation',
+                                title: copyText('repeat-buy.cancel.automation'),
                                 procedure: 'autoInvest.cancel',
-                                notes: ['Cancel this instruction. This does not unwind past purchases or deposits.'],
-                                facts: [['Rule', rule.id]],
+                                notes: [copyText('repeat-buy.cancel.this.instruction.this.does.not.unwind')],
+                                facts: [[copyText('repeat-buy.rule'), rule.id]],
                                 input: () => ({ ruleId: rule.id }),
                               })
                             }
                           >
-                            Cancel
+                            <Text k="repeat-buy.cancel" />
                           </Button>
                         </>
                       )}
@@ -119,8 +124,8 @@ export function AutoInvestRules({ asset, open }: { asset?: string; open: (spec: 
                   </article>
                 ))
               ) : (
-                <NoRows title="No automation returned for this asset">
-                  Create an instruction only when its required capability is connected.
+                <NoRows title={copyText('repeat-buy.no.automation.returned.for.this.asset')}>
+                  <Text k="repeat-buy.create.an.instruction.only.when.its.required" />
                 </NoRows>
               )}
               <Continuation count={all.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
@@ -135,43 +140,45 @@ export function RepeatBuy({ asset, open }: { asset: string; open: (spec: ActionS
   const { resource, reload } = useBankRead('autoInvest.policy', undefined);
   return (
     <Page
-      eyebrow="Money / Holding"
-      title={`Repeat buy ${asset}`}
-      description="A recurring instruction uses available funds and the connected convert counterparty."
+      eyebrow={copyText('repeat-buy.money.holding')}
+      title={copyText('repeat-buy.repeat.buy', { value1: asset })}
+      description={copyText('repeat-buy.a.recurring.instruction.uses.available.funds.and')}
       actions={
         <a className="button button--secondary" href={`/portfolio/${encodeURIComponent(asset)}`}>
-          Back to {asset}
+          <Text k="repeat-buy.back.to" />
+          {asset}
         </a>
       }
     >
-      <Section title="Create a repeat buy">
+      <Section title={copyText('repeat-buy.create.a.repeat.buy')}>
         <ResourceView resource={resource} reload={reload}>
           {(policy) =>
             policy.enabled && policy.convertWired ? (
               <>
                 <p className="muted">
-                  Choose the asset to spend, an exact quantity in that asset, and when to start. No rate or purchase outcome is guaranteed.
+                  <Text k="repeat-buy.choose.the.asset.to.spend.an.exact" />
                 </p>
                 <Button
                   onClick={() =>
                     open({
-                      title: `Repeat buy ${asset}`,
+                      title: copyText('repeat-buy.repeat.buy.2', { asset: asset }),
                       procedure: 'autoInvest.createDca',
                       fields: [
                         {
                           name: 'spendAssetId',
-                          label: 'Spend asset',
-                          hint: 'Use the exact asset code held in your user available account.',
-                          validate: (value) => (value.length <= 16 ? null : 'Asset codes are limited to 16 characters.'),
+                          label: copyText('repeat-buy.spend.asset'),
+                          hint: copyText('repeat-buy.use.the.exact.asset.code.held.in'),
+                          validate: (value) =>
+                            value.length <= 16 ? null : copyText('repeat-buy.asset.codes.are.limited.to.16.characters'),
                         },
-                        positiveMoney('spend asset'),
+                        positiveMoney(undefined),
                         cadenceField,
                         startsField,
                       ],
-                      facts: [['Buy asset', asset]],
+                      facts: [[copyText('repeat-buy.buy.asset'), asset]],
                       notes: [
-                        'Each due run uses the connected convert counterparty. Rates are obtained when the runner executes.',
-                        'Missing rates or insufficient available funds must refuse. No pending-deposit buying credit is assumed.',
+                        copyText('repeat-buy.each.due.run.uses.the.connected.convert'),
+                        copyText('repeat-buy.missing.rates.or.insufficient.available.funds.must'),
                       ],
                       input: (values) => ({
                         spendAssetId: values.spendAssetId,
@@ -183,14 +190,20 @@ export function RepeatBuy({ asset, open }: { asset: string; open: (spec: ActionS
                     })
                   }
                 >
-                  Set up repeat buy
+                  <Text k="repeat-buy.set.up.repeat.buy" />
                 </Button>
               </>
             ) : (
-              <NoRows title={policy.enabled ? 'Convert counterparty is not connected' : 'Auto-invest is disabled'}>
+              <NoRows
+                title={
+                  policy.enabled
+                    ? copyText('repeat-buy.convert.counterparty.is.not.connected')
+                    : copyText('repeat-buy.auto.invest.is.disabled')
+                }
+              >
                 {policy.enabled
-                  ? 'A repeat buy requires an authoritative convert route. No schedule is enabled from this screen.'
-                  : 'The current Bank policy disables automated investing.'}
+                  ? copyText('repeat-buy.a.repeat.buy.requires.an.authoritative.convert')
+                  : copyText('repeat-buy.the.current.bank.policy.disables.automated.investing')}
               </NoRows>
             )
           }

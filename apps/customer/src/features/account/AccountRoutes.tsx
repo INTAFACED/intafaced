@@ -1,3 +1,4 @@
+import { copy, t as copyText, Text } from './copy';
 import { useState, type FormEvent } from 'react';
 import { z } from 'zod';
 import { Button, Dialog, EmptyState, Failure, Field, Loading, Page, Panel, DataTable } from '../../shared/ui';
@@ -30,6 +31,14 @@ const kycRecord = z.object({
 });
 
 export function AccountRoutes({ path }: { path: string }) {
+  copy.useCopy();
+  return (
+    <div lang="en" style={{ display: 'contents' }}>
+      <AccountRooms path={path} />
+    </div>
+  );
+}
+function AccountRooms({ path }: { path: string }) {
   const clean = path.split('?')[0];
   if (clean === '/view') return <View />;
   if (clean === '/uc/safe') return <Security />;
@@ -37,33 +46,32 @@ export function AccountRoutes({ path }: { path: string }) {
   if (clean === '/notifications') return <Inbox />;
   if (clean === '/identbusiness')
     return (
-      <Page title="Business verification">
+      <Page title={copyText('accountroutes.business.verification')}>
         <EmptyState
-          title="Verified company accounts are not connected"
+          title={copyText('accountroutes.verified.company.accounts.are.not.connected')}
           action={
             <a href="/verification" className="text-link">
-              View personal verification ↗
+              <Text k="accountroutes.view.personal.verification" />
             </a>
           }
         >
-          Company identity, owner membership and the associated merchant permissions are not available through the current account service.
-          Personal verification or a strategy subaccount cannot activate a Business account.
+          <Text k="accountroutes.company.identity.owner.membership.and.the.associated" />
         </EmptyState>
       </Page>
     );
   if (clean?.startsWith('/uc/promotion') || clean === '/uc/invitingmining') return <Promotions />;
   if (clean === '/uc/paydividends')
     return (
-      <Page title="Dividend records">
-        <EmptyState title="Dividend history is not connected">
-          There is no mounted owner-scoped dividend history contract. Token stake and earning activity remain available in their own rooms.
+      <Page title={copyText('accountroutes.dividend.records')}>
+        <EmptyState title={copyText('accountroutes.dividend.history.is.not.connected')}>
+          <Text k="accountroutes.there.is.no.mounted.owner.scoped.dividend" />
         </EmptyState>
         <div className="actions">
           <a className="text-link" href="/token">
-            Open Token ↗
+            <Text k="accountroutes.open.token" />
           </a>
           <a className="text-link" href="/bank/earn">
-            Open Earn ↗
+            <Text k="accountroutes.open.earn" />
           </a>
         </div>
       </Page>
@@ -74,7 +82,7 @@ function ResultNotice({ result }: { result: ApiResult<unknown> | null }) {
   if (!result) return null;
   return result.ok ? (
     <p className="notice" role="status">
-      The service confirmed the action.
+      <Text k="accountroutes.the.service.confirmed.the.action" />
     </p>
   ) : (
     <Failure result={result} />
@@ -120,25 +128,32 @@ function Account() {
     if (response.ok) reload();
   }
   return (
-    <Page title="Account" description="Your identity and strategy partitions. A strategy subaccount is not a Business account.">
+    <Page
+      title={copyText('accountroutes.account')}
+      description={copyText('accountroutes.your.identity.and.strategy.partitions.a.strategy')}
+    >
       <div className="account-summary">
-        <span className="eyebrow">PERSONAL ACCOUNT</span>
+        <span className="eyebrow">
+          <Text k="accountroutes.personal.account" />
+        </span>
         <h2 className="numeric">{session?.userId}</h2>
         <div className="actions">
           <a className="text-link" href="/verification">
-            Verification ↗
+            <Text k="accountroutes.verification" />
           </a>
           <a className="text-link" href="/uc/safe">
-            Security ↗
+            <Text k="accountroutes.security" />
           </a>
         </div>
       </div>
       <div className="split">
         <section className="stack">
           <div className="section-heading">
-            <h2>Strategy subaccounts</h2>
+            <h2>
+              <Text k="accountroutes.strategy.subaccounts" />
+            </h2>
             <Button variant="ghost" onClick={reload}>
-              Refresh
+              <Text k="accountroutes.refresh" />
             </Button>
           </div>
           {resource.status === 'loading' ? (
@@ -146,10 +161,20 @@ function Account() {
           ) : resource.status === 'failed' ? (
             <Failure result={resource.failure} retry={reload} />
           ) : resource.data.length === 0 ? (
-            <EmptyState title="No strategy subaccounts">Create a labelled partition for a strategy or fund.</EmptyState>
+            <EmptyState title={copyText('accountroutes.no.strategy.subaccounts')}>
+              <Text k="accountroutes.create.a.labelled.partition.for.a.strategy" />
+            </EmptyState>
           ) : (
             <>
-              <DataTable label="Your strategy subaccounts" headers={['Label', 'Purpose', 'Status', 'Action']}>
+              <DataTable
+                label={copyText('accountroutes.your.strategy.subaccounts')}
+                headers={[
+                  copyText('accountroutes.label'),
+                  copyText('accountroutes.purpose'),
+                  copyText('accountroutes.status'),
+                  copyText('accountroutes.action'),
+                ]}
+              >
                 {resource.data.map((account) => (
                   <tr key={account.id}>
                     <td>
@@ -157,10 +182,10 @@ function Account() {
                       <small className="account-id numeric">{account.id}</small>
                     </td>
                     <td>{account.purpose ?? '—'}</td>
-                    <td>{account.revoked ? 'Revoked' : 'Active'}</td>
+                    <td>{account.revoked ? copyText('accountroutes.revoked') : copyText('accountroutes.active')}</td>
                     <td>
                       <Button variant="ghost" disabled={account.revoked || pending} onClick={() => setRevoke(account)}>
-                        Revoke
+                        <Text k="accountroutes.revoke" />
                       </Button>
                     </td>
                   </tr>
@@ -168,10 +193,10 @@ function Account() {
               </DataTable>
               {resource.data.length === limit && (
                 <div className="notice">
-                  This is the returned window, not a complete account history.{' '}
+                  <Text k="accountroutes.this.is.the.returned.window.not.a" />{' '}
                   {limit < 200 && (
                     <Button variant="ghost" onClick={() => setLimit(200)}>
-                      Load up to 200
+                      <Text k="accountroutes.load.up.to.200" />
                     </Button>
                   )}
                 </div>
@@ -179,7 +204,7 @@ function Account() {
             </>
           )}
         </section>
-        <Panel title="Create a strategy subaccount">
+        <Panel title={copyText('accountroutes.create.a.strategy.subaccount')}>
           <form
             className="form-stack"
             onSubmit={(event) => {
@@ -188,7 +213,7 @@ function Account() {
             }}
           >
             <Field
-              label="Label"
+              label={copyText('accountroutes.label')}
               name="subaccount-label"
               required
               maxLength={64}
@@ -196,42 +221,47 @@ function Account() {
               onChange={(event) => setLabel(event.target.value)}
             />
             <Field
-              label="Purpose (optional)"
+              label={copyText('accountroutes.purpose.optional')}
               name="subaccount-purpose"
               maxLength={200}
               value={purpose}
               onChange={(event) => setPurpose(event.target.value)}
             />
             <Button type="submit" disabled={pending || (result?.ok === false && result.reason === 'uncertain')}>
-              Review subaccount
+              <Text k="accountroutes.review.subaccount" />
             </Button>
           </form>
         </Panel>
       </div>
       <ResultNotice result={result} />
       {review && (
-        <Dialog title="Create strategy subaccount" onClose={() => !pending && setReview(false)}>
+        <Dialog title={copyText('accountroutes.create.strategy.subaccount')} onClose={() => !pending && setReview(false)}>
           <div className="stack">
             <p>
               <strong>{label.trim()}</strong>
             </p>
-            <p className="muted">{purpose.trim() || 'No purpose supplied.'}</p>
-            <p className="muted">This creates a partition without moving funds. It does not open a verified company account.</p>
+            <p className="muted">{purpose.trim() || copyText('accountroutes.no.purpose.supplied')}</p>
+            <p className="muted">
+              <Text k="accountroutes.this.creates.a.partition.without.moving.funds" />
+            </p>
             <Button onClick={() => void create()} disabled={pending}>
-              {pending ? 'Creating…' : 'Create subaccount'}
+              {pending ? copyText('accountroutes.creating') : copyText('accountroutes.create.subaccount')}
             </Button>
           </div>
         </Dialog>
       )}
       {revoke && (
-        <Dialog title="Revoke strategy subaccount" onClose={() => !pending && setRevoke(null)}>
+        <Dialog title={copyText('accountroutes.revoke.strategy.subaccount')} onClose={() => !pending && setRevoke(null)}>
           <div className="stack">
             <p>
-              Revoke <strong>{revoke.label}</strong>?
+              <Text k="accountroutes.revoke.2" />
+              <strong>{revoke.label}</strong>?
             </p>
-            <p className="muted">The account is disabled. Its ledger balances are untouched.</p>
+            <p className="muted">
+              <Text k="accountroutes.the.account.is.disabled.its.ledger.balances" />
+            </p>
             <Button variant="danger" onClick={() => void retire()} disabled={pending}>
-              Revoke subaccount
+              <Text k="accountroutes.revoke.subaccount" />
             </Button>
           </div>
         </Dialog>
@@ -304,13 +334,18 @@ function Security() {
     if (response.ok) clear();
   }
   return (
-    <Page title="Security" description="Passkeys, two-factor verification and signed-in sessions.">
+    <Page
+      title={copyText('accountroutes.security.2')}
+      description={copyText('accountroutes.passkeys.two.factor.verification.and.signed.in')}
+    >
       <div className="split">
         <section className="stack">
           <div className="section-heading">
-            <h2>Passkeys</h2>
+            <h2>
+              <Text k="accountroutes.passkeys" />
+            </h2>
             <Button variant="secondary" disabled={pending} onClick={() => void enroll()}>
-              Add passkey
+              <Text k="accountroutes.add.passkey" />
             </Button>
           </div>
           {resource.status === 'loading' ? (
@@ -318,62 +353,84 @@ function Security() {
           ) : resource.status === 'failed' ? (
             <Failure result={resource.failure} retry={reload} />
           ) : resource.data.length === 0 ? (
-            <EmptyState title="No passkeys returned">Add a passkey to sign in using your device or security key.</EmptyState>
+            <EmptyState title={copyText('accountroutes.no.passkeys.returned')}>
+              <Text k="accountroutes.add.a.passkey.to.sign.in.using" />
+            </EmptyState>
           ) : (
             <>
-              <DataTable headers={['Credential', 'Added', 'Action']} label="Registered passkeys">
+              <DataTable
+                headers={[copyText('accountroutes.credential'), copyText('accountroutes.added'), copyText('accountroutes.action')]}
+                label={copyText('accountroutes.registered.passkeys')}
+              >
                 {resource.data.map((key) => (
                   <tr key={key.credentialId}>
                     <td className="numeric">
                       {key.credentialId}
-                      <small className="account-id">{key.transports?.join(', ') ?? 'Transport not published'}</small>
+                      <small className="account-id">
+                        {key.transports?.join(', ') ?? copyText('accountroutes.transport.not.published')}
+                      </small>
                     </td>
                     <td>{new Date(key.createdAt).toLocaleDateString()}</td>
                     <td>
                       <Button variant="ghost" disabled={pending} onClick={() => setRemove(key.credentialId)}>
-                        Remove
+                        <Text k="accountroutes.remove" />
                       </Button>
                     </td>
                   </tr>
                 ))}
               </DataTable>
-              {resource.data.length === 50 && <p className="muted">The service returned a 50-key window.</p>}
+              {resource.data.length === 50 && (
+                <p className="muted">
+                  <Text k="accountroutes.the.service.returned.a.50.key.window" />
+                </p>
+              )}
             </>
           )}
-          <Panel title="Sessions">
+          <Panel title={copyText('accountroutes.sessions')}>
             <p className="muted">
-              Session refresh follows the identity service. Credentials stay in memory; reloading this app requires sign-in.
+              <Text k="accountroutes.session.refresh.follows.the.identity.service.credentials" />
             </p>
             <IdentitySessions />
             <Button variant="secondary" onClick={() => setSignOut(true)} disabled={pending}>
-              Sign out everywhere
+              <Text k="accountroutes.sign.out.everywhere" />
             </Button>
           </Panel>
         </section>
-        <Panel title="Two-factor verification">
+        <Panel title={copyText('accountroutes.two.factor.verification')}>
           <div className="form-stack">
             <p className="muted">
-              Connect an authenticator and keep your recovery codes somewhere safe. No enabled status is assumed from an enrollment request.
+              <Text k="accountroutes.connect.an.authenticator.and.keep.your.recovery" />
             </p>
             {!enrollment ? (
               <Button variant="secondary" onClick={() => void startTotp()} disabled={pending}>
-                Start authenticator setup
+                <Text k="accountroutes.start.authenticator.setup" />
               </Button>
             ) : (
               <>
                 <label className="field">
-                  <span>Authenticator setup key</span>
-                  <input readOnly value={enrollment.secret} aria-label="Authenticator setup key" autoComplete="off" />
+                  <span>
+                    <Text k="accountroutes.authenticator.setup.key" />
+                  </span>
+                  <input
+                    readOnly
+                    value={enrollment.secret}
+                    aria-label={copyText('accountroutes.authenticator.setup.key')}
+                    autoComplete="off"
+                  />
                 </label>
-                <p className="muted">Add this key to your authenticator. The setup link can also be copied into a compatible app.</p>
+                <p className="muted">
+                  <Text k="accountroutes.add.this.key.to.your.authenticator.the" />
+                </p>
                 <details>
-                  <summary>Setup URI</summary>
+                  <summary>
+                    <Text k="accountroutes.setup.uri" />
+                  </summary>
                   <code className="secret-wrap">{enrollment.uri}</code>
                 </details>
                 {!confirmed ? (
                   <form className="form-stack" onSubmit={(event) => void confirmTotp(event)}>
                     <Field
-                      label="Six-digit authenticator code"
+                      label={copyText('accountroutes.six.digit.authenticator.code')}
                       name="totp-confirm"
                       required
                       pattern="[0-9]{6}"
@@ -383,16 +440,18 @@ function Security() {
                       onChange={(event) => setCode(event.target.value)}
                     />
                     <Button type="submit" disabled={pending || (result?.ok === false && result.reason === 'uncertain')}>
-                      Confirm authenticator
+                      <Text k="accountroutes.confirm.authenticator" />
                     </Button>
                   </form>
                 ) : (
                   <p className="notice" role="status">
-                    Authenticator enrollment confirmed.
+                    <Text k="accountroutes.authenticator.enrollment.confirmed" />
                   </p>
                 )}
                 <details open={confirmed}>
-                  <summary>Recovery codes — save before leaving</summary>
+                  <summary>
+                    <Text k="accountroutes.recovery.codes.save.before.leaving" />
+                  </summary>
                   <ul className="recovery-codes">
                     {enrollment.recoveryCodes.map((value) => (
                       <li key={value}>{value}</li>
@@ -406,22 +465,26 @@ function Security() {
       </div>
       <ResultNotice result={result} />
       {remove && (
-        <Dialog title="Remove passkey" onClose={() => !pending && setRemove(null)}>
+        <Dialog title={copyText('accountroutes.remove.passkey')} onClose={() => !pending && setRemove(null)}>
           <div className="stack">
-            <p>Remove this authenticator from your account?</p>
+            <p>
+              <Text k="accountroutes.remove.this.authenticator.from.your.account" />
+            </p>
             <p className="numeric muted">{remove}</p>
             <Button variant="danger" onClick={() => void removeKey()} disabled={pending}>
-              Remove passkey
+              <Text k="accountroutes.remove.passkey" />
             </Button>
           </div>
         </Dialog>
       )}
       {signOut && (
-        <Dialog title="Sign out everywhere" onClose={() => !pending && setSignOut(false)}>
+        <Dialog title={copyText('accountroutes.sign.out.everywhere')} onClose={() => !pending && setSignOut(false)}>
           <div className="stack">
-            <p>Revoke all current sessions, including this one?</p>
+            <p>
+              <Text k="accountroutes.revoke.all.current.sessions.including.this.one" />
+            </p>
             <Button variant="danger" onClick={() => void revokeSessions()} disabled={pending}>
-              Revoke all sessions
+              <Text k="accountroutes.revoke.all.sessions" />
             </Button>
           </div>
         </Dialog>
@@ -439,7 +502,10 @@ function Verification() {
         { limit: 50 },
         z
           .object({ tier: z.enum(['none', 'basic', 'full', 'institutional']), records: z.array(kycRecord) })
-          .refine((value) => value.records.every((record) => record.userId === session?.userId), 'Verification belongs to another account'),
+          .refine(
+            (value) => value.records.every((record) => record.userId === session?.userId),
+            copyText('accountroutes.verification.belongs.to.another.account'),
+          ),
         { signal },
       ),
     `kyc:${session?.userId}`,
@@ -458,7 +524,7 @@ function Verification() {
     if (response.ok) reload();
   }
   return (
-    <Page title="Verification" description="See your current tier and request review. Submitting a request does not grant verification.">
+    <Page title={copyText('accountroutes.verification.2')} description={copyText('accountroutes.see.your.current.tier.and.request.review')}>
       <div className="split">
         <section className="stack">
           {resource.status === 'loading' ? (
@@ -468,11 +534,21 @@ function Verification() {
           ) : (
             <>
               <div className="account-summary">
-                <span className="eyebrow">CURRENT VERIFIED TIER</span>
+                <span className="eyebrow">
+                  <Text k="accountroutes.current.verified.tier" />
+                </span>
                 <h2>{resource.data.tier}</h2>
               </div>
               {resource.data.records.length ? (
-                <DataTable headers={['Requested tier', 'Country', 'Status', 'Requested']} label="Verification requests">
+                <DataTable
+                  headers={[
+                    copyText('accountroutes.requested.tier'),
+                    copyText('accountroutes.country'),
+                    copyText('accountroutes.status'),
+                    copyText('accountroutes.requested'),
+                  ]}
+                  label={copyText('accountroutes.verification.requests')}
+                >
                   {resource.data.records.map((record) => (
                     <tr key={record.id}>
                       <td>{record.tier}</td>
@@ -483,13 +559,17 @@ function Verification() {
                   ))}
                 </DataTable>
               ) : (
-                <EmptyState title="No verification requests returned">Request the tier needed for your account.</EmptyState>
+                <EmptyState title={copyText('accountroutes.no.verification.requests.returned')}>
+                  <Text k="accountroutes.request.the.tier.needed.for.your.account" />
+                </EmptyState>
               )}
-              <p className="muted">Up to 50 requests. Document uploads and provider review are not connected through this request form.</p>
+              <p className="muted">
+                <Text k="accountroutes.up.to.50.requests.document.uploads.and" />
+              </p>
             </>
           )}
         </section>
-        <Panel title="Request verification">
+        <Panel title={copyText('accountroutes.request.verification')}>
           <form
             className="form-stack"
             onSubmit={(event) => {
@@ -498,15 +578,23 @@ function Verification() {
             }}
           >
             <label className="field">
-              <span>Requested tier</span>
+              <span>
+                <Text k="accountroutes.requested.tier" />
+              </span>
               <select value={tier} onChange={(event) => setTier(event.target.value)}>
-                <option value="basic">Basic</option>
-                <option value="full">Full</option>
-                <option value="institutional">Institutional</option>
+                <option value="basic">
+                  <Text k="accountroutes.basic" />
+                </option>
+                <option value="full">
+                  <Text k="accountroutes.full" />
+                </option>
+                <option value="institutional">
+                  <Text k="accountroutes.institutional" />
+                </option>
               </select>
             </label>
             <Field
-              label="Country code"
+              label={copyText('accountroutes.country.code')}
               name="kyc-country"
               required
               minLength={2}
@@ -514,24 +602,26 @@ function Verification() {
               pattern="[a-zA-Z]{2}"
               value={country}
               onChange={(event) => setCountry(event.target.value)}
-              hint="ISO two-letter jurisdiction code."
+              hint={copyText('accountroutes.iso.two.letter.jurisdiction.code')}
             />
             <Button type="submit" disabled={pending || (result?.ok === false && result.reason === 'uncertain')}>
-              Review request
+              <Text k="accountroutes.review.request" />
             </Button>
           </form>
         </Panel>
       </div>
       <ResultNotice result={result} />
       {review && (
-        <Dialog title="Request verification review" onClose={() => !pending && setReview(false)}>
+        <Dialog title={copyText('accountroutes.request.verification.review')} onClose={() => !pending && setReview(false)}>
           <div className="stack">
             <p>
               {tier} · {country.toUpperCase()}
             </p>
-            <p className="muted">This creates a pending request. Your current verified tier remains authoritative.</p>
+            <p className="muted">
+              <Text k="accountroutes.this.creates.a.pending.request.your.current" />
+            </p>
             <Button disabled={pending} onClick={() => void request()}>
-              Submit request
+              <Text k="accountroutes.submit.request" />
             </Button>
           </div>
         </Dialog>
@@ -563,7 +653,10 @@ function Inbox() {
         { limit: 50, ...(cursor ? { cursor } : {}), unreadOnly: unread },
         z
           .object({ items: z.array(notification), nextCursor: z.string().uuid().nullable() })
-          .refine((value) => value.items.every((item) => item.userId === session?.userId), 'Inbox belongs to another account'),
+          .refine(
+            (value) => value.items.every((item) => item.userId === session?.userId),
+            copyText('accountroutes.inbox.belongs.to.another.account'),
+          ),
         { signal },
       ),
     `notifications:${session?.userId}:${cursor}:${unread}`,
@@ -576,8 +669,8 @@ function Inbox() {
   }
   return (
     <Page
-      title="Inbox"
-      description="Private account notifications. Public notices are a separate surface."
+      title={copyText('accountroutes.inbox')}
+      description={copyText('accountroutes.private.account.notifications.public.notices.are.a')}
       actions={
         <Button
           variant="secondary"
@@ -586,7 +679,7 @@ function Inbox() {
             setCursor(undefined);
           }}
         >
-          {unread ? 'Show all' : 'Unread only'}
+          {unread ? copyText('accountroutes.show.all') : copyText('accountroutes.unread.only')}
         </Button>
       }
     >
@@ -596,7 +689,9 @@ function Inbox() {
       ) : resource.status === 'failed' ? (
         <Failure result={resource.failure} retry={reload} />
       ) : resource.data.items.length === 0 ? (
-        <EmptyState title="No notifications returned">New account notifications will appear here when delivered.</EmptyState>
+        <EmptyState title={copyText('accountroutes.no.notifications.returned')}>
+          <Text k="accountroutes.new.account.notifications.will.appear.here.when" />
+        </EmptyState>
       ) : (
         <div className="notification-list">
           {resource.data.items.map((item) => (
@@ -605,21 +700,17 @@ function Inbox() {
                 <span className="badge">{item.severity}</span>
                 <time>{new Date(item.createdAt).toLocaleString()}</time>
               </div>
-              <h2>{item.title === item.titleKey ? 'Notification text is unavailable' : item.title}</h2>
-              <p>
-                {item.body === item.bodyKey
-                  ? 'This notification’s details are not published. Open its related room for current information.'
-                  : item.body}
-              </p>
+              <h2>{item.title === item.titleKey ? copyText('accountroutes.notification.text.is.unavailable') : item.title}</h2>
+              <p>{item.body === item.bodyKey ? copyText('accountroutes.this.notification.s.details.are.not.published') : item.body}</p>
               <div className="actions">
                 {customerRoomHref(item.href) && (
                   <a className="text-link" href={customerRoomHref(item.href)}>
-                    Open related room ↗
+                    <Text k="accountroutes.open.related.room" />
                   </a>
                 )}
                 {!item.readAt && (
                   <Button variant="ghost" onClick={() => void mark(item.id)}>
-                    Mark read
+                    <Text k="accountroutes.mark.read" />
                   </Button>
                 )}
               </div>
@@ -627,12 +718,12 @@ function Inbox() {
           ))}
           {resource.data.nextCursor && (
             <Button variant="secondary" onClick={() => setCursor(resource.data.nextCursor ?? undefined)}>
-              Next page
+              <Text k="accountroutes.next.page" />
             </Button>
           )}
           {cursor && (
             <Button variant="ghost" onClick={() => setCursor(undefined)}>
-              Back to latest
+              <Text k="accountroutes.back.to.latest" />
             </Button>
           )}
         </div>
@@ -670,42 +761,49 @@ function Promotions() {
   const link = result?.ok ? `${location.origin}/invite?token=${encodeURIComponent(result.data.token)}` : null;
   return (
     <Page
-      title="Promotions and invitations"
-      description="Create a share link for your account. Referral attribution follows the identity service."
+      title={copyText('accountroutes.promotions.and.invitations')}
+      description={copyText('accountroutes.create.a.share.link.for.your.account')}
     >
       <div className="split">
-        <Panel title="Your invitation link">
+        <Panel title={copyText('accountroutes.your.invitation.link')}>
           <div className="stack">
             {link ? (
               <>
                 <label className="field">
-                  <span>Invitation link</span>
-                  <input readOnly value={link} aria-label="Invitation link" />
+                  <span>
+                    <Text k="accountroutes.invitation.link" />
+                  </span>
+                  <input readOnly value={link} aria-label={copyText('accountroutes.invitation.link')} />
                 </label>
-                <p className="muted">Recorded visits: {result?.ok ? result.data.hits : '—'}</p>
+                <p className="muted">
+                  <Text k="accountroutes.recorded.visits" />
+                  {result?.ok ? result.data.hits : '—'}
+                </p>
                 <div className="actions">
                   <Button
                     variant="secondary"
                     onClick={() =>
                       void navigator.clipboard.writeText(link).then(
-                        () => setCopy('Copied invitation link.'),
-                        () => setCopy('Copy was unavailable; select the link above.'),
+                        () => setCopy(copyText('accountroutes.copied.invitation.link')),
+                        () => setCopy(copyText('accountroutes.copy.was.unavailable.select.the.link.above')),
                       )
                     }
                   >
-                    Copy link
+                    <Text k="accountroutes.copy.link" />
                   </Button>
                   <Button variant="ghost" disabled={pending} onClick={() => void revoke()}>
-                    Revoke link
+                    <Text k="accountroutes.revoke.link" />
                   </Button>
                 </div>
                 <p role="status">{copy}</p>
               </>
             ) : (
               <>
-                <p className="muted">Create the current idempotent share token belonging to your account.</p>
+                <p className="muted">
+                  <Text k="accountroutes.create.the.current.idempotent.share.token.belonging" />
+                </p>
                 <Button disabled={pending || (result?.ok === false && result.reason === 'uncertain')} onClick={() => void create()}>
-                  Create invitation link
+                  <Text k="accountroutes.create.invitation.link" />
                 </Button>
               </>
             )}
@@ -713,13 +811,15 @@ function Promotions() {
           </div>
         </Panel>
         <section className="stack">
-          <h2>Referral records</h2>
+          <h2>
+            <Text k="accountroutes.referral.records" />
+          </h2>
           <p className="muted">
-            Your account ID: <span className="numeric">{session?.userId}</span>
+            <Text k="accountroutes.your.account.id" />
+            <span className="numeric">{session?.userId}</span>
           </p>
           <div className="notice">
-            A customer referral tree, commission balance and promotion-card history are not mounted. No reward total or payout is inferred
-            from a visit count.
+            <Text k="accountroutes.a.customer.referral.tree.commission.balance.and" />
           </div>
         </section>
       </div>
