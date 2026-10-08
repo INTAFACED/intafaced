@@ -342,8 +342,9 @@ describe('money crosses this boundary as a decimal string', () => {
     await expect(
       api.payment.create({
         merchantId: MERCHANT,
-        // An untyped HTTP caller doing arithmetic in JavaScript sends this.
-        amount: 100.5 as never,
+        // 0.1 is not an IEEE value. Number(0.1) formatted back to 18 places is
+        // 0.100000000000000006, so those digits do not survive a JS number.
+        amount: 0.1 as never,
         assetId: 'USDT',
         method: 'card',
         railAdapter: 'card-sandbox',
@@ -379,6 +380,11 @@ describe('money crosses this boundary as a decimal string', () => {
         railAdapter: 'card-sandbox',
       }),
     ).resolves.toBeDefined();
+
+    const call = stub.calls.find((c) => c.method === 'createPayment')!;
+    const input = call.args[0] as { amount: unknown };
+    expect(typeof input.amount).toBe('bigint');
+    expect(input.amount).toBe(amt('1.000000000000000001'));
   });
 
   it('rejects a negative amount, an empty string, and prose', async () => {
