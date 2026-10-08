@@ -263,8 +263,9 @@ export class HttpDepthSource implements DepthSource {
     }
     if (response.status === 404) return null;
     if (!response.ok) throw new DepthSourceError(`svc-matching answered ${response.status} for ${path}`, response.status);
+    let body: unknown;
     try {
-      return await response.json();
+      body = await response.json();
     } catch (err) {
       // A 200 that will not parse is not a book. SyntaxError would look like a
       // bug in this process, and a stand-in ladder, price, or sequence would
@@ -274,6 +275,13 @@ export class HttpDepthSource implements DepthSource {
         null,
       );
     }
+    // JSON `null` parses without throwing. It is not the 404 signal: callers
+    // treat a null return as matching holding no book. A 200 null is a
+    // malformed success, same family as a body that is not JSON.
+    if (body === null) {
+      throw new DepthSourceError(`svc-matching returned a null JSON body for ${path}`, null);
+    }
+    return body;
   }
 
   async markets(): Promise<readonly string[]> {

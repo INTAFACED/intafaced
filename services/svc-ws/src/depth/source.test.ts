@@ -67,6 +67,21 @@ describe('HttpDepthSource', () => {
     }
   });
 
+  it('treats a 200 whose JSON value is null as DepthSourceError, and a 404 as DepthNoBookError', async () => {
+    // response.json() of the JSON value null returns null without throwing.
+    // That is a malformed success, not matching holding no book. A 404 is the
+    // absence signal. Neither path may invent a ladder, a price, or a sequence.
+    const nullBody = source(respondWith(null));
+    await expect(nullBody.snapshot('BTC-USDT', 50)).rejects.toMatchObject({
+      name: 'DepthSourceError',
+      status: null,
+    });
+    await expect(nullBody.snapshot('BTC-USDT', 50)).rejects.not.toBeInstanceOf(DepthNoBookError);
+
+    const missing = source(respondWith({ code: 'MarketNotFound' }, 404));
+    await expect(missing.snapshot('BTC-USDT', 50)).rejects.toBeInstanceOf(DepthNoBookError);
+  });
+
   it('sends no credential of any kind', async () => {
     const seen: RequestInit[] = [];
     const s = source((async (_url: unknown, init?: RequestInit) => {
