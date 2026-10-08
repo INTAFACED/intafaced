@@ -3,7 +3,7 @@ import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
 import { runRailAdapterConformance, type RailHarness } from './conformance.js';
 import { CardSandboxAdapter, SANDBOX_DECLINE_TOKEN } from './card-sandbox.js';
 import { CryptoNativeAdapter } from './crypto-native.js';
-import { MemoryChain } from './chain-port.js';
+import { MemoryChain, type CryptoChainPort } from './chain-port.js';
 import { RailRegistry, UnknownRailError, RailCapabilityError } from './registry.js';
 import { signPayload, verifySignature } from './webhook-signature.js';
 import { isUsable, supports, type PaymentIntent, type RailWebhookRequest } from './rail-adapter.js';
@@ -267,6 +267,77 @@ describe('crypto-native — finality is the whole rail', () => {
     expect(third.ok).toBe(true);
     expect(localChain.outboundTransfers()).toHaveLength(2);
     expect(localChain.totalSent('USDT')).toBe('70');
+  });
+
+  it('returns the stored success when the same refund id already took the whole capture', async () => {
+    const address = await localChain.acceptanceAddress('p-fin-1', 'USDT');
+    localChain.credit({ address, assetId: 'USDT', amount: amt('100'), from: '0xbuyer', confirmations: 12 });
+    const auth = await adapter.authorize(intent());
+    await adapter.capture(auth.railRef);
+
+    const first = await adapter.refund(auth.railRef, amt('100'), { refundId: 'full-1' });
+    expect(first.ok).toBe(true);
+    expect(first.status).toBe('refunded');
+
+    const retry = await adapter.refund(auth.railRef, amt('100'), { refundId: 'full-1' });
+    expect(retry).toBe(first);
+    expect(retry.failureCode).toBeUndefined();
+    expect(localChain.outboundTransfers()).toHaveLength(1);
+    expect(localChain.totalSent('USDT')).toBe('100');
+  });
+
+  it('reserves the remainder so an overlapping refund with a different id does not broadcast', async () => {
+    const chain = new MemoryChain();
+    let sends = 0;
+    let release = (): void => undefined;
+    let markEntered = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const entered = new Promise<void>((resolve) => {
+      markEntered = resolve;
+    });
+    const held: CryptoChainPort = {
+      posture: chain.posture,
+      description: chain.description,
+      acceptanceAddress: (paymentId, assetId) => chain.acceptanceAddress(paymentId, assetId),
+      inboundTransfer: (address) => chain.inboundTransfer(address),
+      async send(request) {
+        sends += 1;
+        if (sends === 1) {
+          markEntered();
+          await gate;
+        }
+        return chain.send(request);
+      },
+    };
+    const gated = new CryptoNativeAdapter({ chain: held, secret: SECRET, minConfirmations: 6, toleranceSeconds: 300 });
+    const address = await chain.acceptanceAddress('p-fin-1', 'USDT');
+    chain.credit({ address, assetId: 'USDT', amount: amt('100'), from: '0xbuyer', confirmations: 12 });
+    const auth = await gated.authorize(intent());
+    await gated.capture(auth.railRef);
+
+    const first = gated.refund(auth.railRef, amt('100'), { refundId: 'overlap-a' });
+    await entered;
+
+    const second = await gated.refund(auth.railRef, amt('100'), { refundId: 'overlap-b' });
+    expect(second.ok).toBe(false);
+    expect(second.failureCode).toBe('refund.exceeds_captured');
+    expect(sends).toBe(1);
+    expect(chain.outboundTransfers()).toHaveLength(0);
+
+    chain.failNextBroadcast();
+    release();
+    const failed = await first;
+    expect(failed.ok).toBe(false);
+    expect(failed.failureCode).toBe('chain.broadcast_failed');
+    expect(chain.outboundTransfers()).toHaveLength(0);
+
+    const after = await gated.refund(auth.railRef, amt('100'), { refundId: 'overlap-c' });
+    expect(after.ok).toBe(true);
+    expect(sends).toBe(2);
+    expect(chain.outboundTransfers()).toHaveLength(1);
+    expect(chain.totalSent('USDT')).toBe('100');
   });
 
   it('never broadcasts a payout twice for one settlement', async () => {

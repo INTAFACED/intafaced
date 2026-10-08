@@ -103,6 +103,16 @@ export class CryptoNativeAdapter implements RailAdapter {
    * one buyer.
    */
   private readonly refunded = new Map<string, Amount>();
+  /**
+   * Amounts held for a send that has not returned, per acceptance address.
+   *
+   * `refunded` advances only after `chain.send` returns. Until then two
+   * overlapping refunds with different ids both read the same remainder and
+   * both broadcast: the chain key is `pay.refund:${ref}:${refundId}`, so a
+   * different id is a different broadcast. The hold is taken before the send
+   * and dropped if the send fails, without moving `refunded`.
+   */
+  private readonly refundReserved = new Map<string, Amount>();
   /** Successful refunds by chain idempotency key — same-process retry must not re-add totals (M226-02). */
   private readonly completedRefundKeys = new Map<string, RailResult>();
   private refundSequence = 0;
@@ -150,6 +160,7 @@ export class CryptoNativeAdapter implements RailAdapter {
 
   reset(): void {
     this.refunded.clear();
+    this.refundReserved.clear();
     this.completedRefundKeys.clear();
     this.refundSequence = 0;
     this.up = true;
@@ -373,8 +384,41 @@ export class CryptoNativeAdapter implements RailAdapter {
       });
     }
 
+    // An on-chain refund is a new transfer back to the payer, and it is
+    // irreversible the moment it is broadcast. Prefer the core's durable
+    // refundId (M226-02) so process restart reuses the same broadcast key via
+    // BroadcastStore. Process-local sequence is fallback for conformance /
+    // direct adapter calls that do not pass an id.
+    //
+    // The completed key is read BEFORE the refundable comparison. A full
+    // refund has already shrunk that remainder to zero, so the balance check
+    // would answer `refund.exceeds_captured` for a retry of the refund that
+    // consumed it. The stored success is the answer.
+    const durableRefundId = opts?.refundId?.trim() || undefined;
+    if (durableRefundId) {
+      const prior = this.completedRefundKeys.get(`pay.refund:${ref}:${durableRefundId}`);
+      if (prior) return prior;
+    }
+
+    // Authorize stays pending, and capture refuses, when confirmations are
+    // under minConfirmations. A refund is a new outbound transfer, irreversible
+    // once broadcast, so the same bar applies here before anything is sent. A
+    // replay of a broadcast that already left is returned above; this only
+    // gates a send that has not happened.
+    if (transfer.confirmations < this.minConfirmations) {
+      return railFailure({
+        railRef: ref,
+        amount,
+        assetId: transfer.assetId,
+        failureCode: 'chain.insufficient_confirmations',
+        failureReason: `${transfer.confirmations} confirmations, ${this.minConfirmations} required`,
+        at: this.now(),
+      });
+    }
+
     const already = this.refunded.get(ref) ?? 0n;
-    const refundable = transfer.amount - already;
+    const reserved = this.refundReserved.get(ref) ?? 0n;
+    const refundable = transfer.amount - already - reserved;
     if (amount > refundable) {
       return railFailure({
         railRef: ref,
@@ -386,35 +430,12 @@ export class CryptoNativeAdapter implements RailAdapter {
       });
     }
 
-    // An on-chain refund is a new transfer back to the payer, and it is
-    // irreversible the moment it is broadcast. Prefer the core's durable
-    // refundId (M226-02) so process restart reuses the same broadcast key via
-    // BroadcastStore. Process-local sequence is fallback for conformance /
-    // direct adapter calls that do not pass an id.
-    const refundId = opts?.refundId?.trim();
-    const usedSequenceFallback = !refundId;
-    const sequencePart = refundId && refundId.length > 0 ? refundId : String(++this.refundSequence);
+    const usedSequenceFallback = durableRefundId === undefined;
+    const sequencePart = durableRefundId ?? String(++this.refundSequence);
     const idempotencyKey = `pay.refund:${ref}:${sequencePart}`;
-
-    const prior = this.completedRefundKeys.get(idempotencyKey);
-    if (prior) return prior;
-
-    // Authorize stays pending, and capture refuses, when confirmations are
-    // under minConfirmations. A refund is a new outbound transfer, irreversible
-    // once broadcast, so the same bar applies here before anything is sent. A
-    // replay of a broadcast that already left is returned above; this only
-    // gates a send that has not happened.
-    if (transfer.confirmations < this.minConfirmations) {
-      if (usedSequenceFallback) this.refundSequence--;
-      return railFailure({
-        railRef: ref,
-        amount,
-        assetId: transfer.assetId,
-        failureCode: 'chain.insufficient_confirmations',
-        failureReason: `${transfer.confirmations} confirmations, ${this.minConfirmations} required`,
-        at: this.now(),
-      });
-    }
+    // Held before the await. The second caller observes this remainder and
+    // does not reach `chain.send`.
+    this.refundReserved.set(ref, reserved + amount);
 
     try {
       const { txHash } = await this.chain.send({
@@ -424,7 +445,9 @@ export class CryptoNativeAdapter implements RailAdapter {
         idempotencyKey,
       });
 
-      this.refunded.set(ref, already + amount);
+      this.releaseRefundReservation(ref, amount);
+      const refundedTotal = (this.refunded.get(ref) ?? 0n) + amount;
+      this.refunded.set(ref, refundedTotal);
 
       const ok: RailResult = {
         ok: true,
@@ -433,14 +456,16 @@ export class CryptoNativeAdapter implements RailAdapter {
         amount,
         assetId: transfer.assetId,
         at: this.now(),
-        raw: { txHash, to: payer, refundedTotal: formatAmount(already + amount), idempotencyKey },
+        raw: { txHash, to: payer, refundedTotal: formatAmount(refundedTotal), idempotencyKey },
       };
       this.completedRefundKeys.set(idempotencyKey, ok);
       return ok;
     } catch (err) {
-      // Nothing is stranded: the broadcast did not happen, the refunded total
-      // was not advanced, and the value is still in the merchant's clearing
-      // account where the core left it. The caller retries or gives up.
+      // Nothing is stranded: the broadcast did not happen, the reservation is
+      // dropped, the refunded total was not advanced, and the value is still
+      // in the merchant's clearing account where the core left it. The caller
+      // retries or gives up.
+      this.releaseRefundReservation(ref, amount);
       if (usedSequenceFallback) this.refundSequence--;
       return railFailure({
         railRef: ref,
@@ -451,6 +476,14 @@ export class CryptoNativeAdapter implements RailAdapter {
         at: this.now(),
       });
     }
+  }
+
+  /** Drop an in-flight hold. Zero clears the key. A failed send must not leave it behind. */
+  private releaseRefundReservation(ref: string, amount: Amount): void {
+    const held = this.refundReserved.get(ref) ?? 0n;
+    const next = held - amount;
+    if (next <= 0n) this.refundReserved.delete(ref);
+    else this.refundReserved.set(ref, next);
   }
 
   async payout(s: SettlementInstruction): Promise<RailResult> {
