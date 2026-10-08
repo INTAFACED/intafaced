@@ -1,5 +1,14 @@
 export type Door = 'Money' | 'Trade' | 'Pay' | 'More';
-export type Room = { path: string; title: string; description: string; door?: Door; area: 'money' | 'trade' | 'pay' | 'more' | 'person' | 'public' | 'parked' | 'team'; business?: boolean; alias?: string; hidden?: boolean };
+export type Room = {
+  path: string;
+  title: string;
+  description: string;
+  door?: Door;
+  area: 'money' | 'trade' | 'pay' | 'more' | 'person' | 'public' | 'parked' | 'team';
+  business?: boolean;
+  alias?: string;
+  hidden?: boolean;
+};
 
 export const rooms: readonly Room[] = [
   { path: '/', title: 'Home', description: 'Intafaced', area: 'public', hidden: true },
@@ -25,6 +34,15 @@ export const rooms: readonly Room[] = [
   { path: '/bzb', title: 'Campaigns', description: 'Public activities', area: 'public', alias: '/lab' },
   { path: '/money', title: 'Money', description: 'Holdings and available funds', door: 'Money', area: 'money' },
   { path: '/portfolio', title: 'Holdings', description: 'Your assets in one ledger', door: 'Money', area: 'money' },
+  { path: '/portfolio/:asset', title: 'Holding', description: 'Asset details and actions', door: 'Money', area: 'money', hidden: true },
+  {
+    path: '/portfolio/:asset/repeat-buy',
+    title: 'Repeat buy',
+    description: 'Scheduled asset purchases',
+    door: 'Money',
+    area: 'money',
+    hidden: true,
+  },
   { path: '/money/asset/:asset', title: 'Holding', description: 'Asset details and actions', door: 'Money', area: 'money', hidden: true },
   { path: '/uc/money', title: 'Money', description: 'Your holdings', door: 'Money', area: 'money', alias: '/money' },
   { path: '/uc/recharge', title: 'Deposit', description: 'Add funds', door: 'Money', area: 'money' },
@@ -41,7 +59,14 @@ export const rooms: readonly Room[] = [
   { path: '/bank/analytics', title: 'Spending', description: 'Understand your activity', door: 'Money', area: 'money' },
   { path: '/bank/business', title: 'Business bank', description: 'Company cash accounts', door: 'Money', area: 'money', business: true },
   { path: '/exchange', title: 'Trade', description: 'Spot trading terminal', door: 'Trade', area: 'trade' },
-  { path: '/exchange/:pair', title: 'Market', description: 'Linked chart, book and order ticket', door: 'Trade', area: 'trade', hidden: true },
+  {
+    path: '/exchange/:pair',
+    title: 'Market',
+    description: 'Linked chart, book and order ticket',
+    door: 'Trade',
+    area: 'trade',
+    hidden: true,
+  },
   { path: '/trade/margin', title: 'Margin', description: 'Cross or isolated trading', door: 'Trade', area: 'trade' },
   { path: '/trade/futures', title: 'Futures', description: 'Perpetual and dated contracts', door: 'Trade', area: 'trade' },
   { path: '/trade/options', title: 'Options', description: 'Calls, strikes and puts', door: 'Trade', area: 'trade' },
@@ -68,9 +93,62 @@ export const rooms: readonly Room[] = [
   { path: '/uc/order', title: 'Person-to-person orders', description: 'Your active and past trades', door: 'Pay', area: 'pay' },
   { path: '/chat', title: 'Order conversation', description: 'Communicate about your order', door: 'Pay', area: 'pay', hidden: true },
   { path: '/checkuser', title: 'Counterparty', description: 'Check trade context', door: 'Pay', area: 'pay', hidden: true },
-  ...[['merchant','Merchant home','Manage your business payments'],['money','Merchant balance','Funds belonging to your merchant account'],['links','Payment links','Share a payment link'],['checkout','Checkout','Hosted payment checkout'],['payments','Payments','Customer payment activity'],['customers','Customers','Business customer records'],['payouts','Payouts','Review outgoing business payments'],['settlements','Settlements','Settlement activity'],['disputes','Disputes','Manage payment disputes'],['network','Sub-merchants','Your merchant network'],['permissions','Permissions','Merchant access controls'],['invoices','Invoices','Issue and manage invoices'],['subscriptions','Subscriptions','Recurring billing'],['reports','Reports','Export business activity'],['developer','Developer','Test keys and webhooks']].map(([slug,title,description]) => ({ path:`/pay/${slug}`, title:title!, description:description!, door:'Pay' as const, area:'pay' as const, business:true })),
+  ...[
+    ['merchant', 'Merchant home', 'Manage your business payments'],
+    ['money', 'Merchant balance', 'Funds belonging to your merchant account'],
+    ['links', 'Payment links', 'Share a payment link'],
+    ['checkout', 'Checkout', 'Hosted payment checkout'],
+    ['payments', 'Payments', 'Customer payment activity'],
+    ['customers', 'Customers', 'Business customer records'],
+    ['payouts', 'Payouts', 'Review outgoing business payments'],
+    ['settlements', 'Settlements', 'Settlement activity'],
+    ['disputes', 'Disputes', 'Manage payment disputes'],
+    ['network', 'Sub-merchants', 'Your merchant network'],
+    ['permissions', 'Permissions', 'Merchant access controls'],
+    ['invoices', 'Invoices', 'Issue and manage invoices'],
+    ['subscriptions', 'Subscriptions', 'Recurring billing'],
+    ['reports', 'Reports', 'Export business activity'],
+    ['developer', 'Developer', 'Test keys and webhooks'],
+  ].map(([slug, title, description]) => ({
+    path: `/pay/${slug}`,
+    title: title!,
+    description: description!,
+    door: 'Pay' as const,
+    area: 'pay' as const,
+    business: true,
+  })),
   { path: '/more', title: 'More', description: 'Explore the rest of Intafaced', door: 'More', area: 'more' },
-  ...[['academy','Academy','Rooms, learning and certifications'],['agents','Agents','Your agent fleet'],['quant','Quant','Research and strategy sandbox'],['quant/studio','Quant Studio','Build and run strategies'],['quant/backtest','Backtest','Review strategy results'],['launch','Launch','Issue and list an asset'],['market','Market catalogue','Browse available listings'],['market/mine','My listings','Your market listings'],['predict','Prediction markets','Browse and trade predictions'],['mining','Mining','Pool activity and payouts'],['token','Token','Access and staking'],['blueprint','Identity Blueprint','Your profile and connected intelligence'],['support','Support','Tickets and published answers'],['campaigns','Activities','Signed-in campaigns']].map(([slug,title,description]) => ({ path:`/${slug}`,title:title!,description:description!,door:'More' as const,area:'more' as const })),
+  { path: '/academy/:slug', title: 'Academy reader', description: 'Read a learning path', door: 'More', area: 'more', hidden: true },
+  {
+    path: '/market/strategy',
+    title: 'Strategy listing',
+    description: 'Publish a strategy subscription',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  ...[
+    ['academy', 'Academy', 'Rooms, learning and certifications'],
+    ['agents', 'Agents', 'Your agent fleet'],
+    ['quant', 'Quant', 'Research and strategy sandbox'],
+    ['quant/studio', 'Quant Studio', 'Build and run strategies'],
+    ['quant/backtest', 'Backtest', 'Review strategy results'],
+    ['launch', 'Launch', 'Issue and list an asset'],
+    ['market', 'Market catalogue', 'Browse available listings'],
+    ['market/mine', 'My listings', 'Your market listings'],
+    ['predict', 'Prediction markets', 'Browse and trade predictions'],
+    ['mining', 'Mining', 'Pool activity and payouts'],
+    ['token', 'Token', 'Access and staking'],
+    ['blueprint', 'Identity Blueprint', 'Your profile and connected intelligence'],
+    ['support', 'Support', 'Tickets and published answers'],
+    ['campaigns', 'Activities', 'Signed-in campaigns'],
+  ].map(([slug, title, description]) => ({
+    path: `/${slug}`,
+    title: title!,
+    description: description!,
+    door: 'More' as const,
+    area: 'more' as const,
+  })),
   { path: '/uc/innovation/myorders', title: 'Launch orders', description: 'Your asset launch orders', door: 'More', area: 'more' },
   { path: '/uc', title: 'Account', description: 'Your account and security', area: 'person', alias: '/uc/account' },
   { path: '/uc/account', title: 'Account', description: 'Identity and strategy subaccounts', area: 'person' },
@@ -87,27 +165,56 @@ export const rooms: readonly Room[] = [
   { path: '/uc/trade', title: 'Trading settings', description: 'Personal trade settings', area: 'person', alias: '/view' },
   { path: '/ops', title: 'Team desk', description: 'Separate operator console', area: 'team', hidden: true },
   { path: '/platform', title: 'Team inspection', description: 'Operator module inspection', area: 'team', hidden: true },
-  ...['chain','dex','protocol'].map((slug) => ({ path:`/${slug}`, title:slug, description:'Parked until owner activation', area:'parked' as const, hidden:true })),
+  ...['chain', 'dex', 'protocol'].map((slug) => ({
+    path: `/${slug}`,
+    title: slug,
+    description: 'Parked until owner activation',
+    area: 'parked' as const,
+    hidden: true,
+  })),
 ];
 
 function matches(pattern: string, path: string) {
-  const expected = pattern.split('/'); const actual = path.split('/');
+  const expected = pattern.split('/');
+  const actual = path.split('/');
   if (!pattern.endsWith('*') && expected.length !== actual.length) return false;
-  return expected.every((part,index) => part === '*' || part.startsWith(':') && Boolean(actual[index]) || part === actual[index]);
+  return expected.every((part, index) => part === '*' || (part.startsWith(':') && Boolean(actual[index])) || part === actual[index]);
 }
 export function findRoom(path: string): Room | undefined {
-  return rooms.find((room) => room.path === path) ?? rooms.filter((room) => room.path.includes(':') || room.path.includes('*')).find((room) => matches(room.path,path));
+  return (
+    rooms.find((room) => room.path === path) ??
+    rooms.filter((room) => room.path.includes(':') || room.path.includes('*')).find((room) => matches(room.path, path))
+  );
+}
+export function customerRoomHref(candidate: string | null | undefined): string | undefined {
+  if (!candidate || !candidate.startsWith('/') || candidate.startsWith('//') || candidate.includes('\\')) return undefined;
+  try {
+    const url = new URL(candidate, 'https://intafaced.invalid');
+    const room = findRoom(url.pathname);
+    return room && !['team', 'parked'].includes(room.area) ? `${url.pathname}${url.search}` : undefined;
+  } catch {
+    return undefined;
+  }
 }
 export function safeReturnTo(candidate: string | null | undefined): string {
-  if (!candidate || !candidate.startsWith('/') || candidate.startsWith('//') || candidate.includes('\\')) return '/money';
-  try {
-    const url = new URL(candidate,'https://intafaced.invalid');
-    const room = findRoom(url.pathname);
-    return room && !['public','team','parked'].includes(room.area) ? `${url.pathname}${url.search}` : '/money';
-  } catch { return '/money'; }
+  const href = customerRoomHref(candidate);
+  const room = href ? findRoom(href.split('?')[0] ?? '') : undefined;
+  return href && room?.area !== 'public' ? href : '/money';
 }
 export function searchRooms(query: string, mode: 'Personal' | 'Business'): Room[] {
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
-  return rooms.filter((room) => !room.hidden && !room.alias && !['team','parked'].includes(room.area) && (!room.business || mode === 'Business') && words.every((word) => `${room.title} ${room.description} ${room.door ?? ''}`.toLowerCase().includes(word)));
+  return rooms.filter(
+    (room) =>
+      !room.hidden &&
+      !room.alias &&
+      !['team', 'parked'].includes(room.area) &&
+      (!room.business || mode === 'Business') &&
+      words.every((word) => `${room.title} ${room.description} ${room.door ?? ''}`.toLowerCase().includes(word)),
+  );
 }
-export const doors: ReadonlyArray<{ name: Door; path: string; icon: 'money' | 'trade' | 'pay' | 'more' }> = [{name:'Money',path:'/money',icon:'money'},{name:'Trade',path:'/exchange',icon:'trade'},{name:'Pay',path:'/pay',icon:'pay'},{name:'More',path:'/more',icon:'more'}];
+export const doors: ReadonlyArray<{ name: Door; path: string; icon: 'money' | 'trade' | 'pay' | 'more' }> = [
+  { name: 'Money', path: '/money', icon: 'money' },
+  { name: 'Trade', path: '/exchange', icon: 'trade' },
+  { name: 'Pay', path: '/pay', icon: 'pay' },
+  { name: 'More', path: '/more', icon: 'more' },
+];
