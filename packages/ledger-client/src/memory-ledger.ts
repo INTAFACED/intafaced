@@ -67,18 +67,24 @@ export class MemoryLedger implements LedgerClient {
 
     assertValidPost(request);
 
-    // Stage every mutation, validate, then commit — nothing half-applied.
+    // Stage every mutation off the live maps, then commit. A refusal must not
+    // insert an account or a zero balance: those rows would survive the throw,
+    // and the error would name a staged balance the book does not hold.
     const staged = new Map<string, Amount>();
+    const pendingAccounts = new Map<string, Account>();
     const postedEntries: PostedEntry[] = [];
     const txId = crypto.randomUUID();
 
     for (const entry of request.entries) {
-      const account = this.ensureAccount(entry.account);
-      const current = staged.get(account.id) ?? this.balancesByAccountId.get(account.id) ?? 0n;
+      const key = accountKey(entry.account);
+      const live = this.accounts.get(key);
+      const account = this.stageAccount(entry.account, pendingAccounts);
+      const held = live ? (this.balancesByAccountId.get(live.id) ?? 0n) : 0n;
+      const current = staged.get(account.id) ?? held;
       const next = current + signedDelta(entry);
 
       if (next < 0n && !this.canGoNegative(entry.account)) {
-        throw new InsufficientFundsError(account.id, entry.account.assetId, formatAmount(entry.amount), formatAmount(current));
+        throw new InsufficientFundsError(live?.id ?? '', entry.account.assetId, formatAmount(entry.amount), formatAmount(held));
       }
 
       staged.set(account.id, next);
@@ -122,7 +128,8 @@ export class MemoryLedger implements LedgerClient {
       crossShardAnchor: crossShardAnchor(assetHashes),
     };
 
-    // Commit.
+    // Commit. New accounts land with the resulting balance, not a placeholder zero.
+    for (const [key, account] of pendingAccounts) this.accounts.set(key, account);
     for (const [accountId, balance] of staged) this.balancesByAccountId.set(accountId, balance);
     this.txs.set(tx.id, tx);
     this.txByKey.set(tx.idempotencyKey, tx.id);
@@ -239,14 +246,20 @@ export class MemoryLedger implements LedgerClient {
     return MemoryLedger.NEGATIVE_ALLOWED.has(ref.ownerType);
   }
 
-  private ensureAccount(ref: AccountRef): Account {
+  /**
+   * An account this post needs that the book does not have yet.
+   *
+   * Minted into `pending` only. The live maps are written after every entry
+   * has passed the funds check, so a refusal cannot leave the account — or a
+   * zero balance — behind.
+   */
+  private stageAccount(ref: AccountRef, pending: Map<string, Account>): Account {
     const key = accountKey(ref);
-    const existing = this.accounts.get(key);
+    const existing = this.accounts.get(key) ?? pending.get(key);
     if (existing) return existing;
 
     const account: Account = { ...ref, id: crypto.randomUUID(), createdAt: new Date() };
-    this.accounts.set(key, account);
-    this.balancesByAccountId.set(account.id, 0n);
+    pending.set(key, account);
     return account;
   }
 }
