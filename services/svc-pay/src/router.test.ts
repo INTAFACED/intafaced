@@ -4,7 +4,7 @@ import type { Context } from '@intafaced/contracts';
 import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
 import { createPayRouter } from './router.js';
 import { stubApprovalConsumer } from './action-approval-consume.js';
-import { defaultDisputeCaseStore } from './fraud/dispute-case.js';
+import { DisputeCaseError, defaultDisputeCaseStore } from './fraud/dispute-case.js';
 import { defaultFraudReviewQueue } from './fraud/review-queue.js';
 import { PayError, assertPaymentHistoryLimit, type PayService, type PaymentView, type SettlementRecord } from './payment-service.js';
 import type { DepositRecord, UserMoneyService, WithdrawalRecord } from './user-money-service.js';
@@ -177,6 +177,9 @@ function stubService(): Stub {
     capture: record('capture', () => paymentView({ status: 'captured', capturedAmount: amt('100') })),
     refund: record('refund', () => paymentView({ status: 'refunded', capturedAmount: amt('100'), refundedAmount: amt('100') })),
     getPayment: record('getPayment', () => paymentView()),
+    // Present so openDispute takes the chargeback door. An empty tx id is not a
+    // movement — the router only posts when the service returns a tx id.
+    openChargeback: record('openChargeback', (input: { amount: string }) => ({ txId: '', amount: input.amount })),
     history: record('history', (_paymentId: string, limit?: number) => {
       assertPaymentHistoryLimit(limit);
       return [{ id: PAYMENT, event: 'created', payload: { amount: '100' }, railEventId: null, ts: new Date('2026-07-27T12:00:00.000Z') }];
@@ -1257,6 +1260,89 @@ describe('leftover treasury mutates consume identity approval', () => {
       status: 'contested',
       confirmOperatorId: CONFIRM,
     });
+  });
+
+  it('openDispute maps a missing payment to NOT_FOUND, not a malformed request', async () => {
+    stub.fail(new PayError('Payment does not belong to merchant', 'pay.payment_not_found'));
+    const api = await caller(['admin:treasury']);
+    const disputeId = `dsp-missing-${Date.now()}`;
+    const err = await api.fraud
+      .openDispute({
+        disputeId,
+        paymentId: PAYMENT,
+        merchantId: MERCHANT,
+        amount: '40.50',
+        assetId: 'USDT',
+        confirmOperatorId: CONFIRM,
+        ...APPROVED,
+      })
+      .catch((e: unknown) => e);
+    expect((err as { code?: string }).code).toBe('NOT_FOUND');
+    expect((err as Error).message).toContain('pay.payment_not_found');
+    expect(defaultDisputeCaseStore.get(disputeId)).toBeNull();
+  });
+
+  it('openDispute maps an inactive merchant to FORBIDDEN, not a malformed request', async () => {
+    stub.fail(new PayError('Merchant is suspended', 'pay.merchant_inactive'));
+    const api = await caller(['admin:treasury']);
+    const disputeId = `dsp-inactive-${Date.now()}`;
+    const err = await api.fraud
+      .openDispute({
+        disputeId,
+        paymentId: PAYMENT,
+        merchantId: MERCHANT,
+        amount: '40.50',
+        assetId: 'USDT',
+        confirmOperatorId: CONFIRM,
+        ...APPROVED,
+      })
+      .catch((e: unknown) => e);
+    expect((err as { code?: string }).code).toBe('FORBIDDEN');
+    expect((err as Error).message).toContain('pay.merchant_inactive');
+    expect(defaultDisputeCaseStore.get(disputeId)).toBeNull();
+  });
+
+  it('openDispute keeps the PayError status when a dispute case error wraps it', async () => {
+    const missing = new PayError('Payment does not belong to merchant', 'pay.payment_not_found');
+    const wrapped = new DisputeCaseError('dispute amount must be an unsigned decimal string', 'pay.dispute_amount_required');
+    wrapped.cause = missing;
+    stub.fail(wrapped);
+    const api = await caller(['admin:treasury']);
+    const disputeId = `dsp-wrapped-${Date.now()}`;
+    const err = await api.fraud
+      .openDispute({
+        disputeId,
+        paymentId: PAYMENT,
+        merchantId: MERCHANT,
+        amount: '40.50',
+        assetId: 'USDT',
+        confirmOperatorId: CONFIRM,
+        ...APPROVED,
+      })
+      .catch((e: unknown) => e);
+    expect((err as { code?: string }).code).toBe('NOT_FOUND');
+    expect((err as Error).message).toContain('pay.payment_not_found');
+    expect(defaultDisputeCaseStore.get(disputeId)).toBeNull();
+  });
+
+  it('openDispute keeps a malformed dispute case as BAD_REQUEST', async () => {
+    stub.fail(new DisputeCaseError('dispute amount must be an unsigned decimal string', 'pay.dispute_amount_required'));
+    const api = await caller(['admin:treasury']);
+    const disputeId = `dsp-malformed-${Date.now()}`;
+    const err = await api.fraud
+      .openDispute({
+        disputeId,
+        paymentId: PAYMENT,
+        merchantId: MERCHANT,
+        amount: '40.50',
+        assetId: 'USDT',
+        confirmOperatorId: CONFIRM,
+        ...APPROVED,
+      })
+      .catch((e: unknown) => e);
+    expect((err as { code?: string }).code).toBe('BAD_REQUEST');
+    expect((err as Error).message).toContain('pay.dispute_amount_required');
+    expect(defaultDisputeCaseStore.get(disputeId)).toBeNull();
   });
 
   it('listOpenReviews stays single-operator — read is not mutate; omit limit refuses', async () => {
