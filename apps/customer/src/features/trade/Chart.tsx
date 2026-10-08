@@ -1,3 +1,4 @@
+import { tradeCopy as copy, CopyText, choiceText } from './copy';
 import { useEffect, useRef, useState } from 'react';
 import type { OHLCV, Position } from '@intafaced/exchange-contract/schemas';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
@@ -75,7 +76,7 @@ function chartBars(rows: OHLCV[], type: string): Bar[] {
         raw.high < Math.max(raw.open, raw.close) ||
         raw.low > Math.min(raw.open, raw.close)
       )
-        throw new Error('History contains an invalid candle.');
+        throw new Error(copy.t('historyContainsAnInvalidCandle'));
       if (type !== 'Heikin Ashi') return raw;
       const close = (raw.open + raw.high + raw.low + raw.close) / 4,
         open = previous ? (previous.open + previous.close) / 2 : (raw.open + raw.close) / 2;
@@ -212,7 +213,7 @@ export function MarketChart({
   onViewChange?: (view: ChartView) => void;
 }) {
   const preferences = usePreferences();
-  const [feedStatus, setFeedStatus] = useState('Historical prices'),
+  const [feedStatus, setFeedStatus] = useState(copy.t('chartHistoricalPrices')),
     [countdown, setCountdown] = useState<number | null>(null);
   const barHistory = useRef<OHLCV[]>([]),
     historyReady = useRef(false),
@@ -285,7 +286,7 @@ export function MarketChart({
       );
       socket.onopen = () => {
         if (connections++ > 0) reload();
-        setFeedStatus('Waiting for an actual trade');
+        setFeedStatus(copy.t('waitingForAnActualTrade'));
       };
       socket.onmessage = (event) => {
         if (closed) return;
@@ -303,7 +304,7 @@ export function MarketChart({
         if (seen.size > 500) seen.delete(seen.values().next().value as number);
         if (print.kind === 'bust' || print.kind === 'correction') {
           reload();
-          setFeedStatus('Refreshing corrected history');
+          setFeedStatus(copy.t('refreshingCorrectedHistory'));
           return;
         }
         const bucket = Math.floor(Date.parse(print.ts) / span) * span;
@@ -328,12 +329,12 @@ export function MarketChart({
         const bar = chartBars(barHistory.current, type).at(-1);
         if (bar) seriesRef.current.update(type === 'Line' ? { time: bar.time, value: bar.close } : bar);
         studyUpdate.current?.(chartBars(barHistory.current, 'Candles'));
-        setFeedStatus(`Accepted trade · ${print.kind}`);
+        setFeedStatus(copy.t('acceptedTrade', { printKind: String(print.kind) }));
       };
-      socket.onerror = () => setFeedStatus('Trade stream interrupted');
+      socket.onerror = () => setFeedStatus(copy.t('tradeStreamInterrupted'));
       socket.onclose = () => {
         if (closed) return;
-        setFeedStatus('Historical prices · reconnecting');
+        setFeedStatus(copy.t('historicalPricesReconnecting'));
         retry = setTimeout(connect, 2000);
       };
     };
@@ -342,7 +343,7 @@ export function MarketChart({
       const end = (barHistory.current.at(-1)?.[0] ?? 0) + span;
       setCountdown(end > Date.now() ? Math.ceil((end - Date.now()) / 1000) : null);
       if (lastPrintAt.current !== null && Date.now() - lastPrintAt.current >= 15000)
-        setFeedStatus('Historical prices · trade stream stale');
+        setFeedStatus(copy.t('historicalPricesTradeStreamStale'));
     }, 1000);
     return () => {
       closed = true;
@@ -374,7 +375,7 @@ export function MarketChart({
     try {
       localStorage.setItem(drawingsKey, JSON.stringify(drawings));
     } catch {
-      setNotice('Drawings remain in this workspace because device storage is unavailable.');
+      setNotice(copy.t('drawingsRemainInThisWorkspaceBecauseDeviceStorageIsUnavailable'));
     }
   }, [drawings, drawingsKey, accountKey, market.id]);
   useEffect(() => {
@@ -478,7 +479,7 @@ export function MarketChart({
           }
         });
       } catch (error) {
-        setNotice(error instanceof Error ? error.message : 'The chart could not be drawn.');
+        setNotice(error instanceof Error ? error.message : copy.t('theChartCouldNotBeDrawn'));
       }
     });
     return () => {
@@ -542,7 +543,7 @@ export function MarketChart({
               css.getPropertyValue(fill.side === 'buy' ? '--color-positive' : '--color-negative').trim(),
             lineStyle: 3,
             lineWidth: 1,
-            title: `Fill ${fill.id.slice(0, 6)}`,
+            title: copy.t('chartFill', { id: fill.id.slice(0, 6) }),
             axisLabelVisible: false,
           }),
         );
@@ -555,15 +556,15 @@ export function MarketChart({
     positionLines.current = [];
     for (const position of positions ?? []) {
       if (position.symbol !== market.symbol) continue;
-      for (const [title, value, color] of [
-        [`${position.side} entry`, position.entryPrice, 'var(--color-warning)'],
-        ['Accepted mark', position.markPrice, 'var(--color-muted)'],
-        ['Liquidation', position.liquidationPrice, 'var(--color-negative)'],
+      for (const [kind, title, value, color] of [
+        ['entry', copy.t('positionEntry', { side: position.side }), position.entryPrice, 'var(--color-warning)'],
+        ['mark', copy.t('positionAcceptedMark'), position.markPrice, 'var(--color-muted)'],
+        ['liquidation', copy.t('positionLiquidation'), position.liquidationPrice, 'var(--color-negative)'],
       ] as const) {
         if (
-          (!showPosition && title.endsWith('entry')) ||
-          (!showMark && title === 'Accepted mark') ||
-          (!showLiquidation && title === 'Liquidation') ||
+          (!showPosition && kind === 'entry') ||
+          (!showMark && kind === 'mark') ||
+          (!showLiquidation && kind === 'liquidation') ||
           value === null ||
           parseAmount(value) <= 0n ||
           !Number.isFinite(Number(value))
@@ -575,18 +576,18 @@ export function MarketChart({
         );
       }
     }
-  }, [positions, market.symbol, chartRevision, showPosition, showMark, showLiquidation]);
+  }, [positions, market.symbol, chartRevision, showPosition, showMark, showLiquidation, preferences.language]);
 
   function saveLayout() {
-    const name = window.prompt('Name this chart layout');
+    const name = window.prompt(copy.t('layoutNamePrompt'));
     if (!name?.trim()) return;
     const next = [...saved.filter((row) => row.name !== name.trim()), { name: name.trim(), type, interval, studies }];
     setSaved(next);
     try {
       localStorage.setItem(`trade-layouts:${accountKey}`, JSON.stringify(next));
-      setNotice('Layout saved on this device. Account synchronization is not connected.');
+      setNotice(copy.t('layoutSavedOnThisDeviceAccountSynchronizationIsNotConnected'));
     } catch {
-      setNotice('Browser storage is unavailable; this layout was not saved.');
+      setNotice(copy.t('browserStorageIsUnavailableThisLayoutWasNotSaved'));
     }
   }
   function priceAtGeometry(y: number): string | null {
@@ -631,23 +632,33 @@ export function MarketChart({
     );
   };
   return (
-    <section className={`trade-chart ${fullscreen ? 'trade-chart--fullscreen' : ''}`} ref={frame} aria-label={`${market.symbol} chart`}>
+    <section
+      className={`trade-chart ${fullscreen ? 'trade-chart--fullscreen' : ''}`}
+      ref={frame}
+      aria-label={copy.t('chartc80af2', { marketSymbol: String(market.symbol) })}
+    >
       <div className="trade-chart-toolbar">
         <label className="trade-inline">
-          Interval
-          <select aria-label="Chart interval" value={interval} onChange={(event) => setIntervalValue(event.target.value)}>
+          <CopyText k="interval" />
+          <select aria-label={copy.t('chartInterval')} value={interval} onChange={(event) => setIntervalValue(event.target.value)}>
             {TIMEFRAMES.map((value) => (
-              <option key={value}>{value}</option>
+              <option key={value} value={value}>
+                {choiceText(value)}
+              </option>
             ))}
           </select>
         </label>
-        <select aria-label="Chart type" value={type} onChange={(event) => setType(event.target.value)}>
+        <select aria-label={copy.t('chartType')} value={type} onChange={(event) => setType(event.target.value)}>
           {['Candles', 'Line', 'Heikin Ashi'].map((value) => (
-            <option key={value}>{value}</option>
+            <option key={value} value={value}>
+              {choiceText(value)}
+            </option>
           ))}
         </select>
         <details>
-          <summary>Indicators</summary>
+          <summary>
+            <CopyText k="indicators" />
+          </summary>
           <div className="trade-menu">
             {(['MA', 'Volume', 'VWAP', 'RSI', 'MACD', 'Bollinger'] as Study[]).map((study) => (
               <label key={study}>
@@ -658,34 +669,46 @@ export function MarketChart({
                     setStudies((current) => (current.includes(study) ? current.filter((value) => value !== study) : [...current, study]))
                   }
                 />
-                {study}
+                {choiceText(study)}
               </label>
             ))}
-            <small>MA 20 · RSI 14 · MACD 12/26/9 · Bollinger 20/2 · VWAP over loaded history</small>
+            <small>
+              <CopyText k="maRsiMacdBollingerVwapOverLoadedHistory" />
+            </small>
           </div>
         </details>
         <details>
-          <summary>Draw</summary>
+          <summary>
+            <CopyText k="draw" />
+          </summary>
           <div className="trade-menu">
             {(['level', 'trend', 'rectangle'] as const).map((value) => (
               <button
-                key={value}
+                key={choiceText(value)}
                 onClick={() => {
                   setTool(value);
                   pending.current = [];
                 }}
               >
-                {value}
+                {choiceText(value)}
               </button>
             ))}
-            <button onClick={() => setDrawings([])}>Clear drawings</button>
-            <small>Drawings remain in this workspace. Pan or zoom to reposition them. Account synchronization is not connected.</small>
+            <button onClick={() => setDrawings([])}>
+              <CopyText k="clearDrawings" />
+            </button>
+            <small>
+              <CopyText k="drawingsRemainInThisWorkspacePanOrZoomToRepositionThem" />
+            </small>
           </div>
         </details>
         <details>
-          <summary>Layouts</summary>
+          <summary>
+            <CopyText k="layouts" />
+          </summary>
           <div className="trade-menu">
-            <button onClick={saveLayout}>Save layout on device</button>
+            <button onClick={saveLayout}>
+              <CopyText k="saveLayoutOnDevice" />
+            </button>
             {saved.map((layout) => (
               <button
                 key={layout.name}
@@ -700,12 +723,14 @@ export function MarketChart({
             ))}
             <label>
               <input type="checkbox" checked={multi} onChange={(event) => setMulti(event.target.checked)} />
-              Second linked chart
+              <CopyText k="secondLinkedChart" />
             </label>
           </div>
         </details>
         <details>
-          <summary>View</summary>
+          <summary>
+            <CopyText k="view" />
+          </summary>
           <div className="trade-menu">
             <label>
               <input
@@ -713,7 +738,7 @@ export function MarketChart({
                 checked={preferences.showOrders}
                 onChange={(event) => savePreferences({ showOrders: event.target.checked })}
               />
-              Open orders
+              <CopyText k="openOrders" />
             </label>
             <label>
               <input
@@ -721,7 +746,7 @@ export function MarketChart({
                 checked={preferences.showFills}
                 onChange={(event) => savePreferences({ showFills: event.target.checked })}
               />
-              Old fills
+              <CopyText k="oldFills" />
             </label>
             <label>
               <input
@@ -730,11 +755,11 @@ export function MarketChart({
                 disabled={!positions}
                 onChange={(event) => setShowPosition(event.target.checked)}
               />
-              Position entry
+              <CopyText k="positionEntryOverlay" />
             </label>
             <label>
               <input type="checkbox" checked={showMark} disabled={!positions} onChange={(event) => setShowMark(event.target.checked)} />
-              Accepted mark
+              <CopyText k="acceptedMark505c6f" />
             </label>
             <label>
               <input
@@ -743,22 +768,32 @@ export function MarketChart({
                 disabled={!positions}
                 onChange={(event) => setShowLiquidation(event.target.checked)}
               />
-              Liquidation
+              <CopyText k="liquidation7f616e" />
             </label>
             <label>
               <input type="checkbox" checked={countdownVisible} onChange={(event) => setCountdownVisible(event.target.checked)} />
-              Candle countdown
+              <CopyText k="candleCountdown" />
             </label>
-            <button disabled>News marks unavailable</button>
-            <small>No timestamped market news service is mounted.</small>
-            <button disabled>Price alerts unavailable</button>
-            <small>No customer alert creation, delivery, or alert history service is mounted.</small>
-            <a href="/view">View preferences ↗</a>
+            <button disabled>
+              <CopyText k="newsMarksUnavailable" />
+            </button>
+            <small>
+              <CopyText k="noTimestampedMarketNewsServiceIsMounted" />
+            </small>
+            <button disabled>
+              <CopyText k="priceAlertsUnavailable" />
+            </button>
+            <small>
+              <CopyText k="noCustomerAlertCreationDeliveryOrAlertHistoryServiceIsMounted" />
+            </small>
+            <a href="/view">
+              <CopyText k="viewPreferences" />
+            </a>
           </div>
         </details>
         <Button
           variant="ghost"
-          aria-label={fullscreen ? 'Exit full screen chart' : 'Full screen chart'}
+          aria-label={fullscreen ? copy.t('exitFullScreenChart') : copy.t('fullScreenChart')}
           onClick={() => setFullscreen(!fullscreen)}
         >
           {fullscreen ? '↙' : '⤢'}
@@ -769,21 +804,32 @@ export function MarketChart({
         <span>
           {interval} · {type} · {preferences.timeZone}
         </span>
-        <button onClick={reload}>Refresh history</button>
-        <button onClick={() => chartRef.current?.timeScale().fitContent()}>Fit</button>
-        <button onClick={() => chartRef.current?.timeScale().scrollToRealTime()}>Follow</button>
+        <button onClick={reload}>
+          <CopyText k="refreshHistory" />
+        </button>
+        <button onClick={() => chartRef.current?.timeScale().fitContent()}>
+          <CopyText k="fit" />
+        </button>
+        <button onClick={() => chartRef.current?.timeScale().scrollToRealTime()}>
+          <CopyText k="follow" />
+        </button>
       </div>
       {inspected && (
         <p className="trade-candle-inspection">
-          O {inspected[1]} · H {inspected[2]} · L {inspected[3]} · C {inspected[4]} {market.quote} · V {inspected[5]} {market.base}
+          <CopyText k="o" />
+          {inspected[1]} <CopyText k="h" />
+          {inspected[2]} <CopyText k="l" />
+          {inspected[3]} <CopyText k="c" />
+          {inspected[4]} {market.quote} <CopyText k="v" />
+          {inspected[5]} {market.base}
         </p>
       )}
       <div
         className="trade-chart-canvas"
         role="img"
         tabIndex={0}
-        aria-label={`Actual ${market.symbol} historical prices`}
-        aria-description="Use left and right arrows to inspect candles. Enter stages the inspected candle's exact close price."
+        aria-label={copy.t('actualHistoricalPrices', { marketSymbol: String(market.symbol) })}
+        aria-description={copy.t('useLeftAndRightArrowsToInspectCandlesEnterStagesThe')}
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
             setFullscreen(false);
@@ -813,11 +859,13 @@ export function MarketChart({
       >
         <div className="trade-engine" ref={host} />
         {resource.status === 'loading' ? (
-          <Loading label="Loading market history" />
+          <Loading label={<CopyText k={'loadingMarketHistory'} />} />
         ) : resource.status === 'failed' ? (
           <Failure result={resource.failure} retry={reload} />
         ) : !barHistory.current.length ? (
-          <EmptyState title="No price history">The market has no published candles for this interval.</EmptyState>
+          <EmptyState title={<CopyText k={'noPriceHistory'} />}>
+            <CopyText k="theMarketHasNoPublishedCandlesForThisInterval" />
+          </EmptyState>
         ) : null}
         <svg className="trade-drawings" aria-hidden="true" data-revision={chartRevision}>
           {drawings.map(draw)}
@@ -843,7 +891,7 @@ export function MarketChart({
                   className="trade-order-handle"
                   key={order.id}
                   style={{ top: y }}
-                  aria-label={`Change price for order ${order.id}`}
+                  aria-label={copy.t('changePriceForOrder', { orderId: String(order.id) })}
                   onClick={(event) => {
                     if (event.detail === 0 && order.price) onStageAmend(order, order.price);
                   }}
@@ -872,16 +920,23 @@ export function MarketChart({
       </div>
       <div className="trade-chart-footer">
         <span>
-          {tool
-            ? `Select ${tool === 'level' ? 'one point' : 'two points'} to draw ${tool}`
-            : `${feedStatus}${!countdownVisible || countdown === null ? '' : ` · Candle ${countdown}s`} · Select a candle to stage its exact close price`}
+          {tool ? (
+            <CopyText
+              k={'selectToDraw'}
+              params={{ toolLevelOnePoint: copy.t(tool === 'level' ? 'oneDrawingPoint' : 'twoDrawingPoints'), tool: String(tool) }}
+            />
+          ) : !countdownVisible || countdown === null ? (
+            <CopyText k={'chartStatusWithoutCandle'} params={{ feedStatus }} />
+          ) : (
+            <CopyText k={'chartStatusWithCandle'} params={{ feedStatus, seconds: countdown }} />
+          )}
         </span>
         <label className="trade-inline">
-          Compare
+          <CopyText k="compare" />
           <input
-            aria-label="Compare market symbol"
+            aria-label={copy.t('compareMarketSymbol')}
             value={compare}
-            placeholder="BASE/QUOTE"
+            placeholder={copy.t('baseQuote')}
             onChange={(event) => setCompare(event.target.value.toUpperCase())}
           />
         </label>
@@ -893,7 +948,10 @@ export function MarketChart({
       )}
       {compare && comparison.resource.status === 'failed' && <Failure result={comparison.resource.failure} retry={comparison.reload} />}
       {compare && comparison.resource.status === 'ready' && !comparison.resource.data.length && (
-        <p className="trade-note">No published comparison history for {compare}.</p>
+        <p className="trade-note">
+          <CopyText k="noPublishedComparisonHistoryFor" />
+          {compare}.
+        </p>
       )}
       {multi && <SecondaryChart api={api} symbol={market.symbol} interval={interval} />}
     </section>
@@ -954,7 +1012,7 @@ export function SecondaryChart({
         chart.timeScale().fitContent();
         setFailure('');
       } catch (error) {
-        setFailure(error instanceof Error ? error.message : 'The second chart could not be drawn.');
+        setFailure(error instanceof Error ? error.message : copy.t('secondaryChartFailure'));
       }
     });
     return () => {
@@ -963,16 +1021,20 @@ export function SecondaryChart({
     };
   }, [result.resource, type, preferences.upColor, preferences.theme]);
   return (
-    <section className={workspace ? 'trade-secondary-view' : undefined} aria-label={`Second linked ${symbol} chart`}>
+    <section
+      className={workspace ? 'trade-secondary-view' : undefined}
+      aria-label={copy.t('secondLinkedChartc8a03f', { symbol: String(symbol) })}
+    >
       <small className="trade-note">
-        Second chart · {symbol} · {interval} · Published history
+        <CopyText k="secondChart" />
+        {symbol} · {interval} <CopyText k="publishedHistory" />
       </small>
       {result.resource.status === 'loading' ? (
-        <Loading label="Loading second chart history" />
+        <Loading label={<CopyText k={'loadingSecondChartHistory'} />} />
       ) : result.resource.status === 'failed' ? (
         <Failure result={result.resource.failure} retry={result.reload} />
       ) : !result.resource.data.length ? (
-        <EmptyState title="No history for the second chart" />
+        <EmptyState title={<CopyText k={'noHistoryForTheSecondChart'} />} />
       ) : null}
       {failure && <p className="trade-refusal">{failure}</p>}
       <div className={`trade-secondary-chart ${workspace ? 'trade-secondary-chart--workspace' : ''}`} ref={host} />

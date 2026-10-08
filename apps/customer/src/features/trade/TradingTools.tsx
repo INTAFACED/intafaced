@@ -1,3 +1,4 @@
+import { tradeCopy as copy, CopyText, tradeLabels, choiceText, choiceNode } from './copy';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { positionSchema, type Position } from '@intafaced/exchange-contract/schemas';
@@ -55,7 +56,7 @@ function useWriteGuard() {
     [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(
       initial.available
         ? null
-        : { ok: false, reason: 'error', message: 'Device storage is unavailable. Trading cannot preserve a request identity.' },
+        : { ok: false, reason: 'error', message: copy.t('deviceStorageIsUnavailableTradingCannotPreserveARequestIdentity') },
     ),
     [message, setMessage] = useState(''),
     ref = useRef(false),
@@ -100,7 +101,7 @@ function useWriteGuard() {
       setFailure({
         ok: false,
         reason: 'error',
-        message: 'The outcome is confirmed, but its device marker could not be cleared. Storage access must return before another action.',
+        message: copy.t('theOutcomeIsConfirmedButItsDeviceMarkerCouldNotBea566ab'),
       });
       return false;
     }
@@ -120,7 +121,7 @@ function useWriteGuard() {
       setFailure({
         ok: false,
         reason: 'error',
-        message: 'This browser cannot coordinate trading requests across tabs. Use a browser with Web Locks.',
+        message: copy.t('thisBrowserCannotCoordinateTradingRequestsAcrossTabsUseABrowser29685f'),
       });
       return;
     }
@@ -130,7 +131,7 @@ function useWriteGuard() {
     try {
       await navigator.locks.request(`trade-account:${userId ?? 'signed-out'}`, { ifAvailable: true }, async (lock) => {
         if (!mounted.current || !lock || readMarker(key).blocked) {
-          setMessage('Another trading request is active.');
+          setMessage(copy.t('anotherTradingRequestIsActive'));
           return;
         }
         const marker = { ...identity, startedAt: Date.now() };
@@ -142,7 +143,7 @@ function useWriteGuard() {
           setFailure({
             ok: false,
             reason: 'error',
-            message: 'The browser cannot preserve this request identity. Enable device storage before submitting.',
+            message: copy.t('theBrowserCannotPreserveThisRequestIdentityEnableDeviceStorageBefore'),
           });
           return;
         }
@@ -154,7 +155,9 @@ function useWriteGuard() {
           setFailure(result);
           if (result.reason === 'uncertain') {
             setLocked(true);
-            setMessage(`Outcome unknown. Preserve request ${identity.id}; check its authoritative status before another trading action.`);
+            setMessage(
+              copy.t('outcomeUnknownPreserveRequestCheckItsAuthoritativeStatusBeforeAnotherTrading', { identityId: String(identity.id) }),
+            );
           } else resolve(identity.id, marker);
         }
       });
@@ -163,7 +166,7 @@ function useWriteGuard() {
       setFailure({
         ok: false,
         reason: 'uncertain',
-        message: 'The request ended without a verified outcome. Preserve the original request identity and check its status.',
+        message: copy.t('theRequestEndedWithoutAVerifiedOutcomePreserveTheOriginalRequest'),
       });
     } finally {
       setBusy(false);
@@ -183,15 +186,16 @@ function GuardResult({ guard }: { guard: ReturnType<typeof useWriteGuard> }) {
       )}
       {guard.locked && (
         <p className="trade-refusal" role="alert">
-          A previous trade request is unresolved. New actions stay locked.{' '}
+          <CopyText k="aPreviousTradeRequestIsUnresolvedNewActionsStayLocked" />{' '}
           {guard.pending && (
             <span>
               {' '}
-              {guard.pending.kind} · {guard.pending.symbol} · Request {guard.pending.id}.{' '}
+              {guard.pending.kind} · {guard.pending.symbol} <CopyText k="request" />
+              {guard.pending.id}.{' '}
             </span>
           )}{' '}
           <a href="/support" className="text-link">
-            Contact support with the original request ID.
+            <CopyText k="contactSupportWithTheOriginalRequestId" />
           </a>
         </p>
       )}
@@ -214,12 +218,17 @@ export function TradingTools({
   const tools = useMemo(() => createToolApi(transport), [transport]);
   return (
     <Page
-      eyebrow={`${simulation ? 'Simulated' : 'Personal'} · Trade`}
-      title={mode}
+      eyebrow={
+        <CopyText
+          k={'trade345b46'}
+          params={{ simulationCopyTSimulated31fe29: String(simulation ? copy.t('simulated31fe29') : copy.t('personal845f92')) }}
+        />
+      }
+      title={choiceNode(mode)}
       description={descriptions[mode]}
       actions={
         <a className="text-link" href={`/exchange${simulation ? '?simulated=true' : ''}`}>
-          Back to spot desk ↗
+          <CopyText k="backToSpotDesk" />
         </a>
       }
     >
@@ -245,22 +254,22 @@ export function TradingTools({
     </Page>
   );
 }
-const descriptions: Record<string, string> = {
-  Convert: 'Review a firm book-sourced quote, with exact assets and expiry.',
-  Margin: 'Borrowing and collateral belong to the trading account.',
-  Futures: 'Accepted marks, isolated margin, risk review, and your actual positions.',
-  Options: 'Calls and puts share a strike ladder when contract terms are published.',
-  Copy: 'Explicit leader permissions and risk limits. Existing exposure stays visible.',
-  Bots: 'Scheduled execution progress and control, linked to its child orders.',
-  Execution: 'Cross-venue routing, execution, and operational control.',
-  'Quote desk': 'Request a firm price from the desk, then review its named counterparty.',
+const descriptions: Record<string, ReactNode> = {
+  Convert: <CopyText k="reviewAFirmBookSourcedQuoteWithExactAssetsAndExpiry" />,
+  Margin: <CopyText k="borrowingAndCollateralBelongToTheTradingAccount" />,
+  Futures: <CopyText k="acceptedMarksIsolatedMarginRiskReviewAndYourActualPositions" />,
+  Options: <CopyText k="callsAndPutsShareAStrikeLadderWhenContractTermsAre" />,
+  Copy: <CopyText k="explicitLeaderPermissionsAndRiskLimitsExistingExposureStaysVisible" />,
+  Bots: <CopyText k="scheduledExecutionProgressAndControlLinkedToItsChildOrders" />,
+  Execution: <CopyText k="crossVenueRoutingExecutionAndOperationalControl" />,
+  'Quote desk': <CopyText k="requestAFirmPriceFromTheDeskThenReviewItsNamed" />,
 };
 function PairField({ markets, symbol, onChange }: { markets: Listing[]; symbol: string; onChange: (symbol: string) => void }) {
   return (
     <label className="field">
-      Market
+      <CopyText k="market4af4ec" />
       <select value={symbol} onChange={(event) => onChange(event.target.value)}>
-        <option value="">Choose published market</option>
+        <option value="">{copy.t('choosePublishedMarket')}</option>
         {markets.map((market) => (
           <option value={market.symbol} key={market.id}>
             {market.symbol}
@@ -303,7 +312,7 @@ function Convert({ tools, markets, simulation }: { tools: ToolApi; markets: List
       setQuote(result.data);
     else
       guard.setFailure(
-        result.ok ? { ok: false, reason: 'invalid_response', message: 'This quote does not match the requested conversion.' } : result,
+        result.ok ? { ok: false, reason: 'invalid_response', message: copy.t('thisQuoteDoesNotMatchTheRequestedConversion') } : result,
       );
     setLoading(false);
   }
@@ -317,8 +326,8 @@ function Convert({ tools, markets, simulation }: { tools: ToolApi; markets: List
   if (simulation)
     return (
       <Capability
-        title="Simulated convert is unavailable"
-        detail="The convert contract settles against house inventory through the ledger. It does not publish a simulated settlement route; simulated markets cannot enter this form."
+        title={<CopyText k={'simulatedConvertIsUnavailable'} />}
+        detail={<CopyText k={'theConvertContractSettlesAgainstHouseInventoryThroughTheLedgerIt'} />}
       />
     );
   return (
@@ -333,7 +342,7 @@ function Convert({ tools, markets, simulation }: { tools: ToolApi; markets: List
           }}
         />
         <label className="field">
-          Direction
+          <CopyText k="direction" />
           <select
             value={side}
             onChange={(event) => {
@@ -341,12 +350,14 @@ function Convert({ tools, markets, simulation }: { tools: ToolApi; markets: List
               setQuote(null);
             }}
           >
-            <option value="buy">Buy base asset</option>
-            <option value="sell">Sell base asset</option>
+            <option value="buy">{copy.t('buyBaseAsset')}</option>
+            <option value="sell">{copy.t('sellBaseAsset')}</option>
           </select>
         </label>
         <Field
-          label={`Base quantity (${symbol.split('/')[0] ?? 'asset'})`}
+          label={
+            <CopyText k={'baseQuantitye5704f'} params={{ symbolSplitAsset: String(symbol.split('/')[0] ?? copy.t('genericAsset')) }} />
+          }
           inputMode="decimal"
           value={qty}
           onChange={(event) => {
@@ -355,33 +366,45 @@ function Convert({ tools, markets, simulation }: { tools: ToolApi; markets: List
           }}
         />
         <Button disabled={!guard.authenticated || guard.locked || loading || !symbol || !positive(qty)} onClick={request}>
-          {loading ? 'Requesting quote…' : 'Get firm quote'}
+          {loading ? <CopyText k={'requestingQuote'} /> : <CopyText k={'getFirmQuote'} />}
         </Button>
         {quote && (
           <>
             <dl className="trade-review">
               <div>
-                <dt>You pay</dt>
+                <dt>
+                  <CopyText k="youPay" />
+                </dt>
                 <dd>
                   {displayAmount(quote.inAmount)} {quote.inAsset}
                 </dd>
               </div>
               <div>
-                <dt>You receive</dt>
+                <dt>
+                  <CopyText k="youReceive" />
+                </dt>
                 <dd>
                   {displayAmount(quote.outAmount)} {quote.outAsset}
                 </dd>
               </div>
               <div>
-                <dt>Quote spread</dt>
-                <dd>{quote.convertSpreadBps} bps · included</dd>
+                <dt>
+                  <CopyText k="quoteSpread" />
+                </dt>
+                <dd>
+                  {quote.convertSpreadBps} <CopyText k="bpsIncluded" />
+                </dd>
               </div>
               <div>
-                <dt>Expires</dt>
+                <dt>
+                  <CopyText k="expires" />
+                </dt>
                 <dd>{new Date(quote.expiresAt).toLocaleString()}</dd>
               </div>
               <div>
-                <dt>Source</dt>
+                <dt>
+                  <CopyText k="source" />
+                </dt>
                 <dd>
                   {quote.source.symbol} · {new Date(quote.source.asOf).toLocaleTimeString()}
                 </dd>
@@ -396,25 +419,33 @@ function Convert({ tools, markets, simulation }: { tools: ToolApi; markets: List
                   () => tools.convertAccept(quote.quoteId, id),
                   (data) => {
                     guard.setMessage(
-                      `Converted ${data.inAmount} ${data.inAsset} into ${data.outAmount} ${data.outAsset}. Fill ${data.fillId}.`,
+                      copy.t('convertedIntoFill', {
+                        dataInAmount: String(data.inAmount),
+                        dataInAsset: String(data.inAsset),
+                        dataOutAmount: String(data.outAmount),
+                        dataOutAsset: String(data.outAsset),
+                        dataFillId: String(data.fillId),
+                      }),
                     );
                     setQuote(null);
                   },
                 );
               }}
             >
-              {expired ? 'Quote expired — request a new quote' : 'Confirm conversion'}
+              {expired ? <CopyText k={'quoteExpiredRequestANewQuote'} /> : <CopyText k={'confirmConversion'} />}
             </Button>
             {!quote.fullyFilled && (
-              <p className="trade-refusal">Available depth cannot fill the requested quantity. Request a smaller amount.</p>
+              <p className="trade-refusal">
+                <CopyText k="availableDepthCannotFillTheRequestedQuantityRequestASmallerAmount" />
+              </p>
             )}
           </>
         )}
         <GuardResult guard={guard} />
       </div>
       <Capability
-        title="One ledger, exact settlement"
-        detail="A firm quote includes the house spread in the amounts you review. Accept uses its quote ID and a durable conversion identity. Missing inventory, spread authority, price, or expiry refuses the conversion."
+        title={<CopyText k={'oneLedgerExactSettlement'} />}
+        detail={<CopyText k={'aFirmQuoteIncludesTheHouseSpreadInTheAmountsYou'} />}
       />
     </>
   );
@@ -444,7 +475,7 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
       return;
     }
     if (result.data.quoteId !== id) {
-      guard.setFailure({ ok: false, reason: 'invalid_response', message: 'The returned quote belongs to a different request.' });
+      guard.setFailure({ ok: false, reason: 'invalid_response', message: copy.t('theReturnedQuoteBelongsToADifferentRequest') });
       return;
     }
     setQuote(result.data);
@@ -481,7 +512,7 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
     } else
       guard.setFailure(
         result.ok
-          ? { ok: false, reason: 'invalid_response', message: 'The desk quote does not match the requested assets and quantity.' }
+          ? { ok: false, reason: 'invalid_response', message: copy.t('theDeskQuoteDoesNotMatchTheRequestedAssetsAndQuantity') }
           : result,
       );
     setLoading(false);
@@ -502,38 +533,44 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
     setBound(data.lifecycle === 'bound');
     if (data.lifecycle === 'settled' || data.lifecycle === 'expired' || (data.lifecycle === 'bound' && original.operation === 'accept')) {
       guard.resolve(original.id);
-      guard.setMessage(`Original quote ${original.id}: ${data.lifecycle}.`);
+      guard.setMessage(copy.t('originalQuote', { originalId: String(original.id), dataLifecycle: String(data.lifecycle) }));
     } else
       guard.setMessage(
-        `Original quote ${original.id}: ${data.lifecycle ?? data.status}. Its ${original.operation ?? 'request'} outcome remains unresolved.`,
+        copy.t('originalQuoteItsOutcomeRemainsUnresolved', {
+          originalId: String(original.id),
+          dataLifecycleDataStatus: String(data.lifecycle ?? data.status),
+          originalOperationRequest: String(original.operation ?? copy.t('genericRequest')),
+        }),
       );
   }
   return (
     <>
       {!simulation && (
         <div className="trade-tool-form">
-          <Field label="Existing quote ID" value={existingId} onChange={(event) => setExistingId(event.target.value)} />
+          <Field label={<CopyText k={'existingQuoteId'} />} value={existingId} onChange={(event) => setExistingId(event.target.value)} />
           <Button variant="secondary" disabled={!existingId || loading} onClick={() => void lookup(existingId)}>
-            Open quoted order
+            <CopyText k="openQuotedOrder" />
           </Button>
         </div>
       )}
       <State value={status}>
         {(data) => (
           <Capability
-            title={data.published ? 'Quote desk published' : 'Quote desk restricted'}
+            title={data.published ? <CopyText k={'quoteDeskPublished'} /> : <CopyText k={'quoteDeskRestricted'} />}
             detail={
-              data.published
-                ? 'Quotes require actual desk pricing, the named counterparty, and your account eligibility.'
-                : (data.residual ?? 'Desk spread, stake eligibility, counterparty routing, or reference pricing authority is unpublished.')
+              data.published ? (
+                <CopyText k={'quotesRequireActualDeskPricingTheNamedCounterpartyAndYourAccount'} />
+              ) : (
+                (data.residual ?? <CopyText k={'deskSpreadStakeEligibilityCounterpartyRoutingOrReferencePricingAuthorityIs'} />)
+              )
             }
           />
         )}
       </State>
       {simulation ? (
         <Capability
-          title="Simulated quote settlement is unavailable"
-          detail="The RFQ contract has no isolated simulated settlement contract. No quote request is routed from simulation into a live desk."
+          title={<CopyText k={'simulatedQuoteSettlementIsUnavailable'} />}
+          detail={<CopyText k={'theRfqContractHasNoIsolatedSimulatedSettlementContractNoQuote'} />}
         />
       ) : (
         <div className="trade-tool-form">
@@ -546,7 +583,7 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
             }}
           />
           <label className="field">
-            Side
+            <CopyText k="side90eb04" />
             <select
               value={side}
               onChange={(event) => {
@@ -554,12 +591,14 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
                 setQuote(null);
               }}
             >
-              <option value="buy">Buy</option>
-              <option value="sell">Sell</option>
+              <option value="buy">{copy.t('buy')}</option>
+              <option value="sell">{copy.t('sell')}</option>
             </select>
           </label>
           <Field
-            label={`Base quantity (${symbol.split('/')[0] ?? 'asset'})`}
+            label={
+              <CopyText k={'baseQuantitye5704f'} params={{ symbolSplitAsset: String(symbol.split('/')[0] ?? copy.t('genericAsset')) }} />
+            }
             value={qty}
             inputMode="decimal"
             onChange={(event) => {
@@ -567,7 +606,11 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
               setQuote(null);
             }}
           />
-          <Field label="Maker identity, if desk routing requires one" value={makerId} onChange={(event) => setMaker(event.target.value)} />
+          <Field
+            label={<CopyText k={'makerIdentityIfDeskRoutingRequiresOne'} />}
+            value={makerId}
+            onChange={(event) => setMaker(event.target.value)}
+          />
           <Button
             disabled={
               !guard.authenticated ||
@@ -579,37 +622,47 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
             }
             onClick={request}
           >
-            Request desk price
+            <CopyText k="requestDeskPrice" />
           </Button>
           {quote && (
             <>
               <dl className="trade-review">
                 <div>
-                  <dt>Quantity</dt>
+                  <dt>
+                    <CopyText k="quantity822bab" />
+                  </dt>
                   <dd>
                     {displayAmount(quote.qty)} {quote.baseAsset}
                   </dd>
                 </div>
                 <div>
-                  <dt>Price</dt>
+                  <dt>
+                    <CopyText k="price93c91c" />
+                  </dt>
                   <dd>
                     {displayAmount(quote.quotedPrice)} {quote.quoteAsset}
                   </dd>
                 </div>
                 <div>
-                  <dt>Value, spread included</dt>
+                  <dt>
+                    <CopyText k="valueSpreadIncluded" />
+                  </dt>
                   <dd>
                     {displayAmount(quote.userNotional)} {quote.quoteAsset}
                   </dd>
                 </div>
                 <div>
-                  <dt>Counterparty</dt>
+                  <dt>
+                    <CopyText k="counterparty" />
+                  </dt>
                   <dd>
                     {quote.counterparty} · {quote.counterpartyId}
                   </dd>
                 </div>
                 <div>
-                  <dt>Expiry</dt>
+                  <dt>
+                    <CopyText k="expiry" />
+                  </dt>
                   <dd>{new Date(quote.expiresAt).toLocaleString()}</dd>
                 </div>
               </dl>
@@ -627,37 +680,45 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
                     () => (bound ? tools.otcSettle(quote.quoteId) : tools.otcAccept(quote.quoteId, quote.quotedPrice)),
                     (data) => {
                       if (bound) {
-                        guard.setMessage(`Quote ${data.quoteId} settled at ${data.fillPrice} ${data.quoteAsset}.`);
+                        guard.setMessage(
+                          copy.t('quoteSettledAt', {
+                            dataQuoteId: String(data.quoteId),
+                            dataFillPrice: String(data.fillPrice),
+                            dataQuoteAsset: String(data.quoteAsset),
+                          }),
+                        );
                         setQuote(null);
                       } else {
                         setBound(true);
-                        guard.setMessage('Quote accepted. Review the bound fill and settle it to complete the exchange.');
+                        guard.setMessage(copy.t('quoteAcceptedReviewTheBoundFillAndSettleItToComplete'));
                       }
                     },
                   )
                 }
               >
-                {quote.lifecycle === 'settled'
-                  ? 'Quote already settled'
-                  : quote.lifecycle === 'expired'
-                    ? 'Quote expired'
-                    : bound
-                      ? 'Settle accepted quote'
-                      : 'Accept firm quote'}
+                {quote.lifecycle === 'settled' ? (
+                  <CopyText k={'quoteAlreadySettled'} />
+                ) : quote.lifecycle === 'expired' ? (
+                  <CopyText k={'quoteExpired'} />
+                ) : bound ? (
+                  <CopyText k={'settleAcceptedQuote'} />
+                ) : (
+                  <CopyText k={'acceptFirmQuote'} />
+                )}
               </Button>
             </>
           )}
           <GuardResult guard={guard} />
           {guard.pending?.kind === 'rfq' && (
             <Button variant="secondary" onClick={reconcileQuote}>
-              Check original quote status
+              <CopyText k="checkOriginalQuoteStatus" />
             </Button>
           )}
         </div>
       )}
       <Capability
-        title="Counterparty and conversation"
-        detail="The desk returns its counterparty identity with a quote. A customer counterparty verification and quote chat contract is not mounted in svc-trade; a quote ID does not provide permission to read a person’s identity or create a chat."
+        title={<CopyText k={'counterpartyAndConversation'} />}
+        detail={<CopyText k={'theDeskReturnsItsCounterpartyIdentityWithAQuoteACustomer'} />}
       />
     </>
   );
@@ -733,22 +794,22 @@ function Futures({
       setPreview(result.data);
     else
       guard.setFailure(
-        result.ok ? { ok: false, reason: 'invalid_response', message: 'Risk preview belongs to a different position intent.' } : result,
+        result.ok ? { ok: false, reason: 'invalid_response', message: copy.t('riskPreviewBelongsToADifferentPositionIntent') } : result,
       );
     setLoading(false);
   }
   if (simulation)
     return (
       <Capability
-        title="Simulated derivative positions are unavailable"
-        detail="The mounted position open, close, and history contracts do not publish a separate simulated account. This switch cannot display a live account as simulated or submit a ledger-funded position."
+        title={<CopyText k={'simulatedDerivativePositionsAreUnavailable'} />}
+        detail={<CopyText k={'theMountedPositionOpenCloseAndHistoryContractsDoNotPublish'} />}
       />
     );
   return (
     <>
       <Capability
-        title="Isolated position mode"
-        detail="Cross margin and live margin-mode changes are unsupported. Reversing a position has no atomic reversal contract. A new position requires accepted mark, published leverage and liquidation policy, ADL acknowledgment, and a complete authoritative risk preview."
+        title={<CopyText k={'isolatedPositionMode'} />}
+        detail={<CopyText k={'crossMarginAndLiveMarginModeChangesAreUnsupportedReversingA'} />}
       />
       {selectedMarket && (
         <MarketChart
@@ -759,15 +820,12 @@ function Futures({
           positions={positions.resource.status === 'ready' ? positions.resource.data : []}
           accountKey={userId ?? 'signed-out'}
           onStagePrice={(price) =>
-            guard.setMessage(
-              `Inspected actual candle close ${price}. Position execution uses its accepted mark; chart selection does not set an execution price.`,
-            )
+            guard.setMessage(copy.t('inspectedActualCandleClosePositionExecutionUsesItsAcceptedMarkChart', { price: String(price) }))
           }
         />
       )}
       <p className="trade-note">
-        Entry, accepted mark, and liquidation overlays use published position values. Stop placement, liquidation-risk modification, and
-        atomic reversal are not mounted customer contracts; these lines do not imply those actions.
+        <CopyText k="entryAcceptedMarkAndLiquidationOverlaysUsePublishedPositionValuesStop" />
       </p>
       <div className="trade-tool-form">
         <PairField
@@ -781,7 +839,7 @@ function Futures({
           }}
         />
         <label className="field">
-          Direction
+          <CopyText k="direction" />
           <select
             value={side}
             onChange={(event) => {
@@ -789,22 +847,32 @@ function Futures({
               setPreview(null);
             }}
           >
-            <option value="long">Long</option>
-            <option value="short">Short</option>
+            <option value="long">{copy.t('long')}</option>
+            <option value="short">{copy.t('short')}</option>
           </select>
         </label>
         <Field
           label={
-            sizeUnit === 'contracts'
-              ? 'Position size (contracts)'
-              : selectedMarket?.contractSize
-                ? `Position size (${selectedMarket.base} quantity)`
-                : 'Position size (base quantity; contract multiplier unpublished)'
+            sizeUnit === 'contracts' ? (
+              <CopyText k={'positionSizeContracts'} />
+            ) : selectedMarket?.contractSize ? (
+              <CopyText k={'positionSizeQuantity'} params={{ selectedMarketBase: String(selectedMarket.base) }} />
+            ) : (
+              <CopyText k={'positionSizeBaseQuantityContractMultiplierUnpublished'} />
+            )
           }
           hint={
-            canSizeContracts && selectedMarket
-              ? `Published linear multiplier ${selectedMarket.contractSize} ${selectedMarket.base} per contract. Risk review receives exact base quantity.`
-              : 'Contract sizing needs a published linear base multiplier. An inverse or unspecified multiplier cannot be treated as base quantity.'
+            canSizeContracts && selectedMarket ? (
+              <CopyText
+                k={'publishedLinearMultiplierPerContractRiskReviewReceivesExactBaseQuantity'}
+                params={{
+                  selectedMarketContractSize: String(selectedMarket.contractSize),
+                  selectedMarketBase: String(selectedMarket.base),
+                }}
+              />
+            ) : (
+              <CopyText k={'contractSizingNeedsAPublishedLinearBaseMultiplierAnInverseOr'} />
+            )
           }
           value={size}
           inputMode="decimal"
@@ -814,9 +882,9 @@ function Futures({
           }}
         />
         <label className="field">
-          Position size units
+          <CopyText k="positionSizeUnits" />
           <select
-            aria-label="Position size units"
+            aria-label={copy.t('positionSizeUnits417a24')}
             value={sizeUnit}
             onChange={(event) => {
               setSizeUnit(event.target.value as 'base' | 'contracts');
@@ -824,14 +892,16 @@ function Futures({
               setPreview(null);
             }}
           >
-            <option value="base">{selectedMarket?.base ?? 'Base'} quantity</option>
+            <option value="base">
+              {selectedMarket?.base ?? copy.t('base7b4736')} {copy.t('quantity')}
+            </option>
             <option value="contracts" disabled={!canSizeContracts}>
-              Contracts
+              {copy.t('contractsee5741')}
             </option>
           </select>
         </label>
         <Field
-          label="Leverage (exact decimal)"
+          label={<CopyText k={'leverageExactDecimal'} />}
           value={leverage}
           inputMode="decimal"
           onChange={(event) => {
@@ -843,19 +913,21 @@ function Futures({
           disabled={simulation || !guard.authenticated || loading || !symbol || !positive(positionSize) || !positive(leverage)}
           onClick={risk}
         >
-          Review position risk
+          <CopyText k="reviewPositionRisk" />
         </Button>
         {preview && (
           <>
             <dl className="trade-review">
-              {[
-                ['Accepted mark', preview.markPrice],
-                ['Order value', preview.orderValue],
-                ['Initial margin', preview.initialMargin],
-                ['Estimated fee', preview.estimatedFee],
-                ['Liquidation price', preview.liquidationPrice],
-              ].map(([label, value]) => (
-                <div key={label}>
+              {(
+                [
+                  [<CopyText k={'acceptedMark'} />, preview.markPrice],
+                  [<CopyText k={'orderValuefa10dc'} />, preview.orderValue],
+                  [<CopyText k={'initialMargin'} />, preview.initialMargin],
+                  [<CopyText k={'estimatedFee'} />, preview.estimatedFee],
+                  [<CopyText k={'liquidationPrice'} />, preview.liquidationPrice],
+                ] as const
+              ).map(([label, value], index) => (
+                <div key={index}>
                   <dt>{label}</dt>
                   <dd>
                     {displayAmount(value)} {selectedMarket?.quote ?? ''}
@@ -894,7 +966,7 @@ function Futures({
                 }
                 if (JSON.stringify(refreshed.data) !== JSON.stringify(preview)) {
                   setPreview(refreshed.data);
-                  guard.setMessage('Risk values changed. Review again.');
+                  guard.setMessage(copy.t('riskValuesChangedReviewAgain'));
                   return;
                 }
                 const id = `position:${crypto.randomUUID()}`;
@@ -905,21 +977,21 @@ function Futures({
                       ? Promise.resolve({
                           ok: false as const,
                           reason: 'not_supported' as const,
-                          message: 'Simulated mode cannot open a live position.',
+                          message: copy.t('simulatedModeCannotOpenALivePosition'),
                         })
                       : transport.rest('/positions', positionSchema, {
                           method: 'POST',
                           body: { symbol, side, size: positionSize, leverage, marginMode: 'isolated', clientOpenId: id },
                         }),
                   (data) => {
-                    guard.setMessage(`Position ${data.id}: ${data.status}.`);
+                    guard.setMessage(copy.t('position', { dataId: String(data.id), dataStatus: String(data.status) }));
                     positions.reload();
                     setPreview(null);
                   },
                 );
               }}
             >
-              Confirm position
+              <CopyText k="confirmPosition" />
             </Button>
           </>
         )}
@@ -943,7 +1015,7 @@ function Futures({
                     )
                   }
                 >
-                  Acknowledge ADL disclosure
+                  <CopyText k="acknowledgeAdlDisclosure" />
                 </Button>
               )}
             </>
@@ -952,21 +1024,39 @@ function Futures({
         <GuardResult guard={guard} />
       </div>
       <section>
-        <h2>Your positions</h2>
-        <Tabs items={['Open positions', 'Position history']} value={positionTab} onChange={setPositionTab} label="Position records" />
+        <h2>
+          <CopyText k="yourPositions" />
+        </h2>
+        <Tabs
+          labels={tradeLabels}
+          items={['Open positions', 'Position history']}
+          value={positionTab}
+          onChange={setPositionTab}
+          label={copy.t('positionRecords')}
+        />
         <State value={positionTab === 'Open positions' ? positions : history}>
           {(rows) =>
             rows.length ? (
               <DataTable
-                label="Futures positions"
-                headers={['Market / side', 'Size', 'Entry / mark', 'Margin', 'Liquidation', 'State', 'Action']}
+                label={copy.t('futuresPositions')}
+                headers={[
+                  <CopyText k={'marketSide'} />,
+                  <CopyText k={'size1af851'} />,
+                  <CopyText k={'entryMark'} />,
+                  <CopyText k={'margin'} />,
+                  <CopyText k={'liquidation'} />,
+                  <CopyText k={'state'} />,
+                  <CopyText k={'action'} />,
+                ]}
               >
                 {rows.map((row) => (
                   <tr key={row.id ?? row.symbol}>
                     <td>
                       {row.symbol} · {row.side}
                     </td>
-                    <td>{displayAmount(row.contracts)} base</td>
+                    <td>
+                      {displayAmount(row.contracts)} <CopyText k="base6a1213" />
+                    </td>
                     <td>
                       {displayAmount(row.entryPrice)} / {displayAmount(row.markPrice)}
                     </td>
@@ -978,24 +1068,29 @@ function Futures({
                     </td>
                     <td>
                       <button disabled={simulation || !row.id || guard.locked || row.status !== 'open'} onClick={() => setSelected(row)}>
-                        Close position
+                        <CopyText k="closePosition" />
                       </button>
                     </td>
                   </tr>
                 ))}
               </DataTable>
             ) : (
-              <EmptyState title={positionTab === 'Open positions' ? 'No open positions' : 'No closed positions in this page'} />
+              <EmptyState
+                title={
+                  positionTab === 'Open positions' ? <CopyText k={'noOpenPositions'} /> : <CopyText k={'noClosedPositionsInThisPage'} />
+                }
+              />
             )
           }
         </State>
-        <p className="trade-note">Position history shows up to 100 service records; it is not a complete account history.</p>
+        <p className="trade-note">
+          <CopyText k="positionHistoryShowsUpToServiceRecordsItIsNotA" />
+        </p>
       </section>
       {selected && (
-        <Dialog title="Close futures position" onClose={() => setSelected(null)}>
+        <Dialog title={<CopyText k={'closeFuturesPosition'} />} onClose={() => setSelected(null)}>
           <p>
-            {selected.symbol} · {selected.side} · {selected.contracts} base quantity. The server uses its accepted mark. If no usable mark
-            exists, the position may remain closing.
+            {selected.symbol} · {selected.side} · {selected.contracts} <CopyText k="baseQuantityTheServerUsesItsAcceptedMarkIfNoUsable" />
           </p>
           <Button
             disabled={simulation || guard.busy || guard.locked}
@@ -1008,18 +1103,18 @@ function Futures({
                     ? Promise.resolve({
                         ok: false as const,
                         reason: 'not_supported' as const,
-                        message: 'Simulated mode cannot close a live position.',
+                        message: copy.t('simulatedModeCannotCloseALivePosition'),
                       })
                     : tools.positionClose(selected.id as string),
                 (data) => {
-                  guard.setMessage(`Position ${data.id}: ${data.status}.`);
+                  guard.setMessage(copy.t('position', { dataId: String(data.id), dataStatus: String(data.status) }));
                   positions.reload();
                   setSelected(null);
                 },
               );
             }}
           >
-            Confirm close
+            <CopyText k="confirmClose" />
           </Button>
         </Dialog>
       )}
@@ -1040,8 +1135,8 @@ function Copy({ tools, transport, simulation }: { tools: ToolApi; transport: Api
   if (simulation)
     return (
       <Capability
-        title="Simulated copy permissions are unavailable"
-        detail="Copy has no separate simulated permission list. This mode cannot create or alter a live follower grant."
+        title={<CopyText k={'simulatedCopyPermissionsAreUnavailable'} />}
+        detail={<CopyText k={'copyHasNoSeparateSimulatedPermissionListThisModeCannotCreate'} />}
       />
     );
   return (
@@ -1049,14 +1144,20 @@ function Copy({ tools, transport, simulation }: { tools: ToolApi; transport: Api
       <State value={status}>
         {(data) => (
           <Capability
-            title={data.feeSharePublished && data.jurisdictionPublished ? 'Copy permissions published' : 'Copy permission restricted'}
+            title={
+              data.feeSharePublished && data.jurisdictionPublished ? (
+                <CopyText k={'copyPermissionsPublished'} />
+              ) : (
+                <CopyText k={'copyPermissionRestricted'} />
+              )
+            }
             detail={data.residual ?? data.statusLine}
           />
         )}
       </State>
       <div className="trade-tool-form">
         <Field
-          label="Leader identity"
+          label={<CopyText k={'leaderIdentity'} />}
           value={leader}
           onChange={(event) => {
             setLeader(event.target.value);
@@ -1064,7 +1165,7 @@ function Copy({ tools, transport, simulation }: { tools: ToolApi; transport: Api
           }}
         />
         <Field
-          label="Account jurisdiction"
+          label={<CopyText k={'accountJurisdiction'} />}
           value={region}
           onChange={(event) => {
             setRegion(event.target.value);
@@ -1072,7 +1173,7 @@ function Copy({ tools, transport, simulation }: { tools: ToolApi; transport: Api
           }}
         />
         <Field
-          label="Permitted market symbol"
+          label={<CopyText k={'permittedMarketSymbol'} />}
           value={market}
           onChange={(event) => {
             setMarket(event.target.value);
@@ -1080,7 +1181,7 @@ function Copy({ tools, transport, simulation }: { tools: ToolApi; transport: Api
           }}
         />
         <Field
-          label="Maximum notional per order (quote units)"
+          label={<CopyText k={'maximumNotionalPerOrderQuoteUnits'} />}
           inputMode="decimal"
           value={orderLimit}
           onChange={(event) => {
@@ -1089,7 +1190,7 @@ function Copy({ tools, transport, simulation }: { tools: ToolApi; transport: Api
           }}
         />
         <Field
-          label="Maximum aggregate exposure (quote units)"
+          label={<CopyText k={'maximumAggregateExposureQuoteUnits'} />}
           inputMode="decimal"
           value={aggregate}
           onChange={(event) => {
@@ -1098,7 +1199,7 @@ function Copy({ tools, transport, simulation }: { tools: ToolApi; transport: Api
           }}
         />
         <Field
-          label="Permission expires"
+          label={<CopyText k={'permissionExpires'} />}
           type="datetime-local"
           value={expiry}
           onChange={(event) => {
@@ -1145,29 +1246,48 @@ function Copy({ tools, transport, simulation }: { tools: ToolApi; transport: Api
                   copyFollowSchema,
                 ),
               (data) => {
-                guard.setMessage(`Follow ${data.followId}: ${data.relationshipState}.`);
+                guard.setMessage(
+                  copy.t('followb66058', { dataFollowId: String(data.followId), dataRelationshipState: String(data.relationshipState) }),
+                );
                 follows.reload();
                 setConfirm(false);
               },
             );
           }}
         >
-          {confirm ? 'Confirm leader permission' : 'Review leader permission'}
+          {confirm ? <CopyText k={'confirmLeaderPermission'} /> : <CopyText k={'reviewLeaderPermission'} />}
         </Button>
         {confirm && (
           <p className="trade-note">
-            Leader {leader} may mirror only {market}, up to {orderLimit} quote per order and {aggregate} aggregate, until {expiry}. Existing
-            position exits remain your responsibility.
+            <CopyText k="leader" />
+            {leader} <CopyText k="mayMirrorOnly" />
+            {market}
+            <CopyText k="upTo" />
+            {orderLimit} <CopyText k="quotePerOrderAnd" />
+            {aggregate} <CopyText k="aggregateUntil" />
+            {expiry}
+            <CopyText k="existingPositionExitsRemainYourResponsibility" />
           </p>
         )}
         <GuardResult guard={guard} />
       </div>
       <section>
-        <h2>Your follows</h2>
+        <h2>
+          <CopyText k="yourFollows" />
+        </h2>
         <State value={follows}>
           {(rows) =>
             rows.length ? (
-              <DataTable label="Copy follows" headers={['Leader', 'Markets', 'Current / remaining exposure', 'Permission', 'Controls']}>
+              <DataTable
+                label={copy.t('copyFollows')}
+                headers={[
+                  <CopyText k={'leader3f5387'} />,
+                  <CopyText k={'markets'} />,
+                  <CopyText k={'currentRemainingExposure'} />,
+                  <CopyText k={'permission'} />,
+                  <CopyText k={'controls'} />,
+                ]}
+              >
                 {rows.map((row) => (
                   <tr key={row.followId}>
                     <td>{row.leaderId}</td>
@@ -1182,20 +1302,25 @@ function Copy({ tools, transport, simulation }: { tools: ToolApi; transport: Api
                       <div className="trade-row-actions">
                         {(['pause', 'stop', 'detach', 'resume'] as const).map((action) => (
                           <button
-                            key={action}
+                            key={choiceText(action)}
                             disabled={guard.locked || guard.busy}
                             onClick={() =>
                               void guard.run(
                                 { kind: 'copy', id: row.followId, symbol: row.permittedMarkets.join(',') },
                                 () => tools.copyAction(action, row.followId),
                                 (data) => {
-                                  guard.setMessage(`Follow ${data.followId}: ${data.relationshipState}. Existing positions are retained.`);
+                                  guard.setMessage(
+                                    copy.t('followExistingPositionsAreRetained', {
+                                      dataFollowId: String(data.followId),
+                                      dataRelationshipState: String(data.relationshipState),
+                                    }),
+                                  );
                                   follows.reload();
                                 },
                               )
                             }
                           >
-                            {action}
+                            {choiceText(action)}
                           </button>
                         ))}
                       </div>
@@ -1204,14 +1329,14 @@ function Copy({ tools, transport, simulation }: { tools: ToolApi; transport: Api
                 ))}
               </DataTable>
             ) : (
-              <EmptyState title="No copy permissions" />
+              <EmptyState title={<CopyText k={'noCopyPermissions'} />} />
             )
           }
         </State>
       </section>
       <Capability
-        title="Limits follow your permission"
-        detail="Leader rankings and profit-based fees are prohibited by the current copy policy. Pausing, stopping, or detaching fences new mirrors; it does not silently flatten existing positions. A simulated leader cannot place a live follower order."
+        title={<CopyText k={'limitsFollowYourPermission'} />}
+        detail={<CopyText k={'leaderRankingsAndProfitBasedFeesAreProhibitedByTheCurrent'} />}
       />
     </>
   );
@@ -1226,7 +1351,7 @@ function Bots({ tools, simulation }: { tools: ToolApi; simulation: boolean }) {
           : Promise.resolve({
               ok: false as const,
               reason: 'not_supported' as const,
-              message: 'Enter a schedule ID to read an existing execution schedule.',
+              message: copy.t('enterAScheduleIdToReadAnExistingExecutionSchedule'),
             }),
       active,
     ),
@@ -1234,27 +1359,27 @@ function Bots({ tools, simulation }: { tools: ToolApi; simulation: boolean }) {
       (signal) =>
         active
           ? tools.algoProgress(active, signal)
-          : Promise.resolve({ ok: false as const, reason: 'not_supported' as const, message: 'Choose an existing schedule.' }),
+          : Promise.resolve({ ok: false as const, reason: 'not_supported' as const, message: copy.t('chooseAnExistingSchedule') }),
       active,
     );
   const guard = useWriteGuard();
   if (simulation)
     return (
       <Capability
-        title="Simulated schedules are unavailable"
-        detail="The schedule query does not publish a simulation discriminator or separate simulated management list. This switch cannot open or alter a live schedule."
+        title={<CopyText k={'simulatedSchedulesAreUnavailable'} />}
+        detail={<CopyText k={'theScheduleQueryDoesNotPublishASimulationDiscriminatorOrSeparate'} />}
       />
     );
   return (
     <>
       <Capability
-        title="TWAP, VWAP, and participation schedules"
-        detail="Scheduled child orders use the existing matching engine and settle through the ledger. New schedule creation currently has no authoritative aggregate fee/reservation preview; the review requirement blocks starting a new money-moving schedule here. Existing schedules can still be inspected, paused, resumed, or stopped."
+        title={<CopyText k={'twapVwapAndParticipationSchedules'} />}
+        detail={<CopyText k={'scheduledChildOrdersUseTheExistingMatchingEngineAndSettleThrough'} />}
       />
       <div className="trade-tool-form">
-        <Field label="Existing schedule ID" value={id} onChange={(event) => setId(event.target.value)} />
+        <Field label={<CopyText k={'existingScheduleId'} />} value={id} onChange={(event) => setId(event.target.value)} />
         <Button disabled={!id} onClick={() => setActive(id)}>
-          Open schedule
+          <CopyText k="openSchedule" />
         </Button>
         {active && (
           <>
@@ -1266,28 +1391,36 @@ function Bots({ tools, simulation }: { tools: ToolApi; simulation: boolean }) {
                   </h3>
                   <dl className="trade-review">
                     <div>
-                      <dt>Total base quantity</dt>
+                      <dt>
+                        <CopyText k="totalBaseQuantity" />
+                      </dt>
                       <dd>{displayAmount(data.totalQty)}</dd>
                     </div>
                     <div>
-                      <dt>Status</dt>
+                      <dt>
+                        <CopyText k="status" />
+                      </dt>
                       <dd>{data.status}</dd>
                     </div>
                     <div>
-                      <dt>Children emitted</dt>
+                      <dt>
+                        <CopyText k="childrenEmitted" />
+                      </dt>
                       <dd>
                         {data.childrenEmitted} / {data.slicesPlanned}
                       </dd>
                     </div>
                     <div>
-                      <dt>Projected end</dt>
+                      <dt>
+                        <CopyText k="projectedEnd" />
+                      </dt>
                       <dd>{new Date(data.projectedEndsAt).toLocaleString()}</dd>
                     </div>
                   </dl>
                   <div className="actions">
                     {(['pause', 'resume', 'cancel'] as const).map((action) => (
                       <Button
-                        key={action}
+                        key={choiceText(action)}
                         variant="secondary"
                         disabled={guard.locked || guard.busy}
                         onClick={() =>
@@ -1295,14 +1428,16 @@ function Bots({ tools, simulation }: { tools: ToolApi; simulation: boolean }) {
                             { kind: 'algo', id: data.id, symbol: data.symbol },
                             () => tools.algoAction(action, data.id),
                             (updated) => {
-                              guard.setMessage(`Schedule ${updated.id}: ${updated.status}.`);
+                              guard.setMessage(
+                                copy.t('schedule', { updatedId: String(updated.id), updatedStatus: String(updated.status) }),
+                              );
                               parent.reload();
                               progress.reload();
                             },
                           )
                         }
                       >
-                        {action === 'cancel' ? 'Stop remaining slices' : action}
+                        {action === 'cancel' ? <CopyText k={'stopRemainingSlices'} /> : choiceText(action)}
                       </Button>
                     ))}
                   </div>
@@ -1312,7 +1447,8 @@ function Bots({ tools, simulation }: { tools: ToolApi; simulation: boolean }) {
             <State value={progress}>
               {(data) => (
                 <p>
-                  Actual filled quantity: {displayAmount(data.filledQty)} / {displayAmount(data.totalQty)}. {data.haltReason ?? ''}
+                  <CopyText k="actualFilledQuantity" />
+                  {displayAmount(data.filledQty)} / {displayAmount(data.totalQty)}. {data.haltReason ?? ''}
                 </p>
               )}
             </State>
@@ -1323,15 +1459,15 @@ function Bots({ tools, simulation }: { tools: ToolApi; simulation: boolean }) {
                 progress.reload();
               }}
             >
-              Refresh schedule
+              <CopyText k="refreshSchedule" />
             </Button>
           </>
         )}
         <GuardResult guard={guard} />
       </div>
       <Capability
-        title="Grid and custom bots"
-        detail="The mounted trade algo contract provides TWAP, VWAP, and participation schedules. A grid strategy catalogue, bot creation schema, and customer bot listing query are not mounted. No generic bot is sent through the spot ticket."
+        title={<CopyText k={'gridAndCustomBots'} />}
+        detail={<CopyText k={'theMountedTradeAlgoContractProvidesTwapVwapAndParticipationSchedules'} />}
       />
     </>
   );
@@ -1341,17 +1477,22 @@ function Execution({ tools, simulation }: { tools: ToolApi; simulation: boolean 
   return (
     <>
       <Capability
-        title="Cross-venue execution requires service authority"
-        detail="OMS planning, routing, and execution are guarded by signed service authority. Customer authentication cannot submit these service writes. The mounted read surface is operator-scoped; no browser credentials are substituted for that authority."
+        title={<CopyText k={'crossVenueExecutionRequiresServiceAuthority'} />}
+        detail={<CopyText k={'omsPlanningRoutingAndExecutionAreGuardedBySignedServiceAuthority'} />}
       />
       <State value={spine}>
         {(data) => (
-          <DataTable label="Execution capabilities" headers={['Tool', 'Operation', 'Execution source']}>
+          <DataTable
+            label={copy.t('executionCapabilities')}
+            headers={[<CopyText k={'tool'} />, <CopyText k={'operation'} />, <CopyText k={'executionSource'} />]}
+          >
             {data.doors.map((door) => (
               <tr key={door.id}>
                 <td>{door.module.replace('execution.', '')}</td>
                 <td>{door.kind}</td>
-                <td>{door.callerSubmit ? 'Requires an authorized venue submit port' : 'Planning or observation'}</td>
+                <td>
+                  {door.callerSubmit ? <CopyText k={'requiresAnAuthorizedVenueSubmitPort'} /> : <CopyText k={'planningOrObservation'} />}
+                </td>
               </tr>
             ))}
           </DataTable>
@@ -1359,15 +1500,15 @@ function Execution({ tools, simulation }: { tools: ToolApi; simulation: boolean 
       </State>
       <div className="trade-capability-grid">
         {[
-          ['Smart routing', 'Compare permitted external venues and route a parent execution.'],
-          ['Arbitrage', 'Plan linked legs with the service’s risk and venue authority.'],
-          ['Market making', 'Quote and hedge with explicitly published spread and capital policy.'],
-        ].map(([title, detail]) => (
-          <Capability key={title} title={title ?? ''} detail={detail ?? ''} />
+          [<CopyText k={'smartRouting'} />, <CopyText k={'comparePermittedExternalVenuesAndRouteAParentExecution'} />],
+          [<CopyText k={'arbitrage'} />, <CopyText k={'planLinkedLegsWithTheServiceSRiskAndVenueAuthority'} />],
+          [<CopyText k={'marketMaking'} />, <CopyText k={'quoteAndHedgeWithExplicitlyPublishedSpreadAndCapitalPolicy'} />],
+        ].map(([title, detail], index) => (
+          <Capability key={index} title={title ?? ''} detail={detail ?? ''} />
         ))}
       </div>
       <a className="text-link" href={`/quant/studio${simulation ? '?simulated=true' : ''}`}>
-        Open Quant studio ↗
+        <CopyText k="openQuantStudio" />
       </a>
     </>
   );
@@ -1376,26 +1517,36 @@ function Options({ markets }: { markets: Listing[] }) {
   return (
     <>
       <Capability
-        title="Options chain requires complete contract terms"
-        detail="Published option listings currently expose no option-chain surface. Strike, option right, settlement asset, contract size, and exercise policy cannot be inferred from a symbol. Options cannot submit through the spot preview path."
+        title={<CopyText k={'optionsChainRequiresCompleteContractTerms'} />}
+        detail={<CopyText k={'publishedOptionListingsCurrentlyExposeNoOptionChainSurfaceStrikeOption'} />}
       />
-      <DataTable label="Published options terms" headers={['Contract', 'Call / put', 'Strike', 'Expiry', 'Size / settlement', 'Status']}>
+      <DataTable
+        label={copy.t('publishedOptionsTerms')}
+        headers={[
+          <CopyText k={'contract'} />,
+          <CopyText k={'callPut'} />,
+          <CopyText k={'strike'} />,
+          <CopyText k={'expiry'} />,
+          <CopyText k={'sizeSettlement'} />,
+          <CopyText k={'status'} />,
+        ]}
+      >
         {markets.map((market) => (
           <tr key={market.id}>
             <td>{market.symbol}</td>
-            <td>{market.optionType ?? 'Unpublished'}</td>
+            <td>{market.optionType ?? <CopyText k={'unpublished'} />}</td>
             <td>{displayAmount(market.strike)}</td>
-            <td>{market.expiryDatetime ? new Date(market.expiryDatetime).toLocaleString() : 'Unpublished'}</td>
+            <td>{market.expiryDatetime ? new Date(market.expiryDatetime).toLocaleString() : <CopyText k={'unpublished'} />}</td>
             <td>
-              {displayAmount(market.contractSize)} / {market.settle ?? 'Unpublished'}
+              {displayAmount(market.contractSize)} / {market.settle ?? <CopyText k={'unpublished'} />}
             </td>
-            <td>{market.orderable ? 'Published for admission' : 'Restricted'}</td>
+            <td>{market.orderable ? <CopyText k={'publishedForAdmission'} /> : <CopyText k={'restricted'} />}</td>
           </tr>
         ))}
       </DataTable>
-      {!markets.length && <EmptyState title="No option contracts are published" />}
+      {!markets.length && <EmptyState title={<CopyText k={'noOptionContractsArePublished'} />} />}
       <p className="trade-note">
-        When complete option terms are available, calls and puts can be joined by exact strike and expiry. No synthetic chain is drawn.
+        <CopyText k="whenCompleteOptionTermsAreAvailableCallsAndPutsCanBe" />
       </p>
     </>
   );
@@ -1404,31 +1555,31 @@ function Margin({ simulation }: { simulation: boolean }) {
   return (
     <>
       <Capability
-        title="Spot margin borrowing is not connected"
-        detail="The customer trade contracts do not mount spot borrow, repay, debt-interest, or collateral-risk preview. Leveraged futures positions use their own isolated margin path; that path cannot fund a margin spot order."
+        title={<CopyText k={'spotMarginBorrowingIsNotConnected'} />}
+        detail={<CopyText k={'theCustomerTradeContractsDoNotMountSpotBorrowRepayDebt'} />}
       />
       <div className="trade-capability-grid">
         <Capability
-          title="Cross margin"
-          detail="A shared collateral pool and liquidation-risk contract is missing. No collateral amount, interest rate, or borrowing limit can be displayed."
+          title={<CopyText k={'crossMargin'} />}
+          detail={<CopyText k={'aSharedCollateralPoolAndLiquidationRiskContractIsMissingNo'} />}
         />
         <Capability
-          title="Isolated spot margin"
-          detail="A per-market borrow and repayment contract is missing. Spot buys and sells continue to use your available base and quote funds."
+          title={<CopyText k={'isolatedSpotMargin'} />}
+          detail={<CopyText k={'aPerMarketBorrowAndRepaymentContractIsMissingSpotBuys'} />}
         />
       </div>
       <div className="actions">
         <a className="text-link" href={`/exchange${simulation ? '?simulated=true' : ''}`}>
-          Trade fully funded spot ↗
+          <CopyText k="tradeFullyFundedSpot" />
         </a>
         <a className="text-link" href={`/trade/futures${simulation ? '?simulated=true' : ''}`}>
-          View isolated futures risk ↗
+          <CopyText k="viewIsolatedFuturesRisk" />
         </a>
       </div>
     </>
   );
 }
-function Capability({ title, detail }: { title: string; detail: string }) {
+function Capability({ title, detail }: { title: ReactNode; detail: ReactNode }) {
   return (
     <section className="trade-capability">
       <h2>{title}</h2>

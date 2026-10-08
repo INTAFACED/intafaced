@@ -1171,3 +1171,76 @@
     grid-row: 5;
   }
 }
+
+/* R5 default fit: the existing market/favorites bands own desk discovery.
+ * Mode and saved-workspace menus add no extra vertical band on desktop. */
+.trade-desk-frame {
+  position: relative;
+}
+.trade-workspace-controls {
+  position: absolute;
+  right: 12px;
+  top: -32px;
+  height: 32px;
+  z-index: 9;
+  border-bottom: 0;
+}
+.trade-workspace-controls .trade-menu {
+  right: 0;
+  left: auto;
+}
+.trade-favorites {
+  padding-right: 122px;
+}
+.trade-mode-menu {
+  position: relative;
+}
+.trade-mode-menu > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.trade-mode-menu .trade-mode-links {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  z-index: 11;
+  width: 208px;
+  flex-direction: column;
+  gap: 0;
+  padding: 8px 14px;
+  background: var(--color-shell);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  box-shadow: 0 12px 32px #0005;
+}
+.trade-mode-menu .trade-mode-links a {
+  height: 36px;
+}
+@media (min-width: 1200px) {
+  .trade-root--spot {
+    position: relative;
+  }
+  .trade-root--spot > .trade-modes {
+    position: absolute;
+    top: 16px;
+    right: 20px;
+    z-index: 10;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    gap: 18px;
+  }
+  .trade-root--spot .trade-market {
+    padding-right: 270px;
+  }
+}
+@media (max-width: 599px) {
+  .trade-workspace-controls {
+    right: 4px;
+  }
+  .trade-favorites {
+    padding-right: 112px;
+  }
+}

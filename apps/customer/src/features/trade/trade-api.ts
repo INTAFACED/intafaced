@@ -1,3 +1,4 @@
+import { tradeCopy as copy } from './copy';
 import { z } from 'zod';
 import {
   marketSchema,
@@ -14,7 +15,7 @@ import {
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { decimalSchema, parseAmount, formatAmount } from '../../shared/money';
 
-const positive = decimalSchema.refine((value) => parseAmount(value) > 0n, 'Expected a positive exact decimal string');
+const positive = decimalSchema.refine((value) => parseAmount(value) > 0n, copy.t('expectedAPositiveExactDecimalString'));
 export const listingSchema = marketSchema.extend({
   orderable: z.boolean(),
   precision: z.object({ price: positive, amount: positive }),
@@ -67,11 +68,11 @@ export const draftSchema = z
     clientOrderId: z.string().min(1).max(64),
   })
   .superRefine((draft, ctx) => {
-    if (draft.type === 'limit' && !draft.price) ctx.addIssue({ code: 'custom', path: ['price'], message: 'Enter a limit price.' });
+    if (draft.type === 'limit' && !draft.price) ctx.addIssue({ code: 'custom', path: ['price'], message: copy.t('enterALimitPrice') });
     if (draft.type === 'market' && draft.price !== undefined)
-      ctx.addIssue({ code: 'custom', path: ['price'], message: 'A market order cannot carry a limit price.' });
+      ctx.addIssue({ code: 'custom', path: ['price'], message: copy.t('aMarketOrderCannotCarryALimitPrice') });
     if (draft.postOnly && (draft.type !== 'limit' || !['GTC', 'PO'].includes(draft.timeInForce)))
-      ctx.addIssue({ code: 'custom', path: ['postOnly'], message: 'Post only requires a limit order with GTC.' });
+      ctx.addIssue({ code: 'custom', path: ['postOnly'], message: copy.t('postOnlyRequiresALimitOrderWithGtc') });
   });
 export type Draft = z.infer<typeof draftSchema>;
 export const amendmentSchema = z.object({
@@ -122,7 +123,7 @@ const historySchema = z.array(ohlcvSchema).superRefine((rows, ctx) => {
         throw new Error();
       timestamps.add(row[0]);
     } catch {
-      ctx.addIssue({ code: 'custom', path: [index], message: 'History contains a duplicate timestamp or invalid exact candle.' });
+      ctx.addIssue({ code: 'custom', path: [index], message: copy.t('historyContainsADuplicateTimestampOrInvalidExactCandle') });
     }
   });
 });
@@ -152,13 +153,13 @@ export function createTradeApi(api: ApiClient) {
       result.data.feeAsset === null
     )
       return refused(
-        result.data.refusals.map((row) => row.message).join(' ') || 'Fee or reservation is unavailable. Placement is disabled.',
+        result.data.refusals.map((row) => row.message).join(' ') || copy.t('feeOrReservationIsUnavailablePlacementIsDisabled'),
       );
     if (JSON.stringify(result.data) !== JSON.stringify(reviewed))
       return {
         ok: false,
         reason: 'changed',
-        message: 'Fee, price protection, or reservation changed. Review the refreshed values.',
+        message: copy.t('feePriceProtectionOrReservationChangedReviewTheRefreshedValues'),
         preview: result.data,
       };
     return result;
@@ -167,18 +168,18 @@ export function createTradeApi(api: ApiClient) {
     markets: (signal?: AbortSignal) => api.rest('/markets', z.array(listingSchema), { query: { limit: 500 }, signal }),
     book: async (symbol: string, signal?: AbortSignal) => {
       const result = await api.rest(`/orderbook/${encodeURIComponent(symbol)}`, orderBookSchema, { query: { limit: 200 }, signal });
-      return result.ok && result.data.symbol !== symbol ? invalid('The order book belongs to another market.') : result;
+      return result.ok && result.data.symbol !== symbol ? invalid(copy.t('theOrderBookBelongsToAnotherMarket')) : result;
     },
     ticker: async (symbol: string, signal?: AbortSignal) => {
       const result = await api.rest(`/ticker/${encodeURIComponent(symbol)}`, tickerSchema, { signal });
-      return result.ok && result.data.symbol !== symbol ? invalid('The ticker belongs to another market.') : result;
+      return result.ok && result.data.symbol !== symbol ? invalid(copy.t('theTickerBelongsToAnotherMarket')) : result;
     },
     history: (symbol: string, timeframe: string, signal?: AbortSignal, since?: number) =>
       api.rest(`/ohlcv/${encodeURIComponent(symbol)}`, historySchema, { query: { timeframe, limit: 500, since }, signal }),
     tape: async (symbol: string, signal?: AbortSignal) => {
       const result = await api.rest(`/trades/${encodeURIComponent(symbol)}`, z.array(tradeSchema), { query: { limit: 40 }, signal });
       return result.ok && result.data.some((row) => row.symbol !== symbol)
-        ? invalid('The public trades belong to another market.')
+        ? invalid(copy.t('thePublicTradesBelongToAnotherMarket'))
         : result;
     },
     balances: (signal?: AbortSignal) =>
@@ -195,7 +196,9 @@ export function createTradeApi(api: ApiClient) {
     async order(reviewed: ReviewedOrder): Promise<ApiResult<Order>> {
       const { id, symbol } = reviewed;
       const result = await api.rest(`/orders/${encodeURIComponent(id)}`, orderSchema);
-      return result.ok && (result.data.id !== id || result.data.symbol !== symbol) ? invalid('The order response does not identify the requested original order and reviewed market.') : result;
+      return result.ok && (result.data.id !== id || result.data.symbol !== symbol)
+        ? invalid(copy.t('theOrderResponseDoesNotIdentifyTheRequestedOriginalOrder'))
+        : result;
     },
     async cancel(reviewed: ReviewedOrder): Promise<ApiResult<Order>> {
       const { id, symbol } = reviewed;
@@ -204,7 +207,7 @@ export function createTradeApi(api: ApiClient) {
         return {
           ok: false,
           reason: 'uncertain',
-          message: 'Cancellation does not confirm the original order’s terminal outcome. Check its original status before another action.',
+          message: copy.t('cancellationDoesNotConfirmTheOriginalOrderSTerminalOutcomeCheck'),
         };
       return result;
     },
@@ -215,13 +218,13 @@ export function createTradeApi(api: ApiClient) {
         return {
           ok: false,
           reason: 'uncertain',
-          message: 'The amendment response does not identify the original order. Check its original status before another action.',
+          message: copy.t('theAmendmentResponseDoesNotIdentifyTheOriginalOrderCheckIts'),
         };
       if (result.ok && (result.data.reconciliationRequired || result.data.order.recoveryRequired))
         return {
           ok: false,
           reason: 'uncertain',
-          message: 'The original amendment is still recovering. Check its original status before another action.',
+          message: copy.t('theOriginalAmendmentIsStillRecoveringCheckItsOriginalStatusBefore'),
         };
       return result;
     },
@@ -230,10 +233,8 @@ export function createTradeApi(api: ApiClient) {
       if (!draft.success) return refused(draft.error.issues.map((row) => row.message).join(' '));
       const result = await api.rest('/orders/preview', previewSchema, { method: 'POST', body: draft.data });
       if (!result.ok && result.reason === 'uncertain')
-        return { ok: false, reason: 'invalid_response', message: 'Order preview could not be verified. No order was sent.' };
-      return result.ok && !matchesPreview(draft.data, result.data)
-        ? invalid('The preview does not match this order. Review again.')
-        : result;
+        return { ok: false, reason: 'invalid_response', message: copy.t('orderPreviewCouldNotBeVerifiedNoOrderWasSent') };
+      return result.ok && !matchesPreview(draft.data, result.data) ? invalid(copy.t('thePreviewDoesNotMatchThisOrderReviewAgain')) : result;
     },
     async place(
       draft: Draft,
@@ -243,19 +244,21 @@ export function createTradeApi(api: ApiClient) {
       const result = await currentReview(draft, reviewed);
       if (!result.ok) return result;
       if (!canDispatch(result.data))
-        return { ok: false, reason: 'aborted', message: 'Trading context changed before placement. No order was sent.' };
+        return { ok: false, reason: 'aborted', message: copy.t('tradingContextChangedBeforePlacementNoOrderWasSent') };
       const placed = await api.rest('/orders', orderSchema, { method: 'POST', body: draft });
       if (placed.ok && (placed.data.symbol !== draft.symbol || placed.data.clientOrderId !== draft.clientOrderId))
         return {
           ok: false,
           reason: 'uncertain',
-          message: 'The placement response does not identify this request. Reconcile the original request.',
+          message: copy.t('thePlacementResponseDoesNotIdentifyThisRequestReconcileTheOriginal'),
         };
       if (placed.ok && placed.data.recoveryRequired)
         return {
           ok: false,
           reason: 'uncertain',
-          message: `Placement requires reconciliation: ${placed.data.recoveryReason ?? 'outcome unknown'}. Holds remain reserved.`,
+          message: copy.t('placementRequiresReconciliationHoldsRemainReserved', {
+            placedDataRecoveryReasonOutcome: String(placed.data.recoveryReason ?? copy.t('unknownOutcome')),
+          }),
         };
       return placed;
     },
@@ -266,11 +269,11 @@ export function createTradeApi(api: ApiClient) {
       canDispatch: (preview: Preview) => boolean = () => true,
     ): Promise<ApiResult<z.infer<typeof replacementSchema>> | ChangedReview> {
       const { id, symbol } = original;
-      if (draft.symbol !== symbol) return refused('The replacement market does not match the reviewed original order.');
+      if (draft.symbol !== symbol) return refused(copy.t('replacementMarketMismatch'));
       const result = await currentReview(draft, reviewed);
       if (!result.ok) return result;
       if (!canDispatch(result.data))
-        return { ok: false, reason: 'aborted', message: 'Trading context changed before replacement. No cancel/replace was sent.' };
+        return { ok: false, reason: 'aborted', message: copy.t('tradingContextChangedBeforeReplacementNoCancelReplaceWasSent') };
       const replaced = await api.rest(`/orders/${encodeURIComponent(id)}/replace`, replacementSchema, { method: 'POST', body: draft });
       if (
         replaced.ok &&
@@ -285,7 +288,7 @@ export function createTradeApi(api: ApiClient) {
         return {
           ok: false,
           reason: 'uncertain',
-          message: 'The response does not identify this replacement. Reconcile its original request.',
+          message: copy.t('theResponseDoesNotIdentifyThisReplacementReconcileItsOriginalRequest'),
         };
       if (
         replaced.ok &&
@@ -294,7 +297,9 @@ export function createTradeApi(api: ApiClient) {
         return {
           ok: false,
           reason: 'uncertain',
-          message: `Cancel/replace requires reconciliation: ${replaced.data.reasonCode ?? replaced.data.code}. Original and replacement funds remain as reported by the ledger.`,
+          message: copy.t('cancelReplaceRequiresReconciliationOriginalAndReplacementFundsRemainAsReported', {
+            replacedDataReasonCodeReplaced: String(replaced.data.reasonCode ?? replaced.data.code),
+          }),
         };
       return replaced;
     },
@@ -309,15 +314,16 @@ export function createTradeApi(api: ApiClient) {
             ? {
                 ok: false,
                 reason: 'uncertain',
-                message: `Original request is still recovering: ${found.recoveryReason ?? 'outcome unknown'}.`,
+                message: copy.t('originalRequestIsStillRecovering', {
+                  foundRecoveryReasonOutcomeUnknown: String(found.recoveryReason ?? copy.t('unknownOutcome')),
+                }),
               }
             : { ok: true, data: found };
       }
       return {
         ok: false,
         reason: 'uncertain',
-        message:
-          'The request was not found in the returned order pages. Its outcome remains unknown; no new order or retry is enabled. Contact support with the request ID.',
+        message: copy.t('theRequestWasNotFoundInTheReturnedOrderPagesIts'),
       };
     },
   };
@@ -331,9 +337,9 @@ export function baseQuantityForValue(value: string, price: string, lot: string) 
   const quoted = parseAmount(value),
     reference = parseAmount(price),
     step = parseAmount(lot);
-  if (quoted <= 0n || reference <= 0n || step <= 0n) throw new Error('Enter a positive value and limit price.');
+  if (quoted <= 0n || reference <= 0n || step <= 0n) throw new Error(copy.t('enterAPositiveValueAndLimitPrice'));
   const quantity = ((quoted * parseAmount('1')) / reference / step) * step;
-  if (quantity <= 0n) throw new Error('This value cannot buy one whole published lot.');
+  if (quantity <= 0n) throw new Error(copy.t('thisValueCannotBuyOneWholePublishedLot'));
   return formatAmount(quantity);
 }
 export function portionInLots(available: string, percent: bigint, lot: string) {

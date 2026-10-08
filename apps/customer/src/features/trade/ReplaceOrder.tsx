@@ -1,3 +1,4 @@
+import { tradeCopy as copy, CopyText } from './copy';
 import { useEffect, useRef, useState } from 'react';
 import { Button, Dialog, Failure, Field } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
@@ -50,14 +51,18 @@ export function ReplaceOrder({
       setFailure({
         ok: false,
         reason: 'error',
-        message: `This order is ${result.data.status}, with ${result.data.filled} ${base} filled. Cancel/replace requires an unfilled working order with no recovery.`,
+        message: copy.t('thisOrderIsWithFilledCancelReplaceRequiresAnUnfilledWorking', {
+          resultDataStatus: String(result.data.status),
+          resultDataFilled: String(result.data.filled),
+          base: String(base),
+        }),
       });
       return null;
     }
     if (result.data.filled !== current.filled || result.data.remaining !== current.remaining || result.data.price !== current.price) {
       setCurrent(result.data);
       setReview(null);
-      setFailure({ ok: false, reason: 'error', message: 'The original order changed. Review its refreshed state before replacing it.' });
+      setFailure({ ok: false, reason: 'error', message: copy.t('theOriginalOrderChangedReviewItsRefreshedStateBeforeReplacingIt') });
       return null;
     }
     return result.data;
@@ -103,7 +108,25 @@ export function ReplaceOrder({
       if (result.ok) {
         onResolved(identity);
         onStatus(
-          `Cancel/replace: ${result.data.code}${result.data.reasonCode ? ` (${result.data.reasonCode})` : ''}. Original ${result.data.original.id}: ${result.data.original.status}. ${result.data.replacement ? `Replacement ${result.data.replacement.id}: ${result.data.replacement.status}; remaining ${result.data.replacement.remaining} ${base}.` : 'No replacement was submitted.'}${result.data.replacement ? ' A replacement enters with new queue priority.' : result.data.original.status === 'open' ? ' The original remains working; no cancellation or queue-priority change is confirmed by this refusal.' : ''}`,
+          copy.t('replacementOutcome', {
+            code: result.data.code,
+            reason: result.data.reasonCode ? ` (${result.data.reasonCode})` : '',
+            originalId: result.data.original.id,
+            originalStatus: result.data.original.status,
+            replacement: result.data.replacement
+              ? copy.t('replacementOrderOutcome', {
+                  id: result.data.replacement.id,
+                  status: result.data.replacement.status,
+                  remaining: result.data.replacement.remaining,
+                  base: String(base),
+                })
+              : copy.t('noReplacementSubmitted'),
+            priority: result.data.replacement
+              ? copy.t('replacementNewPriority')
+              : result.data.original.status === 'open'
+                ? copy.t('originalWorkingRefusal')
+                : '',
+          }),
         );
         onClose();
       } else if (result.reason === 'changed') {
@@ -132,65 +155,83 @@ export function ReplaceOrder({
   }
   return (
     <Dialog
-      title="Change price with cancel/replace"
+      title={<CopyText k={'changePriceWithCancelReplace'} />}
       onClose={() => {
         if (!busy) onClose();
       }}
     >
       <p>
-        {current.symbol} · {current.side} limit · {current.id}
+        {current.symbol} · {current.side} <CopyText k="limit" />
+        {current.id}
       </p>
       <dl className="trade-review">
         <div>
-          <dt>Original remaining</dt>
+          <dt>
+            <CopyText k="originalRemaining" />
+          </dt>
           <dd>
             {displayAmount(current.remaining)} {base}
           </dd>
         </div>
         <div>
-          <dt>Original limit price</dt>
+          <dt>
+            <CopyText k="originalLimitPrice" />
+          </dt>
           <dd>
-            {displayAmount(current.price)} {quote} per {base}
+            {displayAmount(current.price)} {quote} <CopyText k="per" />
+            {base}
           </dd>
         </div>
       </dl>
       <p className="trade-refusal">
-        The service first cancels the original and confirms its reservation release, then submits a new order. Queue priority is lost.
-        Replacement can fail after cancellation; a fill can prevent replacement.
+        <CopyText k="theServiceFirstCancelsTheOriginalAndConfirmsItsReservationRelease" />
       </p>
       {review ? (
         <>
           <dl className="trade-review">
             <div>
-              <dt>Replacement quantity</dt>
+              <dt>
+                <CopyText k="replacementQuantity" />
+              </dt>
               <dd>
                 {displayAmount(review.draft.amount)} {base}
               </dd>
             </div>
             <div>
-              <dt>Replacement price</dt>
+              <dt>
+                <CopyText k="replacementPrice" />
+              </dt>
               <dd>
-                {displayAmount(review.preview.price)} {quote} per {base}
+                {displayAmount(review.preview.price)} {quote} <CopyText k="per" />
+                {base}
               </dd>
             </div>
             <div>
-              <dt>Replacement order value</dt>
+              <dt>
+                <CopyText k="replacementOrderValue" />
+              </dt>
               <dd>
                 {displayAmount(exactValue(review.draft.price ?? '0', review.draft.amount))} {quote}
               </dd>
             </div>
             <div>
-              <dt>Conditions</dt>
+              <dt>
+                <CopyText k="conditions" />
+              </dt>
               <dd>{review.preview.timeInForce}</dd>
             </div>
             <div>
-              <dt>Estimated fee</dt>
+              <dt>
+                <CopyText k="estimatedFee" />
+              </dt>
               <dd>
                 {displayAmount(review.preview.estimatedFee)} {review.preview.feeAsset}
               </dd>
             </div>
             <div>
-              <dt>New reservation</dt>
+              <dt>
+                <CopyText k="newReservation" />
+              </dt>
               <dd>
                 {displayAmount(review.preview.holdAmount)} {review.preview.holdAsset}
               </dd>
@@ -213,34 +254,34 @@ export function ReplaceOrder({
             }
             onClick={() => void run(true)}
           >
-            {busy ? 'Checking replacement…' : 'Confirm cancel/replace'}
+            {busy ? <CopyText k={'checkingReplacement'} /> : <CopyText k={'confirmCancelReplace'} />}
           </Button>
           <Button variant="secondary" disabled={busy} onClick={() => setReview(null)}>
-            Back to edit
+            <CopyText k="backToEdit" />
           </Button>
         </>
       ) : (
         <>
           <Field
-            label={`Replacement limit price (${quote} per ${base})`}
+            label={<CopyText k={'replacementLimitPricePer'} params={{ quote: String(quote), base: String(base) }} />}
             inputMode="decimal"
             value={price}
             onChange={(event) => edit(() => setPrice(event.target.value))}
           />
           <Field
-            label={`Replacement quantity (${base})`}
+            label={<CopyText k={'replacementQuantityef5c2c'} params={{ base: String(base) }} />}
             inputMode="decimal"
             value={amount}
             onChange={(event) => edit(() => setAmount(event.target.value))}
           />
           <Button disabled={busy} onClick={() => void run(false)}>
-            {busy ? 'Checking original…' : 'Review replacement'}
+            {busy ? <CopyText k={'checkingOriginal'} /> : <CopyText k={'reviewReplacement'} />}
           </Button>
         </>
       )}
       {failure && <Failure result={failure} />}
       <Button variant="secondary" disabled={busy} onClick={onClose}>
-        Keep order
+        <CopyText k="keepOrder" />
       </Button>
     </Dialog>
   );
