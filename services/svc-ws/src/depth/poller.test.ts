@@ -228,4 +228,52 @@ describe('DepthPoller', () => {
     expect(source.marketCalls).toBe(0);
     expect(privateHub.matchingAvailable).toBe(true);
   });
+
+  it('does not turn a refresh window of 0 into a timer that calls refreshMarkets', async () => {
+    vi.useFakeTimers();
+    const intervals = vi.spyOn(globalThis, 'setInterval');
+    const source = new CountingSource();
+    const hub = new DepthHub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 5,
+      maxConnections: 10,
+      marketsRefreshMs: 0,
+    });
+    const poller = new DepthPoller(source, hub, { intervalMs: 60_000, depthLimit: 50, marketsRefreshMs: 0 }, log);
+    try {
+      poller.start();
+      expect(intervals.mock.calls.map((call) => call[1])).toEqual([60_000]);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(source.marketCalls).toBe(0);
+    } finally {
+      poller.stop();
+      intervals.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('schedules refreshMarkets when the refresh window is positive', async () => {
+    vi.useFakeTimers();
+    const intervals = vi.spyOn(globalThis, 'setInterval');
+    const source = new CountingSource();
+    const hub = new DepthHub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 5,
+      maxConnections: 10,
+      marketsRefreshMs: 1_000,
+    });
+    const poller = new DepthPoller(source, hub, { intervalMs: 60_000, depthLimit: 50, marketsRefreshMs: 1_000 }, log);
+    try {
+      poller.start();
+      expect(intervals.mock.calls.map((call) => call[1])).toEqual([60_000, 1_000]);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(source.marketCalls).toBe(1);
+    } finally {
+      poller.stop();
+      intervals.mockRestore();
+      vi.useRealTimers();
+    }
+  });
 });
