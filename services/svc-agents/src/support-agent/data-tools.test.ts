@@ -174,6 +174,34 @@ describe('support Stage-2 ticket.read — ownership at the door', () => {
       }),
     ).toMatchObject({ reason: 'incomplete_ticket' });
   });
+
+  it('refuses a port ticket whose id trims to blank', async () => {
+    const blankId = createFixtureSupportDesk({ tickets: [ticket] });
+    blankId.readTicket = async () => ({
+      status: 'ok',
+      ticket: { ticketId: '   ', ownerUserId: USER, status: 'open', category: 'withdrawals' },
+    });
+    expect(await read({ desk: blankId })).toEqual({
+      status: 'refuse',
+      tool: 'support.ticket.read',
+      reason: 'incomplete_ticket',
+      userMessageKey: 'agents.support.unavailable',
+    });
+  });
+
+  it('refuses a port ticket whose id is not the one requested', async () => {
+    const otherId = createFixtureSupportDesk({ tickets: [ticket] });
+    otherId.readTicket = async () => ({
+      status: 'ok',
+      ticket: { ticketId: 'tkt-other', ownerUserId: USER, status: 'open', category: 'withdrawals' },
+    });
+    expect(await read({ desk: otherId })).toEqual({
+      status: 'refuse',
+      tool: 'support.ticket.read',
+      reason: 'missing_fixture',
+      userMessageKey: 'agents.support.unavailable',
+    });
+  });
 });
 
 describe('support Stage-2 account.read — status only, never a balance', () => {

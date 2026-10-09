@@ -233,6 +233,13 @@ async function invokeViaDesk(
     if (read.status === 'unreachable') return unavailable(tool, 'no_live_kb');
     if (read.status === 'missing') return unavailable(tool, 'missing_fixture');
     const ticket = read.ticket;
+    const portTicketId = ticket.ticketId.trim();
+    if (!portTicketId) {
+      return unavailable(tool, 'incomplete_ticket');
+    }
+    if (portTicketId !== ticketId) {
+      return unavailable(tool, 'missing_fixture');
+    }
     if (!ticket.category.trim() || !ticket.ownerUserId.trim()) {
       return unavailable(tool, 'incomplete_ticket');
     }
