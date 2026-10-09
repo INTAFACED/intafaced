@@ -136,6 +136,10 @@ a.pay-destination:hover > span:last-child {
   flex-direction: column;
   gap: 24px;
 }
+.pay-transfer-outcome:empty + .pay-section {
+  border-top: 0;
+  padding-top: 0;
+}
 .pay-transfer-value {
   display: flex;
   flex-direction: column;

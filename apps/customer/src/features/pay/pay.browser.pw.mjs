@@ -208,6 +208,8 @@ test('A confirmed transfer receipt survives failed source refresh and subsequent
     return reply(route, { ledgerTxId: 'confirmed-before-refresh', amount: input.amount });
   });
   await mount(page, '/pay/send');
+  const outcome = page.getByRole('status', { name: 'Transfer result' });
+  await expect(outcome).toBeEmpty();
   await page.getByLabel('Source account').selectOption(spaceId);
   await page.getByLabel('Recipient account ID').fill(merchantId);
   await page.getByLabel('Amount · USDT', { exact: true }).fill('1.000000000000000001');
@@ -215,6 +217,9 @@ test('A confirmed transfer receipt survives failed source refresh and subsequent
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm transfer' }).click();
   await expect(page.getByRole('heading', { name: 'Transfer confirmed' })).toBeVisible();
   await expect(page.getByText('confirmed-before-refresh', { exact: true })).toBeVisible();
+  await expect(outcome.getByText('confirmed-before-refresh', { exact: true })).toBeVisible();
+  await expect(outcome).toHaveAttribute('aria-live', 'polite');
+  await expect(outcome).toHaveAttribute('aria-atomic', 'true');
   await expect(page.getByText('1.000000000000000001 USDT', { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Connection unavailable' })).toBeVisible();
   expect(reads).toBe(3);
@@ -222,6 +227,7 @@ test('A confirmed transfer receipt survives failed source refresh and subsequent
   allowRefresh = true;
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByLabel('Source account')).toBeVisible();
+  await expect(outcome.getByText('confirmed-before-refresh', { exact: true })).toBeVisible();
   await expect(page.getByText('confirmed-before-refresh', { exact: true })).toBeVisible();
   await expect(page.getByText('1.000000000000000001 USDT', { exact: true })).toBeVisible();
   expect(posted).toHaveLength(1);

@@ -686,6 +686,7 @@ const messages = {
   ledgerTransaction: 'Ledger transaction',
   confirmedAmount: 'Confirmed amount',
   transferConfirmed: 'Transfer confirmed',
+  transferResult: 'Transfer result',
   keepThisLedgerReceipt: 'Keep this ledger receipt. Source balances refresh separately.',
   from: 'From',
   recipientAccount: 'Recipient account',

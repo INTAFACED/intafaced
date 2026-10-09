@@ -128,16 +128,18 @@ function SendMoney({ pay, userId }: { pay: PersonalPayApi; userId: string | null
   const [confirmed, setConfirmed] = useState<ConfirmedTransfer | null>(null);
   return (
     <>
-      {confirmed && (
-        <PaySection title={payCopy.t('transferConfirmed')} description={payCopy.t('keepThisLedgerReceipt')}>
-          <PayDetails
-            values={[
-              [payCopy.t('ledgerTransaction'), confirmed.ledgerTxId],
-              [payCopy.t('confirmedAmount'), `${displayAmount(confirmed.amount)} ${confirmed.assetId}`],
-            ]}
-          />
-        </PaySection>
-      )}
+      <div className="pay-transfer-outcome" role="status" aria-label={payCopy.t('transferResult')} aria-live="polite" aria-atomic="true">
+        {confirmed && (
+          <PaySection title={payCopy.t('transferConfirmed')} description={payCopy.t('keepThisLedgerReceipt')}>
+            <PayDetails
+              values={[
+                [payCopy.t('ledgerTransaction'), confirmed.ledgerTxId],
+                [payCopy.t('confirmedAmount'), `${displayAmount(confirmed.amount)} ${confirmed.assetId}`],
+              ]}
+            />
+          </PaySection>
+        )}
+      </div>
       <PayState resource={sources.resource} retry={sources.reload} empty={payCopy.t('noSourceSpacesAvailable')}>
         {(spaces) => <SendForm pay={pay} spaces={spaces} userId={userId} reload={sources.reload} onConfirmed={setConfirmed} />}
       </PayState>
