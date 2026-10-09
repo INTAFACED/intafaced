@@ -83,6 +83,28 @@ describe('a merchant parent cycle of any length is refused', () => {
     for (const migration of priorMigrations) {
       await sql.unsafe(rewritePaySchema(migration, schema));
     }
+
+    // 0009 adds merchants_parent_not_self only when that conname is absent
+    // anywhere in the database. A shared database that already owns the name
+    // on pay.merchants skips the ADD, so this rewritten schema must add the
+    // same check itself.
+    const selfCheck = await sql<Array<{ conname: string }>>`
+      SELECT con.conname
+        FROM pg_constraint con
+        JOIN pg_class c ON c.oid = con.conrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = ${schema}
+         AND c.relname = 'merchants'
+         AND con.conname = ${SELF_CK}
+    `;
+    if (selfCheck.length === 0) {
+      if (!/^[a-z][a-z0-9_]*$/i.test(schema)) {
+        throw new Error(`refusing to add ${SELF_CK} on ${schema}`);
+      }
+      await sql.unsafe(
+        `ALTER TABLE "${schema}"."merchants" ADD CONSTRAINT "${SELF_CK}" CHECK ("parent_merchant_id" IS NULL OR "parent_merchant_id" <> "id")`,
+      );
+    }
   }, 120_000);
 
   afterAll(async () => {
