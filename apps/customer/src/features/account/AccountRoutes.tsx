@@ -1,27 +1,16 @@
 import { copy, t as copyText, Text } from './copy';
-import { useState, type FormEvent } from 'react';
+import { useState } from 'react';
 import { z } from 'zod';
-import { Button, Dialog, EmptyState, Failure, Field, Loading, Page, Panel, DataTable } from '../../shared/ui';
+import { Button, EmptyState, Failure, Page, Panel } from '../../shared/ui';
 import { useSession } from '../session/session';
-import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { View } from './View';
+import { Verification } from './Verification';
 import { Security } from './Security';
 import { Account } from './Account';
 import { Notifications } from './Notifications';
 import { ReferralRecords } from './ReferralRecords';
 import './account.css';
-
-const kycRecord = z.object({
-  id: z.string().uuid(),
-  userId: z.string().uuid(),
-  tier: z.enum(['none', 'basic', 'full', 'institutional']),
-  jurisdiction: z.string(),
-  status: z.enum(['pending', 'approved', 'rejected', 'expired']),
-  reviewedAt: z.string().nullable(),
-  expiresAt: z.string().nullable(),
-  createdAt: z.string(),
-});
 
 export function AccountRoutes({ path }: { path: string }) {
   const { languageFor } = copy.useCopy();
@@ -81,150 +70,6 @@ function ResultNotice({ result }: { result: ApiResult<unknown> | null }) {
     <div lang="und">
       <Failure result={result} />
     </div>
-  );
-}
-function Verification() {
-  const { api, session } = useSession();
-  const { requestedLocale } = copy.useCopy();
-  const { resource, reload } = useResource(
-    (signal) =>
-      api.query(
-        'identity',
-        'kyc.status',
-        { limit: 50 },
-        z
-          .object({ tier: z.enum(['none', 'basic', 'full', 'institutional']), records: z.array(kycRecord) })
-          .refine(
-            (value) => value.records.every((record) => record.userId === session?.userId),
-            copyText('accountroutes.verification.belongs.to.another.account'),
-          ),
-        { signal },
-      ),
-    `kyc:${session?.userId}`,
-  );
-  const [tier, setTier] = useState('basic');
-  const [country, setCountry] = useState('');
-  const [review, setReview] = useState(false);
-  const [pending, setPending] = useState(false);
-  const [result, setResult] = useState<ApiResult<unknown> | null>(null);
-  async function request() {
-    setPending(true);
-    const response = await api.mutate('identity', 'kyc.submit', { tier, jurisdiction: country.toUpperCase() }, kycRecord);
-    setPending(false);
-    setResult(response);
-    setReview(false);
-    if (response.ok) reload();
-  }
-  return (
-    <Page title={copyText('accountroutes.verification.2')} description={copyText('accountroutes.see.your.current.tier.and.request.review')}>
-      <div className="split">
-        <section className="stack">
-          {resource.status === 'loading' ? (
-            <Loading />
-          ) : resource.status === 'failed' ? (
-            <div lang="und">
-              <Failure result={resource.failure} retry={reload} />
-            </div>
-          ) : (
-            <>
-              <div className="account-summary">
-                <span className="eyebrow">
-                  <Text k="accountroutes.current.verified.tier" />
-                </span>
-                <h2 lang="zxx">{resource.data.tier}</h2>
-              </div>
-              {resource.data.records.length ? (
-                <DataTable
-                  headers={[
-                    copyText('accountroutes.requested.tier'),
-                    copyText('accountroutes.country'),
-                    copyText('accountroutes.status'),
-                    copyText('accountroutes.requested'),
-                  ]}
-                  label={copyText('accountroutes.verification.requests')}
-                >
-                  {resource.data.records.map((record) => (
-                    <tr key={record.id}>
-                      <td lang="zxx">{record.tier}</td>
-                      <td lang="zxx">{record.jurisdiction}</td>
-                      <td lang="zxx">{record.status}</td>
-                      <td>
-                        <time dateTime={record.createdAt} lang={requestedLocale}>
-                          {new Date(record.createdAt).toLocaleDateString(requestedLocale)}
-                        </time>
-                      </td>
-                    </tr>
-                  ))}
-                </DataTable>
-              ) : (
-                <EmptyState title={copyText('accountroutes.no.verification.requests.returned')}>
-                  <Text k="accountroutes.request.the.tier.needed.for.your.account" />
-                </EmptyState>
-              )}
-              <p className="muted">
-                <Text k="accountroutes.up.to.50.requests.document.uploads.and" />
-              </p>
-            </>
-          )}
-        </section>
-        <Panel title={copyText('accountroutes.request.verification')}>
-          <form
-            className="form-stack"
-            onSubmit={(event) => {
-              event.preventDefault();
-              setReview(true);
-            }}
-          >
-            <label className="field">
-              <span>
-                <Text k="accountroutes.requested.tier" />
-              </span>
-              <select value={tier} onChange={(event) => setTier(event.target.value)}>
-                <option value="basic">
-                  <Text k="accountroutes.basic" />
-                </option>
-                <option value="full">
-                  <Text k="accountroutes.full" />
-                </option>
-                <option value="institutional">
-                  <Text k="accountroutes.institutional" />
-                </option>
-              </select>
-            </label>
-            <Field
-              label={copyText('accountroutes.country.code')}
-              name="kyc-country"
-              required
-              minLength={2}
-              maxLength={2}
-              pattern="[a-zA-Z]{2}"
-              value={country}
-              onChange={(event) => setCountry(event.target.value)}
-              hint={copyText('accountroutes.iso.two.letter.jurisdiction.code')}
-            />
-            <Button type="submit" disabled={pending || (result?.ok === false && result.reason === 'uncertain')}>
-              <Text k="accountroutes.review.request" />
-            </Button>
-          </form>
-        </Panel>
-      </div>
-      <ResultNotice result={result} />
-      {review && (
-        <Dialog title={copyText('accountroutes.request.verification.review')} onClose={() => !pending && setReview(false)}>
-          <div className="stack">
-            <p lang="zxx">
-              {tier} · {country.toUpperCase()}
-            </p>
-            <p className="muted">
-              <Text k="accountroutes.this.creates.a.pending.request.your.current" />
-            </p>
-            <Button disabled={pending} onClick={() => void request()}>
-              <Text k="accountroutes.submit.request" />
-            </Button>
-          </div>
-        </Dialog>
-      )}
-    </Page>
   );
 }
 function Promotions() {
