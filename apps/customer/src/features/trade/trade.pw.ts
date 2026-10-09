@@ -308,6 +308,132 @@ async function mount(
   };
 }
 
+test('a trader sees exact draft value before the authoritative order review', async ({ page }) => {
+  const server = await mount(page);
+  await page.goto('/exchange?fullApp=1');
+  const ticket = page.getByRole('region', { name: 'Spot order ticket' });
+  await ticket.getByLabel('Price (USDT per BTC)').fill('80000');
+  await ticket.getByLabel('Amount (BTC)').fill('0.025');
+  const value = ticket.getByRole('group', { name: 'Draft order value' });
+  await expect(value).toContainText('2,000 USDT');
+  await expect(value).toContainText('Before fees · Confirm in order review');
+  expect(server.previews()).toBe(0);
+  expect(server.placements()).toBe(0);
+  await ticket.getByLabel('Amount (BTC)').fill('0.025000000000000001');
+  await expect(value).toContainText('2,000.00000000000008 USDT');
+});
+
+test('draft value follows whole-lot quote sizing and stays absent for unusable inputs or a market order', async ({ page }) => {
+  const server = await mount(page);
+  await page.goto('/exchange');
+  const ticket = page.getByRole('region', { name: 'Spot order ticket' });
+  const price = ticket.getByLabel('Price (USDT per BTC)'),
+    amount = ticket.getByLabel('Amount (BTC)');
+  const value = ticket.getByRole('group', { name: 'Draft order value' });
+  for (const [p, q] of [
+    ['', '0.025'],
+    ['80000', ''],
+    ['0', '0.025'],
+    ['-1', '0.025'],
+    ['1e3', '0.025'],
+    ['80000', '0'],
+    ['0.000000000000000001', '0.1'],
+    ['99999999999999999999', '2'],
+  ] as const) {
+    await price.fill(p);
+    await amount.fill(q);
+    await expect(value.locator('strong')).toHaveText('—');
+    await expect(value).toContainText('Enter a valid limit price and quantity.');
+  }
+  await price.fill('80000');
+  await ticket.getByLabel('Size units', { exact: true }).selectOption('quote');
+  await ticket.getByLabel('Order value (USDT)').fill('2001');
+  await expect(value).toContainText('2,000.8 USDT');
+  await ticket.getByRole('button', { name: 'Market', exact: true }).click();
+  await expect(value.locator('strong')).toHaveText('—');
+  await expect(value).toContainText('Market value is confirmed in order review.');
+  expect(server.previews()).toBe(0);
+  expect(server.placements()).toBe(0);
+});
+
+test('market discovery filters published quotes and saved favorites without changing the active draft', async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem('trade-favorites:00000000-0000-4000-8000-000000000001', JSON.stringify(['BTC/USDT'])),
+  );
+  const server = await mount(page);
+  await page.route('**/api/v1/markets*', (route) =>
+    route.fulfill({
+      json: [
+        market('BTC'),
+        market('ETH'),
+        { ...market('ETH'), id: 'market-ETH-EUR', symbol: 'ETH/EUR', quote: 'EUR', sessionOpen: false },
+        { ...market('LTC'), active: false },
+      ],
+    }),
+  );
+  await page.goto('/exchange?fullApp=1');
+  await page.getByLabel('Price (USDT per BTC)', { exact: true }).fill('80000');
+  await page.getByLabel('Amount (BTC)', { exact: true }).fill('0.025');
+  await page.getByRole('button', { name: 'All markets', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('button', { name: /BTC\/USDT/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(dialog.getByRole('button', { name: /LTC\/USDT/ })).toContainText('Inactive');
+  await dialog.getByLabel('Quote asset', { exact: true }).selectOption({ label: 'EUR' });
+  await expect(dialog.getByRole('button', { name: /ETH\/EUR/ })).toContainText('Session closed');
+  await expect(dialog.getByRole('button', { name: /BTC\/USDT/ })).toHaveCount(0);
+  await expect(page.getByLabel('Amount (BTC)', { exact: true })).toHaveValue('0.025');
+  await dialog.getByLabel('Quote asset', { exact: true }).selectOption('all');
+  await dialog.getByRole('button', { name: 'Favorites', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: /BTC\/USDT/ })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: /ETH\/USDT/ })).toHaveCount(0);
+  await dialog.getByLabel('Search markets', { exact: true }).fill('ETH');
+  await expect(dialog.getByText('No matching markets for these filters.', { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Show all markets', exact: true }).click();
+  await expect(dialog.getByLabel('Search markets', { exact: true })).toHaveValue('');
+  await dialog.getByRole('button', { name: 'ETH/USDT Published for trading', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByLabel('Price (USDT per ETH)', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('Amount (ETH)', { exact: true })).toHaveValue('');
+  await expect(page.getByRole('group', { name: 'Draft order value' }).locator('strong')).toHaveText('—');
+  await expect(page.getByRole('img', { name: 'Actual ETH/USDT historical prices' })).toBeVisible();
+  expect(server.previews()).toBe(0);
+  expect(server.placements()).toBe(0);
+});
+
+test('the phone market picker handles empty favorites and long symbols, then restores desk focus', async ({ page }) => {
+  const server = await mount(page);
+  const long = 'LONGNAMEDPUBLISHEDASSET';
+  await page.route('**/api/v1/markets*', (route) => route.fulfill({ json: [market('BTC'), market('ETH'), market(long)] }));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/exchange?fullApp=1');
+  const open = page.getByRole('button', { name: 'All markets', exact: true });
+  await open.click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByLabel('Search markets', { exact: true })).toBeFocused();
+  await expect(dialog.getByLabel('Quote asset', { exact: true })).toHaveCount(0);
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect(dialog.getByRole('button', { name: `${long}/USDT Published for trading`, exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    const bounds = await dialog.boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+  }
+  await dialog.getByRole('button', { name: 'Favorites', exact: true }).click();
+  await expect(dialog.getByText('No favorite markets in this mode.', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Use the star on the desk to save a market.', { exact: true })).toBeVisible();
+  await page.screenshot({
+    path: '/Users/Nitro/Desktop/intafaced-interface-overview/named-look/build/paper-sync-2026-10-08/journey-1-browser-empty-favorites-320.png',
+  });
+  await dialog.getByRole('button', { name: 'Show all markets', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: /BTC\/USDT/ })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(open).toBeFocused();
+  expect(server.previews()).toBe(0);
+  expect(server.placements()).toBe(0);
+});
+
 test('the actual App default desktop Desk fits chart and management within the R5 viewport', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await mount(page);
@@ -654,10 +780,13 @@ test('the actual Desk keeps working orders and an uncertain cancellation within 
     expect(bounds).not.toBeNull();
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
     await expect(page.getByRole('textbox', { name: /^Amount \(BTC/ })).toHaveValue('0.025');
+    await expect(page.getByRole('group', { name: 'Draft order value' })).toContainText('2,000 USDT');
     await expect(page.getByText('O 80000 · H 80020 · L 79990 · C 80001 USDT · V 1 BTC', { exact: true })).toBeVisible();
     await expect(page.getByText('Outcome not confirmed · cancel', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Review buy', exact: true })).toBeDisabled();
     await expect(chart.locator('canvas')).toHaveCount(originalCanvases.length);
+    const proof = '/Users/Nitro/Desktop/intafaced-interface-overview/named-look/build/paper-sync-2026-10-08';
+    await page.screenshot({ path: `${proof}/journey-1-browser-uncertain-${width}.png`, fullPage: true });
     for (let index = 0; index < originalCanvases.length; index++)
       expect(
         await chart

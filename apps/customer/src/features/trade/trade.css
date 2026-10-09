@@ -509,6 +509,35 @@
   border-radius: 4px;
   font-size: 13px;
 }
+.trade-draft-value {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  padding-block: var(--spacing-8);
+  border-block: 1px solid var(--color-divider);
+  color: var(--color-muted);
+}
+.trade-draft-value > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--spacing-8);
+  font-size: 13px;
+  line-height: 20px;
+}
+.trade-draft-value strong {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+.trade-draft-value small {
+  font-size: 12px;
+  line-height: 18px;
+}
 .trade-inline {
   display: flex;
   align-items: center;
@@ -680,7 +709,7 @@
   display: flex;
   flex-direction: column;
 }
-.trade-picker button {
+.trade-picker > button {
   display: flex;
   justify-content: space-between;
   gap: 20px;
@@ -690,8 +719,69 @@
   border-bottom: 1px solid var(--color-divider);
   text-align: left;
 }
-.trade-picker span {
+.trade-picker > button[aria-pressed='true'] {
+  background: var(--color-selected);
+  border-radius: var(--radius-4);
+}
+.trade-picker-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-8);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.trade-picker-current {
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--color-accent);
+}
+.trade-picker-admission {
+  text-align: right;
+  flex-shrink: 0;
+  max-width: 48%;
+  font-size: 13px;
   color: var(--color-muted);
+}
+.trade-picker-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-12);
+  padding-top: var(--spacing-12);
+}
+.trade-picker-filters .tabs {
+  gap: var(--spacing-20);
+  padding: 0;
+  font-size: 13px;
+}
+.trade-picker-filters select {
+  height: 40px;
+  max-width: 100%;
+  font-size: 13px;
+}
+.trade-picker-empty .empty-state {
+  padding: 16px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  gap: var(--spacing-12);
+}
+.trade-picker-empty .empty-mark {
+  display: none;
+}
+.trade-picker-empty h3 {
+  font-size: 14px;
+  line-height: 22px;
+}
+.trade-picker-empty .button {
+  min-height: 44px;
+}
+@media (max-width: 520px) {
+  .trade-picker-filters select {
+    width: 100%;
+  }
 }
 .trade-tools {
   display: flex;

@@ -256,6 +256,8 @@ export function TradeRoutes({ path }: { path: string }) {
           markets={visible}
           resource={catalogue.resource}
           retry={catalogue.reload}
+          favorites={favorites}
+          currentMarketId={market?.id}
           onSelect={choose}
           onClose={() => setPicker(false)}
         />
@@ -294,44 +296,112 @@ function MarketPicker({
   markets,
   resource,
   retry,
+  favorites,
+  currentMarketId,
   onSelect,
   onClose,
 }: {
   markets: Listing[];
   resource: Resource<Listing[]>;
   retry: () => void;
+  favorites: readonly string[];
+  currentMarketId: string | undefined;
   onSelect: (market: Listing) => void;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState('');
+  const [collection, setCollection] = useState<'all' | 'favorites'>('all');
+  const [quote, setQuote] = useState<string | null>(null);
+  const quotes = [...new Set(markets.map((market) => market.quote))].sort();
+  const hasFavorites = markets.some((market) => favorites.includes(market.symbol));
+  const matching = markets.filter(
+    (market) =>
+      (collection === 'all' || favorites.includes(market.symbol)) &&
+      (quote === null || market.quote === quote) &&
+      `${market.symbol} ${market.base} ${market.quote}`.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+  function resetFilters() {
+    setCollection('all');
+    setQuote(null);
+    setQuery('');
+  }
   return (
     <Dialog title={<CopyText k={'chooseMarket'} />} onClose={onClose}>
       <Field label={<CopyText k={'searchMarkets'} />} autoFocus value={query} onChange={(event) => setQuery(event.target.value)} />
+      {resource.status === 'ready' && markets.length > 0 && (
+        <div className="trade-picker-filters">
+          <Tabs
+            items={['all', 'favorites']}
+            value={collection}
+            onChange={(value) => setCollection(value === 'favorites' ? 'favorites' : 'all')}
+            labels={{ all: <CopyText k="allMarkets" />, favorites: <CopyText k="favorites" /> }}
+            label={copy.t('marketCollections')}
+          />
+          {quotes.length > 1 && (
+            <select
+              aria-label={copy.t('quoteAsset')}
+              value={quote === null ? 'all' : `quote:${quote}`}
+              onChange={(event) => setQuote(event.target.value === 'all' ? null : event.target.value.slice('quote:'.length))}
+            >
+              <option value="all">{copy.t('allQuoteAssets')}</option>
+              {quotes.map((asset) => (
+                <option key={asset} value={`quote:${asset}`}>
+                  {asset}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
       <div className="trade-picker">
         {resource.status === 'loading' && <Loading label={<CopyText k={'loadingPublishedMarkets'} />} />}
         {resource.status === 'failed' && <Failure result={resource.failure} retry={retry} />}
-        {markets
-          .filter((market) => `${market.symbol} ${market.base} ${market.quote}`.toLowerCase().includes(query.toLowerCase()))
-          .map((market) => (
-            <button key={market.id} onClick={() => onSelect(market)}>
+        {matching.map((market) => (
+          <button key={market.id} aria-pressed={market.id === currentMarketId} onClick={() => onSelect(market)}>
+            <span className="trade-picker-name">
               <strong>{market.symbol}</strong>
-              <span>
-                {market.paper ? (
-                  <CopyText k={'simulated31fe29'} />
-                ) : market.orderable && market.sessionOpen ? (
-                  <CopyText k={'publishedForTrading'} />
-                ) : (
-                  <CopyText k={'restricted'} />
-                )}
-              </span>
-            </button>
-          ))}
-        {resource.status === 'ready' &&
-          !markets.some((market) => `${market.symbol} ${market.base} ${market.quote}`.toLowerCase().includes(query.toLowerCase())) && (
-            <p>
-              <CopyText k="noMatchingPublishedMarketsInThisMode" />
-            </p>
-          )}
+              {market.id === currentMarketId && (
+                <small className="trade-picker-current">
+                  <CopyText k="currentMarket" />
+                </small>
+              )}
+            </span>
+            <span className="trade-picker-admission">
+              {market.paper && (
+                <>
+                  <CopyText k="simulated31fe29" /> ·{' '}
+                </>
+              )}
+              <CopyText
+                k={
+                  !market.active
+                    ? 'inactive'
+                    : !market.sessionOpen
+                      ? 'sessionClosed'
+                      : !market.orderable
+                        ? 'entryRestricted'
+                        : 'publishedForTrading'
+                }
+              />
+            </span>
+          </button>
+        ))}
+        {resource.status === 'ready' && !matching.length && (
+          <div className="trade-picker-empty">
+            <EmptyState
+              title={<CopyText k={collection === 'favorites' && !hasFavorites ? 'noFavoriteMarkets' : 'noMatchingMarketFilters'} />}
+              action={
+                (collection !== 'all' || quote !== null || query.trim()) && (
+                  <Button variant="secondary" onClick={resetFilters}>
+                    <CopyText k="showAllMarkets" />
+                  </Button>
+                )
+              }
+            >
+              {collection === 'favorites' && !hasFavorites && <CopyText k="saveMarketWithStar" />}
+            </EmptyState>
+          </div>
+        )}
       </div>
     </Dialog>
   );
@@ -1277,6 +1347,21 @@ function OrderTicket({
       return false;
     }
   })();
+  const draftOrderValue = (() => {
+    if (type !== 'limit') return null;
+    try {
+      const baseAmount = sizeUnit === 'quote' ? baseQuantityForValue(amount, price, market.precision.amount) : amount;
+      const priceAmount = parseAmount(price),
+        quantity = parseAmount(baseAmount),
+        scale = parseAmount('1');
+      if (priceAmount <= 0n || quantity <= 0n || (priceAmount * quantity) % scale !== 0n) return null;
+      const value = exactValue(price, baseAmount);
+      parseAmount(value); // Refuse an out-of-range value rather than crashing its display.
+      return value;
+    } catch {
+      return null;
+    }
+  })();
   return (
     <section
       className="trade-ticket"
@@ -1497,6 +1582,23 @@ function OrderTicket({
               value={amount}
               onChange={(event) => change(() => setAmount(event.target.value))}
             />
+            <div className="trade-draft-value" role="group" aria-label={copy.t('draftOrderValue')}>
+              <div>
+                <CopyText k="orderValuefa10dc" />
+                <strong className="numeric">{draftOrderValue === null ? '—' : `${displayAmount(draftOrderValue)} ${market.quote}`}</strong>
+              </div>
+              <small>
+                <CopyText
+                  k={
+                    type === 'market'
+                      ? 'marketValueConfirmedInReview'
+                      : draftOrderValue === null
+                        ? 'draftValueNeedsInputs'
+                        : 'draftValueBeforeFees'
+                  }
+                />
+              </small>
+            </div>
             <label className="trade-inline">
               <CopyText k="sizeUnits" />
               <select
