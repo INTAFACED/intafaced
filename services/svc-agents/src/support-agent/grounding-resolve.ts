@@ -50,6 +50,11 @@ export function accountFromState(state: AccountState, requesterUserId: string): 
   if (accountProjectionHasInventMoney(state)) {
     return { status: 'refuse', reason: 'balance_field_forbidden' };
   }
+  for (const key of Object.keys(state)) {
+    if (key !== 'userId' && key !== 'status' && key !== 'kycTier') {
+      return { status: 'refuse', reason: 'balance_field_forbidden' };
+    }
+  }
   if (!state.userId.trim() || !state.kycTier.trim()) {
     return { status: 'refuse', reason: 'incomplete_account' };
   }

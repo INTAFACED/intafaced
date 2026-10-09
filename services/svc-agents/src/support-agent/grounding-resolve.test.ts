@@ -77,6 +77,21 @@ describe('accountFromGrounding', () => {
       reason: 'balance_field_forbidden',
     });
   });
+
+  it('refuses sanctionsList and an unrecognized money key instead of stripping them', () => {
+    expect(
+      accountFromState({ userId: USER, status: 'active', kycTier: 'basic', sanctionsList: [] } as never, USER),
+    ).toEqual({
+      status: 'refuse',
+      reason: 'balance_field_forbidden',
+    });
+    expect(
+      accountFromState({ userId: USER, status: 'active', kycTier: 'basic', notional: '1.00' } as never, USER),
+    ).toEqual({
+      status: 'refuse',
+      reason: 'balance_field_forbidden',
+    });
+  });
 });
 
 describe('resolveSupportAskFixtures', () => {
