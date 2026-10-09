@@ -789,10 +789,11 @@ export class AgentRuntime {
    * Append the usage_settlement row for the amount `meter.settle` returned.
    *
    * Returns true only when this call wrote the row. The charge key is stored
-   * on `output_digest` because `agent_actions` has no window column; a later
-   * retry finds that row and does not append a second one. A settlement logged
-   * before the key was stored is recognised by the session already having a
-   * usage_settlement row for every sealed window.
+   * on `output_digest` because `agent_actions` has no window column. A row
+   * counts for this charge only when that digest equals `result.chargeKey`.
+   * An unkeyed row, or a row for a different charge, is not this charge: it
+   * must not suppress this row, and a charge key that already has a row must
+   * not gain a second one.
    */
   private async recordUsageSettlement(session: SessionRecord, result: SettlementResult): Promise<boolean> {
     return transaction(
@@ -800,25 +801,15 @@ export class AgentRuntime {
       async (tx) => {
         await tx`SELECT id FROM agents.agent_sessions WHERE id = ${session.id} FOR UPDATE`;
 
-        const rows = await tx<Array<{ keyed: boolean; covered: boolean }>>`
-          SELECT
-            EXISTS (
-              SELECT 1 FROM agents.agent_actions
-               WHERE session_id = ${session.id}
-                 AND kind = 'usage_settlement'
-                 AND output_digest = ${result.chargeKey}
-            ) AS keyed,
-            (
-              SELECT count(*) FROM agents.agent_actions
-               WHERE session_id = ${session.id} AND kind = 'usage_settlement'
-            ) >= (
-              SELECT count(*) FROM agents.usage_windows
-               WHERE session_id = ${session.id} AND charge_tx_id IS NOT NULL
-            ) AS covered
+        const rows = await tx<Array<{ keyed: boolean }>>`
+          SELECT EXISTS (
+            SELECT 1 FROM agents.agent_actions
+             WHERE session_id = ${session.id}
+               AND kind = 'usage_settlement'
+               AND output_digest = ${result.chargeKey}
+          ) AS keyed
         `;
-        const row = rows[0];
-        if (row?.keyed === true) return false;
-        if (!result.settled && row?.covered === true) return false;
+        if (rows[0]?.keyed === true) return false;
 
         await this.audit.append(tx, {
           sessionId: session.id,

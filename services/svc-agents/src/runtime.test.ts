@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
-import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
+import { assertTestDatabase, postgresAvailable, transaction } from '@intafaced/db';
 import { describe, expect, it, beforeEach, afterAll } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
@@ -496,6 +496,176 @@ if (!available) {
       expect(await houseOf()).toBe(formatAmount(expected));
       expect(ledger.journal()).toHaveLength(3);
       expect((await runtime.sessionLog(session.id, 500)).filter((row) => row.kind === 'usage_settlement')).toHaveLength(1);
+    });
+
+    it('logs each charged window by its own charge key when another settlement row is already on the session', async () => {
+      // Two charged windows. A already has one usage_settlement whose
+      // output_digest is A's charge key. An unkeyed usage_settlement is also
+      // on the session: it is not B, and it is not a second A. B is charged
+      // and has no row. A session-wide count of settlement rows against sealed
+      // windows treats those two rows as covering both charges. That count is
+      // not this charge.
+      async function chargedPair(label: string) {
+        const session = await open();
+        const plan = expectedUsage('plan');
+        const quick = expectedUsage('quick');
+        const atA = new Date('2026-10-09T01:15:00.000Z');
+        const atB = new Date('2026-10-09T03:15:00.000Z');
+        const windowA = meter.windowFor(atA);
+        const windowB = meter.windowFor(atB);
+        expect(windowA).not.toBe(windowB);
+        const amountA = usageCost(plan.usage, requireMeterPrice(plan.route));
+        const amountB = usageCost(quick.usage, requireMeterPrice(quick.route));
+        expect(amountA).toBeGreaterThan(0n);
+        expect(amountB).toBeGreaterThan(0n);
+        expect(amountA).not.toBe(amountB);
+
+        await transaction(sql, async (tx) => {
+          await meter.record(tx, {
+            sessionId: session.id,
+            requestId: `${label}-a`,
+            task: 'plan',
+            providerId: plan.route.providerId,
+            model: plan.route.model,
+            usage: plan.usage,
+            price: requireMeterPrice(plan.route),
+            at: atA,
+          });
+          await meter.record(tx, {
+            sessionId: session.id,
+            requestId: `${label}-b`,
+            task: 'quick',
+            providerId: quick.route.providerId,
+            model: quick.route.model,
+            usage: quick.usage,
+            price: requireMeterPrice(quick.route),
+            at: atB,
+          });
+        });
+
+        const houseBefore = amt(await houseOf());
+        const postedA = await runtime.settleWindow(session.id, windowA);
+        expect(postedA.settled).toBe(true);
+        expect(postedA.amount).toBe(amountA);
+        expect(postedA.chargeKey).toBe(chargeKeyFor(session.id, windowA));
+
+        const append = runtime.audit.append.bind(runtime.audit);
+        runtime.audit.append = async (tx, entry) => {
+          if (entry.kind === 'usage_settlement') throw new Error('usage_settlement append failed');
+          return append(tx, entry);
+        };
+        await expect(runtime.settleWindow(session.id, windowB)).rejects.toThrow(/usage_settlement append failed/);
+        runtime.audit.append = append;
+
+        expect(await houseOf()).toBe(formatAmount(houseBefore + amountA + amountB));
+
+        await transaction(sql, async (tx) => {
+          await runtime.audit.append(tx, {
+            sessionId: session.id,
+            userId: session.userId,
+            agentId: session.agentId,
+            kind: 'usage_settlement',
+            status: 'executed',
+            cost: amountA,
+            userMessageKey: 'agents.usage.settled',
+            userMessageParams: { amount: formatAmount(amountA), asset: 'IFC' },
+          });
+        });
+
+        const logged = (await runtime.sessionLog(session.id, 500)).filter((row) => row.kind === 'usage_settlement');
+        expect(logged.filter((row) => row.outputDigest === postedA.chargeKey)).toHaveLength(1);
+        expect(logged.filter((row) => row.outputDigest === null)).toHaveLength(1);
+        expect(logged.filter((row) => row.outputDigest === chargeKeyFor(session.id, windowB))).toHaveLength(0);
+
+        return {
+          session,
+          windowA,
+          windowB,
+          amountA,
+          amountB,
+          keyA: postedA.chargeKey,
+          keyB: chargeKeyFor(session.id, windowB),
+          chargeTxIdA: postedA.chargeTxId,
+        };
+      }
+
+      const settlements = async (sessionId: string) =>
+        (await runtime.sessionLog(sessionId, 500)).filter((row) => row.kind === 'usage_settlement');
+      const publishedFor = (chargeKey: string) => bus.emitted('agentUsageSettled').filter((event) => event.payload.chargeKey === chargeKey);
+
+      const first = await chargedPair('order-a');
+      const houseAfterPosts = await houseOf();
+      const journalAfterPosts = ledger.journal().length;
+      const publishedA = publishedFor(first.keyA).length;
+      expect(publishedA).toBe(1);
+      expect(publishedFor(first.keyB)).toHaveLength(0);
+
+      const againA = await runtime.settleWindow(first.session.id, first.windowA);
+      expect(againA.settled).toBe(false);
+      expect(againA.amount).toBe(first.amountA);
+      expect(againA.chargeTxId).toBe(first.chargeTxIdA);
+      let rows = await settlements(first.session.id);
+      expect(rows.filter((row) => row.outputDigest === first.keyA)).toHaveLength(1);
+      expect(rows.filter((row) => row.outputDigest === first.keyA)[0]!.cost).toBe(first.amountA);
+      expect(publishedFor(first.keyA)).toHaveLength(publishedA);
+
+      const gotB = await runtime.settleWindow(first.session.id, first.windowB);
+      expect(gotB.settled).toBe(false);
+      expect(gotB.amount).toBe(first.amountB);
+      expect(gotB.chargeKey).toBe(first.keyB);
+      rows = await settlements(first.session.id);
+      const bRows = rows.filter((row) => row.outputDigest === first.keyB);
+      expect(bRows).toHaveLength(1);
+      expect(bRows[0]!.cost).toBe(first.amountB);
+      expect(bRows[0]!.userMessageParams.amount).toBe(formatAmount(first.amountB));
+      expect(bRows[0]!.userMessageParams.asset).toBe('IFC');
+      expect(rows.filter((row) => row.outputDigest === first.keyA)).toHaveLength(1);
+      expect(rows.filter((row) => row.outputDigest === null)).toHaveLength(1);
+      expect(publishedFor(first.keyB)).toHaveLength(1);
+      expect(publishedFor(first.keyA)).toHaveLength(publishedA);
+
+      const laterB = await runtime.settleWindow(first.session.id, first.windowB);
+      expect(laterB.settled).toBe(false);
+      expect(laterB.amount).toBe(first.amountB);
+      expect(laterB.chargeTxId).toBe(gotB.chargeTxId);
+      rows = await settlements(first.session.id);
+      expect(rows.filter((row) => row.outputDigest === first.keyB)).toHaveLength(1);
+      expect(rows.filter((row) => row.outputDigest === first.keyA)).toHaveLength(1);
+      expect(publishedFor(first.keyB)).toHaveLength(1);
+      expect(publishedFor(first.keyA)).toHaveLength(publishedA);
+      expect(ledger.journal()).toHaveLength(journalAfterPosts);
+      expect(await houseOf()).toBe(houseAfterPosts);
+
+      const second = await chargedPair('order-b');
+      const houseAfterSecond = await houseOf();
+      const journalAfterSecond = ledger.journal().length;
+      const publishedSecondA = publishedFor(second.keyA).length;
+
+      const bFirst = await runtime.settleWindow(second.session.id, second.windowB);
+      expect(bFirst.settled).toBe(false);
+      expect(bFirst.amount).toBe(second.amountB);
+      expect(bFirst.chargeKey).toBe(second.keyB);
+      const aAfter = await runtime.settleWindow(second.session.id, second.windowA);
+      expect(aAfter.settled).toBe(false);
+      expect(aAfter.amount).toBe(second.amountA);
+      expect(aAfter.chargeTxId).toBe(second.chargeTxIdA);
+      const laterSecondB = await runtime.settleWindow(second.session.id, second.windowB);
+      expect(laterSecondB.settled).toBe(false);
+      expect(laterSecondB.amount).toBe(second.amountB);
+
+      const secondRows = await settlements(second.session.id);
+      const secondA = secondRows.filter((row) => row.outputDigest === second.keyA);
+      const secondB = secondRows.filter((row) => row.outputDigest === second.keyB);
+      expect(secondA).toHaveLength(1);
+      expect(secondA[0]!.cost).toBe(second.amountA);
+      expect(secondB).toHaveLength(1);
+      expect(secondB[0]!.cost).toBe(second.amountB);
+      expect(secondB[0]!.userMessageParams.amount).toBe(formatAmount(second.amountB));
+      expect(secondRows.filter((row) => row.outputDigest === null)).toHaveLength(1);
+      expect(publishedFor(second.keyA)).toHaveLength(publishedSecondA);
+      expect(publishedFor(second.keyB)).toHaveLength(1);
+      expect(ledger.journal()).toHaveLength(journalAfterSecond);
+      expect(await houseOf()).toBe(houseAfterSecond);
     });
 
     it('recovers a sealed-but-unbilled window on session settle (seal → post crash resume)', async () => {
