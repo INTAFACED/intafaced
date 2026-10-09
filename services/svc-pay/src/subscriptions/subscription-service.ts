@@ -676,6 +676,10 @@ export class SubscriptionService {
    * compressed and nothing is forfeited — the subscription simply ends later,
    * and the return value says when.
    *
+   * A `fee_unpublished` stall is not that gap. The due time already stored on
+   * the row is restored: `next_run_at`, `anchor_at`, and `anchor_occurrence`
+   * stay as they are. The mandate-window check below belongs to the re-anchor.
+   *
    * If re-spacing would carry periods past the mandate's `endsAt`, resume is
    * REFUSED with the projected end (`pay.subscription_resume_exceeds_mandate`).
    * The window is part of what the customer authorised; charging past it is
@@ -694,6 +698,27 @@ export class SubscriptionService {
     }
 
     const at = this.now();
+    if (existing.stallReason === 'fee_unpublished') {
+      const rows = await this.sql<SubRow[]>`
+        UPDATE pay.subscriptions
+           SET status = 'active',
+               resumed_at = ${at},
+               paused_at = NULL,
+               stalled_at = NULL,
+               stall_reason = NULL,
+               updated_at = ${at}
+         WHERE id = ${subscriptionId}
+           AND status = 'paused'
+           AND stall_reason = 'fee_unpublished'
+        RETURNING id, mandate_id, merchant_id, customer_id, next_run_at, status,
+                  cancelled_at, path, created_at, anchor_at, anchor_occurrence,
+                  paused_at, resumed_at, stalled_at, stall_reason
+      `;
+      const row = rows[0];
+      if (!row) throw new PayError(`Subscription ${subscriptionId} is no longer paused`, 'pay.subscription_inactive');
+      return { subscription: toSub(row), projectedEnd: null };
+    }
+
     const frame = this.frameOf(existing, mandate);
     const last = await this.lastCycle(existing.id);
     const nextOccurrence = last === null ? 0 : last.occurrence + 1;
@@ -882,19 +907,32 @@ export class SubscriptionService {
          * period: no execution row, no attempt spent, the period still owed. The
          * subscription stalls with `fee_unpublished` so it is an operator's
          * visible problem today rather than a settlement surprise later.
+         *
+         * Any other throw is a blip, not a missing rate. Pausing would remove
+         * the row from the active due set, so the next pass could not retry.
+         * Leave it active. Do not charge, do not invent a fee, and do not move
+         * the anchor.
          */
         try {
           await this.resolveFeeBps(sub.merchantId);
         } catch (err) {
-          const code = err instanceof PayError ? err.code : 'pay.subscription_fee_unpublished';
-          await this.stall(sub.id, 'fee_unpublished', now);
-          report.stalled += 1;
+          if (err instanceof PayError && err.code === 'pay.subscription_fee_unpublished') {
+            await this.stall(sub.id, 'fee_unpublished', now);
+            report.stalled += 1;
+            report.outcomes.push({
+              subscriptionId: sub.id,
+              occurrence: plan.occurrence,
+              outcome: 'stalled',
+              stallReason: 'fee_unpublished',
+              rejectionCode: err.code,
+            });
+            return;
+          }
           report.outcomes.push({
             subscriptionId: sub.id,
             occurrence: plan.occurrence,
-            outcome: 'stalled',
-            stallReason: 'fee_unpublished',
-            rejectionCode: code,
+            outcome: 'skipped',
+            ...(err instanceof PayError ? { rejectionCode: err.code } : {}),
           });
           return;
         }
