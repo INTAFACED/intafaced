@@ -32,9 +32,9 @@ const kycRecord = z.object({
 });
 
 export function AccountRoutes({ path }: { path: string }) {
-  copy.useCopy();
+  const { languageFor } = copy.useCopy();
   return (
-    <div lang="en" style={{ display: 'contents' }}>
+    <div lang={languageFor('accountroutes.account')} style={{ display: 'contents' }}>
       <AccountRooms path={path} />
     </div>
   );
@@ -86,7 +86,9 @@ function ResultNotice({ result }: { result: ApiResult<unknown> | null }) {
       <Text k="accountroutes.the.service.confirmed.the.action" />
     </p>
   ) : (
-    <Failure result={result} />
+    <div lang="und">
+      <Failure result={result} />
+    </div>
   );
 }
 function Account() {
@@ -137,7 +139,9 @@ function Account() {
         <span className="eyebrow">
           <Text k="accountroutes.personal.account" />
         </span>
-        <h2 className="numeric">{session?.userId}</h2>
+        <h2 className="numeric" lang="zxx">
+          {session?.userId}
+        </h2>
         <div className="actions">
           <a className="text-link" href="/verification">
             <Text k="accountroutes.verification" />
@@ -160,7 +164,9 @@ function Account() {
           {resource.status === 'loading' ? (
             <Loading />
           ) : resource.status === 'failed' ? (
-            <Failure result={resource.failure} retry={reload} />
+            <div lang="und">
+              <Failure result={resource.failure} retry={reload} />
+            </div>
           ) : resource.data.length === 0 ? (
             <EmptyState title={copyText('accountroutes.no.strategy.subaccounts')}>
               <Text k="accountroutes.create.a.labelled.partition.for.a.strategy" />
@@ -179,10 +185,12 @@ function Account() {
                 {resource.data.map((account) => (
                   <tr key={account.id}>
                     <td>
-                      <strong>{account.label}</strong>
-                      <small className="account-id numeric">{account.id}</small>
+                      <strong lang="und">{account.label}</strong>
+                      <small className="account-id numeric" lang="zxx">
+                        {account.id}
+                      </small>
                     </td>
-                    <td>{account.purpose ?? '—'}</td>
+                    <td lang="und">{account.purpose ?? '—'}</td>
                     <td>{account.revoked ? copyText('accountroutes.revoked') : copyText('accountroutes.active')}</td>
                     <td>
                       <Button variant="ghost" disabled={account.revoked || pending} onClick={() => setRevoke(account)}>
@@ -239,9 +247,11 @@ function Account() {
         <Dialog title={copyText('accountroutes.create.strategy.subaccount')} onClose={() => !pending && setReview(false)}>
           <div className="stack">
             <p>
-              <strong>{label.trim()}</strong>
+              <strong lang="und">{label.trim()}</strong>
             </p>
-            <p className="muted">{purpose.trim() || copyText('accountroutes.no.purpose.supplied')}</p>
+            <p className="muted" lang={purpose.trim() ? 'und' : undefined}>
+              {purpose.trim() || copyText('accountroutes.no.purpose.supplied')}
+            </p>
             <p className="muted">
               <Text k="accountroutes.this.creates.a.partition.without.moving.funds" />
             </p>
@@ -256,7 +266,7 @@ function Account() {
           <div className="stack">
             <p>
               <Text k="accountroutes.revoke.2" />
-              <strong>{revoke.label}</strong>?
+              <strong lang="und">{revoke.label}</strong>?
             </p>
             <p className="muted">
               <Text k="accountroutes.the.account.is.disabled.its.ledger.balances" />
@@ -272,6 +282,7 @@ function Account() {
 }
 function Security() {
   const { api, session, clear } = useSession();
+  const { requestedLocale } = copy.useCopy();
   const { resource, reload } = useResource(
     (signal) => api.query('identity', 'webauthn.list', { limit: 50 }, z.array(passkeySchema), { signal }),
     `passkeys:${session?.userId}`,
@@ -352,7 +363,9 @@ function Security() {
           {resource.status === 'loading' ? (
             <Loading />
           ) : resource.status === 'failed' ? (
-            <Failure result={resource.failure} retry={reload} />
+            <div lang="und">
+              <Failure result={resource.failure} retry={reload} />
+            </div>
           ) : resource.data.length === 0 ? (
             <EmptyState title={copyText('accountroutes.no.passkeys.returned')}>
               <Text k="accountroutes.add.a.passkey.to.sign.in.using" />
@@ -366,12 +379,16 @@ function Security() {
                 {resource.data.map((key) => (
                   <tr key={key.credentialId}>
                     <td className="numeric">
-                      {key.credentialId}
+                      <span lang="zxx">{key.credentialId}</span>
                       <small className="account-id">
                         {key.transports?.join(', ') ?? copyText('accountroutes.transport.not.published')}
                       </small>
                     </td>
-                    <td>{new Date(key.createdAt).toLocaleDateString()}</td>
+                    <td>
+                      <time dateTime={key.createdAt} lang={requestedLocale}>
+                        {new Date(key.createdAt).toLocaleDateString(requestedLocale)}
+                      </time>
+                    </td>
                     <td>
                       <Button variant="ghost" disabled={pending} onClick={() => setRemove(key.credentialId)}>
                         <Text k="accountroutes.remove" />
@@ -413,6 +430,7 @@ function Security() {
                     <Text k="accountroutes.authenticator.setup.key" />
                   </span>
                   <input
+                    lang="zxx"
                     readOnly
                     value={enrollment.secret}
                     aria-label={copyText('accountroutes.authenticator.setup.key')}
@@ -426,7 +444,9 @@ function Security() {
                   <summary>
                     <Text k="accountroutes.setup.uri" />
                   </summary>
-                  <code className="secret-wrap">{enrollment.uri}</code>
+                  <code className="secret-wrap" lang="zxx">
+                    {enrollment.uri}
+                  </code>
                 </details>
                 {!confirmed ? (
                   <form className="form-stack" onSubmit={(event) => void confirmTotp(event)}>
@@ -455,7 +475,9 @@ function Security() {
                   </summary>
                   <ul className="recovery-codes">
                     {enrollment.recoveryCodes.map((value) => (
-                      <li key={value}>{value}</li>
+                      <li key={value} lang="zxx">
+                        {value}
+                      </li>
                     ))}
                   </ul>
                 </details>
@@ -471,7 +493,9 @@ function Security() {
             <p>
               <Text k="accountroutes.remove.this.authenticator.from.your.account" />
             </p>
-            <p className="numeric muted">{remove}</p>
+            <p className="numeric muted" lang="zxx">
+              {remove}
+            </p>
             <Button variant="danger" onClick={() => void removeKey()} disabled={pending}>
               <Text k="accountroutes.remove.passkey" />
             </Button>
@@ -495,6 +519,7 @@ function Security() {
 }
 function Verification() {
   const { api, session } = useSession();
+  const { requestedLocale } = copy.useCopy();
   const { resource, reload } = useResource(
     (signal) =>
       api.query(
@@ -531,14 +556,16 @@ function Verification() {
           {resource.status === 'loading' ? (
             <Loading />
           ) : resource.status === 'failed' ? (
-            <Failure result={resource.failure} retry={reload} />
+            <div lang="und">
+              <Failure result={resource.failure} retry={reload} />
+            </div>
           ) : (
             <>
               <div className="account-summary">
                 <span className="eyebrow">
                   <Text k="accountroutes.current.verified.tier" />
                 </span>
-                <h2>{resource.data.tier}</h2>
+                <h2 lang="zxx">{resource.data.tier}</h2>
               </div>
               {resource.data.records.length ? (
                 <DataTable
@@ -552,10 +579,14 @@ function Verification() {
                 >
                   {resource.data.records.map((record) => (
                     <tr key={record.id}>
-                      <td>{record.tier}</td>
-                      <td>{record.jurisdiction}</td>
-                      <td>{record.status}</td>
-                      <td>{new Date(record.createdAt).toLocaleDateString()}</td>
+                      <td lang="zxx">{record.tier}</td>
+                      <td lang="zxx">{record.jurisdiction}</td>
+                      <td lang="zxx">{record.status}</td>
+                      <td>
+                        <time dateTime={record.createdAt} lang={requestedLocale}>
+                          {new Date(record.createdAt).toLocaleDateString(requestedLocale)}
+                        </time>
+                      </td>
                     </tr>
                   ))}
                 </DataTable>
@@ -615,7 +646,7 @@ function Verification() {
       {review && (
         <Dialog title={copyText('accountroutes.request.verification.review')} onClose={() => !pending && setReview(false)}>
           <div className="stack">
-            <p>
+            <p lang="zxx">
               {tier} · {country.toUpperCase()}
             </p>
             <p className="muted">
@@ -672,7 +703,7 @@ function Promotions() {
                   <span>
                     <Text k="accountroutes.invitation.link" />
                   </span>
-                  <input readOnly value={link} aria-label={copyText('accountroutes.invitation.link')} />
+                  <input readOnly value={link} lang="zxx" aria-label={copyText('accountroutes.invitation.link')} />
                 </label>
                 <p className="muted">
                   <Text k="accountroutes.recorded.visits" />
@@ -706,7 +737,11 @@ function Promotions() {
                 </Button>
               </>
             )}
-            {result && !result.ok && <Failure result={result} />}
+            {result && !result.ok && (
+              <div lang="und">
+                <Failure result={result} />
+              </div>
+            )}
           </div>
         </Panel>
         <ReferralRecords />
