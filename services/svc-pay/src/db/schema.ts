@@ -197,8 +197,9 @@ export const paymentProfiles = pay.table(
  * A payment (§6.1).
  *
  * `amount` is the AUTHORIZED amount — what the payer agreed to. It never
- * changes. What was actually captured and refunded is summed from
- * `payment_events`.
+ * changes: `payments_amount_frozen_trg` (0020) refuses an UPDATE whose new
+ * amount differs from the stored one. What was actually captured and refunded
+ * is summed from `payment_events`.
  */
 export const payments = pay.table(
   'payments',
