@@ -21,6 +21,41 @@ describe('customer transport boundary', () => {
     const api = createApiClient({ fetch: async () => new Response('', { status: 503 }) });
     expect(await api.rest('/markets', z.unknown())).toMatchObject({ ok: false, reason: 'unreachable' });
   });
+  it('preserves the domain cause code from the production tRPC formatter', async () => {
+    const api = createApiClient({
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              message: 'NOTIFY_VERIFY_TTL_MINUTES is unset. Blank refuses.',
+              data: { code: 'PRECONDITION_FAILED', cause: { code: 'notify.verify_ttl_unset' } },
+            },
+          }),
+          { status: 412 },
+        ),
+    });
+    expect(await api.mutate('notify', 'notify.registerTarget', {}, z.unknown())).toMatchObject({
+      ok: false,
+      status: 412,
+      code: 'notify.verify_ttl_unset',
+      message: 'NOTIFY_VERIFY_TTL_MINUTES is unset. Blank refuses.',
+    });
+  });
+  it('keeps explicit authentication codes ahead of generic or nested cause codes', async () => {
+    const api = createApiClient({
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              message: 'Original explanation',
+              data: { intafacedCode: 'denied.kyc_required', code: 'FORBIDDEN', cause: { code: 'other.domain' } },
+            },
+          }),
+          { status: 403 },
+        ),
+    });
+    expect(await api.query('bank', 'read', {}, z.unknown())).toMatchObject({ ok: false, code: 'denied.kyc_required' });
+  });
   it('refuses to dispatch a write after its account context has changed', async () => {
     const sent: string[] = [];
     const api = createApiClient({

@@ -28,7 +28,14 @@ const errorEnvelope = z
           .object({
             message: z.string().optional(),
             code: z.union([z.string(), z.number()]).optional(),
-            data: z.object({ code: z.string().optional(), intafacedCode: z.string().optional() }).passthrough().optional(),
+            data: z
+              .object({
+                code: z.string().optional(),
+                intafacedCode: z.string().optional(),
+                cause: z.object({ code: z.string().optional() }).passthrough().optional(),
+              })
+              .passthrough()
+              .optional(),
           })
           .passthrough(),
       ])
@@ -117,6 +124,7 @@ export function createApiClient(
         const error = typeof data?.error === 'object' ? data.error : undefined;
         const code =
           error?.data?.intafacedCode ??
+          error?.data?.cause?.code ??
           error?.data?.code ??
           data?.code ??
           data?.name ??
@@ -163,6 +171,11 @@ export function createApiClient(
     }
   }
   return {
+    /** Client/session identity only; service permissions remain authoritative.
+     * Async review checks use the same immediate guard as HTTP dispatch. */
+    canWrite() {
+      return options.canWrite?.() ?? true;
+    },
     query<T>(module: string, procedure: string, input: unknown, schema: ZodType<T>, opts: RequestOptions = {}) {
       const url = `/api/${encodeURIComponent(module)}/trpc/${encodeURIComponent(procedure)}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`;
       return request(url, 'GET', schema, undefined, false, opts);

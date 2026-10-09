@@ -13,7 +13,12 @@ const refuse = (route, status = 503, code = 'notify.source_unavailable') =>
   route.fulfill({
     status,
     contentType: 'application/json',
-    body: JSON.stringify({ error: { message: code, data: { intafacedCode: code } } }),
+    body: JSON.stringify({
+      error: {
+        message: code === 'notify.verify_ttl_unset' ? 'NOTIFY_VERIFY_TTL_MINUTES is unset. Blank refuses.' : code,
+        data: { code: 'PRECONDITION_FAILED', cause: { code } },
+      },
+    }),
   });
 async function network(page, state, handlers = {}, identity = () => owner) {
   const reads = [],
