@@ -500,9 +500,9 @@ test('sign out everywhere requires review and clears the account after the servi
     return reply(route, { revoked: 1 });
   });
   await signIn(page, '/uc/safe');
-  await page.getByRole('button', { name: 'Sign out everywhere', exact: true }).click();
+  await page.getByRole('button', { name: 'Review sign-out everywhere', exact: true }).click();
   expect(revocations).toBe(0);
-  await page.getByRole('dialog', { name: 'Sign out everywhere' }).getByRole('button', { name: 'Revoke all sessions' }).click();
+  await page.getByRole('dialog', { name: 'Sign out everywhere?', exact: true }).getByRole('button', { name: 'Sign out everywhere', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
   expect(revocations).toBe(1);
 });
@@ -567,18 +567,25 @@ test('authenticator confirmation submits the real contract without reloading or 
   await setup(page);
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
   const secret = Array.from(randomBytes(32), (byte) => alphabet[byte % 32]).join('');
-  await page.route('**/api/identity/trpc/totp.enrol', (route) =>
-    reply(route, { secret, uri: `otpauth://totp/Test?secret=${secret}`, recoveryCodes: ['isolated-recovery'] }),
-  );
+  const recoveryCodes = Array.from({ length: 10 }, () => randomBytes(5).toString('hex').toUpperCase().replace(/^(.{5})(.{5})$/, '$1-$2'));
+  expect(new Set(recoveryCodes).size).toBe(10);
+  let preparations = 0;
+  await page.route('**/api/identity/trpc/totp.enrol', (route) => {
+    preparations++;
+    return reply(route, { secret, uri: `otpauth://totp/INTAFACED:isolated?secret=${secret}&issuer=INTAFACED&algorithm=SHA1&digits=6&period=30`, recoveryCodes });
+  });
   await page.route('**/api/identity/trpc/totp.confirm', (route) => {
     expect(route.request().postDataJSON()).toEqual({ secret, code: '123456' });
     return reply(route, { ok: true });
   });
   await signIn(page, '/uc/safe');
-  await page.getByRole('button', { name: 'Start authenticator setup' }).click();
+  await page.getByRole('button', { name: 'Start authenticator setup', exact: true }).click();
+  expect(preparations).toBe(0);
+  await page.getByRole('dialog').getByRole('button', { name: 'Start authenticator setup', exact: true }).click();
   await page.getByLabel('Six-digit authenticator code').fill('123456');
+  expect(preparations).toBe(1);
   await page.getByRole('button', { name: 'Confirm authenticator' }).click();
-  await expect(page.getByText('Authenticator enrollment confirmed.')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Authenticator app', exact: true })).toContainText('The service accepted the original authenticator confirmation.');
   await expect(page).toHaveURL(/\/uc\/safe$/);
   expect(await page.evaluate(() => JSON.stringify(localStorage) + JSON.stringify(sessionStorage))).not.toContain(secret);
 });
