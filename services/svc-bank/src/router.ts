@@ -2224,7 +2224,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * Operator on-ramp credit for the CRYPTO ledger half.
      *
      * Not user-callable: a user who credits their own balance does not need a
-     * ramp. Fiat refuses `bank.fiat_ramp_no_pay_adapter` when no pay adapter can settle.
+     * ramp. Kind fiat refuses `bank.fiat_ramp_socket` before any row or ledger post.
      */
     creditOnramp: scopedProcedure('admin:treasury')
       .input(

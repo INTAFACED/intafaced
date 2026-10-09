@@ -16,7 +16,7 @@ import { assertOfframpsListLimit, assertOnrampsListLimit } from '../owner-list-l
 import { BANK_OFFRAMP_COOLING_HOURS_ENV, assertOfframpDestCoolingElapsed, requireOfframpCoolingHours } from '../offramp-cooling.js';
 import { withMoneySpan } from '../tracing.js';
 import { emptyPayFiatRampPort, resolvePayFiatRailId, assertEmptyRailsCannotLookLive, type PayFiatRampPort } from './pay-fiat-adapter.js';
-import { assertCryptoRamp, assertFiatSocketWhenNone, type RampProgramme, NO_RAMP_PROGRAMME } from './rails.js';
+import { assertCryptoRamp, assertFiatSocketWhenNone, refuseFiatRamp, type RampProgramme, NO_RAMP_PROGRAMME } from './rails.js';
 import {
   destKindForRamp,
   UserWithdrawDestinationStore,
@@ -49,9 +49,8 @@ import {
  *
  *   after the claim, before the post
  *     Value is still outside the book. The pending row is the resumable marker.
- *     Re-drive with the same railRef finishes the credit. Fiat may resolve a
- *     different live pay rail id on that retry; the claim keeps the rail stored
- *     on the first row, and the deposit stays on that rail.
+ *     Re-drive with the same railRef finishes the credit. The claim keeps the
+ *     rail stored on the first row, and the deposit stays on that rail.
  *
  *   after the post, before status=settled
  *     User has funds; row is one status behind. Reporting lag, not stranded money.
@@ -67,12 +66,11 @@ import {
  * WHAT IS NOT HERE
  * ═════════════════════════════════════════════════════════════════════════════
  *
- *   · FIAT without a live pay RailAdapter. `socket.psp-partners` — refuse
- *     `bank.fiat_ramp_no_pay_adapter`. When `PayFiatRampPort` yields a live rail, fiat
- *     uses the same ledger-client deposit/withdraw recipes (no second book).
+ *   · FIAT. kind `fiat` refuses `bank.fiat_ramp_socket` before any row and
+ *     before any ledger post. These tables are the crypto ledger half.
+ *     Do not invent a PSP, a BIN, or an APY.
  *   · CHAIN BROADCAST / CONFIRMATION. Live crypto send and inbound watcher are
- *     svc-pay. Settle here means value left OUR book to `bank-crypto-ledger`
- *     (crypto) or the pay rail id (fiat via adapter).
+ *     svc-pay. Settle here means value left OUR book to `bank-crypto-ledger`.
  *   · EARN APY, CARD BIN, or any commercial rate invention.
  *   · A LIVE MODE that sets `simulated: false`. Class X is a human decision.
  */
@@ -243,8 +241,8 @@ export class RampService {
    * OPERATOR-CREDENTIALED. A user who can credit their own balance does not
    * need a ramp. Router gates on `admin:treasury`.
    *
-   * Fiat resolves a live pay RailAdapter rail id (or refuses the socket) before
-   * any row. Unconfigured crypto programme refuses by name.
+   * Kind fiat refuses `bank.fiat_ramp_socket` before any row or ledger post.
+   * Unconfigured crypto programme refuses by name.
    */
   async creditOnramp(input: {
     userId: string;
@@ -254,12 +252,12 @@ export class RampService {
     railRef: string;
     creditedBy: string;
   }): Promise<OnrampRecord> {
+    if (input.kind === 'fiat') refuseFiatRamp();
     if (input.amount <= 0n) {
       throw new BankError('On-ramp amount must be positive', 'bank.ramp_invalid_amount');
     }
     assertRampAssetId(input.assetId);
-    if (input.kind === 'fiat') assertFiatSocketWhenNone(this.programme);
-    const rail = input.kind === 'fiat' ? await resolvePayFiatRailId(this.payFiat, 'onramp') : assertCryptoRamp(this.programme);
+    const rail = assertCryptoRamp(this.programme);
 
     return withMoneySpan(
       'bank.ramp.onramp',
@@ -310,12 +308,12 @@ export class RampService {
     destinationRef?: string;
     clientRef: string;
   }): Promise<OfframpRecord> {
+    if (input.kind === 'fiat') refuseFiatRamp();
     if (input.amount <= 0n) {
       throw new BankError('Off-ramp amount must be positive', 'bank.ramp_invalid_amount');
     }
     assertRampAssetId(input.assetId);
-    if (input.kind === 'fiat') assertFiatSocketWhenNone(this.programme);
-    const rail = input.kind === 'fiat' ? await resolvePayFiatRailId(this.payFiat, 'offramp') : assertCryptoRamp(this.programme);
+    const rail = assertCryptoRamp(this.programme);
     const coolingHours = requireOfframpCoolingHours(this.ownerOfframpCoolingHoursRaw());
     const dest = await this.resolveWithdrawDestination(input.userId, input.kind, input.destinationRef);
     assertOfframpDestCoolingElapsed(coolingHours, dest.updatedAt);
@@ -419,7 +417,7 @@ export class RampService {
   /**
    * Crypto withdraw always uses the stored EVM dest. Persist an offered dest
    * then require the store — refuse closed if none stored, before withdrawHold.
-   * Fiat still persist-or-require (IBAN/IFSC). No PSP.
+   * Kind fiat never reaches this method.
    */
   private async resolveWithdrawDestination(userId: string, kind: RampKind, offeredRef?: string): Promise<WithdrawDestination> {
     const destKind = destKindForRamp(kind);
@@ -450,24 +448,8 @@ export class RampService {
     railRef: string;
     creditedBy: string;
   }): Promise<OnrampRecord> {
+    if (input.kind === 'fiat') refuseFiatRamp();
     return transaction(this.sql, async (tx) => {
-      if (input.kind === 'fiat') {
-        // selectLivePayFiatRail returns whichever live rail is first, so a retry
-        // can carry a different rail id for the same railRef. The fiat credit is
-        // the railRef. recipes.deposit keys `deposit:<stored rail>:<railRef>`,
-        // so the row we already claimed is the one this call must resume.
-        // The lock covers the gap before that row exists: two first credits of
-        // one railRef cannot both insert.
-        await tx`SELECT pg_advisory_xact_lock(hashtext(${`bank.ramp.onramp.fiat:${input.railRef}`})::bigint)`;
-        const prior = await tx<OnrampRow[]>`
-          SELECT * FROM bank.ramp_onramps
-           WHERE kind = 'fiat' AND rail_ref = ${input.railRef}
-           ORDER BY created_at ASC, id ASC
-           FOR UPDATE
-        `;
-        if (prior[0]) return sameOnrampOrConflict(toOnramp(prior[0]), input);
-      }
-
       const inserted = await tx<OnrampRow[]>`
         INSERT INTO bank.ramp_onramps (
           user_id, asset_id, amount, kind, rail, rail_ref, simulated, credited_by, status
@@ -499,6 +481,7 @@ export class RampService {
     destinationRef: string;
     clientRef: string;
   }): Promise<OfframpRecord> {
+    if (input.kind === 'fiat') refuseFiatRamp();
     return transaction(this.sql, async (tx) => {
       /**
        * Two unique keys: primary `id` and `(user_id, client_ref)`.

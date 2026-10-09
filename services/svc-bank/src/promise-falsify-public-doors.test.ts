@@ -12,8 +12,7 @@
  *   · cards.issue + ops.cardAuthorize with settlement ≠ funding and no rates →
  *     PRECONDITION_FAILED / bank.mark_missing; no authorization row; no hold.
  *   · ramps.offramp / ops.creditOnramp with programme none → PRECONDITION_FAILED /
- *     bank.no_ramp_rail; fiat kind → bank.fiat_ramp_socket /
- *     bank.fiat_ramp_no_pay_adapter before any row.
+ *     bank.no_ramp_rail; fiat kind → bank.fiat_ramp_socket before any row.
  * Class: N (honesty) / M surface (no invent yields or §8 rates). Leverage:
  *   createBankRouter + Fastify TRPC mount + MemoryLedger (Phase A IN).
  *
@@ -503,7 +502,7 @@ describe('D26-P2-01e public doors (PG-hard)', () => {
         }),
       ).rejects.toMatchObject({
         code: 'PRECONDITION_FAILED',
-        cause: { code: 'bank.fiat_ramp_no_pay_adapter' },
+        cause: { code: 'bank.fiat_ramp_socket' },
       });
       const rows = await sql`SELECT count(*)::text AS c FROM bank.ramp_onramps`;
       expect(rows[0]?.c).toBe('0');
@@ -591,7 +590,7 @@ describe('D26-P2-01e public doors (PG-hard)', () => {
         signedHeaders(treasury()),
       );
       expect(fiatSocket.statusCode).toBe(412);
-      expectNamedRefuse(fiatSocket.body, 'bank.fiat_ramp_no_pay_adapter');
+      expectNamedRefuse(fiatSocket.body, 'bank.fiat_ramp_socket');
       await cryptoApp.close();
 
       expect((await sql`SELECT count(*)::text AS c FROM bank.ramp_offramps`)[0]?.c).toBe('0');
