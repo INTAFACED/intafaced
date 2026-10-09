@@ -39,14 +39,48 @@ export function base64url(value: ArrayBuffer): string {
     .replace(/=/g, '');
 }
 
-export async function signInWithPasskey(api: ApiClient, identifier: string): Promise<ApiResult<Session>> {
+export async function signInWithPasskey(
+  api: ApiClient,
+  identifier: string,
+  intent: {
+    signal: AbortSignal;
+    current: () => boolean;
+    beforeOptions: () => boolean;
+    optionsReceived: (answer: ApiResult<unknown>) => void;
+    beforeVerify: () => boolean;
+  },
+): Promise<ApiResult<Session>> {
+  const active = () => !intent.signal.aborted && intent.current();
+  const changed = () => authoredRefusal('aborted', { key: 'accountChanged' });
+  if (!active()) return changed();
   if (!identifier.trim()) return authoredRefusal('error', { key: 'passkeyIdentifier' });
-  if (!window.isSecureContext || !window.PublicKeyCredential) return authoredRefusal('not_supported', { key: 'passkeySecure' });
-  const options = await api.mutate('identity', 'webauthn.authOptions', { identifier }, authenticationOptions);
+  if (!window.isSecureContext || !window.PublicKeyCredential || !navigator.credentials?.get)
+    return authoredRefusal('not_supported', { key: 'passkeySecure' });
+  if (!intent.beforeOptions() || !active()) return changed();
+  const options = await api.mutate('identity', 'webauthn.authOptions', { identifier }, authenticationOptions, { signal: intent.signal });
   if (!options.ok) return options;
+  const canonical = (value: string) => {
+    try {
+      return /^[A-Za-z0-9_-]+$/.test(value) && base64url(bytes(value)) === value;
+    } catch {
+      return false;
+    }
+  };
+  const json = options.data;
+  if (
+    !canonical(json.challenge) ||
+    (json.rpId !== undefined && !json.rpId.trim()) ||
+    (json.timeout !== undefined && (!Number.isSafeInteger(json.timeout) || json.timeout <= 0)) ||
+    json.allowCredentials?.some((item) => !canonical(item.id)) ||
+    (json.allowCredentials && new Set(json.allowCredentials.map((item) => item.id)).size !== json.allowCredentials.length)
+  )
+    return authoredRefusal('uncertain', { key: 'unverifiedWrite' });
+  // The original options reply is known; a departed view may not start a browser ceremony.
+  intent.optionsReceived(options);
+  if (!active()) return changed();
   try {
-    const json = options.data;
     const credential = await navigator.credentials.get({
+      signal: intent.signal,
       publicKey: {
         ...json,
         challenge: bytes(json.challenge),
@@ -57,9 +91,17 @@ export async function signInWithPasskey(api: ApiClient, identifier: string): Pro
         })),
       },
     });
-    if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAssertionResponse))
+    if (!active()) return changed();
+    if (
+      !(credential instanceof PublicKeyCredential) ||
+      !(credential.response instanceof AuthenticatorAssertionResponse) ||
+      !canonical(credential.id) ||
+      credential.id !== base64url(credential.rawId) ||
+      (json.allowCredentials?.length && !json.allowCredentials.some((item) => item.id === credential.id))
+    )
       return authoredRefusal('error', { key: 'passkeyAssertion' });
     const response = credential.response;
+    if (!intent.beforeVerify() || !active()) return changed();
     return api.mutate(
       'identity',
       'webauthn.authVerify',
@@ -79,8 +121,10 @@ export async function signInWithPasskey(api: ApiClient, identifier: string): Pro
         },
       },
       sessionSchema,
+      { signal: intent.signal },
     );
   } catch (error) {
+    if (!active()) return changed();
     return authoredRefusal('error', {
       key: error instanceof DOMException && error.name === 'NotAllowedError' ? 'passkeySignInStopped' : 'passkeySignInFailed',
     });
