@@ -2,6 +2,13 @@ import { defineCopy, type CopyCatalog } from '../../shared/i18n';
 
 // Authored UI messages only. API values, identifiers, units and user content stay outside this catalog.
 const messages = {
+  'holding.convert.asset': 'Convert {asset}',
+  'holding.asset.activity': '{asset} activity',
+  'holding.pending.unavailable': 'Pending-deposit buying is not connected.',
+  'holding.use.asset': 'Use your {asset}',
+  'holding.task.context': 'Choose a task. Your {asset} context follows you.',
+  'holding.send.source': 'Choose an owned {asset} bank space in Pay. Held and restricted amounts cannot be sent.',
+  'holding.space.alias': 'Bank spaces organize funds on the same ledger. Primary spaces repeat your main available projection.',
   'availability.quantities.unavailable': 'Available quantities cannot be established while balance reads are failing.',
   'availability.asset.unavailable': 'This asset’s balance could not be loaded. Refresh before deciding what to do next.',
   'availability.holdings.unavailable': 'Holdings could not be loaded.',

@@ -67,6 +67,37 @@ async function mount(page, path, business = null, signedIn = true) {
   );
 }
 
+for (const readState of ['loading', 'failed', 'empty']) {
+  test(`Original transfer recovery survives ${readState} source reads`, async ({ page }) => {
+    const originalId = 'original-transfer-before-source-failure';
+    await page.addInitScript(
+      ({ userId, originalId }) => {
+        sessionStorage.setItem(`pay.unresolved:${userId}:send`, JSON.stringify({ status: 'uncertain', reference: originalId }));
+      },
+      { userId, originalId },
+    );
+    const writes = [];
+    await page.route('**/api/**', (route) => {
+      if (route.request().url().includes('spaces.list')) {
+        if (readState === 'loading') return;
+        return reply(route, readState === 'empty' ? [] : null, readState === 'failed' ? 503 : 200);
+      }
+      writes.push(route.request().url());
+      return reply(route, null, 503);
+    });
+    await mount(page, '/pay/send?asset=BTC');
+    await expect(page.getByRole('heading', { name: 'Sending BTC', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Back to BTC holding/ })).toHaveAttribute('href', '/portfolio/BTC');
+    const recovery = page.getByRole('region', { name: 'Original transfer is unresolved' });
+    await expect(recovery.getByText(originalId, { exact: true })).toBeVisible();
+    await expect(recovery.getByRole('link', { name: 'Contact Support' })).toHaveAttribute('href', '/support');
+    await expect(recovery.getByRole('link', { name: 'Check Money activity' })).toHaveAttribute('href', '/uc/record');
+    if (readState === 'failed') await expect(page.getByRole('heading', { name: 'Connection unavailable' })).toBeVisible();
+    if (readState === 'empty') await expect(page.getByText('No source spaces available', { exact: true })).toBeVisible();
+    expect(writes).toEqual([]);
+  });
+}
+
 test('Personal Pay hides merchant rooms and direct Business refuses without company authority', async ({ page }) => {
   const requests = [];
   await page.route('**/api/**', (route) => {
@@ -472,4 +503,67 @@ test('an unwritten Pay locale uses honest English fallback and preserves the exa
   await expect(dialog.getByText('Original source explanation', { exact: true })).toBeVisible();
   expect(posted).toHaveLength(1);
   expect(posted[0]).toMatchObject({ amount: '0.000000000000000001', fromSpaceId: spaceId, toUserId: merchantId });
+});
+
+for (const count of [0, 1, 2]) {
+  test(`Holding Send keeps BTC context with ${count} owned BTC sources`, async ({ page }) => {
+    const btc = {
+      ...source,
+      id: orderId,
+      name: 'Bitcoin source',
+      assetId: 'BTC',
+      ledgerAccount: { ...source.ledgerAccount, assetId: 'BTC' },
+    };
+    const second = {
+      ...btc,
+      id: merchantId,
+      name: 'Savings',
+      kind: 'named',
+      ledgerAccount: { ...btc.ledgerAccount, ownerType: 'subaccount', ownerId: merchantId },
+    };
+    const spaces = [source, ...(count ? [btc] : []), ...(count === 2 ? [second] : [])];
+    const writes = [];
+    await page.route('**/api/**', (route) => {
+      if (route.request().url().includes('spaces.list')) return reply(route, spaces);
+      writes.push(route.request().postDataJSON());
+      return reply(route, null, 503);
+    });
+    await mount(page, '/pay/send?asset=BTC');
+    await expect(page.getByRole('heading', { name: 'Sending BTC', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Back to BTC holding/ })).toHaveAttribute('href', '/portfolio/BTC');
+    if (!count) {
+      await expect(page.getByRole('heading', { name: 'No BTC source account available' })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Choose another asset' })).toHaveAttribute('href', '/pay/send');
+      await expect(page.getByLabel('Source account', { exact: true })).toHaveCount(0);
+    } else {
+      const select = page.getByLabel('Source account');
+      await expect(select.locator('option')).not.toContainText(['Main · USDT']);
+      await expect(select).toHaveValue(count === 1 ? orderId : '');
+      if (count === 2) {
+        await expect(page.getByRole('button', { name: 'Review transfer' })).toBeDisabled();
+        await select.selectOption(merchantId);
+      }
+      await expect(page.getByLabel('Amount · BTC', { exact: true })).toBeVisible();
+      await page.getByLabel('Recipient account ID').fill('recipient-context-check');
+      await page.getByLabel('Amount · BTC', { exact: true }).fill('0.000000000000000001');
+      await page.getByRole('button', { name: 'Review transfer' }).click();
+      const dialog = page.getByRole('dialog', { name: 'Review transfer' });
+      await expect(dialog.getByText('0.000000000000000001 BTC', { exact: true })).toBeVisible();
+      await expect(dialog.getByText(count === 1 ? 'Bitcoin source · BTC' : 'Savings · BTC', { exact: true })).toBeVisible();
+    }
+    expect(writes).toEqual([]);
+  });
+}
+
+test('Ambiguous incoming holding asset refuses instead of choosing another asset', async ({ page }) => {
+  const writes = [];
+  await page.route('**/api/**', (route) => {
+    if (route.request().url().includes('spaces.list')) return reply(route, [source]);
+    writes.push(route.request().url());
+    return reply(route, null, 503);
+  });
+  await mount(page, '/pay/send?asset=BTC&asset=USDT');
+  await expect(page.getByText('The holding asset could not be identified. Choose it again from Money.')).toBeVisible();
+  await expect(page.getByLabel('Source account')).toHaveCount(0);
+  expect(writes).toEqual([]);
 });

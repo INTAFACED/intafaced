@@ -274,3 +274,77 @@ test('assembled customer rooms remain usable at desktop and 320px when services 
   }
   expect(errors).toEqual([]);
 });
+
+test('Money holding to Send preserves BTC through source selection and exact review in the real App', async ({ page }) => {
+  await setup(page);
+  const sourceId = '44444444-4444-4444-8444-444444444444';
+  const btc = {
+    id: sourceId,
+    assetId: 'BTC',
+    kind: 'primary',
+    name: 'Main',
+    goalTarget: null,
+    lockedUntil: null,
+    balance: '0.200000000000000001',
+    ledgerAccount: { ownerType: 'user', ownerId: userId, assetId: 'BTC', kind: 'available' },
+  };
+  const usd = { ...btc, id: foreignId, assetId: 'USDT', balance: '4', ledgerAccount: { ...btc.ledgerAccount, assetId: 'USDT' } };
+  const writes = [],
+    errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('request', (request) => {
+    if (request.url().includes('/api/') && request.method() === 'POST' && !request.url().includes('auth.login')) writes.push(request.url());
+  });
+  await page.route('**/api/v1/account/balance*', (route) =>
+    route.fulfill({
+      json: {
+        timestamp: 1791417600000,
+        datetime: '2026-10-08T00:00:00.000Z',
+        balances: { BTC: { free: '0.200000000000000001', used: '0.1', total: '0.300000000000000001' } },
+      },
+    }),
+  );
+  await page.route('**/api/bank/trpc/spaces.list?*', (route) => reply(route, [usd, btc]));
+  await page.route('**/api/bank/trpc/spaces.unnamed?*', (route) => reply(route, []));
+  await signIn(page, '/portfolio');
+  await page.locator('.money-holding').click();
+  await expect(page).toHaveURL(/\/portfolio\/BTC$/);
+  await expect(page.locator('.money-holding-quantity')).toHaveText('0.300000000000000001 BTC');
+  await expect(page.getByText('Total account value', { exact: true })).toHaveCount(0);
+  for (const width of [1440, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const send = page.getByRole('link', { name: /Send available BTC/ });
+    await expect(page.locator('.money-holding-actions').getByRole('link', { name: /Send available BTC/ })).toBeVisible();
+    expect((await send.boundingBox()).height).toBeGreaterThanOrEqual(44);
+    if (width <= 768) {
+      const analysis = page.getByRole('heading', { name: 'Price and simple analysis' });
+      expect((await send.boundingBox()).y).toBeLessThan((await analysis.boundingBox()).y);
+    }
+    const audit = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+    expect(audit.violations.filter((item) => ['serious', 'critical'].includes(item.impact))).toEqual([]);
+    if (process.env.MONEY_JOURNEY_SCREENSHOTS)
+      await page.screenshot({ path: `${process.env.MONEY_JOURNEY_SCREENSHOTS}/M1-holding-${width}.png`, fullPage: true });
+  }
+  await page.getByRole('button', { name: 'Hide amounts' }).click();
+  await expect(page.locator('.money-holding-quantity')).toHaveText('••••');
+  await expect(page.locator('.money-holding-restrictions')).not.toContainText('0.200000000000000001');
+  await page.getByRole('button', { name: 'Show amounts' }).click();
+  await page.getByRole('link', { name: /Send available BTC/ }).click();
+  await expect(page).toHaveURL(/\/pay\/send\?asset=BTC$/);
+  await expect(page.getByRole('heading', { name: 'Sending BTC', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Source account', { exact: true })).toHaveValue(sourceId);
+  await expect(page.getByLabel('Source account', { exact: true }).locator('option')).not.toContainText(['Main · USDT']);
+  await page.getByLabel('Recipient account ID').fill(invitationId);
+  await page.getByLabel('Amount · BTC', { exact: true }).fill('0.000000000000000001');
+  await page.getByRole('button', { name: 'Review transfer' }).click();
+  await expect(page.getByRole('dialog').getByText('0.000000000000000001 BTC', { exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog').getByText('Main · BTC', { exact: true })).toBeVisible();
+  if (process.env.MONEY_JOURNEY_SCREENSHOTS)
+    await page.screenshot({ path: `${process.env.MONEY_JOURNEY_SCREENSHOTS}/M1-send-review-320.png` });
+  await page.getByRole('button', { name: 'Edit transfer' }).click();
+  await page.getByRole('link', { name: /Back to BTC holding/ }).click();
+  await expect(page).toHaveURL(/\/portfolio\/BTC$/);
+  expect(writes).toEqual([]);
+  expect(errors).toEqual([]);
+});

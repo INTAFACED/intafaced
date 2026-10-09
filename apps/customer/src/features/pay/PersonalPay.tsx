@@ -1,5 +1,5 @@
 import { payCopy, PayCopy } from './copy';
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useReducer, useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { usePreferences } from '../../shared/preferences';
@@ -8,7 +8,7 @@ import { Button, Dialog, Field, Page } from '../../shared/ui';
 import { createPersonalPayApi, type PersonalPayApi } from './pay-api';
 import { useSession } from '../session/session';
 import { PayDetails, PayNotice, PaySection, PayState, MutationResult } from './components';
-import { sendInput, type spaceSchema } from './schemas';
+import { asset as assetSchema, sendInput, type spaceSchema } from './schemas';
 import type { z } from 'zod';
 
 const destinations = [
@@ -20,6 +20,10 @@ export function PersonalPay({ path }: { path: string }) {
   const { api, userId } = useSession();
   const pay = useMemo(() => createPersonalPayApi(api, userId), [api, userId]);
   const current = path.split('?')[0];
+  const assetParams = new URLSearchParams(path.split('?')[1] ?? '').getAll('asset');
+  const requestedAsset = assetParams.length === 1 ? assetSchema.safeParse(assetParams[0]) : null;
+  const asset = requestedAsset?.success ? requestedAsset.data : null;
+  const invalidAsset = assetParams.length > 0 && !asset;
   const title =
     current === '/pay/send'
       ? payCopy.t('sendMoney')
@@ -57,7 +61,13 @@ export function PersonalPay({ path }: { path: string }) {
         </nav>
         <div className="pay-personal-content">
           {current === '/pay/send' ? (
-            <SendMoney key={userId ?? 'anonymous'} pay={pay} userId={userId} />
+            <SendMoney
+              key={`${userId ?? 'anonymous'}:${asset ?? ''}`}
+              pay={pay}
+              userId={userId}
+              asset={asset}
+              invalidAsset={invalidAsset}
+            />
           ) : current === '/pay/receive' ? (
             <ReceiveMoney pay={pay} userId={userId} />
           ) : current === '/pay/request' ? (
@@ -123,11 +133,53 @@ export function PersonalPay({ path }: { path: string }) {
 
 type ConfirmedTransfer = { ledgerTxId: string; amount: string; assetId: string };
 
-function SendMoney({ pay, userId }: { pay: PersonalPayApi; userId: string | null }) {
+function SendMoney({
+  pay,
+  userId,
+  asset,
+  invalidAsset,
+}: {
+  pay: PersonalPayApi;
+  userId: string | null;
+  asset: string | null;
+  invalidAsset: boolean;
+}) {
   const sources = useResource((signal) => pay.spaces(signal), `pay:send-sources:${userId}`);
   const [confirmed, setConfirmed] = useState<ConfirmedTransfer | null>(null);
+  const [, refreshGuard] = useReducer((revision: number) => revision + 1, 0);
+  const unresolved = pay.guard.status(`${userId}:send`);
+  const originalReference = pay.guard.reference(`${userId}:send`);
   return (
     <>
+      {asset && (
+        <PaySection title={payCopy.t('sendingAsset', { asset })} description={payCopy.t('onlyAssetSources', { asset })}>
+          <a className="text-link" href={`/portfolio/${encodeURIComponent(asset)}`}>
+            {payCopy.t('backToAssetHolding', { asset })} ↗
+          </a>
+        </PaySection>
+      )}
+      {unresolved && (
+        <PayNotice
+          title={payCopy.t('originalTransferIsUnresolved')}
+          action={
+            <div className="pay-transfer-recovery-actions">
+              <a className="button button--secondary" href="/uc/record">
+                <PayCopy k="checkMoneyActivity" />
+              </a>
+              <a className="button button--primary" href="/support">
+                <PayCopy k="contactSupport" />
+              </a>
+            </div>
+          }
+        >
+          <PayCopy k="aPreviousTransferHasNotBeenConfirmed" />
+          {originalReference && (
+            <span className="pay-cell-note">
+              <PayCopy k="originalTransferId" /> <span>{originalReference}</span>
+            </span>
+          )}
+        </PayNotice>
+      )}
       <div className="pay-transfer-outcome" role="status" aria-label={payCopy.t('transferResult')} aria-live="polite" aria-atomic="true">
         {confirmed && (
           <PaySection title={payCopy.t('transferConfirmed')} description={payCopy.t('keepThisLedgerReceipt')}>
@@ -140,27 +192,63 @@ function SendMoney({ pay, userId }: { pay: PersonalPayApi; userId: string | null
           </PaySection>
         )}
       </div>
-      <PayState resource={sources.resource} retry={sources.reload} empty={payCopy.t('noSourceSpacesAvailable')}>
-        {(spaces) => <SendForm pay={pay} spaces={spaces} userId={userId} reload={sources.reload} onConfirmed={setConfirmed} />}
-      </PayState>
+      {invalidAsset ? (
+        <PayNotice title={payCopy.t('invalidHoldingContext')}>
+          <a className="text-link" href="/portfolio">
+            {payCopy.t('returnToHoldings')}
+          </a>
+        </PayNotice>
+      ) : (
+        <PayState resource={sources.resource} retry={sources.reload}>
+          {(spaces) => {
+            const matching = asset ? spaces.filter((space) => space.assetId === asset) : spaces;
+            return matching.length ? (
+              <SendForm
+                pay={pay}
+                spaces={matching}
+                asset={asset}
+                userId={userId}
+                reload={sources.reload}
+                onConfirmed={setConfirmed}
+                onSettled={refreshGuard}
+              />
+            ) : (
+              <PayNotice title={asset ? payCopy.t('noAssetSource', { asset }) : payCopy.t('noSourceSpacesAvailable')}>
+                {asset && (
+                  <>
+                    <p>{payCopy.t('noAssetSourceExplanation', { asset })}</p>
+                    <a className="text-link" href="/pay/send">
+                      {payCopy.t('chooseAnotherAsset')}
+                    </a>
+                  </>
+                )}
+              </PayNotice>
+            );
+          }}
+        </PayState>
+      )}
     </>
   );
 }
 function SendForm({
   pay,
   spaces,
+  asset,
   userId,
   reload,
   onConfirmed,
+  onSettled,
 }: {
   pay: PersonalPayApi;
   spaces: z.infer<typeof spaceSchema>[];
+  asset: string | null;
   userId: string | null;
   reload: () => void;
   onConfirmed: (receipt: ConfirmedTransfer) => void;
+  onSettled: () => void;
 }) {
   const { hideBalances } = usePreferences();
-  const [sourceId, setSourceId] = useState('');
+  const [sourceId, setSourceId] = useState(asset && spaces.length === 1 ? spaces[0]!.id : '');
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
   const [error, setError] = useState('');
@@ -206,6 +294,7 @@ function SendForm({
     inFlight.current = true;
     setBusy(true);
     const outcome = await pay.send(review.input);
+    onSettled();
     setResult(outcome);
     setBusy(false);
     inFlight.current = false;
@@ -218,28 +307,6 @@ function SendForm({
   }
   return (
     <PaySection title={payCopy.t('sendFromYourBankSpace')}>
-      {unresolved && (
-        <PayNotice
-          title={payCopy.t('originalTransferIsUnresolved')}
-          action={
-            <div className="pay-transfer-recovery-actions">
-              <a className="button button--secondary" href="/uc/record">
-                <PayCopy k="checkMoneyActivity" />
-              </a>
-              <a className="button button--primary" href="/support">
-                <PayCopy k="contactSupport" />
-              </a>
-            </div>
-          }
-        >
-          <PayCopy k="aPreviousTransferHasNotBeenConfirmed" />
-          {pay.guard.reference(`${userId}:send`) && (
-            <span className="pay-cell-note">
-              <PayCopy k="originalTransferId" /> <span>{pay.guard.reference(`${userId}:send`)}</span>
-            </span>
-          )}
-        </PayNotice>
-      )}
       <form
         className="form-stack pay-form"
         onSubmit={(event) => {

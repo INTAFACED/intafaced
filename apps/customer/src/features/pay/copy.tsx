@@ -1,5 +1,14 @@
 import { defineCopy } from '../../shared/i18n';
 const messages = {
+  sendingAsset: 'Sending {asset}',
+  onlyAssetSources: 'Only your {asset} bank spaces are shown. Review the source before sending.',
+  backToAssetHolding: 'Back to {asset} holding',
+  invalidHoldingContext: 'The holding asset could not be identified. Choose it again from Money.',
+  returnToHoldings: 'Return to holdings',
+  noAssetSource: 'No {asset} source account available',
+  noAssetSourceExplanation:
+    'Your source accounts returned no owned {asset} bank space. A holding quantity does not establish a sendable source account.',
+  chooseAnotherAsset: 'Choose another asset',
   businessPay: 'Business Pay',
   businessPayRooms: 'Business Pay rooms',
   customerDirectoryIsUnavailable: 'Customer directory is unavailable',

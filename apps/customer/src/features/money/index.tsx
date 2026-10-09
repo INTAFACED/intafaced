@@ -91,32 +91,38 @@ function ValueHero({ bank, hidden, onHide }: { bank: boolean; hidden: boolean; o
     </div>
   );
 }
-function HoldingDetails({ asset, overview, hidden }: { asset: string; overview: MoneyOverview; hidden: boolean }) {
+function HoldingSummary({ asset, overview, hidden }: { asset: string; overview: MoneyOverview; hidden: boolean }) {
   const holding = overview.holdings.find((row) => row.assetId === asset);
   return (
     <>
-      <Section title={copyText('index.your.quantity')} description={copyText('index.exact.quantities.in.this.asset.available.excludes')}>
+      <section className="money-holding-summary" aria-label={copyText('index.your.quantity')}>
+        <div className="money-value-label">
+          <span>{holding?.quantity === null ? copyText('index.available.projection.only') : copyText('index.user.ledger.quantity')}</span>
+          <Button variant="ghost" onClick={() => savePreferences({ hideBalances: !hidden })} aria-pressed={hidden}>
+            {hidden ? copyText('index.show.amounts') : copyText('index.hide.amounts')}
+          </Button>
+        </div>
         {holding ? (
-          <dl className="detail-list">
-            <div>
-              <dt>
-                <Text k="index.user.ledger.quantity" />
-              </dt>
-              <dd className="numeric">{hidden ? '••••' : amount(holding.quantity, asset)}</dd>
-            </div>
-            <div>
-              <dt>
-                <Text k="index.available" />
-              </dt>
-              <dd className="numeric">{hidden ? '••••' : amount(holding.available, asset)}</dd>
-            </div>
-            <div>
-              <dt>
-                <Text k="index.held.restricted" />
-              </dt>
-              <dd className="numeric">{hidden ? '••••' : amount(holding.held, asset)}</dd>
-            </div>
-          </dl>
+          <>
+            <div className="money-holding-quantity numeric">{hidden ? '••••' : amount(holding.quantity ?? holding.available, asset)}</div>
+            <dl className="money-holding-restrictions">
+              <div>
+                <dt>
+                  <Text k="index.available" />
+                </dt>
+                <dd className="numeric">{hidden ? '••••' : amount(holding.available, asset)}</dd>
+              </div>
+              <div>
+                <dt>
+                  <Text k="index.held.restricted" />
+                </dt>
+                <dd className="numeric">{hidden ? '••••' : amount(holding.held, asset)}</dd>
+              </div>
+            </dl>
+            <p className="money-caption">
+              <Text k="index.exact.quantities.in.this.asset.available.excludes" />
+            </p>
+          </>
         ) : !overview.balances.ok ? (
           <p className="notice">
             <Text k="availability.asset.unavailable" />
@@ -126,44 +132,69 @@ function HoldingDetails({ asset, overview, hidden }: { asset: string; overview: 
             <Text k="index.this.projection.does.not.establish.a.zero" />
           </EmptyState>
         )}
-      </Section>
-      <Section
-        title={copyText('index.price.and.simple.analysis')}
-        description={copyText('index.published.live.spot.markets.supply.their.own')}
-      >
-        <AssetChart asset={asset} />
-        <a className="button button--secondary" href={`/exchange?asset=${encodeURIComponent(asset)}`}>
-          <Text k="index.open.this.asset.in.trade" />
+      </section>
+    </>
+  );
+}
+function HoldingActionSection({ asset }: { asset: string }) {
+  return (
+    <Section title={copyText('holding.use.asset', { asset })} description={copyText('holding.task.context', { asset })}>
+      <div className="money-action-grid">
+        <a className="button button--chrome" href={`/exchange?asset=${encodeURIComponent(asset)}&side=buy`}>
+          <Text k="index.buy" /> {asset}
         </a>
-      </Section>
-      <Section title={copyText('index.actions')} description={copyText('index.the.selected.asset.follows.you.into.the')}>
-        <div className="money-action-grid">
-          <a className="button button--chrome" href={`/exchange?asset=${encodeURIComponent(asset)}&side=buy`}>
-            <Text k="index.buy" />
-            {asset}
-          </a>
-          <a className="button button--chrome" href={`/exchange?asset=${encodeURIComponent(asset)}&side=sell`}>
-            <Text k="index.sell" />
-            {asset}
-          </a>
-          <a className="button button--secondary" href={`/trade/convert?asset=${encodeURIComponent(asset)}`}>
-            <Text k="index.convert" />
-          </a>
-          <a className="button button--secondary" href={`/portfolio/${encodeURIComponent(asset)}/repeat-buy`}>
-            <Text k="index.repeat.buy" />
-          </a>
-          <a className="button button--secondary" href={`/pay/send?asset=${encodeURIComponent(asset)}`}>
-            <Text k="index.send.available" />
-            {asset}
-          </a>
-          <a className="button button--secondary" href={`/uc/record?asset=${encodeURIComponent(asset)}`}>
-            <Text k="index.activity" />
-          </a>
-        </div>
-        <p className="money-caption">
-          <Text k="index.held.and.restricted.amounts.are.not.available" />
-        </p>
-      </Section>
+        <a className="button button--chrome" href={`/exchange?asset=${encodeURIComponent(asset)}&side=sell`}>
+          <Text k="index.sell" /> {asset}
+        </a>
+      </div>
+      <a className="button button--primary money-holding-send" href={`/pay/send?asset=${encodeURIComponent(asset)}`}>
+        <Text k="index.send.available" /> {asset} ↗
+      </a>
+      <p className="money-caption">{copyText('holding.send.source', { asset })}</p>
+      <div className="money-holding-secondary">
+        <a className="text-link" href={`/trade/convert?asset=${encodeURIComponent(asset)}`}>
+          <span>{copyText('holding.convert.asset', { asset })} ↗</span>
+        </a>
+        <a className="text-link" href={`/portfolio/${encodeURIComponent(asset)}/repeat-buy`}>
+          <span>
+            <Text k="index.repeat.buy" /> ↗
+          </span>
+        </a>
+        <a className="text-link" href={`/uc/record?asset=${encodeURIComponent(asset)}`}>
+          <span>{copyText('holding.asset.activity', { asset })} ↗</span>
+        </a>
+      </div>
+      <p className="money-caption">
+        <Text k="holding.pending.unavailable" />
+      </p>
+    </Section>
+  );
+}
+function HoldingAnalysis({ asset }: { asset: string }) {
+  return (
+    <Section
+      title={copyText('index.price.and.simple.analysis')}
+      description={copyText('index.published.live.spot.markets.supply.their.own')}
+    >
+      <AssetChart asset={asset} />
+      <a className="text-link money-holding-advanced" href={`/exchange?asset=${encodeURIComponent(asset)}`}>
+        <Text k="index.open.this.asset.in.trade" /> ↗
+      </a>
+    </Section>
+  );
+}
+function HoldingActions({ asset }: { asset: string }) {
+  return (
+    <>
+      <div className="money-holding-actions">
+        <HoldingActionSection asset={asset} />
+      </div>
+      <a className="text-link" href="/bank/spaces">
+        <Text k="index.manage.spaces" />
+      </a>
+      <p className="money-caption">
+        <Text k="holding.space.alias" />
+      </p>
     </>
   );
 }
@@ -171,38 +202,78 @@ function MoneyOverviewPage({ bank = false, asset }: { bank?: boolean; asset?: st
   const [limit, setLimit] = usePageLimit();
   const { resource, reload } = useOverview(limit);
   const { hideBalances: hidden } = usePreferences();
+  if (asset)
+    return (
+      <Page
+        eyebrow={copyText('index.your.money')}
+        title={asset}
+        actions={
+          <a className="button button--secondary" href="/portfolio">
+            {copyText('index.all.holdings')}
+          </a>
+        }
+      >
+        <div className="money-layout money-layout--holding">
+          <ResourceView resource={resource} reload={reload}>
+            {(overview) => (
+              <>
+                <div className="money-holding-primary">
+                  {!overview.balances.ok && <Failure result={overview.balances} retry={reload} />}
+                  {overview.conflicts.includes(asset) && (
+                    <p className="notice" role="status">
+                      <Text k="index.separate.reads.disagree.for" /> {asset}{' '}
+                      <Text k="index.their.available.projection.is.omitted.refresh.to" />
+                    </p>
+                  )}
+                  <HoldingSummary asset={asset} overview={overview} hidden={hidden} />
+                </div>
+                <aside className="money-action-lane">
+                  <HoldingActions asset={asset} />
+                </aside>
+                <div className="money-holding-analysis">
+                  <HoldingAnalysis asset={asset} />
+                  <p className="notice">{coverage}</p>
+                </div>
+              </>
+            )}
+          </ResourceView>
+        </div>
+      </Page>
+    );
   return (
     <Page
       eyebrow={bank ? copyText('index.money.bank') : copyText('index.your.money')}
-      title={asset ?? (bank ? copyText('index.bank') : copyText('index.money'))}
+      title={bank ? copyText('index.bank') : copyText('index.money')}
       actions={
-        <a className="button button--secondary" href={asset ? '/portfolio' : '/uc/record'}>
-          {asset ? copyText('index.all.holdings') : copyText('index.money.activity')}
+        <a className="button button--secondary" href="/uc/record">
+          <Text k="index.money.activity" />
         </a>
       }
     >
       {bank && <BankNavigation current="Overview" />}
       <div className="money-layout">
         <div className="money-overview-lane">
-          <ValueHero bank={bank} hidden={hidden} onHide={() => savePreferences({ hideBalances: !hidden })} />
-          <div className="money-availability">
-            <div>
-              <h3>
-                <Text k="index.available" />
-              </h3>
-              <p>
-                <Text k="index.spendable.quantities.stay.in.their.asset.primary" />
-              </p>
+          <>
+            <ValueHero bank={bank} hidden={hidden} onHide={() => savePreferences({ hideBalances: !hidden })} />
+            <div className="money-availability">
+              <div>
+                <h3>
+                  <Text k="index.available" />
+                </h3>
+                <p>
+                  <Text k="index.spendable.quantities.stay.in.their.asset.primary" />
+                </p>
+              </div>
+              <div>
+                <h3>
+                  <Text k="index.held.restricted" />
+                </h3>
+                <p>
+                  <Text k="index.order.holds.earn.and.collateral.stay.separate" />
+                </p>
+              </div>
             </div>
-            <div>
-              <h3>
-                <Text k="index.held.restricted" />
-              </h3>
-              <p>
-                <Text k="index.order.holds.earn.and.collateral.stay.separate" />
-              </p>
-            </div>
-          </div>
+          </>
           <ResourceView resource={resource} reload={reload}>
             {(overview) => (
               <>
@@ -214,44 +285,40 @@ function MoneyOverviewPage({ bank = false, asset }: { bank?: boolean; asset?: st
                     <Text k="index.their.available.projection.is.omitted.refresh.to" />
                   </p>
                 )}
-                {asset ? (
-                  <HoldingDetails asset={asset} overview={overview} hidden={hidden} />
-                ) : (
-                  <Section
-                    title={copyText('index.holdings')}
-                    description={
-                      overview.balances.ok
-                        ? copyText('index.user.ledger.projection.response.time', {
-                            value1: new Date(overview.balances.data.datetime).toLocaleString(),
-                          })
-                        : overview.holdings.length
-                          ? copyText('index.available.projections.from.bank.held.quantities.are')
-                          : copyText('availability.quantities.unavailable')
-                    }
-                    actions={
-                      <Button variant="ghost" onClick={reload}>
-                        <Text k="index.refresh" />
-                      </Button>
-                    }
-                  >
-                    {overview.holdings.length ? (
-                      overview.holdings.map((holding) => <HoldingPresenter key={holding.assetId} holding={holding} hidden={hidden} />)
-                    ) : overview.balances.ok ? (
-                      <EmptyState title={copyText('index.no.user.ledger.accounts.returned')}>
-                        <Text k="index.an.empty.projection.is.not.a.complete" />
-                      </EmptyState>
-                    ) : (
-                      <div className="notice" role="status">
-                        <h3>
-                          <Text k="availability.holdings.unavailable" />
-                        </h3>
-                        <p>
-                          <Text k="availability.refresh.balances" />
-                        </p>
-                      </div>
-                    )}
-                  </Section>
-                )}
+                <Section
+                  title={copyText('index.holdings')}
+                  description={
+                    overview.balances.ok
+                      ? copyText('index.user.ledger.projection.response.time', {
+                          value1: new Date(overview.balances.data.datetime).toLocaleString(),
+                        })
+                      : overview.holdings.length
+                        ? copyText('index.available.projections.from.bank.held.quantities.are')
+                        : copyText('availability.quantities.unavailable')
+                  }
+                  actions={
+                    <Button variant="ghost" onClick={reload}>
+                      <Text k="index.refresh" />
+                    </Button>
+                  }
+                >
+                  {overview.holdings.length ? (
+                    overview.holdings.map((holding) => <HoldingPresenter key={holding.assetId} holding={holding} hidden={hidden} />)
+                  ) : overview.balances.ok ? (
+                    <EmptyState title={copyText('index.no.user.ledger.accounts.returned')}>
+                      <Text k="index.an.empty.projection.is.not.a.complete" />
+                    </EmptyState>
+                  ) : (
+                    <div className="notice" role="status">
+                      <h3>
+                        <Text k="availability.holdings.unavailable" />
+                      </h3>
+                      <p>
+                        <Text k="availability.refresh.balances" />
+                      </p>
+                    </div>
+                  )}
+                </Section>
                 <p className="notice">{coverage}</p>
                 {bank && (
                   <Section
@@ -310,74 +377,76 @@ function MoneyOverviewPage({ bank = false, asset }: { bank?: boolean; asset?: st
           </a>
         </div>
         <aside className="money-action-lane">
-          <Section title={bank ? copyText('index.organize.your.money') : copyText('index.move.money')}>
-            <div className="money-action-grid">
-              {bank ? (
-                <>
-                  <a className="button button--chrome" href="/bank/spaces#create">
-                    <Text k="index.create.space" />
-                  </a>
-                  <a className="button button--chrome" href="/bank/transfers">
-                    <Text k="index.transfer" />
-                  </a>
-                </>
-              ) : (
-                <>
-                  <a className="button button--chrome" href="/pay/send">
-                    <Text k="index.send" />
-                  </a>
-                  <a className="button button--chrome" href="/pay/receive">
-                    <Text k="index.receive" />
-                  </a>
-                </>
-              )}
-              <a className="button button--secondary" href="/uc/recharge">
-                <Text k="index.deposit.unavailable" />
+          <>
+            <Section title={bank ? copyText('index.organize.your.money') : copyText('index.move.money')}>
+              <div className="money-action-grid">
+                {bank ? (
+                  <>
+                    <a className="button button--chrome" href="/bank/spaces#create">
+                      <Text k="index.create.space" />
+                    </a>
+                    <a className="button button--chrome" href="/bank/transfers">
+                      <Text k="index.transfer" />
+                    </a>
+                  </>
+                ) : (
+                  <>
+                    <a className="button button--chrome" href="/pay/send">
+                      <Text k="index.send" />
+                    </a>
+                    <a className="button button--chrome" href="/pay/receive">
+                      <Text k="index.receive" />
+                    </a>
+                  </>
+                )}
+                <a className="button button--secondary" href="/uc/recharge">
+                  <Text k="index.deposit.unavailable" />
+                </a>
+                <a className="button button--secondary" href="/uc/withdraw">
+                  <Text k="index.withdraw.unavailable" />
+                </a>
+              </div>
+              <p className="money-caption">
+                <Text k="index.transfers.use.available.funds.locked.spaces.cannot" />
+              </p>
+            </Section>
+            <Section title={bank ? copyText('index.put.money.to.work') : copyText('index.bank')}>
+              {destinations.map((destination) => (
+                <a className="link-row" href={destination.href} key={destination.href}>
+                  <span>
+                    {destination.label}
+                    <small>{destination.description}</small>
+                  </span>
+                  <span className="accent">↗</span>
+                </a>
+              ))}
+            </Section>
+            <div className="money-capability">
+              <h3>
+                <Text k="index.cards.cash.rails" />
+              </h3>
+              <p>
+                <Text k="index.issuer.connectivity.must.be.verified.simulated.rails" />
+              </p>
+              <div className="actions">
+                <a className="text-link" href="/bank/cards">
+                  <Text k="index.cards" />
+                </a>
+                <a className="text-link" href="/bank/ramps">
+                  <Text k="index.ramps" />
+                </a>
+              </div>
+              <a className="text-link" href="/bank/business">
+                <Text k="index.business.bank" />
               </a>
-              <a className="button button--secondary" href="/uc/withdraw">
-                <Text k="index.withdraw.unavailable" />
-              </a>
+              <p>
+                <Text k="index.membership.and.approval.policies.company.balances.remain" />
+              </p>
             </div>
-            <p className="money-caption">
-              <Text k="index.transfers.use.available.funds.locked.spaces.cannot" />
-            </p>
-          </Section>
-          <Section title={bank ? copyText('index.put.money.to.work') : copyText('index.bank')}>
-            {destinations.map((destination) => (
-              <a className="link-row" href={destination.href} key={destination.href}>
-                <span>
-                  {destination.label}
-                  <small>{destination.description}</small>
-                </span>
-                <span className="accent">↗</span>
-              </a>
-            ))}
-          </Section>
-          <div className="money-capability">
-            <h3>
-              <Text k="index.cards.cash.rails" />
-            </h3>
-            <p>
-              <Text k="index.issuer.connectivity.must.be.verified.simulated.rails" />
-            </p>
-            <div className="actions">
-              <a className="text-link" href="/bank/cards">
-                <Text k="index.cards" />
-              </a>
-              <a className="text-link" href="/bank/ramps">
-                <Text k="index.ramps" />
-              </a>
-            </div>
-            <a className="text-link" href="/bank/business">
-              <Text k="index.business.bank" />
+            <a className="text-link" href="/uc/withdraw/address">
+              <Text k="index.withdrawal.addresses" />
             </a>
-            <p>
-              <Text k="index.membership.and.approval.policies.company.balances.remain" />
-            </p>
-          </div>
-          <a className="text-link" href="/uc/withdraw/address">
-            <Text k="index.withdrawal.addresses" />
-          </a>
+          </>
         </aside>
       </div>
     </Page>

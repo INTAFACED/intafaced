@@ -158,10 +158,14 @@ for (const path of ['/portfolio/BTC', '/money/asset/BTC']) {
     await defaultApi(page, { balance: (route) => reply(route, balances, true), 'spaces.list': (route) => reply(route, [primary]) });
     await mount(page, path);
     await expect(page.getByRole('heading', { name: 'BTC', exact: true, level: 1 })).toBeVisible();
-    await expect(page.locator('.detail-list .numeric')).toHaveText(['0.300000000000000001 BTC', '0.200000000000000001 BTC', '0.1 BTC']);
+    await expect(page.locator('.money-holding-quantity')).toHaveText('0.300000000000000001 BTC');
+    await expect(page.locator('.money-holding-restrictions .numeric')).toHaveText(['0.200000000000000001 BTC', '0.1 BTC']);
+    await expect(page.getByText('Total account value', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Send available BTC/ })).toHaveAttribute('href', '/pay/send?asset=BTC');
+    await expect(page.locator('a[href="/pay/send"]')).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Buy BTC', exact: true })).toHaveAttribute('href', '/exchange?asset=BTC&side=buy');
     await expect(page.getByRole('link', { name: 'Sell BTC', exact: true })).toHaveAttribute('href', '/exchange?asset=BTC&side=sell');
-    await expect(page.getByRole('link', { name: 'Repeat buy', exact: true })).toHaveAttribute('href', '/portfolio/BTC/repeat-buy');
+    await expect(page.getByRole('link', { name: /Repeat buy/ })).toHaveAttribute('href', '/portfolio/BTC/repeat-buy');
   });
 }
 
@@ -287,4 +291,25 @@ test('a confirmed transfer outcome retains its exact asset units', async ({ page
   await page.getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Confirmed by the service');
   await expect(page.getByRole('dialog')).toContainText('0.000000000000000001 BTC');
+});
+
+test('Holding detail labels fallback availability without inventing a total or held quantity', async ({ page }) => {
+  await defaultApi(page, {
+    balance: (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }),
+    'spaces.list': (route) => reply(route, [primary]),
+  });
+  await mount(page, '/portfolio/BTC');
+  await expect(page.getByText('Available projection only', { exact: true })).toBeVisible();
+  await expect(page.locator('.money-holding-quantity')).toHaveText('0.200000000000000001 BTC');
+  await expect(page.locator('.money-holding-restrictions .numeric')).toHaveText(['0.200000000000000001 BTC', 'Unavailable']);
+  await expect(page.getByRole('heading', { name: 'Connection unavailable' })).toBeVisible();
+});
+
+test('An absent holding is not zero and retains its asset-specific task destinations', async ({ page }) => {
+  await defaultApi(page);
+  await mount(page, '/portfolio/BTC');
+  await expect(page.getByText('No holding returned for this asset', { exact: true })).toBeVisible();
+  await expect(page.locator('.money-holding-quantity')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: /Send available BTC/ })).toHaveAttribute('href', '/pay/send?asset=BTC');
+  await expect(page.locator('a[href="/pay/send"]')).toHaveCount(0);
 });
