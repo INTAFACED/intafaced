@@ -8,7 +8,7 @@ import type { ApiResult } from '../../shared/api';
 import { enrollPasskey } from '../session/webauthn';
 import { View } from './View';
 import { IdentitySessions } from './IdentitySessions';
-import { customerRoomHref } from '../../app/navigation';
+import { Notifications } from './Notifications';
 import './account.css';
 
 const subAccountSchema = z.object({
@@ -43,7 +43,7 @@ function AccountRooms({ path }: { path: string }) {
   if (clean === '/view') return <View />;
   if (clean === '/uc/safe') return <Security />;
   if (clean === '/verification') return <Verification />;
-  if (clean === '/notifications') return <Inbox />;
+  if (clean === '/notifications') return <Notifications />;
   if (clean === '/identbusiness')
     return (
       <Page title={copyText('accountroutes.business.verification')}>
@@ -625,108 +625,6 @@ function Verification() {
             </Button>
           </div>
         </Dialog>
-      )}
-    </Page>
-  );
-}
-const notification = z.object({
-  id: z.string().uuid(),
-  userId: z.string().uuid(),
-  titleKey: z.string(),
-  bodyKey: z.string(),
-  title: z.string(),
-  body: z.string(),
-  href: z.string().nullable(),
-  severity: z.enum(['info', 'action', 'critical']),
-  readAt: z.string().nullable(),
-  createdAt: z.string(),
-});
-function Inbox() {
-  const { api, session } = useSession();
-  const [cursor, setCursor] = useState<string | undefined>();
-  const [unread, setUnread] = useState(false);
-  const { resource, reload } = useResource(
-    (signal) =>
-      api.query(
-        'notify',
-        'notify.list',
-        { limit: 50, ...(cursor ? { cursor } : {}), unreadOnly: unread },
-        z
-          .object({ items: z.array(notification), nextCursor: z.string().uuid().nullable() })
-          .refine(
-            (value) => value.items.every((item) => item.userId === session?.userId),
-            copyText('accountroutes.inbox.belongs.to.another.account'),
-          ),
-        { signal },
-      ),
-    `notifications:${session?.userId}:${cursor}:${unread}`,
-  );
-  const [result, setResult] = useState<ApiResult<unknown> | null>(null);
-  async function mark(id: string) {
-    const response = await api.mutate('notify', 'notify.markRead', { ids: [id] }, z.object({ marked: z.number().int().nonnegative() }));
-    setResult(response);
-    if (response.ok) reload();
-  }
-  return (
-    <Page
-      title={copyText('accountroutes.inbox')}
-      description={copyText('accountroutes.private.account.notifications.public.notices.are.a')}
-      actions={
-        <Button
-          variant="secondary"
-          onClick={() => {
-            setUnread(!unread);
-            setCursor(undefined);
-          }}
-        >
-          {unread ? copyText('accountroutes.show.all') : copyText('accountroutes.unread.only')}
-        </Button>
-      }
-    >
-      <ResultNotice result={result} />
-      {resource.status === 'loading' ? (
-        <Loading />
-      ) : resource.status === 'failed' ? (
-        <Failure result={resource.failure} retry={reload} />
-      ) : resource.data.items.length === 0 ? (
-        <EmptyState title={copyText('accountroutes.no.notifications.returned')}>
-          <Text k="accountroutes.new.account.notifications.will.appear.here.when" />
-        </EmptyState>
-      ) : (
-        <div className="notification-list">
-          {resource.data.items.map((item) => (
-            <article key={item.id} className={item.readAt ? 'read' : ''}>
-              <div>
-                <span className="badge">{item.severity}</span>
-                <time>{new Date(item.createdAt).toLocaleString()}</time>
-              </div>
-              <h2>{item.title === item.titleKey ? copyText('accountroutes.notification.text.is.unavailable') : item.title}</h2>
-              <p>{item.body === item.bodyKey ? copyText('accountroutes.this.notification.s.details.are.not.published') : item.body}</p>
-              <div className="actions">
-                {customerRoomHref(item.href) && (
-                  <a className="text-link" href={customerRoomHref(item.href)}>
-                    <Text k="accountroutes.open.related.room" />
-                  </a>
-                )}
-                {!item.readAt && (
-                  <Button variant="ghost" onClick={() => void mark(item.id)}>
-                    <Text k="accountroutes.mark.read" />
-                  </Button>
-                )}
-              </div>
-            </article>
-          ))}
-          {resource.data.nextCursor && (
-            <Button variant="secondary" onClick={() => setCursor(resource.data.nextCursor ?? undefined)}>
-              <Text k="accountroutes.next.page" />
-            </Button>
-          )}
-          {cursor && (
-            <Button variant="ghost" onClick={() => setCursor(undefined)}>
-              <Text k="accountroutes.back.to.latest" />
-            </Button>
-          )}
-        </div>
       )}
     </Page>
   );
