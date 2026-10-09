@@ -12,6 +12,18 @@ const TAKER_ORDER_ID = '22222222-2222-2222-2222-222222222222';
 const MAKER_ACCOUNT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const TAKER_ACCOUNT_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 
+function seededPrint(sequence: number): TradePrint {
+  return {
+    type: 'trade',
+    marketId: MARKET,
+    sequence,
+    price: '100',
+    quantity: '1',
+    ts: '2026-07-29T12:00:04.000Z',
+    kind: TRADE_PRINT_KIND_UNKNOWN,
+  };
+}
+
 /**
  * Fill-shaped payload as a bus/handler might hand us — including private and
  * unknown fields the strip must drop. Cast: FillLike is the accepted shape;
@@ -352,6 +364,96 @@ describe('TradeHub fan-out', () => {
     expect(raw).toMatch(/"price":"30000\.5"/);
     expect(raw).toMatch(/"quantity":"1\.25"/);
     expect(raw).not.toMatch(/"price":30000/);
+  });
+
+  it('retries a tape seed that threw before returning a promise', async () => {
+    let calls = 0;
+    hub = hubFor([MARKET], {
+      seedRecent: () => {
+        calls += 1;
+        throw new Error('seed failed before a promise');
+      },
+    });
+
+    const first = new FakeSink();
+    hub.attach(MARKET, first);
+    await settle();
+
+    expect(calls).toBe(1);
+    expect(first.closed).toBeNull();
+    expect(first.frames).toEqual([]);
+    expect(hub.recentFor(MARKET)).toEqual([]);
+
+    const second = new FakeSink();
+    hub.attach(MARKET, second);
+    await settle();
+
+    expect(calls).toBe(2);
+    expect(second.closed).toBeNull();
+    expect(second.frames).toEqual([]);
+    expect(hub.recentFor(MARKET)).toEqual([]);
+  });
+
+  it('replays prints from a successful seed', async () => {
+    const seeded = seededPrint(4);
+    hub = hubFor([MARKET], {
+      seedRecent: async () => [seeded],
+    });
+    const sink = new FakeSink();
+    hub.attach(MARKET, sink);
+    await settle();
+
+    expect(sink.prints()).toEqual([
+      expect.objectContaining({ type: 'trade', marketId: MARKET, sequence: 4, price: '100', quantity: '1' }),
+    ]);
+    expect(hub.recentFor(MARKET)).toEqual([
+      expect.objectContaining({ sequence: 4, price: '100', quantity: '1' }),
+    ]);
+  });
+
+  it('does not store a ring when the seed is empty', async () => {
+    hub = hubFor([MARKET], {
+      seedRecent: async () => [],
+    });
+    const sink = new FakeSink();
+    hub.attach(MARKET, sink);
+    await settle();
+
+    expect(sink.closed).toBeNull();
+    expect(sink.frames).toEqual([]);
+    expect(hub.recentFor(MARKET)).toEqual([]);
+    expect(hub.stats.markets).toBe(0);
+  });
+
+  it('shares one in-flight seed across overlapping subscribers', async () => {
+    let calls = 0;
+    let release!: (prints: readonly TradePrint[]) => void;
+    const seeded = seededPrint(4);
+    hub = hubFor([MARKET], {
+      seedRecent: () => {
+        calls += 1;
+        return new Promise((resolve) => {
+          release = resolve;
+        });
+      },
+    });
+
+    const first = new FakeSink();
+    const second = new FakeSink();
+    hub.attach(MARKET, first);
+    hub.attach(MARKET, second);
+    await settle();
+    expect(calls).toBe(1);
+
+    release([seeded]);
+    await settle();
+
+    expect(first.prints()).toEqual([
+      expect.objectContaining({ type: 'trade', sequence: 4, price: '100', quantity: '1' }),
+    ]);
+    expect(second.prints()).toEqual([
+      expect.objectContaining({ type: 'trade', sequence: 4, price: '100', quantity: '1' }),
+    ]);
   });
 
   it('closeAll tells every client why', async () => {

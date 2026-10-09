@@ -226,25 +226,32 @@ export class TradeHub {
     const seedRecent = this.#options.seedRecent;
     if (!seedRecent) return;
 
-    const run = (async () => {
-      try {
-        const prints = await seedRecent(marketId);
-        if (prints.length === 0) {
-          // Matching 404 / never printed: absence. Do not `#recent.set([],)`.
-          this.#log.warn({ marketId }, 'ws: trade seed empty — no tape on the wire; live prints publish when they exist');
-          return;
-        }
-        for (const print of prints) this.#acceptPrint(print);
-      } catch (err) {
-        this.#log.warn(
-          { marketId, err: err instanceof Error ? err.message : String(err) },
-          'ws: trade seed failed — no tape on the wire; matching 404 is absence not { trades: [] }',
-        );
-      } finally {
-        this.#seeding.delete(marketId);
-      }
-    })();
+    // Register before seedRecent. A synchronous throw runs the finally before
+    // a trailing set, and that set would keep the finished promise so the
+    // next subscriber never retries.
+    let finish!: () => void;
+    const run = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
     this.#seeding.set(marketId, run);
+
+    try {
+      const prints = await seedRecent(marketId);
+      if (prints.length === 0) {
+        // Matching 404 / never printed: absence. Do not `#recent.set([],)`.
+        this.#log.warn({ marketId }, 'ws: trade seed empty — no tape on the wire; live prints publish when they exist');
+        return;
+      }
+      for (const print of prints) this.#acceptPrint(print);
+    } catch (err) {
+      this.#log.warn(
+        { marketId, err: err instanceof Error ? err.message : String(err) },
+        'ws: trade seed failed — no tape on the wire; matching 404 is absence not { trades: [] }',
+      );
+    } finally {
+      this.#seeding.delete(marketId);
+      finish();
+    }
     return run;
   }
 
