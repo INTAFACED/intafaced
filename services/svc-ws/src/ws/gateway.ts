@@ -181,6 +181,8 @@ export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSoc
 
   /** Sockets that have not answered the last ping. */
   const alive = new WeakSet<WebSocket>();
+  /** Set at the start of close(). An in-flight L3 probe must not attach after this. */
+  let closed = false;
 
   const onUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): void => {
     // Fixed base — never Host. Same reason as private: a Host-derived base can
@@ -211,8 +213,26 @@ export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSoc
       if (!l3Hub) return writeMarketDataFeedRefuse(socket, DEPTH_L3_UNAVAILABLE);
       void (async () => {
         const probe = await l3Hub.probe(marketId);
+        // close() already cleared the heartbeat. Upgrading now would leave a
+        // socket nothing reaps. Drop the raw upgrade instead of attaching.
+        if (closed) {
+          try {
+            socket.destroy();
+          } catch {
+            /* already gone */
+          }
+          return;
+        }
         if (probe === 'unavailable') return writeMarketDataFeedRefuse(socket, DEPTH_L3_UNAVAILABLE);
         wss.handleUpgrade(request, socket, head, (ws) => {
+          if (closed) {
+            try {
+              ws.terminate();
+            } catch {
+              /* ignore */
+            }
+            return;
+          }
           const detach = l3Hub.attach(marketId, sinkFor(ws));
           if (!detach) {
             try {
@@ -315,6 +335,7 @@ export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSoc
       return wss.clients.size;
     },
     async close(reason: string) {
+      closed = true;
       clearInterval(heartbeat);
       server.off('upgrade', onUpgrade);
       // Say why, rather than dropping the TCP connection: a client that is told
