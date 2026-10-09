@@ -800,6 +800,13 @@ th.numeric {
   .topbar {
     padding-inline: 16px;
   }
+  .trade-shell .topbar {
+    padding-inline: var(--spacing-12);
+    gap: var(--spacing-4);
+  }
+  .trade-shell .search-trigger {
+    flex-shrink: 0;
+  }
   .form-row {
     grid-template-columns: 1fr;
   }
