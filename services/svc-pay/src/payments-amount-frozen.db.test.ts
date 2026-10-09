@@ -5,7 +5,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 
 /**
- * pay.payments.amount is the authorized amount. 0020 refuses a change to it.
+ * pay.payments.amount, currency, and rail_adapter are the authorization.
+ * 0020 refuses a change to any of them. Capture posts that amount in that
+ * currency through that rail, so rewriting currency or rail_adapter would
+ * move the ceiling with no compensating payment_events row.
  *
  * The suite stands the schema up the way the other pay migration suites do:
  * every forward file under drizzle/, in order, on a per-run schema. Pay SQL is
@@ -29,6 +32,10 @@ const migrations = readdirSync(drizzleDir)
 
 const AUTHORIZED = '10.500000000000000000';
 const REWRITTEN = '11.500000000000000000';
+const CURRENCY = 'USD';
+const OTHER_CURRENCY = 'EUR';
+const RAIL = 'card-sandbox';
+const OTHER_RAIL = 'wire-sandbox';
 
 function one<T>(rows: readonly T[], what: string): T {
   const row = rows[0];
@@ -36,7 +43,7 @@ function one<T>(rows: readonly T[], what: string): T {
   return row;
 }
 
-describe('pay.payments.amount stays the authorized amount', () => {
+describe('pay.payments authorization stays the stored amount, currency, and rail', () => {
   let db: TestDb | undefined;
 
   beforeAll(async () => {
@@ -47,7 +54,7 @@ describe('pay.payments.amount stays the authorized amount', () => {
     await db?.drop();
   }, 30_000);
 
-  it('refuses an amount change and still stores an update of another column', async () => {
+  it('refuses a change to amount, currency, or rail_adapter and still stores status, rail_ref, and risk_score', async () => {
     const sql = db?.sql;
     const schema = db?.schema;
     if (!sql || !schema) throw new Error('test database was not opened');
@@ -64,7 +71,7 @@ describe('pay.payments.amount stays the authorized amount', () => {
     const payment = one(
       await sql<Array<{ id: string; amount: string }>>`
         INSERT INTO payments (merchant_id, amount, currency, method, rail_adapter)
-        VALUES (${merchant.id}, ${AUTHORIZED}::numeric(38, 18), 'USD', 'card', 'card-sandbox')
+        VALUES (${merchant.id}, ${AUTHORIZED}::numeric(38, 18), ${CURRENCY}, 'card', ${RAIL})
         RETURNING id, amount::text AS amount
       `,
       'payment',
@@ -88,39 +95,45 @@ describe('pay.payments.amount stays the authorized amount', () => {
     expect(trigger.tgname).toBe('payments_amount_frozen_trg');
 
     const scored = one(
-      await sql<Array<{ amount: string; risk_score: number }>>`
+      await sql<Array<{ amount: string; currency: string; rail_adapter: string; risk_score: number }>>`
         UPDATE payments
            SET risk_score = 40
          WHERE id = ${payment.id}
-        RETURNING amount::text AS amount, risk_score
+        RETURNING amount::text AS amount, currency, rail_adapter, risk_score
       `,
       'risk_score update',
     );
     expect(scored.amount).toBe(AUTHORIZED);
+    expect(scored.currency).toBe(CURRENCY);
+    expect(scored.rail_adapter).toBe(RAIL);
     expect(scored.risk_score).toBe(40);
 
     const referenced = one(
-      await sql<Array<{ amount: string; rail_ref: string }>>`
+      await sql<Array<{ amount: string; currency: string; rail_adapter: string; rail_ref: string }>>`
         UPDATE payments
            SET rail_ref = 'rail-l866'
          WHERE id = ${payment.id}
-        RETURNING amount::text AS amount, rail_ref
+        RETURNING amount::text AS amount, currency, rail_adapter, rail_ref
       `,
       'rail_ref update',
     );
     expect(referenced.amount).toBe(AUTHORIZED);
+    expect(referenced.currency).toBe(CURRENCY);
+    expect(referenced.rail_adapter).toBe(RAIL);
     expect(referenced.rail_ref).toBe('rail-l866');
 
     const authorized = one(
-      await sql<Array<{ amount: string; status: string }>>`
+      await sql<Array<{ amount: string; currency: string; rail_adapter: string; status: string }>>`
         UPDATE payments
            SET status = 'authorized'
          WHERE id = ${payment.id}
-        RETURNING amount::text AS amount, status
+        RETURNING amount::text AS amount, currency, rail_adapter, status
       `,
       'status update',
     );
     expect(authorized.amount).toBe(AUTHORIZED);
+    expect(authorized.currency).toBe(CURRENCY);
+    expect(authorized.rail_adapter).toBe(RAIL);
     expect(authorized.status).toBe('authorized');
 
     const same = one(
@@ -155,6 +168,63 @@ describe('pay.payments.amount stays the authorized amount', () => {
     expect(stored.status).toBe('authorized');
     expect(stored.rail_ref).toBe('rail-l866');
     expect(stored.risk_score).toBe(40);
+
+    const sameCurrency = one(
+      await sql<Array<{ currency: string }>>`
+        UPDATE payments
+           SET currency = ${CURRENCY}
+         WHERE id = ${payment.id}
+        RETURNING currency
+      `,
+      'same currency update',
+    );
+    expect(sameCurrency.currency).toBe(CURRENCY);
+
+    await expect(
+      sql`
+        UPDATE payments
+           SET currency = ${OTHER_CURRENCY}
+         WHERE id = ${payment.id}
+      `,
+    ).rejects.toThrow(/authorized currency and never changes/);
+
+    const sameRail = one(
+      await sql<Array<{ rail_adapter: string }>>`
+        UPDATE payments
+           SET rail_adapter = ${RAIL}
+         WHERE id = ${payment.id}
+        RETURNING rail_adapter
+      `,
+      'same rail update',
+    );
+    expect(sameRail.rail_adapter).toBe(RAIL);
+
+    await expect(
+      sql`
+        UPDATE payments
+           SET rail_adapter = ${OTHER_RAIL}
+         WHERE id = ${payment.id}
+      `,
+    ).rejects.toThrow(/authorized rail and never changes/);
+
+    const frozen = one(
+      await sql<
+        Array<{ amount: string; currency: string; rail_adapter: string; status: string; rail_ref: string; risk_score: number }>
+      >`
+        SELECT amount::text AS amount, currency, rail_adapter, status, rail_ref, risk_score
+          FROM payments
+         WHERE id = ${payment.id}
+      `,
+      'stored authorization',
+    );
+    expect(frozen.amount).toBe(AUTHORIZED);
+    expect(frozen.currency).toBe(CURRENCY);
+    expect(frozen.currency).not.toBe(OTHER_CURRENCY);
+    expect(frozen.rail_adapter).toBe(RAIL);
+    expect(frozen.rail_adapter).not.toBe(OTHER_RAIL);
+    expect(frozen.status).toBe('authorized');
+    expect(frozen.rail_ref).toBe('rail-l866');
+    expect(frozen.risk_score).toBe(40);
 
     const events = one(
       await sql<Array<{ n: number }>>`
