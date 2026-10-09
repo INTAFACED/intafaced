@@ -24,6 +24,9 @@ import {
   type ActionSpec,
 } from './components';
 import { AutoInvestRules } from './repeat-buy';
+import { bankReads, type poolSchema, type positionSchema } from './contracts';
+import type { ApiResult } from '../../shared/api';
+import { earnCopy } from './earn-copy';
 import { MoneyActivity, ScheduleExecutions } from './activity';
 
 const bankRooms = ['Overview', 'Spaces', 'Transfers', 'Earn', 'Loans', 'Cards', 'Ramps', 'Analytics', 'Business'] as const;
@@ -449,182 +452,261 @@ function Transfers({ open }: { open: (spec: ActionSpec) => void }) {
   );
 }
 function Earn({ open }: { open: (spec: ActionSpec) => void }) {
+  const { api } = useSession();
   const [limit, setLimit] = usePageLimit();
+  const fail = (subject: string): ApiResult<null> => ({
+    ok: false,
+    reason: 'error',
+    code: 'money.review_read_unavailable',
+    message: earnCopy.t('readFailed', { subject }),
+  });
+  const changed = (): ApiResult<null> => ({ ok: false, reason: 'error', code: 'money.review_changed', message: earnCopy.t('changed') });
+  const validMaturity = (at: string) => z.string().datetime({ offset: true }).safeParse(at).success;
+  const maturityAllowsReview = (at: string | null) => at === null || (validMaturity(at) && Date.parse(at) <= Date.now());
+  async function checkPool(pool: z.infer<typeof poolSchema>, automation = false): Promise<ApiResult<null>> {
+    const fresh = await api.query('bank', 'earn.pools', { limit }, bankReads['earn.pools']);
+    if (!fresh.ok) return fail(earnCopy.t('subjectPool'));
+    const current = fresh.data.find((row) => row.id === pool.id);
+    if (!current || JSON.stringify(current) !== JSON.stringify(pool)) return changed();
+    if (automation) {
+      const policy = await api.query('bank', 'autoInvest.policy', undefined, bankReads['autoInvest.policy']);
+      if (!policy.ok) return fail(earnCopy.t('subjectPolicy'));
+      if (!policy.data.enabled) return changed();
+    }
+    return { ok: true, data: null };
+  }
+  async function checkPosition(position: z.infer<typeof positionSchema>): Promise<ApiResult<null>> {
+    const fresh = await api.query('bank', 'earn.positions', { limit }, bankReads['earn.positions']);
+    if (!fresh.ok) return fail(earnCopy.t('subjectPosition'));
+    const current = fresh.data.find((row) => row.id === position.id);
+    if (!current || JSON.stringify(current) !== JSON.stringify(position) || !maturityAllowsReview(current.maturesAt)) return changed();
+    return { ok: true, data: null };
+  }
   const pools = useBankRead('earn.pools', { limit });
   const positions = useBankRead('earn.positions', { limit });
+  const automation = useBankRead('autoInvest.policy', undefined);
   return (
-    <BankPage room="Earn" description={copyText('rooms.configured.products.and.ledger.backed.principal.no')}>
-      <Section title={copyText('rooms.available.pools')}>
-        <ResourceView resource={pools.resource} reload={pools.reload}>
-          {(rows) => (
-            <>
-              {rows.length ? (
-                rows.map((pool) => (
-                  <article className="money-record" key={pool.id}>
-                    <header>
-                      <div>
-                        <h3>{pool.name}</h3>
-                        <p>
-                          {pool.assetId} · {pool.kind} ·{' '}
-                          {pool.termDays === null ? copyText('rooms.flexible.term') : copyText('rooms.days', { value1: pool.termDays })}
-                        </p>
-                      </div>
-                      <strong>
-                        {bps(pool.aprBps)}
-                        <Text k="rooms.apr" />
-                      </strong>
-                    </header>
-                    <p className="money-caption">
-                      <Text k="rooms.minimum.deposit" />
-                      {funds(pool.minDeposit, pool.assetId)}
-                      <Text k="rooms.apr.is.the.configured.simple.annual.rate" />
-                    </p>
-                    <div className="actions">
-                      <Button
-                        onClick={() =>
-                          open({
-                            title: copyText('rooms.deposit.into.earn'),
-                            procedure: 'earn.deposit',
-                            fields: [positiveMoney(pool.assetId)],
-                            facts: [
-                              [copyText('rooms.pool'), pool.name],
-                              [copyText('rooms.apr.2'), bps(pool.aprBps)],
-                              [
-                                copyText('rooms.term'),
-                                pool.termDays === null
-                                  ? copyText('rooms.flexible.term')
-                                  : copyText('rooms.days', { value1: pool.termDays }),
+    <BankPage room="Earn" description={earnCopy.t('description')}>
+      <div className="money-earn-lanes">
+        <Section
+          title={copyText('rooms.your.positions')}
+          actions={
+            <Button variant="ghost" onClick={positions.reload}>
+              {earnCopy.t('refresh')}
+            </Button>
+          }
+        >
+          <ResourceView resource={positions.resource} reload={positions.reload}>
+            {(rows) => (
+              <>
+                {rows.length ? (
+                  rows.map((position) => (
+                    <article className="money-record" key={position.id}>
+                      <header>
+                        <div>
+                          <h3>
+                            {position.assetId}
+                            <Text k="rooms.earn.position" />
+                          </h3>
+                          <p>
+                            {position.maturesAt === null ? (
+                              earnCopy.t('noFixed')
+                            ) : (
+                              <>
+                                <Text k="rooms.matures" />
+                                {validMaturity(position.maturesAt) ? date(position.maturesAt) : earnCopy.t('maturityMissing')}
+                              </>
+                            )}
+                          </p>
+                        </div>
+                        <strong className="numeric">
+                          {funds(position.principal, position.assetId)}
+                          <Text k="rooms.principal" />
+                        </strong>
+                      </header>
+                      <p className="money-caption">
+                        {earnCopy.t('position')} · {position.id}
+                      </p>
+                      {maturityAllowsReview(position.maturesAt) ? (
+                        <Button
+                          variant="secondary"
+                          onClick={() =>
+                            open({
+                              title: copyText('rooms.withdraw.earn.principal'),
+                              unit: position.assetId,
+                              procedure: 'earn.withdraw',
+
+                              preflight: () => checkPosition(position),
+                              facts: [
+                                [copyText('rooms.position'), position.id],
+                                [copyText('rooms.principal.2'), amount(position.principal, position.assetId)],
+                                [copyText('rooms.matures.2'), date(position.maturesAt)],
                               ],
-                              [copyText('rooms.minimum'), amount(pool.minDeposit, pool.assetId)],
-                            ],
-                            notes: [
-                              copyText('rooms.principal.moves.from.your.user.available.account'),
-                              copyText('rooms.the.service.verifies.the.pool.is.open'),
-                            ],
-                            validate: (input) =>
-                              parseAmount(String(input.amount)) >= parseAmount(pool.minDeposit)
-                                ? null
-                                : copyText('rooms.the.amount.is.below.the.configured.minimum'),
-                            input: (values, requestId) => ({ poolId: pool.id, positionId: requestId, amount: values.amount }),
-                          })
-                        }
-                      >
-                        <Text k="rooms.deposit" />
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        onClick={() =>
-                          open({
-                            title: copyText('rooms.create.threshold.sweep'),
-                            procedure: 'autoInvest.createThresholdSweep',
-                            fields: [
-                              { name: 'threshold', label: copyText('rooms.keep.available', { asset: pool.assetId }), validate: moneyValue },
-                            ],
-                            facts: [
-                              [copyText('rooms.pool'), pool.name],
-                              [copyText('rooms.asset'), pool.assetId],
-                            ],
-                            notes: [
-                              copyText('rooms.keep.this.exact.quantity.in.the.primary'),
-                              copyText('rooms.no.cross.asset.rate.is.assumed.the'),
-                            ],
-                            input: (values) => ({ assetId: pool.assetId, targetPoolId: pool.id, threshold: values.threshold }),
-                          })
-                        }
-                      >
-                        <Text k="rooms.threshold.sweep" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() =>
-                          open({
-                            title: copyText('rooms.create.card.round.up'),
-                            procedure: 'autoInvest.createRoundUp',
-                            fields: [positiveMoney(pool.assetId, 'granularity', copyText('rooms.round.up.increment'))],
-                            facts: [
-                              [copyText('rooms.pool'), pool.name],
-                              [copyText('rooms.asset'), pool.assetId],
-                            ],
-                            notes: [
-                              copyText('rooms.same.asset.spare.change.goes.to.this'),
-                              copyText('rooms.this.instruction.does.not.connect.an.issuer'),
-                            ],
-                            input: (values) => ({ assetId: pool.assetId, targetPoolId: pool.id, granularity: values.granularity }),
-                          })
-                        }
-                      >
-                        <Text k="rooms.card.round.up" />
-                      </Button>
-                    </div>
-                  </article>
-                ))
-              ) : (
-                <NoRows title={copyText('rooms.no.configured.pools.returned')}>
-                  <Text k="rooms.earn.requires.a.published.rate.and.open" />
-                </NoRows>
-              )}
-              <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
-            </>
-          )}
-        </ResourceView>
-      </Section>
-      <Section title={copyText('rooms.your.positions')}>
-        <ResourceView resource={positions.resource} reload={positions.reload}>
-          {(rows) => (
-            <>
-              {rows.length ? (
-                rows.map((position) => (
-                  <article className="money-record" key={position.id}>
-                    <header>
-                      <div>
-                        <h3>
-                          {position.assetId}
-                          <Text k="rooms.earn.position" />
-                        </h3>
-                        <p>
-                          <Text k="rooms.matures" />
-                          {date(position.maturesAt)}
-                        </p>
+                              notes: [copyText('rooms.the.service.checks.maturity.and.reconciles.ledger'), earnCopy.t('withdrawalOutcome')],
+                              input: () => ({ positionId: position.id }),
+                            })
+                          }
+                        >
+                          <Text k="rooms.review.withdrawal" />
+                        </Button>
+                      ) : (
+                        <p className="money-earn-lock">{earnCopy.t(validMaturity(position.maturesAt!) ? 'locked' : 'maturityMissing')}</p>
+                      )}
+                    </article>
+                  ))
+                ) : (
+                  <NoRows title={copyText('rooms.no.active.earn.positions.returned')}>
+                    <Text k="rooms.a.position.appears.only.after.the.service" />
+                  </NoRows>
+                )}
+                <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
+              </>
+            )}
+          </ResourceView>
+        </Section>
+        <Section
+          title={copyText('rooms.available.pools')}
+          actions={
+            <Button
+              variant="ghost"
+              onClick={() => {
+                pools.reload();
+                automation.reload();
+              }}
+            >
+              {earnCopy.t('refresh')}
+            </Button>
+          }
+        >
+          <ResourceView resource={automation.resource} reload={automation.reload}>
+            {(policy) => !policy.enabled && <p className="notice">{earnCopy.t('automationDisabled')}</p>}
+          </ResourceView>
+          <ResourceView resource={pools.resource} reload={pools.reload}>
+            {(rows) => (
+              <>
+                {rows.length ? (
+                  rows.map((pool) => (
+                    <article className="money-record" key={pool.id}>
+                      <header>
+                        <div>
+                          <h3>{pool.name}</h3>
+                          <p>
+                            {pool.assetId} · {pool.kind} ·{' '}
+                            {pool.termDays === null ? copyText('rooms.flexible.term') : copyText('rooms.days', { value1: pool.termDays })}
+                          </p>
+                        </div>
+                        <strong>
+                          {bps(pool.aprBps)}
+                          <Text k="rooms.apr" />
+                        </strong>
+                      </header>
+                      <p className="money-caption">
+                        <Text k="rooms.minimum.deposit" />
+                        {funds(pool.minDeposit, pool.assetId)}
+                        <Text k="rooms.apr.is.the.configured.simple.annual.rate" />
+                      </p>
+                      <div className="actions">
+                        <Button
+                          onClick={() =>
+                            open({
+                              title: copyText('rooms.deposit.into.earn'),
+                              procedure: 'earn.deposit',
+
+                              preflight: () => checkPool(pool),
+                              fields: [positiveMoney(pool.assetId)],
+                              facts: [
+                                [copyText('rooms.pool'), pool.name],
+                                [copyText('rooms.apr.2'), bps(pool.aprBps)],
+                                [
+                                  copyText('rooms.term'),
+                                  pool.termDays === null
+                                    ? copyText('rooms.flexible.term')
+                                    : copyText('rooms.days', { value1: pool.termDays }),
+                                ],
+                                [copyText('rooms.minimum'), amount(pool.minDeposit, pool.assetId)],
+                              ],
+                              notes: [
+                                copyText('rooms.principal.moves.from.your.user.available.account'),
+                                copyText('rooms.the.service.verifies.the.pool.is.open'),
+                              ],
+                              validate: (input) =>
+                                parseAmount(String(input.amount)) >= parseAmount(pool.minDeposit)
+                                  ? null
+                                  : copyText('rooms.the.amount.is.below.the.configured.minimum'),
+                              input: (values, requestId) => ({ poolId: pool.id, positionId: requestId, amount: values.amount }),
+                            })
+                          }
+                        >
+                          <Text k="rooms.deposit" />
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          disabled={automation.resource.status !== 'ready' || !automation.resource.data.enabled}
+                          onClick={() =>
+                            open({
+                              title: copyText('rooms.create.threshold.sweep'),
+                              procedure: 'autoInvest.createThresholdSweep',
+                              unit: pool.assetId,
+                              preflight: () => checkPool(pool, true),
+                              fields: [
+                                {
+                                  ...positiveMoney(pool.assetId, 'threshold', earnCopy.t('keepAvailable')),
+                                  hint: earnCopy.t('thresholdHint'),
+                                },
+                              ],
+                              facts: [
+                                [copyText('rooms.pool'), pool.name],
+                                [copyText('rooms.asset'), pool.assetId],
+                              ],
+                              notes: [
+                                copyText('rooms.keep.this.exact.quantity.in.the.primary'),
+                                copyText('rooms.no.cross.asset.rate.is.assumed.the'),
+                              ],
+                              input: (values) => ({ assetId: pool.assetId, targetPoolId: pool.id, threshold: values.threshold }),
+                            })
+                          }
+                        >
+                          <Text k="rooms.threshold.sweep" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          disabled={automation.resource.status !== 'ready' || !automation.resource.data.enabled}
+                          onClick={() =>
+                            open({
+                              title: copyText('rooms.create.card.round.up'),
+                              procedure: 'autoInvest.createRoundUp',
+                              unit: pool.assetId,
+                              preflight: () => checkPool(pool, true),
+                              fields: [positiveMoney(pool.assetId, 'granularity', copyText('rooms.round.up.increment'))],
+                              facts: [
+                                [copyText('rooms.pool'), pool.name],
+                                [copyText('rooms.asset'), pool.assetId],
+                              ],
+                              notes: [
+                                copyText('rooms.same.asset.spare.change.goes.to.this'),
+                                copyText('rooms.this.instruction.does.not.connect.an.issuer'),
+                              ],
+                              input: (values) => ({ assetId: pool.assetId, targetPoolId: pool.id, granularity: values.granularity }),
+                            })
+                          }
+                        >
+                          <Text k="rooms.card.round.up" />
+                        </Button>
                       </div>
-                      <strong className="numeric">
-                        {funds(position.principal, position.assetId)}
-                        <Text k="rooms.principal" />
-                      </strong>
-                    </header>
-                    <Button
-                      variant="secondary"
-                      onClick={() =>
-                        open({
-                          title: copyText('rooms.withdraw.earn.principal'),
-                          unit: position.assetId,
-                          procedure: 'earn.withdraw',
-                          facts: [
-                            [copyText('rooms.position'), position.id],
-                            [copyText('rooms.principal.2'), amount(position.principal, position.assetId)],
-                            [copyText('rooms.matures.2'), date(position.maturesAt)],
-                          ],
-                          notes: [
-                            copyText('rooms.the.service.checks.maturity.and.reconciles.ledger'),
-                            copyText('rooms.a.refusal.leaves.the.position.unchanged.no'),
-                          ],
-                          input: () => ({ positionId: position.id }),
-                        })
-                      }
-                    >
-                      <Text k="rooms.review.withdrawal" />
-                    </Button>
-                  </article>
-                ))
-              ) : (
-                <NoRows title={copyText('rooms.no.active.earn.positions.returned')}>
-                  <Text k="rooms.a.position.appears.only.after.the.service" />
-                </NoRows>
-              )}
-              <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
-            </>
-          )}
-        </ResourceView>
-      </Section>
+                    </article>
+                  ))
+                ) : (
+                  <NoRows title={copyText('rooms.no.configured.pools.returned')}>
+                    <Text k="rooms.earn.requires.a.published.rate.and.open" />
+                  </NoRows>
+                )}
+                <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
+              </>
+            )}
+          </ResourceView>
+        </Section>
+      </div>
+      <p className="muted money-caption">{earnCopy.t('unavailableHistory')}</p>
       <AutoInvestRules open={open} />
     </BankPage>
   );

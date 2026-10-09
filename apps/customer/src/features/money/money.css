@@ -516,8 +516,26 @@
   font-size: 12px;
   line-height: 20px;
 }
+.money-earn-lanes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 352px);
+  gap: 48px;
+  align-items: start;
+}
+.money-earn-lanes > section {
+  min-width: 0;
+}
+.money-earn-lock {
+  border-left: 3px solid var(--color-accent);
+  padding-left: 16px;
+  color: var(--color-muted);
+}
 @media (max-width: 1000px) {
   .money-repeat-lanes {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+  .money-earn-lanes {
     grid-template-columns: minmax(0, 1fr);
     gap: 32px;
   }
