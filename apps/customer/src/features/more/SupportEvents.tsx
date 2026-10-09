@@ -27,7 +27,7 @@ const eventSchema = z
       event.kind === 'status_changed'
         ? event.fromStatus !== null && event.toStatus !== null && event.fromStatus !== event.toStatus
         : event.fromStatus === null && event.toStatus === null,
-    supportEventsCopy.t('invalidTransition'),
+    () => ({ message: supportEventsCopy.t('invalidTransition') }),
   );
 export type SupportEvent = z.infer<typeof eventSchema>;
 
@@ -56,7 +56,7 @@ export function hasSupportEventGap(rows: SupportEvent[]) {
 // again here before any event content is rendered.
 export function SupportEvents({ ticketId, ticketUpdatedAt }: { ticketId: string; ticketUpdatedAt: string }) {
   const { api, userId } = useSession();
-  const { t, Copy, requestedLocale } = supportEventsCopy.useCopy();
+  const { t, Copy, requestedLocale, languageFor } = supportEventsCopy.useCopy();
   const headingId = useId();
   const [limit, setLimit] = useState(50);
   const { resource, reload } = useResource(async (signal) => {
@@ -65,7 +65,7 @@ export function SupportEvents({ ticketId, ticketUpdatedAt }: { ticketId: string;
   }, `support-events:${userId}:${ticketId}:${ticketUpdatedAt}:${limit}`);
 
   return (
-    <section className="support-history" aria-labelledby={headingId} lang="en">
+    <section className="support-history" aria-labelledby={headingId} lang={languageFor('history')}>
       <header className="support-history-heading">
         <h3 id={headingId}>
           <Copy k="history" />
@@ -80,7 +80,9 @@ export function SupportEvents({ ticketId, ticketUpdatedAt }: { ticketId: string;
       {resource.status === 'loading' ? (
         <Loading label={t('loading')} />
       ) : resource.status === 'failed' ? (
-        <Failure result={resource.failure} retry={reload} />
+        <div lang="und">
+          <Failure result={resource.failure} retry={reload} />
+        </div>
       ) : (
         <>
           {resource.data.length === 0 ? (
@@ -114,7 +116,11 @@ export function SupportEvents({ ticketId, ticketUpdatedAt }: { ticketId: string;
                       {event.kind === 'status_changed' && event.fromStatus && event.toStatus && (
                         <p className="support-event-transition">{t('transition', { from: t(event.fromStatus), to: t(event.toStatus) })}</p>
                       )}
-                      {event.note !== null && <p className="support-event-note">{event.note}</p>}
+                      {event.note !== null && (
+                        <p className="support-event-note" lang="und">
+                          {event.note}
+                        </p>
+                      )}
                       <details className="support-event-reference">
                         <summary>
                           <Copy k="showReference" params={{ sequence: event.sequence }} />
@@ -124,19 +130,19 @@ export function SupportEvents({ ticketId, ticketUpdatedAt }: { ticketId: string;
                             <dt>
                               <Copy k="eventReference" />
                             </dt>
-                            <dd>{event.id}</dd>
+                            <dd lang="zxx">{event.id}</dd>
                           </div>
                           <div>
                             <dt>
                               <Copy k="actorReference" />
                             </dt>
-                            <dd>{event.actorId}</dd>
+                            <dd lang="zxx">{event.actorId}</dd>
                           </div>
                           <div>
                             <dt>
                               <Copy k="recordedAt" />
                             </dt>
-                            <dd>{event.occurredAt}</dd>
+                            <dd lang="zxx">{event.occurredAt}</dd>
                           </div>
                         </dl>
                       </details>
