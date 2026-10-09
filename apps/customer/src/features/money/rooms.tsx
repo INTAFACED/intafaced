@@ -27,6 +27,8 @@ import { AutoInvestRules } from './repeat-buy';
 import { bankReads, type poolSchema, type positionSchema } from './contracts';
 import type { ApiResult } from '../../shared/api';
 import { earnCopy } from './earn-copy';
+import { LoanHealth, currentLoanPreflight, loanActionAllowed, loanStatusNote } from './LoanHealth';
+import { loanCopy } from './loan-copy';
 import { MoneyActivity, ScheduleExecutions } from './activity';
 
 const bankRooms = ['Overview', 'Spaces', 'Transfers', 'Earn', 'Loans', 'Cards', 'Ramps', 'Analytics', 'Business'] as const;
@@ -514,7 +516,7 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
                             ) : (
                               <>
                                 <Text k="rooms.matures" />
-                                {validMaturity(position.maturesAt) ? date(position.maturesAt) : earnCopy.t('maturityMissing')}
+                                {validMaturity(position.maturesAt) ? date(position.maturesAt) : copyText('components.date.unavailable')}
                               </>
                             )}
                           </p>
@@ -712,6 +714,7 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
   );
 }
 function Loans({ open }: { open: (spec: ActionSpec) => void }) {
+  const { api } = useSession();
   const [limit, setLimit] = usePageLimit();
   const products = useBankRead('loans.products', { limit });
   const loans = useBankRead('loans.list', { limit });
@@ -724,7 +727,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
             <>
               <div className="money-risk">
                 <strong>
-                  {bps(risk.portfolioLtvBps)}
+                  {risk.portfolioLtvBps === Number.MAX_SAFE_INTEGER ? loanCopy.t('portfolioRange') : bps(risk.portfolioLtvBps)}
                   <Text k="rooms.ltv" />
                 </strong>
                 <span>
@@ -860,7 +863,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
             <>
               {rows.length ? (
                 rows.map((loan) => (
-                  <article className="money-record" key={loan.id}>
+                  <article className="money-record money-loan-record" key={loan.id} data-loan-id={loan.id}>
                     <header>
                       <div>
                         <h3>
@@ -879,9 +882,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                     </header>
                     <dl className="detail-list">
                       <div>
-                        <dt>
-                          <Text k="rooms.outstanding.principal" />
-                        </dt>
+                        <dt>{loan.status === 'pending' ? loanCopy.t('pendingPrincipal') : <Text k="rooms.outstanding.principal" />}</dt>
                         <dd>{funds(loan.outstandingPrincipal, loan.debtAssetId)}</dd>
                       </div>
                       <div>
@@ -903,22 +904,26 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                         <dd>{loan.id}</dd>
                       </div>
                     </dl>
+                    <LoanHealth loan={loan} resource={health.resource} reload={health.reload} />
+                    {loanStatusNote(loan.status) && <p className="muted money-loan-status">{loanStatusNote(loan.status)}</p>}
                     <div className="actions">
                       <Button
+                        disabled={!loanActionAllowed(loan, 'repay')}
                         onClick={() =>
                           open({
                             title: copyText('rooms.repay.loan'),
                             procedure: 'loans.repay',
+                            preflight: currentLoanPreflight(api, loan, 'repay', limit),
                             fields: [positiveMoney(loan.debtAssetId)],
                             facts: [
-                              [copyText('rooms.loan.2'), loan.id],
+                              [loanCopy.t('loan'), loan.id],
+                              [loanCopy.t('status'), loan.status],
+                              [loanCopy.t('debtAsset'), loan.debtAssetId],
+                              [loanCopy.t('collateralAsset'), loan.collateralAssetId],
                               [copyText('rooms.principal.at.last.read'), amount(loan.outstandingPrincipal, loan.debtAssetId)],
                               [copyText('rooms.interest.at.last.read'), amount(loan.outstandingInterest, loan.debtAssetId)],
                             ],
-                            notes: [
-                              copyText('rooms.repayment.debits.your.user.available.account.the'),
-                              copyText('rooms.your.request.reference.remains.stable.an.uncertain'),
-                            ],
+                            notes: [loanCopy.t('repaymentOffer'), copyText('rooms.your.request.reference.remains.stable.an.uncertain')],
                             input: (values, requestId) => ({ loanId: loan.id, eventId: requestId, amount: values.amount }),
                           })
                         }
@@ -927,12 +932,19 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                       </Button>
                       <Button
                         variant="secondary"
+                        disabled={!loanActionAllowed(loan, 'addCollateral')}
                         onClick={() =>
                           open({
                             title: copyText('rooms.add.collateral'),
                             procedure: 'loans.addCollateral',
+                            preflight: currentLoanPreflight(api, loan, 'addCollateral', limit),
                             fields: [positiveMoney(loan.collateralAssetId)],
-                            facts: [[copyText('rooms.loan.2'), loan.id]],
+                            facts: [
+                              [loanCopy.t('loan'), loan.id],
+                              [loanCopy.t('status'), loan.status],
+                              [loanCopy.t('debtAsset'), loan.debtAssetId],
+                              [loanCopy.t('collateralAsset'), loan.collateralAssetId],
+                            ],
                             notes: [copyText('rooms.additional.collateral.is.locked.from.your.user')],
                             input: (values, requestId) => ({ loanId: loan.id, eventId: requestId, amount: values.amount }),
                           })
@@ -942,13 +954,22 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                       </Button>
                       <Button
                         variant="secondary"
+                        disabled={!loanActionAllowed(loan, 'releaseExcess')}
                         onClick={() =>
                           open({
                             title: copyText('rooms.release.excess.collateral'),
                             procedure: 'loans.releaseExcess',
+                            preflight: currentLoanPreflight(api, loan, 'releaseExcess', limit),
+                            validate: (input) =>
+                              typeof input.amount === 'string' && parseAmount(input.amount) <= parseAmount(loan.collateral)
+                                ? null
+                                : loanCopy.t('releaseTooLarge'),
                             fields: [positiveMoney(loan.collateralAssetId)],
                             facts: [
-                              [copyText('rooms.loan.2'), loan.id],
+                              [loanCopy.t('loan'), loan.id],
+                              [loanCopy.t('status'), loan.status],
+                              [loanCopy.t('debtAsset'), loan.debtAssetId],
+                              [loanCopy.t('collateralAsset'), loan.collateralAssetId],
                               [copyText('rooms.collateral.at.last.read'), amount(loan.collateral, loan.collateralAssetId)],
                             ],
                             notes: [
@@ -963,14 +984,18 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                       </Button>
                       <Button
                         variant="ghost"
-                        disabled={parseAmount(loan.outstandingPrincipal) !== 0n || parseAmount(loan.outstandingInterest) !== 0n}
+                        disabled={!loanActionAllowed(loan, 'close')}
                         onClick={() =>
                           open({
                             title: copyText('rooms.release.settled.collateral'),
                             unit: loan.collateralAssetId,
                             procedure: 'loans.close',
+                            preflight: currentLoanPreflight(api, loan, 'close', limit),
                             facts: [
-                              [copyText('rooms.loan.2'), loan.id],
+                              [loanCopy.t('loan'), loan.id],
+                              [loanCopy.t('status'), loan.status],
+                              [loanCopy.t('debtAsset'), loan.debtAssetId],
+                              [loanCopy.t('collateralAsset'), loan.collateralAssetId],
                               [copyText('rooms.collateral.at.last.read'), amount(loan.collateral, loan.collateralAssetId)],
                             ],
                             notes: [copyText('rooms.the.service.releases.collateral.only.after.verifying')],
@@ -989,6 +1014,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                 </NoRows>
               )}
               <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
+              <p className="muted money-loan-status">{loanCopy.t('unavailableHistory')}</p>
             </>
           )}
         </ResourceView>
@@ -996,6 +1022,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
     </BankPage>
   );
 }
+
 function CardAuthorizations({ id, asset }: { id: string; asset: string }) {
   const [limit, setLimit] = usePageLimit();
   const query = useBankRead('cards.authorizations', { cardId: id, limit });
