@@ -440,9 +440,6 @@ const en = {
   candleCountdown: 'Candle countdown ',
   newsMarksUnavailable: 'News marks unavailable',
   noTimestampedMarketNewsServiceIsMounted: 'No timestamped market news service is mounted.',
-  priceAlertsUnavailable: 'Price alerts unavailable',
-  noCustomerAlertCreationDeliveryOrAlertHistoryServiceIsMounted:
-    'No customer alert creation, delivery, or alert history service is mounted.',
   viewPreferences: 'View preferences ↗',
   exitFullScreenChart: 'Exit full screen chart',
   fullScreenChart: 'Full screen chart',

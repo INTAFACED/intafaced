@@ -1517,9 +1517,11 @@ for (const width of [1440, 768, 320])
       .locator('summary')
       .filter({ hasText: /^View$/ })
       .click();
-    await expect(
-      page.getByText('No customer alert creation, delivery, or alert history service is mounted.', { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByText('No timestamped market news service is mounted.', { exact: true })).toBeVisible();
+    await page.locator('summary').filter({ hasText: /^View$/ }).click();
+    await page.getByRole('button', { name: 'Price alerts', exact: true }).click();
+    await expect(page.getByRole('dialog')).toContainText('BTC/USDT');
+    await expect(page.getByRole('dialog')).toContainText('Price alerts');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: `/tmp/intafaced-trade-${width}.png`, fullPage: true });
   });

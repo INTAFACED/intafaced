@@ -9,6 +9,7 @@ import { useResource } from '../../shared/resource';
 import type { Listing, TradeApi, Order } from './trade-api';
 import { usePreferences, useResolvedTheme, savePreferences } from '../../shared/preferences';
 import { TIMEFRAMES } from './trade-api';
+import { PriceAlerts } from './PriceAlerts';
 
 type Point = { time: number; value: number };
 type Bar = { time: number; open: number; high: number; low: number; close: number; volume: number };
@@ -785,17 +786,12 @@ export function MarketChart({
             <small>
               <CopyText k="noTimestampedMarketNewsServiceIsMounted" />
             </small>
-            <button disabled>
-              <CopyText k="priceAlertsUnavailable" />
-            </button>
-            <small>
-              <CopyText k="noCustomerAlertCreationDeliveryOrAlertHistoryServiceIsMounted" />
-            </small>
             <a href="/view">
               <CopyText k="viewPreferences" />
             </a>
           </div>
         </details>
+        <PriceAlerts key={[market.id, market.symbol, market.base, market.quote, market.paper, accountKey].join(':')} market={market} />
         <Button
           variant="ghost"
           aria-label={fullscreen ? copy.t('exitFullScreenChart') : copy.t('fullScreenChart')}
