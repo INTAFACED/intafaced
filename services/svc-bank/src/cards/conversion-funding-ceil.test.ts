@@ -1,13 +1,14 @@
 /**
- * L1108 — card_conversions.funding_amount is the scaled ceiling of settlement / rate.
+ * L1108 — card_conversions.funding_amount is the smallest numeric(38,18) that
+ * is at least settlement / rate, the same value as div(settlement, rate, 'ceil').
  *
  * 0007 says funding_amount is the ceil of settlement / rate, and only checks
  * that settlement_amount, funding_amount, and rate are positive. A frozen quote
  * can disagree with the recorded rate and still store.
  *
- * The ceiling is div(settlement, rate, 'ceil') at 18 decimal places:
- * ceil(settlement_amount * 10^18 / rate) / 10^18. A whole-unit
- * ceil(settlement_amount / rate) is a different number.
+ * A whole-unit ceil(settlement_amount / rate) is a different number. The check
+ * multiplies only. Numeric division rounds to 18 fractional digits before ceil,
+ * so a rounded quotient is not that ceiling.
  *
  * H8a PG-hard: this file never describe.skip / postgresAvailable. The admin
  * URL is TEST_DATABASE_URL. Docker/PG down is a failed suite, not a green skip.
@@ -38,6 +39,12 @@ const SETTLEMENT = '1';
 const RATE = '3';
 const WHOLE_UNIT_CEIL = '1';
 const SCALED_CEILING = '0.333333333333333334';
+/**
+ * Numeric division of this pair rounds to 18 fractional digits before ceil and
+ * lands one attounit under div(..., 'ceil').
+ */
+const NEAR_SETTLEMENT = '2.999999999999999998';
+const NEAR_RATE = '3.000000000000000001';
 
 async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
@@ -140,5 +147,50 @@ describe('card conversion funding amount is the scaled ceiling', () => {
     expect(parseAmount(stored[0]!.settlement_amount)).toBe(settlementAmount);
     expect(parseAmount(stored[0]!.rate)).toBe(rateAmount);
     expect(formatAmount(parseAmount(stored[0]!.funding_amount))).toBe(funding);
+  });
+
+  it('stores the ceiling when numeric division would round under div ceil', async () => {
+    const settlementAmount: Amount = parseAmount(NEAR_SETTLEMENT);
+    const rateAmount: Amount = parseAmount(NEAR_RATE);
+    const fundingAmount: Amount = div(settlementAmount, rateAmount, 'ceil');
+    const funding = formatAmount(fundingAmount);
+
+    const authorization = await authorizationId();
+    const stored = await sql<Array<{ funding_amount: string; settlement_amount: string; rate: string }>>`
+      INSERT INTO bank.card_conversions (
+        authorization_id, settlement_asset_id, settlement_amount, funding_asset_id,
+        funding_amount, rate, rate_quality, rate_as_of
+      )
+      VALUES (
+        ${authorization}, 'USD', ${NEAR_SETTLEMENT}::numeric, 'USDT',
+        ${funding}::numeric, ${NEAR_RATE}::numeric, 'mid', now()
+      )
+      RETURNING funding_amount::text AS funding_amount, settlement_amount::text AS settlement_amount, rate::text AS rate
+    `;
+    expect(typeof stored[0]!.funding_amount).toBe('string');
+    expect(parseAmount(stored[0]!.funding_amount)).toBe(fundingAmount);
+    expect(parseAmount(stored[0]!.settlement_amount)).toBe(settlementAmount);
+    expect(parseAmount(stored[0]!.rate)).toBe(rateAmount);
+    expect(formatAmount(parseAmount(stored[0]!.funding_amount))).toBe(funding);
+  });
+
+  it('rejects one attounit under that ceiling and stores no row', async () => {
+    const fundingAmount: Amount = div(parseAmount(NEAR_SETTLEMENT), parseAmount(NEAR_RATE), 'ceil');
+    const under = formatAmount(fundingAmount - 1n);
+
+    const authorization = await authorizationId();
+    await expect(sql`
+      INSERT INTO bank.card_conversions (
+        authorization_id, settlement_asset_id, settlement_amount, funding_asset_id,
+        funding_amount, rate, rate_quality, rate_as_of
+      )
+      VALUES (
+        ${authorization}, 'USD', ${NEAR_SETTLEMENT}::numeric, 'USDT',
+        ${under}::numeric, ${NEAR_RATE}::numeric, 'mid', now()
+      )
+    `).rejects.toMatchObject({ code: CHECK_VIOLATION, constraint_name: FUNDING_CEIL });
+
+    const count = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM bank.card_conversions`;
+    expect(count[0]!.n).toBe(0);
   });
 });
