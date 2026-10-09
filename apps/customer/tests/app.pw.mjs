@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-+
+
 test('native View changes reach another open tab and malformed device settings preserve the last valid view', async ({ page, context }) => {
   const other = await context.newPage();
   await setup(page);
