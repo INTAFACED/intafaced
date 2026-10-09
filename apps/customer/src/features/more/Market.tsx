@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
-import { Button, DataTable, Field, Panel } from '../../shared/ui';
+import { Button, Field, Panel } from '../../shared/ui';
+import { MarketPurchaseRecords } from './MarketPurchaseRecords';
 import { Details, Limit, Read, Select, TextArea, useAction } from './common';
 import type { ApiResult } from '../../shared/api';
 const uuid = z.string().uuid(),
@@ -502,71 +503,41 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
         </Read>
       </Panel>
       <Panel title={copyText('market.your.purchases')}>
-        <Read resource={purchases.resource} retry={purchases.reload} empty={copyText('market.you.have.no.purchases')}>
-          {(rows) => (
-            <>
-              <DataTable
-                headers={[copyText('market.purchase'), copyText('market.amount'), copyText('market.settlement'), copyText('market.access')]}
-                label={copyText('market.purchase.history')}
-              >
-                {rows.map((r) => (
-                  <tr key={r.id}>
-                    <td>
-                      <code>{r.id}</code>
-                    </td>
-                    <td>
-                      {displayAmount(r.price)} {r.assetId}
-                    </td>
-                    <td>
-                      {r.status}
-                      {r.rejectionCode && <p>{r.rejectionCode}</p>}
-                      {r.ledgerTxId && (
-                        <small>
-                          <Text k="market.ledger" />
-                          {r.ledgerTxId}
-                        </small>
-                      )}
-                    </td>
-                    <td>
-                      {r.accessUntil ?? copyText('market.no.expiring.access')}
-                      {r.accessUntil && (
-                        <Button
-                          variant="secondary"
-                          disabled={action.disabled}
-                          onClick={() =>
-                            action.stage({
-                              title: copyText('market.cancel.subscription.access'),
-                              confirm: copyText('market.cancel.access'),
-                              success: copyText('market.access.cancellation.recorded'),
-                              content: (
-                                <p>
-                                  <Text k="market.cancel.access.for.listing" />
-                                  {r.listingId}
-                                  <Text k="market.this.does.not.issue.a.refund" />
-                                </p>
-                              ),
-                              run: () =>
-                                api.mutate(
-                                  'market',
-                                  'cancelSubscription',
-                                  { listingId: r.listingId },
-                                  z.object({ listingId: uuid, buyerId: uuid, cancelledAt: time }),
-                                ),
-                              done: purchases.reload,
-                            })
-                          }
-                        >
-                          <Text k="market.cancel.access" />
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </DataTable>
-              <Limit count={rows.length} limit={limit} cap={50} onChange={setLimit} />
-            </>
+        <MarketPurchaseRecords
+          resource={purchases.resource}
+          reload={purchases.reload}
+          limit={limit}
+          renderCancel={(row) => (
+            <Button
+              variant="secondary"
+              disabled={action.disabled}
+              onClick={() =>
+                action.stage({
+                  title: copyText('market.cancel.subscription.access'),
+                  confirm: copyText('market.cancel.access'),
+                  success: copyText('market.access.cancellation.recorded'),
+                  content: (
+                    <p>
+                      <Text k="market.cancel.access.for.listing" />
+                      {row.listingId}
+                      <Text k="market.this.does.not.issue.a.refund" />
+                    </p>
+                  ),
+                  run: () =>
+                    api.mutate(
+                      'market',
+                      'cancelSubscription',
+                      { listingId: row.listingId },
+                      z.object({ listingId: uuid, buyerId: uuid, cancelledAt: time }),
+                    ),
+                  done: purchases.reload,
+                })
+              }
+            >
+              <Text k="market.cancel.access" />
+            </Button>
           )}
-        </Read>
+        />
       </Panel>
       {action.feedback}
       {action.dialog}
