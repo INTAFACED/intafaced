@@ -64,7 +64,9 @@ function Read<T>({ resource, retry, children }: { resource: Resource<T>; retry: 
   return resource.status === 'loading' ? (
     <Loading />
   ) : resource.status === 'failed' ? (
-    <Failure result={resource.failure} retry={retry} />
+    <div lang="und">
+      <Failure result={resource.failure} retry={retry} />
+    </div>
   ) : (
     children(resource.data)
   );
@@ -166,7 +168,9 @@ function NotificationRoom({ userId }: { userId: string }) {
                   <Copy k={result.data.marked ? 'marked' : 'unchanged'} />
                 </p>
               ) : (
-                <Failure result={result} />
+                <div lang="und">
+                  <Failure result={result} />
+                </div>
               ))}
             <Read resource={inbox.resource} retry={refresh}>
               {(data) =>
@@ -175,17 +179,20 @@ function NotificationRoom({ userId }: { userId: string }) {
                     <Fragment key={item.id}>
                       <article
                         className={`notifications-item ${item.readAt ? 'read' : 'unread'}`}
-                        aria-label={!item.title || item.title === item.titleKey ? t('titleAbsent') : item.title}
+                        lang="und"
+                        aria-labelledby={`notification-title-${item.id}`}
                       >
-                        <div className="notifications-meta">
+                        <div className="notifications-meta" lang={languageFor('unread')}>
                           <span>
                             <Copy k={item.severity} /> · <Copy k={item.readAt ? 'read' : 'unread'} />
                           </span>
                           <time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString(requestedLocale)}</time>
                         </div>
-                        <h3>{!item.title || item.title === item.titleKey ? <Copy k="titleAbsent" /> : item.title}</h3>
-                        <p>{!item.body || item.body === item.bodyKey ? <Copy k="bodyAbsent" /> : item.body}</p>
-                        <div className="actions">
+                        <h3 id={`notification-title-${item.id}`} lang="und">
+                          {!item.title || item.title === item.titleKey ? <Copy k="titleAbsent" /> : item.title}
+                        </h3>
+                        <p lang="und">{!item.body || item.body === item.bodyKey ? <Copy k="bodyAbsent" /> : item.body}</p>
+                        <div className="actions" lang={languageFor('inspect')}>
                           {customerRoomHref(item.href) && (
                             <a className="text-link" href={customerRoomHref(item.href)}>
                               <Copy k="related" />
@@ -223,7 +230,9 @@ function NotificationRoom({ userId }: { userId: string }) {
                 <p className="muted">
                   <Copy k="selectedId" />
                 </p>
-                <p className="numeric">{selected}</p>
+                <p className="numeric" lang="zxx">
+                  {selected}
+                </p>
                 <p>
                   <Copy k="selectionMissing" />
                 </p>
@@ -271,7 +280,10 @@ function DeliveryDetails({ item }: { item: Notification }) {
         <Copy k="delivery" />
       </h4>
       <p className="muted">
-        <Copy k="selectedId" />: <span className="numeric">{item.id}</span>
+        <Copy k="selectedId" />:{' '}
+        <span className="numeric" lang="zxx">
+          {item.id}
+        </span>
       </p>
       <p className="muted">
         <Copy k="deliveryMeaning" />
@@ -302,7 +314,7 @@ function DeliveryDetails({ item }: { item: Notification }) {
                     )}
                     {row.refusalCode && (
                       <span className="notifications-reason">
-                        <Copy k="reason" />: {row.refusalCode}
+                        <Copy k="reason" />: <span lang="zxx">{row.refusalCode}</span>
                       </span>
                     )}
                   </div>
@@ -410,7 +422,11 @@ function NotificationSettings({ userId }: { userId: string }) {
           </p>
         </div>
       )}
-      {result && !result.ok && <Failure result={result} />}
+      {result && !result.ok && (
+        <div lang="und">
+          <Failure result={result} />
+        </div>
+      )}
       {confirmed && (
         <p className="notice" role="status">
           <Copy k={confirmed.muted ? 'confirmedMute' : 'confirmedUnmute'} params={{ channel: t(confirmed.channel) }} />
@@ -468,7 +484,7 @@ function NotificationSettings({ userId }: { userId: string }) {
                           {row ? (
                             <>
                               <Copy k={row.verifiedAt ? 'targetVerified' : 'targetUnverified'} /> ·{' '}
-                              {id === 'push' ? <Copy k="device" /> : row.address}
+                              {id === 'push' ? <Copy k="device" /> : <span lang="zxx">{row.address}</span>}
                             </>
                           ) : (
                             <Copy k="targetAbsent" />

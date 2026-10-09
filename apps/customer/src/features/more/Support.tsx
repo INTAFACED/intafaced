@@ -134,7 +134,9 @@ export function Support() {
             )}
           </Read>
         </Panel>
-        {selected && <Conversation key={selected} id={selected} action={action} comment={comment} setComment={setComment} />}
+        {selected && (
+          <Conversation key={selected} id={selected} action={action} comment={comment} setComment={setComment} onUpdated={tickets.reload} />
+        )}
       </div>
       <Panel title={copyText('support.contact.support')}>
         <p className="muted">
@@ -204,11 +206,13 @@ function Conversation({
   action,
   comment,
   setComment,
+  onUpdated,
 }: {
   id: string;
   action: ReturnType<typeof useAction>;
   comment: string;
   setComment: (s: string) => void;
+  onUpdated: () => void;
 }) {
   const api = useApi(),
     { userId } = useSession();
@@ -245,7 +249,7 @@ function Conversation({
       <div className="support-ticket-context">
         <p className="support-ticket-reference">
           <supportEventsCopy.Copy k="originalRequest" />
-          <span>{id}</span>
+          <span lang="zxx">{id}</span>
         </p>
         <Button
           variant="secondary"
@@ -260,9 +264,9 @@ function Conversation({
       <Read resource={detail.resource} retry={detail.reload}>
         {(ticket) => (
           <>
-            <h2>{ticket.subject}</h2>
-            <p>{ticket.body}</p>
-            <small>
+            <h2 lang="und">{ticket.subject}</h2>
+            <p lang="und">{ticket.body}</p>
+            <small lang="zxx">
               {ticket.status} · {ticket.id}
             </small>
             <Read resource={comments.resource} retry={comments.reload} empty={copyText('support.no.replies.yet')}>
@@ -274,7 +278,7 @@ function Conversation({
                         <small>
                           {row.authorRole} · {row.createdAt}
                         </small>
-                        <p>{row.body}</p>
+                        <p lang="und">{row.body}</p>
                       </li>
                     ))}
                   </ol>
@@ -283,9 +287,14 @@ function Conversation({
               )}
             </Read>
             <SupportEvents ticketId={ticket.id} ticketUpdatedAt={ticket.updatedAt} />
+            {ticket.status === 'resolved' && (
+              <p className="muted">
+                <Text k="support.resolved.reply.reopens.same.request" />
+              </p>
+            )}
             <TextArea label={copyText('support.reply')} value={comment} onChange={setComment} />
             <Button
-              disabled={action.disabled || !comment.trim() || ['closed', 'resolved'].includes(ticket.status)}
+              disabled={action.disabled || !comment.trim() || ticket.status === 'closed'}
               onClick={() =>
                 action.stage({
                   title: copyText('support.review.reply'),
@@ -293,13 +302,21 @@ function Conversation({
                   confirm: copyText('support.send.reply'),
                   success: copyText('support.reply.posted'),
                   content: (
-                    <Details
-                      items={[
-                        [supportEventsCopy.t('originalRequest'), id],
-                        [copyText('support.subject'), ticket.subject],
-                        [copyText('support.reply'), comment],
-                      ]}
-                    />
+                    <>
+                      <Details
+                        items={[
+                          [supportEventsCopy.t('originalRequest'), <span lang="zxx">{id}</span>],
+                          [copyText('support.status'), <span lang="zxx">{ticket.status}</span>],
+                          [copyText('support.subject'), <span lang="und">{ticket.subject}</span>],
+                          [copyText('support.reply'), <span lang="und">{comment}</span>],
+                        ]}
+                      />
+                      {ticket.status === 'resolved' && (
+                        <p className="muted">
+                          <Text k="support.resolved.reply.reopens.same.request" />
+                        </p>
+                      )}
+                    </>
                   ),
                   run: () =>
                     api.mutate(
@@ -315,13 +332,14 @@ function Conversation({
                     setComment('');
                     comments.reload();
                     detail.reload();
+                    onUpdated();
                   },
                 })
               }
             >
               <Text k="support.review.reply" />
             </Button>
-            {['closed', 'resolved'].includes(ticket.status) && (
+            {ticket.status === 'closed' && (
               <p className="muted">
                 <Text k="support.this.request.is" />
                 {ticket.status}

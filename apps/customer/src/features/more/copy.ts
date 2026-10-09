@@ -697,6 +697,8 @@ const messages = {
   'support.reply.posted': 'Reply posted',
   'support.posted.comment.does.not.match.this.account': 'Posted comment does not match this account request',
   'support.this.request.is': 'This request is ',
+  'support.resolved.reply.reopens.same.request':
+    'If this request is still resolved, your reply reopens this same request. Its status and history are refreshed after the reply is confirmed.',
   'support.the.service.refuses.further.comments': '; the service refuses further comments.',
   'token.stake.ownership.does.not.match.this.account': 'Stake ownership does not match this account',
   'token.token.sections': 'Token sections',
@@ -1655,6 +1657,8 @@ const es = {
   'support.reply.posted': 'Respuesta publicada',
   'support.posted.comment.does.not.match.this.account': 'El comentario publicado no coincide con la solicitud de esta cuenta',
   'support.this.request.is': 'Esta solicitud está ',
+  'support.resolved.reply.reopens.same.request':
+    'Si esta solicitud sigue resuelta, tu respuesta reabre esta misma solicitud. Su estado e historial se actualizan cuando se confirma la respuesta.',
   'support.the.service.refuses.further.comments': '; el servicio rechaza más comentarios.',
   'token.stake.ownership.does.not.match.this.account': 'La titularidad del staking no coincide con esta cuenta',
   'token.token.sections': 'Secciones de Token',
@@ -2622,6 +2626,8 @@ const fr = {
   'support.reply.posted': 'Réponse publiée',
   'support.posted.comment.does.not.match.this.account': 'Le commentaire publié ne correspond pas à la demande de ce compte',
   'support.this.request.is': 'Cette demande est ',
+  'support.resolved.reply.reopens.same.request':
+    'Si cette demande est toujours résolue, votre réponse rouvre cette même demande. Son état et son historique sont actualisés après confirmation de la réponse.',
   'support.the.service.refuses.further.comments': ' ; le service refuse tout commentaire supplémentaire.',
   'token.stake.ownership.does.not.match.this.account': 'Le staking n’appartient pas à ce compte',
   'token.token.sections': 'Sections de Token',
