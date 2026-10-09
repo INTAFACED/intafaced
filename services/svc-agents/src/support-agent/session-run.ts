@@ -184,6 +184,7 @@ const ACCOUNT_STATE_MISSING_REASONS = new Set([
   'account_owner_mismatch',
   'account_plane_dark',
   'account_not_attempted',
+  'no_live_kb',
 ]);
 
 export type SupportRunOk = {

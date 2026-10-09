@@ -538,6 +538,39 @@ describe('support.reply metered session run', () => {
     expect(fake.closeCalls).toBe(1);
   });
 
+  it('refuses when identity.account.read is unreachable — KB alone is not invent account-state', async () => {
+    const fake = new FakeRuntime();
+    const desk = testDesk({
+      articles: [
+        {
+          articleKey: 'kb-account-access',
+          titleKey: 'support.kb.account_access.title',
+          bodyKey: 'support.kb.account_access.body',
+        },
+      ],
+    });
+    desk.readAccount = async () => ({ status: 'unreachable' });
+    const result = await runSupportReplySession({
+      ...baseInput(fake),
+      desk,
+      asks: [
+        { tool: SUPPORT_KB_TOOL, kbQuery: 'account', limit: 20 },
+        { tool: 'identity.account.read' },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      status: 'refuse',
+      reason: 'account_state_missing',
+      userMessageKey: 'agents.support.unavailable',
+    });
+    if (result.status !== 'refuse') return;
+    expect(result.unanswered.map((u) => [u.tool, u.reason])).toEqual([['identity.account.read', 'no_live_kb']]);
+    expect(result.metering.billedAmount).toBe('0');
+    expect(fake.settleCalls).toBe(1);
+    expect(fake.closeCalls).toBe(1);
+  });
+
   it('escalates when kbQuery misses the catalog but other grounded reads worked', async () => {
     const fake = new FakeRuntime();
     const result = await runSupportReplySession({
