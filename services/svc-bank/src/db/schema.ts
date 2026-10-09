@@ -253,7 +253,8 @@ export const earnPositions = bank.table(
     openedAt: tstz('opened_at').notNull().defaultNow(),
     /** NULL for flexible. Withdrawal before this is refused on fixed pools. */
     maturesAt: tstz('matures_at'),
-    status: positionStatusEnum('status').notNull().default('active'),
+    /** Claim before the ledger post. An omitted status is not interest-eligible. */
+    status: positionStatusEnum('status').notNull().default('pending'),
     closedAt: tstz('closed_at'),
     createdAt: createdAt(),
   },
