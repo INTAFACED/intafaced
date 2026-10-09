@@ -262,3 +262,44 @@ describe('a failure is never reported as a success', () => {
     expect(state.detail).toBeNull();
   });
 });
+
+describe('module response integrity and original intent', () => {
+  beforeEach(() => {
+    process.env.EDGE_URL = EDGE;
+    process.env.ADMIN_OPERATOR_TOKEN = OPERATOR;
+  });
+  it('malformed HTTP200 never becomes a reachable empty platform', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ audit: [], reasons: {} })),
+    );
+    expect(await readKillSwitches()).toMatchObject({ status: 'invalid_response', code: 'admin.kill_invalid_response' });
+  });
+  it('auth refusal preserves the authoritative status and code', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ error: 'Isolated scope refusal', code: 'scope.insufficient' }, 403)),
+    );
+    expect(await readKillSwitches()).toMatchObject({ status: 'refused', httpStatus: 403, code: 'scope.insufficient' });
+  });
+  it('timeout retains original module intent without claiming a definite non-application', async () => {
+    const fetchMock = spyFetch(async () => {
+      throw new Error('Isolated timeout');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const intent = { module: 'pay' as const, disabled: true, reason: 'Original isolated incident' };
+    expect(await setKillSwitch(intent)).toMatchObject({ ok: false, uncertain: true, intent });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it('unreadable success cannot establish a module outcome', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('unreadable', { status: 200 })),
+    );
+    expect(await setKillSwitch({ module: 'pay', disabled: true, reason: 'Original isolated incident' })).toMatchObject({
+      ok: false,
+      uncertain: true,
+      code: 'admin.kill_invalid_command_response',
+    });
+  });
+});

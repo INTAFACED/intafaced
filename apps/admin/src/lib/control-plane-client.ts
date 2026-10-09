@@ -1,4 +1,21 @@
 import 'server-only';
+import {
+  decodeRead,
+  decodeToggle,
+  unavailable,
+  unresolved,
+  type ControlPlaneState,
+  type ToggleInput,
+  type ToggleResult,
+} from './control-plane-contract';
+export type {
+  AuditEntry,
+  ControlPlaneState,
+  ControlPlaneStatus,
+  KillSwitchSnapshot,
+  ToggleInput,
+  ToggleResult,
+} from './control-plane-contract';
 import type { ModuleId } from '@intafaced/config';
 import { describeUnconfigured, readConsoleStatus, type Authority } from '@/lib/console-status';
 
@@ -49,40 +66,6 @@ import { describeUnconfigured, readConsoleStatus, type Authority } from '@/lib/c
  * `verifyAccessToken` + `requireScope` path as every other caller.
  */
 
-export interface AuditEntry {
-  readonly at: string;
-  readonly module: string;
-  readonly actor: string;
-  readonly reason: string;
-  readonly previous: boolean;
-  readonly next: boolean;
-  readonly changed: boolean;
-}
-
-export interface KillSwitchSnapshot {
-  readonly disabledModules: readonly ModuleId[];
-  readonly reasons: Readonly<Record<string, string>>;
-  /** Who halted what, when, and what it was before. Newest first. */
-  readonly audit: readonly AuditEntry[];
-}
-
-export type ControlPlaneStatus =
-  /** Configured and answering. */
-  | 'reachable'
-  /** No token / no `EDGE_URL` — the console must not pretend. */
-  | 'unconfigured'
-  /** Configured, and the edge did not answer or refused us. */
-  | 'unreachable';
-
-export interface ControlPlaneState {
-  readonly status: ControlPlaneStatus;
-  readonly snapshot: KillSwitchSnapshot;
-  /** One sentence an operator can act on. Null when everything is fine. */
-  readonly detail: string | null;
-}
-
-const EMPTY: KillSwitchSnapshot = { disabledModules: [], reasons: {}, audit: [] };
-
 /** How long the console waits before reporting the control plane as unreachable. */
 const TIMEOUT_MS = 5_000;
 
@@ -109,74 +92,44 @@ const isConfigured = (cfg: ReturnType<typeof config>): cfg is { edgeUrl: string;
 
 export async function readKillSwitches(): Promise<ControlPlaneState> {
   const cfg = config('module');
-  if (!isConfigured(cfg)) {
-    return { status: 'unconfigured', snapshot: EMPTY, detail: cfg.reason };
-  }
-
+  if (!isConfigured(cfg)) return unavailable('unconfigured', cfg.reason, 'admin.kill_unconfigured', 503);
   try {
     const res = await fetch(`${cfg.edgeUrl}/admin/kill-switches`, {
       headers: { authorization: `Bearer ${cfg.token}` },
       cache: 'no-store',
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-
-    if (!res.ok) {
-      return { status: 'unreachable', snapshot: EMPTY, detail: `svc-edge answered ${res.status} — check ADMIN_OPERATOR_TOKEN.` };
-    }
-
-    const body = (await res.json()) as Partial<KillSwitchSnapshot>;
-    return {
-      status: 'reachable',
-      snapshot: { disabledModules: body.disabledModules ?? [], reasons: body.reasons ?? {}, audit: body.audit ?? [] },
-      detail: null,
-    };
-  } catch (err) {
-    return { status: 'unreachable', snapshot: EMPTY, detail: `svc-edge did not answer: ${(err as Error).message}` };
+    return decodeRead(await res.json().catch(() => null), res.status, false);
+  } catch {
+    return unavailable('unreachable', 'svc-edge did not answer the original module state read.', 'admin.kill_read_unreachable', 502);
   }
 }
 
-export interface ToggleInput {
-  readonly module: ModuleId;
-  readonly disabled: boolean;
-  /** The edge requires ≥ 12 characters. A switch with no recorded reason is an outage nobody can explain. */
-  readonly reason: string;
-}
-
-export interface ToggleResult {
-  readonly ok: boolean;
-  readonly status: number;
-  readonly snapshot: KillSwitchSnapshot;
-  readonly detail: string | null;
-}
-
+/** Retained transport; the read-only inspector cannot arm it. No approval fields are invented. */
 export async function setKillSwitch(input: ToggleInput): Promise<ToggleResult> {
+  const intent = Object.freeze({ module: input.module, disabled: input.disabled, reason: input.reason });
   const cfg = config('module');
-  if (!isConfigured(cfg)) {
-    // 503, never a 200 with a cheerful snapshot. This is the branch a console
-    // with no token takes, and it is the branch that used to be invisible.
-    return { ok: false, status: 503, snapshot: EMPTY, detail: cfg.reason };
-  }
-
+  if (!isConfigured(cfg))
+    return {
+      ok: false,
+      status: 503,
+      snapshot: { disabledModules: [], reasons: {}, audit: [] },
+      detail: cfg.reason,
+      code: 'admin.kill_unconfigured',
+      uncertain: false,
+      intent,
+    };
   try {
     const res = await fetch(`${cfg.edgeUrl}/admin/kill-switches`, {
       method: 'POST',
       headers: { authorization: `Bearer ${cfg.token}`, 'content-type': 'application/json' },
-      body: JSON.stringify(input),
+      body: JSON.stringify(intent),
       cache: 'no-store',
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-
-    const body = (await res.json().catch(() => ({}))) as Partial<KillSwitchSnapshot> & { error?: string };
-    if (!res.ok) return { ok: false, status: res.status, snapshot: EMPTY, detail: body.error ?? `svc-edge answered ${res.status}` };
-
-    return {
-      ok: true,
-      status: res.status,
-      snapshot: { disabledModules: body.disabledModules ?? [], reasons: body.reasons ?? {}, audit: body.audit ?? [] },
-      detail: null,
-    };
-  } catch (err) {
-    return { ok: false, status: 502, snapshot: EMPTY, detail: `svc-edge did not answer: ${(err as Error).message}` };
+    return decodeToggle(await res.json().catch(() => null), res.status, intent, false);
+  } catch {
+    return unresolved(intent, 'The connection ended before svc-edge confirmed the original module command outcome.');
   }
 }
 
