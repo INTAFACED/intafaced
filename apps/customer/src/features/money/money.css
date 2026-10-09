@@ -487,6 +487,44 @@
 .money-record .actions {
   flex-wrap: wrap;
 }
+.money-repeat-lanes {
+  display: grid;
+  grid-template-columns: minmax(0, 352px) minmax(0, 1fr);
+  gap: 48px;
+  align-items: start;
+}
+.money-repeat-lanes > section {
+  min-width: 0;
+}
+.money-repeat-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.money-repeat-setup > .button--primary {
+  width: 100%;
+}
+.money-repeat-rule h3 {
+  font-size: 20px;
+  line-height: 28px;
+  overflow-wrap: anywhere;
+}
+.money-repeat-rule > header .money-repeat-active {
+  color: var(--color-accent);
+}
+.money-repeat-coverage {
+  font-size: 12px;
+  line-height: 20px;
+}
+@media (max-width: 1000px) {
+  .money-repeat-lanes {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+  .money-repeat-setup > .button {
+    scroll-margin-bottom: calc(84px + env(safe-area-inset-bottom));
+  }
+}
 .money-space-row {
   display: flex;
   justify-content: space-between;

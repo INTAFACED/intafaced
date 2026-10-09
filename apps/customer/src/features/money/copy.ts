@@ -2,6 +2,8 @@ import { defineCopy, type CopyCatalog } from '../../shared/i18n';
 
 // Authored UI messages only. API values, identifiers, units and user content stay outside this catalog.
 const messages = {
+  'components.review.check.failed.no.request.sent':
+    'Current review checks could not be completed. No request was sent. Close this review and refresh before trying again.',
   'activity.incoming': 'Incoming',
   'activity.outgoing': 'Outgoing',
   'activity.scheduled': 'Scheduled',

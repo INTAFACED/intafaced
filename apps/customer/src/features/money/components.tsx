@@ -115,6 +115,8 @@ export type ActionSpec = {
   notes: string[];
   input: (values: Record<string, string>, requestId: string) => Record<string, unknown>;
   validate?: (input: Record<string, unknown>) => string | null;
+  /** Fresh read checks inside the Bank write lock, before journaling or POST. */
+  preflight?: (input: Record<string, unknown>) => Promise<ApiResult<null>>;
   transferSpaces?: Space[];
   submit?: string;
   unit?: string;
@@ -300,6 +302,17 @@ export function MutationDialog({
       if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('components.sign.in.before.sending.a.bank.request') };
       if (pendingOutcomes(userId).length)
         return { ok: false, reason: 'uncertain', message: copyText('components.an.original.bank.request.still.requires.recovery') };
+      if (spec.preflight) {
+        let checked: ApiResult<null>;
+        try {
+          checked = await spec.preflight(input);
+        } catch {
+          checked = { ok: false, reason: 'error', message: copyText('components.review.check.failed.no.request.sent') };
+        }
+        if (!checked.ok) return checked;
+        if (pendingOutcomes(userId).length)
+          return { ok: false, reason: 'uncertain', message: copyText('components.an.original.bank.request.still.requires.recovery') };
+      }
       try {
         rememberPendingOutcome(userId, {
           reference: requestId,
