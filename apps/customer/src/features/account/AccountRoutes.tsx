@@ -9,6 +9,7 @@ import { enrollPasskey } from '../session/webauthn';
 import { View } from './View';
 import { IdentitySessions } from './IdentitySessions';
 import { Notifications } from './Notifications';
+import { ReferralRecords } from './ReferralRecords';
 import './account.css';
 
 const subAccountSchema = z.object({
@@ -630,7 +631,7 @@ function Verification() {
   );
 }
 function Promotions() {
-  const { api, session } = useSession();
+  const { api } = useSession();
   const [result, setResult] = useState<ApiResult<{ token: string; referrerId: string; hits: number }> | null>(null);
   const [pending, setPending] = useState(false);
   const [copy, setCopy] = useState('');
@@ -708,18 +709,7 @@ function Promotions() {
             {result && !result.ok && <Failure result={result} />}
           </div>
         </Panel>
-        <section className="stack">
-          <h2>
-            <Text k="accountroutes.referral.records" />
-          </h2>
-          <p className="muted">
-            <Text k="accountroutes.your.account.id" />
-            <span className="numeric">{session?.userId}</span>
-          </p>
-          <div className="notice">
-            <Text k="accountroutes.a.customer.referral.tree.commission.balance.and" />
-          </div>
-        </section>
+        <ReferralRecords />
       </div>
     </Page>
   );
