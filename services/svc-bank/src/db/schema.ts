@@ -219,8 +219,8 @@ export const earnPools = bank.table(
     aprBps: bps('apr_bps').notNull(),
     /** NULL for flexible pools; the lock length for fixed ones. */
     termDays: integer('term_days'),
-    /** Policy floor on a single deposit. A limit, not a holding. */
-    minDeposit: amount('min_deposit').notNull().default('0'),
+    /** Policy floor on a single deposit. Null is a blank limit; an omitted floor is not zero. */
+    minDeposit: amount('min_deposit'),
     status: poolStatusEnum('status').notNull().default('open'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
