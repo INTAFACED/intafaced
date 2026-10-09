@@ -2287,8 +2287,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
   });
 
   /**
-   * RAMPS — crypto ledger half. Fiat is socket.psp-partners commercially; the
-   * code path is svc-pay RailAdapter (`fiatVia`) — refuse or ledger-client wire.
+   * RAMPS — crypto ledger half. Fiat is socket.psp-partners commercially.
+   * Kind fiat refuses `bank.fiat_ramp_socket` before any row or ledger post.
    *
    * `simulated` is never omitted: this surface does not broadcast to a chain and
    * never claims a live PSP. Live confirmation stays in svc-pay; Class X is a
@@ -2525,9 +2525,10 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .query(async () => guard(async () => bank.ramps.programmeInfo())),
 
     /**
-     * Fiat settle probe. Refuses with a typed code when no svc-pay adapter can
-     * settle fiat (empty / sandbox / absent). Does not invent FX. Live partner
-     * rails remain Class X — this door never claims simulated: false.
+     * Fiat settle probe. Names rails only. Kind fiat on credit and withdraw
+     * refuses `bank.fiat_ramp_socket` before any row or ledger post. This door
+     * does not insert a ramp row and does not post. Does not invent FX. Live
+     * partner rails remain Class X — this door never claims simulated: false.
      */
     fiatSettle: scopedProcedure('bank:read', { module: 'bank' })
       .output(
@@ -2616,8 +2617,9 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
 
     /**
      * User off-ramp. `offrampId` + `clientRef` are client-supplied so a retry
-     * is the same withdrawal (§5). Fiat refuses before any hold is posted.
-     * Destination is persisted (or loaded) before withdrawHold.
+     * is the same withdrawal (§5). Kind fiat refuses `bank.fiat_ramp_socket`
+     * before any row or ledger post.
+     * Crypto destination is persisted (or loaded) before withdrawHold.
      */
     offramp: scopedProcedure('bank:write', { module: 'bank' })
       .input(

@@ -33,10 +33,10 @@ import { BANK_OFFRAMP_COOLING_HOURS_ENV } from '../offramp-cooling.js';
 import { assertOnlyWithdrawDestinations, memoryWithdrawDestinations } from '../withdraw-destination.js';
 
 /**
- * bank.ramps — CRYPTO LEDGER half (D-S-09) + FIAT VIA PAY ADAPTERS (D26-P1-B4).
+ * bank.ramps — CRYPTO LEDGER half (D-S-09).
  *
  * Proves the crypto ledger half, and that kind fiat refuses bank.fiat_ramp_socket
- * before a row or a ledger post.
+ * before a row or a ledger post. Kind fiat does not store a ramp row and does not post.
  *
  * H8a PG-hard: this file never `describe.skip` / `postgresAvailable`. CI uses
  * TEST_DATABASE_URL (per-run database via `createTestDatabase` so schema-qualified

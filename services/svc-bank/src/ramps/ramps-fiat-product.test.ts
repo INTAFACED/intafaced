@@ -1,18 +1,18 @@
 /**
- * D26-P1-B4 — bank.ramps fiat on/off via pay adapters COMPLETE (public doors).
+ * bank.ramps public doors — kind fiat refuses before any row or ledger post.
  *
  * Done bar: kind fiat refuses bank.fiat_ramp_socket before any row or ledger
  * post. These tables are the crypto ledger half. No second book.
  *
  * Breaks caught:
- *   · live fiat money path exists only as a RampService unit test and never
- *     through createBankRouter + signed edge (composition-root regression);
- *   · a sandbox pay rail launders into bank fiat and invents a PSP;
- *   · fiat books against a bank-local rail id instead of the pay adapter id;
+ *   · a fiat call inserts a ramp row or posts a ledger recipe;
+ *   · a sandbox pay rail launders into a stored bank fiat ramp;
+ *   · kind fiat is read as a ledger post against a pay rail id;
  *   · a second money book appears beside ledger-client deposit/withdraw.
  *
- * Enter through the mounted router. Value moves only via imported ledger-client
- * recipes on MemoryLedger. Does not touch auto-invest / business trees.
+ * Enter through the mounted router. Crypto value moves only via imported
+ * ledger-client recipes on MemoryLedger. Kind fiat refuses before any row or
+ * ledger post. Does not touch auto-invest / business trees.
  *
  * H8a PG-hard: this file never `describe.skip` / `postgresAvailable`. CI uses
  * TEST_DATABASE_URL (per-run database via `createTestDatabase` so schema-qualified

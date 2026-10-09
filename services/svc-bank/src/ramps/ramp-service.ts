@@ -204,8 +204,8 @@ export class RampService {
   }
 
   /**
-   * Public settle probe: either a live pay adapter can host both fiat legs,
-   * or refuse with `bank.fiat_ramp_no_pay_adapter`. Empty rails cannot look live.
+   * Public settle probe: names rail ids, or refuses `bank.fiat_ramp_no_pay_adapter`.
+   * Does not insert a ramp row and does not post. Empty rails cannot look live.
    * Mode `none` refuses `bank.fiat_ramp_socket` first — no default fiat rail.
    */
   async fiatSettle(): Promise<{ canSettle: true; onrampRailId: string; offrampRailId: string }> {
