@@ -785,6 +785,7 @@ const messages = {
   invalidInput: 'Review the required fields and their limits before continuing.',
   invalidSendInput: 'Enter valid account references and an exact positive amount with at most 18 decimal places.',
   invalidWebhookUrl: 'Enter a valid HTTPS receiver URL without embedded credentials.',
+  scrollFullAmount: 'Scroll horizontally to inspect the full amount.',
 } as const;
 
 const es = {
@@ -1585,6 +1586,7 @@ const es = {
   invalidInput: 'Revisa los campos obligatorios y sus límites antes de continuar.',
   invalidSendInput: 'Introduce referencias de cuenta válidas y un importe positivo exacto con un máximo de 18 decimales.',
   invalidWebhookUrl: 'Introduce una URL de receptor HTTPS válida sin credenciales integradas.',
+  scrollFullAmount: 'Desplázate horizontalmente para consultar el importe completo.',
 } satisfies Record<keyof typeof messages, string>;
 
 const fr = {
@@ -2384,6 +2386,7 @@ const fr = {
   invalidInput: 'Vérifiez les champs requis et leurs limites avant de continuer.',
   invalidSendInput: 'Saisissez des références de compte valides et un montant positif exact avec au maximum 18 décimales.',
   invalidWebhookUrl: 'Saisissez une URL de destinataire HTTPS valide sans identifiants d’accès intégrés.',
+  scrollFullAmount: 'Faites défiler horizontalement pour consulter le montant complet.',
 } satisfies Record<keyof typeof messages, string>;
 
 /** Authored UI only; original service/user values enter through explicit parameters. */

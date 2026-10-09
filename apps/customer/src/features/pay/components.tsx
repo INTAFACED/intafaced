@@ -1,7 +1,8 @@
 import { payCopy, PayCopy, payAuthoredMessage } from './copy';
-import { useRef, useState, type ReactNode } from 'react';
+import { isValidElement, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
+import { displayAmount } from '../../shared/money';
 import { Button, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
 
 export function PayFailure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
@@ -118,12 +119,83 @@ export function PayDetails({ values }: { values: [string, ReactNode, string?][] 
   return (
     <dl className="pay-details">
       {values.map(([label, value, labelLanguage]) => (
-        <div key={label}>
+        <div key={label} className={isValidElement(value) && value.type === PayAmount ? 'pay-details-amount' : undefined}>
           <dt lang={labelLanguage}>{label}</dt>
           <dd>{value}</dd>
         </div>
       ))}
     </dl>
+  );
+}
+export function PayAmount({ value, unit, label }: { value: string; unit: string; label: string }) {
+  const viewport = useRef<HTMLSpanElement>(null);
+  const digits = useRef<HTMLSpanElement>(null);
+  const [overflows, setOverflows] = useState(false);
+  const hintId = useId();
+  const { requestedLocale } = payCopy.useCopy();
+  const displayed = displayAmount(value);
+  useEffect(() => {
+    const region = viewport.current;
+    const token = digits.current;
+    if (!region || !token) return;
+    const measure = () => setOverflows(region.scrollWidth > region.clientWidth);
+    const observer = new ResizeObserver(measure);
+    observer.observe(region);
+    observer.observe(token);
+    region.scrollLeft = 0;
+    measure();
+    return () => observer.disconnect();
+  }, [value]);
+  return (
+    <span className="pay-exact-amount">
+      <span className="pay-amount-value">
+        <span
+          className="pay-amount-scroll"
+          ref={viewport}
+          tabIndex={overflows ? 0 : undefined}
+          role={overflows ? 'region' : undefined}
+          aria-label={overflows ? `${label} · ${unit}` : undefined}
+          aria-describedby={overflows ? hintId : undefined}
+          lang={requestedLocale}
+          onKeyDown={(event) => {
+            if (!overflows || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+            const region = event.currentTarget;
+            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+              event.preventDefault();
+              region.scrollLeft += event.key === 'ArrowLeft' ? -40 : 40;
+            } else if (event.key === 'Home' || event.key === 'End') {
+              event.preventDefault();
+              region.scrollLeft = event.key === 'Home' ? 0 : region.scrollWidth;
+            }
+          }}
+        >
+          <span
+            className="pay-amount-digits numeric"
+            ref={digits}
+            lang="zxx"
+            data-exact-amount={value}
+            onCopy={(event) => {
+              const selection = window.getSelection();
+              if (!selection || selection.rangeCount !== 1 || selection.toString() !== displayed) return;
+              const range = selection.getRangeAt(0);
+              if (!event.currentTarget.contains(range.startContainer) || !event.currentTarget.contains(range.endContainer)) return;
+              event.clipboardData.setData('text/plain', value);
+              event.preventDefault();
+            }}
+          >
+            {displayed}
+          </span>
+        </span>{' '}
+        <span className="pay-amount-unit" lang="zxx">
+          {unit}
+        </span>
+      </span>
+      {overflows && (
+        <span className="pay-amount-hint" id={hintId} lang={requestedLocale}>
+          <PayCopy k="scrollFullAmount" />
+        </span>
+      )}
+    </span>
   );
 }
 export function Status({ value }: { value: string }) {

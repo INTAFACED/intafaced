@@ -3,11 +3,11 @@ import { useMemo, useReducer, useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { usePreferences } from '../../shared/preferences';
-import { displayAmount, parseAmount } from '../../shared/money';
+import { parseAmount } from '../../shared/money';
 import { Button, Dialog, Field, Page } from '../../shared/ui';
 import { createPersonalPayApi, type PersonalPayApi } from './pay-api';
 import { useSession } from '../session/session';
-import { PayDetails, PayNotice, PaySection, PayState, MutationResult, PayTime } from './components';
+import { PayAmount, PayDetails, PayNotice, PaySection, PayState, MutationResult, PayTime } from './components';
 import { asset as assetSchema, sendInput, type spaceSchema } from './schemas';
 import type { z } from 'zod';
 
@@ -186,7 +186,10 @@ function SendMoney({
             <PayDetails
               values={[
                 [payCopy.t('ledgerTransaction'), <span lang="zxx">{confirmed.ledgerTxId}</span>],
-                [payCopy.t('confirmedAmount'), `${displayAmount(confirmed.amount)} ${confirmed.assetId}`],
+                [
+                  payCopy.t('confirmedAmount'),
+                  <PayAmount value={confirmed.amount} unit={confirmed.assetId} label={payCopy.t('confirmedAmount')} />,
+                ],
               ]}
             />
           </PaySection>
@@ -332,7 +335,11 @@ function SendForm({
             values={[
               [
                 payCopy.t('ledgerBalance', { assetId: source.assetId }),
-                <span className="numeric">{hideBalances ? payCopy.t('hidden') : displayAmount(source.balance)}</span>,
+                hideBalances ? (
+                  payCopy.t('hidden')
+                ) : (
+                  <PayAmount value={source.balance} unit={source.assetId} label={payCopy.t('ledgerBalance', { assetId: source.assetId })} />
+                ),
               ],
               [payCopy.t('lock'), source.lockedUntil ? <PayTime value={source.lockedUntil} /> : payCopy.t('noTimeLock')],
             ]}
@@ -381,7 +388,7 @@ function SendForm({
                 <PayCopy k="youSend" />
               </span>
               <p className="numeric">
-                {displayAmount(review.input.amount)} {review.assetId}
+                <PayAmount value={review.input.amount} unit={review.assetId} label={payCopy.t('youSend')} />
               </p>
             </div>
             <PayDetails

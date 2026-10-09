@@ -6,7 +6,18 @@ import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { Button, DataTable, Field, Page } from '../../shared/ui';
 import { createPersonalPayApi, type PersonalPayApi } from './pay-api';
-import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status, MutationResult, PayTime } from './components';
+import {
+  PayAmount,
+  PayDetails,
+  PayNotice,
+  PayPagination,
+  PaySection,
+  PayState,
+  ReviewedAction,
+  Status,
+  MutationResult,
+  PayTime,
+} from './components';
 import { id, type Offer, type Trade } from './schemas';
 
 export function P2P({ path }: { path: string }) {
@@ -454,8 +465,11 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
                   [payCopy.t('order'), <span lang="zxx">{trade.id}</span>],
                   [payCopy.t('you'), trade.buyerId === userId ? payCopy.t('buyer') : payCopy.t('seller')],
                   [payCopy.t('orderStatus'), <Status value={trade.status} />],
-                  [payCopy.t('assetQuantity'), `${displayAmount(trade.amount)} ${trade.asset}`],
-                  [payCopy.t('externalPayment'), `${displayAmount(trade.fiatAmount)} ${trade.fiatCurrency}`],
+                  [payCopy.t('assetQuantity'), <PayAmount value={trade.amount} unit={trade.asset} label={payCopy.t('assetQuantity')} />],
+                  [
+                    payCopy.t('externalPayment'),
+                    <PayAmount value={trade.fiatAmount} unit={trade.fiatCurrency} label={payCopy.t('externalPayment')} />,
+                  ],
                   [
                     payCopy.t('price'),
                     payCopy.t('per2', { value1: displayAmount(trade.price), fiatCurrency: trade.fiatCurrency, asset: trade.asset }),
@@ -544,7 +558,10 @@ function OrderActions({ trade, pay, userId, reload }: { trade: Trade; pay: Perso
             review={
               <PayDetails
                 values={[
-                  [payCopy.t('externalPayment'), `${displayAmount(trade.fiatAmount)} ${trade.fiatCurrency}`],
+                  [
+                    payCopy.t('externalPayment'),
+                    <PayAmount value={trade.fiatAmount} unit={trade.fiatCurrency} label={payCopy.t('externalPayment')} />,
+                  ],
                   [payCopy.t('order'), <span lang="zxx">{trade.id}</span>],
                 ]}
               />
@@ -562,8 +579,11 @@ function OrderActions({ trade, pay, userId, reload }: { trade: Trade; pay: Perso
             review={
               <PayDetails
                 values={[
-                  [payCopy.t('release'), `${displayAmount(trade.amount)} ${trade.asset}`],
-                  [payCopy.t('paymentToVerify'), `${displayAmount(trade.fiatAmount)} ${trade.fiatCurrency}`],
+                  [payCopy.t('release'), <PayAmount value={trade.amount} unit={trade.asset} label={payCopy.t('release')} />],
+                  [
+                    payCopy.t('paymentToVerify'),
+                    <PayAmount value={trade.fiatAmount} unit={trade.fiatCurrency} label={payCopy.t('paymentToVerify')} />,
+                  ],
                 ]}
               />
             }
