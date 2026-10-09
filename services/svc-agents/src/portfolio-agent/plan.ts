@@ -97,30 +97,22 @@ function ownerTargets(raw: PlanRebalanceInput['targets']): Map<string, { plane: 
   return map;
 }
 
-/** True when a reduce on one plane would fund an increase on the other (a bridge, not a trade). */
+function planeTotal(book: Map<string, { plane: AssetPlane; weight: bigint }>, plane: AssetPlane): bigint {
+  let total = 0n;
+  for (const row of book.values()) {
+    if (row.plane === plane) total += row.weight;
+  }
+  return total;
+}
+
+/** True when one plane's total falls and the other plane's total rises (a bridge, not a trade). */
 function crossesPlanes(
   current: Map<string, { plane: AssetPlane; weight: bigint }>,
   targets: Map<string, { plane: AssetPlane; weight: bigint }>,
 ): boolean {
-  const keys = new Set([...current.keys(), ...targets.keys()]);
-  let reduceCustodial = false;
-  let reduceSovereign = false;
-  let increaseCustodial = false;
-  let increaseSovereign = false;
-  for (const key of keys) {
-    const plane = (current.get(key)?.plane ?? targets.get(key)?.plane)!;
-    const cur = current.get(key)?.weight ?? 0n;
-    const tgt = targets.get(key)?.weight ?? 0n;
-    if (tgt === cur) continue;
-    if (tgt > cur) {
-      if (plane === 'custodial') increaseCustodial = true;
-      else increaseSovereign = true;
-    } else {
-      if (plane === 'custodial') reduceCustodial = true;
-      else reduceSovereign = true;
-    }
-  }
-  return (reduceCustodial && increaseSovereign) || (reduceSovereign && increaseCustodial);
+  const custodialDelta = planeTotal(targets, 'custodial') - planeTotal(current, 'custodial');
+  const sovereignDelta = planeTotal(targets, 'sovereign') - planeTotal(current, 'sovereign');
+  return (custodialDelta < 0n && sovereignDelta > 0n) || (sovereignDelta < 0n && custodialDelta > 0n);
 }
 
 /**

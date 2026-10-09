@@ -136,6 +136,68 @@ describe('honesty: dark port, unread ≠ zero, no placeOrder, cross-plane', () =
     expect(JSON.stringify(result)).not.toMatch(/IFC.\{[^}]*weight/);
   });
 
+  it('rebalance inside each plane with both plane totals unchanged is planned', () => {
+    const { result } = planRebalance(
+      {
+        userId: 'user-1',
+        targets: [
+          { asset: 'IFC', plane: 'custodial', weight: '0.2' },
+          { asset: 'USDT', plane: 'custodial', weight: '0.4' },
+          { asset: 'IFC', plane: 'sovereign', weight: '0.1' },
+          { asset: 'USDT', plane: 'sovereign', weight: '0.3' },
+        ],
+      },
+      {
+        killed: false,
+        portfolio: livePort([
+          { asset: 'IFC', plane: 'custodial', weight: '0.4' },
+          { asset: 'USDT', plane: 'custodial', weight: '0.2' },
+          { asset: 'IFC', plane: 'sovereign', weight: '0.3' },
+          { asset: 'USDT', plane: 'sovereign', weight: '0.1' },
+        ]),
+        now: () => AT,
+      },
+    );
+    expect(result).toEqual({
+      status: 'planned',
+      userId: 'user-1',
+      legs: [
+        {
+          asset: 'IFC',
+          plane: 'custodial',
+          currentWeight: '0.4',
+          targetWeight: '0.2',
+          deltaWeight: '-0.2',
+          intent: 'reduce',
+        },
+        {
+          asset: 'USDT',
+          plane: 'custodial',
+          currentWeight: '0.2',
+          targetWeight: '0.4',
+          deltaWeight: '0.2',
+          intent: 'increase',
+        },
+        {
+          asset: 'IFC',
+          plane: 'sovereign',
+          currentWeight: '0.3',
+          targetWeight: '0.1',
+          deltaWeight: '-0.2',
+          intent: 'reduce',
+        },
+        {
+          asset: 'USDT',
+          plane: 'sovereign',
+          currentWeight: '0.1',
+          targetWeight: '0.3',
+          deltaWeight: '0.2',
+          intent: 'increase',
+        },
+      ],
+    });
+  });
+
   it('cross-plane (custodial → sovereign) refuses — does not invent a bridge', () => {
     const { result, audit } = planRebalance(
       {
