@@ -282,6 +282,7 @@ for (const mode of Object.keys(modes))
       await dialog.getByRole('button', { name: text('fr', modes[mode].confirm), exact: true }).click();
       await expect.poll(() => calls.writes.length).toBe(1);
       expect(calls.writes[0]).toEqual({ procedure: modes[mode].procedure, input: expected(mode, calls.writes[0].input) });
+      await expect.poll(() => calls.journals.length).toBe(1);
       const originalMarker = JSON.parse(calls.journals[0]);
       expect(originalMarker.title).toBe(text('en', modes[mode].review));
       if (mode === 'purchase') expect(originalMarker.reference).toBe(calls.writes[0].input.purchaseId);

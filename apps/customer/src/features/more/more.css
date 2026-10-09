@@ -98,6 +98,123 @@
   flex-wrap: wrap;
   margin-bottom: 24px;
 }
+.market-catalogue-navigation {
+  margin-bottom: 0;
+  gap: 8px 24px;
+}
+.market-catalogue-navigation a {
+  padding: 12px 0;
+  min-height: 44px;
+}
+.market-catalogue-navigation a[aria-current='page'] {
+  color: var(--color-text);
+  text-decoration: underline;
+  text-decoration-color: var(--color-accent);
+  text-underline-offset: 8px;
+}
+.more-rooms.market-catalogue-list {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  background: transparent;
+  border: 0;
+}
+.market-catalogue-row,
+.market-catalogue-row:hover {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 280px);
+  gap: 32px;
+  min-width: 0;
+  min-height: 0;
+  padding: 24px 0;
+  border-bottom: 1px solid var(--color-divider);
+  background: transparent;
+}
+.market-catalogue-row:first-child {
+  padding-top: 0;
+}
+.market-catalogue-main,
+.market-catalogue-decision {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.market-catalogue-main {
+  gap: 8px;
+}
+.market-catalogue-row h3 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.market-catalogue-row p,
+.market-catalogue-price,
+.market-catalogue-facts {
+  font-size: 14px;
+  line-height: 22px;
+}
+.market-catalogue-row .market-catalogue-description {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.market-catalogue-facts {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+}
+.market-catalogue-facts > div {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 12px;
+}
+.market-catalogue-facts dt {
+  color: var(--color-muted);
+}
+.market-catalogue-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.market-catalogue-facts code {
+  font: inherit;
+}
+.market-catalogue-price,
+.market-catalogue-access {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.market-catalogue-row .market-purchases-exact-price > strong {
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 500;
+  margin: 0;
+}
+.market-catalogue-row .market-catalogue-access p {
+  color: var(--color-text);
+}
+.market-catalogue-row .market-catalogue-access .muted {
+  color: var(--color-muted);
+}
+.market-catalogue-decision > .button {
+  align-self: flex-start;
+  min-height: 44px;
+}
+@media (max-width: 560px) {
+  .market-catalogue-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+  .market-catalogue-decision > .button {
+    width: 100%;
+  }
+  .market-catalogue-row .market-purchases-exact-price > strong {
+    font-size: 20px;
+    line-height: 28px;
+  }
+}
 .more-body {
   max-width: 760px;
   line-height: 1.8;
