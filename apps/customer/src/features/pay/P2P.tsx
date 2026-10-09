@@ -1,12 +1,12 @@
-import { payCopy, PayCopy } from './copy';
-import { useMemo, useState } from 'react';
+import { payCopy, PayCopy, payRefusal } from './copy';
+import { useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { Button, DataTable, Field, Page } from '../../shared/ui';
 import { createPersonalPayApi, type PersonalPayApi } from './pay-api';
-import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status, MutationResult } from './components';
+import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status, MutationResult, PayTime } from './components';
 import { id, type Offer, type Trade } from './schemas';
 
 export function P2P({ path }: { path: string }) {
@@ -87,7 +87,7 @@ function OfferBoard({ pay, userId, mine }: { pay: PersonalPayApi; userId: string
   const [fiat, setFiat] = useState('');
   const [side, setSide] = useState('');
   const [filter, setFilter] = useState<{ asset?: string; fiatCurrency?: string; side?: 'buy' | 'sell' }>({});
-  const [error, setError] = useState('');
+  const [error, setError] = useState<'fiatCurrencyMustUseItsThreeLetter' | null>(null);
   const [opened, setOpened] = useState<Offer | null>(null);
   const list = useResource((signal) => pay.offers({ ...filter, limit }, signal), `pay:offers:${userId}:${JSON.stringify(filter)}:${limit}`);
   const currencies = useResource((signal) => pay.fiat(signal), 'pay:fiat');
@@ -107,10 +107,10 @@ function OfferBoard({ pay, userId, mine }: { pay: PersonalPayApi; userId: string
           onSubmit={(event) => {
             event.preventDefault();
             if (fiat && fiat.length !== 3) {
-              setError(payCopy.t('fiatCurrencyMustUseItsThreeLetter'));
+              setError('fiatCurrencyMustUseItsThreeLetter');
               return;
             }
-            setError('');
+            setError(null);
             setFilter({
               ...(asset.trim() ? { asset: asset.trim() } : {}),
               ...(fiat ? { fiatCurrency: fiat } : {}),
@@ -146,7 +146,7 @@ function OfferBoard({ pay, userId, mine }: { pay: PersonalPayApi; userId: string
         </form>
         {error && (
           <p role="alert" className="error-text">
-            {error}
+            {payCopy.t(error)}
           </p>
         )}
         <PayState resource={list.resource} retry={list.reload} empty={payCopy.t('noOffersReturnedForTheseFilters')}>
@@ -240,10 +240,13 @@ function OfferDetail({
     <PaySection title={`${offer.side === 'sell' ? payCopy.t('sell') : payCopy.t('buy')} ${offer.asset}`}>
       <PayDetails
         values={[
-          [payCopy.t('offer'), offer.id],
+          [payCopy.t('offer'), <span lang="zxx">{offer.id}</span>],
           [payCopy.t('remainingQuantity'), `${displayAmount(offer.remainingAmount)} ${offer.asset}`],
-          [payCopy.t('agreedPaymentMethods'), methodIds.join(', ') || payCopy.t('noUsableMethodsDeclared')],
-          [payCopy.t('terms'), offer.terms || payCopy.t('noTermsSupplied')],
+          [
+            payCopy.t('agreedPaymentMethods'),
+            methodIds.length ? <span lang="zxx">{methodIds.join(', ')}</span> : payCopy.t('noUsableMethodsDeclared'),
+          ],
+          [payCopy.t('terms'), offer.terms ? <span lang="und">{offer.terms}</span> : payCopy.t('noTermsSupplied')],
         ]}
       />
       {own && pay.guard.status(`${userId}:offer:${offer.id}`) && (
@@ -387,7 +390,9 @@ function OrderList({ pay, userId }: { pay: PersonalPayApi; userId: string | null
                 <tr key={trade.id}>
                   <td>
                     {trade.id.slice(0, 8)}
-                    <small className="pay-cell-note">{trade.createdAt}</small>
+                    <small className="pay-cell-note">
+                      <PayTime value={trade.createdAt} />
+                    </small>
                   </td>
                   <td>{trade.buyerId === userId ? payCopy.t('buy') : payCopy.t('sell')}</td>
                   <td className="numeric">
@@ -420,10 +425,7 @@ function OrderList({ pay, userId }: { pay: PersonalPayApi; userId: string | null
 function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: string; userId: string | null }) {
   const valid = id.safeParse(tradeId).success;
   const order = useResource(
-    (signal) =>
-      valid
-        ? pay.trade(tradeId, signal)
-        : Promise.resolve({ ok: false as const, reason: 'error' as const, message: payCopy.t('openAValidP2pOrderFromYour') }),
+    (signal) => (valid ? pay.trade(tradeId, signal) : Promise.resolve(payRefusal('openAValidP2pOrderFromYour', { reason: 'error' }))),
     `pay:order:${userId}:${tradeId}`,
   );
   const [destinationRequested, setDestinationRequested] = useState(false);
@@ -431,11 +433,7 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
     (signal) =>
       destinationRequested
         ? pay.destination(tradeId, signal)
-        : Promise.resolve({
-            ok: false as const,
-            reason: 'not_supported' as const,
-            message: payCopy.t('paymentDetailsAreRevealedOnlyOnYour'),
-          }),
+        : Promise.resolve(payRefusal('paymentDetailsAreRevealedOnlyOnYour', { reason: 'not_supported' })),
     `pay:order-destination:${userId}:${tradeId}:${destinationRequested}`,
   );
   return (
@@ -453,7 +451,7 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
             >
               <PayDetails
                 values={[
-                  [payCopy.t('order'), trade.id],
+                  [payCopy.t('order'), <span lang="zxx">{trade.id}</span>],
                   [payCopy.t('you'), trade.buyerId === userId ? payCopy.t('buyer') : payCopy.t('seller')],
                   [payCopy.t('orderStatus'), <Status value={trade.status} />],
                   [payCopy.t('assetQuantity'), `${displayAmount(trade.amount)} ${trade.asset}`],
@@ -462,9 +460,9 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
                     payCopy.t('price'),
                     payCopy.t('per2', { value1: displayAmount(trade.price), fiatCurrency: trade.fiatCurrency, asset: trade.asset }),
                   ],
-                  [payCopy.t('paymentMethod'), trade.method],
-                  [payCopy.t('deadline'), trade.deadlineAt ?? payCopy.t('notSupplied')],
-                  [payCopy.t('ledgerSettlement'), trade.settledAt ?? payCopy.t('notConfirmed')],
+                  [payCopy.t('paymentMethod'), <span lang="zxx">{trade.method}</span>],
+                  [payCopy.t('deadline'), trade.deadlineAt ? <PayTime value={trade.deadlineAt} /> : payCopy.t('notSupplied')],
+                  [payCopy.t('ledgerSettlement'), trade.settledAt ? <PayTime value={trade.settledAt} /> : payCopy.t('notConfirmed')],
                 ]}
               />
               {['released', 'cancelled'].includes(trade.status) && !trade.settledAt && (
@@ -480,9 +478,13 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
                   {(data) => (
                     <PayDetails
                       values={[
-                        [payCopy.t('destinationLabel'), data.label],
+                        [payCopy.t('destinationLabel'), <span lang="und">{data.label}</span>],
                         [payCopy.t('countryCurrency'), `${data.country} / ${data.fiatCurrency}`],
-                        ...Object.entries(data.details),
+                        ...Object.entries(data.details).map(([label, value]): [string, ReactNode, string?] => [
+                          label,
+                          <span lang="und">{value}</span>,
+                          'und',
+                        ]),
                       ]}
                     />
                   )}
@@ -543,7 +545,7 @@ function OrderActions({ trade, pay, userId, reload }: { trade: Trade; pay: Perso
               <PayDetails
                 values={[
                   [payCopy.t('externalPayment'), `${displayAmount(trade.fiatAmount)} ${trade.fiatCurrency}`],
-                  [payCopy.t('order'), trade.id],
+                  [payCopy.t('order'), <span lang="zxx">{trade.id}</span>],
                 ]}
               />
             }

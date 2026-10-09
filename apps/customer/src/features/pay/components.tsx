@@ -1,8 +1,29 @@
-import { payCopy, PayCopy } from './copy';
+import { payCopy, PayCopy, payAuthoredMessage } from './copy';
 import { useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
+
+export function PayFailure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
+  const { requestedLocale } = payCopy.useCopy();
+  const authored = payAuthoredMessage(result);
+  return (
+    <div lang={authored === undefined ? 'und' : requestedLocale}>
+      <Failure result={authored === undefined ? result : { ...result, message: authored }} retry={retry} />
+    </div>
+  );
+}
+
+export function PayTime({ value }: { value: string }) {
+  const { requestedLocale } = payCopy.useCopy();
+  const date = new Date(value);
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(value) || !Number.isFinite(date.getTime())) return <span lang="zxx">{value}</span>;
+  return (
+    <time dateTime={value} title={value} lang={requestedLocale}>
+      {date.toLocaleString(requestedLocale, { timeZone: 'UTC', timeZoneName: 'short' })}
+    </time>
+  );
+}
 
 export function PayState<T>({
   resource,
@@ -16,7 +37,7 @@ export function PayState<T>({
   children: (data: T) => ReactNode;
 }) {
   if (resource.status === 'loading') return <Loading />;
-  if (resource.status === 'failed') return <Failure result={resource.failure} retry={retry} />;
+  if (resource.status === 'failed') return <PayFailure result={resource.failure} retry={retry} />;
   if (Array.isArray(resource.data) && !resource.data.length && empty)
     return (
       <EmptyState title={empty}>
@@ -39,11 +60,13 @@ export function PayNotice({ title, children, action }: { title: string; children
 }
 export function PaySection({
   title,
+  titleLanguage,
   description,
   action,
   children,
 }: {
   title: string;
+  titleLanguage?: string;
   description?: string;
   action?: ReactNode;
   children: ReactNode;
@@ -52,7 +75,7 @@ export function PaySection({
     <section className="pay-section">
       <header>
         <div>
-          <h2>{title}</h2>
+          <h2 lang={titleLanguage}>{title}</h2>
           {description && <p className="muted">{description}</p>}
         </div>
         {action}
@@ -91,12 +114,12 @@ export function PayPagination({
     </div>
   );
 }
-export function PayDetails({ values }: { values: [string, ReactNode][] }) {
+export function PayDetails({ values }: { values: [string, ReactNode, string?][] }) {
   return (
     <dl className="pay-details">
-      {values.map(([label, value]) => (
+      {values.map(([label, value, labelLanguage]) => (
         <div key={label}>
-          <dt>{label}</dt>
+          <dt lang={labelLanguage}>{label}</dt>
           <dd>{value}</dd>
         </div>
       ))}
@@ -104,7 +127,11 @@ export function PayDetails({ values }: { values: [string, ReactNode][] }) {
   );
 }
 export function Status({ value }: { value: string }) {
-  return <span className="pay-status">{value.replaceAll('_', ' ')}</span>;
+  return (
+    <span className="pay-status" lang="zxx">
+      {value.replaceAll('_', ' ')}
+    </span>
+  );
 }
 export function MutationResult({ result }: { result: ApiResult<unknown> | null }) {
   if (!result) return null;
@@ -113,7 +140,7 @@ export function MutationResult({ result }: { result: ApiResult<unknown> | null }
       <PayCopy k="theServiceConfirmedTheActionRefreshThe" />
     </p>
   ) : (
-    <Failure result={result} />
+    <PayFailure result={result} />
   );
 }
 export function ReviewedAction<T>({

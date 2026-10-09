@@ -1,4 +1,4 @@
-import { payCopy, PayCopy } from './copy';
+import { payCopy, PayCopy, payRefusal } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
 import { useResource } from '../../shared/resource';
@@ -275,11 +275,7 @@ function CreatePayment({ pay, onCreated }: { pay: BusinessPayApi; onCreated: (pa
                     'pay:write',
                     'payment-create',
                   )
-                : Promise.resolve({
-                    ok: false as const,
-                    reason: 'not_supported' as const,
-                    message: payCopy.t('noEligibleLivePaymentRailWasVerified'),
-                  })
+                : Promise.resolve(payRefusal('noEligibleLivePaymentRailWasVerified', { reason: 'not_supported' }))
             }
             onConfirmed={(data) => {
               onCreated(data);
@@ -395,11 +391,7 @@ function PaymentDetail({ pay, paymentId, refreshList }: { pay: BusinessPayApi; p
                         !parsed.success ||
                         parseAmount(refund) > parseAmount(payment.capturedAmount) - parseAmount(payment.refundedAmount)
                       )
-                        return Promise.resolve({
-                          ok: false as const,
-                          reason: 'error' as const,
-                          message: payCopy.t('enterAnExactPositiveAmountNoGreater'),
-                        });
+                        return Promise.resolve(payRefusal('enterAnExactPositiveAmountNoGreater', { reason: 'error' }));
                       return pay.mutate(
                         'payment.refund',
                         { paymentId, amount: refund, refundId },

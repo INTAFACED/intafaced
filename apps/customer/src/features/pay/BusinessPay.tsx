@@ -1,4 +1,4 @@
-import { payCopy, PayCopy } from './copy';
+import { payCopy, PayCopy, payRefusal } from './copy';
 import { useMemo, useState } from 'react';
 import { z } from 'zod';
 import { useSession } from '../session/session';
@@ -8,7 +8,7 @@ import { displayAmount } from '../../shared/money';
 import { Button, DataTable, Field, Page } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from './pay-api';
-import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
+import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status, PayTime } from './components';
 import { MerchantPayments } from './MerchantPayments';
 import { MerchantBilling } from './MerchantBilling';
 import { MerchantNetwork, MerchantPermissions, MerchantDeveloper } from './MerchantNetwork';
@@ -103,12 +103,7 @@ export async function validatedMutation<I, O>(
   operation: string,
 ): Promise<ApiResult<O>> {
   const parsed = schema.safeParse(input);
-  if (!parsed.success)
-    return {
-      ok: false,
-      reason: 'error',
-      message: payCopy.t('invalidInput'),
-    };
+  if (!parsed.success) return payRefusal('invalidInput', { reason: 'error' });
   return pay.mutate(procedure, parsed.data, output, scope, operation);
 }
 export const railHealthSchema = z.array(
@@ -214,11 +209,7 @@ function MerchantBalance({ pay }: { pay: BusinessPayApi }) {
     (signal) =>
       asset
         ? pay.query('merchant.balances', { merchantId: pay.authority!.merchantId, assetId: asset }, s.balanceSchema, signal)
-        : Promise.resolve({
-            ok: false as const,
-            reason: 'not_supported' as const,
-            message: payCopy.t('chooseTheAssetToReadItsLedger'),
-          }),
+        : Promise.resolve(payRefusal('chooseTheAssetToReadItsLedger', { reason: 'not_supported' })),
     `pay:balance:${pay.authority!.merchantId}:${asset}`,
   );
   return (
@@ -372,7 +363,7 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
                 {created.token}
               </a>
               <span className="pay-cell-note">
-                <PayCopy k="expires" /> {created.expiresAt}
+                <PayCopy k="expires" /> <PayTime value={created.expiresAt} />
                 <PayCopy k="copyTheLinkBeforeLeavingThisPage" />
               </span>
             </PayNotice>
@@ -409,7 +400,7 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
                       {link.uses} / {link.maxUses ?? payCopy.t('unbounded')}
                     </td>
                     <td>
-                      {link.expiresAt ?? payCopy.t('notSupplied')}
+                      {link.expiresAt ? <PayTime value={link.expiresAt} /> : payCopy.t('notSupplied')}
                       <small className="pay-cell-note">{link.active ? payCopy.t('active') : payCopy.t('deactivated')}</small>
                     </td>
                     <td>
@@ -460,7 +451,7 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
     (signal) =>
       selected
         ? pay.query('settlement.get', { settlementId: selected }, s.settlementSchema, signal)
-        : Promise.resolve({ ok: false as const, reason: 'not_supported' as const, message: payCopy.t('openASettlementRecord') }),
+        : Promise.resolve(payRefusal('openASettlementRecord', { reason: 'not_supported' })),
     `pay:settlement:${merchantId}:${selected}`,
   );
   const rails = useResource((signal) => pay.query('railHealth', undefined, railHealthSchema, signal), `pay:payout-rails:${merchantId}`);

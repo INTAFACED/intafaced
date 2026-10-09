@@ -1,11 +1,11 @@
-import { payCopy, PayCopy } from './copy';
+import { payCopy, PayCopy, payRefusal } from './copy';
 import { useMemo, useState } from 'react';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { Button, Field, Page } from '../../shared/ui';
 import { createCheckoutApi } from './pay-api';
-import { PayDetails, PayNotice, PaySection, PayState, ReviewedAction, Status } from './components';
+import { PayDetails, PayNotice, PaySection, PayState, ReviewedAction, Status, PayTime } from './components';
 import type { checkoutSchema, resolvedLinkSchema } from './schemas';
 import type { z } from 'zod';
 
@@ -23,25 +23,21 @@ export function Checkout({ path }: { path: string }) {
     (signal) =>
       token.length >= 8 && token.length <= 200
         ? checkout.resolve(token, signal)
-        : Promise.resolve({
-            ok: false as const,
-            reason: 'not_supported' as const,
-            message: payCopy.t('openAPaymentLinkProvidedByThe'),
-          }),
+        : Promise.resolve(payRefusal('openAPaymentLinkProvidedByThe', { reason: 'not_supported' })),
     `pay:checkout-link:${token}`,
   );
   const status = useResource(
     (signal) =>
       sessionToken
         ? checkout.status(sessionToken, signal)
-        : Promise.resolve({ ok: false as const, reason: 'not_supported' as const, message: payCopy.t('noCheckoutSessionHasBeenOpened') }),
+        : Promise.resolve(payRefusal('noCheckoutSessionHasBeenOpened', { reason: 'not_supported' })),
     `pay:checkout-status:${sessionToken}`,
   );
   const active = status.resource.status === 'ready' ? status.resource.data : session;
   return (
     <Page
       eyebrow={payCopy.t('hostedCheckout')}
-      title={active?.label ?? payCopy.t('payAMerchant')}
+      title={active?.label ? <span lang="und">{active.label}</span> : payCopy.t('payAMerchant')}
       description={payCopy.t('theMerchantLinkDefinesThePaymentOnly')}
     >
       {sessionToken ? (
@@ -125,7 +121,7 @@ function CheckoutForm({
   const [country, setCountry] = useState('');
   const [method, setMethod] = useState('');
   return (
-    <PaySection title={link.label}>
+    <PaySection title={link.label} titleLanguage="und">
       <div className="form-stack pay-form">
         <PayDetails
           values={[
@@ -133,7 +129,7 @@ function CheckoutForm({
               payCopy.t('amount'),
               link.amount === null ? payCopy.t('payerChoosesTheAmount') : `${displayAmount(link.amount)} ${link.currency ?? ''}`,
             ],
-            [payCopy.t('expires'), link.expiresAt ?? payCopy.t('notProvided')],
+            [payCopy.t('expires'), link.expiresAt ? <PayTime value={link.expiresAt} /> : payCopy.t('notProvided')],
             [payCopy.t('remainingUses'), link.remainingUses === null ? payCopy.t('notLimitedByThisResponse') : String(link.remainingUses)],
           ]}
         />
@@ -182,7 +178,7 @@ function CheckoutForm({
           review={
             <PayDetails
               values={[
-                [payCopy.t('merchantLabel'), link.label],
+                [payCopy.t('merchantLabel'), <span lang="und">{link.label}</span>],
                 [payCopy.t('payment'), `${link.amount ?? amount} ${link.currency ?? asset}`],
                 [payCopy.t('country'), country],
                 [payCopy.t('method'), method],
@@ -215,8 +211,8 @@ function CheckoutStatus({ session }: { session: z.infer<typeof checkoutSchema> }
         values={[
           [payCopy.t('status'), <Status value={session.status} />],
           [payCopy.t('payment'), `${displayAmount(session.amount)} ${session.currency}`],
-          [payCopy.t('method'), session.method],
-          [payCopy.t('expires'), session.expiresAt],
+          [payCopy.t('method'), <span lang="zxx">{session.method}</span>],
+          [payCopy.t('expires'), <PayTime value={session.expiresAt} />],
         ]}
       />
       {session.status === 'open' ? (
@@ -224,7 +220,7 @@ function CheckoutStatus({ session }: { session: z.infer<typeof checkoutSchema> }
           <PaySection title={payCopy.t('paymentInstructions')}>
             <PayDetails
               values={[
-                [payCopy.t('reference'), session.instruction.reference],
+                [payCopy.t('reference'), <span lang="zxx">{session.instruction.reference}</span>],
                 [payCopy.t('exactAmount'), `${displayAmount(session.instruction.amount)} ${session.instruction.currency}`],
               ]}
             />

@@ -4,6 +4,7 @@ import { P2P } from './P2P';
 import { BusinessPay } from './BusinessPay';
 import { Checkout } from './Checkout';
 import type { PayBusinessAuthority } from './pay-api';
+import { payCopy } from './copy';
 import './pay.css';
 
 const BusinessContext = createContext<PayBusinessAuthority | null>(null);
@@ -14,8 +15,9 @@ export function PayBusinessProvider({ authority, children }: { authority: PayBus
   return <BusinessContext.Provider value={authority}>{children}</BusinessContext.Provider>;
 }
 export function PayRoutes({ path }: { path: string }) {
+  const { languageFor } = payCopy.useCopy();
   return (
-    <div lang="en" style={{ display: 'contents' }}>
+    <div lang={languageFor('pay')} style={{ display: 'contents' }}>
       <PayRooms path={path} />
     </div>
   );

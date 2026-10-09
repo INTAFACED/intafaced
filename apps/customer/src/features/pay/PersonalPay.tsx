@@ -7,7 +7,7 @@ import { displayAmount, parseAmount } from '../../shared/money';
 import { Button, Dialog, Field, Page } from '../../shared/ui';
 import { createPersonalPayApi, type PersonalPayApi } from './pay-api';
 import { useSession } from '../session/session';
-import { PayDetails, PayNotice, PaySection, PayState, MutationResult } from './components';
+import { PayDetails, PayNotice, PaySection, PayState, MutationResult, PayTime } from './components';
 import { asset as assetSchema, sendInput, type spaceSchema } from './schemas';
 import type { z } from 'zod';
 
@@ -175,7 +175,7 @@ function SendMoney({
           <PayCopy k="aPreviousTransferHasNotBeenConfirmed" />
           {originalReference && (
             <span className="pay-cell-note">
-              <PayCopy k="originalTransferId" /> <span>{originalReference}</span>
+              <PayCopy k="originalTransferId" /> <span lang="zxx">{originalReference}</span>
             </span>
           )}
         </PayNotice>
@@ -185,7 +185,7 @@ function SendMoney({
           <PaySection title={payCopy.t('transferConfirmed')} description={payCopy.t('keepThisLedgerReceipt')}>
             <PayDetails
               values={[
-                [payCopy.t('ledgerTransaction'), confirmed.ledgerTxId],
+                [payCopy.t('ledgerTransaction'), <span lang="zxx">{confirmed.ledgerTxId}</span>],
                 [payCopy.t('confirmedAmount'), `${displayAmount(confirmed.amount)} ${confirmed.assetId}`],
               ]}
             />
@@ -251,7 +251,9 @@ function SendForm({
   const [sourceId, setSourceId] = useState(asset && spaces.length === 1 ? spaces[0]!.id : '');
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState<
+    'invalidSendInput' | 'chooseYourSourceAccount' | 'chooseAnotherRecipientAccount' | 'thisAmountExceedsTheSourceSLedger' | null
+  >(null);
   const [review, setReview] = useState<{
     input: z.infer<typeof sendInput>;
     sourceName: string;
@@ -263,7 +265,7 @@ function SendForm({
   const source = spaces.find((space) => space.id === sourceId);
   const unresolved = pay.guard.status(`${userId}:send`);
   function prepare() {
-    setError('');
+    setError(null);
     setResult(null);
     const parsed = sendInput.safeParse({
       transferId: crypto.randomUUID(),
@@ -272,19 +274,19 @@ function SendForm({
       amount: amount.trim(),
     });
     if (!parsed.success) {
-      setError(payCopy.t('invalidSendInput'));
+      setError('invalidSendInput');
       return;
     }
     if (!source) {
-      setError(payCopy.t('chooseYourSourceAccount'));
+      setError('chooseYourSourceAccount');
       return;
     }
     if (recipient.trim() === userId) {
-      setError(payCopy.t('chooseAnotherRecipientAccount'));
+      setError('chooseAnotherRecipientAccount');
       return;
     }
     if (parseAmount(parsed.data.amount) > parseAmount(source.balance)) {
-      setError(payCopy.t('thisAmountExceedsTheSourceSLedger'));
+      setError('thisAmountExceedsTheSourceSLedger');
       return;
     }
     setReview({ input: parsed.data, sourceName: source.name, assetId: source.assetId });
@@ -319,7 +321,7 @@ function SendForm({
           <select aria-label={payCopy.t('sourceAccount')} value={sourceId} onChange={(event) => setSourceId(event.target.value)} required>
             <option value="">{payCopy.t('chooseASource')}</option>
             {spaces.map((space) => (
-              <option key={space.id} value={space.id}>
+              <option key={space.id} value={space.id} lang="und">
                 {space.name} · {space.assetId}
               </option>
             ))}
@@ -332,7 +334,7 @@ function SendForm({
                 payCopy.t('ledgerBalance', { assetId: source.assetId }),
                 <span className="numeric">{hideBalances ? payCopy.t('hidden') : displayAmount(source.balance)}</span>,
               ],
-              [payCopy.t('lock'), source.lockedUntil ?? payCopy.t('noTimeLock')],
+              [payCopy.t('lock'), source.lockedUntil ? <PayTime value={source.lockedUntil} /> : payCopy.t('noTimeLock')],
             ]}
           />
         )}
@@ -358,7 +360,7 @@ function SendForm({
         />
         {error && (
           <p className="error-text" role="alert">
-            {error}
+            {payCopy.t(error)}
           </p>
         )}
         <Button type="submit" disabled={!source || Boolean(unresolved)} variant="primary">
@@ -384,17 +386,27 @@ function SendForm({
             </div>
             <PayDetails
               values={[
-                [payCopy.t('from'), `${review.sourceName} · ${review.assetId}`],
+                [
+                  payCopy.t('from'),
+                  <span lang="und">
+                    {review.sourceName} · {review.assetId}
+                  </span>,
+                ],
                 [
                   payCopy.t('recipientAccount'),
                   <>
-                    <span>{review.input.toUserId}</span>
+                    <span lang="zxx">{review.input.toUserId}</span>
                     <small className="pay-transfer-recipient-hint">
                       <PayCopy k="confirmRecipientAccountId" />
                     </small>
                   </>,
                 ],
-                [payCopy.t('transferId'), <span className="pay-transfer-reference">{review.input.transferId}</span>],
+                [
+                  payCopy.t('transferId'),
+                  <span className="pay-transfer-reference" lang="zxx">
+                    {review.input.transferId}
+                  </span>,
+                ],
               ]}
             />
             <p className="muted">
@@ -422,25 +434,27 @@ function SendForm({
 }
 function ReceiveMoney({ pay, userId }: { pay: PersonalPayApi; userId: string | null }) {
   const sources = useResource((signal) => pay.spaces(signal), `pay:receiving:${userId}`);
-  const [copied, setCopied] = useState('');
+  const [copied, setCopied] = useState<'accountCopied' | 'copyUnavailable' | null>(null);
   return (
     <div className="stack">
       <PaySection title={payCopy.t('yourReceivingAccount')} description={payCopy.t('shareThisAccountIdForAnInternal')}>
         {userId ? (
           <>
-            <p className="pay-account-id">{userId}</p>
+            <p className="pay-account-id" lang="zxx">
+              {userId}
+            </p>
             <Button
               variant="secondary"
               onClick={() => {
                 void navigator.clipboard
                   .writeText(userId)
-                  .then(() => setCopied(payCopy.t('accountCopied')))
-                  .catch(() => setCopied(payCopy.t('copyUnavailable')));
+                  .then(() => setCopied('accountCopied'))
+                  .catch(() => setCopied('copyUnavailable'));
               }}
             >
               <PayCopy k="copyAccountId" />
             </Button>
-            {copied && <p role="status">{copied}</p>}
+            {copied && <p role="status">{payCopy.t(copied)}</p>}
           </>
         ) : (
           <PayNotice title={payCopy.t('signInToReceive')}>
