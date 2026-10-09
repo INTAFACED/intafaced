@@ -2,9 +2,9 @@ import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { sbeCodec, type SbeCodec } from '@intafaced/sbe-codec';
-import { resolveWsCopy } from '../copy.js';
-import { CLOSE_GOING_AWAY, CLOSE_POLICY, type DepthHub, type DepthSink, type HubLogger } from '../depth/hub.js';
-import type { NativeL3Hub } from '../depth/l3-hub.js';
+import { resolveWsCopy, WS_COPY } from '../copy.js';
+import { CLOSE_GOING_AWAY, CLOSE_POLICY, CLOSE_TRY_LATER, type DepthHub, type DepthSink, type HubLogger } from '../depth/hub.js';
+import type { NativeL3Hub, NativeL3Probe } from '../depth/l3-hub.js';
 import { DROP_COPY_STREAM_PATH } from '../drop-copy/gateway.js';
 import {
   DEPTH_L3_UNAVAILABLE,
@@ -15,6 +15,7 @@ import {
   sbeL2EntitlementRefuse,
   writeMarketDataFeedRefuse,
 } from '../gateway-policy.js';
+import { isPublishedConnectionCeiling } from '../max-connections.js';
 import { PRIVATE_STREAM_PATH } from '../private/gateway.js';
 import { encodeL2JsonFrame } from '../sbe-l2-tape.js';
 import type { TradeHub } from '../trade/hub.js';
@@ -82,6 +83,31 @@ import type { TradeHub } from '../trade/hub.js';
 /** Bounded before anything else touches it. The hub does the authoritative check. */
 const MARKET_ID = /^[A-Za-z0-9._:-]{1,64}$/;
 
+/** The probe did not settle inside the bound. The caller releases the raw socket and does not attach. */
+const NATIVE_L3_PROBE_EXPIRED = Symbol('native-l3-probe-expired');
+
+function nativeL3ProbeBoundMs(configured: number | undefined, heartbeatMs: number): number {
+  if (typeof configured === 'number' && Number.isInteger(configured) && configured >= 1) return configured;
+  return heartbeatMs;
+}
+
+function probeWithinBound(
+  probe: Promise<NativeL3Probe>,
+  boundMs: number,
+): Promise<NativeL3Probe | typeof NATIVE_L3_PROBE_EXPIRED> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<typeof NATIVE_L3_PROBE_EXPIRED>((resolve) => {
+    timer = setTimeout(() => resolve(NATIVE_L3_PROBE_EXPIRED), boundMs);
+    timer.unref?.();
+  });
+  const finished = probe.finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+  // A probe that settles after the bound must not surface as an unhandled rejection.
+  void finished.catch(() => undefined);
+  return Promise.race([finished, expired]);
+}
+
 export const STREAM_PATH = '/stream';
 
 export type StreamChannel = 'depth' | 'trades';
@@ -98,6 +124,8 @@ export interface WebSocketGatewayOptions {
   readonly sbe?: SbeCodec;
   /** Native matching L3. Omit = L3 asks stay `depth.l3_unavailable`. */
   readonly l3Hub?: NativeL3Hub;
+  /** How long a native L3 probe may hold the raw upgrade socket. Omitted uses `heartbeatMs`. */
+  readonly l3ProbeBoundMs?: number;
 }
 
 export interface WebSocketGateway {
@@ -165,7 +193,7 @@ function parseChannel(raw: string | null): StreamChannel | null {
 }
 
 export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSocketGateway {
-  const { server, hub, tradeHub, heartbeatMs, log, enabled, sbe = sbeCodec, l3Hub } = options;
+  const { server, hub, tradeHub, heartbeatMs, log, enabled, sbe = sbeCodec, l3Hub, l3ProbeBoundMs } = options;
 
   const wss = new WebSocketServer({
     noServer: true,
@@ -183,6 +211,42 @@ export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSoc
   const alive = new WeakSet<WebSocket>();
   /** Set at the start of close(). An in-flight L3 probe must not attach after this. */
   let closed = false;
+  /** Native L3 handshakes awaiting probe. Counted with attached sockets against maxConnections. */
+  let l3ProbesInFlight = 0;
+
+  const dropRaw = (socket: Duplex): void => {
+    try {
+      socket.destroy();
+    } catch {
+      /* already gone */
+    }
+  };
+
+  const refuseNativeL3AtCapacity = (request: IncomingMessage, socket: Duplex, head: Buffer): void => {
+    if (closed) {
+      dropRaw(socket);
+      return;
+    }
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      if (closed) {
+        try {
+          ws.terminate();
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+      try {
+        sinkFor(ws).close(CLOSE_TRY_LATER, resolveWsCopy(WS_COPY.atCapacity));
+      } catch {
+        try {
+          ws.terminate();
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+  };
 
   const onUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): void => {
     // Fixed base — never Host. Same reason as private: a Host-derived base can
@@ -211,43 +275,54 @@ export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSoc
 
     if (isNativeL3Ask(url.searchParams)) {
       if (!l3Hub) return writeMarketDataFeedRefuse(socket, DEPTH_L3_UNAVAILABLE);
+      const nativeL3 = l3Hub;
       void (async () => {
-        const probe = await l3Hub.probe(marketId);
-        // close() already cleared the heartbeat. Upgrading now would leave a
-        // socket nothing reaps. Drop the raw upgrade instead of attaching.
-        if (closed) {
-          try {
-            socket.destroy();
-          } catch {
-            /* already gone */
+        let counted = false;
+        try {
+          const ceiling = nativeL3.maxConnections;
+          if (isPublishedConnectionCeiling(ceiling) && nativeL3.connections + l3ProbesInFlight >= ceiling) {
+            refuseNativeL3AtCapacity(request, socket, head);
+            return;
           }
-          return;
+          if (isPublishedConnectionCeiling(ceiling)) {
+            l3ProbesInFlight += 1;
+            counted = true;
+          }
+          const probe = await probeWithinBound(nativeL3.probe(marketId), nativeL3ProbeBoundMs(l3ProbeBoundMs, heartbeatMs));
+          // close() already cleared the heartbeat. A probe that outlives the
+          // bound is the same: upgrading now would pin a socket nothing reaps.
+          if (closed || probe === NATIVE_L3_PROBE_EXPIRED) {
+            dropRaw(socket);
+            return;
+          }
+          if (probe === 'unavailable') return writeMarketDataFeedRefuse(socket, DEPTH_L3_UNAVAILABLE);
+          wss.handleUpgrade(request, socket, head, (ws) => {
+            if (closed) {
+              try {
+                ws.terminate();
+              } catch {
+                /* ignore */
+              }
+              return;
+            }
+            const detach = nativeL3.attach(marketId, sinkFor(ws));
+            if (!detach) {
+              try {
+                ws.terminate();
+              } catch {
+                /* ignore */
+              }
+              return;
+            }
+            alive.add(ws);
+            ws.on('pong', () => alive.add(ws));
+            ws.on('message', () => undefined);
+            ws.on('error', () => ws.terminate());
+            ws.on('close', detach);
+          });
+        } finally {
+          if (counted) l3ProbesInFlight -= 1;
         }
-        if (probe === 'unavailable') return writeMarketDataFeedRefuse(socket, DEPTH_L3_UNAVAILABLE);
-        wss.handleUpgrade(request, socket, head, (ws) => {
-          if (closed) {
-            try {
-              ws.terminate();
-            } catch {
-              /* ignore */
-            }
-            return;
-          }
-          const detach = l3Hub.attach(marketId, sinkFor(ws));
-          if (!detach) {
-            try {
-              ws.terminate();
-            } catch {
-              /* ignore */
-            }
-            return;
-          }
-          alive.add(ws);
-          ws.on('pong', () => alive.add(ws));
-          ws.on('message', () => undefined);
-          ws.on('error', () => ws.terminate());
-          ws.on('close', detach);
-        });
       })().catch((err: unknown) => {
         log.warn({ err: String(err), marketId }, 'ws: native L3 upgrade failed');
         try {
