@@ -204,6 +204,7 @@ export function createHttpSupportDeskPort(options: HttpSupportDeskOptions): Supp
       if (!res.ok) return { status: 'unreachable' };
       const parsed = supportTicketSchema.safeParse(unwrapTrpc(res.body));
       if (!parsed.success) return { status: 'unreachable' };
+      if (parsed.data.id.trim() !== ticketId) return { status: 'missing' };
       return { status: 'ok', ticket: ticketFromContract(parsed.data) };
     },
     async readAccount(userId) {
