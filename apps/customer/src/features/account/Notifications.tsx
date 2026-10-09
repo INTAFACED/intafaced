@@ -6,6 +6,7 @@ import type { ApiResult } from '../../shared/api';
 import { Button, EmptyState, Failure, Loading, Page } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { notificationsCopy as copy } from './notifications-copy';
+import { NotificationTargets } from './NotificationTargets';
 import './notifications.css';
 
 const date = z.string().datetime({ offset: true });
@@ -487,9 +488,7 @@ function NotificationSettings({ userId }: { userId: string }) {
           <Copy k="refreshSettings" />
         </Button>
       </div>
-      <p className="muted">
-        <Copy k="targetBoundary" />
-      </p>
+      <NotificationTargets userId={userId} revision={revision} onChanged={refresh} />
     </section>
   );
 }
