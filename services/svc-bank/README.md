@@ -19,7 +19,7 @@ In svc-ledger. Nowhere else. Concretely:
 | How much is in my "Rent" space?      | `ledger.balance(subAccountAvailable(spaceId, asset))`                                                 |
 | How much is in my main account?      | `ledger.balance(userAvailable(userId, asset))`                                                        |
 | How much have I got earning?         | a sum of `ledger.balance(earnStakeAccount(userId, asset, positionId))` over the user's open positions |
-| How big is a pool?                   | `SUM(principal)` over open positions — a derived aggregate query                                      |
+| How big is a pool?                   | a sum of `ledger.balance(earnStakeAccount(userId, asset, positionId))` over the pool's open positions |
 | What can a pool still afford to pay? | `ledger.balance(earnPoolReserve(poolId, asset))`                                                      |
 | What did I spend last month?         | a fold over ledger entries in the window                                                              |
 
