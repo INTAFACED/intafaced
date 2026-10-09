@@ -8,6 +8,7 @@ import { useSession } from '../features/session/session';
 import { AccountRoutes } from '../features/account/AccountRoutes';
 import { ApplyView } from '../features/account/View';
 import { appCopy } from './app-copy';
+import { useKeepKeyboardFocusVisible } from '../shared/keyboard-focus';
 
 function configuredTeamHref(path: string): string | undefined {
   const configured: string | undefined = import.meta.env.VITE_TEAM_URL;
@@ -52,6 +53,7 @@ function RoomFailure() {
 }
 
 export function App() {
+  useKeepKeyboardFocusVisible();
   const { t, requestedLocale } = appCopy.useCopy();
   const current = useLocation();
   const path = current.split('?')[0] ?? '/';
