@@ -16,12 +16,14 @@ export const amount = (value: string | null | undefined, asset: string) =>
   value == null ? copyText('components.unavailable') : `${displayAmount(value)} ${asset}`;
 export const funds = (value: string | null | undefined, asset: string) =>
   currentPreferences().hideBalances && value != null ? `•••• ${asset}` : amount(value, asset);
-export const date = (value: string | null) =>
-  value
-    ? Number.isFinite(Date.parse(value))
-      ? new Date(value).toLocaleString()
-      : copyText('components.date.unavailable')
-    : copyText('components.none');
+export function date(value: string | null) {
+  if (!value) return copyText('components.none');
+  if (!Number.isFinite(Date.parse(value))) return copyText('components.date.unavailable');
+  const { language, timeZone } = currentPreferences();
+  return new Date(value).toLocaleString(language, {
+    ...(timeZone === 'device' ? {} : { timeZone: timeZone === 'UTC+8' ? 'Etc/GMT-8' : 'UTC' }),
+  });
+}
 export const bps = (value: number) => `${value / 100}%`;
 export function useBankRead<K extends BankRead>(procedure: K, input: unknown, enabled = true) {
   const { api, userId } = useSession();

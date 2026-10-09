@@ -64,5 +64,154 @@ const messages = {
   contextChanged: 'The reviewed instruction or spending context has changed. No request was sent. Close this review and refresh.',
   startExpired: 'The first run must still be in the future. No request was sent. Edit the first run and review again.',
 } as const;
-export const copy = defineCopy('customer.money.repeat-buy', messages);
+
+const es = {
+  title: 'Compra periódica {asset}',
+  eyebrow: 'Dinero / tenencia',
+  description:
+    'Programa un presupuesto de gasto desde tu cuenta principal. Cada compra depende de fondos disponibles y de una conversión válida cuando se ejecuta.',
+  back: 'Volver a {asset}',
+  invalidTitle: 'Contexto de compra periódica no disponible',
+  invalidAsset: 'Elige una tenencia con un código de activo de 1 a 16 caracteres.',
+  personalOnly:
+    'Las compras periódicas empresariales requieren un titular verificado del libro contable de la empresa. Los fondos personales no pueden usarse como fondos empresariales.',
+  newTitle: 'Nueva compra periódica',
+  mainSource: 'Tu cuenta principal financia la instrucción. Los espacios de ahorro son independientes.',
+  refresh: 'Actualizar',
+  spendSource: 'Gastar desde la cuenta principal',
+  choose: 'Elige un activo de gasto',
+  available: '{amount} disponibles ahora',
+  unreserved: 'Este saldo no está reservado. Las compras futuras seguirán necesitando fondos suficientes.',
+  setup: 'Configurar compra periódica',
+  setupHint:
+    'Revisa un presupuesto exacto de {asset}, la periodicidad y la primera ejecución antes de crear la instrucción. No se promete una cantidad recibida.',
+  noSource: 'No se han devuelto activos de gasto admisibles',
+  noSourceDetail:
+    'Tu cuenta principal debe devolver un activo distinto para gastar. Esta lectura no cubre los espacios de ahorro con nombre.',
+  disabled: 'La inversión automática está desactivada',
+  disconnected: 'La conversión no está conectada',
+  policyDetail:
+    'Crear una compra periódica requiere automatización bancaria habilitada y una conexión de conversión configurada. Las tasas reales y los fondos disponibles se comprueban cuando se ejecuta cada compra.',
+  buy: 'Comprar',
+  from: 'Gastar desde',
+  mainAsset: 'Cuenta principal · {asset}',
+  budget: 'Presupuesto de gasto',
+  cadence: 'Periodicidad',
+  executionNote:
+    'Cada ejecución gasta desde tu cuenta principal. La tasa de conversión y la cantidad recibida se determinan cuando se ejecuta la compra.',
+  refusalNote:
+    'La ausencia de tasas o la insuficiencia de fondos deben causar el rechazo de la compra vencida. Una conexión configurada no garantiza la ejecución.',
+  create: 'Crear instrucción',
+  buyingRules: 'Tus compras periódicas de {asset}',
+  buyingRulesDetail: 'Instrucciones que compran {asset}. Gastar este activo en otro lugar es independiente.',
+  allRules: 'Tus automatizaciones bancarias',
+  allRulesDetail: 'Instrucciones de gasto en el mismo libro contable. Estas reglas no mantienen un saldo separado.',
+  pair: '{amount} → {asset}',
+  buyUnavailable: 'Activo de compra no disponible',
+  sweep: 'Transferencia por umbral',
+  roundup: 'Redondeo de tarjeta',
+  eventDriven: 'Por evento',
+  nextRun: 'Próxima ejecución programada',
+  reference: 'Referencia de la regla',
+  pausedNote:
+    'Reanudar una instrucción vencida la hace admisible en una comprobación posterior del ejecutor. Las compras anteriores no cambian.',
+  pause: 'Pausar',
+  resume: 'Reanudar',
+  cancel: 'Cancelar instrucción',
+  pauseTitle: 'Pausar automatización',
+  resumeTitle: 'Reanudar automatización',
+  cancelTitle: 'Cancelar automatización',
+  pauseNote: 'Pausa las ejecuciones futuras. No se revierten los fondos ya movidos.',
+  cancelNote: 'Cancela esta instrucción. Esto no revierte compras ni depósitos anteriores.',
+  noRules: 'No se han devuelto compras periódicas de {asset}',
+  noAutomation: 'No se ha devuelto automatización',
+  noRulesDetail: 'Solo se muestran las instrucciones devueltas. Una lista vacía no es un historial de ejecuciones.',
+  matching: '{count} instrucciones coincidentes en {total} registros de automatización bancaria devueltos.',
+  historyMissing: 'El historial completo de ejecuciones de automatización no está disponible.',
+  otherAutomation: 'Gestionar otras automatizaciones bancarias →',
+  readCheckFailed:
+    'No se pudo comprobar el estado actual de {subject}. No se ha enviado ninguna solicitud. Cierra esta revisión y actualiza antes de volver a intentarlo.',
+  policySubject: 'configuración de automatización',
+  sourceSubject: 'activos de gasto de la cuenta principal',
+  rulesSubject: 'instrucciones de automatización de tu titularidad',
+  contextChanged:
+    'La instrucción revisada o el contexto de gasto ha cambiado. No se ha enviado ninguna solicitud. Cierra esta revisión y actualiza.',
+  startExpired:
+    'La primera ejecución aún debe ser futura. No se ha enviado ninguna solicitud. Edita la primera ejecución y vuelve a revisar.',
+} as const;
+const fr = {
+  title: 'Achat récurrent {asset}',
+  eyebrow: 'Argent / avoir',
+  description:
+    'Planifie un budget de dépense depuis ton compte principal. Chaque achat dépend des fonds disponibles et d’une conversion valide lors de son exécution.',
+  back: 'Retour à {asset}',
+  invalidTitle: 'Contexte d’achat récurrent indisponible',
+  invalidAsset: 'Choisis un avoir avec un code d’actif de 1 à 16 caractères.',
+  personalOnly:
+    'Les achats récurrents d’entreprise nécessitent un propriétaire vérifié du grand livre de l’entreprise. Les fonds personnels ne peuvent pas être utilisés comme fonds d’entreprise.',
+  newTitle: 'Nouvel achat récurrent',
+  mainSource: 'Ton compte principal finance l’instruction. Les espaces d’épargne sont distincts.',
+  refresh: 'Actualiser',
+  spendSource: 'Dépenser depuis le compte principal',
+  choose: 'Choisis un actif à dépenser',
+  available: '{amount} disponibles actuellement',
+  unreserved: 'Ce solde n’est pas réservé. Les futurs achats nécessiteront toujours des fonds suffisants.',
+  setup: 'Configurer un achat récurrent',
+  setupHint:
+    'Vérifie un budget exact en {asset}, la fréquence et la première exécution avant de créer l’instruction. Aucune quantité reçue n’est promise.',
+  noSource: 'Aucun actif de dépense admissible renvoyé',
+  noSourceDetail:
+    'Ton compte principal doit renvoyer un actif différent à dépenser. Cette lecture ne couvre pas les espaces d’épargne nommés.',
+  disabled: 'L’investissement automatique est désactivé',
+  disconnected: 'La conversion n’est pas connectée',
+  policyDetail:
+    'Créer un achat récurrent nécessite une automatisation bancaire activée et une connexion de conversion configurée. Les taux réels et les fonds disponibles sont vérifiés lors de chaque achat.',
+  buy: 'Acheter',
+  from: 'Dépenser depuis',
+  mainAsset: 'Compte principal · {asset}',
+  budget: 'Budget de dépense',
+  cadence: 'Fréquence',
+  executionNote:
+    'Chaque exécution dépense depuis ton compte principal. Le taux de conversion et la quantité reçue sont déterminés lors de l’achat.',
+  refusalNote:
+    'L’absence de taux ou l’insuffisance de fonds doivent entraîner le refus de l’achat arrivé à échéance. Une connexion configurée ne garantit pas l’exécution.',
+  create: 'Créer l’instruction',
+  buyingRules: 'Tes achats récurrents de {asset}',
+  buyingRulesDetail: 'Instructions qui achètent {asset}. Dépenser cet actif ailleurs est distinct.',
+  allRules: 'Tes automatisations bancaires',
+  allRulesDetail: 'Instructions de dépense dans le même grand livre. Ces règles ne détiennent aucun solde séparé.',
+  pair: '{amount} → {asset}',
+  buyUnavailable: 'Actif acheté indisponible',
+  sweep: 'Transfert selon un seuil',
+  roundup: 'Arrondi de carte',
+  eventDriven: 'Selon les événements',
+  nextRun: 'Prochaine exécution planifiée',
+  reference: 'Référence de la règle',
+  pausedNote:
+    'Reprendre une instruction en retard la rend admissible lors d’une vérification ultérieure du moteur. Les achats antérieurs restent inchangés.',
+  pause: 'Mettre en pause',
+  resume: 'Reprendre',
+  cancel: 'Annuler l’instruction',
+  pauseTitle: 'Mettre l’automatisation en pause',
+  resumeTitle: 'Reprendre l’automatisation',
+  cancelTitle: 'Annuler l’automatisation',
+  pauseNote: 'Mets les exécutions futures en pause. Les fonds déjà déplacés ne sont pas restitués.',
+  cancelNote: 'Annule cette instruction. Cela n’annule pas les achats ou dépôts antérieurs.',
+  noRules: 'Aucun achat récurrent de {asset} renvoyé',
+  noAutomation: 'Aucune automatisation renvoyée',
+  noRulesDetail: 'Seules les instructions renvoyées sont affichées. Une liste vide n’est pas un historique d’exécution.',
+  matching: '{count} instructions correspondantes dans {total} enregistrements d’automatisation bancaire renvoyés.',
+  historyMissing: 'L’historique complet d’exécution de l’automatisation est indisponible.',
+  otherAutomation: 'Gérer les autres automatisations bancaires →',
+  readCheckFailed:
+    'Vérification actuelle impossible : {subject}. Aucune demande n’a été envoyée. Ferme cette vérification et actualise avant de réessayer.',
+  policySubject: 'configuration d’automatisation',
+  sourceSubject: 'actifs de dépense du compte principal',
+  rulesSubject: 'instructions d’automatisation qui t’appartiennent',
+  contextChanged:
+    'L’instruction vérifiée ou le contexte de dépense a changé. Aucune demande n’a été envoyée. Ferme cette vérification et actualise.',
+  startExpired:
+    'La première exécution doit encore être dans le futur. Aucune demande n’a été envoyée. Modifie la première exécution et vérifie à nouveau.',
+} as const;
+export const copy = defineCopy('customer.money.repeat-buy', messages, { es, fr });
 export const t: CopyCatalog<typeof messages>['t'] = copy.t;

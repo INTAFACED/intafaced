@@ -6,14 +6,14 @@ import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, EmptyState, Failure, Page } from '../../shared/ui';
 import { createMoneyClient, type Holding, type MoneyOverview } from './client';
-import { amount, Continuation, MutationDialog, ResourceView, Section, usePageLimit, type ActionSpec } from './components';
+import { amount, date, Continuation, MutationDialog, ResourceView, Section, usePageLimit, type ActionSpec } from './components';
 import { BankRoutes, BankNavigation } from './rooms';
 import { RepeatBuy } from './repeat-buy';
 import { pendingKey, pendingOutcomes } from './pending-outcomes';
 import './money.css';
 
-const coverage = copyText('index.user.ledger.accounts.are.shown.by.asset');
-const destinations = [
+const coverage = () => copyText('index.user.ledger.accounts.are.shown.by.asset');
+const destinations = () => [
   { href: '/bank/spaces', label: copyText('index.spaces'), description: copyText('index.organize.quantities.within.the.same.ledger') },
   {
     href: '/bank/transfers',
@@ -232,7 +232,7 @@ function MoneyOverviewPage({ bank = false, asset }: { bank?: boolean; asset?: st
                 </aside>
                 <div className="money-holding-analysis">
                   <HoldingAnalysis asset={asset} />
-                  <p className="notice">{coverage}</p>
+                  <p className="notice">{coverage()}</p>
                 </div>
               </>
             )}
@@ -290,7 +290,7 @@ function MoneyOverviewPage({ bank = false, asset }: { bank?: boolean; asset?: st
                   description={
                     overview.balances.ok
                       ? copyText('index.user.ledger.projection.response.time', {
-                          value1: new Date(overview.balances.data.datetime).toLocaleString(),
+                          value1: date(overview.balances.data.datetime),
                         })
                       : overview.holdings.length
                         ? copyText('index.available.projections.from.bank.held.quantities.are')
@@ -319,7 +319,7 @@ function MoneyOverviewPage({ bank = false, asset }: { bank?: boolean; asset?: st
                     </div>
                   )}
                 </Section>
-                <p className="notice">{coverage}</p>
+                <p className="notice">{coverage()}</p>
                 {bank && (
                   <Section
                     title={copyText('index.your.spaces')}
@@ -411,7 +411,7 @@ function MoneyOverviewPage({ bank = false, asset }: { bank?: boolean; asset?: st
               </p>
             </Section>
             <Section title={bank ? copyText('index.put.money.to.work') : copyText('index.bank')}>
-              {destinations.map((destination) => (
+              {destinations().map((destination) => (
                 <a className="link-row" href={destination.href} key={destination.href}>
                   <span>
                     {destination.label}
@@ -482,9 +482,9 @@ function CustodyUnavailable({ kind }: { kind: 'Deposit' | 'Withdraw' | 'Withdraw
   );
 }
 export function MoneyRoutes({ path }: { path: string }) {
-  copy.useCopy();
+  const { requestedLocale } = copy.useCopy();
   return (
-    <div lang="en" style={{ display: 'contents' }}>
+    <div lang={requestedLocale} style={{ display: 'contents' }}>
       <MoneyRooms path={path} />
     </div>
   );
