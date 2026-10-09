@@ -1,0 +1,70 @@
+.agent-session-journey {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 24px;
+  align-items: start;
+}
+.agent-session-journey > * {
+  min-width: 0;
+}
+.agent-session-list,
+.agent-session-history {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.agent-session-list li {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--color-divider);
+}
+.agent-session-list li > div {
+  min-width: 0;
+  flex: 1;
+}
+.agent-session-list button {
+  flex-shrink: 0;
+  min-height: 44px;
+}
+.agent-session-list small,
+.agent-session-history small {
+  display: block;
+  color: var(--color-muted);
+  margin-top: 8px;
+}
+.agent-session-history li {
+  padding: 16px 0;
+  border-top: 1px solid var(--color-divider);
+  overflow-wrap: anywhere;
+}
+.agent-session-journey code,
+.agent-session-journey dd,
+.agent-session-journey .agent-exact {
+  overflow-wrap: anywhere;
+}
+.agent-session-history dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+.agent-session-history dl > div {
+  min-width: 0;
+}
+.agent-session-history dt {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.agent-session-history dd {
+  margin: 4px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+.agent-session-journey .more-continuation {
+  flex-wrap: wrap;
+}
+@media (max-width: 780px) {
+  .agent-session-journey {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
