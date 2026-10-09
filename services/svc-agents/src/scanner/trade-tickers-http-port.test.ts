@@ -98,6 +98,64 @@ describe('createHttpSpotTickersPort', () => {
     ]);
   });
 
+  it('omits a ticker whose last is null, blank, or only whitespace', async () => {
+    const fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          'ETH/USDT': {
+            symbol: 'ETH/USDT',
+            timestamp: 1_700_000_000_000,
+            last: null,
+            quoteVolume: '2',
+            baseVolume: null,
+            percentage: null,
+          },
+          'SOL/USDT': {
+            symbol: 'SOL/USDT',
+            timestamp: 1_700_000_000_000,
+            last: '',
+            quoteVolume: '3',
+            baseVolume: null,
+            percentage: null,
+          },
+          'XRP/USDT': {
+            symbol: 'XRP/USDT',
+            timestamp: 1_700_000_000_000,
+            last: '   ',
+            quoteVolume: '4',
+            baseVolume: null,
+            percentage: null,
+          },
+          'BTC/USDT': {
+            symbol: 'BTC/USDT',
+            timestamp: 1_700_000_000_000,
+            last: '42000.5',
+            quoteVolume: '1000000',
+            baseVolume: null,
+            percentage: null,
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+
+    const port = createHttpSpotTickersPort({
+      tradeUrl: 'http://trade.test',
+      maxAgeMs: 30_000,
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+    const tickers = await port.sample(50);
+    expect(tickers).toEqual([
+      {
+        marketId: 'btc-usdt',
+        last: '42000.5',
+        volume24h: '1000000',
+        change24hBps: null,
+        asOf: '2023-11-14T22:13:20.000Z',
+        maxAgeMs: 30_000,
+      },
+    ]);
+  });
+
   it('throws when trade is unreachable', async () => {
     const port = createHttpSpotTickersPort({
       tradeUrl: 'http://trade.test',

@@ -48,6 +48,7 @@ function mapTicker(symbol: string, raw: unknown, maxAgeMs: number): TickerFixtur
   if (!parsed.success) return null;
   const row = parsed.data;
   if (symbolToScannerMarketId(row.symbol) !== symbolToScannerMarketId(symbol)) return null;
+  if (row.last === null || row.last.trim() === '') return null;
   return {
     marketId: symbolToScannerMarketId(symbol),
     last: row.last,
