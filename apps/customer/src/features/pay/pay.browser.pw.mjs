@@ -108,6 +108,122 @@ test('Send reviews exact units, posts once, and a lost response survives navigat
   await mount(page, '/pay/send');
   await expect(page.getByRole('heading', { name: 'Original transfer is unresolved' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Review transfer' })).toBeDisabled();
+  const recovery = page.getByRole('region', { name: 'Original transfer is unresolved' });
+  await expect(recovery.getByText(posted[0].transferId, { exact: true })).toBeVisible();
+  await expect(recovery.getByRole('link', { name: 'Contact Support' })).toHaveAttribute('href', '/support');
+  await expect(recovery.getByRole('link', { name: 'Check Money activity' })).toHaveAttribute('href', '/uc/record');
+  const recoveryY = await recovery.evaluate((node) => node.getBoundingClientRect().top);
+  const entryY = await page.getByLabel('Source account').evaluate((node) => node.getBoundingClientRect().top);
+  expect(recoveryY).toBeLessThan(entryY);
+  if (process.env.PAY_JOURNEY_SCREENSHOTS) {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: `${process.env.PAY_JOURNEY_SCREENSHOTS}/journey-2-original-transfer-recovery.png`, fullPage: true });
+  }
+  expect(posted).toHaveLength(1);
+});
+
+test('Transfer review supports exact-value inspection and editing, and a receipt keeps its original asset', async ({ page }) => {
+  const posted = [];
+  const second = {
+    ...source,
+    id: orderId,
+    assetId: 'BTC',
+    name: 'Bitcoin source',
+    ledgerAccount: { ...source.ledgerAccount, assetId: 'BTC' },
+  };
+  await page.route('**/api/**', (route) => {
+    if (route.request().url().includes('spaces.list')) return reply(route, [source, second]);
+    const input = route.request().postDataJSON();
+    posted.push(input);
+    return reply(route, { ledgerTxId: 'confirmed-test-transfer', amount: input.amount });
+  });
+  await mount(page, '/pay/send');
+  await page.getByLabel('Source account').selectOption(spaceId);
+  await page.getByLabel('Recipient account ID').fill(merchantId);
+  await page.getByLabel('Amount · USDT', { exact: true }).fill('0.000000000000000001');
+  await page.getByRole('button', { name: 'Review transfer' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Review transfer' });
+  const value = dialog.getByRole('group', { name: 'You send' });
+  await expect(value.getByText('0.000000000000000001 USDT', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Main · USDT', { exact: true })).toBeVisible();
+  await expect(dialog.getByText(merchantId, { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/Confirm this account ID with your recipient/)).toBeVisible();
+  for (const width of [1440, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    const fit = await dialog.evaluate((node) => ({
+      viewport: innerWidth,
+      left: node.getBoundingClientRect().left,
+      right: node.getBoundingClientRect().right,
+      scroll: node.scrollWidth,
+      client: node.clientWidth,
+    }));
+    expect(fit.left).toBeGreaterThanOrEqual(0);
+    expect(fit.right).toBeLessThanOrEqual(fit.viewport);
+    expect(fit.scroll).toBeLessThanOrEqual(fit.client);
+    const audit = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+    expect(audit.violations.filter((item) => ['serious', 'critical'].includes(item.impact))).toEqual([]);
+    for (const name of ['Edit transfer', 'Confirm transfer']) {
+      const button = dialog.getByRole('button', { name });
+      const bounds = await button.boundingBox();
+      expect(bounds.height).toBeGreaterThanOrEqual(44);
+    }
+    await dialog.evaluate((node) => {
+      node.scrollTop = 0;
+    });
+    const confirmBounds = await dialog.getByRole('button', { name: 'Confirm transfer' }).boundingBox();
+    expect(confirmBounds.y + confirmBounds.height).toBeLessThanOrEqual(844);
+    if (process.env.PAY_JOURNEY_SCREENSHOTS) {
+      await dialog.evaluate((node) => {
+        node.scrollTop = 0;
+      });
+      await page.screenshot({ path: `${process.env.PAY_JOURNEY_SCREENSHOTS}/journey-2-review-${width}.png` });
+    }
+  }
+  await dialog.getByRole('button', { name: 'Edit transfer' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Review transfer' })).toBeFocused();
+  await expect(page.getByLabel('Amount · USDT', { exact: true })).toHaveValue('0.000000000000000001');
+  expect(posted).toEqual([]);
+  await page.getByRole('button', { name: 'Review transfer' }).click();
+  await dialog.getByRole('button', { name: 'Confirm transfer' }).click();
+  await expect(page.getByText('confirmed-test-transfer', { exact: true })).toBeVisible();
+  expect(posted).toHaveLength(1);
+  await page.getByLabel('Source account').selectOption(orderId);
+  await expect(page.getByText('0.000000000000000001 USDT', { exact: true })).toBeVisible();
+  await expect(page.getByText('0.000000000000000001 BTC', { exact: true })).toHaveCount(0);
+  expect(posted).toHaveLength(1);
+});
+
+test('A confirmed transfer receipt survives failed source refresh and subsequent recovery', async ({ page }) => {
+  let reads = 0;
+  let allowRefresh = false;
+  const posted = [];
+  await page.route('**/api/**', (route) => {
+    if (route.request().url().includes('spaces.list')) {
+      reads++;
+      return reads <= 2 || allowRefresh ? reply(route, [source]) : reply(route, null, 503);
+    }
+    const input = route.request().postDataJSON();
+    posted.push(input);
+    return reply(route, { ledgerTxId: 'confirmed-before-refresh', amount: input.amount });
+  });
+  await mount(page, '/pay/send');
+  await page.getByLabel('Source account').selectOption(spaceId);
+  await page.getByLabel('Recipient account ID').fill(merchantId);
+  await page.getByLabel('Amount · USDT', { exact: true }).fill('1.000000000000000001');
+  await page.getByRole('button', { name: 'Review transfer' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm transfer' }).click();
+  await expect(page.getByRole('heading', { name: 'Transfer confirmed' })).toBeVisible();
+  await expect(page.getByText('confirmed-before-refresh', { exact: true })).toBeVisible();
+  await expect(page.getByText('1.000000000000000001 USDT', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Connection unavailable' })).toBeVisible();
+  expect(reads).toBe(3);
+  expect(posted).toHaveLength(1);
+  allowRefresh = true;
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByLabel('Source account')).toBeVisible();
+  await expect(page.getByText('confirmed-before-refresh', { exact: true })).toBeVisible();
+  await expect(page.getByText('1.000000000000000001 USDT', { exact: true })).toBeVisible();
   expect(posted).toHaveLength(1);
 });
 

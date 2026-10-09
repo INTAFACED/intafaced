@@ -679,14 +679,22 @@ const messages = {
   reviewTransfer: 'Review transfer',
   originalTransferIsUnresolved: 'Original transfer is unresolved',
   aPreviousTransferHasNotBeenConfirmed:
-    'A previous transfer has not been confirmed. Check Money activity or contact Support with the original transfer ID. The service has no transfer lookup by client ID; this screen cannot safely clear the lock by comparing balances.',
+    'The original transfer has not returned a confirmed receipt. Keep its ID. A new send stays locked while the outcome is unresolved. Transfer-status lookup is not connected. Check Money activity or contact Support with this ID.',
+  checkMoneyActivity: 'Check Money activity',
+  contactSupport: 'Contact Support',
   originalTransferId: 'Original transfer ID:',
   ledgerTransaction: 'Ledger transaction',
   confirmedAmount: 'Confirmed amount',
+  transferConfirmed: 'Transfer confirmed',
+  keepThisLedgerReceipt: 'Keep this ledger receipt. Source balances refresh separately.',
   from: 'From',
   recipientAccount: 'Recipient account',
   youSend: 'You send',
   transferId: 'Transfer ID',
+  editTransfer: 'Edit transfer',
+  confirmRecipientAccountId: 'Confirm this account ID with your recipient. Name verification is unavailable.',
+  internalTransferReview:
+    'Internal transfer in {assetId}. No asset conversion. Fee preview is unavailable. The source and recipient are checked again before sending.',
   thisIsAnInternalTransferInThe:
     'This is an internal transfer in the source asset. Recipient name verification and fee preview are not published. The server checks that the recipient has a primary bank space for this asset and revalidates the source before posting.',
   waitingForLedgerConfirmation: 'Waiting for ledger confirmation…',

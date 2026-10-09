@@ -131,6 +131,88 @@ a.pay-destination:hover > span:last-child {
 .pay-form {
   max-width: 540px;
 }
+.pay-transfer-review {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.pay-transfer-value {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-8);
+}
+.pay-transfer-value p {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 40px;
+  overflow-wrap: anywhere;
+}
+.pay-transfer-review .pay-details > div {
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--spacing-8);
+  padding-block: var(--spacing-16);
+}
+.pay-transfer-review .pay-details dd {
+  text-align: left;
+  font-size: var(--text-16);
+  line-height: 24px;
+}
+.pay-transfer-recipient-hint {
+  display: block;
+  margin-top: var(--spacing-8);
+  font-size: var(--text-13);
+  line-height: 20px;
+  color: var(--color-muted);
+}
+.pay-transfer-reference {
+  color: var(--color-muted);
+  font-size: var(--text-13);
+  line-height: 20px;
+}
+.pay-transfer-actions,
+.pay-transfer-recovery-actions {
+  display: flex;
+  gap: var(--spacing-12);
+}
+.pay-transfer-actions .button {
+  flex: 1;
+  min-height: 44px;
+}
+.pay-notice .pay-transfer-recovery-actions .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0;
+}
+.pay-transfer-recovery-actions {
+  flex-wrap: wrap;
+  margin-top: var(--spacing-20);
+}
+@media (max-width: 600px) {
+  .pay-transfer-review {
+    gap: var(--spacing-20);
+  }
+  .pay-transfer-review .pay-details > div {
+    padding-block: var(--spacing-12);
+  }
+  .pay-transfer-value p {
+    font-size: var(--text-24);
+    line-height: 32px;
+  }
+  .pay-transfer-actions,
+  .pay-transfer-recovery-actions {
+    flex-direction: column;
+  }
+  .pay-transfer-actions .button {
+    flex: 0 0 auto;
+  }
+}
+@media (max-width: 360px) {
+  .pay-transfer-value p {
+    font-size: var(--text-18);
+    line-height: 26px;
+  }
+}
 .pay-account-id {
   font-size: var(--text-18);
   font-weight: 500;

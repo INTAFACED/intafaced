@@ -57,7 +57,7 @@ export function PersonalPay({ path }: { path: string }) {
         </nav>
         <div className="pay-personal-content">
           {current === '/pay/send' ? (
-            <SendMoney pay={pay} userId={userId} />
+            <SendMoney key={userId ?? 'anonymous'} pay={pay} userId={userId} />
           ) : current === '/pay/receive' ? (
             <ReceiveMoney pay={pay} userId={userId} />
           ) : current === '/pay/request' ? (
@@ -121,12 +121,27 @@ export function PersonalPay({ path }: { path: string }) {
   );
 }
 
+type ConfirmedTransfer = { ledgerTxId: string; amount: string; assetId: string };
+
 function SendMoney({ pay, userId }: { pay: PersonalPayApi; userId: string | null }) {
   const sources = useResource((signal) => pay.spaces(signal), `pay:send-sources:${userId}`);
+  const [confirmed, setConfirmed] = useState<ConfirmedTransfer | null>(null);
   return (
-    <PayState resource={sources.resource} retry={sources.reload} empty={payCopy.t('noSourceSpacesAvailable')}>
-      {(spaces) => <SendForm pay={pay} spaces={spaces} userId={userId} reload={sources.reload} />}
-    </PayState>
+    <>
+      {confirmed && (
+        <PaySection title={payCopy.t('transferConfirmed')} description={payCopy.t('keepThisLedgerReceipt')}>
+          <PayDetails
+            values={[
+              [payCopy.t('ledgerTransaction'), confirmed.ledgerTxId],
+              [payCopy.t('confirmedAmount'), `${displayAmount(confirmed.amount)} ${confirmed.assetId}`],
+            ]}
+          />
+        </PaySection>
+      )}
+      <PayState resource={sources.resource} retry={sources.reload} empty={payCopy.t('noSourceSpacesAvailable')}>
+        {(spaces) => <SendForm pay={pay} spaces={spaces} userId={userId} reload={sources.reload} onConfirmed={setConfirmed} />}
+      </PayState>
+    </>
   );
 }
 function SendForm({
@@ -134,18 +149,24 @@ function SendForm({
   spaces,
   userId,
   reload,
+  onConfirmed,
 }: {
   pay: PersonalPayApi;
   spaces: z.infer<typeof spaceSchema>[];
   userId: string | null;
   reload: () => void;
+  onConfirmed: (receipt: ConfirmedTransfer) => void;
 }) {
   const { hideBalances } = usePreferences();
   const [sourceId, setSourceId] = useState('');
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
   const [error, setError] = useState('');
-  const [review, setReview] = useState<z.infer<typeof sendInput> | null>(null);
+  const [review, setReview] = useState<{
+    input: z.infer<typeof sendInput>;
+    sourceName: string;
+    assetId: string;
+  } | null>(null);
   const [result, setResult] = useState<ApiResult<{ ledgerTxId: string; amount: string }> | null>(null);
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
@@ -176,17 +197,18 @@ function SendForm({
       setError(payCopy.t('thisAmountExceedsTheSourceSLedger'));
       return;
     }
-    setReview(parsed.data);
+    setReview({ input: parsed.data, sourceName: source.name, assetId: source.assetId });
   }
   async function confirm() {
     if (!review || inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
-    const outcome = await pay.send(review);
+    const outcome = await pay.send(review.input);
     setResult(outcome);
     setBusy(false);
     inFlight.current = false;
     if (outcome.ok) {
+      onConfirmed({ ...outcome.data, assetId: review.assetId });
       setReview(null);
       setAmount('');
       reload();
@@ -194,6 +216,28 @@ function SendForm({
   }
   return (
     <PaySection title={payCopy.t('sendFromYourBankSpace')}>
+      {unresolved && (
+        <PayNotice
+          title={payCopy.t('originalTransferIsUnresolved')}
+          action={
+            <div className="pay-transfer-recovery-actions">
+              <a className="button button--secondary" href="/uc/record">
+                <PayCopy k="checkMoneyActivity" />
+              </a>
+              <a className="button button--primary" href="/support">
+                <PayCopy k="contactSupport" />
+              </a>
+            </div>
+          }
+        >
+          <PayCopy k="aPreviousTransferHasNotBeenConfirmed" />
+          {pay.guard.reference(`${userId}:send`) && (
+            <span className="pay-cell-note">
+              <PayCopy k="originalTransferId" /> <span>{pay.guard.reference(`${userId}:send`)}</span>
+            </span>
+          )}
+        </PayNotice>
+      )}
       <form
         className="form-stack pay-form"
         onSubmit={(event) => {
@@ -252,25 +296,7 @@ function SendForm({
           <PayCopy k="reviewTransfer" />
         </Button>
       </form>
-      {unresolved && (
-        <PayNotice title={payCopy.t('originalTransferIsUnresolved')}>
-          <PayCopy k="aPreviousTransferHasNotBeenConfirmed" />
-          {pay.guard.reference(`${userId}:send`) && (
-            <span className="pay-cell-note">
-              <PayCopy k="originalTransferId" /> {pay.guard.reference(`${userId}:send`)}
-            </span>
-          )}
-        </PayNotice>
-      )}
       <MutationResult result={result} />
-      {result?.ok && (
-        <PayDetails
-          values={[
-            [payCopy.t('ledgerTransaction'), result.data.ledgerTxId],
-            [payCopy.t('confirmedAmount'), `${displayAmount(result.data.amount)} ${source?.assetId ?? ''}`],
-          ]}
-        />
-      )}
       {review && (
         <Dialog
           title={payCopy.t('reviewTransfer')}
@@ -278,22 +304,47 @@ function SendForm({
             if (!busy) setReview(null);
           }}
         >
-          <div className="form-stack">
+          <div className="pay-transfer-review">
+            <div className="pay-transfer-value" role="group" aria-label={payCopy.t('youSend')}>
+              <span className="muted">
+                <PayCopy k="youSend" />
+              </span>
+              <p className="numeric">
+                {displayAmount(review.input.amount)} {review.assetId}
+              </p>
+            </div>
             <PayDetails
               values={[
-                [payCopy.t('from'), source?.name],
-                [payCopy.t('recipientAccount'), review.toUserId],
-                [payCopy.t('youSend'), `${displayAmount(review.amount)} ${source?.assetId}`],
-                [payCopy.t('transferId'), review.transferId],
+                [payCopy.t('from'), `${review.sourceName} · ${review.assetId}`],
+                [
+                  payCopy.t('recipientAccount'),
+                  <>
+                    <span>{review.input.toUserId}</span>
+                    <small className="pay-transfer-recipient-hint">
+                      <PayCopy k="confirmRecipientAccountId" />
+                    </small>
+                  </>,
+                ],
+                [payCopy.t('transferId'), <span className="pay-transfer-reference">{review.input.transferId}</span>],
               ]}
             />
             <p className="muted">
-              <PayCopy k="thisIsAnInternalTransferInThe" />
+              <PayCopy k="internalTransferReview" params={{ assetId: review.assetId }} />
             </p>
             <MutationResult result={result} />
-            <Button onClick={() => void confirm()} disabled={busy || Boolean(result && !result.ok && result.reason === 'uncertain')}>
-              {busy ? payCopy.t('waitingForLedgerConfirmation') : payCopy.t('confirmTransfer')}
-            </Button>
+            <div className="pay-transfer-actions">
+              <Button variant="secondary" onClick={() => setReview(null)} disabled={busy || Boolean(unresolved)}>
+                <PayCopy k="editTransfer" />
+              </Button>
+              <Button variant="primary" onClick={() => void confirm()} disabled={busy || Boolean(unresolved)}>
+                {busy ? payCopy.t('waitingForLedgerConfirmation') : payCopy.t('confirmTransfer')}
+              </Button>
+            </div>
+            {unresolved && (
+              <a className="text-link" href="/support">
+                <PayCopy k="contactSupport" />
+              </a>
+            )}
           </div>
         </Dialog>
       )}
