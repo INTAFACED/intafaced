@@ -651,22 +651,69 @@ describe('svc-pay user money PG-hard', () => {
     /**
      * CRASH POINT: rail sent, settle not posted.
      *
-     * Nobody's money is lost, but the PLATFORM is short: the rail has paid out
-     * and the book still shows the value in a hold. Repeating the call posts the
-     * settle once and squares it, and does not ask the rail again because the
-     * rail's own idempotency key is the same string.
+     * The payout for this attempt has already been accepted and the row is
+     * still `held`: the hold is on the book and `withdraw.settled` is not.
+     * The platform is short by that payout until the settle runs. Repeating
+     * the call posts the settle once. A finished `sent` row is a different
+     * case. If the retry asks the rail again, it must carry the same
+     * settlement id as the attempt that already paid.
      */
     it('squares the book when the rail already sent but the settle never posted', async () => {
-      const record = await withdraw();
-      expect(record.status).toBe('sent');
-      const before = await boundaryOf();
+      const payoutIds: string[] = [];
+      const spy = new Proxy(card, {
+        get(target, prop, receiver) {
+          if (prop === 'payout') {
+            return async (...args: Parameters<CardSandboxAdapter['payout']>) => {
+              payoutIds.push(args[0]!.settlementId);
+              return target.payout(...args);
+            };
+          }
+          return Reflect.get(target, prop, receiver);
+        },
+      });
 
-      // Repeating a finished withdrawal is a read, not a second payout.
-      const again = await withdraw();
-      expect(again.status).toBe('sent');
-      expect(again.id).toBe(record.id);
-      expect(await boundaryOf()).toBe(before);
+      let settleThrown = false;
+      const throwing = new Proxy(ledger, {
+        get(target, prop, receiver) {
+          if (prop === 'post') {
+            return async (request: Parameters<MemoryLedger['post']>[0]) => {
+              if (request.idempotencyKey.startsWith('withdraw.settle:') && !settleThrown) {
+                settleThrown = true;
+                throw new Error('settle post failed');
+              }
+              return target.post(request);
+            };
+          }
+          return Reflect.get(target, prop, receiver);
+        },
+      });
+      money = new UserMoneyService(sql, throwing, new RailRegistry([spy]), { operatorCreditRails: ['card-sandbox'] });
+
+      await expect(withdraw()).rejects.toThrow(/settle post failed/);
+
+      const held = (await money.listWithdrawals(USER, 50))[0]!;
+      expect(held.status).toBe('held');
+      expect(held.failureCode).toBeNull();
+      expect(held.attempts).toBe(0);
+      expect(await holdOf(held.id, 0)).toBe('40');
       expect(await availableOf()).toBe('60');
+      expect(await boundaryOf()).toBe('-100');
+      expect(await ledger.getTxByKey(`withdraw.settle:${held.id}:0`)).toBeNull();
+      const firstPayout = payoutIds[0];
+      expect(firstPayout).toBe(`${held.id}:0`);
+
+      const resumed = await withdraw();
+
+      expect(resumed.id).toBe(held.id);
+      expect(resumed.status).toBe('sent');
+      expect(resumed.attempts).toBe(0);
+      expect(await availableOf()).toBe('60');
+      expect(await boundaryOf()).toBe('-60');
+      expect(await holdOf(held.id, 0)).toBe('0');
+      expect(ledger.journal().filter((tx) => tx.reason === 'withdraw.settled')).toHaveLength(1);
+      expect(payoutIds.length).toBeGreaterThan(0);
+      expect(new Set(payoutIds).size).toBe(1);
+      expect(payoutIds.every((id) => id === firstPayout)).toBe(true);
     });
 
     it('refuses a rail that cannot pay out, before a row exists', async () => {
