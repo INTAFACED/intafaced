@@ -93,7 +93,7 @@ for (const readState of ['loading', 'failed', 'empty']) {
     await expect(recovery.getByRole('link', { name: 'Contact Support' })).toHaveAttribute('href', '/support');
     await expect(recovery.getByRole('link', { name: 'Check Money activity' })).toHaveAttribute('href', '/uc/record');
     if (readState === 'failed') await expect(page.getByRole('heading', { name: 'Connection unavailable' })).toBeVisible();
-    if (readState === 'empty') await expect(page.getByText('No source spaces available', { exact: true })).toBeVisible();
+    if (readState === 'empty') await expect(page.getByRole('heading', { name: 'No BTC source account available', exact: true })).toBeVisible();
     expect(writes).toEqual([]);
   });
 }
