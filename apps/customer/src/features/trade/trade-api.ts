@@ -14,6 +14,7 @@ import {
 } from '@intafaced/exchange-contract/schemas';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { decimalSchema, parseAmount, formatAmount } from '../../shared/money';
+import { dailyHistoryWindow, deriveUtc8Daily, DailyHistoryError } from './daily-history';
 
 const positive = decimalSchema.refine((value) => parseAmount(value) > 0n, () => ({ message: copy.t('expectedAPositiveExactDecimalString') }));
 export const listingSchema = marketSchema.extend({
@@ -139,7 +140,7 @@ function matchesPreview(draft: Draft, preview: Preview) {
     preview.timeInForce === (draft.postOnly ? 'PO' : draft.timeInForce)
   );
 }
-export function createTradeApi(api: ApiClient) {
+export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
   async function currentReview(draft: Draft, reviewed: Preview): Promise<ApiResult<Preview> | ChangedReview> {
     const result = await client.preview(draft);
     if (!result.ok) return result;
@@ -170,6 +171,17 @@ export function createTradeApi(api: ApiClient) {
     },
     history: (symbol: string, timeframe: string, signal?: AbortSignal, since?: number) =>
       api.rest(`/ohlcv/${encodeURIComponent(symbol)}`, historySchema, { query: { timeframe, limit: 500, since }, signal }),
+    dailyHistory: async (symbol: string, signal?: AbortSignal) => {
+      try {
+        const window = dailyHistoryWindow(now());
+        const result = await client.history(symbol, '1h', signal, window.sinceMs);
+        if (!result.ok) return result;
+        return { ok: true as const, data: deriveUtc8Daily(result.data, window, now()) };
+      } catch (error) {
+        return tradeRefusal(error instanceof DailyHistoryError && error.code === 'invalid_clock_window'
+          ? 'dailyHistoryClockWindowInvalid' : 'dailyHistoryHourlySourceInvalid', { reason: 'invalid_response' as const });
+      }
+    },
     tape: async (symbol: string, signal?: AbortSignal) => {
       const result = await api.rest(`/trades/${encodeURIComponent(symbol)}`, z.array(tradeSchema), { query: { limit: 40 }, signal });
       return result.ok && result.data.some((row) => row.symbol !== symbol)

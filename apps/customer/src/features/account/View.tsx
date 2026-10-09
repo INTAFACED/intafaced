@@ -181,8 +181,23 @@ export function View() {
                 </option>
               </select>
               <small>
-                <Text k="view.daily.candle.boundaries.follow.the.history.service" />
+                <Text k="view.daily.labels.independent" />
               </small>
+            </label>
+            <label className="field">
+              <span><Text k="view.daily.start" /></span>
+              <select
+                aria-label={copyText('view.daily.start')}
+                value={preferences.dailyStart}
+                onChange={(event) => {
+                  savePreferences({ dailyStart: event.target.value as 'nativeUTC' | 'utc8' });
+                  saved();
+                }}
+              >
+                <option value="nativeUTC">{copyText('view.daily.start.native')}</option>
+                <option value="utc8">{copyText('view.daily.start.utc8')}</option>
+              </select>
+              <small><Text k="view.daily.history.settings" /></small>
             </label>
             <Toggle
               label={copyText('view.show.working.orders')}
@@ -261,6 +276,7 @@ export function View() {
                 phoneChart: 'top',
                 upColor: 'green',
                 timeZone: 'UTC',
+                dailyStart: 'nativeUTC',
                 showOrders: true,
                 showFills: false,
                 confirmSend: true,

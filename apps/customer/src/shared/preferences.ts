@@ -9,6 +9,7 @@ const schema = z.object({
   phoneChart: z.enum(['top', 'bottom', 'hidden']).default('top'),
   upColor: z.enum(['green', 'red']).default('green'),
   timeZone: z.enum(['UTC', 'UTC+8', 'device']).default('UTC'),
+  dailyStart: z.enum(['nativeUTC', 'utc8']).default('nativeUTC'),
   showOrders: z.boolean().default(true),
   showFills: z.boolean().default(false),
   confirmSend: z.boolean().default(true),

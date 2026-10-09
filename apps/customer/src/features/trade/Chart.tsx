@@ -1,4 +1,4 @@
-import { tradeError, TradeOriginalMessage, tradeCopy as copy, CopyText, choiceText, choiceNode, choiceLanguage, TradeFailure as Failure } from './copy';
+import { tradeError, TradeOriginalMessage, tradeCopy as copy, CopyText, choiceText, choiceNode, choiceLanguage, tradeDate, TradeFailure as Failure } from './copy';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { OHLCV, Position } from '@intafaced/exchange-contract/schemas';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
@@ -10,6 +10,11 @@ import type { Listing, TradeApi, Order } from './trade-api';
 import { usePreferences, useResolvedTheme, savePreferences } from '../../shared/preferences';
 import { TIMEFRAMES } from './trade-api';
 import { PriceAlerts } from './PriceAlerts';
+import { utc8DailyStart } from './daily-history';
+
+function readHistory(api: TradeApi, symbol: string, interval: string, dailyStart: string, signal: AbortSignal) {
+  return interval === '1d' && dailyStart === 'utc8' ? api.dailyHistory(symbol, signal) : api.history(symbol, interval, signal);
+}
 
 type Point = { time: number; value: number };
 type Bar = { time: number; open: number; high: number; low: number; close: number; volume: number };
@@ -262,6 +267,9 @@ export function MarketChart({
     [countdownVisible, setCountdownVisible] = useState(true),
     [inspected, setInspected] = useState<OHLCV | null>(null),
     [drawingsKey, setDrawingsKey] = useState<string | null>(null);
+  const derivedDaily = interval === '1d' && preferences.dailyStart === 'utc8';
+  const historyKey = `${market.id}:${market.symbol}:${interval}:${derivedDaily}`;
+  const [linkedRevision, setLinkedRevision] = useState(0);
   const [showPosition, setShowPosition] = useState(true),
     [showMark, setShowMark] = useState(true),
     [showLiquidation, setShowLiquidation] = useState(true);
@@ -333,12 +341,31 @@ export function MarketChart({
         : Promise.resolve({ ok: true as const, data: [] as import('@intafaced/exchange-contract/schemas').Trade[] }),
     `${accountKey}:${market.id}:fills:${preferences.showFills}`,
   );
-  const { resource, reload } = useResource((signal) => api.history(market.symbol, interval, signal), `${market.id}:${interval}`);
+  const { resource, reload } = useResource((signal) => readHistory(api, market.symbol, interval, preferences.dailyStart, signal), historyKey);
   historyReady.current = resource.status === 'ready';
   useEffect(() => {
     if (resource.status === 'ready') barHistory.current = resource.data.slice().sort((a, b) => a[0] - b[0]);
+    else {
+      barHistory.current = [];
+      rawPrice.current.clear();
+    }
+    pending.current = [];
+    inspectionIndex.current = null;
+    setInspected(null);
+    setDragging(null);
   }, [resource]);
   useEffect(() => {
+    lastPrintAt.current = null;
+    setCountdown(null);
+    if (derivedDaily) {
+      const update = () => {
+        const now = Date.now();
+        setCountdown(Math.ceil((utc8DailyStart(now) + TIMEFRAME_MS['1d'] - now) / 1000));
+      };
+      update();
+      const clock = setInterval(update, 1000);
+      return () => clearInterval(clock);
+    }
     let socket: WebSocket | null = null,
       closed = false,
       retry: ReturnType<typeof setTimeout> | undefined,
@@ -426,11 +453,18 @@ export function MarketChart({
       clearInterval(clock);
       clearTimeout(retry);
     };
-  }, [market.id, interval, type]);
+  }, [market.id, interval, type, derivedDaily]);
   const comparison = useResource(
-    (signal) => (compare ? api.history(compare, interval, signal) : Promise.resolve({ ok: true as const, data: [] as OHLCV[] })),
-    `${market.id}:${compare}:${interval}`,
+    (signal) => (compare ? readHistory(api, compare, interval, preferences.dailyStart, signal) : Promise.resolve({ ok: true as const, data: [] as OHLCV[] })),
+    `${market.id}:${compare}:${interval}:${derivedDaily}`,
   );
+  function refreshHistory() {
+    reload();
+    if (derivedDaily) {
+      comparison.reload();
+      setLinkedRevision((revision) => revision + 1);
+    }
+  }
   useEffect(() => {
     const key = `trade-drawings:${accountKey}:${market.id}`;
     try {
@@ -694,6 +728,7 @@ export function MarketChart({
   return (
     <section
       className={`trade-chart ${fullscreen ? 'trade-chart--fullscreen' : ''}`}
+      data-derived-linked={derivedDaily && multi ? '' : undefined}
       ref={frame}
       aria-label={copy.t('chartc80af2', { marketSymbol: String(market.symbol) })}
       role={fullscreen ? 'dialog' : undefined}
@@ -718,6 +753,14 @@ export function MarketChart({
             </option>
           ))}
         </select>
+        {interval === '1d' && <label className="trade-inline">
+          <CopyText k="dailyStart" />
+          <select aria-label={copy.t('dailyStart')} value={preferences.dailyStart}
+            onChange={(event) => savePreferences({ dailyStart: event.target.value as 'nativeUTC' | 'utc8' })}>
+            <option value="nativeUTC">{copy.t('dailyStartNative')}</option>
+            <option value="utc8">{copy.t('dailyStartUtc8')}</option>
+          </select>
+        </label>}
         <details>
           <summary>
             <CopyText k="indicators" />
@@ -862,7 +905,7 @@ export function MarketChart({
         <span>
           <span lang="zxx">{interval}</span> · {choiceNode(type)} · <span lang="zxx">{preferences.timeZone}</span>
         </span>
-        <button onClick={reload}>
+        <button onClick={refreshHistory}>
           <CopyText k="refreshHistory" />
         </button>
         <button onClick={() => chartRef.current?.timeScale().fitContent()}>
@@ -872,8 +915,13 @@ export function MarketChart({
           <CopyText k="follow" />
         </button>
       </div>
-      {inspected && (
+      {derivedDaily && <div className="trade-note">
+        <strong><CopyText k="dailyHistorySource" /></strong><br />
+        <CopyText k="dailyHistoryScope" />{' '}<CopyText k="dailyHistoryOrdering" />
+      </div>}
+      {inspected && resource.status === 'ready' && (
         <p className="trade-candle-inspection">
+          {derivedDaily && <><CopyText k="dailyHistoryInspection" params={{ start: tradeDate(inspected[0]) }} /><br /></>}
           <CopyText k="o" />
           {inspected[1]} <CopyText k="h" />
           {inspected[2]} <CopyText k="l" />
@@ -895,6 +943,7 @@ export function MarketChart({
             return;
           }
           if (event.target !== event.currentTarget) return;
+          if (resource.status !== 'ready') return;
           const rows = barHistory.current;
           if (!rows.length) return;
           if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
@@ -916,20 +965,21 @@ export function MarketChart({
           }
         }}
       >
-        <div className="trade-engine" ref={host} />
+        <div className="trade-engine" ref={host} style={{ visibility: resource.status === 'ready' ? undefined : 'hidden' }} />
         {resource.status === 'loading' ? (
           <Loading label={<CopyText k={'loadingMarketHistory'} />} />
         ) : resource.status === 'failed' ? (
-          <Failure result={resource.failure} retry={reload} />
+          <Failure result={resource.failure} retry={refreshHistory} />
         ) : !barHistory.current.length ? (
           <EmptyState title={<CopyText k={'noPriceHistory'} />}>
-            <CopyText k="theMarketHasNoPublishedCandlesForThisInterval" />
+            <CopyText k={derivedDaily ? 'dailyHistoryEmpty' : 'theMarketHasNoPublishedCandlesForThisInterval'} />
           </EmptyState>
         ) : null}
         <svg className="trade-drawings" aria-hidden="true" data-revision={chartRevision}>
-          {drawings.map(draw)}
+          {resource.status === 'ready' && drawings.map(draw)}
         </svg>
         {onStageAmend &&
+          resource.status === 'ready' &&
           preferences.showOrders &&
           !market.paper &&
           orders
@@ -984,6 +1034,10 @@ export function MarketChart({
               k={'selectToDraw'}
               params={{ toolLevelOnePoint: copy.t(tool === 'level' ? 'oneDrawingPoint' : 'twoDrawingPoints'), tool: choiceText(tool) }}
             />
+          ) : derivedDaily ? (
+            countdownVisible && countdown !== null && resource.status === 'ready'
+              ? <CopyText k="dailyHistoryCountdown" params={{ seconds: countdown }} />
+              : <CopyText k="dailyHistorySource" />
           ) : !countdownVisible || countdown === null ? (
             <CopyText k={'chartStatusWithoutCandle'} params={{ feedStatus }} />
           ) : (
@@ -1006,13 +1060,14 @@ export function MarketChart({
         </p>
       )}
       {compare && comparison.resource.status === 'failed' && <Failure result={comparison.resource.failure} retry={comparison.reload} />}
+      {compare && derivedDaily && comparison.resource.status === 'loading' && <Loading label={<CopyText k="dailyHistoryComparisonLoading" />} />}
       {compare && comparison.resource.status === 'ready' && !comparison.resource.data.length && (
         <p className="trade-note">
           <CopyText k="noPublishedComparisonHistoryFor" />
           {compare}.
         </p>
       )}
-      {multi && <SecondaryChart api={api} symbol={market.symbol} interval={interval} />}
+      {multi && <SecondaryChart api={api} symbol={market.symbol} interval={interval} refreshRevision={linkedRevision} />}
     </section>
   );
 }
@@ -1022,12 +1077,14 @@ export function SecondaryChart({
   interval,
   type = 'Line',
   workspace = false,
+  refreshRevision = 0,
 }: {
   api: TradeApi;
   symbol: string;
   interval: string;
   type?: string;
   workspace?: boolean;
+  refreshRevision?: number;
 }) {
   const host = useRef<HTMLDivElement>(null),
     chartRef = useRef<ChartApi | null>(null),
@@ -1035,7 +1092,8 @@ export function SecondaryChart({
   const [failure, setFailure] = useState<ReactNode>('');
   const preferences = usePreferences();
   const theme = useResolvedTheme(preferences.theme);
-  const result = useResource((signal) => api.history(symbol, interval, signal), `${symbol}:${interval}`);
+  const derivedDaily = interval === '1d' && preferences.dailyStart === 'utc8';
+  const result = useResource((signal) => readHistory(api, symbol, interval, preferences.dailyStart, signal), `${symbol}:${interval}:${derivedDaily}:${refreshRevision}`);
   useEffect(() => {
     if (!host.current || result.resource.status !== 'ready' || !result.resource.data.length) return;
     const rows = result.resource.data;
@@ -1050,6 +1108,12 @@ export function SecondaryChart({
           autoSize: true,
           ...appearance.chart,
           timeScale: { ...appearance.chart.timeScale, timeVisible: true },
+          localization: {
+            timeFormatter: (timestamp: number) => new Intl.DateTimeFormat(preferences.language, {
+              dateStyle: 'short', timeStyle: 'short',
+              ...(preferences.timeZone === 'device' ? {} : { timeZone: preferences.timeZone === 'UTC+8' ? 'Asia/Singapore' : 'UTC' }),
+            }).format(new Date(timestamp * 1000)),
+          },
         });
         const series = chart.addSeries(type === 'Line' ? engine.LineSeries : engine.CandlestickSeries, {
           ...appearance.series,
@@ -1071,7 +1135,7 @@ export function SecondaryChart({
       chartRef.current = null;
       seriesRef.current = null;
     };
-  }, [result.resource, type]);
+  }, [result.resource, type, preferences.timeZone, preferences.language]);
   useEffect(() => {
     const appearance = chartAppearance();
     chartRef.current?.applyOptions(appearance.chart);
@@ -1084,8 +1148,13 @@ export function SecondaryChart({
     >
       <small className="trade-note">
         <CopyText k="secondChart" />
-        {symbol} · {interval} <CopyText k="publishedHistory" />
+        {symbol} · {interval} <CopyText k={derivedDaily ? 'dailyStartUtc8' : 'publishedHistory'} />
       </small>
+      {derivedDaily && <div className="trade-note">
+        <strong><CopyText k="dailyHistorySource" /></strong><br />
+        <CopyText k="dailyHistoryScope" />{' '}<CopyText k="dailyHistoryOrdering" />
+        <button className="trade-daily-refresh" onClick={result.reload}><CopyText k="dailyHistoryRefresh" /></button>
+      </div>}
       {result.resource.status === 'loading' ? (
         <Loading label={<CopyText k={'loadingSecondChartHistory'} />} />
       ) : result.resource.status === 'failed' ? (
@@ -1093,8 +1162,9 @@ export function SecondaryChart({
       ) : !result.resource.data.length ? (
         <EmptyState title={<CopyText k={'noHistoryForTheSecondChart'} />} />
       ) : null}
-      {failure && <p className="trade-refusal" lang="und">{failure}</p>}
-      <div className={`trade-secondary-chart ${workspace ? 'trade-secondary-chart--workspace' : ''}`} ref={host} />
+      {failure && result.resource.status === 'ready' && <p className="trade-refusal" lang="und">{failure}</p>}
+      <div className={`trade-secondary-chart ${workspace ? 'trade-secondary-chart--workspace' : ''}`} ref={host}
+        style={{ visibility: result.resource.status === 'ready' ? undefined : 'hidden' }} />
     </section>
   );
 }

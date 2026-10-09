@@ -2,6 +2,11 @@ import { defineCopy, type CopyCatalog } from '../../shared/i18n';
 
 // Authored UI messages only. API values, identifiers, units and user content stay outside this catalog.
 const messages = {
+  "view.daily.labels.independent": "Time labels change display only. Daily start selects the separate daily-history calculation.",
+  "view.daily.start": "Daily start",
+  "view.daily.start.native": "UTC · service history",
+  "view.daily.start.utc8": "UTC+8 · derived",
+  "view.daily.history.settings": "Applies to 1d charts on this device. UTC+8 uses bounded hourly history with manual refresh. Other intervals keep service history. Account synchronization remains required and unavailable.",
   'accountroutes.business.verification': 'Business verification',
   'accountroutes.verified.company.accounts.are.not.connected': 'Verified company accounts are not connected',
   'accountroutes.view.personal.verification': 'View personal verification ↗',
@@ -184,6 +189,11 @@ const messages = {
   'accountroutes.copy.was.unavailable.select.the.link.above': 'Copy was unavailable; select the link above.',
 } as const;
 const es = {
+  "view.daily.labels.independent": "Las etiquetas horarias solo cambian la visualización. Inicio diario selecciona el cálculo separado del historial diario.",
+  "view.daily.start": "Inicio diario",
+  "view.daily.start.native": "UTC · historial del servicio",
+  "view.daily.start.utc8": "UTC+8 · derivado",
+  "view.daily.history.settings": "Se aplica a gráficos 1d en este dispositivo. UTC+8 usa historial horario limitado con actualización manual. Otros intervalos conservan el historial del servicio. La sincronización de la cuenta sigue siendo necesaria y no está disponible.",
   'accountroutes.business.verification': 'Verificación empresarial',
   'accountroutes.verified.company.accounts.are.not.connected': 'Las cuentas de empresa verificadas no están conectadas',
   'accountroutes.view.personal.verification': 'Ver verificación personal ↗',
@@ -369,6 +379,11 @@ const es = {
 } satisfies Record<keyof typeof messages, string>;
 
 const fr = {
+  "view.daily.labels.independent": "Les horaires changent uniquement l’affichage. Début quotidien sélectionne le calcul distinct de l’historique quotidien.",
+  "view.daily.start": "Début quotidien",
+  "view.daily.start.native": "UTC · historique du service",
+  "view.daily.start.utc8": "UTC+8 · dérivé",
+  "view.daily.history.settings": "S’applique aux graphiques 1d sur cet appareil. UTC+8 utilise un historique horaire limité avec actualisation manuelle. Les autres intervalles gardent l’historique du service. La synchronisation du compte reste nécessaire et indisponible.",
   'accountroutes.business.verification': 'Vérification de l’entreprise',
   'accountroutes.verified.company.accounts.are.not.connected': 'Les comptes d’entreprise vérifiés ne sont pas connectés',
   'accountroutes.view.personal.verification': 'Voir la vérification personnelle ↗',

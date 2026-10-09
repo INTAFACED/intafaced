@@ -677,6 +677,21 @@
   padding: 8px 12px;
   overflow-wrap: anywhere;
 }
+.trade-chart[data-derived-linked] {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.trade-chart[data-derived-linked] > .trade-chart-canvas {
+  flex-shrink: 0;
+}
+.trade-daily-refresh {
+  display: block;
+  margin-top: 8px;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+}
 .trade-refusal {
   color: var(--color-warning);
   font-size: 12px;
