@@ -1,230 +1,318 @@
-import { useState } from 'react';
-import { z } from 'zod';
+import { useEffect, useRef, useState } from 'react';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
-import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
-import { defineCopy } from '../../shared/i18n';
-
-const copy = defineCopy(
-  'account.sessions',
-  {
-    title: 'Signed-in identity sessions',
-    scope:
-      'The identity service returns live session IDs and creation times for this account. Device names, IP addresses and the current seat are not published. Revoking a seat may sign out this browser.',
-    empty: 'No live sessions returned',
-    emptyBody: 'The source returned no live seats in this window.',
-    session: 'Session',
-    created: 'Created',
-    action: 'Action',
-    table: 'Live identity seats',
-    revoke: 'Revoke session {id}',
-    review: 'Revoke session',
-    reviewBody: 'Revoke only the reviewed session for this account? This can end access on its signed-in browser.',
-    confirm: 'Revoke this session',
-    refresh: 'Refresh sessions',
-    window: 'Most recent live sessions: requested limit {limit}. The service has no cursor.',
-    more: 'Expand session window',
-    maximum: 'The maximum window is 200 sessions; older sessions are not represented.',
-    revoked: 'The service revoked the selected session.',
-    unchanged: 'The service did not revoke a live seat. Refresh the source before deciding what to do next.',
-    owner: 'Account',
-    original: 'Reviewed session',
-  } as const,
-  {
-    es: {
-      title: 'Sesiones de identidad activas',
-      scope:
-        'El servicio de identidad devuelve los ID de sesión activos y sus fechas de creación para esta cuenta. No publica nombres de dispositivos, direcciones IP ni la sesión actual. Revocar una sesión puede cerrar la sesión en este navegador.',
-      empty: 'No se devolvieron sesiones activas',
-      emptyBody: 'La fuente no devolvió sesiones activas en este intervalo.',
-      session: 'Sesión',
-      created: 'Creada',
-      action: 'Acción',
-      table: 'Sesiones de identidad activas',
-      revoke: 'Revocar sesión {id}',
-      review: 'Revocar sesión',
-      reviewBody: '¿Revocar solo la sesión revisada de esta cuenta? Puede finalizar el acceso de su navegador.',
-      confirm: 'Revocar esta sesión',
-      refresh: 'Actualizar sesiones',
-      window: 'Sesiones activas más recientes: límite solicitado {limit}. El servicio no tiene cursor.',
-      more: 'Ampliar el intervalo de sesiones',
-      maximum: 'El intervalo máximo es de 200 sesiones; no incluye las más antiguas.',
-      revoked: 'El servicio revocó la sesión seleccionada.',
-      unchanged: 'El servicio no revocó una sesión activa. Actualiza la fuente antes de decidir qué hacer.',
-      owner: 'Cuenta',
-      original: 'Sesión revisada',
-    },
-    fr: {
-      title: 'Sessions d’identité actives',
-      scope:
-        'Le service d’identité renvoie les identifiants des sessions actives et leurs dates de création pour ce compte. Les noms d’appareils, adresses IP et la session actuelle ne sont pas publiés. La révocation peut déconnecter ce navigateur.',
-      empty: 'Aucune session active renvoyée',
-      emptyBody: 'La source n’a renvoyé aucune session active dans cette fenêtre.',
-      session: 'Session',
-      created: 'Créée',
-      action: 'Action',
-      table: 'Sessions d’identité ouvertes',
-      revoke: 'Révoquer la session {id}',
-      review: 'Révoquer la session',
-      reviewBody: 'Révoquer uniquement la session vérifiée de ce compte ? Cela peut terminer l’accès de son navigateur.',
-      confirm: 'Révoquer cette session',
-      refresh: 'Actualiser les sessions',
-      window: 'Sessions actives les plus récentes : limite demandée {limit}. Le service n’a pas de curseur.',
-      more: 'Élargir la fenêtre des sessions',
-      maximum: 'La fenêtre maximale est de 200 sessions ; les plus anciennes ne sont pas représentées.',
-      revoked: 'Le service a révoqué la session sélectionnée.',
-      unchanged: 'Le service n’a pas révoqué de session active. Actualisez la source avant de décider de la suite.',
-      owner: 'Compte',
-      original: 'Session vérifiée',
-    },
-  },
-);
-
-const seat = z.object({ id: z.string().uuid(), createdAt: z.string(), revoked: z.literal(false) });
-/** The source exposes ownership and seat references only, never credentials. */
-export interface PrivateSessionSource {
-  userId: string;
-  sessions: Array<z.infer<typeof seat>>;
-}
-
+import type { ApiClient, ApiResult } from '../../shared/api';
+import { Button, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
+import { identitySessionCopy as copy } from './identity-session-copy';
+import {
+  finishRevoke,
+  readRevoke,
+  revokeResponse,
+  saveRevoke,
+  sessionRevokeKey,
+  sessionsFor,
+  type IdentitySeat,
+  type RevokeMarker,
+  type StoredRevoke,
+} from './identity-session-guards';
+import './identity-session.css';
+export type { PrivateSessionSource } from './identity-session-guards';
+type Review = { owner: string; seat: IdentitySeat; limit: number; client: ApiClient };
+type Response = { original: Review; marker?: RevokeMarker; answer: ApiResult<{ userId: string; sessionId: string; revoked: boolean }> };
+type Problem = 'changed' | 'seatChanged' | 'storage' | 'another' | 'locks';
 export function IdentitySessions() {
   const { api, userId } = useSession();
   const { t, Copy, languageFor, requestedLocale } = copy.useCopy();
   const [limit, setLimit] = useState(50);
-  const { resource, reload } = useResource<PrivateSessionSource>(
+  const { resource, reload } = useResource(
     (signal) =>
-      api.query(
-        'identity',
-        'listSessions',
-        { userId, limit },
-        z
-          .object({ userId: z.string().uuid(), sessions: z.array(seat).max(limit) })
-          .refine((value) => value.userId === userId, 'Session ownership does not match this account'),
-        { signal },
-      ),
+      userId
+        ? api.query('identity', 'listSessions', { userId, limit }, sessionsFor(userId, limit), { signal })
+        : Promise.resolve({ ok: true as const, data: null }),
     `identity-seats:${userId}:${limit}`,
   );
-  const [review, setReview] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-  const [result, setResult] = useState<ApiResult<{ userId: string; sessionId: string; revoked: boolean }> | null>(null);
+  const [review, setReview] = useState<Review | null>(null),
+    [busy, setBusy] = useState(false),
+    [response, setResponse] = useState<Response | null>(null),
+    [problem, setProblem] = useState<Problem | null>(null);
+  const [stored, setStored] = useState<{ owner: string | null; value: StoredRevoke }>(() => ({
+    owner: userId,
+    value: userId ? readRevoke(userId) : { marker: null, failed: false },
+  }));
+  const current = useRef({ userId, api }),
+    originalReview = useRef<Review | null>(null),
+    mounted = useRef(true),
+    running = useRef(false),
+    controller = useRef<AbortController | null>(null);
+  current.current = { userId, api };
+  useEffect(() => {
+    mounted.current = true;
+    const changed = (event: StorageEvent) => {
+      if (userId && (event.key === sessionRevokeKey(userId) || event.key === null)) setStored({ owner: userId, value: readRevoke(userId) });
+    };
+    window.addEventListener('storage', changed);
+    return () => {
+      mounted.current = false;
+      controller.current?.abort();
+      window.removeEventListener('storage', changed);
+    };
+  }, [userId]);
+  const journal = stored.owner === userId ? stored.value : userId ? readRevoke(userId) : { marker: null, failed: false };
+  const blocked = busy || journal.failed || journal.marker !== null;
+  const sameContext = (original: Review) =>
+    mounted.current &&
+    current.current.userId === original.owner &&
+    current.current.api === original.client &&
+    api === original.client &&
+    api.canWrite() &&
+    originalReview.current === original;
+  function updateJournal(owner: string) {
+    if (mounted.current && current.current.userId === owner) setStored({ owner, value: readRevoke(owner) });
+  }
+  function open(seat: IdentitySeat) {
+    if (!userId || blocked || running.current || !api.canWrite()) return;
+    const latest = readRevoke(userId);
+    setStored({ owner: userId, value: latest });
+    if (latest.failed || latest.marker) return;
+    const original = { owner: userId, seat: { ...seat }, limit, client: api };
+    originalReview.current = original;
+    setProblem(null);
+    setResponse(null);
+    setReview(original);
+  }
   async function revoke() {
-    if (!review || !userId || pending) return;
     const original = review;
-    setPending(true);
-    const outcome = await api.mutate(
-      'identity',
-      'revokeSession',
-      { userId, sessionId: original },
-      z
-        .object({ userId: z.string().uuid(), sessionId: z.string().uuid(), revoked: z.boolean() })
-        .refine(
-          (value) => value.userId === userId && value.sessionId === original,
-          'Session outcome does not match the reviewed account and seat',
-        ),
-    );
-    setResult(outcome);
-    setPending(false);
-    if (outcome.ok) {
+    if (!original || blocked || running.current) return;
+    if (!sameContext(original)) {
       setReview(null);
-      reload();
+      setProblem('changed');
+      return;
+    }
+    running.current = true;
+    setBusy(true);
+    setReview(null);
+    setProblem(null);
+    setResponse(null);
+    try {
+      if (!navigator.locks) {
+        if (sameContext(original)) setProblem('locks');
+        return;
+      }
+      await navigator.locks.request('customer-session-revoke:' + original.owner, { ifAvailable: true }, async (lock) => {
+        if (!sameContext(original)) return;
+        if (!lock) {
+          setProblem('another');
+          return;
+        }
+        const latest = readRevoke(original.owner);
+        setStored({ owner: original.owner, value: latest });
+        if (latest.failed || latest.marker) {
+          if (latest.failed) setProblem('storage');
+          return;
+        }
+        const abort = new AbortController();
+        controller.current = abort;
+        const fresh = await api.query(
+          'identity',
+          'listSessions',
+          { userId: original.owner, limit: original.limit },
+          sessionsFor(original.owner, original.limit),
+          { signal: abort.signal },
+        );
+        if (!sameContext(original)) {
+          if (mounted.current && current.current.userId === original.owner) setProblem('changed');
+          return;
+        }
+        if (!fresh.ok) {
+          setResponse({ original, answer: fresh });
+          return;
+        }
+        if (!fresh.data.sessions.some((seat) => seat.id === original.seat.id && seat.createdAt === original.seat.createdAt)) {
+          setProblem('seatChanged');
+          reload();
+          return;
+        }
+        const marker: RevokeMarker = {
+          owner: original.owner,
+          seat: original.seat,
+          requestId: crypto.randomUUID(),
+          createdAt: new Date().toISOString(),
+        };
+        if (!sameContext(original)) return;
+        if (!saveRevoke(marker)) {
+          updateJournal(original.owner);
+          setProblem('storage');
+          return;
+        }
+        updateJournal(original.owner);
+        if (!sameContext(original)) return;
+        const answer = await api.mutate(
+          'identity',
+          'revokeSession',
+          { userId: original.owner, sessionId: original.seat.id },
+          revokeResponse.refine((value) => value.userId === original.owner && value.sessionId === original.seat.id),
+          { signal: abort.signal },
+        );
+        if (!sameContext(original)) return;
+        if (answer.ok || answer.reason !== 'uncertain') {
+          if (!finishRevoke(marker)) setProblem('storage');
+          updateJournal(original.owner);
+        }
+        setResponse({ original, marker, answer });
+        if (answer.ok) reload();
+      });
+    } catch {
+      if (sameContext(original)) {
+        updateJournal(original.owner);
+        setProblem('storage');
+      }
+    } finally {
+      running.current = false;
+      if (mounted.current) setBusy(false);
     }
   }
+  function references(owner: string, seatId: string) {
+    return (
+      <dl className="identity-sessions__context">
+        <div>
+          <dt>
+            <Copy k="owner" />
+          </dt>
+          <dd lang="zxx">{owner}</dd>
+        </div>
+        <div>
+          <dt>
+            <Copy k="original" />
+          </dt>
+          <dd lang="zxx">{seatId}</dd>
+        </div>
+      </dl>
+    );
+  }
+  const result = response?.original.owner === userId ? response : null;
+  const knownGuard =
+    result && result.marker?.requestId === journal.marker?.requestId && (result.answer.ok || result.answer.reason !== 'uncertain');
   return (
-    <section className="stack" aria-label={t('title')} lang={languageFor('title')}>
+    <section className="stack identity-sessions" aria-label={t('title')} lang={languageFor('title')}>
       <h3>
         <Copy k="title" />
       </h3>
       <p className="muted">
         <Copy k="scope" />
       </p>
+      {journal.marker && (
+        <section className="stack identity-sessions__unknown" aria-label={t(knownGuard ? 'guardRetained' : 'unknown')}>
+          <h3>
+            <Copy k={busy ? 'sending' : knownGuard ? 'guardRetained' : 'unknown'} />
+          </h3>
+          <p>
+            <Copy k={knownGuard ? 'guardBody' : 'unknownBody'} />
+          </p>
+          {references(journal.marker.owner, journal.marker.seat.id)}
+          <p className="muted">
+            <Copy k="lookup" />
+          </p>
+          <a className="text-link identity-sessions__support" href="/support">
+            <Copy k="support" />
+          </a>
+        </section>
+      )}
+      {(problem || journal.failed) && (
+        <p role="status" className="notice">
+          <Copy k={journal.failed ? 'storage' : problem!} />
+        </p>
+      )}
       {resource.status === 'loading' ? (
         <Loading />
       ) : resource.status === 'failed' ? (
         <div lang="und">
           <Failure result={resource.failure} retry={reload} />
         </div>
-      ) : resource.data.sessions.length === 0 ? (
+      ) : !resource.data || resource.data.sessions.length === 0 ? (
         <EmptyState title={<Copy k="empty" />}>
           <Copy k="emptyBody" />
         </EmptyState>
       ) : (
-        <DataTable label={t('table')} headers={[<Copy k="session" />, <Copy k="created" />, <Copy k="action" />]}>
-          {resource.data.sessions.map((item) => (
-            <tr key={item.id}>
-              <td className="numeric" lang="zxx">
-                {item.id}
-              </td>
-              <td>
-                <time dateTime={item.createdAt} lang={requestedLocale}>
-                  {new Date(item.createdAt).toLocaleString(requestedLocale)}
+        <ul className="identity-sessions__rows" aria-label={t('table')}>
+          {resource.data.sessions.map((seat) => (
+            <li className="identity-sessions__row" key={seat.id}>
+              <div>
+                <time dateTime={seat.createdAt} lang={requestedLocale}>
+                  {t('createdLabel', { time: new Date(seat.createdAt).toLocaleString(requestedLocale) })}
                 </time>
-              </td>
-              <td>
-                <Button
-                  variant="ghost"
-                  disabled={pending}
-                  aria-label={t('revoke', { id: item.id })}
-                  onClick={() => {
-                    setResult(null);
-                    setReview(item.id);
-                  }}
-                >
-                  <Copy k="review" />
-                </Button>
-              </td>
-            </tr>
+                <span className="identity-sessions__ref" lang="zxx">
+                  {seat.id}
+                </span>
+              </div>
+              <Button variant="secondary" disabled={blocked} aria-label={t('reviewSeat', { id: seat.id })} onClick={() => open(seat)}>
+                <Copy k="reviewAction" />
+              </Button>
+            </li>
           ))}
-        </DataTable>
+        </ul>
       )}
       <p className="muted">
         <Copy k="window" params={{ limit }} />
       </p>
+      {journal.marker && (
+        <p className="muted">
+          <Copy k="readOnly" />
+        </p>
+      )}
       <div className="actions">
-        <Button variant="secondary" onClick={reload}>
+        <Button variant="secondary" disabled={busy} onClick={reload}>
           <Copy k="refresh" />
         </Button>
         {limit < 200 ? (
-          <Button variant="ghost" onClick={() => setLimit((value) => Math.min(200, value + 50))}>
+          <Button variant="ghost" disabled={busy} onClick={() => setLimit((value) => Math.min(200, value + 50))}>
             <Copy k="more" />
           </Button>
         ) : (
           <p className="muted">
-            <Copy k="maximum" />
+            <Copy k="maximumBoundary" />
           </p>
         )}
       </div>
       {result &&
-        (result.ok ? (
-          <p role="status" className="notice">
-            <Copy k={result.data.revoked ? 'revoked' : 'unchanged'} />
-          </p>
+        (result.answer.ok ? (
+          <section className="stack notice" aria-label={t('receipt')}>
+            <h3>
+              <Copy k="receipt" />
+            </h3>
+            <p role="status">
+              <Copy k={result.answer.data.revoked ? 'revoked' : 'unchanged'} />
+            </p>
+            {references(result.original.owner, result.original.seat.id)}
+            {!result.answer.data.revoked && (
+              <p>
+                <Copy k="falseBoundary" />
+              </p>
+            )}
+          </section>
         ) : (
           <div lang="und">
-            <Failure result={result} />
+            <Failure result={result.answer} />
           </div>
         ))}
-      {review && (
-        <Dialog title={<Copy k="review" />} onClose={() => !pending && setReview(null)}>
+      {review && review.owner === userId && (
+        <Dialog
+          title={<Copy k="review" />}
+          onClose={() => {
+            if (!busy) {
+              originalReview.current = null;
+              setReview(null);
+            }
+          }}
+        >
           <div className="stack">
             <p>
               <Copy k="reviewBody" />
             </p>
-            <dl>
-              <dt>
-                <Copy k="owner" />
-              </dt>
-              <dd className="numeric" lang="zxx">
-                {userId}
-              </dd>
-              <dt>
-                <Copy k="original" />
-              </dt>
-              <dd className="numeric" lang="zxx">
-                {review}
-              </dd>
-            </dl>
-            <Button variant="danger" disabled={pending} onClick={() => void revoke()}>
+            <p className="muted">
+              <Copy k="scope" />
+            </p>
+            {references(review.owner, review.seat.id)}
+            <Button variant="danger" disabled={blocked} onClick={() => void revoke()}>
               <Copy k="confirm" />
             </Button>
           </div>
