@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { decimalSchema as money, signedDecimalSchema } from '../../shared/money';
+import { decimalSchema as money, parseAmount, signedDecimalSchema } from '../../shared/money';
 import { spaceSchema } from './client';
 
 export const scheduleSchema = z.object({
@@ -151,7 +151,7 @@ export const bankReads = {
   'loans.health': z.object({
     debtValue: money,
     collateralValue: money,
-    portfolioLtvBps: z.number().int(),
+    portfolioLtvBps: z.number().int().nonnegative().safe(),
     loans: z.array(z.object({ loanId: z.string(), debtValue: money, collateralValue: money, ltvBps: z.number().int() })),
   }),
   'cards.programme': programmeSchema,
@@ -239,3 +239,103 @@ export const bankWrites = {
   }),
 } as const;
 export type BankWrite = keyof typeof bankWrites;
+
+/** Bind only fields that the mounted service returns. No invented ID echo or
+ * browser-calculated maturity, accrued interest or collateral release. */
+export function bankWriteForReview(procedure: BankWrite, input: Record<string, unknown>): z.ZodType<unknown> {
+  const exact = (returned: string | null, sent: unknown) =>
+    returned !== null && typeof sent === 'string' && money.safeParse(sent).success && parseAmount(returned) === parseAmount(sent);
+  return (bankWrites[procedure] as z.ZodType<unknown>).refine((data) => {
+    if (
+      procedure === 'autoInvest.createDca' ||
+      procedure === 'autoInvest.createThresholdSweep' ||
+      procedure === 'autoInvest.createRoundUp' ||
+      procedure === 'autoInvest.pause' ||
+      procedure === 'autoInvest.resume'
+    ) {
+      const row = data as z.infer<typeof ruleSchema>;
+      if (
+        !z.string().uuid().safeParse(row.id).success ||
+        !z.string().datetime({ offset: true }).safeParse(row.createdAt).success ||
+        (row.kind === 'dca' ? !z.string().datetime({ offset: true }).safeParse(row.nextRunAt).success : row.nextRunAt !== null)
+      )
+        return false;
+    }
+    switch (procedure) {
+      case 'earn.deposit':
+      case 'earn.withdraw':
+        return (data as { positionId: string }).positionId === input.positionId;
+      case 'autoInvest.createDca': {
+        const row = data as z.infer<typeof ruleSchema>;
+        return (
+          row.kind === 'dca' &&
+          row.status === 'active' &&
+          row.assetId === input.spendAssetId &&
+          row.buyAssetId === input.buyAssetId &&
+          exact(row.amount, input.amount) &&
+          row.cadence === input.cadence &&
+          row.threshold === null &&
+          row.targetPoolId === null &&
+          row.nextRunAt !== null &&
+          z.string().datetime({ offset: true }).safeParse(row.nextRunAt).success &&
+          typeof input.startsAt === 'string' &&
+          Date.parse(row.nextRunAt) === Date.parse(input.startsAt)
+        );
+      }
+      case 'autoInvest.createThresholdSweep':
+      case 'autoInvest.createRoundUp': {
+        const row = data as z.infer<typeof ruleSchema>,
+          threshold = procedure === 'autoInvest.createThresholdSweep';
+        return (
+          row.kind === (threshold ? 'threshold_sweep' : 'card_roundup') &&
+          row.status === 'active' &&
+          row.assetId === input.assetId &&
+          row.targetPoolId === input.targetPoolId &&
+          (threshold
+            ? exact(row.threshold, input.threshold) && row.amount === null
+            : exact(row.amount, input.granularity) && row.threshold === null) &&
+          row.buyAssetId === null &&
+          row.cadence === null &&
+          row.nextRunAt === null
+        );
+      }
+      case 'autoInvest.pause':
+      case 'autoInvest.resume': {
+        const row = data as z.infer<typeof ruleSchema>;
+        return row.id === input.ruleId && row.status === (procedure === 'autoInvest.pause' ? 'paused' : 'active');
+      }
+      case 'loans.open': {
+        const row = data as z.infer<(typeof bankWrites)['loans.open']>;
+        return (
+          row.loanId === input.loanId &&
+          ['pending', 'active', 'margin_call', 'liquidating', 'repaid', 'liquidated'].includes(row.status) &&
+          Number.isSafeInteger(row.ltvBps) &&
+          row.ltvBps >= 0 &&
+          row.drawLedgerTxId.trim().length > 0
+        );
+      }
+      case 'loans.addCollateral':
+      case 'loans.releaseExcess': {
+        const row = data as z.infer<(typeof bankWrites)['loans.addCollateral']>;
+        return row.ledgerTxId.trim().length > 0 && Number.isSafeInteger(row.sequence) && row.sequence >= 0;
+      }
+      case 'loans.repay': {
+        const row = data as z.infer<(typeof bankWrites)['loans.repay']>,
+          paid = parseAmount(row.interestPaid) + parseAmount(row.principalPaid);
+        return (
+          row.ledgerTxId.trim().length > 0 &&
+          typeof input.amount === 'string' &&
+          paid > 0n &&
+          paid <= parseAmount(input.amount) &&
+          (parseAmount(row.remainingPrincipal) !== 0n || parseAmount(row.remainingInterest) !== 0n || row.closed)
+        );
+      }
+      case 'loans.close': {
+        const row = data as z.infer<(typeof bankWrites)['loans.close']>;
+        return parseAmount(row.released) > 0n ? row.ledgerTxId !== null && row.ledgerTxId.trim().length > 0 : row.ledgerTxId === null;
+      }
+      default:
+        return true;
+    }
+  });
+}

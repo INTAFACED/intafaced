@@ -24,7 +24,7 @@ import {
   type ActionSpec,
 } from './components';
 import { AutoInvestRules } from './repeat-buy';
-import { bankReads, type poolSchema, type positionSchema } from './contracts';
+import { bankReads, bankWrites, type poolSchema, type positionSchema } from './contracts';
 import type { ApiResult } from '../../shared/api';
 import { earnCopy } from './earn-copy';
 import { LoanHealth, currentLoanPreflight, loanActionAllowed, loanStatusNote } from './LoanHealth';
@@ -539,6 +539,12 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
                               procedure: 'earn.withdraw',
 
                               preflight: () => checkPosition(position),
+                              verifyOutcome: (data) => {
+                                const returned = data as z.infer<(typeof bankWrites)['earn.withdraw']>;
+                                return (
+                                  returned.positionId === position.id && parseAmount(returned.principal) === parseAmount(position.principal)
+                                );
+                              },
                               facts: [
                                 [copyText('rooms.position'), position.id],
                                 [copyText('rooms.principal.2'), amount(position.principal, position.assetId)],
@@ -615,6 +621,16 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
                               procedure: 'earn.deposit',
 
                               preflight: () => checkPool(pool),
+                              verifyOutcome: (data, input) => {
+                                const returned = data as z.infer<(typeof bankWrites)['earn.deposit']>;
+                                const fixed = pool.kind === 'fixed' && pool.termDays !== null;
+                                return (
+                                  returned.positionId === input.positionId &&
+                                  (fixed
+                                    ? z.string().datetime({ offset: true }).safeParse(returned.maturesAt).success
+                                    : returned.maturesAt === null)
+                                );
+                              },
                               fields: [positiveMoney(pool.assetId)],
                               facts: [
                                 [copyText('rooms.pool'), pool.name],

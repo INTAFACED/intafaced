@@ -9,7 +9,9 @@ export default defineConfig({
   outputDir: '/tmp/intafaced-loans-browser-results',
   use: { baseURL: 'http://127.0.0.1:3227', headless: true },
   webServer: {
-    command: 'pnpm --filter @intafaced/customer exec vite --host 127.0.0.1 --port 3227',
+    command: process.env.REVIEW_CUSTOMER_ARTIFACT
+      ? 'pnpm --filter @intafaced/customer exec vite preview --host 127.0.0.1 --port 3227 --strictPort --outDir "$REVIEW_CUSTOMER_ARTIFACT"'
+      : 'pnpm --filter @intafaced/customer exec vite --host 127.0.0.1 --port 3227',
     url: 'http://127.0.0.1:3227',
     cwd: new URL('../../..', import.meta.url).pathname,
     reuseExistingServer: false,

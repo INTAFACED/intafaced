@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { z } from 'zod';
 import { Button, Page } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
+import { parseAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { useSession, useApi } from '../session/session';
 import { createMoneyClient } from './client';
@@ -53,6 +54,24 @@ export function AutoInvestRules({ asset, open }: { asset?: string; open: (spec: 
       facts,
       notes: [t(action === 'pause' ? 'pauseNote' : action === 'resume' ? 'pausedNote' : 'cancelNote')],
       input: () => ({ ruleId: rule.id }),
+      verifyOutcome:
+        action === 'cancel'
+          ? undefined
+          : (data) => {
+              const returned = data as z.infer<typeof ruleSchema>;
+              const sameQuantity = (a: string | null, b: string | null) =>
+                a === null || b === null ? a === b : parseAmount(a) === parseAmount(b);
+              return (
+                returned.kind === rule.kind &&
+                returned.assetId === rule.assetId &&
+                returned.buyAssetId === rule.buyAssetId &&
+                returned.targetPoolId === rule.targetPoolId &&
+                returned.cadence === rule.cadence &&
+                returned.createdAt === rule.createdAt &&
+                sameQuantity(returned.amount, rule.amount) &&
+                sameQuantity(returned.threshold, rule.threshold)
+              );
+            },
       unit: rule.assetId,
       preflight: async () => {
         const latest = await api.query('bank', 'autoInvest.list', { limit }, bankReads['autoInvest.list']);

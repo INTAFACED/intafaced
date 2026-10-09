@@ -86,7 +86,16 @@ async function setup(page) {
       procedure = new URL(r.request().url()).pathname.split('/').pop();
     state.writes.push({ procedure, body });
     if (state.uncertain) return r.fulfill({ status: 503, json: { error: 'Unavailable', message: 'Original outcome unavailable.' } });
-    if (procedure === 'autoInvest.createDca') return response(r, { ...rule, ...body, id: ruleId, nextRunAt: body.startsAt });
+    if (procedure === 'autoInvest.createDca')
+      return response(r, {
+        ...rule,
+        assetId: body.spendAssetId,
+        buyAssetId: body.buyAssetId,
+        amount: body.amount,
+        cadence: body.cadence,
+        id: ruleId,
+        nextRunAt: body.startsAt,
+      });
     const found = state.rows.find((x) => x.id === body.ruleId);
     return response(
       r,
@@ -252,14 +261,19 @@ test('invalid asset refuses before private Repeat buy reads', async ({ page }) =
   expect(state.writes).toEqual([]);
 });
 
-test('first run expiring during successful current reads refuses before dispatch', async ({page}) => {
- const state=await setup(page);await signIn(page);await review(page);
- let held;
- await page.route('**/api/v1/account/balance*',route=>{held=route});
- await page.getByRole('button',{name:'Create instruction',exact:true}).click();
- await expect.poll(()=>Boolean(held)).toBe(true);
- await page.clock.setFixedTime(new Date('2027-01-16T09:00:01Z'));
- await held.fulfill({json:{timestamp:1791504000000,datetime:'2026-10-09T00:00:00Z',balances:baseBalances}});
- await expect(page.getByRole('dialog')).toContainText('first run must still be in the future');
- expect(state.writes).toEqual([]);expect(await journal(page)).toEqual([]);
+test('first run expiring during successful current reads refuses before dispatch', async ({ page }) => {
+  const state = await setup(page);
+  await signIn(page);
+  await review(page);
+  let held;
+  await page.route('**/api/v1/account/balance*', (route) => {
+    held = route;
+  });
+  await page.getByRole('button', { name: 'Create instruction', exact: true }).click();
+  await expect.poll(() => Boolean(held)).toBe(true);
+  await page.clock.setFixedTime(new Date('2027-01-16T09:00:01Z'));
+  await held.fulfill({ json: { timestamp: 1791504000000, datetime: '2026-10-09T00:00:00Z', balances: baseBalances } });
+  await expect(page.getByRole('dialog')).toContainText('first run must still be in the future');
+  expect(state.writes).toEqual([]);
+  expect(await journal(page)).toEqual([]);
 });

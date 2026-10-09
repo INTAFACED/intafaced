@@ -209,6 +209,17 @@ test('risk failed, omitted and restored reads never reuse a different loan ratio
   expect(state.writes).toEqual([]);
 });
 
+for (const ratio of [-1, Number.MAX_SAFE_INTEGER + 1]) {
+  test('malformed portfolio ratio ' + ratio + ' is refused instead of rendering a percentage', async ({ page }) => {
+    const state = await setup(page);
+    state.health.portfolioLtvBps = ratio;
+    await signIn(page);
+    await expect(page.locator('.money-risk')).toHaveCount(0);
+    await expect(page.getByText('The service response could not be verified.', { exact: true }).first()).toBeVisible();
+    expect(state.writes).toEqual([]);
+  });
+}
+
 for (const index of [2, 3]) {
   test('mounted service still admits collateral top-up for ' + statuses[index], async ({ page }) => {
     const state = await setup(page);

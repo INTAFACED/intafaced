@@ -1,13 +1,13 @@
 import { t as copyText, Text } from './copy';
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
 import { currentPreferences } from '../../shared/preferences';
 import { useApi, useSession } from '../session/session';
 import { useResource, type Resource } from '../../shared/resource';
-import type { ApiResult } from '../../shared/api';
+import { authoredRefusal, type ApiResult } from '../../shared/api';
 import { Button, Dialog, EmptyState, Failure, Field, Loading } from '../../shared/ui';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
-import { bankReads, bankWrites, type BankRead, type BankWrite } from './contracts';
+import { bankReads, bankWriteForReview, type BankRead, type BankWrite } from './contracts';
 import { createMoneyClient, type Space, type TransferDraft } from './client';
 import { clearPendingOutcome, originalRecordRefs, pendingOutcomes, rememberPendingOutcome } from './pending-outcomes';
 
@@ -119,6 +119,8 @@ export type ActionSpec = {
   validate?: (input: Record<string, unknown>) => string | null;
   /** Fresh read checks inside the Bank write lock, before journaling or POST. */
   preflight?: (input: Record<string, unknown>) => Promise<ApiResult<null>>;
+  /** Match returned fields to the original review where the wire exposes them. */
+  verifyOutcome?: (data: unknown, input: Record<string, unknown>) => boolean;
   transferSpaces?: Space[];
   submit?: string;
   unit?: string;
@@ -266,6 +268,15 @@ export function MutationDialog({
 }) {
   const { api, userId } = useSession();
   const sending = useRef(false);
+  const mounted = useRef(true);
+  const actor = useRef({ api, userId });
+  actor.current = { api, userId };
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const [clearFailure, setClearFailure] = useState(false);
   const [values, setValues] = useState(spec.initial ?? {});
   const [requestId] = useState(() => crypto.randomUUID());
@@ -300,7 +311,10 @@ export function MutationDialog({
     sending.current = true;
     const input = reviewInput ?? spec.input(values, requestId);
     setStage('sending');
+    const stillOwner = () => mounted.current && actor.current.userId === userId;
+    const current = () => stillOwner() && actor.current.api === api && api.canWrite();
     const dispatch = async (): Promise<ApiResult<unknown>> => {
+      if (!current()) return authoredRefusal('aborted', { key: 'accountChanged' });
       if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('components.sign.in.before.sending.a.bank.request') };
       if (pendingOutcomes(userId).length)
         return { ok: false, reason: 'uncertain', message: copyText('components.an.original.bank.request.still.requires.recovery') };
@@ -312,6 +326,7 @@ export function MutationDialog({
           checked = { ok: false, reason: 'error', message: copyText('components.review.check.failed.no.request.sent') };
         }
         if (!checked.ok) return checked;
+        if (!current()) return authoredRefusal('aborted', { key: 'accountChanged' });
         if (pendingOutcomes(userId).length)
           return { ok: false, reason: 'uncertain', message: copyText('components.an.original.bank.request.still.requires.recovery') };
       }
@@ -330,7 +345,12 @@ export function MutationDialog({
       try {
         outcome = spec.transferSpaces
           ? await createMoneyClient(api).transfer(spec.transferSpaces, input as TransferDraft)
-          : await api.mutate('bank', spec.procedure, input, bankWrites[spec.procedure] as ZodType<unknown>);
+          : await api.mutate(
+              'bank',
+              spec.procedure,
+              input,
+              bankWriteForReview(spec.procedure, input).refine((data) => spec.verifyOutcome?.(data, input) ?? true),
+            );
       } catch {
         outcome = { ok: false, reason: 'uncertain', message: copyText('components.the.original.bank.outcome.could.not.be') };
       }
@@ -341,7 +361,7 @@ export function MutationDialog({
         try {
           clearPendingOutcome(userId, requestId);
         } catch {
-          setClearFailure(true);
+          if (stillOwner()) setClearFailure(true);
         }
       } else if (!outcome.ok && outcome.reason !== 'uncertain') {
         outcome = {
@@ -350,7 +370,7 @@ export function MutationDialog({
           message: outcome.message + copyText('components.the.original.request.remains.guarded.until.its'),
         };
       }
-      onPendingChange();
+      if (stillOwner()) onPendingChange();
       return outcome;
     };
     const outcome = navigator.locks
@@ -369,6 +389,7 @@ export function MutationDialog({
           message: copyText('components.this.browser.cannot.coordinate.bank.requests.across'),
         };
     sending.current = false;
+    if (!stillOwner()) return;
     setResult(outcome);
     setStage('outcome');
     if (outcome.ok) onDone();

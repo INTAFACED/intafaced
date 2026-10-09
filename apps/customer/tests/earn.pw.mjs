@@ -11,7 +11,7 @@ const pool = { id: poolId, assetId: 'USDC', kind: 'flexible', name: 'USDC flexib
 const position = { id: positionId, poolId, assetId: 'USDC', principal: '0.000000000000000001', maturesAt: null };
 const reply = (r, data) => r.fulfill({ json: { result: { data } } }),
   failed = (r) => r.fulfill({ status: 503, json: { error: 'Unavailable', message: 'Current read failed.' } });
-async function setup(page) {
+async function setup(page, options = {}) {
   const state = {
     pools: [pool],
     positions: [
@@ -24,13 +24,25 @@ async function setup(page) {
     poolFail: false,
     policyEnabled: true,
     uncertain: false,
+    withdrawResponse: null,
+    positionGate: null,
+    positionReads: 0,
+    poolUnauthorized: false,
   };
   await page.route('**/api/**', failed);
   await page.route('**/api/identity/trpc/auth.login', (r) => reply(r, session));
   await page.route('**/api/identity/trpc/webauthn.list?*', (r) => reply(r, []));
   await page.route('**/api/v1/markets*', (r) => r.fulfill({ json: [] }));
-  await page.route('**/api/bank/trpc/earn.pools?*', (r) => (state.poolFail ? failed(r) : reply(r, state.pools)));
-  await page.route('**/api/bank/trpc/earn.positions?*', (r) => (state.positionFail ? failed(r) : reply(r, state.positions)));
+  await page.route('**/api/bank/trpc/earn.pools?*', async (r) => {
+    if (options.poolGate) await options.poolGate;
+    if (state.poolUnauthorized) return r.fulfill({ status: 401, json: { error: 'unauthorized' } });
+    return state.poolFail ? failed(r) : reply(r, state.pools);
+  });
+  await page.route('**/api/bank/trpc/earn.positions?*', async (r) => {
+    state.positionReads++;
+    if (state.positionGate) await state.positionGate;
+    return state.positionFail ? failed(r) : reply(r, state.positions);
+  });
   await page.route('**/api/bank/trpc/autoInvest.list?*', (r) => reply(r, []));
   await page.route('**/api/bank/trpc/autoInvest.policy', (r) =>
     reply(r, { enabled: state.policyEnabled, convertWired: false, dcaRequiresConvert: true, inventsRates: false }),
@@ -41,7 +53,7 @@ async function setup(page) {
       proc = new URL(r.request().url()).pathname.split('/').pop();
     state.writes.push({ proc, body });
     if (state.uncertain) return r.fulfill({ status: 503, json: { error: 'Unavailable', message: 'Original outcome unavailable.' } });
-    if (proc === 'earn.withdraw') return reply(r, { positionId: body.positionId, principal: position.principal });
+    if (proc === 'earn.withdraw') return reply(r, state.withdrawResponse || { positionId: body.positionId, principal: position.principal });
     if (proc === 'earn.deposit') return reply(r, { positionId: body.positionId, maturesAt: null });
     return reply(r, {
       id: positionId,
@@ -67,6 +79,43 @@ async function setup(page) {
 async function journal(page) {
   return JSON.parse((await page.evaluate((id) => localStorage.getItem('intafaced.customer.bank-unconfirmed.v1:' + id), userId)) || '[]');
 }
+for (const mismatch of ['position', 'principal'])
+  test('withdrawal ' + mismatch + ' mismatch preserves the original unknown journal', async ({ page }) => {
+    const state = await setup(page);
+    state.withdrawResponse = {
+      positionId: mismatch === 'position' ? poolId : positionId,
+      principal: mismatch === 'principal' ? '999' : position.principal,
+    };
+    await page.getByRole('button', { name: 'Review withdrawal', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(page.getByRole('dialog')).toContainText('This request may have completed');
+    await expect(page.getByRole('dialog')).not.toContainText('Confirmed by the service');
+    const pending = await journal(page);
+    expect(pending).toHaveLength(1);
+    expect(pending[0].recordRefs.positionId).toBe(positionId);
+    expect(state.writes).toHaveLength(1);
+  });
+test('session loss during delayed withdrawal preflight creates no old-owner journal or POST', async ({ page }) => {
+  let releasePool, releasePosition;
+  const poolGate = new Promise((resolve) => {
+    releasePool = resolve;
+  });
+  const positionGate = new Promise((resolve) => {
+    releasePosition = resolve;
+  });
+  const state = await setup(page, { poolGate });
+  await page.getByRole('button', { name: 'Review withdrawal', exact: true }).click();
+  state.positionGate = positionGate;
+  const before = state.positionReads;
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect.poll(() => state.positionReads).toBeGreaterThan(before);
+  state.poolUnauthorized = true;
+  releasePool();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  releasePosition();
+  await expect.poll(async () => (await journal(page)).length).toBe(0);
+  expect(state.writes).toEqual([]);
+});
 test('Earn puts owned principal first and suppresses known locked or unknown maturity withdrawals at four widths', async ({ page }) => {
   const state = await setup(page),
     errors = [];
