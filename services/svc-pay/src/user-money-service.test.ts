@@ -6,10 +6,12 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
 import {
   MemoryLedger,
+  add,
   formatAmount,
   parseAmount as amt,
   railBoundary,
   recipes,
+  sub,
   userAvailable,
   withdrawalHoldAccount,
 } from '@intafaced/ledger-client';
@@ -959,6 +961,32 @@ describe('svc-pay user money PG-hard', () => {
       expect(rejected).toHaveLength(1);
       expect(rejected[0]!.reason).toMatchObject({ code: 'pay.withdrawal_conflict' });
       expect(await sql`SELECT id FROM pay.withdrawals`).toHaveLength(1);
+
+      // One row is not one booking. The loser must not post a second hold or
+      // settle, and the winner's book must be the amount that survived on the row.
+      const record = (await money.listWithdrawals(USER, 50))[0]!;
+      const booked = record.amount;
+      const forty = amt('40');
+      const fifty = amt('50');
+      expect(booked === forty || booked === fifty).toBe(true);
+      const other = booked === forty ? fifty : forty;
+      const attempt = `${record.id}:${record.attempts}`;
+
+      const available = await availableOf();
+      const boundary = await boundaryOf();
+      expect(available).toBe(formatAmount(sub(amt('100'), booked)));
+      expect(boundary).toBe(formatAmount(add(amt('-100'), booked)));
+      expect(available).not.toBe(formatAmount(sub(amt('100'), other)));
+      expect(boundary).not.toBe(formatAmount(add(amt('-100'), other)));
+      expect(available).not.toBe(formatAmount(sub(amt('100'), add(forty, fifty))));
+      expect(boundary).not.toBe(formatAmount(add(amt('-100'), add(forty, fifty))));
+      expect(await holdOf(record.id, record.attempts)).toBe('0');
+
+      const withdrawTxs = ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('withdraw.'));
+      expect(withdrawTxs.map((tx) => tx.idempotencyKey)).toEqual([`withdraw.hold:${attempt}`, `withdraw.settle:${attempt}`]);
+      expect(withdrawTxs.every((tx) => tx.entries.every((entry) => entry.amount === booked))).toBe(true);
+      expect(await ledger.getTxByKey(`withdraw.settle:${attempt}`)).not.toBeNull();
+      expect(await ledger.getTxByKey(`withdraw.settle:${record.id}:${record.attempts + 1}`)).toBeNull();
     });
 
     it('keeps two DIFFERENT client references independent under concurrency', async () => {
