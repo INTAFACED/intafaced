@@ -28,6 +28,29 @@ try {
   /* Device storage is optional. */
 }
 const listeners = new Set<() => void>();
+function notifyChanges() {
+  for (const notify of [...listeners]) notify();
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key !== key && event.key !== null) return;
+    let next: Preferences;
+    try {
+      if (event.storageArea !== localStorage) return;
+      // Read the current value: a queued event may describe an older write.
+      const saved = localStorage.getItem(key);
+      const parsed = schema.safeParse(saved === null ? {} : JSON.parse(saved));
+      if (!parsed.success) return;
+      next = parsed.data;
+    } catch {
+      // Retain the last valid display preferences when storage is unreadable.
+      return;
+    }
+    if (JSON.stringify(next) === JSON.stringify(snapshot)) return;
+    snapshot = next;
+    notifyChanges();
+  });
+}
 export function savePreferences(patch: Partial<Preferences>) {
   snapshot = schema.parse({ ...snapshot, ...patch });
   try {
@@ -35,7 +58,7 @@ export function savePreferences(patch: Partial<Preferences>) {
   } catch {
     /* Changes still work for this visit. */
   }
-  for (const notify of listeners) notify();
+  notifyChanges();
 }
 export function usePreferences() {
   return useSyncExternalStore(

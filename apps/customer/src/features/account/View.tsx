@@ -18,9 +18,9 @@ export function ApplyView() {
 }
 export function View() {
   const preferences = usePreferences();
-  const [note, setNote] = useState('');
+  const [savedOnDevice, setSavedOnDevice] = useState(false);
   function saved() {
-    setNote(copyText('view.preferences.saved.on.this.device'));
+    setSavedOnDevice(true);
   }
   return (
     <div lang={preferences.language} style={{ display: 'contents' }}>
@@ -273,7 +273,7 @@ export function View() {
             <Text k="view.restore.defaults" />
           </Button>
           <p role="status" className="muted">
-            {note}
+            {savedOnDevice && <Text k="view.preferences.saved.on.this.device" />}
           </p>
         </div>
       </Page>

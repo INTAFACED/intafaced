@@ -1,6 +1,52 @@
 import { randomBytes } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
++
+test('native View changes reach another open tab and malformed device settings preserve the last valid view', async ({ page, context }) => {
+  const other = await context.newPage();
+  await setup(page);
+  await setup(other);
+  await signIn(page, '/view');
+  await signIn(other, '/view');
+  const language = (p) => p.locator('select').filter({ has: p.locator('option[value="es"]') });
+  const theme = (p) => p.locator('select').filter({ has: p.locator('option[value="light"]') });
+  const origin = await page.evaluate(() => performance.timeOrigin);
+  await theme(page).selectOption('light');
+  await expect(page.getByText('Preferences saved on this device.', { exact: true })).toBeVisible();
+  await language(other).selectOption('es');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'es');
+  await expect(language(page)).toHaveValue('es');
+  await expect(theme(other)).toHaveValue('light');
+  await expect(page.getByText('Preferencias guardadas en este dispositivo.', { exact: true })).toBeVisible();
+  await other.getByRole('checkbox', { name: 'Ocultar los saldos', exact: true }).check();
+  await expect(page.getByRole('checkbox', { name: 'Ocultar los saldos', exact: true })).toBeChecked();
+  await language(other).selectOption('fr');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'fr');
+  await expect(language(page)).toHaveValue('fr');
+  await expect(page.getByText('Préférences enregistrées sur cet appareil.', { exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    window.__viewRegressionEvents = 0;
+    addEventListener('storage', (event) => {
+      if (event.key === 'intafaced.customer.view.v1') window.__viewRegressionEvents++;
+    });
+  });
+  for (const [index, value] of ['{broken', '{"language":"unsupported","hideBalances":false}'].entries()) {
+    await other.evaluate((value) => localStorage.setItem('intafaced.customer.view.v1', value), value);
+    await expect.poll(() => page.evaluate(() => window.__viewRegressionEvents)).toBe(index + 1);
+    await expect(page.locator('html')).toHaveAttribute('lang', 'fr');
+    await expect(page.getByRole('checkbox', { name: 'Masquer les soldes', exact: true })).toBeChecked();
+  }
+  await theme(other).selectOption('dark');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(language(page)).toHaveValue('fr');
+  await other.evaluate(() => localStorage.removeItem('intafaced.customer.view.v1'));
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(language(page)).toHaveValue('en');
+  await expect(page.getByRole('checkbox', { name: 'Hide balance values', exact: true })).not.toBeChecked();
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
+  await other.close();
+});
+
 
 // Isolated identity/network examples exercise the real App and sign-in form.
 // No production sample mode, financial browser dataset, or fixture screenshots.
