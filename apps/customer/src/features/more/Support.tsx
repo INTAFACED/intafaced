@@ -6,6 +6,8 @@ import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, Select, TextArea, useAction } from './common';
+import { SupportEvents } from './SupportEvents';
+import { supportEventsCopy } from './support-events-copy';
 const ticketSchema = z.object({
   id: z.string().uuid(),
   userId: z.string().uuid(),
@@ -132,7 +134,7 @@ export function Support() {
             )}
           </Read>
         </Panel>
-        {selected && <Conversation id={selected} action={action} comment={comment} setComment={setComment} />}
+        {selected && <Conversation key={selected} id={selected} action={action} comment={comment} setComment={setComment} />}
       </div>
       <Panel title={copyText('support.contact.support')}>
         <p className="muted">
@@ -240,6 +242,21 @@ function Conversation({
     );
   return (
     <Panel title={copyText('support.conversation')}>
+      <div className="support-ticket-context">
+        <p className="support-ticket-reference">
+          <supportEventsCopy.Copy k="originalRequest" />
+          <span>{id}</span>
+        </p>
+        <Button
+          variant="secondary"
+          onClick={() => {
+            detail.reload();
+            comments.reload();
+          }}
+        >
+          <supportEventsCopy.Copy k="refreshRequest" />
+        </Button>
+      </div>
       <Read resource={detail.resource} retry={detail.reload}>
         {(ticket) => (
           <>
@@ -265,22 +282,32 @@ function Conversation({
                 </>
               )}
             </Read>
+            <SupportEvents ticketId={ticket.id} ticketUpdatedAt={ticket.updatedAt} />
             <TextArea label={copyText('support.reply')} value={comment} onChange={setComment} />
             <Button
               disabled={action.disabled || !comment.trim() || ['closed', 'resolved'].includes(ticket.status)}
               onClick={() =>
                 action.stage({
                   title: copyText('support.review.reply'),
+                  reference: id,
                   confirm: copyText('support.send.reply'),
                   success: copyText('support.reply.posted'),
-                  content: <p>{comment}</p>,
+                  content: (
+                    <Details
+                      items={[
+                        [supportEventsCopy.t('originalRequest'), id],
+                        [copyText('support.subject'), ticket.subject],
+                        [copyText('support.reply'), comment],
+                      ]}
+                    />
+                  ),
                   run: () =>
                     api.mutate(
                       'support',
                       'comment',
                       { ticketId: id, body: comment.trim() },
                       commentSchema.refine(
-                        (row) => row.ticketId === id && row.authorId === userId && row.authorRole === 'user',
+                        (row) => row.ticketId === id && row.authorId === userId && row.authorRole === 'user' && row.body === comment.trim(),
                         copyText('support.posted.comment.does.not.match.this.account'),
                       ),
                     ),
