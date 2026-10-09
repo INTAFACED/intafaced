@@ -822,7 +822,7 @@ const messages = {
   'common.this.action.has.no.universal.recovery.lookup':
     'This action has no universal recovery lookup. Keep its records and contact Support before sending another request.',
   'common.acting.as.account': 'Acting as account ',
-  'common.the.service.enforces.your.scope.and.jurisdiction': '. The service enforces your scope and jurisdiction.',
+  'common.the.service.enforces.your.scope.and.jurisdiction': '. The service applies its access and jurisdiction rules.',
   'common.back': 'Back',
   'academy.authoritative.identity.rank.perks.returned.academy.holds':
     'Authoritative identity-rank perks returned; Academy holds no perk money',
@@ -1785,7 +1785,7 @@ const es = {
   'common.this.action.has.no.universal.recovery.lookup':
     'Esta acción no tiene una consulta universal de recuperación. Conserva sus registros y contacta con Support antes de enviar otra solicitud.',
   'common.acting.as.account': 'Actuando como cuenta ',
-  'common.the.service.enforces.your.scope.and.jurisdiction': '. El servicio aplica tu ámbito de permisos y jurisdicción.',
+  'common.the.service.enforces.your.scope.and.jurisdiction': '. El servicio aplica sus reglas de acceso y jurisdicción.',
   'common.back': 'Volver',
   'academy.authoritative.identity.rank.perks.returned.academy.holds':
     'Ventajas oficiales del rango de identidad recibidas; Academy no conserva dinero de ventajas',
@@ -2753,7 +2753,7 @@ const fr = {
   'common.this.action.has.no.universal.recovery.lookup':
     'Cette action ne dispose d’aucune consultation universelle de récupération. Conserve ses enregistrements et contacte Support avant d’envoyer une autre demande.',
   'common.acting.as.account': 'Action au nom du compte ',
-  'common.the.service.enforces.your.scope.and.jurisdiction': '. Le service applique ton périmètre d’autorisations et ta juridiction.',
+  'common.the.service.enforces.your.scope.and.jurisdiction': '. Le service applique ses règles d’accès et de juridiction.',
   'common.back': 'Retour',
   'academy.authoritative.identity.rank.perks.returned.academy.holds':
     'Avantages du rang d’identité faisant autorité reçus ; Academy ne détient aucun fonds lié aux avantages',

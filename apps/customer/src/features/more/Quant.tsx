@@ -123,9 +123,9 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
               {(c) => (
                 <p className="muted">
                   <Text k="quant.isolate" />
-                  {c.isolate}
+                  <span lang="zxx">{c.isolate}</span>
                   <Text k="quant.trade.only.vault" />
-                  {c.venueVault}.{c.refuse && ` ${c.refuse}.`}
+                  <span lang="zxx">{c.venueVault}</span>.{c.refuse && <span lang="zxx"> {c.refuse}.</span>}
                 </p>
               )}
             </Read>
@@ -133,13 +133,13 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
               onSubmit={(e) => {
                 e.preventDefault();
                 action.stage({
-                  title: copyText('quant.review.simulated.run'),
-                  confirm: copyText('quant.run.simulation'),
-                  success: copyText('quant.simulation.received'),
-                  content: (
+                  title: () => copyText('quant.review.simulated.run'),
+                  confirm: () => copyText('quant.run.simulation'),
+                  success: () => copyText('quant.simulation.received'),
+                  content: () => (
                     <Details
                       items={[
-                        [copyText('quant.language'), language],
+                        [copyText('quant.language'), <span lang="zxx">{language}</span>],
                         [copyText('quant.starting.cash'), copyText('quant.simulated.units', { amount: cash })],
                         [copyText('quant.environment'), copyText('quant.paper.never.live.performance')],
                       ]}
@@ -150,7 +150,14 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                       'quant',
                       'sandbox.run',
                       { language, source, cash, environment: 'paper', presentedAs: 'paper' },
-                      runSchema,
+                      runSchema.refine(
+                        (data) =>
+                          data.language === language &&
+                          data.environment === 'paper' &&
+                          data.kind === 'paper' &&
+                          data.claimLabel === 'Paper — not live performance',
+                        'The simulation result does not match the reviewed language and environment',
+                      ),
                     );
                     if (res.ok && action.isCurrent()) setResult(res.data);
                     return res;
@@ -192,25 +199,27 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
           <Panel title={copyText('quant.simulation.result')}>
             {result ? (
               <>
-                <p>{result.claimLabel}</p>
+                <p lang="und">{result.claimLabel}</p>
                 <Details
                   items={[
                     [copyText('quant.cash'), copyText('quant.simulated.units', { amount: displayAmount(result.cash) })],
                     [copyText('quant.p.l'), copyText('quant.simulated.units', { amount: displayAmount(result.pnl) })],
-                    [copyText('quant.venue'), result.venue],
+                    [copyText('quant.venue'), <span lang="zxx">{result.venue}</span>],
                   ]}
                 />
-                <pre className="more-body">{result.logs.join('\n')}</pre>
+                <pre className="more-body" lang="und">
+                  {result.logs.join('\n')}
+                </pre>
                 <DataTable
                   headers={[copyText('quant.side'), copyText('quant.symbol'), copyText('quant.quantity'), copyText('quant.price')]}
                   label={copyText('quant.simulated.fills')}
                 >
                   {result.fills.map((f, i) => (
                     <tr key={i}>
-                      <td>{f.side}</td>
-                      <td>{f.symbol}</td>
-                      <td>{f.qty}</td>
-                      <td>{f.price}</td>
+                      <td lang="zxx">{f.side}</td>
+                      <td lang="zxx">{f.symbol}</td>
+                      <td lang="zxx">{f.qty}</td>
+                      <td lang="zxx">{f.price}</td>
                     </tr>
                   ))}
                 </DataTable>
@@ -221,8 +230,8 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                   >
                     {result.positions.map((p) => (
                       <tr key={p.symbol}>
-                        <td>{p.symbol}</td>
-                        <td>{p.qty}</td>
+                        <td lang="zxx">{p.symbol}</td>
+                        <td lang="zxx">{p.qty}</td>
                       </tr>
                     ))}
                   </DataTable>
@@ -242,14 +251,17 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
               onSubmit={(e) => {
                 e.preventDefault();
                 action.stage({
-                  title: copyText('quant.review.strategy'),
-                  confirm: copyText('quant.save.strategy'),
-                  success: copyText('quant.strategy.saved.in.the.deployment.catalogue'),
-                  content: (
+                  title: () => copyText('quant.review.strategy'),
+                  confirm: () => copyText('quant.save.strategy'),
+                  success: () => copyText('quant.strategy.saved.in.the.deployment.catalogue'),
+                  content: () => (
                     <Details
                       items={[
-                        [copyText('quant.name'), name],
-                        [copyText('quant.blocks'), blocks.map((b) => `${b.side} ${b.qty} ${b.symbol}`).join('\n')],
+                        [copyText('quant.name'), <span lang="und">{name}</span>],
+                        [
+                          copyText('quant.blocks'),
+                          <span lang="zxx">{blocks.map((b) => `${b.side} ${b.qty} ${b.symbol}`).join('\n')}</span>,
+                        ],
                         [copyText('quant.simulation.cash'), cash],
                         [copyText('quant.max.drawdown'), drawdown],
                         [copyText('quant.max.notional'), notional],
@@ -269,7 +281,25 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                         environment: 'paper',
                         presentedAs: 'paper',
                       },
-                      strategy,
+                      strategy.refine(
+                        (data) =>
+                          data.environment === 'paper' &&
+                          data.kind === 'paper' &&
+                          data.claimLabel === 'Paper — not live performance' &&
+                          data.name === name.trim() &&
+                          parseAmount(data.cash) === parseAmount(cash) &&
+                          data.blocks.length === blocks.length &&
+                          data.blocks.every(
+                            (block, index) =>
+                              block.side === blocks[index]!.side &&
+                              block.symbol === blocks[index]!.symbol.trim() &&
+                              parseAmount(block.qty) === parseAmount(blocks[index]!.qty),
+                          ) &&
+                          parseAmount(data.risk.maxDrawdown) === parseAmount(drawdown) &&
+                          parseAmount(data.risk.maxNotional) === parseAmount(notional) &&
+                          parseAmount(data.risk.kill) === parseAmount(kill),
+                        'The saved strategy does not match the reviewed simulation inputs',
+                      ),
                     ),
                   done: saved.reload,
                 });
@@ -361,18 +391,24 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
+                  const requestedWindow = {
+                    inSampleFrom: new Date(isFrom).toISOString(),
+                    inSampleTo: new Date(isTo).toISOString(),
+                    outOfSampleFrom: new Date(oosFrom).toISOString(),
+                    outOfSampleTo: new Date(oosTo).toISOString(),
+                  };
                   action.stage({
-                    title: copyText('quant.review.historical.simulation'),
-                    confirm: copyText('quant.run.backtest'),
-                    success: copyText('quant.historical.simulation.received'),
-                    content: (
+                    title: () => copyText('quant.review.historical.simulation'),
+                    confirm: () => copyText('quant.run.backtest'),
+                    success: () => copyText('quant.historical.simulation.received'),
+                    content: () => (
                       <Details
                         items={[
-                          [copyText('quant.strategy'), strategyId],
-                          [copyText('quant.symbol'), symbol],
-                          [copyText('quant.in.sample'), `${isFrom} → ${isTo}`],
-                          [copyText('quant.out.of.sample'), `${oosFrom} → ${oosTo}`],
-                          [copyText('quant.evidence.verdict'), verdict],
+                          [copyText('quant.strategy'), <span lang="zxx">{strategyId}</span>],
+                          [copyText('quant.symbol'), <span lang="zxx">{symbol}</span>],
+                          [copyText('quant.in.sample'), <span lang="zxx">{`${isFrom} → ${isTo}`}</span>],
+                          [copyText('quant.out.of.sample'), <span lang="zxx">{`${oosFrom} → ${oosTo}`}</span>],
+                          [copyText('quant.evidence.verdict'), <span lang="zxx">{verdict}</span>],
                           [copyText('quant.variants.tested'), variants],
                         ]}
                       />
@@ -384,12 +420,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                         {
                           strategyId,
                           symbol,
-                          walkForward: {
-                            inSampleFrom: new Date(isFrom).toISOString(),
-                            inSampleTo: new Date(isTo).toISOString(),
-                            outOfSampleFrom: new Date(oosFrom).toISOString(),
-                            outOfSampleTo: new Date(oosTo).toISOString(),
-                          },
+                          walkForward: requestedWindow,
                           outOfSampleStatus: verdict,
                           costModel: {
                             fees: { kind: models.fees, source: evidence.fees },
@@ -400,7 +431,16 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                           environment: 'backtest',
                           presentedAs: 'simulated',
                         },
-                        backtestSchema,
+                        backtestSchema.refine(
+                          (data) =>
+                            data.environment === 'backtest' &&
+                            data.kind === 'simulated' &&
+                            data.strategyId === strategyId &&
+                            Object.entries(requestedWindow).every(
+                              ([field, value]) => data.walkForward[field as keyof typeof requestedWindow] === value,
+                            ),
+                          'The historical result does not match the reviewed strategy and walk-forward windows',
+                        ),
                       );
                       if (res.ok && action.isCurrent()) setBt(res.data);
                       return res;
@@ -411,13 +451,13 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 <Field label={copyText('quant.strategy.id')} value={strategyId} onChange={(e) => setStrategyId(e.target.value)} />
                 <Field label={copyText('quant.historical.symbol')} value={symbol} onChange={(e) => setSymbol(e.target.value)} />
                 {[
-                  [copyText('quant.in.sample.start'), isFrom, setIsFrom],
-                  [copyText('quant.in.sample.end'), isTo, setIsTo],
-                  [copyText('quant.out.of.sample.start'), oosFrom, setOosFrom],
-                  [copyText('quant.out.of.sample.end'), oosTo, setOosTo],
-                ].map(([label, value, set]) => (
+                  ['inSampleFrom', copyText('quant.in.sample.start'), isFrom, setIsFrom],
+                  ['inSampleTo', copyText('quant.in.sample.end'), isTo, setIsTo],
+                  ['outOfSampleFrom', copyText('quant.out.of.sample.start'), oosFrom, setOosFrom],
+                  ['outOfSampleTo', copyText('quant.out.of.sample.end'), oosTo, setOosTo],
+                ].map(([field, label, value, set]) => (
                   <Field
-                    key={label as string}
+                    key={field as string}
                     label={label as string}
                     type="datetime-local"
                     value={value as string}
@@ -487,11 +527,11 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
           <Panel title={copyText('quant.historical.result')}>
             {bt ? (
               <>
-                <p>{bt.claimLabel}</p>
-                <p>{bt.outOfSampleLabel}</p>
+                <p lang="und">{bt.claimLabel}</p>
+                <p lang="und">{bt.outOfSampleLabel}</p>
                 <Details
                   items={[
-                    [copyText('quant.run'), bt.runId],
+                    [copyText('quant.run'), <span lang="zxx">{bt.runId}</span>],
                     [copyText('quant.in.sample.fills'), bt.inSample.fillCount],
                     [copyText('quant.in.sample.notional'), copyText('quant.historical.quote.units', { amount: bt.inSample.notional })],
                     [copyText('quant.out.of.sample.fills'), bt.outOfSample.fillCount],
@@ -537,14 +577,16 @@ function Saved({
             <div className="more-grid">
               {data.strategies.map((s) => (
                 <article key={s.id}>
-                  <h3>{s.name}</h3>
+                  <h3 lang="und">{s.name}</h3>
                   <small>
-                    {s.claimLabel} · {s.id}
+                    <span lang="und">{s.claimLabel}</span> · <span lang="zxx">{s.id}</span>
                   </small>
-                  <pre className="more-body">{s.source}</pre>
+                  <pre className="more-body" lang="und">
+                    {s.source}
+                  </pre>
                   <Button variant="secondary" onClick={() => onPick(s)}>
                     <Text k="quant.use" />
-                    {s.name}
+                    <span lang="und">{s.name}</span>
                   </Button>
                 </article>
               ))}

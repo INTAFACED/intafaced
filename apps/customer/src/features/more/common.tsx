@@ -1,9 +1,10 @@
-import { t as copyText, Text } from './copy';
+import { copy, t as copyText, Text } from './copy';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
 import { useSession } from '../session/session';
+import { usePreferences } from '../../shared/preferences';
 
 export function Read<T>({
   resource,
@@ -17,7 +18,12 @@ export function Read<T>({
   children: (data: T) => ReactNode;
 }) {
   if (resource.status === 'loading') return <Loading />;
-  if (resource.status === 'failed') return <Failure result={resource.failure} retry={retry} />;
+  if (resource.status === 'failed')
+    return (
+      <div lang="und" style={{ display: 'contents' }}>
+        <Failure result={resource.failure} retry={retry} />
+      </div>
+    );
   if (empty && (resource.data === null || (Array.isArray(resource.data) && resource.data.length === 0)))
     return <EmptyState title={empty} />;
   return <>{children(resource.data)}</>;
@@ -101,6 +107,24 @@ export function Details({ items }: { items: readonly [string, ReactNode][] }) {
   );
 }
 type Pending = { id: string; title: string; reference?: string };
+// Presentation may follow View while the staged operation and journal stay fixed.
+type Presented<T> = T | (() => T);
+function present<T>(value: Presented<T>): T {
+  return typeof value === 'function' ? (value as () => T)() : value;
+}
+type LocalFailureKey =
+  | 'common.the.account.or.pending.request.changed.review'
+  | 'common.recovery.storage.is.unavailable.no.action.was'
+  | 'common.the.connection.ended.before.the.service.confirmed'
+  | 'common.this.account.has.an.action.running.in'
+  | 'common.this.browser.has.no.cross.tab.mutation'
+  | 'common.the.original.outcome.lookup.could.not.be';
+const localFailures = new WeakMap<object, LocalFailureKey>();
+function localRefusal(reason: Extract<ApiResult<unknown>, { ok: false }>['reason'], key: LocalFailureKey) {
+  const result = { ok: false as const, reason, message: copyText(key) };
+  localFailures.set(result, key);
+  return result;
+}
 function pendingAt(key: string): Pending | null {
   let raw: string | null;
   try {
@@ -118,6 +142,7 @@ function pendingAt(key: string): Pending | null {
 
 export function useAction(room: string, recovery?: { recover: (reference: string) => Promise<ApiResult<unknown>>; done?: () => void }) {
   const { userId } = useSession();
+  const { language } = usePreferences();
   const actor = useRef(userId);
   const mounted = useRef(true);
   useEffect(() => {
@@ -129,7 +154,7 @@ export function useAction(room: string, recovery?: { recover: (reference: string
   actor.current = userId;
   const key = `intafaced:more:pending:${userId ?? 'anonymous'}:${room}`,
     running = useRef(new Set<string>());
-  const [state, setState] = useState<{ key: string; busy: boolean; result: ApiResult<unknown> | null; success: string }>({
+  const [state, setState] = useState<{ key: string; busy: boolean; result: ApiResult<unknown> | null; success: Presented<string> }>({
     key,
     busy: false,
     result: null,
@@ -137,13 +162,14 @@ export function useAction(room: string, recovery?: { recover: (reference: string
   });
   const [review, setReview] = useState<{
     key: string;
-    title: string;
-    content: ReactNode;
-    confirm: string;
+    title: Presented<string>;
+    journalTitle: string;
+    content: Presented<ReactNode>;
+    confirm: Presented<string>;
     reference?: string;
     run: (canDispatch: () => boolean) => Promise<ApiResult<unknown>>;
     done?: () => void;
-    success: string;
+    success: Presented<string>;
   } | null>(null);
   const current = state.key === key ? state : { key, busy: false, result: null, success: '' },
     pending = pendingAt(key);
@@ -158,9 +184,9 @@ export function useAction(room: string, recovery?: { recover: (reference: string
     window.addEventListener('storage', listener);
     return () => window.removeEventListener('storage', listener);
   }, [key]);
-  function stage(input: Omit<NonNullable<typeof review>, 'key'>) {
+  function stage(input: Omit<NonNullable<typeof review>, 'key' | 'journalTitle'>) {
     if (!userId || current.busy || pendingAt(key) || running.current.has(key)) return;
-    setReview({ ...input, key });
+    setReview({ ...input, key, journalTitle: present(input.title) });
   }
   function clear(marker: Pending) {
     if (pendingAt(key)?.id === marker.id) localStorage.removeItem(key);
@@ -174,22 +200,22 @@ export function useAction(room: string, recovery?: { recover: (reference: string
     setState({ key, busy: true, result: null, success: '' });
     const operation = async (): Promise<ApiResult<unknown>> => {
       if (!mounted.current || actor.current !== identity || pendingAt(key))
-        return { ok: false, reason: 'aborted', message: copyText('common.the.account.or.pending.request.changed.review') };
-      const marker = { id: crypto.randomUUID(), title: request.title, ...(request.reference ? { reference: request.reference } : {}) };
+        return localRefusal('aborted', 'common.the.account.or.pending.request.changed.review');
+      const marker = {
+        id: crypto.randomUUID(),
+        title: request.journalTitle,
+        ...(request.reference ? { reference: request.reference } : {}),
+      };
       try {
         localStorage.setItem(key, JSON.stringify(marker));
       } catch {
-        return { ok: false, reason: 'error', message: copyText('common.recovery.storage.is.unavailable.no.action.was') };
+        return localRefusal('error', 'common.recovery.storage.is.unavailable.no.action.was');
       }
       let result: ApiResult<unknown>;
       try {
         result = await request.run(() => mounted.current && actor.current === identity && pendingAt(key)?.id === marker.id);
       } catch {
-        result = {
-          ok: false,
-          reason: 'uncertain',
-          message: copyText('common.the.connection.ended.before.the.service.confirmed'),
-        };
+        result = localRefusal('uncertain', 'common.the.connection.ended.before.the.service.confirmed');
       }
       if (result.ok || result.reason !== 'uncertain') clear(marker);
       return result;
@@ -197,15 +223,9 @@ export function useAction(room: string, recovery?: { recover: (reference: string
     let result: ApiResult<unknown>;
     if (navigator.locks)
       result = await navigator.locks.request(`more-action:${key}`, { ifAvailable: true }, (lock) =>
-        lock
-          ? operation()
-          : Promise.resolve({
-              ok: false as const,
-              reason: 'error' as const,
-              message: copyText('common.this.account.has.an.action.running.in'),
-            }),
+        lock ? operation() : Promise.resolve(localRefusal('error', 'common.this.account.has.an.action.running.in')),
       );
-    else result = { ok: false, reason: 'not_supported', message: copyText('common.this.browser.has.no.cross.tab.mutation') };
+    else result = localRefusal('not_supported', 'common.this.browser.has.no.cross.tab.mutation');
     running.current.delete(key);
     if (!mounted.current || actor.current !== identity) return;
     setState({ key, busy: false, result, success: result.ok ? request.success : '' });
@@ -221,7 +241,7 @@ export function useAction(room: string, recovery?: { recover: (reference: string
     try {
       result = await recovery.recover(marker.reference);
     } catch {
-      result = { ok: false, reason: 'unreachable', message: copyText('common.the.original.outcome.lookup.could.not.be') };
+      result = localRefusal('unreachable', 'common.the.original.outcome.lookup.could.not.be');
     }
     running.current.delete(key);
     if (!mounted.current || actor.current !== identity) return;
@@ -229,17 +249,20 @@ export function useAction(room: string, recovery?: { recover: (reference: string
       clear(marker);
       recovery.done?.();
     }
-    setState({ key, busy: false, result, success: result.ok ? copyText('common.original.outcome.verified') : '' });
+    setState({ key, busy: false, result, success: result.ok ? () => copyText('common.original.outcome.verified') : '' });
   }
+  const failureKey = current.result ? localFailures.get(current.result) : undefined;
   const feedback = (
     <>
       {current.busy ? (
         <Loading label={copyText('common.waiting.for.the.service')} />
       ) : current.result && !current.result.ok ? (
-        <Failure result={current.result} />
+        <div lang={failureKey ? copy.forLocale(language).languageFor(failureKey) : 'und'} style={{ display: 'contents' }}>
+          <Failure result={failureKey ? { ...current.result, message: copyText(failureKey) } : current.result} />
+        </div>
       ) : current.success ? (
-        <p className="more-success" role="status">
-          {current.success}
+        <p className="more-success" role="status" lang={typeof current.success === 'function' ? language : 'und'}>
+          {present(current.success)}
         </p>
       ) : null}
       {pending && !current.busy ? (
@@ -251,7 +274,7 @@ export function useAction(room: string, recovery?: { recover: (reference: string
           )}
           <p>
             <Text k="common.earlier.request" />
-            {pending.title}. {pending.reference && <code>{pending.reference}</code>}
+            <span lang="und">{pending.title}</span>. {pending.reference && <code lang="zxx">{pending.reference}</code>}
             <Text k="common.read.its.original.records.before.continuing" />
           </p>
           {pending.reference && recovery ? (
@@ -269,18 +292,25 @@ export function useAction(room: string, recovery?: { recover: (reference: string
   );
   const dialog =
     review && review.key === key ? (
-      <Dialog title={review.title} onClose={() => setReview(null)}>
-        {review.content}
+      <Dialog
+        title={<span lang={typeof review.title === 'function' ? language : 'und'}>{present(review.title)}</span>}
+        onClose={() => setReview(null)}
+      >
+        <div lang={typeof review.content === 'function' ? language : 'und'} style={{ display: 'contents' }}>
+          {present(review.content)}
+        </div>
         <p className="muted">
           <Text k="common.acting.as.account" />
-          <code>{userId}</code>
+          <code lang="zxx">{userId}</code>
           <Text k="common.the.service.enforces.your.scope.and.jurisdiction" />
         </p>
         <div className="actions">
           <Button variant="secondary" onClick={() => setReview(null)}>
             <Text k="common.back" />
           </Button>
-          <Button onClick={() => void send()}>{review.confirm}</Button>
+          <Button lang={typeof review.confirm === 'function' ? language : 'und'} onClick={() => void send()}>
+            {present(review.confirm)}
+          </Button>
         </div>
       </Dialog>
     ) : null;
