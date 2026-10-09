@@ -32,13 +32,13 @@ export async function POST(request: Request) {
   try {
     body = await request.json();
   } catch {
-    return Response.json({ error: 'a JSON body is required' }, { status: 400 });
+    return Response.json({ error: 'a JSON body is required', code: 'admin.ledger_invalid_request' }, { status: 400 });
   }
 
-  const input = body as { frozen?: unknown; reason?: unknown };
+  const input = (body && typeof body === 'object' && !Array.isArray(body) ? body : {}) as { frozen?: unknown; reason?: unknown };
 
   if (typeof input.frozen !== 'boolean') {
-    return Response.json({ error: 'frozen must be a boolean' }, { status: 400 });
+    return Response.json({ error: 'frozen must be a boolean', code: 'admin.ledger_invalid_request' }, { status: 400 });
   }
 
   // Only a freeze needs a reason. A thaw clears it, because "why it is frozen"
@@ -46,11 +46,14 @@ export async function POST(request: Request) {
   // argument on its own side.
   if (input.frozen && (typeof input.reason !== 'string' || input.reason.trim().length < 12)) {
     return Response.json(
-      { error: 'a freeze needs a reason of at least 12 characters — halting the money plane must be explicable' },
+      {
+        error: 'a freeze needs a reason of at least 12 characters — halting the money plane must be explicable',
+        code: 'admin.ledger_invalid_request',
+      },
       { status: 400 },
     );
   }
 
   const result = await setFreeze(input.frozen, input.frozen ? (input.reason as string).trim() : undefined);
-  return Response.json(result, { status: result.ok ? 200 : result.status });
+  return Response.json(result, { status: result.status });
 }

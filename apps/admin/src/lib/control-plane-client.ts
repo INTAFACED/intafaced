@@ -135,78 +135,37 @@ export async function setKillSwitch(input: ToggleInput): Promise<ToggleResult> {
 
 // ── The money plane ─────────────────────────────────────────────────────────
 
-export interface FreezeState {
-  readonly frozen: boolean;
-  readonly reason: string | null;
-  /** Who last moved it. Written by svc-ledger from its own token verification. */
-  readonly actor: string | null;
-  readonly changedAt: string | null;
-}
-
-export interface FreezeResult {
-  readonly ok: boolean;
-  readonly status: number;
-  readonly state: FreezeState | null;
-  readonly detail: string | null;
-}
+import {
+  decodeFreezeRead, decodeFreezeCommand, freezeUnavailable, freezeUnresolved,
+  type FreezeResult, type FreezeCommandResult,
+} from './ledger-freeze-contract';
+export type { FreezeState, FreezeResult, FreezeCommandResult } from './ledger-freeze-contract';
 
 export async function readFreeze(): Promise<FreezeResult> {
   const cfg = config('treasury');
-  if (!isConfigured(cfg)) return { ok: false, status: 503, state: null, detail: cfg.reason };
-
+  if (!isConfigured(cfg)) return freezeUnavailable('unconfigured', cfg.reason, 'admin.ledger_unconfigured');
   try {
     const res = await fetch(`${cfg.edgeUrl}/admin/ledger/freeze`, {
-      headers: { authorization: `Bearer ${cfg.token}` },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      headers: { authorization: `Bearer ${cfg.token}` }, cache: 'no-store', signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    const body = (await res.json().catch(() => ({}))) as Partial<FreezeState> & { error?: string; message?: string };
-    if (!res.ok)
-      return { ok: false, status: res.status, state: null, detail: body.error ?? body.message ?? `svc-edge answered ${res.status}` };
-
-    return {
-      ok: true,
-      status: res.status,
-      state: { frozen: body.frozen ?? false, reason: body.reason ?? null, actor: body.actor ?? null, changedAt: body.changedAt ?? null },
-      detail: null,
-    };
-  } catch (err) {
-    return { ok: false, status: 502, state: null, detail: `svc-edge did not answer: ${(err as Error).message}` };
+    return decodeFreezeRead(await res.json().catch(() => null), res.status, false);
+  } catch {
+    return freezeUnavailable('unreachable', 'svc-edge did not answer the ledger posting read.', 'admin.ledger_read_unreachable', 502);
   }
 }
 
-/**
- * Freeze or thaw ledger posting.
- *
- * A failure is never reported as a success. An operator who is told the platform
- * is halted when it is not is worse off than one who is told nothing — they walk
- * away from a book that is still accepting writes.
- */
-export async function setFreeze(frozen: boolean, reason?: string): Promise<FreezeResult> {
+/** Retained transport only. This desk has no human/session/approval/original-operation acquisition path. */
+export async function setFreeze(frozen: boolean, reason?: string): Promise<FreezeCommandResult> {
+  const intent = Object.freeze(frozen ? { frozen: true, ...(reason === undefined ? {} : { reason }) } : { frozen: false });
   const cfg = config('treasury');
-  if (!isConfigured(cfg)) return { ok: false, status: 503, state: null, detail: cfg.reason };
-
+  if (!isConfigured(cfg)) return decodeFreezeCommand({ code: 'admin.ledger_unconfigured', detail: cfg.reason }, 503, intent, false);
   try {
     const res = await fetch(`${cfg.edgeUrl}/admin/ledger/${frozen ? 'freeze' : 'unfreeze'}`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${cfg.token}`, 'content-type': 'application/json' },
-      // A thaw carries no reason — svc-ledger clears the column, because "why it
-      // is frozen" is meaningless once it is not.
-      body: JSON.stringify(frozen ? { reason } : {}),
-      cache: 'no-store',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      method: 'POST', headers: { authorization: `Bearer ${cfg.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(frozen ? { reason } : {}), cache: 'no-store', signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    const body = (await res.json().catch(() => ({}))) as Partial<FreezeState> & { error?: string; message?: string };
-    if (!res.ok)
-      return { ok: false, status: res.status, state: null, detail: body.error ?? body.message ?? `svc-edge answered ${res.status}` };
-
-    return {
-      ok: true,
-      status: res.status,
-      state: { frozen: body.frozen ?? frozen, reason: body.reason ?? null, actor: body.actor ?? null, changedAt: body.changedAt ?? null },
-      detail: null,
-    };
-  } catch (err) {
-    return { ok: false, status: 502, state: null, detail: `svc-edge did not answer: ${(err as Error).message}` };
+    return decodeFreezeCommand(await res.json().catch(() => null), res.status, intent, false);
+  } catch {
+    return freezeUnresolved(intent, 'The connection ended before the original ledger command outcome was verified.');
   }
 }

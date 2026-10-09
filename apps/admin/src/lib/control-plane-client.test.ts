@@ -160,8 +160,9 @@ describe('the authority split is enforced by which token is present', () => {
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe(`${EDGE}/admin/ledger/unfreeze`);
     expect(JSON.parse(init!.body as string)).toEqual({});
-    expect(result.ok).toBe(true);
-    expect(result.state?.frozen).toBe(false);
+    expect(result.ok).toBe(false);
+    expect(result.uncertain).toBe(true);
+    expect(result.returnedState?.frozen).toBe(false);
   });
 });
 
@@ -203,7 +204,8 @@ describe('a failure is never reported as a success', () => {
     expect(result.ok).toBe(false);
     expect(result.status).toBe(502);
     expect(result.state).toBeNull();
-    expect(result.detail).toContain('ECONNREFUSED');
+    expect(result.detail).toContain('original ledger command outcome');
+    expect(result.uncertain).toBe(true);
   });
 
   it('a non-JSON error page does not become an empty snapshot reported as ok', async () => {
@@ -301,5 +303,39 @@ describe('module response integrity and original intent', () => {
       uncertain: true,
       code: 'admin.kill_invalid_command_response',
     });
+  });
+});
+
+describe('strict money-plane reads and original response bounds', () => {
+  beforeEach(() => {
+    process.env.EDGE_URL = EDGE;
+    process.env.ADMIN_TREASURY_TOKEN = TREASURY;
+  });
+  it('missing frozen on HTTP200 never defaults to accepting', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ reason: null, actor: null, changedAt: '2026-10-09T16:00:00.000Z' })),
+    );
+    expect(await readFreeze()).toMatchObject({ ok: false, kind: 'invalid_response', state: null, upstreamStatus: 200 });
+  });
+  it('missing command frozen never substitutes the requested value', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ reason: 'Original incident', actor: 'reconciliation', changedAt: '2026-10-09T16:00:00.000Z' })),
+    );
+    expect(await setFreeze(true, 'Original incident')).toMatchObject({
+      uncertain: true,
+      state: null,
+      intent: { frozen: true, reason: 'Original incident' },
+    });
+  });
+  it('exact action_approval.missing400 is refusal, consume_failed400 is unresolved', async () => {
+    for (const code of ['action_approval.missing', 'action_approval.consume_failed']) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse({ code, message: 'Isolated refusal' }, 400)),
+      );
+      expect((await setFreeze(false)).uncertain).toBe(code !== 'action_approval.missing');
+    }
   });
 });
