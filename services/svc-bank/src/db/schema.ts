@@ -389,8 +389,8 @@ export const loanProducts = bank.table(
     /** Ceiling on one rung of the ladder, as a fraction of remaining collateral. */
     maxTrancheBps: integer('max_tranche_bps').notNull(),
     graceSeconds: integer('grace_seconds').notNull(),
-    /** A POLICY floor on a single draw. A limit, not a holding. */
-    minPrincipal: amount('min_principal').notNull().default('0'),
+    /** Policy floor on a single draw. Null is a blank limit; an omitted floor is not zero. */
+    minPrincipal: amount('min_principal'),
     status: text('status').notNull().default('open'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
