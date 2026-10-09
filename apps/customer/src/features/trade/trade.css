@@ -767,6 +767,10 @@
   border-radius: 0;
   background: transparent;
   gap: var(--spacing-12);
+  min-height: 0;
+  align-items: stretch;
+  justify-content: flex-start;
+  text-align: left;
 }
 .trade-picker-empty .empty-mark {
   display: none;
@@ -777,6 +781,7 @@
 }
 .trade-picker-empty .button {
   min-height: 44px;
+  width: 100%;
 }
 @media (max-width: 520px) {
   .trade-picker-filters select {

@@ -310,6 +310,11 @@ function MarketPicker({
   onClose: () => void;
 }) {
   const [query, setQuery] = useState('');
+  const search = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // The child dialog opens in its effect; React autoFocus runs before showModal.
+    search.current?.querySelector('input')?.focus({ preventScroll: true });
+  }, []);
   const [collection, setCollection] = useState<'all' | 'favorites'>('all');
   const [quote, setQuote] = useState<string | null>(null);
   const quotes = [...new Set(markets.map((market) => market.quote))].sort();
@@ -327,7 +332,9 @@ function MarketPicker({
   }
   return (
     <Dialog title={<CopyText k={'chooseMarket'} />} onClose={onClose}>
-      <Field label={<CopyText k={'searchMarkets'} />} autoFocus value={query} onChange={(event) => setQuery(event.target.value)} />
+      <div ref={search}>
+        <Field label={<CopyText k={'searchMarkets'} />} value={query} onChange={(event) => setQuery(event.target.value)} />
+      </div>
       {resource.status === 'ready' && markets.length > 0 && (
         <div className="trade-picker-filters">
           <Tabs

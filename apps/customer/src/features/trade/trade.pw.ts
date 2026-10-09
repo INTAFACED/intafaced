@@ -378,6 +378,16 @@ test('market discovery filters published quotes and saved favorites without chan
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('button', { name: /BTC\/USDT/ })).toHaveAttribute('aria-pressed', 'true');
   await expect(dialog.getByRole('button', { name: /LTC\/USDT/ })).toContainText('Inactive');
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    const bounds = await dialog.boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+    await page.screenshot({
+      path: `/Users/Nitro/Desktop/intafaced-interface-overview/named-look/build/paper-sync-2026-10-08/journey-1-browser-picker-${width}.png`,
+    });
+  }
   await dialog.getByLabel('Quote asset', { exact: true }).selectOption({ label: 'EUR' });
   await expect(dialog.getByRole('button', { name: /ETH\/EUR/ })).toContainText('Session closed');
   await expect(dialog.getByRole('button', { name: /BTC\/USDT/ })).toHaveCount(0);
