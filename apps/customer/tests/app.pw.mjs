@@ -320,6 +320,15 @@ test('Money holding to Send preserves BTC through source selection and exact rev
     if (width <= 768) {
       const analysis = page.getByRole('heading', { name: 'Price and simple analysis' });
       expect((await send.boundingBox()).y).toBeLessThan((await analysis.boundingBox()).y);
+      await page.getByRole('button', { name: 'Hide amounts' }).focus();
+      for (const name of ['Buy BTC', 'Sell BTC', /Send available BTC/]) {
+        await page.keyboard.press('Tab');
+        await expect(page.getByRole('link', { name })).toBeFocused();
+      }
+      expect(await send.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)?.closest('a') === element;
+      })).toBe(true);
     }
     const audit = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
     expect(audit.violations.filter((item) => ['serious', 'critical'].includes(item.impact))).toEqual([]);

@@ -472,6 +472,11 @@
   }
 }
 @media (max-width: 1000px) {
+  .money-layout--holding a,
+  .money-layout--holding button {
+    /* 68px phone navigation + 16px clear space; retain device safe area. */
+    scroll-margin-block: calc(84px + env(safe-area-inset-bottom, 0px));
+  }
   .money-layout {
     display: flex;
     flex-direction: column;
