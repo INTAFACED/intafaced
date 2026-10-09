@@ -1,8 +1,8 @@
-import { tradeCopy as copy, CopyText, choiceText, choiceLanguage } from './copy';
+import { tradeCopy as copy, CopyText, choiceText, choiceLanguage, TradeFailure as Failure } from './copy';
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { z } from 'zod';
 import type { Resource } from '../../shared/resource';
-import { Button, Field, Loading, Failure, EmptyState } from '../../shared/ui';
+import { Button, Field, Loading, EmptyState } from '../../shared/ui';
 import { TIMEFRAMES, type Listing, type TradeApi } from './trade-api';
 import { SecondaryChart, type ChartView } from './Chart';
 
@@ -75,7 +75,7 @@ export function DeskFrame({
       return R5_GEOMETRY;
     }
   });
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<ReactNode>('');
   const [layout, setLayout] = useState<Layout>('single');
   const [primary, setPrimary] = useState<ChartView>(DEFAULT_VIEW);
   const [viewRevision, setViewRevision] = useState(0);
@@ -114,7 +114,7 @@ export function DeskFrame({
     try {
       localStorage.setItem(GEOMETRY_KEY, JSON.stringify(geometry));
     } catch {
-      setNotice(copy.t('panelSizesRemainInThisTabBecauseDeviceStorageIsUnavailable'));
+      setNotice(<CopyText k={'panelSizesRemainInThisTabBecauseDeviceStorageIsUnavailable'} />);
     }
   }, [geometry]);
   useEffect(() => {
@@ -138,21 +138,21 @@ export function DeskFrame({
     if (!market || !name.trim()) return;
     const entry = workspaceSchema.safeParse({ name: name.trim(), paper: market.paper, geometry, layout, primary, extras });
     if (!entry.success) {
-      setNotice(copy.t('thisWorkspaceCouldNotBeSavedReviewItsViewSettings'));
+      setNotice(<CopyText k={'thisWorkspaceCouldNotBeSavedReviewItsViewSettings'} />);
       return;
     }
     const next = [...saved.filter((row) => row.name !== entry.data.name), entry.data].slice(-12);
     try {
       localStorage.setItem(WORKSPACES_KEY, JSON.stringify(next));
       setSaved(next);
-      setNotice(copy.t('workspaceSavedOnThisDeviceAccountSynchronizationIsNotConnected'));
+      setNotice(<CopyText k={'workspaceSavedOnThisDeviceAccountSynchronizationIsNotConnected'} />);
     } catch {
-      setNotice(copy.t('deviceStorageIsUnavailableThisWorkspaceWasNotSaved'));
+      setNotice(<CopyText k={'deviceStorageIsUnavailableThisWorkspaceWasNotSaved'} />);
     }
   }
   function restore(value: SavedWorkspace) {
     if (!market || value.paper !== market.paper) {
-      setNotice(copy.t('switchToTheSavedWorkspaceSLiveOrSimulatedModeBefore'));
+      setNotice(<CopyText k={'switchToTheSavedWorkspaceSLiveOrSimulatedModeBefore'} />);
       return;
     }
     const ticket = width > 980 ? Math.min(value.geometry.ticket, Math.floor(width) - MIN.book - 400) : value.geometry.ticket;
@@ -167,16 +167,16 @@ export function DeskFrame({
     setPrimary(value.primary);
     setExtras(value.extras);
     setViewRevision((current) => current + 1);
-    setNotice(copy.t('restoredOnThisDeviceUnpublishedLinkedMarketsRemainUnavailable', { valueName: String(value.name) }));
+    setNotice(<CopyText k={'restoredOnThisDeviceUnpublishedLinkedMarketsRemainUnavailable'} params={{ valueName: String(value.name) }} />);
   }
   function remove(value: SavedWorkspace) {
     const next = saved.filter((row) => row.name !== value.name);
     try {
       localStorage.setItem(WORKSPACES_KEY, JSON.stringify(next));
       setSaved(next);
-      setNotice(copy.t('deletedFromThisDevice', { valueName: String(value.name) }));
+      setNotice(<CopyText k={'deletedFromThisDevice'} params={{ valueName: String(value.name) }} />);
     } catch {
-      setNotice(copy.t('deviceStorageIsUnavailableThisWorkspaceWasNotDeleted'));
+      setNotice(<CopyText k={'deviceStorageIsUnavailableThisWorkspaceWasNotDeleted'} />);
     }
   }
   function maximum(axis: Axis) {
@@ -294,7 +294,7 @@ export function DeskFrame({
                   aria-label={copy.t('restoreWorkspace', { valueName: String(value.name) })}
                   onClick={() => restore(value)}
                 >
-                  {value.name} · {value.paper ? <CopyText k={'simulateddaeb30'} /> : <CopyText k={'live'} />}
+                  <span lang="und">{value.name}</span> · {value.paper ? <CopyText k={'simulateddaeb30'} /> : <CopyText k={'live'} />}
                 </button>
                 <button aria-label={copy.t('deleteWorkspace', { valueName: String(value.name) })} onClick={() => remove(value)}>
                   ×
@@ -308,7 +308,7 @@ export function DeskFrame({
                 setExtras([]);
                 setPrimary(DEFAULT_VIEW);
                 setViewRevision((current) => current + 1);
-                setNotice(copy.t('defaultRPanelSizesRestoredOnThisDevice'));
+                setNotice(<CopyText k={'defaultRPanelSizesRestoredOnThisDevice'} />);
               }}
             >
               <CopyText k="restoreDefaultWorkspace" />

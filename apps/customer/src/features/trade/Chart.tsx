@@ -1,10 +1,10 @@
-import { tradeCopy as copy, CopyText, choiceText, choiceNode, choiceLanguage } from './copy';
-import { useEffect, useRef, useState } from 'react';
+import { tradeError, TradeOriginalMessage, tradeCopy as copy, CopyText, choiceText, choiceNode, choiceLanguage, TradeFailure as Failure } from './copy';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { OHLCV, Position } from '@intafaced/exchange-contract/schemas';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
 import { z } from 'zod';
 import { decimalSchema, parseAmount, formatAmount } from '../../shared/money';
-import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
+import { Button, EmptyState, Loading } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
 import type { Listing, TradeApi, Order } from './trade-api';
 import { usePreferences, useResolvedTheme, savePreferences } from '../../shared/preferences';
@@ -96,7 +96,7 @@ function chartBars(rows: OHLCV[], type: string): Bar[] {
         raw.high < Math.max(raw.open, raw.close) ||
         raw.low > Math.min(raw.open, raw.close)
       )
-        throw new Error(copy.t('historyContainsAnInvalidCandle'));
+        throw tradeError('historyContainsAnInvalidCandle');
       if (type !== 'Heikin Ashi') return raw;
       const close = (raw.open + raw.high + raw.low + raw.close) / 4,
         open = previous ? (previous.open + previous.close) / 2 : (raw.open + raw.close) / 2;
@@ -234,7 +234,10 @@ export function MarketChart({
 }) {
   const preferences = usePreferences();
   const theme = useResolvedTheme(preferences.theme);
-  const [feedStatus, setFeedStatus] = useState(copy.t('chartHistoricalPrices')),
+  const [feed, setFeedStatus] = useState<
+    { key: 'acceptedTrade'; printKind: string } |
+    { key: 'chartHistoricalPrices' | 'waitingForAnActualTrade' | 'refreshingCorrectedHistory' | 'tradeStreamInterrupted' | 'historicalPricesReconnecting' | 'historicalPricesTradeStreamStale' }
+  >({ key: 'chartHistoricalPrices' }),
     [countdown, setCountdown] = useState<number | null>(null);
   const barHistory = useRef<OHLCV[]>([]),
     historyReady = useRef(false),
@@ -244,6 +247,7 @@ export function MarketChart({
     orderLines = useRef<unknown[]>([]),
     fillLines = useRef<unknown[]>([]);
   const positionLines = useRef<unknown[]>([]);
+  const feedStatus = feed.key === 'acceptedTrade' ? copy.t(feed.key, { printKind: feed.printKind }) : copy.t(feed.key);
   const [chartRevision, setChartRevision] = useState(0);
   const [interval, setIntervalValue] = useState(initialView?.interval ?? '15m'),
     [type, setType] = useState(initialView?.type ?? 'Candles'),
@@ -252,7 +256,7 @@ export function MarketChart({
     [tool, setTool] = useState<Drawing['kind'] | null>(null),
     [compare, setCompare] = useState(''),
     [saved, setSaved] = useState<{ name: string; type: string; interval: string; studies: Study[] }[]>([]),
-    [notice, setNotice] = useState(''),
+    [notice, setNotice] = useState<ReactNode>(''),
     [fullscreen, setFullscreen] = useState(false),
     [multi, setMulti] = useState(false),
     [countdownVisible, setCountdownVisible] = useState(true),
@@ -307,7 +311,7 @@ export function MarketChart({
       );
       socket.onopen = () => {
         if (connections++ > 0) reload();
-        setFeedStatus(copy.t('waitingForAnActualTrade'));
+        setFeedStatus({ key: 'waitingForAnActualTrade' });
       };
       socket.onmessage = (event) => {
         if (closed) return;
@@ -325,7 +329,7 @@ export function MarketChart({
         if (seen.size > 500) seen.delete(seen.values().next().value as number);
         if (print.kind === 'bust' || print.kind === 'correction') {
           reload();
-          setFeedStatus(copy.t('refreshingCorrectedHistory'));
+          setFeedStatus({ key: 'refreshingCorrectedHistory' });
           return;
         }
         const bucket = Math.floor(Date.parse(print.ts) / span) * span;
@@ -350,12 +354,12 @@ export function MarketChart({
         const bar = chartBars(barHistory.current, type).at(-1);
         if (bar) seriesRef.current.update(type === 'Line' ? { time: bar.time, value: bar.close } : bar);
         studyUpdate.current?.(chartBars(barHistory.current, 'Candles'));
-        setFeedStatus(copy.t('acceptedTrade', { printKind: String(print.kind) }));
+        setFeedStatus({ key: 'acceptedTrade', printKind: String(print.kind) });
       };
-      socket.onerror = () => setFeedStatus(copy.t('tradeStreamInterrupted'));
+      socket.onerror = () => setFeedStatus({ key: 'tradeStreamInterrupted' });
       socket.onclose = () => {
         if (closed) return;
-        setFeedStatus(copy.t('historicalPricesReconnecting'));
+        setFeedStatus({ key: 'historicalPricesReconnecting' });
         retry = setTimeout(connect, 2000);
       };
     };
@@ -364,7 +368,7 @@ export function MarketChart({
       const end = (barHistory.current.at(-1)?.[0] ?? 0) + span;
       setCountdown(end > Date.now() ? Math.ceil((end - Date.now()) / 1000) : null);
       if (lastPrintAt.current !== null && Date.now() - lastPrintAt.current >= 15000)
-        setFeedStatus(copy.t('historicalPricesTradeStreamStale'));
+        setFeedStatus({ key: 'historicalPricesTradeStreamStale' });
     }, 1000);
     return () => {
       closed = true;
@@ -396,7 +400,7 @@ export function MarketChart({
     try {
       localStorage.setItem(drawingsKey, JSON.stringify(drawings));
     } catch {
-      setNotice(copy.t('drawingsRemainInThisWorkspaceBecauseDeviceStorageIsUnavailable'));
+      setNotice(<CopyText k={'drawingsRemainInThisWorkspaceBecauseDeviceStorageIsUnavailable'} />);
     }
   }, [drawings, drawingsKey, accountKey, market.id]);
   useEffect(() => {
@@ -490,7 +494,7 @@ export function MarketChart({
           }
         });
       } catch (error) {
-        setNotice(error instanceof Error ? error.message : copy.t('theChartCouldNotBeDrawn'));
+        setNotice(error instanceof Error ? <TradeOriginalMessage source={error} /> : <CopyText k={'theChartCouldNotBeDrawn'} />);
       }
     });
     return () => {
@@ -591,9 +595,9 @@ export function MarketChart({
     setSaved(next);
     try {
       localStorage.setItem(`trade-layouts:${accountKey}`, JSON.stringify(next));
-      setNotice(copy.t('layoutSavedOnThisDeviceAccountSynchronizationIsNotConnected'));
+      setNotice(<CopyText k={'layoutSavedOnThisDeviceAccountSynchronizationIsNotConnected'} />);
     } catch {
-      setNotice(copy.t('browserStorageIsUnavailableThisLayoutWasNotSaved'));
+      setNotice(<CopyText k={'browserStorageIsUnavailableThisLayoutWasNotSaved'} />);
     }
   }
   function priceAtGeometry(y: number): string | null {
@@ -724,7 +728,7 @@ export function MarketChart({
                   setStudies(layout.studies);
                 }}
               >
-                {layout.name}
+                <span lang="und">{layout.name}</span>
               </button>
             ))}
             <label>
@@ -803,7 +807,7 @@ export function MarketChart({
       <div className="trade-chart-context">
         <strong>{market.symbol}</strong>
         <span>
-          {interval} · {type} · {preferences.timeZone}
+          <span lang="zxx">{interval}</span> · {choiceNode(type)} · <span lang="zxx">{preferences.timeZone}</span>
         </span>
         <button onClick={reload}>
           <CopyText k="refreshHistory" />
@@ -827,7 +831,7 @@ export function MarketChart({
       )}
       <div
         className="trade-chart-canvas"
-        role="img"
+        role="group"
         tabIndex={0}
         aria-label={copy.t('actualHistoricalPrices', { marketSymbol: String(market.symbol) })}
         aria-description={copy.t('useLeftAndRightArrowsToInspectCandlesEnterStagesThe')}
@@ -837,6 +841,7 @@ export function MarketChart({
             setTool(null);
             return;
           }
+          if (event.target !== event.currentTarget) return;
           const rows = barHistory.current;
           if (!rows.length) return;
           if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
@@ -924,7 +929,7 @@ export function MarketChart({
           {tool ? (
             <CopyText
               k={'selectToDraw'}
-              params={{ toolLevelOnePoint: copy.t(tool === 'level' ? 'oneDrawingPoint' : 'twoDrawingPoints'), tool: String(tool) }}
+              params={{ toolLevelOnePoint: copy.t(tool === 'level' ? 'oneDrawingPoint' : 'twoDrawingPoints'), tool: choiceText(tool) }}
             />
           ) : !countdownVisible || countdown === null ? (
             <CopyText k={'chartStatusWithoutCandle'} params={{ feedStatus }} />
@@ -943,7 +948,7 @@ export function MarketChart({
         </label>
       </div>
       {notice && (
-        <p className="trade-note" role="status">
+        <p className="trade-note" role="status" lang="und">
           {notice}
         </p>
       )}
@@ -974,7 +979,7 @@ export function SecondaryChart({
   const host = useRef<HTMLDivElement>(null),
     chartRef = useRef<ChartApi | null>(null),
     seriesRef = useRef<Series | null>(null);
-  const [failure, setFailure] = useState('');
+  const [failure, setFailure] = useState<ReactNode>('');
   const preferences = usePreferences();
   const theme = useResolvedTheme(preferences.theme);
   const result = useResource((signal) => api.history(symbol, interval, signal), `${symbol}:${interval}`);
@@ -1004,7 +1009,7 @@ export function SecondaryChart({
         seriesRef.current = series;
         setFailure('');
       } catch (error) {
-        setFailure(error instanceof Error ? error.message : copy.t('secondaryChartFailure'));
+        setFailure(error instanceof Error ? <TradeOriginalMessage source={error} /> : <CopyText k="secondaryChartFailure" />);
       }
     });
     return () => {
@@ -1035,7 +1040,7 @@ export function SecondaryChart({
       ) : !result.resource.data.length ? (
         <EmptyState title={<CopyText k={'noHistoryForTheSecondChart'} />} />
       ) : null}
-      {failure && <p className="trade-refusal">{failure}</p>}
+      {failure && <p className="trade-refusal" lang="und">{failure}</p>}
       <div className={`trade-secondary-chart ${workspace ? 'trade-secondary-chart--workspace' : ''}`} ref={host} />
     </section>
   );

@@ -1,6 +1,6 @@
-import { tradeCopy as copy, CopyText } from './copy';
-import { useEffect, useRef, useState } from 'react';
-import { Button, Dialog, Failure, Field } from '../../shared/ui';
+import { TradeOriginalMessage, tradeRefusal, tradeFailureFrom, TradeMessage, tradeCopy as copy, CopyText, TradeFailure as Failure } from './copy';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Button, Dialog, Field } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
 import { displayAmount, parseAmount } from '../../shared/money';
 import { draftSchema, exactValue, type Draft, type Order, type Preview, type TradeApi } from './trade-api';
@@ -21,7 +21,7 @@ export function ReplaceOrder({
   onClose: () => void;
   onIntent: (intent: ReplacementIntent) => Promise<boolean>;
   onResolved: (identity: ReplacementIntent) => void;
-  onStatus: (message: string) => void;
+  onStatus: (message: ReactNode) => void;
 }) {
   const [current, setCurrent] = useState(order),
     [amount, setAmount] = useState(order.remaining),
@@ -48,21 +48,17 @@ export function ReplaceOrder({
     if (result.data.recoveryRequired || result.data.status !== 'open' || parseAmount(result.data.filled) > 0n) {
       setCurrent(result.data);
       setReview(null);
-      setFailure({
-        ok: false,
-        reason: 'error',
-        message: copy.t('thisOrderIsWithFilledCancelReplaceRequiresAnUnfilledWorking', {
+      setFailure(tradeRefusal('thisOrderIsWithFilledCancelReplaceRequiresAnUnfilledWorking', { reason: 'error' }, {
           resultDataStatus: String(result.data.status),
           resultDataFilled: String(result.data.filled),
           base: String(base),
-        }),
-      });
+        }));
       return null;
     }
     if (result.data.filled !== current.filled || result.data.remaining !== current.remaining || result.data.price !== current.price) {
       setCurrent(result.data);
       setReview(null);
-      setFailure({ ok: false, reason: 'error', message: copy.t('theOriginalOrderChangedReviewItsRefreshedStateBeforeReplacingIt') });
+      setFailure(tradeRefusal('theOriginalOrderChangedReviewItsRefreshedStateBeforeReplacingIt', { reason: 'error' }));
       return null;
     }
     return result.data;
@@ -108,7 +104,7 @@ export function ReplaceOrder({
       if (result.ok) {
         onResolved(identity);
         onStatus(
-          copy.t('replacementOutcome', {
+          <TradeMessage k={'replacementOutcome'} params={() => ({
             code: result.data.code,
             reason: result.data.reasonCode ? ` (${result.data.reasonCode})` : '',
             originalId: result.data.original.id,
@@ -126,18 +122,18 @@ export function ReplaceOrder({
               : result.data.original.status === 'open'
                 ? copy.t('originalWorkingRefusal')
                 : '',
-          }),
+          })} />,
         );
         onClose();
       } else if (result.reason === 'changed') {
         onResolved(identity);
         setReview({ draft: review.draft, preview: result.preview });
-        setFailure({ ok: false, reason: 'error', message: result.message });
+        setFailure(tradeFailureFrom(result, 'error'));
       } else {
         if (result.reason !== 'uncertain') onResolved(identity);
         setFailure(result);
         if (result.reason === 'uncertain') {
-          onStatus(result.message);
+          onStatus(<TradeOriginalMessage source={result} />);
           onClose();
         }
       }

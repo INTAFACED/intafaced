@@ -1,11 +1,11 @@
-import { tradeCopy as copy, CopyText, tradeLabels, choiceText, choiceNode, choiceLanguage } from './copy';
+import { TradeOriginalMessage, tradeError, tradeFailureFrom, TradeMessage, tradeRefusal, tradeCopy as copy, CopyText, tradeLabels, choiceText, choiceNode, choiceLanguage, tradeDate, TradeFailure as Failure } from './copy';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
 import { navigate } from '../../app/location';
 import { useResource, type Resource } from '../../shared/resource';
-import { Button, DataTable, Dialog, EmptyState, Failure, Field, Loading, Tabs } from '../../shared/ui';
+import { Button, DataTable, Dialog, EmptyState, Field, Loading, Tabs } from '../../shared/ui';
 import { unavailable, type ApiResult } from '../../shared/api';
 import { decimalSchema, displayAmount, parseAmount, formatAmount } from '../../shared/money';
 import {
@@ -108,7 +108,7 @@ export function TradeRoutes({ path }: { path: string }) {
     setPicker(false);
   }
   return (
-    <div className={`trade-root ${activeMode === 'Spot' ? 'trade-root--spot' : ''}`} lang="en">
+    <div className={`trade-root ${activeMode === 'Spot' ? 'trade-root--spot' : ''}`} lang={preferences.language}>
       <nav className="trade-modes" aria-label={copy.t('tradingModes')} lang={languageFor('tradingModes')}>
         {activeMode === 'Spot' ? (
           <details className="trade-mode-menu">
@@ -476,9 +476,32 @@ function readPending(userId: string): Pending | null {
     return null;
   }
 }
+function CancelReplaceNotice({ original, replacement }: { original: ApiResult<Order>; replacement: ApiResult<Order> }) {
+  const { t, requestedLocale } = copy.useCopy();
+  // Segment only the authored template. Provider messages never enter this
+  // interpolation or get scanned for keys; their explicit provenance renderer
+  // preserves the original language and response context.
+  const template = t('cancelReplaceIsUnresolvedNoNewRequestHasBeenSent', {
+    originalOkOriginalMessage: '{originalOkOriginalMessage}',
+    replacementOkReplacementMessage: '{replacementOkReplacementMessage}',
+  });
+  return <span lang={requestedLocale} data-i18n="trade.cancelReplaceIsUnresolvedNoNewRequestHasBeenSent">
+    {template.split(/(\{originalOkOriginalMessage\}|\{replacementOkReplacementMessage\})/).map((part, index) =>
+      part === '{originalOkOriginalMessage}'
+        ? original.ok
+          ? <CopyText key={index} k="originalOrderStatus" params={{ status: original.data.status }} />
+          : <TradeOriginalMessage key={index} source={original} />
+        : part === '{replacementOkReplacementMessage}'
+          ? replacement.ok
+            ? <CopyText key={index} k="replacementOrderStatus" params={{ status: replacement.data.status }} />
+            : <TradeOriginalMessage key={index} source={replacement} />
+          : part,
+    )}
+  </span>;
+}
 function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void, accountWide = false) {
   const [pending, setPending] = useState<Pending | null>(() => readPending(accountKey)),
-    [status, setStatus] = useState(''),
+    [status, setStatus] = useState<ReactNode>(''),
     [checking, setChecking] = useState(false);
   useEffect(() => {
     const update = () => setPending(readPending(accountKey));
@@ -501,7 +524,7 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
       try {
         localStorage.setItem(pendingKey(accountKey), JSON.stringify(value));
       } catch {
-        setStatus(copy.t('browserStorageCannotPreserveThisRequestIdentityEnableDeviceStorageBefore'));
+        setStatus(<CopyText k={'browserStorageCannotPreserveThisRequestIdentityEnableDeviceStorageBefore'} />);
         return false;
       }
     } else {
@@ -517,12 +540,12 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
             stored.orderId !== expected.orderId)
         ) {
           setPending(stored);
-          setStatus(copy.t('theActiveTradingRequestChangedThisOlderResultCannotClearIts'));
+          setStatus(<CopyText k={'theActiveTradingRequestChangedThisOlderResultCannotClearIts'} />);
           return false;
         }
         localStorage.removeItem(pendingKey(accountKey));
       } catch {
-        setStatus(copy.t('theOutcomeIsConfirmedButItsDeviceMarkerCouldNotBe'));
+        setStatus(<CopyText k={'theOutcomeIsConfirmedButItsDeviceMarkerCouldNotBe'} />);
         return false;
       }
     }
@@ -536,13 +559,13 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
   };
   const reserveIntent = async (value: Pending): Promise<boolean> => {
     if (!navigator.locks) {
-      setStatus(copy.t('thisBrowserCannotCoordinateTradingRequestsAcrossTabsUseABrowser'));
+      setStatus(<CopyText k={'thisBrowserCannotCoordinateTradingRequestsAcrossTabsUseABrowser'} />);
       return false;
     }
     return new Promise<boolean>((resolve) => {
       void navigator.locks.request(`trade-account:${accountKey}`, { ifAvailable: true }, async (lock) => {
         if (!lock) {
-          setStatus(copy.t('anotherTabIsProcessingATradingRequest'));
+          setStatus(<CopyText k={'anotherTabIsProcessingATradingRequest'} />);
           resolve(false);
           return;
         }
@@ -554,12 +577,12 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
         }
         try {
           if (localStorage.getItem(pendingKey(accountKey))) {
-            setStatus(copy.t('theSavedTradingRequestCannotBeReadPreserveDeviceStorageAnd'));
+            setStatus(<CopyText k={'theSavedTradingRequestCannotBeReadPreserveDeviceStorageAnd'} />);
             resolve(false);
             return;
           }
         } catch {
-          setStatus(copy.t('deviceStorageIsUnavailableTradingCannotPreserveARequestIdentity'));
+          setStatus(<CopyText k={'deviceStorageIsUnavailableTradingCannotPreserveARequestIdentity'} />);
           resolve(false);
           return;
         }
@@ -578,10 +601,10 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
     if (!pending || checking) return;
     if (!['place', 'cancel', 'amend', 'replace'].includes(pending.kind)) {
       setStatus(
-        copy.t('thisRequestMustBeCheckedInItsOriginalTradingToolContact', {
+        <CopyText k={'thisRequestMustBeCheckedInItsOriginalTradingToolContact'} params={{
           pendingKind: String(pending.kind),
           pendingId: String(pending.id),
-        }),
+        }} />,
       );
       return;
     }
@@ -601,24 +624,17 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
       ) {
         setIntent(null, pending);
         setStatus(
-          copy.t('originalReplacementRemaining', {
+          <CopyText k={'originalReplacementRemaining'} params={{
             originalDataId: String(original.data.id),
             originalDataStatus: String(original.data.status),
             replacementDataId: String(replacement.data.id),
             replacementDataStatus: String(replacement.data.status),
             replacementDataRemaining: String(replacement.data.remaining),
-          }),
+          }} />,
         );
       } else
         setStatus(
-          copy.t('cancelReplaceIsUnresolvedNoNewRequestHasBeenSent', {
-            originalOkOriginalMessage: String(
-              !original.ok ? original.message : copy.t('originalOrderStatus', { status: original.data.status }),
-            ),
-            replacementOkReplacementMessage: String(
-              !replacement.ok ? replacement.message : copy.t('replacementOrderStatus', { status: replacement.data.status }),
-            ),
-          }),
+          <CancelReplaceNotice original={original} replacement={replacement} />,
         );
       refresh();
       setChecking(false);
@@ -644,21 +660,21 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
       if (resolved) {
         setIntent(null, pending);
         setStatus(
-          copy.t('orderFilledRemaining', {
+          <CopyText k={'orderFilledRemaining'} params={{
             resultDataId: String(result.data.id),
             resultDataStatus: String(result.data.status),
             resultDataFilled: String(result.data.filled),
             resultDataRemaining: String(result.data.remaining),
-          }),
+          }} />,
         );
       } else
         setStatus(
-          copy.t('orderIsStillOpenTheOutcomeIsUnresolvedFundsRemainAs', {
+          <CopyText k={'orderIsStillOpenTheOutcomeIsUnresolvedFundsRemainAs'} params={{
             resultDataId: String(result.data.id),
             pendingKind: String(pending.kind),
-          }),
+          }} />,
         );
-    } else setStatus(result.message);
+    } else setStatus(<TradeOriginalMessage source={result} />);
     refresh();
     setChecking(false);
   }
@@ -809,7 +825,7 @@ function SpotDesk({
         </div>
       )}
       {status && (
-        <p className="trade-status" role="status">
+        <p className="trade-status" role="status" lang="und">
           {status}
         </p>
       )}
@@ -899,7 +915,7 @@ function AccountOrders({ api, initialTab, simulation }: { api: TradeApi; initial
         </div>
       )}
       {status && (
-        <p className="trade-status" role="status">
+        <p className="trade-status" role="status" lang="und">
           {status}
         </p>
       )}
@@ -1049,7 +1065,7 @@ function BookAndTape({
                   <div className={`trade-book-row ${row.side === 'buy' ? 'positive' : 'negative'}`} key={row.id}>
                     <span>{displayAmount(row.price)}</span>
                     <span>{displayAmount(row.amount)}</span>
-                    <span>{new Date(row.timestamp).toLocaleTimeString()}</span>
+                    <span>{tradeDate(row.timestamp, 'time')}</span>
                   </div>
                 ))}
               </>
@@ -1166,7 +1182,7 @@ function OrderTicket({
   pending: Pending | null;
   onIntent: (value: Pending) => Promise<boolean>;
   onResolved: (identity: Pending) => void;
-  onStatus: (value: string) => void;
+  onStatus: (value: ReactNode) => void;
 }) {
   const { session, userId } = useSession(),
     preferences = usePreferences();
@@ -1230,14 +1246,10 @@ function OrderTicket({
     let baseAmount = amount;
     if (sizeUnit === 'quote') {
       try {
-        if (type !== 'limit') throw new Error(copy.t('quoteValueEntryRequiresAKnownLimitPriceMarketQuoteBudget'));
+        if (type !== 'limit') throw tradeError('quoteValueEntryRequiresAKnownLimitPriceMarketQuoteBudget');
         baseAmount = baseQuantityForValue(amount, price, market.precision.amount);
       } catch (error) {
-        setFailure({
-          ok: false,
-          reason: 'error',
-          message: error instanceof Error ? error.message : copy.t('quoteValueConversionFailure'),
-        });
+        setFailure(error instanceof Error ? tradeFailureFrom(error, 'error') : tradeRefusal('quoteValueConversionFailure', { reason: 'error' }));
         setBusy(false);
         busyRef.current = false;
         return;
@@ -1261,11 +1273,7 @@ function OrderTicket({
       if (result.ok && (!result.data.orderable || result.data.refusals.length > 0 || previewMatchesMode(result.data)))
         setReview({ draft: parsed.data, preview: result.data });
       else if (result.ok)
-        setFailure({
-          ok: false,
-          reason: 'invalid_response',
-          message: copy.t('theReservationDoesNotMatchThisMarketSLiveOrSimulated'),
-        });
+        setFailure(tradeRefusal('theReservationDoesNotMatchThisMarketSLiveOrSimulated', { reason: 'invalid_response' }));
       else setFailure(result);
     }
     setBusy(false);
@@ -1287,27 +1295,23 @@ function OrderTicket({
       setReview(null);
       setAmount('');
       onStatus(
-        copy.t('orderPlacedOutcome', {
+        <TradeMessage k={'orderPlacedOutcome'} params={() => ({
           orderLabel: copy.t(market.paper ? 'simulatedOrderLabel' : 'orderLabel'),
           id: result.data.id,
           status: result.data.status,
           filled: result.data.filled,
           remaining: result.data.remaining,
           base: market.base,
-        }),
+        })} />,
       );
     } else if (result.reason === 'changed') {
       onResolved(identity);
       if (previewMatchesMode(result.preview)) {
         setReview({ draft: review.draft, preview: result.preview });
-        setFailure({ ok: false, reason: 'error', message: result.message });
+        setFailure(tradeFailureFrom(result, 'error'));
       } else {
         setReview(null);
-        setFailure({
-          ok: false,
-          reason: 'invalid_response',
-          message: copy.t('theRefreshedReservationDoesNotMatchThisLiveOrSimulatedMarket'),
-        });
+        setFailure(tradeRefusal('theRefreshedReservationDoesNotMatchThisLiveOrSimulatedMarket', { reason: 'invalid_response' }));
       }
     } else {
       setFailure(result);
@@ -1512,7 +1516,7 @@ function OrderTicket({
               </div>
             </dl>
             {review.preview.refusals.map((row) => (
-              <p className="trade-refusal" key={`${row.code}:${row.field}`}>
+              <p className="trade-refusal" lang="und" key={`${row.code}:${row.field}`}>
                 {row.message}
               </p>
             ))}
@@ -1544,7 +1548,10 @@ function OrderTicket({
               ) : (
                 <CopyText
                   k={'place'}
-                  params={{ marketPaperSimulated: market.paper ? copy.t('simulatedPrefix') : '', side: String(side) }}
+                  params={{
+                    marketPaperSimulated: market.paper ? copy.t('simulatedPrefix') : '',
+                    side: choiceText(side === 'buy' ? 'Buy' : 'Sell').toLocaleLowerCase(preferences.language),
+                  }}
                 />
               )}
             </Button>
@@ -1827,9 +1834,9 @@ function OrderBlotter({
               >
                 {rows.map((row) => (
                   <tr key={row.id}>
-                    <td>{new Date(row.timestamp).toLocaleString()}</td>
-                    <td>{row.symbol}</td>
-                    <td>{row.side}</td>
+                    <td>{tradeDate(row.timestamp)}</td>
+                    <td lang="zxx">{row.symbol}</td>
+                    <td lang="zxx">{row.side}</td>
                     <td>
                       {displayAmount(row.price)} {market?.symbol === row.symbol ? market.quote : ''}
                     </td>
@@ -1866,8 +1873,8 @@ function OrderBlotter({
               >
                 {scoped.map((order) => (
                   <tr key={order.id}>
-                    <td>{new Date(order.timestamp).toLocaleTimeString()}</td>
-                    <td>{order.symbol}</td>
+                    <td>{tradeDate(order.timestamp, 'time')}</td>
+                    <td lang="zxx">{order.symbol}</td>
                     <td>
                       {order.side} · {order.type}
                     </td>
@@ -1880,7 +1887,7 @@ function OrderBlotter({
                     <td>
                       {displayAmount(order.remaining)} {market?.symbol === order.symbol ? market.base : ''}
                     </td>
-                    <td>{order.status}</td>
+                    <td lang="zxx">{order.status}</td>
                     <td>
                       {order.status === 'open' && (
                         <div className="trade-row-actions">
@@ -1921,7 +1928,7 @@ function OrderBlotter({
                 ))}
               </DataTable>
             ) : (
-              <EmptyState title={<CopyText k={'noInThisPage'} params={{ tabToLowerCase: String(tab.toLowerCase()) }} />} />
+              <EmptyState title={<CopyText k={'noInThisPage'} params={{ tabToLowerCase: choiceText(tab).toLocaleLowerCase() }} />} />
             );
           }}
         </ResourceView>
@@ -1965,7 +1972,7 @@ function ManageOrder({
   onClose: () => void;
   onIntent: (pending: Pending) => Promise<boolean>;
   onResolved: (identity: Pending) => void;
-  onStatus: (status: string) => void;
+  onStatus: (status: ReactNode) => void;
   canDispatch: () => boolean;
 }) {
   const preferences = usePreferences();
@@ -1992,11 +1999,7 @@ function ManageOrder({
     const latest = await api.order(current);
     if (!mounted.current || !canDispatch()) return;
     if (latest.ok && latest.data.recoveryRequired) {
-      setFailure({
-        ok: false,
-        reason: 'uncertain',
-        message: copy.t('thisOrderIsRecoveringResolveItsOriginalOutcomeBeforeAnotherAction'),
-      });
+      setFailure(tradeRefusal('thisOrderIsRecoveringResolveItsOriginalOutcomeBeforeAnotherAction', { reason: 'uncertain' }));
       setBusy(false);
       busyRef.current = false;
       return;
@@ -2008,27 +2011,19 @@ function ManageOrder({
       return;
     }
     if (latest.data.symbol !== current.symbol) {
-      setFailure({
-        ok: false,
-        reason: 'invalid_response',
-        message: copy.t('theOriginalOrderSMarketCouldNotBeVerifiedNoNew'),
-      });
+      setFailure(tradeRefusal('theOriginalOrderSMarketCouldNotBeVerifiedNoNew', { reason: 'invalid_response' }));
       setBusy(false);
       busyRef.current = false;
       return;
     }
     if (latest.data.status !== 'open') {
-      onStatus(copy.t('orderAlreadyOutcome', { id: current.id, status: latest.data.status, filled: latest.data.filled }));
+      onStatus(<CopyText k={'orderAlreadyOutcome'} params={{ id: current.id, status: latest.data.status, filled: latest.data.filled }} />);
       onClose();
       return;
     }
     if (latest.data.filled !== current.filled || latest.data.remaining !== current.remaining) {
       setCurrent(latest.data);
-      setFailure({
-        ok: false,
-        reason: 'error',
-        message: copy.t('thisOrderFilledWhileYouWereReviewingReviewItsRefreshedRemainder'),
-      });
+      setFailure(tradeRefusal('thisOrderFilledWhileYouWereReviewingReviewItsRefreshedRemainder', { reason: 'error' }));
       setBusy(false);
       busyRef.current = false;
       return;
@@ -2037,11 +2032,7 @@ function ManageOrder({
       try {
         if (parseAmount(amount) <= 0n || parseAmount(amount) >= parseAmount(current.remaining)) throw new Error();
       } catch {
-        setFailure({
-          ok: false,
-          reason: 'error',
-          message: copy.t('enterAPositiveRemainingQuantityBelowTheCurrentRemainderUseChange'),
-        });
+        setFailure(tradeRefusal('enterAPositiveRemainingQuantityBelowTheCurrentRemainderUseChange', { reason: 'error' }));
         setBusy(false);
         busyRef.current = false;
         return;
@@ -2070,12 +2061,12 @@ function ManageOrder({
         ('reconciliationRequired' in result.data && result.data.reconciliationRequired) ||
         ('recoveryRequired' in result.data && result.data.recoveryRequired)
       ) {
-        onStatus(copy.t(selection.kind === 'cancel' ? 'cancellationUnknown' : 'amendmentUnknown'));
+        onStatus(<CopyText k={selection.kind === 'cancel' ? 'cancellationUnknown' : 'amendmentUnknown'} />);
       } else {
         onResolved(identity);
         const order = 'order' in result.data ? result.data.order : result.data;
         onStatus(
-          copy.t('managedOrderOutcome', {
+          <TradeMessage k={'managedOrderOutcome'} params={() => ({
             amendment:
               'accepted' in result.data
                 ? copy.t('amendmentOutcome', {
@@ -2089,7 +2080,7 @@ function ManageOrder({
             remaining: order.remaining,
             priority:
               'priority' in result.data && result.data.priority ? copy.t('queuePriorityOutcome', { priority: result.data.priority }) : '',
-          }),
+          })} />,
         );
       }
       onClose();

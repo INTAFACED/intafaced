@@ -1,4 +1,4 @@
-import { tradeCopy as copy } from './copy';
+import { tradeRefusal, tradeCopy as copy } from './copy';
 import { useEffect, useMemo, useState } from 'react';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
@@ -13,13 +13,14 @@ export function usePolled<T>(load: (signal: AbortSignal) => Promise<ApiResult<T>
   }, [key, seconds]);
   return result;
 }
+type BookStatus = 'loadingDepth' | 'snapshot' | 'snapshotIsStale' | 'unverifiedDepth' | 'depthUnavailable' | 'unverifiedStream' | 'liveDepth' | 'resynchronizingDepth' | 'streamInterrupted' | 'reconnecting';
 export function useLinkedBook(api: TradeApi, market: Listing) {
   const [state, setState] = useState<{
     key: string;
     book: ReturnType<LinkedDepth['read']>;
-    status: string;
+    status: BookStatus;
     failure: Extract<ApiResult<unknown>, { ok: false }> | null;
-  }>({ key: market.id, book: new LinkedDepth(market.id).read(), status: copy.t('loadingDepth'), failure: null });
+  }>({ key: market.id, book: new LinkedDepth(market.id).read(), status: 'loadingDepth', failure: null });
   useEffect(() => {
     const controller = new AbortController(),
       depth = new LinkedDepth(market.id);
@@ -27,7 +28,7 @@ export function useLinkedBook(api: TradeApi, market: Listing) {
       closed = false,
       inFlight = false,
       retry: ReturnType<typeof setTimeout> | undefined,
-      source = copy.t('snapshot');
+      source: BookStatus = 'snapshot';
     const publish = (failure: Extract<ApiResult<unknown>, { ok: false }> | null = null) => {
       if (!closed) setState({ key: market.id, book: depth.read(), status: source, failure });
     };
@@ -40,8 +41,8 @@ export function useLinkedBook(api: TradeApi, market: Listing) {
       if (result.ok) {
         if (Date.now() - result.data.timestamp >= 15000 || result.data.timestamp > Date.now() + 5000) {
           depth.invalidate();
-          source = copy.t('snapshotIsStale');
-          publish({ ok: false, reason: 'invalid_response', message: copy.t('thisDepthSnapshotIsTooOldToAuthorizeANewOrder') });
+          source = 'snapshotIsStale';
+          publish(tradeRefusal('thisDepthSnapshotIsTooOldToAuthorizeANewOrder', { reason: 'invalid_response' }));
           return;
         }
         const verdict = depth.receive(
@@ -55,12 +56,12 @@ export function useLinkedBook(api: TradeApi, market: Listing) {
           result.data.timestamp,
         );
         if (verdict === 'invalid') {
-          source = copy.t('unverifiedDepth');
-          publish({ ok: false, reason: 'invalid_response', message: copy.t('depthContainsAnInvalidPriceOrQuantity') });
+          source = 'unverifiedDepth';
+          publish(tradeRefusal('depthContainsAnInvalidPriceOrQuantity', { reason: 'invalid_response' }));
         } else publish();
       } else {
         depth.invalidate();
-        source = copy.t('depthUnavailable');
+        source = 'depthUnavailable';
         publish(result);
       }
     };
@@ -76,30 +77,30 @@ export function useLinkedBook(api: TradeApi, market: Listing) {
           wire = JSON.parse(String(event.data));
         } catch {
           depth.invalidate();
-          source = copy.t('unverifiedStream');
+          source = 'unverifiedStream';
           publish();
           void snapshot();
           return;
         }
         const verdict = depth.receive(wire);
         if (verdict === 'accepted') {
-          source = copy.t('liveDepth');
+          source = 'liveDepth';
           publish();
         } else if (verdict === 'gap' || verdict === 'invalid') {
-          source = copy.t('resynchronizingDepth');
+          source = 'resynchronizingDepth';
           publish();
           void snapshot();
         }
       };
       socket.onerror = () => {
         depth.invalidate();
-        source = copy.t('streamInterrupted');
+        source = 'streamInterrupted';
         publish();
       };
       socket.onclose = () => {
         if (closed) return;
         depth.invalidate();
-        source = copy.t('reconnecting');
+        source = 'reconnecting';
         publish();
         retry = setTimeout(() => {
           void snapshot();
@@ -111,7 +112,7 @@ export function useLinkedBook(api: TradeApi, market: Listing) {
     connect();
     const clock = setInterval(() => publish(), 1000),
       poll = setInterval(() => {
-        source = copy.t('snapshot');
+        source = 'snapshot';
         void snapshot();
       }, 10000);
     return () => {
@@ -124,7 +125,7 @@ export function useLinkedBook(api: TradeApi, market: Listing) {
     };
   }, [api, market.id, market.symbol]);
   return state.key === market.id
-    ? state
+    ? { ...state, status: copy.t(state.status) }
     : { key: market.id, book: new LinkedDepth(market.id).read(), status: copy.t('loadingDepth'), failure: null };
 }
 export function useDeviceSetting<T>(key: string, initial: T, validate: (value: unknown) => value is T) {

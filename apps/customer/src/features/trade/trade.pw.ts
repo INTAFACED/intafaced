@@ -405,7 +405,7 @@ test('market discovery filters published quotes and saved favorites without chan
   await expect(page.getByLabel('Price (USDT per ETH)', { exact: true })).toHaveValue('');
   await expect(page.getByLabel('Amount (ETH)', { exact: true })).toHaveValue('');
   await expect(page.getByRole('group', { name: 'Draft order value' }).locator('strong')).toHaveText('—');
-  await expect(page.getByRole('img', { name: 'Actual ETH/USDT historical prices' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Actual ETH/USDT historical prices' })).toBeVisible();
   expect(server.previews()).toBe(0);
   expect(server.placements()).toBe(0);
 });
@@ -773,7 +773,7 @@ test('the actual Desk keeps working orders and an uncertain cancellation within 
   await page.setViewportSize({ width: 1440, height: 900 });
   const transport = await mount(page, { working: true, uncertainCancel: true });
   await page.goto('/exchange?fullApp=1');
-  const chart = page.getByRole('img', { name: 'Actual BTC/USDT historical prices', exact: true });
+  const chart = page.getByRole('group', { name: 'Actual BTC/USDT historical prices', exact: true });
   await expect(chart.locator('canvas').first()).toBeVisible();
   const originalCanvases = await chart.locator('canvas').elementHandles();
   await chart.focus();
@@ -846,7 +846,7 @@ test('device appearance repaints both mounted charts while preserving the analys
   await page.getByRole('button', { name: 'Two timeframes', exact: true }).click();
   await expect(page.locator('.trade-secondary-chart canvas').first()).toBeVisible();
   await page.getByLabel('Amount (BTC)', { exact: true }).fill('0.025');
-  const primary = page.getByRole('img', { name: 'Actual BTC/USDT historical prices', exact: true });
+  const primary = page.getByRole('group', { name: 'Actual BTC/USDT historical prices', exact: true });
   await primary.focus();
   await primary.press('ArrowLeft');
   const inspection = page.getByText('O 80010 · H 80020 · L 79990 · C 80001 USDT · V 1 BTC', { exact: true });
@@ -861,7 +861,7 @@ test('device appearance repaints both mounted charts while preserving the analys
         .slice(1)
         .match(/../g)!
         .map((channel) => parseInt(channel, 16));
-      return ['[role="img"] canvas', '.trade-secondary-chart canvas'].map((selector) =>
+      return ['.trade-chart-canvas[role="group"] canvas', '.trade-secondary-chart canvas'].map((selector) =>
         [...document.querySelectorAll<HTMLCanvasElement>(selector)].some((canvas) => {
           const pixels = canvas.getContext('2d')!.getImageData(2, 2, 1, 1).data;
           return pixels[3] === 255 && rgb.every((channel, index) => pixels[index] === channel);
@@ -913,20 +913,22 @@ test('a light Desk cancellation review has a readable danger action without disp
   expect(server.deletes()).toBe(0);
 });
 
-test('the French Desk identifies English absence copy without mislabeling written controls', async ({ page }) => {
+test('the French Desk renders authored absence copy and preserves original provider prose', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ language: 'fr' })));
   await mount(page);
   await page.route('**/api/v1/markets*', (route) => route.fulfill({ status: 503, json: { message: 'Market service unavailable' } }));
   await page.goto('/exchange?fullApp=1');
   await expect(page.locator('html')).toHaveAttribute('lang', 'fr');
   for (const content of [
-    page.getByRole('heading', { name: 'Spot order', exact: true }),
-    page.getByRole('heading', { name: 'Funds unavailable', exact: true }),
-    page.getByText('Available account funds cannot be verified until published market information is available.', { exact: true }),
+    page.getByRole('heading', { name: 'Ordre au comptant', exact: true }),
+    page.getByRole('heading', { name: 'Fonds indisponibles', exact: true }),
+    page.getByText('Les fonds disponibles du compte ne peuvent pas être vérifiés tant que les informations de marché publiées ne sont pas disponibles.', { exact: true }),
   ]) {
     await expect(content).toBeVisible();
-    expect(await content.evaluate((node) => node.closest('[lang]')?.getAttribute('lang'))).toBe('en');
+    expect(await content.evaluate((node) => node.closest('[lang]')?.getAttribute('lang'))).toBe('fr');
   }
+  await expect(page.getByText('Market service unavailable', { exact: true })).toBeVisible();
+  expect(await page.getByText('Market service unavailable', { exact: true }).evaluate((node) => node.closest('[lang]')?.getAttribute('lang'))).toBe('und');
   await expect(page.getByRole('navigation', { name: 'Modes de négociation', exact: true })).toHaveAttribute('lang', 'fr');
   await expect(page.getByRole('button', { name: 'Choisir un marché de négociation', exact: true })).toHaveAttribute('lang', 'fr');
 });
@@ -936,20 +938,20 @@ test('French chart labels preserve native saved workspace types and verified ord
   await mount(page, { working: true });
   await page.goto('/exchange?fullApp=1');
   await expect(page.getByRole('button', { name: 'Acheter', exact: true })).toBeVisible();
-  const chartType = page.getByRole('combobox', { name: 'Chart type', exact: true });
+  const chartType = page.getByRole('combobox', { name: 'Type de graphique', exact: true });
   await chartType.selectOption({ label: 'Ligne' });
   await expect(chartType).toHaveValue('Line');
   await expect(chartType.locator('option:checked')).toHaveAttribute('lang', 'fr');
   await page.getByText('Espace de travail', { exact: true }).click();
-  await page.getByLabel('Workspace name', { exact: true }).fill('Lecture');
-  await page.getByRole('button', { name: 'Save workspace on device', exact: true }).click();
+  await page.getByLabel('Nom de l’espace de travail', { exact: true }).fill('Lecture');
+  await page.getByRole('button', { name: 'Enregistrer l’espace de travail sur l’appareil', exact: true }).click();
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('trade-desk-workspaces:v1') || '[]'));
   expect(saved[0]).toMatchObject({ name: 'Lecture', paper: false, primary: { type: 'Line', studies: ['Volume'] } });
   await expect(page.locator('[data-i18n="trade.controlBuy"]')).toHaveAttribute('lang', 'fr');
-  await expect(page.locator('[data-i18n="trade.saveWorkspaceOnDevice"]')).toHaveAttribute('lang', 'en');
+  await expect(page.locator('[data-i18n="trade.saveWorkspaceOnDevice"]')).toHaveAttribute('lang', 'fr');
   await page.getByText('Espace de travail', { exact: true }).click();
   await expect(page.getByText('open', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Reduce', exact: true }).click();
+  await page.getByRole('button', { name: 'Réduire', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('BTC/USDT · buy limit · order-1');
 });
 
@@ -998,7 +1000,7 @@ test('the actual View red-up preference colors market data without recoloring ca
 test('the full sell deep link resolves only its requested published market, keeping query outside the pair', async ({ page }) => {
   await mount(page);
   await page.goto('/exchange/BTC_USDT?side=sell');
-  await expect(page.getByRole('img', { name: 'Actual BTC/USDT historical prices', exact: true })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Actual BTC/USDT historical prices', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Review sell', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Choose trading market', exact: true })).toContainText('BTC/USDT');
   await page.getByLabel('Amount (BTC)', { exact: true }).fill('0.003');
@@ -1113,7 +1115,7 @@ test('four actual history views fit between desktop and phone widths and retain 
     await expect(page.getByLabel('Linked chart 3 interval')).toHaveValue('1d');
     await expect(page.getByRole('region', { name: 'Linked chart 3 · BTC/USDT' }).locator('canvas').first()).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth), `${width}px document`).toBeLessThanOrEqual(width);
-    const primary = page.getByRole('img', { name: 'Actual BTC/USDT historical prices', exact: true });
+    const primary = page.getByRole('group', { name: 'Actual BTC/USDT historical prices', exact: true });
     const parent = page.locator('.trade-chart-grid > .trade-chart');
     const chartBox = (await primary.boundingBox())!,
       panelBox = (await parent.boundingBox())!;
@@ -1225,7 +1227,7 @@ test('market context resets the ticket and retains explicit base units', async (
   await page.getByRole('button', { name: 'ETH/USDT Published for trading', exact: true }).click();
   await expect(page.getByRole('textbox', { name: /^Amount \(ETH\)/ })).toHaveValue('');
   await expect(page.getByRole('textbox', { name: /^Amount \(BTC\)/ })).toHaveCount(0);
-  await expect(page.getByRole('img', { name: 'Actual ETH/USDT historical prices' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Actual ETH/USDT historical prices' })).toBeVisible();
 });
 test('quote-value limit entry sends only an exact lot-aligned base quantity for review', async ({ page }) => {
   await mount(page);
@@ -1343,8 +1345,8 @@ test('phone retains chart, ticket, and book without horizontal page overflow', a
   await page.setViewportSize({ width: 390, height: 844 });
   await mount(page);
   await page.goto('/exchange');
-  await expect(page.getByRole('img', { name: 'Actual BTC/USDT historical prices' })).toBeVisible();
-  await expect(page.getByRole('img', { name: 'Actual BTC/USDT historical prices' }).locator('canvas').first()).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Actual BTC/USDT historical prices' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Actual BTC/USDT historical prices' }).locator('canvas').first()).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: '/tmp/intafaced-trade-phone.png', fullPage: true });
 });
@@ -1386,7 +1388,7 @@ test('old source depth cannot authorize a new order merely because it was just r
 test('candle inspection and depth staging retain the actual source prices', async ({ page }) => {
   await mount(page);
   await page.goto('/exchange');
-  const chart = page.getByRole('img', { name: 'Actual BTC/USDT historical prices', exact: true });
+  const chart = page.getByRole('group', { name: 'Actual BTC/USDT historical prices', exact: true });
   await expect(chart.locator('canvas').first()).toBeVisible();
   await chart.focus();
   await chart.press('ArrowLeft');
@@ -1435,7 +1437,7 @@ test('a saved chart layout restores its type, interval, and indicator set', asyn
 test('a keyboard level drawing persists and restores its exact source price', async ({ page }) => {
   await mount(page);
   await page.goto('/exchange');
-  const chart = page.getByRole('img', { name: 'Actual BTC/USDT historical prices', exact: true });
+  const chart = page.getByRole('group', { name: 'Actual BTC/USDT historical prices', exact: true });
   await expect(chart.locator('canvas').first()).toBeVisible();
   await page
     .locator('summary')
@@ -1451,7 +1453,7 @@ test('a keyboard level drawing persists and restores its exact source price', as
   );
   expect(saved[0].points[0][1]).toBe('80001');
   await page.reload();
-  await expect(page.getByRole('img', { name: 'Actual BTC/USDT historical prices', exact: true }).locator('svg line')).toHaveCount(1);
+  await expect(page.getByRole('group', { name: 'Actual BTC/USDT historical prices', exact: true }).locator('svg line')).toHaveCount(1);
 });
 test('a delayed reconciliation cannot remove a newer request recovery marker', async ({ page }) => {
   await mount(page, { uncertain: true });
@@ -1512,7 +1514,7 @@ for (const width of [1440, 768, 320])
     await page.setViewportSize({ width, height: 900 });
     await mount(page);
     await page.goto('/exchange');
-    await expect(page.getByRole('img', { name: 'Actual BTC/USDT historical prices', exact: true }).locator('canvas').first()).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Actual BTC/USDT historical prices', exact: true }).locator('canvas').first()).toBeVisible();
     await page
       .locator('summary')
       .filter({ hasText: /^View$/ })

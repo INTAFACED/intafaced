@@ -1,9 +1,9 @@
-import { tradeCopy as copy, CopyText, tradeLabels, choiceNode } from './copy';
+import { TradeMessage, tradeRefusal, tradeCopy as copy, CopyText, tradeLabels, choiceNode, tradeDate, TradeFailure as Failure } from './copy';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { positionSchema, type Position } from '@intafaced/exchange-contract/schemas';
 import { useSession } from '../session/session';
-import { Button, DataTable, Dialog, EmptyState, Failure, Field, Loading, Page, Tabs } from '../../shared/ui';
+import { Button, DataTable, Dialog, EmptyState, Field, Loading, Page, Tabs } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount, formatAmount } from '../../shared/money';
 import type { ApiClient, ApiResult } from '../../shared/api';
@@ -56,9 +56,9 @@ function useWriteGuard() {
     [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(
       initial.available
         ? null
-        : { ok: false, reason: 'error', message: copy.t('deviceStorageIsUnavailableTradingCannotPreserveARequestIdentity') },
+        : tradeRefusal('deviceStorageIsUnavailableTradingCannotPreserveARequestIdentity', { reason: 'error' }),
     ),
-    [message, setMessage] = useState(''),
+    [message, setMessage] = useState<ReactNode>(''),
     ref = useRef(false),
     mounted = useRef(true);
   useEffect(() => {
@@ -98,11 +98,7 @@ function useWriteGuard() {
       return true;
     } catch {
       setLocked(true);
-      setFailure({
-        ok: false,
-        reason: 'error',
-        message: copy.t('theOutcomeIsConfirmedButItsDeviceMarkerCouldNotBea566ab'),
-      });
+      setFailure(tradeRefusal('theOutcomeIsConfirmedButItsDeviceMarkerCouldNotBea566ab', { reason: 'error' }));
       return false;
     }
   }
@@ -118,11 +114,7 @@ function useWriteGuard() {
       return;
     }
     if (!navigator.locks) {
-      setFailure({
-        ok: false,
-        reason: 'error',
-        message: copy.t('thisBrowserCannotCoordinateTradingRequestsAcrossTabsUseABrowser29685f'),
-      });
+      setFailure(tradeRefusal('thisBrowserCannotCoordinateTradingRequestsAcrossTabsUseABrowser29685f', { reason: 'error' }));
       return;
     }
     ref.current = true;
@@ -131,7 +123,7 @@ function useWriteGuard() {
     try {
       await navigator.locks.request(`trade-account:${userId ?? 'signed-out'}`, { ifAvailable: true }, async (lock) => {
         if (!mounted.current || !lock || readMarker(key).blocked) {
-          setMessage(copy.t('anotherTradingRequestIsActive'));
+          setMessage(<CopyText k={'anotherTradingRequestIsActive'} />);
           return;
         }
         const marker = { ...identity, startedAt: Date.now() };
@@ -140,11 +132,7 @@ function useWriteGuard() {
           window.dispatchEvent(new Event('trade-pending-change'));
           setPending(marker);
         } catch {
-          setFailure({
-            ok: false,
-            reason: 'error',
-            message: copy.t('theBrowserCannotPreserveThisRequestIdentityEnableDeviceStorageBefore'),
-          });
+          setFailure(tradeRefusal('theBrowserCannotPreserveThisRequestIdentityEnableDeviceStorageBefore', { reason: 'error' }));
           return;
         }
         const result = await call();
@@ -156,18 +144,14 @@ function useWriteGuard() {
           if (result.reason === 'uncertain') {
             setLocked(true);
             setMessage(
-              copy.t('outcomeUnknownPreserveRequestCheckItsAuthoritativeStatusBeforeAnotherTrading', { identityId: String(identity.id) }),
+              <CopyText k={'outcomeUnknownPreserveRequestCheckItsAuthoritativeStatusBeforeAnotherTrading'} params={{ identityId: String(identity.id) }} />,
             );
           } else resolve(identity.id, marker);
         }
       });
     } catch {
       setLocked(true);
-      setFailure({
-        ok: false,
-        reason: 'uncertain',
-        message: copy.t('theRequestEndedWithoutAVerifiedOutcomePreserveTheOriginalRequest'),
-      });
+      setFailure(tradeRefusal('theRequestEndedWithoutAVerifiedOutcomePreserveTheOriginalRequest', { reason: 'uncertain' }));
     } finally {
       setBusy(false);
       ref.current = false;
@@ -180,7 +164,7 @@ function GuardResult({ guard }: { guard: ReturnType<typeof useWriteGuard> }) {
     <>
       {guard.failure && <Failure result={guard.failure} />}{' '}
       {guard.message && (
-        <p role="status" className="trade-note">
+        <p role="status" className="trade-note" lang="und">
           {guard.message}
         </p>
       )}
@@ -312,7 +296,7 @@ function Convert({ tools, markets, simulation }: { tools: ToolApi; markets: List
       setQuote(result.data);
     else
       guard.setFailure(
-        result.ok ? { ok: false, reason: 'invalid_response', message: copy.t('thisQuoteDoesNotMatchTheRequestedConversion') } : result,
+        result.ok ? tradeRefusal('thisQuoteDoesNotMatchTheRequestedConversion', { reason: 'invalid_response' }) : result,
       );
     setLoading(false);
   }
@@ -399,14 +383,14 @@ function Convert({ tools, markets, simulation }: { tools: ToolApi; markets: List
                 <dt>
                   <CopyText k="expires" />
                 </dt>
-                <dd>{new Date(quote.expiresAt).toLocaleString()}</dd>
+                <dd>{tradeDate(quote.expiresAt)}</dd>
               </div>
               <div>
                 <dt>
                   <CopyText k="source" />
                 </dt>
                 <dd>
-                  {quote.source.symbol} · {new Date(quote.source.asOf).toLocaleTimeString()}
+                  <span lang="zxx">{quote.source.symbol}</span> · {tradeDate(quote.source.asOf, 'time')}
                 </dd>
               </div>
             </dl>
@@ -419,13 +403,13 @@ function Convert({ tools, markets, simulation }: { tools: ToolApi; markets: List
                   () => tools.convertAccept(quote.quoteId, id),
                   (data) => {
                     guard.setMessage(
-                      copy.t('convertedIntoFill', {
+                      <CopyText k={'convertedIntoFill'} params={{
                         dataInAmount: String(data.inAmount),
                         dataInAsset: String(data.inAsset),
                         dataOutAmount: String(data.outAmount),
                         dataOutAsset: String(data.outAsset),
                         dataFillId: String(data.fillId),
-                      }),
+                      }} />,
                     );
                     setQuote(null);
                   },
@@ -475,7 +459,7 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
       return;
     }
     if (result.data.quoteId !== id) {
-      guard.setFailure({ ok: false, reason: 'invalid_response', message: copy.t('theReturnedQuoteBelongsToADifferentRequest') });
+      guard.setFailure(tradeRefusal('theReturnedQuoteBelongsToADifferentRequest', { reason: 'invalid_response' }));
       return;
     }
     setQuote(result.data);
@@ -512,7 +496,7 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
     } else
       guard.setFailure(
         result.ok
-          ? { ok: false, reason: 'invalid_response', message: copy.t('theDeskQuoteDoesNotMatchTheRequestedAssetsAndQuantity') }
+          ? tradeRefusal('theDeskQuoteDoesNotMatchTheRequestedAssetsAndQuantity', { reason: 'invalid_response' })
           : result,
       );
     setLoading(false);
@@ -533,14 +517,14 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
     setBound(data.lifecycle === 'bound');
     if (data.lifecycle === 'settled' || data.lifecycle === 'expired' || (data.lifecycle === 'bound' && original.operation === 'accept')) {
       guard.resolve(original.id);
-      guard.setMessage(copy.t('originalQuote', { originalId: String(original.id), dataLifecycle: String(data.lifecycle) }));
+      guard.setMessage(<CopyText k={'originalQuote'} params={{ originalId: String(original.id), dataLifecycle: String(data.lifecycle) }} />);
     } else
       guard.setMessage(
-        copy.t('originalQuoteItsOutcomeRemainsUnresolved', {
+        <TradeMessage k={'originalQuoteItsOutcomeRemainsUnresolved'} params={() => ({
           originalId: String(original.id),
           dataLifecycleDataStatus: String(data.lifecycle ?? data.status),
           originalOperationRequest: String(original.operation ?? copy.t('genericRequest')),
-        }),
+        })} />,
       );
   }
   return (
@@ -561,7 +545,9 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
               data.published ? (
                 <CopyText k={'quotesRequireActualDeskPricingTheNamedCounterpartyAndYourAccount'} />
               ) : (
-                (data.residual ?? <CopyText k={'deskSpreadStakeEligibilityCounterpartyRoutingOrReferencePricingAuthorityIs'} />)
+                data.residual === null || data.residual === undefined
+                  ? <CopyText k={'deskSpreadStakeEligibilityCounterpartyRoutingOrReferencePricingAuthorityIs'} />
+                  : <span lang="und">{data.residual}</span>
               )
             }
           />
@@ -656,14 +642,14 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
                     <CopyText k="counterparty" />
                   </dt>
                   <dd>
-                    {quote.counterparty} · {quote.counterpartyId}
+                    <span lang="und">{quote.counterparty}</span> · <span lang="zxx">{quote.counterpartyId}</span>
                   </dd>
                 </div>
                 <div>
                   <dt>
                     <CopyText k="expiry" />
                   </dt>
-                  <dd>{new Date(quote.expiresAt).toLocaleString()}</dd>
+                  <dd>{tradeDate(quote.expiresAt)}</dd>
                 </div>
               </dl>
               <Button
@@ -681,16 +667,16 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
                     (data) => {
                       if (bound) {
                         guard.setMessage(
-                          copy.t('quoteSettledAt', {
+                          <CopyText k={'quoteSettledAt'} params={{
                             dataQuoteId: String(data.quoteId),
                             dataFillPrice: String(data.fillPrice),
                             dataQuoteAsset: String(data.quoteAsset),
-                          }),
+                          }} />,
                         );
                         setQuote(null);
                       } else {
                         setBound(true);
-                        guard.setMessage(copy.t('quoteAcceptedReviewTheBoundFillAndSettleItToComplete'));
+                        guard.setMessage(<CopyText k={'quoteAcceptedReviewTheBoundFillAndSettleItToComplete'} />);
                       }
                     },
                   )
@@ -794,7 +780,7 @@ function Futures({
       setPreview(result.data);
     else
       guard.setFailure(
-        result.ok ? { ok: false, reason: 'invalid_response', message: copy.t('riskPreviewBelongsToADifferentPositionIntent') } : result,
+        result.ok ? tradeRefusal('riskPreviewBelongsToADifferentPositionIntent', { reason: 'invalid_response' }) : result,
       );
     setLoading(false);
   }
@@ -820,7 +806,7 @@ function Futures({
           positions={positions.resource.status === 'ready' ? positions.resource.data : []}
           accountKey={userId ?? 'signed-out'}
           onStagePrice={(price) =>
-            guard.setMessage(copy.t('inspectedActualCandleClosePositionExecutionUsesItsAcceptedMarkChart', { price: String(price) }))
+            guard.setMessage(<CopyText k={'inspectedActualCandleClosePositionExecutionUsesItsAcceptedMarkChart'} params={{ price: String(price) }} />)
           }
         />
       )}
@@ -936,7 +922,7 @@ function Futures({
               ))}
             </dl>
             {preview.refusals.map((row) => (
-              <p className="trade-refusal" key={row.code}>
+              <p className="trade-refusal" key={row.code} lang="und">
                 {row.message}
               </p>
             ))}
@@ -966,7 +952,7 @@ function Futures({
                 }
                 if (JSON.stringify(refreshed.data) !== JSON.stringify(preview)) {
                   setPreview(refreshed.data);
-                  guard.setMessage(copy.t('riskValuesChangedReviewAgain'));
+                  guard.setMessage(<CopyText k={'riskValuesChangedReviewAgain'} />);
                   return;
                 }
                 const id = `position:${crypto.randomUUID()}`;
@@ -974,17 +960,13 @@ function Futures({
                   { kind: 'position', id, symbol },
                   () =>
                     simulationRef.current
-                      ? Promise.resolve({
-                          ok: false as const,
-                          reason: 'not_supported' as const,
-                          message: copy.t('simulatedModeCannotOpenALivePosition'),
-                        })
+                      ? Promise.resolve(tradeRefusal('simulatedModeCannotOpenALivePosition', { reason: 'not_supported' as const }))
                       : transport.rest('/positions', positionSchema, {
                           method: 'POST',
                           body: { symbol, side, size: positionSize, leverage, marginMode: 'isolated', clientOpenId: id },
                         }),
                   (data) => {
-                    guard.setMessage(copy.t('position', { dataId: String(data.id), dataStatus: String(data.status) }));
+                    guard.setMessage(<CopyText k={'position'} params={{ dataId: String(data.id), dataStatus: String(data.status) }} />);
                     positions.reload();
                     setPreview(null);
                   },
@@ -998,7 +980,7 @@ function Futures({
         <State value={disclosure}>
           {(data) => (
             <>
-              <p className="trade-note">{data.copy}</p>
+              <p className="trade-note" lang="und">{data.copy}</p>
               {!data.acknowledged && (
                 <Button
                   variant="secondary"
@@ -1051,7 +1033,7 @@ function Futures({
               >
                 {rows.map((row) => (
                   <tr key={row.id ?? row.symbol}>
-                    <td>
+                    <td lang="zxx">
                       {row.symbol} · {row.side}
                     </td>
                     <td>
@@ -1063,8 +1045,8 @@ function Futures({
                     <td>{displayAmount(row.collateral)}</td>
                     <td>{displayAmount(row.liquidationPrice)}</td>
                     <td>
-                      {row.status}
-                      {row.closingReason && <small>{row.closingReason}</small>}
+                      <span lang="zxx">{row.status}</span>
+                      {row.closingReason && <small lang="und">{row.closingReason}</small>}
                     </td>
                     <td>
                       <button disabled={simulation || !row.id || guard.locked || row.status !== 'open'} onClick={() => setSelected(row)}>
@@ -1100,14 +1082,10 @@ function Futures({
                 { kind: 'position', id: selected.id, symbol: selected.symbol },
                 () =>
                   simulationRef.current
-                    ? Promise.resolve({
-                        ok: false as const,
-                        reason: 'not_supported' as const,
-                        message: copy.t('simulatedModeCannotCloseALivePosition'),
-                      })
+                    ? Promise.resolve(tradeRefusal('simulatedModeCannotCloseALivePosition', { reason: 'not_supported' as const }))
                     : tools.positionClose(selected.id as string),
                 (data) => {
-                  guard.setMessage(copy.t('position', { dataId: String(data.id), dataStatus: String(data.status) }));
+                  guard.setMessage(<CopyText k={'position'} params={{ dataId: String(data.id), dataStatus: String(data.status) }} />);
                   positions.reload();
                   setSelected(null);
                 },
@@ -1151,7 +1129,7 @@ function Copy({ tools, transport, simulation }: { tools: ToolApi; transport: Api
                 <CopyText k={'copyPermissionRestricted'} />
               )
             }
-            detail={data.residual ?? data.statusLine}
+            detail={<span lang="und">{data.residual ?? data.statusLine}</span>}
           />
         )}
       </State>
@@ -1247,7 +1225,7 @@ function Copy({ tools, transport, simulation }: { tools: ToolApi; transport: Api
                 ),
               (data) => {
                 guard.setMessage(
-                  copy.t('followb66058', { dataFollowId: String(data.followId), dataRelationshipState: String(data.relationshipState) }),
+                  <CopyText k={'followb66058'} params={{ dataFollowId: String(data.followId), dataRelationshipState: String(data.relationshipState) }} />,
                 );
                 follows.reload();
                 setConfirm(false);
@@ -1290,13 +1268,13 @@ function Copy({ tools, transport, simulation }: { tools: ToolApi; transport: Api
               >
                 {rows.map((row) => (
                   <tr key={row.followId}>
-                    <td>{row.leaderId}</td>
-                    <td>{row.permittedMarkets.join(', ')}</td>
+                    <td lang="zxx">{row.leaderId}</td>
+                    <td lang="zxx">{row.permittedMarkets.join(', ')}</td>
                     <td>
                       {displayAmount(row.currentExposure)} / {displayAmount(row.remainingExposure)}
                     </td>
                     <td>
-                      {row.relationshipState} · {new Date(row.expiresAt).toLocaleDateString()}
+                      <span lang="zxx">{row.relationshipState}</span> · {tradeDate(row.expiresAt, 'date')}
                     </td>
                     <td>
                       <div className="trade-row-actions">
@@ -1310,10 +1288,10 @@ function Copy({ tools, transport, simulation }: { tools: ToolApi; transport: Api
                                 () => tools.copyAction(action, row.followId),
                                 (data) => {
                                   guard.setMessage(
-                                    copy.t('followExistingPositionsAreRetained', {
+                                    <CopyText k={'followExistingPositionsAreRetained'} params={{
                                       dataFollowId: String(data.followId),
                                       dataRelationshipState: String(data.relationshipState),
-                                    }),
+                                    }} />,
                                   );
                                   follows.reload();
                                 },
@@ -1348,18 +1326,14 @@ function Bots({ tools, simulation }: { tools: ToolApi; simulation: boolean }) {
       (signal) =>
         active
           ? tools.algoGet(active, signal)
-          : Promise.resolve({
-              ok: false as const,
-              reason: 'not_supported' as const,
-              message: copy.t('enterAScheduleIdToReadAnExistingExecutionSchedule'),
-            }),
+          : Promise.resolve(tradeRefusal('enterAScheduleIdToReadAnExistingExecutionSchedule', { reason: 'not_supported' as const })),
       active,
     ),
     progress = useResource(
       (signal) =>
         active
           ? tools.algoProgress(active, signal)
-          : Promise.resolve({ ok: false as const, reason: 'not_supported' as const, message: copy.t('chooseAnExistingSchedule') }),
+          : Promise.resolve(tradeRefusal('chooseAnExistingSchedule', { reason: 'not_supported' as const })),
       active,
     );
   const guard = useWriteGuard();
@@ -1400,7 +1374,7 @@ function Bots({ tools, simulation }: { tools: ToolApi; simulation: boolean }) {
                       <dt>
                         <CopyText k="status" />
                       </dt>
-                      <dd>{data.status}</dd>
+                      <dd lang="zxx">{data.status}</dd>
                     </div>
                     <div>
                       <dt>
@@ -1414,7 +1388,7 @@ function Bots({ tools, simulation }: { tools: ToolApi; simulation: boolean }) {
                       <dt>
                         <CopyText k="projectedEnd" />
                       </dt>
-                      <dd>{new Date(data.projectedEndsAt).toLocaleString()}</dd>
+                      <dd>{tradeDate(data.projectedEndsAt)}</dd>
                     </div>
                   </dl>
                   <div className="actions">
@@ -1429,7 +1403,7 @@ function Bots({ tools, simulation }: { tools: ToolApi; simulation: boolean }) {
                             () => tools.algoAction(action, data.id),
                             (updated) => {
                               guard.setMessage(
-                                copy.t('schedule', { updatedId: String(updated.id), updatedStatus: String(updated.status) }),
+                                <CopyText k={'schedule'} params={{ updatedId: String(updated.id), updatedStatus: String(updated.status) }} />,
                               );
                               parent.reload();
                               progress.reload();
@@ -1488,8 +1462,8 @@ function Execution({ tools, simulation }: { tools: ToolApi; simulation: boolean 
           >
             {data.doors.map((door) => (
               <tr key={door.id}>
-                <td>{door.module.replace('execution.', '')}</td>
-                <td>{door.kind}</td>
+                <td lang="zxx">{door.module.replace('execution.', '')}</td>
+                <td lang="zxx">{door.kind}</td>
                 <td>
                   {door.callerSubmit ? <CopyText k={'requiresAnAuthorizedVenueSubmitPort'} /> : <CopyText k={'planningOrObservation'} />}
                 </td>
@@ -1533,10 +1507,10 @@ function Options({ markets }: { markets: Listing[] }) {
       >
         {markets.map((market) => (
           <tr key={market.id}>
-            <td>{market.symbol}</td>
+            <td lang="zxx">{market.symbol}</td>
             <td>{market.optionType ?? <CopyText k={'unpublished'} />}</td>
             <td>{displayAmount(market.strike)}</td>
-            <td>{market.expiryDatetime ? new Date(market.expiryDatetime).toLocaleString() : <CopyText k={'unpublished'} />}</td>
+            <td>{market.expiryDatetime ? tradeDate(market.expiryDatetime) : <CopyText k={'unpublished'} />}</td>
             <td>
               {displayAmount(market.contractSize)} / {market.settle ?? <CopyText k={'unpublished'} />}
             </td>
