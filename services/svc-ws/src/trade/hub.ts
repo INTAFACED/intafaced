@@ -301,21 +301,31 @@ export class TradeHub {
 
     const seen = this.#seen.get(print.marketId) ?? new Set<number>();
     if (seen.has(print.sequence)) return null;
+
+    // Limit 0 keeps no tape. Remember the sequence only once a live watcher
+    // has somewhere to take the print. Pushing onto an empty ring and shifting
+    // it off would delete the sequence in the same turn, and the next delivery
+    // would fan out again. A watcher still opening is not live: do not burn
+    // the sequence, and do not retain the print.
+    if (limit === 0 && !this.#hasLiveWatcher(print.marketId)) return null;
+
     seen.add(print.sequence);
     this.#seen.set(print.marketId, seen);
 
-    // Bound the dedupe set to the ring. Sequences older than the ring can
-    // re-arrive only after a full JetStream replay, which is a process restart
-    // and a fresh hub.
-    const ring = this.#recent.get(print.marketId) ?? [];
-    ring.push(print);
-    while (ring.length > limit) {
-      const dropped = ring.shift();
-      if (dropped) seen.delete(dropped.sequence);
+    if (limit > 0) {
+      // Bound the dedupe set to the ring. Sequences older than the ring can
+      // re-arrive only after a full JetStream replay, which is a process restart
+      // and a fresh hub.
+      const ring = this.#recent.get(print.marketId) ?? [];
+      ring.push(print);
+      while (ring.length > limit) {
+        const dropped = ring.shift();
+        if (dropped) seen.delete(dropped.sequence);
+      }
+      this.#recent.set(print.marketId, ring);
     }
-    this.#recent.set(print.marketId, ring);
-    this.#prints += 1;
 
+    this.#prints += 1;
     this.#fanOut(print);
     return print;
   }
@@ -323,6 +333,14 @@ export class TradeHub {
   #hasWatcher(marketId: string): boolean {
     for (const s of this.#subscriptions) {
       if (!s.closed && s.marketId === marketId) return true;
+    }
+    return false;
+  }
+
+  /** Past connect flush. A pending subscriber is still waiting on replay. */
+  #hasLiveWatcher(marketId: string): boolean {
+    for (const s of this.#subscriptions) {
+      if (!s.closed && !s.pending && s.marketId === marketId) return true;
     }
     return false;
   }

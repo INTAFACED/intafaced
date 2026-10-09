@@ -264,6 +264,77 @@ describe('TradeHub fan-out', () => {
     expect(sink.prints()).toHaveLength(1);
   });
 
+  it('accepts a print once when recentLimit is 0 and does not write the redelivery', async () => {
+    hub = hubFor([MARKET], { recentLimit: 0 });
+    const sink = new FakeSink();
+    const detach = hub.attach(MARKET, sink)!;
+    await settle();
+
+    expect(hub.ingest(fill(1))).not.toBeNull();
+    expect(hub.ingest(fill(1))).toBeNull();
+    expect(sink.prints()).toHaveLength(1);
+    expect(sink.prints()[0]).toMatchObject({ sequence: 1, price: '100', quantity: '1' });
+    expect(hub.recentFor(MARKET)).toEqual([]);
+
+    detach();
+    expect(hub.recentFor(MARKET)).toEqual([]);
+
+    const rejoined = new FakeSink();
+    hub.attach(MARKET, rejoined);
+    await settle();
+    expect(hub.ingest(fill(1))).not.toBeNull();
+    expect(rejoined.prints()).toHaveLength(1);
+    expect(sink.prints()).toHaveLength(1);
+    expect(hub.recentFor(MARKET)).toEqual([]);
+  });
+
+  it('does not consume a sequence at recentLimit 0 while the watcher is still opening', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    hub = hubFor([MARKET], {
+      recentLimit: 0,
+      ensureKnownMarket: async () => {
+        await gate;
+        return true;
+      },
+    });
+
+    const sink = new FakeSink();
+    hub.attach(MARKET, sink);
+    expect(hub.ingest(fill(1))).toBeNull();
+    expect(sink.prints()).toHaveLength(0);
+    expect(hub.recentFor(MARKET)).toEqual([]);
+
+    release();
+    await settle();
+    await settle();
+
+    expect(sink.prints()).toHaveLength(0);
+    expect(hub.recentFor(MARKET)).toEqual([]);
+    expect(hub.ingest(fill(1))).not.toBeNull();
+    expect(hub.ingest(fill(1))).toBeNull();
+    expect(sink.prints()).toHaveLength(1);
+    expect(hub.recentFor(MARKET)).toEqual([]);
+  });
+
+  it('forgets a sequence once it falls out of a positive recent ring', async () => {
+    hub = hubFor([MARKET], { recentLimit: 2 });
+    const sink = new FakeSink();
+    hub.attach(MARKET, sink);
+    await settle();
+
+    hub.ingest(fill(1));
+    hub.ingest(fill(2));
+    hub.ingest(fill(3));
+    expect(hub.recentFor(MARKET).map((print) => print.sequence)).toEqual([2, 3]);
+
+    expect(hub.ingest(fill(1))).not.toBeNull();
+    expect(sink.prints().map((print) => print.sequence)).toEqual([1, 2, 3, 1]);
+    expect(hub.recentFor(MARKET).map((print) => print.sequence)).toEqual([3, 1]);
+  });
+
   it('bounds the recent ring; stored history is public keys only (no order/account ids)', async () => {
     const sink = new FakeSink();
     hub.attach(MARKET, sink);
