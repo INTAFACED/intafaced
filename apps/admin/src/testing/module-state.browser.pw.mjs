@@ -1,5 +1,6 @@
 import { test as base, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { MODULE_IDS } from '@intafaced/config';
 import { writeFile, mkdir } from 'node:fs/promises';
 const evidence = process.env.TEAM_MODULE_EVIDENCE;
 const zero = { disabledModules: [], reasons: {}, audit: [] };
@@ -50,7 +51,7 @@ const test = base.extend({
       });
       await context.route('**/*', (route) => {
         const url = new URL(route.request().url());
-        if (url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.port === '3152') return route.fallback();
+        if (url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.port === '3153') return route.fallback();
         data.externalRequests.push(url.origin);
         return route.abort('blockedbyclient');
       });
@@ -355,4 +356,238 @@ test('valid leap-day offset audit time remains exact in the native historical la
   await ready(page);
   await expect(inspector(page).locator('.mi-audit time')).toHaveText(at);
   await expect(inspector(page).getByRole('button', { name: 'Kill / re-enable unavailable', exact: true })).toBeDisabled();
+});
+
+test('bounded desktop catalogue contains every canonical module and exposes the registry after the detail', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await fixture(page);
+  await open(page);
+  await ready(page);
+  const catalogue = inspector(page).getByRole('region', { name: 'Known modules', exact: true });
+  expect(await catalogue.getByRole('button').allTextContents()).toHaveLength(MODULE_IDS.length);
+  expect(
+    await inspector(page)
+      .getByLabel('Inspect module', { exact: true })
+      .locator('option')
+      .evaluateAll((options) => options.map((option) => option.value)),
+  ).toEqual([...MODULE_IDS]);
+  for (const id of MODULE_IDS) await expect(catalogue.getByRole('button', { name: `Inspect ${id}`, exact: true })).toHaveCount(1);
+  const shape = await catalogue.evaluate((el) => ({
+    height: el.getBoundingClientRect().height,
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+  }));
+  expect(shape.height).toBeLessThanOrEqual(392);
+  expect(shape.scrollHeight).toBeGreaterThan(shape.clientHeight);
+  const summary = page.locator('summary').filter({ hasText: 'Flag registry and session previews' });
+  const layout = await inspector(page).locator('.mi-layout').boundingBox();
+  const discovery = await inspector(page).locator('.mi-discovery').boundingBox();
+  const detail = await original(page).boundingBox();
+  // The selected detail/history determines this fixture's row, rather than
+  // the natural height of all 27 catalogue rows burying the existing tools.
+  expect(detail.height).toBeGreaterThanOrEqual(discovery.height);
+  expect(Math.abs(layout.height - Math.max(discovery.height, detail.height))).toBeLessThanOrEqual(1);
+  expect(Math.abs(layout.y - detail.y)).toBeLessThanOrEqual(1);
+  const panel = await inspector(page).boundingBox();
+  const registry = await summary.boundingBox();
+  const workspaceGap = await summary.evaluate((el) => Number.parseFloat(getComputedStyle(el.parentElement.parentElement).rowGap));
+  expect(Number.isFinite(workspaceGap)).toBe(true);
+  expect(Math.abs(registry.y - (panel.y + panel.height) - workspaceGap)).toBeLessThanOrEqual(1);
+  await writeFile(
+    `${evidence}/bounded-catalogue-geometry.json`,
+    JSON.stringify({ shape, layout, discovery, detail, panel, registry, workspaceGap }, null, 2),
+  );
+  await page.screenshot({ path: `${evidence}/bounded-catalogue-desktop.png`, fullPage: true });
+  await catalogue.focus();
+  await page.keyboard.press('End');
+  await expect.poll(() => catalogue.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThanOrEqual(1);
+  await expect(catalogue.getByRole('button', { name: 'Inspect dex', exact: true })).toBeInViewport();
+  await page.keyboard.press('Escape');
+  await expect(catalogue).toBeFocused();
+  await expect(original(page).getByRole('heading', { name: 'trade', exact: true })).toBeVisible();
+  await page.screenshot({ path: `${evidence}/bounded-catalogue-keyboard-end.png`, fullPage: true });
+  await catalogue.getByRole('button', { name: 'Inspect dex', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await ready(page);
+  await expect(page).toHaveURL(/#module=dex$/);
+  await expect(original(page).getByRole('heading', { name: 'dex', exact: true })).toBeVisible();
+  await expect(inspector(page).getByRole('button', { name: 'Kill / re-enable unavailable', exact: true })).toBeDisabled();
+});
+test('every full native select option still selects its original module without privileged requests', async ({ page }) => {
+  await fixture(page, envelope(zero));
+  await open(page);
+  await ready(page);
+  for (const id of MODULE_IDS) {
+    await inspector(page).getByLabel('Inspect module', { exact: true }).selectOption(id);
+    await ready(page);
+    await expect(original(page).getByRole('heading', { name: id, exact: true })).toBeVisible();
+  }
+});
+test('catalogue filtering is bounded while missing selected rows never replace original history', async ({ page }) => {
+  await fixture(page);
+  await open(page);
+  await ready(page);
+  const catalogue = inspector(page).getByRole('region', { name: 'Known modules', exact: true });
+  await inspector(page).getByLabel('Show returned state', { exact: true }).selectOption('killed');
+  await expect(catalogue.getByRole('button')).toHaveCount(1);
+  await expect(catalogue).toContainText('trade');
+  expect((await catalogue.boundingBox()).height).toBeLessThan(100);
+  await inspector(page).getByLabel('Show returned state', { exact: true }).selectOption('not-listed');
+  await expect(catalogue.getByRole('button')).toHaveCount(MODULE_IDS.length - 1);
+  await expect(original(page).getByRole('heading', { name: 'trade', exact: true })).toBeVisible();
+  await expect(inspector(page).locator('.mi-audit')).toContainText(actor);
+});
+for (const width of [390, 320])
+  test(`phone${width} keeps the full selector and hides the desktop catalogue`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await fixture(page);
+    await open(page);
+    await ready(page);
+    await expect(inspector(page).locator('.mi-modules')).toBeHidden();
+    await expect(inspector(page).locator('.mi-catalogue-hint')).toBeHidden();
+    await expect(inspector(page).getByLabel('Inspect module', { exact: true }).locator('option')).toHaveCount(MODULE_IDS.length);
+    await geometry(page, width);
+  });
+test('ordinary banner names missing deployment facts without claiming usable module or treasury actions', async ({ page }) => {
+  await open(page);
+  const boundary = page.locator('.mi-console-boundary');
+  await expect(boundary.getByText('Module writes unavailable', { exact: true })).toBeVisible();
+  await expect(boundary.locator('.mi-boundary-summary')).toContainText('Personal operator session and identity-issued approval');
+  const deployment = boundary.locator('.mi-deployment');
+  await deployment.locator('summary').focus();
+  await page.keyboard.press('Enter');
+  await expect(deployment.locator('.mi-deployment-facts')).toContainText('Deployment configuration does not establish action availability');
+  await expect(deployment.locator('.mi-deployment-facts')).toBeVisible();
+  await expect(page.locator('.adm-alertstrip')).not.toContainText('Every switch below is inert');
+  await page.getByRole('navigation', { name: 'Operator console' }).getByRole('link', { name: 'Ledger ops', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Ledger operations', level: 1, exact: true })).toBeVisible();
+  await expect(page.getByText('Credential transport', { exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByRole('main')
+      .getByText(
+        'Ledger freeze and unfreeze retain treasury, live-session, identity-issued approval and original operation guards; configuration alone does not establish those prerequisites.',
+        { exact: true },
+      ),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Freeze ledger', exact: true })).toBeDisabled();
+});
+
+for (const width of [1440, 390])
+  test(`full Team parent${width} leads with module state and keeps registry engineering beside its tools`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await fixture(page);
+    await open(page);
+    await ready(page);
+    const navigation = page.getByRole('navigation', { name: 'Operator console', exact: true });
+    await expect(navigation.getByRole('link')).toHaveCount(6);
+    const room = page.locator('.mi-room-intro');
+    await expect(room).toHaveText(
+      'Inspect the selected module’s current edge state and historical audit. Module writes remain unavailable.',
+    );
+    await expect(room).not.toContainText('§11');
+    const registry = page.locator('.mi-registry');
+    await expect(registry).not.toHaveAttribute('open', '');
+    await expect(registry.locator('.mi-registry-intro')).toBeHidden();
+    await expect(registry.getByRole('button', { name: 'Reset staged flags', exact: true, includeHidden: true })).toBeHidden();
+    const order = await page.evaluate(() => {
+      const box = (selector) => {
+        const r = document.querySelector(selector).getBoundingClientRect();
+        return { y: r.y, bottom: r.bottom };
+      };
+      return {
+        nav: box('.adm-topbar'),
+        access: box('.adm-access-notice'),
+        boundary: box('.mi-console-boundary'),
+        room: box('.mi-room-intro'),
+        inspector: box('.module-inspector'),
+        registry: box('.mi-registry'),
+      };
+    });
+    expect(order.nav.bottom).toBeLessThanOrEqual(order.access.y);
+    expect(order.access.bottom).toBeLessThanOrEqual(order.boundary.y);
+    expect(order.boundary.bottom).toBeLessThan(order.room.y);
+    expect(order.room.bottom).toBeLessThan(order.inspector.y);
+    expect(order.inspector.bottom).toBeLessThan(order.registry.y);
+    if (width === 1440) await expect(current(page)).toBeInViewport();
+    await geometry(page, width);
+    await page.screenshot({ path: `${evidence}/full-team-parent-${width}.png`, fullPage: true });
+  });
+
+for (const width of [1440, 390, 320])
+  test(`native Deployment configuration${width} opens and closes without replacing original state or granting writes`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await fixture(page);
+    await open(page);
+    await ready(page);
+    const deployment = page.locator('.mi-deployment');
+    const summary = deployment.locator('summary');
+    const facts = deployment.locator('.mi-deployment-facts');
+    await expect(summary).toHaveText('Deployment configuration');
+    await expect(facts).toBeHidden();
+    expect((await summary.boundingBox()).height).toBeGreaterThanOrEqual(44);
+    await summary.focus();
+    await page.keyboard.press('Enter');
+    await expect(deployment).toHaveAttribute('open', '');
+    await expect(facts).toBeVisible();
+    for (const field of ['EDGE_URL', 'ADMIN_OPERATOR_TOKEN', 'ADMIN_TREASURY_TOKEN', 'ADMIN_BFF_SHARED_SECRET'])
+      await expect(facts).toContainText(field);
+    await expect(facts).toContainText('configuration alone does not establish those prerequisites');
+    await expect(facts).toContainText('Only missing variable names are shown, never credentials');
+    const accessibility = await new AxeBuilder({ page }).include('.mi-console-boundary').analyze();
+    expect(accessibility.violations).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await expect(original(page).getByRole('heading', { name: 'trade', exact: true })).toBeVisible();
+    await expect(inspector(page).locator('.mi-audit')).toContainText(actor);
+    await expect(inspector(page).getByRole('button', { name: 'Kill / re-enable unavailable', exact: true })).toBeDisabled();
+    await page.screenshot({ path: `${evidence}/deployment-open-${width}.png`, fullPage: true });
+    await page.keyboard.press('Space');
+    await expect(deployment).not.toHaveAttribute('open', '');
+    await expect(facts).toBeHidden();
+    await expect(summary).toBeFocused();
+    await expect(original(page).getByRole('heading', { name: 'trade', exact: true })).toBeVisible();
+    await expect(inspector(page).locator('.mi-audit')).toContainText(actor);
+  });
+
+test('registry disclosure retains original engineering text and Reset next to native session preview tools', async ({ page }) => {
+  await fixture(page);
+  await open(page);
+  await ready(page);
+  const registry = page.locator('.mi-registry');
+  const summary = registry.locator('summary');
+  await summary.focus();
+  await page.keyboard.press('Space');
+  await expect(registry).toHaveAttribute('open', '');
+  const intro = registry.locator('.mi-registry-intro');
+  await expect(intro).toContainText('Every flag declared in the registry, grouped by the module that owns it.');
+  await expect(intro).toContainText('Resolved at 0 · Tease from the registry.');
+  await expect(intro).toContainText('11 of 50');
+  await expect(intro).toContainText('§11 launch-plan entries');
+  await expect(intro).toContainText('none is enforced from here');
+  await expect(intro).toContainText('Per-flag overrides stay session-staged until the flag store lands.');
+  await expect(intro.getByRole('button', { name: 'Reset staged flags', exact: true })).toBeVisible();
+  const row = registry.getByRole('row').filter({ has: page.getByRole('cell', { name: 'matching.engine', exact: true }) });
+  await expect(row.getByRole('button', { name: 'On Off', exact: true })).toBeEnabled();
+  await summary.focus();
+  await page.keyboard.press('Space');
+  await expect(intro).toBeHidden();
+  await expect(original(page).getByRole('heading', { name: 'trade', exact: true })).toBeVisible();
+  await expect(inspector(page).locator('.mi-audit')).toContainText(actor);
+});
+
+test('expanded registry preserves the ledger inspection link and refuses an operational capability claim', async ({ page }) => {
+  await fixture(page);
+  await open(page);
+  await ready(page);
+  const summary = page.locator('summary').filter({ hasText: 'Flag registry and session previews' });
+  await summary.focus();
+  await page.keyboard.press('Enter');
+  const registry = summary.locator('..');
+  await expect(registry).not.toContainText('the freeze that works');
+  await expect(registry).not.toContainText('To halt all value movement use Ledger ops');
+  const link = registry.getByRole('link', { name: 'Ledger posting status and freeze prerequisites', exact: true });
+  await expect(link).toHaveAttribute('href', '/ledger');
+  await link.click();
+  await expect(page.getByRole('heading', { name: 'Ledger operations', level: 1, exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Freeze ledger', exact: true })).toBeDisabled();
 });

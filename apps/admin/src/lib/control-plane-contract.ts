@@ -165,16 +165,24 @@ export function decodeToggle(body: unknown, status: number, intent: ToggleInput,
       status,
       refusalCode(body, 'admin.kill_outcome_unresolved'),
     );
-  if (status < 200 || status >= 300)
+  if (status < 200 || status >= 300) {
+    const code = refusalCode(body, 'admin.kill_outcome_unresolved');
+    // Only source-pinned pre-dispatch boundaries establish a definite refusal.
+    // An unclassified 4xx may follow approval consumption or an operation start.
+    const preDispatch = ['admin.bff_gate', 'admin.bff_gate_origin', 'action_approval.missing', 'action_approval.identity_unwired'].includes(
+      code,
+    );
+    if (!preDispatch) return unresolved(intent, refusalDetail(body, `Original command outcome unresolved (HTTP ${status}).`), status, code);
     return {
       ok: false,
       status,
       snapshot: EMPTY_SNAPSHOT,
       detail: refusalDetail(body, `Module command refused (HTTP ${status}).`),
-      code: refusalCode(body, 'admin.kill_command_refused'),
+      code,
       uncertain: false,
       intent,
     };
+  }
   const snapshot = decodeSnapshot(envelope && record(body) ? body.snapshot : body);
   if (
     !snapshot ||

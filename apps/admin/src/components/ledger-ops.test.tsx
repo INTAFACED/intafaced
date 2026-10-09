@@ -101,3 +101,11 @@ describe('LedgerOpsView confirmations and receipts', () => {
     expect(html).toContain('2026-08-26T10:01:00.000Z');
   });
 });
+
+it('credential presence is transport configuration with unresolved action prerequisites', () => {
+  const html = renderToStaticMarkup(<LedgerOpsView {...base()} />);
+  expect(html).toContain('Credential transport');
+  expect(html).toContain('transport only; approval required');
+  expect(html).toContain('identity-issued approval and original operation guards');
+  expect(html).not.toContain('this console can freeze');
+});

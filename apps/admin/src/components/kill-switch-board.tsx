@@ -210,26 +210,7 @@ export function KillSwitchBoard({ drop, flagEnv, initialControlPlane }: KillSwit
       <div className="adm-pagehead">
         <div>
           <h1>Kill-switches</h1>
-          <p>
-            {FLAG_COUNT_COPY} Resolved at {dropLabel(drop)} <em>from the registry</em>.{' '}
-            <strong>
-              {enforcedCount} of {staged.length}
-            </strong>{' '}
-            of these flags are read by anything; the rest are §11 launch-plan entries whose capability serves whatever this page says. Of
-            the ones that are enforced, none is enforced <em>from here</em> — they follow a service environment variable this console cannot
-            see. The inspector reads <strong>module</strong> state from svc-edge; module writes require operator and approval prerequisites
-            unavailable in this desk. Per-flag overrides stay session-staged until the flag store lands.
-          </p>
-        </div>
-        <div className="adm-inline">
-          <button
-            type="button"
-            className="adm-btn"
-            onClick={reset}
-            disabled={!!unresolvedIntent || (changes.length === 0 && !pendingModule)}
-          >
-            Reset staged flags
-          </button>
+          <p className="mi-room-intro">{consoleCopy('admin.console.module.room.intro')}</p>
         </div>
       </div>
 
@@ -237,6 +218,30 @@ export function KillSwitchBoard({ drop, flagEnv, initialControlPlane }: KillSwit
 
       <details className="mi-registry">
         <summary>Flag registry and session previews</summary>
+        <div className="adm-pagehead mi-registry-intro">
+          <div>
+            <p>
+              {FLAG_COUNT_COPY} Resolved at {dropLabel(drop)} <em>from the registry</em>.{' '}
+              <strong>
+                {enforcedCount} of {staged.length}
+              </strong>{' '}
+              of these flags are read by anything; the rest are §11 launch-plan entries whose capability serves whatever this page says. Of
+              the ones that are enforced, none is enforced <em>from here</em> — they follow a service environment variable this console
+              cannot see. The inspector reads <strong>module</strong> state from svc-edge; module writes require operator and approval
+              prerequisites unavailable in this desk. Per-flag overrides stay session-staged until the flag store lands.
+            </p>
+          </div>
+          <div className="adm-inline">
+            <button
+              type="button"
+              className="adm-btn"
+              onClick={reset}
+              disabled={!!unresolvedIntent || (changes.length === 0 && !pendingModule)}
+            >
+              Reset staged flags
+            </button>
+          </div>
+        </div>
         <ControlPlanePanel plane={plane} />
 
         <ServingWhileDarkPanel states={serving} total={staged.length} />
@@ -595,7 +600,8 @@ const FLAG_COUNT_COPY = 'Every flag declared in the registry, grouped by the mod
 const stageNotice =
   'Per-flag switches stage a preview in this browser session and are read by no service — there is no durable flag store yet (§13 socket). ' +
   'Module writes are unavailable here until real operator, approval and original operation prerequisites are supplied. ' +
-  'To halt all value movement use Ledger ops, which writes an attributed freeze row in svc-ledger. ' +
+  consoleCopy('admin.console.transport.treasury.inspect.notice') +
+  ' ' +
   'And note that the flag store would change nothing for a flag marked "Not a control": no service resolves flags, ' +
   'so there is nothing on the far end to push to.';
 
@@ -930,8 +936,7 @@ function CriticalSwitch({
         <div className="adm-callout" data-tone="warn">
           <strong>This panel halts nothing — it previews a flag</strong>
           The buttons below stage a value for <code>ledger.posting</code> in this browser session. There is no durable flag store (§13), so
-          no service ever reads what is staged here. <b>To actually stop value movement, use Ledger ops</b> — that screen posts to
-          <code> /api/ledger-freeze</code> and svc-ledger writes a durable, attributed <code>posting_freeze</code> row.
+          no service ever reads what is staged here. {consoleCopy('admin.console.transport.treasury.inspect.notice')}
         </div>
 
         <div className="adm-callout" data-tone="danger">
@@ -943,7 +948,7 @@ function CriticalSwitch({
 
         <div className="adm-inline">
           <a className="adm-btn" data-tone="danger" href="/ledger">
-            Go to Ledger ops — the freeze that works
+            {consoleCopy('admin.console.transport.treasury.inspect')}
           </a>
         </div>
 

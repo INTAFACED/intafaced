@@ -9,5 +9,5 @@ export default defineConfig({
   timeout: 30_000,
   outputDir: `${evidence}/native-results`,
   reporter: [['list'], ['json', { outputFile: `${evidence}/native-report.json` }]],
-  use: { baseURL: 'http://127.0.0.1:3152', browserName: 'chromium', trace: 'retain-on-failure', screenshot: 'only-on-failure' },
+  use: { baseURL: 'http://127.0.0.1:3153', browserName: 'chromium', trace: 'retain-on-failure', screenshot: 'only-on-failure' },
 });

@@ -166,3 +166,30 @@ describe('browser command envelopes cannot turn contradictory HTTP200 into a def
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('unclassified non2xx cannot settle an original command after approval may have started', () => {
+  it.each([
+    [400, 'edge.invalid_kill_request'],
+    [400, 'action_approval.consume_failed'],
+    [403, 'scope.insufficient'],
+    [409, 'operation.conflict'],
+  ])('retains uncertainty for HTTP%s code%s', (status, code) => {
+    const original = Object.freeze({ ...intent });
+    const result = decodeToggle({ code, error: 'Isolated failure after a possible operation start' }, status as number, original, false);
+    expect(result).toMatchObject({ ok: false, uncertain: true, code, intent: original });
+    expect(result.intent).toBe(original);
+  });
+  it.each([
+    [401, 'admin.bff_gate'],
+    [403, 'admin.bff_gate_origin'],
+    [400, 'action_approval.missing'],
+    [400, 'action_approval.identity_unwired'],
+  ])('known pre-dispatch boundary HTTP%s code%s stays a definite refusal', (status, code) => {
+    expect(decodeToggle({ code, error: 'Isolated pre-dispatch refusal' }, status as number, intent, false)).toMatchObject({
+      ok: false,
+      uncertain: false,
+      code,
+      intent,
+    });
+  });
+});

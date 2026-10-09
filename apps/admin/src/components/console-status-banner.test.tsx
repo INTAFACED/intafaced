@@ -1,103 +1,72 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { ConsoleStatusBanner } from './console-status-banner';
-import { consoleLooksFullyGreen, readConsoleStatus } from '@/lib/console-status';
-
-/**
- * WHAT THE OPERATOR ACTUALLY READS AT 3AM.
- *
- * Assertions are made against the served HTML rather than a component tree,
- * because the bug being guarded against was in the served HTML: a console
- * showing a board of switches — one labelled "halts ALL value movement
- * platform-wide" — while holding no credential to move any of them.
- */
-
-const TOKEN = 'operator-token-value';
-const TREASURY = 'treasury-token-value';
-
-const env = (over: Record<string, string> = {}): NodeJS.ProcessEnv => ({ ...over }) as NodeJS.ProcessEnv;
-const render = (e: NodeJS.ProcessEnv) => renderToStaticMarkup(<ConsoleStatusBanner status={readConsoleStatus(e)} />);
-
-describe('ConsoleStatusBanner', () => {
-  /**
-   * A banner that is always present is furniture, and furniture is not read.
-   * Its ABSENCE is the signal that both authorities are wired.
-   */
-  it('renders nothing when both authorities are configured', () => {
-    const html = render(env({ EDGE_URL: 'http://edge:4000', ADMIN_OPERATOR_TOKEN: TOKEN, ADMIN_TREASURY_TOKEN: TREASURY }));
-
-    expect(html).toBe('');
-  });
-
-  it('says the console cannot halt anything when nothing is configured', () => {
-    const html = render(env());
-
-    expect(html).toContain('Cannot halt anything');
-    expect(html).toContain('Every switch below is inert');
-    expect(html).toContain('data-severity="none"');
-  });
-
-  /**
-   * Stage-1 honesty: missing EDGE_URL / ADMIN_OPERATOR_TOKEN must never present
-   * as a healthy control plane. The all-green signal is an empty banner, and
-   * that is reserved for both authorities being wired.
-   */
-  it('never looks all-green when EDGE_URL or ADMIN_OPERATOR_TOKEN is absent', () => {
-    const cases = [
-      env(),
-      env({ EDGE_URL: 'http://edge:4000' }),
-      env({ ADMIN_OPERATOR_TOKEN: TOKEN }),
-      env({ ADMIN_OPERATOR_TOKEN: TOKEN, ADMIN_TREASURY_TOKEN: TREASURY }),
-      env({ EDGE_URL: 'http://edge:4000', ADMIN_TREASURY_TOKEN: TREASURY }),
-    ];
-
-    for (const e of cases) {
-      const status = readConsoleStatus(e);
-      const html = renderToStaticMarkup(<ConsoleStatusBanner status={status} />);
-
-      expect(consoleLooksFullyGreen(status)).toBe(false);
-      expect(html).not.toBe('');
-      expect(html).not.toContain('data-tone="live"');
-      expect(html).toMatch(/data-severity="(?:none|partial)"/);
-      expect(html).toContain('data-tone="danger"');
-    }
-  });
-
-  /**
-   * The partial case is the dangerous one: the board looks alive because module
-   * switches work, while the money plane cannot be stopped at all.
-   */
-  it('distinguishes a partly-wired console from a dead one', () => {
-    const html = render(env({ EDGE_URL: 'http://edge:4000', ADMIN_OPERATOR_TOKEN: TOKEN }));
-
-    expect(html).toContain('Partly unconfigured');
-    expect(html).toContain('data-severity="partial"');
-    expect(html).toContain('cannot reach every platform switch');
-  });
-
-  it('names the variable to set, and only the one that is missing', () => {
-    const html = render(env({ EDGE_URL: 'http://edge:4000', ADMIN_OPERATOR_TOKEN: TOKEN }));
-
+import { readConsoleStatus } from '@/lib/console-status';
+const TOKEN = 'isolated-operator-secret',
+  TREASURY = 'isolated-treasury-secret',
+  PROXY = 'isolated-proxy-secret';
+const render = (env: Record<string, string> = {}, locale: 'en' | 'es' | 'fr' = 'en') =>
+  renderToStaticMarkup(<ConsoleStatusBanner status={readConsoleStatus({ NODE_ENV: 'test', ...env })} locale={locale} />);
+describe('the actual banner never declares env-only halt authority', () => {
+  it('keeps the authority boundary visible while deployment facts use a closed native disclosure', () => {
+    const html = render();
+    const boundary = html.slice(0, html.indexOf('<details'));
+    expect(boundary).toContain('Module writes unavailable');
+    expect(boundary).toContain(
+      'Personal operator session and identity-issued approval with original operation context are unavailable here.',
+    );
+    expect(boundary).not.toContain('EDGE_URL');
+    expect(html).toContain('<details class="mi-deployment"><summary>Deployment configuration</summary>');
+    expect(html).not.toContain('<details class="mi-deployment" open');
     expect(html).toContain('ADMIN_TREASURY_TOKEN');
-    expect(html).not.toContain('ADMIN_OPERATOR_TOKEN');
-    expect(html).toContain('freeze the ledger (stop ALL value movement platform-wide)');
+    expect(html).toContain('reachability and command readiness are unverified');
   });
-
-  /**
-   * This strip renders in the layout, on every page. A credential reaching it
-   * reaches every served response.
-   */
-  it('never renders a credential value', () => {
-    const partial = render(env({ EDGE_URL: 'http://edge:4000', ADMIN_OPERATOR_TOKEN: TOKEN }));
-    const none = render(env({ ADMIN_OPERATOR_TOKEN: TOKEN, ADMIN_TREASURY_TOKEN: TREASURY }));
-
-    for (const html of [partial, none]) {
-      expect(html).not.toContain(TOKEN);
-      expect(html).not.toContain(TREASURY);
-    }
+  it('all transport fields present still shows the module action prerequisite refusal', () => {
+    const html = render({
+      EDGE_URL: 'http://isolated-edge:4000',
+      ADMIN_OPERATOR_TOKEN: TOKEN,
+      ADMIN_TREASURY_TOKEN: TREASURY,
+      ADMIN_BFF_SHARED_SECRET: PROXY,
+    });
+    expect(html).toContain('Module writes unavailable');
+    expect(html).toContain('Module transport');
+    expect(html).toContain('Treasury transport');
+    expect(html).toContain('not a personal operator session');
+    expect(html).toContain('identity-issued approval');
+    expect(html).not.toContain('data-tone="live"');
+    expect(html).not.toContain('this console can freeze');
+    expect(html).not.toContain('can halt');
+    expect(html).not.toContain(TOKEN);
+    expect(html).not.toContain(TREASURY);
+    expect(html).not.toContain(PROXY);
+    expect(html).not.toContain('http://isolated-edge:4000');
   });
-
-  it('is announced to assistive technology rather than being colour alone', () => {
-    expect(render(env())).toContain('role="status"');
+  it('blank transport names only actual missing fields without claiming every tool inert', () => {
+    const html = render();
+    for (const name of ['EDGE_URL', 'ADMIN_OPERATOR_TOKEN', 'ADMIN_TREASURY_TOKEN', 'ADMIN_BFF_SHARED_SECRET'])
+      expect(html).toContain(name);
+    expect(html).toContain('reachability and command readiness are unverified');
+    expect(html).toContain('role="status"');
+    expect(html).not.toContain('Every switch below is inert');
+  });
+  it('module-only transport cannot hide the boundary or imply treasury readiness', () => {
+    const html = render({ EDGE_URL: 'http://isolated-edge:4000', ADMIN_OPERATOR_TOKEN: TOKEN });
+    expect(html).toContain('ADMIN_TREASURY_TOKEN');
+    expect(html).not.toContain('>ADMIN_OPERATOR_TOKEN<');
+    expect(html).toContain('Ledger freeze and unfreeze retain treasury');
+    expect(html).toContain('original operation guards');
+  });
+  it.each([
+    ['es', 'Cambios de módulos no disponibles', 'Configuración del despliegue'],
+    ['fr', 'Modification des modules indisponible', 'Configuration du déploiement'],
+  ] as const)('local%s copy preserves the same authority refusal', (locale, title, details) => {
+    const html = render({ EDGE_URL: 'http://isolated-edge:4000', ADMIN_OPERATOR_TOKEN: TOKEN, ADMIN_TREASURY_TOKEN: TREASURY }, locale);
+    expect(html).toContain(title);
+    expect(html).toContain(`<summary>${details}</summary>`);
+    expect(html).not.toContain('Personal operator session');
+    expect(html).not.toContain('Module writes unavailable');
+    expect(html).not.toContain(TOKEN);
+    expect(html).not.toContain(TREASURY);
+    expect(html).toContain('ADMIN_BFF_SHARED_SECRET');
   });
 });

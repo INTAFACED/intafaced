@@ -18,7 +18,8 @@
  * ADMIN_OPERATOR_TOKEN") named two variables without saying which of them was
  * the one actually missing.
  *
- * So the capability is computed ONCE, from names alone, and stated everywhere.
+ * Deployment transport presence is computed from names alone. It cannot establish
+ * human authority, approval readiness, service reachability or action availability.
  *
  * ── Never a value, only a name ──────────────────────────────────────────────
  *
@@ -57,8 +58,8 @@ export const TOKEN_VAR: Readonly<Record<Authority, 'ADMIN_OPERATOR_TOKEN' | 'ADM
 
 /** Catalog keys for what each authority reaches. */
 export const AUTHORITY_REACH_KEY: Readonly<Record<Authority, string>> = {
-  module: 'admin.console.reach.module',
-  treasury: 'admin.console.reach.treasury',
+  module: 'admin.console.transport.reach.module',
+  treasury: 'admin.console.transport.reach.treasury',
 };
 
 /** What each authority reaches, in the words an operator would use. */
@@ -83,11 +84,11 @@ export interface ConsoleStatus {
   readonly treasury: AuthorityStatus;
   /** Union of both authorities' missing names, in declaration order, deduped. */
   readonly missing: readonly string[];
-  /** True when the console can halt at least one thing. */
-  readonly canHaltAnything: boolean;
+  /** The module desk has no human-session/approval/original-operation ports. */
+  readonly moduleActionAvailable: false;
   /**
-   * Both halt authorities wired (edge + operator token + treasury token).
-   * This is the only "all green" signal — the banner hides iff this is true.
+   * Both deployment transports have nonblank fields. This does not establish
+   * reachability, a current operator, approval or an operational halt command.
    */
   readonly fullyConfigured: boolean;
   /** True when the BFF routes are behind the shared-secret gate (§13 until SSO). */
@@ -119,19 +120,15 @@ export function readConsoleStatus(env: NodeJS.ProcessEnv = process.env): Console
     module: moduleStatus,
     treasury: treasuryStatus,
     missing: [...new Set([...moduleStatus.missing, ...treasuryStatus.missing])],
-    canHaltAnything: moduleStatus.configured || treasuryStatus.configured,
+    moduleActionAvailable: false,
     fullyConfigured: moduleStatus.configured && treasuryStatus.configured,
     bffGated: present(env, 'ADMIN_BFF_SHARED_SECRET'),
   };
 }
 
-/**
- * The banner's "all green" predicate. False whenever EDGE_URL or either
- * operator/treasury token is missing — a half-wired console must never read as
- * a healthy control plane.
- */
+/** Legacy predicate: deployment presence never establishes all-green action availability. */
 export function consoleLooksFullyGreen(status: ConsoleStatus): boolean {
-  return status.fullyConfigured;
+  return status.moduleActionAvailable;
 }
 
 /**
@@ -151,7 +148,8 @@ export function describeUnconfigured(status: AuthorityStatus): string {
 }
 
 /**
- * The `disabled` reason for a control, or null when the control may act.
+ * The deployment transport prerequisite, or null when those fields are present.
+ * A null result grants no human authority or approval and is not action readiness.
  *
  * Every control that reaches the platform asks this and renders the answer NEXT
  * TO ITSELF. A control that cannot act must not look like one that can, and a

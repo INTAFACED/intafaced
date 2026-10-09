@@ -89,7 +89,7 @@ export function ModuleStateInspector({ plane, onRead }: { plane: ControlPlaneSta
               <option value="not-listed">Not listed as killed</option>
             </select>
           </label>
-          <div className="mi-modules" aria-label="Known modules">
+          <div className="mi-modules" role="region" tabIndex={0} aria-label="Known modules" aria-describedby="module-catalogue-hint">
             {rows.map((id) => (
               <button
                 className="adm-btn mi-module"
@@ -105,6 +105,12 @@ export function ModuleStateInspector({ plane, onRead }: { plane: ControlPlaneSta
               </button>
             ))}
           </div>
+          <p id="module-catalogue-hint" className="mi-catalogue-hint">
+            {ready
+              ? `${rows.length} of ${MODULE_IDS.length} known modules match this filter.`
+              : `${MODULE_IDS.length} known modules available for selection; current state is unavailable.`}{' '}
+            Scroll the list or use Inspect module above.
+          </p>
         </div>
         <div id="original-module-state" className="mi-original">
           <p className="adm-meta">Selected original module</p>

@@ -1,5 +1,6 @@
 'use client';
 
+import { consoleCopy } from '@/lib/console-copy';
 import { useRef, useState, useTransition } from 'react';
 import { Panel, StatBlock } from '@intafaced/ui';
 import { Chip } from '@/components/chip';
@@ -449,11 +450,12 @@ function PostingStatusPanel({ treasury, freeze, state }: { treasury: AuthoritySt
           <StatBlock label="Source" value={state ? 'svc-ledger' : 'none'} deltaLabel="via /api/ledger-freeze to svc-edge" />
           <StatBlock label="Scope required" value="admin:treasury" deltaLabel={treasury.tokenVar} />
           <StatBlock
-            label="Credential"
+            label="Credential transport"
             value={treasury.configured ? 'configured' : 'MISSING'}
-            deltaLabel={treasury.configured ? 'this console can freeze' : treasury.missing.join(' + ')}
+            deltaLabel={treasury.configured ? consoleCopy('admin.console.transport.credential.fact') : treasury.missing.join(' + ')}
           />
         </div>
+        <p className="adm-footnote">{consoleCopy('admin.console.transport.treasury.guards')}</p>
       </div>
     </Panel>
   );
