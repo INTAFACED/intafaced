@@ -276,6 +276,56 @@ export function MarketChart({
     seriesRef = useRef<Series | null>(null),
     pending = useRef<[number, string][]>([]),
     rawPrice = useRef<Map<number, string>>(new Map());
+  useEffect(() => {
+    const pane = frame.current;
+    if (!fullscreen || !pane) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const background = new Map<HTMLElement, boolean>();
+    let branch = pane;
+    while (branch.parentElement) {
+      const parent = branch.parentElement;
+      for (const sibling of parent.children) {
+        if (sibling !== branch && sibling instanceof HTMLElement) {
+          background.set(sibling, sibling.inert);
+          sibling.inert = true;
+        }
+      }
+      branch = parent;
+      if (parent === document.body) break;
+    }
+    function keyboard(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setFullscreen(false);
+        setTool(null);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const controls = Array.from(
+        pane!.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden' && !element.closest('[inert]'));
+      const first = controls[0], last = controls.at(-1), active = document.activeElement;
+      if (!first || !last) {
+        event.preventDefault();
+        pane!.focus();
+      } else if (event.shiftKey && (active === first || active === pane)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || active === pane)) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    pane.addEventListener('keydown', keyboard);
+    (pane.querySelector<HTMLElement>('.trade-chart-canvas[tabindex]') ?? pane).focus();
+    return () => {
+      pane.removeEventListener('keydown', keyboard);
+      for (const [element, wasInert] of background) element.inert = wasInert;
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [fullscreen]);
   const fills = useResource(
     (signal) =>
       preferences.showFills
@@ -646,6 +696,9 @@ export function MarketChart({
       className={`trade-chart ${fullscreen ? 'trade-chart--fullscreen' : ''}`}
       ref={frame}
       aria-label={copy.t('chartc80af2', { marketSymbol: String(market.symbol) })}
+      role={fullscreen ? 'dialog' : undefined}
+      aria-modal={fullscreen ? true : undefined}
+      tabIndex={fullscreen ? -1 : undefined}
     >
       <div className="trade-chart-toolbar">
         <label className="trade-inline">
