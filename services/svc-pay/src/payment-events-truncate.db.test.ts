@@ -8,13 +8,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  * payment_events is the chargeback history and the captured and refunded
  * totals. 0000 refuses UPDATE and DELETE with a row trigger. TRUNCATE does
  * not fire that trigger. 0023 attaches the same function as a BEFORE
- * TRUNCATE statement trigger, after any rows already stored.
+ * TRUNCATE statement trigger. An empty table raises, and so does CASCADE
+ * from a parent. The migration is applied again after a captured row is
+ * stored, so that apply is what the stored-row assertions measure.
  *
- * Prior forward files are applied first. 0023 is applied only once a captured
- * row is stored, so the migration is what the assertions measure. Pay SQL is
- * schema-qualified and rewritten onto a schema in the database
- * TEST_DATABASE_URL names. This file does not start Postgres and does not
- * create a database.
+ * Prior forward files are applied first. Pay SQL is schema-qualified and
+ * rewritten onto a schema in the database TEST_DATABASE_URL names. This file
+ * does not start Postgres and does not create a database.
  *
  * Amounts are decimal strings inside the SQL. A JavaScript number is never
  * passed for an amount.
@@ -98,9 +98,19 @@ describe('payment_events refuses TRUNCATE and keeps the stored history', () => {
     await admin?.end({ timeout: 5 }).catch(() => undefined);
   }, 30_000);
 
-  it('refuses TRUNCATE, UPDATE, and DELETE, stores an insert, and leaves the captured row in place', async () => {
+  it('refuses TRUNCATE, including an empty table and CASCADE from a parent, refuses UPDATE and DELETE, stores an insert, and leaves the captured row in place', async () => {
     const db = sql;
     if (!db || !schema) throw new Error('test database was not opened');
+
+    const closing = rewritePaySchema(readFileSync(join(drizzleDir, CLOSING), 'utf8'), schema);
+    const closingDown = rewritePaySchema(readFileSync(join(drizzleDir, CLOSING_DOWN), 'utf8'), schema);
+
+    await db.unsafe(closing);
+    await expect(db.unsafe(`TRUNCATE "${schema}".payment_events`)).rejects.toThrow(/TRUNCATE is not permitted/);
+    await expect(db.unsafe(`TRUNCATE "${schema}".merchants RESTART IDENTITY CASCADE`)).rejects.toThrow(
+      /TRUNCATE is not permitted/,
+    );
+    await db.unsafe(closingDown);
 
     const merchant = one(
       await db<Array<{ id: string }>>`
@@ -134,7 +144,7 @@ describe('payment_events refuses TRUNCATE and keeps the stored history', () => {
     expect(captured.amount).toBe(CAPTURED);
     expect(captured.payment_id).toBe(payment.id);
 
-    await db.unsafe(rewritePaySchema(readFileSync(join(drizzleDir, CLOSING), 'utf8'), schema));
+    await db.unsafe(closing);
 
     const afterMigration = one(
       await db<StoredEvent[]>`
@@ -157,6 +167,19 @@ describe('payment_events refuses TRUNCATE and keeps the stored history', () => {
       'captured event after refused TRUNCATE',
     );
     expect(afterTruncate).toEqual(captured);
+
+    await expect(db.unsafe(`TRUNCATE "${schema}".merchants RESTART IDENTITY CASCADE`)).rejects.toThrow(
+      /TRUNCATE is not permitted/,
+    );
+    const afterCascade = one(
+      await db<StoredEvent[]>`
+        SELECT id, payment_id, event, payload->>'amount' AS amount, seq::text AS seq
+          FROM payment_events
+         WHERE id = ${captured.id}
+      `,
+      'captured event after refused CASCADE',
+    );
+    expect(afterCascade).toEqual(captured);
 
     await expect(db`
       UPDATE payment_events
@@ -224,8 +247,7 @@ describe('payment_events refuses TRUNCATE and keeps the stored history', () => {
     expect(rowTrigger?.def).toMatch(/BEFORE DELETE OR UPDATE/);
     expect(rowTrigger?.def).toMatch(/FOR EACH ROW/);
 
-    const down = readFileSync(join(drizzleDir, CLOSING_DOWN), 'utf8');
-    await db.unsafe(rewritePaySchema(down, schema));
+    await db.unsafe(closingDown);
 
     const afterDown = await db<Array<{ proname: string; def: string }>>`
       SELECT p.proname, pg_get_triggerdef(t.oid) AS def

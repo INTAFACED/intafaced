@@ -6,6 +6,7 @@ import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { beforeEach, afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { truncatePayForTest } from './payment-events-test-reset.js';
 import { unwiredApprovalConsumer } from './action-approval-consume.js';
 import { KybError, KybService } from './kyb-service.js';
 import { createKybPspRouter } from './kyb-router.js';
@@ -130,7 +131,11 @@ describe('svc-pay digital KYB PG-hard', () => {
   }, 120_000);
 
   beforeEach(async () => {
-    await sql`TRUNCATE pay.merchant_kyb_events, pay.merchant_pricing_events, pay.merchant_status_events, pay.merchants RESTART IDENTITY CASCADE`;
+    await truncatePayForTest(
+      sql,
+      'pay',
+      'TRUNCATE pay.merchant_kyb_events, pay.merchant_pricing_events, pay.merchant_status_events, pay.merchants RESTART IDENTITY CASCADE',
+    );
     kyb = new KybService(sql);
   });
 

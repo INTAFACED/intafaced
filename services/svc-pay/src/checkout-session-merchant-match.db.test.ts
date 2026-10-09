@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { truncatePayForTest } from './payment-events-test-reset.js';
 
 /**
  * checkout_sessions.link_id, merchant_id, and payment_id are separate foreign
@@ -110,7 +111,7 @@ describe('checkout session merchant matches the link and the payment', () => {
     `;
     if (tables.length > 0) {
       const list = tables.map((t) => `"${schema}"."${t.tablename}"`).join(', ');
-      await db.unsafe(`TRUNCATE ${list} RESTART IDENTITY CASCADE`);
+      await truncatePayForTest(db, schema, `TRUNCATE ${list} RESTART IDENTITY CASCADE`);
     }
 
     const merchantA = one(

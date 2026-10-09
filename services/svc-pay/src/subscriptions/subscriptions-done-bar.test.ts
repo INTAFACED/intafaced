@@ -28,6 +28,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { createEdgeContext, encodePrincipal, mergeRouters, serviceAuthHeadersForBody, signPrincipalHeader } from '@intafaced/contracts';
 import { MemoryLedger, formatAmount, merchantClearing, parseAmount as amt } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { truncatePayForTest } from '../payment-events-test-reset.js';
 import { createSubscriptionRouter } from '../subscription-router.js';
 import { PayError, PayService } from '../payment-service.js';
 import { RailRegistry } from '../rails/registry.js';
@@ -145,11 +146,13 @@ describe('pay.subscriptions Done bar PG-hard', () => {
 
   beforeEach(async () => {
     if (!db || !sql) throw new Error('H8a: svc-pay subscriptions-done-bar PG was not opened');
-    await sql`
-      TRUNCATE pay.subscription_executions, pay.subscriptions, pay.subscription_mandates,
+    await truncatePayForTest(
+      sql,
+      'pay',
+      `TRUNCATE pay.subscription_executions, pay.subscriptions, pay.subscription_mandates,
                pay.payment_events, pay.payments, pay.merchants
-      RESTART IDENTITY CASCADE
-    `;
+       RESTART IDENTITY CASCADE`,
+    );
     ledger = new MemoryLedger();
     card = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
     opened = [];

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { beforeEach, afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { truncatePayForTest } from './payment-events-test-reset.js';
 import { MerchantStateError, MerchantStateService } from './merchant-state-service.js';
 
 /**
@@ -130,7 +131,11 @@ describe('svc-pay merchant state PG-hard', () => {
   }, 120_000);
 
   beforeEach(async () => {
-    await sql`TRUNCATE pay.merchant_status_events, pay.merchants RESTART IDENTITY CASCADE`;
+    await truncatePayForTest(
+      sql,
+      'pay',
+      'TRUNCATE pay.merchant_status_events, pay.merchants RESTART IDENTITY CASCADE',
+    );
     state = new MerchantStateService(sql);
   });
 

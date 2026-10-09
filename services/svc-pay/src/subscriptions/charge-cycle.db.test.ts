@@ -11,6 +11,7 @@ import { CardSandboxAdapter } from '../rails/card-sandbox.js';
 import { signPayload } from '../rails/webhook-signature.js';
 import { SubscriptionService, type SubscriptionInvoiceOpener, type SubscriptionServiceOptions } from './subscription-service.js';
 import { MAX_ATTEMPTS_PER_CYCLE, chargeIdempotencyKey } from './charge-cycle.js';
+import { truncatePayForTest } from '../payment-events-test-reset.js';
 
 /**
  * THE RECURRING CHARGE CYCLE, END TO END, ASSERTED ON BALANCES.
@@ -122,11 +123,13 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
 
   beforeEach(async () => {
     if (!db || !sql) throw new Error('H8a: svc-pay charge-cycle PG was not opened');
-    await sql`
-      TRUNCATE pay.subscription_executions, pay.subscriptions, pay.subscription_mandates,
+    await truncatePayForTest(
+      sql,
+      'pay',
+      `TRUNCATE pay.subscription_executions, pay.subscriptions, pay.subscription_mandates,
                pay.payment_events, pay.payments, pay.merchants
-      RESTART IDENTITY CASCADE
-    `;
+       RESTART IDENTITY CASCADE`,
+    );
     ledger = new MemoryLedger();
     card = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
     opened = [];

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { truncatePayForTest } from './payment-events-test-reset.js';
 import { DEFAULT_GRANTED_AREAS, MAX_SUBMERCHANT_DEPTH, PERMISSION_AREAS, SubMerchantError, SubMerchantService } from './submerchants.js';
 
 /**
@@ -128,7 +129,11 @@ describe('svc-pay sub-merchant trees PG-hard', () => {
 
   beforeEach(async () => {
     if (!db || !sql) throw new Error('H8a: svc-pay submerchants PG was not opened');
-    await sql`TRUNCATE pay.merchant_permission_events, pay.merchants RESTART IDENTITY CASCADE`;
+    await truncatePayForTest(
+      sql,
+      'pay',
+      'TRUNCATE pay.merchant_permission_events, pay.merchants RESTART IDENTITY CASCADE',
+    );
     trees = new SubMerchantService(sql);
     seq = 0;
   });
