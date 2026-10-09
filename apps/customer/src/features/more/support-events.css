@@ -1,0 +1,126 @@
+.support-ticket-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--spacing-12);
+  margin-bottom: var(--spacing-20);
+}
+.support-ticket-reference {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+  min-width: 0;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--text-14);
+  line-height: var(--leading-22);
+  overflow-wrap: anywhere;
+}
+.support-history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-16);
+  min-width: 0;
+  margin: var(--spacing-20) 0;
+  border-top: 1px solid var(--color-divider);
+  padding-top: var(--spacing-20);
+}
+.support-history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-12);
+  flex-wrap: wrap;
+}
+.support-history-heading h3 {
+  margin: 0;
+  font-size: var(--text-18);
+  font-weight: var(--font-weight-semibold);
+}
+.support-history-description,
+.support-history-coverage p,
+.support-event-meta {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--text-14);
+  line-height: var(--leading-22);
+}
+.support-event-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-16);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.support-event {
+  display: flex;
+  gap: var(--spacing-12);
+  border-top: 1px solid var(--color-divider);
+  padding-top: var(--spacing-16);
+}
+.support-event-sequence {
+  width: var(--spacing-28);
+  flex-shrink: 0;
+  font-size: var(--text-14);
+  line-height: var(--leading-24);
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+.support-event-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.support-event-body h4 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-16);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--leading-24);
+}
+.support-event-transition,
+.support-event-note {
+  margin: 0;
+  font-size: var(--text-15);
+  line-height: var(--leading-24);
+  white-space: pre-wrap;
+}
+.support-event-reference {
+  font-size: var(--text-14);
+  line-height: var(--leading-22);
+}
+.support-event-reference summary {
+  cursor: pointer;
+  min-height: var(--spacing-44);
+  padding: var(--spacing-12) 0;
+}
+.support-event-reference summary:focus-visible {
+  outline: var(--spacing-2) solid var(--color-accent);
+  outline-offset: var(--spacing-4);
+}
+.support-event-reference dl {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-8);
+  margin: 0;
+  padding: var(--spacing-12);
+  background: var(--color-background);
+}
+.support-event-reference dt {
+  color: var(--color-muted);
+}
+.support-event-reference dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.support-history-coverage {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-8);
+}

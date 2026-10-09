@@ -1,0 +1,8 @@
+{
+  "product": "intafaced-customer",
+  "frontend": "react",
+  "transport": "same-origin",
+  "apiPath": "/api",
+  "websocketPath": "/ws",
+  "schemaVersion": 1
+}

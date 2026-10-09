@@ -1,0 +1,149 @@
+.price-alerts {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.price-alerts p {
+  margin: 0;
+}
+.price-alerts h3 {
+  margin: 0;
+  font-size: 18px;
+}
+.price-alerts header,
+.price-alerts-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.price-alerts .button,
+.price-alerts-trigger {
+  min-height: 44px;
+}
+.price-alerts form,
+.price-alerts-review,
+.price-alerts-row,
+.price-alerts-selection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.price-alerts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-divider);
+}
+.price-alerts-row {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--color-divider);
+}
+.price-alerts-row > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+.price-alerts-status {
+  min-width: 64px;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.price-alerts-status--active {
+  color: var(--color-accent);
+}
+.price-alerts-quantity {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.price-alerts-review .price-alerts-quantity {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 36px;
+}
+.price-alerts-availability,
+.price-alerts-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.price-alerts-availability strong {
+  color: var(--color-text);
+}
+.price-alerts-availability--ready strong::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+.price-alerts-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  min-height: 44px;
+}
+.price-alerts-ack input {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.price-alerts-original {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+.price-alerts-original code,
+.price-alerts-selection code {
+  overflow-wrap: anywhere;
+}
+.price-alerts-exits {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.price-alerts-exits a {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+.price-alerts-review > .price-alerts-actions {
+  padding-top: 12px;
+  border-top: 1px solid var(--color-divider);
+}
+.price-alerts select {
+  min-height: 44px;
+  width: 100%;
+}
+.trade-root .trade-chart-toolbar > .price-alerts-trigger {
+  min-height: 44px;
+  font-size: 12px;
+  margin-left: 0;
+  padding: 6px 8px;
+  flex-shrink: 0;
+}
+.price-alerts .field,
+.price-alerts > * {
+  min-width: 0;
+}
+@media (max-width: 420px) {
+  .price-alerts-actions > .button {
+    flex: 1 1 140px;
+  }
+  .price-alerts-review .price-alerts-quantity {
+    font-size: 24px;
+    line-height: 32px;
+  }
+}
