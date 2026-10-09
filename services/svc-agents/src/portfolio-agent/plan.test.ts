@@ -123,6 +123,37 @@ describe('honesty: dark port, unread ≠ zero, no placeOrder, cross-plane', () =
     expect(audit.entries[0]?.payload).toEqual(expect.objectContaining({ code: 'portfolio.port_dark' }));
   });
 
+  it('an empty-asset holding refuses unread and does not emit the increase its weight would fund', () => {
+    const { result, audit } = planRebalance(
+      {
+        userId: 'user-1',
+        targets: [{ asset: 'USDT', plane: 'custodial', weight: '1' }],
+      },
+      {
+        killed: false,
+        portfolio: livePort([
+          { asset: '', plane: 'custodial', weight: '0.4' },
+          { asset: 'USDT', plane: 'custodial', weight: '0.6' },
+        ]),
+        now: () => AT,
+      },
+    );
+    expect(result).toEqual({
+      status: 'refused',
+      code: 'portfolio.holding_unread',
+      userMessageKey: 'agents.refused.module_not_allowed',
+    });
+    expect(audit.entries[0]?.payload).toEqual({
+      status: 'refused',
+      code: 'portfolio.holding_unread',
+      userMessageKey: 'agents.refused.module_not_allowed',
+      userId: 'user-1',
+      unread: [{ asset: '', plane: 'custodial', weight: '0.4', reason: 'empty_asset' }],
+    });
+    expect(JSON.stringify(result)).not.toMatch(/"intent":"increase"/);
+    expect(JSON.stringify(audit.entries[0]?.payload)).not.toMatch(/"intent":"increase"/);
+  });
+
   it('zero-as-absent is not used: unread holdings refuse, they are not weight 0', () => {
     const port: PortfolioPort = {
       read: () => ({

@@ -162,13 +162,25 @@ export function planRebalance(input: PlanRebalanceInput, deps: PlanRebalanceDeps
     return refuse('portfolio.cross_plane_blocked', audit, occurredAt, { userId: input.userId });
   }
 
+  const blankHoldings = snapshot.holdings.filter((h) => h.asset.length === 0);
+  if (blankHoldings.length > 0) {
+    return refuse('portfolio.holding_unread', audit, occurredAt, {
+      userId: input.userId,
+      unread: blankHoldings.map((h) => ({
+        asset: h.asset,
+        plane: h.plane,
+        weight: h.weight,
+        reason: 'empty_asset',
+      })),
+    });
+  }
+
   const keys = new Set([...current.keys(), ...targets.keys()]);
   const legs: RebalanceLeg[] = [];
   for (const key of [...keys].sort()) {
     const sep = key.indexOf(':');
     const plane = key.slice(0, sep) as AssetPlane;
     const asset = key.slice(sep + 1);
-    if (!asset) continue;
     const cur = current.get(key)?.weight ?? 0n;
     const tgt = targets.get(key)?.weight ?? 0n;
     if (cur === tgt) continue;
