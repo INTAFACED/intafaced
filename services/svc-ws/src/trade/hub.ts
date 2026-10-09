@@ -215,8 +215,8 @@ export class TradeHub {
         return;
       }
       this.#flush(sub);
-    } catch (err) {
-      this.#evict(sub, CLOSE_TRY_LATER, err instanceof Error ? err.message : 'trades unavailable');
+    } catch {
+      this.#evict(sub, CLOSE_TRY_LATER, resolveWsCopy(WS_COPY.tradesUnavailable));
     }
   }
 

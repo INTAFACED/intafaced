@@ -282,6 +282,23 @@ describe('TradeHub fan-out', () => {
     expect(hub.connections).toBe(0);
   });
 
+  it('closes when the market lookup throws, without the exception text on the close frame', async () => {
+    const leaked = 'postgres password in the lookup';
+    hub = hubFor([], {
+      ensureKnownMarket: async () => {
+        throw new Error(leaked);
+      },
+    });
+    const sink = new FakeSink();
+    hub.attach(MARKET, sink);
+    await settle();
+
+    expect(sink.closed?.code).toBe(CLOSE_TRY_LATER);
+    expect(sink.closed?.reason).toBe('ws.close.trades_unavailable');
+    expect(sink.closed?.reason).not.toContain(leaked);
+    expect(hub.connections).toBe(0);
+  });
+
   it('drops prints for a slow consumer and eventually disconnects', async () => {
     const sink = new FakeSink();
     hub.attach(MARKET, sink);
