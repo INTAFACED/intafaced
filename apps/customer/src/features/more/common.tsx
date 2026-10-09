@@ -5,6 +5,7 @@ import type { Resource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
+import type { UiLocale } from '../../shared/i18n';
 
 export function Read<T>({
   resource,
@@ -97,10 +98,10 @@ export function Limit({ count, limit, cap, onChange }: { count: number; limit: n
 export function Details({ items }: { items: readonly [string, ReactNode][] }) {
   return (
     <dl className="more-details">
-      {items.map(([label, value]) => (
-        <div key={label}>
+      {items.map(([label, value], index) => (
+        <div key={index}>
           <dt>{label}</dt>
-          <dd>{value}</dd>
+          <dd style={{ minWidth: 0 }}>{value}</dd>
         </div>
       ))}
     </dl>
@@ -119,11 +120,21 @@ type LocalFailureKey =
   | 'common.this.account.has.an.action.running.in'
   | 'common.this.browser.has.no.cross.tab.mutation'
   | 'common.the.original.outcome.lookup.could.not.be';
-const localFailures = new WeakMap<object, LocalFailureKey>();
-function localRefusal(reason: Extract<ApiResult<unknown>, { ok: false }>['reason'], key: LocalFailureKey) {
-  const result = { ok: false as const, reason, message: copyText(key) };
-  localFailures.set(result, key);
+type FailurePresentation = (locale: UiLocale) => { message: string; language: UiLocale };
+const failurePresentations = new WeakMap<object, FailurePresentation>();
+/** Register explicit authored copy at its origin. Opaque service prose stays outside this seam. */
+export function presentActionFailure<T extends Extract<ApiResult<unknown>, { ok: false }>>(
+  result: T,
+  presentation: FailurePresentation,
+): T {
+  failurePresentations.set(result, presentation);
   return result;
+}
+function localRefusal(reason: Extract<ApiResult<unknown>, { ok: false }>['reason'], key: LocalFailureKey) {
+  return presentActionFailure({ ok: false as const, reason, message: copyText(key) }, (locale) => {
+    const current = copy.forLocale(locale);
+    return { message: current.t(key), language: current.languageFor(key) };
+  });
 }
 function pendingAt(key: string): Pending | null {
   let raw: string | null;
@@ -251,14 +262,18 @@ export function useAction(room: string, recovery?: { recover: (reference: string
     }
     setState({ key, busy: false, result, success: result.ok ? () => copyText('common.original.outcome.verified') : '' });
   }
-  const failureKey = current.result ? localFailures.get(current.result) : undefined;
+  const failurePresentation = current.result ? failurePresentations.get(current.result)?.(language) : undefined;
   const feedback = (
     <>
       {current.busy ? (
         <Loading label={copyText('common.waiting.for.the.service')} />
       ) : current.result && !current.result.ok ? (
-        <div lang={failureKey ? copy.forLocale(language).languageFor(failureKey) : 'und'} style={{ display: 'contents' }}>
-          <Failure result={failureKey ? { ...current.result, message: copyText(failureKey) } : current.result} />
+        <div lang={failurePresentation?.language ?? 'und'} style={{ display: 'contents' }}>
+          <Failure
+            result={
+              failurePresentation ? { ...current.result, message: failurePresentation.message, messageCopy: undefined } : current.result
+            }
+          />
         </div>
       ) : current.success ? (
         <p className="more-success" role="status" lang={typeof current.success === 'function' ? language : 'und'}>

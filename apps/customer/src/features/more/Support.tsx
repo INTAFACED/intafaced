@@ -1,11 +1,11 @@
-import { t as copyText, Text } from './copy';
+import { copy, t as copyText, Text } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
 import { publishedCopy, publishedLanguageFor } from '../../shared/copy';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
-import { Details, Limit, Read, Select, TextArea, useAction } from './common';
+import { Details, Limit, Read, Select, useAction } from './common';
 import { SupportEvents } from './SupportEvents';
 import { supportEventsCopy } from './support-events-copy';
 const ticketSchema = z.object({
@@ -34,10 +34,28 @@ const kbSchema = z.object({
   version: z.number().int().positive().optional(),
   published: z.boolean().optional(),
 });
+const unavailableArticleKey = 'support.published.article.text.is.unavailable.for';
 function text(key: string) {
-  return publishedCopy(key) ?? copyText('support.published.article.text.is.unavailable.for', { value1: key });
+  return publishedCopy(key) ?? copyText(unavailableArticleKey, { value1: key });
+}
+function SupportTextArea({
+  label,
+  value,
+  onChange,
+}: {
+  label: 'support.message' | 'support.reply';
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="field">
+      <Text k={label} />
+      <textarea lang="und" value={value} onChange={(e) => onChange(e.target.value)} maxLength={10000} rows={5} />
+    </label>
+  );
 }
 export function Support() {
+  const { languageFor } = copy.useCopy();
   const api = useApi(),
     { userId } = useSession(),
     action = useAction('support');
@@ -89,11 +107,11 @@ export function Support() {
                   .filter((r) => r.published !== false)
                   .map((r) => (
                     <details key={r.id}>
-                      <summary lang={publishedLanguageFor(r.titleKey) ?? 'en'}>{text(r.titleKey)}</summary>
-                      <p lang={publishedLanguageFor(r.bodyKey) ?? 'en'}>{text(r.bodyKey)}</p>
+                      <summary lang={publishedLanguageFor(r.titleKey) ?? languageFor(unavailableArticleKey)}>{text(r.titleKey)}</summary>
+                      <p lang={publishedLanguageFor(r.bodyKey) ?? languageFor(unavailableArticleKey)}>{text(r.bodyKey)}</p>
                       <small>
                         <Text k="support.article" />
-                        {r.id}
+                        <span lang="zxx">{r.id}</span>
                         {r.version ? copyText('support.version', { value1: r.version }) : ''}
                       </small>
                     </details>
@@ -114,6 +132,7 @@ export function Support() {
                     <tr key={row.id}>
                       <td>
                         <Button
+                          lang="und"
                           variant="ghost"
                           onClick={() => {
                             setSelected(row.id);
@@ -124,8 +143,8 @@ export function Support() {
                           {row.subject}
                         </Button>
                       </td>
-                      <td>{row.status}</td>
-                      <td>{row.updatedAt}</td>
+                      <td lang="zxx">{row.status}</td>
+                      <td lang="zxx">{row.updatedAt}</td>
                     </tr>
                   ))}
                 </DataTable>
@@ -146,15 +165,15 @@ export function Support() {
           onSubmit={(e) => {
             e.preventDefault();
             action.stage({
-              title: copyText('support.review.support.request'),
-              confirm: copyText('support.send.request'),
-              success: copyText('support.request.created'),
-              content: (
+              title: () => copyText('support.review.support.request'),
+              confirm: () => copyText('support.send.request'),
+              success: () => copyText('support.request.created'),
+              content: () => (
                 <Details
                   items={[
-                    [copyText('support.category'), category],
-                    [copyText('support.subject'), subject],
-                    [copyText('support.message'), body],
+                    [copyText('support.category'), <span lang="zxx">{category}</span>],
+                    [copyText('support.subject'), <span lang="und">{subject}</span>],
+                    [copyText('support.message'), <span lang="und">{body}</span>],
                   ]}
                 />
               ),
@@ -184,13 +203,14 @@ export function Support() {
             options={['account', 'trading', 'deposit_withdraw', 'other']}
           />
           <Field
-            label={copyText('support.subject')}
+            label={<Text k="support.subject" />}
+            lang="und"
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             required
             maxLength={200}
           />
-          <TextArea label={copyText('support.message')} value={body} onChange={setBody} />
+          <SupportTextArea label="support.message" value={body} onChange={setBody} />
           <Button type="submit" disabled={action.disabled || !subject.trim() || !body.trim()}>
             <Text k="support.review.request" />
           </Button>
@@ -276,7 +296,7 @@ function Conversation({
                     {rows.map((row) => (
                       <li key={row.id}>
                         <small>
-                          {row.authorRole} · {row.createdAt}
+                          <span lang="zxx">{row.authorRole}</span> · <span lang="zxx">{row.createdAt}</span>
                         </small>
                         <p lang="und">{row.body}</p>
                       </li>
@@ -292,16 +312,16 @@ function Conversation({
                 <Text k="support.resolved.reply.reopens.same.request" />
               </p>
             )}
-            <TextArea label={copyText('support.reply')} value={comment} onChange={setComment} />
+            <SupportTextArea label="support.reply" value={comment} onChange={setComment} />
             <Button
               disabled={action.disabled || !comment.trim() || ticket.status === 'closed'}
               onClick={() =>
                 action.stage({
-                  title: copyText('support.review.reply'),
+                  title: () => copyText('support.review.reply'),
                   reference: id,
-                  confirm: copyText('support.send.reply'),
-                  success: copyText('support.reply.posted'),
-                  content: (
+                  confirm: () => copyText('support.send.reply'),
+                  success: () => copyText('support.reply.posted'),
+                  content: () => (
                     <>
                       <Details
                         items={[
