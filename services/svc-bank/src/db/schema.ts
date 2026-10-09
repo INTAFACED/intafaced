@@ -942,6 +942,7 @@ export const rampOfframps = bank.table(
     status: loanEventStatusEnum('status').notNull().default('pending'),
     holdLedgerTxId: text('hold_ledger_tx_id'),
     settleLedgerTxId: text('settle_ledger_tx_id'),
+    releaseLedgerTxId: text('release_ledger_tx_id'),
     rejectionCode: text('rejection_code'),
     createdAt: createdAt(),
     settledAt: tstz('settled_at'),

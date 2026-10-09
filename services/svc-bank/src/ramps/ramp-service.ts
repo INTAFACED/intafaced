@@ -110,6 +110,7 @@ export interface OfframpRecord {
   status: RampEventStatus;
   holdLedgerTxId: string | null;
   settleLedgerTxId: string | null;
+  releaseLedgerTxId: string | null;
   rejectionCode: string | null;
   createdAt: Date;
   settledAt: Date | null;
@@ -145,6 +146,7 @@ interface OfframpRow {
   status: RampEventStatus;
   hold_ledger_tx_id: string | null;
   settle_ledger_tx_id: string | null;
+  release_ledger_tx_id: string | null;
   rejection_code: string | null;
   created_at: Date;
   settled_at: Date | null;
@@ -630,6 +632,7 @@ function toOfframp(row: OfframpRow): OfframpRecord {
     status: row.status,
     holdLedgerTxId: row.hold_ledger_tx_id,
     settleLedgerTxId: row.settle_ledger_tx_id,
+    releaseLedgerTxId: row.release_ledger_tx_id,
     rejectionCode: row.rejection_code,
     createdAt: row.created_at,
     settledAt: row.settled_at,
