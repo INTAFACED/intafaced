@@ -24,8 +24,8 @@
  *    restamped; env.ts fail-open defaults return.
  * 7. Collision: academy-url-compose-pin.test.ts — this pin does not restamp
  *    ACADEMY_URL. Do not invent AGENTS_ROUTING_TABLE JSON.
- *    Compose metering is `:?missing` (never `:-true`). `:-IFC` stays this
- *    file's restamp guard (fee-asset compose fail-open is out of this PR).
+ *    Compose metering is `:?missing` (never `:-true`). Fee asset uses the same
+ *    `:?missing` shape — unset must not substitute `:-IFC`.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -78,7 +78,8 @@ describe('compose usage window and upstream timeout for svc-agents', () => {
 
   it('does not restamp metering / provider / fee / UPSTREAM urls or invent routing JSON', () => {
     expect(block).toMatch(/AGENTS_PROVIDER:\s*\$\{AGENTS_PROVIDER:-mock\}/);
-    expect(block).toMatch(/AGENTS_FEE_ASSET_ID:\s*\$\{AGENTS_FEE_ASSET_ID:-IFC\}/);
+    expect(block).toMatch(/AGENTS_FEE_ASSET_ID:\s*\$\{AGENTS_FEE_ASSET_ID:\?missing — copy \.env\.example to \.env\}/);
+    expect(block).not.toMatch(/AGENTS_FEE_ASSET_ID:-IFC/);
     expect(block.match(METERING)).toHaveLength(1);
     expect(block).not.toMatch(/AGENTS_METERING_ENABLED:-true/);
     expect(block).toMatch(/^\s+AGENTS_UPSTREAM_BASE_URL:\s*$/m);

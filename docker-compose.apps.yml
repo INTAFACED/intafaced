@@ -1142,7 +1142,7 @@ services:
       # upstream's identity is deployment configuration — set the
       # AGENTS_UPSTREAM_* block in .env to point it somewhere real.
       AGENTS_PROVIDER: ${AGENTS_PROVIDER:-mock}
-      AGENTS_FEE_ASSET_ID: ${AGENTS_FEE_ASSET_ID:-IFC}
+      AGENTS_FEE_ASSET_ID: ${AGENTS_FEE_ASSET_ID:?missing — copy .env.example to .env}
       # Metering kill-switch: no git default — blank refuses (never true).
       # Owner may set true (see .env.example). Same `:?` shape as the usage
       # window so compose-up fails instead of inventing a billing window.

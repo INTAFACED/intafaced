@@ -66,7 +66,7 @@ describe('compose upstream auth header and prefix for svc-agents', () => {
   it('does not restamp provider / window / timeout / metering / fee / JWT / key-no-value UPSTREAM', () => {
     expect(block).toMatch(/AGENTS_PROVIDER:\s*\$\{AGENTS_PROVIDER:-mock\}/);
     expect(block).not.toMatch(/AGENTS_PROVIDER:\s*\$\{AGENTS_PROVIDER:-upstream\}/);
-    expect(block).toMatch(/AGENTS_FEE_ASSET_ID:\s*\$\{AGENTS_FEE_ASSET_ID:-IFC\}/);
+    expect(block).toMatch(/AGENTS_FEE_ASSET_ID:\s*\$\{AGENTS_FEE_ASSET_ID:\?missing — copy \.env\.example to \.env\}/);
     expect(block).toMatch(/AGENTS_METERING_ENABLED:\s*\$\{AGENTS_METERING_ENABLED:\?missing — copy \.env\.example to \.env\}/);
     expect(block.match(WINDOW)).toHaveLength(1);
     expect(block.match(TIMEOUT)).toHaveLength(1);
