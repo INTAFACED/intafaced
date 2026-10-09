@@ -24,6 +24,7 @@ import {
   type ActionSpec,
 } from './components';
 import { AutoInvestRules } from './repeat-buy';
+import { MoneyActivity, ScheduleExecutions } from './activity';
 
 const bankRooms = ['Overview', 'Spaces', 'Transfers', 'Earn', 'Loans', 'Cards', 'Ramps', 'Analytics', 'Business'] as const;
 const bankLabels = {
@@ -236,48 +237,6 @@ function Spaces({ open }: { open: (spec: ActionSpec) => void }) {
         </ResourceView>
       </Section>
     </BankPage>
-  );
-}
-function ScheduleExecutions({ id, asset }: { id: string; asset: string }) {
-  const [limit, setLimit] = usePageLimit();
-  const query = useBankRead('transfers.executions', { scheduleId: id, limit });
-  return (
-    <Section title={copyText('rooms.execution.outcomes')} description={copyText('rooms.each.due.occurrence.has.its.own.status')}>
-      <ResourceView resource={query.resource} reload={query.reload}>
-        {(rows) => (
-          <>
-            {rows.length ? (
-              <DataTable
-                headers={[
-                  copyText('rooms.occurrence'),
-                  copyText('rooms.amount'),
-                  copyText('rooms.status.refusal'),
-                  copyText('rooms.ledger.transaction'),
-                ]}
-                label={copyText('rooms.schedule.execution.outcomes')}
-              >
-                {rows.map((row) => (
-                  <tr key={row.occurrence}>
-                    <td>{row.occurrence}</td>
-                    <td className="numeric">{funds(row.amount, asset)}</td>
-                    <td>
-                      {row.status}
-                      {row.rejectionCode && <small className="money-block">{row.rejectionCode}</small>}
-                    </td>
-                    <td>{row.ledgerTxId ?? copyText('rooms.no.posted.transaction')}</td>
-                  </tr>
-                ))}
-              </DataTable>
-            ) : (
-              <NoRows title={copyText('rooms.no.executions.returned')}>
-                <Text k="rooms.the.schedule.has.no.recorded.execution.on" />
-              </NoRows>
-            )}
-            <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
-          </>
-        )}
-      </ResourceView>
-    </Section>
   );
 }
 function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
@@ -1616,47 +1575,6 @@ function Business() {
     </BankPage>
   );
 }
-function Activity({ open }: { open: (spec: ActionSpec) => void }) {
-  const asset = new URLSearchParams(location.search).get('asset');
-  return (
-    <Page
-      eyebrow={copyText('rooms.money')}
-      title={asset ? copyText('rooms.activity', { value1: asset }) : copyText('rooms.money.activity')}
-      description={copyText('rooms.supported.bank.operation.records.retain.their.actual')}
-      actions={
-        <a className="button button--secondary" href={asset ? `/portfolio/${encodeURIComponent(asset)}` : '/portfolio'}>
-          <Text k="rooms.back.to.holdings" />
-        </a>
-      }
-    >
-      <p className="notice">
-        <Text k="rooms.whole.account.ledger.history.is.not.exposed" />
-        {asset && copyText('rooms.the.asset.context.is.each.record.keeps', { value1: asset })}
-      </p>
-      <Schedules open={open} />
-      <RampRecords direction="in" />
-      <RampRecords direction="out" />
-      <a className="link-row" href="/bank/cards">
-        <span>
-          <Text k="rooms.card.decisions.and.declines" />
-          <small>
-            <Text k="rooms.inspect.the.actual.card.authorization.history" />
-          </small>
-        </span>
-        <span>↗</span>
-      </a>
-      <a className="link-row" href="/bank/analytics">
-        <span>
-          <Text k="rooms.movement.analysis" />
-          <small>
-            <Text k="rooms.choose.this.asset.and.a.time.window" />
-          </small>
-        </span>
-        <span>↗</span>
-      </a>
-    </Page>
-  );
-}
 export function BankRoutes({ path, open }: { path: string; open: (spec: ActionSpec) => void }) {
   switch (path) {
     case '/bank/spaces':
@@ -1676,7 +1594,7 @@ export function BankRoutes({ path, open }: { path: string; open: (spec: ActionSp
     case '/bank/business':
       return <Business />;
     case '/uc/record':
-      return <Activity open={open} />;
+      return <MoneyActivity />;
     default:
       return (
         <Page eyebrow={copyText('rooms.money.bank')} title={copyText('rooms.bank.room.unavailable')}>

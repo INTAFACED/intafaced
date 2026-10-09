@@ -9,6 +9,31 @@ const foreignId = '22222222-2222-4222-8222-222222222222';
 const invitationId = '33333333-3333-4333-8333-333333333333';
 const session = { userId, accessToken: 'isolated-identity-test', refreshToken: 'isolated-refresh-test', expiresAt: '2027-10-08T00:00:00Z' };
 const reply = (route, data) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result: { data } }) });
+const activityId = '44444444-4444-4444-8444-444444444444';
+const activityRecord = {
+  id: activityId,
+  assetId: 'BTC',
+  amount: '0.000000000000000001',
+  kind: 'crypto',
+  rail: 'isolated-rail',
+  simulated: true,
+  status: 'pending',
+  createdAt: '2026-10-09T00:00:00Z',
+  destinationRef: 'destination-' + 'a'.repeat(80),
+  clientRef: 'original-client-reference',
+  holdLedgerTxId: 'hold-original',
+  settleLedgerTxId: null,
+};
+async function activityApi(page) {
+  await setup(page);
+  await page.route('**/api/bank/trpc/ramps.onramps?*', (route) =>
+    reply(route, [
+      { ...activityRecord, id: foreignId, assetId: 'USDT', amount: '9', railRef: 'other-asset', ledgerTxId: 'other-transaction' },
+      { ...activityRecord, railRef: 'original-rail-reference', ledgerTxId: 'deposit-ledger-reference' },
+    ]),
+  );
+  await page.route('**/api/bank/trpc/ramps.offramps?*', (route) => reply(route, [activityRecord]));
+}
 async function setup(page) {
   await page.route('**/api/**', (route) =>
     route.fulfill({
@@ -33,65 +58,336 @@ async function signIn(page, destination) {
   await expect(page).toHaveURL(new RegExp(destination.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$'));
 }
 
-for (const publishedMarket of [false, true]) test(`working orders beyond the first 100 remain reachable ${publishedMarket ? 'in Spot' : 'account-wide'} without financial writes`, async ({ page }) => {
-  await setup(page);
-  if (publishedMarket) await page.route('**/api/v1/markets*', (route) => route.fulfill({ json: [{
-    id: 'market-BTC', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', settle: null,
-    baseId: 'BTC', quoteId: 'USDT', type: 'spot', spot: true, swap: false, future: false,
-    option: false, contract: false, linear: null, inverse: null, active: true, orderable: true,
-    paper: false, schedule: 'crypto-24x7', sessionOpen: true, nextSessionChange: null,
-    hours: { kind: 'continuous' }, taker: '0.001', maker: '0.001', contractSize: null,
-    expiry: null, expiryDatetime: null, strike: null, optionType: null, precisionMode: 'TICK_SIZE',
-    precision: { amount: '0.00001', price: '0.01' }, limits: {
-      amount: { min: '0.00001', max: null }, price: { min: null, max: null },
-      cost: { min: '5', max: null }, leverage: { min: null, max: null },
-    },
-  }] }));
-  const limits = [], writes = [];
+test('Money holding opens filtered asset activity and inspects exact records at four widths in the real App', async ({ page }) => {
+  await activityApi(page);
+  const errors = [],
+    writes = [];
+  page.on('pageerror', (e) => errors.push(e.message));
   page.on('request', (request) => {
-    if (request.url().includes('/api/v1/') && request.method() !== 'GET') writes.push(request.method());
+    if (request.url().includes('/api/') && request.method() === 'POST' && !request.url().includes('auth.login')) writes.push(request.url());
   });
-  const orders = Array.from({ length: 501 }, (_, index) => ({
-      id: `working-order-${index + 1}`, clientOrderId: null,
-      timestamp: 1791417600000, datetime: '2026-10-08T00:00:00.000Z', lastTradeTimestamp: null,
-      symbol: 'BTC/USDT', type: 'limit', side: 'buy', timeInForce: 'GTC', postOnly: false,
-      reduceOnly: false, price: '1', stopPrice: null, average: null, amount: '1', filled: '0',
-      remaining: '1', cost: '0', status: 'open', fee: null, trades: [], recoveryRequired: false,
-      recoveryReason: null, reconciliationKey: null,
-  }));
-  await page.route('**/api/v1/orders/working-order-*', (route) => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify(orders.find((order) => route.request().url().endsWith('/' + order.id))),
-  }));
-  await page.route('**/api/v1/orders/open?*', (route) => {
-    const limit = Number(new URL(route.request().url()).searchParams.get('limit'));
-    limits.push(limit);
-    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(orders.slice(0, limit)) });
-  });
-  await signIn(page, '/exchange');
-  const management = page.locator('.trade-blotter');
-  await expect(management.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(100);
-  await management.getByRole('button', { name: 'Load more records', exact: true }).click();
-  await expect(management.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(200);
-  await management.getByRole('button', { name: 'Cancel', exact: true }).nth(100).click();
-  await expect(page.getByRole('dialog').getByText(/working-order-101$/)).toBeVisible();
-  await page.getByRole('dialog').getByRole('button', { name: 'Close dialog', exact: true }).click();
-  for (let i = 0; i < 3; i++) await management.getByRole('button', { name: 'Load more records', exact: true }).click();
-  await expect(management.getByRole('button', { name: /page limit reached/i })).toBeDisabled();
-  await expect(management.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(500);
-  expect(limits).toContain(200);
-  expect(Math.max(...limits)).toBe(500);
+  await page.route('**/api/v1/account/balance*', (route) =>
+    route.fulfill({
+      json: {
+        timestamp: 1791504000000,
+        datetime: '2026-10-09T00:00:00Z',
+        balances: { BTC: { free: '0.2', used: '0.1', total: '0.3' } },
+      },
+    }),
+  );
+  await signIn(page, '/portfolio/BTC');
+  await page.getByRole('link', { name: /BTC activity/ }).click();
+  await expect(page).toHaveURL(/\/uc\/record\?asset=BTC$/);
+  await expect(page.getByRole('heading', { name: 'BTC activity', exact: true })).toBeVisible();
+  await expect(page.locator('.money-activity-row')).toHaveCount(1);
+  await expect(page.locator('.money-activity-list')).not.toContainText('USDT');
+  await expect(page.getByText('1 matching BTC records in 2 returned.')).toBeVisible();
+  await page.getByRole('button', { name: 'Outgoing', exact: true }).click();
+  const details = page.locator('#money-record-details');
+  for (const width of [1440, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.getByRole('button', { name: new RegExp('Inspect.*' + activityId) }).click();
+    await expect(details).toContainText(activityId);
+    await expect(details).toContainText('0.000000000000000001 BTC');
+    await expect(details).toContainText('hold-original');
+    await expect(details).toContainText('Not supplied');
+    await expect(details).toContainText('does not confirm a live bank transfer or network broadcast');
+    if (width === 1440) await expect(page.locator('#money-record-heading')).toBeFocused();
+    await page.locator('#money-record-heading').focus();
+    await page.keyboard.press('Tab');
+    await expect(details.getByRole('link', { name: /Open Support/ })).toBeFocused();
+    const reachable = await details.getByRole('link', { name: /Open Support/ }).evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const bar = document.querySelector('.mobile-doors')?.getBoundingClientRect();
+      return { hit: el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)), bottom: r.bottom, barTop: bar?.top };
+    });
+    expect(reachable.hit).toBe(true);
+    if (width <= 1000) expect(reachable.bottom).toBeLessThanOrEqual(reachable.barTop);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const axe = await new AxeBuilder({ page }).include('.money-activity').analyze();
+    expect(axe.violations.filter((v) => ['serious', 'critical'].includes(v.impact))).toEqual([]);
+  }
+  await page.getByRole('button', { name: 'Hide amounts', exact: true }).click();
+  await expect(details).toContainText('•••• BTC');
+  await expect(details).not.toContainText('0.000000000000000001');
+  await page.getByRole('button', { name: 'Show amounts', exact: true }).click();
+  await expect(details).toContainText('0.000000000000000001 BTC');
+  await page.getByRole('link', { name: 'Back to BTC', exact: true }).click();
+  await expect(page).toHaveURL(/\/portfolio\/BTC$/);
+  expect(errors).toEqual([]);
   expect(writes).toEqual([]);
 });
+
+test('Money activity retains selected original ID through loading failed empty and restored reads without clearing write recovery', async ({
+  page,
+}) => {
+  await activityApi(page);
+  let mode = 'ready',
+    held;
+  await page.route('**/api/bank/trpc/ramps.offramps?*', (route) => {
+    if (mode === 'loading') {
+      held = route;
+      return;
+    }
+    return reply(route, mode === 'empty' ? [] : [activityRecord]);
+  });
+  await page.addInitScript(
+    ({ userId, activityId }) =>
+      localStorage.setItem(
+        'intafaced.customer.bank-unconfirmed.v1:' + userId,
+        JSON.stringify([
+          { reference: activityId, title: 'Original transfer', procedure: 'transfers.toUser', recordRefs: { transferId: activityId } },
+        ]),
+      ),
+    { userId, activityId },
+  );
+  await signIn(page, '/uc/record?asset=BTC');
+  await page.getByRole('button', { name: 'Outgoing', exact: true }).click();
+  await page.getByRole('button', { name: new RegExp('Inspect.*' + activityId) }).click();
+  const details = page.locator('#money-record-details');
+  mode = 'loading';
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect.poll(() => Boolean(held)).toBe(true);
+  await expect(details).toContainText(activityId);
+  await expect(details).not.toContainText('0.000000000000000001');
+  await expect(details).toContainText('Current details are unavailable');
+  await held.fulfill({ status: 503, json: { error: 'Unavailable', message: 'The service is offline.' } });
+  await expect(page.locator('.money-activity .failure')).toBeVisible();
+  await expect(details).toContainText(activityId);
+  mode = 'empty';
+  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(details).toContainText('not present in the latest bounded read');
+  await expect(details).toContainText(activityId);
+  await expect(details).not.toContainText('0.000000000000000001');
+  mode = 'ready';
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(details).toContainText('0.000000000000000001 BTC');
+  await expect(page.locator('#bank-unconfirmed')).toContainText(activityId);
+  expect(
+    JSON.parse(await page.evaluate((userId) => localStorage.getItem('intafaced.customer.bank-unconfirmed.v1:' + userId), userId)),
+  ).toHaveLength(1);
+});
+
+test('Money activity continuation uses fetched count when no matching asset is on the first page', async ({ page }) => {
+  await activityApi(page);
+  const limits = [];
+  const all = Array.from({ length: 51 }, (_, index) => ({
+    ...activityRecord,
+    id: `record-${index}`,
+    assetId: index === 50 ? 'BTC' : 'USDT',
+    railRef: `rail-${index}`,
+    ledgerTxId: null,
+  }));
+  await page.route('**/api/bank/trpc/ramps.onramps?*', (route) => {
+    const input = JSON.parse(new URL(route.request().url()).searchParams.get('input'));
+    expect(Object.keys(input)).toEqual(['limit']);
+    limits.push(input.limit);
+    return reply(route, all.slice(0, input.limit));
+  });
+  await signIn(page, '/uc/record?asset=BTC');
+  await expect(page.getByText('No matching records in this read', { exact: true })).toBeVisible();
+  await expect(page.getByText('0 matching BTC records in 50 returned.')).toBeVisible();
+  await page.getByRole('button', { name: 'Load up to 100', exact: true }).click();
+  await expect(page.locator('.money-activity-row')).toHaveCount(1);
+  await expect(page.getByText('1 matching BTC records in 51 returned.')).toBeVisible();
+  expect(limits).toContain(50);
+  expect(limits.at(-1)).toBe(100);
+  expect(limits.every((limit) => limit === 50 || limit === 100)).toBe(true);
+});
+
+test('Money activity keeps standing instructions distinct and reads the selected owned schedule execution refusal', async ({ page }) => {
+  await activityApi(page);
+  await page.route('**/api/bank/trpc/transfers.listSchedules?*', (route) =>
+    reply(route, [
+      {
+        id: invitationId,
+        assetId: 'BTC',
+        amount: '0.000000000000000001',
+        cadence: 'weekly',
+        nextRunAt: '2026-10-16T00:00:00Z',
+        status: 'active',
+      },
+      { id: foreignId, assetId: 'USDT', amount: '4', cadence: 'daily', nextRunAt: '2026-10-10T00:00:00Z', status: 'active' },
+    ]),
+  );
+  await page.route('**/api/bank/trpc/transfers.executions?*', (route) => {
+    const input = JSON.parse(new URL(route.request().url()).searchParams.get('input'));
+    expect(input).toEqual({ scheduleId: invitationId, limit: 50 });
+    return reply(route, [
+      { occurrence: 1, amount: '0.000000000000000001', status: 'rejected', ledgerTxId: null, rejectionCode: 'bank.insufficient_available' },
+    ]);
+  });
+  await signIn(page, '/uc/record?asset=BTC');
+  await page.getByRole('button', { name: 'Scheduled', exact: true }).click();
+  await expect(page.getByText('These are scheduled instructions, not posted transfers.', { exact: false })).toBeVisible();
+  await expect(page.locator('.money-activity-row')).toHaveCount(1);
+  await page.getByRole('button', { name: new RegExp('Inspect.*' + invitationId) }).click();
+  await expect(page.locator('#money-record-details')).toContainText('bank.insufficient_available');
+  await expect(page.locator('#money-record-details')).toContainText('No posted transaction');
+  await expect(page.getByRole('link', { name: /Manage standing orders/ })).toHaveAttribute('href', '/bank/transfers');
+  await page.getByRole('button', { name: 'Incoming', exact: true }).click();
+  await expect(page.locator('#money-record-details')).not.toContainText(invitationId);
+});
+
+for (const query of ['asset=', 'asset=BTC&asset=USDT', 'asset=THIS-ASSET-CODE-IS-TOO-LONG'])
+  test(`Money activity refuses invalid context ${query} before Bank reads`, async ({ page }) => {
+    await activityApi(page);
+    const reads = [];
+    page.on('request', (request) => {
+      if (request.url().includes('/api/bank/')) reads.push(request.url());
+    });
+    await signIn(page, '/uc/record?' + query);
+    await expect(page.getByRole('heading', { name: 'Asset context is invalid', exact: true })).toBeVisible();
+    await expect(page.locator('.money-activity-row')).toHaveCount(0);
+    expect(reads).toEqual([]);
+  });
+
+test('Money activity for all assets retains explicit units and rejects numeric monetary responses', async ({ page }) => {
+  await activityApi(page);
+  await signIn(page, '/uc/record');
+  await expect(page.locator('.money-activity-row')).toHaveCount(2);
+  await expect(page.locator('.money-activity-list')).toContainText('9 USDT');
+  await page.route('**/api/bank/trpc/ramps.onramps?*', (route) =>
+    reply(route, [{ ...activityRecord, amount: 0.1, railRef: 'invalid', ledgerTxId: null }]),
+  );
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.locator('.money-activity .failure')).toBeVisible();
+  await expect(page.locator('.money-activity-row')).toHaveCount(0);
+});
+
+for (const publishedMarket of [false, true])
+  test(`working orders beyond the first 100 remain reachable ${publishedMarket ? 'in Spot' : 'account-wide'} without financial writes`, async ({
+    page,
+  }) => {
+    await setup(page);
+    if (publishedMarket)
+      await page.route('**/api/v1/markets*', (route) =>
+        route.fulfill({
+          json: [
+            {
+              id: 'market-BTC',
+              symbol: 'BTC/USDT',
+              base: 'BTC',
+              quote: 'USDT',
+              settle: null,
+              baseId: 'BTC',
+              quoteId: 'USDT',
+              type: 'spot',
+              spot: true,
+              swap: false,
+              future: false,
+              option: false,
+              contract: false,
+              linear: null,
+              inverse: null,
+              active: true,
+              orderable: true,
+              paper: false,
+              schedule: 'crypto-24x7',
+              sessionOpen: true,
+              nextSessionChange: null,
+              hours: { kind: 'continuous' },
+              taker: '0.001',
+              maker: '0.001',
+              contractSize: null,
+              expiry: null,
+              expiryDatetime: null,
+              strike: null,
+              optionType: null,
+              precisionMode: 'TICK_SIZE',
+              precision: { amount: '0.00001', price: '0.01' },
+              limits: {
+                amount: { min: '0.00001', max: null },
+                price: { min: null, max: null },
+                cost: { min: '5', max: null },
+                leverage: { min: null, max: null },
+              },
+            },
+          ],
+        }),
+      );
+    const limits = [],
+      writes = [];
+    page.on('request', (request) => {
+      if (request.url().includes('/api/v1/') && request.method() !== 'GET') writes.push(request.method());
+    });
+    const orders = Array.from({ length: 501 }, (_, index) => ({
+      id: `working-order-${index + 1}`,
+      clientOrderId: null,
+      timestamp: 1791417600000,
+      datetime: '2026-10-08T00:00:00.000Z',
+      lastTradeTimestamp: null,
+      symbol: 'BTC/USDT',
+      type: 'limit',
+      side: 'buy',
+      timeInForce: 'GTC',
+      postOnly: false,
+      reduceOnly: false,
+      price: '1',
+      stopPrice: null,
+      average: null,
+      amount: '1',
+      filled: '0',
+      remaining: '1',
+      cost: '0',
+      status: 'open',
+      fee: null,
+      trades: [],
+      recoveryRequired: false,
+      recoveryReason: null,
+      reconciliationKey: null,
+    }));
+    await page.route('**/api/v1/orders/working-order-*', (route) =>
+      route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(
+          orders.find((order) =>
+            route
+              .request()
+              .url()
+              .endsWith('/' + order.id),
+          ),
+        ),
+      }),
+    );
+    await page.route('**/api/v1/orders/open?*', (route) => {
+      const limit = Number(new URL(route.request().url()).searchParams.get('limit'));
+      limits.push(limit);
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(orders.slice(0, limit)) });
+    });
+    await signIn(page, '/exchange');
+    const management = page.locator('.trade-blotter');
+    await expect(management.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(100);
+    await management.getByRole('button', { name: 'Load more records', exact: true }).click();
+    await expect(management.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(200);
+    await management.getByRole('button', { name: 'Cancel', exact: true }).nth(100).click();
+    await expect(page.getByRole('dialog').getByText(/working-order-101$/)).toBeVisible();
+    await page.getByRole('dialog').getByRole('button', { name: 'Close dialog', exact: true }).click();
+    for (let i = 0; i < 3; i++) await management.getByRole('button', { name: 'Load more records', exact: true }).click();
+    await expect(management.getByRole('button', { name: /page limit reached/i })).toBeDisabled();
+    await expect(management.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(500);
+    expect(limits).toContain(200);
+    expect(Math.max(...limits)).toBe(500);
+    expect(writes).toEqual([]);
+  });
 
 test('Hide balances masks each owned stake on desktop and phone and can reveal it again', async ({ page }) => {
   await setup(page);
   const amount = '123.456789123456789123';
   await page.route('**/api/token/trpc/accessOf*', (route) => reply(route, { staked: amount, tier: 'm3', feeDiscountBps: 10 }));
-  await page.route('**/api/token/trpc/listStakes?*', (route) => reply(route, [{
-    id: invitationId, userId, amount, tier: 'm3', startedAt: '2026-10-08T00:00:00Z',
-    unlocksAt: '2027-01-08T00:00:00Z', status: 'active',
-  }]));
+  await page.route('**/api/token/trpc/listStakes?*', (route) =>
+    reply(route, [
+      {
+        id: invitationId,
+        userId,
+        amount,
+        tier: 'm3',
+        startedAt: '2026-10-08T00:00:00Z',
+        unlocksAt: '2027-01-08T00:00:00Z',
+        status: 'active',
+      },
+    ]),
+  );
   await signIn(page, '/view');
   await page.getByLabel('Hide balance values', { exact: true }).check();
   await signIn(page, '/token');
@@ -325,10 +621,12 @@ test('Money holding to Send preserves BTC through source selection and exact rev
         await page.keyboard.press('Tab');
         await expect(page.getByRole('link', { name })).toBeFocused();
       }
-      expect(await send.evaluate((element) => {
-        const bounds = element.getBoundingClientRect();
-        return document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)?.closest('a') === element;
-      })).toBe(true);
+      expect(
+        await send.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          return document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)?.closest('a') === element;
+        }),
+      ).toBe(true);
     }
     const audit = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
     expect(audit.violations.filter((item) => ['serious', 'critical'].includes(item.impact))).toEqual([]);
