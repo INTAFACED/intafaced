@@ -88,7 +88,7 @@ export type ScannerDataToolRefuse = {
 export type ScannerDataToolResult = ScannerDataToolOk | ScannerDataToolRefuse;
 
 function parseUnsignedDecimal(s: string): boolean {
-  return /^-?\d+(\.\d{1,18})?$/.test(s) && Number.isFinite(Number(s));
+  return /^\d+(\.\d{1,18})?$/.test(s);
 }
 
 function isFresh(asOf: string, maxAgeMs: number, nowMs: number): boolean {
