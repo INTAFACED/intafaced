@@ -742,9 +742,9 @@ export class AgentRuntime {
   /**
    * Bill a usage window.
    *
-   * The audit row is appended in the same step that records the ledger
-   * transaction id, so a settlement that was posted but not yet recorded
-   * resumes to exactly one charge and exactly one log line.
+   * meter.settle posts the fee. The usage_settlement row is the next
+   * transaction. A settlement that was posted but not yet recorded resumes
+   * to exactly one charge and exactly one log line.
    *
    * When `meteringEnabled` is false (D26-P1-A6), returns the metering-off
    * settlement stub and posts nothing — leftover windows stay open for a later
@@ -761,43 +761,80 @@ export class AgentRuntime {
     }
     const result = await this.meter.settle({ sessionId, userId: session.userId, windowId });
 
-    // Only a settlement that actually happened is logged. A repeat call finds
-    // the window already sealed, posts nothing, and appends nothing — one
-    // charge, one log line, however many times the sweep runs.
-    if (result.settled) {
-      await transaction(
-        this.sql,
-        async (tx) =>
-          this.audit.append(tx, {
-            sessionId,
-            userId: session.userId,
-            agentId: session.agentId,
-            kind: 'usage_settlement',
-            status: 'executed',
-            cost: result.amount,
-            userMessageKey: result.amount > 0n ? 'agents.usage.settled' : 'agents.usage.free',
-            userMessageParams: result.amount > 0n ? { amount: formatAmount(result.amount), asset: this.feeAssetId } : {},
-          }),
-        { isolation: 'read committed', maxAttempts: 5 },
+    // meter.settle posts the fee and, on a retry, returns settled:false with
+    // the stored amount and charge key and does not post again. The log is a
+    // later transaction, so a retry after that append failed still has to
+    // write the one missing row. A row already stored for this charge is left
+    // alone — one charge, one log line, however many times the sweep runs.
+    const recorded = await this.recordUsageSettlement(session, result);
+    if (recorded && result.amount > 0n) {
+      await this.bus.publish(
+        'agentUsageSettled',
+        {
+          sessionId,
+          userId: session.userId,
+          windowId,
+          amount: formatAmount(result.amount),
+          assetId: this.feeAssetId,
+          chargeKey: result.chargeKey,
+        },
+        { idempotencyKey: result.chargeKey },
       );
-
-      if (result.amount > 0n) {
-        await this.bus.publish(
-          'agentUsageSettled',
-          {
-            sessionId,
-            userId: session.userId,
-            windowId,
-            amount: formatAmount(result.amount),
-            assetId: this.feeAssetId,
-            chargeKey: result.chargeKey,
-          },
-          { idempotencyKey: result.chargeKey },
-        );
-      }
     }
 
     return result;
+  }
+
+  /**
+   * Append the usage_settlement row for the amount `meter.settle` returned.
+   *
+   * Returns true only when this call wrote the row. The charge key is stored
+   * on `output_digest` because `agent_actions` has no window column; a later
+   * retry finds that row and does not append a second one. A settlement logged
+   * before the key was stored is recognised by the session already having a
+   * usage_settlement row for every sealed window.
+   */
+  private async recordUsageSettlement(session: SessionRecord, result: SettlementResult): Promise<boolean> {
+    return transaction(
+      this.sql,
+      async (tx) => {
+        await tx`SELECT id FROM agents.agent_sessions WHERE id = ${session.id} FOR UPDATE`;
+
+        const rows = await tx<Array<{ keyed: boolean; covered: boolean }>>`
+          SELECT
+            EXISTS (
+              SELECT 1 FROM agents.agent_actions
+               WHERE session_id = ${session.id}
+                 AND kind = 'usage_settlement'
+                 AND output_digest = ${result.chargeKey}
+            ) AS keyed,
+            (
+              SELECT count(*) FROM agents.agent_actions
+               WHERE session_id = ${session.id} AND kind = 'usage_settlement'
+            ) >= (
+              SELECT count(*) FROM agents.usage_windows
+               WHERE session_id = ${session.id} AND charge_tx_id IS NOT NULL
+            ) AS covered
+        `;
+        const row = rows[0];
+        if (row?.keyed === true) return false;
+        if (!result.settled && row?.covered === true) return false;
+
+        await this.audit.append(tx, {
+          sessionId: session.id,
+          userId: session.userId,
+          agentId: session.agentId,
+          kind: 'usage_settlement',
+          status: 'executed',
+          cost: result.amount,
+          userMessageKey: result.amount > 0n ? 'agents.usage.settled' : 'agents.usage.free',
+          userMessageParams: result.amount > 0n ? { amount: formatAmount(result.amount), asset: this.feeAssetId } : {},
+          outputDigest: result.chargeKey,
+        });
+        return true;
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
   }
 
   /** Settle every open window of a session. Used when a session closes. */

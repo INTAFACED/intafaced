@@ -453,6 +453,51 @@ if (!available) {
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
+    it('writes the missing usage_settlement log when a retry finds the charge already posted', async () => {
+      const session = await open();
+      const call = await runtime.think({ sessionId: session.id, requestId: 'r-log-retry', task: 'plan', messages: MESSAGES });
+      const expected = usageCost(call.usage, requireMeterPrice(call.route));
+      expect(expected).toBeGreaterThan(0n);
+
+      const append = runtime.audit.append.bind(runtime.audit);
+      let dropped = false;
+      runtime.audit.append = async (tx, entry) => {
+        if (entry.kind === 'usage_settlement' && !dropped) {
+          dropped = true;
+          throw new Error('usage_settlement append failed');
+        }
+        return append(tx, entry);
+      };
+
+      await expect(runtime.settleWindow(session.id, call.windowId!)).rejects.toThrow(/usage_settlement append failed/);
+      expect(await houseOf()).toBe(formatAmount(expected));
+      expect(ledger.journal()).toHaveLength(3);
+      expect((await runtime.sessionLog(session.id, 500)).filter((row) => row.kind === 'usage_settlement')).toHaveLength(0);
+
+      runtime.audit.append = append;
+
+      const retry = await runtime.settleWindow(session.id, call.windowId!);
+      expect(retry.settled).toBe(false);
+      expect(retry.amount).toBe(expected);
+      expect(await houseOf()).toBe(formatAmount(expected));
+      expect(ledger.journal()).toHaveLength(3);
+
+      const logged = (await runtime.sessionLog(session.id, 500)).filter((row) => row.kind === 'usage_settlement');
+      expect(logged).toHaveLength(1);
+      expect(logged[0]!.cost).toBe(expected);
+      expect(logged[0]!.status).toBe('executed');
+      expect(logged[0]!.userMessageKey).toBe('agents.usage.settled');
+      expect(logged[0]!.userMessageParams.amount).toBe(formatAmount(expected));
+      expect(logged[0]!.userMessageParams.asset).toBe('IFC');
+
+      const again = await runtime.settleWindow(session.id, call.windowId!);
+      expect(again.settled).toBe(false);
+      expect(again.amount).toBe(expected);
+      expect(await houseOf()).toBe(formatAmount(expected));
+      expect(ledger.journal()).toHaveLength(3);
+      expect((await runtime.sessionLog(session.id, 500)).filter((row) => row.kind === 'usage_settlement')).toHaveLength(1);
+    });
+
     it('recovers a sealed-but-unbilled window on session settle (seal → post crash resume)', async () => {
       // Crash between seal and ledger post leaves sealed_at set, charge_tx_id
       // null, and a positive charged_amount. openWindows must still list that
