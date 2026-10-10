@@ -135,6 +135,8 @@ struct Book {
 }
 
 const SCALE: u32 = 18;
+// numeric(38,18) maximum, scaled: 20 digits before the point and 18 after.
+const NUMERIC_38_18_MAX: u128 = 10u128.pow(38) - 1;
 
 fn parse_amount(s: &str) -> Result<u128, String> {
     let (whole, frac) = s.split_once('.').unwrap_or((s, ""));
@@ -145,7 +147,11 @@ fn parse_amount(s: &str) -> Result<u128, String> {
     digits.extend(std::iter::repeat('0').take(SCALE as usize - digits.len()));
     let w = whole.parse::<u128>().map_err(|_| format!("amount overflow: {s}"))?;
     let f = if digits.is_empty() { 0 } else { digits.parse::<u128>().map_err(|_| format!("amount overflow: {s}"))? };
-    w.checked_mul(10u128.pow(SCALE)).and_then(|x| x.checked_add(f)).ok_or_else(|| format!("amount overflow: {s}"))
+    let scaled = w.checked_mul(10u128.pow(SCALE)).and_then(|x| x.checked_add(f)).ok_or_else(|| format!("amount overflow: {s}"))?;
+    if scaled > NUMERIC_38_18_MAX {
+        return Err(format!("amount overflow: {s}"));
+    }
+    Ok(scaled)
 }
 
 fn format_amount(v: u128) -> String {
@@ -809,6 +815,21 @@ pub fn replay_json(input: &str) -> Result<String, String> {
 }
 
 pub fn ready() -> &'static str { "ready" }
+
+#[test]
+fn parse_amount_rejects_one_digit_past_numeric_38_18() {
+    // 10^20 scales to 10^38, one integer digit past numeric(38,18).
+    assert!(parse_amount("100000000000000000000").is_err());
+    assert_eq!(
+        parse_amount("99999999999999999999.999999999999999999").unwrap(),
+        10u128.pow(38) - 1
+    );
+    assert_eq!(parse_amount("1").unwrap(), 10u128.pow(18));
+    assert_eq!(parse_amount("1.5").unwrap(), 15 * 10u128.pow(17));
+    assert!(parse_amount("").is_err());
+    assert!(parse_amount("1a").is_err());
+    assert!(parse_amount("1.0000000000000000001").is_err());
+}
 
 #[cfg(test)]
 mod tests {
