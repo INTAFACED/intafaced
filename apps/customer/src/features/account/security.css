@@ -332,3 +332,87 @@
     text-align: left;
   }
 }
+
+/* Exact-owner API-key revoke: recorded state and direct proof stay distinct. */
+.api-key-revoke {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding-top: 24px;
+  border-top: 1px solid var(--color-border);
+}
+.api-key-revoke h3,
+.api-key-revoke__review h3 {
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.api-key-revoke h4 {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+}
+.api-key-revoke p,
+.api-key-revoke__review p {
+  font-size: 14px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+.api-key-revoke__refs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+.api-key-revoke__refs > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.api-key-revoke__refs dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.api-key-revoke__refs dt {
+  color: var(--color-muted);
+}
+.api-key-revoke__current,
+.api-key-revoke__review {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.api-key-revoke__current {
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+.api-key-revoke__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.api-key-revoke > .button,
+.api-key-revoke__current > .button,
+.api-key-revoke__row-action {
+  align-self: start;
+}
+@media (max-width: 560px) {
+  .api-key-revoke__actions {
+    flex-direction: column;
+  }
+  .api-key-revoke__actions > .button {
+    width: 100%;
+  }
+  .api-key-revoke .button {
+    max-width: 100%;
+    white-space: normal;
+  }
+}

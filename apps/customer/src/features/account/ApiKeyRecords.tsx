@@ -12,6 +12,8 @@ import {
 } from '../more/blueprint-shared-card-contract';
 import { apiKeyReadWindows, readApiKeyRecords, type ApiKeyReadWindow, type ApiKeyRecord } from './api-key-records-api';
 import { copy } from './copy';
+import { ApiKeyRevocation, useApiKeyRevocation } from './ApiKeyRevocation';
+import { canReviewApiKeyRevoke } from './api-key-revoke-contract';
 
 type Lease = Readonly<{
   api: ApiClient;
@@ -125,6 +127,18 @@ export function ApiKeyRecords() {
       setLimit(next);
     });
   }
+  const revocation = useApiKeyRevocation({
+    api,
+    owner,
+    session,
+    context: lease,
+    limit,
+    inventory: rendered.status === 'ready' ? rendered : null,
+    current: admits,
+    actionCurrent,
+    inventoryCurrent: (receipt) =>
+      viewRef.current === receipt && viewRef.current.status === 'ready' && requestCurrent(viewRef.current.request),
+  });
   if (!owner || !session) return null;
   const failure = rendered.status === 'failed' ? rendered.failure : null;
   return (
@@ -201,6 +215,7 @@ export function ApiKeyRecords() {
           </Button>
         )}
       </div>
+      <ApiKeyRevocation action={revocation} />
       {rendered.status === 'loading' && <Loading label={<Copy k="api.records.loading" />} />}
       {rendered.status === 'ready' &&
         (rendered.rows.length === 0 ? (
@@ -276,6 +291,16 @@ export function ApiKeyRecords() {
                     )}
                   </div>
                 </dl>
+                {canReviewApiKeyRevoke(record) && (
+                  <Button
+                    variant="secondary"
+                    className="api-key-revoke__row-action"
+                    disabled={revocation.blocked}
+                    onClick={(event) => revocation.review(record, event?.currentTarget)}
+                  >
+                    <Copy k="api.revoke.review" />
+                  </Button>
+                )}
               </li>
             ))}
           </ul>

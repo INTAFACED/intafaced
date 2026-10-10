@@ -17,7 +17,7 @@ const record = {
 const securityKey = `intafaced.customer.security.v1:${ownerA}`;
 const original = ` [ ${JSON.stringify({ requestId: '33333333-3333-4333-8333-333333333333', owner: ownerA, kind: 'logout', state: 'sent', createdAt: '2026-10-10T08:00:00.000Z' })} ] `;
 const section = (page) => page.locator('.api-key-records');
-const readButton = (page) => section(page).getByRole('button');
+const readButton = (page) => section(page).locator('.api-key-records__controls').getByRole('button');
 const rows = (page) => section(page).locator('.api-key-records__row');
 const pause = () => {
   let release;
