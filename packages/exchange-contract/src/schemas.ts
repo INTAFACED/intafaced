@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { scheduleKeySchema } from '@intafaced/contracts';
+import { parseSymbol, SymbolError } from './symbols.js';
 
 /**
  * CCXT-SHAPED PUBLIC EXCHANGE API.
@@ -327,7 +328,15 @@ export type Order = z.infer<typeof orderSchema>;
 
 export const createOrderRequestSchema = z
   .object({
-    symbol: z.string(),
+    /** Same grammar as parseSymbol. Empty and malformed symbols are not orders. */
+    symbol: z.string().superRefine((symbol, ctx) => {
+      try {
+        parseSymbol(symbol);
+      } catch (error) {
+        if (!(error instanceof SymbolError)) throw error;
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: error.message });
+      }
+    }),
     type: orderTypeSchema,
     side: orderSideSchema,
     amount: decimal,

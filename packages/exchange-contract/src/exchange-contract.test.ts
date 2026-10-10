@@ -95,6 +95,20 @@ describe('order validation at the boundary', () => {
     expect(createOrderRequestSchema.safeParse({ ...base, type: 'limit', price: '90000' }).success).toBe(true);
   });
 
+  it('rejects a limit order with an empty symbol', () => {
+    const result = createOrderRequestSchema.safeParse({ ...base, symbol: '', type: 'limit', price: '90000' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a limit order with a malformed symbol', () => {
+    const result = createOrderRequestSchema.safeParse({ ...base, symbol: 'BTC', type: 'limit', price: '90000' });
+    expect(result.success).toBe(false);
+  });
+
+  it('still accepts a limit order with the base symbol BTC/USDT', () => {
+    expect(createOrderRequestSchema.safeParse({ ...base, symbol: 'BTC/USDT', type: 'limit', price: '90000' }).success).toBe(true);
+  });
+
   it('rejects a limit order with no price — the classic integration bug', () => {
     const result = createOrderRequestSchema.safeParse({ ...base, type: 'limit' });
     expect(result.success).toBe(false);
