@@ -45,6 +45,11 @@ const originalLoan = {
   marginCalledAt: null,
 };
 async function setup(page, options = {}) {
+  if (!errors.has(page)) {
+    const list = [];
+    errors.set(page, list);
+    page.on('pageerror', () => list.push(true));
+  }
   const state = { posts: [], reads: 0, unexpected: 0, actor: owner, loan: structuredClone(originalLoan), journalAtDispatch: null };
   states.set(page, state);
   await page.route('**/api/**', async (route) => {
@@ -576,6 +581,122 @@ test('native changed loan preflight still refuses before journal and recovers th
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Confirmed by the service');
   expect(state.posts.length).toBe(1);
+});
+
+const recoveryOriginal = JSON.stringify([
+  {
+    reference: '77777777-7777-4777-8777-777777777777',
+    title: 'Transfer',
+    procedure: 'transfers.create',
+    recordRefs: { transferId: '88888888-8888-4888-8888-888888888888', fromSpaceId: from, toSpaceId: to },
+  },
+]);
+
+test('shared Bank recovery retains an unknown through tab closure and an independent owner login', async ({ page, context }) => {
+  const first = await setup(page, { post: unavailable });
+  await review(page);
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect.poll(() => first.posts.length).toBe(1);
+  await expect(page.locator('#bank-unconfirmed')).toContainText(first.posts[0].body.transferId);
+  const original = await journal(page);
+  expect(JSON.parse(original)).toHaveLength(1);
+  expect(original).not.toContain(exact);
+  expect(original).not.toContain('isolated-password');
+  await page.close();
+  const other = await context.newPage();
+  const second = await setup(other);
+  await expect(other.locator('#bank-unconfirmed')).toContainText(JSON.parse(original)[0].reference);
+  await other.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(other.getByRole('dialog')).toHaveCount(0);
+  expect(second.posts).toHaveLength(0);
+  expect(await journal(other)).toBe(original);
+  expect([errors.get(other).length, second.unexpected]).toEqual([0, 0]);
+  await other.close();
+});
+
+test('shared Bank recovery refuses a second reviewed tab while the first original reply is held', async ({ page, context }) => {
+  let release;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  const first = await setup(page, {
+    post: async (route) => {
+      await held;
+      return unavailable(route);
+    },
+  });
+  const other = await context.newPage();
+  const second = await setup(other);
+  await review(page);
+  await review(other);
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect.poll(() => first.posts.length).toBe(1);
+  const original = await journal(page);
+  await other.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(other.getByRole('dialog')).toContainText('Another tab has a Bank request running. No second request was sent.');
+  expect(second.posts).toHaveLength(0);
+  expect(await journal(other)).toBe(original);
+  release();
+  await expect(page.locator('#bank-unconfirmed')).toContainText(JSON.parse(original)[0].reference);
+  expect([errors.get(other).length, second.unexpected]).toEqual([0, 0]);
+  await other.close();
+});
+
+test('shared Bank recovery treats getItem-only failure as unreadable and preserves the original bytes', async ({ page }) => {
+  const state = await setup(page);
+  await review(page);
+  await page.evaluate(
+    ({ key, raw }) => {
+      localStorage.setItem(key, raw);
+      const get = Storage.prototype.getItem;
+      window.restoreBankRead = () => {
+        Storage.prototype.getItem = get;
+      };
+      Storage.prototype.getItem = function (name) {
+        if (name === key) throw new DOMException('Isolated read denial', 'SecurityError');
+        return get.call(this, name);
+      };
+    },
+    { key: journalKey, raw: recoveryOriginal },
+  );
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('still requires recovery');
+  expect(state.posts).toHaveLength(0);
+  await page.evaluate(() => window.restoreBankRead());
+  expect(await journal(page)).toBe(recoveryOriginal);
+});
+
+test('shared Bank recovery migrates surviving exact session references before closing the tab', async ({ page, context }) => {
+  await page.addInitScript(({ key, raw }) => sessionStorage.setItem(key, raw), { key: journalKey, raw: recoveryOriginal });
+  const first = await setup(page);
+  await expect.poll(() => journal(page)).toBe(recoveryOriginal);
+  expect(await page.evaluate((key) => sessionStorage.getItem(key), journalKey)).toBeNull();
+  expect(first.posts).toHaveLength(0);
+  await page.close();
+  const other = await context.newPage();
+  const second = await setup(other);
+  await expect(other.locator('#bank-unconfirmed')).toContainText('77777777-7777-4777-8777-777777777777');
+  expect(await journal(other)).toBe(recoveryOriginal);
+  expect(second.posts).toHaveLength(0);
+  expect([errors.get(other).length, second.unexpected]).toEqual([0, 0]);
+  await other.close();
+});
+
+test('shared Bank recovery preserves a legacy original conflicting with a durable empty array', async ({ page }) => {
+  await page.addInitScript(
+    ({ key, raw }) => {
+      localStorage.setItem(key, '[]');
+      sessionStorage.setItem(key, raw);
+    },
+    { key: journalKey, raw: recoveryOriginal },
+  );
+  const state = await setup(page);
+  await expect(page.locator('#bank-unconfirmed')).toContainText('77777777-7777-4777-8777-777777777777');
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(state.posts).toHaveLength(0);
+  expect(await journal(page)).toBe('[]');
+  expect(await page.evaluate((key) => sessionStorage.getItem(key), journalKey)).toBe(recoveryOriginal);
 });
 for (const width of [1440, 390, 320])
   test('current review and departure recovery fit native viewport ' + width, async ({ page }) => {

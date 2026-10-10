@@ -9,7 +9,13 @@ import { Button, Dialog, EmptyState, Failure, Field, Loading } from '../../share
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { bankReads, bankWriteForReview, type BankRead, type BankWrite } from './contracts';
 import { createMoneyClient, type Space, type TransferDraft } from './client';
-import { clearPendingOutcome, originalRecordRefs, pendingOutcomes, rememberPendingOutcome } from './pending-outcomes';
+import {
+  clearPendingOutcome,
+  originalRecordRefs,
+  pendingOutcomes,
+  rememberPendingOutcome,
+  type PendingReservation,
+} from './pending-outcomes';
 
 export const PAGE_SIZE = 50;
 export const amount = (value: string | null | undefined, asset: string) =>
@@ -382,13 +388,18 @@ export function MutationDialog({
           return { ok: false, reason: 'uncertain', message: copyText('components.an.original.bank.request.still.requires.recovery') };
       }
       if (!currentRun()) return authoredRefusal('aborted', { key: 'accountChanged' });
+      let reservation: PendingReservation;
       try {
-        rememberPendingOutcome(userId, {
-          reference: requestId,
-          title: spec.title,
-          procedure: spec.procedure,
-          recordRefs: originalRecordRefs(input),
-        });
+        reservation = await rememberPendingOutcome(
+          userId,
+          {
+            reference: requestId,
+            title: spec.title,
+            procedure: spec.procedure,
+            recordRefs: originalRecordRefs(input),
+          },
+          currentRun,
+        );
       } catch {
         return { ok: false, reason: 'error', message: copyText('components.recovery.storage.is.unavailable.no.bank.request') };
       }
@@ -397,7 +408,7 @@ export function MutationDialog({
         // This original has not dispatched. Remove only its just-saved marker;
         // a request already sent never reaches this non-dispatch cleanup.
         try {
-          clearPendingOutcome(userId, requestId);
+          await clearPendingOutcome(reservation, () => true);
         } catch {
           // Keep the conservative guard if durable storage cannot be cleared.
         }
@@ -424,7 +435,7 @@ export function MutationDialog({
       const definitive = outcome.ok || outcome.code === 'money.invalid_transfer' || outcome.status === 401 || outcome.status === 403;
       if (definitive) {
         try {
-          clearPendingOutcome(userId, requestId);
+          await clearPendingOutcome(reservation, currentRun);
         } catch {
           if (currentRun()) setClearFailure(true);
         }

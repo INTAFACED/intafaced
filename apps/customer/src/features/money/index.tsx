@@ -20,7 +20,9 @@ import {
 } from './components';
 import { BankRoutes, BankNavigation } from './rooms';
 import { RepeatBuy } from './repeat-buy';
-import { pendingKey, pendingOutcomes } from './pending-outcomes';
+import { Withdrawal } from './Withdrawal';
+import { withdrawalCopy } from './withdrawal-copy';
+import { pendingKey, pendingOutcomes, restorePendingOutcomes } from './pending-outcomes';
 import './money.css';
 
 const coverage = () => copyText('index.user.ledger.accounts.are.shown.by.asset');
@@ -414,7 +416,7 @@ function MoneyOverviewPage({ bank = false, asset }: { bank?: boolean; asset?: st
                   <Text k="index.deposit.unavailable" />
                 </a>
                 <a className="button button--secondary" href="/uc/withdraw">
-                  <Text k="index.withdraw.unavailable" />
+                  {withdrawalCopy.t('title')}
                 </a>
               </div>
               <p className="money-caption">
@@ -521,6 +523,9 @@ function MoneyRooms({ path }: { path: string }) {
   const rendered = useRef(rendering);
   rendered.current = rendering;
   const sameContext = () => mounted.current && version.current === context && location.href === context.href && api.canWrite();
+  // canWrite here is the API's synchronous client/session identity lease,
+  // not a service write permission. Owned reads still use their read contract.
+  const sameReadContext = () => mounted.current && version.current === context && location.href === context.href && api.canWrite();
   const pending = pendingOutcomes(userId);
   const [action, setAction] = useState<OpenedAction | null>(null);
   const [revision, setRevision] = useState(0);
@@ -557,6 +562,20 @@ function MoneyRooms({ path }: { path: string }) {
     if (original.current && !original.current.context.current()) discard();
   }, [context]);
   useEffect(() => {
+    let live = true;
+    if (userId)
+      void restorePendingOutcomes(userId)
+        .catch(() => {
+          // Unreadable or conflicting originals remain a conservative guard.
+        })
+        .finally(() => {
+          if (live && mounted.current && version.current === context) setRevision((value) => value + 1);
+        });
+    return () => {
+      live = false;
+    };
+  }, [userId, context]);
+  useEffect(() => {
     const changed = (event: StorageEvent) => {
       if (userId && event.key === pendingKey(userId)) setRevision((value) => value + 1);
     };
@@ -585,7 +604,10 @@ function MoneyRooms({ path }: { path: string }) {
     content = <BankRoutes key={`${pathname}:${revision}:${context.epoch}`} path={pathname} open={open} />;
   else if (pathname === '/uc/recharge') content = <CustodyUnavailable kind="Deposit" />;
   else if (pathname === '/uc/withdraw/address') content = <CustodyUnavailable kind="Withdrawal addresses" />;
-  else if (pathname === '/uc/withdraw') content = <CustodyUnavailable kind="Withdraw" />;
+  else if (pathname === '/uc/withdraw')
+    content = (
+      <Withdrawal key={`withdrawal:${context.epoch}`} context={{ current: sameReadContext }} search={new URL(context.href).search} />
+    );
   else if (match?.[2])
     content = <RepeatBuy key={`${pathname}:${revision}:${context.epoch}`} asset={decodeURIComponent(match[1]!)} open={open} />;
   else content = <MoneyOverviewPage asset={match ? decodeURIComponent(match[1]!) : undefined} />;
@@ -599,8 +621,8 @@ function MoneyRooms({ path }: { path: string }) {
           <p>
             <Text k="index.refreshing.quantities.cannot.prove.the.outcome.of" />
           </p>
-          {pending.map((record) => (
-            <p className="money-reference" key={record.reference}>
+          {pending.map((record, index) => (
+            <p className="money-reference" key={`${record.reference}:${index}`}>
               {record.title} · {record.reference === 'unreadable' ? <Text k="pending-outcomes.recovery.required" /> : record.procedure}
               <Text k="index.reference" />
               {record.reference}
