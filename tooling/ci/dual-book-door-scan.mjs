@@ -92,20 +92,57 @@ const REGISTRATION =
 /**
  * Block and line comments, so commented-out code cannot satisfy a check.
  *
- * STRING LITERALS ARE MASKED FIRST, and that is not defensive tidiness — the
- * naive version broke this exact gate on its first run. The thing being matched
- * is `.addPathPatterns("/**")`, and `"/**"` opens a block comment as far as a
- * plain regex is concerned: the stripper ate from there to the next `*​/` in the
- * file and took the registration with it, so all four configs reported as
- * unregistered. A comment stripper that cannot tell a comment from a path
- * pattern is the same class of defect as an import that passes for a
- * registration.
+ * One pass: a line comment, a block comment, then a string. A quote inside a
+ * comment is not a string. Masking strings first let a `"` in a closed block
+ * comment swallow the closer, and restoring the literal put SC_GONE and
+ * BLOCKED_URI_FRAGMENTS back as code. An unclosed block comment has no closer,
+ * so it runs through EOF instead of leaving those tokens as code.
+ *
+ * Strings stay strings. `.addPathPatterns("/**")` is the registration, and
+ * `"/**"` is not a block comment. A stripper that treats it as one eats the
+ * registration, and the configs report as unregistered.
  */
 function stripComments(source) {
-  const literals = [];
-  const masked = source.replace(/"(?:\\.|[^"\\])*"/g, (s) => `"\u0000${literals.push(s) - 1}\u0000"`);
-  const decommented = masked.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
-  return decommented.replace(/"\u0000(\d+)\u0000"/g, (_, i) => literals[Number(i)]);
+  let out = '';
+  let i = 0;
+  const n = source.length;
+  while (i < n) {
+    const c = source[i];
+    const next = i + 1 < n ? source[i + 1] : '';
+    if (c === '/' && next === '/') {
+      i += 2;
+      while (i < n && source[i] !== '\n') i += 1;
+      out += ' ';
+      continue;
+    }
+    if (c === '/' && next === '*') {
+      i += 2;
+      while (i + 1 < n && !(source[i] === '*' && source[i + 1] === '/')) i += 1;
+      i = i + 1 < n ? i + 2 : n;
+      out += ' ';
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      const quote = c;
+      out += c;
+      i += 1;
+      while (i < n) {
+        const s = source[i];
+        out += s;
+        i += 1;
+        if (s === '\\' && i < n) {
+          out += source[i];
+          i += 1;
+          continue;
+        }
+        if (s === quote) break;
+      }
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
 }
 
 /** Apps that host money controllers per P2-1 inventory. */
