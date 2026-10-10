@@ -38,7 +38,8 @@ export class ZonedDailyError extends Error {
 }
 export function canonicalDailyZone(input: string): string {
   try {
-    if (typeof input !== 'string' || input.length > 100 || !/^[A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)*$/.test(input.trim())) throw new Error();
+    if (typeof input !== 'string' || input.length > 100 || !/^[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)*$/.test(input.trim()))
+      throw new Error();
     return new Intl.DateTimeFormat('en', { timeZone: input.trim() }).resolvedOptions().timeZone;
   } catch {
     throw new ZonedDailyError('invalid_zone');

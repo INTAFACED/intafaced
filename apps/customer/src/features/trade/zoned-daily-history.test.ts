@@ -8,6 +8,20 @@ const stamp = (value: string) => Date.parse(value);
 const now = stamp('2026-10-10T12:00:00Z');
 const candle = (time: number, values = ['100', '102', '99', '101', '0.000000000000000001']): OHLCV => [time, ...values] as OHLCV;
 describe('captured chosen-zone daily boundaries', () => {
+  it.each(['EST5EDT', 'CST6CDT', 'MST7MDT', 'PST8PDT'])('canonicalizes the named alias %s using this runtime', (alias) => {
+    const canonical = new Intl.DateTimeFormat('en', { timeZone: alias }).resolvedOptions().timeZone;
+    expect(canonicalDailyZone(alias)).toBe(canonical);
+    expect(planZonedDaily(alias, now)).toEqual(planZonedDaily(canonical, now));
+  });
+  it.each(['1', '123', '+01', '-0100', '+01:00', '1EST5EDT', 'Unknown/Unpublished_Zone'])(
+    'refuses numeric or unpublished input %s',
+    (input) => {
+      expect(() => canonicalDailyZone(input)).toThrow('invalid_zone');
+    },
+  );
+  it.each(['UTC', 'Etc/GMT+8', 'US/Eastern'])('retains recognized named input %s', (input) => {
+    expect(canonicalDailyZone(input)).toBe(new Intl.DateTimeFormat('en', { timeZone: input }).resolvedOptions().timeZone);
+  });
   it.each([
     ['America/New_York', '2026-03-08T12:00:00Z', '2026-03-08', '2026-03-08T05:00:00Z', 23, '1h', 19],
     ['America/New_York', '2026-11-01T12:00:00Z', '2026-11-01', '2026-11-01T04:00:00Z', 25, '1h', 19],
@@ -137,6 +151,35 @@ describe('whole snapshot admission and exact aggregation', () => {
   });
 });
 describe('actual public reader seam', () => {
+  it.each(['2026-10-10T12:00:00Z', '2026-03-08T12:00:00Z', '2026-11-01T12:00:00Z'])(
+    'alias and geographic target capture identical boundaries and bounded source GETs at %s',
+    async (clock) => {
+      const capturedAt = stamp(clock),
+        reads: string[] = [];
+      const api = createTradeApi(
+        createApiClient({
+          fetch: async (input) => {
+            const url = new URL(String(input), 'http://test.invalid');
+            reads.push(url.href);
+            return new Response(JSON.stringify([candle(Number(url.searchParams.get('since')))]));
+          },
+        }),
+        () => capturedAt,
+      );
+      const alias = await api.zonedDailyHistory('BTC/USDT', 'EST5EDT');
+      const target = await api.zonedDailyHistory('BTC/USDT', 'America/New_York');
+      expect(alias.ok && target.ok).toBe(true);
+      if (!alias.ok || !target.ok) return;
+      expect(reads).toHaveLength(2);
+      expect(reads[0]).toBe(reads[1]);
+      expect(alias.data.plan.zone).toBe(new Intl.DateTimeFormat('en', { timeZone: 'EST5EDT' }).resolvedOptions().timeZone);
+      const { zone: aliasZone, ...aliasPlan } = alias.data.plan;
+      const { zone: targetZone, ...targetPlan } = target.data.plan;
+      expect(aliasPlan).toEqual(targetPlan);
+      expect(alias.data.rows).toEqual(target.data.rows);
+      expect(aliasZone && targetZone).toBeTruthy();
+    },
+  );
   it.each(['America/New_York', 'Asia/Kathmandu'])('sends one bounded GET for %s and keeps the plan with the rows', async (zone) => {
     const reads: { method?: string; url: URL }[] = [];
     const api = createTradeApi(

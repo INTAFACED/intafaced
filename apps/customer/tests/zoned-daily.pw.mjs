@@ -67,7 +67,10 @@ async function observedPreferences(page, patches) {
     { key: preferenceKey, patches },
   );
 }
-async function mount(page, { zone = 'America/New_York', language = 'en', path = '/exchange', signedIn = false, engineHold = false } = {}) {
+async function mount(
+  page,
+  { zone = 'America/New_York', language = 'en', path = '/exchange', signedIn = false, engineHold = false, clock = now } = {},
+) {
   const state = {
     reads: [],
     writes: [],
@@ -82,7 +85,7 @@ async function mount(page, { zone = 'America/New_York', language = 'en', path = 
     pageErrors: [],
   };
   page.on('pageerror', () => state.pageErrors.push('browser exception'));
-  await page.clock.setFixedTime(new Date(now));
+  await page.clock.setFixedTime(new Date(clock));
   await page.addInitScript(
     ({ key, zone, language }) => {
       if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ dailyStart: 'zoned', dailyZone: zone, language }));
@@ -151,7 +154,7 @@ async function mount(page, { zone = 'America/New_York', language = 'en', path = 
     if (pathname.startsWith('/api/v1/ohlcv/')) {
       const timeframe = url.searchParams.get('timeframe'),
         span = timeframe === '1h' ? 3600000 : timeframe === '1d' ? 86400000 : 900000;
-      const since = Number(url.searchParams.get('since') || Math.floor(now / span) * span);
+      const since = Number(url.searchParams.get('since') || Math.floor(clock / span) * span);
       const captured = {
         timeframe,
         since,
@@ -166,7 +169,7 @@ async function mount(page, { zone = 'America/New_York', language = 'en', path = 
       if (state.hold) await new Promise((resolve) => state.held.push(resolve));
       if (captured.failure)
         return route.fulfill({ status: 503, json: { code: 'trade.original_read', message: 'Original selected read unavailable.' } });
-      const rows = [sample(since, captured.close), sample(Math.floor(now / span) * span, captured.close)];
+      const rows = [sample(since, captured.close), sample(Math.floor(clock / span) * span, captured.close)];
       if (rows[0][0] === rows[1][0]) rows.shift();
       if (captured.invalid) rows.at(-1)[2] = '1';
       if (captured.offGrid) rows[0][0] += 1;
@@ -240,6 +243,93 @@ async function inspect(page) {
   await canvas.press('ArrowLeft');
   return primary(page).locator('.trade-candle-inspection');
 }
+test('View accepts browser-recognized named aliases containing digits', async ({ page }) => {
+  const state = await mount(page, { path: '/view', signedIn: true });
+  const zone = page.getByLabel('Daily candle time zone', { exact: true });
+  const mappings = [];
+  for (const [alias, target] of [
+    ['EST5EDT', 'America/New_York'],
+    ['CST6CDT', 'America/Chicago'],
+    ['MST7MDT', 'America/Denver'],
+    ['PST8PDT', 'America/Los_Angeles'],
+  ]) {
+    const canonical = await page.evaluate((value) => new Intl.DateTimeFormat('en', { timeZone: value }).resolvedOptions().timeZone, alias);
+    expect(canonical).toBe(target);
+    await zone.fill(alias);
+    await zone.press('Enter');
+    mappings.push({ alias, canonical, invalid: await zone.getAttribute('aria-invalid'), value: await zone.inputValue() });
+    writeFileSync(`${evidence}/view-alias-mappings.json`, JSON.stringify(mappings, null, 2) + '\n');
+    await expect(zone).toHaveValue(canonical);
+    await expect(zone).toHaveAttribute('aria-invalid', 'false');
+    expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)).dailyZone, preferenceKey)).toBe(canonical);
+  }
+  expect(state.writes).toEqual([]);
+  expect(state.pageErrors).toEqual([]);
+});
+for (const clock of [now, Date.parse('2026-03-08T12:00:00Z'), Date.parse('2026-11-01T12:00:00Z')])
+  test(`Trade chooser applies a named alias and the canonical target uses the identical bounded GET at ${new Date(clock).toISOString()}`, async ({
+    page,
+  }) => {
+    const state = await mount(page, { signedIn: true, clock });
+    await daily(page);
+    await ready(page);
+    await primary(page).getByRole('link', { name: 'Choose time zone', exact: true }).click();
+    await expect(page).toHaveURL(/\/view$/);
+    const zone = page.getByLabel('Daily candle time zone', { exact: true });
+    await zone.fill('CST6CDT');
+    await page.getByRole('button', { name: 'Apply time zone', exact: true }).click();
+    writeFileSync(
+      `${evidence}/trade-alias-chooser.json`,
+      JSON.stringify({ invalid: await zone.getAttribute('aria-invalid'), value: await zone.inputValue() }, null, 2) + '\n',
+    );
+    await expect(zone).toHaveValue('America/Chicago');
+    await page.getByRole('link', { name: 'Trade', exact: true }).click();
+    await daily(page);
+    await ready(page, 'America/Chicago');
+    const aliasRead = { ...state.reads.at(-1) };
+    await expect(await inspect(page)).toContainText('80001.000000000000000009');
+    await primary(page).getByRole('link', { name: 'Choose time zone', exact: true }).click();
+    await zone.fill('America/Chicago');
+    await zone.press('Enter');
+    await page.getByRole('link', { name: 'Trade', exact: true }).click();
+    await daily(page);
+    await ready(page, 'America/Chicago');
+    expect(state.reads.at(-1)).toEqual(aliasRead);
+    expect(aliasRead).toMatchObject({ symbol: 'BTC/USDT', timeframe: '1h', limit: '500' });
+    expect(state.writes).toEqual([]);
+    expect(state.pageErrors).toEqual([]);
+  });
+test('named UTC and fixed-offset Etc zones stay usable while numeric offsets and unknown drafts preserve the current choice', async ({
+  page,
+}) => {
+  const state = await mount(page, { path: '/view', signedIn: true });
+  const zone = page.getByLabel('Daily candle time zone', { exact: true });
+  for (const named of ['UTC', 'Etc/GMT+8', 'US/Eastern']) {
+    const canonical = await page.evaluate((value) => new Intl.DateTimeFormat('en', { timeZone: value }).resolvedOptions().timeZone, named);
+    await zone.fill(named);
+    await zone.press('Enter');
+    await expect(zone).toHaveValue(canonical);
+    await expect(zone).toHaveAttribute('aria-invalid', 'false');
+  }
+  for (const refused of ['1', '123', '+01', '-0100', '+01:00', 'Unknown/Unpublished_Zone']) {
+    await zone.fill(refused);
+    await zone.press('Enter');
+    await expect(zone).toHaveValue(refused);
+    await expect(zone).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByRole('alert')).toContainText('current choice is kept');
+    expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)).dailyZone, preferenceKey)).toBe('America/New_York');
+    await page.getByRole('button', { name: 'Cancel draft', exact: true }).click();
+    await expect(zone).toHaveValue('America/New_York');
+  }
+  await zone.fill('PST8PDT');
+  await zone.press('Enter');
+  await expect(zone).toHaveValue('America/Los_Angeles');
+  await page.goto('/exchange');
+  await daily(page);
+  await ready(page, 'America/Los_Angeles');
+  expect(state.writes).toEqual([]);
+  expect(state.pageErrors).toEqual([]);
+});
 test('View stages invalid zones, keeps the saved choice, and labels are independent', async ({ page }) => {
   const state = await mount(page, { path: '/view', signedIn: true });
   const zone = page.getByLabel('Daily candle time zone', { exact: true });
@@ -634,7 +724,12 @@ test('daily preferences preserve the original reviewed draft and client order id
         .map((key) => [key, localStorage.getItem(key)]),
     ),
   );
-  await observedPreferences(page, [{ dailyZone: 'Asia/Kathmandu' }, { dailyZone: 'America/New_York', timeZone: 'UTC+8' }]);
+  const aliasZone = await page.evaluate(() => new Intl.DateTimeFormat('en', { timeZone: 'CST6CDT' }).resolvedOptions().timeZone);
+  await observedPreferences(page, [
+    { dailyZone: aliasZone },
+    { dailyZone: 'Asia/Kathmandu' },
+    { dailyZone: 'America/New_York', timeZone: 'UTC+8' },
+  ]);
   await expect(dialog).toBeVisible();
   expect(await dialog.innerText()).toBe(before);
   expect(state.writes.at(-1).body).toBe(reviewed);
