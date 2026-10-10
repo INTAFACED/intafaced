@@ -390,19 +390,26 @@ export class AutoInvestService {
           ON CONFLICT (rule_id, client_run_id) DO NOTHING
           RETURNING id
         `;
+        let runId: string;
         if (claimed.length === 0) {
-          const existing = await this.sql<Array<{ status: AutoInvestRunStatus; position_id: string | null }>>`
-            SELECT status, position_id FROM bank.auto_invest_runs
+          const existing = await this.sql<Array<{ id: string; status: AutoInvestRunStatus; position_id: string | null }>>`
+            SELECT id, status, position_id FROM bank.auto_invest_runs
              WHERE rule_id = ${rule.id}::uuid AND client_run_id = ${clientRunId}
           `;
           const prior = existing[0];
           if (prior?.status === 'settled' && prior.position_id) {
             return { status: 'settled', amount: spare, positionId: prior.position_id };
           }
-          return { status: 'skipped', amount: spare, reason: 'bank.auto_invest_run_failed' };
+          // earn.deposit is idempotent on this run id. Retry pending and rejected; do not mint another id.
+          if (prior && (prior.status === 'pending' || prior.status === 'rejected')) {
+            runId = prior.id;
+          } else {
+            return { status: 'skipped', amount: spare, reason: 'bank.auto_invest_run_failed' };
+          }
+        } else {
+          runId = claimed[0]!.id;
         }
 
-        const runId = claimed[0]!.id;
         const now = new Date();
         try {
           const position = await this.earn.deposit({
@@ -416,6 +423,7 @@ export class AutoInvestService {
             UPDATE bank.auto_invest_runs
                SET status = 'settled',
                    position_id = ${position.id},
+                   rejection_code = NULL,
                    settled_at = ${now},
                    amount = ${formatAmount(spare)}::numeric
              WHERE id = ${runId}::uuid
@@ -431,7 +439,7 @@ export class AutoInvestService {
           await this.sql`
             UPDATE bank.auto_invest_runs
                SET status = 'rejected', rejection_code = ${code}, settled_at = ${now}
-             WHERE id = ${runId}::uuid AND status = 'pending'
+             WHERE id = ${runId}::uuid AND status IN ('pending', 'rejected')
           `;
           return { status: 'refused', amount: spare, reason: code };
         }
