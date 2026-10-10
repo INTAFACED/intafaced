@@ -179,9 +179,8 @@ const PINNED = {
     ],
   ],
 
-  // 3 — services/svc-indexer
+  // 2 — services/svc-indexer (solcVersion TS2339 retired once DevVenueArtifact declared the committed field)
   'services/svc-indexer': [
-    [1, "src/chain/evm/abi.test.ts | TS2339 | Property 'solcVersion' does not exist on type 'DevVenueArtifact'."],
     [
       1,
       "src/chain/evm/abi.test.ts | TS6059 | File '<repo>/services/svc-indexer/scripts/dev-venue.ts' is not under 'rootDir' '<repo>/services/svc-indexer/src'. 'rootDir' is expected to contain all source files.",
