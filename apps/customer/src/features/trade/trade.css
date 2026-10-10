@@ -80,10 +80,18 @@
   display: flex;
   gap: 10px;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
 }
 .trade-market-select strong {
   font-size: 20px;
   font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+.trade-market-select > span {
+  flex-shrink: 0;
 }
 .trade-badge {
   font-size: 10px;
@@ -506,6 +514,16 @@
   justify-content: space-between;
   color: var(--color-muted);
   font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.trade-ticket .trade-inline {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.trade-ticket .trade-inline select {
+  min-width: 0;
+  max-width: 100%;
+  flex: 1;
 }
 .trade-ticket-body .tabs {
   height: 36px;
@@ -890,6 +908,35 @@
 .asset-chart {
   min-width: 0;
   border: 1px solid var(--color-divider);
+}
+.asset-chart .trade-chart:not(.trade-chart--fullscreen) {
+  height: auto;
+  min-height: 548px;
+}
+.asset-chart .trade-chart:not(.trade-chart--fullscreen) .trade-chart-canvas {
+  flex: 0 0 var(--trade-phone-chart-height, 420px);
+  min-height: var(--trade-phone-chart-height, 420px);
+}
+.asset-chart .trade-chart-toolbar {
+  height: auto;
+  min-height: 44px;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-block: 8px;
+}
+.asset-chart .trade-chart-toolbar select,
+.asset-chart .trade-chart-toolbar .button {
+  min-height: 44px;
+  font-size: 13px;
+}
+.asset-chart .trade-chart-toolbar select {
+  width: auto;
+  max-width: 110px;
+  flex: 0 1 auto;
+}
+.asset-chart .trade-chart-toolbar details > summary {
+  min-height: 44px;
+  padding-block: 12px;
 }
 @media (max-width: 1200px) {
   .trade-analysis-top {
@@ -1453,4 +1500,40 @@
   .trade-favorites {
     padding-right: 112px;
   }
+}
+.trade-holding-close {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 16px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 20px;
+}
+.trade-holding-close > strong {
+  font-size: 26px;
+  line-height: 32px;
+}
+.trade-holding-close > button {
+  min-height: 44px;
+  width: 100%;
+}
+.trade-holding-origin,
+.trade-holding-status {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-inline-start: 2px solid var(--color-accent);
+  background: var(--color-surface-raised);
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 20px;
+}
+.trade-holding-status {
+  margin: 16px;
 }

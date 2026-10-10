@@ -355,6 +355,7 @@ export function MarketChart({
   market,
   orders,
   onStagePrice,
+  stageDestination = 'ticket',
   accountKey,
   onStageAmend,
   onInspectOrders,
@@ -365,7 +366,8 @@ export function MarketChart({
   api: TradeApi;
   market: Listing;
   orders: Order[];
-  onStagePrice: (price: string) => void;
+  onStagePrice: (price: string, current?: () => boolean) => void;
+  stageDestination?: 'ticket' | 'trade';
   accountKey: string;
   onStageAmend?: (order: Order, price: string) => void;
   onInspectOrders?: () => void;
@@ -413,15 +415,28 @@ export function MarketChart({
     [type, setType] = useState(initialView?.type ?? 'Candles'),
     [studies, setStudies] = useState<Study[]>(initialView?.studies ?? ['Volume']),
     [drawings, setDrawings] = useState<Drawing[]>([]),
-    [tool, setTool] = useState<Drawing['kind'] | null>(null),
     [compare, setCompare] = useState(''),
     [saved, setSaved] = useState<{ name: string; type: string; interval: string; studies: Study[] }[]>([]),
     [notice, setNotice] = useState<ReactNode>(''),
     [fullscreen, setFullscreen] = useState(false),
     [multi, setMulti] = useState(false),
     [countdownVisible, setCountdownVisible] = useState(true),
-    [inspected, setInspected] = useState<OHLCV | null>(null),
     [drawingsKey, setDrawingsKey] = useState<string | null>(null);
+  // A single immutable snapshot binds the immediate guard and rendered action.
+  // Same-candle/Escape gestures publish too; React cannot bail on a reused row.
+  const [inspection, writeInspection] = useState<{ row: OHLCV | null; tool: Drawing['kind'] | null }>({ row: null, tool: null });
+  const { row: inspected, tool } = inspection;
+  const currentInspection = useRef(inspection);
+  function setInspected(value: OHLCV | null) {
+    const next = { ...currentInspection.current, row: value };
+    currentInspection.current = next;
+    writeInspection(next);
+  }
+  function setTool(value: Drawing['kind'] | null) {
+    const next = { ...currentInspection.current, tool: value };
+    currentInspection.current = next;
+    writeInspection(next);
+  }
   const derivedDaily = interval === '1d' && preferences.dailyStart !== 'nativeUTC';
   const zonedDaily = interval === '1d' && preferences.dailyStart === 'zoned';
   const [linkedRevision, setLinkedRevision] = useState(0);
@@ -506,6 +521,8 @@ export function MarketChart({
   const history = useChartHistory(api, market.symbol, interval, preferences, `${accountKey}:${market.id}`, linkedRevision);
   const { resource, reload } = history;
   const historyKey = history.key;
+  const selectionCurrent = () =>
+    history.current() && currentInspection.current === inspection && inspected !== null && barHistory.current.includes(inspected);
   historyReady.current = resource.status === 'ready';
   useEffect(() => {
     if (resource.status === 'ready') barHistory.current = resource.data.rows.slice().sort((a, b) => a[0] - b[0]);
@@ -741,7 +758,7 @@ export function MarketChart({
           if (event.time) {
             const exact = rawPrice.current.get(event.time);
             setInspected(barHistory.current.find((row) => Math.floor(row[0] / 1000) === event.time) ?? null);
-            if (exact && !tool) onStagePrice(exact);
+            if (exact && !tool && stageDestination === 'ticket') onStagePrice(exact);
           }
           if (tool && event.point && event.time) {
             const price = priceAtGeometry(event.point.y);
@@ -780,6 +797,8 @@ export function MarketChart({
     historyKey,
     comparison.key,
     phone,
+    onStagePrice,
+    stageDestination,
   ]);
   useEffect(() => {
     const appearance = chartAppearance();
@@ -1197,7 +1216,9 @@ export function MarketChart({
         role="group"
         tabIndex={0}
         aria-label={copy.t('actualHistoricalPrices', { marketSymbol: String(market.symbol) })}
-        aria-description={copy.t('useLeftAndRightArrowsToInspectCandlesEnterStagesThe')}
+        aria-description={copy.t(
+          stageDestination === 'trade' ? 'holdingChartKeyboard' : 'useLeftAndRightArrowsToInspectCandlesEnterStagesThe',
+        )}
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
             setFullscreen(false);
@@ -1213,7 +1234,7 @@ export function MarketChart({
             const direction = event.key === 'ArrowLeft' ? -1 : 1;
             inspectionIndex.current = Math.max(0, Math.min(rows.length - 1, (inspectionIndex.current ?? rows.length) + direction));
             setInspected(rows[inspectionIndex.current] ?? null);
-          } else if (event.key === 'Enter' && inspected) {
+          } else if (event.key === 'Enter' && inspected && selectionCurrent()) {
             event.preventDefault();
             if (tool) {
               pending.current.push([Math.floor(inspected[0] / 1000), inspected[4]]);
@@ -1223,7 +1244,8 @@ export function MarketChart({
                 setDrawings((current) => [...current, { kind: tool, points }]);
                 setTool(null);
               }
-            } else onStagePrice(inspected[4]);
+            } else if (stageDestination === 'trade') onStagePrice(inspected[4], selectionCurrent);
+            else onStagePrice(inspected[4]);
           }
         }}
       >
@@ -1300,6 +1322,24 @@ export function MarketChart({
             </button>
           ))}
       </div>
+      {stageDestination === 'trade' && inspected && !tool && resource.status === 'ready' && selectionCurrent() && (
+        <div className="trade-holding-close">
+          <span className="muted">
+            <CopyText k="holdingSelectedClose" params={{ base: market.base, quote: market.quote }} />
+          </span>
+          <strong className="numeric">{inspected[4]}</strong>
+          <Button
+            onClick={() => {
+              if (selectionCurrent()) onStagePrice(inspected[4], selectionCurrent);
+            }}
+          >
+            <CopyText k="holdingUseClose" />
+          </Button>
+          <span className="muted">
+            <CopyText k="holdingDraftOnly" params={{ symbol: market.symbol }} />
+          </span>
+        </div>
+      )}
       {phone && preferences.showOrders && chartOrders.length > 0 && onInspectOrders && (
         <div className="trade-order-inspection">
           <button

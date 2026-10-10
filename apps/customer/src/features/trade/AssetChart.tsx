@@ -1,10 +1,11 @@
 import { CopyText } from './copy';
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { EmptyState, Failure, Loading } from '../../shared/ui';
 import { createTradeApi } from './trade-api';
 import { MarketChart } from './Chart';
+import { stageHoldingPrice } from './holding-price';
 import './trade.css';
 
 export function AssetChart({ asset, symbol }: { asset: string; symbol?: string }) {
@@ -12,6 +13,10 @@ export function AssetChart({ asset, symbol }: { asset: string; symbol?: string }
     api = useMemo(() => createTradeApi(transport), [transport]),
     { userId } = useSession();
   const catalogue = useResource((signal) => api.markets(signal), `asset-chart:${asset}:${symbol ?? ''}`);
+  const context = { transport, userId, catalogue: catalogue.resource };
+  const latest = useRef(context);
+  latest.current = context;
+  const [refused, setRefused] = useState(false);
   if (catalogue.resource.status === 'loading') return <Loading label={<CopyText k={'loadingAssetMarkets'} />} />;
   if (catalogue.resource.status === 'failed') return <Failure result={catalogue.resource.failure} retry={catalogue.reload} />;
   const market = catalogue.resource.data.find((row) => row.spot && !row.paper && (symbol ? row.symbol === symbol : row.base === asset));
@@ -29,10 +34,18 @@ export function AssetChart({ asset, symbol }: { asset: string; symbol?: string }
         market={market}
         orders={[]}
         accountKey={userId ?? 'signed-out'}
-        onStagePrice={() => {
-          location.href = `/exchange?asset=${encodeURIComponent(asset)}`;
+        stageDestination="trade"
+        onStagePrice={(price, selectionCurrent) => {
+          const sourceCurrent = () => latest.current === context && transport.canWrite() && (selectionCurrent?.() ?? false);
+          if (!sourceCurrent()) return;
+          if (!stageHoldingPrice(transport, userId, market, price, sourceCurrent)) setRefused(true);
         }}
       />
+      {refused && (
+        <p className="trade-note">
+          <CopyText k="holdingPriceRefused" />
+        </p>
+      )}
     </div>
   );
 }

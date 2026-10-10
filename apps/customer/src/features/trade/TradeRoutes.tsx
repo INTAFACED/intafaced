@@ -14,7 +14,7 @@ import {
   tradeDate,
   TradeFailure as Failure,
 } from './copy';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
@@ -38,6 +38,7 @@ import {
 } from './trade-api';
 import { useLinkedBook, usePolled } from './hooks';
 import { MarketChart } from './Chart';
+import { useHoldingPrice, type HoldingPrice } from './holding-price';
 import { TradingTools } from './TradingTools';
 import { ReplaceOrder } from './ReplaceOrder';
 import { DeskFrame, UnavailableDesk } from './Workspace';
@@ -55,6 +56,7 @@ const modeRoutes: Record<string, string> = {
   Convert: '/trade/convert',
   'Quote desk': '/otc',
 };
+let catalogueIdentity = 0;
 export function TradeRoutes({ path }: { path: string }) {
   const route = new URL(path, location.origin),
     pathname = route.pathname;
@@ -63,7 +65,9 @@ export function TradeRoutes({ path }: { path: string }) {
   const transport = useApi(),
     api = useMemo(() => createTradeApi(transport), [transport]),
     { userId } = useSession();
-  const catalogue = useResource((signal) => api.markets(signal), 'trade-catalogue');
+  const catalogueKey = useMemo(() => ++catalogueIdentity, [transport]);
+  const catalogue = useResource((signal) => api.markets(signal), `trade-catalogue:${catalogueKey}`);
+  const holdingPrice = useHoldingPrice(transport, userId, catalogue.resource);
   const [favorites, setFavorites] = useState<string[]>(() => {
     try {
       const value: unknown = JSON.parse(localStorage.getItem(`trade-favorites:${userId ?? 'guest'}`) ?? '[]');
@@ -119,6 +123,7 @@ export function TradeRoutes({ path }: { path: string }) {
     setSimulation(route.searchParams.get('simulated') === 'true');
   }, [path]);
   function choose(value: Listing) {
+    if (holdingPrice && holdingPrice.status !== 'retired') holdingPrice.retire();
     setSelected(value.symbol);
     setPicker(false);
   }
@@ -243,30 +248,48 @@ export function TradeRoutes({ path }: { path: string }) {
               initialTab={pathname === '/uc/entrust/history' ? 'History' : 'Open orders'}
               initialSide={initialSide}
               markets={visible}
+              holdingPrice={holdingPrice}
             />
           ) : (
-            <UnavailableDesk
-              resource={catalogue.resource}
-              retry={catalogue.reload}
-              simulation={simulation}
-              management={
-                <AccountOrders
-                  key={`${userId ?? 'guest'}:${simulation}`}
-                  api={api}
-                  initialTab={pathname === '/uc/entrust/history' ? 'History' : 'Open orders'}
-                  simulation={simulation}
-                />
-              }
-              title={
-                simulation ? (
-                  <CopyText k={'noSimulatedSpotMarketIsPublished'} />
-                ) : routePair ? (
-                  <CopyText k={'thisMarketIsNotAvailableInThisMode'} />
-                ) : (
-                  <CopyText k={'noSpotMarketsArePublished'} />
-                )
-              }
-            />
+            <>
+              {holdingPrice && (
+                <div className="trade-holding-status" role="status">
+                  <strong>
+                    <CopyText k={holdingPrice.status === 'retired' ? 'holdingPriceNotApplied' : 'holdingPriceWaiting'} />
+                  </strong>
+                  <p>
+                    <CopyText k={holdingPrice.status === 'retired' ? 'holdingPriceRetired' : 'holdingPriceRetry'} />
+                  </p>
+                  {holdingPrice.status !== 'retired' && (
+                    <p className="numeric">
+                      {holdingPrice.value.price} {holdingPrice.value.quote} · {holdingPrice.value.symbol}
+                    </p>
+                  )}
+                </div>
+              )}
+              <UnavailableDesk
+                resource={catalogue.resource}
+                retry={catalogue.reload}
+                simulation={simulation}
+                management={
+                  <AccountOrders
+                    key={`${userId ?? 'guest'}:${simulation}`}
+                    api={api}
+                    initialTab={pathname === '/uc/entrust/history' ? 'History' : 'Open orders'}
+                    simulation={simulation}
+                  />
+                }
+                title={
+                  simulation ? (
+                    <CopyText k={'noSimulatedSpotMarketIsPublished'} />
+                  ) : routePair ? (
+                    <CopyText k={'thisMarketIsNotAvailableInThisMode'} />
+                  ) : (
+                    <CopyText k={'noSpotMarketsArePublished'} />
+                  )
+                }
+              />
+            </>
           )}
         </>
       )}
@@ -727,12 +750,14 @@ function SpotDesk({
   initialTab,
   initialSide,
   markets,
+  holdingPrice,
 }: {
   api: TradeApi;
   market: Listing;
   initialTab: string;
   initialSide: 'buy' | 'sell';
   markets: Listing[];
+  holdingPrice?: ReturnType<typeof useHoldingPrice>;
 }) {
   const { userId } = useSession(),
     preferences = usePreferences();
@@ -750,8 +775,11 @@ function SpotDesk({
       `${accountKey}:${market.id}:open:${openLimit}`,
       10,
     );
-  const [staged, setStaged] = useState(''),
+  const [staged, setStaged] = useState<{ price: string } | null>(null),
     [manage, setManage] = useState<{ order: Order; kind: 'cancel' | 'amend' | 'replace'; price?: string } | null>(null);
+  // Every deliberate gesture is distinct, including repeating the same close
+  // after a busy review. A gesture refused while busy is never queued.
+  const stagePrice = useCallback((price: string) => setStaged({ price }), []);
   const [ordersInspection, setOrdersInspection] = useState(0);
   const { pending, status, checking, setIntent, reserveIntent, reconcile, setStatus } = useTradeRequests(api, accountKey, refresh);
   function refresh() {
@@ -761,6 +789,25 @@ function SpotDesk({
   const orders = open.resource.status === 'ready' ? open.resource.data : [];
   return (
     <>
+      {pending && (
+        <div className="trade-uncertain" role="alert">
+          <strong>
+            <CopyText k="outcomeNotConfirmed" />
+            {pending.kind}
+          </strong>
+          <p>
+            {pending.symbol} <CopyText k="request" />
+            {pending.id}
+            <CopyText k="newOrdersRemainLockedWhileThisRequestIsUnresolvedNoFunds" />
+          </p>
+          <Button variant="secondary" disabled={checking} onClick={reconcile}>
+            {checking ? <CopyText k={'checkingStatus'} /> : <CopyText k={'checkOriginalRequestStatus'} />}
+          </Button>
+          <a className="text-link" href="/support">
+            <CopyText k="contactSupport" />
+          </a>
+        </div>
+      )}
       <DeskFrame
         api={api}
         market={market}
@@ -771,7 +818,7 @@ function SpotDesk({
             api={api}
             market={market}
             orders={orders}
-            onStagePrice={setStaged}
+            onStagePrice={stagePrice}
             accountKey={accountKey}
             initialView={view}
             onViewChange={onViewChange}
@@ -781,7 +828,7 @@ function SpotDesk({
             onInspectOrders={() => setOrdersInspection((value) => value + 1)}
           />
         )}
-        book={<BookAndTape api={api} market={market} book={book} onStagePrice={setStaged} />}
+        book={<BookAndTape api={api} market={market} book={book} onStagePrice={stagePrice} />}
         management={
           <OrderBlotter
             api={api}
@@ -802,6 +849,7 @@ function SpotDesk({
               market={market}
               initialSide={initialSide}
               staged={staged}
+              holdingPrice={holdingPrice}
               fresh={book.book.fresh}
               balances={balances.resource}
               pending={pending}
@@ -849,25 +897,6 @@ function SpotDesk({
           </aside>
         }
       />
-      {pending && (
-        <div className="trade-uncertain" role="alert">
-          <strong>
-            <CopyText k="outcomeNotConfirmed" />
-            {pending.kind}
-          </strong>
-          <p>
-            {pending.symbol} <CopyText k="request" />
-            {pending.id}
-            <CopyText k="newOrdersRemainLockedWhileThisRequestIsUnresolvedNoFunds" />
-          </p>
-          <Button variant="secondary" disabled={checking} onClick={reconcile}>
-            {checking ? <CopyText k={'checkingStatus'} /> : <CopyText k={'checkOriginalRequestStatus'} />}
-          </Button>
-          <a className="text-link" href="/support">
-            <CopyText k="contactSupport" />
-          </a>
-        </div>
-      )}
       {status && (
         <p className="trade-status" role="status" lang="und">
           {status}
@@ -1208,6 +1237,7 @@ function OrderTicket({
   market,
   initialSide,
   staged,
+  holdingPrice,
   fresh,
   balances,
   pending,
@@ -1218,7 +1248,8 @@ function OrderTicket({
   api: TradeApi;
   market: Listing;
   initialSide: 'buy' | 'sell';
-  staged: string;
+  staged: { price: string } | null;
+  holdingPrice?: ReturnType<typeof useHoldingPrice>;
   fresh: boolean;
   balances:
     | Resource<Awaited<ReturnType<TradeApi['balances']>> extends { ok: true; data: infer T } ? T : never>
@@ -1252,6 +1283,26 @@ function OrderTicket({
     [busy, setBusy] = useState(false);
   const busyRef = useRef(false),
     mounted = useRef(true);
+  const edited = useRef(false);
+  const [holdingOrigin, setHoldingOrigin] = useState<HoldingPrice | null>(null);
+  const holdingNotice = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (holdingPrice?.status !== 'ready' || edited.current || busyRef.current || review) return;
+    const value = holdingPrice.take(market);
+    if (value) {
+      setType('limit');
+      setPrice(value.price);
+      setHoldingOrigin(value);
+    }
+  }, [holdingPrice, market, review]);
+  useLayoutEffect(() => {
+    // The deliberate handoff continues into its draft on a stacked phone desk.
+    // Focus readable context, not an input/keyboard or an order action. An
+    // unresolved original keeps priority; this never grants review authority.
+    if (!holdingOrigin || pending || busyRef.current) return;
+    holdingNotice.current?.focus({ preventScroll: true });
+    holdingNotice.current?.scrollIntoView({ block: 'center', behavior: 'instant' });
+  }, [holdingOrigin]);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -1266,15 +1317,18 @@ function OrderTicket({
     }
   }, [choiceKey, type, tif, postOnly]);
   useEffect(() => {
-    if (staged) {
+    if (staged && !busyRef.current) {
       setType('limit');
-      setPrice(staged);
+      setPrice(staged.price);
       setReview(null);
+      setHoldingOrigin(null);
     }
   }, [staged]);
   const available = balances.status === 'ready' ? balances.data.balances[side === 'buy' ? market.quote : market.base]?.free : undefined;
   function change(action: () => void) {
     if (busyRef.current) return;
+    edited.current = true;
+    setHoldingOrigin(null);
     action();
     setReview(null);
     setFailure(null);
@@ -1460,6 +1514,24 @@ function OrderTicket({
           onChange={(value) => change(() => setSide(value === 'Buy' ? 'buy' : 'sell'))}
           label={copy.t('orderSide')}
         />
+        {holdingOrigin && (
+          <div className="trade-holding-origin" ref={holdingNotice} tabIndex={-1} role="status">
+            <span className="muted">
+              <CopyText k="holdingPriceOrigin" params={{ base: holdingOrigin.base }} />
+            </span>
+            <span>
+              {holdingOrigin.symbol} · {holdingOrigin.price} {holdingOrigin.quote}
+            </span>
+            <span className="muted">
+              <CopyText k="holdingPriceApplied" />
+            </span>
+          </div>
+        )}
+        {holdingPrice?.status === 'retired' && (
+          <p className="trade-note" role="status">
+            <CopyText k="holdingPriceRetired" />
+          </p>
+        )}
         <Tabs
           labels={tradeLabels}
           items={['Limit', 'Market']}

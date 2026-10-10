@@ -7,6 +7,18 @@ import { uiCopy, uiMessage, type UiMessage } from '../../shared/ui-copy';
 // Authored presentation only. Native symbols, IDs, statuses and monetary values
 // enter through explicit parameters and never become translated wire values.
 const en = {
+  holdingUseClose: 'Use close in Trade',
+  holdingSelectedClose: 'Selected close · {quote} per {base}',
+  holdingDraftOnly: 'Edit a limit-price draft in {symbol}. No order is sent.',
+  holdingChartKeyboard:
+    'Use left and right arrows to inspect candles. Enter opens Trade with the selected close in an editable limit-price draft. No order is sent.',
+  holdingPriceRefused: 'This close could not be added to Trade. Refresh the holding history or choose a current market.',
+  holdingPriceOrigin: 'Selected close from your {base} holding',
+  holdingPriceApplied: 'Added to the limit-price draft. Edit below.',
+  holdingPriceWaiting: 'Price not applied yet',
+  holdingPriceRetry: 'Market data could not be checked. Retry published markets before adding this price.',
+  holdingPriceNotApplied: 'Price was not applied',
+  holdingPriceRetired: 'The selected price was not applied. Choose a current market or select a fresh close from your holding.',
   dailyZoneInvalid: 'This time zone is not recognized by this browser. The current choice is kept.',
   dailyZoneBoundaryUnavailable:
     'This local-day boundary cannot be represented by the available source candles. No derived daily candles are shown.',
@@ -786,6 +798,18 @@ const en = {
 } as const;
 type TradeCopy = ReturnType<typeof defineCopy<typeof en>>;
 const es = {
+  holdingUseClose: 'Usar el cierre en Trade',
+  holdingSelectedClose: 'Cierre seleccionado · {quote} por {base}',
+  holdingDraftOnly: 'Edita un borrador con precio límite en {symbol}. No se envía ninguna orden.',
+  holdingChartKeyboard:
+    'Usa las flechas izquierda y derecha para inspeccionar las velas. Intro abre Trade con el cierre seleccionado en un borrador editable con precio límite. No se envía ninguna orden.',
+  holdingPriceRefused: 'No se pudo añadir este cierre a Trade. Actualiza el historial de la tenencia o elige un mercado actual.',
+  holdingPriceOrigin: 'Cierre seleccionado de tu tenencia de {base}',
+  holdingPriceApplied: 'Añadido al borrador con precio límite. Puedes editarlo abajo.',
+  holdingPriceWaiting: 'El precio aún no se ha aplicado',
+  holdingPriceRetry: 'No se pudieron comprobar los datos del mercado. Reintenta los mercados publicados antes de añadir este precio.',
+  holdingPriceNotApplied: 'El precio no se aplicó',
+  holdingPriceRetired: 'El precio seleccionado no se aplicó. Elige un mercado actual o selecciona un cierre nuevo de tu tenencia.',
   dailyZoneInvalid: 'Este navegador no reconoce la zona horaria. Se conserva la elección actual.',
   dailyZoneBoundaryUnavailable:
     'Las velas disponibles no pueden representar este límite diario local. No se muestran velas diarias derivadas.',
@@ -1590,6 +1614,20 @@ const es = {
   replacementOrderStatus: 'Reemplazo {status}.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
+  holdingUseClose: 'Utiliser la clôture dans Trade',
+  holdingSelectedClose: 'Clôture sélectionnée · {quote} par {base}',
+  holdingDraftOnly: 'Modifiez un brouillon à cours limité sur {symbol}. Aucun ordre n’est envoyé.',
+  holdingChartKeyboard:
+    'Utilisez les flèches gauche et droite pour examiner les bougies. Entrée ouvre Trade avec la clôture sélectionnée dans un brouillon modifiable à cours limité. Aucun ordre n’est envoyé.',
+  holdingPriceRefused:
+    'Cette clôture n’a pas pu être ajoutée à Trade. Actualisez l’historique de cet avoir ou choisissez un marché actuel.',
+  holdingPriceOrigin: 'Clôture sélectionnée depuis votre avoir en {base}',
+  holdingPriceApplied: 'Ajoutée au brouillon à cours limité. Modifiez-la ci-dessous.',
+  holdingPriceWaiting: 'Le prix n’est pas encore appliqué',
+  holdingPriceRetry: 'Les données du marché n’ont pas pu être vérifiées. Réessayez les marchés publiés avant d’ajouter ce prix.',
+  holdingPriceNotApplied: 'Le prix n’a pas été appliqué',
+  holdingPriceRetired:
+    'Le prix sélectionné n’a pas été appliqué. Choisissez un marché actuel ou sélectionnez une nouvelle clôture depuis votre avoir.',
   dailyZoneInvalid: 'Ce navigateur ne reconnaît pas ce fuseau horaire. Le choix actuel est conservé.',
   dailyZoneBoundaryUnavailable:
     'Les bougies disponibles ne peuvent pas représenter cette limite quotidienne locale. Aucune bougie quotidienne dérivée n’est affichée.',
