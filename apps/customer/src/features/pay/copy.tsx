@@ -1,6 +1,21 @@
 import type { ApiResult } from '../../shared/api';
 import { defineCopy } from '../../shared/i18n';
 const messages = {
+  payEntryChoose: 'Choose how to move money.',
+  payEntrySendDetail: 'Send an asset to another Intafaced account.',
+  payEntrySendNote: 'Have their account ID. Review before sending.',
+  payEntryReceiveDetail: 'Share your account ID and inspect receiving spaces.',
+  payEntryReceiveNote: 'Transfers stay in the asset sent.',
+  payEntryP2pDetail: 'Browse offers, or return to an order.',
+  payEntryBrowseOffers: 'Browse offers',
+  payEntryYourOrders: 'Your orders',
+  payEntryUnavailableDetail: 'These services aren’t connected. You can inspect their limits.',
+  payEntryUnavailable: 'Unavailable',
+  payEntryRequestLimit: 'Payment requests aren’t connected. You can share your account ID from Receive.',
+  payEntryBillsLimit: 'Billers and payment rails aren’t connected.',
+  payEntryGlobalLimit: 'International corridors and exchange quotes aren’t connected.',
+  payEntryViewLimits: 'View limits',
+
   receiveCopying: 'Copying account ID…',
   receiveManualCopy: 'You can also select the full ID and copy it yourself.',
   receiveCopyRetry: 'Select the full ID above and copy it yourself. You can try Copy again.',
@@ -814,6 +829,21 @@ const messages = {
 } as const;
 
 const es = {
+  payEntryChoose: 'Elige cómo mover tu dinero.',
+  payEntrySendDetail: 'Envía un activo a otra cuenta de Intafaced.',
+  payEntrySendNote: 'Necesitas su ID de cuenta. Revisa antes de enviar.',
+  payEntryReceiveDetail: 'Comparte tu ID de cuenta y consulta los espacios para recibir.',
+  payEntryReceiveNote: 'Las transferencias conservan el activo enviado.',
+  payEntryP2pDetail: 'Consulta ofertas o vuelve a una orden.',
+  payEntryBrowseOffers: 'Consultar ofertas',
+  payEntryYourOrders: 'Tus órdenes',
+  payEntryUnavailableDetail: 'Estos servicios no están conectados. Puedes consultar sus límites.',
+  payEntryUnavailable: 'No disponible',
+  payEntryRequestLimit: 'Las solicitudes de pago no están conectadas. Puedes compartir tu ID de cuenta desde Recibir.',
+  payEntryBillsLimit: 'Los proveedores de facturas y las vías de pago no están conectados.',
+  payEntryGlobalLimit: 'Los corredores internacionales y las cotizaciones de cambio no están conectados.',
+  payEntryViewLimits: 'Consultar límites',
+
   receiveCopying: 'Copiando ID de cuenta…',
   receiveManualCopy: 'También puedes seleccionar el ID completo y copiarlo.',
   receiveCopyRetry: 'Selecciona el ID completo de arriba y cópialo. Puedes volver a intentar Copiar.',
@@ -1640,6 +1670,21 @@ const es = {
 } satisfies Record<keyof typeof messages, string>;
 
 const fr = {
+  payEntryChoose: 'Choisissez comment transférer votre argent.',
+  payEntrySendDetail: 'Envoyez un actif vers un autre compte Intafaced.',
+  payEntrySendNote: 'Munissez-vous de son ID de compte. Vérifiez avant d’envoyer.',
+  payEntryReceiveDetail: 'Partagez votre ID de compte et consultez les espaces de réception.',
+  payEntryReceiveNote: 'Les transferts conservent l’actif envoyé.',
+  payEntryP2pDetail: 'Consultez les offres ou retrouvez une opération.',
+  payEntryBrowseOffers: 'Consulter les offres',
+  payEntryYourOrders: 'Vos opérations',
+  payEntryUnavailableDetail: 'Ces services ne sont pas connectés. Vous pouvez consulter leurs limites.',
+  payEntryUnavailable: 'Indisponible',
+  payEntryRequestLimit: 'Les demandes de paiement ne sont pas connectées. Vous pouvez partager votre ID de compte depuis Recevoir.',
+  payEntryBillsLimit: 'Les fournisseurs de factures et les circuits de paiement ne sont pas connectés.',
+  payEntryGlobalLimit: 'Les corridors internationaux et les cotations de change ne sont pas connectés.',
+  payEntryViewLimits: 'Consulter les limites',
+
   receiveCopying: 'Copie de l’ID du compte…',
   receiveManualCopy: 'Vous pouvez aussi sélectionner l’ID complet et le copier.',
   receiveCopyRetry: 'Sélectionnez l’ID complet ci-dessus et copiez-le. Vous pouvez réessayer Copier.',

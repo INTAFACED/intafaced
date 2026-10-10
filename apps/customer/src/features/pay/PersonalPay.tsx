@@ -22,7 +22,8 @@ export function PersonalPay({ path }: { path: string }) {
   const { api, userId } = useSession();
   const pay = useMemo(() => createPersonalPayApi(api, userId), [api, userId]);
   const current = path.split('?')[0];
-  const assetParams = new URLSearchParams(path.split('?')[1] ?? '').getAll('asset');
+  const queryStart = path.indexOf('?');
+  const assetParams = new URLSearchParams(queryStart < 0 ? '' : path.slice(queryStart + 1)).getAll('asset');
   const requestedAsset = assetParams.length === 1 ? assetSchema.safeParse(assetParams[0]) : null;
   const asset = requestedAsset?.success ? requestedAsset.data : null;
   const invalidAsset = assetParams.length > 0 && !asset;
@@ -38,12 +39,16 @@ export function PersonalPay({ path }: { path: string }) {
             : current === '/pay/global'
               ? payCopy.t('sendToABankAbroad')
               : payCopy.t('pay');
+  if (current === '/pay') {
+    const sendHref = assetParams.length ? `/pay/send?${new URLSearchParams(assetParams.map((value) => ['asset', value]))}` : '/pay/send';
+    return (
+      <Page eyebrow={payCopy.t('personalAccount')} title={title} description={payCopy.t('payEntryChoose')}>
+        <PayHome sendHref={sendHref} />
+      </Page>
+    );
+  }
   return (
-    <Page
-      eyebrow={payCopy.t('personalAccount')}
-      title={title}
-      description={current === '/pay' ? payCopy.t('moveMoneyWithAClearRecipientAnd') : undefined}
-    >
+    <Page eyebrow={payCopy.t('personalAccount')} title={title}>
       <div className={`pay-personal${current === '/pay/receive' ? ' pay-personal-receive' : ''}`}>
         <nav className="pay-personal-nav" aria-label={payCopy.t('personalPay')}>
           {destinations.map((item) => (
@@ -84,52 +89,118 @@ export function PersonalPay({ path }: { path: string }) {
             <PayNotice title={payCopy.t('internationalBankSendingIsNotConnected')}>
               <PayCopy k="theCorridorRecipientBankValidationExchangeQuote" />
             </PayNotice>
-          ) : (
-            <>
-              <PaySection title={payCopy.t('payAnotherPerson')} description={payCopy.t('internalTransfersUseYourBankSpaceOn')}>
-                <p className="pay-intro">
-                  <PayCopy k="chooseTheSourceReviewTheRecipientAccount" />
-                </p>
-                <a href="/pay/send" className="button button--chrome">
-                  <PayCopy k="sendMoney" /> <span aria-hidden="true">↗</span>
-                </a>
-              </PaySection>
-              <PaySection title={payCopy.t('personToPerson')} description={payCopy.t('browseOffersAndManageOrdersWithEscrow')}>
-                <a className="pay-destination" href="/p2p">
-                  <span>
-                    <PayCopy k="openP2p" />
-                    <small>
-                      <PayCopy k="offersYourOrdersAndPaymentDetails" />
-                    </small>
-                  </span>
-                  <span aria-hidden="true">→</span>
-                </a>
-              </PaySection>
-              <PaySection title={payCopy.t('otherWaysToPay')}>
-                <a className="pay-destination" href="/pay/bills">
-                  <span>
-                    <PayCopy k="billPay" />
-                    <small>
-                      <PayCopy k="billerAndPaymentRailNotConnected" />
-                    </small>
-                  </span>
-                  <span aria-hidden="true">→</span>
-                </a>
-                <a className="pay-destination" href="/pay/global">
-                  <span>
-                    <PayCopy k="sendToABankAbroad" />
-                    <small>
-                      <PayCopy k="internationalCorridorAndQuoteNotConnected" />
-                    </small>
-                  </span>
-                  <span aria-hidden="true">→</span>
-                </a>
-              </PaySection>
-            </>
-          )}
+          ) : null}
         </div>
       </div>
     </Page>
+  );
+}
+
+function PayHome({ sendHref }: { sendHref: string }) {
+  const tasks = [
+    { href: sendHref, title: 'sendMoney', detail: 'payEntrySendDetail', note: 'payEntrySendNote', send: true },
+    { href: '/pay/receive', title: 'receiveMoney', detail: 'payEntryReceiveDetail', note: 'payEntryReceiveNote', send: false },
+  ] as const;
+  const unavailable = [
+    { href: '/pay/request', title: 'requestAPayment', detail: 'payEntryRequestLimit' },
+    { href: '/pay/bills', title: 'billPay', detail: 'payEntryBillsLimit' },
+    { href: '/pay/global', title: 'sendToABankAbroad', detail: 'payEntryGlobalLimit' },
+  ] as const;
+  return (
+    <div className="pay-entry">
+      <nav className="pay-entry-tasks" aria-label={payCopy.t('personalPay')}>
+        {tasks.map((task) => (
+          <a
+            className={`pay-entry-task${task.send ? ' pay-entry-task-send' : ''}`}
+            href={task.href}
+            key={task.title}
+            aria-labelledby={`pay-entry-${task.title}`}
+            aria-describedby={`pay-entry-${task.detail} pay-entry-${task.note}`}
+          >
+            <div className="pay-entry-task-heading">
+              <h2 id={`pay-entry-${task.title}`}>
+                <PayCopy k={task.title} />
+              </h2>
+              <span className="pay-entry-direction" aria-hidden="true">
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d={task.send ? 'M5 19L19 5M5 5H19V19' : 'M19 5L5 19M5 5V19H19'} />
+                </svg>
+              </span>
+            </div>
+            <p id={`pay-entry-${task.detail}`}>
+              <PayCopy k={task.detail} />
+            </p>
+            <small id={`pay-entry-${task.note}`}>
+              <PayCopy k={task.note} />
+            </small>
+          </a>
+        ))}
+      </nav>
+      <section className="pay-entry-section" aria-labelledby="pay-entry-p2p">
+        <header>
+          <h2 id="pay-entry-p2p">
+            <PayCopy k="personToPerson" />
+          </h2>
+          <p id="pay-entry-p2p-detail">
+            <PayCopy k="payEntryP2pDetail" />
+          </p>
+        </header>
+        <div className="pay-entry-actions">
+          <a className="button button--secondary" href="/p2p" aria-describedby="pay-entry-p2p-detail">
+            <PayCopy k="payEntryBrowseOffers" />
+          </a>
+          <a className="button button--secondary" href="/uc/order" aria-describedby="pay-entry-p2p-detail">
+            <PayCopy k="payEntryYourOrders" />
+          </a>
+        </div>
+      </section>
+      <section className="pay-entry-section" aria-labelledby="pay-entry-other">
+        <header>
+          <h2 id="pay-entry-other">
+            <PayCopy k="otherWaysToPay" />
+          </h2>
+          <p>
+            <PayCopy k="payEntryUnavailableDetail" />
+          </p>
+        </header>
+        <div>
+          {unavailable.map((task) => (
+            <article className="pay-entry-limit" key={task.title} aria-labelledby={`pay-entry-${task.title}`}>
+              <header>
+                <h3 id={`pay-entry-${task.title}`}>
+                  <PayCopy k={task.title} />
+                </h3>
+                <p className="pay-entry-availability" id={`pay-entry-${task.title}-unavailable`}>
+                  <PayCopy k="payEntryUnavailable" />
+                </p>
+              </header>
+              <p id={`pay-entry-${task.detail}`}>
+                <PayCopy k={task.detail} />
+              </p>
+              <a
+                className="button button--secondary"
+                href={task.href}
+                aria-labelledby={`pay-entry-${task.title} pay-entry-${task.title}-action`}
+                aria-describedby={`pay-entry-${task.title}-unavailable pay-entry-${task.detail}`}
+              >
+                <span id={`pay-entry-${task.title}-action`}>
+                  <PayCopy k="payEntryViewLimits" />
+                </span>
+              </a>
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }
 
