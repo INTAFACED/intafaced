@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { QUANT_SANDBOX_ESCAPE, QUANT_SANDBOX_MAX_OPS_UNSET, QUANT_SANDBOX_MAX_SOURCE_UNSET, QUANT_SANDBOX_UNWIRED } from '../errors.js';
+import {
+  QUANT_SANDBOX_ESCAPE,
+  QUANT_SANDBOX_MAX_OPS_UNSET,
+  QUANT_SANDBOX_MAX_SOURCE_UNSET,
+  QUANT_SANDBOX_SYNTAX,
+  QUANT_SANDBOX_UNWIRED,
+} from '../errors.js';
 import { createPaperBook } from './book.js';
 import { runIsolate } from './isolate.js';
 
@@ -87,6 +93,58 @@ print(book.cash())`,
     expect(taken.fills[0]?.qty).toBe('0.01');
     expect(taken.cash).toBe('9500');
     expect(taken.logs).toEqual(['9500']);
+  });
+
+  it('does not treat a return inside a brace else as an unconditional exit', () => {
+    const taken = runIsolate(
+      'javascript',
+      `if (true) { console.log("ok") } else { oms.buy("BTC-USD", "0.01"); return }
+console.log("after")`,
+      book(),
+      limits,
+      true,
+    );
+    expect(taken.logs).toEqual(['ok', 'after']);
+    expect(taken.fills).toEqual([]);
+    expect(taken.cash).toBe('10000');
+
+    const elseReturns = runIsolate(
+      'javascript',
+      `if (false) { oms.buy("BTC-USD", "0.01") } else { console.log("else"); return }
+console.log("after")`,
+      book(),
+      limits,
+      true,
+    );
+    expect(elseReturns.logs).toEqual(['else']);
+    expect(elseReturns.fills).toEqual([]);
+    expect(elseReturns.cash).toBe('10000');
+
+    const elseBuys = runIsolate(
+      'javascript',
+      `if (false) { console.log("no") } else { oms.buy("BTC-USD", "0.01") }
+console.log(book.cash())`,
+      book(),
+      limits,
+      true,
+    );
+    expect(elseBuys.fills).toHaveLength(1);
+    expect(elseBuys.fills[0]?.side).toBe('buy');
+    expect(elseBuys.cash).toBe('9500');
+    expect(elseBuys.logs).toEqual(['9500']);
+  });
+
+  it('refuses an unclosed false brace if instead of dropping later orders', () => {
+    expect(() =>
+      runIsolate(
+        'javascript',
+        `if (false) { oms.buy("BTC-USD", "0.01")
+oms.buy("BTC-USD", "0.01")`,
+        book(),
+        limits,
+        true,
+      ),
+    ).toThrow(QUANT_SANDBOX_SYNTAX);
   });
 
   it('refuses when the isolate is unwired rather than inventing pnl', () => {
