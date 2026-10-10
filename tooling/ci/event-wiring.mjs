@@ -60,6 +60,8 @@
  *
  *   · comments are blanked before anything is matched — character-for-character,
  *     newlines kept, so every line number reported is the real one;
+ *   · a publish or subscribe inside a string is not a call. The catalog's money
+ *     event counts only when that call passes a payload argument;
  *   · `*.test.ts` / `*.spec.ts` are not wiring. A subject that only a test
  *     publishes has no publisher;
  *   · NO regex here is built from a template literal. `\s` inside one is the
@@ -546,6 +548,12 @@ function entrypointFromManifest(serviceDir, text, known) {
  * `import { type Foo, bar }` is, because `bar` is a value. A leading
  * `import type` stays not a mount. Publish or subscribe in a file reached
  * only by an inline type import is not credited.
+ *
+ * A publish or subscribe that appears only inside a string is not a wiring
+ * hit, including in a mounted bus-aware file. A real call still counts.
+ * The money event is the one whose description says `THE money event`
+ * (`ledgerTxPosted`). A call to it with no payload argument is not wired.
+ * A real call that passes a payload still counts. No new catalog event.
  */
 /**
  * `import … from '…'` and `export … from '…'`. A leading `type` is captured so
@@ -603,6 +611,160 @@ function* importEdges(src) {
 
 function* importSpecifiers(src) {
   for (const edge of importEdges(src)) if (edge.mounts) yield edge.spec;
+}
+
+/** Captures the dotted receiver so `hub.publish` can be told from `this.bus.publish`. */
+const BUS_CALL = /([A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*)\s*\.\s*(publish|subscribe)\s*(?:<[^<>()]*>)?\(\s*/g;
+const FIRST_ARG_LITERAL = /^(['"])([A-Za-z_$][\w$]*)\1/;
+
+/**
+ * 1 where `src` is inside a string or a template outside `${}`.
+ *
+ * The publish scan runs on comment-stripped source, so a `//` is already gone.
+ * A quote still starts a literal. The call inside it is prose, not wiring.
+ * An interpolation is code again, so a real call there still counts.
+ */
+function stringMask(src) {
+  const mask = new Uint8Array(src.length);
+  const n = src.length;
+  const stack = [{ kind: 'code', braces: 0 }];
+  let i = 0;
+  const mark = (from, to) => {
+    for (let k = from; k < to && k < n; k++) mask[k] = 1;
+  };
+  while (i < n) {
+    const frame = stack[stack.length - 1];
+    const c = src[i];
+    const d = src[i + 1];
+    if (frame.kind === 'template') {
+      if (c === '\\') {
+        mark(i, i + 2);
+        i += 2;
+        continue;
+      }
+      if (c === '`') {
+        mask[i] = 1;
+        stack.pop();
+        i++;
+        continue;
+      }
+      if (c === '$' && d === '{') {
+        stack.push({ kind: 'code', braces: 0 });
+        i += 2;
+        continue;
+      }
+      mask[i] = 1;
+      i++;
+      continue;
+    }
+    if (c === '/' && d === '/') {
+      while (i < n && src[i] !== '\n') i++;
+      continue;
+    }
+    if (c === '/' && d === '*') {
+      i += 2;
+      while (i < n && !(src[i] === '*' && src[i + 1] === '/')) i++;
+      i = Math.min(i + 2, n);
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      const start = i;
+      const quote = c;
+      i++;
+      while (i < n) {
+        if (src[i] === '\\') {
+          i += 2;
+          continue;
+        }
+        if (src[i] === quote) {
+          i++;
+          break;
+        }
+        i++;
+      }
+      mark(start, i);
+      continue;
+    }
+    if (c === '`') {
+      mask[i] = 1;
+      stack.push({ kind: 'template' });
+      i++;
+      continue;
+    }
+    if (c === '{') {
+      frame.braces++;
+      i++;
+      continue;
+    }
+    if (c === '}') {
+      if (frame.braces === 0 && stack.length > 1) stack.pop();
+      else if (frame.braces > 0) frame.braces--;
+      i++;
+      continue;
+    }
+    i++;
+  }
+  return mask;
+}
+
+/**
+ * The catalog calls one event THE money event. Read that from its
+ * `defineEvent` description. Do not invent a second name.
+ */
+function moneyEventNames() {
+  const names = new Set();
+  const src = blankComments(catalogRaw);
+  const re = /export const ([A-Za-z_$][\w$]*) = defineEvent\(/g;
+  let m;
+  while ((m = re.exec(src))) {
+    const open = m.index + m[0].length - 1;
+    if (src[open] !== '(') continue;
+    const list = argumentListAt(src, open);
+    if (list.includes('THE money event')) names.add(m[1]);
+  }
+  return names;
+}
+
+let moneyEventCache = null;
+function isMoneyEvent(name) {
+  if (moneyEventCache === null) moneyEventCache = moneyEventNames();
+  return moneyEventCache.has(name);
+}
+
+/** A second argument after the event-name literal. Whitespace and a bare comma do not count. */
+function literalHasPayload(rest) {
+  const literal = FIRST_ARG_LITERAL.exec(rest);
+  if (literal === null) return false;
+  let i = literal[0].length;
+  while (i < rest.length && (rest[i] === ' ' || rest[i] === '\t' || rest[i] === '\n' || rest[i] === '\r')) i++;
+  if (rest[i] !== ',') return false;
+  i++;
+  while (i < rest.length && (rest[i] === ' ' || rest[i] === '\t' || rest[i] === '\n' || rest[i] === '\r')) i++;
+  return i < rest.length && rest[i] !== ')';
+}
+
+/**
+ * Catalog `.publish` / `.subscribe` calls that count as wiring.
+ *
+ * A match inside a string is not a hit. A money event with no payload
+ * argument is not wired. A real call, including one that passes a payload,
+ * still counts.
+ */
+function directWiringCalls(src) {
+  const hits = [];
+  const mask = stringMask(src);
+  BUS_CALL.lastIndex = 0;
+  let call;
+  while ((call = BUS_CALL.exec(src))) {
+    if (mask[call.index] === 1) continue;
+    const rest = src.slice(call.index + call[0].length);
+    const literal = FIRST_ARG_LITERAL.exec(rest);
+    if (literal === null || !isEvent(literal[2])) continue;
+    if (isMoneyEvent(literal[2]) && !literalHasPayload(rest)) continue;
+    hits.push({ verb: call[2], event: literal[2], index: call.index });
+  }
+  BUS_CALL.lastIndex = 0;
+  return hits;
 }
 
 function selfTestBusAware() {
@@ -841,6 +1003,122 @@ function selfTestBusAware() {
     'import { type Foo, bar } did not credit subscribe',
   );
 
+  assert(isMoneyEvent('ledgerTxPosted') === true, 'ledgerTxPosted was not read as the money event');
+  assert(isMoneyEvent('orderFilled') === false, 'orderFilled was treated as a money event');
+  assert(isMoneyEvent('bankMarginCalled') === false, 'bankMarginCalled was treated as a money event');
+
+  const stringOnlyWiring = [
+    "import { EventBus } from '@intafaced/events';",
+    'export function start(bus: EventBus) {',
+    '  const q = "bus.publish(\'ledgerTxPosted\')";',
+    '  const s = \'bus.subscribe("ledgerTxPosted")\';',
+    '  const t = `bus.publish(\'ledgerTxPosted\')`;',
+    '}',
+    '',
+  ].join('\n');
+  const stringAndReal = [
+    "import { EventBus } from '@intafaced/events';",
+    'export function start(bus: EventBus) {',
+    '  const q = "bus.publish(\'ledgerTxPosted\')";',
+    '  const s = \'bus.subscribe("ledgerTxPosted")\';',
+    '  const t = `bus.publish(\'ledgerTxPosted\')`;',
+    "  bus.publish('orderFilled');",
+    '  bus.subscribe("orderFilled");',
+    '}',
+    '',
+  ].join('\n');
+  const noPayloadCall = [
+    "import { EventBus } from '@intafaced/events';",
+    'export function start(bus: EventBus) {',
+    "  bus.publish('ledgerTxPosted');",
+    '  bus.subscribe("ledgerTxPosted");',
+    "  bus.publish('orderFilled');",
+    '  bus.subscribe("orderFilled");',
+    '}',
+    '',
+  ].join('\n');
+  const withPayload = [
+    "import { EventBus } from '@intafaced/events';",
+    'export function start(bus: EventBus) {',
+    '  bus.publish(',
+    "    'ledgerTxPosted',",
+    '    payload,',
+    '  );',
+    '  bus.subscribe("ledgerTxPosted", handler);',
+    '  const note = `ready ${bus.publish(\'ledgerTxPosted\', payload)}`;',
+    '}',
+    '',
+  ].join('\n');
+  const mountEntry = "import { start } from './handler';\n";
+  const mountedHandler = (handlerSrc) => {
+    const mounted = new Set();
+    const stack = ['services/svc-wire/src/index.ts'];
+    const graph = new Map([
+      ['services/svc-wire/src/index.ts', mountEntry],
+      [handlerRel, handlerSrc],
+    ]);
+    while (stack.length > 0) {
+      const rel = stack.pop();
+      if (mounted.has(rel)) continue;
+      mounted.add(rel);
+      const src = graph.get(rel);
+      if (src === undefined) continue;
+      for (const spec of importSpecifiers(blankComments(src))) {
+        if (spec === './handler' || spec === './handler.js' || spec === './handler.ts') stack.push(handlerRel);
+      }
+    }
+    return mounted.has(handlerRel);
+  };
+  const wiredWhenMounted = (handlerSrc) => {
+    if (!mountedHandler(handlerSrc) || !importsEventsPackage(handlerSrc)) return null;
+    return directWiringCalls(blankComments(handlerSrc));
+  };
+
+  assert(stringOnlyWiring.includes("bus.publish('ledgerTxPosted')"), 'string-only fixture lost the publish mention');
+  assert(stringOnlyWiring.includes('bus.subscribe("ledgerTxPosted")'), 'string-only fixture lost the subscribe mention');
+  assert(stringOnlyWiring.includes('`bus.publish'), 'string-only fixture lost the template mention');
+  const stringWired = wiredWhenMounted(stringOnlyWiring);
+  const realBesideString = wiredWhenMounted(stringAndReal);
+  const noPayloadWired = wiredWhenMounted(noPayloadCall);
+  const payloadWired = wiredWhenMounted(withPayload);
+  assert(stringWired !== null, 'string-only fixture was not a mounted bus-aware file');
+  assert(stringWired !== null && stringWired.length === 0, 'string-only publish or subscribe was a wiring hit');
+  assert(realBesideString !== null, 'real call beside a string mention was not mounted');
+  assert(
+    realBesideString !== null && realBesideString.some((h) => h.event === 'orderFilled' && h.verb === 'publish'),
+    'a real publish next to a string mention did not count',
+  );
+  assert(
+    realBesideString !== null && realBesideString.some((h) => h.event === 'orderFilled' && h.verb === 'subscribe'),
+    'a real subscribe next to a string mention did not count',
+  );
+  assert(
+    realBesideString !== null && !realBesideString.some((h) => h.event === 'ledgerTxPosted'),
+    'a string mention next to a real call was a wiring hit',
+  );
+  assert(noPayloadWired !== null, 'no-payload fixture was not a mounted bus-aware file');
+  assert(
+    noPayloadWired !== null && !noPayloadWired.some((h) => h.event === 'ledgerTxPosted'),
+    'money event with no payload was treated as wired',
+  );
+  assert(
+    noPayloadWired !== null && noPayloadWired.some((h) => h.event === 'orderFilled' && h.verb === 'publish'),
+    'a real publish with no payload did not count',
+  );
+  assert(
+    noPayloadWired !== null && noPayloadWired.some((h) => h.event === 'orderFilled' && h.verb === 'subscribe'),
+    'a real subscribe with no payload did not count',
+  );
+  assert(payloadWired !== null, 'payload fixture was not a mounted bus-aware file');
+  assert(
+    payloadWired !== null && payloadWired.filter((h) => h.event === 'ledgerTxPosted' && h.verb === 'publish').length === 2,
+    'money event publish with a payload did not count',
+  );
+  assert(
+    payloadWired !== null && payloadWired.some((h) => h.event === 'ledgerTxPosted' && h.verb === 'subscribe'),
+    'money event subscribe with a payload did not count',
+  );
+
   if (fails.length > 0) {
     console.error(`event-wiring --self-test FAIL (${fails.length})`);
     for (const f of fails) console.error(`  · ${f}`);
@@ -860,6 +1138,9 @@ function selfTestBusAware() {
   console.log('  fixture import { type Foo, type Bar }: not a mount; publish and subscribe not credited');
   console.log('  fixture import type: not a mount; publish and subscribe not credited');
   console.log('  fixture import { type Foo, bar }: mount; publish and subscribe credited');
+  console.log('  fixture string-only publish: not a wiring hit');
+  console.log('  fixture money event no payload: not wired');
+  console.log('  fixture money event with payload: wired');
   console.log(`  fixture readable start script: ${startEntry}`);
   console.log(`  fixture invalid JSON: ${badJson.name} names ${badJson.service}`);
   process.exit(0);
@@ -1495,9 +1776,6 @@ function record(direction, event, file, site) {
   sideFor(direction).get(event).push(site);
 }
 
-/** Captures the dotted receiver so `hub.publish` can be told from `this.bus.publish`. */
-const BUS_CALL = /([A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*)\s*\.\s*(publish|subscribe)\s*(?:<[^<>()]*>)?\(\s*/g;
-const FIRST_ARG_LITERAL = /^(['"])([A-Za-z_$][\w$]*)\1/;
 /** `function name(`, `const name =`, `const name:` — the nearest one above an index. */
 const ENCLOSING_FN = /(?:function\s+([A-Za-z_$][\w$]*)|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*[=:])/g;
 
@@ -1562,17 +1840,21 @@ function enclosingFunction(src, index) {
 
 for (const file of files) {
   if (file.test || !file.busAware) continue;
+  for (const hit of directWiringCalls(file.src)) {
+    record(hit.verb, hit.event, file, `${file.rel}:${lineOf(file.src, hit.index)}`);
+  }
+  const inString = stringMask(file.src);
   BUS_CALL.lastIndex = 0;
   let call;
   while ((call = BUS_CALL.exec(file.src))) {
+    if (inString[call.index] === 1) continue;
     const direction = call[2];
     const rest = file.src.slice(call.index + call[0].length);
     const literal = FIRST_ARG_LITERAL.exec(rest);
 
     if (literal) {
-      // A literal that is not a catalog key is some other publish/subscribe
-      // (a hub, a store). Not this gate's business.
-      if (isEvent(literal[2])) record(direction, literal[2], file, `${file.rel}:${lineOf(file.src, call.index)}`);
+      // Catalog literals are admitted in directWiringCalls. A string mention
+      // never reaches here. Anything else is a hub or a store.
       continue;
     }
 
