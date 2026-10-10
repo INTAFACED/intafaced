@@ -1,5 +1,5 @@
 import { payCopy, PayCopy } from './copy';
-import { useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
 import { flushSync } from 'react-dom';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
@@ -11,6 +11,7 @@ import { useSession } from '../session/session';
 import { PayAmount, PayDetails, PayNotice, PaySection, PayState, MutationResult, PayTime } from './components';
 import { asset as assetSchema, sendInput, type spaceSchema } from './schemas';
 import type { z } from 'zod';
+import { currentSharedCardRoute, subscribeSharedCardRoute } from '../more/blueprint-shared-card-contract';
 
 const destinations = [
   { path: '/pay/send', title: 'send', detail: 'payAnotherIntafacedAccount', icon: '↗' },
@@ -43,7 +44,7 @@ export function PersonalPay({ path }: { path: string }) {
       title={title}
       description={current === '/pay' ? payCopy.t('moveMoneyWithAClearRecipientAnd') : undefined}
     >
-      <div className="pay-personal">
+      <div className={`pay-personal${current === '/pay/receive' ? ' pay-personal-receive' : ''}`}>
         <nav className="pay-personal-nav" aria-label={payCopy.t('personalPay')}>
           {destinations.map((item) => (
             <a key={item.path} href={item.path} aria-current={current === item.path ? 'page' : undefined}>
@@ -668,56 +669,149 @@ function SendForm({
     </PaySection>
   );
 }
+let receivingIdentity = 0;
 function ReceiveMoney({ pay, userId }: { pay: PersonalPayApi; userId: string | null }) {
-  const sources = useResource((signal) => pay.spaces(signal), `pay:receiving:${userId}`);
-  const [copied, setCopied] = useState<'accountCopied' | 'copyUnavailable' | null>(null);
+  const { api } = useSession();
+  const route = useSyncExternalStore(subscribeSharedCardRoute, currentSharedCardRoute);
+  const context = useMemo(
+    () => ({ api, userId, route, active: false, attempt: null as object | null, read: ++receivingIdentity }),
+    [api, pay, userId, route],
+  );
+  useLayoutEffect(() => {
+    context.active = true;
+    return () => {
+      context.active = false;
+      context.attempt = null;
+    };
+  }, [context]);
+  const current = () => context.active && api.canWrite() && context.route === currentSharedCardRoute();
+  const sources = useResource((signal) => pay.spaces(signal), `pay:receiving:${context.read}`);
+  const [copied, setCopied] = useState<{ context: typeof context; status: 'accountCopied' | 'copyUnavailable' } | null>(null);
+  const [copying, setCopying] = useState<typeof context | null>(null);
+  const status = copied?.context === context ? copied.status : null;
+  async function copyAccount() {
+    if (!userId || !current() || context.attempt) return;
+    const attempt = {};
+    context.attempt = attempt;
+    setCopied(null);
+    setCopying(context);
+    try {
+      const clipboard = navigator.clipboard;
+      if (typeof clipboard?.writeText !== 'function') throw new Error('copy-unavailable');
+      await clipboard.writeText(userId);
+      if (current() && context.attempt === attempt) setCopied({ context, status: 'accountCopied' });
+    } catch {
+      if (current() && context.attempt === attempt) setCopied({ context, status: 'copyUnavailable' });
+    } finally {
+      if (context.attempt === attempt) {
+        context.attempt = null;
+        if (current()) setCopying(null);
+      }
+    }
+  }
   return (
-    <div className="stack">
+    <div className="pay-receive">
       <PaySection title={payCopy.t('yourReceivingAccount')} description={payCopy.t('shareThisAccountIdForAnInternal')}>
         {userId ? (
-          <>
-            <p className="pay-account-id" lang="zxx">
-              {userId}
-            </p>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                void navigator.clipboard
-                  .writeText(userId)
-                  .then(() => setCopied('accountCopied'))
-                  .catch(() => setCopied('copyUnavailable'));
+          <div className="pay-receive-reference">
+            <p
+              className="pay-account-id"
+              lang="zxx"
+              tabIndex={0}
+              onFocus={(event) => {
+                if (!current()) return;
+                const selection = window.getSelection();
+                const range = document.createRange();
+                range.selectNodeContents(event.currentTarget);
+                selection?.removeAllRanges();
+                selection?.addRange(range);
               }}
             >
-              <PayCopy k="copyAccountId" />
+              {userId}
+            </p>
+            <Button disabled={copying === context} onClick={copyAccount}>
+              <PayCopy k={copying === context ? 'receiveCopying' : 'copyAccountId'} />
             </Button>
-            {copied && <p role="status">{payCopy.t(copied)}</p>}
-          </>
+            {status && (
+              <div className={`pay-receive-copy-status${status === 'accountCopied' ? ' positive' : ''}`} role="status">
+                <strong>{payCopy.t(status)}</strong>
+                {status === 'copyUnavailable' && (
+                  <p className="muted">
+                    <PayCopy k="receiveCopyRetry" />
+                  </p>
+                )}
+              </div>
+            )}
+            {status !== 'copyUnavailable' && (
+              <p className="muted pay-receive-manual">
+                <PayCopy k="receiveManualCopy" />
+              </p>
+            )}
+          </div>
         ) : (
           <PayNotice title={payCopy.t('signInToReceive')}>
             <PayCopy k="yourReceivingAccountIsAvailableAfterSign" />
           </PayNotice>
         )}
       </PaySection>
-      <PaySection title={payCopy.t('receivingAssets')} description={payCopy.t('aTransferArrivesInTheAssetSent')}>
-        <PayState resource={sources.resource} retry={sources.reload} empty={payCopy.t('noBankSpacesReturned')}>
-          {(spaces) => (
-            <div>
-              {spaces
-                .filter((space) => space.kind === 'primary')
-                .map((space) => (
+      <PaySection
+        title={payCopy.t('receivingAssets')}
+        action={
+          <Button
+            variant="secondary"
+            aria-label={payCopy.t('receiveRefreshLabel')}
+            disabled={sources.resource.status === 'loading'}
+            onClick={() => {
+              if (current()) sources.reload();
+            }}
+          >
+            <PayCopy k="receiveRefresh" />
+          </Button>
+        }
+      >
+        <p className="pay-receive-caption">
+          <PayCopy k="aTransferArrivesInTheAssetSent" />
+        </p>
+        <PayState
+          resource={sources.resource}
+          retry={() => {
+            if (current()) sources.reload();
+          }}
+        >
+          {(spaces) => {
+            const primary = spaces.filter((space) => space.kind === 'primary');
+            return primary.length ? (
+              <div>
+                {primary.map((space) => (
                   <div className="pay-destination" key={space.id}>
-                    <span>
-                      {space.assetId}
-                      <small>{space.name}</small>
+                    <span lang="und">
+                      <span lang="zxx">{space.assetId}</span>
+                      <small lang="und">{space.name}</small>
                     </span>
                     <span className="muted">
                       <PayCopy k="keepInAsset" />
                     </span>
                   </div>
                 ))}
-            </div>
-          )}
+              </div>
+            ) : (
+              <div className="pay-receive-empty">
+                <h3>
+                  <PayCopy k="receiveNoPrimary" />
+                </h3>
+                <p className="muted">
+                  <PayCopy k={spaces.length ? 'receiveNamedOnly' : 'receiveNoSpaces'} />
+                </p>
+              </div>
+            );
+          }}
         </PayState>
+        <p className="pay-receive-coverage muted">
+          <PayCopy k={sources.resource.status === 'failed' ? 'receiveReadFailed' : 'receiveCoverage'} />
+        </p>
+        <a className="text-link" href="/bank">
+          <PayCopy k="inspectBankSpaces" /> <span aria-hidden="true">↗</span>
+        </a>
       </PaySection>
       <PayNotice title={payCopy.t('automaticReceiveConversionIsUnavailable')}>
         <PayCopy k="theReceivePreferenceAndConversionQuoteContracts" />

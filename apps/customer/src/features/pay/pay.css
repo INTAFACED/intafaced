@@ -224,6 +224,109 @@ a.pay-destination:hover > span:last-child {
   overflow-wrap: anywhere;
   user-select: all;
 }
+.pay-receive {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pay-receive .pay-section {
+  padding-block: 24px;
+}
+.pay-receive .pay-section:first-child {
+  padding-top: 0;
+}
+.pay-receive .pay-section > header {
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.pay-receive .pay-section > header > div {
+  min-width: 0;
+}
+.pay-receive .pay-section > header p {
+  margin-top: 16px;
+  font-size: 14px;
+  line-height: 22px;
+}
+.pay-receive .pay-section > header .button {
+  flex-shrink: 0;
+}
+.pay-receive-reference,
+.pay-receive-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-8);
+  overflow-wrap: anywhere;
+}
+.pay-receive .pay-account-id {
+  margin: 0;
+  line-height: 26px;
+}
+.pay-receive .pay-account-id:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 4px;
+}
+.pay-receive-reference > .button {
+  align-self: flex-start;
+  min-height: 44px;
+}
+.pay-receive-copy-status {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 22px;
+}
+.pay-receive-copy-status strong {
+  font-weight: 500;
+}
+.pay-receive-manual,
+.pay-receive-coverage,
+.pay-receive-copy-status p {
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.pay-receive-caption {
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 22px;
+  margin-bottom: 16px;
+}
+.pay-receive-empty {
+  gap: 8px;
+}
+.pay-receive-empty h3 {
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 500;
+}
+.pay-receive-empty p {
+  font-size: 13px;
+  line-height: 22px;
+}
+.pay-receive .pay-destination {
+  min-height: 72px;
+}
+.pay-receive .pay-destination > span:first-child {
+  flex: 1;
+  font-size: 18px;
+  line-height: 24px;
+}
+.pay-receive .pay-destination > span:last-child {
+  flex: 0 0 90px;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: right;
+}
+.pay-receive-coverage {
+  margin-top: 16px;
+  margin-bottom: 16px;
+}
 .pay-details {
   margin: 0;
 }
@@ -466,6 +569,20 @@ a.pay-destination:hover > span:last-child {
   }
 }
 @media (max-width: 680px) {
+  .pay-personal-receive .pay-personal-nav a {
+    min-height: 44px;
+    flex-direction: row;
+    justify-content: center;
+    padding: 12px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+  }
+  .pay-personal-receive .pay-personal-nav .pay-nav-symbol {
+    display: none;
+  }
+  .pay-receive-reference > .button {
+    align-self: stretch;
+  }
   .pay-personal {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--spacing-32);
