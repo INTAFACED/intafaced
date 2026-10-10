@@ -134,8 +134,9 @@ export type ArbScanItem = ArbOpportunity | ArbRefusal;
 export interface ScanExternalArbInput {
   readonly symbol: string;
   /**
-   * Contemplated size. Each venue must quote at least this amount or that
-   * pair refuses `insufficient_size` (we do not invent depth).
+   * Contemplated size. `<= 0n` refuses `insufficient_size` — no other
+   * minimum is invented. Each venue must quote at least this amount or
+   * that pair refuses `insufficient_size` (we do not invent depth).
    */
   readonly amount: Amount;
   readonly quotes: readonly ArbVenueQuote[];
@@ -344,6 +345,17 @@ export function scanExternalCrossExchangeArb(input: ScanExternalArbInput): ScanE
           detail: crossRail
             ? 'DEX↔CEX (or cross-rail) without pre-positioned inventory both sides — §28:772 refuse, not size'
             : 'pre-positioned inventory required on both venues — refuse rather than imply a transfer',
+        });
+        continue;
+      }
+
+      if (input.amount <= 0n) {
+        refused.push({
+          ok: false,
+          buyVenueId: buyQ.venueId,
+          sellVenueId: sellQ.venueId,
+          reason: 'insufficient_size',
+          detail: 'contemplated amount is not strictly positive — size not invented',
         });
         continue;
       }
