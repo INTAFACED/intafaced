@@ -339,7 +339,13 @@ const CLASSES = {
 const STRING = /'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/;
 const unquote = (s) => s.slice(1, -1).replace(/\\(.)/g, '$1');
 
-/** Skip a string literal starting at `i`, returning the index just past it. */
+/**
+ * Skip a string literal starting at `i`, returning the index just past it.
+ *
+ * A backslash skips the next character, so an escaped quote stays in the
+ * value. A quote closes the literal only when the next token can follow a
+ * socket string. A same-quote mark with more reason text after it does not.
+ */
 function skipString(src, i) {
   const quote = src[i];
   i++;
@@ -348,7 +354,14 @@ function skipString(src, i) {
       i += 2;
       continue;
     }
-    if (src[i] === quote) return i + 1;
+    if (src[i] === quote) {
+      let j = i + 1;
+      while (j < src.length && (src[j] === ' ' || src[j] === '\t' || src[j] === '\n' || src[j] === '\r')) j++;
+      const n = j < src.length ? src[j] : '';
+      if (n === '' || n === ',' || n === '}' || n === ']' || n === ')' || n === '+' || n === ';' || n === ':' || n === '/') {
+        return i + 1;
+      }
+    }
     i++;
   }
   return i;
@@ -399,9 +412,13 @@ function* objectLiterals(src) {
  * The key is matched only outside string literals. A reason that quotes
  * `class: 'A'` or `event: 'someOtherSubject'` is prose, not that field, so
  * the socket stays under the entry that was declared.
+ *
+ * The value is walked with `skipString`, not `new RegExp(STRING.source)`.
+ * A backslash skips one character, and a quote closes only when the next
+ * token can follow a socket string. `unquote` then returns the whole
+ * reason, including a quote that was escaped inside it.
  */
 function fieldOf(entryText, name) {
-  const valueRe = new RegExp('(?:(?:' + STRING.source + ')\\s*\\+?\\s*)+');
   let i = 0;
   while (i < entryText.length) {
     const c = entryText[i];
@@ -412,10 +429,22 @@ function fieldOf(entryText, name) {
     if (entryText.startsWith(name, i) && entryText[i + name.length] === ':') {
       let j = i + name.length + 1;
       while (j < entryText.length && /\s/.test(entryText[j])) j++;
-      const m = valueRe.exec(entryText.slice(j));
-      if (m !== null && m.index === 0) {
-        return [...m[0].matchAll(new RegExp(STRING.source, 'g'))].map(([s]) => unquote(s)).join('');
+      const parts = [];
+      let k = j;
+      while (k < entryText.length) {
+        while (k < entryText.length && /\s/.test(entryText[k])) k++;
+        const q = entryText[k];
+        if (q !== "'" && q !== '"' && q !== '`') break;
+        const end = skipString(entryText, k);
+        if (end <= k) break;
+        parts.push(unquote(entryText.slice(k, end)));
+        k = end;
+        let n = k;
+        while (n < entryText.length && /\s/.test(entryText[n])) n++;
+        if (entryText[n] !== '+') break;
+        k = n + 1;
       }
+      if (parts.length > 0) return parts.join('');
     }
     i++;
   }
