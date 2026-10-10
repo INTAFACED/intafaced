@@ -44,12 +44,15 @@ if (interceptorFiles.length !== 1) {
   process.exit(1);
 }
 
-const interceptorSrc = readFileSync(interceptorFiles[0], 'utf8');
-if (!/SC_GONE|410/.test(interceptorSrc)) {
+// Comment-stripped code only. A comment that mentions withdraw/apply and 410 is
+// not a door, and neither is an unanchored 410 or one inventory fragment. The
+// no-op must carry SC_GONE and BLOCKED_URI_FRAGMENTS as code.
+const interceptorSrc = stripComments(readFileSync(interceptorFiles[0], 'utf8'));
+if (!/\bSC_GONE\b/.test(interceptorSrc)) {
   console.error('✖ dual-book-door-scan: interceptor must refuse with HTTP 410 Gone');
   process.exit(1);
 }
-if (!/BLOCKED_URI_FRAGMENTS|member-wallet\/recharge|withdraw\/apply/.test(interceptorSrc)) {
+if (!/\bBLOCKED_URI_FRAGMENTS\b/.test(interceptorSrc)) {
   console.error('✖ dual-book-door-scan: interceptor missing inventory-driven blocked path fragments');
   process.exit(1);
 }
