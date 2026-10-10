@@ -285,7 +285,7 @@ function refuseSimulatedNotLive(code: SimulatedNotLiveRefusalCode, detail: strin
 
 function presentedAsLive(presentedAs: string): boolean {
   const normalized = presentedAs.trim().toLowerCase();
-  return normalized === 'live' || normalized === 'live performance';
+  return normalized === 'live' || normalized === 'live performance' || normalized.startsWith('live ');
 }
 
 /**

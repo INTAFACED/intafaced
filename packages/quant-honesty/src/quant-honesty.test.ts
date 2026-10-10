@@ -212,6 +212,71 @@ describe('assessSimulatedNotLive — paper/backtest/shadow never live', () => {
     });
   });
 
+  it('refuses live fill, live trading, and live order in any case with surrounding spaces', () => {
+    expect(assessSimulatedNotLive({ environment: 'paper', presentedAs: 'live fill' })).toMatchObject({
+      ok: false,
+      refusal: { code: 'simulated_as_live' },
+    });
+    expect(assessSimulatedNotLive({ environment: 'backtest', presentedAs: 'live trading' })).toMatchObject({
+      ok: false,
+      refusal: { code: 'simulated_as_live' },
+    });
+    expect(assessSimulatedNotLive({ environment: 'shadow', presentedAs: 'live order' })).toMatchObject({
+      ok: false,
+      refusal: { code: 'simulated_as_live' },
+    });
+    expect(assessSimulatedNotLive({ environment: 'paper', presentedAs: '  LIVE FILL  ' })).toMatchObject({
+      ok: false,
+      refusal: { code: 'simulated_as_live' },
+    });
+    expect(assessSimulatedNotLive({ environment: 'backtest', presentedAs: '  Live Trading  ' })).toMatchObject({
+      ok: false,
+      refusal: { code: 'simulated_as_live' },
+    });
+    expect(assessSimulatedNotLive({ environment: 'shadow', presentedAs: '  LiVe OrDeR  ' })).toMatchObject({
+      ok: false,
+      refusal: { code: 'simulated_as_live' },
+    });
+  });
+
+  it('keeps a presented label that does not claim the result is live', () => {
+    expect(assessSimulatedNotLive({ environment: 'paper', presentedAs: 'not live' })).toEqual({
+      ok: true,
+      stamp: {
+        environment: 'paper',
+        kind: 'paper',
+        claimLabel: 'Paper — not live performance',
+        live: false,
+        simulated: true,
+      },
+    });
+    expect(assessSimulatedNotLive({ environment: 'backtest', presentedAs: 'not live' })).toEqual({
+      ok: true,
+      stamp: {
+        environment: 'backtest',
+        kind: 'simulated',
+        claimLabel: 'Historical simulation — not a forecast',
+        live: false,
+        simulated: true,
+      },
+    });
+    expect(assessSimulatedNotLive({ environment: 'shadow', presentedAs: 'not live' })).toEqual({
+      ok: true,
+      stamp: {
+        environment: 'shadow',
+        kind: 'simulated',
+        claimLabel: 'Shadow — not live performance',
+        live: false,
+        simulated: true,
+      },
+    });
+    expect(assessSimulatedNotLive({ environment: 'paper', presentedAs: 'Paper — not live performance' }).ok).toBe(true);
+    expect(assessSimulatedNotLive({ environment: 'shadow', presentedAs: 'Shadow — not live performance' }).ok).toBe(true);
+    expect(assessSimulatedNotLive({ environment: 'backtest', presentedAs: 'delivery' }).ok).toBe(true);
+    expect(assessSimulatedNotLive({ environment: 'paper', presentedAs: 'lively' }).ok).toBe(true);
+    expect(assessSimulatedNotLive({ environment: 'shadow', presentedAs: 'olives' }).ok).toBe(true);
+  });
+
   it('stamps paper, backtest, and shadow as not live', () => {
     expect(assessSimulatedNotLive({ environment: 'paper' })).toEqual({
       ok: true,
