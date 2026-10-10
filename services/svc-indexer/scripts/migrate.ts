@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
@@ -7,9 +7,9 @@ import postgres from 'postgres';
  * Migration runner — same shape as every other service (§14, SERVICE_TEMPLATE).
  *
  * Applies every `NNNN_*.sql` in order, tracked in `indexer.__migrations` so a
- * re-run is a no-op. `--down` applies the reversals in reverse, which exists so
- * CI — and a human before opening a PR — can prove reversibility rather than
- * assert it.
+ * re-run is a no-op. `--down` reverses only names recorded in that table, newest
+ * file first, in one transaction. A missing reversal throws. CI — and a human
+ * before opening a PR — can prove reversibility rather than assert it.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -32,12 +32,23 @@ async function main() {
   const ups = all.filter((f) => !f.endsWith('.down.sql')).sort();
 
   if (down) {
-    for (const up of [...ups].reverse()) {
-      const downFile = up.replace(/\.sql$/, '.down.sql');
-      console.log(`↓ ${downFile}`);
-      await sql.unsafe(readFileSync(join(migrationsDir, downFile), 'utf8'));
-      await sql`DELETE FROM indexer.__migrations WHERE name = ${up}`;
-    }
+    // One transaction: a later reversal throw rolls back newer reversals from
+    // this run, and their tracking rows stay. The up loop below stays autocommit.
+    await sql.begin(async (tx) => {
+      const applied = await tx<Array<{ name: string }>>`
+        SELECT name FROM indexer.__migrations ORDER BY name DESC
+      `;
+      for (const { name } of applied) {
+        const downFile = name.replace(/\.sql$/, '.down.sql');
+        const downPath = join(migrationsDir, downFile);
+        if (!existsSync(downPath)) {
+          throw new Error(`missing reversal ${downFile} for applied migration ${name}`);
+        }
+        console.log(`↓ ${downFile}`);
+        await tx.unsafe(readFileSync(downPath, 'utf8'));
+        await tx`DELETE FROM indexer.__migrations WHERE name = ${name}`;
+      }
+    });
     console.log('✓ reversed');
     return;
   }
