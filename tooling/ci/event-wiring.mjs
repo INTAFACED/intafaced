@@ -60,8 +60,9 @@
  *
  *   · comments are blanked before anything is matched — character-for-character,
  *     newlines kept, so every line number reported is the real one;
- *   · a publish or subscribe inside a string is not a call. The catalog's money
- *     event counts only when that call passes a payload argument;
+ *   · a publish or subscribe inside a string is not a call. A quote inside a
+ *     regex is not that string. The catalog's money event counts only when
+ *     that call passes a payload argument. `as const` is not a missing one;
  *   · `*.test.ts` / `*.spec.ts` are not wiring. A subject that only a test
  *     publishes has no publisher;
  *   · NO regex here is built from a template literal. `\s` inside one is the
@@ -551,9 +552,11 @@ function entrypointFromManifest(serviceDir, text, known) {
  *
  * A publish or subscribe that appears only inside a string is not a wiring
  * hit, including in a mounted bus-aware file. A real call still counts.
- * The money event is the one whose description says `THE money event`
- * (`ledgerTxPosted`). A call to it with no payload argument is not wired.
- * A real call that passes a payload still counts. No new catalog event.
+ * A quote inside a regex does not start a string, so a call after `/['"]/`
+ * still counts. The money event is the one whose description says `THE money
+ * event` (`ledgerTxPosted`). A call to it with no payload argument is not
+ * wired. `as const` on the name is not a missing payload. A real call that
+ * passes a payload still counts. No new catalog event.
  */
 /**
  * `import … from '…'` and `export … from '…'`. A leading `type` is captured so
@@ -623,7 +626,80 @@ const FIRST_ARG_LITERAL = /^(['"])([A-Za-z_$][\w$]*)\1/;
  * The publish scan runs on comment-stripped source, so a `//` is already gone.
  * A quote still starts a literal. The call inside it is prose, not wiring.
  * An interpolation is code again, so a real call there still counts.
+ * A `/.../` is a regex, not a string: a quote inside it must not swallow a
+ * later real call. The `/` after `=` in `/['"]/` is that case.
  */
+const REGEX_AFTER = new Set(['(', '[', '{', '}', ':', ';', ',', '=', '!', '?', '&', '|', '~', '^', '*', '%', '+', '-', '<', '>']);
+const REGEX_AFTER_WORD = new Set([
+  'return',
+  'case',
+  'throw',
+  'else',
+  'do',
+  'typeof',
+  'void',
+  'delete',
+  'in',
+  'of',
+  'instanceof',
+  'yield',
+  'await',
+  'new',
+  'default',
+]);
+
+function slashStartsRegex(src, i) {
+  let j = i - 1;
+  while (j >= 0 && isHorizSpace(src[j])) j--;
+  if (j < 0) return true;
+  const ch = src[j];
+  if (isIdentChar(ch)) {
+    let k = j;
+    while (k >= 0 && isIdentChar(src[k])) k--;
+    return REGEX_AFTER_WORD.has(src.slice(k + 1, j + 1));
+  }
+  if ((ch === '+' || ch === '-') && j > 0 && src[j - 1] === ch) {
+    let k = j - 2;
+    while (k >= 0 && isHorizSpace(src[k])) k--;
+    if (k >= 0) {
+      const prev = src[k];
+      if (isIdentChar(prev) || prev === ')' || prev === ']' || prev === '}') return false;
+    }
+  }
+  return REGEX_AFTER.has(ch);
+}
+
+/** End index after a regex literal, or null when `i` is not one. Flags stay attached. An unescaped newline is not a regex. */
+function scanRegexLiteral(src, i) {
+  let j = i + 1;
+  let inClass = false;
+  while (j < src.length) {
+    const c = src[j];
+    if (c === '\n') return null;
+    if (c === '\\') {
+      j += 2;
+      continue;
+    }
+    if (inClass) {
+      if (c === ']') inClass = false;
+      j++;
+      continue;
+    }
+    if (c === '[') {
+      inClass = true;
+      j++;
+      continue;
+    }
+    if (c === '/') {
+      j++;
+      while (j < src.length && 'dgimsuvy'.includes(src[j])) j++;
+      return j;
+    }
+    j++;
+  }
+  return null;
+}
+
 function stringMask(src) {
   const mask = new Uint8Array(src.length);
   const n = src.length;
@@ -666,6 +742,14 @@ function stringMask(src) {
       while (i < n && !(src[i] === '*' && src[i + 1] === '/')) i++;
       i = Math.min(i + 2, n);
       continue;
+    }
+    if (c === '/' && slashStartsRegex(src, i)) {
+      const end = scanRegexLiteral(src, i);
+      if (end !== null) {
+        mark(i, end);
+        i = end;
+        continue;
+      }
     }
     if (c === "'" || c === '"') {
       const start = i;
@@ -731,15 +815,35 @@ function isMoneyEvent(name) {
   return moneyEventCache.has(name);
 }
 
-/** A second argument after the event-name literal. Whitespace and a bare comma do not count. */
+function skipCallSpace(rest, i) {
+  while (i < rest.length && (rest[i] === ' ' || rest[i] === '\t' || rest[i] === '\n' || rest[i] === '\r')) i++;
+  return i;
+}
+
+/** Whole word at `i`, or -1. `as` must not match `aside`. */
+function wordAt(rest, i, word) {
+  if (!rest.startsWith(word, i)) return -1;
+  const after = i + word.length;
+  if (after < rest.length && isIdentChar(rest[after])) return -1;
+  return after;
+}
+
+/**
+ * A second argument after the event-name literal. Whitespace, `as const`, and
+ * a bare comma do not count. `as const` is a type assertion, not the absence
+ * of a payload.
+ */
 function literalHasPayload(rest) {
   const literal = FIRST_ARG_LITERAL.exec(rest);
   if (literal === null) return false;
-  let i = literal[0].length;
-  while (i < rest.length && (rest[i] === ' ' || rest[i] === '\t' || rest[i] === '\n' || rest[i] === '\r')) i++;
+  let i = skipCallSpace(rest, literal[0].length);
+  const asAt = wordAt(rest, i, 'as');
+  if (asAt !== -1) {
+    const constAt = wordAt(rest, skipCallSpace(rest, asAt), 'const');
+    if (constAt !== -1) i = skipCallSpace(rest, constAt);
+  }
   if (rest[i] !== ',') return false;
-  i++;
-  while (i < rest.length && (rest[i] === ' ' || rest[i] === '\t' || rest[i] === '\n' || rest[i] === '\r')) i++;
+  i = skipCallSpace(rest, i + 1);
   return i < rest.length && rest[i] !== ')';
 }
 
@@ -1049,6 +1153,35 @@ function selfTestBusAware() {
     '}',
     '',
   ].join('\n');
+  const stringOnlyOrderFilled = [
+    "import { EventBus } from '@intafaced/events';",
+    'export function start(bus: EventBus) {',
+    '  const q = "bus.publish(\'orderFilled\')";',
+    '  const s = \'bus.publish("orderFilled")\';',
+    '  const t = `bus.publish(\'orderFilled\')`;',
+    '}',
+    '',
+  ].join('\n');
+  const stringOnlyMoneyPayload = [
+    "import { EventBus } from '@intafaced/events';",
+    'export function start(bus: EventBus) {',
+    '  const q = "bus.publish(\'ledgerTxPosted\', payload)";',
+    '  const s = \'bus.publish("ledgerTxPosted", payload)\';',
+    '  const t = `bus.publish(\'ledgerTxPosted\', payload)`;',
+    '}',
+    '',
+  ].join('\n');
+  const regexQuote = ["const re = /['\"]/;", "bus.publish('orderFilled', payload);", "bus.subscribe('orderFilled', handler);", ''].join(
+    '\n',
+  );
+  const asConstPayload = [
+    "import { EventBus } from '@intafaced/events';",
+    'export function start(bus: EventBus) {',
+    "  bus.publish('ledgerTxPosted' as const, payload);",
+    "  bus.publish('ledgerTxPosted' as const);",
+    '}',
+    '',
+  ].join('\n');
   const mountEntry = "import { start } from './handler';\n";
   const mountedHandler = (handlerSrc) => {
     const mounted = new Set();
@@ -1119,6 +1252,54 @@ function selfTestBusAware() {
     'money event subscribe with a payload did not count',
   );
 
+  const orderFilledBlank = blankComments(stringOnlyOrderFilled);
+  const moneyPayloadBlank = blankComments(stringOnlyMoneyPayload);
+  assert(orderFilledBlank.includes("bus.publish('orderFilled')"), 'string-only orderFilled fixture lost the publish');
+  assert(orderFilledBlank.includes('bus.publish("orderFilled")'), 'string-only orderFilled fixture lost the double-quoted publish');
+  assert(orderFilledBlank.includes('`bus.publish'), 'string-only orderFilled fixture lost the template publish');
+  assert(moneyPayloadBlank.includes("bus.publish('ledgerTxPosted', payload)"), 'string-only money payload fixture lost the publish');
+  assert(
+    moneyPayloadBlank.includes('bus.publish("ledgerTxPosted", payload)'),
+    'string-only money payload fixture lost the double-quoted publish',
+  );
+  assert(moneyPayloadBlank.includes("`bus.publish('ledgerTxPosted', payload)`"), 'string-only money payload fixture lost the template publish');
+  const stringOrderWired = wiredWhenMounted(stringOnlyOrderFilled);
+  const stringMoneyPayloadWired = wiredWhenMounted(stringOnlyMoneyPayload);
+  assert(stringOrderWired !== null, 'string-only orderFilled fixture was not a mounted bus-aware file');
+  assert(
+    stringOrderWired !== null && stringOrderWired.length === 0,
+    'string-only orderFilled publish was a wiring hit — stringMask did nothing',
+  );
+  assert(stringMoneyPayloadWired !== null, 'string-only ledgerTxPosted payload fixture was not a mounted bus-aware file');
+  assert(
+    stringMoneyPayloadWired !== null && stringMoneyPayloadWired.length === 0,
+    'string-only ledgerTxPosted with a payload was a wiring hit — stringMask did nothing',
+  );
+
+  const regexBlank = blankComments(regexQuote);
+  assert(regexBlank.includes("const re = /['\"]/;"), 'regex fixture lost the quote inside the regex');
+  assert(regexBlank.includes("bus.publish('orderFilled', payload)"), 'regex fixture lost the publish');
+  assert(regexBlank.includes("bus.subscribe('orderFilled', handler)"), 'regex fixture lost the subscribe');
+  const regexHits = directWiringCalls(regexBlank);
+  assert(
+    regexHits.some((h) => h.event === 'orderFilled' && h.verb === 'publish'),
+    'quote inside a regex dropped a later orderFilled publish',
+  );
+  assert(
+    regexHits.some((h) => h.event === 'orderFilled' && h.verb === 'subscribe'),
+    'quote inside a regex dropped a later orderFilled subscribe',
+  );
+
+  const asConstBlank = blankComments(asConstPayload);
+  assert(asConstBlank.includes("bus.publish('ledgerTxPosted' as const, payload)"), 'as const fixture lost the payload publish');
+  assert(asConstBlank.includes("bus.publish('ledgerTxPosted' as const);"), 'as const fixture lost the no-payload publish');
+  const asConstWired = wiredWhenMounted(asConstPayload);
+  const asConstPublishes =
+    asConstWired === null ? [] : asConstWired.filter((h) => h.event === 'ledgerTxPosted' && h.verb === 'publish');
+  assert(asConstWired !== null, 'as const fixture was not a mounted bus-aware file');
+  assert(asConstPublishes.length > 0, 'ledgerTxPosted as const with a payload was not wired');
+  assert(asConstPublishes.length === 1, 'ledgerTxPosted as const with no payload was wired');
+
   if (fails.length > 0) {
     console.error(`event-wiring --self-test FAIL (${fails.length})`);
     for (const f of fails) console.error(`  · ${f}`);
@@ -1139,8 +1320,14 @@ function selfTestBusAware() {
   console.log('  fixture import type: not a mount; publish and subscribe not credited');
   console.log('  fixture import { type Foo, bar }: mount; publish and subscribe credited');
   console.log('  fixture string-only publish: not a wiring hit');
+  console.log('  fixture string-only orderFilled publish: not a wiring hit');
+  console.log('  fixture string-only ledgerTxPosted with payload: not a wiring hit');
+  console.log('  fixture regex quote: orderFilled publish still reported');
+  console.log('  fixture regex quote: orderFilled subscribe still reported');
   console.log('  fixture money event no payload: not wired');
   console.log('  fixture money event with payload: wired');
+  console.log('  fixture ledgerTxPosted as const with payload: wired');
+  console.log('  fixture ledgerTxPosted as const with no payload: not wired');
   console.log(`  fixture readable start script: ${startEntry}`);
   console.log(`  fixture invalid JSON: ${badJson.name} names ${badJson.service}`);
   process.exit(0);
