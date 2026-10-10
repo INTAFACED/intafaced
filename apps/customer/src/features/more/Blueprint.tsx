@@ -1,11 +1,12 @@
 import { t as copyText, Text } from './copy';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button, Field, Panel } from '../../shared/ui';
 import { Details, Read, Select, TextArea, useAction } from './common';
+import { BlueprintSharedCard, BlueprintMentorCardAction } from './BlueprintSharedCard';
 const uuid = z.string().uuid();
 const profile = z.object({
   decisionStyle: z.enum(['analytical', 'intuitive', 'collaborative', 'decisive']),
@@ -99,7 +100,7 @@ function download(name: string, text: string, type: string) {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-export function Blueprint() {
+export function Blueprint({ path = '/blueprint' }: { path?: string }) {
   const api = useApi(),
     { userId } = useSession(),
     preferences = usePreferences(),
@@ -144,6 +145,8 @@ export function Blueprint() {
       `mentors:${userId}`,
     ),
     share = useResource((signal) => api.query('blueprint', 'card', { size }, card, { signal }), `card:${userId}:${size}`);
+  const currentMentors = useRef(mentors.resource);
+  currentMentors.current = mentors.resource;
   const reload = () => {
     me.reload();
     mentors.reload();
@@ -152,6 +155,7 @@ export function Blueprint() {
   return (
     <div className="more-columns">
       <div>
+        <BlueprintSharedCard path={path} />
         <Panel title={copyText('blueprint.identity.blueprint')}>
           <Read resource={me.resource} retry={me.reload} empty={copyText('blueprint.your.blueprint.has.not.been.created')}>
             {(record) =>
@@ -256,6 +260,17 @@ export function Blueprint() {
                     <code>{m.mentorId}</code> · {m.fitScore}
                     <Text k="blueprint.basis.points.of.fit" />
                     {m.status}
+                    <BlueprintMentorCardAction
+                      subject={m.mentorId}
+                      available={() =>
+                        api.canWrite() &&
+                        action.isCurrent() &&
+                        currentMentors.current === mentors.resource &&
+                        mentors.resource.status === 'ready' &&
+                        mentors.resource.data.includes(m) &&
+                        m.studentId === userId
+                      }
+                    />
                   </li>
                 ))}
               </ul>

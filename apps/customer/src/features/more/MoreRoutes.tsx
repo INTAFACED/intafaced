@@ -71,7 +71,7 @@ function MoreRooms({ path }: { path: string }) {
   } else if (p === '/blueprint') {
     title = copyText('moreroutes.identity.blueprint');
     description = copyText('moreroutes.a.profile.you.can.keep.private.share');
-    content = <Blueprint />;
+    content = <Blueprint path={path} />;
   } else if (p === '/campaigns') {
     title = copyText('moreroutes.campaigns');
     description = copyText('moreroutes.your.campaign.participation');
