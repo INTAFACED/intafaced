@@ -102,6 +102,19 @@ async function geometry(row) {
     vendorRange.selectNodeContents(vendor);
     const offerRange = document.createRange();
     offerRange.selectNodeContents(offer);
+    const metadata = [...element.querySelectorAll('.market-catalogue-facts > div')].map((node) => {
+      const label = node.querySelector('dt');
+      const value = node.querySelector('dd');
+      const labelInk = document.createRange();
+      labelInk.selectNodeContents(label);
+      return {
+        labelText: label.textContent,
+        valueText: value.textContent,
+        label: rect(label),
+        labelInk: rect(labelInk),
+        value: rect(value),
+      };
+    });
     return {
       viewport: innerWidth,
       hovered: element.matches(':hover'),
@@ -114,6 +127,7 @@ async function geometry(row) {
       vendorLineFragments: vendorRange.getClientRects().length,
       offerText: offer.textContent,
       offerLineFragments: offerRange.getClientRects().length,
+      metadata,
       price: rect(price),
       amount: rect(range),
       finalGlyph: rect(last),
@@ -132,6 +146,13 @@ async function geometry(row) {
       pageScrollWidth: document.documentElement.scrollWidth,
     };
   });
+}
+
+function expectMetadataGap(value) {
+  for (const fact of value.metadata) {
+    expect(fact.labelInk.right).toBeLessThanOrEqual(fact.label.right + 0.5);
+    expect(fact.value.left - fact.labelInk.right).toBeGreaterThanOrEqual(12 - 0.5);
+  }
 }
 
 test('native full tiny price and readable listing remain stable across hover and responsive boundaries', async ({ page, context }) => {
@@ -164,7 +185,7 @@ test('native full tiny price and readable listing remain stable across hover and
       expect(value.interLoaded).toBe(true);
       expect(value.vendorText).toBe(vendorId);
       expect(value.offerText).toBe('subscription');
-      expect(value.vendorLineFragments).toBeLessThanOrEqual(2);
+      expectMetadataGap(value);
       expect(value.offerLineFragments).toBe(1);
       if (width === 561) expect(value.vendorLineFragments).toBe(1);
       expect(value.font.family).toContain('Inter');
@@ -194,9 +215,11 @@ test('native View locales keep opaque listing values and current pointer and key
   await login(view, '/view');
   const origin = await page.evaluate(() => performance.timeOrigin);
   const row = rowFor(page);
+  await page.evaluate(() => document.fonts.ready);
+  const measurements = [];
   for (const locale of ['en', 'es', 'fr']) {
     await language(view, page, locale);
-    for (const width of [320, 390]) {
+    for (const width of [320, 390, 561]) {
       await page.setViewportSize({ width, height: 1000 });
       await row.hover();
       await expect(row.getByRole('heading', { name: title, exact: true })).toHaveAttribute('lang', 'und');
@@ -206,6 +229,8 @@ test('native View locales keep opaque listing values and current pointer and key
       await expect(row.getByText('subscription', { exact: true })).toBeVisible();
       await expect(priceFor(row, locale).locator('strong')).toHaveText(tiny);
       const current = await geometry(row);
+      measurements.push({ locale, width, current });
+      expectMetadataGap(current);
       expect(current.amount.right).toBeLessThanOrEqual(current.price.right + 1);
       expect(current.main.width).toBe(current.row.width);
       await row.screenshot({ path: `${evidence}/current-${locale}-${width}.png` });
@@ -227,10 +252,34 @@ test('native View locales keep opaque listing values and current pointer and key
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: copy('fr', 'common.back'), exact: true }).click();
   await expect(dialog).toHaveCount(0);
+  await buy.scrollIntoViewIfNeeded();
+  const clearance = await buy.evaluate((button) => {
+    const bounds = button.getBoundingClientRect();
+    const fixed = [...document.querySelectorAll('nav')]
+      .filter((node) => getComputedStyle(node).position === 'fixed' && node.getBoundingClientRect().bottom >= innerHeight - 1)
+      .map((node) => node.getBoundingClientRect().top);
+    return {
+      viewport: innerWidth,
+      buttonTop: bounds.top,
+      buttonBottom: bounds.bottom,
+      buttonHeight: bounds.height,
+      navTop: Math.min(...fixed),
+    };
+  });
+  expect(clearance.viewport).toBe(320);
+  expect(clearance.buttonHeight).toBeGreaterThanOrEqual(44);
+  expect(Number.isFinite(clearance.navTop)).toBe(true);
+  expect(clearance.buttonBottom).toBeLessThan(clearance.navTop);
+  await page.screenshot({ path: `${evidence}/pointer-ready-320.png` });
+  await buy.click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: copy('fr', 'common.back'), exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  writeFileSync(`${evidence}/pointer-clearance.json`, JSON.stringify(clearance, null, 2));
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
   expect(calls.writes).toEqual([]);
   expect(calls.errors).toEqual([]);
-  writeFileSync(`${evidence}/current-controls.json`, JSON.stringify({ origin, calls }, null, 2));
+  writeFileSync(`${evidence}/current-controls.json`, JSON.stringify({ origin, measurements, calls }, null, 2));
 });
 
 test('native verylong exact price keeps deliberate local keyboard scroll at readable type', async ({ page, context }) => {
