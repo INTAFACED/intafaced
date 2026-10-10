@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { Button, Failure, Loading } from '../../shared/ui';
@@ -69,6 +69,7 @@ export function Invitation() {
     [preflightFailure, setPreflightFailure] = useState<FailureResult | null>(null);
   const [unknownFailure, setUnknownFailure] = useState<FailureResult | null>(null),
     [read, setRead] = useState<CurrentRead | null>(null);
+  const [, invalidateNavigation] = useState(0);
   const [stored, setStored] = useState<{ owner: string | null; value: InvitationJournal }>(() => ({
     owner: userId,
     value: userId ? readInvitations(userId) : emptyJournal,
@@ -102,16 +103,7 @@ export function Invitation() {
   const knownBody = (receipt: Receipt) =>
     !receipt.answer.ok ? 'refusedBody' : receipt.answer.data.attributed ? 'attributedBody' : 'checkedBody';
 
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      sendAbort.current?.abort();
-      readAbort.current?.abort();
-    };
-  }, []);
-  useEffect(() => {
-    privateContext.current = context;
+  function discardPrivate() {
     original.current = null;
     sendAbort.current?.abort();
     readAbort.current?.abort();
@@ -124,8 +116,35 @@ export function Invitation() {
     setPreflightFailure(null);
     setUnknownFailure(null);
     setRead(null);
-    setStored({ owner: userId, value: userId ? readInvitations(userId) : emptyJournal });
-  }, [api, userId, token, url]);
+    const owner = current.current.owner;
+    setStored({ owner, value: owner ? readInvitations(owner) : emptyJournal });
+  }
+  useLayoutEffect(() => {
+    mounted.current = true;
+    const departed = () => {
+      const previous = version.current;
+      if (previous.url === location.href) return;
+      // Observe each departure before React can batch an A→B→A URL into A.
+      const next = { ...previous, url: location.href, generation: previous.generation + 1 };
+      version.current = next;
+      current.current = next;
+      discardPrivate();
+      invalidateNavigation((value) => value + 1);
+    };
+    window.addEventListener('popstate', departed);
+    window.addEventListener('hashchange', departed);
+    return () => {
+      mounted.current = false;
+      window.removeEventListener('popstate', departed);
+      window.removeEventListener('hashchange', departed);
+      sendAbort.current?.abort();
+      readAbort.current?.abort();
+    };
+  }, []);
+  useLayoutEffect(() => {
+    privateContext.current = context;
+    discardPrivate();
+  }, [context]);
   useEffect(() => {
     const changed = (event: StorageEvent) => {
       if (userId && (event.key === invitationKey(userId) || event.key === null))
@@ -145,7 +164,7 @@ export function Invitation() {
     if (mounted.current && current.current.owner === owner) setStored({ owner, value: readInvitations(owner) });
   }
   function open() {
-    if (!parsed.success || blocked || (running.current && sameActor(running.current))) return;
+    if (!sameContext(context) || !parsed.success || blocked || (running.current && sameActor(running.current))) return;
     const latest = readInvitations(userId!);
     setStored({ owner: userId, value: latest });
     if (latest.failed || latest.records.length) return;
@@ -157,10 +176,12 @@ export function Invitation() {
     setUnknownFailure(null);
   }
   function cancel() {
-    if (busy) return;
+    if (!sameContext(context) || busy) return;
     original.current = null;
     setReview(null);
-    requestAnimationFrame(() => reviewButton.current?.querySelector<HTMLButtonElement>('button')?.focus());
+    requestAnimationFrame(() => {
+      if (sameContext(context)) reviewButton.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    });
   }
   async function dispatch(intent: Original) {
     if (!same(intent) || (running.current && sameActor(running.current))) return;
@@ -263,7 +284,7 @@ export function Invitation() {
       });
   }
   async function readCurrent() {
-    const captured = current.current;
+    const captured = context;
     if (!captured.owner || !sameContext(captured)) return;
     readAbort.current?.abort();
     const controller = new AbortController();

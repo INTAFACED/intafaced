@@ -1114,3 +1114,200 @@ for (const language of ['en', 'es', 'fr'])
     expect(await journal(page)).toBe(null);
     await view.close();
   });
+
+test('audit invitation same-task query departure and return cannot revive an old review', async ({ context, page }) => {
+  const s = await network(context);
+  await login(page);
+  await review(page).click();
+  await page.evaluate((next) => {
+    const before = location.href;
+    history.pushState(null, '', '/invite?token=' + next);
+    dispatchEvent(new PopStateEvent('popstate'));
+    history.pushState(null, '', before);
+    dispatchEvent(new PopStateEvent('popstate'));
+  }, replacement);
+  await page.waitForTimeout(150);
+  const revived = await accept(page).count();
+  if (revived) await accept(page).click();
+  await page.waitForTimeout(150);
+  writeFileSync(
+    evidence + '/departure-review-observation.json',
+    JSON.stringify({ revived, posts: s.posts.length, pageErrors: errors.get(context).length }),
+  );
+  expect(s.posts.length, 'departure invalidates old deliberate acceptance').toBe(0);
+  expect(revived).toBe(0);
+});
+test('audit invitation held preflight same-task query departure and return cannot POST', async ({ context, page }) => {
+  const gate = held();
+  const s = await network(context, {
+    'affiliates.myReferrer': async (route) => {
+      await gate.promise;
+      await replyAfterDeparture(route, null);
+    },
+  });
+  await login(page);
+  await send(page);
+  await expect.poll(() => s.reads.length).toBe(1);
+  await page.evaluate((next) => {
+    const before = location.href;
+    history.pushState(null, '', '/invite?token=' + next);
+    dispatchEvent(new PopStateEvent('popstate'));
+    history.pushState(null, '', before);
+    dispatchEvent(new PopStateEvent('popstate'));
+  }, replacement);
+  gate.release();
+  await page.waitForTimeout(200);
+  writeFileSync(
+    evidence + '/departure-preflight-observation.json',
+    JSON.stringify({ posts: s.posts.length, pageErrors: errors.get(context).length }),
+  );
+  expect(s.posts.length, 'departed original preflight cannot dispatch').toBe(0);
+});
+
+async function batchedDeparture(page, buttonText, kind = 'query') {
+  return page.evaluate(
+    ({ buttonText, kind, replacement }) => {
+      const before = location.href;
+      const stale = [...document.querySelectorAll('.invitation button')].find((button) => button.textContent === buttonText);
+      const next = kind === 'hash' ? before + '#departed' : '/invite?token=' + replacement;
+      history.pushState(null, '', next);
+      dispatchEvent(kind === 'hash' ? new HashChangeEvent('hashchange') : new PopStateEvent('popstate'));
+      history.pushState(null, '', before);
+      dispatchEvent(kind === 'hash' ? new HashChangeEvent('hashchange') : new PopStateEvent('popstate'));
+      stale?.click();
+      return Boolean(stale);
+    },
+    { buttonText, kind, replacement },
+  );
+}
+for (const kind of ['query', 'hash'])
+  test('synchronous departure rejects the stale native Accept handler before React repaint: ' + kind, async ({ context, page }) => {
+    const s = await network(context);
+    await login(page);
+    await review(page).click();
+    expect(await batchedDeparture(page, 'Accept this invitation', kind)).toBe(true);
+    await expect(accept(page)).toHaveCount(0);
+    expect(s.posts).toEqual([]);
+    expect(s.reads).toEqual([]);
+    expect(await journal(page)).toBe(null);
+    await review(page).click();
+    await accept(page).click();
+    await expect(page.getByRole('heading', { name: 'Referral status recorded.', exact: true }).last()).toBeVisible();
+    expect(s.posts.length).toBe(1);
+    expect(s.posts[0].input.token === link).toBe(true);
+  });
+test('synchronous departure rejects a stale Review callback rather than creating a new private intent', async ({ context, page }) => {
+  const s = await network(context);
+  await login(page);
+  expect(await batchedDeparture(page, 'Review invitation')).toBe(true);
+  await expect(accept(page)).toHaveCount(0);
+  expect(s.reads).toEqual([]);
+  expect(s.posts).toEqual([]);
+  await review(page).click();
+  await expect(accept(page)).toBeVisible();
+});
+test('synchronous departure rejects the stale current-read callback even when the URL returns', async ({ context, page }) => {
+  const s = await network(context);
+  await login(page);
+  expect(await batchedDeparture(page, 'Read current status')).toBe(true);
+  await expect(read(page)).toBeEnabled();
+  expect(s.reads).toEqual([]);
+  expect(s.posts).toEqual([]);
+  await read(page).click();
+  await expect(page.locator('.invitation__current')).toContainText('No referral is recorded now');
+  expect(s.reads.length).toBe(1);
+});
+test('same-URL popstate is not a departure and preserves the deliberate original review', async ({ context, page }) => {
+  const s = await network(context);
+  await login(page);
+  await review(page).click();
+  await page.evaluate(() => {
+    history.replaceState(null, '', location.href);
+    dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await expect(accept(page)).toBeVisible();
+  await accept(page).click();
+  await expect(page.getByRole('heading', { name: 'Referral status recorded.', exact: true }).last()).toBeVisible();
+  expect(s.posts.length).toBe(1);
+});
+test('held private current read is discarded across batched departure and a useful fresh read remains separate', async ({
+  context,
+  page,
+}) => {
+  const gate = held();
+  let first = true;
+  const s = await network(context, {
+    'affiliates.myReferrer': async (route) => {
+      if (first) {
+        first = false;
+        await gate.promise;
+        return replyAfterDeparture(route, edge());
+      }
+      return reply(route, null);
+    },
+  });
+  await login(page);
+  await read(page).click();
+  await expect.poll(() => s.reads.length).toBe(1);
+  await batchedDeparture(page, 'Read current status');
+  gate.release();
+  await expect(page.locator('.invitation__current')).not.toContainText(referrer);
+  await read(page).click();
+  await expect(page.locator('.invitation__current')).toContainText('No referral is recorded now');
+  expect(s.reads.length).toBe(2);
+  expect(s.posts).toEqual([]);
+  expect(await journal(page)).toBe(null);
+});
+test('dispatched original remains byte-identical unknown after ABA late known reply current read and new login', async ({
+  context,
+  page,
+}) => {
+  const gate = held();
+  const s = await network(context, {
+    'affiliates.shareHits': async (route) => {
+      await gate.promise;
+      return replyAfterDeparture(route, { hits: 8, attributed: true });
+    },
+  });
+  await login(page);
+  await send(page);
+  await expect.poll(() => s.posts.length).toBe(1);
+  const bytes = await journal(page);
+  expect(Boolean(bytes)).toBe(true);
+  await batchedDeparture(page, 'Read current status');
+  gate.release();
+  await expect(original(page)).toBeVisible();
+  expect(await journal(page)).toBe(bytes);
+  await expect(page.getByRole('heading', { name: 'Referral status recorded.', exact: true })).toHaveCount(0);
+  s.current = edge();
+  await read(page).click();
+  await expect(page.locator('.invitation__current')).toContainText('A referral is recorded now');
+  await expect(original(page)).toBeVisible();
+  expect(await journal(page)).toBe(bytes);
+  await login(page);
+  await expect(original(page)).toBeVisible();
+  expect(await journal(page)).toBe(bytes);
+  expect(s.posts.length).toBe(1);
+  await expect(review(page)).toHaveCount(0);
+});
+test('stale local-only Finish cannot erase a known cleanup-failed original after batched departure', async ({ context, page }) => {
+  await context.addInitScript(() => {
+    globalThis.invitationCleanupDenied = true;
+    const remove = Storage.prototype.removeItem;
+    Storage.prototype.removeItem = function (key) {
+      if (key.startsWith('intafaced.customer.invitation.') && globalThis.invitationCleanupDenied) throw Error('Isolated cleanup denial');
+      return remove.call(this, key);
+    };
+  });
+  const s = await network(context);
+  await login(page);
+  await send(page);
+  await expect(page.getByRole('button', { name: 'Finish local record', exact: true })).toBeVisible();
+  const bytes = await journal(page);
+  await page.evaluate(() => (globalThis.invitationCleanupDenied = false));
+  expect(await batchedDeparture(page, 'Finish local record')).toBe(true);
+  await expect(original(page)).toBeVisible();
+  expect(await journal(page)).toBe(bytes);
+  expect(s.posts.length).toBe(1);
+  await expect(page.getByRole('button', { name: 'Finish local record', exact: true })).toHaveCount(0);
+});
