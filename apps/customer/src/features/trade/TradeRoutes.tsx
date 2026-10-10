@@ -1,5 +1,19 @@
 import { uiDirection } from '../../shared/locale';
-import { TradeOriginalMessage, tradeError, tradeFailureFrom, TradeMessage, tradeRefusal, tradeCopy as copy, CopyText, tradeLabels, choiceText, choiceNode, choiceLanguage, tradeDate, TradeFailure as Failure } from './copy';
+import {
+  TradeOriginalMessage,
+  tradeError,
+  tradeFailureFrom,
+  TradeMessage,
+  tradeRefusal,
+  tradeCopy as copy,
+  CopyText,
+  tradeLabels,
+  choiceText,
+  choiceNode,
+  choiceLanguage,
+  tradeDate,
+  TradeFailure as Failure,
+} from './copy';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
@@ -109,7 +123,11 @@ export function TradeRoutes({ path }: { path: string }) {
     setPicker(false);
   }
   return (
-    <div className={`trade-root ${activeMode === 'Spot' ? 'trade-root--spot' : ''}`} lang={copy.forLocale(preferences.language).renderedLocale} dir={uiDirection(copy.forLocale(preferences.language).renderedLocale)}>
+    <div
+      className={`trade-root ${activeMode === 'Spot' ? 'trade-root--spot' : ''}`}
+      lang={copy.forLocale(preferences.language).renderedLocale}
+      dir={uiDirection(copy.forLocale(preferences.language).renderedLocale)}
+    >
       <nav className="trade-modes" aria-label={copy.t('tradingModes')} lang={languageFor('tradingModes')}>
         {activeMode === 'Spot' ? (
           <details className="trade-mode-menu">
@@ -486,19 +504,32 @@ function CancelReplaceNotice({ original, replacement }: { original: ApiResult<Or
     originalOkOriginalMessage: '{originalOkOriginalMessage}',
     replacementOkReplacementMessage: '{replacementOkReplacementMessage}',
   });
-  return <span lang={languageFor('cancelReplaceIsUnresolvedNoNewRequestHasBeenSent')} data-i18n="trade.cancelReplaceIsUnresolvedNoNewRequestHasBeenSent">
-    {template.split(/(\{originalOkOriginalMessage\}|\{replacementOkReplacementMessage\})/).map((part, index) =>
-      part === '{originalOkOriginalMessage}'
-        ? original.ok
-          ? <CopyText key={index} k="originalOrderStatus" params={{ status: original.data.status }} />
-          : <TradeOriginalMessage key={index} source={original} />
-        : part === '{replacementOkReplacementMessage}'
-          ? replacement.ok
-            ? <CopyText key={index} k="replacementOrderStatus" params={{ status: replacement.data.status }} />
-            : <TradeOriginalMessage key={index} source={replacement} />
-          : part,
-    )}
-  </span>;
+  return (
+    <span
+      lang={languageFor('cancelReplaceIsUnresolvedNoNewRequestHasBeenSent')}
+      data-i18n="trade.cancelReplaceIsUnresolvedNoNewRequestHasBeenSent"
+    >
+      {template
+        .split(/(\{originalOkOriginalMessage\}|\{replacementOkReplacementMessage\})/)
+        .map((part, index) =>
+          part === '{originalOkOriginalMessage}' ? (
+            original.ok ? (
+              <CopyText key={index} k="originalOrderStatus" params={{ status: original.data.status }} />
+            ) : (
+              <TradeOriginalMessage key={index} source={original} />
+            )
+          ) : part === '{replacementOkReplacementMessage}' ? (
+            replacement.ok ? (
+              <CopyText key={index} k="replacementOrderStatus" params={{ status: replacement.data.status }} />
+            ) : (
+              <TradeOriginalMessage key={index} source={replacement} />
+            )
+          ) : (
+            part
+          ),
+        )}
+    </span>
+  );
 }
 function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void, accountWide = false) {
   const [pending, setPending] = useState<Pending | null>(() => readPending(accountKey)),
@@ -602,10 +633,13 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
     if (!pending || checking) return;
     if (!['place', 'cancel', 'amend', 'replace'].includes(pending.kind)) {
       setStatus(
-        <CopyText k={'thisRequestMustBeCheckedInItsOriginalTradingToolContact'} params={{
-          pendingKind: String(pending.kind),
-          pendingId: String(pending.id),
-        }} />,
+        <CopyText
+          k={'thisRequestMustBeCheckedInItsOriginalTradingToolContact'}
+          params={{
+            pendingKind: String(pending.kind),
+            pendingId: String(pending.id),
+          }}
+        />,
       );
       return;
     }
@@ -625,18 +659,18 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
       ) {
         setIntent(null, pending);
         setStatus(
-          <CopyText k={'originalReplacementRemaining'} params={{
-            originalDataId: String(original.data.id),
-            originalDataStatus: String(original.data.status),
-            replacementDataId: String(replacement.data.id),
-            replacementDataStatus: String(replacement.data.status),
-            replacementDataRemaining: String(replacement.data.remaining),
-          }} />,
+          <CopyText
+            k={'originalReplacementRemaining'}
+            params={{
+              originalDataId: String(original.data.id),
+              originalDataStatus: String(original.data.status),
+              replacementDataId: String(replacement.data.id),
+              replacementDataStatus: String(replacement.data.status),
+              replacementDataRemaining: String(replacement.data.remaining),
+            }}
+          />,
         );
-      } else
-        setStatus(
-          <CancelReplaceNotice original={original} replacement={replacement} />,
-        );
+      } else setStatus(<CancelReplaceNotice original={original} replacement={replacement} />);
       refresh();
       setChecking(false);
       return;
@@ -661,19 +695,25 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
       if (resolved) {
         setIntent(null, pending);
         setStatus(
-          <CopyText k={'orderFilledRemaining'} params={{
-            resultDataId: String(result.data.id),
-            resultDataStatus: String(result.data.status),
-            resultDataFilled: String(result.data.filled),
-            resultDataRemaining: String(result.data.remaining),
-          }} />,
+          <CopyText
+            k={'orderFilledRemaining'}
+            params={{
+              resultDataId: String(result.data.id),
+              resultDataStatus: String(result.data.status),
+              resultDataFilled: String(result.data.filled),
+              resultDataRemaining: String(result.data.remaining),
+            }}
+          />,
         );
       } else
         setStatus(
-          <CopyText k={'orderIsStillOpenTheOutcomeIsUnresolvedFundsRemainAs'} params={{
-            resultDataId: String(result.data.id),
-            pendingKind: String(pending.kind),
-          }} />,
+          <CopyText
+            k={'orderIsStillOpenTheOutcomeIsUnresolvedFundsRemainAs'}
+            params={{
+              resultDataId: String(result.data.id),
+              pendingKind: String(pending.kind),
+            }}
+          />,
         );
     } else setStatus(<TradeOriginalMessage source={result} />);
     refresh();
@@ -712,6 +752,7 @@ function SpotDesk({
     );
   const [staged, setStaged] = useState(''),
     [manage, setManage] = useState<{ order: Order; kind: 'cancel' | 'amend' | 'replace'; price?: string } | null>(null);
+  const [ordersInspection, setOrdersInspection] = useState(0);
   const { pending, status, checking, setIntent, reserveIntent, reconcile, setStatus } = useTradeRequests(api, accountKey, refresh);
   function refresh() {
     balances.reload();
@@ -737,6 +778,7 @@ function SpotDesk({
             onStageAmend={(order, price) => {
               if (!pending) setManage({ order, kind: 'replace', price });
             }}
+            onInspectOrders={() => setOrdersInspection((value) => value + 1)}
           />
         )}
         book={<BookAndTape api={api} market={market} book={book} onStagePrice={setStaged} />}
@@ -750,6 +792,7 @@ function SpotDesk({
             market={market}
             onManage={(order, kind) => setManage({ order, kind })}
             locked={Boolean(pending)}
+            inspectionRevision={ordersInspection}
           />
         }
         ticket={
@@ -1250,7 +1293,9 @@ function OrderTicket({
         if (type !== 'limit') throw tradeError('quoteValueEntryRequiresAKnownLimitPriceMarketQuoteBudget');
         baseAmount = baseQuantityForValue(amount, price, market.precision.amount);
       } catch (error) {
-        setFailure(error instanceof Error ? tradeFailureFrom(error, 'error') : tradeRefusal('quoteValueConversionFailure', { reason: 'error' }));
+        setFailure(
+          error instanceof Error ? tradeFailureFrom(error, 'error') : tradeRefusal('quoteValueConversionFailure', { reason: 'error' }),
+        );
         setBusy(false);
         busyRef.current = false;
         return;
@@ -1273,8 +1318,7 @@ function OrderTicket({
       const result = await api.preview(parsed.data);
       if (result.ok && (!result.data.orderable || result.data.refusals.length > 0 || previewMatchesMode(result.data)))
         setReview({ draft: parsed.data, preview: result.data });
-      else if (result.ok)
-        setFailure(tradeRefusal('theReservationDoesNotMatchThisMarketSLiveOrSimulated', { reason: 'invalid_response' }));
+      else if (result.ok) setFailure(tradeRefusal('theReservationDoesNotMatchThisMarketSLiveOrSimulated', { reason: 'invalid_response' }));
       else setFailure(result);
     }
     setBusy(false);
@@ -1296,14 +1340,17 @@ function OrderTicket({
       setReview(null);
       setAmount('');
       onStatus(
-        <TradeMessage k={'orderPlacedOutcome'} params={() => ({
-          orderLabel: copy.t(market.paper ? 'simulatedOrderLabel' : 'orderLabel'),
-          id: result.data.id,
-          status: result.data.status,
-          filled: result.data.filled,
-          remaining: result.data.remaining,
-          base: market.base,
-        })} />,
+        <TradeMessage
+          k={'orderPlacedOutcome'}
+          params={() => ({
+            orderLabel: copy.t(market.paper ? 'simulatedOrderLabel' : 'orderLabel'),
+            id: result.data.id,
+            status: result.data.status,
+            filled: result.data.filled,
+            remaining: result.data.remaining,
+            base: market.base,
+          })}
+        />,
       );
     } else if (result.reason === 'changed') {
       onResolved(identity);
@@ -1755,6 +1802,7 @@ function OrderBlotter({
   locked,
   accountWideAllowed = true,
   allowCancel = true,
+  inspectionRevision = 0,
 }: {
   api: TradeApi;
   initialTab: string;
@@ -1766,11 +1814,19 @@ function OrderBlotter({
   locked: boolean;
   accountWideAllowed?: boolean;
   allowCancel?: boolean;
+  inspectionRevision?: number;
 }) {
   const [tab, setTab] = useState(initialTab),
     [all, setAll] = useState(!market),
     [limit, setLimit] = useState(100);
   useEffect(() => setTab(initialTab), [initialTab]);
+  const section = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!inspectionRevision) return;
+    setTab('Open orders');
+    section.current?.scrollIntoView({ block: 'start' });
+    section.current?.focus({ preventScroll: true });
+  }, [inspectionRevision]);
   const { userId } = useSession();
   const key = `${userId}:${market?.id ?? 'account'}:${all}:${limit}:${accountWideAllowed}`;
   const scope = all || !market ? undefined : market.symbol;
@@ -1788,7 +1844,7 @@ function OrderBlotter({
     );
   const data = tab === 'Open orders' ? open : history;
   return (
-    <section className="trade-blotter">
+    <section className="trade-blotter" ref={section} tabIndex={-1} aria-label={copy.t('orderManagement')}>
       <div className="trade-blotter-toolbar">
         <Tabs
           labels={tradeLabels}
@@ -1874,7 +1930,12 @@ function OrderBlotter({
               >
                 {scoped.map((order) => (
                   <tr key={order.id}>
-                    <td>{tradeDate(order.timestamp, 'time')}</td>
+                    <td>
+                      {tradeDate(order.timestamp, 'time')}
+                      <span className="trade-order-reference" lang="zxx">
+                        {order.id}
+                      </span>
+                    </td>
                     <td lang="zxx">{order.symbol}</td>
                     <td>
                       {order.side} · {order.type}
@@ -2067,21 +2128,24 @@ function ManageOrder({
         onResolved(identity);
         const order = 'order' in result.data ? result.data.order : result.data;
         onStatus(
-          <TradeMessage k={'managedOrderOutcome'} params={() => ({
-            amendment:
-              'accepted' in result.data
-                ? copy.t('amendmentOutcome', {
-                    accepted: copy.t(result.data.accepted ? 'amendmentAccepted' : 'amendmentRefused'),
-                    code: result.data.code,
-                  })
-                : '',
-            id: order.id,
-            status: order.status,
-            filled: order.filled,
-            remaining: order.remaining,
-            priority:
-              'priority' in result.data && result.data.priority ? copy.t('queuePriorityOutcome', { priority: result.data.priority }) : '',
-          })} />,
+          <TradeMessage
+            k={'managedOrderOutcome'}
+            params={() => ({
+              amendment:
+                'accepted' in result.data
+                  ? copy.t('amendmentOutcome', {
+                      accepted: copy.t(result.data.accepted ? 'amendmentAccepted' : 'amendmentRefused'),
+                      code: result.data.code,
+                    })
+                  : '',
+              id: order.id,
+              status: order.status,
+              filled: order.filled,
+              remaining: order.remaining,
+              priority:
+                'priority' in result.data && result.data.priority ? copy.t('queuePriorityOutcome', { priority: result.data.priority }) : '',
+            })}
+          />,
         );
       }
       onClose();

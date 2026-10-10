@@ -9,7 +9,7 @@ import {
   tradeDate,
   TradeFailure as Failure,
 } from './copy';
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
 import type { OHLCV, Position } from '@intafaced/exchange-contract/schemas';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
 import { z } from 'zod';
@@ -32,6 +32,7 @@ import type { DailyMetadata, DailyPlan } from './zoned-daily-history';
 import { TIMEFRAMES } from './trade-api';
 import { PriceAlerts } from './PriceAlerts';
 import { utc8DailyStart } from './daily-history';
+import { currentSharedCardRoute, subscribeSharedCardRoute } from '../more/blueprint-shared-card-contract';
 
 type HistorySnapshot = { rows: readonly OHLCV[]; metadata?: DailyMetadata; plan?: DailyPlan };
 async function readHistory(
@@ -72,8 +73,9 @@ function useChartHistory(
 ) {
   const { session } = useSession();
   const epoch = useDailyPreferenceEpoch();
+  const route = useSyncExternalStore(subscribeSharedCardRoute, currentSharedCardRoute);
   const [revision, setRevision] = useState(0);
-  const key = `${identity(api)}:${identity(session)}:${owner}:${symbol}:${interval}:${preferences.dailyStart}:${preferences.dailyZone}:${epoch}:${refresh}:${revision}:${empty}`;
+  const key = `${identity(api)}:${identity(session)}:${owner}:${symbol}:${interval}:${preferences.dailyStart}:${preferences.dailyZone}:${epoch}:${route.epoch}:${refresh}:${revision}:${empty}`;
   const observed = useRef<{ key: string } | null>(null);
   if (observed.current?.key !== key) observed.current = { key };
   const captured = observed.current;
@@ -84,7 +86,12 @@ function useChartHistory(
       mounted.current = false;
     };
   }, []);
-  const current = () => mounted.current && observed.current === captured && currentDailyPreferenceEpoch() === epoch && (admit?.() ?? true);
+  const current = () =>
+    mounted.current &&
+    observed.current === captured &&
+    currentDailyPreferenceEpoch() === epoch &&
+    currentSharedCardRoute() === route &&
+    (admit?.() ?? true);
   const [state, setState] = useState<{ key: string; resource: Resource<HistorySnapshot> }>({ key, resource: { status: 'loading' } });
   useEffect(() => {
     const controller = new AbortController();
@@ -154,6 +161,8 @@ type ChartApi = {
   applyOptions: (options: Record<string, unknown>) => void;
   addSeries: (type: unknown, options?: Record<string, unknown>, pane?: number) => Series;
   remove: () => void;
+  panes: () => { setStretchFactor: (factor: number) => void }[];
+  paneSize: (index?: number) => { width: number; height: number };
   timeScale: () => {
     getVisibleLogicalRange: () => { from: number; to: number } | null;
     setVisibleLogicalRange: (range: { from: number; to: number }) => void;
@@ -248,6 +257,7 @@ function ema(values: number[], period: number) {
 }
 function addStudies(chart: ChartApi, engine: Engine, bars: Bar[], studies: Study[]) {
   const updates: ((bars: Bar[]) => void)[] = [];
+  let nextPane = 1;
   const line = (calculate: (bars: Bar[]) => (number | null)[], color: string, pane = 0) => {
     const series = chart.addSeries(engine.LineSeries, { color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false }, pane);
     updates.push((rows) => {
@@ -269,7 +279,7 @@ function addStudies(chart: ChartApi, engine: Engine, bars: Bar[], studies: Study
       '#e4bf72',
     );
   if (studies.includes('Volume')) {
-    const series = chart.addSeries(engine.HistogramSeries, { priceFormat: { type: 'volume' }, priceLineVisible: false }, 1);
+    const series = chart.addSeries(engine.HistogramSeries, { priceFormat: { type: 'volume' }, priceLineVisible: false }, nextPane++);
     updates.push((rows) => {
       const css = getComputedStyle(document.documentElement),
         up = css.getPropertyValue('--chart-up').trim() || css.getPropertyValue('--color-positive').trim(),
@@ -309,7 +319,7 @@ function addStudies(chart: ChartApi, engine: Engine, bars: Bar[], studies: Study
         });
       },
       '#e4bf72',
-      2,
+      nextPane++,
     );
   const macd = (rows: Bar[]) => {
     const values = rows.map((row) => row.close),
@@ -318,8 +328,9 @@ function addStudies(chart: ChartApi, engine: Engine, bars: Bar[], studies: Study
     return fast.map((value, index) => value - (slow[index] ?? value));
   };
   if (studies.includes('MACD')) {
-    line(macd, '#80b7e0', 3);
-    line((rows) => ema(macd(rows), 9), '#e4bf72', 3);
+    const pane = nextPane++;
+    line(macd, '#80b7e0', pane);
+    line((rows) => ema(macd(rows), 9), '#e4bf72', pane);
   }
   if (studies.includes('Bollinger')) {
     const band = (rows: Bar[], direction: number) => {
@@ -346,6 +357,7 @@ export function MarketChart({
   onStagePrice,
   accountKey,
   onStageAmend,
+  onInspectOrders,
   positions,
   initialView,
   onViewChange,
@@ -356,6 +368,7 @@ export function MarketChart({
   onStagePrice: (price: string) => void;
   accountKey: string;
   onStageAmend?: (order: Order, price: string) => void;
+  onInspectOrders?: () => void;
   positions?: Position[];
   initialView?: ChartView;
   onViewChange?: (view: ChartView) => void;
@@ -385,6 +398,17 @@ export function MarketChart({
   const positionLines = useRef<unknown[]>([]);
   const feedStatus = feed.key === 'acceptedTrade' ? copy.t(feed.key, { printKind: feed.printKind }) : copy.t(feed.key);
   const [chartRevision, setChartRevision] = useState(0);
+  const [phone, setPhone] = useState(() => window.matchMedia('(max-width: 980px)').matches);
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 980px)');
+    const update = () => setPhone(query.matches);
+    query.addEventListener('change', update);
+    update();
+    return () => query.removeEventListener('change', update);
+  }, []);
+  const currentOrders = useRef(orders);
+  currentOrders.current = orders;
+  const [focusedOrder, setFocusedOrder] = useState<string | null>(null);
   const [interval, setIntervalValue] = useState(initialView?.interval ?? '15m'),
     [type, setType] = useState(initialView?.type ?? 'Candles'),
     [studies, setStudies] = useState<Study[]>(initialView?.studies ?? ['Volume']),
@@ -493,6 +517,7 @@ export function MarketChart({
     inspectionIndex.current = null;
     setInspected(null);
     setDragging(null);
+    setFocusedOrder(null);
   }, [resource]);
   useEffect(() => {
     lastPrintAt.current = null;
@@ -694,6 +719,7 @@ export function MarketChart({
         });
         series.setData(type === 'Line' ? bars.map((bar) => ({ time: bar.time, value: bar.close })) : bars);
         studyUpdate.current = addStudies(chart, engine, chartBars(barHistory.current, 'Candles'), studies);
+        if (phone) chart.panes().forEach((pane, index) => pane.setStretchFactor(index === 0 ? 4 : 1));
         orderLines.current = [];
         fillLines.current = [];
         positionLines.current = [];
@@ -753,6 +779,7 @@ export function MarketChart({
     preferences.language,
     historyKey,
     comparison.key,
+    phone,
   ]);
   useEffect(() => {
     const appearance = chartAppearance();
@@ -771,20 +798,25 @@ export function MarketChart({
     if (!series) return;
     orderLines.current.forEach((line) => series.removePriceLine(line));
     orderLines.current = [];
+    const shownPrices = new Set<bigint>();
     if (preferences.showOrders)
       for (const order of orders)
-        if (order.symbol === market.symbol && order.price !== null)
+        if (order.symbol === market.symbol && order.price !== null) {
+          const exactPrice = parseAmount(order.price);
+          if (phone && shownPrices.has(exactPrice)) continue;
+          shownPrices.add(exactPrice);
           orderLines.current.push(
             series.createPriceLine({
               price: Number(order.price),
               color: '#e4bf72',
               lineWidth: 1,
               lineStyle: 2,
-              title: `${order.side} · ${order.id.slice(0, 6)}`,
-              axisLabelVisible: true,
+              title: phone ? '' : `${order.side} · ${order.id.slice(0, 6)}`,
+              axisLabelVisible: !phone,
             }),
           );
-  }, [orders, preferences.showOrders, chartRevision]);
+        }
+  }, [orders, market.symbol, preferences.showOrders, chartRevision, phone]);
   useEffect(() => {
     const series = seriesRef.current;
     if (!series) return;
@@ -889,6 +921,47 @@ export function MarketChart({
       />
     );
   };
+  const lowerPanes = studies.filter((study) => ['Volume', 'RSI', 'MACD'].includes(study)).length;
+  const pricePane = chartRef.current?.paneSize(0);
+  const chartOrders = orders.filter((order) => order.symbol === market.symbol && order.price !== null);
+  const eligible = (order: Order) =>
+    order.type === 'limit' && order.status === 'open' && !order.recoveryRequired && parseAmount(order.filled) === 0n;
+  const orderCurrent = (order: Order) => history.current() && currentOrders.current.includes(order);
+  type Target = { order: Order; index: number; x: number; y: number; group?: number };
+  const targets: Target[] = [];
+  if (resource.status === 'ready' && preferences.showOrders && !market.paper && pricePane) {
+    const capacity = Math.max(0, Math.floor((pricePane.width - 16) / 48));
+    const groups = new Map<bigint, { rows: Order[]; eligible: number }>();
+    for (const order of chartOrders) {
+      const price = parseAmount(order.price!);
+      const group = groups.get(price) ?? { rows: [], eligible: 0 };
+      group.rows.push(order);
+      if (eligible(order)) group.eligible++;
+      groups.set(price, group);
+    }
+    for (const order of chartOrders) {
+      const index = orders.indexOf(order);
+      const y = dragging?.id === order.id ? dragging.y : seriesRef.current?.priceToCoordinate(Number(order.price));
+      if (y == null) continue;
+      if (!phone) {
+        if (eligible(order) && y >= 0) targets.push({ order, index, x: 8, y });
+        continue;
+      }
+      // Price Y is never shifted to make a hit target fit. Crowded or edge
+      // orders remain available through the original management table.
+      if (y < 22 || y + 22 > pricePane.height) continue;
+      const group = groups.get(parseAmount(order.price!))!;
+      const grouped = group.eligible > capacity;
+      if (grouped ? order !== group.rows[0] || !onInspectOrders : !eligible(order)) continue;
+      for (let slot = 0; slot < capacity; slot++) {
+        const x = 8 + slot * 48;
+        if (targets.some((target) => Math.abs(target.y - y) < 44 && Math.abs(target.x - x) < 44)) continue;
+        targets.push({ order, index, x, y, ...(grouped ? { group: group.rows.length } : {}) });
+        break;
+      }
+    }
+  }
+  const orderDetail = chartOrders.find((order) => order.id === (dragging?.id ?? focusedOrder));
   return (
     <section
       className={`trade-chart ${fullscreen ? 'trade-chart--fullscreen' : ''}`}
@@ -1120,6 +1193,7 @@ export function MarketChart({
       )}
       <div
         className="trade-chart-canvas"
+        style={{ '--trade-phone-chart-height': `${Math.max(420, 288 + lowerPanes * 66)}px` } as CSSProperties}
         role="group"
         tabIndex={0}
         aria-label={copy.t('actualHistoricalPrices', { marketSymbol: String(market.symbol) })}
@@ -1181,54 +1255,67 @@ export function MarketChart({
           {resource.status === 'ready' && drawings.map(draw)}
         </svg>
         {onStageAmend &&
-          resource.status === 'ready' &&
-          preferences.showOrders &&
-          !market.paper &&
-          orders
-            .filter(
-              (order) =>
-                order.symbol === market.symbol &&
-                order.type === 'limit' &&
-                order.status === 'open' &&
-                !order.recoveryRequired &&
-                parseAmount(order.filled) === 0n &&
-                order.price !== null,
-            )
-            .map((order) => {
-              const y = dragging?.id === order.id ? dragging.y : seriesRef.current?.priceToCoordinate(Number(order.price));
-              if (y === null || y === undefined || y < 0) return null;
-              return (
-                <button
-                  className="trade-order-handle"
-                  key={order.id}
-                  style={{ top: y }}
-                  aria-label={copy.t('changePriceForOrder', { orderId: String(order.id) })}
-                  onClick={(event) => {
-                    if (event.detail === 0 && order.price) onStageAmend(order, order.price);
-                  }}
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    event.currentTarget.setPointerCapture(event.pointerId);
-                    setDragging({ id: order.id, price: order.price!, y });
-                  }}
-                  onPointerMove={(event) => {
-                    if (dragging?.id !== order.id || !host.current) return;
-                    const nextY = event.clientY - host.current.getBoundingClientRect().top,
-                      price = priceAtGeometry(nextY);
-                    if (price) setDragging({ id: order.id, price, y: nextY });
-                  }}
-                  onPointerUp={(event) => {
-                    event.currentTarget.releasePointerCapture(event.pointerId);
-                    if (history.current() && dragging?.id === order.id) onStageAmend(order, dragging.price);
-                    setDragging(null);
-                  }}
-                  onPointerCancel={() => setDragging(null)}
-                >
-                  ↕ {order.side} · {dragging?.id === order.id ? dragging.price : order.price}
-                </button>
-              );
-            })}
+          targets.map(({ order, index, x, y, group }) => (
+            <button
+              className={`trade-order-handle ${phone ? 'trade-order-handle--compact' : ''}`}
+              key={order.id}
+              style={{ top: y, left: x }}
+              aria-label={
+                group
+                  ? `${copy.t('openOrders')} · ${group} · ${order.price} ${market.quote}`
+                  : copy.t('changePriceForOrder', { orderId: String(order.id) })
+              }
+              onFocus={() => {
+                if (orderCurrent(order)) setFocusedOrder(order.id);
+              }}
+              onBlur={() => setFocusedOrder(null)}
+              onClick={(event) => {
+                if (!orderCurrent(order)) return;
+                if (group) onInspectOrders?.();
+                else if (event.detail === 0 && order.price) onStageAmend(order, order.price);
+              }}
+              onPointerDown={(event) => {
+                if (group || !orderCurrent(order)) return;
+                event.preventDefault();
+                event.currentTarget.setPointerCapture(event.pointerId);
+                setDragging({ id: order.id, price: order.price!, y });
+              }}
+              onPointerMove={(event) => {
+                if (!orderCurrent(order) || dragging?.id !== order.id || !host.current) return;
+                const rawY = event.clientY - host.current.getBoundingClientRect().top;
+                const nextY = phone ? Math.max(22, Math.min((pricePane?.height ?? 44) - 22, rawY)) : rawY;
+                const price = priceAtGeometry(nextY);
+                if (price) setDragging({ id: order.id, price, y: nextY });
+              }}
+              onPointerUp={(event) => {
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+                if (orderCurrent(order) && dragging?.id === order.id) onStageAmend(order, dragging.price);
+                setDragging(null);
+              }}
+              onPointerCancel={() => setDragging(null)}
+            >
+              {phone
+                ? (group ?? `${order.side === 'buy' ? 'B' : 'S'}${index + 1}`)
+                : `↕ ${order.side} · ${dragging?.id === order.id ? dragging.price : order.price}`}
+            </button>
+          ))}
       </div>
+      {phone && preferences.showOrders && chartOrders.length > 0 && onInspectOrders && (
+        <div className="trade-order-inspection">
+          <button
+            onClick={() => {
+              if (history.current()) onInspectOrders();
+            }}
+          >
+            <CopyText k="openOrders" /> · {chartOrders.length} ↘
+          </button>
+          {orderDetail && (
+            <span>
+              {orderDetail.id} · {orderDetail.side} · {dragging?.id === orderDetail.id ? dragging.price : orderDetail.price} {market.quote}
+            </span>
+          )}
+        </div>
+      )}
       <div className="trade-chart-footer">
         <span>
           {tool ? (
