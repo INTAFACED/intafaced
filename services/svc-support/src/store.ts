@@ -14,6 +14,7 @@ import type {
 import { assertKbArticle, KbCatalogError, PLATFORM_KB_SPINE, kbVersionOf, toPublicKb } from './kb-catalog.js';
 import { checkTransition, isTerminal } from './lifecycle.js';
 import { claimTicket, type ClaimResult } from './operator-queue.js';
+import { checkSupportSettlement } from './settlement-refuse.js';
 
 /**
  * Ticket persistence — interface + memory + postgres.
@@ -88,10 +89,12 @@ export type AppendEventInput = {
  * `SupportTicket | null`, because the old signature had exactly one failure
  * shape for three different failures — no such ticket, illegal transition, and
  * "it is already that status" — and the caller could only report the first.
+ * `settle` means the move would imply a payout. The row stays put and no
+ * trail row is written. There is no amount and no ledger entry.
  */
 export type SetStatusResult =
   | { readonly status: 'ok'; readonly ticket: SupportTicket }
-  | { readonly status: 'refuse'; readonly reason: 'not_found' | 'illegal_transition' | 'same_status' };
+  | { readonly status: 'refuse'; readonly reason: 'not_found' | 'illegal_transition' | 'same_status' | 'settle' };
 
 /**
  * Case file + escalated trail, or a refusal that wrote neither.
@@ -118,7 +121,12 @@ export interface SupportStore {
   addComment(input: AddCommentInput): Promise<AddCommentResult>;
   /** Oldest first. Omit `limit` for the full thread (escalation citations / tests). */
   listComments(ticketId: string, options?: { limit?: number }): Promise<SupportComment[]>;
-  /** Lifecycle move + its audit row, atomically. Refuses illegal transitions. */
+  /**
+   * Lifecycle move + its audit row, atomically. Refuses illegal transitions.
+   * Also refuses a settle, from the ticket category, the note, and every
+   * case-file reason, before the status write. Postgres does that read after
+   * `FOR UPDATE`. No ledger entry.
+   */
   setStatus(input: SetStatusInput): Promise<SetStatusResult>;
   /**
    * Exclusive operator claim — must be multi-replica safe.
@@ -182,6 +190,29 @@ export type PutKbRevisionResult =
 function toIso(d: Date | string): string {
   if (typeof d === 'string') return d;
   return d.toISOString();
+}
+
+/**
+ * Settlement before the status write. Callers pass every case-file reason,
+ * not the newest one. `money_request` anywhere in that list refuses
+ * `resolved` and `closed`. A payout note refuses. `deposit_withdraw` to
+ * `resolved` refuses from the category. `closed` on `deposit_withdraw` with
+ * no payout claim does not. No amount is invented.
+ */
+function settlementRefusal(input: {
+  toStatus: SupportTicketStatus;
+  category: SupportTicket['category'];
+  note?: string | null;
+  reasons: readonly SupportCaseFile['reason'][];
+}): SetStatusResult | null {
+  const settle = checkSupportSettlement({
+    toStatus: input.toStatus,
+    category: input.category,
+    note: input.note ?? null,
+    escalationReasons: input.reasons,
+  });
+  if (settle.status === 'refuse') return { status: 'refuse', reason: 'settle' };
+  return null;
 }
 
 type PgTicket = {
@@ -514,6 +545,15 @@ export class MemorySupportStore implements SupportStore {
     const ticket = this.tickets.get(input.ticketId);
     if (!ticket) return { status: 'refuse', reason: 'not_found' };
 
+    const reasons = (this.cases.get(input.ticketId) ?? []).map((file) => file.reason);
+    const settle = settlementRefusal({
+      toStatus: input.status,
+      category: ticket.category,
+      note: input.note,
+      reasons,
+    });
+    if (settle) return settle;
+
     const check = checkTransition(ticket.status, input.status);
     if (check.status === 'refuse') {
       return { status: 'refuse', reason: check.reason === 'same_status' ? 'same_status' : 'illegal_transition' };
@@ -842,14 +882,33 @@ export class PostgresSupportStore implements SupportStore {
    * first moves out of one state. The row lock makes the second wait and then
    * see what the first actually did — so it either refuses (`closed` is
    * terminal) or records `resolved → closed` truthfully.
+   *
+   * Settlement is the same lock. After `FOR UPDATE`, re-read the ticket and
+   * every case-file reason and run `checkSupportSettlement` before the status
+   * update. A pre-read of `latestCaseFile` is not the authority: a later
+   * `technical` file must not hide an earlier `money_request`, and a
+   * `money_request` that commits while this transaction waits must be visible
+   * once the lock is held. No ledger write and no amount.
    */
   async setStatus(input: SetStatusInput): Promise<SetStatusResult> {
     return this.sql.begin(async (tx): Promise<SetStatusResult> => {
-      const current = await tx<{ status: SupportTicketStatus }[]>`
-        SELECT status FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE
+      const current = await tx<{ status: SupportTicketStatus; category: SupportTicket['category'] }[]>`
+        SELECT status, category FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE
       `;
       const from = current[0]?.status;
-      if (!from) return { status: 'refuse', reason: 'not_found' };
+      const category = current[0]?.category;
+      if (!from || !category) return { status: 'refuse', reason: 'not_found' };
+
+      const reasonRows = await tx<{ reason: SupportCaseFile['reason'] }[]>`
+        SELECT reason FROM support.case_files WHERE ticket_id = ${input.ticketId}
+      `;
+      const settle = settlementRefusal({
+        toStatus: input.status,
+        category,
+        note: input.note,
+        reasons: reasonRows.map((row) => row.reason),
+      });
+      if (settle) return settle;
 
       const check = checkTransition(from, input.status);
       if (check.status === 'refuse') {

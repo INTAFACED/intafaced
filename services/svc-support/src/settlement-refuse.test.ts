@@ -53,6 +53,33 @@ describe('support settlement refuse — M17 cannot settle', () => {
     });
   });
 
+  it('a money_request file refuses resolved and closed even when a later reason is technical', () => {
+    for (const toStatus of ['resolved', 'closed'] as const) {
+      expect(
+        checkSupportSettlement({
+          toStatus,
+          category: 'account',
+          escalationReason: 'technical',
+          escalationReasons: ['money_request', 'technical'],
+        }),
+      ).toEqual({
+        status: 'refuse',
+        reason: 'implied_payout',
+        code: SUPPORT_SETTLE_REFUSE,
+      });
+    }
+    expect(
+      checkSupportSettlement({ toStatus: 'closed', category: 'deposit_withdraw', escalationReason: 'money_request' }),
+    ).toEqual({
+      status: 'refuse',
+      reason: 'implied_payout',
+      code: SUPPORT_SETTLE_REFUSE,
+    });
+    expect(
+      checkSupportSettlement({ toStatus: 'resolved', category: 'account', escalationReasons: ['technical'] }).status,
+    ).toBe('ok');
+  });
+
   it('a resolve/close note that claims the money moved is refused', () => {
     for (const note of ['refunded via pay', 'withdrawal complete', 'unfrozen the account', 'payout sent', 'credited']) {
       expect(noteImpliesSettlement(note)).toBe(true);

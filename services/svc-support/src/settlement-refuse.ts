@@ -48,14 +48,23 @@ export type SupportSettlementInput = {
   readonly category?: SupportTicketCategory;
   readonly note?: string | null;
   readonly escalationReason?: SupportEscalationReason | null;
+  /** Every case-file reason. One `money_request` is enough; the newest reason is not. */
+  readonly escalationReasons?: readonly SupportEscalationReason[] | null;
 };
+
+function caseFileRequestsMoney(input: SupportSettlementInput): boolean {
+  if (input.escalationReason === 'money_request') return true;
+  return input.escalationReasons?.includes('money_request') ?? false;
+}
 
 /**
  * Pure settle check. Callers map the refuse to `support.settle.refused`.
  *
- * `resolved` on `deposit_withdraw`, or after a `money_request` escalation, is
- * a payout claim. `closed` without a settlement note is the desk finishing
- * without paying. Cite-KB is not an act this function sees.
+ * `resolved` on `deposit_withdraw` is a payout claim. `resolved` or `closed`
+ * after any `money_request` case file is a payout claim, including when a
+ * later file names a different reason. `closed` on `deposit_withdraw` with no
+ * payout note and no `money_request` file is the desk finishing without
+ * paying. Cite-KB is not an act this function sees.
  */
 export function checkSupportSettlement(input: SupportSettlementInput): SupportSettlementCheck {
   if (input.act && isForbiddenSettlementAct(input.act)) {
@@ -71,7 +80,7 @@ export function checkSupportSettlement(input: SupportSettlementInput): SupportSe
     return { status: 'refuse', reason: 'implied_payout', code: SUPPORT_SETTLE_REFUSE };
   }
 
-  if (input.toStatus === 'resolved' && input.escalationReason === 'money_request') {
+  if (finishing && caseFileRequestsMoney(input)) {
     return { status: 'refuse', reason: 'implied_payout', code: SUPPORT_SETTLE_REFUSE };
   }
 
