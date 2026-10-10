@@ -169,6 +169,52 @@ describe('order validation at the boundary', () => {
     ).toBe(true);
     expect(createOrderRequestSchema.safeParse({ ...base, type: 'stop', stopPrice: '0.000000000000000001' }).success).toBe(true);
   });
+
+  it('rejects a GTD order with expireAt "soon"', () => {
+    const result = createOrderRequestSchema.safeParse({
+      ...base,
+      type: 'limit',
+      price: '90000',
+      timeInForce: 'GTD',
+      expireAt: 'soon',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a GTD order with expireAt "0"', () => {
+    const result = createOrderRequestSchema.safeParse({
+      ...base,
+      type: 'limit',
+      price: '90000',
+      timeInForce: 'GTD',
+      expireAt: '0',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts a GTD order with an offset expireAt', () => {
+    const result = createOrderRequestSchema.safeParse({
+      ...base,
+      type: 'limit',
+      price: '90000',
+      timeInForce: 'GTD',
+      expireAt: new Date(1750000000000).toISOString(),
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('still refuses a GTD order that omits expireAt', () => {
+    const result = createOrderRequestSchema.safeParse({
+      ...base,
+      type: 'limit',
+      price: '90000',
+      timeInForce: 'GTD',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.message === 'GTD/GTT requires expireAt; the engine does not invent one')).toBe(true);
+    }
+  });
 });
 
 describe('response shapes', () => {
