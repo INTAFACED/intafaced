@@ -361,7 +361,7 @@ export const FEATURES = [
     ],
     note:
       '**Done 2026-08-23:** isolated live re-leverage (POST /positions/leverage, ledger IM delta, sealed 10×). ' +
-      'Owner D3 ladder/funding compose pass-through (blank = refuse). TRADE_FUTURES_MAX_LEVERAGE empty = DIRECTION 10× (D26-P0-07), not refuse-unset.',
+      'Owner D3 ladder/funding compose pass-through (blank = refuse). An empty or blank TRADE_FUTURES_MAX_LEVERAGE stays blank and refuse-unset.',
   }),
   f('trade.options', 'European options, cash-settled, full collateral in v1', {
     module: 'trade',
