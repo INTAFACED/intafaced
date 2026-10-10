@@ -130,5 +130,11 @@ export async function consumePayApproval(
     targetId: actionType,
     expectedVersion: '1',
   });
-  return consumed.approverId ?? consumed.requesterId;
+  if (consumed.status === 'CONSUMED' && typeof consumed.approverId === 'string') {
+    return consumed.approverId;
+  }
+  throw new ActionApprovalConsumeError(
+    'a consume result is the approver only when status is CONSUMED and approverId is set',
+    'action_approval.consume_failed',
+  );
 }
