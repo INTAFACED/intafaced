@@ -318,6 +318,19 @@ describe('API surface', () => {
     expect(REST_ROUTES.createOrder.scope).toBe('trade:write');
   });
 
+  it('declares fetchTradingFees on the private interface, not between Public and Private', () => {
+    const source = readFileSync(new URL('./api.ts', import.meta.url), 'utf8');
+    const publicAt = source.indexOf('// ── Public');
+    const privateAt = source.indexOf('// ── Private');
+    expect(publicAt).toBeGreaterThanOrEqual(0);
+    expect(privateAt).toBeGreaterThan(publicAt);
+    expect(source.slice(publicAt, privateAt)).not.toContain('fetchTradingFees()');
+    expect(source.slice(privateAt)).toContain('fetchTradingFees()');
+    expect(REST_ROUTES.fetchTradingFees.scope).toBe('trade:read');
+    expect(REST_ROUTES.fetchTradingFees.path).toBe('/api/v1/account/fees');
+    expect(REST_ROUTES.fetchOrderBook.scope).toBeNull();
+  });
+
   it('exposes no withdrawal route — an API key must never move value off-platform', () => {
     const paths = Object.values(REST_ROUTES).map((r) => r.path);
     expect(paths.some((p) => /withdraw|payout|transfer/i.test(p))).toBe(false);

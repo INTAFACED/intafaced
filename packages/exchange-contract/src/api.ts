@@ -31,9 +31,9 @@ export interface ExchangeApi {
   fetchOHLCV(symbol: string, timeframe: Timeframe, since?: number, limit?: number): Promise<OHLCV[]>;
   fetchTrades(symbol: string, since?: number, limit?: number): Promise<Trade[]>;
   fetchFundingRate(symbol: string): Promise<FundingRate>;
-  fetchTradingFees(): Promise<Record<string, TradingFee>>;
 
   // ── Private ────────────────────────────────────────────────────────────────
+  fetchTradingFees(): Promise<Record<string, TradingFee>>;
   fetchBalance(): Promise<Balances>;
   createOrder(request: CreateOrderRequest): Promise<Order>;
   cancelOrder(id: string, symbol: string): Promise<Order>;
