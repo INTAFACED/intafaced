@@ -116,7 +116,7 @@ export const MODULE_UNROUTED = '_unrouted';
 export const MODULE_OVERFLOW = '_overflow';
 
 /**
- * The only series a full map may update for a new key.
+ * The only series a full map may insert or update for a new key.
  * Every field is constant. Keeping the caller's service, method, status, or
  * outcome would open another series per combination.
  */
@@ -208,7 +208,8 @@ export class Metrics {
   private readonly series = new Map<string, Series>();
 
   /**
-   * @param maxSeries Hard cap on distinct label combinations. 2000 is far above
+   * @param maxSeries Hard cap on distinct caller label combinations. One constant
+   *   overflow series may sit past it. 2000 is far above
    *   what the bounded label set can legitimately produce (19 services × ~20
    *   modules × 7 methods × 4 classes is the theoretical ceiling for the whole
    *   fleet, and one process sees one service's slice of it), so hitting it
@@ -221,13 +222,13 @@ export class Metrics {
     let key = labelKey(labels);
     let stored = labels;
 
-    // At the cap, a new key folds into one constant series. If that series is
-    // not already stored, drop the sample: inserting it would put size over
-    // maxSeries. A key that is already stored still updates, under the cap or not.
+    // At the cap, a new key folds into one constant series. Insert that series
+    // once if it is missing, then update it. Dropping the sample would
+    // understate the request count. Size stays at most maxSeries + 1. A key
+    // that is already stored still updates, under the cap or not.
     if (!this.series.has(key) && this.series.size >= this.maxSeries) {
       stored = OVERFLOW_LABELS;
       key = labelKey(stored);
-      if (!this.series.has(key)) return;
     }
 
     let s = this.series.get(key);

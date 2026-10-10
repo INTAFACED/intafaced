@@ -5,6 +5,7 @@ import {
   EMITTED_LABEL_NAMES,
   METRIC_FAMILIES,
   Metrics,
+  MODULE_OVERFLOW,
   PROMETHEUS_CONTENT_TYPE,
   REQUESTS_TOTAL,
   REQUEST_DURATION_SECONDS,
@@ -155,13 +156,18 @@ describe('exposition format', () => {
 });
 
 describe('cardinality', () => {
-  it('does not grow past the cap', () => {
+  it('collapses everything past the cap into one _overflow series', () => {
     const m = new Metrics(5);
     for (let i = 0; i < 50; i += 1) {
       m.observe({ ...LABELS, module: `module-${i}` }, 0.01);
     }
 
-    expect(m.size()).toBe(5);
+    // Five real series plus the one they overflow into.
+    expect(m.size()).toBe(6);
+
+    const parsed = parseExposition(m.render());
+    const overflow = samplesNamed(parsed, REQUESTS_TOTAL).find((s) => s.labels.module === MODULE_OVERFLOW);
+    expect(overflow?.value).toBe(45);
   });
 
   it('keeps counting into an existing series once the cap is reached', () => {
