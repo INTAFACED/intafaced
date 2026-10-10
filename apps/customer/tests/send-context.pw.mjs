@@ -589,13 +589,60 @@ test('durability: a known refusal with failed cleanup never claims a confirmed t
     page.getByRole('heading', { name: 'Original transfer reply received · recovery record retained', exact: true }),
   ).toBeVisible();
   await expect(page.getByRole('dialog')).toContainText('Isolated original refusal');
+  const original = await journal(page);
   await page.getByRole('dialog').getByRole('button', { name: 'Close dialog' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect([state.posts.length, await journal(page)]).toEqual([1, original]);
+  await expect(page.locator('form.pay-form button[type="submit"]')).toBeDisabled();
   await page.evaluate(() => {
     window.__allowRecovery = true;
   });
   await page.getByRole('button', { name: 'Retry local cleanup', exact: true }).click();
   await expect(page.locator('form.pay-form button[type="submit"]')).toBeEnabled();
   expect([state.posts.length, await journal(page)]).toEqual([1, null]);
+});
+
+test('known-refusal: retired Close and Edit cannot dismiss a replacement unknown review or settle its original', async ({ page }) => {
+  await recoveryFault(page, 'remove');
+  const state = await setup(page, {
+    transfer: (route, state) =>
+      route.fulfill({ status: state.posts.length === 1 ? 400 : 503, json: { error: { message: 'Isolated original refusal' } } }),
+  });
+  await review(page);
+  await page.locator('.pay-transfer-actions button:last-child').click();
+  await expect(
+    page.getByRole('heading', { name: 'Original transfer reply received · recovery record retained', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('dialog')).toContainText('Isolated original refusal');
+  await retainReviewHandlers(page);
+  const firstOriginal = await journal(page);
+  await page.getByRole('dialog').getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(await journal(page)).toBe(firstOriginal);
+  await page.evaluate(() => {
+    window.__allowRecovery = true;
+  });
+  await page.getByRole('button', { name: 'Retry local cleanup', exact: true }).click();
+  await expect(page.locator('form.pay-form button[type="submit"]')).toBeEnabled();
+  expect([state.posts.length, await journal(page)]).toEqual([1, null]);
+  await review(page, '0.000000000000000002');
+  const replacementId = await page.locator('.pay-transfer-reference').textContent();
+  await page.locator('.pay-transfer-actions button:last-child').click();
+  await expect(page.getByRole('heading', { name: 'Original transfer is unresolved', exact: true })).toBeVisible();
+  const replacementOriginal = await journal(page);
+  expect(JSON.parse(replacementOriginal).reference === replacementId).toBe(true);
+  await page.evaluate(() => {
+    window.__retiredReviewHandlers.close();
+    window.__retiredReviewHandlers.edit();
+    window.__retiredReviewHandlers.confirm();
+  });
+  await expect(page.locator('.pay-transfer-reference')).toHaveText(replacementId);
+  await page.getByRole('dialog').getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.locator('.pay-transfer-reference')).toHaveText(replacementId);
+  await expect(page.getByRole('heading', { name: 'Transfer confirmed', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Retry local cleanup', exact: true })).toHaveCount(0);
+  expect([state.posts.length, await journal(page), state.unexpected]).toEqual([2, replacementOriginal, 0]);
 });
 
 for (const kind of ['same', 'hash'])

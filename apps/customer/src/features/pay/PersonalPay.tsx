@@ -398,6 +398,7 @@ function SendForm({
   } | null>(null);
   const admittedReview = useRef<typeof review>(null);
   const [result, setResult] = useState<ApiResult<{ ledgerTxId: string; amount: string }> | null>(null);
+  const completion = useRef<{ review: NonNullable<typeof review>; outcome: NonNullable<typeof result> } | null>(null);
   const [busy, setBusy] = useState(false);
   const inFlight = useRef<object | null>(null);
   const mounted = useRef(true);
@@ -409,6 +410,7 @@ function SendForm({
     return () => {
       mounted.current = false;
       admittedReview.current = null;
+      completion.current = null;
       // Detached controls may still be retained by a browser event task.
       for (const input of form.current?.querySelectorAll('input') ?? []) input.value = '';
     };
@@ -417,11 +419,28 @@ function SendForm({
   const unresolved = pay.guard.status(`${userId}:send`);
   function retireReview() {
     admittedReview.current = null;
+    completion.current = null;
     inFlight.current = null;
     setBusy(false);
     setReview(null);
   }
   const isReviewCurrent = () => isCurrent() && admittedReview.current === review;
+  function closeReview() {
+    if (!isReviewCurrent()) return;
+    const knownRefusal =
+      completion.current?.review === review &&
+      completion.current?.outcome === result &&
+      result &&
+      !result.ok &&
+      result.reason !== 'uncertain' &&
+      result.reason !== 'aborted' &&
+      !inFlight.current &&
+      pay.guard.knownCleanup(`${userId}:send`) &&
+      !pay.guard.knownConfirmed(`${userId}:send`);
+    // Dismiss only this known reply's private review. Its original recovery
+    // record and RAM proof remain available for the separate local-only retry.
+    if (!pay.guard.status(`${userId}:send`) || knownRefusal) retireReview();
+  }
   function prepare() {
     if (!isReviewCurrent() || inFlight.current) return;
     if (pay.guard.status(`${userId}:send`)) {
@@ -429,6 +448,7 @@ function SendForm({
       return;
     }
     setError(null);
+    completion.current = null;
     setResult(null);
     const parsed = sendInput.safeParse({
       transferId: crypto.randomUUID(),
@@ -471,11 +491,13 @@ function SendForm({
       const outcome = await pay.send(original.input, originalCurrent, isRecoveryCurrent);
       if (!originalCurrent() || inFlight.current !== action) return;
       onSettled();
+      completion.current = { review: original, outcome };
       setResult(outcome);
       if (!outcome.ok && pay.guard.knownCleanup(`${userId}:send`)) onRefused(outcome);
       if (outcome.ok) {
         onConfirmed({ ...outcome.data, assetId: original.assetId, transferId: original.input.transferId });
         admittedReview.current = null;
+        completion.current = null;
         setReview(null);
         setAmount('');
         reload();
@@ -483,6 +505,7 @@ function SendForm({
         // Local recovery actions must remain reachable outside the review modal.
         // Retry prepares a fresh private review, never an automatic resubmission.
         admittedReview.current = null;
+        completion.current = null;
         setReview(null);
         setRecipient('');
         setAmount('');
@@ -581,12 +604,7 @@ function SendForm({
       </form>
       <MutationResult result={result} />
       {review && (
-        <Dialog
-          title={payCopy.t('reviewTransfer')}
-          onClose={() => {
-            if (isReviewCurrent() && !pay.guard.status(`${userId}:send`)) retireReview();
-          }}
-        >
+        <Dialog title={payCopy.t('reviewTransfer')} onClose={closeReview}>
           <div className="pay-transfer-review">
             <div className="pay-transfer-value" role="group" aria-label={payCopy.t('youSend')}>
               <span className="muted">
