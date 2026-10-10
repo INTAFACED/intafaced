@@ -122,6 +122,10 @@ type LocalFailureKey =
   | 'common.the.original.outcome.lookup.could.not.be';
 type FailurePresentation = (locale: UiLocale) => { message: string; language: UiLocale };
 const failurePresentations = new WeakMap<object, FailurePresentation>();
+/** Academy's compatible action hook shares authored failure presentation only. */
+export function actionFailurePresentation(result: ApiResult<unknown>, locale: UiLocale) {
+  return failurePresentations.get(result)?.(locale);
+}
 /** Register explicit authored copy at its origin. Opaque service prose stays outside this seam. */
 export function presentActionFailure<T extends Extract<ApiResult<unknown>, { ok: false }>>(
   result: T,
