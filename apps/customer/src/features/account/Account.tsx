@@ -21,6 +21,7 @@ import {
   type SubaccountRecord,
 } from './subaccount-guards';
 import './subaccount.css';
+import { RankPerks } from './RankPerks';
 
 type Original = {
   owner: string;
@@ -316,6 +317,7 @@ export function Account() {
             </a>
           </div>
         </section>
+        <RankPerks />
         <div className="subaccounts__columns">
           <section className="subaccounts__list" aria-labelledby="subaccount-list-heading">
             <header className="subaccounts__heading">
