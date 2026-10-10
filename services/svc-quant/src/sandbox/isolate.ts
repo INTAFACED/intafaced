@@ -156,6 +156,12 @@ function stringify(v: Val): string {
   return 'unknown';
 }
 
+function valuesEqual(a: Val, b: Val): boolean {
+  // Spelling is not value: 50000 and 50000.0 are the same scaled amount. Other text stays stringify.
+  if (isAmountString(a) && isAmountString(b)) return parseAmount(a) === parseAmount(b);
+  return stringify(a) === stringify(b);
+}
+
 export function runIsolate(language: Language, source: string, book: PaperBook, limits: IsolateLimits, wired: boolean): IsolateResult {
   const maxSource = assertPublishedSandboxMaxSource(limits.maxSource);
   const maxOps = assertPublishedSandboxMaxOps(limits.maxOps);
@@ -416,8 +422,8 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
       p++;
       const r = parseAdd();
       bump();
-      if (t.v === '==' || t.v === '===') v = stringify(v) === stringify(r);
-      else if (t.v === '!=' || t.v === '!==') v = stringify(v) !== stringify(r);
+      if (t.v === '==' || t.v === '===') v = valuesEqual(v, r);
+      else if (t.v === '!=' || t.v === '!==') v = !valuesEqual(v, r);
       else {
         if (!isAmountString(v) || !isAmountString(r)) throw new QuantError(QUANT_SANDBOX_SYNTAX, 'compare needs decimals');
         const c = parseAmount(v) - parseAmount(r);

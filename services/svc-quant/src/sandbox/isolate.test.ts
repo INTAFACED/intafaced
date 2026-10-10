@@ -134,6 +134,74 @@ console.log(book.cash())`,
     expect(elseBuys.logs).toEqual(['9500']);
   });
 
+  it('compares amount strings by scaled value and keeps stringify for other text', () => {
+    const ran = runIsolate(
+      'javascript',
+      `console.log(50000 == 50000.0);
+console.log(50000 != 50000.0);
+console.log(50000 === 50000.0);
+console.log(50000 !== 50000.0);
+console.log(50000 < 50000.0);
+console.log(50000 <= 50000.0);
+console.log(50000 > 50000.0);
+console.log(50000 >= 50000.0);
+console.log(50000 == 50000.1);
+console.log(50000 != 50000.1);
+console.log("abc" == "abc");
+console.log("abc" != "abc");
+console.log("abc" == "abd");
+console.log("50000" == "abc");`,
+      book(),
+      limits,
+      true,
+    );
+    expect(ran.logs).toEqual([
+      'true',
+      'false',
+      'true',
+      'false',
+      'false',
+      'true',
+      'false',
+      'true',
+      'false',
+      'true',
+      'true',
+      'false',
+      'false',
+      'false',
+    ]);
+    expect(ran.fills).toEqual([]);
+    expect(ran.cash).toBe('10000');
+  });
+
+  it('does not buy when last price differs from 50000.0 only by trailing zeros', () => {
+    const missed = runIsolate(
+      'javascript',
+      `if (market.last("BTC-USD") != 50000.0) { oms.buy("BTC-USD", "0.01") }`,
+      book(),
+      limits,
+      true,
+    );
+    expect(missed.fills).toEqual([]);
+    expect(missed.cash).toBe('10000');
+
+    const taken = runIsolate(
+      'javascript',
+      `if (market.last("BTC-USD") == 50000.0) { oms.buy("BTC-USD", "0.01") }`,
+      book(),
+      limits,
+      true,
+    );
+    expect(taken.fills).toHaveLength(1);
+    expect(taken.fills[0]?.side).toBe('buy');
+    expect(taken.fills[0]?.symbol).toBe('BTC-USD');
+    expect(taken.fills[0]?.qty).toBe('0.01');
+    expect(taken.fills[0]?.price).toBe('50000');
+    expect(taken.fills[0]?.venue).toBe('internal');
+    expect(taken.cash).toBe('9500');
+  });
+
   it('refuses an unclosed false brace if instead of dropping later orders', () => {
     expect(() =>
       runIsolate(
