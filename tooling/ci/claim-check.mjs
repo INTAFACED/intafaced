@@ -129,6 +129,61 @@ export function prListAtCap(prs, limit = PR_LIST_LIMIT) {
   return Array.isArray(prs) && prs.length >= limit;
 }
 
+/** Login and display name on a gh author object, or a string fixture. No gh call. */
+export function prAuthorIds(author) {
+  if (typeof author === 'string') return author.length > 0 ? [author] : [];
+  if (!author || typeof author !== 'object') return [];
+  return [author.login, author.name].filter((id) => typeof id === 'string' && id.length > 0);
+}
+
+/**
+ * This checkout's own open PR only when the branch name and the author both match.
+ * headRefName is only the branch name. A fork, or any other PR, can reuse it.
+ */
+export function isThisCheckoutOpenPr(pr, branch, checkoutAuthor) {
+  if (!pr || pr.headRefName !== branch) return false;
+  if (typeof checkoutAuthor !== 'string' || checkoutAuthor.length === 0) return false;
+  return prAuthorIds(pr.author).includes(checkoutAuthor);
+}
+
+/**
+ * Open PRs that touch `mine`, skipping only this checkout's own PR.
+ * Pure: no gh, no git. `author` is this checkout's author (git user.name).
+ */
+export function openPrCollisions(prs, { branch, author, mine }) {
+  const collisions = [];
+  for (const pr of prs) {
+    if (isThisCheckoutOpenPr(pr, branch, author)) continue;
+    const overlap = (pr.files ?? []).map((f) => f.path).filter((p) => mine.some((m) => touches(m, p)));
+    if (overlap.length > 0) collisions.push({ pr, overlap });
+  }
+  return collisions;
+}
+
+/**
+ * Path-axis print/exit for fixture PRs. Exit 0 and a clear line is the
+ * false-clear a same-named PR from another author must not produce.
+ */
+export function prCollisionVerdict({ prs, branch, author, mine }) {
+  const collisions = openPrCollisions(prs, { branch, author, mine });
+  if (collisions.length === 0) {
+    return {
+      exitCode: 0,
+      clear: true,
+      line: '  ✓ clear — no open PR touches these paths, and none is human-claimed',
+      collisions,
+    };
+  }
+  const lines = [`  ✖ ${collisions.length} open PR(s) are already inside these paths:`];
+  for (const { pr, overlap } of collisions) {
+    const login = typeof pr.author === 'string' ? pr.author : pr.author?.login;
+    lines.push(`      #${pr.number} @${login} — ${pr.title}`);
+    lines.push(`          branch: ${pr.headRefName}`);
+    for (const p of overlap.slice(0, 8)) lines.push(`          · ${p}`);
+  }
+  return { exitCode: 1, clear: false, line: lines.join('\n'), collisions };
+}
+
 function selfTest() {
   const fails = [];
   const assert = (c, m) => {
@@ -173,13 +228,45 @@ function selfTest() {
   // touches shared with path-collide (trailing-slash wall) still holds here.
   assert(touches('tooling/', 'tooling/ci/claim-check.mjs') === true, 'trailing-slash wall touches child');
 
+  // Same branch name is not identity. Another author's PR that touches the path
+  // must not print clear / exit 0. This checkout (same author) may still be skipped.
+  const sameName = 'fix/same-name';
+  const checkoutAuthor = 'this-checkout';
+  const checked = 'tooling/ci/claim-check.mjs';
+  const foreignPr = {
+    number: 910,
+    title: 'fork PR with the same branch name',
+    headRefName: sameName,
+    author: { login: 'fork-user', name: 'Fork User' },
+    files: [{ path: checked }],
+  };
+  const ownPr = {
+    number: 911,
+    title: 'this checkout open PR',
+    headRefName: sameName,
+    author: { login: checkoutAuthor },
+    files: [{ path: checked }],
+  };
+  const foreignVerdict = prCollisionVerdict({ prs: [foreignPr], branch: sameName, author: checkoutAuthor, mine: [checked] });
+  assert(foreignVerdict.exitCode !== 0 && foreignVerdict.clear === false, 'same-name other author must not clear');
+  assert(
+    foreignVerdict.collisions.some((c) => c.pr.number === 910),
+    'same-name other author that touches the path is a collision',
+  );
+  const ownVerdict = prCollisionVerdict({ prs: [ownPr], branch: sameName, author: checkoutAuthor, mine: [checked] });
+  assert(ownVerdict.exitCode === 0 && ownVerdict.clear === true, 'same branch and same author may still be skipped');
+  assert(isThisCheckoutOpenPr(foreignPr, sameName, checkoutAuthor) === false, 'other author is not this checkout');
+  assert(isThisCheckoutOpenPr(ownPr, sameName, checkoutAuthor) === true, 'same author and branch is this checkout');
+
   if (fails.length) {
     console.error('claim-check --self-test FAIL:');
     for (const f of fails) console.error(`  · ${f}`);
     process.exit(1);
   }
   console.log('claim-check --self-test OK');
-  console.log('  fixture blank argv · dashed junk · abs→relative · rename porcelain · list/files caps · trailing-slash wall');
+  console.log(
+    '  fixture blank argv · dashed junk · abs→relative · rename porcelain · list/files caps · trailing-slash wall · same-name other author',
+  );
   process.exit(0);
 }
 
@@ -204,6 +291,18 @@ function git(gitArgs) {
   } catch (error) {
     gitFailed = true;
     gitFailDetail = error.stderr?.toString().trim() || error.message || 'git failed';
+    return '';
+  }
+}
+
+/** This checkout's author. Local git identity only — not a gh call. Blank if unset. */
+function checkoutAuthor() {
+  try {
+    return execFileSync('git', ['config', 'user.name'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+  } catch {
     return '';
   }
 }
@@ -250,224 +349,222 @@ function myFiles() {
   return { source: 'this branch (committed + working tree)', files: [...new Set([...committed, ...working])] };
 }
 
-const { source, files: mine, dashedJunk, unmappable } = myFiles();
+if (isDirectRun) await runClaimCheck();
 
-// Branch-mode only: if git could not answer, refuse rather than invent "clear".
-// Path-mode does not need git for the mine set — except abs→relative above.
-if (source !== 'arguments' && gitFailed) {
-  console.error('  claim-check — CANNOT ANSWER: `git` failed while listing this branch.');
-  console.error(`      ${gitFailDetail}`);
-  console.error('      Not reporting "clear" — this tool has not checked anything.');
-  process.exit(2);
-}
+async function runClaimCheck() {
+  const { source, files: mine, dashedJunk, unmappable } = myFiles();
 
-if (dashedJunk) {
-  console.error('  claim-check — CANNOT ANSWER: dashed flag is not a path.');
-  console.error('      Pass real paths, e.g. `pnpm claim:check services/svc-bank`.');
-  console.error('      Known flag: --self-test. Anything else starting with `-` is junk.');
-  console.error('      Not reporting "clear" — this tool has not checked anything.');
-  process.exit(2);
-}
-
-if (unmappable) {
-  console.error('  claim-check — CANNOT ANSWER: path is outside this repo (cannot match open PR files).');
-  console.error(`      ${unmappable}`);
-  console.error('      Pass a path inside the worktree, relative or absolute under the repo root.');
-  console.error('      Not reporting "clear" — this tool has not checked anything.');
-  process.exit(2);
-}
-
-if (mine.length === 0) {
-  // Exit 2 = cannot answer (same class as gh failure). Exit 0 used to look like
-  // "lane free" when an agent forgot to pass paths — the soft false-clear that
-  // ships agents into someone else's desk with a green checkmark. Blank /
-  // whitespace-only argv used to take the same exit-0 path (#1252 residual).
-  console.error('  claim-check — CANNOT ANSWER: no real paths given (empty args or clean branch).');
-  console.error('      Pass the paths you are about to edit, e.g. `pnpm claim:check services/svc-bank`.');
-  console.error('      Not reporting "clear" — this tool has not checked anything.');
-  process.exit(2);
-}
-
-const prs = gh(['pr', 'list', '--state', 'open', '--limit', String(PR_LIST_LIMIT), '--json', 'number,title,author,headRefName,files']);
-
-if (prs.__error) {
-  // Refuse rather than reassure. "No conflicts found" when we could not look is
-  // the one output that would make this tool worse than not having it.
-  console.error('  claim-check — CANNOT ANSWER: `gh` failed.');
-  console.error(`      ${prs.__error}`);
-  console.error('      Not reporting "clear" — this tool has not checked anything.');
-  process.exit(2);
-}
-
-// Hitting the list cap means more open PRs may exist unseen — clear would be a lie.
-if (prListAtCap(prs, PR_LIST_LIMIT)) {
-  console.error(`  claim-check — CANNOT ANSWER: open PR list hit the cap (${PR_LIST_LIMIT}).`);
-  console.error('      Some open PRs were not inspected. Not reporting "clear".');
-  console.error('      Raise PR_LIST_LIMIT or close/merge open work, then re-run.');
-  process.exit(2);
-}
-
-// `gh pr list --json files` returns at most ~100 paths per PR (GitHub GraphQL
-// page). A PR that hits that cap may have more files we never saw — reporting
-// clear on an unlisted path is a silent false-clear (L15 A3 / W5 park).
-if (Array.isArray(prs)) {
-  const truncated = prs.filter((pr) => prFilesTruncated(pr.files, GH_FILES_PAGE_CAP));
-  if (truncated.length > 0) {
-    console.error(`  claim-check — CANNOT ANSWER: ${truncated.length} open PR(s) hit the per-PR files cap (${GH_FILES_PAGE_CAP}).`);
-    for (const pr of truncated.slice(0, 8)) {
-      console.error(`      #${pr.number} ${pr.title} — files listed: ${(pr.files ?? []).length}`);
-    }
-    if (truncated.length > 8) console.error(`      … and ${truncated.length - 8} more`);
-    console.error('      Overlap against unlisted paths was not checked. Not reporting "clear".');
-    console.error('      Fetch full file lists per PR (gh pr view N --json files) or shrink the PR.');
+  // Branch-mode only: if git could not answer, refuse rather than invent "clear".
+  // Path-mode does not need git for the mine set — except abs→relative above.
+  if (source !== 'arguments' && gitFailed) {
+    console.error('  claim-check — CANNOT ANSWER: `git` failed while listing this branch.');
+    console.error(`      ${gitFailDetail}`);
+    console.error('      Not reporting "clear" — this tool has not checked anything.');
     process.exit(2);
   }
-}
 
-/**
- * HUMAN-CLAIMED MOUNTAINS — the question this tool did NOT answer, and should.
- *
- * On 2026-08-03 five agents were dispatched into features locked to a named
- * human. `claim:check` reported `✓ clear` for every one of them, and that is
- * what produced the confidence to dispatch.
- *
- * It was not wrong — it answered "is this file open in someone's PR right now",
- * which was all it was built to do. But an UNSTARTED human mountain has no open
- * PR by definition, so the emptier the lane, the greener the check. Exactly
- * backwards for the question people were actually asking it.
- *
- * Three of the five agents caught the lock themselves by reading
- * `tooling/tracker/features.mjs`. A tool that a careful reader has to
- * second-guess is worse than no tool, so it reads that file now.
- */
-let ownershipError = null;
+  if (dashedJunk) {
+    console.error('  claim-check — CANNOT ANSWER: dashed flag is not a path.');
+    console.error('      Pass real paths, e.g. `pnpm claim:check services/svc-bank`.');
+    console.error('      Known flag: --self-test. Anything else starting with `-` is junk.');
+    console.error('      Not reporting "clear" — this tool has not checked anything.');
+    process.exit(2);
+  }
 
-async function ownedPaths() {
-  try {
-    const mod = await import(pathToFileURL(join(process.cwd(), 'tooling/tracker/features.mjs')).href);
-    // Missing or non-array FEATURES used to become `[]` via `?? []` and print
-    // full clear on the ownership axis while the tracker was broken (W8 L08).
-    if (!Array.isArray(mod.FEATURES)) {
-      ownershipError = 'FEATURES export is missing or not an array';
+  if (unmappable) {
+    console.error('  claim-check — CANNOT ANSWER: path is outside this repo (cannot match open PR files).');
+    console.error(`      ${unmappable}`);
+    console.error('      Pass a path inside the worktree, relative or absolute under the repo root.');
+    console.error('      Not reporting "clear" — this tool has not checked anything.');
+    process.exit(2);
+  }
+
+  if (mine.length === 0) {
+    // Exit 2 = cannot answer (same class as gh failure). Exit 0 used to look like
+    // "lane free" when an agent forgot to pass paths — the soft false-clear that
+    // ships agents into someone else's desk with a green checkmark. Blank /
+    // whitespace-only argv used to take the same exit-0 path (#1252 residual).
+    console.error('  claim-check — CANNOT ANSWER: no real paths given (empty args or clean branch).');
+    console.error('      Pass the paths you are about to edit, e.g. `pnpm claim:check services/svc-bank`.');
+    console.error('      Not reporting "clear" — this tool has not checked anything.');
+    process.exit(2);
+  }
+
+  const prs = gh(['pr', 'list', '--state', 'open', '--limit', String(PR_LIST_LIMIT), '--json', 'number,title,author,headRefName,files']);
+
+  if (prs.__error) {
+    // Refuse rather than reassure. "No conflicts found" when we could not look is
+    // the one output that would make this tool worse than not having it.
+    console.error('  claim-check — CANNOT ANSWER: `gh` failed.');
+    console.error(`      ${prs.__error}`);
+    console.error('      Not reporting "clear" — this tool has not checked anything.');
+    process.exit(2);
+  }
+
+  // Hitting the list cap means more open PRs may exist unseen — clear would be a lie.
+  if (prListAtCap(prs, PR_LIST_LIMIT)) {
+    console.error(`  claim-check — CANNOT ANSWER: open PR list hit the cap (${PR_LIST_LIMIT}).`);
+    console.error('      Some open PRs were not inspected. Not reporting "clear".');
+    console.error('      Raise PR_LIST_LIMIT or close/merge open work, then re-run.');
+    process.exit(2);
+  }
+
+  // `gh pr list --json files` returns at most ~100 paths per PR (GitHub GraphQL
+  // page). A PR that hits that cap may have more files we never saw — reporting
+  // clear on an unlisted path is a silent false-clear (L15 A3 / W5 park).
+  if (Array.isArray(prs)) {
+    const truncated = prs.filter((pr) => prFilesTruncated(pr.files, GH_FILES_PAGE_CAP));
+    if (truncated.length > 0) {
+      console.error(`  claim-check — CANNOT ANSWER: ${truncated.length} open PR(s) hit the per-PR files cap (${GH_FILES_PAGE_CAP}).`);
+      for (const pr of truncated.slice(0, 8)) {
+        console.error(`      #${pr.number} ${pr.title} — files listed: ${(pr.files ?? []).length}`);
+      }
+      if (truncated.length > 8) console.error(`      … and ${truncated.length - 8} more`);
+      console.error('      Overlap against unlisted paths was not checked. Not reporting "clear".');
+      console.error('      Fetch full file lists per PR (gh pr view N --json files) or shrink the PR.');
+      process.exit(2);
+    }
+  }
+
+  /**
+   * HUMAN-CLAIMED MOUNTAINS — the question this tool did NOT answer, and should.
+   *
+   * On 2026-08-03 five agents were dispatched into features locked to a named
+   * human. `claim:check` reported `✓ clear` for every one of them, and that is
+   * what produced the confidence to dispatch.
+   *
+   * It was not wrong — it answered "is this file open in someone's PR right now",
+   * which was all it was built to do. But an UNSTARTED human mountain has no open
+   * PR by definition, so the emptier the lane, the greener the check. Exactly
+   * backwards for the question people were actually asking it.
+   *
+   * Three of the five agents caught the lock themselves by reading
+   * `tooling/tracker/features.mjs`. A tool that a careful reader has to
+   * second-guess is worse than no tool, so it reads that file now.
+   */
+  let ownershipError = null;
+
+  async function ownedPaths() {
+    try {
+      const mod = await import(pathToFileURL(join(process.cwd(), 'tooling/tracker/features.mjs')).href);
+      // Missing or non-array FEATURES used to become `[]` via `?? []` and print
+      // full clear on the ownership axis while the tracker was broken (W8 L08).
+      if (!Array.isArray(mod.FEATURES)) {
+        ownershipError = 'FEATURES export is missing or not an array';
+        return null;
+      }
+      const out = [];
+      /** @type {{ id: string, owner: string, status: string }[]} */
+      const unmapped = [];
+      for (const f of mod.FEATURES) {
+        if (!f.owner) continue;
+        // `done` means the mountain already shipped. A leftover owner field is a
+        // ghost, not a live human claim — fencing agents on it is a false block
+        // (infra.ui-tokens + web.shell both sit done+owner:Nitro today).
+        // ready/wip/socket with an owner still fence; only done is ignored.
+        if (f.status === 'done') continue;
+
+        // Declared paths, where a feature bothers to list them.
+        const reqs = f.requires ?? [];
+        for (const req of reqs) out.push({ path: req, owner: f.owner, id: f.id ?? '' });
+
+        // Module fallback ONLY when the row names no paths. Rows that declare
+        // `requires: ['services/svc-trade/src/futures']` must not also invent
+        // `services/svc-trade` and whole-lock the service (W4 A0 / LANE-STOP-TRADE).
+        // Empty-requires owners still need the fallback — that is how trade.otc /
+        // bank.earn / pay.fraud were caught when agents were wrongly dispatched.
+        //
+        // `services/svc-<module>` is the convention throughout this repo.
+        if (f.module && reqs.length === 0) {
+          out.push({ path: `services/svc-${f.module}`, owner: f.owner, id: f.id ?? '' });
+        }
+
+        // Owner + non-done with neither requires nor module → invisible fence.
+        // Agents get ✓ clear on every path while a human still owns the mountain
+        // (connect.venue-vault @shehzad002 was the live case). Surface them —
+        // never pretend the ownership axis is complete.
+        if (reqs.length === 0 && !f.module) {
+          unmapped.push({ id: f.id ?? '', owner: f.owner, status: f.status ?? '' });
+        }
+      }
+      return { paths: out, unmapped };
+    } catch (error) {
+      // Cannot read = cannot claim clear on this axis. Surfaced, never swallowed:
+      // a silent failure here reproduces the exact bug this check was added for.
+      ownershipError = error.message;
       return null;
     }
-    const out = [];
-    /** @type {{ id: string, owner: string, status: string }[]} */
-    const unmapped = [];
-    for (const f of mod.FEATURES) {
-      if (!f.owner) continue;
-      // `done` means the mountain already shipped. A leftover owner field is a
-      // ghost, not a live human claim — fencing agents on it is a false block
-      // (infra.ui-tokens + web.shell both sit done+owner:Nitro today).
-      // ready/wip/socket with an owner still fence; only done is ignored.
-      if (f.status === 'done') continue;
+  }
 
-      // Declared paths, where a feature bothers to list them.
-      const reqs = f.requires ?? [];
-      for (const req of reqs) out.push({ path: req, owner: f.owner, id: f.id ?? '' });
-
-      // Module fallback ONLY when the row names no paths. Rows that declare
-      // `requires: ['services/svc-trade/src/futures']` must not also invent
-      // `services/svc-trade` and whole-lock the service (W4 A0 / LANE-STOP-TRADE).
-      // Empty-requires owners still need the fallback — that is how trade.otc /
-      // bank.earn / pay.fraud were caught when agents were wrongly dispatched.
-      //
-      // `services/svc-<module>` is the convention throughout this repo.
-      if (f.module && reqs.length === 0) {
-        out.push({ path: `services/svc-${f.module}`, owner: f.owner, id: f.id ?? '' });
-      }
-
-      // Owner + non-done with neither requires nor module → invisible fence.
-      // Agents get ✓ clear on every path while a human still owns the mountain
-      // (connect.venue-vault @shehzad002 was the live case). Surface them —
-      // never pretend the ownership axis is complete.
-      if (reqs.length === 0 && !f.module) {
-        unmapped.push({ id: f.id ?? '', owner: f.owner, status: f.status ?? '' });
+  const owned = await ownedPaths();
+  const lockHits = [];
+  /** @type {{ id: string, owner: string, status: string }[]} */
+  let unmappedOwners = [];
+  if (owned === null) {
+    console.error('  claim-check — CANNOT ANSWER: tracker ownership could not be read.');
+    console.error(`      ${ownershipError}`);
+    console.error('      The human-mountain check did NOT run. Not reporting clear.');
+    process.exit(2);
+  } else {
+    unmappedOwners = owned.unmapped;
+    for (const o of owned.paths) {
+      if (mine.some((m) => touches(m, o.path))) {
+        if (!lockHits.some((h) => h.path === o.path && h.owner === o.owner)) lockHits.push(o);
       }
     }
-    return { paths: out, unmapped };
-  } catch (error) {
-    // Cannot read = cannot claim clear on this axis. Surfaced, never swallowed:
-    // a silent failure here reproduces the exact bug this check was added for.
-    ownershipError = error.message;
-    return null;
   }
-}
 
-const owned = await ownedPaths();
-const lockHits = [];
-/** @type {{ id: string, owner: string, status: string }[]} */
-let unmappedOwners = [];
-if (owned === null) {
-  console.error('  claim-check — CANNOT ANSWER: tracker ownership could not be read.');
-  console.error(`      ${ownershipError}`);
-  console.error('      The human-mountain check did NOT run. Not reporting clear.');
-  process.exit(2);
-} else {
-  unmappedOwners = owned.unmapped;
-  for (const o of owned.paths) {
-    if (mine.some((m) => touches(m, o.path))) {
-      if (!lockHits.some((h) => h.path === o.path && h.owner === o.owner)) lockHits.push(o);
+  const self = git(['rev-parse', '--abbrev-ref', 'HEAD']);
+  const collisions = openPrCollisions(prs, { branch: self, author: checkoutAuthor(), mine });
+
+  console.log(`  claim-check — ${mine.length} path(s) from ${source}, against ${prs.length} open PR(s)\n`);
+
+  if (lockHits.length > 0) {
+    console.error(`  ✖ ${lockHits.length} path(s) belong to a HUMAN-CLAIMED mountain:`);
+    for (const h of lockHits) {
+      console.error(`      ${h.path} — owner @${h.owner}${h.id ? ` (${h.id})` : ''}`);
     }
+    console.error('');
+    console.error('  An agent must NOT implement here. The documented unlock is the owner');
+    console.error('  commenting `agents free on <path>`, or a PR moving the `owner` field in');
+    console.error('  tooling/tracker/features.mjs and the ownership docs.');
+    console.error('');
+    console.error('  Reading it, babysitting CI, and reporting findings are all still fine.');
+    process.exit(1);
   }
-}
 
-const self = git(['rev-parse', '--abbrev-ref', 'HEAD']);
-const collisions = [];
-
-for (const pr of prs) {
-  if (pr.headRefName === self) continue; // my own PR is not a collision
-  const overlap = (pr.files ?? []).map((f) => f.path).filter((p) => mine.some((m) => touches(m, p)));
-  if (overlap.length > 0) collisions.push({ pr, overlap });
-}
-
-console.log(`  claim-check — ${mine.length} path(s) from ${source}, against ${prs.length} open PR(s)\n`);
-
-if (lockHits.length > 0) {
-  console.error(`  ✖ ${lockHits.length} path(s) belong to a HUMAN-CLAIMED mountain:`);
-  for (const h of lockHits) {
-    console.error(`      ${h.path} — owner @${h.owner}${h.id ? ` (${h.id})` : ''}`);
-  }
-  console.error('');
-  console.error('  An agent must NOT implement here. The documented unlock is the owner');
-  console.error('  commenting `agents free on <path>`, or a PR moving the `owner` field in');
-  console.error('  tooling/tracker/features.mjs and the ownership docs.');
-  console.error('');
-  console.error('  Reading it, babysitting CI, and reporting findings are all still fine.');
-  process.exit(1);
-}
-
-if (collisions.length === 0) {
-  if (unmappedOwners.length > 0) {
-    // Path axis is clear. Ownership axis is incomplete — do not print the full
-    // "none is human-claimed" lie while a named owner has zero fenceable paths.
-    console.log('  ✓ clear of open PRs for these paths');
-    console.error(
-      `  ⚠ ownership axis incomplete — ${unmappedOwners.length} human-owned mountain(s) have no path map (requires/module empty):`,
-    );
-    for (const u of unmappedOwners.slice(0, 12)) {
-      console.error(`      ${u.id || '(no id)'} — @${u.owner} (${u.status || 'unknown'})`);
+  if (collisions.length === 0) {
+    if (unmappedOwners.length > 0) {
+      // Path axis is clear. Ownership axis is incomplete — do not print the full
+      // "none is human-claimed" lie while a named owner has zero fenceable paths.
+      console.log('  ✓ clear of open PRs for these paths');
+      console.error(
+        `  ⚠ ownership axis incomplete — ${unmappedOwners.length} human-owned mountain(s) have no path map (requires/module empty):`,
+      );
+      for (const u of unmappedOwners.slice(0, 12)) {
+        console.error(`      ${u.id || '(no id)'} — @${u.owner} (${u.status || 'unknown'})`);
+      }
+      if (unmappedOwners.length > 12) {
+        console.error(`      … and ${unmappedOwners.length - 12} more`);
+      }
+      console.error('      Fix: add requires[] or module on the tracker row, or clear the owner.');
+      console.error('      Not claiming "none is human-claimed" until every owned mountain is fenceable.');
+      process.exit(0);
     }
-    if (unmappedOwners.length > 12) {
-      console.error(`      … and ${unmappedOwners.length - 12} more`);
-    }
-    console.error('      Fix: add requires[] or module on the tracker row, or clear the owner.');
-    console.error('      Not claiming "none is human-claimed" until every owned mountain is fenceable.');
+    console.log('  ✓ clear — no open PR touches these paths, and none is human-claimed');
     process.exit(0);
   }
-  console.log('  ✓ clear — no open PR touches these paths, and none is human-claimed');
-  process.exit(0);
-}
 
-console.error(`  ✖ ${collisions.length} open PR(s) are already inside these paths:\n`);
-for (const { pr, overlap } of collisions) {
-  console.error(`      #${pr.number} @${pr.author.login} — ${pr.title}`);
-  console.error(`          branch: ${pr.headRefName}`);
-  for (const p of overlap.slice(0, 8)) console.error(`          · ${p}`);
-  if (overlap.length > 8) console.error(`          · … and ${overlap.length - 8} more`);
-  console.error('');
-}
+  console.error(`  ✖ ${collisions.length} open PR(s) are already inside these paths:\n`);
+  for (const { pr, overlap } of collisions) {
+    console.error(`      #${pr.number} @${pr.author.login} — ${pr.title}`);
+    console.error(`          branch: ${pr.headRefName}`);
+    for (const p of overlap.slice(0, 8)) console.error(`          · ${p}`);
+    if (overlap.length > 8) console.error(`          · … and ${overlap.length - 8} more`);
+    console.error('');
+  }
 
-console.error('  Overlap is not automatically a problem — but it should be a conversation,');
-console.error('  not a merge conflict discovered later. Talk to the author, or pick different work.');
-process.exit(1);
+  console.error('  Overlap is not automatically a problem — but it should be a conversation,');
+  console.error('  not a merge conflict discovered later. Talk to the author, or pick different work.');
+  process.exit(1);
+}
