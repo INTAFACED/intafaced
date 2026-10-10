@@ -4,10 +4,12 @@
 --
 -- An approved row whose checker is the maker is refused, at any amount. An
 -- approved row with no checker is refused when its amount is at or above the
--- account's spend_threshold. An approved row below the threshold with no
--- checker still stores: the service records an under-threshold spend that way
--- (single control, posted at propose). Pending, rejected and cancelled rows
--- are not constrained here; a maker may cancel their own proposal.
+-- account's spend_threshold. A blank or whitespace-only checker is not present:
+-- btrim(checker_user_id) = '' is the same as NULL for that over-threshold rule.
+-- An approved row below the threshold with no checker still stores: the service
+-- records an under-threshold spend that way (single control, posted at propose).
+-- Pending, rejected and cancelled rows are not constrained here; a maker may
+-- cancel their own proposal.
 --
 -- The self-approval CHECK is NOT VALID and the threshold rule is a BEFORE
 -- INSERT OR UPDATE trigger (it reads business_accounts), so rows already
@@ -31,7 +33,8 @@ LANGUAGE plpgsql AS $$
 DECLARE
   threshold numeric;
 BEGIN
-  IF NEW."status" = 'approved' AND NEW."checker_user_id" IS NULL THEN
+  IF NEW."status" = 'approved'
+     AND (NEW."checker_user_id" IS NULL OR btrim(NEW."checker_user_id") = '') THEN
     SELECT "spend_threshold" INTO threshold
       FROM "bank"."business_accounts"
      WHERE "id" = NEW."account_id";
