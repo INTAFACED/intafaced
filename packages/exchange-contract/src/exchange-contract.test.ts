@@ -392,4 +392,147 @@ describe('market precision', () => {
   it('refuses a decimal-places integer where a tick size belongs', () => {
     expect(marketSchema.safeParse(market({ amount: 4, price: 2 })).success).toBe(false);
   });
+
+  // Same product grammar as parseSymbol. One flag is true, and type names it.
+  it('rejects a type spot market with spot false and contract true', () => {
+    const bad = {
+      ...market({ amount: '1000', price: '0.00001' }),
+      spot: false,
+      contract: true,
+    };
+    expect(marketSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('rejects a type option market with a null strike', () => {
+    const bad = {
+      ...market({ amount: '1000', price: '0.00001' }),
+      type: 'option' as const,
+    };
+    expect(bad.strike).toBeNull();
+    expect(marketSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('rejects market flags that do not name one product', () => {
+    const spot = () => market({ amount: '1000', price: '0.00001' });
+    const linearSwap = () => ({
+      ...spot(),
+      type: 'swap' as const,
+      spot: false,
+      swap: true,
+      contract: true,
+      settle: 'USD',
+      linear: true,
+      inverse: false,
+    });
+    const call = () => ({
+      ...linearSwap(),
+      type: 'option' as const,
+      swap: false,
+      option: true,
+      strike: '90000',
+      optionType: 'call' as const,
+    });
+    const bad = [
+      { ...spot(), contract: true },
+      { ...spot(), linear: true },
+      { ...spot(), inverse: false },
+      { ...spot(), settle: 'USD' },
+      { ...spot(), strike: '90000' },
+      { ...spot(), optionType: 'call' as const },
+      { ...spot(), spot: false },
+      { ...spot(), swap: true },
+      { ...spot(), type: 'swap' as const, spot: false, swap: true },
+      { ...linearSwap(), contract: false },
+      { ...linearSwap(), settle: null },
+      { ...linearSwap(), settle: '' },
+      { ...linearSwap(), linear: true, inverse: true },
+      { ...linearSwap(), linear: false, inverse: false },
+      { ...linearSwap(), linear: null, inverse: null },
+      { ...linearSwap(), settle: 'EUR', linear: true, inverse: false },
+      { ...linearSwap(), settle: 'USD', linear: false, inverse: true },
+      { ...linearSwap(), strike: '90000' },
+      { ...linearSwap(), optionType: 'put' as const },
+      { ...linearSwap(), type: 'future' as const, swap: false, future: true, strike: '90000' },
+      { ...linearSwap(), type: 'future' as const, swap: false, future: true, optionType: 'call' as const },
+      { ...call(), strike: null },
+      { ...call(), optionType: null },
+      { ...call(), contract: false },
+      { ...call(), spot: true },
+      { ...call(), linear: null, inverse: null },
+      { ...call(), settle: '' },
+    ];
+    for (const row of bad) {
+      expect(
+        marketSchema.safeParse(row).success,
+        JSON.stringify({
+          type: row.type,
+          spot: row.spot,
+          swap: row.swap,
+          future: row.future,
+          option: row.option,
+          contract: row.contract,
+          settle: row.settle,
+          linear: row.linear,
+          inverse: row.inverse,
+          strike: row.strike,
+          optionType: row.optionType,
+        }),
+      ).toBe(false);
+    }
+  });
+
+  it('accepts an option whose flags, strike, and settle agree', () => {
+    const option = {
+      ...market({ amount: '1000', price: '0.00001' }),
+      type: 'option' as const,
+      option: true,
+      contract: true,
+      spot: false,
+      swap: false,
+      future: false,
+      strike: '90000',
+      optionType: 'call' as const,
+      settle: 'USD',
+      linear: true,
+      inverse: false,
+    };
+    expect(option.taker).toBe('0.001');
+    expect(option.maker).toBe('0.0005');
+    expect(marketSchema.safeParse(option).success).toBe(true);
+  });
+
+  it('accepts a swap, a future, and an inverse option when the flags agree', () => {
+    const spot = market({ amount: '1000', price: '0.00001' });
+    const swap = {
+      ...spot,
+      type: 'swap' as const,
+      spot: false,
+      swap: true,
+      contract: true,
+      settle: 'USD',
+      linear: true,
+      inverse: false,
+    };
+    const future = {
+      ...swap,
+      type: 'future' as const,
+      swap: false,
+      future: true,
+    };
+    const inverseOption = {
+      ...spot,
+      type: 'option' as const,
+      spot: false,
+      option: true,
+      contract: true,
+      settle: 'EUR',
+      linear: false,
+      inverse: true,
+      strike: '90000',
+      optionType: 'put' as const,
+    };
+    expect(marketSchema.safeParse(swap).success).toBe(true);
+    expect(marketSchema.safeParse(future).success).toBe(true);
+    expect(marketSchema.safeParse(inverseOption).success).toBe(true);
+  });
 });

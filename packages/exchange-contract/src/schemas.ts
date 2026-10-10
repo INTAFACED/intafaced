@@ -104,100 +104,186 @@ export type MarketHours = z.infer<typeof marketHoursSchema>;
  * A client that ignores unknown keys is no worse off; one that reads them can
  * refuse simulated markets and "venue shut" without guessing from empty books.
  */
-export const marketSchema = z.object({
-  id: z.string(),
-  symbol: z.string(),
-  base: z.string(),
-  quote: z.string(),
-  /** Settlement asset for derivatives; null on spot. */
-  settle: z.string().nullable(),
-  baseId: z.string(),
-  quoteId: z.string(),
-  type: marketTypeSchema,
-  spot: z.boolean(),
-  swap: z.boolean(),
-  future: z.boolean(),
-  option: z.boolean(),
-  contract: z.boolean(),
-  linear: z.boolean().nullable(),
-  inverse: z.boolean().nullable(),
-  /**
-   * Listing status (`trade.markets.status === 'active'`). NOT session hours —
-   * a permanently listed FX pair is `active: true` every weekend.
-   */
-  active: z.boolean(),
-  /**
-   * TRUE = simulated / paper market. Orders take no hold and never post to the
-   * ledger. Not stock CCXT; emitted so a bot can refuse sim markets in one
-   * line rather than booking a position that does not exist.
-   */
-  paper: z.boolean(),
-  /** Stable key into the hours table the order path evaluates. */
-  schedule: marketScheduleKeySchema,
-  /**
-   * Whether the venue SESSION is open at response time (schedule only).
-   * Distinct from `active`. Order path refuses closed sessions with
-   * `trade.market_closed` — bots should not treat empty books as "exchange down"
-   * when `sessionOpen` is false.
-   */
-  sessionOpen: z.boolean(),
-  /**
-   * Next schedule flip from response time. Null for continuous markets (never
-   * flip) or when the key is unknown (sessionOpen is then false).
-   */
-  nextSessionChange: z
-    .object({
-      /** True = session becomes open at `timestamp`; false = becomes closed. */
-      open: z.boolean(),
-      timestamp: timestampMs,
-      datetime: isoDatetime,
-    })
-    .nullable(),
-  /** Full hours payload — continuous or sessions + timezone + windows. */
-  hours: marketHoursSchema,
-  /** Taker/maker as a decimal rate (0.001 = 10 bps), per CCXT convention. */
-  taker: decimal,
-  maker: decimal,
-  /** Null on spot. A contract size is a positive decimal string, never zero. */
-  contractSize: positiveDecimalString.nullable(),
-  expiry: timestampMs.nullable(),
-  expiryDatetime: isoDatetime.nullable(),
-  strike: decimal.nullable(),
-  optionType: z.enum(['call', 'put']).nullable(),
-  /**
-   * CCXT `precisionMode`. Always TICK_SIZE here, because that is what our
-   * engine actually enforces: `snapToTick` rounds a price to a multiple of
-   * `tick_size` and the book rejects a quantity that is not a multiple of
-   * `lot_size`. Neither is a count of decimal places.
-   *
-   * DECIMAL_PLACES cannot express our own live listings. `EUR/USD` has a lot
-   * size of 1000 units and `NATGAS/USD` a lot size of 10; as a decimal-place
-   * count both collapse to 0, so a client rounding to 0 places builds 1500
-   * units of EUR/USD — a number the engine must reject. Reporting the value
-   * is the only report that lets a client construct a fillable order.
-   */
-  precisionMode: z.literal('TICK_SIZE'),
-  /**
-   * The tick and lot themselves, as decimal strings — `price` is the minimum
-   * price increment, `amount` the minimum quantity increment. Round to a
-   * multiple of these, not to a number of decimal places. Zero and a leading
-   * minus are refused. There is no invented floor.
-   */
-  precision: z.object({
-    amount: positiveDecimalString,
-    price: positiveDecimalString,
-  }),
-  /**
-   * Null is the only absent bound. `"0"` is a real bound. Amount and price
-   * reject a leading minus. Cost and leverage stay on the signed decimal.
-   */
-  limits: z.object({
-    amount: z.object({ min: nonNegativeDecimalString.nullable(), max: nonNegativeDecimalString.nullable() }),
-    price: z.object({ min: nonNegativeDecimalString.nullable(), max: nonNegativeDecimalString.nullable() }),
-    cost: z.object({ min: decimal.nullable(), max: decimal.nullable() }),
-    leverage: z.object({ min: decimal.nullable(), max: decimal.nullable() }),
-  }),
-});
+export const marketSchema = z
+  .object({
+    id: z.string(),
+    symbol: z.string(),
+    base: z.string(),
+    quote: z.string(),
+    /** Settlement asset for derivatives; null on spot. */
+    settle: z.string().nullable(),
+    baseId: z.string(),
+    quoteId: z.string(),
+    type: marketTypeSchema,
+    spot: z.boolean(),
+    swap: z.boolean(),
+    future: z.boolean(),
+    option: z.boolean(),
+    contract: z.boolean(),
+    linear: z.boolean().nullable(),
+    inverse: z.boolean().nullable(),
+    /**
+     * Listing status (`trade.markets.status === 'active'`). NOT session hours —
+     * a permanently listed FX pair is `active: true` every weekend.
+     */
+    active: z.boolean(),
+    /**
+     * TRUE = simulated / paper market. Orders take no hold and never post to the
+     * ledger. Not stock CCXT; emitted so a bot can refuse sim markets in one
+     * line rather than booking a position that does not exist.
+     */
+    paper: z.boolean(),
+    /** Stable key into the hours table the order path evaluates. */
+    schedule: marketScheduleKeySchema,
+    /**
+     * Whether the venue SESSION is open at response time (schedule only).
+     * Distinct from `active`. Order path refuses closed sessions with
+     * `trade.market_closed` — bots should not treat empty books as "exchange down"
+     * when `sessionOpen` is false.
+     */
+    sessionOpen: z.boolean(),
+    /**
+     * Next schedule flip from response time. Null for continuous markets (never
+     * flip) or when the key is unknown (sessionOpen is then false).
+     */
+    nextSessionChange: z
+      .object({
+        /** True = session becomes open at `timestamp`; false = becomes closed. */
+        open: z.boolean(),
+        timestamp: timestampMs,
+        datetime: isoDatetime,
+      })
+      .nullable(),
+    /** Full hours payload — continuous or sessions + timezone + windows. */
+    hours: marketHoursSchema,
+    /** Taker/maker as a decimal rate (0.001 = 10 bps), per CCXT convention. */
+    taker: decimal,
+    maker: decimal,
+    /** Null on spot. A contract size is a positive decimal string, never zero. */
+    contractSize: positiveDecimalString.nullable(),
+    expiry: timestampMs.nullable(),
+    expiryDatetime: isoDatetime.nullable(),
+    strike: decimal.nullable(),
+    optionType: z.enum(['call', 'put']).nullable(),
+    /**
+     * CCXT `precisionMode`. Always TICK_SIZE here, because that is what our
+     * engine actually enforces: `snapToTick` rounds a price to a multiple of
+     * `tick_size` and the book rejects a quantity that is not a multiple of
+     * `lot_size`. Neither is a count of decimal places.
+     *
+     * DECIMAL_PLACES cannot express our own live listings. `EUR/USD` has a lot
+     * size of 1000 units and `NATGAS/USD` a lot size of 10; as a decimal-place
+     * count both collapse to 0, so a client rounding to 0 places builds 1500
+     * units of EUR/USD — a number the engine must reject. Reporting the value
+     * is the only report that lets a client construct a fillable order.
+     */
+    precisionMode: z.literal('TICK_SIZE'),
+    /**
+     * The tick and lot themselves, as decimal strings — `price` is the minimum
+     * price increment, `amount` the minimum quantity increment. Round to a
+     * multiple of these, not to a number of decimal places. Zero and a leading
+     * minus are refused. There is no invented floor.
+     */
+    precision: z.object({
+      amount: positiveDecimalString,
+      price: positiveDecimalString,
+    }),
+    /**
+     * Null is the only absent bound. `"0"` is a real bound. Amount and price
+     * reject a leading minus. Cost and leverage stay on the signed decimal.
+     */
+    limits: z.object({
+      amount: z.object({ min: nonNegativeDecimalString.nullable(), max: nonNegativeDecimalString.nullable() }),
+      price: z.object({ min: nonNegativeDecimalString.nullable(), max: nonNegativeDecimalString.nullable() }),
+      cost: z.object({ min: decimal.nullable(), max: decimal.nullable() }),
+      leverage: z.object({ min: decimal.nullable(), max: decimal.nullable() }),
+    }),
+  })
+  .superRefine((market, ctx) => {
+    // Same product grammar as parseSymbol. Expiry and contract size stay free.
+    const kinds = (['spot', 'swap', 'future', 'option'] as const).filter((kind) => market[kind]);
+    if (kinds.length !== 1 || kinds[0] !== market.type) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['type'],
+        message: 'exactly one of spot, swap, future, and option is true, and type names that one',
+      });
+    }
+
+    const derivative = market.type === 'swap' || market.type === 'future' || market.type === 'option';
+    if (market.contract !== derivative) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['contract'],
+        message: 'contract is true only when type is swap, future, or option',
+      });
+    }
+
+    if (market.type === 'spot') {
+      if (
+        market.linear !== null ||
+        market.inverse !== null ||
+        market.settle !== null ||
+        market.strike !== null ||
+        market.optionType !== null
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['type'],
+          message: 'a spot market has null linear, inverse, settle, strike, and optionType',
+        });
+      }
+      return;
+    }
+
+    const settle = market.settle;
+    const settleOk = typeof settle === 'string' && settle.length > 0;
+    if (!settleOk) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['settle'],
+        message: 'settle is a non-empty string on swap, future, and option',
+      });
+    }
+    const linearMeans = settleOk && settle === market.quote;
+    const inverseMeans = settleOk && settle === market.base;
+    const agrees =
+      (market.linear === true && market.inverse === false && linearMeans && !inverseMeans) ||
+      (market.linear === false && market.inverse === true && inverseMeans && !linearMeans);
+    if (!agrees) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['linear'],
+        message: 'exactly one of linear and inverse is true, and it matches settle',
+      });
+    }
+
+    if (market.type === 'option') {
+      if (market.strike === null || !decimal.safeParse(market.strike).success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['strike'],
+          message: 'an option strike is a decimal string',
+        });
+      }
+      if (market.optionType !== 'call' && market.optionType !== 'put') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['optionType'],
+          message: 'an option type is call or put',
+        });
+      }
+      return;
+    }
+
+    if (market.strike !== null || market.optionType !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['strike'],
+        message: 'swap and future have null strike and optionType',
+      });
+    }
+  });
 export type Market = z.infer<typeof marketSchema>;
 
 // ── Ticker ───────────────────────────────────────────────────────────────────
