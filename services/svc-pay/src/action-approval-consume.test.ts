@@ -15,6 +15,13 @@ describe('pay action-approval consume', () => {
     );
   });
 
+  it('payload hash keeps the action type and ignores field key order', () => {
+    expect(payActionPayloadHash('grant', { actionType: 'revoke', amount: '1' })).not.toBe(
+      payActionPayloadHash('revoke', { amount: '1' }),
+    );
+    expect(payActionPayloadHash('grant', { b: '2', a: '1' })).toBe(payActionPayloadHash('grant', { a: '1', b: '2' }));
+  });
+
   it('blank IDENTITY_URL consumer refuses instead of inventing a second person', async () => {
     await expect(
       unwiredApprovalConsumer().consume({
