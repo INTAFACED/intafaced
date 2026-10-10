@@ -786,7 +786,7 @@
   }
 }
 
-/* Money home only. Bank, holding, activity and mutation layouts retain their rules. */
+/* Quantity-led Money and Bank overviews. Holding, activity and mutation layouts retain their rules. */
 .money-home .money-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 328px);
@@ -1007,5 +1007,55 @@
   }
   .money-value-controls {
     justify-content: space-between;
+  }
+}
+
+/* Bank overview reuses the accepted Money hierarchy with separately labelled spaces. */
+.money-bank .money-space-row > div:first-child {
+  min-width: 0;
+}
+.money-bank .money-space-row strong {
+  overflow-wrap: anywhere;
+}
+.money-bank .money-space-row .numeric {
+  min-width: 0;
+  font-size: 20px;
+  line-height: 28px;
+}
+.money-bank .money-space-row small {
+  font-size: 13px;
+  line-height: 20px;
+}
+.money-bank .money-bank-nav {
+  margin-bottom: 24px;
+}
+
+.money-bank .money-value {
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+}
+@media (max-width: 767px) {
+  .money-bank .money-primary-actions .button:first-child {
+    grid-column: 1 / 3;
+  }
+  .money-bank .money-primary-actions .button:last-child {
+    grid-column: auto;
+  }
+  .money-bank .money-bank-nav {
+    margin-bottom: 16px;
+  }
+  .money-bank .money-value {
+    gap: 12px;
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+  }
+  .money-bank .money-section > header {
+    margin-bottom: 12px;
+  }
+  .money-bank .money-response-time {
+    margin-bottom: 0;
+  }
+  .money-bank .money-holding {
+    padding-block: 12px;
   }
 }
