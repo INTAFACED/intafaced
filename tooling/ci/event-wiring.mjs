@@ -205,7 +205,10 @@ function* walk(dir) {
  * every reported location subtly wrong, which is its own kind of crying wolf.
  *
  * String literals are walked over rather than through, so a `//` inside a URL or
- * an apostrophe inside prose cannot start or end a comment.
+ * an apostrophe inside prose cannot start or end a comment. Template text is too,
+ * but `${...}` is code: a comment inside the interpolation is blanked, or it is
+ * later read as an import. The interpolation ends on its own `}`, not on a `}`
+ * inside a comment, a string, or a nested template.
  */
 function blankComments(src) {
   const out = src.split('');
@@ -213,10 +216,31 @@ function blankComments(src) {
   const blank = (from, to) => {
     for (let k = from; k < to && k < n; k++) if (out[k] !== '\n') out[k] = ' ';
   };
+  // The top frame never pops. An interpolation frame pops on its closing `}`.
+  const stack = [{ kind: 'code', braces: 0 }];
   let i = 0;
   while (i < n) {
+    const frame = stack[stack.length - 1];
     const c = src[i];
     const d = src[i + 1];
+    if (frame.kind === 'template') {
+      if (c === '\\') {
+        i += 2;
+        continue;
+      }
+      if (c === '`') {
+        stack.pop();
+        i++;
+        continue;
+      }
+      if (c === '$' && d === '{') {
+        stack.push({ kind: 'code', braces: 0 });
+        i += 2;
+        continue;
+      }
+      i++;
+      continue;
+    }
     if (c === '/' && d === '/') {
       const start = i;
       while (i < n && src[i] !== '\n') i++;
@@ -231,7 +255,7 @@ function blankComments(src) {
       blank(start, i);
       continue;
     }
-    if (c === "'" || c === '"' || c === '`') {
+    if (c === "'" || c === '"') {
       const quote = c;
       i++;
       while (i < n) {
@@ -245,6 +269,22 @@ function blankComments(src) {
         }
         i++;
       }
+      continue;
+    }
+    if (c === '`') {
+      stack.push({ kind: 'template' });
+      i++;
+      continue;
+    }
+    if (c === '{') {
+      frame.braces++;
+      i++;
+      continue;
+    }
+    if (c === '}') {
+      if (frame.braces === 0 && stack.length > 1) stack.pop();
+      else if (frame.braces > 0) frame.braces--;
+      i++;
       continue;
     }
     i++;
@@ -340,8 +380,9 @@ function readStaticTemplate(src, i) {
  * A comment or a string that merely contains that text is not an import.
  * `raw.includes` treated both as bus-aware, and check 4 then skipped the file —
  * so `hub.publish('orderFilled')` in a file that never touches the bus was not
- * reported. Comments are blanked first. A string counts only as the module
- * specifier of an `import`, an `export … from`, a dynamic `import()`, or `require()`.
+ * reported. Comments are blanked first, including one nested in a template
+ * `${...}`. A string counts only as the module specifier of an `import`, an
+ * `export … from`, a dynamic `import()`, or `require()`.
  */
 function importsEventsPackage(raw) {
   const src = blankComments(raw);
@@ -440,10 +481,10 @@ function collisionReason(call) {
 }
 
 /**
- * Comment-only and string-only mentions are not bus-aware. The orderFilled
- * collision on those files is still reported. A real import stays bus-aware,
- * so check 4 does not take that path. No new catalog event — `orderFilled`
- * is already in EVENT_CATALOG.
+ * Comment-only and string-only mentions are not bus-aware. Neither is a comment
+ * inside a template interpolation. The orderFilled collision on those files is
+ * still reported. A real import stays bus-aware, so check 4 does not take that
+ * path. No new catalog event — `orderFilled` is already in EVENT_CATALOG.
  */
 function selfTestBusAware() {
   const fails = [];
@@ -468,6 +509,28 @@ function selfTestBusAware() {
     '}',
     '',
   ].join('\n');
+  const templateLineComment = [
+    'const note = `status ${',
+    "  // import { EventBus } from '@intafaced/events'",
+    '  1',
+    '}`;',
+    'export function fan(hub) {',
+    "  hub.publish('orderFilled');",
+    '  hub.subscribe("orderFilled");',
+    '}',
+    '',
+  ].join('\n');
+  const templateBlockComment = [
+    'const note = `status ${',
+    "  /* import { EventBus } from '@intafaced/events' */",
+    '  1',
+    '}`;',
+    'export function fan(hub) {',
+    "  hub.publish('orderFilled');",
+    '  hub.subscribe("orderFilled");',
+    '}',
+    '',
+  ].join('\n');
   const realImport = [
     "import type { EventBus } from '@intafaced/events';",
     'export function fan(bus: EventBus) {',
@@ -482,6 +545,16 @@ function selfTestBusAware() {
   assert(isEvent('orderFilled') === true, 'orderFilled is not in the catalog — refusing to invent one');
   assert(importsEventsPackage(commentOnly) === false, 'comment-only mention counted as bus-aware');
   assert(importsEventsPackage(stringOnly) === false, 'string-only mention counted as bus-aware');
+  assert(importsEventsPackage(templateLineComment) === false, 'line comment inside a template counted as bus-aware');
+  assert(importsEventsPackage(templateBlockComment) === false, 'block comment inside a template counted as bus-aware');
+  assert(
+    !blankComments(templateLineComment).includes("from '@intafaced/events'"),
+    'line comment inside a template was left as code',
+  );
+  assert(
+    !blankComments(templateBlockComment).includes("from '@intafaced/events'"),
+    'block comment inside a template was left as code',
+  );
   assert(importsEventsPackage(realImport) === true, 'import type was not bus-aware');
   assert(importsEventsPackage(realImportValue) === true, 'value import was not bus-aware');
   assert(importsEventsPackage(realImportDouble) === true, 'double-quoted import was not bus-aware');
@@ -489,9 +562,17 @@ function selfTestBusAware() {
 
   const commentHits = importsEventsPackage(commentOnly) ? [] : catalogCallCollisions(blankComments(commentOnly));
   const stringHits = importsEventsPackage(stringOnly) ? [] : catalogCallCollisions(blankComments(stringOnly));
+  const templateLineHits = importsEventsPackage(templateLineComment)
+    ? []
+    : catalogCallCollisions(blankComments(templateLineComment));
+  const templateBlockHits = importsEventsPackage(templateBlockComment)
+    ? []
+    : catalogCallCollisions(blankComments(templateBlockComment));
   const realHits = importsEventsPackage(realImport) ? [] : catalogCallCollisions(blankComments(realImport));
   const commentReasons = commentHits.map(collisionReason);
   const stringReasons = stringHits.map(collisionReason);
+  const templateLineReasons = templateLineHits.map(collisionReason);
+  const templateBlockReasons = templateBlockHits.map(collisionReason);
 
   assert(commentHits.some((h) => h.event === 'orderFilled' && h.verb === 'publish'), 'comment-only publish collision not reported');
   assert(commentHits.some((h) => h.event === 'orderFilled' && h.verb === 'subscribe'), 'comment-only subscribe collision not reported');
@@ -513,6 +594,38 @@ function selfTestBusAware() {
     stringReasons.some((r) => r.includes('subscribees the catalog event "orderFilled"')),
     'string-only subscribe collision reason missing',
   );
+  assert(
+    templateLineHits.some((h) => h.event === 'orderFilled' && h.verb === 'publish'),
+    'template line-comment publish collision not reported',
+  );
+  assert(
+    templateLineHits.some((h) => h.event === 'orderFilled' && h.verb === 'subscribe'),
+    'template line-comment subscribe collision not reported',
+  );
+  assert(
+    templateBlockHits.some((h) => h.event === 'orderFilled' && h.verb === 'publish'),
+    'template block-comment publish collision not reported',
+  );
+  assert(
+    templateBlockHits.some((h) => h.event === 'orderFilled' && h.verb === 'subscribe'),
+    'template block-comment subscribe collision not reported',
+  );
+  assert(
+    templateLineReasons.some((r) => r.includes('publishes the catalog event "orderFilled"')),
+    'template line-comment publish collision reason missing',
+  );
+  assert(
+    templateLineReasons.some((r) => r.includes('subscribees the catalog event "orderFilled"')),
+    'template line-comment subscribe collision reason missing',
+  );
+  assert(
+    templateBlockReasons.some((r) => r.includes('publishes the catalog event "orderFilled"')),
+    'template block-comment publish collision reason missing',
+  );
+  assert(
+    templateBlockReasons.some((r) => r.includes('subscribees the catalog event "orderFilled"')),
+    'template block-comment subscribe collision reason missing',
+  );
   assert(realHits.length === 0, 'real import was sent down the collision path');
   assert(catalogCallCollisions(blankComments(realImport)).length > 0, 'real-import fixture had no orderFilled call to skip');
 
@@ -526,6 +639,10 @@ function selfTestBusAware() {
   for (const reason of commentReasons) console.log(`  fixture comment-only: ${reason}`);
   console.log('  fixture string-only: bus-aware false');
   for (const reason of stringReasons) console.log(`  fixture string-only: ${reason}`);
+  console.log('  fixture template-line-comment: bus-aware false');
+  for (const reason of templateLineReasons) console.log(`  fixture template-line-comment: ${reason}`);
+  console.log('  fixture template-block-comment: bus-aware false');
+  for (const reason of templateBlockReasons) console.log(`  fixture template-block-comment: ${reason}`);
   console.log('  fixture real import: bus-aware true; check 4 did not report the orderFilled call');
   process.exit(0);
 }
