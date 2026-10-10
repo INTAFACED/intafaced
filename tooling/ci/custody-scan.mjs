@@ -517,6 +517,58 @@ function sameServiceSet(got, expected) {
 }
 
 /**
+ * Extensions check 1 passes to the walk. .js and .mjs are in the set: a
+ * protocol service can move value from either, and the self-test names this
+ * same array.
+ */
+const PROTOCOL_PLANE_SOURCE_EXTENSIONS = ['.ts', '.tsx', '.js', '.mjs'];
+
+/**
+ * Importing or calling any of these means the service can move value.
+ * The call form accepts `ledger.post(`, `ledger?.post(`, and `ledger!.post(`.
+ * A namespace import of the package root is the write surface even when the
+ * local name is not `ledger`. Dynamic `import()` of that root is the same
+ * module. The recipes subpath is the specifier itself, not only `from '...'`.
+ * `/money` stays a read.
+ */
+const WRITE_SURFACE = [
+  {
+    pattern: /\bledger\s*(?:!\s*)?\??\s*\.\s*post\s*\(/,
+    reason: 'calls ledger.post() — that is custody',
+  },
+  {
+    pattern: /['"`]@intafaced\/ledger-client\/recipes['"`]/,
+    reason: 'imports ledger write recipes',
+  },
+  {
+    pattern: /\bimport\s*\(\s*['"`]@intafaced\/ledger-client['"`]/,
+    reason: 'dynamically imports the ledger client — that module can move value',
+  },
+  {
+    pattern: /\bimport\s*\*\s*as\s+[A-Za-z_$][\w$]*\s+from\s*['"`]@intafaced\/ledger-client['"`]/,
+    reason: 'namespace-imports the ledger client under a binding that can move value',
+  },
+  {
+    pattern:
+      /import\s*\{[^}]*\b(recipes|deposit|withdrawHold|withdrawSettle|tradeFill|escrowLock|escrowRelease|stake|feeCharge|rewardPay|mintEmission|loanCollateralLock|loanCollateralRelease|loanDraw|loanRepay|loanLiquidate|loanBadDebt|loanReserveFund)\b[^}]*\}\s*from\s*['"]@intafaced\/ledger-client['"]/s,
+    reason: 'imports a ledger write recipe',
+  },
+  {
+    pattern: /import\s*\{[^}]*\bLedgerClient\b[^}]*\}\s*from\s*['"]@intafaced\/ledger-client['"]/s,
+    reason: 'imports the writable LedgerClient — use ReadOnlyLedgerClient on this plane',
+  },
+];
+
+/** Reasons this file text can move ledger value. Empty means check 1 is clean for it. */
+function ledgerWriteHits(content) {
+  const hits = [];
+  for (const { pattern, reason } of WRITE_SURFACE) {
+    if (pattern.test(content)) hits.push(reason);
+  }
+  return hits;
+}
+
+/**
  * Hermetic fixtures. No secret values. Proves a second protocol service in
  * another shape is not dropped just because one canonical entry matched.
  */
@@ -659,6 +711,34 @@ function selfTest() {
     }
   }
 
+  const recordsWrite = (label, source) => {
+    assert(ledgerWriteHits(source).length > 0, `${label} records a ledger-write violation`);
+  };
+  recordsWrite('dynamic import()', "const books = await import('@intafaced/ledger-client');\n");
+  recordsWrite(
+    'namespace binding not named ledger',
+    "import * as books from '@intafaced/ledger-client';\nawait books.post(request);\n",
+  );
+  recordsWrite('ledger?.post(', 'await ledger?.post(request);\n');
+  recordsWrite('ledger!.post(', 'await ledger!.post(request);\n');
+  recordsWrite('recipes subpath without from', "import '@intafaced/ledger-client/recipes';\n");
+  assert(
+    PROTOCOL_PLANE_SOURCE_EXTENSIONS.includes('.js') && PROTOCOL_PLANE_SOURCE_EXTENSIONS.includes('.mjs'),
+    'a .js or .mjs file under the service is opened by check 1',
+  );
+  assert(
+    ledgerWriteHits("import { formatAmount } from '@intafaced/ledger-client/money';\n").length === 0,
+    'money subpath is not a ledger write',
+  );
+  assert(
+    ledgerWriteHits("await import('@intafaced/ledger-client/money');\n").length === 0,
+    'dynamic import of the money subpath is not a ledger write',
+  );
+  assert(
+    ledgerWriteHits("import * as amt from '@intafaced/ledger-client/money';\n").length === 0,
+    'namespace import of the money subpath is not a ledger write',
+  );
+
   if (fails.length > 0) {
     console.error(`custody-scan --self-test FAIL (${fails.length}/${checks}):`);
     for (const failure of fails) console.error(`  · ${failure}`);
@@ -672,21 +752,6 @@ const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(resolve
 if (isDirectRun && process.argv.includes('--self-test')) selfTest();
 
 const PROTOCOL_PLANE_SERVICES = deriveProtocolPlaneServices();
-
-/** Importing any of these means the service can move value in the ledger. */
-const WRITE_SURFACE = [
-  { pattern: /\bledger\s*\.\s*post\s*\(/, reason: 'calls ledger.post() — that is custody' },
-  { pattern: /from\s+['"]@intafaced\/ledger-client\/recipes['"]/, reason: 'imports ledger write recipes' },
-  {
-    pattern:
-      /import\s*\{[^}]*\b(recipes|deposit|withdrawHold|withdrawSettle|tradeFill|escrowLock|escrowRelease|stake|feeCharge|rewardPay|mintEmission|loanCollateralLock|loanCollateralRelease|loanDraw|loanRepay|loanLiquidate|loanBadDebt|loanReserveFund)\b[^}]*\}\s*from\s*['"]@intafaced\/ledger-client['"]/s,
-    reason: 'imports a ledger write recipe',
-  },
-  {
-    pattern: /import\s*\{[^}]*\bLedgerClient\b[^}]*\}\s*from\s*['"]@intafaced\/ledger-client['"]/s,
-    reason: 'imports the writable LedgerClient — use ReadOnlyLedgerClient on this plane',
-  },
-];
 
 /** Solidity patterns that would hand the platform withdrawal power. */
 const CONTRACT_RISKS = [
@@ -758,20 +823,18 @@ for (const service of PROTOCOL_PLANE_SERVICES) {
   const dir = join(SERVICES, service);
   if (!existsSync(dir)) continue;
 
-  for (const file of walk(dir, ['.ts', '.tsx'])) {
+  for (const file of walk(dir, PROTOCOL_PLANE_SOURCE_EXTENSIONS)) {
     filesScanned++;
     const content = readFileSync(file, 'utf8');
     const rel = relative(ROOT, file);
 
-    for (const { pattern, reason } of WRITE_SURFACE) {
-      if (pattern.test(content)) {
-        violations.push({
-          check: 'ledger-write-on-protocol-plane',
-          file: rel,
-          reason,
-          detail: `${service} is a Protocol Plane service — it must never hold or move user value (§16.9, §22)`,
-        });
-      }
+    for (const reason of ledgerWriteHits(content)) {
+      violations.push({
+        check: 'ledger-write-on-protocol-plane',
+        file: rel,
+        reason,
+        detail: `${service} is a Protocol Plane service — it must never hold or move user value (§16.9, §22)`,
+      });
     }
   }
 }
@@ -782,7 +845,7 @@ for (const service of PROTOCOL_PLANE_SERVICES) {
 // `[svc-protocol, contracts/]` and there is no root contracts/, so in practice
 // it read one service's .sol files and nothing else — which left
 // services/svc-indexer/contracts/dev/DevVenue.sol scanned by neither check:
-// check 1 reaches svc-indexer but reads only .ts/.tsx, and check 2 never looked
+// check 1 reaches svc-indexer but does not read .sol, and check 2 never looked
 // outside svc-protocol. A contract is a contract wherever it is checked in.
 const contractDirs = [...PROTOCOL_PLANE_SERVICES.map((s) => join(SERVICES, s)), join(ROOT, 'contracts')];
 for (const dir of contractDirs) {
