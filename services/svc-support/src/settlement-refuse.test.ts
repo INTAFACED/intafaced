@@ -61,6 +61,24 @@ describe('support settlement refuse — M17 cannot settle', () => {
     }
   });
 
+  it('a filler word between claim tokens still implies a payout', () => {
+    const notes = ['withdrawal was completed', 'completed the withdrawal', 'moved the money', 'unfroze the account'];
+    const statuses = ['resolved', 'closed'] as const;
+    const categories = ['deposit_withdraw', 'other'] as const;
+    for (const note of notes) {
+      expect(noteImpliesSettlement(note)).toBe(true);
+      for (const toStatus of statuses) {
+        for (const category of categories) {
+          expect(checkSupportSettlement({ toStatus, category, note })).toEqual({
+            status: 'refuse',
+            reason: 'implied_payout',
+            code: SUPPORT_SETTLE_REFUSE,
+          });
+        }
+      }
+    }
+  });
+
   it('does not treat "cannot refund" as a completed payout', () => {
     expect(noteImpliesSettlement('cannot refund — cite the deposit article')).toBe(false);
     expect(

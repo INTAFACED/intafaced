@@ -21,10 +21,17 @@ export type SupportSettlementCheck =
 
 /**
  * Claims that the money already moved or the freeze already lifted.
- * "cannot refund" is not a claim — only past-tense / completed forms.
+ * One function word may sit between a pair ("moved the money",
+ * "withdrawal was completed"). "cannot refund" is not a claim —
+ * only past-tense / completed forms.
  */
-const SETTLEMENT_CLAIM_RE =
-  /\b(refunded|paid[\s_-]?out|payout|credited|unfrozen|withdrawal[\s_-]?complete(?:d)?|completed[\s_-]?withdrawal|settled|moved[\s_-]?money)\b/i;
+const CLAIM_BETWEEN = String.raw`(?:[\s_-]+(?:the|a|an|was|were|is|been|has|have|had)[\s_-]+|[\s_-]?)`;
+const SETTLEMENT_CLAIM_RE = new RegExp(
+  String.raw`\b(?:refunded|paid[\s_-]?out|payout|credited|unfroz(?:e|en)|` +
+    String.raw`withdrawal${CLAIM_BETWEEN}complete(?:d)?|completed${CLAIM_BETWEEN}withdrawal|` +
+    String.raw`settled|moved${CLAIM_BETWEEN}money)\b`,
+  'i',
+);
 
 export function isForbiddenSettlementAct(act: string): act is SupportForbiddenSettlementAct {
   return (SUPPORT_FORBIDDEN_SETTLEMENT_ACTS as readonly string[]).includes(act);
