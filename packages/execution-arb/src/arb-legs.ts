@@ -61,7 +61,7 @@ export type ReduceArbLegGroupInput = {
   readonly legs: readonly ArbLegResult[];
 };
 
-export type ArbLegGroupRefuseReason = 'empty_legs' | 'incomplete_legs' | 'failed_leg' | 'partial_legs' | 'unknown_leg';
+export type ArbLegGroupRefuseReason = 'empty_legs' | 'incomplete_legs' | 'failed_leg' | 'partial_legs' | 'unknown_leg' | 'amount_conflict';
 
 type ArbLegGroupBuckets = {
   readonly applied: readonly ArbLegResult[];
