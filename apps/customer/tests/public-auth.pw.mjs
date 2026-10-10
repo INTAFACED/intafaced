@@ -265,6 +265,7 @@ test('held registration after native Help departure keeps original unknown on re
   await fields(page, true);
   await submit(page).click();
   await expect.poll(() => count(state, 'auth.register')).toBe(1);
+  await expect.poll(() => state.instance.counts.accountWrites).toBe(1);
   await helpBack(page);
   held.release();
   await expect(registerUnknown(page)).toBeVisible();

@@ -1,9 +1,9 @@
-import { z } from 'zod';
 import { Page, EmptyState } from '../../shared/ui';
 import { AuthForm } from './AuthForm';
 import { Invitation } from './Invitation';
 import { PublicHelp as Help } from './PublicHelp';
-import { findRoom, roomTitle, safeReturnTo } from '../../app/navigation';
+import { findRoom, roomTitle } from '../../app/navigation';
+import { publicAuthContext, publicAuthHref } from './auth-context';
 import './public.css';
 import { publicCopy } from './public-copy';
 
@@ -17,24 +17,8 @@ function Brand() {
 export function PublicRoutes({ path }: { path: string }) {
   const { t } = publicCopy.useCopy();
   const auth = path.startsWith('/login') || path === '/register';
-  const search = new URLSearchParams(location.search);
-  const invitation = z
-    .string()
-    .uuid()
-    .safeParse(search.get(path === '/invite' ? 'token' : 'invite'));
   const alternateAuth = path.startsWith('/login') ? '/register' : '/login';
-  let requested = search.get('redirect');
-  if (auth && !requested && path.startsWith('/login/returnUrl/')) {
-    try {
-      requested = decodeURIComponent(path.slice('/login/returnUrl/'.length));
-    } catch {
-      requested = null;
-    }
-  }
-  const authSearch = new URLSearchParams();
-  if (invitation.success) authSearch.set('invite', invitation.data);
-  if (auth && requested) authSearch.set('redirect', safeReturnTo(requested));
-  const authHref = `${alternateAuth}${authSearch.size ? `?${authSearch}` : ''}`;
+  const authHref = publicAuthHref(publicAuthContext(path, location.search), alternateAuth);
   return (
     <div className="public-shell">
       <header className="public-header">

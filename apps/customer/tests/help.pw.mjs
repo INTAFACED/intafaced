@@ -535,7 +535,7 @@ test('native support sign-in preserves its complete safe return URL and actually
   await page.locator('input[autocomplete="username"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
   await page.locator('form button[type="submit"]').click();
-  expect(await page.evaluate((destination) => location.pathname + location.search === destination, destination)).toBe(true);
+  await expect.poll(() => page.evaluate((destination) => location.pathname + location.search === destination, destination)).toBe(true);
   await expect(page.getByRole('heading', { name: 'Support', exact: true })).toBeVisible();
   expect(s.posts).toEqual([]);
   expect(s.allPosts).toEqual(['auth.login']);

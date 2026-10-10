@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { z } from 'zod';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { Button, Field, Failure } from '../../shared/ui';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { useSession, sessionSchema, type Session } from '../session/session';
 import { signInWithPasskey } from '../session/webauthn';
 import { useLocation, navigate } from '../../app/location';
-import { safeReturnTo, findRoom, roomTitle } from '../../app/navigation';
+import { findRoom, roomTitle } from '../../app/navigation';
+import { publicAuthContext, publicAuthHref } from './auth-context';
 import { publicCopy } from './public-copy';
 import { publicAuthCopy } from './public-auth-copy';
 import {
@@ -25,6 +25,7 @@ type Original = {
   api: ApiClient;
   owner: string | null;
   context: string;
+  url: string;
   generation: number;
   destination: string;
   invite?: string;
@@ -36,20 +37,9 @@ export function AuthForm({ register }: { register: boolean }) {
   const { t, Copy, requestedLocale, languageFor } = publicAuthCopy.useCopy();
   const { api, commit, userId } = useSession();
   const context = useLocation();
-  const invitation = z.string().uuid().safeParse(new URLSearchParams(location.search).get('invite'));
-  const inviteToken = invitation.success ? invitation.data : undefined;
-  let requested = new URLSearchParams(location.search).get('redirect');
-  if (!requested && location.pathname.startsWith('/login/returnUrl/')) {
-    try {
-      requested = decodeURIComponent(location.pathname.slice('/login/returnUrl/'.length));
-    } catch {
-      requested = null;
-    }
-  }
-  const destination = safeReturnTo(requested);
-  const signInParams = new URLSearchParams({ redirect: destination });
-  if (inviteToken) signInParams.set('invite', inviteToken);
-  const freshSignInHref = `/login?${signInParams}`;
+  const authContext = publicAuthContext(location.pathname, location.search);
+  const { destination, invite: inviteToken } = authContext;
+  const freshSignInHref = publicAuthHref(authContext, '/login', true);
   const [pending, setPending] = useState(false),
     [result, setResult] = useState<ApiResult<Session> | null>(null);
   const [identifier, setIdentifier] = useState(''),
@@ -62,22 +52,32 @@ export function AuthForm({ register }: { register: boolean }) {
   const [selectedRef, setSelectedRef] = useState<string | null>(journal.records.at(-1)?.localRef ?? null);
   const [activeRecord, setActiveRecord] = useState<string | null>(null);
   const mounted = useRef(true),
-    running = useRef(false),
+    running = useRef<Original | null>(null),
     abort = useRef<AbortController | null>(null);
-  const current = useRef({ api, owner: userId, context, register, generation: 0 });
+  const form = useRef<HTMLFormElement | null>(null);
+  const [, invalidateNavigation] = useState(0);
+  const url = location.href;
+  const current = useRef({ api, owner: userId, context, register, url, generation: 0 });
   if (
     current.current.api !== api ||
     current.current.owner !== userId ||
     current.current.context !== context ||
-    current.current.register !== register
+    current.current.register !== register ||
+    current.current.url !== url
   )
-    current.current = { api, owner: userId, context, register, generation: current.current.generation + 1 };
+    current.current = { api, owner: userId, context, register, url, generation: current.current.generation + 1 };
+  const renderedContext = current.current;
+  function sameRender() {
+    return mounted.current && current.current === renderedContext && location.href === renderedContext.url && api.canWrite();
+  }
   function same(original: Original) {
     return (
       mounted.current &&
       current.current.api === original.api &&
       current.current.owner === original.owner &&
       current.current.context === original.context &&
+      current.current.url === original.url &&
+      location.href === original.url &&
       current.current.generation === original.generation &&
       original.api.canWrite()
     );
@@ -91,37 +91,76 @@ export function AuthForm({ register }: { register: boolean }) {
       );
     }
   }
-  useEffect(() => {
-    mounted.current = true;
-    const changed = (event: StorageEvent) => {
-      if (event.key === publicAuthKey || event.key === null) sync();
-    };
-    window.addEventListener('storage', changed);
-    return () => {
-      mounted.current = false;
-      abort.current?.abort();
-      window.removeEventListener('storage', changed);
-    };
-  }, []);
-  useEffect(() => {
+  function clearInputs() {
+    form.current?.querySelectorAll<HTMLInputElement>('input').forEach((input) => {
+      input.value = '';
+    });
+  }
+  function discardPrivate() {
+    const interrupted = running.current !== null;
     abort.current?.abort();
+    abort.current = null;
+    running.current = null;
+    clearInputs();
     setIdentifier('');
     setHandle('');
     setRegion('');
     setPassword('');
     setTotp('');
+    setPending(false);
     setResult(null);
     setActiveRecord(null);
-    if (running.current) setProblem('changed');
-  }, [api, userId, context, register]);
+    setProblem(interrupted ? 'changed' : null);
+    sync();
+  }
+  useLayoutEffect(() => {
+    mounted.current = true;
+    const departed = () => {
+      const previous = current.current;
+      if (previous.url === location.href) return;
+      // Observe each departure before React can batch an A→B→A route into A.
+      current.current = {
+        ...previous,
+        url: location.href,
+        context: location.pathname + location.search,
+        generation: previous.generation + 1,
+      };
+      discardPrivate();
+      invalidateNavigation((value) => value + 1);
+    };
+    window.addEventListener('popstate', departed);
+    window.addEventListener('hashchange', departed);
+    return () => {
+      mounted.current = false;
+      window.removeEventListener('popstate', departed);
+      window.removeEventListener('hashchange', departed);
+      abort.current?.abort();
+      abort.current = null;
+      running.current = null;
+      clearInputs();
+    };
+  }, []);
+  useLayoutEffect(() => {
+    discardPrivate();
+  }, [renderedContext]);
+  useEffect(() => {
+    const changed = (event: StorageEvent) => {
+      if (event.key === publicAuthKey || event.key === null) sync();
+    };
+    window.addEventListener('storage', changed);
+    return () => {
+      window.removeEventListener('storage', changed);
+    };
+  }, []);
   async function run(kind: 'register' | 'password' | 'options') {
-    if (running.current || pending || !api.canWrite()) return;
+    if (!sameRender() || (running.current && same(running.current)) || pending) return;
     if (!identifier.trim() || (kind !== 'options' && !password)) return;
     const original: Original = {
       api,
       owner: userId,
       context,
-      generation: current.current.generation,
+      url: renderedContext.url,
+      generation: renderedContext.generation,
       destination,
       invite: inviteToken,
       target: inviteToken ? 'invite' : findRoom(destination.split('?')[0] ?? '/money')!.path,
@@ -134,7 +173,7 @@ export function AuthForm({ register }: { register: boolean }) {
     const identifierForPasskey = identifier.trim();
     const controller = new AbortController();
     abort.current = controller;
-    running.current = true;
+    running.current = original;
     setPending(true);
     setProblem(null);
     setResult(null);
@@ -158,8 +197,11 @@ export function AuthForm({ register }: { register: boolean }) {
       return same(original);
     };
     const settle = (saved: AuthRecord, answer: ApiResult<unknown>) => {
+      if (!same(original)) return;
       if (answer.ok || knownAuthRefusal(saved.kind, answer)) {
-        if (!finishAuth(saved) && same(original)) setProblem('retained');
+        const retained = !finishAuth(saved);
+        if (!same(original)) return;
+        if (retained) setProblem('retained');
         sync();
       }
     };
@@ -182,24 +224,26 @@ export function AuthForm({ register }: { register: boolean }) {
             current: () => same(original),
             beforeOptions: () => save('options'),
             optionsReceived: (options) => {
+              if (!same(original)) return;
               if (options.ok && stage.record) {
                 settle(stage.record, options);
+                if (!same(original)) return;
                 stage.record = null;
                 if (same(original)) setActiveRecord(null);
               }
             },
             beforeVerify: () => save('passkey'),
           });
-        } else
+        } else {
+          if (!same(original)) return;
           answer = await original.api.mutate('identity', kind === 'register' ? 'auth.register' : 'auth.login', input, sessionSchema, {
             signal: controller.signal,
           });
+        }
+        if (!same(original)) return;
         if (answer.ok && !validAuthSession(answer.data)) answer = authoredRefusal('uncertain', { key: 'unverifiedWrite' });
         if (stage.record) settle(stage.record, answer);
-        if (!same(original)) {
-          if (mounted.current) setProblem('changed');
-          return;
-        }
+        if (!same(original)) return;
         setPassword('');
         setTotp('');
         if (answer.ok) {
@@ -211,20 +255,24 @@ export function AuthForm({ register }: { register: boolean }) {
         }
       });
     } catch {
-      sync();
       if (same(original)) {
+        sync();
         setPassword('');
         setTotp('');
         setProblem('storage');
       }
     } finally {
-      running.current = false;
-      if (mounted.current) setPending(false);
-      if (mounted.current) setActiveRecord(null);
+      if (running.current === original) running.current = null;
+      if (abort.current === controller) abort.current = null;
+      if (same(original)) {
+        setPending(false);
+        setActiveRecord(null);
+      }
     }
   }
   function submit(event: FormEvent) {
     event.preventDefault();
+    if (!sameRender()) return;
     void run(register ? 'register' : 'password');
   }
   const selected = journal.records.find((record) => record.localRef === selectedRef);
@@ -357,7 +405,7 @@ export function AuthForm({ register }: { register: boolean }) {
           <Copy k="after" />
           <span>{inviteToken ? t('invitation') : roomTitle(findRoom(destination.split('?')[0] ?? '/money')!, requestedLocale)}</span>
         </div>
-        <form className="form-stack" onSubmit={submit}>
+        <form ref={form} className="form-stack" onSubmit={submit}>
           {!register && (
             <p className="public-auth-method">
               <Copy k="method" />
@@ -375,7 +423,7 @@ export function AuthForm({ register }: { register: boolean }) {
               disabled={pending}
               data-public-auth-sensitive="true"
               value={handle}
-              onChange={(event) => setHandle(event.target.value)}
+              onChange={(event) => sameRender() && setHandle(event.target.value)}
             />
           )}
           <Field
@@ -387,7 +435,7 @@ export function AuthForm({ register }: { register: boolean }) {
             disabled={pending}
             data-public-auth-sensitive="true"
             value={identifier}
-            onChange={(event) => setIdentifier(event.target.value)}
+            onChange={(event) => sameRender() && setIdentifier(event.target.value)}
           />
           <Field
             label={p('Password')}
@@ -401,7 +449,7 @@ export function AuthForm({ register }: { register: boolean }) {
             disabled={pending}
             data-public-auth-sensitive="true"
             value={password}
-            onChange={(event) => setPassword(event.target.value)}
+            onChange={(event) => sameRender() && setPassword(event.target.value)}
           />
           {register ? (
             <Field
@@ -413,7 +461,7 @@ export function AuthForm({ register }: { register: boolean }) {
               disabled={pending}
               data-public-auth-sensitive="true"
               value={region}
-              onChange={(event) => setRegion(event.target.value)}
+              onChange={(event) => sameRender() && setRegion(event.target.value)}
             />
           ) : (
             <Field
@@ -423,7 +471,7 @@ export function AuthForm({ register }: { register: boolean }) {
               disabled={pending}
               data-public-auth-sensitive="true"
               value={totp}
-              onChange={(event) => setTotp(event.target.value)}
+              onChange={(event) => sameRender() && setTotp(event.target.value)}
             />
           )}
           <Button type="submit" disabled={pending}>
@@ -444,21 +492,21 @@ export function AuthForm({ register }: { register: boolean }) {
             {register ? (
               <>
                 {p('Already have an account?')}{' '}
-                <a className="text-link" href={inviteToken ? `/login?invite=${encodeURIComponent(inviteToken)}` : '/login'}>
+                <a className="text-link" href={publicAuthHref(authContext, '/login')}>
                   {p('Sign in')}
                 </a>
               </>
             ) : (
               <>
                 {p('Need an account?')}{' '}
-                <a className="text-link" href={inviteToken ? `/register?invite=${encodeURIComponent(inviteToken)}` : '/register'}>
+                <a className="text-link" href={publicAuthHref(authContext, '/register')}>
                   {p('Create one')}
                 </a>
               </>
             )}
           </p>
           {!register && (
-            <a className="text-link public-auth-help" href="/findPwd">
+            <a className="text-link public-auth-help" href={publicAuthHref(authContext, '/findPwd')}>
               {p('Recover account access')}
             </a>
           )}
