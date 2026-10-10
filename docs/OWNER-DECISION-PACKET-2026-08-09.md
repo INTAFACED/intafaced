@@ -100,12 +100,12 @@ That is the pattern. **A seeded rate in source is indistinguishable from a decid
 
 Both landed in `19340c9e` as placeholders, and unlike the leverage cap **these genuinely are §8 item 8** — they gate whether a mark may liquidate.
 
-- **`DEFAULT_MIN_BEST_LEVEL_NOTIONAL = '100'`** — absolute floor, quote units per best level.
-- **`DEFAULT_MIN_BEST_LEVEL_BPS_OF_NOTIONAL = 100`** (1%) — the best level must also carry this fraction of the position it is pricing.
+- **`DEFAULT_MIN_BEST_LEVEL_NOTIONAL`** — absolute floor, quote units per best level. The source string is a blank placeholder.
+- **`DEFAULT_MIN_BEST_LEVEL_BPS_OF_NOTIONAL`** — the best level must also carry a fraction of the position it is pricing. The source string is a blank placeholder.
 
-The relative one exists because the absolute one alone was exploited: **two orders worth ~120 quote units priced the close of a 1,000,000 notional position and extracted 190,000 USDT.** Raising the absolute number does not fix that — it moves the size at which the same arithmetic works and makes ordinary markets unquotable on the way past.
+The relative one exists because the absolute one alone was exploited: **two orders worth ~120 quote units priced the close of a 1,000,000 notional position and extracted 190,000 USDT.** Raising the absolute placeholder does not fix that — it moves the size at which the same arithmetic works and makes ordinary markets unquotable on the way past.
 
-**Recommendation: keep both at the shipped values until a market is actually listed with real depth**, then set them from observed book data rather than from judgement. I have no evidence for a better number and neither does anyone else yet.
+**Those placeholder strings are not the live liquidation gate.** A blank price or limit stays blank: refuse-closed until an owner publishes a magnitude. Do not invent one, and do not keep the shipped placeholders in their place.
 
 ## 5 · Which account funds realised futures profit
 
