@@ -132,9 +132,12 @@
  *     the `node dist/….js` in `scripts.start`), mapped `dist/*.js` → `src/*.ts` —
  *     not a hardcoded `index.ts`, so a service that moves its entry moves this
  *     with it instead of quietly falling out of the graph;
- *   · the import graph is walked transitively from those entrypoints. `import
- *     type` is NOT a mount: a type-only edge is erased at compile time and
- *     mounts no handler;
+ *   · the import graph is walked transitively from those entrypoints. A
+ *     leading `import type` is NOT a mount, and neither is an inline type
+ *     group (`import { type Foo }` or `import { type Foo, type Bar }`): the
+ *     edge is erased and mounts no handler. `import { type Foo, bar }` still
+ *     mounts, because `bar` is a value. Publish or subscribe in a file reached
+ *     only by a type-only edge is not credited;
  *   · a service "has a bus" when something in ITS reachable set constructs one.
  *     Keyed on the `EventBus` name suffix rather than on `JetStreamEventBus`
  *     exactly, for the same reason the relay rule keys on the type rather than
@@ -538,7 +541,70 @@ function entrypointFromManifest(serviceDir, text, known) {
  * A readable `scripts.start` of `node dist/….js` maps to `src/….ts` when that
  * file is in the walk. A missing manifest is not a fixture here — that path
  * still returns null.
+ *
+ * `import { type Foo }` and `import { type Foo, type Bar }` are not mounts.
+ * `import { type Foo, bar }` is, because `bar` is a value. A leading
+ * `import type` stays not a mount. Publish or subscribe in a file reached
+ * only by an inline type import is not credited.
  */
+/**
+ * `import … from '…'` and `export … from '…'`. A leading `type` is captured so
+ * it can be rejected. An inline group is rejected only when every specifier is
+ * `type Name`: that import is erased and mounts nothing. One value binding
+ * keeps the edge. Counting a type-only edge would let a service "wire" a
+ * subscriber by importing its payload type.
+ *
+ * `type as Alias` is the value named `type`, not a type modifier. `import {}`
+ * still evaluates the module.
+ *
+ * Regex literals, never assembled from a template — `\s` inside a template
+ * becomes the letter s and a mutation of that survives.
+ */
+const IMPORT_FROM = /\b(?:import|export)\s+(type\s+)?([^;'"]*?)\bfrom\s*('[^']*'|"[^"]*")/g;
+/** `import './side-effect.js'` — no bindings, still a mount. */
+const IMPORT_BARE = /\bimport\s*('[^']*'|"[^"]*")/g;
+
+/** `type Name` or `type Name as Alias`. Not the value `type`, and not `type as Alias`. */
+function isInlineTypeSpecifier(spec) {
+  return /^type\s+(?!as\b)[A-Za-z_$][\w$]*\b/.test(spec);
+}
+
+/**
+ * True when the clause keeps a runtime binding. The leading `import type` /
+ * `export type` is rejected by the caller before this runs.
+ */
+function clauseHasValueBinding(clause) {
+  const text = clause.trim();
+  if (text === '') return false;
+  const open = text.indexOf('{');
+  if (open === -1) return true;
+  const close = text.lastIndexOf('}');
+  const head = text.slice(0, open).replace(/,\s*$/, '').trim();
+  if (head !== '') return true;
+  const named = text.slice(open + 1, close === -1 ? text.length : close);
+  const specs = named
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s !== '');
+  if (specs.length === 0) return true;
+  return specs.some((spec) => !isInlineTypeSpecifier(spec));
+}
+
+/** Every static import edge. `mounts` is false when the edge is erased. */
+function* importEdges(src) {
+  IMPORT_FROM.lastIndex = 0;
+  let m;
+  while ((m = IMPORT_FROM.exec(src))) {
+    yield { spec: m[3].slice(1, -1), mounts: !m[1] && clauseHasValueBinding(m[2]) };
+  }
+  IMPORT_BARE.lastIndex = 0;
+  while ((m = IMPORT_BARE.exec(src))) yield { spec: m[1].slice(1, -1), mounts: true };
+}
+
+function* importSpecifiers(src) {
+  for (const edge of importEdges(src)) if (edge.mounts) yield edge.spec;
+}
+
 function selfTestBusAware() {
   const fails = [];
   const assert = (cond, msg) => {
@@ -697,6 +763,84 @@ function selfTestBusAware() {
   assert(badJson !== null && badJson.message.includes('svc-wire'), 'invalid JSON error did not name the service');
   assert(badJson !== null && badJson.message.includes('not JSON'), 'invalid JSON error did not say the manifest is not JSON');
 
+  const handlerReachedOnlyByType = [
+    "import { EventBus } from '@intafaced/events';",
+    'export function start(bus: EventBus) {',
+    "  bus.publish('orderFilled');",
+    "  bus.subscribe('orderFilled');",
+    '}',
+    '',
+  ].join('\n');
+  const inlineTypeOne = "import { type Foo } from './handler';\n";
+  const inlineTypeGroup = "import { type Foo, type Bar } from './handler';\n";
+  const inlineTypeLeading = "import type { Foo } from './handler';\n";
+  const inlineTypeMixed = "import { type Foo, bar } from './handler';\n";
+  const inlineTypeGroupMultiline = "import {\n  type Foo,\n  type Bar,\n} from './handler';\n";
+  const inlineTypeMixedMultiline = "import {\n  type Foo,\n  bar,\n} from './handler';\n";
+  const edgesOf = (src) => [...importEdges(blankComments(src))];
+  const edgeOne = edgesOf(inlineTypeOne);
+  const edgeGroup = edgesOf(inlineTypeGroup);
+  const edgeLeading = edgesOf(inlineTypeLeading);
+  const edgeGroupMultiline = edgesOf(inlineTypeGroupMultiline);
+  const seenTypeOnly = (edges, label) => {
+    assert(edges.length === 1 && edges[0].spec === './handler' && edges[0].mounts === false, `${label} was a mount`);
+  };
+  seenTypeOnly(edgeOne, 'import { type Foo }');
+  seenTypeOnly(edgeGroup, 'import { type Foo, type Bar }');
+  seenTypeOnly(edgeGroupMultiline, 'multiline import { type Foo, type Bar }');
+  seenTypeOnly(edgeLeading, 'leading import type');
+  assert([...importSpecifiers(blankComments(inlineTypeMixed))].join() === './handler', 'import { type Foo, bar } was not a mount');
+  assert(
+    [...importSpecifiers(blankComments(inlineTypeMixedMultiline))].join() === './handler',
+    'multiline import { type Foo, bar } was not a mount',
+  );
+  const exportInline = edgesOf("export { type Foo } from './handler';\n");
+  seenTypeOnly(exportInline, 'export { type Foo }');
+  assert(
+    [...importSpecifiers(blankComments("export { type Foo, bar } from './handler';\n"))].join() === './handler',
+    'export { type Foo, bar } was not a mount',
+  );
+
+  const handlerRel = 'services/svc-wire/src/handler.ts';
+  const reachedVia = (entrySrc) => {
+    const mounted = new Set();
+    const stack = ['services/svc-wire/src/index.ts'];
+    const graph = new Map([
+      ['services/svc-wire/src/index.ts', entrySrc],
+      [handlerRel, handlerReachedOnlyByType],
+    ]);
+    while (stack.length > 0) {
+      const rel = stack.pop();
+      if (mounted.has(rel)) continue;
+      mounted.add(rel);
+      const src = graph.get(rel);
+      if (src === undefined) continue;
+      for (const spec of importSpecifiers(blankComments(src))) {
+        if (spec === './handler' || spec === './handler.js' || spec === './handler.ts') stack.push(handlerRel);
+      }
+    }
+    return mounted;
+  };
+  const creditedVia = (entrySrc) => {
+    if (!reachedVia(entrySrc).has(handlerRel)) return [];
+    return catalogCallCollisions(blankComments(handlerReachedOnlyByType));
+  };
+  assert(creditedVia(inlineTypeOne).length === 0, 'publish or subscribe reached only by import { type Foo } was credited');
+  assert(
+    creditedVia(inlineTypeGroup).length === 0,
+    'publish or subscribe reached only by import { type Foo, type Bar } was credited',
+  );
+  assert(creditedVia(inlineTypeLeading).length === 0, 'publish or subscribe reached only by import type was credited');
+  const mixedCredit = creditedVia(inlineTypeMixed);
+  assert(
+    mixedCredit.some((h) => h.event === 'orderFilled' && h.verb === 'publish'),
+    'import { type Foo, bar } did not credit publish',
+  );
+  assert(
+    mixedCredit.some((h) => h.event === 'orderFilled' && h.verb === 'subscribe'),
+    'import { type Foo, bar } did not credit subscribe',
+  );
+
   if (fails.length > 0) {
     console.error(`event-wiring --self-test FAIL (${fails.length})`);
     for (const f of fails) console.error(`  · ${f}`);
@@ -712,6 +856,10 @@ function selfTestBusAware() {
   console.log('  fixture template-block-comment: bus-aware false');
   for (const reason of templateBlockReasons) console.log(`  fixture template-block-comment: ${reason}`);
   console.log('  fixture real import: bus-aware true; check 4 did not report the orderFilled call');
+  console.log('  fixture import { type Foo }: not a mount; publish and subscribe not credited');
+  console.log('  fixture import { type Foo, type Bar }: not a mount; publish and subscribe not credited');
+  console.log('  fixture import type: not a mount; publish and subscribe not credited');
+  console.log('  fixture import { type Foo, bar }: mount; publish and subscribe credited');
   console.log(`  fixture readable start script: ${startEntry}`);
   console.log(`  fixture invalid JSON: ${badJson.name} names ${badJson.service}`);
   process.exit(0);
@@ -1219,30 +1367,6 @@ if (existsSync(servicesDir)) {
     }
     if (entry !== null) entrypoints.push([name, entry]);
   }
-}
-
-/**
- * `import … from '…'` and `export … from '…'`, with `import type` captured so it
- * can be REJECTED. A type-only import is erased by the compiler: it mounts
- * nothing, and counting it would let a service "wire" a subscriber by importing
- * its payload type.
- *
- * Regex literals, never assembled from a template — see the note further down
- * about `\s` becoming the letter s and surviving a mutation test.
- */
-const IMPORT_FROM = /\b(?:import|export)\s+(type\s+)?[^;'"]*?\bfrom\s*('[^']*'|"[^"]*")/g;
-/** `import './side-effect.js'` — no bindings, still a mount. */
-const IMPORT_BARE = /\bimport\s*('[^']*'|"[^"]*")/g;
-
-function* importSpecifiers(src) {
-  IMPORT_FROM.lastIndex = 0;
-  let m;
-  while ((m = IMPORT_FROM.exec(src))) {
-    if (m[1]) continue; // `import type` — erased at compile time, mounts nothing.
-    yield m[2].slice(1, -1);
-  }
-  IMPORT_BARE.lastIndex = 0;
-  while ((m = IMPORT_BARE.exec(src))) yield m[1].slice(1, -1);
 }
 
 /** A relative specifier, or a workspace package. Anything else is not ours to follow. */
