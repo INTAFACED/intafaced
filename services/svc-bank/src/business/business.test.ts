@@ -261,7 +261,8 @@ describe('maker/checker dual control with ledger holds', () => {
     await fund(MAKER, 'USDT', '5000');
 
     // Opening lookup already missed. The row appears while the hold posts, so
-    // the insert loses ON CONFLICT and has to judge the row that won.
+    // the insert loses ON CONFLICT and has to judge the row that won. An
+    // approved over-threshold winner names a checker who is not the maker (0029).
     async function proposeAgainst(input: {
       clientId: string;
       toSpaceId: string;
@@ -281,10 +282,11 @@ describe('maker/checker dual control with ledger holds', () => {
         if (req.idempotencyKey === `bank.business.hold:${input.clientId}`) {
           await sql`
             INSERT INTO bank.business_approvals
-              (id, account_id, maker_user_id, from_space_id, to_space_id, asset_id, amount, status,
+              (id, account_id, maker_user_id, checker_user_id, from_space_id, to_space_id, asset_id, amount, status,
                transfer_id, hold_ledger_tx_id, ledger_tx_id, decided_at)
             VALUES (
               ${input.clientId}::uuid, ${account.id}::uuid, ${MAKER},
+              ${input.existing.status === 'approved' ? CHECKER : null},
               ${primary.id}::uuid, ${input.existing.toSpaceId}::uuid,
               'USDT', ${formatAmount(input.existing.amount)}::numeric,
               ${input.existing.status}::bank.business_approval_status,
