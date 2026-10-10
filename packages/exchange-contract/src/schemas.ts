@@ -45,6 +45,18 @@ function nonNegativeDecimal(value: string): boolean {
   return !value.startsWith('-');
 }
 
+/**
+ * Scale a string `decimal` already accepted. 18 places stay exact as a bigint.
+ * A JS number collapses distinct ledger amounts onto one value.
+ */
+function scaledDecimal(value: string): bigint | null {
+  if (!decimal.safeParse(value).success) return null;
+  const negative = value.startsWith('-');
+  const [whole = '0', frac = ''] = (negative ? value.slice(1) : value).split('.');
+  const scaled = BigInt(whole) * 10n ** 18n + BigInt(frac.padEnd(18, '0') || '0');
+  return negative ? -scaled : scaled;
+}
+
 const positiveDecimalString = decimal.refine(positiveDecimal, 'must be a positive decimal string');
 const nonNegativeDecimalString = decimal.refine(nonNegativeDecimal, 'must be a non-negative decimal string');
 
@@ -382,34 +394,46 @@ export const orderSideSchema = z.enum(['buy', 'sell']);
 export const timeInForceSchema = z.enum(['GTC', 'IOC', 'FOK', 'PO', 'GTD', 'GTT']);
 export const orderStatusSchema = z.enum(['open', 'closed', 'canceled', 'expired', 'rejected']);
 
-export const orderSchema = z.object({
-  id: z.string(),
-  clientOrderId: z.string().nullable(),
-  timestamp: timestampMs,
-  datetime: isoDatetime,
-  lastTradeTimestamp: timestampMs.nullable(),
-  symbol: z.string(),
-  type: orderTypeSchema,
-  side: orderSideSchema,
-  timeInForce: timeInForceSchema.nullable(),
-  postOnly: z.boolean(),
-  reduceOnly: z.boolean(),
-  price: decimal.nullable(),
-  stopPrice: decimal.nullable(),
-  average: decimal.nullable(),
-  amount: decimal,
-  filled: decimal,
-  remaining: decimal,
-  /**
-   * Quote notional of fills. `"0"` when unfilled. `null` when filled but
-   * quote is not known without loading fills (e.g. market sell — no limit
-   * price, no protectionPrice). Never invent a confident `"0"` for that case.
-   */
-  cost: decimal.nullable(),
-  status: orderStatusSchema,
-  fee: z.object({ cost: decimal, currency: z.string() }).nullable(),
-  trades: z.array(tradeSchema),
-});
+export const orderSchema = z
+  .object({
+    id: z.string(),
+    clientOrderId: z.string().nullable(),
+    timestamp: timestampMs,
+    datetime: isoDatetime,
+    lastTradeTimestamp: timestampMs.nullable(),
+    symbol: z.string(),
+    type: orderTypeSchema,
+    side: orderSideSchema,
+    timeInForce: timeInForceSchema.nullable(),
+    postOnly: z.boolean(),
+    reduceOnly: z.boolean(),
+    price: decimal.nullable(),
+    stopPrice: decimal.nullable(),
+    average: decimal.nullable(),
+    amount: decimal,
+    filled: decimal,
+    remaining: decimal,
+    /**
+     * Quote notional of fills. `"0"` when unfilled. `null` when filled but
+     * quote is not known without loading fills (e.g. market sell — no limit
+     * price, no protectionPrice). Never invent a confident `"0"` for that case.
+     */
+    cost: decimal.nullable(),
+    status: orderStatusSchema,
+    fee: z.object({ cost: decimal, currency: z.string() }).nullable(),
+    trades: z.array(tradeSchema),
+  })
+  .superRefine((order, ctx) => {
+    if (order.price !== null || order.cost === null) return;
+    const filled = scaledDecimal(order.filled);
+    const cost = scaledDecimal(order.cost);
+    if (filled === null || cost === null || filled <= 0n || cost !== 0n) return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['cost'],
+      message: 'a filled order cannot claim a zero cost without a price',
+    });
+  });
 export type Order = z.infer<typeof orderSchema>;
 
 export const createOrderRequestSchema = z

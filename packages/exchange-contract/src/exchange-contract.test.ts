@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseSymbol, formatSymbol, symbolsEqual, SymbolError } from './symbols.js';
 import {
   createOrderRequestSchema,
+  orderSchema,
   orderBookSchema,
   balancesSchema,
   decimal,
@@ -228,6 +229,44 @@ describe('order validation at the boundary', () => {
     if (!result.success) {
       expect(result.error.issues.some((issue) => issue.message === 'GTD/GTT requires expireAt; the engine does not invent one')).toBe(true);
     }
+  });
+});
+
+describe('order cost is "0" only when unfilled', () => {
+  const order = (filled: '0' | '1', cost: '0' | null) => ({
+    id: 'ord-1',
+    clientOrderId: null,
+    timestamp: 1750000000000,
+    datetime: new Date(1750000000000).toISOString(),
+    lastTradeTimestamp: null,
+    symbol: 'BTC/USDT',
+    type: 'market' as const,
+    side: 'sell' as const,
+    timeInForce: null,
+    postOnly: false,
+    reduceOnly: false,
+    price: null,
+    stopPrice: null,
+    average: null,
+    amount: '1',
+    filled,
+    remaining: '0',
+    cost,
+    status: 'closed' as const,
+    fee: null,
+    trades: [],
+  });
+
+  it('parses cost "0" when filled is "0" and price is null', () => {
+    expect(orderSchema.safeParse(order('0', '0')).success).toBe(true);
+  });
+
+  it('parses cost null when filled is "1" and price is null', () => {
+    expect(orderSchema.safeParse(order('1', null)).success).toBe(true);
+  });
+
+  it('rejects cost "0" when filled is "1" and price is null', () => {
+    expect(orderSchema.safeParse(order('1', '0')).success).toBe(false);
   });
 });
 
