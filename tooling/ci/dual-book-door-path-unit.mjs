@@ -81,6 +81,32 @@ function methodBodies(source, signatureRe) {
   return bodies;
 }
 
+/** Text inside the call whose '(' is at openIndex. A [^)]* capture stops inside getRequestURI(). */
+function callArg(source, openIndex) {
+  let depth = 0;
+  for (let i = openIndex; i < source.length; i++) {
+    const c = source[i];
+    if (c === '"') {
+      i++;
+      while (i < source.length) {
+        if (source[i] === '\\') {
+          i += 2;
+          continue;
+        }
+        if (source[i] === '"') break;
+        i++;
+      }
+      continue;
+    }
+    if (c === '(') depth++;
+    else if (c === ')') {
+      depth--;
+      if (depth === 0) return source.slice(openIndex + 1, i);
+    }
+  }
+  return null;
+}
+
 /** Locals assigned from pathForMatch of the request URI, not a constant or a helper argument. */
 function decodedRequestNames(preBody) {
   const uriLocals = new Set();
@@ -90,11 +116,14 @@ function decodedRequestNames(preBody) {
     uriLocals.add(m[1]);
   }
   const decoded = [];
-  for (const m of preBody.matchAll(
-    /\b(?:final\s+)?String\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*pathForMatch\s*\(\s*([^)]*)\)/g,
-  )) {
-    const arg = m[2].trim();
-    if (/^request\s*\.\s*getRequestURI\s*\(\s*\)$/.test(arg) || uriLocals.has(arg)) decoded.push(m[1]);
+  const head = /\b(?:final\s+)?String\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*pathForMatch\s*\(/g;
+  for (const m of preBody.matchAll(head)) {
+    const open = m.index + m[0].length - 1;
+    if (preBody[open] !== '(') continue;
+    const arg = callArg(preBody, open);
+    if (arg == null) continue;
+    const trimmed = arg.trim();
+    if (/^request\s*\.\s*getRequestURI\s*\(\s*\)$/.test(trimmed) || uriLocals.has(trimmed)) decoded.push(m[1]);
   }
   return decoded;
 }
