@@ -1,5 +1,5 @@
 import { t as copyText, Text } from './copy';
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { Button, DataTable, EmptyState, Failure, Field, Page } from '../../shared/ui';
 import { decimalSchema, parseAmount } from '../../shared/money';
@@ -29,7 +29,9 @@ import type { ApiResult } from '../../shared/api';
 import { earnCopy } from './earn-copy';
 import { LoanHealth, currentLoanPreflight, loanActionAllowed, loanStatusNote } from './LoanHealth';
 import { loanCopy } from './loan-copy';
-import { MoneyActivity, ScheduleExecutions } from './activity';
+import { MoneyActivity } from './activity';
+import { ExecutionHistory, StandingFacts, currentInstruction, useStandingView, type StandingInstruction } from './ScheduleHistory';
+import { standingCopy } from './standing-copy';
 import { SelectedSpace } from './SelectedSpace';
 import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
@@ -270,101 +272,220 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
     </BankPage>
   );
 }
-function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
-  const [limit, setLimit] = usePageLimit();
-  const [selected, setSelected] = useState<{ id: string; asset: string } | null>(null);
-  const query = useBankRead('transfers.listSchedules', { limit });
+function ScheduleActions({
+  row,
+  open,
+  disabled = false,
+}: {
+  row: StandingInstruction;
+  open: (spec: ActionSpec) => void;
+  disabled?: boolean;
+}) {
+  const current = useStandingView();
+  const protectedOpen = (spec: ActionSpec) => {
+    if (!disabled && current()) open(spec);
+  };
   return (
-    <>
+    <div className="actions">
+      {' '}
+      {row.status !== 'cancelled' && (
+        <>
+          <Button
+            variant="secondary"
+            disabled={disabled}
+            onClick={() =>
+              protectedOpen({
+                title: row.status === 'paused' ? copyText('rooms.resume.standing.order') : copyText('rooms.pause.standing.order'),
+                procedure: row.status === 'paused' ? 'transfers.resume' : 'transfers.pause',
+                facts: [
+                  [copyText('rooms.schedule'), row.id],
+                  [copyText('rooms.amount'), amount(row.amount, row.assetId)],
+                ],
+                notes: [
+                  row.status === 'paused'
+                    ? copyText('rooms.occurrences.missed.while.paused.are.skipped.they')
+                    : copyText('rooms.pause.future.scheduled.transfers.past.posted.transfers'),
+                ],
+                input: () => ({ scheduleId: row.id }),
+              })
+            }
+          >
+            {row.status === 'paused' ? copyText('rooms.resume') : copyText('rooms.pause')}
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={disabled}
+            onClick={() =>
+              protectedOpen({
+                title: copyText('rooms.cancel.standing.order'),
+                procedure: 'transfers.cancel',
+                notes: [copyText('rooms.cancel.future.occurrences.this.does.not.reverse')],
+                facts: [[copyText('rooms.schedule'), row.id]],
+                input: () => ({ scheduleId: row.id }),
+              })
+            }
+          >
+            <Text k="rooms.cancel" />
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
+  const { Copy, t, languageFor, directionFor } = standingCopy.useCopy();
+  const current = useStandingView();
+  const [limit, setLimit] = usePageLimit();
+  const [selected, setSelected] = useState<{ id: string; serial: number } | null>(null);
+  const serial = useRef(0);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const listHeading = useRef<HTMLSpanElement>(null);
+  const query = useBankRead('transfers.listSchedules', { limit });
+  const rows = query.resource.status === 'ready' ? query.resource.data : [];
+  const instruction = selected ? currentInstruction(rows, selected.id) : undefined;
+  const other = instruction ? rows.filter((row) => row.id !== instruction.id) : rows;
+  const refresh = () => {
+    if (current()) query.reload();
+  };
+  const arrive = (element: HTMLElement | null) => {
+    if (!current() || document.querySelector('[role="dialog"]')) return;
+    element?.focus({ preventScroll: true });
+    element?.scrollIntoView({ block: 'start' });
+  };
+  useLayoutEffect(() => {
+    if (selected) arrive(heading.current);
+  }, [selected?.serial]);
+  return (
+    <div className="money-standing-orders" lang={languageFor('instructions')} dir={directionFor('instructions')}>
+      {selected && (
+        <section className="money-selected-instruction" aria-labelledby="money-selected-instruction-heading">
+          <header>
+            <h2 id="money-selected-instruction-heading" ref={heading} tabIndex={-1}>
+              <Copy k="outcomes" />
+            </h2>
+            <dl className="money-standing-reference">
+              <dt>
+                <Copy k="instruction" />
+              </dt>
+              <dd lang="zxx" dir="ltr">
+                {instruction?.id ?? selected.id}
+              </dd>
+            </dl>
+          </header>
+          <ResourceView resource={query.resource} reload={refresh}>
+            {() =>
+              instruction ? (
+                <>
+                  <StandingFacts instruction={instruction} />
+                  <ScheduleActions row={instruction} open={open} />
+                  <ExecutionHistory id={instruction.id} asset={instruction.assetId} refreshInstructions={refresh} />
+                </>
+              ) : (
+                <div className="money-instruction-missing" role="status">
+                  <h3>
+                    <Copy k={rows.some((row) => row.id.toLowerCase() === selected.id.toLowerCase()) ? 'conflict' : 'missing'} />
+                  </h3>
+                  <p>
+                    <Copy k={rows.some((row) => row.id.toLowerCase() === selected.id.toLowerCase()) ? 'conflictNote' : 'missingNote'} />
+                  </p>
+                  <Button variant="secondary" onClick={refresh}>
+                    <Copy k="refresh" />
+                  </Button>
+                </div>
+              )
+            }
+          </ResourceView>
+          <Button variant="ghost" onClick={() => arrive(listHeading.current)}>
+            <Copy k="return" />
+          </Button>
+        </section>
+      )}
       <Section
-        title={copyText('rooms.standing.orders')}
+        title={
+          <span id="money-standing-list-heading" ref={listHeading} tabIndex={-1}>
+            <Copy k={instruction ? 'other' : 'instructions'} />
+          </span>
+        }
         actions={
-          <Button variant="ghost" onClick={query.reload}>
-            <Text k="rooms.refresh" />
+          <Button variant="ghost" onClick={refresh}>
+            <Copy k="refresh" />
           </Button>
         }
       >
-        <ResourceView resource={query.resource} reload={query.reload}>
-          {(rows) => (
+        <ResourceView resource={query.resource} reload={refresh}>
+          {() => (
             <>
-              {rows.length ? (
-                rows.map((row) => (
-                  <article className="money-record" key={row.id}>
+              {other.length ? (
+                other.map((row, index) => (
+                  <article className="money-record money-standing-record" key={`${row.id}:${index}`}>
                     <header>
                       <div>
-                        <h3>
-                          {row.cadence}
-                          <Text k="rooms.transfer.2" />
+                        <h3 lang="und" dir="auto">
+                          {row.cadence} · {row.status}
                         </h3>
+                        <p className="money-standing-row-reference">
+                          <span className="money-visually-hidden">
+                            <Copy k="reference" />
+                          </span>
+                          <bdi lang="zxx" dir="ltr">
+                            {row.id}
+                          </bdi>
+                        </p>
                         <p>
-                          {row.status}
-                          <Text k="rooms.next.run" />
-                          {date(row.nextRunAt)}
+                          <Copy k="nextRun" /> ·{' '}
+                          <span lang="und" dir="auto">
+                            {date(row.nextRunAt)}
+                          </span>
                         </p>
                       </div>
-                      <strong className="numeric">{funds(row.amount, row.assetId)}</strong>
+                      <strong className="numeric" lang="zxx" dir="ltr">
+                        {funds(row.amount, row.assetId)}
+                      </strong>
                     </header>
                     <div className="actions">
-                      <Button variant="secondary" onClick={() => setSelected({ id: row.id, asset: row.assetId })}>
+                      <Button
+                        variant="secondary"
+                        aria-label={t('inspect', { reference: row.id })}
+                        lang={languageFor('inspect')}
+                        dir={directionFor('inspect')}
+                        disabled={!currentInstruction(rows, row.id)}
+                        aria-controls="money-selected-instruction-heading"
+                        onClick={() => {
+                          if (current() && currentInstruction(rows, row.id) === row && !document.querySelector('[role="dialog"]'))
+                            setSelected({ id: row.id, serial: ++serial.current });
+                        }}
+                      >
                         <Text k="rooms.execution.history" />
                       </Button>
-                      {row.status !== 'cancelled' && (
-                        <>
-                          <Button
-                            variant="secondary"
-                            onClick={() =>
-                              open({
-                                title:
-                                  row.status === 'paused'
-                                    ? copyText('rooms.resume.standing.order')
-                                    : copyText('rooms.pause.standing.order'),
-                                procedure: row.status === 'paused' ? 'transfers.resume' : 'transfers.pause',
-                                facts: [
-                                  [copyText('rooms.schedule'), row.id],
-                                  [copyText('rooms.amount'), amount(row.amount, row.assetId)],
-                                ],
-                                notes: [
-                                  row.status === 'paused'
-                                    ? copyText('rooms.occurrences.missed.while.paused.are.skipped.they')
-                                    : copyText('rooms.pause.future.scheduled.transfers.past.posted.transfers'),
-                                ],
-                                input: () => ({ scheduleId: row.id }),
-                              })
-                            }
-                          >
-                            {row.status === 'paused' ? copyText('rooms.resume') : copyText('rooms.pause')}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={() =>
-                              open({
-                                title: copyText('rooms.cancel.standing.order'),
-                                procedure: 'transfers.cancel',
-                                notes: [copyText('rooms.cancel.future.occurrences.this.does.not.reverse')],
-                                facts: [[copyText('rooms.schedule'), row.id]],
-                                input: () => ({ scheduleId: row.id }),
-                              })
-                            }
-                          >
-                            <Text k="rooms.cancel" />
-                          </Button>
-                        </>
-                      )}
+                      <ScheduleActions row={row} open={open} disabled={!currentInstruction(rows, row.id)} />
                     </div>
                   </article>
                 ))
               ) : (
-                <NoRows title={copyText('rooms.no.standing.orders.returned')}>
-                  <Text k="rooms.a.scheduled.transfer.appears.here.after.the" />
-                </NoRows>
+                <div className="money-instruction-missing" role="status">
+                  <h3>
+                    <Copy k={instruction ? 'noOther' : 'noInstructions'} />
+                  </h3>
+                  <p>
+                    <Copy k="listWindow" />
+                  </p>
+                </div>
               )}
-              <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
+              <Continuation
+                count={rows.length}
+                limit={limit}
+                onMore={() => {
+                  if (current()) setLimit(Math.min(200, limit + 50));
+                }}
+              />
+              <p className="money-caption">
+                <Copy k="listWindow" />
+              </p>
             </>
           )}
         </ResourceView>
       </Section>
-      {selected && <ScheduleExecutions id={selected.id} asset={selected.asset} />}
-    </>
+    </div>
   );
 }
 function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search: string }) {

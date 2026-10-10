@@ -331,6 +331,229 @@
   margin-bottom: 32px;
   min-width: 0;
 }
+
+.money-selected-instruction {
+  border-top: 2px solid var(--color-accent);
+  padding-top: 20px;
+  margin-bottom: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  min-width: 0;
+}
+.money-selected-instruction h2 {
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 600;
+}
+#money-selected-instruction-heading,
+#money-standing-list-heading {
+  scroll-margin-block-start: 24px;
+  scroll-margin-block-end: 84px;
+}
+.money-standing-reference {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+.money-standing-reference dt,
+.money-standing-facts dt,
+.money-execution-outcome dt {
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.money-standing-reference dd,
+.money-standing-facts dd,
+.money-execution-outcome dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.money-standing-facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.7fr) minmax(0, 1fr);
+  gap: 24px;
+}
+.money-standing-facts > div {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+.money-standing-facts > div:first-child dd {
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 500;
+}
+.money-standing-record .actions .actions {
+  display: contents;
+}
+.money-standing-row-reference {
+  overflow-wrap: anywhere;
+}
+.money-execution-history {
+  min-width: 0;
+}
+.money-execution-history > header {
+  padding: 12px 0;
+}
+.money-execution-history h3 {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+}
+.money-execution-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.money-execution-outcome {
+  border-top: 1px solid var(--color-divider);
+  padding: 20px 0;
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1.45fr) minmax(0, 1fr) minmax(0, 1.7fr);
+  gap: 8px 24px;
+  min-width: 0;
+}
+.money-execution-outcome > header {
+  display: contents;
+}
+.money-execution-outcome h4 {
+  margin: 0;
+  grid-column: 1;
+  grid-row: 1;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.money-execution-outcome dl {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  min-width: 0;
+}
+.money-execution-quantity {
+  grid-column: 2;
+  grid-row: 1;
+}
+.money-execution-status {
+  grid-column: 3;
+  grid-row: 1;
+}
+.money-execution-refusal {
+  grid-column: 3;
+  grid-row: 2;
+}
+.money-execution-ledger {
+  grid-column: 4;
+  grid-row: 1 / span 2;
+}
+.money-execution-quantity dd {
+  font-weight: 500;
+}
+.money-execution-ledger dd {
+  font-size: 13px;
+  line-height: 20px;
+}
+.money-execution-continuation {
+  border-top: 1px solid var(--color-divider);
+  padding-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.money-execution-continuation p {
+  flex-basis: 100%;
+}
+.money-instruction-missing {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  min-width: 0;
+}
+.money-instruction-missing p,
+.money-instruction-missing details {
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+.money-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (max-width: 1023px) {
+  .money-standing-facts {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px;
+  }
+  .money-standing-facts > div:first-child {
+    grid-column: 1 / -1;
+  }
+  .money-standing-facts > div:first-child dd {
+    font-size: 18px;
+    line-height: 24px;
+  }
+  .money-execution-outcome {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+    padding: 16px 0;
+  }
+  .money-execution-outcome h4 {
+    font-size: 16px;
+    line-height: 24px;
+  }
+  .money-execution-status {
+    grid-column: 2;
+    grid-row: 1;
+    text-align: right;
+  }
+  .money-execution-quantity {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .money-execution-refusal {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+  .money-execution-ledger {
+    grid-column: 1 / -1;
+    grid-row: 4;
+  }
+  .money-execution-quantity dd {
+    font-size: 16px;
+    line-height: 24px;
+  }
+  .money-execution-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+@media (max-width: 767px) {
+  .money-standing-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .money-selected-instruction > .button {
+    align-self: flex-start;
+  }
+}
 .money-overview-lane > .money-section,
 .money-action-lane > .money-section {
   margin-bottom: 0;

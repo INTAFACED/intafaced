@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
-import { Button, DataTable, Page, Tabs } from '../../shared/ui';
+import { Button, Page, Tabs } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { t, Text } from './copy';
+import { ScheduleExecutions } from './ScheduleHistory';
 import { onrampSchema, offrampSchema, scheduleSchema } from './contracts';
 import { Continuation, date, funds, NoRows, ResourceView, Section, useBankRead, usePageLimit } from './components';
 
@@ -213,43 +214,5 @@ function RecordDetails({ row }: { row: Record }) {
       {'simulated' in row && row.simulated && <p className="money-activity-coverage">{t('rooms.this.record.does.not.confirm.a.live')}</p>}
       {'cadence' in row && <ScheduleExecutions key={row.id} id={row.id} asset={row.assetId} />}
     </>
-  );
-}
-
-export function ScheduleExecutions({ id, asset }: { id: string; asset: string }) {
-  const [limit, setLimit] = usePageLimit();
-  const query = useBankRead('transfers.executions', { scheduleId: id, limit });
-  return (
-    <Section title={t('rooms.execution.outcomes')} description={t('rooms.each.due.occurrence.has.its.own.status')}>
-      <ResourceView resource={query.resource} reload={query.reload}>
-        {(rows) => (
-          <>
-            {rows.length ? (
-              <DataTable
-                headers={[t('rooms.occurrence'), t('rooms.amount'), t('rooms.status.refusal'), t('rooms.ledger.transaction')]}
-                label={t('rooms.schedule.execution.outcomes')}
-              >
-                {rows.map((row) => (
-                  <tr key={row.occurrence}>
-                    <td>{row.occurrence}</td>
-                    <td className="numeric">{funds(row.amount, asset)}</td>
-                    <td>
-                      {row.status}
-                      {row.rejectionCode && <small className="money-block">{row.rejectionCode}</small>}
-                    </td>
-                    <td>{row.ledgerTxId ?? t('rooms.no.posted.transaction')}</td>
-                  </tr>
-                ))}
-              </DataTable>
-            ) : (
-              <NoRows title={t('rooms.no.executions.returned')}>
-                <Text k="rooms.the.schedule.has.no.recorded.execution.on" />
-              </NoRows>
-            )}
-            <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
-          </>
-        )}
-      </ResourceView>
-    </Section>
   );
 }
