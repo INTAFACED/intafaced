@@ -393,12 +393,33 @@ function* objectLiterals(src) {
   }
 }
 
-/** One field of an entry, read as a run of `+`-joined string literals. */
+/**
+ * One field of an entry, read as a run of `+`-joined string literals.
+ *
+ * The key is matched only outside string literals. A reason that quotes
+ * `class: 'A'` or `event: 'someOtherSubject'` is prose, not that field, so
+ * the socket stays under the entry that was declared.
+ */
 function fieldOf(entryText, name) {
-  const re = new RegExp(name + ':\\s*((?:(?:' + STRING.source + ')\\s*\\+?\\s*)+)');
-  const m = re.exec(entryText);
-  if (m === null) return null;
-  return [...m[1].matchAll(new RegExp(STRING.source, 'g'))].map(([s]) => unquote(s)).join('');
+  const valueRe = new RegExp('(?:(?:' + STRING.source + ')\\s*\\+?\\s*)+');
+  let i = 0;
+  while (i < entryText.length) {
+    const c = entryText[i];
+    if (c === "'" || c === '"' || c === '`') {
+      i = skipString(entryText, i);
+      continue;
+    }
+    if (entryText.startsWith(name, i) && entryText[i + name.length] === ':') {
+      let j = i + name.length + 1;
+      while (j < entryText.length && /\s/.test(entryText[j])) j++;
+      const m = valueRe.exec(entryText.slice(j));
+      if (m !== null && m.index === 0) {
+        return [...m[0].matchAll(new RegExp(STRING.source, 'g'))].map(([s]) => unquote(s)).join('');
+      }
+    }
+    i++;
+  }
+  return null;
 }
 
 if (socketsBlock === null) {
