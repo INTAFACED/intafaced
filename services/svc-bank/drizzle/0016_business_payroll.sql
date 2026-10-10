@@ -2,6 +2,7 @@
 --
 -- One ledger post pays every line or none. These tables are RECORDS of a
 -- completed run (instruction amounts, write-once). No balance column.
+-- ledger_tx_id names that post: unique, and not a blank string.
 
 CREATE TABLE IF NOT EXISTS "bank"."business_payroll_runs" (
   "id" uuid PRIMARY KEY,
@@ -10,7 +11,9 @@ CREATE TABLE IF NOT EXISTS "bank"."business_payroll_runs" (
   "from_space_id" uuid NOT NULL,
   "asset_id" text NOT NULL,
   "ledger_tx_id" text NOT NULL,
-  "created_at" timestamptz NOT NULL DEFAULT now()
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT "business_payroll_runs_ledger_tx_id_key" UNIQUE ("ledger_tx_id"),
+  CONSTRAINT "business_payroll_runs_ledger_tx_id_nonblank" CHECK ("ledger_tx_id" <> '')
 );
 
 CREATE TABLE IF NOT EXISTS "bank"."business_payroll_lines" (
