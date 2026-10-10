@@ -30,6 +30,23 @@ import { scheduleKeySchema } from '@intafaced/contracts';
 /** Decimal string. The only representation of value that crosses this boundary. */
 export const decimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'amounts are decimal strings with at most 18 decimal places');
 
+/** Strictly greater than zero. Character scan only — never a JS number. */
+function positiveDecimal(value: string): boolean {
+  if (value.startsWith('-')) return false;
+  for (const char of value) {
+    if (char >= '1' && char <= '9') return true;
+  }
+  return false;
+}
+
+/** Zero is a present bound. A leading minus is not an absent limit. */
+function nonNegativeDecimal(value: string): boolean {
+  return !value.startsWith('-');
+}
+
+const positiveDecimalString = decimal.refine(positiveDecimal, 'must be a positive decimal string');
+const nonNegativeDecimalString = decimal.refine(nonNegativeDecimal, 'must be a non-negative decimal string');
+
 export const timestampMs = z.number().int().nonnegative();
 export const isoDatetime = z.string().datetime({ offset: true });
 
@@ -140,7 +157,8 @@ export const marketSchema = z.object({
   /** Taker/maker as a decimal rate (0.001 = 10 bps), per CCXT convention. */
   taker: decimal,
   maker: decimal,
-  contractSize: decimal.nullable(),
+  /** Null on spot. A contract size is a positive decimal string, never zero. */
+  contractSize: positiveDecimalString.nullable(),
   expiry: timestampMs.nullable(),
   expiryDatetime: isoDatetime.nullable(),
   strike: decimal.nullable(),
@@ -161,15 +179,20 @@ export const marketSchema = z.object({
   /**
    * The tick and lot themselves, as decimal strings — `price` is the minimum
    * price increment, `amount` the minimum quantity increment. Round to a
-   * multiple of these, not to a number of decimal places.
+   * multiple of these, not to a number of decimal places. Zero and a leading
+   * minus are refused. There is no invented floor.
    */
   precision: z.object({
-    amount: decimal,
-    price: decimal,
+    amount: positiveDecimalString,
+    price: positiveDecimalString,
   }),
+  /**
+   * Null is the only absent bound. `"0"` is a real bound. Amount and price
+   * reject a leading minus. Cost and leverage stay on the signed decimal.
+   */
   limits: z.object({
-    amount: z.object({ min: decimal.nullable(), max: decimal.nullable() }),
-    price: z.object({ min: decimal.nullable(), max: decimal.nullable() }),
+    amount: z.object({ min: nonNegativeDecimalString.nullable(), max: nonNegativeDecimalString.nullable() }),
+    price: z.object({ min: nonNegativeDecimalString.nullable(), max: nonNegativeDecimalString.nullable() }),
     cost: z.object({ min: decimal.nullable(), max: decimal.nullable() }),
     leverage: z.object({ min: decimal.nullable(), max: decimal.nullable() }),
   }),
@@ -301,15 +324,6 @@ export const orderSchema = z.object({
   trades: z.array(tradeSchema),
 });
 export type Order = z.infer<typeof orderSchema>;
-
-/** Strictly greater than zero. Character scan only — never a JS number. */
-function positiveDecimal(value: string): boolean {
-  if (value.startsWith('-')) return false;
-  for (const char of value) {
-    if (char >= '1' && char <= '9') return true;
-  }
-  return false;
-}
 
 export const createOrderRequestSchema = z
   .object({
