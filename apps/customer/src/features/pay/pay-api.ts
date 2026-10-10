@@ -2,6 +2,7 @@ import { payRefusal } from './copy';
 import { z, type ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { parseAmount } from '../../shared/money';
+import { createMerchantRefundApi } from './merchant-refund-api';
 import * as s from './schemas';
 import {
   createMinimalOriginalJournal,
@@ -493,6 +494,7 @@ export function createBusinessPayApi(
   userId: string | null,
   authority: PayBusinessAuthority | null,
   guard = payMutationGuard(),
+  refundPorts?: JournalPorts,
 ) {
   function access(scope: string) {
     if (!authority || !authority.verified || !authority.companyId || !authority.companyName || authority.userId !== userId || !userId)
@@ -553,6 +555,7 @@ export function createBusinessPayApi(
     merchant,
     query,
     mutate,
+    refund: createMerchantRefundApi({ api, userId, authority, access, merchant, ports: refundPorts }),
     access,
     guard,
     authority,

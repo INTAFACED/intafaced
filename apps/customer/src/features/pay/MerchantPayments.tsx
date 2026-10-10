@@ -8,6 +8,7 @@ import type { BusinessPayApi } from './pay-api';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
 import { validatedMutation, railHealthSchema } from './BusinessPay';
 import * as s from './schemas';
+import { MerchantRefund } from './MerchantRefund';
 
 export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'payments' | 'disputes' | 'reports' }) {
   const merchantId = pay.authority!.merchantId;
@@ -133,7 +134,9 @@ export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'pa
           )}
         </PayState>
       </PaySection>
-      {openedId && <PaymentDetail key={openedId} pay={pay} paymentId={openedId} refreshList={payments.reload} />}
+      {openedId && (
+        <PaymentDetail key={openedId} pay={pay} paymentId={openedId} refreshList={payments.reload} onBack={() => setOpenedId('')} />
+      )}
     </div>
   );
 }
@@ -295,10 +298,18 @@ function CreatePayment({ pay, onCreated }: { pay: BusinessPayApi; onCreated: (pa
     </PaySection>
   );
 }
-function PaymentDetail({ pay, paymentId, refreshList }: { pay: BusinessPayApi; paymentId: string; refreshList: () => void }) {
+function PaymentDetail({
+  pay,
+  paymentId,
+  refreshList,
+  onBack,
+}: {
+  pay: BusinessPayApi;
+  paymentId: string;
+  refreshList: () => void;
+  onBack: () => void;
+}) {
   const [limit, setLimit] = useState(50);
-  const [refund, setRefund] = useState('');
-  const [refundId, setRefundId] = useState(() => `refund:${paymentId}:${crypto.randomUUID()}`);
   const current = useResource(
     (signal) => pay.query('payment.get', { paymentId }, s.paymentSchema, signal),
     `pay:payment:${pay.authority!.merchantId}:${paymentId}`,
@@ -365,50 +376,6 @@ function PaymentDetail({ pay, paymentId, refreshList }: { pay: BusinessPayApi; p
                 />
               )}
             </div>
-            {['captured', 'settled', 'refunded'].includes(payment.status) &&
-              parseAmount(payment.capturedAmount) > parseAmount(payment.refundedAmount) && (
-                <>
-                  <Field
-                    label={payCopy.t('refundAmount', { assetId: payment.assetId })}
-                    value={refund}
-                    inputMode="decimal"
-                    onChange={(event) => setRefund(event.target.value)}
-                  />
-                  <ReviewedAction
-                    title={payCopy.t('refundPayment')}
-                    description={payCopy.t('refundTheReviewedCapturedQuantityThroughThe')}
-                    review={
-                      <PayDetails
-                        values={[
-                          [payCopy.t('refund'), `${refund} ${payment.assetId}`],
-                          [payCopy.t('refundIdentity'), refundId],
-                        ]}
-                      />
-                    }
-                    perform={() => {
-                      const parsed = s.positiveAmount.safeParse(refund);
-                      if (
-                        !parsed.success ||
-                        parseAmount(refund) > parseAmount(payment.capturedAmount) - parseAmount(payment.refundedAmount)
-                      )
-                        return Promise.resolve(payRefusal('enterAnExactPositiveAmountNoGreater', { reason: 'error' }));
-                      return pay.mutate(
-                        'payment.refund',
-                        { paymentId, amount: refund, refundId },
-                        s.paymentSchema,
-                        'pay:refund',
-                        `payment:${paymentId}`,
-                      );
-                    }}
-                    disabled={!refund || locked || Boolean(pay.access('pay:refund'))}
-                    onConfirmed={() => {
-                      setRefund('');
-                      setRefundId(`refund:${paymentId}:${crypto.randomUUID()}`);
-                      refresh();
-                    }}
-                  />
-                </>
-              )}
             <PaySection title={payCopy.t('recordedPaymentHistory')}>
               <PayState resource={history.resource} retry={history.reload} empty={payCopy.t('noPaymentHistoryReturned')}>
                 {(events) => (
@@ -429,6 +396,7 @@ function PaymentDetail({ pay, paymentId, refreshList }: { pay: BusinessPayApi; p
           </div>
         )}
       </PayState>
+      <MerchantRefund pay={pay} paymentId={paymentId} onRecorded={refresh} onBack={onBack} />
     </PaySection>
   );
 }
