@@ -269,7 +269,8 @@ test('Money activity keeps standing instructions distinct and reads the selected
   await expect(page.locator('.money-activity-row')).toHaveCount(1);
   await page.getByRole('button', { name: new RegExp('Inspect.*' + invitationId) }).click();
   await expect(page.locator('#money-record-details')).toContainText('bank.insufficient_available');
-  await expect(page.locator('#money-record-details')).toContainText('No posted transaction');
+  await expect(page.locator('#money-record-details')).toContainText('No ledger reference returned');
+  await expect(page.locator('#money-record-details')).not.toContainText('No posted transaction');
   await expect(page.getByRole('link', { name: /Manage standing orders/ })).toHaveAttribute('href', '/bank/transfers');
   await page.getByRole('button', { name: 'Incoming', exact: true }).click();
   await expect(page.locator('#money-record-details')).not.toContainText(invitationId);
