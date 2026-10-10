@@ -9,7 +9,20 @@ const schema = z.object({
   phoneChart: z.enum(['top', 'bottom', 'hidden']).default('top'),
   upColor: z.enum(['green', 'red']).default('green'),
   timeZone: z.enum(['UTC', 'UTC+8', 'device']).default('UTC'),
-  dailyStart: z.enum(['nativeUTC', 'utc8']).default('nativeUTC'),
+  dailyStart: z.enum(['nativeUTC', 'utc8', 'zoned']).default('nativeUTC'),
+  dailyZone: z
+    .string()
+    .max(100)
+    .default('America/New_York')
+    .transform((value, context) => {
+      try {
+        if (!/^[A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)*$/.test(value.trim())) throw new Error();
+        return new Intl.DateTimeFormat('en', { timeZone: value.trim() }).resolvedOptions().timeZone;
+      } catch {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: 'Unsupported time zone' });
+        return z.NEVER;
+      }
+    }),
   showOrders: z.boolean().default(true),
   showFills: z.boolean().default(false),
   confirmSend: z.boolean().default(true),
@@ -29,6 +42,26 @@ try {
   /* Device storage is optional. */
 }
 const listeners = new Set<() => void>();
+let dailyEpoch = 0;
+let observedDaily = `${snapshot.dailyStart}:${snapshot.dailyZone}`;
+function observeDaily(value: Preferences) {
+  const identity = `${value.dailyStart}:${value.dailyZone}`;
+  if (identity !== observedDaily) {
+    dailyEpoch++;
+    observedDaily = identity;
+  }
+}
+export function currentDailyPreferenceEpoch() {
+  return dailyEpoch;
+}
+export function useDailyPreferenceEpoch() {
+  return useSyncExternalStore((notify) => {
+    listeners.add(notify);
+    return () => {
+      listeners.delete(notify);
+    };
+  }, currentDailyPreferenceEpoch);
+}
 function notifyChanges() {
   for (const notify of [...listeners]) notify();
 }
@@ -36,8 +69,20 @@ if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
     if (event.key !== key && event.key !== null) return;
     let next: Preferences;
+    const previousEpoch = dailyEpoch;
     try {
       if (event.storageArea !== localStorage) return;
+      // Observe each valid departure even when queued A→B→A events have
+      // already settled back to A in storage. Never install an old value.
+      for (const value of [event.oldValue, event.newValue]) {
+        try {
+          const described = schema.safeParse(value === null ? {} : JSON.parse(value));
+          if (described.success) observeDaily(described.data);
+        } catch {
+          // A malformed description cannot establish a departure or hide a
+          // valid description; only validated current storage is installed.
+        }
+      }
       // Read the current value: a queued event may describe an older write.
       const saved = localStorage.getItem(key);
       const parsed = schema.safeParse(saved === null ? {} : JSON.parse(saved));
@@ -47,13 +92,18 @@ if (typeof window !== 'undefined') {
       // Retain the last valid display preferences when storage is unreadable.
       return;
     }
-    if (JSON.stringify(next) === JSON.stringify(snapshot)) return;
+    observeDaily(next);
+    if (JSON.stringify(next) === JSON.stringify(snapshot)) {
+      if (previousEpoch !== dailyEpoch) notifyChanges();
+      return;
+    }
     snapshot = next;
     notifyChanges();
   });
 }
 export function savePreferences(patch: Partial<Preferences>) {
   snapshot = schema.parse({ ...snapshot, ...patch });
+  observeDaily(snapshot);
   try {
     localStorage.setItem(key, JSON.stringify(snapshot));
   } catch {

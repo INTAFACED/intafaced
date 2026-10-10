@@ -15,8 +15,12 @@ import {
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { decimalSchema, parseAmount, formatAmount } from '../../shared/money';
 import { dailyHistoryWindow, deriveUtc8Daily, DailyHistoryError } from './daily-history';
+import { planZonedDaily, deriveZonedDaily, ZonedDailyError } from './zoned-daily-history';
 
-const positive = decimalSchema.refine((value) => parseAmount(value) > 0n, () => ({ message: copy.t('expectedAPositiveExactDecimalString') }));
+const positive = decimalSchema.refine(
+  (value) => parseAmount(value) > 0n,
+  () => ({ message: copy.t('expectedAPositiveExactDecimalString') }),
+);
 export const listingSchema = marketSchema.extend({
   orderable: z.boolean(),
   precision: z.object({ price: positive, amount: positive }),
@@ -163,11 +167,15 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
     markets: (signal?: AbortSignal) => api.rest('/markets', z.array(listingSchema), { query: { limit: 500 }, signal }),
     book: async (symbol: string, signal?: AbortSignal) => {
       const result = await api.rest(`/orderbook/${encodeURIComponent(symbol)}`, orderBookSchema, { query: { limit: 200 }, signal });
-      return result.ok && result.data.symbol !== symbol ? tradeRefusal('theOrderBookBelongsToAnotherMarket', { reason: 'invalid_response' }) : result;
+      return result.ok && result.data.symbol !== symbol
+        ? tradeRefusal('theOrderBookBelongsToAnotherMarket', { reason: 'invalid_response' })
+        : result;
     },
     ticker: async (symbol: string, signal?: AbortSignal) => {
       const result = await api.rest(`/ticker/${encodeURIComponent(symbol)}`, tickerSchema, { signal });
-      return result.ok && result.data.symbol !== symbol ? tradeRefusal('theTickerBelongsToAnotherMarket', { reason: 'invalid_response' }) : result;
+      return result.ok && result.data.symbol !== symbol
+        ? tradeRefusal('theTickerBelongsToAnotherMarket', { reason: 'invalid_response' })
+        : result;
     },
     history: (symbol: string, timeframe: string, signal?: AbortSignal, since?: number) =>
       api.rest(`/ohlcv/${encodeURIComponent(symbol)}`, historySchema, { query: { timeframe, limit: 500, since }, signal }),
@@ -178,8 +186,32 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
         if (!result.ok) return result;
         return { ok: true as const, data: deriveUtc8Daily(result.data, window, now()) };
       } catch (error) {
-        return tradeRefusal(error instanceof DailyHistoryError && error.code === 'invalid_clock_window'
-          ? 'dailyHistoryClockWindowInvalid' : 'dailyHistoryHourlySourceInvalid', { reason: 'invalid_response' as const });
+        return tradeRefusal(
+          error instanceof DailyHistoryError && error.code === 'invalid_clock_window'
+            ? 'dailyHistoryClockWindowInvalid'
+            : 'dailyHistoryHourlySourceInvalid',
+          { reason: 'invalid_response' as const },
+        );
+      }
+    },
+    zonedDailyHistory: async (symbol: string, zone: string, signal?: AbortSignal) => {
+      try {
+        const plan = planZonedDaily(zone, now());
+        const result = await client.history(symbol, plan.sourceInterval, signal, plan.sinceMs);
+        if (!result.ok) return result;
+        return { ok: true as const, data: deriveZonedDaily(result.data, plan, now()) };
+      } catch (error) {
+        const code = error instanceof ZonedDailyError ? error.code : 'invalid_source_history';
+        return tradeRefusal(
+          code === 'invalid_zone'
+            ? 'dailyZoneInvalid'
+            : code === 'unrepresentable_boundary'
+              ? 'dailyZoneBoundaryUnavailable'
+              : code === 'invalid_clock_window'
+                ? 'dailyHistoryClockWindowInvalid'
+                : 'dailyZoneSourceInvalid',
+          { reason: 'invalid_response' as const },
+        );
       }
     },
     tape: async (symbol: string, signal?: AbortSignal) => {
@@ -228,7 +260,9 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
       const result = await api.rest('/orders/preview', previewSchema, { method: 'POST', body: draft.data });
       if (!result.ok && result.reason === 'uncertain')
         return tradeRefusal('orderPreviewCouldNotBeVerifiedNoOrderWasSent', { reason: 'invalid_response' });
-      return result.ok && !matchesPreview(draft.data, result.data) ? tradeRefusal('thePreviewDoesNotMatchThisOrderReviewAgain', { reason: 'invalid_response' }) : result;
+      return result.ok && !matchesPreview(draft.data, result.data)
+        ? tradeRefusal('thePreviewDoesNotMatchThisOrderReviewAgain', { reason: 'invalid_response' })
+        : result;
     },
     async place(
       draft: Draft,
@@ -237,15 +271,16 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
     ): Promise<ApiResult<Order> | ChangedReview> {
       const result = await currentReview(draft, reviewed);
       if (!result.ok) return result;
-      if (!canDispatch(result.data))
-        return tradeRefusal('tradingContextChangedBeforePlacementNoOrderWasSent', { reason: 'aborted' });
+      if (!canDispatch(result.data)) return tradeRefusal('tradingContextChangedBeforePlacementNoOrderWasSent', { reason: 'aborted' });
       const placed = await api.rest('/orders', orderSchema, { method: 'POST', body: draft });
       if (placed.ok && (placed.data.symbol !== draft.symbol || placed.data.clientOrderId !== draft.clientOrderId))
         return tradeRefusal('thePlacementResponseDoesNotIdentifyThisRequestReconcileTheOriginal', { reason: 'uncertain' });
       if (placed.ok && placed.data.recoveryRequired)
-        return tradeRefusal('placementRequiresReconciliationHoldsRemainReserved', { reason: 'uncertain' }, () => [{
+        return tradeRefusal('placementRequiresReconciliationHoldsRemainReserved', { reason: 'uncertain' }, () => [
+          {
             placedDataRecoveryReasonOutcome: String(placed.data.recoveryReason ?? copy.t('unknownOutcome')),
-          }]);
+          },
+        ]);
       return placed;
     },
     async replace(
@@ -276,9 +311,13 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
         replaced.ok &&
         (replaced.data.reconciliationRequired || replaced.data.original.recoveryRequired || replaced.data.replacement?.recoveryRequired)
       )
-        return tradeRefusal('cancelReplaceRequiresReconciliationOriginalAndReplacementFundsRemainAsReported', { reason: 'uncertain' }, {
+        return tradeRefusal(
+          'cancelReplaceRequiresReconciliationOriginalAndReplacementFundsRemainAsReported',
+          { reason: 'uncertain' },
+          {
             replacedDataReasonCodeReplaced: String(replaced.data.reasonCode ?? replaced.data.code),
-          });
+          },
+        );
       return replaced;
     },
     async reconcile(clientOrderId: string, symbol: string, accountWide = false): Promise<ApiResult<Order>> {
@@ -289,9 +328,11 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
         const found = result.data.find((order) => order.clientOrderId === clientOrderId && order.symbol === symbol);
         if (found)
           return found.recoveryRequired
-            ? tradeRefusal('originalRequestIsStillRecovering', { reason: 'uncertain' }, () => [{
+            ? tradeRefusal('originalRequestIsStillRecovering', { reason: 'uncertain' }, () => [
+                {
                   foundRecoveryReasonOutcomeUnknown: String(found.recoveryReason ?? copy.t('unknownOutcome')),
-                }])
+                },
+              ])
             : { ok: true, data: found };
       }
       return tradeRefusal('theRequestWasNotFoundInTheReturnedOrderPagesIts', { reason: 'uncertain' });

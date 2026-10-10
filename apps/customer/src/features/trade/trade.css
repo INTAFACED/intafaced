@@ -1146,6 +1146,30 @@
   border-bottom: 1px solid var(--color-divider);
   font-size: 11px;
 }
+.trade-zone-link,
+.trade-chart-toolbar select,
+.trade-daily-refresh {
+  min-height: 44px;
+}
+.trade-zone-link {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.trade-chart-toolbar:has(.trade-zone-link) {
+  height: auto;
+  min-height: 44px;
+  flex-wrap: wrap;
+  padding-block: 6px;
+}
+.trade-chart-toolbar select {
+  max-width: 100%;
+}
+[data-zoned-source] {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 20px;
+}
 .trade-extra-toolbar label {
   display: flex;
   flex-direction: column;

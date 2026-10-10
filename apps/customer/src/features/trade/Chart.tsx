@@ -1,5 +1,15 @@
-import { tradeError, TradeOriginalMessage, tradeCopy as copy, CopyText, choiceText, choiceNode, choiceLanguage, tradeDate, TradeFailure as Failure } from './copy';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  tradeError,
+  TradeOriginalMessage,
+  tradeCopy as copy,
+  CopyText,
+  choiceText,
+  choiceNode,
+  choiceLanguage,
+  tradeDate,
+  TradeFailure as Failure,
+} from './copy';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { OHLCV, Position } from '@intafaced/exchange-contract/schemas';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
 import { z } from 'zod';
@@ -7,13 +17,126 @@ import { decimalSchema, parseAmount, formatAmount } from '../../shared/money';
 import { Button, EmptyState, Loading } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
 import type { Listing, TradeApi, Order } from './trade-api';
-import { usePreferences, useResolvedTheme, savePreferences } from '../../shared/preferences';
+import {
+  usePreferences,
+  useResolvedTheme,
+  savePreferences,
+  useDailyPreferenceEpoch,
+  currentDailyPreferenceEpoch,
+  type Preferences,
+} from '../../shared/preferences';
+import { authoredRefusal, type ApiResult } from '../../shared/api';
+import type { Resource } from '../../shared/resource';
+import { useSession } from '../session/session';
+import type { DailyMetadata, DailyPlan } from './zoned-daily-history';
 import { TIMEFRAMES } from './trade-api';
 import { PriceAlerts } from './PriceAlerts';
 import { utc8DailyStart } from './daily-history';
 
-function readHistory(api: TradeApi, symbol: string, interval: string, dailyStart: string, signal: AbortSignal) {
-  return interval === '1d' && dailyStart === 'utc8' ? api.dailyHistory(symbol, signal) : api.history(symbol, interval, signal);
+type HistorySnapshot = { rows: readonly OHLCV[]; metadata?: DailyMetadata; plan?: DailyPlan };
+async function readHistory(
+  api: TradeApi,
+  symbol: string,
+  interval: string,
+  preferences: Preferences,
+  signal: AbortSignal,
+): Promise<ApiResult<HistorySnapshot>> {
+  if (interval === '1d' && preferences.dailyStart === 'zoned') return api.zonedDailyHistory(symbol, preferences.dailyZone, signal);
+  const result = await (interval === '1d' && preferences.dailyStart === 'utc8'
+    ? api.dailyHistory(symbol, signal)
+    : api.history(symbol, interval, signal));
+  return result.ok ? { ok: true, data: { rows: result.data } } : result;
+}
+const readerIdentities = new WeakMap<object, number>();
+let readerIdentity = 0;
+function identity(value: object | null) {
+  if (!value) return 0;
+  let id = readerIdentities.get(value);
+  if (id === undefined) {
+    id = ++readerIdentity;
+    readerIdentities.set(value, id);
+  }
+  return id;
+}
+/** Feature-owned admission includes API, actor, mount, refresh and the
+ * synchronously observed daily epoch. Retained handlers use the same gate. */
+function useChartHistory(
+  api: TradeApi,
+  symbol: string,
+  interval: string,
+  preferences: Preferences,
+  owner = '',
+  refresh = 0,
+  empty = false,
+  admit?: () => boolean,
+) {
+  const { session } = useSession();
+  const epoch = useDailyPreferenceEpoch();
+  const [revision, setRevision] = useState(0);
+  const key = `${identity(api)}:${identity(session)}:${owner}:${symbol}:${interval}:${preferences.dailyStart}:${preferences.dailyZone}:${epoch}:${refresh}:${revision}:${empty}`;
+  const observed = useRef<{ key: string } | null>(null);
+  if (observed.current?.key !== key) observed.current = { key };
+  const captured = observed.current;
+  const mounted = useRef(false);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const current = () => mounted.current && observed.current === captured && currentDailyPreferenceEpoch() === epoch && (admit?.() ?? true);
+  const [state, setState] = useState<{ key: string; resource: Resource<HistorySnapshot> }>({ key, resource: { status: 'loading' } });
+  useEffect(() => {
+    const controller = new AbortController();
+    setState({ key, resource: { status: 'loading' } });
+    if (current())
+      void (
+        empty
+          ? Promise.resolve({ ok: true as const, data: { rows: [] as OHLCV[] } })
+          : readHistory(api, symbol, interval, preferences, controller.signal)
+      )
+        .then((result) => {
+          if (!controller.signal.aborted && current())
+            setState({ key, resource: result.ok ? { status: 'ready', data: result.data } : { status: 'failed', failure: result } });
+        })
+        .catch(() => {
+          if (!controller.signal.aborted && current())
+            setState({ key, resource: { status: 'failed', failure: authoredRefusal('error', { key: 'loadFailed' }) } });
+        });
+    return () => controller.abort();
+  }, [key]);
+  return {
+    resource: state.key === key && current() ? state.resource : { status: 'loading' as const },
+    current,
+    reload: () => {
+      if (current()) {
+        observed.current = null;
+        setRevision((value) => value + 1);
+      }
+    },
+    key,
+  };
+}
+function ZonedSource({ metadata }: { metadata: DailyMetadata }) {
+  return (
+    <div className="trade-note" data-zoned-source="">
+      <strong>
+        <CopyText k="dailyZoneSnapshot" params={{ zone: metadata.zone }} />
+      </strong>
+      <br />
+      <CopyText
+        k="dailyZoneWindow"
+        params={{
+          source: metadata.sourceInterval,
+          days: metadata.priorDates,
+          since: tradeDate(metadata.sinceMs),
+          read: tradeDate(metadata.readAtMs),
+        }}
+      />
+      <br />
+      <CopyText k="dailyZoneLimits" />
+    </div>
+  );
 }
 
 type Point = { time: number; value: number };
@@ -83,7 +206,7 @@ const drawingsSchema = z.array(
   }),
 );
 /** Numeric values are chart geometry only. They never leave this component as order data. */
-function chartBars(rows: OHLCV[], type: string): Bar[] {
+function chartBars(rows: readonly OHLCV[], type: string): Bar[] {
   let previous: Bar | undefined;
   return rows
     .map((row) => {
@@ -240,9 +363,17 @@ export function MarketChart({
   const preferences = usePreferences();
   const theme = useResolvedTheme(preferences.theme);
   const [feed, setFeedStatus] = useState<
-    { key: 'acceptedTrade'; printKind: string } |
-    { key: 'chartHistoricalPrices' | 'waitingForAnActualTrade' | 'refreshingCorrectedHistory' | 'tradeStreamInterrupted' | 'historicalPricesReconnecting' | 'historicalPricesTradeStreamStale' }
-  >({ key: 'chartHistoricalPrices' }),
+      | { key: 'acceptedTrade'; printKind: string }
+      | {
+          key:
+            | 'chartHistoricalPrices'
+            | 'waitingForAnActualTrade'
+            | 'refreshingCorrectedHistory'
+            | 'tradeStreamInterrupted'
+            | 'historicalPricesReconnecting'
+            | 'historicalPricesTradeStreamStale';
+        }
+    >({ key: 'chartHistoricalPrices' }),
     [countdown, setCountdown] = useState<number | null>(null);
   const barHistory = useRef<OHLCV[]>([]),
     historyReady = useRef(false),
@@ -267,9 +398,11 @@ export function MarketChart({
     [countdownVisible, setCountdownVisible] = useState(true),
     [inspected, setInspected] = useState<OHLCV | null>(null),
     [drawingsKey, setDrawingsKey] = useState<string | null>(null);
-  const derivedDaily = interval === '1d' && preferences.dailyStart === 'utc8';
-  const historyKey = `${market.id}:${market.symbol}:${interval}:${derivedDaily}`;
+  const derivedDaily = interval === '1d' && preferences.dailyStart !== 'nativeUTC';
+  const zonedDaily = interval === '1d' && preferences.dailyStart === 'zoned';
   const [linkedRevision, setLinkedRevision] = useState(0);
+  const linkedRefresh = useRef<object>({});
+  const linkedRefreshToken = linkedRefresh.current;
   const [showPosition, setShowPosition] = useState(true),
     [showMark, setShowMark] = useState(true),
     [showLiquidation, setShowLiquidation] = useState(true);
@@ -313,8 +446,13 @@ export function MarketChart({
         pane!.querySelectorAll<HTMLElement>(
           'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
         ),
-      ).filter((element) => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden' && !element.closest('[inert]'));
-      const first = controls[0], last = controls.at(-1), active = document.activeElement;
+      ).filter(
+        (element) =>
+          element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden' && !element.closest('[inert]'),
+      );
+      const first = controls[0],
+        last = controls.at(-1),
+        active = document.activeElement;
       if (!first || !last) {
         event.preventDefault();
         pane!.focus();
@@ -341,10 +479,12 @@ export function MarketChart({
         : Promise.resolve({ ok: true as const, data: [] as import('@intafaced/exchange-contract/schemas').Trade[] }),
     `${accountKey}:${market.id}:fills:${preferences.showFills}`,
   );
-  const { resource, reload } = useResource((signal) => readHistory(api, market.symbol, interval, preferences.dailyStart, signal), historyKey);
+  const history = useChartHistory(api, market.symbol, interval, preferences, `${accountKey}:${market.id}`, linkedRevision);
+  const { resource, reload } = history;
+  const historyKey = history.key;
   historyReady.current = resource.status === 'ready';
   useEffect(() => {
-    if (resource.status === 'ready') barHistory.current = resource.data.slice().sort((a, b) => a[0] - b[0]);
+    if (resource.status === 'ready') barHistory.current = resource.data.rows.slice().sort((a, b) => a[0] - b[0]);
     else {
       barHistory.current = [];
       rawPrice.current.clear();
@@ -358,9 +498,17 @@ export function MarketChart({
     lastPrintAt.current = null;
     setCountdown(null);
     if (derivedDaily) {
+      const nextBoundary = zonedDaily && resource.status === 'ready' ? resource.data.metadata?.nextBoundaryMs : undefined;
       const update = () => {
+        if (!history.current()) return;
         const now = Date.now();
-        setCountdown(Math.ceil((utc8DailyStart(now) + TIMEFRAME_MS['1d'] - now) / 1000));
+        setCountdown(
+          zonedDaily
+            ? nextBoundary === undefined
+              ? null
+              : Math.max(0, Math.ceil((nextBoundary - now) / 1000))
+            : Math.ceil((utc8DailyStart(now) + TIMEFRAME_MS['1d'] - now) / 1000),
+        );
       };
       update();
       const clock = setInterval(update, 1000);
@@ -382,16 +530,17 @@ export function MarketChart({
       kind: z.enum(['aggressor', 'liquidation', 'block', 'bust', 'correction', 'unknown']),
     });
     const connect = () => {
-      if (closed) return;
+      if (closed || !history.current()) return;
       socket = new WebSocket(
         `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/stream?market=${encodeURIComponent(market.id)}&channel=trades`,
       );
       socket.onopen = () => {
+        if (!history.current()) return;
         if (connections++ > 0) reload();
         setFeedStatus({ key: 'waitingForAnActualTrade' });
       };
       socket.onmessage = (event) => {
-        if (closed) return;
+        if (closed || !history.current()) return;
         let wire: unknown;
         try {
           wire = JSON.parse(String(event.data));
@@ -433,15 +582,18 @@ export function MarketChart({
         studyUpdate.current?.(chartBars(barHistory.current, 'Candles'));
         setFeedStatus({ key: 'acceptedTrade', printKind: String(print.kind) });
       };
-      socket.onerror = () => setFeedStatus({ key: 'tradeStreamInterrupted' });
+      socket.onerror = () => {
+        if (history.current()) setFeedStatus({ key: 'tradeStreamInterrupted' });
+      };
       socket.onclose = () => {
-        if (closed) return;
+        if (closed || !history.current()) return;
         setFeedStatus({ key: 'historicalPricesReconnecting' });
         retry = setTimeout(connect, 2000);
       };
     };
     connect();
     const clock = setInterval(() => {
+      if (!history.current()) return;
       const end = (barHistory.current.at(-1)?.[0] ?? 0) + span;
       setCountdown(end > Date.now() ? Math.ceil((end - Date.now()) / 1000) : null);
       if (lastPrintAt.current !== null && Date.now() - lastPrintAt.current >= 15000)
@@ -453,17 +605,16 @@ export function MarketChart({
       clearInterval(clock);
       clearTimeout(retry);
     };
-  }, [market.id, interval, type, derivedDaily]);
-  const comparison = useResource(
-    (signal) => (compare ? readHistory(api, compare, interval, preferences.dailyStart, signal) : Promise.resolve({ ok: true as const, data: [] as OHLCV[] })),
-    `${market.id}:${compare}:${interval}:${derivedDaily}`,
-  );
+  }, [market.id, interval, type, derivedDaily, historyKey, zonedDaily, zonedDaily ? resource : null]);
+  const comparison = useChartHistory(api, compare, interval, preferences, `${accountKey}:${market.id}:compare`, linkedRevision, !compare);
   function refreshHistory() {
+    if (!history.current()) return;
+    // Invalidate held linked reads and imports in this event turn, before
+    // React renders the secondary's next refreshRevision.
+    linkedRefresh.current = {};
     reload();
-    if (derivedDaily) {
-      comparison.reload();
-      setLinkedRevision((revision) => revision + 1);
-    }
+    comparison.reload();
+    setLinkedRevision((revision) => revision + 1);
   }
   useEffect(() => {
     const key = `trade-drawings:${accountKey}:${market.id}`;
@@ -512,11 +663,11 @@ export function MarketChart({
     }
   }, [accountKey]);
   useEffect(() => {
-    if (!host.current || resource.status !== 'ready' || !resource.data.length) return;
+    if (!host.current || resource.status !== 'ready' || !resource.data.rows.length || !history.current()) return;
     let closed = false;
     let chart: ChartApi | null = null;
     void import('./vendor/lightweight-charts.standalone.production.js').then(() => {
-      if (closed || !host.current || !window.LightweightCharts) return;
+      if (closed || !history.current() || !comparison.current() || !host.current || !window.LightweightCharts) return;
       const engine = window.LightweightCharts;
       const appearance = chartAppearance();
       try {
@@ -547,7 +698,7 @@ export function MarketChart({
         fillLines.current = [];
         positionLines.current = [];
         if (comparison.resource.status === 'ready' && compare) {
-          const other = chartBars(comparison.resource.data, 'Line');
+          const other = chartBars(comparison.resource.data.rows, 'Line');
           chart
             .addSeries(engine.LineSeries, { color: '#80b7e0', priceScaleId: 'comparison', priceLineVisible: false, title: compare })
             .setData(other.map((bar) => ({ time: bar.time, value: bar.close })));
@@ -560,6 +711,7 @@ export function MarketChart({
         setChartRevision((value) => value + 1);
         setNotice('');
         chart.subscribeClick((event) => {
+          if (closed || !history.current() || !comparison.current()) return;
           if (event.time) {
             const exact = rawPrice.current.get(event.time);
             setInspected(barHistory.current.find((row) => Math.floor(row[0] / 1000) === event.time) ?? null);
@@ -589,7 +741,19 @@ export function MarketChart({
       seriesRef.current = null;
       studyUpdate.current = null;
     };
-  }, [resource, comparison.resource, type, studies, tool, market.symbol, compare, preferences.timeZone, preferences.language]);
+  }, [
+    resource,
+    comparison.resource,
+    type,
+    studies,
+    tool,
+    market.symbol,
+    compare,
+    preferences.timeZone,
+    preferences.language,
+    historyKey,
+    comparison.key,
+  ]);
   useEffect(() => {
     const appearance = chartAppearance();
     chartRef.current?.applyOptions(appearance.chart);
@@ -753,14 +917,27 @@ export function MarketChart({
             </option>
           ))}
         </select>
-        {interval === '1d' && <label className="trade-inline">
-          <CopyText k="dailyStart" />
-          <select aria-label={copy.t('dailyStart')} value={preferences.dailyStart}
-            onChange={(event) => savePreferences({ dailyStart: event.target.value as 'nativeUTC' | 'utc8' })}>
-            <option value="nativeUTC">{copy.t('dailyStartNative')}</option>
-            <option value="utc8">{copy.t('dailyStartUtc8')}</option>
-          </select>
-        </label>}
+        {interval === '1d' && (
+          <label className="trade-inline">
+            <CopyText k="dailyStart" />
+            <select
+              aria-label={copy.t('dailyStart')}
+              value={preferences.dailyStart}
+              onChange={(event) => {
+                if (history.current()) savePreferences({ dailyStart: event.target.value as Preferences['dailyStart'] });
+              }}
+            >
+              <option value="nativeUTC">{copy.t('dailyStartNative')}</option>
+              <option value="utc8">{copy.t('dailyStartUtc8')}</option>
+              <option value="zoned">{preferences.dailyZone}</option>
+            </select>
+          </label>
+        )}
+        {interval === '1d' && (
+          <a className="trade-zone-link" href="/view">
+            <CopyText k="dailyZoneChoose" />
+          </a>
+        )}
         <details>
           <summary>
             <CopyText k="indicators" />
@@ -915,13 +1092,24 @@ export function MarketChart({
           <CopyText k="follow" />
         </button>
       </div>
-      {derivedDaily && <div className="trade-note">
-        <strong><CopyText k="dailyHistorySource" /></strong><br />
-        <CopyText k="dailyHistoryScope" />{' '}<CopyText k="dailyHistoryOrdering" />
-      </div>}
+      {zonedDaily && resource.status === 'ready' && resource.data.metadata && <ZonedSource metadata={resource.data.metadata} />}
+      {derivedDaily && !zonedDaily && (
+        <div className="trade-note">
+          <strong>
+            <CopyText k="dailyHistorySource" />
+          </strong>
+          <br />
+          <CopyText k="dailyHistoryScope" /> <CopyText k="dailyHistoryOrdering" />
+        </div>
+      )}
       {inspected && resource.status === 'ready' && (
         <p className="trade-candle-inspection">
-          {derivedDaily && <><CopyText k="dailyHistoryInspection" params={{ start: tradeDate(inspected[0]) }} /><br /></>}
+          {derivedDaily && (
+            <>
+              <CopyText k="dailyHistoryInspection" params={{ start: tradeDate(inspected[0]) }} />
+              <br />
+            </>
+          )}
           <CopyText k="o" />
           {inspected[1]} <CopyText k="h" />
           {inspected[2]} <CopyText k="l" />
@@ -943,7 +1131,7 @@ export function MarketChart({
             return;
           }
           if (event.target !== event.currentTarget) return;
-          if (resource.status !== 'ready') return;
+          if (resource.status !== 'ready' || !history.current()) return;
           const rows = barHistory.current;
           if (!rows.length) return;
           if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
@@ -969,10 +1157,24 @@ export function MarketChart({
         {resource.status === 'loading' ? (
           <Loading label={<CopyText k={'loadingMarketHistory'} />} />
         ) : resource.status === 'failed' ? (
-          <Failure result={resource.failure} retry={refreshHistory} />
+          <>
+            <Failure result={resource.failure} retry={refreshHistory} />
+            {zonedDaily && (
+              <button
+                className="trade-daily-refresh"
+                onClick={() => {
+                  if (history.current()) savePreferences({ dailyStart: 'nativeUTC' });
+                }}
+              >
+                <CopyText k="dailyZoneFallback" />
+              </button>
+            )}
+          </>
         ) : !barHistory.current.length ? (
           <EmptyState title={<CopyText k={'noPriceHistory'} />}>
-            <CopyText k={derivedDaily ? 'dailyHistoryEmpty' : 'theMarketHasNoPublishedCandlesForThisInterval'} />
+            <CopyText
+              k={zonedDaily ? 'dailyZoneEmpty' : derivedDaily ? 'dailyHistoryEmpty' : 'theMarketHasNoPublishedCandlesForThisInterval'}
+            />
           </EmptyState>
         ) : null}
         <svg className="trade-drawings" aria-hidden="true" data-revision={chartRevision}>
@@ -1017,7 +1219,7 @@ export function MarketChart({
                   }}
                   onPointerUp={(event) => {
                     event.currentTarget.releasePointerCapture(event.pointerId);
-                    if (dragging?.id === order.id) onStageAmend(order, dragging.price);
+                    if (history.current() && dragging?.id === order.id) onStageAmend(order, dragging.price);
                     setDragging(null);
                   }}
                   onPointerCancel={() => setDragging(null)}
@@ -1035,9 +1237,15 @@ export function MarketChart({
               params={{ toolLevelOnePoint: copy.t(tool === 'level' ? 'oneDrawingPoint' : 'twoDrawingPoints'), tool: choiceText(tool) }}
             />
           ) : derivedDaily ? (
-            countdownVisible && countdown !== null && resource.status === 'ready'
-              ? <CopyText k="dailyHistoryCountdown" params={{ seconds: countdown }} />
-              : <CopyText k="dailyHistorySource" />
+            countdownVisible && countdown !== null && resource.status === 'ready' ? (
+              countdown === 0 && zonedDaily ? (
+                <CopyText k="dailyZoneRefreshDue" />
+              ) : (
+                <CopyText k="dailyHistoryCountdown" params={{ seconds: countdown }} />
+              )
+            ) : (
+              <CopyText k={zonedDaily ? 'dailyZoneSelected' : 'dailyHistorySource'} params={{ zone: preferences.dailyZone }} />
+            )
           ) : !countdownVisible || countdown === null ? (
             <CopyText k={'chartStatusWithoutCandle'} params={{ feedStatus }} />
           ) : (
@@ -1060,14 +1268,27 @@ export function MarketChart({
         </p>
       )}
       {compare && comparison.resource.status === 'failed' && <Failure result={comparison.resource.failure} retry={comparison.reload} />}
-      {compare && derivedDaily && comparison.resource.status === 'loading' && <Loading label={<CopyText k="dailyHistoryComparisonLoading" />} />}
-      {compare && comparison.resource.status === 'ready' && !comparison.resource.data.length && (
+      {compare && derivedDaily && comparison.resource.status === 'loading' && (
+        <Loading label={<CopyText k="dailyHistoryComparisonLoading" />} />
+      )}
+      {compare && zonedDaily && comparison.resource.status === 'ready' && comparison.resource.data.metadata && (
+        <ZonedSource metadata={comparison.resource.data.metadata} />
+      )}
+      {compare && comparison.resource.status === 'ready' && !comparison.resource.data.rows.length && (
         <p className="trade-note">
           <CopyText k="noPublishedComparisonHistoryFor" />
           {compare}.
         </p>
       )}
-      {multi && <SecondaryChart api={api} symbol={market.symbol} interval={interval} refreshRevision={linkedRevision} />}
+      {multi && (
+        <SecondaryChart
+          api={api}
+          symbol={market.symbol}
+          interval={interval}
+          refreshRevision={linkedRevision}
+          admitRefresh={() => linkedRefresh.current === linkedRefreshToken}
+        />
+      )}
     </section>
   );
 }
@@ -1078,6 +1299,7 @@ export function SecondaryChart({
   type = 'Line',
   workspace = false,
   refreshRevision = 0,
+  admitRefresh,
 }: {
   api: TradeApi;
   symbol: string;
@@ -1085,6 +1307,7 @@ export function SecondaryChart({
   type?: string;
   workspace?: boolean;
   refreshRevision?: number;
+  admitRefresh?: () => boolean;
 }) {
   const host = useRef<HTMLDivElement>(null),
     chartRef = useRef<ChartApi | null>(null),
@@ -1092,15 +1315,16 @@ export function SecondaryChart({
   const [failure, setFailure] = useState<ReactNode>('');
   const preferences = usePreferences();
   const theme = useResolvedTheme(preferences.theme);
-  const derivedDaily = interval === '1d' && preferences.dailyStart === 'utc8';
-  const result = useResource((signal) => readHistory(api, symbol, interval, preferences.dailyStart, signal), `${symbol}:${interval}:${derivedDaily}:${refreshRevision}`);
+  const derivedDaily = interval === '1d' && preferences.dailyStart !== 'nativeUTC';
+  const zonedDaily = interval === '1d' && preferences.dailyStart === 'zoned';
+  const result = useChartHistory(api, symbol, interval, preferences, 'secondary', refreshRevision, false, admitRefresh);
   useEffect(() => {
-    if (!host.current || result.resource.status !== 'ready' || !result.resource.data.length) return;
-    const rows = result.resource.data;
+    if (!host.current || result.resource.status !== 'ready' || !result.resource.data.rows.length || !result.current()) return;
+    const rows = result.resource.data.rows;
     let closed = false,
       chart: ChartApi | null = null;
     void import('./vendor/lightweight-charts.standalone.production.js').then(() => {
-      if (closed || !host.current || !window.LightweightCharts) return;
+      if (closed || !result.current() || !host.current || !window.LightweightCharts) return;
       try {
         const engine = window.LightweightCharts,
           appearance = chartAppearance();
@@ -1109,10 +1333,12 @@ export function SecondaryChart({
           ...appearance.chart,
           timeScale: { ...appearance.chart.timeScale, timeVisible: true },
           localization: {
-            timeFormatter: (timestamp: number) => new Intl.DateTimeFormat(preferences.language, {
-              dateStyle: 'short', timeStyle: 'short',
-              ...(preferences.timeZone === 'device' ? {} : { timeZone: preferences.timeZone === 'UTC+8' ? 'Asia/Singapore' : 'UTC' }),
-            }).format(new Date(timestamp * 1000)),
+            timeFormatter: (timestamp: number) =>
+              new Intl.DateTimeFormat(preferences.language, {
+                dateStyle: 'short',
+                timeStyle: 'short',
+                ...(preferences.timeZone === 'device' ? {} : { timeZone: preferences.timeZone === 'UTC+8' ? 'Asia/Singapore' : 'UTC' }),
+              }).format(new Date(timestamp * 1000)),
           },
         });
         const series = chart.addSeries(type === 'Line' ? engine.LineSeries : engine.CandlestickSeries, {
@@ -1135,7 +1361,7 @@ export function SecondaryChart({
       chartRef.current = null;
       seriesRef.current = null;
     };
-  }, [result.resource, type, preferences.timeZone, preferences.language]);
+  }, [result.resource, type, preferences.timeZone, preferences.language, result.key]);
   useEffect(() => {
     const appearance = chartAppearance();
     chartRef.current?.applyOptions(appearance.chart);
@@ -1148,23 +1374,57 @@ export function SecondaryChart({
     >
       <small className="trade-note">
         <CopyText k="secondChart" />
-        {symbol} · {interval} <CopyText k={derivedDaily ? 'dailyStartUtc8' : 'publishedHistory'} />
+        {symbol} · {interval} {zonedDaily ? preferences.dailyZone : <CopyText k={derivedDaily ? 'dailyStartUtc8' : 'publishedHistory'} />}
       </small>
-      {derivedDaily && <div className="trade-note">
-        <strong><CopyText k="dailyHistorySource" /></strong><br />
-        <CopyText k="dailyHistoryScope" />{' '}<CopyText k="dailyHistoryOrdering" />
-        <button className="trade-daily-refresh" onClick={result.reload}><CopyText k="dailyHistoryRefresh" /></button>
-      </div>}
+      {zonedDaily && result.resource.status === 'ready' && result.resource.data.metadata && (
+        <ZonedSource metadata={result.resource.data.metadata} />
+      )}
+      {derivedDaily && !zonedDaily && (
+        <div className="trade-note">
+          <strong>
+            <CopyText k="dailyHistorySource" />
+          </strong>
+          <br />
+          <CopyText k="dailyHistoryScope" /> <CopyText k="dailyHistoryOrdering" />
+          <button className="trade-daily-refresh" onClick={result.reload}>
+            <CopyText k="dailyHistoryRefresh" />
+          </button>
+        </div>
+      )}
+      {zonedDaily && (
+        <button className="trade-daily-refresh" onClick={result.reload}>
+          <CopyText k="dailyHistoryRefresh" />
+        </button>
+      )}
       {result.resource.status === 'loading' ? (
         <Loading label={<CopyText k={'loadingSecondChartHistory'} />} />
       ) : result.resource.status === 'failed' ? (
-        <Failure result={result.resource.failure} retry={result.reload} />
-      ) : !result.resource.data.length ? (
+        <>
+          <Failure result={result.resource.failure} retry={result.reload} />
+          {zonedDaily && (
+            <button
+              className="trade-daily-refresh"
+              onClick={() => {
+                if (result.current()) savePreferences({ dailyStart: 'nativeUTC' });
+              }}
+            >
+              <CopyText k="dailyZoneFallback" />
+            </button>
+          )}
+        </>
+      ) : !result.resource.data.rows.length ? (
         <EmptyState title={<CopyText k={'noHistoryForTheSecondChart'} />} />
       ) : null}
-      {failure && result.resource.status === 'ready' && <p className="trade-refusal" lang="und">{failure}</p>}
-      <div className={`trade-secondary-chart ${workspace ? 'trade-secondary-chart--workspace' : ''}`} ref={host}
-        style={{ visibility: result.resource.status === 'ready' ? undefined : 'hidden' }} />
+      {failure && result.resource.status === 'ready' && (
+        <p className="trade-refusal" lang="und">
+          {failure}
+        </p>
+      )}
+      <div
+        className={`trade-secondary-chart ${workspace ? 'trade-secondary-chart--workspace' : ''}`}
+        ref={host}
+        style={{ visibility: result.resource.status === 'ready' ? undefined : 'hidden' }}
+      />
     </section>
   );
 }

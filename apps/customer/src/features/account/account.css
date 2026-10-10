@@ -38,6 +38,35 @@
   column-gap: 64px;
   row-gap: 40px;
 }
+.daily-zone-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.daily-zone-form p {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--color-unavailable-text);
+  overflow-wrap: anywhere;
+}
+.daily-zone-form [role='alert'] {
+  color: var(--color-negative);
+}
+.daily-zone-form input,
+.settings-section select {
+  min-height: 44px;
+  min-width: 0;
+  max-width: 100%;
+}
+.daily-zone-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.daily-zone-actions button {
+  min-height: 44px;
+}
 .settings-section {
   display: flex;
   flex-direction: column;

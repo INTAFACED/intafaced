@@ -2,11 +2,22 @@ import { defineCopy, type CopyCatalog } from '../../shared/i18n';
 
 // Authored UI messages only. API values, identifiers, units and user content stay outside this catalog.
 const messages = {
-  "view.daily.labels.independent": "Time labels change display only. Daily start selects the separate daily-history calculation.",
-  "view.daily.start": "Daily start",
-  "view.daily.start.native": "UTC · service history",
-  "view.daily.start.utc8": "UTC+8 · derived",
-  "view.daily.history.settings": "Applies to 1d charts on this device. UTC+8 uses bounded hourly history with manual refresh. Other intervals keep service history. Account synchronization remains required and unavailable.",
+  'view.daily.start.zoned': 'Chosen time zone · derived',
+  'view.daily.zone': 'Daily candle time zone',
+  'view.daily.zone.apply': 'Apply time zone',
+  'view.daily.zone.cancel': 'Cancel draft',
+  'view.daily.zone.current': 'Current:',
+  'view.daily.zone.invalid': 'This browser does not recognize that zone. Your current choice is kept.',
+  'view.daily.zone.explanation':
+    'Daily candles begin at each date’s first valid local instant, including clock changes. Saved on this device; account sync is not connected.',
+  'view.daily.zone.window':
+    'Recent snapshots use hourly source and up to 19 prior local dates + today when boundaries align. Finer boundaries use 15-minute source and up to 3 prior dates + today. The chart shows its actual captured window. Today is partial; refresh manually. Exact rolling 24-hour, full and live history remain required and unavailable.',
+  'view.daily.labels.independent': 'Time labels change display only. Daily start selects the separate daily-history calculation.',
+  'view.daily.start': 'Daily start',
+  'view.daily.start.native': 'UTC · service history',
+  'view.daily.start.utc8': 'UTC+8 · derived',
+  'view.daily.history.settings':
+    'Applies to 1d charts on this device. UTC+8 uses bounded hourly history with manual refresh. Other intervals keep service history. Account synchronization remains required and unavailable.',
   'accountroutes.business.verification': 'Business verification',
   'accountroutes.verified.company.accounts.are.not.connected': 'Verified company accounts are not connected',
   'accountroutes.view.personal.verification': 'View personal verification ↗',
@@ -189,11 +200,23 @@ const messages = {
   'accountroutes.copy.was.unavailable.select.the.link.above': 'Copy was unavailable; select the link above.',
 } as const;
 const es = {
-  "view.daily.labels.independent": "Las etiquetas horarias solo cambian la visualización. Inicio diario selecciona el cálculo separado del historial diario.",
-  "view.daily.start": "Inicio diario",
-  "view.daily.start.native": "UTC · historial del servicio",
-  "view.daily.start.utc8": "UTC+8 · derivado",
-  "view.daily.history.settings": "Se aplica a gráficos 1d en este dispositivo. UTC+8 usa historial horario limitado con actualización manual. Otros intervalos conservan el historial del servicio. La sincronización de la cuenta sigue siendo necesaria y no está disponible.",
+  'view.daily.start.zoned': 'Zona horaria elegida · derivado',
+  'view.daily.zone': 'Zona horaria de la vela diaria',
+  'view.daily.zone.apply': 'Aplicar zona horaria',
+  'view.daily.zone.cancel': 'Cancelar borrador',
+  'view.daily.zone.current': 'Actual:',
+  'view.daily.zone.invalid': 'Este navegador no reconoce esa zona. Se conserva tu elección actual.',
+  'view.daily.zone.explanation':
+    'Las velas diarias comienzan en el primer instante local válido de cada fecha, incluidos los cambios de reloj. Guardado en este dispositivo; la sincronización de cuenta no está conectada.',
+  'view.daily.zone.window':
+    'Las capturas recientes usan origen horario y hasta 19 fechas locales anteriores y hoy cuando los límites coinciden. Los límites más finos usan origen de 15 minutos y hasta 3 fechas anteriores y hoy. El gráfico muestra su período capturado real. Hoy es parcial; actualiza manualmente. El historial móvil exacto de 24 horas, completo y en directo sigue siendo necesario y no está disponible.',
+  'view.daily.labels.independent':
+    'Las etiquetas horarias solo cambian la visualización. Inicio diario selecciona el cálculo separado del historial diario.',
+  'view.daily.start': 'Inicio diario',
+  'view.daily.start.native': 'UTC · historial del servicio',
+  'view.daily.start.utc8': 'UTC+8 · derivado',
+  'view.daily.history.settings':
+    'Se aplica a gráficos 1d en este dispositivo. UTC+8 usa historial horario limitado con actualización manual. Otros intervalos conservan el historial del servicio. La sincronización de la cuenta sigue siendo necesaria y no está disponible.',
   'accountroutes.business.verification': 'Verificación empresarial',
   'accountroutes.verified.company.accounts.are.not.connected': 'Las cuentas de empresa verificadas no están conectadas',
   'accountroutes.view.personal.verification': 'Ver verificación personal ↗',
@@ -379,11 +402,23 @@ const es = {
 } satisfies Record<keyof typeof messages, string>;
 
 const fr = {
-  "view.daily.labels.independent": "Les horaires changent uniquement l’affichage. Début quotidien sélectionne le calcul distinct de l’historique quotidien.",
-  "view.daily.start": "Début quotidien",
-  "view.daily.start.native": "UTC · historique du service",
-  "view.daily.start.utc8": "UTC+8 · dérivé",
-  "view.daily.history.settings": "S’applique aux graphiques 1d sur cet appareil. UTC+8 utilise un historique horaire limité avec actualisation manuelle. Les autres intervalles gardent l’historique du service. La synchronisation du compte reste nécessaire et indisponible.",
+  'view.daily.start.zoned': 'Fuseau horaire choisi · dérivé',
+  'view.daily.zone': 'Fuseau horaire des bougies quotidiennes',
+  'view.daily.zone.apply': 'Appliquer le fuseau',
+  'view.daily.zone.cancel': 'Annuler le brouillon',
+  'view.daily.zone.current': 'Actuel :',
+  'view.daily.zone.invalid': 'Ce navigateur ne reconnaît pas ce fuseau. Votre choix actuel est conservé.',
+  'view.daily.zone.explanation':
+    'Les bougies quotidiennes commencent au premier instant local valide de chaque date, y compris les changements d’horloge. Enregistré sur cet appareil ; la synchronisation du compte n’est pas connectée.',
+  'view.daily.zone.window':
+    'Les instantanés récents utilisent une source horaire et jusqu’à 19 dates locales précédentes et aujourd’hui si les limites sont alignées. Les limites plus fines utilisent une source de 15 minutes et jusqu’à 3 dates précédentes et aujourd’hui. Le graphique montre sa période capturée réelle. Aujourd’hui est partiel ; actualisez manuellement. Les historiques glissant exact de 24 heures, complet et en direct restent nécessaires et indisponibles.',
+  'view.daily.labels.independent':
+    'Les horaires changent uniquement l’affichage. Début quotidien sélectionne le calcul distinct de l’historique quotidien.',
+  'view.daily.start': 'Début quotidien',
+  'view.daily.start.native': 'UTC · historique du service',
+  'view.daily.start.utc8': 'UTC+8 · dérivé',
+  'view.daily.history.settings':
+    'S’applique aux graphiques 1d sur cet appareil. UTC+8 utilise un historique horaire limité avec actualisation manuelle. Les autres intervalles gardent l’historique du service. La synchronisation du compte reste nécessaire et indisponible.',
   'accountroutes.business.verification': 'Vérification de l’entreprise',
   'accountroutes.verified.company.accounts.are.not.connected': 'Les comptes d’entreprise vérifiés ne sont pas connectés',
   'accountroutes.view.personal.verification': 'Voir la vérification personnelle ↗',
