@@ -6,6 +6,7 @@
  *    before, and nothing 'temporary' survives to the next phase." (§0.1)
  *
  * Run: `pnpm gate [service-name]`
+ * Self-test: `node tooling/ci/dod-gate.mjs --self-test`
  *
  * Checks, per service:
  *   1. README with API contract, event subjects, and ledger recipes used
@@ -25,7 +26,8 @@
  * dashboard panel, e2e failure paths) are printed as a manual checklist so the
  * reviewer signs them explicitly rather than by silence.
  */
-import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, existsSync, statSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, relative, basename, resolve } from 'node:path';
 
 const ROOT = process.cwd();
@@ -158,23 +160,89 @@ function checkService(serviceDir) {
   // satisfy without any kill-switch existing. A gate that can be passed by
   // coincidence is not a gate. It now parses the module argument of each
   // `def(...)` call, which is the thing that actually confers the switch.
-  const flagsFile = join(ROOT, 'packages', 'config', 'src', 'flags.ts');
-  if (existsSync(flagsFile)) {
-    const moduleId = service.replace(/^svc-/, '');
-    const flags = readFileSync(flagsFile, 'utf8');
-
-    // def('some.key', 'module-id', …) — the second argument names the module.
-    const declared = new Set([...flags.matchAll(/\bdef\(\s*'[^']+'\s*,\s*'([^']+)'/g)].map((m) => m[1]));
-
-    if (!declared.has(moduleId)) {
-      failures.push(
-        `module "${moduleId}" has no flag declared against it in FLAG_REGISTRY — ` + `the operator has no kill-switch (§14 admin controls)`,
-      );
-    }
-  }
+  //
+  // A missing packages/config/src/flags.ts used to skip this check, so a
+  // service passed §14 with no switch at all. Absence is a failure. Do not
+  // invent a flag key or a module id and count it as declared.
+  failures.push(...adminKillSwitchFailures(service, join(ROOT, 'packages', 'config', 'src', 'flags.ts')));
 
   return { service, failures };
 }
+
+/**
+ * Kill-switch failures for one service.
+ * `flagsFile` absent → the registry is missing, so the operator has no switch.
+ * A present file counts only a real `def('key', 'module', …)` second argument.
+ */
+function adminKillSwitchFailures(service, flagsFile) {
+  if (!existsSync(flagsFile)) {
+    return [
+      'FLAG_REGISTRY is missing (packages/config/src/flags.ts) — the operator has no kill-switch (§14 admin controls)',
+    ];
+  }
+
+  const moduleId = service.replace(/^svc-/, '');
+  const flags = readFileSync(flagsFile, 'utf8');
+
+  // def('some.key', 'module-id', …) — the second argument names the module.
+  const declared = new Set([...flags.matchAll(/\bdef\(\s*'[^']+'\s*,\s*'([^']+)'/g)].map((m) => m[1]));
+
+  if (!declared.has(moduleId)) {
+    return [
+      `module "${moduleId}" has no flag declared against it in FLAG_REGISTRY — ` +
+        `the operator has no kill-switch (§14 admin controls)`,
+    ];
+  }
+  return [];
+}
+
+function selfTest() {
+  const fails = [];
+  const assert = (cond, message) => {
+    if (!cond) fails.push(message);
+  };
+  const killSwitchFailure = (failures) => failures.some((f) => f.includes('no kill-switch'));
+
+  const absent = join(tmpdir(), 'l434-flags-absent-does-not-exist.ts');
+  if (existsSync(absent)) rmSync(absent);
+  const absentFailures = adminKillSwitchFailures('svc-probe', absent);
+  assert(killSwitchFailure(absentFailures), 'absent flags file must record a kill-switch failure');
+  assert(
+    absentFailures.some((f) => f.includes('FLAG_REGISTRY is missing')),
+    'absent flags file must say the flag registry is missing',
+  );
+  assert(
+    absentFailures.every((f) => !/module "[^"]+"/.test(f) && !/\bdef\(/.test(f)),
+    'absent flags file must not invent a flag key or module id',
+  );
+
+  const dir = mkdtempSync(join(tmpdir(), 'l434-flags-'));
+  try {
+    const present = join(dir, 'flags.ts');
+    writeFileSync(
+      present,
+      "function def(key, module, drop, description, enforcement) { return { key, module }; }\n" +
+        "def('trade.spot', 'trade', null, 'Spot order book live', null);\n",
+    );
+    const declared = adminKillSwitchFailures('svc-trade', present);
+    assert(!killSwitchFailure(declared), 'a real def() for the module must not add a kill-switch failure');
+    assert(declared.length === 0, 'a real def() for the module must not add any §14 kill-switch failure');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  if (fails.length) {
+    console.error(`dod-gate --self-test FAIL (${fails.length}):`);
+    for (const f of fails) console.error(`  · ${f}`);
+    process.exit(1);
+  }
+  console.log('dod-gate --self-test OK (2 cases)');
+  console.log('  absent flags.ts → kill-switch failure, registry missing, no invented module id');
+  console.log("  def('trade.spot', 'trade', …) → no kill-switch failure");
+  process.exit(0);
+}
+
+if (process.argv.includes('--self-test')) selfTest();
 
 // ── Run ─────────────────────────────────────────────────────────────────────
 
