@@ -2,6 +2,7 @@
 --
 -- Maker/checker for over-threshold transfers on a corporate account.
 -- No balance column. Value moves only via bankTransfer after dual approval.
+-- An approval uses the account's asset, and its two spaces are different.
 -- Full payroll / KYB / expense cards / invoicing remain residual or §13.
 
 CREATE TYPE "bank"."business_member_role" AS ENUM ('admin', 'maker', 'checker');
@@ -17,7 +18,8 @@ CREATE TABLE IF NOT EXISTS "bank"."business_accounts" (
   "created_at" timestamptz NOT NULL DEFAULT now(),
   "updated_at" timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT "business_accounts_threshold_positive" CHECK ("spend_threshold" > 0),
-  CONSTRAINT "business_accounts_status_ck" CHECK ("status" IN ('active', 'closed'))
+  CONSTRAINT "business_accounts_status_ck" CHECK ("status" IN ('active', 'closed')),
+  CONSTRAINT "business_accounts_id_asset_key" UNIQUE ("id", "asset_id")
 );
 
 CREATE TABLE IF NOT EXISTS "bank"."business_members" (
@@ -47,7 +49,9 @@ CREATE TABLE IF NOT EXISTS "bank"."business_approvals" (
   "rejection_code" text,
   "created_at" timestamptz NOT NULL DEFAULT now(),
   "decided_at" timestamptz,
-  CONSTRAINT "business_approvals_amount_positive" CHECK ("amount" > 0)
+  CONSTRAINT "business_approvals_amount_positive" CHECK ("amount" > 0),
+  CONSTRAINT "business_approvals_account_asset_fk" FOREIGN KEY ("account_id", "asset_id") REFERENCES "bank"."business_accounts" ("id", "asset_id"),
+  CONSTRAINT "business_approvals_spaces_distinct" CHECK ("from_space_id" <> "to_space_id")
 );
 
 CREATE INDEX IF NOT EXISTS "business_approvals_account_status_idx"
