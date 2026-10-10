@@ -8,7 +8,8 @@ import type { Resource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
-import type { UiLocale } from '../../shared/i18n';
+import { renderAuthoredCopy, type UiLocale } from '../../shared/i18n';
+import { uiDirection } from '../../shared/locale';
 
 export function Read<T>({
   resource,
@@ -114,6 +115,14 @@ export function Details({ items }: { items: readonly [string, ReactNode][] }) {
 type Presented<T> = T | (() => T);
 function present<T>(value: Presented<T>): T {
   return typeof value === 'function' ? (value as () => T)() : value;
+}
+export function PresentedCopy({ value }: { value: Presented<ReactNode> }) {
+  const shown = typeof value === 'function' ? renderAuthoredCopy(value) : { value, language: 'und' };
+  return (
+    <span lang={shown.language} dir={shown.language === 'und' ? undefined : uiDirection(shown.language)} style={{ display: 'contents' }}>
+      {shown.value}
+    </span>
+  );
 }
 type FailurePresentation = (locale: UiLocale) => { message: string; language: UiLocale };
 const failurePresentations = new WeakMap<object, FailurePresentation>();
@@ -314,7 +323,10 @@ export function useAction(room: string, recovery?: { recover: (reference: string
       {operation.current ? (
         <Loading label={copyText('common.waiting.for.the.service')} />
       ) : failure ? (
-        <div lang={problem ? language : (presentation?.language ?? 'und')} style={{ display: 'contents' }}>
+        <div
+          lang={problem ? legacyCopy.forLocale(language).languageFor(problemKey) : (presentation?.language ?? 'und')}
+          style={{ display: 'contents' }}
+        >
           <Failure
             result={
               problem
@@ -326,25 +338,25 @@ export function useAction(room: string, recovery?: { recover: (reference: string
           />
         </div>
       ) : shown.success ? (
-        <p className="more-success" role="status" lang={typeof shown.success === 'function' ? language : 'und'}>
-          {present(shown.success)}
+        <p className="more-success" role="status">
+          <PresentedCopy value={shown.success} />
         </p>
       ) : null}
       {snapshot.known && !operation.current ? (
-        <div className="failure" role="alert" lang={language}>
-          <p>{copy.t('cleanup')}</p>
+        <div className="failure" role="alert">
+          <p lang={copy.languageFor('cleanup')}>{copy.t('cleanup')}</p>
           <code lang="zxx" style={{ overflowWrap: 'anywhere' }}>
             {JSON.parse(snapshot.known.raw).reference ?? JSON.parse(snapshot.known.raw).id}
           </code>
-          <Button variant="secondary" onClick={() => void cleanup(snapshot.known!)}>
+          <Button variant="secondary" lang={copy.languageFor('retryCleanup')} onClick={() => void cleanup(snapshot.known!)}>
             {copy.t('retryCleanup')}
           </Button>
         </div>
       ) : saved.status === 'unreadable' && !operation.current ? (
-        <div className="failure" role="alert" lang={language}>
-          <h3>{copy.t('storageTitle')}</h3>
-          <p>{copy.t('storageBody')}</p>
-          <Button variant="secondary" onClick={redraw}>
+        <div className="failure" role="alert">
+          <h3 lang={copy.languageFor('storageTitle')}>{copy.t('storageTitle')}</h3>
+          <p lang={copy.languageFor('storageBody')}>{copy.t('storageBody')}</p>
+          <Button variant="secondary" lang={copy.languageFor('retryStorage')} onClick={redraw}>
             {copy.t('retryStorage')}
           </Button>
         </div>
@@ -381,13 +393,8 @@ export function useAction(room: string, recovery?: { recover: (reference: string
   const request = admitted.current;
   const dialog =
     live() && request && request.epoch === interaction.current && !operation.current ? (
-      <Dialog
-        title={<span lang={typeof request.title === 'function' ? language : 'und'}>{present(request.title)}</span>}
-        onClose={() => dismiss(request)}
-      >
-        <div lang={typeof request.content === 'function' ? language : 'und'} style={{ display: 'contents' }}>
-          {present(request.content)}
-        </div>
+      <Dialog title={<PresentedCopy value={request.title} />} onClose={() => dismiss(request)}>
+        <PresentedCopy value={request.content} />
         <p className="muted">
           <Text k="common.acting.as.account" />
           <code lang="zxx">{userId}</code>
@@ -397,8 +404,8 @@ export function useAction(room: string, recovery?: { recover: (reference: string
           <Button variant="secondary" onClick={() => dismiss(request)}>
             <Text k="common.back" />
           </Button>
-          <Button lang={typeof request.confirm === 'function' ? language : 'und'} onClick={() => void send(request)}>
-            {present(request.confirm)}
+          <Button onClick={() => void send(request)}>
+            <PresentedCopy value={request.confirm} />
           </Button>
         </div>
       </Dialog>

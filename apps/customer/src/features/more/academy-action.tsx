@@ -4,7 +4,7 @@ import type { ApiResult } from '../../shared/api';
 import { Button, Dialog, Failure, Loading } from '../../shared/ui';
 import { usePreferences } from '../../shared/preferences';
 import { useSession } from '../session/session';
-import { actionFailurePresentation, type useAction } from './common';
+import { PresentedCopy, actionFailurePresentation, type useAction } from './common';
 import { t as moreText, Text } from './copy';
 import { createAcademyGrantApi, type AcademyKnown, type GrantOperation, type GrantRecord } from './academy-grant-api';
 import { academyGrantCopy as copy } from './academy-grant-copy';
@@ -178,7 +178,15 @@ export function useAcademyAction() {
     <>
       {operation.current && <Loading label={moreText('common.waiting.for.the.service')} />}
       {failure && (
-        <div lang={ownedFailure ? language : (presentation?.language ?? 'und')} style={{ display: 'contents' }}>
+        <div
+          lang={
+            presentation?.language ??
+            (ownedFailure
+              ? copy.forLocale(language).languageFor(failure.code === 'academy.original_changed' ? 'changed' : 'unavailable')
+              : 'und')
+          }
+          style={{ display: 'contents' }}
+        >
           <Failure
             result={
               presentation
@@ -191,8 +199,8 @@ export function useAcademyAction() {
         </div>
       )}
       {!operation.current && shown.result?.ok && shown.success && (
-        <p role="status" className="more-success" lang={typeof shown.success === 'function' ? language : 'und'}>
-          {present(shown.success)}
+        <p role="status" className="more-success">
+          <PresentedCopy value={shown.success} />
         </p>
       )}
       {snapshot.status === 'other' && !operation.current && (
@@ -213,15 +221,17 @@ export function useAcademyAction() {
       )}
       {snapshot.known && !snapshot.known.grant && (
         <div className="failure">
-          <p>{copy.t('actionCleanup')}</p>
-          <Button onClick={() => void cleanup(snapshot.known!)}>{copy.t('cleanupAction')}</Button>
+          <p lang={copy.forLocale(language).languageFor('actionCleanup')}>{copy.t('actionCleanup')}</p>
+          <Button lang={copy.forLocale(language).languageFor('cleanupAction')} onClick={() => void cleanup(snapshot.known!)}>
+            {copy.t('cleanupAction')}
+          </Button>
         </div>
       )}
       {snapshot.status === 'unreadable' && !snapshot.known && (
         <div className="failure" role="alert">
-          <h3>{copy.t('storageTitle')}</h3>
-          <p>{copy.t('storageBody')}</p>
-          <Button variant="secondary" onClick={redraw}>
+          <h3 lang={copy.forLocale(language).languageFor('storageTitle')}>{copy.t('storageTitle')}</h3>
+          <p lang={copy.forLocale(language).languageFor('storageBody')}>{copy.t('storageBody')}</p>
+          <Button variant="secondary" lang={copy.forLocale(language).languageFor('retryStorage')} onClick={redraw}>
             {copy.t('retryStorage')}
           </Button>
         </div>
@@ -231,13 +241,8 @@ export function useAcademyAction() {
   const request = admitted.current;
   const dialog =
     live() && request && request.epoch === interaction.current && !operation.current ? (
-      <Dialog
-        title={<span lang={typeof request.title === 'function' ? language : 'und'}>{present(request.title)}</span>}
-        onClose={() => dismiss(request)}
-      >
-        <div lang={typeof request.content === 'function' ? language : 'und'} style={{ display: 'contents' }}>
-          {present(request.content)}
-        </div>
+      <Dialog title={<PresentedCopy value={request.title} />} onClose={() => dismiss(request)}>
+        <PresentedCopy value={request.content} />
         <p className="muted">
           <Text k="common.acting.as.account" />
           <code lang="zxx">{userId}</code>
@@ -247,8 +252,8 @@ export function useAcademyAction() {
           <Button variant="secondary" onClick={() => dismiss(request)}>
             <Text k="common.back" />
           </Button>
-          <Button lang={typeof request.confirm === 'function' ? language : 'und'} onClick={() => void send(request)}>
-            {present(request.confirm)}
+          <Button onClick={() => void send(request)}>
+            <PresentedCopy value={request.confirm} />
           </Button>
         </div>
       </Dialog>

@@ -372,13 +372,19 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                           items={[
                             [
                               copyText('agents.pending.window.charge'),
-                              <span className="agent-exact" lang={preferences.hideBalances ? preferences.language : 'zxx'}>
+                              <span
+                                className="agent-exact"
+                                lang={preferences.hideBalances ? sessionCopy.forLocale(preferences.language).languageFor('hidden') : 'zxx'}
+                              >
                                 {preferences.hideBalances ? sessionCopy.t('hidden') : `${displayAmount(usage.pending)} ${usage.assetId}`}
                               </span>,
                             ],
                             [
                               sessionCopy.t('accrued'),
-                              <span className="agent-exact" lang={preferences.hideBalances ? preferences.language : 'zxx'}>
+                              <span
+                                className="agent-exact"
+                                lang={preferences.hideBalances ? sessionCopy.forLocale(preferences.language).languageFor('hidden') : 'zxx'}
+                              >
                                 {preferences.hideBalances
                                   ? sessionCopy.t('hidden')
                                   : `${displayAmount(usage.sessionTotal)} ${usage.assetId}`}
@@ -935,7 +941,7 @@ function SessionHistory({ rows }: { rows: AgentAction[] }) {
             </div>
             <div>
               <dt>{copyText('agents.cost')}</dt>
-              <dd lang={preferences.hideBalances ? preferences.language : 'zxx'}>
+              <dd lang={preferences.hideBalances ? sessionCopy.forLocale(preferences.language).languageFor('hidden') : 'zxx'}>
                 {preferences.hideBalances ? sessionCopy.t('hidden') : displayAmount(row.cost)}
               </dd>
             </div>

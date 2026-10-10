@@ -2,6 +2,10 @@ import { defineCopy, type CopyCatalog } from '../../shared/i18n';
 
 // Authored UI messages only. API values, identifiers, units and user content stay outside this catalog.
 const messages = {
+  'view.language.partial': '{language} is selected. Some interface labels use English.',
+  'view.language.fallback': '{language} is selected. English is shown until {language} interface translations are available.',
+  'view.language.visit.only': 'Selected for this visit. Device storage is unavailable.',
+
   'view.daily.start.zoned': 'Chosen time zone · derived',
   'view.daily.zone': 'Daily candle time zone',
   'view.daily.zone.apply': 'Apply time zone',
@@ -399,7 +403,7 @@ const es = {
   'accountroutes.unread.only': 'Solo sin leer',
   'accountroutes.copied.invitation.link': 'Enlace de invitación copiado.',
   'accountroutes.copy.was.unavailable.select.the.link.above': 'No se ha podido copiar; selecciona el enlace de arriba.',
-} satisfies Record<keyof typeof messages, string>;
+} satisfies Partial<Record<keyof typeof messages, string>>;
 
 const fr = {
   'view.daily.start.zoned': 'Fuseau horaire choisi · dérivé',
@@ -601,7 +605,7 @@ const fr = {
   'accountroutes.unread.only': 'Non lus seulement',
   'accountroutes.copied.invitation.link': 'Lien d’invitation copié.',
   'accountroutes.copy.was.unavailable.select.the.link.above': 'La copie était indisponible ; sélectionnez le lien ci-dessus.',
-} satisfies Record<keyof typeof messages, string>;
+} satisfies Partial<Record<keyof typeof messages, string>>;
 
 export const copy = defineCopy('customer.account', messages, { es, fr });
 export const t: CopyCatalog<typeof messages>['t'] = copy.t;

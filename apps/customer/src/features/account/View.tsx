@@ -8,9 +8,14 @@ import {
   useDailyPreferenceEpoch,
   currentDailyPreferenceEpoch,
   type Preferences,
+  type PreferencePersistence,
+  currentPreferences,
+  currentPreferenceObservation,
+  usePreferenceObservation,
 } from '../../shared/preferences';
 import { canonicalDailyZone } from '../trade/zoned-daily-history';
-import { renderedUiLanguage, useCopyRevision } from '../../shared/i18n';
+import { customerCopyCoverage, renderedUiLanguage, useCopyRevision } from '../../shared/i18n';
+import { canonicalUiLocale, uiLocales, uiLocaleDescriptor, uiDirection } from '../../shared/locale';
 
 export function ApplyView() {
   const preferences = usePreferences();
@@ -20,13 +25,28 @@ export function ApplyView() {
     document.documentElement.dataset.theme = theme;
     document.documentElement.dataset.upColor = preferences.upColor;
     document.documentElement.dataset.phoneChart = preferences.phoneChart;
-    document.documentElement.lang = renderedUiLanguage(preferences.language);
+    const rendered = renderedUiLanguage(preferences.language);
+    document.documentElement.lang = rendered;
+    document.documentElement.dir = uiDirection(rendered);
   }, [preferences, theme, copyRevision]);
   return null;
 }
 export function View() {
   const preferences = usePreferences();
-  const [savedOnDevice, setSavedOnDevice] = useState(false);
+  const observation = usePreferenceObservation();
+  const [saved, setSaved] = useState<{
+    persistence: PreferencePersistence;
+    snapshot: Preferences;
+    observation: number;
+    language: boolean;
+  } | null>(null);
+  const currentSave = saved?.snapshot === preferences && saved.observation === observation ? saved : null;
+  const current = copy.forLocale(preferences.language);
+  const descriptor = uiLocaleDescriptor(preferences.language);
+  useCopyRevision();
+  const rows = customerCopyCoverage(preferences.language);
+  const hasWritten = rows.some((row) => row.translated > 0);
+  const hasFallback = rows.some((row) => row.missing.length > 0);
   const epoch = useDailyPreferenceEpoch();
   const [zoneDraft, setZoneDraft] = useState(preferences.dailyZone);
   const [zoneInvalid, setZoneInvalid] = useState(false);
@@ -34,11 +54,23 @@ export function View() {
     setZoneDraft(preferences.dailyZone);
     setZoneInvalid(false);
   }, [preferences.dailyZone, epoch]);
-  function saved() {
-    setSavedOnDevice(true);
+  function save(patch: Partial<Preferences>) {
+    const persistence = savePreferences(patch);
+    setSaved({
+      persistence,
+      snapshot: currentPreferences(),
+      observation: currentPreferenceObservation(),
+      language: Object.keys(patch).length === 1 && patch.language !== undefined,
+    });
   }
+  const acknowledgement =
+    currentSave?.persistence === 'device' ? (
+      <Text k="view.preferences.saved.on.this.device" />
+    ) : currentSave?.persistence === 'visit' ? (
+      <Text k="view.language.visit.only" />
+    ) : null;
   return (
-    <div lang={preferences.language} style={{ display: 'contents' }}>
+    <div lang={current.renderedLocale} dir={uiDirection(current.renderedLocale)} style={{ display: 'contents' }}>
       <Page title={copyText('view.view')} description={copyText('view.choose.how.the.product.feels.on.this')}>
         <div className="settings-grid">
           <section className="settings-section">
@@ -53,8 +85,7 @@ export function View() {
                 aria-label={copyText('view.theme')}
                 value={preferences.theme}
                 onChange={(event) => {
-                  savePreferences({ theme: event.target.value as 'dark' | 'light' | 'system' });
-                  saved();
+                  save({ theme: event.target.value as 'dark' | 'light' | 'system' });
                 }}
               >
                 <option value="dark" lang={copy.forLocale(preferences.language).languageFor('view.dark')}>
@@ -76,23 +107,30 @@ export function View() {
                 aria-label={copyText('view.language')}
                 value={preferences.language}
                 onChange={(event) => {
-                  savePreferences({ language: event.target.value as 'en' | 'es' | 'fr' });
-                  saved();
+                  const language = canonicalUiLocale(event.target.value);
+                  if (language) save({ language });
                 }}
               >
-                <option value="en" lang={copy.forLocale(preferences.language).languageFor('view.english')}>
-                  {copyText('view.english')}
-                </option>
-                <option value="es" lang={copy.forLocale(preferences.language).languageFor('view.espa.ol.partial')}>
-                  {copyText('view.espa.ol.partial')}
-                </option>
-                <option value="fr" lang={copy.forLocale(preferences.language).languageFor('view.fran.ais.partial')}>
-                  {copyText('view.fran.ais.partial')}
-                </option>
+                {uiLocales.map((language) => (
+                  <option key={language.code} value={language.code} lang={language.code} dir={uiDirection(language.code)}>
+                    {language.nativeName}
+                  </option>
+                ))}
               </select>
               <small>
-                <Text k="view.published.translations.are.used.where.available.new" />
+                {!hasWritten ? (
+                  <Text k="view.language.fallback" params={{ language: descriptor.englishName }} />
+                ) : hasFallback ? (
+                  <Text k="view.language.partial" params={{ language: descriptor.englishName }} />
+                ) : (
+                  <Text k="view.published.translations.are.used.where.available.new" />
+                )}
               </small>
+              {currentSave?.language && (
+                <p role="status" className="muted">
+                  {acknowledgement}
+                </p>
+              )}
             </label>
           </section>
           <section className="settings-section">
@@ -103,8 +141,7 @@ export function View() {
               label={copyText('view.hide.balance.values')}
               checked={preferences.hideBalances}
               onChange={(value) => {
-                savePreferences({ hideBalances: value });
-                saved();
+                save({ hideBalances: value });
               }}
             />
             <label className="field">
@@ -115,8 +152,7 @@ export function View() {
                 aria-label={copyText('view.display.currency')}
                 value={preferences.displayCurrency}
                 onChange={(event) => {
-                  savePreferences({ displayCurrency: event.target.value as 'USD' | 'BTC' });
-                  saved();
+                  save({ displayCurrency: event.target.value as 'USD' | 'BTC' });
                 }}
               >
                 <option value="USD">USD</option>
@@ -142,8 +178,7 @@ export function View() {
                 aria-label={copyText('view.up.and.down.colors')}
                 value={preferences.upColor}
                 onChange={(event) => {
-                  savePreferences({ upColor: event.target.value as 'green' | 'red' });
-                  saved();
+                  save({ upColor: event.target.value as 'green' | 'red' });
                 }}
               >
                 <option value="green" lang={copy.forLocale(preferences.language).languageFor('view.green.up.red.down')}>
@@ -162,8 +197,7 @@ export function View() {
                 aria-label={copyText('view.chart.on.phone')}
                 value={preferences.phoneChart}
                 onChange={(event) => {
-                  savePreferences({ phoneChart: event.target.value as 'top' | 'bottom' | 'hidden' });
-                  saved();
+                  save({ phoneChart: event.target.value as 'top' | 'bottom' | 'hidden' });
                 }}
               >
                 <option value="top" lang={copy.forLocale(preferences.language).languageFor('view.top')}>
@@ -185,8 +219,7 @@ export function View() {
                 aria-label={copyText('view.chart.time.labels')}
                 value={preferences.timeZone}
                 onChange={(event) => {
-                  savePreferences({ timeZone: event.target.value as 'UTC' | 'UTC+8' | 'device' });
-                  saved();
+                  save({ timeZone: event.target.value as 'UTC' | 'UTC+8' | 'device' });
                 }}
               >
                 <option value="UTC">UTC</option>
@@ -208,8 +241,7 @@ export function View() {
                 value={preferences.dailyStart}
                 onChange={(event) => {
                   if (currentDailyPreferenceEpoch() !== epoch) return;
-                  savePreferences({ dailyStart: event.target.value as Preferences['dailyStart'] });
-                  saved();
+                  save({ dailyStart: event.target.value as Preferences['dailyStart'] });
                 }}
               >
                 <option value="nativeUTC">{copyText('view.daily.start.native')}</option>
@@ -228,10 +260,9 @@ export function View() {
                   if (currentDailyPreferenceEpoch() !== epoch) return;
                   try {
                     const dailyZone = canonicalDailyZone(zoneDraft);
-                    savePreferences({ dailyZone, dailyStart: 'zoned' });
+                    save({ dailyZone, dailyStart: 'zoned' });
                     setZoneDraft(dailyZone);
                     setZoneInvalid(false);
-                    saved();
                   } catch {
                     setZoneInvalid(true);
                   }
@@ -290,16 +321,14 @@ export function View() {
               label={copyText('view.show.working.orders')}
               checked={preferences.showOrders}
               onChange={(value) => {
-                savePreferences({ showOrders: value });
-                saved();
+                save({ showOrders: value });
               }}
             />
             <Toggle
               label={copyText('view.show.old.fills')}
               checked={preferences.showFills}
               onChange={(value) => {
-                savePreferences({ showFills: value });
-                saved();
+                save({ showFills: value });
               }}
             />
           </section>
@@ -311,16 +340,14 @@ export function View() {
               label={copyText('view.confirm.before.send')}
               checked={preferences.confirmSend}
               onChange={(value) => {
-                savePreferences({ confirmSend: value });
-                saved();
+                save({ confirmSend: value });
               }}
             />
             <Toggle
               label={copyText('view.confirm.before.cancel')}
               checked={preferences.confirmCancel}
               onChange={(value) => {
-                savePreferences({ confirmCancel: value });
-                saved();
+                save({ confirmCancel: value });
               }}
             />
             <p className="muted">
@@ -334,8 +361,7 @@ export function View() {
                 aria-label={copyText('view.favorites.view')}
                 value={preferences.favoritesView}
                 onChange={(event) => {
-                  savePreferences({ favoritesView: event.target.value as 'list' | 'cards' });
-                  saved();
+                  save({ favoritesView: event.target.value as 'list' | 'cards' });
                 }}
               >
                 <option value="list" lang={copy.forLocale(preferences.language).languageFor('view.list')}>
@@ -355,7 +381,7 @@ export function View() {
           <Button
             variant="secondary"
             onClick={() => {
-              savePreferences({
+              save({
                 theme: 'dark',
                 language: 'en',
                 hideBalances: false,
@@ -371,13 +397,12 @@ export function View() {
                 confirmCancel: true,
                 favoritesView: 'list',
               });
-              saved();
             }}
           >
             <Text k="view.restore.defaults" />
           </Button>
           <p role="status" className="muted">
-            {savedOnDevice && <Text k="view.preferences.saved.on.this.device" />}
+            {!currentSave?.language && acknowledgement}
           </p>
         </div>
       </Page>

@@ -1,9 +1,18 @@
 import { useSyncExternalStore } from 'react';
 import { z } from 'zod';
+import { canonicalUiLocale } from './locale';
 
 const schema = z.object({
   theme: z.enum(['dark', 'light', 'system']).default('dark'),
-  language: z.enum(['en', 'es', 'fr']).default('en'),
+  language: z
+    .string()
+    .default('en')
+    .transform((value, context) => {
+      const canonical = canonicalUiLocale(value);
+      if (canonical) return canonical;
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Unsupported interface language' });
+      return z.NEVER;
+    }),
   hideBalances: z.boolean().default(false),
   displayCurrency: z.enum(['USD', 'BTC']).default('USD'),
   phoneChart: z.enum(['top', 'bottom', 'hidden']).default('top'),
@@ -43,6 +52,18 @@ try {
 }
 const listeners = new Set<() => void>();
 let dailyEpoch = 0;
+let preferenceObservation = 0;
+export function currentPreferenceObservation() {
+  return preferenceObservation;
+}
+export function usePreferenceObservation() {
+  return useSyncExternalStore((notify) => {
+    listeners.add(notify);
+    return () => {
+      listeners.delete(notify);
+    };
+  }, currentPreferenceObservation);
+}
 let observedDaily = `${snapshot.dailyStart}:${snapshot.dailyZone}`;
 function observeDaily(value: Preferences) {
   const identity = `${value.dailyStart}:${value.dailyZone}`;
@@ -69,7 +90,6 @@ if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
     if (event.key !== key && event.key !== null) return;
     let next: Preferences;
-    const previousEpoch = dailyEpoch;
     try {
       if (event.storageArea !== localStorage) return;
       // Observe each valid departure even when queued A→B→A events have
@@ -92,24 +112,30 @@ if (typeof window !== 'undefined') {
       // Retain the last valid display preferences when storage is unreadable.
       return;
     }
+    preferenceObservation++;
     observeDaily(next);
     if (JSON.stringify(next) === JSON.stringify(snapshot)) {
-      if (previousEpoch !== dailyEpoch) notifyChanges();
+      notifyChanges();
       return;
     }
     snapshot = next;
     notifyChanges();
   });
 }
-export function savePreferences(patch: Partial<Preferences>) {
+export type PreferencePersistence = 'device' | 'visit';
+export function savePreferences(patch: Partial<Preferences>): PreferencePersistence {
   snapshot = schema.parse({ ...snapshot, ...patch });
   observeDaily(snapshot);
+  let persistence: PreferencePersistence = 'visit';
   try {
-    localStorage.setItem(key, JSON.stringify(snapshot));
+    const raw = JSON.stringify(snapshot);
+    localStorage.setItem(key, raw);
+    if (localStorage.getItem(key) === raw) persistence = 'device';
   } catch {
     /* Changes still work for this visit. */
   }
   notifyChanges();
+  return persistence;
 }
 export function usePreferences() {
   return useSyncExternalStore(

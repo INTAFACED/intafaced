@@ -1,3 +1,4 @@
+import { uiDirection } from '../../shared/locale';
 import { TradeOriginalMessage, tradeError, tradeFailureFrom, TradeMessage, tradeRefusal, tradeCopy as copy, CopyText, tradeLabels, choiceText, choiceNode, choiceLanguage, tradeDate, TradeFailure as Failure } from './copy';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
@@ -108,7 +109,7 @@ export function TradeRoutes({ path }: { path: string }) {
     setPicker(false);
   }
   return (
-    <div className={`trade-root ${activeMode === 'Spot' ? 'trade-root--spot' : ''}`} lang={preferences.language}>
+    <div className={`trade-root ${activeMode === 'Spot' ? 'trade-root--spot' : ''}`} lang={copy.forLocale(preferences.language).renderedLocale} dir={uiDirection(copy.forLocale(preferences.language).renderedLocale)}>
       <nav className="trade-modes" aria-label={copy.t('tradingModes')} lang={languageFor('tradingModes')}>
         {activeMode === 'Spot' ? (
           <details className="trade-mode-menu">
@@ -477,7 +478,7 @@ function readPending(userId: string): Pending | null {
   }
 }
 function CancelReplaceNotice({ original, replacement }: { original: ApiResult<Order>; replacement: ApiResult<Order> }) {
-  const { t, requestedLocale } = copy.useCopy();
+  const { t, languageFor } = copy.useCopy();
   // Segment only the authored template. Provider messages never enter this
   // interpolation or get scanned for keys; their explicit provenance renderer
   // preserves the original language and response context.
@@ -485,7 +486,7 @@ function CancelReplaceNotice({ original, replacement }: { original: ApiResult<Or
     originalOkOriginalMessage: '{originalOkOriginalMessage}',
     replacementOkReplacementMessage: '{replacementOkReplacementMessage}',
   });
-  return <span lang={requestedLocale} data-i18n="trade.cancelReplaceIsUnresolvedNoNewRequestHasBeenSent">
+  return <span lang={languageFor('cancelReplaceIsUnresolvedNoNewRequestHasBeenSent')} data-i18n="trade.cancelReplaceIsUnresolvedNoNewRequestHasBeenSent">
     {template.split(/(\{originalOkOriginalMessage\}|\{replacementOkReplacementMessage\})/).map((part, index) =>
       part === '{originalOkOriginalMessage}'
         ? original.ok

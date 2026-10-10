@@ -140,7 +140,7 @@ function reviewedProposal(p: z.infer<typeof governanceProposal>) {
 type RefusalKey = 'changed' | 'inactive' | 'noWeight' | 'storage' | 'receiptStorage';
 function governanceRefusal(reason: Extract<ApiResult<never>, { ok: false }>['reason'], key: RefusalKey) {
   return presentActionFailure({ ok: false as const, reason, message: G.t(key) },
-    (locale) => ({ message: G.forLocale(locale).t(key), language: locale }));
+    (locale) => ({ message: G.forLocale(locale).t(key), language: G.forLocale(locale).languageFor(key) }));
 }
 function proposalDetailSchema(id: string) {
   return governanceProposal.extend({ tally }).refine((p) => {
