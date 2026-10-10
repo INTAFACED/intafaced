@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
+import { applyMigrationDown, applyMigrationUp, reversalNames } from '../src/migrate-transaction.js';
 
 /**
  * Migration runner.
@@ -37,18 +38,17 @@ async function main() {
   const all = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql'));
   const ups = all.filter((f) => !f.endsWith('.down.sql')).sort();
 
+  const applied = new Set((await sql<Array<{ name: string }>>`SELECT name FROM bank.__migrations`).map((r) => r.name));
+
   if (down) {
-    for (const up of [...ups].reverse()) {
+    for (const up of reversalNames(ups, applied)) {
       const downFile = up.replace(/\.sql$/, '.down.sql');
       console.log(`↓ ${downFile}`);
-      await sql.unsafe(readFileSync(join(migrationsDir, downFile), 'utf8'));
-      await sql`DELETE FROM bank.__migrations WHERE name = ${up}`;
+      await applyMigrationDown(sql, up, readFileSync(join(migrationsDir, downFile), 'utf8'));
     }
     console.log('✓ reversed');
     return;
   }
-
-  const applied = new Set((await sql<Array<{ name: string }>>`SELECT name FROM bank.__migrations`).map((r) => r.name));
 
   for (const file of ups) {
     if (applied.has(file)) {
@@ -56,8 +56,7 @@ async function main() {
       continue;
     }
     console.log(`↑ ${file}`);
-    await sql.unsafe(readFileSync(join(migrationsDir, file), 'utf8'));
-    await sql`INSERT INTO bank.__migrations (name) VALUES (${file})`;
+    await applyMigrationUp(sql, file, readFileSync(join(migrationsDir, file), 'utf8'));
   }
 
   console.log('✓ migrations up to date');
