@@ -30,7 +30,12 @@ export interface ActionApprovalConsumer {
 }
 
 export function bankActionPayloadHash(actionType: string, fields: Record<string, string>): string {
-  const payload = JSON.stringify({ actionType, ...fields });
+  const sortedCopy: Record<string, string> = {};
+  for (const key of Object.keys(fields).sort()) {
+    const value = fields[key];
+    if (value !== undefined) sortedCopy[key] = value;
+  }
+  const payload = JSON.stringify({ actionType, fields: sortedCopy });
   return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
 }
 

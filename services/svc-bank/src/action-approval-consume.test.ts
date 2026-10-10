@@ -59,6 +59,13 @@ describe('bank action-approval consume', () => {
     );
   });
 
+  it('keeps the action type and ignores field key order', () => {
+    const digest = bankActionPayloadHash('ops.limit', { z: '1', a: '2' });
+    expect(digest.startsWith('sha256:')).toBe(true);
+    expect(digest).toBe(bankActionPayloadHash('ops.limit', { a: '2', z: '1' }));
+    expect(bankActionPayloadHash('ops.limit', { actionType: 'other' })).not.toBe(bankActionPayloadHash('other', {}));
+  });
+
   it('blank IDENTITY_URL consumer refuses instead of inventing a second person', async () => {
     await expect(
       unwiredApprovalConsumer().consume({
