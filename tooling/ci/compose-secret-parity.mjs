@@ -154,7 +154,8 @@ function regexLikely(out) {
   let j = out.length - 1;
   while (j >= 0 && (out[j] === ' ' || out[j] === '\t' || out[j] === '\n' || out[j] === '\r')) j--;
   if (j < 0) return true;
-  if ('([{=,:;!&|?~^'.includes(out[j])) return true;
+  // `>` is `=> /re/`. `)` is `if (v) /re/`. Both are regex literals, not division.
+  if ('([{=,:;!&|?~^>)'.includes(out[j])) return true;
   return REGEX_AFTER.test(out.slice(Math.max(0, j - 8), j + 1));
 }
 
@@ -396,6 +397,24 @@ function selfTest() {
     );
     assert(kept.has('PAY_CRYPTO_HOT_WALLET_KEY'), 'regex body marked PAY_CRYPTO_HOT_WALLET_KEY optional');
 
+    const arrow = needOf(
+      [
+        'export const envSchema = z.object({',
+        '  PAY_CRYPTO_HOT_WALLET_KEY: z.string().refine((v) => /.optional(|.default(/.test(v)),',
+        '});',
+      ].join('\n'),
+    );
+    assert(arrow.has('PAY_CRYPTO_HOT_WALLET_KEY'), 'arrow regex example marked PAY_CRYPTO_HOT_WALLET_KEY optional');
+
+    const call = needOf(
+      [
+        'export const envSchema = z.object({',
+        '  JWT_ACCESS_SECRET: z.string().refine((v) => { if (v) /.optional(|.default(/; return true; }),',
+        '});',
+      ].join('\n'),
+    );
+    assert(call.has('JWT_ACCESS_SECRET'), 'call regex example marked JWT_ACCESS_SECRET optional');
+
     const dropped = needOf(
       [
         "import { authEnvSchema } from '@intafaced/config';",
@@ -453,7 +472,7 @@ function selfTest() {
     for (const f of fails) console.error(`  · ${f}`);
     process.exit(1);
   }
-  console.log('compose-secret-parity --self-test OK (13 checks)');
+  console.log('compose-secret-parity --self-test OK (15 checks)');
   process.exit(0);
 }
 
