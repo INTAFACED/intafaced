@@ -325,20 +325,23 @@ export class VenueLatencyGrader {
  * directional rather than representational:
  *
  * The sentinel is the MAXIMUM safe integer, and `router.ts` sorts `latencyMs`
- * ASCENDING at its tie-break. An unmeasured venue therefore always loses a tie
- * it participates in — it can never be preferred on a latency it does not have.
- * Being wrong in the conservative direction is the whole of the guarantee.
+ * ASCENDING at its tie-break. That sort is a backstop only. It is not a reason
+ * to route on a missing score, and it is not a latency number we invent.
  *
- * It is emitted in two cases, and only one of them is also `healthy: false`:
+ * A provisional F that still has a measured p95 stays healthy, because two
+ * samples are not evidence. That record carries the measured p95, not this
+ * sentinel.
  *
- *   · ungraded — no observations at all. Excluded, so it never reaches ranking.
- *   · graded, but with no SUCCESSFUL observation (every call errored). If that
- *     grade is `provisional`, the venue stays healthy on too-few-samples and
- *     does carry the sentinel into ranking — where, per the above, it loses.
+ * A graded venue whose `p95Ms` is null (every call errored) has routing weight
+ * 0, `measuredLatencyMs` null, and `healthFromGrade` `healthy: false`. It does
+ * not enter ranking. The sentinel may still be stored on that unhealthy record.
+ * Ungraded (no observations at all) is the same exclusion: weight 0,
+ * `healthy: false`, and it never reaches ranking.
  *
- * Both are pinned by tests. If a future change ever flips that sort to
- * descending, or gives the sentinel a small value, an unmeasured venue starts
- * winning tie-breaks on money — so those pins are load-bearing, not decorative.
+ * Tests pin this safe behavior. They do not pin routing on a missing score.
+ * If a future change flips that sort to descending, or gives the sentinel a
+ * small value, a record that reached a tie-break would win on a latency it
+ * does not have. The pins stay load-bearing.
  */
 export const UNMEASURED_LATENCY_MS = Number.MAX_SAFE_INTEGER;
 

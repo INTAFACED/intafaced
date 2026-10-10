@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import { type MarketDataAdapter, VenueUnavailableError } from '@intafaced/venue-contracts';
@@ -871,5 +874,32 @@ describe('ws-round-trip — handshake grade, not REST relabelled', () => {
     expect(after.samples).toBe(1);
     expect(after.grade).not.toBeNull();
     expect(adapter.latencyGrade!(T0).samples).toBe(0);
+  });
+});
+
+describe('UNMEASURED_LATENCY_MS comment', () => {
+  it('does not claim a provisional all-error grade stays healthy or enters ranking', () => {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'latency.ts'), 'utf8');
+    const start = src.indexOf('UNMEASURED_LATENCY_MS` IS A SENTINEL');
+    const end = src.indexOf('export const UNMEASURED_LATENCY_MS');
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    // The pin is the comment text. Join wrapped lines; do not strip the comment.
+    const comment = src.slice(start, end).replace(/\n\s*\*\s?/g, ' ');
+
+    expect(comment).not.toMatch(
+      /provisional[\s\S]{0,180}stays healthy[\s\S]{0,180}(?:carry|carries) the sentinel into ranking/,
+    );
+    expect(comment).not.toMatch(/only one of them is also `healthy: false`/);
+
+    expect(comment).toMatch(/measured p95[\s\S]{0,80}stays healthy/);
+    expect(comment).toMatch(/two samples are not evidence/);
+    expect(comment).toMatch(/`p95Ms` is null/);
+    expect(comment).toMatch(/routing weight 0/);
+    expect(comment).toMatch(/`measuredLatencyMs` null/);
+    expect(comment).toMatch(/`healthFromGrade`[\s\S]{0,40}healthy: false/);
+    expect(comment).toMatch(/does not enter ranking/);
+    expect(comment).toMatch(/sentinel may still be stored on that unhealthy record/);
+    expect(comment).toMatch(/Tests pin this safe behavior/);
   });
 });
