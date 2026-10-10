@@ -90,12 +90,75 @@ describe('MMP actions refuse-closed when thresholds unset', () => {
     if (result.ok) throw new Error('expected refuse');
     expect(result.reason).toBe('mmp_observation_incomplete');
   });
+
+  it('refuses mass quote when filledQuantity is negative rather than admitting it', () => {
+    const result = runMmMmpAction(
+      'mass_quote',
+      { [EXECUTION_MM_MMP_THRESHOLDS_ENV]: SAMPLE },
+      { ...INSIDE, filledQuantity: parseAmount('-1') },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected refuse');
+    expect(result.reason).toBe('mmp_observation_incomplete');
+    expect(result.detail).toBe('filledQuantity must be a non-negative amount — not invented');
+  });
 });
 
 describe('evaluateMmMmpTrigger', () => {
-  it('clears inside owner maxima', () => {
+  function sampleThresholds() {
     const gate = mmMmpThresholdsGate({ [EXECUTION_MM_MMP_THRESHOLDS_ENV]: SAMPLE });
     if (!gate.configured) throw new Error('expected configured MMP thresholds');
-    expect(evaluateMmMmpTrigger(gate.thresholds, INSIDE)).toEqual({ triggered: false });
+    return gate.thresholds;
+  }
+
+  it('clears inside owner maxima', () => {
+    expect(evaluateMmMmpTrigger(sampleThresholds(), INSIDE)).toEqual({ triggered: false });
+  });
+
+  it.each(['0', '1', '10'] as const)(
+    'does not trip filled_quantity for parseAmount(%s) against SAMPLE maxFilledQuantity 10',
+    (qty) => {
+      const result = evaluateMmMmpTrigger(sampleThresholds(), { ...INSIDE, filledQuantity: parseAmount(qty) });
+      expect(result).toEqual({ triggered: false });
+    },
+  );
+
+  it('trips filled_quantity for parseAmount(11) against SAMPLE maxFilledQuantity 10', () => {
+    expect(evaluateMmMmpTrigger(sampleThresholds(), { ...INSIDE, filledQuantity: parseAmount('11') })).toEqual({
+      triggered: true,
+      reasons: ['filled_quantity'],
+      detail: 'filledQuantity exceeds owner maxFilledQuantity',
+    });
+  });
+
+  it('refuses a negative openQuotes count as an incomplete observation', () => {
+    expect(evaluateMmMmpTrigger(sampleThresholds(), { ...INSIDE, openQuotes: -1 })).toEqual({
+      ok: false,
+      reason: 'mmp_observation_incomplete',
+      detail: 'openQuotes must be a non-negative integer — not invented',
+    });
+  });
+
+  it('still trips filled_delta when absolute delta exceeds the owner maximum', () => {
+    expect(evaluateMmMmpTrigger(sampleThresholds(), { ...INSIDE, filledDelta: 101 })).toMatchObject({
+      triggered: true,
+      reasons: ['filled_delta'],
+    });
+  });
+
+  it('still trips filled_vega when absolute vega exceeds the owner maximum', () => {
+    expect(evaluateMmMmpTrigger(sampleThresholds(), { ...INSIDE, filledVega: 51 })).toMatchObject({
+      triggered: true,
+      reasons: ['filled_vega'],
+    });
+  });
+
+  it('refuses a negative filledQuantity as incomplete, not a filled_quantity trip', () => {
+    const result = evaluateMmMmpTrigger(sampleThresholds(), { ...INSIDE, filledQuantity: parseAmount('-1') });
+    expect(result).toEqual({
+      ok: false,
+      reason: 'mmp_observation_incomplete',
+      detail: 'filledQuantity must be a non-negative amount — not invented',
+    });
   });
 });
