@@ -587,7 +587,7 @@ export const tradingFeeSchema = z.object({
   symbol: z.string(),
   maker: decimal,
   taker: decimal,
-  /** Effective rate after rank perks and IFC discount (§4.1, §4.3). */
+  /** maker and taker are the rates. percentage is not a rate. */
   percentage: z.boolean(),
 });
 export type TradingFee = z.infer<typeof tradingFeeSchema>;

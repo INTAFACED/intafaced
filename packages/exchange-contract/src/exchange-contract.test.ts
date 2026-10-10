@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parseSymbol, formatSymbol, symbolsEqual, SymbolError } from './symbols.js';
 import {
@@ -11,6 +12,7 @@ import {
   EXCHANGE_ERROR_CODES,
   exchangeErrorSchema,
   marketSchema,
+  tradingFeeSchema,
 } from './schemas.js';
 import { REST_ROUTES, WS_CHANNELS, RATE_LIMITS } from './api.js';
 
@@ -573,5 +575,31 @@ describe('market precision', () => {
     expect(marketSchema.safeParse(swap).success).toBe(true);
     expect(marketSchema.safeParse(future).success).toBe(true);
     expect(marketSchema.safeParse(inverseOption).success).toBe(true);
+  });
+});
+
+describe('trading fee percentage is not a rate', () => {
+  const fee = {
+    symbol: 'BTC/USDT',
+    maker: '0.0005',
+    taker: '0.001',
+    percentage: true,
+  };
+
+  it('parses maker and taker as rates with percentage true', () => {
+    expect(tradingFeeSchema.safeParse(fee).success).toBe(true);
+  });
+
+  it('rejects percentage as a decimal string', () => {
+    expect(tradingFeeSchema.safeParse({ ...fee, percentage: '0.001' }).success).toBe(false);
+  });
+
+  it('rejects percentage as a number', () => {
+    expect(tradingFeeSchema.safeParse({ ...fee, percentage: 0.001 }).success).toBe(false);
+  });
+
+  it('does not call percentage the effective rate', () => {
+    const source = readFileSync(new URL('./schemas.ts', import.meta.url), 'utf8');
+    expect(source).not.toContain('Effective rate after rank perks');
   });
 });
