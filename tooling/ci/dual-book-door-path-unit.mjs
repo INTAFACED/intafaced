@@ -33,6 +33,89 @@ function walk(dir, pred, out = []) {
   return out;
 }
 
+/** Block and line comments. Strings are masked first so a path cannot look like a comment. */
+function stripJavaComments(source) {
+  const literals = [];
+  const masked = source.replace(/"(?:\\.|[^"\\])*"/g, (s) => `"\u0000${literals.push(s) - 1}\u0000"`);
+  const decommented = masked.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+  return decommented.replace(/"\u0000(\d+)\u0000"/g, (_, i) => literals[Number(i)]);
+}
+
+function maskJavaStrings(source) {
+  return source.replace(/"(?:\\.|[^"\\])*"/g, '""');
+}
+
+function braceBody(source, openIndex) {
+  let depth = 0;
+  for (let i = openIndex; i < source.length; i++) {
+    const c = source[i];
+    if (c === '"') {
+      i++;
+      while (i < source.length) {
+        if (source[i] === '\\') {
+          i += 2;
+          continue;
+        }
+        if (source[i] === '"') break;
+        i++;
+      }
+      continue;
+    }
+    if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) return source.slice(openIndex + 1, i);
+    }
+  }
+  return null;
+}
+
+function methodBodies(source, signatureRe) {
+  const bodies = [];
+  for (const m of source.matchAll(signatureRe)) {
+    const open = m.index + m[0].length - 1;
+    if (source[open] !== '{') continue;
+    const body = braceBody(source, open);
+    if (body != null) bodies.push(body);
+  }
+  return bodies;
+}
+
+/** Locals assigned from pathForMatch of the request URI, not a constant or a helper argument. */
+function decodedRequestNames(preBody) {
+  const uriLocals = new Set();
+  for (const m of preBody.matchAll(
+    /\b(?:final\s+)?String\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*request\s*\.\s*getRequestURI\s*\(\s*\)/g,
+  )) {
+    uriLocals.add(m[1]);
+  }
+  const decoded = [];
+  for (const m of preBody.matchAll(
+    /\b(?:final\s+)?String\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*pathForMatch\s*\(\s*([^)]*)\)/g,
+  )) {
+    const arg = m[2].trim();
+    if (/^request\s*\.\s*getRequestURI\s*\(\s*\)$/.test(arg) || uriLocals.has(arg)) decoded.push(m[1]);
+  }
+  return decoded;
+}
+
+function preHandleConsultsBlockedOnDecodedPath(preBody) {
+  const decodedNames = decodedRequestNames(preBody);
+  if (decodedNames.length === 0) return false;
+  const head =
+    /for\s*\(\s*(?:final\s+)?String\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*BLOCKED_URI_FRAGMENTS\s*\)\s*\{/g;
+  for (const m of preBody.matchAll(head)) {
+    const open = m.index + m[0].length - 1;
+    const body = braceBody(preBody, open);
+    if (body == null) continue;
+    const frag = m[1];
+    for (const name of decodedNames) {
+      if (new RegExp(`\\b${name}\\s*\\.\\s*contains\\s*\\(\\s*${frag}\\b`).test(body)) return true;
+    }
+  }
+  return false;
+}
+
 const files = walk(VENDOR, (n) => n === 'DualBookMoneyDoorInterceptor.java');
 if (files.length !== 1) {
   console.error(`✖ dual-book-door-path-unit: expected 1 interceptor, found ${files.length}`);
@@ -41,19 +124,28 @@ if (files.length !== 1) {
 
 const src = readFileSync(files[0], 'utf8');
 
-// Structural bind to the Java interceptor — the JS mirror below is not enough.
-// If preHandle reverts to raw getRequestURI(), encoded fixtures stay green and
-// the door is bypassable again (adversarial review L16 W4).
-if (!/static\s+String\s+pathForMatch\s*\(/.test(src)) {
-  console.error('✖ dual-book-door-path-unit: interceptor must define static pathForMatch(String)');
+// Bind the door to preHandle's body. A comment, javadoc sample, or unused helper
+// can carry pathForMatch / URLDecoder.decode / `path = pathForMatch(` while
+// preHandle still matches getRequestURI() and encoded money paths skip the door.
+const javaCode = maskJavaStrings(stripJavaComments(src));
+const matcherBodies = methodBodies(
+  javaCode,
+  /\bstatic\s+String\s+pathForMatch\s*\([^)]*\)\s*(?:throws\s+[^{]+)?\{/g,
+);
+if (matcherBodies.length === 0 || matcherBodies.some((body) => !/URLDecoder\s*\.\s*decode\s*\(/.test(body))) {
+  console.error(
+    '✖ dual-book-door-path-unit: static pathForMatch(String) must URLDecoder.decode the request path',
+  );
   process.exit(1);
 }
-if (!/URLDecoder\.decode/.test(src)) {
-  console.error('✖ dual-book-door-path-unit: pathForMatch must URLDecoder.decode (percent-encoding)');
-  process.exit(1);
-}
-if (!/String\s+path\s*=\s*pathForMatch\s*\(/.test(src)) {
-  console.error('✖ dual-book-door-path-unit: preHandle must assign path = pathForMatch(...)');
+const preBodies = methodBodies(
+  javaCode,
+  /\bboolean\s+preHandle\s*\(\s*HttpServletRequest\b[^)]*\)\s*(?:throws\s+[^{]+)?\{/g,
+);
+if (preBodies.length === 0 || preBodies.some((body) => !preHandleConsultsBlockedOnDecodedPath(body))) {
+  console.error(
+    '✖ dual-book-door-path-unit: preHandle must consult BLOCKED_URI_FRAGMENTS on pathForMatch(request URI)',
+  );
   process.exit(1);
 }
 
