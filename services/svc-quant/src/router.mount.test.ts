@@ -35,7 +35,12 @@ console.log(book.pnl());`;
 
 describe('svc-quant mount — sandbox.run', () => {
   it('serves a five-line javascript run over the wire with decimal-string pnl', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({
+      wired: true,
+      venueVaultSet: false,
+      limits,
+      marks: { 'BTC-USD': '2' },
+    }).createCaller(anonymous());
     const ran = await caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, cash: '10000', environment: 'paper' });
     expect(ran.ok).toBe(true);
     expect(typeof ran.pnl).toBe('string');
@@ -51,7 +56,12 @@ describe('svc-quant mount — sandbox.run', () => {
   });
 
   it('serves python the same way', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({
+      wired: true,
+      venueVaultSet: false,
+      limits,
+      marks: { 'BTC-USD': '2' },
+    }).createCaller(anonymous());
     const ran = await caller.sandbox.run({
       language: 'python',
       source: 'oms.buy("BTC-USD", "0.01")\nprint(book.pnl())',
@@ -137,7 +147,12 @@ describe('svc-quant mount — sandbox.run', () => {
   });
 
   it('accepts explicit cash 10000 (owner-published, not invented)', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({
+      wired: true,
+      venueVaultSet: false,
+      limits,
+      marks: { 'BTC-USD': '2' },
+    }).createCaller(anonymous());
     const ran = await caller.sandbox.run({
       language: 'javascript',
       source: SAMPLE_JS,
@@ -185,7 +200,12 @@ describe('svc-quant mount — studio.save', () => {
   });
 
   it('saves a no-code strategy then runs it through existing sandbox.run', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({
+      wired: true,
+      venueVaultSet: false,
+      limits,
+      marks: { 'BTC-USD': '2' },
+    }).createCaller(anonymous());
     const saved = await caller.studio.save({ name: 'alpha', blocks, risk, cash: '10000', environment: 'paper' });
     expect(saved.risk.maxDrawdown).toBe('500');
     expect(typeof saved.risk.maxNotional).toBe('string');

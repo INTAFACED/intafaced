@@ -1,13 +1,6 @@
 import { add, formatAmount, mul, parseAmount, sub, type Amount } from '@intafaced/ledger-client/money';
 import { QUANT_VENUE_VAULT_UNSET, QuantError } from '../errors.js';
 
-/** Fixture marks for the internal paper book. Not a live feed. Not a network. */
-export const INTERNAL_MARKS: Readonly<Record<string, string>> = {
-  'BTC-USD': '50000',
-  'ETH-USD': '3000',
-  'IFC-USD': '1',
-};
-
 export interface PaperFill {
   readonly side: 'buy' | 'sell';
   readonly symbol: string;
@@ -38,7 +31,7 @@ export interface PaperBookOptions {
 }
 
 export function createPaperBook(options: PaperBookOptions): PaperBook {
-  const marks = { ...INTERNAL_MARKS, ...options.marks };
+  const marks = { ...(options.marks ?? {}) };
   let cash: Amount = parseAmount(options.startingCash);
   const starting = cash;
   const positions = new Map<string, Amount>();

@@ -12,7 +12,11 @@ import { runIsolate } from './isolate.js';
 const limits = { maxOps: 5_000, maxSource: 8_000 };
 
 function book() {
-  return createPaperBook({ startingCash: '10000', venueVaultSet: false });
+  return createPaperBook({
+    startingCash: '10000',
+    venueVaultSet: false,
+    marks: { 'BTC-USD': '50000' },
+  });
 }
 
 describe('strategy isolate', () => {
