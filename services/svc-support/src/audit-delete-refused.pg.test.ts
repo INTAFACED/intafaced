@@ -57,7 +57,7 @@ async function insertCaseFile(tx: postgres.Sql, ticketId: string): Promise<strin
       ${ticketId},
       'l1239-operator',
       'other',
-      ${tx.json([{ kind: 'kb_article', ref: 'kb-account-access' }])},
+      ${tx.json([{ kind: 'kb_article', ref: 'kb-account-access', digest: 'a'.repeat(64), readAt: '2026-08-09T10:00:00.000Z' }])},
       ${tx.json({ status: 'unread', reason: 'plane_dark' })},
       'Escalating.'
     )
