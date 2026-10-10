@@ -1,14 +1,11 @@
-import { useState } from 'react';
 import { z } from 'zod';
-import { Button, Field, Failure, Page, EmptyState, Loading } from '../../shared/ui';
-import { useApi, useSession } from '../session/session';
+import { Page, EmptyState } from '../../shared/ui';
 import { AuthForm } from './AuthForm';
 import { Invitation } from './Invitation';
+import { PublicHelp as Help } from './PublicHelp';
 import { findRoom, roomTitle, safeReturnTo } from '../../app/navigation';
-import { useResource } from '../../shared/resource';
 import './public.css';
 import { publicCopy } from './public-copy';
-import { publishedCopy, publishedLanguageFor } from '../../shared/copy';
 
 function Brand() {
   return (
@@ -173,81 +170,6 @@ function Home() {
         </div>
       </section>
     </>
-  );
-}
-const kbSchema = z.object({
-  id: z.string(),
-  titleKey: z.string(),
-  bodyKey: z.string(),
-  published: z.boolean().optional(),
-  version: z.number().optional(),
-  revision: z.number().optional(),
-});
-function Help() {
-  const { t, requestedLocale } = publicCopy.useCopy();
-  const api = useApi();
-  const [query, setQuery] = useState('');
-  const [submitted, setSubmitted] = useState('');
-  const { resource, reload } = useResource(
-    (signal) => api.query('support', 'searchKb', { q: submitted, limit: 100 }, z.array(kbSchema), { signal }),
-    `kb:${submitted}`,
-  );
-  const articleId = new URLSearchParams(location.search).get('id');
-  return (
-    <Page title={t('How can we help?')} description={t('Search published answers, or open a support ticket for your account.')}>
-      <form
-        className="help-search"
-        onSubmit={(event) => {
-          event.preventDefault();
-          setSubmitted(query.trim());
-        }}
-      >
-        <Field
-          label={t('Search help')}
-          name="help-search"
-          placeholder={t('Account access, orders, payments…')}
-          maxLength={200}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        <Button type="submit">{t('Search')}</Button>
-      </form>
-      {resource.status === 'loading' ? (
-        <Loading label={t('Loading published answers')} />
-      ) : resource.status === 'failed' ? (
-        <Failure result={resource.failure} retry={reload} />
-      ) : resource.data.filter((article) => article.published !== false && (!articleId || article.id === articleId)).length === 0 ? (
-        <EmptyState
-          title={t('No published answers found')}
-          action={
-            <a href="/support" className="text-link">
-              {t('Open support')}
-            </a>
-          }
-        >
-          {t('Try another search, or contact support about your account.')}
-        </EmptyState>
-      ) : (
-        <div className="help-articles">
-          {resource.data
-            .filter((article) => article.published !== false && (!articleId || article.id === articleId))
-            .map((article) => (
-              <article key={article.id}>
-                <h2 lang={publishedLanguageFor(article.titleKey, requestedLocale) ?? requestedLocale}>
-                  {publishedCopy(article.titleKey, requestedLocale) ?? t('Article text unavailable')}
-                </h2>
-                <p lang={publishedLanguageFor(article.bodyKey, requestedLocale) ?? requestedLocale}>
-                  {publishedCopy(article.bodyKey, requestedLocale) ??
-                    t('The published article has no readable text in the available language catalogue.')}
-                </p>
-              </article>
-            ))}
-        </div>
-      )}
-      <a className="text-link" href="/support">
-        {t('View your support tickets ↗')}
-      </a>
-    </Page>
   );
 }
 function PublicInformation({ path }: { path: string }) {
