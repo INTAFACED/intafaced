@@ -1,12 +1,23 @@
 import { copy, t as copyText, Text } from './copy';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { AssetChart } from '../trade';
 import { usePreferences, savePreferences } from '../../shared/preferences';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, EmptyState, Failure, Page } from '../../shared/ui';
 import { createMoneyClient, type Holding, type MoneyOverview } from './client';
-import { amount, date, Continuation, MutationDialog, ResourceView, Section, usePageLimit, type ActionSpec } from './components';
+import {
+  amount,
+  date,
+  Continuation,
+  MutationDialog,
+  ResourceView,
+  Section,
+  usePageLimit,
+  type ActionSpec,
+  type BankActionContext,
+} from './components';
 import { BankRoutes, BankNavigation } from './rooms';
 import { RepeatBuy } from './repeat-buy';
 import { pendingKey, pendingOutcomes } from './pending-outcomes';
@@ -491,10 +502,60 @@ export function MoneyRoutes({ path }: { path: string }) {
 }
 function MoneyRooms({ path }: { path: string }) {
   usePreferences();
-  const { userId } = useSession();
+  const { api, userId, session } = useSession();
+  const token = session?.accessToken ?? null;
+  const version = useRef({ api, userId, token, href: location.href, epoch: 0 });
+  if (
+    version.current.api !== api ||
+    version.current.userId !== userId ||
+    version.current.token !== token ||
+    version.current.href !== location.href
+  )
+    version.current = { api, userId, token, href: location.href, epoch: version.current.epoch + 1 };
+  const context = version.current;
+  const mounted = useRef(true);
+  type OpenedAction = { key: number; spec: ActionSpec; context: BankActionContext };
+  const original = useRef<OpenedAction | null>(null);
+  const nextAction = useRef(0);
+  const rendering = {};
+  const rendered = useRef(rendering);
+  rendered.current = rendering;
+  const sameContext = () => mounted.current && version.current === context && location.href === context.href && api.canWrite();
   const pending = pendingOutcomes(userId);
-  const [action, setAction] = useState<ActionSpec | null>(null);
+  const [action, setAction] = useState<OpenedAction | null>(null);
   const [revision, setRevision] = useState(0);
+  const [, invalidateNavigation] = useState(0);
+  function discard() {
+    original.current = null;
+    setAction(null);
+  }
+  useLayoutEffect(() => {
+    mounted.current = true;
+    const departed = () => {
+      const previous = version.current;
+      if (previous.href === location.href) return;
+      // Observe every full-URL departure before React can batch A→B→A.
+      version.current = { ...previous, href: location.href, epoch: previous.epoch + 1 };
+      original.current = null;
+      // Unmount private fields and handlers in this event, before retained
+      // native controls can be invoked. Dispatched journal bytes stay intact.
+      flushSync(() => {
+        setAction(null);
+        invalidateNavigation((value) => value + 1);
+      });
+    };
+    window.addEventListener('popstate', departed);
+    window.addEventListener('hashchange', departed);
+    return () => {
+      mounted.current = false;
+      original.current = null;
+      window.removeEventListener('popstate', departed);
+      window.removeEventListener('hashchange', departed);
+    };
+  }, []);
+  useLayoutEffect(() => {
+    if (original.current && !original.current.context.current()) discard();
+  }, [context]);
   useEffect(() => {
     const changed = (event: StorageEvent) => {
       if (userId && event.key === pendingKey(userId)) setRevision((value) => value + 1);
@@ -503,22 +564,30 @@ function MoneyRooms({ path }: { path: string }) {
     return () => window.removeEventListener('storage', changed);
   }, [userId]);
   function open(spec: ActionSpec) {
-    if (pending.length) {
+    if (rendered.current !== rendering || !sameContext() || !userId || original.current) return;
+    if (pendingOutcomes(userId).length) {
       document.getElementById('bank-unconfirmed')?.scrollIntoView({ block: 'start' });
       return;
     }
-    setAction(spec);
+    const opened: OpenedAction = {
+      key: ++nextAction.current,
+      spec,
+      context: { current: () => sameContext() && original.current === opened },
+    };
+    original.current = opened;
+    setAction(opened);
   }
   const pathname = path.split('?')[0]!.replace(/\/$/, '') || '/';
   const match = pathname.match(/^\/(?:portfolio|money\/asset)\/([^/]+)(\/repeat-buy)?$/);
   let content;
   if (pathname === '/bank') content = <MoneyOverviewPage bank />;
   else if (pathname.startsWith('/bank/') || pathname === '/uc/record')
-    content = <BankRoutes key={`${pathname}:${revision}`} path={pathname} open={open} />;
+    content = <BankRoutes key={`${pathname}:${revision}:${context.epoch}`} path={pathname} open={open} />;
   else if (pathname === '/uc/recharge') content = <CustodyUnavailable kind="Deposit" />;
   else if (pathname === '/uc/withdraw/address') content = <CustodyUnavailable kind="Withdrawal addresses" />;
   else if (pathname === '/uc/withdraw') content = <CustodyUnavailable kind="Withdraw" />;
-  else if (match?.[2]) content = <RepeatBuy key={`${pathname}:${revision}`} asset={decodeURIComponent(match[1]!)} open={open} />;
+  else if (match?.[2])
+    content = <RepeatBuy key={`${pathname}:${revision}:${context.epoch}`} asset={decodeURIComponent(match[1]!)} open={open} />;
   else content = <MoneyOverviewPage asset={match ? decodeURIComponent(match[1]!) : undefined} />;
   return (
     <>
@@ -549,13 +618,20 @@ function MoneyRooms({ path }: { path: string }) {
         </div>
       )}
       {content}
-      {action && (
+      {action && action.context.current() && (
         <MutationDialog
-          key={`${userId}:${action.title}`}
-          spec={action}
-          onClose={() => setAction(null)}
-          onDone={() => setRevision((value) => value + 1)}
-          onPendingChange={() => setRevision((value) => value + 1)}
+          key={action.key}
+          spec={action.spec}
+          context={action.context}
+          onClose={() => {
+            if (action.context.current()) discard();
+          }}
+          onDone={() => {
+            if (action.context.current()) setRevision((value) => value + 1);
+          }}
+          onPendingChange={() => {
+            if (action.context.current()) setRevision((value) => value + 1);
+          }}
         />
       )}
     </>

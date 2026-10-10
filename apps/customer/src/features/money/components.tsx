@@ -1,5 +1,5 @@
 import { t as copyText, Text } from './copy';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
 import { currentPreferences } from '../../shared/preferences';
 import { useApi, useSession } from '../session/session';
@@ -125,6 +125,8 @@ export type ActionSpec = {
   submit?: string;
   unit?: string;
 };
+/** The original opened action's owner, API, mount and observed full-URL lifetime. */
+export type BankActionContext = { current: () => boolean };
 export const positiveMoney = (asset: string | undefined, name = 'amount', label = copyText('form.amount')): ActionField => ({
   name,
   unit: asset,
@@ -257,34 +259,82 @@ function Outcome({ data, unit }: { data: unknown; unit?: string }) {
 }
 export function MutationDialog({
   spec,
+  context,
   onClose,
   onDone,
   onPendingChange,
 }: {
   spec: ActionSpec;
+  context: BankActionContext;
   onClose: () => void;
   onDone: () => void;
   onPendingChange: () => void;
 }) {
-  const { api, userId } = useSession();
-  const sending = useRef(false);
+  const { api, userId, session } = useSession();
+  const token = session?.accessToken ?? null;
+  const sending = useRef<object | null>(null);
   const mounted = useRef(true);
-  const actor = useRef({ api, userId });
-  actor.current = { api, userId };
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  const body = useRef<HTMLDivElement | null>(null);
+  const original = useRef({ api, userId, token, spec, context });
+  const actor = useRef({ api, userId, token });
+  actor.current = { api, userId, token };
   const [clearFailure, setClearFailure] = useState(false);
   const [values, setValues] = useState(spec.initial ?? {});
   const [requestId] = useState(() => crypto.randomUUID());
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [stage, setStage] = useState<'form' | 'review' | 'sending' | 'outcome'>((spec.fields?.length ?? 0) ? 'form' : 'review');
   const [result, setResult] = useState<ApiResult<unknown> | null>(null);
-  const [reviewInput, setReviewInput] = useState<Record<string, unknown> | null>(null);
+  const [reviewInput, setReviewInput] = useState<Record<string, unknown> | null>(() =>
+    spec.fields?.length ? null : spec.input(spec.initial ?? {}, requestId),
+  );
+  const reviewed = useRef(reviewInput);
+  const staged = useRef({ reviewInput, values });
+  staged.current = { reviewInput, values };
+  const rendering = {};
+  const rendered = useRef(rendering);
+  rendered.current = rendering;
+  const current = () =>
+    mounted.current &&
+    original.current.context === context &&
+    original.current.spec === spec &&
+    original.current.api === api &&
+    original.current.userId === userId &&
+    original.current.token === token &&
+    actor.current.api === api &&
+    actor.current.userId === userId &&
+    actor.current.token === token &&
+    context.current() &&
+    api.canWrite();
+  useLayoutEffect(() => {
+    mounted.current = true;
+    // StrictMode replays setup after cleanup. Restore the current controlled
+    // state and initial fieldless review only within the original context.
+    if (current()) {
+      reviewed.current = staged.current.reviewInput;
+      for (const field of body.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select') ?? [])
+        field.value = staged.current.values[field.name] ?? '';
+    }
+    return () => {
+      mounted.current = false;
+      sending.current = null;
+      reviewed.current = null;
+      if (!context.current()) staged.current = { reviewInput: null, values: {} };
+      for (const field of body.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select') ?? []) field.value = '';
+    };
+  }, []);
+  const admitted = () => current() && rendered.current === rendering;
+  function edit() {
+    if (!admitted() || sending.current) return;
+    reviewed.current = null;
+    setReviewInput(null);
+    setResult(null);
+    setStage('form');
+  }
+  function close() {
+    if (admitted() && !sending.current) onClose();
+  }
   function review() {
+    if (!admitted() || stage !== 'form' || sending.current) return;
     const next: Record<string, string> = {};
     for (const field of spec.fields ?? []) {
       const value = values[field.name]?.trim() ?? '';
@@ -303,18 +353,19 @@ export function MutationDialog({
       setErrors({ form: error });
       return;
     }
+    reviewed.current = input;
     setReviewInput(input);
     setStage('review');
   }
   async function submit() {
-    if (stage !== 'review' || sending.current) return;
-    sending.current = true;
-    const input = reviewInput ?? spec.input(values, requestId);
+    if (!admitted() || stage !== 'review' || sending.current || !reviewInput || reviewed.current !== reviewInput) return;
+    const run = {};
+    sending.current = run;
+    const input = reviewInput;
     setStage('sending');
-    const stillOwner = () => mounted.current && actor.current.userId === userId;
-    const current = () => stillOwner() && actor.current.api === api && api.canWrite();
+    const currentRun = () => current() && sending.current === run && reviewed.current === input;
     const dispatch = async (): Promise<ApiResult<unknown>> => {
-      if (!current()) return authoredRefusal('aborted', { key: 'accountChanged' });
+      if (!currentRun()) return authoredRefusal('aborted', { key: 'accountChanged' });
       if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('components.sign.in.before.sending.a.bank.request') };
       if (pendingOutcomes(userId).length)
         return { ok: false, reason: 'uncertain', message: copyText('components.an.original.bank.request.still.requires.recovery') };
@@ -325,11 +376,12 @@ export function MutationDialog({
         } catch {
           checked = { ok: false, reason: 'error', message: copyText('components.review.check.failed.no.request.sent') };
         }
+        if (!currentRun()) return authoredRefusal('aborted', { key: 'accountChanged' });
         if (!checked.ok) return checked;
-        if (!current()) return authoredRefusal('aborted', { key: 'accountChanged' });
         if (pendingOutcomes(userId).length)
           return { ok: false, reason: 'uncertain', message: copyText('components.an.original.bank.request.still.requires.recovery') };
       }
+      if (!currentRun()) return authoredRefusal('aborted', { key: 'accountChanged' });
       try {
         rememberPendingOutcome(userId, {
           reference: requestId,
@@ -341,6 +393,16 @@ export function MutationDialog({
         return { ok: false, reason: 'error', message: copyText('components.recovery.storage.is.unavailable.no.bank.request') };
       }
       onPendingChange();
+      if (!currentRun()) {
+        // This original has not dispatched. Remove only its just-saved marker;
+        // a request already sent never reaches this non-dispatch cleanup.
+        try {
+          clearPendingOutcome(userId, requestId);
+        } catch {
+          // Keep the conservative guard if durable storage cannot be cleared.
+        }
+        return authoredRefusal('aborted', { key: 'accountChanged' });
+      }
       let outcome: ApiResult<unknown>;
       try {
         outcome = spec.transferSpaces
@@ -354,6 +416,9 @@ export function MutationDialog({
       } catch {
         outcome = { ok: false, reason: 'uncertain', message: copyText('components.the.original.bank.outcome.could.not.be') };
       }
+      // Even a valid late reply cannot certify a departed private review.
+      // Retain its original minimal journal rather than publish or clear it.
+      if (!currentRun()) return authoredRefusal('uncertain', { key: 'accountChanged' });
       // Local transfer validation precedes HTTP dispatch. Auth refusals occur
       // before the Bank handler. Other failures cannot prove non-settlement.
       const definitive = outcome.ok || outcome.code === 'money.invalid_transfer' || outcome.status === 401 || outcome.status === 403;
@@ -361,7 +426,7 @@ export function MutationDialog({
         try {
           clearPendingOutcome(userId, requestId);
         } catch {
-          if (stillOwner()) setClearFailure(true);
+          if (currentRun()) setClearFailure(true);
         }
       } else if (!outcome.ok && outcome.reason !== 'uncertain') {
         outcome = {
@@ -370,7 +435,7 @@ export function MutationDialog({
           message: outcome.message + copyText('components.the.original.request.remains.guarded.until.its'),
         };
       }
-      if (stillOwner()) onPendingChange();
+      if (currentRun()) onPendingChange();
       return outcome;
     };
     const outcome = navigator.locks
@@ -388,21 +453,16 @@ export function MutationDialog({
           reason: 'not_supported' as const,
           message: copyText('components.this.browser.cannot.coordinate.bank.requests.across'),
         };
-    sending.current = false;
-    if (!stillOwner()) return;
+    if (!currentRun()) return;
+    sending.current = null;
     setResult(outcome);
     setStage('outcome');
     if (outcome.ok) onDone();
   }
   const terminalUnknown = result && !result.ok && result.reason === 'uncertain';
   return (
-    <Dialog
-      title={stage === 'review' ? copyText('components.review.3', { value1: spec.title.toLowerCase() }) : spec.title}
-      onClose={() => {
-        if (stage !== 'sending') onClose();
-      }}
-    >
-      <div className="money-dialog-body">
+    <Dialog title={stage === 'review' ? copyText('components.review.3', { value1: spec.title.toLowerCase() }) : spec.title} onClose={close}>
+      <div className="money-dialog-body" ref={body}>
         {spec.notes.map((note) => (
           <p className="muted" key={note}>
             {note}
@@ -420,8 +480,11 @@ export function MutationDialog({
                 <label className="field" key={field.name}>
                   <span>{field.label}</span>
                   <select
+                    name={field.name}
                     value={values[field.name] ?? ''}
-                    onChange={(event) => setValues({ ...values, [field.name]: event.target.value })}
+                    onChange={(event) => {
+                      if (admitted() && !sending.current) setValues({ ...values, [field.name]: event.target.value });
+                    }}
                     required={!field.optional}
                     aria-label={field.label}
                     aria-invalid={Boolean(errors[field.name])}
@@ -454,7 +517,9 @@ export function MutationDialog({
                   required={!field.optional}
                   value={values[field.name] ?? ''}
                   error={errors[field.name]}
-                  onChange={(event) => setValues({ ...values, [field.name]: event.target.value })}
+                  onChange={(event) => {
+                    if (admitted() && !sending.current) setValues({ ...values, [field.name]: event.target.value });
+                  }}
                 />
               ),
             )}
@@ -498,7 +563,7 @@ export function MutationDialog({
               <div className="actions">
                 <Button onClick={() => void submit()}>{spec.submit ?? copyText('components.confirm')}</Button>
                 {Boolean(spec.fields?.length) && (
-                  <Button variant="secondary" onClick={() => setStage('form')}>
+                  <Button variant="secondary" onClick={edit}>
                     <Text k="components.edit" />
                   </Button>
                 )}
@@ -535,22 +600,22 @@ export function MutationDialog({
                   <Text k="components.request.reference" />
                   {requestId}
                 </p>
-                <Button variant="secondary" onClick={onDone}>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    if (admitted() && !sending.current) onDone();
+                  }}
+                >
                   <Text k="components.refresh.original.records" />
                 </Button>
               </>
             )}
             <div className="actions">
-              <Button variant="secondary" onClick={onClose}>
+              <Button variant="secondary" onClick={close}>
                 <Text k="components.close" />
               </Button>
               {!result.ok && !terminalUnknown && (
-                <Button
-                  onClick={() => {
-                    setResult(null);
-                    setStage('form');
-                  }}
-                >
+                <Button onClick={edit}>
                   <Text k="components.edit.request" />
                 </Button>
               )}
