@@ -1,6 +1,19 @@
 import type { ApiResult } from '../../shared/api';
 import { defineCopy } from '../../shared/i18n';
 const messages = {
+  refusedRecoveryTitle: 'Original transfer reply received · recovery record retained',
+  refusedRecoveryBody:
+    'The service returned a definite refusal for this original transfer, but this device could not clear its recovery record. Keep the original reply. A new send stays blocked; retry only local recovery cleanup.',
+  recoveryStorageTitle: 'Recovery storage unavailable',
+  recoveryStorageBody:
+    'Sending is blocked because original transfer recovery cannot be read or saved on this device. Keep this browser profile and contact Support.',
+  recoveryConflictBody: 'Recovery records disagree. Sending stays blocked and both stored originals are retained.',
+  retryRecovery: 'Retry recovery',
+  knownRecoveryTitle: 'Transfer confirmed · recovery record retained',
+  knownRecoveryBody:
+    'The ledger confirmed this original transfer, but this device could not clear its recovery record. Keep the receipt. A new send stays blocked; retry only local recovery cleanup.',
+  retryLocalCleanup: 'Retry local cleanup',
+
   sendingAsset: 'Sending {asset}',
   onlyAssetSources: 'Only your {asset} bank spaces are shown. Review the source before sending.',
   backToAssetHolding: 'Back to {asset} holding',
@@ -734,7 +747,7 @@ const messages = {
   confirm: 'Confirm {value1}',
   theOriginalActionHasNotBeenConfirmed: 'The original action has not been confirmed. Refresh its status before starting another action.',
   deviceRecoveryStorageIsUnavailableEnableSession:
-    'Device recovery storage is unavailable. Enable session storage before starting this action.',
+    'Device recovery storage is unavailable. This action is blocked; keep this browser profile and contact Support.',
   theOriginalActionCouldNotBeRecorded:
     'The original action could not be recorded for recovery. No request was sent. Enable session storage and try again.',
   theConnectionEndedBeforeTheOutcomeWas: 'The connection ended before the outcome was confirmed. Check the original action.',
@@ -789,6 +802,19 @@ const messages = {
 } as const;
 
 const es = {
+  refusedRecoveryTitle: 'Respuesta de transferencia original recibida · registro de recuperación conservado',
+  refusedRecoveryBody:
+    'El servicio devolvió un rechazo definitivo de esta transferencia original, pero este dispositivo no pudo borrar su registro de recuperación. Conserva la respuesta original. Un nuevo envío sigue bloqueado; reintenta solo la limpieza local de recuperación.',
+  recoveryStorageTitle: 'Almacenamiento de recuperación no disponible',
+  recoveryStorageBody:
+    'El envío está bloqueado porque la recuperación de la transferencia original no se puede leer o guardar en este dispositivo. Conserva este perfil del navegador y contacta con Soporte.',
+  recoveryConflictBody: 'Los registros de recuperación no coinciden. El envío sigue bloqueado y se conservan ambos originales almacenados.',
+  retryRecovery: 'Reintentar recuperación',
+  knownRecoveryTitle: 'Transferencia confirmada · registro de recuperación conservado',
+  knownRecoveryBody:
+    'El libro mayor confirmó esta transferencia original, pero este dispositivo no pudo borrar su registro de recuperación. Conserva el recibo. Un nuevo envío sigue bloqueado; reintenta solo la limpieza local de recuperación.',
+  retryLocalCleanup: 'Reintentar limpieza local',
+
   sendingAsset: 'Enviando {asset}',
   onlyAssetSources: 'Solo se muestran tus espacios bancarios de {asset}. Revisa el origen antes de enviar.',
   backToAssetHolding: 'Volver a la tenencia de {asset}',
@@ -1534,7 +1560,7 @@ const es = {
   confirm: 'Confirmar {value1}',
   theOriginalActionHasNotBeenConfirmed: 'La acción original no se ha confirmado. Actualiza su estado antes de iniciar otra acción.',
   deviceRecoveryStorageIsUnavailableEnableSession:
-    'El almacenamiento de recuperación del dispositivo no está disponible. Habilita el almacenamiento de sesión antes de iniciar esta acción.',
+    'El almacenamiento de recuperación del dispositivo no está disponible. Esta acción está bloqueada; conserva este perfil del navegador y contacta con Soporte.',
   theOriginalActionCouldNotBeRecorded:
     'No se ha podido registrar la acción original para recuperarla. No se ha enviado ninguna solicitud. Habilita el almacenamiento de sesión e inténtalo de nuevo.',
   theConnectionEndedBeforeTheOutcomeWas: 'La conexión terminó antes de que se confirmara el resultado. Comprueba la acción original.',
@@ -1590,6 +1616,20 @@ const es = {
 } satisfies Record<keyof typeof messages, string>;
 
 const fr = {
+  refusedRecoveryTitle: 'Réponse du transfert original reçue · enregistrement de récupération conservé',
+  refusedRecoveryBody:
+    'Le service a renvoyé un refus définitif pour ce transfert original, mais cet appareil n’a pas pu effacer son enregistrement de récupération. Conservez la réponse originale. Un nouvel envoi reste bloqué ; réessayez uniquement le nettoyage local de récupération.',
+  recoveryStorageTitle: 'Stockage de récupération indisponible',
+  recoveryStorageBody:
+    'L’envoi est bloqué car la récupération du transfert original ne peut pas être lue ou enregistrée sur cet appareil. Conservez ce profil de navigateur et contactez le Support.',
+  recoveryConflictBody:
+    'Les enregistrements de récupération ne concordent pas. L’envoi reste bloqué et les deux originaux stockés sont conservés.',
+  retryRecovery: 'Réessayer la récupération',
+  knownRecoveryTitle: 'Transfert confirmé · enregistrement de récupération conservé',
+  knownRecoveryBody:
+    'Le registre a confirmé ce transfert original, mais cet appareil n’a pas pu effacer son enregistrement de récupération. Conservez le reçu. Un nouvel envoi reste bloqué ; réessayez uniquement le nettoyage local de récupération.',
+  retryLocalCleanup: 'Réessayer le nettoyage local',
+
   sendingAsset: 'Envoi de {asset}',
   onlyAssetSources: 'Seuls vos espaces bancaires en {asset} sont affichés. Vérifiez la source avant l’envoi.',
   backToAssetHolding: 'Retour à la position détenue en {asset}',
@@ -2334,7 +2374,7 @@ const fr = {
   confirm: 'Confirmer {value1}',
   theOriginalActionHasNotBeenConfirmed: 'L’action initiale n’a pas été confirmée. Actualisez son état avant de commencer une autre action.',
   deviceRecoveryStorageIsUnavailableEnableSession:
-    'Le stockage de récupération de l’appareil est indisponible. Activez le stockage de session avant de commencer cette action.',
+    'Le stockage de récupération de l’appareil est indisponible. Cette action est bloquée ; conservez ce profil de navigateur et contactez le Support.',
   theOriginalActionCouldNotBeRecorded:
     'L’action initiale n’a pas pu être enregistrée pour sa récupération. Aucune demande n’a été envoyée. Activez le stockage de session et réessayez.',
   theConnectionEndedBeforeTheOutcomeWas: 'La connexion a été interrompue avant la confirmation du résultat. Vérifiez l’action initiale.',

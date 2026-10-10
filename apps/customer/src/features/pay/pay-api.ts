@@ -3,6 +3,13 @@ import { z, type ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { parseAmount } from '../../shared/money';
 import * as s from './schemas';
+import {
+  createMinimalOriginalJournal,
+  type JournalPorts,
+  type JournalProblem,
+  type JournalStorage,
+  type JournalLocks,
+} from '../../shared/minimal-original-journal';
 
 /** Future session integration seam, not a claim inferred from a JWT mode or merchant KYB.
  * Only supply this from an authoritative verified company membership/merchant association.
@@ -17,90 +24,286 @@ export type PayBusinessAuthority = {
   scopes: readonly string[];
 };
 
-/** The unresolved journal stores operation identifiers only, never balances or credentials.
- * A pending operation after a reload is uncertain. A read must prove the intended transition
- * before resolve is called. No timed retry or UI dismissal clears it.
+type PayOriginal = { status: 'uncertain'; reference?: string };
+function decodePayOriginal(raw: string): PayOriginal {
+  if (raw === 'pending' || raw === 'uncertain') return { status: 'uncertain' };
+  const parsed: unknown = JSON.parse(raw);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid Pay original');
+  const value = parsed as Record<string, unknown>;
+  if (
+    value.status !== 'uncertain' ||
+    Object.keys(value).some((key) => !['status', 'reference'].includes(key)) ||
+    ('reference' in value && (typeof value.reference !== 'string' || !value.reference || value.reference.length > 200))
+  )
+    throw new Error('Invalid Pay original');
+  return value as PayOriginal;
+}
+
+/** Explicit isolated adapters keep non-browser contract tests independent of browser globals.
+ * Production always supplies durable storage and native Web Locks, without a fallback.
  */
-export function createPayMutationGuard(storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>, requirePersistence = false) {
-  const states = new Map<string, 'pending' | 'uncertain'>();
-  const references = new Map<string, string>();
+function isolatedPorts(storage?: JournalStorage): JournalPorts {
+  const values = new Map<string, string>();
+  const held = new Set<string>();
+  const durable = storage ?? {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+    removeItem: (key: string) => {
+      values.delete(key);
+    },
+  };
+  return {
+    durable: () => durable,
+    locks: () =>
+      ({
+        request: async (name: string, _options: unknown, work: (lock: unknown) => unknown) => {
+          if (held.has(name)) return work(null);
+          held.add(name);
+          try {
+            return await work({ name });
+          } finally {
+            held.delete(name);
+          }
+        },
+      }) as JournalLocks,
+  };
+}
+
+/** The durable journal contains original operation references only. Every admission reads
+ * it again under a native cross-tab lock. Feature-specific evidence owns exact cleanup.
+ */
+export function createPayMutationGuard(storage?: JournalStorage, requirePersistence = false, suppliedPorts?: JournalPorts) {
+  const ports =
+    suppliedPorts ?? (requirePersistence ? { durable: () => storage, locks: () => globalThis.navigator?.locks } : isolatedPorts(storage));
+  const journals = new Map<string, ReturnType<typeof createMinimalOriginalJournal<PayOriginal>>>();
+  const states = new Map<string, { raw: string; status: 'pending' | 'uncertain'; run: object }>();
+  const problems = new Map<string, JournalProblem>();
+  const known = new Map<string, { raw: string; current: () => boolean; confirmed: boolean }>();
+  const journal = (key: string) => {
+    if (!journals.has(key)) journals.set(key, createMinimalOriginalJournal(`pay.unresolved:${key}`, decodePayOriginal, ports));
+    return journals.get(key)!;
+  };
+  function inspect(key: string) {
+    const original = journal(key).read();
+    if (original.status === 'unreadable') problems.set(key, original.reason);
+    else if (original.status === 'empty' && states.has(key)) problems.set(key, 'mismatch');
+    return original;
+  }
   function status(key: string) {
-    if (states.has(key)) return states.get(key)!;
-    try {
-      const saved = storage?.getItem(`pay.unresolved:${key}`);
-      if (saved) {
-        try {
-          const parsed: unknown = JSON.parse(saved);
-          if (parsed && typeof parsed === 'object' && 'reference' in parsed && typeof parsed.reference === 'string')
-            references.set(key, parsed.reference);
-        } catch {
-          /* Legacy locks contain only the status word. */
-        }
-        states.set(key, 'uncertain');
-        return 'uncertain' as const;
-      }
-    } catch {
-      /* The in-memory journal remains authoritative for this session. */
-    }
+    const original = inspect(key);
+    if (original.status === 'unreadable' || problems.has(key)) return 'uncertain' as const;
+    if (original.status === 'present') return states.get(key)?.raw === original.raw ? states.get(key)!.status : ('uncertain' as const);
     return null;
   }
-  function resolve(key: string) {
-    states.delete(key);
-    references.delete(key);
-    try {
-      storage?.removeItem(`pay.unresolved:${key}`);
-    } catch {
-      /* A stale persisted lock refuses closed after reload. */
+  const unavailable = (key: string, reason: JournalProblem) => {
+    problems.set(key, reason);
+    return payRefusal(key.endsWith(':send') ? 'recoveryStorageBody' : 'deviceRecoveryStorageIsUnavailableEnableSession', {
+      code: 'pay.recovery_journal_unavailable',
+      reason: 'not_supported',
+    });
+  };
+  async function restore(key: string) {
+    const original = journal(key).read();
+    if (original.status === 'unreadable') return unavailable(key, original.reason);
+    // Reading a durable original does not require acquiring the dispatch lease.
+    // Returning during an in-flight original must still show its readable reference.
+    if (original.status === 'present' && original.origin === 'durable') {
+      problems.delete(key);
+      return { ok: true as const, data: null };
     }
+    const result = await journal(key).coordinate(async (lease) => lease.migrateLegacy());
+    if (!result.ok && result.reason === 'busy') {
+      const returned = journal(key).read();
+      if (returned.status === 'empty' && !states.has(key)) {
+        // An overlapping restoration has no original to migrate. Review is a
+        // read path; run still requires its own native lock before admission.
+        problems.delete(key);
+        return { ok: true as const, data: null };
+      }
+    }
+    if (!result.ok) return unavailable(key, result.reason);
+    if (!result.value.ok) return unavailable(key, result.value.reason);
+    problems.delete(key);
+    inspect(key);
+    return { ok: true as const, data: null };
   }
-  async function run<T>(key: string, action: () => Promise<ApiResult<T>>, reference?: string): Promise<ApiResult<T>> {
-    if (status(key)) return payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.operation_unresolved', reason: 'uncertain' });
-    try {
-      if (requirePersistence && !storage)
-        return payRefusal('deviceRecoveryStorageIsUnavailableEnableSession', {
-          code: 'pay.recovery_journal_unavailable',
-          reason: 'not_supported',
-        });
-      storage?.setItem(`pay.unresolved:${key}`, JSON.stringify({ status: 'uncertain', ...(reference ? { reference } : {}) }));
-    } catch {
-      if (requirePersistence)
-        return payRefusal('theOriginalActionCouldNotBeRecorded', { code: 'pay.recovery_journal_unavailable', reason: 'not_supported' });
+  async function resolve(key: string, originalRaw: string | null) {
+    if (originalRaw === null) return false;
+    const result = await journal(key).coordinate(async (lease) => lease.finishExact(originalRaw));
+    if (!result.ok || !result.value.ok) {
+      problems.set(key, !result.ok ? result.reason : !result.value.ok ? result.value.reason : 'mismatch');
+      return false;
     }
-    states.set(key, 'pending');
-    if (reference) references.set(key, reference);
-    let result: ApiResult<T>;
-    try {
-      result = await action();
-    } catch {
-      result = payRefusal('theConnectionEndedBeforeTheOutcomeWas', { code: 'pay.operation_unresolved', reason: 'uncertain' });
+    if (states.get(key)?.raw === originalRaw) states.delete(key);
+    if (known.get(key)?.raw === originalRaw) known.delete(key);
+    problems.delete(key);
+    return true;
+  }
+  async function cleanupKnown(key: string, isCurrent: () => boolean, expectedOriginal: object | null) {
+    const original = known.get(key);
+    if (!original || original !== expectedOriginal || !original.current() || !isCurrent()) return false;
+    const result = await journal(key).coordinate(async (lease) => {
+      if (known.get(key) !== original || !original.current() || !isCurrent()) return { ok: false as const, reason: 'inactive' as const };
+      // A failed readback may follow a successful removal. Verify fresh empty
+      // storage without deleting anything; only this current known proof can release RAM.
+      const saved = lease.read();
+      if (saved.status === 'empty') return { ok: true as const };
+      return lease.finishExact(original.raw);
+    });
+    if (!result.ok || !result.value.ok) {
+      problems.set(key, !result.ok ? result.reason : !result.value.ok ? result.value.reason : 'mismatch');
+      return false;
     }
-    if (!result.ok && (result.reason === 'uncertain' || result.reason === 'aborted')) states.set(key, 'uncertain');
-    else resolve(key);
-    return result;
+    if (known.get(key) === original) known.delete(key);
+    if (states.get(key)?.raw === original.raw) states.delete(key);
+    problems.delete(key);
+    return true;
+  }
+  async function run<T>(
+    key: string,
+    action: () => Promise<ApiResult<T>>,
+    reference?: string,
+    isCurrent?: () => boolean,
+    recoveryCurrent = isCurrent ?? (() => true),
+  ): Promise<ApiResult<T>> {
+    if (isCurrent && !isCurrent()) return sendContextChanged();
+    const coordinated = await journal(key).coordinate(async (lease): Promise<ApiResult<T>> => {
+      if (isCurrent && !isCurrent()) return sendContextChanged();
+      const migrated = lease.migrateLegacy();
+      if (!migrated.ok) return unavailable(key, migrated.reason);
+      const original = lease.read();
+      if (original.status === 'unreadable') return unavailable(key, original.reason);
+      if (original.status === 'present' || states.has(key))
+        return payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.operation_unresolved', reason: 'uncertain' });
+      const record = JSON.stringify({ status: 'uncertain', ...(reference ? { reference } : {}) });
+      const saved = lease.writeExact(null, record);
+      if (!saved.ok) return unavailable(key, saved.reason);
+      if (isCurrent && !isCurrent()) {
+        const discarded = lease.finishExact(record);
+        if (!discarded.ok) problems.set(key, discarded.reason);
+        return sendContextChanged();
+      }
+      const run = {};
+      states.set(key, { raw: record, status: 'pending', run });
+      let result: ApiResult<T>;
+      try {
+        result = await action();
+      } catch {
+        result = payRefusal('theConnectionEndedBeforeTheOutcomeWas', { code: 'pay.operation_unresolved', reason: 'uncertain' });
+      }
+      if (states.get(key)?.run !== run) return sendContextChanged();
+      states.set(key, { raw: record, status: 'uncertain', run });
+      if (isCurrent && !isCurrent()) return sendContextChanged();
+      if (!result.ok && (result.reason === 'uncertain' || result.reason === 'aborted')) return result;
+      // A known original reply stays known even when local cleanup fails. Its RAM
+      // proof is bound to the originating owner/context and never replays the POST.
+      known.set(key, { raw: record, current: recoveryCurrent, confirmed: result.ok });
+      const cleared = lease.finishExact(record);
+      if (cleared.ok) {
+        states.delete(key);
+        known.delete(key);
+        problems.delete(key);
+      } else problems.set(key, cleared.reason);
+      return result;
+    });
+    return coordinated.ok ? coordinated.value : unavailable(key, coordinated.reason);
+  }
+  async function checkOriginal<T>(
+    key: string,
+    prove: (original: PayOriginal) => Promise<ApiResult<T>>,
+    isCurrent: () => boolean,
+  ): Promise<ApiResult<T>> {
+    const departed = () =>
+      payRefusal('theOriginalActionHasNotBeenConfirmed', {
+        code: 'pay.reconciliation_context_changed',
+        reason: 'aborted',
+      });
+    if (!isCurrent()) return departed();
+    const result = await journal(key).coordinate(async (lease): Promise<ApiResult<T>> => {
+      if (!isCurrent()) return departed();
+      const migrated = lease.migrateLegacy();
+      if (!migrated.ok) return unavailable(key, migrated.reason);
+      const original = lease.read();
+      if (original.status === 'unreadable') return unavailable(key, original.reason);
+      if (original.status !== 'present')
+        return payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.operation_unresolved', reason: 'uncertain' });
+      // Hold this original's admission lease through its feature-owned GET/proof.
+      // A paused offer can resume then pause again with identical legacy bytes;
+      // an earlier read must never settle that replacement original.
+      const confirmed = await prove(original.value);
+      if (!isCurrent()) return departed();
+      if (!confirmed.ok) return confirmed;
+      known.set(key, { raw: original.raw, current: isCurrent, confirmed: true });
+      const cleared = lease.finishExact(original.raw);
+      if (cleared.ok) {
+        states.delete(key);
+        known.delete(key);
+        problems.delete(key);
+      } else problems.set(key, cleared.reason);
+      return confirmed;
+    });
+    if (result.ok) return result.value;
+    if (result.reason === 'busy')
+      return payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.reconciliation_in_progress', reason: 'uncertain' });
+    return unavailable(key, result.reason);
   }
   return {
     status,
     run,
     resolve,
+    restore,
+    cleanupKnown,
+    checkOriginal,
+    problem: (key: string) => {
+      inspect(key);
+      return problems.get(key) ?? null;
+    },
+    knownCleanup: (key: string) => {
+      const original = known.get(key);
+      return Boolean(original?.current());
+    },
+    knownProof: (key: string): object | null => {
+      const original = known.get(key);
+      return original?.current() ? original : null;
+    },
+    knownConfirmed: (key: string) => {
+      const original = known.get(key);
+      return Boolean(original?.current() && original.confirmed);
+    },
+    original: (key: string) => {
+      const original = inspect(key);
+      return original.status === 'present' ? original : null;
+    },
+    references: (key: string) => {
+      const original = inspect(key);
+      return original.status === 'present'
+        ? [original.value.reference].filter((value): value is string => Boolean(value))
+        : original.status === 'unreadable'
+          ? (original.originals ?? []).flatMap((entry) => (entry.value.reference ? [entry.value.reference] : []))
+          : [];
+    },
     reference: (key: string) => {
-      status(key);
-      return references.get(key) ?? null;
+      const original = inspect(key);
+      return original.status === 'present' ? (original.value.reference ?? null) : null;
     },
   };
 }
 export type PayMutationGuard = ReturnType<typeof createPayMutationGuard>;
 let browserGuard: PayMutationGuard | undefined;
 export function payMutationGuard() {
-  if (!browserGuard) {
-    let storage: Storage | undefined;
-    try {
-      storage = globalThis.sessionStorage;
-    } catch {
-      /* Read paths remain available. Writes refuse without a recovery journal. */
-    }
-    browserGuard = createPayMutationGuard(storage, typeof window !== 'undefined');
-  }
+  if (!browserGuard)
+    browserGuard = createPayMutationGuard(undefined, true, {
+      durable: () => globalThis.localStorage,
+      legacy: () => globalThis.sessionStorage,
+      locks: () => globalThis.navigator?.locks,
+    });
   return browserGuard;
+}
+
+function sendContextChanged() {
+  return payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.send_context_changed', reason: 'aborted' });
 }
 
 export function createPersonalPayApi(api: ApiClient, userId: string | null, guard = payMutationGuard()) {
@@ -124,14 +327,21 @@ export function createPersonalPayApi(api: ApiClient, userId: string | null, guar
   }
   return {
     spaces,
-    async send(input: z.infer<typeof s.sendInput>) {
+    async send(input: z.infer<typeof s.sendInput>, isCurrent?: () => boolean, recoveryCurrent?: () => boolean) {
+      if (isCurrent && !isCurrent()) return sendContextChanged();
       const denied = signedIn();
       if (denied) return denied;
+      const key = `${userId}:send`;
+      if (guard.status(key))
+        return guard.problem(key)
+          ? payRefusal('recoveryStorageBody', { code: 'pay.recovery_journal_unavailable', reason: 'not_supported' })
+          : payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.operation_unresolved', reason: 'uncertain' });
       const parsed = s.sendInput.safeParse(input);
       if (!parsed.success) return payRefusal('invalidSendInput', { code: 'pay.input_invalid', reason: 'error' });
       if (parsed.data.toUserId === userId)
         return payRefusal('chooseAnotherRecipientAccount', { code: 'pay.recipient_self', reason: 'error' });
       const sources = await spaces();
+      if (isCurrent && !isCurrent()) return sendContextChanged();
       if (!sources.ok) return sources;
       const source = sources.data.find((space) => space.id === parsed.data.fromSpaceId);
       if (!source) return payRefusal('selectOneOfYourOwnSourceSpaces', { code: 'pay.source_invalid' });
@@ -152,6 +362,8 @@ export function createPersonalPayApi(api: ApiClient, userId: string | null, guar
             ),
           ),
         parsed.data.transferId,
+        isCurrent,
+        recoveryCurrent,
       );
     },
     offers: (input: { asset?: string; fiatCurrency?: string; side?: 'buy' | 'sell'; limit: number }, signal?: AbortSignal) =>
@@ -207,37 +419,54 @@ export function createPersonalPayApi(api: ApiClient, userId: string | null, guar
     async reconcileTrade(tradeId: string) {
       const denied = signedIn();
       if (denied) return denied;
-      const key = `${userId}:trade:${tradeId}`;
-      const action = guard.reference(key);
-      const latest = await api.query('p2p', 'trades.get', { tradeId }, s.tradeSchema);
-      if (!latest.ok) return latest;
-      const trade = latest.data;
-      if (trade.buyerId !== userId && trade.sellerId !== userId)
-        return payRefusal('thisOrderBelongsToAnotherAccount', { code: 'pay.trade_not_owned' });
-      const confirmed =
-        action === 'markFiatSent'
-          ? ['fiat_sent', 'disputed', 'released', 'cancelled'].includes(trade.status)
-          : action === 'confirmReceived'
-            ? trade.status === 'released' && trade.settledAt !== null
-            : action === 'cancel'
-              ? trade.status === 'cancelled' && trade.settledAt !== null
-              : false;
-      if (!confirmed)
-        return payRefusal('theOriginalOrderActionIsStillUnresolved', { code: 'pay.operation_unresolved', reason: 'uncertain' });
-      guard.resolve(key);
-      return latest;
+      return guard.checkOriginal(
+        `${userId}:trade:${tradeId}`,
+        async (original) => {
+          const action = original.reference;
+          const latest = await api.query('p2p', 'trades.get', { tradeId }, s.tradeSchema);
+          if (!latest.ok) return latest;
+          const trade = latest.data;
+          if (trade.id !== tradeId)
+            return payRefusal('theOriginalOrderActionIsStillUnresolved', {
+              code: 'pay.trade_original_mismatch',
+              reason: 'invalid_response',
+            });
+          if (trade.buyerId !== userId && trade.sellerId !== userId)
+            return payRefusal('thisOrderBelongsToAnotherAccount', { code: 'pay.trade_not_owned' });
+          const confirmed =
+            action === 'markFiatSent'
+              ? ['fiat_sent', 'disputed', 'released', 'cancelled'].includes(trade.status)
+              : action === 'confirmReceived'
+                ? trade.status === 'released' && trade.settledAt !== null
+                : action === 'cancel'
+                  ? trade.status === 'cancelled' && trade.settledAt !== null
+                  : false;
+          return confirmed
+            ? latest
+            : payRefusal('theOriginalOrderActionIsStillUnresolved', { code: 'pay.operation_unresolved', reason: 'uncertain' });
+        },
+        () => api.canWrite(),
+      );
     },
     async reconcileOffer(offerId: string) {
-      const key = `${userId}:offer:${offerId}`;
-      const action = guard.reference(key);
-      const latest = await api.query('p2p', 'offers.get', { offerId }, s.offerSchema);
-      if (!latest.ok) return latest;
-      if (latest.data.makerId !== userId) return payRefusal('onlyTheOfferSMakerCanManage', { code: 'pay.offer_not_owned' });
-      const expected = action === 'pause' ? 'paused' : action === 'resume' ? 'active' : action === 'close' ? 'closed' : null;
-      if (!expected || latest.data.status !== expected)
-        return payRefusal('theOriginalOfferActionHasNotBeen', { code: 'pay.operation_unresolved', reason: 'uncertain' });
-      guard.resolve(key);
-      return latest;
+      const denied = signedIn();
+      if (denied) return denied;
+      return guard.checkOriginal(
+        `${userId}:offer:${offerId}`,
+        async (original) => {
+          const action = original.reference;
+          const latest = await api.query('p2p', 'offers.get', { offerId }, s.offerSchema);
+          if (!latest.ok) return latest;
+          if (latest.data.id !== offerId)
+            return payRefusal('theOriginalOfferActionHasNotBeen', { code: 'pay.offer_original_mismatch', reason: 'invalid_response' });
+          if (latest.data.makerId !== userId) return payRefusal('onlyTheOfferSMakerCanManage', { code: 'pay.offer_not_owned' });
+          const expected = action === 'pause' ? 'paused' : action === 'resume' ? 'active' : action === 'close' ? 'closed' : null;
+          return expected && latest.data.status === expected
+            ? latest
+            : payRefusal('theOriginalOfferActionHasNotBeen', { code: 'pay.operation_unresolved', reason: 'uncertain' });
+        },
+        () => api.canWrite(),
+      );
     },
     openDispute: (tradeId: string, reason: string) =>
       guard.run(`${userId}:dispute:${tradeId}`, () => api.mutate('p2p', 'disputes.open', { tradeId, reason }, s.disputeOpenedSchema)),

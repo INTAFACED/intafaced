@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createApiClient } from '../../shared/api';
+import type { JournalStorage, JournalLocks } from '../../shared/minimal-original-journal';
 import { createPersonalPayApi, createBusinessPayApi, createPayMutationGuard, createCheckoutApi } from './pay-api';
 import { z } from 'zod';
 import { paymentSchema } from './schemas';
@@ -10,6 +11,25 @@ const merchantId = '33333333-3333-4333-8333-333333333333';
 const transferId = '44444444-4444-4444-8444-444444444444';
 function response(data: unknown) {
   return new Response(JSON.stringify({ result: { data } }));
+}
+
+function nativeLockFixture(): JournalLocks {
+  const held = new Set<string>();
+  return {
+    request: async (name: string, _options: unknown, work: (lock: unknown) => unknown) => {
+      if (held.has(name)) return work(null);
+      held.add(name);
+      try {
+        return await work({ name });
+      } finally {
+        held.delete(name);
+      }
+    },
+  } as JournalLocks;
+}
+function createPersistentTestGuard(storage: JournalStorage) {
+  const locks = nativeLockFixture();
+  return createPayMutationGuard(storage, true, { durable: () => storage, locks: () => locks });
 }
 
 describe('Personal Pay network boundary', () => {
@@ -181,16 +201,13 @@ describe('Unconfirmed Pay outcomes', () => {
     expect(repeated).toBe(false);
   });
   it('refuses to start a mutation if a required recovery journal cannot be saved', async () => {
-    const guard = createPayMutationGuard(
-      {
-        getItem: () => null,
-        setItem: () => {
-          throw new Error('Storage blocked');
-        },
-        removeItem: () => {},
+    const guard = createPersistentTestGuard({
+      getItem: () => null,
+      setItem: () => {
+        throw new Error('Storage blocked');
       },
-      true,
-    );
+      removeItem: () => {},
+    });
     let posted = false;
     const result = await guard.run('customer:send', async () => {
       posted = true;
@@ -319,4 +336,589 @@ describe('Business Pay authority boundary', () => {
       code: 'pay.merchant_projection_mismatch',
     });
   });
+});
+
+describe('Send original context admission and settlement', () => {
+  const input = { transferId, fromSpaceId: spaceId, toUserId: merchantId, amount: '0.000000000000000001' };
+  const spaces = [
+    {
+      id: spaceId,
+      assetId: 'USDT',
+      kind: 'primary',
+      name: 'Main',
+      goalTarget: null,
+      lockedUntil: null,
+      balance: '9999999999999999999.000000000000000001',
+      ledgerAccount: { ownerType: 'user', ownerId: userId, assetId: 'USDT', kind: 'bank:primary' },
+    },
+  ];
+  function journal() {
+    const values = new Map<string, string>();
+    let saves = 0,
+      removals = 0;
+    const guard = createPersistentTestGuard({
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => {
+        saves++;
+        values.set(key, value);
+      },
+      removeItem: (key) => {
+        removals++;
+        values.delete(key);
+      },
+    });
+    return { guard, values, saves: () => saves, removals: () => removals };
+  }
+  it('rejects a stale rendered action before input capture or source read', async () => {
+    let reads = 0,
+      captured = false;
+    const stored = journal();
+    const api = createApiClient({
+      fetch: async () => {
+        reads++;
+        return response(spaces);
+      },
+    });
+    const stale = {
+      ...input,
+      get transferId() {
+        captured = true;
+        return transferId;
+      },
+    };
+    const result = await createPersonalPayApi(api, userId, stored.guard).send(stale, () => false);
+    expect(result).toMatchObject({ ok: false, reason: 'aborted', code: 'pay.send_context_changed' });
+    expect([reads, stored.saves(), stored.removals()]).toEqual([0, 0, 0]);
+    expect(captured).toBe(false);
+  });
+  it('rejects a departure during held source parsing without a journal or POST', async () => {
+    const stored = journal();
+    let current = true,
+      posts = 0;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const api = createApiClient({
+      fetch: async (_url, options) => {
+        if (options?.method === 'POST') {
+          posts++;
+          return response({ ledgerTxId: 'late', amount: input.amount });
+        }
+        const read = response(spaces);
+        read.text = async () => {
+          await held;
+          return JSON.stringify({ result: { data: spaces } });
+        };
+        return read;
+      },
+    });
+    const pending = createPersonalPayApi(api, userId, stored.guard).send(input, () => current);
+    current = false;
+    release();
+    expect(await pending).toMatchObject({ ok: false, code: 'pay.send_context_changed' });
+    expect([posts, stored.saves(), stored.values.size]).toEqual([0, 0, 0]);
+  });
+  for (const outcome of ['known', 'unknown', 'malformed'] as const)
+    it('preserves dispatched original journal bytes after departed ' + outcome + ' reply', async () => {
+      const stored = journal();
+      let current = true,
+        posts = 0;
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const api = createApiClient({
+        fetch: async (_url, options) => {
+          if (options?.method !== 'POST') return response(spaces);
+          posts++;
+          await held;
+          return outcome === 'unknown'
+            ? new Response(JSON.stringify({ error: 'Unknown' }), { status: 503 })
+            : response({ ledgerTxId: 'original-only', amount: outcome === 'malformed' ? '2' : input.amount });
+        },
+      });
+      const pending = createPersonalPayApi(api, userId, stored.guard).send(input, () => current);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(posts).toBe(1);
+      const bytes = stored.values.get('pay.unresolved:' + userId + ':send');
+      expect(JSON.parse(bytes!)).toEqual({ status: 'uncertain', reference: transferId });
+      current = false;
+      release();
+      expect(await pending).toMatchObject({ ok: false, code: 'pay.send_context_changed' });
+      expect(stored.values.get('pay.unresolved:' + userId + ':send')).toBe(bytes);
+      expect([stored.saves(), stored.removals(), posts]).toEqual([1, 0, 1]);
+      expect(stored.guard.status(userId + ':send')).toBe('uncertain');
+    });
+  it('cleans only a current known original reply and leaves the default guard callers unchanged', async () => {
+    const stored = journal();
+    const api = createApiClient({
+      fetch: async (_url, options) =>
+        options?.method === 'POST' ? response({ ledgerTxId: 'current-original', amount: input.amount }) : response(spaces),
+    });
+    expect(await createPersonalPayApi(api, userId, stored.guard).send(input, () => true)).toMatchObject({ ok: true });
+    expect([stored.saves(), stored.removals(), stored.values.size]).toEqual([1, 1, 0]);
+    expect(await stored.guard.run('default:p2p', async () => ({ ok: true, data: 'unchanged' }))).toEqual({ ok: true, data: 'unchanged' });
+    expect(stored.guard.status('default:p2p')).toBe(null);
+  });
+});
+
+describe('Send recovery cleanup owns the original record', () => {
+  it('keeps a substituted recovery record when the original known reply arrives', async () => {
+    const values = new Map<string, string>();
+    const guard = createPersistentTestGuard({
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => {
+        values.set(key, value);
+      },
+      removeItem: (key) => {
+        values.delete(key);
+      },
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const pending = guard.run(
+      'original:send',
+      async () => {
+        await held;
+        return { ok: true, data: 'original-known' };
+      },
+      transferId,
+      () => true,
+    );
+    const replacement = JSON.stringify({ status: 'uncertain', reference: 'another-original' });
+    values.set('pay.unresolved:original:send', replacement);
+    release();
+    expect(await pending).toEqual({ ok: true, data: 'original-known' });
+    expect(guard.knownCleanup('original:send')).toBe(true);
+    expect(await guard.cleanupKnown('original:send', () => true, guard.knownProof('original:send'))).toBe(false);
+    expect(values.get('pay.unresolved:original:send')).toBe(replacement);
+  });
+});
+
+describe('Durable Pay originals across independent guards', () => {
+  function device() {
+    const values = new Map<string, string>(),
+      legacy = new Map<string, string>();
+    const fault = { read: false, save: false, remove: false, silentSave: false, silentRemove: false };
+    const durable: JournalStorage = {
+      getItem: (key) => {
+        if (fault.read) throw new Error('Read denied');
+        return values.get(key) ?? null;
+      },
+      setItem: (key, value) => {
+        if (fault.save) throw new Error('Quota');
+        if (!fault.silentSave) values.set(key, value);
+      },
+      removeItem: (key) => {
+        if (fault.remove) throw new Error('Remove denied');
+        if (!fault.silentRemove) values.delete(key);
+      },
+    };
+    const session: JournalStorage = {
+      getItem: (key) => legacy.get(key) ?? null,
+      setItem: (key, value) => {
+        legacy.set(key, value);
+      },
+      removeItem: (key) => {
+        legacy.delete(key);
+      },
+    };
+    const locks = nativeLockFixture();
+    const guard = () => createPayMutationGuard(undefined, true, { durable: () => durable, legacy: () => session, locks: () => locks });
+    return { values, legacy, fault, guard };
+  }
+  it('re-reads a later original rather than admitting from a cached empty read in another tab', async () => {
+    const deviceState = device(),
+      first = deviceState.guard(),
+      independent = deviceState.guard();
+    expect(independent.status('owner:send')).toBe(null);
+    let posts = 0;
+    await first.run(
+      'owner:send',
+      async () => {
+        posts++;
+        return { ok: false, reason: 'uncertain', message: 'Unknown' };
+      },
+      transferId,
+    );
+    expect(independent.reference('owner:send')).toBe(transferId);
+    expect(
+      await independent.run('owner:send', async () => {
+        posts++;
+        return { ok: true, data: 'duplicate' };
+      }),
+    ).toMatchObject({ ok: false, reason: 'uncertain' });
+    expect(posts).toBe(1);
+    expect(await independent.run('different-owner:send', async () => ({ ok: true, data: 'isolated' }))).toMatchObject({ ok: true });
+  });
+  it('never overwrites an original when only reads fail, even though writes work', async () => {
+    const d = device(),
+      key = 'pay.unresolved:owner:send';
+    const raw = JSON.stringify({ status: 'uncertain', reference: transferId });
+    d.values.set(key, raw);
+    d.fault.read = true;
+    let posts = 0;
+    expect(
+      await d.guard().run('owner:send', async () => {
+        posts++;
+        return { ok: true, data: 'new' };
+      }),
+    ).toMatchObject({ ok: false, code: 'pay.recovery_journal_unavailable' });
+    expect([posts, d.values.get(key)]).toEqual([0, raw]);
+  });
+  for (const failure of ['save', 'silentSave'] as const)
+    it('refuses dispatch after ' + failure + ' without verified durable readback', async () => {
+      const d = device();
+      d.fault[failure] = true;
+      let posts = 0;
+      expect(
+        await d.guard().run('owner:send', async () => {
+          posts++;
+          return { ok: true, data: 'new' };
+        }),
+      ).toMatchObject({ ok: false, code: 'pay.recovery_journal_unavailable' });
+      expect(posts).toBe(0);
+    });
+  for (const failure of ['remove', 'silentRemove'] as const)
+    it('keeps a current known reply after ' + failure + ' and retries only local exact cleanup', async () => {
+      const d = device(),
+        guard = d.guard();
+      d.fault[failure] = true;
+      let current = true,
+        posts = 0;
+      expect(
+        await guard.run(
+          'owner:send',
+          async () => {
+            posts++;
+            return { ok: true, data: 'original-known' };
+          },
+          transferId,
+          () => current,
+        ),
+      ).toEqual({ ok: true, data: 'original-known' });
+      const bytes = d.values.get('pay.unresolved:owner:send');
+      expect(guard.knownCleanup('owner:send')).toBe(true);
+      expect(guard.status('owner:send')).toBe('uncertain');
+      current = false;
+      d.fault[failure] = false;
+      expect(await guard.cleanupKnown('owner:send', () => true, guard.knownProof('owner:send'))).toBe(false);
+      expect(d.values.get('pay.unresolved:owner:send')).toBe(bytes);
+      current = true;
+      expect(await guard.cleanupKnown('owner:send', () => true, guard.knownProof('owner:send'))).toBe(true);
+      expect([posts, guard.status('owner:send')]).toEqual([1, null]);
+    });
+  it('migrates surviving legacy bytes under coordination before they can disappear with the tab', async () => {
+    const d = device(),
+      guard = d.guard(),
+      key = 'pay.unresolved:owner:send';
+    const raw = 'pending';
+    d.legacy.set(key, raw);
+    expect(guard.status('owner:send')).toBe('uncertain');
+    d.fault.silentSave = true;
+    expect(await guard.restore('owner:send')).toMatchObject({ ok: false });
+    expect(d.legacy.get(key)).toBe(raw);
+    d.fault.silentSave = false;
+    expect(await guard.restore('owner:send')).toMatchObject({ ok: true });
+    expect([d.values.get(key), d.legacy.has(key), d.guard().status('owner:send')]).toEqual([raw, false, 'uncertain']);
+  });
+  it('refuses a simultaneous same-key contender, while a different owner remains usable', async () => {
+    const d = device(),
+      first = d.guard(),
+      second = d.guard();
+    let release!: () => void,
+      posts = 0;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const pending = first.run(
+      'owner:send',
+      async () => {
+        posts++;
+        await held;
+        return { ok: false, reason: 'uncertain', message: 'Unknown' };
+      },
+      transferId,
+    );
+    expect(await second.restore('owner:send')).toMatchObject({ ok: true });
+    expect(second.reference('owner:send')).toBe(transferId);
+    expect(
+      await second.run('owner:send', async () => {
+        posts++;
+        return { ok: true, data: 'duplicate' };
+      }),
+    ).toMatchObject({ ok: false, code: 'pay.recovery_journal_unavailable' });
+    expect(await second.run('another-owner:send', async () => ({ ok: true, data: 'valid' }))).toMatchObject({ ok: true });
+    release();
+    await pending;
+    expect(posts).toBe(1);
+    expect(await second.restore('owner:send')).toMatchObject({ ok: true });
+    expect(second.reference('owner:send')).toBe(transferId);
+  });
+  it('never treats a restored original unknown as a current known reply or cleanup proof', async () => {
+    const d = device(),
+      guard = d.guard();
+    await guard.run('owner:send', async () => ({ ok: false, reason: 'uncertain', message: 'Unknown' }), transferId);
+    const another = d.guard();
+    expect(await another.restore('owner:send')).toMatchObject({ ok: true });
+    expect(another.knownCleanup('owner:send')).toBe(false);
+    expect(await another.cleanupKnown('owner:send', () => true, another.knownProof('owner:send'))).toBe(false);
+    expect(another.reference('owner:send')).toBe(transferId);
+  });
+});
+
+describe('Send admission before private input capture', () => {
+  it('rejects a restored original before reading input getters or source preflight', async () => {
+    const guard = createPayMutationGuard();
+    await guard.run(userId + ':send', async () => ({ ok: false, reason: 'uncertain', message: 'Unknown' }), transferId);
+    let captured = false,
+      reads = 0;
+    const api = createApiClient({
+      fetch: async () => {
+        reads++;
+        return response([]);
+      },
+    });
+    const input = {
+      get transferId() {
+        captured = true;
+        return transferId;
+      },
+      fromSpaceId: spaceId,
+      toUserId: merchantId,
+      amount: '1',
+    };
+    expect(await createPersonalPayApi(api, userId, guard).send(input, () => true)).toMatchObject({
+      ok: false,
+      code: 'pay.operation_unresolved',
+    });
+    expect([captured, reads]).toEqual([false, 0]);
+  });
+});
+
+describe('Known cleanup preserves the rendered original', () => {
+  it('rejects a stale original proof after a fresh known transfer replaces it in the same current context', async () => {
+    const values = new Map<string, string>();
+    let refuseCleanup = true,
+      posts = 0;
+    const storage: JournalStorage = {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => {
+        values.set(key, value);
+      },
+      removeItem: (key) => {
+        if (refuseCleanup) throw new Error('Local cleanup unavailable');
+        values.delete(key);
+      },
+    };
+    const guard = createPersistentTestGuard(storage);
+    const action = async () => {
+      posts++;
+      return { ok: true as const, data: 'known-original' };
+    };
+    await guard.run('owner:send', action, transferId, () => true);
+    const firstProof = guard.knownProof('owner:send');
+    refuseCleanup = false;
+    expect(await guard.cleanupKnown('owner:send', () => true, firstProof)).toBe(true);
+    refuseCleanup = true;
+    await guard.run('owner:send', action, 'fresh-original', () => true);
+    const replacement = values.get('pay.unresolved:owner:send');
+    const currentProof = guard.knownProof('owner:send');
+    refuseCleanup = false;
+    expect(await guard.cleanupKnown('owner:send', () => true, firstProof)).toBe(false);
+    expect(values.get('pay.unresolved:owner:send')).toBe(replacement);
+    expect(await guard.cleanupKnown('owner:send', () => true, currentProof)).toBe(true);
+    expect([posts, values.size]).toEqual([2, 0]);
+  });
+});
+
+describe('Feature-owned original P2P reconciliation holds its admission lease', () => {
+  function offerFixture() {
+    const values = new Map<string, string>();
+    const storage: JournalStorage = {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, raw) => {
+        values.set(key, raw);
+      },
+      removeItem: (key) => {
+        values.delete(key);
+      },
+    };
+    const guard = createPersistentTestGuard(storage);
+    let status: 'active' | 'paused' = 'active',
+      holdNext = false,
+      current = true,
+      reads = 0,
+      posts = 0;
+    let release!: () => void;
+    const row = () => ({
+      id: spaceId,
+      makerId: userId,
+      side: 'sell',
+      asset: 'USDT',
+      fiatCurrency: 'USD',
+      priceType: 'fixed',
+      price: '1',
+      minAmount: '1',
+      maxAmount: '2',
+      remainingAmount: '2',
+      methods: [],
+      terms: '',
+      status,
+      createdAt: '2026-10-10T00:00:00Z',
+    });
+    const api = createApiClient({
+      canWrite: () => current,
+      fetch: async (url, options) => {
+        const procedure = new URL(String(url), 'http://isolated.invalid').pathname.split('/').at(-1);
+        if (options?.method === 'POST') {
+          posts++;
+          status = procedure === 'offers.resume' ? 'active' : 'paused';
+          return procedure === 'offers.resume'
+            ? response(row())
+            : new Response(JSON.stringify({ error: 'Isolated unknown' }), { status: 503 });
+        }
+        reads++;
+        const captured = row();
+        if (holdNext) {
+          holdNext = false;
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        }
+        return response(captured);
+      },
+    });
+    return {
+      pay: createPersonalPayApi(api, userId, guard),
+      guard,
+      values,
+      hold: () => {
+        holdNext = true;
+      },
+      release: () => release(),
+      current: (value: boolean) => {
+        current = value;
+      },
+      reads: () => reads,
+      posts: () => posts,
+    };
+  }
+  it('blocks a parallel old check and resume admission, then preserves a fresh same-action unknown until its own current proof', async () => {
+    const f = offerFixture(),
+      key = `${userId}:offer:${spaceId}`,
+      storageKey = 'pay.unresolved:' + key;
+    expect(await f.pay.manageOffer(spaceId, 'pause')).toMatchObject({ ok: false, reason: 'uncertain' });
+    const original = f.values.get(storageKey),
+      reads = f.reads();
+    f.hold();
+    const held = f.pay.reconcileOffer(spaceId);
+    await Promise.resolve();
+    expect(await f.pay.reconcileOffer(spaceId)).toMatchObject({ ok: false, code: 'pay.reconciliation_in_progress' });
+    expect(f.reads()).toBe(reads + 1);
+    expect(await f.pay.manageOffer(spaceId, 'resume')).toMatchObject({ ok: false });
+    expect([f.posts(), f.values.get(storageKey)]).toEqual([1, original]);
+    f.release();
+    expect(await held).toMatchObject({ ok: true, data: { status: 'paused' } });
+    expect(f.guard.status(key)).toBe(null);
+    expect(await f.pay.manageOffer(spaceId, 'resume')).toMatchObject({ ok: true, data: { status: 'active' } });
+    expect(await f.pay.manageOffer(spaceId, 'pause')).toMatchObject({ ok: false, reason: 'uncertain' });
+    expect(f.values.get(storageKey)).toBe(original);
+    expect(f.guard.status(key)).toBe('uncertain');
+    expect(await f.pay.reconcileOffer(spaceId)).toMatchObject({ ok: true, data: { status: 'paused' } });
+    expect([f.posts(), f.guard.status(key)]).toEqual([3, null]);
+  });
+  it('retains the original when its owner API becomes stale during a held feature proof', async () => {
+    const f = offerFixture(),
+      key = `${userId}:offer:${spaceId}`;
+    await f.pay.manageOffer(spaceId, 'pause');
+    const original = f.values.get('pay.unresolved:' + key);
+    f.hold();
+    const held = f.pay.reconcileOffer(spaceId);
+    await Promise.resolve();
+    f.current(false);
+    f.release();
+    expect(await held).toMatchObject({ ok: false, code: 'pay.reconciliation_context_changed', reason: 'aborted' });
+    expect(f.values.get('pay.unresolved:' + key)).toBe(original);
+    expect(f.guard.status(key)).toBe('uncertain');
+  });
+});
+
+describe('Exact original P2P reconciliation identity', () => {
+  for (const feature of ['offer', 'trade'] as const) {
+    it('retains the original ' + feature + ' for a different same-owner row and accepts only its own current row', async () => {
+      const requestedId = feature === 'offer' ? spaceId : transferId;
+      const key = `${userId}:${feature}:${requestedId}`;
+      const storageKey = 'pay.unresolved:' + key;
+      const original = JSON.stringify({ status: 'uncertain', reference: feature === 'offer' ? 'pause' : 'confirmReceived' });
+      const values = new Map([[storageKey, original]]);
+      const guard = createPersistentTestGuard({
+        getItem: (key) => values.get(key) ?? null,
+        setItem: (key, value) => {
+          values.set(key, value);
+        },
+        removeItem: (key) => {
+          values.delete(key);
+        },
+      });
+      let returnedId = merchantId;
+      let posts = 0;
+      const api = createApiClient({
+        fetch: async (_url, options) => {
+          if (options?.method === 'POST') posts++;
+          return response(
+            feature === 'offer'
+              ? {
+                  id: returnedId,
+                  makerId: userId,
+                  side: 'sell',
+                  asset: 'USDT',
+                  fiatCurrency: 'USD',
+                  priceType: 'fixed',
+                  price: '1',
+                  minAmount: '1',
+                  maxAmount: '2',
+                  remainingAmount: '2',
+                  methods: [],
+                  terms: '',
+                  status: 'paused',
+                  createdAt: '2026-10-10T00:00:00Z',
+                }
+              : {
+                  id: returnedId,
+                  offerId: spaceId,
+                  sellerId: userId,
+                  buyerId: merchantId,
+                  asset: 'USDT',
+                  amount: '2',
+                  fiatCurrency: 'USD',
+                  fiatAmount: '2',
+                  price: '1',
+                  method: 'isolated-method',
+                  status: 'released',
+                  resolution: 'released',
+                  deadlineAt: null,
+                  createdAt: '2026-10-10T00:00:00Z',
+                  escrowedAt: '2026-10-10T00:01:00Z',
+                  resolvedAt: '2026-10-10T00:02:00Z',
+                  settledAt: '2026-10-10T00:03:00Z',
+                },
+          );
+        },
+      });
+      const pay = createPersonalPayApi(api, userId, guard);
+      const reconcile = () => (feature === 'offer' ? pay.reconcileOffer(requestedId) : pay.reconcileTrade(requestedId));
+      expect(await reconcile()).toMatchObject({ ok: false, reason: 'invalid_response', code: `pay.${feature}_original_mismatch` });
+      expect([values.get(storageKey), guard.status(key), posts]).toEqual([original, 'uncertain', 0]);
+      returnedId = requestedId;
+      expect(await reconcile()).toMatchObject({ ok: true, data: { id: requestedId } });
+      expect([values.has(storageKey), guard.status(key), posts]).toEqual([false, null, 0]);
+    });
+  }
 });

@@ -93,7 +93,8 @@ for (const readState of ['loading', 'failed', 'empty']) {
     await expect(recovery.getByRole('link', { name: 'Contact Support' })).toHaveAttribute('href', '/support');
     await expect(recovery.getByRole('link', { name: 'Check Money activity' })).toHaveAttribute('href', '/uc/record');
     if (readState === 'failed') await expect(page.getByRole('heading', { name: 'Connection unavailable' })).toBeVisible();
-    if (readState === 'empty') await expect(page.getByRole('heading', { name: 'No BTC source account available', exact: true })).toBeVisible();
+    if (readState === 'empty')
+      await expect(page.getByRole('heading', { name: 'No BTC source account available', exact: true })).toBeVisible();
     expect(writes).toEqual([]);
   });
 }
@@ -201,8 +202,19 @@ test('Transfer review supports exact-value inspection and editing, and a receipt
     await dialog.evaluate((node) => {
       node.scrollTop = 0;
     });
-    const confirmBounds = await dialog.getByRole('button', { name: 'Confirm transfer' }).boundingBox();
+    const confirm = dialog.getByRole('button', { name: 'Confirm transfer' });
+    await dialog.getByRole('button', { name: 'Edit transfer' }).focus();
+    await page.keyboard.press('Tab');
+    await expect(confirm).toBeFocused();
+    const confirmBounds = await confirm.boundingBox();
+    expect(confirmBounds.y).toBeGreaterThanOrEqual(0);
     expect(confirmBounds.y + confirmBounds.height).toBeLessThanOrEqual(844);
+    expect(
+      await confirm.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)?.closest('button') === element;
+      }),
+    ).toBe(true);
     if (process.env.PAY_JOURNEY_SCREENSHOTS) {
       await dialog.evaluate((node) => {
         node.scrollTop = 0;
@@ -473,7 +485,7 @@ test('light appearance keeps the real Pay chrome action readable', async ({ page
   expect(audit.violations.filter((item) => ['serious', 'critical'].includes(item.impact))).toEqual([]);
 });
 
-test('an unwritten Pay locale uses honest English fallback and preserves the exact reviewed transfer', async ({ page }) => {
+test('authored French Pay copy preserves the exact reviewed transfer and the opaque original response', async ({ page }) => {
   const posted = [];
   await page.route('**/api/**', async (route) => {
     if (route.request().url().includes('spaces.list')) return reply(route, [source]);
@@ -489,18 +501,20 @@ test('an unwritten Pay locale uses honest English fallback and preserves the exa
     const { savePreferences } = await import('/src/shared/preferences.ts');
     savePreferences({ language: 'fr' });
   });
-  const heading = page.getByRole('heading', { name: 'Send money', exact: true });
+  const heading = page.getByRole('heading', { name: 'Envoyer de l’argent', exact: true });
   await expect(heading).toBeVisible();
-  expect(await heading.evaluate((element) => element.closest('[lang]')?.getAttribute('lang'))).toBe('en');
-  await page.getByLabel('Source account').selectOption(spaceId);
-  await page.getByLabel('Recipient account ID').fill(merchantId);
-  await page.getByLabel('Amount · USDT', { exact: true }).fill('0.000000000000000001');
-  await page.getByRole('button', { name: 'Review transfer' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Review transfer' });
+  expect(await heading.evaluate((element) => element.closest('[lang]')?.getAttribute('lang'))).toBe('fr');
+  await page.getByLabel('Compte source').selectOption(spaceId);
+  await page.getByLabel('ID du compte destinataire').fill(merchantId);
+  await page.getByLabel('Montant · USDT', { exact: true }).fill('0.000000000000000001');
+  await page.getByRole('button', { name: 'Vérifier le transfert' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Vérifier le transfert' });
   await expect(dialog.getByText('0.000000000000000001 USDT', { exact: true })).toBeVisible();
-  await dialog.getByRole('button', { name: 'Confirm transfer' }).click();
+  await dialog.getByRole('button', { name: 'Confirmer le transfert' }).click();
   await expect(dialog.getByRole('heading', { name: 'Résultat non confirmé' })).toBeVisible();
-  await expect(dialog.getByText('Original source explanation', { exact: true })).toBeVisible();
+  const originalMessage = dialog.getByText('Original source explanation', { exact: true });
+  await expect(originalMessage).toBeVisible();
+  expect(await originalMessage.evaluate((element) => element.closest('[lang]')?.getAttribute('lang'))).toBe('und');
   expect(posted).toHaveLength(1);
   expect(posted[0]).toMatchObject({ amount: '0.000000000000000001', fromSpaceId: spaceId, toUserId: merchantId });
 });

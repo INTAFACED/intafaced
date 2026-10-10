@@ -1,6 +1,7 @@
 import { payCopy, PayCopy } from './copy';
-import { useMemo, useReducer, useRef, useState } from 'react';
-import type { ApiResult } from '../../shared/api';
+import { useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
+import type { ApiClient, ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { usePreferences } from '../../shared/preferences';
 import { parseAmount } from '../../shared/money';
@@ -131,7 +132,9 @@ export function PersonalPay({ path }: { path: string }) {
   );
 }
 
-type ConfirmedTransfer = { ledgerTxId: string; amount: string; assetId: string };
+type SendContext = { api: ApiClient; pay: PersonalPayApi; userId: string | null; href: string; epoch: number };
+type SendLifetime = { context: SendContext; mounted: boolean };
+type ConfirmedTransfer = { ledgerTxId: string; amount: string; assetId: string; transferId: string };
 
 function SendMoney({
   pay,
@@ -144,11 +147,100 @@ function SendMoney({
   asset: string | null;
   invalidAsset: boolean;
 }) {
-  const sources = useResource((signal) => pay.spaces(signal), `pay:send-sources:${userId}`);
-  const [confirmed, setConfirmed] = useState<ConfirmedTransfer | null>(null);
+  const { api } = useSession();
+  const version = useRef<SendContext>({ api, pay, userId, href: location.href, epoch: 0 });
+  if (
+    version.current.api !== api ||
+    version.current.pay !== pay ||
+    version.current.userId !== userId ||
+    version.current.href !== location.href
+  )
+    version.current = { api, pay, userId, href: location.href, epoch: version.current.epoch + 1 };
+  const context = version.current;
+  const lifetime = useRef<SendLifetime>({ context, mounted: true });
+  lifetime.current.context = context;
+  const [, invalidateNavigation] = useReducer((revision: number) => revision + 1, 0);
+  useLayoutEffect(() => {
+    lifetime.current.mounted = true;
+    const departed = () => {
+      const previous = version.current;
+      if (previous.href === location.href) return;
+      const next = { ...previous, href: location.href, epoch: previous.epoch + 1 };
+      version.current = next;
+      lifetime.current.context = next;
+      // The event itself invalidates admission, even if React sees A again.
+      // Flush the private subtree before another handler in this task can use it.
+      flushSync(() => {
+        setConfirmed(null);
+        setRefused(null);
+        recoveryAttempt.current = null;
+        setRecoveryAction(null);
+        invalidateNavigation();
+      });
+    };
+    window.addEventListener('popstate', departed);
+    window.addEventListener('hashchange', departed);
+    return () => {
+      lifetime.current.mounted = false;
+      window.removeEventListener('popstate', departed);
+      window.removeEventListener('hashchange', departed);
+    };
+  }, []);
+  const sources = useResource((signal) => pay.spaces(signal), `pay:send-sources:${userId}:${context.epoch}`);
+  const [confirmed, setConfirmed] = useState<{ context: SendContext; receipt: ConfirmedTransfer } | null>(null);
+  const [refused, setRefused] = useState<{ context: SendContext; response: Extract<ApiResult<unknown>, { ok: false }> } | null>(null);
+  const currentConfirmed = confirmed?.context === context ? confirmed.receipt : null;
+  const currentRefused = refused?.context === context ? refused.response : null;
   const [, refreshGuard] = useReducer((revision: number) => revision + 1, 0);
-  const unresolved = pay.guard.status(`${userId}:send`);
-  const originalReference = pay.guard.reference(`${userId}:send`);
+  const recoveryAttempt = useRef<{ context: SendContext; token: object } | null>(null);
+  const [recoveryAction, setRecoveryAction] = useState<{ context: SendContext; token: object } | null>(null);
+  const recoveryBusy = recoveryAction?.context === context;
+  const key = `${userId}:send`;
+  const isRecoveryCurrent = () =>
+    lifetime.current.mounted && lifetime.current.context === context && location.href === context.href && context.api.canWrite();
+  useLayoutEffect(() => {
+    const restore = async () => {
+      await pay.guard.restore(key);
+      if (isRecoveryCurrent()) refreshGuard();
+    };
+    const returned = () => {
+      if (document.visibilityState === 'visible') void restore();
+    };
+    const changed = (event: StorageEvent) => {
+      if (event.key === `pay.unresolved:${key}` || event.key === null) void restore();
+    };
+    void restore();
+    window.addEventListener('storage', changed);
+    window.addEventListener('focus', returned);
+    document.addEventListener('visibilitychange', returned);
+    return () => {
+      window.removeEventListener('storage', changed);
+      window.removeEventListener('focus', returned);
+      document.removeEventListener('visibilitychange', returned);
+    };
+  }, [context]);
+  const unresolved = pay.guard.status(key);
+  const recoveryProblem = pay.guard.problem(key);
+  const knownCleanup = pay.guard.knownCleanup(key);
+  const cleanupOriginal = pay.guard.knownProof(key);
+  const knownConfirmed = pay.guard.knownConfirmed(key);
+  const originalReferences = pay.guard.references(key);
+  async function retryRecovery() {
+    if (!isRecoveryCurrent() || recoveryAttempt.current?.context === context) return;
+    const action = { context, token: {} };
+    recoveryAttempt.current = action;
+    setRecoveryAction(action);
+    try {
+      if (knownCleanup) await pay.guard.cleanupKnown(key, isRecoveryCurrent, cleanupOriginal);
+      else await pay.guard.restore(key);
+    } finally {
+      if (isRecoveryCurrent() && recoveryAttempt.current === action) {
+        recoveryAttempt.current = null;
+        setRecoveryAction(null);
+        refreshGuard();
+      }
+    }
+  }
   return (
     <>
       {asset && (
@@ -160,35 +252,64 @@ function SendMoney({
       )}
       {unresolved && (
         <PayNotice
-          title={payCopy.t('originalTransferIsUnresolved')}
+          title={payCopy.t(
+            knownCleanup
+              ? knownConfirmed
+                ? 'knownRecoveryTitle'
+                : 'refusedRecoveryTitle'
+              : recoveryProblem
+                ? 'recoveryStorageTitle'
+                : 'originalTransferIsUnresolved',
+          )}
           action={
             <div className="pay-transfer-recovery-actions">
-              <a className="button button--secondary" href="/uc/record">
-                <PayCopy k="checkMoneyActivity" />
-              </a>
+              {(knownCleanup || recoveryProblem) && (
+                <Button variant="secondary" disabled={recoveryBusy} onClick={() => void retryRecovery()}>
+                  <PayCopy k={knownCleanup ? 'retryLocalCleanup' : 'retryRecovery'} />
+                </Button>
+              )}
+              {(knownCleanup || !recoveryProblem) && (
+                <a className="button button--secondary" href="/uc/record">
+                  <PayCopy k="checkMoneyActivity" />
+                </a>
+              )}
               <a className="button button--primary" href="/support">
                 <PayCopy k="contactSupport" />
               </a>
             </div>
           }
         >
-          <PayCopy k="aPreviousTransferHasNotBeenConfirmed" />
-          {originalReference && (
-            <span className="pay-cell-note">
+          <PayCopy
+            k={
+              knownCleanup
+                ? knownConfirmed
+                  ? 'knownRecoveryBody'
+                  : 'refusedRecoveryBody'
+                : recoveryProblem === 'conflict'
+                  ? 'recoveryConflictBody'
+                  : recoveryProblem
+                    ? 'recoveryStorageBody'
+                    : 'aPreviousTransferHasNotBeenConfirmed'
+            }
+          />
+          {originalReferences.map((originalReference) => (
+            <span className="pay-cell-note" key={originalReference}>
               <PayCopy k="originalTransferId" /> <span lang="zxx">{originalReference}</span>
             </span>
-          )}
+          ))}
         </PayNotice>
       )}
       <div className="pay-transfer-outcome" role="status" aria-label={payCopy.t('transferResult')} aria-live="polite" aria-atomic="true">
-        {confirmed && (
+        <MutationResult result={currentRefused} />
+        {currentConfirmed && (
           <PaySection title={payCopy.t('transferConfirmed')} description={payCopy.t('keepThisLedgerReceipt')}>
             <PayDetails
               values={[
-                [payCopy.t('ledgerTransaction'), <span lang="zxx">{confirmed.ledgerTxId}</span>],
+                [payCopy.t('ledgerTransaction'), <span lang="zxx">{currentConfirmed.ledgerTxId}</span>],
+                [payCopy.t('originalTransferId'), <span lang="zxx">{currentConfirmed.transferId}</span>],
                 [
                   payCopy.t('confirmedAmount'),
-                  <PayAmount value={confirmed.amount} unit={confirmed.assetId} label={payCopy.t('confirmedAmount')} />,
+                  <PayAmount value={currentConfirmed.amount} unit={currentConfirmed.assetId} label={payCopy.t('confirmedAmount')} />,
                 ],
               ]}
             />
@@ -207,13 +328,18 @@ function SendMoney({
             const matching = asset ? spaces.filter((space) => space.assetId === asset) : spaces;
             return matching.length ? (
               <SendForm
+                key={context.epoch}
+                context={context}
+                lifetime={lifetime.current}
                 pay={pay}
                 spaces={matching}
                 asset={asset}
                 userId={userId}
                 reload={sources.reload}
-                onConfirmed={setConfirmed}
+                onConfirmed={(receipt) => setConfirmed({ context, receipt })}
+                onRefused={(response) => setRefused({ context, response })}
                 onSettled={refreshGuard}
+                isRecoveryCurrent={isRecoveryCurrent}
               />
             ) : (
               <PayNotice title={asset ? payCopy.t('noAssetSource', { asset }) : payCopy.t('noSourceSpacesAvailable')}>
@@ -234,21 +360,29 @@ function SendMoney({
   );
 }
 function SendForm({
+  context,
+  lifetime,
   pay,
   spaces,
   asset,
   userId,
   reload,
   onConfirmed,
+  onRefused,
   onSettled,
+  isRecoveryCurrent,
 }: {
+  context: SendContext;
+  lifetime: SendLifetime;
   pay: PersonalPayApi;
   spaces: z.infer<typeof spaceSchema>[];
   asset: string | null;
   userId: string | null;
   reload: () => void;
   onConfirmed: (receipt: ConfirmedTransfer) => void;
+  onRefused: (response: Extract<ApiResult<unknown>, { ok: false }>) => void;
   onSettled: () => void;
+  isRecoveryCurrent: () => boolean;
 }) {
   const { hideBalances } = usePreferences();
   const [sourceId, setSourceId] = useState(asset && spaces.length === 1 ? spaces[0]!.id : '');
@@ -262,12 +396,38 @@ function SendForm({
     sourceName: string;
     assetId: string;
   } | null>(null);
+  const admittedReview = useRef<typeof review>(null);
   const [result, setResult] = useState<ApiResult<{ ledgerTxId: string; amount: string }> | null>(null);
   const [busy, setBusy] = useState(false);
-  const inFlight = useRef(false);
+  const inFlight = useRef<object | null>(null);
+  const mounted = useRef(true);
+  const form = useRef<HTMLFormElement | null>(null);
+  const isCurrent = () =>
+    mounted.current && lifetime.mounted && lifetime.context === context && location.href === context.href && context.api.canWrite();
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      admittedReview.current = null;
+      // Detached controls may still be retained by a browser event task.
+      for (const input of form.current?.querySelectorAll('input') ?? []) input.value = '';
+    };
+  }, []);
   const source = spaces.find((space) => space.id === sourceId);
   const unresolved = pay.guard.status(`${userId}:send`);
+  function retireReview() {
+    admittedReview.current = null;
+    inFlight.current = null;
+    setBusy(false);
+    setReview(null);
+  }
+  const isReviewCurrent = () => isCurrent() && admittedReview.current === review;
   function prepare() {
+    if (!isReviewCurrent() || inFlight.current) return;
+    if (pay.guard.status(`${userId}:send`)) {
+      onSettled();
+      return;
+    }
     setError(null);
     setResult(null);
     const parsed = sendInput.safeParse({
@@ -292,27 +452,52 @@ function SendForm({
       setError('thisAmountExceedsTheSourceSLedger');
       return;
     }
-    setReview({ input: parsed.data, sourceName: source.name, assetId: source.assetId });
+    const prepared = { input: parsed.data, sourceName: source.name, assetId: source.assetId };
+    admittedReview.current = prepared;
+    setReview(prepared);
   }
   async function confirm() {
-    if (!review || inFlight.current) return;
-    inFlight.current = true;
+    if (!isReviewCurrent() || !review || inFlight.current) return;
+    if (pay.guard.status(`${userId}:send`)) {
+      onSettled();
+      return;
+    }
+    const original = review;
+    const action = {};
+    inFlight.current = action;
     setBusy(true);
-    const outcome = await pay.send(review.input);
-    onSettled();
-    setResult(outcome);
-    setBusy(false);
-    inFlight.current = false;
-    if (outcome.ok) {
-      onConfirmed({ ...outcome.data, assetId: review.assetId });
-      setReview(null);
-      setAmount('');
-      reload();
+    try {
+      const originalCurrent = () => isCurrent() && admittedReview.current === original;
+      const outcome = await pay.send(original.input, originalCurrent, isRecoveryCurrent);
+      if (!originalCurrent() || inFlight.current !== action) return;
+      onSettled();
+      setResult(outcome);
+      if (!outcome.ok && pay.guard.knownCleanup(`${userId}:send`)) onRefused(outcome);
+      if (outcome.ok) {
+        onConfirmed({ ...outcome.data, assetId: original.assetId, transferId: original.input.transferId });
+        admittedReview.current = null;
+        setReview(null);
+        setAmount('');
+        reload();
+      } else if (outcome.code === 'pay.recovery_journal_unavailable') {
+        // Local recovery actions must remain reachable outside the review modal.
+        // Retry prepares a fresh private review, never an automatic resubmission.
+        admittedReview.current = null;
+        setReview(null);
+        setRecipient('');
+        setAmount('');
+      }
+    } finally {
+      if (isCurrent() && inFlight.current === action) {
+        setBusy(false);
+        inFlight.current = null;
+      }
     }
   }
   return (
     <PaySection title={payCopy.t('sendFromYourBankSpace')}>
       <form
+        ref={form}
         className="form-stack pay-form"
         onSubmit={(event) => {
           event.preventDefault();
@@ -321,7 +506,17 @@ function SendForm({
       >
         <label className="field">
           <PayCopy k="sourceAccount" />
-          <select aria-label={payCopy.t('sourceAccount')} value={sourceId} onChange={(event) => setSourceId(event.target.value)} required>
+          <select
+            aria-label={payCopy.t('sourceAccount')}
+            value={sourceId}
+            onChange={(event) => {
+              if (isReviewCurrent() && !inFlight.current && !pay.guard.status(`${userId}:send`)) {
+                setSourceId(event.target.value);
+                retireReview();
+              }
+            }}
+            required
+          >
             <option value="">{payCopy.t('chooseASource')}</option>
             {spaces.map((space) => (
               <option key={space.id} value={space.id} lang="und">
@@ -350,7 +545,12 @@ function SendForm({
           name="recipient"
           autoComplete="off"
           value={recipient}
-          onChange={(event) => setRecipient(event.target.value)}
+          onChange={(event) => {
+            if (isReviewCurrent() && !inFlight.current && !pay.guard.status(`${userId}:send`)) {
+              setRecipient(event.target.value);
+              retireReview();
+            }
+          }}
           hint={payCopy.t('askYourRecipientToShareTheAccount')}
           required
           maxLength={64}
@@ -361,7 +561,12 @@ function SendForm({
           name="send-amount"
           inputMode="decimal"
           value={amount}
-          onChange={(event) => setAmount(event.target.value)}
+          onChange={(event) => {
+            if (isReviewCurrent() && !inFlight.current && !pay.guard.status(`${userId}:send`)) {
+              setAmount(event.target.value);
+              retireReview();
+            }
+          }}
           hint={payCopy.t('theQuantityIsSentInTheSource')}
           required
         />
@@ -379,7 +584,7 @@ function SendForm({
         <Dialog
           title={payCopy.t('reviewTransfer')}
           onClose={() => {
-            if (!busy) setReview(null);
+            if (isReviewCurrent() && !pay.guard.status(`${userId}:send`)) retireReview();
           }}
         >
           <div className="pay-transfer-review">
@@ -421,7 +626,13 @@ function SendForm({
             </p>
             <MutationResult result={result} />
             <div className="pay-transfer-actions">
-              <Button variant="secondary" onClick={() => setReview(null)} disabled={busy || Boolean(unresolved)}>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  if (isReviewCurrent() && !pay.guard.status(`${userId}:send`)) retireReview();
+                }}
+                disabled={Boolean(unresolved)}
+              >
                 <PayCopy k="editTransfer" />
               </Button>
               <Button variant="primary" onClick={() => void confirm()} disabled={busy || Boolean(unresolved)}>
