@@ -480,11 +480,64 @@ function collisionReason(call) {
   );
 }
 
+const NODE_START = /\bnode\s+(\S+\.js)\b/;
+
+function serviceNameOf(serviceDir) {
+  const parts = posix(serviceDir).split('/').filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : serviceDir;
+}
+
+/**
+ * A package.json that exists and cannot be read, or is not JSON.
+ * A missing manifest is not this error — that case still returns null.
+ */
+class UnreadableManifestError extends Error {
+  constructor(service, detail) {
+    super(`${service} package.json cannot be read or is not JSON: ${detail}`);
+    this.name = 'UnreadableManifestError';
+    this.service = service;
+  }
+}
+
+/**
+ * Map package.json text onto a scanned source path.
+ *
+ * Null only when the JSON names no `main` and no `node ….js` start, or the
+ * mapped source is not in `known`. Text that is not JSON throws
+ * UnreadableManifestError naming the service. Null for that case would drop
+ * the service's publishers and subscribers and leave the rest of the walk green.
+ * `known` is the walk's rel map, or any collection with `.has`.
+ */
+function entrypointFromManifest(serviceDir, text, known) {
+  const service = serviceNameOf(serviceDir);
+  let pkg;
+  try {
+    pkg = JSON.parse(text);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new UnreadableManifestError(service, detail);
+  }
+  const start = typeof pkg.scripts?.start === 'string' ? (NODE_START.exec(pkg.scripts.start)?.[1] ?? null) : null;
+  const built = typeof pkg.main === 'string' ? pkg.main : start;
+  if (built === null) return null;
+  const rel = posix(built)
+    .replace(/^\.\//, '')
+    .replace(/^dist\//, 'src/')
+    .replace(/\.js$/, '.ts');
+  const candidate = posix(join(serviceDir, rel));
+  return known.has(candidate) ? candidate : null;
+}
+
 /**
  * Comment-only and string-only mentions are not bus-aware. Neither is a comment
  * inside a template interpolation. The orderFilled collision on those files is
  * still reported. A real import stays bus-aware, so check 4 does not take that
  * path. No new catalog event — `orderFilled` is already in EVENT_CATALOG.
+ *
+ * Invalid package.json text fails entrypoint resolution and names the service.
+ * A readable `scripts.start` of `node dist/….js` maps to `src/….ts` when that
+ * file is in the walk. A missing manifest is not a fixture here — that path
+ * still returns null.
  */
 function selfTestBusAware() {
   const fails = [];
@@ -629,6 +682,21 @@ function selfTestBusAware() {
   assert(realHits.length === 0, 'real import was sent down the collision path');
   assert(catalogCallCollisions(blankComments(realImport)).length > 0, 'real-import fixture had no orderFilled call to skip');
 
+  const startScript = ['{', '  "scripts": {', '    "start": "node dist/index.js"', '  }', '}', ''].join('\n');
+  const knownEntries = new Set(['services/svc-wire/src/index.ts']);
+  const startEntry = entrypointFromManifest('services/svc-wire', startScript, knownEntries);
+  let badJson = null;
+  try {
+    entrypointFromManifest('services/svc-wire', '{ "scripts": ', knownEntries);
+  } catch (err) {
+    badJson = err;
+  }
+  assert(startEntry === 'services/svc-wire/src/index.ts', 'readable start script did not resolve src/index.ts');
+  assert(badJson instanceof UnreadableManifestError, 'invalid JSON did not throw UnreadableManifestError');
+  assert(badJson !== null && badJson.name === 'UnreadableManifestError', 'invalid JSON error was not named');
+  assert(badJson !== null && badJson.message.includes('svc-wire'), 'invalid JSON error did not name the service');
+  assert(badJson !== null && badJson.message.includes('not JSON'), 'invalid JSON error did not say the manifest is not JSON');
+
   if (fails.length > 0) {
     console.error(`event-wiring --self-test FAIL (${fails.length})`);
     for (const f of fails) console.error(`  · ${f}`);
@@ -644,6 +712,8 @@ function selfTestBusAware() {
   console.log('  fixture template-block-comment: bus-aware false');
   for (const reason of templateBlockReasons) console.log(`  fixture template-block-comment: ${reason}`);
   console.log('  fixture real import: bus-aware true; check 4 did not report the orderFilled call');
+  console.log(`  fixture readable start script: ${startEntry}`);
+  console.log(`  fixture invalid JSON: ${badJson.name} names ${badJson.service}`);
   process.exit(0);
 }
 
@@ -1110,26 +1180,22 @@ const byRel = new Map(files.map((f) => [f.rel, f]));
  * both resolve back to `src/index.ts`; a service that renames its entry renames
  * this with it, instead of dropping out of the graph and taking every one of its
  * subscribers with it — which would be this gate crying wolf at full volume.
+ *
+ * A missing package.json returns null. One that exists and cannot be read, or
+ * is not JSON, throws UnreadableManifestError naming the service. Null there
+ * omits that service and leaves the rest of the walk green.
  */
-const NODE_START = /\bnode\s+(\S+\.js)\b/;
 function entrypointOf(serviceDir) {
   const pkgPath = join(ROOT, serviceDir, 'package.json');
   if (!existsSync(pkgPath)) return null;
-  let pkg;
+  let text;
   try {
-    pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
-  } catch {
-    return null;
+    text = readFileSync(pkgPath, 'utf8');
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new UnreadableManifestError(serviceNameOf(serviceDir), detail);
   }
-  const start = typeof pkg.scripts?.start === 'string' ? (NODE_START.exec(pkg.scripts.start)?.[1] ?? null) : null;
-  const built = typeof pkg.main === 'string' ? pkg.main : start;
-  if (built === null) return null;
-  const rel = posix(built)
-    .replace(/^\.\//, '')
-    .replace(/^dist\//, 'src/')
-    .replace(/\.js$/, '.ts');
-  const candidate = posix(join(serviceDir, rel));
-  return byRel.has(candidate) ? candidate : null;
+  return entrypointFromManifest(serviceDir, text, byRel);
 }
 
 const entrypoints = [];
@@ -1138,7 +1204,19 @@ if (existsSync(servicesDir)) {
   for (const name of readdirSync(servicesDir)) {
     if (SKIP_DIRS.has(name)) continue;
     if (!statSync(join(servicesDir, name)).isDirectory()) continue;
-    const entry = entrypointOf(posix(join('services', name)));
+    const serviceDir = posix(join('services', name));
+    let entry;
+    try {
+      entry = entrypointOf(serviceDir);
+    } catch (err) {
+      if (!(err instanceof UnreadableManifestError)) throw err;
+      console.error(`  ✖ event-wiring — ${err.message}`);
+      console.error(
+        '        That service is omitted from entrypoints, so its publishers and subscribers disappear while the rest of the walk stays green.',
+      );
+      console.error('        Fail-closed: fix the package.json. A missing manifest is the only case that is skipped.');
+      process.exit(1);
+    }
     if (entry !== null) entrypoints.push([name, entry]);
   }
 }
@@ -1232,9 +1310,9 @@ for (const [rel, reachers] of reachedBy) {
 /**
  * FOURTH ZERO-WALK GUARD, and it fails the same way the other three would.
  *
- * If no entrypoint resolves — a renamed `services/`, a package.json shape this
- * cannot read, a cwd that is not the repo root — then `reachedBy` is empty, every
- * wiring site in the repo reads as unmounted, and every declared event becomes an
+ * If no entrypoint resolves — a renamed `services/`, a package.json with no
+ * main and no node start, a cwd that is not the repo root — then `reachedBy` is
+ * empty, every wiring site in the repo reads as unmounted, and every declared event becomes an
  * orphan. That is not a quiet wrong answer; it is a loud one, and it would bury
  * the real finding under thirty fabricated ones. Exit instead of reporting it.
  */
