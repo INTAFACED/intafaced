@@ -135,9 +135,7 @@ small {
   border-radius: 8px;
   font-weight: 500;
   white-space: normal;
-  transition:
-    background-color 140ms,
-    border-color 140ms;
+  transition: border-color 140ms;
 }
 .button--primary {
   background: var(--color-accent);
