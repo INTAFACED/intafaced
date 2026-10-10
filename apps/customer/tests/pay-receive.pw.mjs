@@ -207,7 +207,9 @@ async function ownerProof(page, owner = ownerA) {
   await page.getByRole('dialog').getByRole('button', { name: 'Close dialog', exact: true }).click();
 }
 async function receive(page, locale = 'en') {
-  await page.locator('.pay-personal-nav a[href="/pay/receive"]').click();
+  const link = page.locator('#main a[href="/pay/receive"]');
+  await expect(link).toHaveCount(1);
+  await link.click();
   await expect.poll(() => currentURL(page)).toBe('/pay/receive');
   await expect(page.getByRole('heading', { level: 1, name: copy[locale].title, exact: true })).toBeVisible();
   await expect(account(page)).toHaveText(ownerA);
@@ -582,7 +584,9 @@ test('retired clipboard and held reads cannot replace the current room, URL epoc
     await page.locator('form button[type="submit"]').click();
     await expect.poll(() => currentURL(page)).toBe('/money');
     await page.locator('a[href="/pay"]:visible').first().click();
-    await page.locator('.pay-personal-nav a[href="/pay/receive"]').click();
+    const receiveLink = page.locator('#main a[href="/pay/receive"]');
+    await expect(receiveLink).toHaveCount(1);
+    await receiveLink.click();
     await expect(account(page)).toHaveText(ownerB);
     await ownerProof(page, ownerB);
     await clipboardMode(page, 'success');
