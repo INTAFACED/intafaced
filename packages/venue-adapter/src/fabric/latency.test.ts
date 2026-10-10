@@ -892,7 +892,10 @@ describe('UNMEASURED_LATENCY_MS comment', () => {
     );
     expect(comment).not.toMatch(/only one of them is also `healthy: false`/);
 
-    expect(comment).toMatch(/measured p95[\s\S]{0,80}stays healthy/);
+    expect(comment).toMatch(
+      /measured p95 stays healthy unless the grade is stale[\s\S]{0,80}`staleMs` is past `maxStalenessMs`[\s\S]{0,160}`healthy: false`[\s\S]{0,80}measured p95, not the sentinel/,
+    );
+    expect(comment).not.toMatch(/measured p95 stays healthy(?! unless)/);
     expect(comment).toMatch(/two samples are not evidence/);
     expect(comment).toMatch(/`p95Ms` is null/);
     expect(comment).toMatch(/routing weight 0/);

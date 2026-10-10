@@ -328,9 +328,10 @@ export class VenueLatencyGrader {
  * ASCENDING at its tie-break. That sort is a backstop only. It is not a reason
  * to route on a missing score, and it is not a latency number we invent.
  *
- * A provisional F that still has a measured p95 stays healthy, because two
- * samples are not evidence. That record carries the measured p95, not this
- * sentinel.
+ * A provisional F that still has a measured p95 stays healthy unless the grade
+ * is stale, because two samples are not evidence. Stale means `staleMs` is
+ * past `maxStalenessMs`. The stale case is `healthy: false` and still carries
+ * the measured p95, not the sentinel.
  *
  * A graded venue whose `p95Ms` is null (every call errored) has routing weight
  * 0, `measuredLatencyMs` null, and `healthFromGrade` `healthy: false`. It does
