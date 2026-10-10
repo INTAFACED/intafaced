@@ -53,6 +53,9 @@
  * Exit 0 = every required secret is wired. Exit 1 = a service would crash-loop
  * on its next container recreate, is in no compose block at all, or a parse
  * stopped matching and nothing was actually compared.
+ *
+ *   node tooling/ci/compose-secret-parity.mjs
+ *   node tooling/ci/compose-secret-parity.mjs --self-test
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -117,6 +120,10 @@ const ZOD_FIELD = /([A-Z][A-Z0-9_]*)\s*:\s*(z\.[^\n]*)/;
  * A zod field that is REQUIRED — no `.optional()` and no `.default(…)`. Those
  * two are the whole distinction this check turns on: an optional secret that is
  * absent degrades a feature, a required one stops the process.
+ *
+ * Call this only on a chain from `fieldSource`. The test is still a substring
+ * test; comments, strings, templates, and regex bodies are already gone, so a
+ * note or example that spells those tokens is not a call.
  */
 const isRequired = (chain) => !/\.optional\s*\(/.test(chain) && !/\.default\s*\(/.test(chain);
 
@@ -141,11 +148,137 @@ const isRequired = (chain) => !/\.optional\s*\(/.test(chain) && !/\.default\s*\(
  */
 const joinChains = (source) => source.replace(/\n\s*\./g, '.');
 
+const REGEX_AFTER = /(?:^|[^A-Za-z0-9_$])(?:return|case|throw|typeof|void|in|of|await|yield|delete)$/;
+
+function regexLikely(out) {
+  let j = out.length - 1;
+  while (j >= 0 && (out[j] === ' ' || out[j] === '\t' || out[j] === '\n' || out[j] === '\r')) j--;
+  if (j < 0) return true;
+  if ('([{=,:;!&|?~^'.includes(out[j])) return true;
+  return REGEX_AFTER.test(out.slice(Math.max(0, j - 8), j + 1));
+}
+
+/**
+ * Drop comments and the insides of strings, templates, and regex literals.
+ * Newlines stay so a declaration is still one line after `joinChains`.
+ * Quotes stay so `.default('')` is still a default. Regex bodies become `/ /`
+ * so a second pass cannot read the empty body as a line comment.
+ *
+ * A comment or example is not a zod call. Leaving it in the chain made
+ * `isRequired` false and the service pass `need.delete` a secret the merged
+ * slice required.
+ */
+function maskCode(source, start, end, stop) {
+  let out = '';
+  let i = start;
+  let brace = 0;
+  while (i < end) {
+    const c = source[i];
+    const next = i + 1 < end ? source[i + 1] : '';
+    if (stop === '}' && c === '}' && brace === 0) return { out, i };
+    if (c === '/' && next === '/') {
+      i += 2;
+      while (i < end && source[i] !== '\n') i++;
+      continue;
+    }
+    if (c === '/' && next === '*') {
+      i += 2;
+      while (i < end && !(source[i] === '*' && source[i + 1] === '/')) {
+        if (source[i] === '\n') out += '\n';
+        i++;
+      }
+      if (i < end) i += 2;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      const q = c;
+      out += q;
+      i++;
+      while (i < end) {
+        if (source[i] === '\\') {
+          i += Math.min(2, end - i);
+          continue;
+        }
+        if (source[i] === '\n') {
+          out += '\n';
+          i++;
+          continue;
+        }
+        if (source[i] === q) {
+          out += q;
+          i++;
+          break;
+        }
+        i++;
+      }
+      continue;
+    }
+    if (c === '`') {
+      out += '`';
+      i++;
+      while (i < end) {
+        if (source[i] === '\\') {
+          i += Math.min(2, end - i);
+          continue;
+        }
+        if (source[i] === '`') {
+          out += '`';
+          i++;
+          break;
+        }
+        if (source[i] === '$' && source[i + 1] === '{') {
+          out += '${';
+          const inner = maskCode(source, i + 2, end, '}');
+          out += inner.out;
+          i = inner.i;
+          if (i < end && source[i] === '}') {
+            out += '}';
+            i++;
+          }
+          continue;
+        }
+        if (source[i] === '\n') out += '\n';
+        i++;
+      }
+      continue;
+    }
+    if (c === '/' && regexLikely(out)) {
+      out += '/ ';
+      i++;
+      let inClass = false;
+      while (i < end) {
+        if (source[i] === '\\') {
+          i += Math.min(2, end - i);
+          continue;
+        }
+        if (source[i] === '\n') break;
+        if (!inClass && source[i] === '/') {
+          out += '/';
+          i++;
+          break;
+        }
+        if (source[i] === '[') inClass = true;
+        else if (source[i] === ']') inClass = false;
+        i++;
+      }
+      continue;
+    }
+    if (c === '{') brace++;
+    else if (c === '}') brace = Math.max(0, brace - 1);
+    out += c;
+    i++;
+  }
+  return { out, i };
+}
+
+const fieldSource = (source) => joinChains(maskCode(source, 0, source.length, null).out);
+
 function requiredSecretsIn(source) {
   const found = new Set();
   const re = new RegExp(ZOD_FIELD.source, 'g');
+  const src = fieldSource(source);
   let m;
-  while ((m = re.exec(joinChains(source))) !== null) {
+  while ((m = re.exec(src)) !== null) {
     const [, key, chain] = m;
     if (!isSecretVar(key)) continue;
     if (!isRequired(chain)) continue;
@@ -154,21 +287,183 @@ function requiredSecretsIn(source) {
   return found;
 }
 
+function slicesFromConfig(configSrc) {
+  const src = fieldSource(configSrc);
+  const slices = new Map();
+  for (const m of src.matchAll(/export const (\w+EnvSchema)\s*=\s*z\.object\(\{([\s\S]*?)\n\}\)/g)) {
+    slices.set(m[1], requiredSecretsIn(m[2]));
+  }
+  // `serviceEnvSchema` is a composition of other slices; expand it the same way.
+  const composed = /export const serviceEnvSchema\s*=([\s\S]*?);/.exec(src);
+  if (composed) {
+    const union = new Set();
+    for (const s of composed[1].matchAll(/(\w+EnvSchema)/g)) for (const v of slices.get(s[1]) ?? []) union.add(v);
+    slices.set('serviceEnvSchema', union);
+  }
+  return slices;
+}
+
+/**
+ * Secrets this service source requires, after merged slices.
+ * An inline non-required declaration removes a slice requirement (svc-ws
+ * redeclares JWT_ACCESS_SECRET as `.optional()`).
+ */
+function requiredSecretsForService(serviceSrc, slices) {
+  const src = fieldSource(serviceSrc);
+  const need = new Set();
+  for (const m of src.matchAll(/(\w+EnvSchema)/g)) for (const v of slices.get(m[1]) ?? []) need.add(v);
+  const inlineRe = new RegExp(ZOD_FIELD.source, 'g');
+  let m;
+  while ((m = inlineRe.exec(src)) !== null) {
+    const [, key, chain] = m;
+    if (!isSecretVar(key)) continue;
+    if (isRequired(chain)) need.add(key);
+    else need.delete(key);
+  }
+  return need;
+}
+
+function selfTest() {
+  const fails = [];
+  const assert = (cond, message) => {
+    if (!cond) fails.push(message);
+  };
+  const configSrc = [
+    'export const authEnvSchema = z.object({',
+    '  JWT_ACCESS_SECRET: z.string().min(32),',
+    '  EDGE_PRINCIPAL_SECRET: z.string().min(32),',
+    '});',
+  ].join('\n');
+  const needOf = (serviceSrc) => requiredSecretsForService(serviceSrc, slicesFromConfig(configSrc));
+
+  {
+    const need = needOf(
+      [
+        "import { authEnvSchema } from '@intafaced/config';",
+        'export const envSchema = authEnvSchema;',
+        '// example JWT_ACCESS_SECRET: z.string().optional(),',
+        "/* example EDGE_PRINCIPAL_SECRET: z.string().default(''), */",
+      ].join('\n'),
+    );
+    assert(need.has('JWT_ACCESS_SECRET'), 'line-comment example dropped JWT_ACCESS_SECRET');
+    assert(need.has('EDGE_PRINCIPAL_SECRET'), 'block-comment example dropped EDGE_PRINCIPAL_SECRET');
+  }
+
+  {
+    const need = needOf(
+      [
+        "import { authEnvSchema } from '@intafaced/config';",
+        'export const envSchema = authEnvSchema;',
+        'const line = "JWT_ACCESS_SECRET: z.string().optional()";',
+        "const block = `EDGE_PRINCIPAL_SECRET: z.string().default('')`;",
+      ].join('\n'),
+    );
+    assert(need.has('JWT_ACCESS_SECRET'), 'string example dropped JWT_ACCESS_SECRET');
+    assert(need.has('EDGE_PRINCIPAL_SECRET'), 'template example dropped EDGE_PRINCIPAL_SECRET');
+  }
+
+  {
+    const need = needOf(
+      [
+        'export const envSchema = z.object({',
+        '  JWT_ACCESS_SECRET: z.string().min(32), // not .optional() or .default(',
+        '  EDGE_PRINCIPAL_SECRET: z.string().min(32), /* .optional() */',
+        '});',
+      ].join('\n'),
+    );
+    assert(need.has('JWT_ACCESS_SECRET'), 'same-line comment marked JWT_ACCESS_SECRET optional');
+    assert(need.has('EDGE_PRINCIPAL_SECRET'), 'block comment marked EDGE_PRINCIPAL_SECRET optional');
+  }
+
+  {
+    const need = needOf(
+      [
+        'export const envSchema = z.object({',
+        "  JWT_ACCESS_SECRET: z.string().min(32).describe('do not use .optional() or .default('),",
+        '});',
+      ].join('\n'),
+    );
+    assert(need.has('JWT_ACCESS_SECRET'), 'describe() example marked JWT_ACCESS_SECRET optional');
+  }
+
+  {
+    const kept = needOf(
+      [
+        'export const envSchema = z.object({',
+        '  PAY_CRYPTO_HOT_WALLET_KEY: z.string().regex(/.optional(|.default(/).min(64),',
+        '});',
+      ].join('\n'),
+    );
+    assert(kept.has('PAY_CRYPTO_HOT_WALLET_KEY'), 'regex body marked PAY_CRYPTO_HOT_WALLET_KEY optional');
+
+    const dropped = needOf(
+      [
+        "import { authEnvSchema } from '@intafaced/config';",
+        'export const envSchema = authEnvSchema.merge(z.object({',
+        '  PAY_CRYPTO_HOT_WALLET_KEY: z',
+        '    .string()',
+        "    .regex(/^0x[0-9a-fA-F]{64}$/, 'shape only')",
+        '    .optional(),',
+        '}));',
+      ].join('\n'),
+    );
+    assert(!dropped.has('PAY_CRYPTO_HOT_WALLET_KEY'), 'multiline .optional() after .regex() stayed required');
+  }
+
+  {
+    const need = needOf(
+      [
+        "import { authEnvSchema } from '@intafaced/config';",
+        'export const envSchema = authEnvSchema.merge(z.object({',
+        '  JWT_ACCESS_SECRET: z.string().min(32).optional(),',
+        "  EDGE_PRINCIPAL_SECRET: z.string().default(''),",
+        '}));',
+      ].join('\n'),
+    );
+    assert(!need.has('JWT_ACCESS_SECRET'), 'real .optional() did not relax JWT_ACCESS_SECRET');
+    assert(!need.has('EDGE_PRINCIPAL_SECRET'), 'real .default() did not relax EDGE_PRINCIPAL_SECRET');
+  }
+
+  {
+    const need = needOf(
+      [
+        "import { authEnvSchema } from '@intafaced/config';",
+        'export const envSchema = authEnvSchema.merge(z.object({',
+        '  JWT_ACCESS_SECRET: z.string()',
+        '    .min(32)',
+        '    .optional(),',
+        '}));',
+      ].join('\n'),
+    );
+    assert(!need.has('JWT_ACCESS_SECRET'), 'wrapped .optional() stayed required');
+  }
+
+  {
+    const commentedSlice = [
+      'export const authEnvSchema = z.object({',
+      '  JWT_ACCESS_SECRET: z.string().min(32), // example .optional()',
+      '});',
+    ].join('\n');
+    const sliceNeed = requiredSecretsForService('export const envSchema = authEnvSchema;', slicesFromConfig(commentedSlice));
+    assert(sliceNeed.has('JWT_ACCESS_SECRET'), 'slice comment dropped JWT_ACCESS_SECRET');
+  }
+
+  if (fails.length) {
+    console.error(`compose-secret-parity --self-test FAIL: ${fails.length}`);
+    for (const f of fails) console.error(`  · ${f}`);
+    process.exit(1);
+  }
+  console.log('compose-secret-parity --self-test OK (13 checks)');
+  process.exit(0);
+}
+
+if (process.argv.includes('--self-test')) selfTest();
+
 // ── 1 · what each shared slice in packages/config requires ───────────────────
 // Derived, not hardcoded: a new secret added to an existing slice is picked up
 // without anyone remembering to update this file.
 const configSrc = readFileSync(join(ROOT, 'packages/config/src/env.ts'), 'utf8');
-const slices = new Map();
-for (const m of configSrc.matchAll(/export const (\w+EnvSchema)\s*=\s*z\.object\(\{([\s\S]*?)\n\}\)/g)) {
-  slices.set(m[1], requiredSecretsIn(m[2]));
-}
-// `serviceEnvSchema` is a composition of other slices; expand it the same way.
-const composed = /export const serviceEnvSchema\s*=([\s\S]*?);/.exec(configSrc);
-if (composed) {
-  const union = new Set();
-  for (const s of composed[1].matchAll(/(\w+EnvSchema)/g)) for (const v of slices.get(s[1]) ?? []) union.add(v);
-  slices.set('serviceEnvSchema', union);
-}
+const slices = slicesFromConfig(configSrc);
 
 // ── 2 · what each service requires ───────────────────────────────────────────
 const serviceEnvFiles = execFileSync('git', ['ls-files', 'services/*/src/env.ts'], { cwd: ROOT, encoding: 'utf8' })
@@ -178,24 +473,7 @@ const serviceEnvFiles = execFileSync('git', ['ls-files', 'services/*/src/env.ts'
 const required = new Map();
 for (const rel of serviceEnvFiles) {
   const name = rel.split('/')[1];
-  const src = joinChains(readFileSync(join(ROOT, rel), 'utf8'));
-  const need = new Set();
-
-  // Slices this service merges, including ones passed to a bare compose call.
-  for (const m of src.matchAll(/(\w+EnvSchema)/g)) for (const v of slices.get(m[1]) ?? []) need.add(v);
-
-  // Inline declarations in the service's own z.object — these can also RELAX a
-  // slice (svc-ws redeclares JWT_ACCESS_SECRET as `.optional()`), so a
-  // non-required inline declaration removes the requirement.
-  const inlineRe = new RegExp(ZOD_FIELD.source, 'g');
-  let m;
-  while ((m = inlineRe.exec(src)) !== null) {
-    const [, key, chain] = m;
-    if (!isSecretVar(key)) continue;
-    if (isRequired(chain)) need.add(key);
-    else need.delete(key);
-  }
-  required.set(name, need);
+  required.set(name, requiredSecretsForService(readFileSync(join(ROOT, rel), 'utf8'), slices));
 }
 
 // ── 3 · what compose supplies ────────────────────────────────────────────────
