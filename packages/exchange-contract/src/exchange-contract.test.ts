@@ -60,6 +60,12 @@ describe('CCXT unified symbols', () => {
     expect(() => parseSymbol('BTC/USDT:DOGE')).toThrow(/must be either the base or the quote/);
   });
 
+  it('rejects a contract that is both linear and inverse', () => {
+    expect(() => parseSymbol('BTC/BTC:BTC')).toThrow(SymbolError);
+    expect(parseSymbol('BTC/USDT:USDT')).toMatchObject({ linear: true, inverse: false });
+    expect(parseSymbol('BTC/USDT:BTC')).toMatchObject({ inverse: true, linear: false });
+  });
+
   it('rejects a bad expiry or option type', () => {
     expect(() => parseSymbol('BTC/USDT:USDT-2512')).toThrow(/YYMMDD/);
     expect(() => parseSymbol('BTC/USDT:USDT-251226-90000-X')).toThrow(/option type/);

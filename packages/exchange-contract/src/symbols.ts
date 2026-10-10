@@ -77,9 +77,11 @@ export function parseSymbol(symbol: string): ParsedSymbol {
   if (!isAssetCode(settle)) throw new SymbolError(symbol, `settle "${settle}" is not a valid asset code`);
 
   // A contract settling in its quote asset is linear; in its base asset, inverse.
+  // One asset for base, quote, and settle is both. Refuse before either return.
   const linear = settle === quote;
   const inverse = settle === base;
   if (!linear && !inverse) throw new SymbolError(symbol, `settle "${settle}" must be either the base or the quote asset`);
+  if (linear && inverse) throw new SymbolError(symbol, 'the contract cannot be both linear and inverse');
 
   if (expiry === undefined) {
     return { base, quote, settle, expiry: null, strike: null, optionType: null, type: 'swap', linear, inverse };
