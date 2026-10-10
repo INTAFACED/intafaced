@@ -25,7 +25,9 @@ function read(rel) {
 
 function mustInclude(rel, needle, why) {
   const body = read(rel);
-  if (!body) return;
+  // Absent files are already a miss. A zero-byte file is not: this return
+  // skipped every needle and the gate could still exit 0.
+  if (body === '' && !existsSync(join(ROOT, rel))) return;
   if (!body.toLowerCase().includes(String(needle).toLowerCase())) {
     problems.push(`${rel}: missing ${JSON.stringify(needle)} — ${why}`);
   }
