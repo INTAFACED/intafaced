@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { z } from 'zod';
 import { Button, Field, Failure, Page, EmptyState, Loading } from '../../shared/ui';
-import type { ApiResult } from '../../shared/api';
 import { useApi, useSession } from '../session/session';
 import { AuthForm } from './AuthForm';
-import { findRoom, roomTitle } from '../../app/navigation';
+import { Invitation } from './Invitation';
+import { findRoom, roomTitle, safeReturnTo } from '../../app/navigation';
 import { useResource } from '../../shared/resource';
 import './public.css';
 import { publicCopy } from './public-copy';
@@ -20,9 +20,24 @@ function Brand() {
 export function PublicRoutes({ path }: { path: string }) {
   const { t } = publicCopy.useCopy();
   const auth = path.startsWith('/login') || path === '/register';
-  const invitation = z.string().uuid().safeParse(new URLSearchParams(location.search).get('invite'));
+  const search = new URLSearchParams(location.search);
+  const invitation = z
+    .string()
+    .uuid()
+    .safeParse(search.get(path === '/invite' ? 'token' : 'invite'));
   const alternateAuth = path.startsWith('/login') ? '/register' : '/login';
-  const authHref = invitation.success ? `${alternateAuth}?invite=${encodeURIComponent(invitation.data)}` : alternateAuth;
+  let requested = search.get('redirect');
+  if (auth && !requested && path.startsWith('/login/returnUrl/')) {
+    try {
+      requested = decodeURIComponent(path.slice('/login/returnUrl/'.length));
+    } catch {
+      requested = null;
+    }
+  }
+  const authSearch = new URLSearchParams();
+  if (invitation.success) authSearch.set('invite', invitation.data);
+  if (auth && requested) authSearch.set('redirect', safeReturnTo(requested));
+  const authHref = `${alternateAuth}${authSearch.size ? `?${authSearch}` : ''}`;
   return (
     <div className="public-shell">
       <header className="public-header">
@@ -160,84 +175,6 @@ function Home() {
     </>
   );
 }
-function Invitation() {
-  const { t } = publicCopy.useCopy();
-  const { api, session } = useSession();
-  const token = new URLSearchParams(location.search).get('token');
-  const parsed = z.string().uuid().safeParse(token);
-  const [pending, setPending] = useState(false);
-  const [result, setResult] = useState<ApiResult<{ hits: number; attributed: boolean }> | null>(null);
-  async function accept() {
-    if (!parsed.success || pending) return;
-    setPending(true);
-    const response = await api.mutate(
-      'identity',
-      'affiliates.shareHits',
-      { token: parsed.data },
-      z.object({ hits: z.number().int().nonnegative(), attributed: z.boolean() }),
-    );
-    setPending(false);
-    setResult(response);
-  }
-  return (
-    <Page title={t('An invitation to Intafaced')} description={t('Money, trading and payments through one account.')}>
-      {!parsed.success ? (
-        <EmptyState
-          title={token ? t('This invitation address is invalid') : t('Create an invitation from your account')}
-          action={
-            <a className="button button--primary" href="/uc/promotion">
-              {t('Open invitations')}
-            </a>
-          }
-        >
-          {token ? t('Ask the sender for a complete invitation link.') : t('Your personal invitation tools are available after sign-in.')}
-        </EmptyState>
-      ) : (
-        <section className="public-prose">
-          <h2>{t('Your account comes first.')}</h2>
-          <p>
-            {t(
-              'Sign in or create your account, then accept this invitation. The service checks whether the link is active and whether a referral can be attached. Rewards are not promised by this link.',
-            )}
-          </p>
-          {session ? (
-            <Button
-              disabled={pending || result?.ok === true || (result?.ok === false && result.reason === 'uncertain')}
-              onClick={() => void accept()}
-            >
-              {pending ? t('Checking invitation…') : t('Accept invitation')}
-            </Button>
-          ) : (
-            <div className="actions">
-              <a className="button button--primary" href={`/register?invite=${encodeURIComponent(parsed.data)}`}>
-                {t('Create account')}
-              </a>
-              <a className="button button--secondary" href={`/login?invite=${encodeURIComponent(parsed.data)}`}>
-                {t('Sign in')}
-              </a>
-            </div>
-          )}
-          {result &&
-            (result.ok ? (
-              <p className="notice" role="status">
-                {result.data.attributed
-                  ? t('Your referral status is recorded by the service.')
-                  : t('The invitation was checked. No referral relationship was attached.')}
-              </p>
-            ) : (
-              <Failure result={result} />
-            ))}
-          {result?.ok && (
-            <a className="text-link" href="/money">
-              {t('Continue to Money ↗')}
-            </a>
-          )}
-        </section>
-      )}
-    </Page>
-  );
-}
-
 const kbSchema = z.object({
   id: z.string(),
   titleKey: z.string(),

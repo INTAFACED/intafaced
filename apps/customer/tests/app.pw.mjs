@@ -532,7 +532,8 @@ test('Inbox keeps a legitimate Money link and refuses another account’s notifi
 
 test('invitation survives sign-in and requires an explicit acceptance', async ({ page }) => {
   await setup(page);
-  let accepted = 0;
+  let accepted = 0, checked = 0;
+  await page.route('**/api/identity/trpc/affiliates.myReferrer', (route) => { checked++; return reply(route, null); });
   await page.route('**/api/identity/trpc/affiliates.shareHits', (route) => {
     expect(route.request().postDataJSON()).toEqual({ token: invitationId });
     accepted++;
@@ -545,8 +546,12 @@ test('invitation survives sign-in and requires an explicit acceptance', async ({
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/invite\\?token=${invitationId}$`));
   expect(accepted).toBe(0);
-  await page.getByRole('button', { name: 'Accept invitation' }).click();
-  await expect(page.getByText('Your referral status is recorded by the service.')).toBeVisible();
+  await page.getByRole('button', { name: 'Review invitation', exact: true }).click();
+  expect(accepted).toBe(0);
+  expect(checked).toBe(0);
+  await page.getByRole('button', { name: 'Accept this invitation', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Referral status recorded.', exact: true }).last()).toBeVisible();
+  expect(checked).toBe(1);
   expect(accepted).toBe(1);
 });
 

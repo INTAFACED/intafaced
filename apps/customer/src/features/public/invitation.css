@@ -1,0 +1,203 @@
+.invitation {
+  max-width: 1094px;
+  width: calc(100% - 40px);
+  margin: 0 auto;
+  padding: 64px 0 80px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 96px;
+  overflow-wrap: anywhere;
+}
+.invitation__intro,
+.invitation__content,
+.invitation__card,
+.invitation__current {
+  display: flex;
+  flex-direction: column;
+}
+.invitation__intro {
+  gap: 28px;
+  padding-top: 28px;
+}
+.invitation__intro > div {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.invitation h1 {
+  font-size: 60px;
+  font-weight: 400;
+  line-height: 68px;
+  letter-spacing: -0.04em;
+  white-space: pre-line;
+}
+.invitation__intro .muted {
+  font-size: 18px;
+  line-height: 28px;
+}
+.invitation .eyebrow {
+  font-size: 13px;
+  line-height: 20px;
+  letter-spacing: 0.08em;
+}
+.invitation__content {
+  gap: 28px;
+  min-width: 0;
+}
+.invitation__card {
+  padding: 28px;
+  gap: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+}
+.invitation h2 {
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 32px;
+}
+.invitation h3 {
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 26px;
+}
+.invitation p {
+  font-size: 16px;
+  line-height: 26px;
+}
+.invitation__card .muted,
+.invitation__current .muted {
+  font-size: 14px;
+  line-height: 22px;
+}
+.invitation__card .eyebrow {
+  color: var(--color-accent);
+}
+.invitation__card > div,
+.invitation__current > div {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.invitation__owner {
+  padding: 20px 0;
+  border-block: 1px solid var(--color-divider);
+}
+.invitation__owner > span {
+  font-size: 14px;
+  line-height: 22px;
+}
+.invitation dl {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+}
+.invitation dl > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.invitation dt {
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.invitation dd {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+.invitation .button {
+  width: 100%;
+  min-height: 48px;
+}
+.invitation .button--ghost {
+  min-height: 44px;
+}
+.invitation__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+.invitation__current {
+  border-top: 1px solid var(--color-divider);
+  padding-top: 24px;
+  gap: 16px;
+}
+.invitation__current h2 {
+  font-size: 20px;
+  line-height: 28px;
+}
+.invitation__boundary {
+  border-top: 1px solid var(--color-divider);
+  padding-top: 16px;
+}
+.invitation__outcome {
+  outline-offset: 6px;
+}
+.invitation .failure {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1150px) {
+  .invitation {
+    gap: 48px;
+  }
+  .invitation h1 {
+    font-size: 48px;
+    line-height: 56px;
+  }
+}
+@media (max-width: 899px) {
+  .invitation {
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    padding: 32px 0 40px;
+    max-width: 540px;
+  }
+  .invitation__intro {
+    padding-top: 0;
+    gap: 20px;
+  }
+  .invitation__intro > div {
+    gap: 16px;
+  }
+  .invitation__intro .muted {
+    font-size: 16px;
+    line-height: 26px;
+  }
+  .invitation h1 {
+    font-size: 40px;
+    line-height: 44px;
+  }
+  .invitation__content {
+    width: 100%;
+  }
+  .invitation__card {
+    padding: 24px;
+  }
+  .invitation--review .invitation__intro {
+    display: none;
+  }
+}
+@media (max-width: 359px) {
+  .invitation h1 {
+    font-size: 32px;
+    line-height: 36px;
+  }
+  .invitation__intro .muted {
+    font-size: 15px;
+    line-height: 24px;
+  }
+  .invitation__card {
+    padding: 20px;
+    gap: 16px;
+  }
+  .invitation h2 {
+    font-size: 20px;
+    line-height: 28px;
+  }
+}
