@@ -7,9 +7,10 @@ import postgres from 'postgres';
  * Migration runner — same shape as every other service (§14, SERVICE_TEMPLATE).
  *
  * Applies every `NNNN_*.sql` in order, tracked in `indexer.__migrations` so a
- * re-run is a no-op. `--down` reverses only names recorded in that table, newest
- * file first, in one transaction. A missing reversal throws. CI — and a human
- * before opening a PR — can prove reversibility rather than assert it.
+ * re-run is a no-op. Each up file and its tracking insert commit together.
+ * `--down` reverses only names recorded in that table, newest file first, in
+ * one transaction. A missing reversal throws. CI — and a human before opening
+ * a PR — can prove reversibility rather than assert it.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -33,7 +34,7 @@ async function main() {
 
   if (down) {
     // One transaction: a later reversal throw rolls back newer reversals from
-    // this run, and their tracking rows stay. The up loop below stays autocommit.
+    // this run, and their tracking rows stay.
     await sql.begin(async (tx) => {
       const applied = await tx<Array<{ name: string }>>`
         SELECT name FROM indexer.__migrations ORDER BY name DESC
@@ -61,8 +62,12 @@ async function main() {
       continue;
     }
     console.log(`↑ ${file}`);
-    await sql.unsafe(readFileSync(join(migrationsDir, file), 'utf8'));
-    await sql`INSERT INTO indexer.__migrations (name) VALUES (${file})`;
+    // Same transaction as the tracking insert. A mid-file error rolls the file
+    // back and writes no row; a crash cannot commit the SQL without the row.
+    await sql.begin(async (tx) => {
+      await tx.unsafe(readFileSync(join(migrationsDir, file), 'utf8'));
+      await tx`INSERT INTO indexer.__migrations (name) VALUES (${file})`;
+    });
   }
 
   console.log('✓ migrations up to date');
