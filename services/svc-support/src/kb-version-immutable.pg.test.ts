@@ -263,12 +263,17 @@ describe('L1242 KB versions stay immutable', () => {
     expect(await headOf(id)).toMatchObject({ title_key: TITLE_NEXT, body_key: BODY_NEXT, revision: 2 });
   });
 
-  it('unpublish still flips published without a new generation', async () => {
+  it('unpublish bumps revision, keeps the stored keys, and leaves the prior body', async () => {
     const id = 'kb-l1242-unpublish';
     await seedPair(id);
     const hidden = await new PostgresSupportStore(sql).putKbRevision({ id, baseRevision: 1, published: false });
-    expect(hidden).toMatchObject({ status: 'ok', article: { published: false, revision: 1, bodyKey: BODY } });
+    expect(hidden).toMatchObject({
+      status: 'ok',
+      article: { published: false, revision: 2, titleKey: TITLE, bodyKey: BODY },
+    });
     expect(await bodyAt(id, 1)).toBe(BODY);
+    expect(await bodyAt(id, 2)).toBe(BODY);
+    expect(await headOf(id)).toMatchObject({ title_key: TITLE, body_key: BODY, revision: 2 });
     expect(await new PostgresSupportStore(sql).getPublishedKb(id)).toBeNull();
   });
 });

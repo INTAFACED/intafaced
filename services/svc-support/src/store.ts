@@ -163,8 +163,9 @@ export interface SupportStore {
   /** Every stored version for an id (including after unpublish). Empty when the id never existed. */
   listKbVersions(id: string): Promise<SupportKbArticle[]>;
   /**
-   * Insert (baseRevision 0) or update a row. Publish bumps revision.
-   * Unpublish hides the same revision. Stale baseRevision refuses.
+   * Insert (baseRevision 0) or update a row. Publish and unpublish both
+   * bump revision. Unpublish keeps the stored title and body and stays
+   * unpublished. Stale baseRevision refuses.
    */
   putKbRevision(input: PutKbRevisionInput): Promise<PutKbRevisionResult>;
 }
@@ -724,8 +725,18 @@ export class MemorySupportStore implements SupportStore {
 
     if (!current) return { status: 'refuse', reason: 'invalid' };
     if (current.revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
-    const hidden: SupportKbArticle = { ...current, published: false };
+    // Same CAS as Postgres: hiding bumps revision so the old baseRevision cannot republish.
+    const nextRevision = (current.revision ?? kbVersionOf(current)) + 1;
+    const hidden = toPublicKb({
+      id: current.id,
+      titleKey: current.titleKey,
+      bodyKey: current.bodyKey,
+      version: nextRevision,
+      revision: nextRevision,
+      published: false,
+    });
     this.kb.set(input.id, hidden);
+    this.rememberVersion(hidden);
     return { status: 'ok', article: { ...hidden } };
   }
 }
@@ -1199,12 +1210,21 @@ export class PostgresSupportStore implements SupportStore {
       if (current.revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
       const rows = await tx<PgKb[]>`
         UPDATE support.kb_articles
-        SET published = false, updated_at = now()
+        SET revision = revision + 1,
+            published = false,
+            updated_at = now()
         WHERE id = ${input.id} AND revision = ${input.baseRevision}
         RETURNING id, title_key, body_key, revision, published, updated_at
       `;
       if (!rows[0]) return { status: 'refuse', reason: 'revision_stale' };
-      return { status: 'ok', article: kbFromPg(rows[0]) };
+      const hidden = kbFromPg(rows[0]);
+      // 0008 refuses a revision change that has no matching version row.
+      // Copy the stored keys; do not write a new title or body.
+      await tx`
+        INSERT INTO support.kb_article_versions (id, version, title_key, body_key)
+        VALUES (${input.id}, ${kbVersionOf(hidden)}, ${hidden.titleKey}, ${hidden.bodyKey})
+      `;
+      return { status: 'ok', article: hidden };
     });
   }
 }
