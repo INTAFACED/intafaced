@@ -26,11 +26,14 @@
  * dashboard panel, e2e failure paths) are printed as a manual checklist so the
  * reviewer signs them explicitly rather than by silence.
  */
-import { readdirSync, readFileSync, existsSync, statSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, existsSync, statSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join, relative, basename, resolve } from 'node:path';
+import { join, relative, basename, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = process.cwd();
+// This file's repo, not the caller's cwd. A wrong directory must not hide services/.
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SERVICES = join(ROOT, 'services');
 const target = process.argv[2];
 
@@ -196,6 +199,25 @@ function adminKillSwitchFailures(service, flagsFile) {
   return [];
 }
 
+/**
+ * Service directories under `servicesDir`. Missing directory → [] so the caller
+ * refuses. It is not a finished scan.
+ */
+function serviceDirectories(servicesDir, name) {
+  if (!existsSync(servicesDir)) return [];
+  return readdirSync(servicesDir)
+    .map((entry) => join(servicesDir, entry))
+    .filter((dir) => statSync(dir).isDirectory())
+    .filter((dir) => !name || basename(dir) === name || basename(dir) === `svc-${name}`);
+}
+
+/** Text when nothing will be checked. Null when at least one service remains. */
+function skippedServicesRefusal(services, name) {
+  if (services.length > 0) return null;
+  if (name) return `✖ no service matching "${name}" under services/`;
+  return '✖ services/ is missing or empty — per-service §14 checks were not run';
+}
+
 function selfTest() {
   const fails = [];
   const assert = (cond, message) => {
@@ -231,14 +253,63 @@ function selfTest() {
     rmSync(dir, { recursive: true, force: true });
   }
 
+  const phase0 = 'no services built yet';
+  const missingServices = join(tmpdir(), 'l435-services-missing-does-not-exist');
+  if (existsSync(missingServices)) rmSync(missingServices, { recursive: true, force: true });
+  const missingList = serviceDirectories(missingServices, undefined);
+  const missingRefusal = skippedServicesRefusal(missingList, undefined);
+  assert(
+    missingList.length === 0 && missingRefusal !== null && !missingRefusal.includes(phase0) && !missingRefusal.includes('DoD gate passed'),
+    'a missing services directory must refuse, not skip and pass',
+  );
+
+  const emptyServices = mkdtempSync(join(tmpdir(), 'l435-services-empty-'));
+  try {
+    const emptyRefusal = skippedServicesRefusal(serviceDirectories(emptyServices, undefined), undefined);
+    assert(
+      emptyRefusal !== null && !emptyRefusal.includes(phase0),
+      'an empty services directory must refuse without the Phase 0 skip',
+    );
+    writeFileSync(join(emptyServices, 'not-a-service.txt'), 'x');
+    assert(serviceDirectories(emptyServices, undefined).length === 0, 'files under services/ are not services');
+    mkdirSync(join(emptyServices, 'svc-probe'));
+    const listed = serviceDirectories(emptyServices, undefined);
+    assert(listed.length === 1 && basename(listed[0]) === 'svc-probe', 'a service directory must be checked');
+    assert(skippedServicesRefusal(listed, undefined) === null, 'a present service must not be refused as empty');
+    assert(
+      skippedServicesRefusal(serviceDirectories(emptyServices, 'other'), 'other') === '✖ no service matching "other" under services/',
+      'a named target that matches nothing must still say so',
+    );
+  } finally {
+    rmSync(emptyServices, { recursive: true, force: true });
+  }
+
+  const fileRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  assert(resolve(ROOT) === fileRoot, 'ROOT must be the repo that contains this file, not process.cwd()');
+
+  const wrongCwd = mkdtempSync(join(tmpdir(), 'l435-cwd-'));
+  try {
+    const probe = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], {
+      cwd: wrongCwd,
+      encoding: 'utf8',
+    });
+    const probeOut = `${probe.stdout ?? ''}${probe.stderr ?? ''}`;
+    assert(probe.status !== null && !probeOut.includes(phase0), 'a wrong cwd must not print the Phase 0 skip and exit as a finished pass');
+    assert(/[✓✖] svc-/.test(probeOut), 'a wrong cwd must run the per-service checks');
+  } finally {
+    rmSync(wrongCwd, { recursive: true, force: true });
+  }
+
   if (fails.length) {
     console.error(`dod-gate --self-test FAIL (${fails.length}):`);
     for (const f of fails) console.error(`  · ${f}`);
     process.exit(1);
   }
-  console.log('dod-gate --self-test OK (2 cases)');
+  console.log('dod-gate --self-test OK (4 cases)');
   console.log('  absent flags.ts → kill-switch failure, registry missing, no invented module id');
   console.log("  def('trade.spot', 'trade', …) → no kill-switch failure");
+  console.log('  missing or empty services/ → refusal, no Phase 0 pass');
+  console.log('  wrong cwd → ROOT stays this file and the per-service checks run');
   process.exit(0);
 }
 
@@ -246,15 +317,10 @@ if (process.argv.includes('--self-test')) selfTest();
 
 // ── Run ─────────────────────────────────────────────────────────────────────
 
-const services = existsSync(SERVICES)
-  ? readdirSync(SERVICES)
-      .map((s) => join(SERVICES, s))
-      .filter((d) => statSync(d).isDirectory())
-      .filter((d) => !target || basename(d) === target || basename(d) === `svc-${target}`)
-  : [];
-
-if (target && services.length === 0) {
-  console.error(`✖ no service matching "${target}" under services/`);
+const services = serviceDirectories(SERVICES, target);
+const skipped = skippedServicesRefusal(services, target);
+if (skipped) {
+  console.error(skipped);
   process.exit(1);
 }
 
@@ -289,10 +355,6 @@ for (const dir of services) {
     console.log(`  ✖ ${service} — ${failures.length} DoD failure(s)`);
     for (const f of failures) console.log(`      · ${f}`);
   }
-}
-
-if (services.length === 0) {
-  console.log('  (no services built yet — Phase 0 is foundations; the gate re-arms as each service lands)');
 }
 
 console.log('\n── Manual sign-off required (not automatable) ──');
