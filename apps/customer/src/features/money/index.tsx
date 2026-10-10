@@ -819,7 +819,9 @@ function MoneyRooms({ path }: { path: string }) {
   let content;
   if (pathname === '/bank') content = <MoneyOverviewPage bank />;
   else if (pathname.startsWith('/bank/') || pathname === '/uc/record')
-    content = <BankRoutes key={`${pathname}:${revision}:${context.epoch}`} path={pathname} open={open} />;
+    content = (
+      <BankRoutes key={`${pathname}:${revision}:${context.epoch}`} path={pathname} search={new URL(context.href).search} open={open} />
+    );
   else if (pathname === '/uc/recharge') content = <CustodyUnavailable kind="Deposit" />;
   else if (pathname === '/uc/withdraw/address') content = <CustodyUnavailable kind="Withdrawal addresses" />;
   else if (pathname === '/uc/withdraw')

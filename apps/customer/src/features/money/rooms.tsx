@@ -30,6 +30,9 @@ import { earnCopy } from './earn-copy';
 import { LoanHealth, currentLoanPreflight, loanActionAllowed, loanStatusNote } from './LoanHealth';
 import { loanCopy } from './loan-copy';
 import { MoneyActivity, ScheduleExecutions } from './activity';
+import { SelectedSpace } from './SelectedSpace';
+import { currentSpace, spaceContext } from './space-context';
+import { spaceCopy } from './space-copy';
 
 const bankRooms = ['Overview', 'Spaces', 'Transfers', 'Earn', 'Loans', 'Cards', 'Ramps', 'Analytics', 'Business'] as const;
 const bankLabels = {
@@ -95,8 +98,42 @@ function spaceName(space: Space) {
     value4: space.lockedUntil && Date.parse(space.lockedUntil) > Date.now() ? copyText('rooms.locked.suffix') : '',
   });
 }
-function Spaces({ open }: { open: (spec: ActionSpec) => void }) {
-  const [limit, setLimit] = usePageLimit();
+function SpaceActions({ space, open }: { space: Space; open: (spec: ActionSpec) => void }) {
+  return (
+    <div className="actions">
+      <a className="button button--secondary" href={`/bank/transfers?from=${encodeURIComponent(space.id)}`}>
+        <Text k="rooms.transfer" />
+      </a>
+      {space.kind === 'named' && (
+        <Button
+          variant="ghost"
+          onClick={() =>
+            open({
+              title: copyText('rooms.archive.space'),
+              procedure: 'spaces.archive',
+              facts: [
+                [copyText('rooms.space'), space.name],
+                [copyText('rooms.available.quantity'), amount(space.balance, space.assetId)],
+              ],
+              notes: [
+                copyText('rooms.archiving.removes.the.label.from.active.lists'),
+                copyText('rooms.archived.named.space.funds.are.not.included'),
+              ],
+              input: () => ({ spaceId: space.id }),
+              submit: copyText('rooms.archive.label'),
+            })
+          }
+        >
+          <Text k="rooms.archive.label" />
+        </Button>
+      )}
+    </div>
+  );
+}
+function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: string }) {
+  const { userId } = useSession();
+  const context = spaceContext(search, 'space');
+  const [limit, setLimit] = useState(context.status === 'valid' ? 200 : 50);
   const spaces = useBankRead('spaces.list', { limit });
   const unnamed = useBankRead('spaces.unnamed', undefined);
   const create = () =>
@@ -129,8 +166,15 @@ function Spaces({ open }: { open: (spec: ActionSpec) => void }) {
     });
   return (
     <BankPage room="Spaces" description={copyText('rooms.give.an.asset.a.purpose.inside.the')}>
+      <SelectedSpace
+        context={context}
+        resource={spaces.resource}
+        owner={userId ?? ''}
+        reload={spaces.reload}
+        actions={(space) => <SpaceActions space={space} open={open} />}
+      />
       <Section
-        title={copyText('rooms.your.spaces')}
+        title={context.status === 'none' ? copyText('rooms.your.spaces') : <spaceCopy.Copy k="other" />}
         actions={
           <>
             <Button variant="ghost" onClick={spaces.reload}>
@@ -142,83 +186,65 @@ function Spaces({ open }: { open: (spec: ActionSpec) => void }) {
           </>
         }
       >
-        <ResourceView resource={spaces.resource} reload={spaces.reload}>
-          {(rows) => (
-            <>
-              {rows.length ? (
-                rows.map((space) => (
-                  <article className="money-record" key={space.id}>
-                    <header>
-                      <div>
-                        <h3>{space.name}</h3>
-                        <p>
-                          {space.assetId} ·{' '}
-                          {space.kind === 'primary'
-                            ? copyText('rooms.primary.included.in.your.user.ledger.projection')
-                            : copyText('rooms.named.ledger.subaccount')}
-                        </p>
-                      </div>
-                      <strong className="numeric">{funds(space.balance, space.assetId)}</strong>
-                    </header>
-                    <dl className="detail-list">
-                      <div>
-                        <dt>
-                          <Text k="rooms.target" />
-                        </dt>
-                        <dd>{funds(space.goalTarget, space.assetId)}</dd>
-                      </div>
-                      <div>
-                        <dt>
-                          <Text k="rooms.bank.lock" />
-                        </dt>
-                        <dd>{date(space.lockedUntil)}</dd>
-                      </div>
-                      <div>
-                        <dt>
-                          <Text k="rooms.space.reference" />
-                        </dt>
-                        <dd>{space.id}</dd>
-                      </div>
-                    </dl>
-                    <div className="actions">
-                      <a className="button button--secondary" href={`/bank/transfers?from=${encodeURIComponent(space.id)}`}>
-                        <Text k="rooms.transfer" />
-                      </a>
-                      {space.kind === 'named' && (
-                        <Button
-                          variant="ghost"
-                          onClick={() =>
-                            open({
-                              title: copyText('rooms.archive.space'),
-                              procedure: 'spaces.archive',
-                              facts: [
-                                [copyText('rooms.space'), space.name],
-                                [copyText('rooms.available.quantity'), amount(space.balance, space.assetId)],
-                              ],
-                              notes: [
-                                copyText('rooms.archiving.removes.the.label.from.active.lists'),
-                                copyText('rooms.archived.named.space.funds.are.not.included'),
-                              ],
-                              input: () => ({ spaceId: space.id }),
-                              submit: copyText('rooms.archive.label'),
-                            })
-                          }
-                        >
-                          <Text k="rooms.archive.label" />
-                        </Button>
-                      )}
-                    </div>
-                  </article>
-                ))
-              ) : (
-                <NoRows title={copyText('rooms.no.spaces.returned')}>
-                  <Text k="rooms.create.a.named.space.its.balance.will" />
-                </NoRows>
-              )}
-              <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
-            </>
-          )}
-        </ResourceView>
+        {(context.status === 'none' || spaces.resource.status === 'ready') && (
+          <ResourceView resource={spaces.resource} reload={spaces.reload}>
+            {(returned) => {
+              const rows = context.status === 'valid' ? returned.filter((row) => row.id !== context.id) : returned;
+              return (
+                <>
+                  {rows.length ? (
+                    rows.map((space) => (
+                      <article className="money-record" key={space.id}>
+                        <header>
+                          <div>
+                            <h3>{space.name}</h3>
+                            <p>
+                              {space.assetId} ·{' '}
+                              {space.kind === 'primary'
+                                ? copyText('rooms.primary.included.in.your.user.ledger.projection')
+                                : copyText('rooms.named.ledger.subaccount')}
+                            </p>
+                          </div>
+                          <strong className="numeric">{funds(space.balance, space.assetId)}</strong>
+                        </header>
+                        <dl className="detail-list">
+                          <div>
+                            <dt>
+                              <Text k="rooms.target" />
+                            </dt>
+                            <dd>{space.goalTarget === null ? <spaceCopy.Copy k="noGoal" /> : funds(space.goalTarget, space.assetId)}</dd>
+                          </div>
+                          <div>
+                            <dt>
+                              <Text k="rooms.bank.lock" />
+                            </dt>
+                            <dd>{date(space.lockedUntil)}</dd>
+                          </div>
+                          <div>
+                            <dt>
+                              <Text k="rooms.space.reference" />
+                            </dt>
+                            <dd>{space.id}</dd>
+                          </div>
+                        </dl>
+                        <SpaceActions space={space} open={open} />
+                      </article>
+                    ))
+                  ) : context.status === 'none' ? (
+                    <NoRows title={copyText('rooms.no.spaces.returned')}>
+                      <Text k="rooms.create.a.named.space.its.balance.will" />
+                    </NoRows>
+                  ) : (
+                    <p className="money-caption">
+                      <spaceCopy.Copy k="noOther" />
+                    </p>
+                  )}
+                  <Continuation count={returned.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
+                </>
+              );
+            }}
+          </ResourceView>
+        )}
       </Section>
       <Section
         title={copyText('rooms.assets.without.a.space')}
@@ -341,10 +367,12 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
     </>
   );
 }
-function Transfers({ open }: { open: (spec: ActionSpec) => void }) {
-  const [limit, setLimit] = usePageLimit();
+function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search: string }) {
+  const { userId } = useSession();
+  const context = spaceContext(search, 'from');
+  const [limit, setLimit] = useState(context.status === 'valid' ? 200 : 50);
   const query = useBankRead('spaces.list', { limit });
-  const [fromId, setFrom] = useState(() => new URLSearchParams(location.search).get('from') ?? '');
+  const [fromId, setFrom] = useState(context.status === 'valid' ? context.id : '');
   const [destination, setDestination] = useState<'space' | 'user'>('space');
   const [scheduled, setScheduled] = useState(false);
   return (
@@ -352,23 +380,34 @@ function Transfers({ open }: { open: (spec: ActionSpec) => void }) {
       <Section title={copyText('rooms.new.transfer')}>
         <ResourceView resource={query.resource} reload={query.reload}>
           {(spaces) => {
-            const from = spaces.find((row) => row.id === fromId);
+            const from = currentSpace(spaces, fromId, userId ?? '');
             return spaces.length ? (
               <>
+                {context.status === 'invalid' && !fromId && (
+                  <p className="money-caption">
+                    <spaceCopy.Copy k="fromInvalid" />
+                  </p>
+                )}
                 <div className="money-transfer-setup">
                   <label className="field">
-                    <span>
+                    <span id="bank-transfer-source-label">
                       <Text k="rooms.from.your.space" />
                     </span>
-                    <select value={fromId} onChange={(event) => setFrom(event.target.value)}>
+                    <select
+                      aria-labelledby="bank-transfer-source-label"
+                      value={from?.id ?? ''}
+                      onChange={(event) => setFrom(event.target.value)}
+                    >
                       <option value="">
                         <Text k="rooms.choose.source" />
                       </option>
-                      {spaces.map((space) => (
-                        <option key={space.id} value={space.id}>
-                          {spaceName(space)}
-                        </option>
-                      ))}
+                      {spaces
+                        .filter((space) => currentSpace(spaces, space.id, userId ?? ''))
+                        .map((space) => (
+                          <option key={space.id} value={space.id}>
+                            {spaceName(space)}
+                          </option>
+                        ))}
                     </select>
                   </label>
                   <label className="field">
@@ -1700,12 +1739,12 @@ function Business() {
     </BankPage>
   );
 }
-export function BankRoutes({ path, open }: { path: string; open: (spec: ActionSpec) => void }) {
+export function BankRoutes({ path, search, open }: { path: string; search: string; open: (spec: ActionSpec) => void }) {
   switch (path) {
     case '/bank/spaces':
-      return <Spaces open={open} />;
+      return <Spaces open={open} search={search} />;
     case '/bank/transfers':
-      return <Transfers open={open} />;
+      return <Transfers open={open} search={search} />;
     case '/bank/earn':
       return <Earn open={open} />;
     case '/bank/loans':

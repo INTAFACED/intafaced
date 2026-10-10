@@ -1,0 +1,66 @@
+import { defineCopy } from '../../shared/i18n';
+
+const en = {
+  selected: 'Selected space',
+  quantity: 'Quantity in this space',
+  primary: 'Primary · Your ledger account',
+  named: 'Named · Your ledger subaccount',
+  invalid: 'Space could not be identified',
+  invalidNote: 'This link must contain one complete space reference. Choose a current space below or return to Bank.',
+  missing: 'Space not in this response',
+  missingNote: 'This response contains up to 200 active spaces. It does not establish that this space was deleted or has no funds.',
+  conflict: 'Space could not be verified',
+  conflictNote: 'The returned records do not identify one space with matching account details. Refresh before choosing a transfer.',
+  noGoal: 'No savings target',
+  goalNote: 'A target is a savings goal, not an additional balance.',
+  noLock: 'No lock',
+  lockedNote: 'A future lock prevents Bank debits from this space.',
+  transferNote: 'Choose the destination and amount in Transfer. Nothing moves when you open it.',
+  other: 'Other returned spaces',
+  noOther: 'No other spaces returned',
+  fromInvalid: 'The link does not identify one source. Choose a current source explicitly.',
+} as const;
+const es = {
+  selected: 'Espacio seleccionado',
+  quantity: 'Cantidad en este espacio',
+  primary: 'Principal · Tu cuenta del libro mayor',
+  named: 'Con nombre · Tu subcuenta del libro mayor',
+  invalid: 'No se pudo identificar el espacio',
+  invalidNote: 'El enlace debe contener una única referencia completa. Elige un espacio actual abajo o vuelve a Bank.',
+  missing: 'El espacio no está en esta respuesta',
+  missingNote: 'Esta respuesta contiene hasta 200 espacios activos. No demuestra que el espacio se haya eliminado o no tenga fondos.',
+  conflict: 'No se pudo verificar el espacio',
+  conflictNote:
+    'Los registros no identifican un único espacio con datos de cuenta coincidentes. Actualiza antes de elegir una transferencia.',
+  noGoal: 'No hay objetivo de ahorro',
+  goalNote: 'El objetivo de ahorro no es un saldo adicional.',
+  noLock: 'Sin bloqueo',
+  lockedNote: 'Un bloqueo futuro impide los débitos de Bank desde este espacio.',
+  transferNote: 'Elige el destino y el importe en Transferir. Abrirlo no mueve fondos.',
+  other: 'Otros espacios devueltos',
+  noOther: 'No se devolvieron otros espacios',
+  fromInvalid: 'El enlace no identifica un único origen. Elige explícitamente un origen actual.',
+} satisfies Record<keyof typeof en, string>;
+const fr = {
+  selected: 'Espace sélectionné',
+  quantity: 'Quantité dans cet espace',
+  primary: 'Principal · Votre compte du grand livre',
+  named: 'Nommé · Votre sous-compte du grand livre',
+  invalid: 'Impossible d’identifier l’espace',
+  invalidNote: 'Ce lien doit contenir une seule référence complète. Choisissez un espace actuel ci-dessous ou revenez à Bank.',
+  missing: 'Espace absent de cette réponse',
+  missingNote: 'Cette réponse contient jusqu’à 200 espaces actifs. Elle ne prouve ni la suppression de cet espace ni l’absence de fonds.',
+  conflict: 'Impossible de vérifier l’espace',
+  conflictNote:
+    'Les enregistrements ne désignent pas un espace unique avec des données de compte concordantes. Actualisez avant de choisir un transfert.',
+  noGoal: 'Aucun objectif d’épargne',
+  goalNote: 'Un objectif d’épargne ne constitue pas un solde supplémentaire.',
+  noLock: 'Aucun verrouillage',
+  lockedNote: 'Un verrouillage futur empêche les débits Bank depuis cet espace.',
+  transferNote: 'Choisissez la destination et le montant dans Transférer. L’ouverture ne déplace aucun fonds.',
+  other: 'Autres espaces renvoyés',
+  noOther: 'Aucun autre espace renvoyé',
+  fromInvalid: 'Le lien ne désigne pas une source unique. Choisissez explicitement une source actuelle.',
+} satisfies Record<keyof typeof en, string>;
+
+export const spaceCopy = defineCopy('customer.money.space', en, { es, fr });

@@ -61,7 +61,7 @@ export function Section({
   actions,
   children,
 }: {
-  title: string;
+  title: ReactNode;
   description?: string;
   actions?: ReactNode;
   children: ReactNode;
