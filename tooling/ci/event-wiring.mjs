@@ -61,8 +61,10 @@
  *   · comments are blanked before anything is matched — character-for-character,
  *     newlines kept, so every line number reported is the real one;
  *   · a publish or subscribe inside a string is not a call. A quote inside a
- *     regex is not that string. The catalog's money event counts only when
- *     that call passes a payload argument. `as const` is not a missing one;
+ *     regex is not that string. A regex after if, while, or for is not started
+ *     by `)`. A `/*` inside a regex is not a block comment. The catalog's money
+ *     event counts only when that call passes a payload argument. `as const`
+ *     is not a missing one;
  *   · `*.test.ts` / `*.spec.ts` are not wiring. A subject that only a test
  *     publishes has no publisher;
  *   · NO regex here is built from a template literal. `\s` inside one is the
@@ -215,7 +217,30 @@ function* walk(dir) {
  * but `${...}` is code: a comment inside the interpolation is blanked, or it is
  * later read as an import. The interpolation ends on its own `}`, not on a `}`
  * inside a comment, a string, or a nested template.
+ *
+ * A regex literal is walked over too. `/*` inside `/.../` is the pattern, not
+ * a block comment. These two sets have to exist before the catalog is blanked:
+ * `blankComments` asks `slashStartsRegex` while this module is still loading.
  */
+const REGEX_AFTER = new Set(['(', '[', '{', '}', ':', ';', ',', '=', '!', '?', '&', '|', '~', '^', '*', '%', '+', '-', '<', '>']);
+const REGEX_AFTER_WORD = new Set([
+  'return',
+  'case',
+  'throw',
+  'else',
+  'do',
+  'typeof',
+  'void',
+  'delete',
+  'in',
+  'of',
+  'instanceof',
+  'yield',
+  'await',
+  'new',
+  'default',
+]);
+
 function blankComments(src) {
   const out = src.split('');
   const n = src.length;
@@ -260,6 +285,14 @@ function blankComments(src) {
       i += 2;
       blank(start, i);
       continue;
+    }
+    // `/\/*['"]/` is a regex. The `/*` in its body is not a block comment.
+    if (c === '/' && slashStartsRegex(src, i)) {
+      const end = scanRegexLiteral(src, i);
+      if (end !== null) {
+        i = end;
+        continue;
+      }
     }
     if (c === "'" || c === '"') {
       const quote = c;
@@ -553,7 +586,9 @@ function entrypointFromManifest(serviceDir, text, known) {
  * A publish or subscribe that appears only inside a string is not a wiring
  * hit, including in a mounted bus-aware file. A real call still counts.
  * A quote inside a regex does not start a string, so a call after `/['"]/`
- * still counts. The money event is the one whose description says `THE money
+ * still counts. A `/` after `if`, `while`, or `for` is that regex even though
+ * the character before it is `)`. A `/*` inside a regex is not a block comment.
+ * The money event is the one whose description says `THE money
  * event` (`ledgerTxPosted`). A call to it with no payload argument is not
  * wired. `as const` on the name is not a missing payload. A real call that
  * passes a payload still counts. No new catalog event.
@@ -627,26 +662,44 @@ const FIRST_ARG_LITERAL = /^(['"])([A-Za-z_$][\w$]*)\1/;
  * A quote still starts a literal. The call inside it is prose, not wiring.
  * An interpolation is code again, so a real call there still counts.
  * A `/.../` is a regex, not a string: a quote inside it must not swallow a
- * later real call. The `/` after `=` in `/['"]/` is that case.
+ * later real call. The `/` after `=` in `/['"]/` is that case. The `/` after
+ * `)` is that case when the `)` closes `if`, `while`, or `for`, not a call.
+ * `REGEX_AFTER` lives above `blankComments` so the catalog blank can see it.
  */
-const REGEX_AFTER = new Set(['(', '[', '{', '}', ':', ';', ',', '=', '!', '?', '&', '|', '~', '^', '*', '%', '+', '-', '<', '>']);
-const REGEX_AFTER_WORD = new Set([
-  'return',
-  'case',
-  'throw',
-  'else',
-  'do',
-  'typeof',
-  'void',
-  'delete',
-  'in',
-  'of',
-  'instanceof',
-  'yield',
-  'await',
-  'new',
-  'default',
-]);
+/**
+ * True when `)` at `closeAt` closes `if`, `while`, or `for`, including
+ * `for await`. A call's `)` is division, so `foo() /x/` is not a regex.
+ * `obj.if (` is a call. The word before `(` decides.
+ */
+function closesIfWhileFor(src, closeAt) {
+  let depth = 1;
+  for (let k = closeAt - 1; k >= 0; k--) {
+    const c = src[k];
+    if (c === ')') {
+      depth++;
+      continue;
+    }
+    if (c !== '(') continue;
+    depth--;
+    if (depth !== 0) continue;
+    let j = k - 1;
+    while (j >= 0 && isHorizSpace(src[j])) j--;
+    if (j < 0 || !isIdentChar(src[j])) return false;
+    const end = j;
+    while (j >= 0 && isIdentChar(src[j])) j--;
+    const word = src.slice(j + 1, end + 1);
+    if (j >= 0 && src[j] === '.') return false;
+    if (word === 'if' || word === 'while' || word === 'for') return true;
+    if (word !== 'await') return false;
+    let a = j - 1;
+    while (a >= 0 && isHorizSpace(src[a])) a--;
+    if (a < 0 || !isIdentChar(src[a])) return false;
+    const awaitEnd = a;
+    while (a >= 0 && isIdentChar(src[a])) a--;
+    return src.slice(a + 1, awaitEnd + 1) === 'for' && (a < 0 || src[a] !== '.');
+  }
+  return false;
+}
 
 function slashStartsRegex(src, i) {
   let j = i - 1;
@@ -658,6 +711,7 @@ function slashStartsRegex(src, i) {
     while (k >= 0 && isIdentChar(src[k])) k--;
     return REGEX_AFTER_WORD.has(src.slice(k + 1, j + 1));
   }
+  if (ch === ')') return closesIfWhileFor(src, j);
   if ((ch === '+' || ch === '-') && j > 0 && src[j - 1] === ch) {
     let k = j - 2;
     while (k >= 0 && isHorizSpace(src[k])) k--;
@@ -1174,6 +1228,22 @@ function selfTestBusAware() {
   const regexQuote = ["const re = /['\"]/;", "bus.publish('orderFilled', payload);", "bus.subscribe('orderFilled', handler);", ''].join(
     '\n',
   );
+  const regexAfterHeader = (head) =>
+    [head + " /['\"]/;", "bus.publish('orderFilled', payload);", "bus.subscribe('orderFilled', handler);", ''].join('\n');
+  const regexAfterHeaders = [
+    'if (ready)',
+    'while (ready)',
+    'for (ready; ready; ready)',
+    'if (foo(1))',
+    'do {} while (ready)',
+    'for await (const x of xs)',
+  ];
+  const regexBlockInPattern = [
+    "const re = /\\/*['\"]/;",
+    "bus.publish('orderFilled', payload);",
+    "bus.subscribe('orderFilled', handler);",
+    '',
+  ].join('\n');
   const asConstPayload = [
     "import { EventBus } from '@intafaced/events';",
     'export function start(bus: EventBus) {',
@@ -1290,6 +1360,37 @@ function selfTestBusAware() {
     'quote inside a regex dropped a later orderFilled subscribe',
   );
 
+  for (const head of regexAfterHeaders) {
+    const src = regexAfterHeader(head);
+    const blank = blankComments(src);
+    assert(blank.includes(head + " /['\"]/;"), `regex after ${head} lost the quote inside the regex`);
+    assert(blank.includes("bus.publish('orderFilled', payload)"), `regex after ${head} lost the publish`);
+    assert(blank.includes("bus.subscribe('orderFilled', handler)"), `regex after ${head} lost the subscribe`);
+    const hits = directWiringCalls(blank);
+    assert(
+      hits.some((h) => h.event === 'orderFilled' && h.verb === 'publish'),
+      `quote inside a regex after ${head} dropped a later orderFilled publish`,
+    );
+    assert(
+      hits.some((h) => h.event === 'orderFilled' && h.verb === 'subscribe'),
+      `quote inside a regex after ${head} dropped a later orderFilled subscribe`,
+    );
+  }
+
+  const regexBlockBlank = blankComments(regexBlockInPattern);
+  assert(regexBlockBlank.includes("const re = /\\/*['\"]/;"), 'regex block fixture lost the /* inside the regex');
+  assert(regexBlockBlank.includes("bus.publish('orderFilled', payload)"), 'regex block fixture lost the publish');
+  assert(regexBlockBlank.includes("bus.subscribe('orderFilled', handler)"), 'regex block fixture lost the subscribe');
+  const regexBlockHits = directWiringCalls(regexBlockBlank);
+  assert(
+    regexBlockHits.some((h) => h.event === 'orderFilled' && h.verb === 'publish'),
+    '/* inside a regex dropped a later orderFilled publish',
+  );
+  assert(
+    regexBlockHits.some((h) => h.event === 'orderFilled' && h.verb === 'subscribe'),
+    '/* inside a regex dropped a later orderFilled subscribe',
+  );
+
   const asConstBlank = blankComments(asConstPayload);
   assert(asConstBlank.includes("bus.publish('ledgerTxPosted' as const, payload)"), 'as const fixture lost the payload publish');
   assert(asConstBlank.includes("bus.publish('ledgerTxPosted' as const);"), 'as const fixture lost the no-payload publish');
@@ -1324,6 +1425,10 @@ function selfTestBusAware() {
   console.log('  fixture string-only ledgerTxPosted with payload: not a wiring hit');
   console.log('  fixture regex quote: orderFilled publish still reported');
   console.log('  fixture regex quote: orderFilled subscribe still reported');
+  console.log('  fixture regex after if, while, or for: orderFilled publish still reported');
+  console.log('  fixture regex after if, while, or for: orderFilled subscribe still reported');
+  console.log('  fixture /* inside a regex: orderFilled publish still reported');
+  console.log('  fixture /* inside a regex: orderFilled subscribe still reported');
   console.log('  fixture money event no payload: not wired');
   console.log('  fixture money event with payload: wired');
   console.log('  fixture ledgerTxPosted as const with payload: wired');
