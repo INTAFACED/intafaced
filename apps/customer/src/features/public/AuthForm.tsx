@@ -163,7 +163,7 @@ export function AuthForm({ register }: { register: boolean }) {
       generation: renderedContext.generation,
       destination,
       invite: inviteToken,
-      target: inviteToken ? 'invite' : findRoom(destination.split('?')[0] ?? '/money')!.path,
+      target: inviteToken ? 'invite' : findRoom(destination.split(/[?#]/)[0] ?? '/money')!.path,
     };
     // Private inputs are captured in this invocation only. No request body enters the browser journal.
     const input =
@@ -403,7 +403,7 @@ export function AuthForm({ register }: { register: boolean }) {
         <h1>{register ? p('Create your account') : p('Sign in to your account')}</h1>
         <div className="public-auth-context">
           <Copy k="after" />
-          <span>{inviteToken ? t('invitation') : roomTitle(findRoom(destination.split('?')[0] ?? '/money')!, requestedLocale)}</span>
+          <span>{inviteToken ? t('invitation') : roomTitle(findRoom(destination.split(/[?#]/)[0] ?? '/money')!, requestedLocale)}</span>
         </div>
         <form ref={form} className="form-stack" onSubmit={submit}>
           {!register && (

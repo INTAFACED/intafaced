@@ -7,6 +7,40 @@ it('returns a signed-in customer to a requested room, but refuses external and t
   expect(safeReturnTo('/ops')).toBe('/money');
 });
 
+it('preserves the validated authenticated destination query and fragment, including fragment-only links', () => {
+  for (const destination of [
+    '/blueprint?section=owner#identity-profile',
+    '/blueprint#identity-profile',
+    '/bank/transfers?tab=history#original',
+  ])
+    expect(safeReturnTo(destination)).toBe(destination);
+});
+
+it('never attaches a refused destination fragment to the fallback or accepts external authority', () => {
+  for (const destination of [
+    'https://outside.invalid/blueprint#private',
+    '//outside.invalid/blueprint#private',
+    '/\t/outside.invalid/blueprint#private',
+    '/\\outside.invalid/blueprint#private',
+    'javascript:alert(1)#private',
+    '/login?redirect=%2Fblueprint#private',
+    '/register#private',
+    '/ops#private',
+    '/platform#private',
+    '/chain#private',
+    '/money/../ops#private',
+    '/unknown-room#private',
+  ])
+    expect(safeReturnTo(destination)).toBe('/money');
+});
+
+it('keeps notification href shape and auth return room validation separate', () => {
+  expect(customerRoomHref('/blueprint?section=owner#identity-profile')).toBe('/blueprint?section=owner');
+  expect(customerRoomHref('/blueprint#identity-profile')).toBe('/blueprint');
+  const destination = '/blueprint?next=https%3A%2F%2Foutside.invalid%2F#identity-profile';
+  expect(safeReturnTo(destination)).toBe(destination);
+});
+
 it('keeps legitimate Money notification links and refuses non-customer destinations', () => {
   expect(customerRoomHref('/money')).toBe('/money');
   expect(customerRoomHref('/portfolio/BTC/repeat-buy')).toBe('/portfolio/BTC/repeat-buy');

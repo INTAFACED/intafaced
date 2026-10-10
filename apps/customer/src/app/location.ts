@@ -13,3 +13,18 @@ const subscribe = (listener: () => void) => {
 export function useLocation() {
   return useSyncExternalStore(subscribe, () => location.pathname + location.search);
 }
+
+const subscribeReturnLocation = (listener: () => void) => {
+  window.addEventListener('popstate', listener);
+  window.addEventListener('hashchange', listener);
+  return () => {
+    window.removeEventListener('popstate', listener);
+    window.removeEventListener('hashchange', listener);
+  };
+};
+export function currentReturnLocation() {
+  return location.pathname + location.search + location.hash;
+}
+export function useReturnLocation() {
+  return useSyncExternalStore(subscribeReturnLocation, currentReturnLocation);
+}

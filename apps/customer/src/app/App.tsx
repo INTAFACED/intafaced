@@ -1,7 +1,7 @@
 import { Component, lazy, Suspense, useEffect, type MouseEvent, type ReactNode } from 'react';
 import { Page, EmptyState, Button, Loading } from '../shared/ui';
-import { findRoom, roomTitle } from './navigation';
-import { useLocation, navigate } from './location';
+import { findRoom, roomTitle, safeReturnTo } from './navigation';
+import { useLocation, useReturnLocation, currentReturnLocation, navigate } from './location';
 import { Shell } from './Shell';
 import { PublicRoutes } from '../features/public/PublicRoutes';
 import { useSession } from '../features/session/session';
@@ -49,6 +49,22 @@ function RoomFailure() {
         {t('Reload to try again. You will need to sign in again. An unconfirmed financial request must still be checked before retrying.')}
       </EmptyState>
     </Page>
+  );
+}
+
+function RoomSignIn({ children }: { children: ReactNode }) {
+  const current = useReturnLocation();
+  return (
+    <a
+      className="button button--primary"
+      href={`/login?redirect=${encodeURIComponent(safeReturnTo(current))}`}
+      onClick={(event) => {
+        // Native hashchange is queued; capture again at link activation.
+        event.currentTarget.href = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
+      }}
+    >
+      {children}
+    </a>
   );
 }
 
@@ -120,14 +136,7 @@ export function App() {
       <Shell door={room?.door}>
         {needsSession && !session ? (
           <Page title={room ? roomTitle(room, requestedLocale) : t('Sign in')}>
-            <EmptyState
-              title={t('Sign in to continue')}
-              action={
-                <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(current)}`}>
-                  {t('Sign in')}
-                </a>
-              }
-            >
+            <EmptyState title={t('Sign in to continue')} action={<RoomSignIn>{t('Sign in')}</RoomSignIn>}>
               {t('Your account context is needed before this room can show private information.')}
             </EmptyState>
           </Page>

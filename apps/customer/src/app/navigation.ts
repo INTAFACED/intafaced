@@ -203,7 +203,9 @@ export function customerRoomHref(candidate: string | null | undefined): string |
 export function safeReturnTo(candidate: string | null | undefined): string {
   const href = customerRoomHref(candidate);
   const room = href ? findRoom(href.split('?')[0] ?? '') : undefined;
-  return href && room?.area !== 'public' ? href : '/money';
+  if (!href || room?.area === 'public') return '/money';
+  const url = new URL(candidate!, 'https://intafaced.invalid');
+  return url.origin === 'https://intafaced.invalid' && !url.username && !url.password ? `${href}${url.hash}` : '/money';
 }
 export function roomTitle(room: Room, locale: UiLocale = currentPreferences().language): string {
   return navigationCopy.forLocale(locale).t(room.title);
