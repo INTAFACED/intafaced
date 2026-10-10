@@ -6,6 +6,7 @@ import type { ApiClient, ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, Failure, Field, Loading, Page } from '../../shared/ui';
 import { IdentitySessions } from './IdentitySessions';
+import { ApiKeyRecords } from './ApiKeyRecords';
 import { securityCopy as copy } from './security-copy';
 import {
   credentialId,
@@ -725,6 +726,7 @@ export function Security() {
               )}
             </div>
           ))}
+        <ApiKeyRecords />
         {review && sameActor(review) && (
           <Dialog
             title={

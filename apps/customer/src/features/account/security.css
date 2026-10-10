@@ -190,3 +190,145 @@
     width: 100%;
   }
 }
+
+/* Independent owner metadata read; existing security actions stay separate. */
+.api-key-records {
+  margin-top: 24px;
+}
+.api-key-records p {
+  font-size: 14px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+.api-key-records__introduction,
+.api-key-records__failure {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.api-key-records__controls {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+}
+.api-key-records__window {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 208px;
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 22px;
+}
+.api-key-records__controls select {
+  min-height: 44px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+.api-key-records__controls button {
+  min-height: 44px;
+}
+.api-key-records__rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.api-key-records__row {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-block: 24px;
+  border-top: 1px solid var(--color-border);
+  min-width: 0;
+}
+.api-key-records__name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.api-key-records__name h3 {
+  min-width: 0;
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.api-key-records__name p {
+  width: 184px;
+  flex-shrink: 0;
+  text-align: right;
+}
+.api-key-records__references,
+.api-key-records__metadata {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+}
+.api-key-records__references {
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.api-key-records__metadata {
+  font-size: 14px;
+  line-height: 22px;
+}
+.api-key-records dl > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.api-key-records dt {
+  flex-shrink: 0;
+}
+.api-key-records dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.api-key-records__failure {
+  border-top: 1px solid var(--color-border);
+  padding-top: 24px;
+}
+.api-key-records__failure h3 {
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 500;
+}
+.api-key-records__signin {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  align-self: start;
+}
+@media (max-width: 560px) {
+  .api-key-records {
+    padding: 20px;
+  }
+  .api-key-records__controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .api-key-records__window {
+    width: 100%;
+  }
+  .api-key-records__name {
+    flex-direction: column;
+    align-items: start;
+    gap: 8px;
+  }
+  .api-key-records__name p {
+    width: auto;
+    text-align: left;
+  }
+}
