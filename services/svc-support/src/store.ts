@@ -12,7 +12,7 @@ import type {
   SupportTicketStatus,
 } from '@intafaced/contracts';
 import { assertKbArticle, KbCatalogError, PLATFORM_KB_SPINE, kbVersionOf, toPublicKb } from './kb-catalog.js';
-import { checkTransition } from './lifecycle.js';
+import { checkTransition, isTerminal } from './lifecycle.js';
 import { claimTicket, type ClaimResult } from './operator-queue.js';
 
 /**
@@ -36,7 +36,8 @@ import { claimTicket, type ClaimResult } from './operator-queue.js';
  * `putCaseFileWithEscalated` (same transaction). A path that wrote the case
  * file and then died before the trail row would leave the desk able to open a
  * file with no record that an escalation happened — which is the gap the trail
- * exists to close.
+ * exists to close. That transaction locks the ticket first. A missing ticket
+ * and a closed ticket write neither row. `resolved` is not terminal.
  */
 
 export type CreateTicketRow = {
@@ -92,6 +93,14 @@ export type SetStatusResult =
   | { readonly status: 'ok'; readonly ticket: SupportTicket }
   | { readonly status: 'refuse'; readonly reason: 'not_found' | 'illegal_transition' | 'same_status' };
 
+/**
+ * Case file + escalated trail, or a refusal that wrote neither.
+ * `terminal` is `closed` (`isTerminal`). `resolved` is not terminal.
+ */
+export type PutCaseFileWithEscalatedResult =
+  | { readonly status: 'ok'; readonly caseFile: SupportCaseFile }
+  | { readonly status: 'refuse'; readonly reason: 'not_found' | 'terminal' };
+
 export type SetStatusInput = {
   ticketId: string;
   status: SupportTicketStatus;
@@ -130,8 +139,13 @@ export interface SupportStore {
   /**
    * Case file + `escalated` trail row in ONE transaction. Either both land or
    * neither does — a case file without its trail row is an incomplete desk.
+   * Locks the ticket first. Missing and terminal (`closed`) refuse.
    */
-  putCaseFileWithEscalated(input: { caseFile: SupportCaseFile; actorId: string; note: string }): Promise<SupportCaseFile>;
+  putCaseFileWithEscalated(input: {
+    caseFile: SupportCaseFile;
+    actorId: string;
+    note: string;
+  }): Promise<PutCaseFileWithEscalatedResult>;
   /** The most recent case file for a ticket, or null if never escalated. */
   latestCaseFile(ticketId: string): Promise<SupportCaseFile | null>;
   /** Published articles only, never drafts. Omit `limit` for the full catalog (search / tests). */
@@ -581,11 +595,16 @@ export class MemorySupportStore implements SupportStore {
     return caseFile;
   }
 
-  async putCaseFileWithEscalated(input: { caseFile: SupportCaseFile; actorId: string; note: string }): Promise<SupportCaseFile> {
+  async putCaseFileWithEscalated(input: {
+    caseFile: SupportCaseFile;
+    actorId: string;
+    note: string;
+  }): Promise<PutCaseFileWithEscalatedResult> {
     // Single-process memory: both writes or neither — match the PG transaction.
-    if (!this.tickets.has(input.caseFile.ticketId)) {
-      throw new Error('ticket not found for escalation');
-    }
+    // No row lock to take; the status check still sits before either write.
+    const ticket = this.tickets.get(input.caseFile.ticketId);
+    if (!ticket) return { status: 'refuse', reason: 'not_found' };
+    if (isTerminal(ticket.status)) return { status: 'refuse', reason: 'terminal' };
     await this.putCaseFile(input.caseFile);
     try {
       this.record({
@@ -601,7 +620,7 @@ export class MemorySupportStore implements SupportStore {
       this.cases.set(input.caseFile.ticketId, list);
       throw err;
     }
-    return input.caseFile;
+    return { status: 'ok', caseFile: input.caseFile };
   }
 
   async latestCaseFile(ticketId: string): Promise<SupportCaseFile | null> {
@@ -978,8 +997,26 @@ export class PostgresSupportStore implements SupportStore {
     return caseFileFromPg(rows[0]!);
   }
 
-  async putCaseFileWithEscalated(input: { caseFile: SupportCaseFile; actorId: string; note: string }): Promise<SupportCaseFile> {
-    return this.sql.begin(async (tx) => {
+  /**
+   * Case file + escalated trail row, or neither. `SELECT … FOR UPDATE` before
+   * the insert, same as `setStatus`. escalate's `isTerminal` check is a
+   * pre-read: identity and KB work sit between it and this write, so a
+   * concurrent close can commit first. The locked status is the one that
+   * decides. `closed` refuses. `resolved` does not.
+   */
+  async putCaseFileWithEscalated(input: {
+    caseFile: SupportCaseFile;
+    actorId: string;
+    note: string;
+  }): Promise<PutCaseFileWithEscalatedResult> {
+    return this.sql.begin(async (tx): Promise<PutCaseFileWithEscalatedResult> => {
+      const current = await tx<{ status: SupportTicketStatus }[]>`
+        SELECT status FROM support.tickets WHERE id = ${input.caseFile.ticketId} FOR UPDATE
+      `;
+      const from = current[0]?.status;
+      if (!from) return { status: 'refuse', reason: 'not_found' };
+      if (isTerminal(from)) return { status: 'refuse', reason: 'terminal' };
+
       const rows = await tx<PgCaseFile[]>`
         INSERT INTO support.case_files (ticket_id, escalated_by, reason, citations, grounding, summary)
         VALUES (
@@ -999,7 +1036,7 @@ export class PostgresSupportStore implements SupportStore {
         actorRole: 'operator',
         note: input.note,
       });
-      return caseFileFromPg(rows[0]!);
+      return { status: 'ok', caseFile: caseFileFromPg(rows[0]!) };
     });
   }
 

@@ -449,17 +449,23 @@ export class SupportService implements SupportContract {
 
       // Case file + escalated trail row commit together. A crash between the
       // two writes used to leave a case file with no trail — desk incomplete.
+      // The pre-read above is not the lock. This call locks the ticket and
+      // refuses a close that landed during identity and KB work.
       const stored = await this.store.putCaseFileWithEscalated({
         caseFile: built.caseFile,
         actorId: input.operatorId,
         note: `reason:${input.reason} citations:${built.caseFile.citations.length}`,
       });
+      if (stored.status === 'refuse') {
+        if (stored.reason === 'not_found') throw ticketNotFound();
+        throw new SupportError('escalation refused: ticket is terminal', 'support.escalation.terminal');
+      }
 
       span.setAttribute('intafaced.support.ticket_id', ticket.id);
       span.setAttribute('intafaced.support.escalation_reason', input.reason);
-      span.setAttribute('intafaced.support.citation_count', stored.citations.length);
+      span.setAttribute('intafaced.support.citation_count', stored.caseFile.citations.length);
 
-      return stored;
+      return stored.caseFile;
     });
   }
 
