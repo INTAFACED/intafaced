@@ -24,6 +24,22 @@ describe('describeDataLakeRetention', () => {
       captureLogOnly: false,
     });
   });
+
+  it('does not claim persistence for a day string the purge gate refuses', () => {
+    for (const days of ['0', '1.5', 'nope', '', '   ']) {
+      expect(
+        describeDataLakeRetention({
+          CONNECT_DATA_LAKE_TSDB_URL: 'postgres://lake',
+          CONNECT_DATA_LAKE_RETENTION_DAYS: days,
+        }),
+      ).toEqual({
+        tsdbConfigured: true,
+        retentionConfigured: false,
+        canPersist: false,
+        captureLogOnly: true,
+      });
+    }
+  });
 });
 
 describe('retentionPersistenceGate', () => {

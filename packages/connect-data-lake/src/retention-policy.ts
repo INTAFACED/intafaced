@@ -23,11 +23,12 @@ export type DataLakeRetentionSummary = {
 export function describeDataLakeRetention(env: NodeJS.ProcessEnv = process.env): DataLakeRetentionSummary {
   const tsdbUrl = env.CONNECT_DATA_LAKE_TSDB_URL?.trim() ?? '';
   const retentionRaw = env.CONNECT_DATA_LAKE_RETENTION_DAYS?.trim() ?? '';
+  const retentionConfigured = parseRetentionDays(retentionRaw) !== null;
   return {
     tsdbConfigured: tsdbUrl.length > 0,
-    retentionConfigured: retentionRaw.length > 0,
-    canPersist: tsdbUrl.length > 0 && retentionRaw.length > 0,
-    captureLogOnly: tsdbUrl.length === 0 || retentionRaw.length === 0,
+    retentionConfigured,
+    canPersist: tsdbUrl.length > 0 && retentionConfigured,
+    captureLogOnly: tsdbUrl.length === 0 || !retentionConfigured,
   };
 }
 
