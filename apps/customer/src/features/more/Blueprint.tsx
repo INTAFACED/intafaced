@@ -7,6 +7,7 @@ import { useResource } from '../../shared/resource';
 import { Button, Field, Panel } from '../../shared/ui';
 import { Details, Read, Select, TextArea, useAction } from './common';
 import { BlueprintSharedCard, BlueprintMentorCardAction } from './BlueprintSharedCard';
+import { BlueprintCrew } from './BlueprintCrew';
 const uuid = z.string().uuid();
 const profile = z.object({
   decisionStyle: z.enum(['analytical', 'intuitive', 'collaborative', 'decisive']),
@@ -155,6 +156,7 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
   return (
     <div className="more-columns">
       <div>
+        <BlueprintCrew />
         <BlueprintSharedCard path={path} />
         <Panel title={copyText('blueprint.identity.blueprint')}>
           <Read resource={me.resource} retry={me.reload} empty={copyText('blueprint.your.blueprint.has.not.been.created')}>

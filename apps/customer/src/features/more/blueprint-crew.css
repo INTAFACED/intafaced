@@ -1,0 +1,130 @@
+.blueprint-crew .if-panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.blueprint-crew {
+  min-width: 0;
+}
+.blueprint-crew p,
+.blueprint-crew dd,
+.blueprint-crew li span {
+  overflow-wrap: anywhere;
+}
+.blueprint-crew p {
+  font-size: 15px;
+  line-height: 24px;
+}
+.blueprint-crew dl {
+  margin: 0;
+}
+.blueprint-crew dl > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.blueprint-crew dt {
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.blueprint-crew dd {
+  margin: 0;
+  font-size: 15px;
+  line-height: 24px;
+}
+.blueprint-crew-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.blueprint-crew .blueprint-crew-name {
+  font-size: 24px;
+  line-height: 32px;
+}
+.blueprint-crew-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-divider);
+}
+.blueprint-crew-xp {
+  grid-column: 1 / -1;
+}
+.blueprint-crew-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 4px;
+  background: var(--color-surface-raised);
+}
+.blueprint-crew-note strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+.blueprint-crew-note p {
+  color: var(--color-muted);
+}
+.blueprint-crew-roster {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-divider);
+}
+.blueprint-crew-roster ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.blueprint-crew-roster li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-divider);
+}
+.blueprint-crew-roster strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+.blueprint-crew-roster li > span:first-of-type {
+  font-size: 15px;
+  line-height: 24px;
+}
+.blueprint-crew-roster li > span:last-of-type {
+  font-size: 13px;
+  line-height: 20px;
+}
+.blueprint-crew-failure,
+.blueprint-crew-export-time {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.blueprint-crew p.blueprint-crew-export-time {
+  font-size: 13px;
+  line-height: 20px;
+}
+.blueprint-crew-failure p {
+  color: var(--color-muted);
+}
+.blueprint-crew-export-time {
+  font-size: 13px;
+  line-height: 20px;
+  gap: 4px;
+}
+.blueprint-crew .button {
+  align-self: flex-start;
+}
+@media (max-width: 800px) {
+  .blueprint-crew .button {
+    width: 100%;
+  }
+}
