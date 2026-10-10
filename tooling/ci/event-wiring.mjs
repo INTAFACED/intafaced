@@ -256,6 +256,154 @@ const lineOf = (src, index) => src.slice(0, index).split('\n').length;
 const posix = (p) => p.split('\\').join('/');
 const isTestFile = (rel) => /\.(test|spec)\.(ts|tsx|mts)$/.test(rel);
 
+const EVENTS_PACKAGE = '@intafaced/events';
+
+function isHorizSpace(ch) {
+  return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f';
+}
+
+function isIdentChar(ch) {
+  return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch === '_' || ch === '$';
+}
+
+/** The package itself, or a subpath of it. A longer name that merely shares the prefix does not count. */
+function specifierIsEventsPackage(spec) {
+  return spec === EVENTS_PACKAGE || spec.startsWith(EVENTS_PACKAGE + '/');
+}
+
+/**
+ * Identifier immediately before a quote, skipping whitespace and one `(`.
+ * `from '@pkg'` and `import('@pkg')` are specifiers. `from('@pkg')` and
+ * `obj.import('@pkg')` are calls, not imports.
+ */
+function wordBefore(src, index) {
+  let j = index - 1;
+  while (j >= 0 && isHorizSpace(src[j])) j--;
+  let sawParen = false;
+  if (j >= 0 && src[j] === '(') {
+    sawParen = true;
+    j--;
+    while (j >= 0 && isHorizSpace(src[j])) j--;
+  }
+  const end = j;
+  while (j >= 0 && isIdentChar(src[j])) j--;
+  return { word: src.slice(j + 1, end + 1), sawParen, before: j >= 0 ? src[j] : '' };
+}
+
+function isModuleSpecifier(intro) {
+  if (intro.before === '.') return false;
+  if (intro.word === 'from' && !intro.sawParen) return true;
+  if (intro.word === 'import') return true;
+  if (intro.word === 'require' && intro.sawParen) return true;
+  return false;
+}
+
+/** A quoted literal starting at `i`. Escapes stay inside the literal so an inner quote cannot end it. */
+function readQuoted(src, i) {
+  const quote = src[i];
+  let j = i + 1;
+  let value = '';
+  while (j < src.length) {
+    if (src[j] === '\\') {
+      value += src[j + 1] ?? '';
+      j += 2;
+      continue;
+    }
+    if (src[j] === quote) return { value, next: j + 1 };
+    value += src[j];
+    j++;
+  }
+  return { value, next: j };
+}
+
+/** A template with no `${}`. An interpolated one is not a static specifier. */
+function readStaticTemplate(src, i) {
+  let j = i + 1;
+  let value = '';
+  while (j < src.length) {
+    if (src[j] === '\\') {
+      value += src[j + 1] ?? '';
+      j += 2;
+      continue;
+    }
+    if (src[j] === '`') return { static: true, value, next: j + 1 };
+    if (src[j] === '$' && src[j + 1] === '{') return { static: false };
+    value += src[j];
+    j++;
+  }
+  return { static: true, value, next: j };
+}
+
+/**
+ * True only when the file imports `@intafaced/events`.
+ *
+ * A comment or a string that merely contains that text is not an import.
+ * `raw.includes` treated both as bus-aware, and check 4 then skipped the file —
+ * so `hub.publish('orderFilled')` in a file that never touches the bus was not
+ * reported. Comments are blanked first. A string counts only as the module
+ * specifier of an `import`, an `export … from`, a dynamic `import()`, or `require()`.
+ */
+function importsEventsPackage(raw) {
+  const src = blankComments(raw);
+  const n = src.length;
+  let i = 0;
+  const stack = [{ mode: 'code', braces: 0 }];
+  while (i < n) {
+    const frame = stack[stack.length - 1];
+    const c = src[i];
+    const d = src[i + 1];
+    if (frame.mode === 'template') {
+      if (c === '\\') {
+        i += 2;
+        continue;
+      }
+      if (c === '`') {
+        stack.pop();
+        i++;
+        continue;
+      }
+      if (c === '$' && d === '{') {
+        stack.push({ mode: 'code', braces: 0 });
+        i += 2;
+        continue;
+      }
+      i++;
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      const quoted = readQuoted(src, i);
+      if (isModuleSpecifier(wordBefore(src, i)) && specifierIsEventsPackage(quoted.value)) return true;
+      i = quoted.next;
+      continue;
+    }
+    if (c === '`') {
+      const intro = wordBefore(src, i);
+      const templ = readStaticTemplate(src, i);
+      if (templ.static) {
+        if (isModuleSpecifier(intro) && specifierIsEventsPackage(templ.value)) return true;
+        i = templ.next;
+        continue;
+      }
+      stack.push({ mode: 'template', braces: 0 });
+      i++;
+      continue;
+    }
+    if (c === '{') {
+      frame.braces++;
+      i++;
+      continue;
+    }
+    if (c === '}') {
+      if (frame.braces === 0 && stack.length > 1) stack.pop();
+      else if (frame.braces > 0) frame.braces--;
+      i++;
+      continue;
+    }
+    i++;
+  }
+  return false;
+}
+
 // ── 1 · the catalog: what is declared, and what is recorded as unwired ───────
 
 const catalogPath = 'packages/events/src/catalog.ts';
@@ -272,6 +420,117 @@ if (registryBlock === null) {
 }
 const EVENTS = [...registryBlock[1].matchAll(/^\s*([A-Za-z_$][\w$]*),/gm)].map(([, name]) => name);
 const isEvent = (name) => EVENTS.includes(name);
+
+/** Same shape check 4 matches. A catalog name in `.publish` / `.subscribe` on a file that does not import the bus. */
+function catalogCallCollisions(src) {
+  const hits = [];
+  const re = /\.(publish|subscribe)\s*(?:<[^>()]*>)?\(\s*(['"])([A-Za-z_$][\w$]*)\2/g;
+  for (const call of src.matchAll(re)) {
+    if (!isEvent(call[3])) continue;
+    hits.push({ verb: call[1], event: call[3], line: lineOf(src, call.index) });
+  }
+  return hits;
+}
+
+function collisionReason(call) {
+  return (
+    `line ${call.line} ${call.verb}es the catalog event "${call.event}" but this file does not import @intafaced/events — ` +
+    `either it is reaching the bus by a route this gate cannot follow, or the name collides with a catalog event by accident. Both need a human`
+  );
+}
+
+/**
+ * Comment-only and string-only mentions are not bus-aware. The orderFilled
+ * collision on those files is still reported. A real import stays bus-aware,
+ * so check 4 does not take that path. No new catalog event — `orderFilled`
+ * is already in EVENT_CATALOG.
+ */
+function selfTestBusAware() {
+  const fails = [];
+  const assert = (cond, msg) => {
+    if (!cond) fails.push(msg);
+  };
+  const commentOnly = [
+    '// @intafaced/events',
+    "/* import { EventBus } from '@intafaced/events' */",
+    'export function fan(hub) {',
+    "  hub.publish('orderFilled');",
+    '  hub.subscribe("orderFilled");',
+    '}',
+    '',
+  ].join('\n');
+  const stringOnly = [
+    'const mentioned = "@intafaced/events";',
+    `const sample = "import { EventBus } from '@intafaced/events'";`,
+    'export function fan(hub) {',
+    "  hub.publish('orderFilled');",
+    '  hub.subscribe("orderFilled");',
+    '}',
+    '',
+  ].join('\n');
+  const realImport = [
+    "import type { EventBus } from '@intafaced/events';",
+    'export function fan(bus: EventBus) {',
+    "  bus.publish('orderFilled');",
+    '}',
+    '',
+  ].join('\n');
+  const realImportValue = "import { JetStreamEventBus } from '@intafaced/events';\n";
+  const realImportDouble = 'import { JetStreamEventBus } from "@intafaced/events";\n';
+  const realImportMultiline = "import {\n  JetStreamEventBus,\n} from '@intafaced/events';\n";
+
+  assert(isEvent('orderFilled') === true, 'orderFilled is not in the catalog — refusing to invent one');
+  assert(importsEventsPackage(commentOnly) === false, 'comment-only mention counted as bus-aware');
+  assert(importsEventsPackage(stringOnly) === false, 'string-only mention counted as bus-aware');
+  assert(importsEventsPackage(realImport) === true, 'import type was not bus-aware');
+  assert(importsEventsPackage(realImportValue) === true, 'value import was not bus-aware');
+  assert(importsEventsPackage(realImportDouble) === true, 'double-quoted import was not bus-aware');
+  assert(importsEventsPackage(realImportMultiline) === true, 'multiline import was not bus-aware');
+
+  const commentHits = importsEventsPackage(commentOnly) ? [] : catalogCallCollisions(blankComments(commentOnly));
+  const stringHits = importsEventsPackage(stringOnly) ? [] : catalogCallCollisions(blankComments(stringOnly));
+  const realHits = importsEventsPackage(realImport) ? [] : catalogCallCollisions(blankComments(realImport));
+  const commentReasons = commentHits.map(collisionReason);
+  const stringReasons = stringHits.map(collisionReason);
+
+  assert(commentHits.some((h) => h.event === 'orderFilled' && h.verb === 'publish'), 'comment-only publish collision not reported');
+  assert(commentHits.some((h) => h.event === 'orderFilled' && h.verb === 'subscribe'), 'comment-only subscribe collision not reported');
+  assert(stringHits.some((h) => h.event === 'orderFilled' && h.verb === 'publish'), 'string-only publish collision not reported');
+  assert(stringHits.some((h) => h.event === 'orderFilled' && h.verb === 'subscribe'), 'string-only subscribe collision not reported');
+  assert(
+    commentReasons.some((r) => r.includes('publishes the catalog event "orderFilled"')),
+    'comment-only publish collision reason missing',
+  );
+  assert(
+    commentReasons.some((r) => r.includes('subscribees the catalog event "orderFilled"')),
+    'comment-only subscribe collision reason missing',
+  );
+  assert(
+    stringReasons.some((r) => r.includes('publishes the catalog event "orderFilled"')),
+    'string-only publish collision reason missing',
+  );
+  assert(
+    stringReasons.some((r) => r.includes('subscribees the catalog event "orderFilled"')),
+    'string-only subscribe collision reason missing',
+  );
+  assert(realHits.length === 0, 'real import was sent down the collision path');
+  assert(catalogCallCollisions(blankComments(realImport)).length > 0, 'real-import fixture had no orderFilled call to skip');
+
+  if (fails.length > 0) {
+    console.error(`event-wiring --self-test FAIL (${fails.length})`);
+    for (const f of fails) console.error(`  · ${f}`);
+    process.exit(1);
+  }
+  console.log('event-wiring --self-test OK');
+  console.log('  fixture comment-only: bus-aware false');
+  for (const reason of commentReasons) console.log(`  fixture comment-only: ${reason}`);
+  console.log('  fixture string-only: bus-aware false');
+  for (const reason of stringReasons) console.log(`  fixture string-only: ${reason}`);
+  console.log('  fixture real import: bus-aware true; check 4 did not report the orderFilled call');
+  process.exit(0);
+}
+
+if (process.argv.includes('--self-test')) selfTestBusAware();
 
 /**
  * FIRST ZERO-WALK GUARD. `EVENT_CATALOG = {}` parses fine and yields nothing,
@@ -682,6 +941,7 @@ if (pinnedKeys.length === foundKeys.length && pinnedKeys.some((k, i) => k !== fo
 
 /**
  * Only a file that imports the bus can wire the bus, so that is the population.
+ * A comment or a string that names `@intafaced/events` is not that import.
  * A `.publish('orderFilled')` in a file that does NOT import it is reported
  * below rather than counted or ignored — see check 4.
  */
@@ -694,7 +954,7 @@ for (const root of ROOTS) {
     // either would mean the bus wires itself and nothing is ever an orphan.
     if (rel.startsWith('packages/events/')) continue;
     const raw = readFileSync(abs, 'utf8');
-    files.push({ rel, raw, src: blankComments(raw), test: isTestFile(rel), busAware: raw.includes('@intafaced/events') });
+    files.push({ rel, raw, src: blankComments(raw), test: isTestFile(rel), busAware: importsEventsPackage(raw) });
   }
 }
 
@@ -1160,12 +1420,8 @@ for (const event of EVENTS) {
 // or worse, a real orphan would be excused by wiring it cannot verify.
 for (const file of files) {
   if (file.busAware || file.test) continue;
-  for (const call of file.src.matchAll(/\.(publish|subscribe)\s*(?:<[^>()]*>)?\(\s*(['"])([A-Za-z_$][\w$]*)\2/g)) {
-    if (!isEvent(call[3])) continue;
-    fail(
-      file.rel,
-      `line ${lineOf(file.src, call.index)} ${call[1]}es the catalog event "${call[3]}" but this file does not import @intafaced/events — either it is reaching the bus by a route this gate cannot follow, or the name collides with a catalog event by accident. Both need a human`,
-    );
+  for (const call of catalogCallCollisions(file.src)) {
+    fail(file.rel, collisionReason(call));
   }
 }
 
