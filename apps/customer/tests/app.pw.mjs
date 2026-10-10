@@ -17,13 +17,13 @@ test('native View changes reach another open tab and malformed device settings p
   await expect(page.locator('html')).toHaveAttribute('lang', 'es');
   await expect(language(page)).toHaveValue('es');
   await expect(theme(other)).toHaveValue('light');
-  await expect(page.getByText('Preferencias guardadas en este dispositivo.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Preferencias guardadas en este dispositivo.', { exact: true })).toHaveCount(0);
   await other.getByRole('checkbox', { name: 'Ocultar los saldos', exact: true }).check();
   await expect(page.getByRole('checkbox', { name: 'Ocultar los saldos', exact: true })).toBeChecked();
   await language(other).selectOption('fr');
   await expect(page.locator('html')).toHaveAttribute('lang', 'fr');
   await expect(language(page)).toHaveValue('fr');
-  await expect(page.getByText('Préférences enregistrées sur cet appareil.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Préférences enregistrées sur cet appareil.', { exact: true })).toHaveCount(0);
   await page.evaluate(() => {
     window.__viewRegressionEvents = 0;
     addEventListener('storage', (event) => {
