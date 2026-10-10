@@ -8,6 +8,49 @@ import {
   unwiredApprovalConsumer,
 } from './action-approval-consume.js';
 
+const CONSUME_REQUEST = {
+  approvalId: 'appr-1',
+  operationId: 'op-1',
+  payloadHash: 'sha256:abc',
+  targetService: 'svc-bank',
+  targetId: 'bank.fund_pool',
+  expectedVersion: '1',
+} as const;
+
+function consumeApproval(overrides: Record<string, string> = {}) {
+  return {
+    approvalId: 'appr-1',
+    operationId: 'op-1',
+    actionType: 'bank.fund_pool',
+    targetService: 'svc-bank',
+    targetId: 'bank.fund_pool',
+    expectedVersion: '1',
+    payloadHash: 'sha256:abc',
+    requesterId: 'requester',
+    approverId: 'approver',
+    policyVersion: 'v1',
+    createdAt: '2026-09-09T12:00:00.000Z',
+    expiresAt: '2026-09-09T12:10:00.000Z',
+    status: 'CONSUMED',
+    ...overrides,
+  };
+}
+
+async function consumeWithBody(body: unknown) {
+  const orig = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })) as typeof fetch;
+  try {
+    const client = createIdentityApprovalClient('http://identity.test', 'x'.repeat(32));
+    return await client.consume(CONSUME_REQUEST);
+  } finally {
+    globalThis.fetch = orig;
+  }
+}
+
 describe('bank action-approval consume', () => {
   it('payload hash is stable for the same fund-pool fields', () => {
     expect(bankActionPayloadHash('bank.fund_pool', { poolId: 'p', fundingId: 'f', amount: '10' })).toMatch(/^sha256:[0-9a-f]{64}$/);
@@ -84,5 +127,37 @@ describe('bank action-approval consume', () => {
     } finally {
       globalThis.fetch = orig;
     }
+  });
+
+  it('returns a consume body that matches the request and is CONSUMED', async () => {
+    const body = consumeApproval();
+    await expect(consumeWithBody(body)).resolves.toEqual(body);
+  });
+
+  it('refuses an APPROVED body when the request fields otherwise match', async () => {
+    await expect(consumeWithBody(consumeApproval({ status: 'APPROVED' }))).rejects.toMatchObject({
+      name: 'ActionApprovalConsumeError',
+      code: 'action_approval.consume_failed',
+    });
+  });
+
+  it('refuses a consume body whose approvalId does not match the request', async () => {
+    await expect(consumeWithBody(consumeApproval({ approvalId: 'appr-other' }))).rejects.toMatchObject({
+      name: 'ActionApprovalConsumeError',
+      code: 'action_approval.consume_failed',
+    });
+  });
+
+  it.each([
+    ['operationId', 'op-other'],
+    ['payloadHash', 'sha256:def'],
+    ['targetService', 'svc-other'],
+    ['targetId', 'bank.other'],
+    ['expectedVersion', '2'],
+  ] as const)('refuses a consume body whose %s does not match the request', async (field, value) => {
+    await expect(consumeWithBody(consumeApproval({ [field]: value }))).rejects.toMatchObject({
+      name: 'ActionApprovalConsumeError',
+      code: 'action_approval.consume_failed',
+    });
   });
 });
