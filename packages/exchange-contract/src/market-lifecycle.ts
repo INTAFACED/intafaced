@@ -258,7 +258,9 @@ export const marketTransitionRecordSchema = z
       });
     }
     const reopening =
-      transition.expectedState === 'HALTED' && (transition.requestedState === 'AUCTION' || transition.requestedState === 'OPEN');
+      transition.expectedState === 'HALTED' &&
+      (transition.requestedState === 'AUCTION' || transition.requestedState === 'OPEN') &&
+      transition.outcome.outcome === 'APPLIED';
     if (reopening && transition.recoveryEvidenceRefs.length === 0) {
       context.addIssue({
         code: z.ZodIssueCode.custom,

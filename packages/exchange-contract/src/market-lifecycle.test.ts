@@ -117,6 +117,30 @@ describe('market lifecycle contract', () => {
     };
     expect(marketTransitionRecordSchema.safeParse(transition).success).toBe(false);
     expect(marketTransitionRecordSchema.safeParse({ ...transition, recoveryEvidenceRefs: ['restore-check-1'] }).success).toBe(true);
+    const emptyRefReopens = [
+      marketTransitionRecordSchema.safeParse({
+        ...transition,
+        resolvedState: 'HALTED',
+        effectiveAt: null,
+        recoveryEvidenceRefs: [],
+        outcome: { outcome: 'REFUSED' as const, appliedTargets: [] as [], unresolvedTargets: ['uncross-policy-1'] },
+      }),
+      marketTransitionRecordSchema.safeParse({
+        ...transition,
+        resolvedState: null,
+        effectiveAt: null,
+        recoveryEvidenceRefs: [],
+        outcome: { outcome: 'PARTIAL' as const, appliedTargets: ['market-1'], unresolvedTargets: ['uncross-policy-1'] },
+      }),
+      marketTransitionRecordSchema.safeParse({
+        ...transition,
+        resolvedState: null,
+        effectiveAt: null,
+        recoveryEvidenceRefs: [],
+        outcome: { outcome: 'OUTCOME_UNKNOWN' as const, appliedTargets: [], unresolvedTargets: ['matching-runtime-1'] },
+      }),
+    ];
+    expect(emptyRefReopens.map((parsed) => parsed.success)).toEqual([true, true, true]);
   });
 
   it('refuses AUCTION to OPEN without uncross evidence rather than inventing a price', () => {
