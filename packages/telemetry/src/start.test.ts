@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { trace, SpanStatusCode, diag } from '@opentelemetry/api';
+import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startTelemetry, isTelemetryActive } from './start.js';
 
@@ -91,6 +92,53 @@ describe('startTelemetry', () => {
     const handle = startTelemetry({ serviceName: 'svc-test', endpoint, enabled: false });
     await expect(handle.shutdown()).resolves.toBeUndefined();
     await expect(handle.shutdown()).resolves.toBeUndefined();
+  });
+
+  it('overlapping shutdowns await one in-flight flush', async () => {
+    // The flush stays pending so a second caller cannot look settled while the
+    // export is still running. A boolean early return does exactly that.
+    let release: () => void = () => {};
+    const flush = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const proto = NodeTracerProvider.prototype;
+    const original = proto.shutdown;
+    let calls = 0;
+    let instance: NodeTracerProvider | undefined;
+    proto.shutdown = function (this: NodeTracerProvider) {
+      calls += 1;
+      instance = this;
+      return flush;
+    };
+
+    try {
+      const handle = startTelemetry({ serviceName: 'svc-test', endpoint, enabled: true });
+      let firstSettled = false;
+      let secondSettled = false;
+      const first = handle.shutdown().then(() => {
+        firstSettled = true;
+      });
+      const second = handle.shutdown().then(() => {
+        secondSettled = true;
+      });
+
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(firstSettled).toBe(false);
+      expect(secondSettled).toBe(false);
+      expect(calls).toBe(1);
+
+      release();
+      await Promise.all([first, second]);
+      expect(firstSettled).toBe(true);
+      expect(secondSettled).toBe(true);
+
+      await handle.shutdown();
+      expect(calls).toBe(1);
+    } finally {
+      release();
+      proto.shutdown = original;
+      if (instance) await original.call(instance);
+    }
   });
 });
 
