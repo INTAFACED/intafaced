@@ -73,6 +73,8 @@ function unwrapTrpcJson(body: unknown): unknown {
   return data && typeof data === 'object' && 'json' in (data as object) ? (data as { json: unknown }).json : data;
 }
 
+const FETCH_MS = 2_000;
+
 export function createIdentityApprovalClient(baseUrl: string, internalSecret: string): ActionApprovalConsumer {
   const url = baseUrl.replace(/\/$/, '');
   return {
@@ -86,6 +88,7 @@ export function createIdentityApprovalClient(baseUrl: string, internalSecret: st
           ...serviceAuthHeadersForBody('svc-pay', internalSecret, payload),
         },
         body: payload,
+        signal: AbortSignal.timeout(FETCH_MS),
       });
       if (!res.ok) {
         const detail = await res.text().catch(() => '');

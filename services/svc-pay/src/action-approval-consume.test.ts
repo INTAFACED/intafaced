@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ActionApprovalConsumeError,
+  createIdentityApprovalClient,
   payActionPayloadHash,
   readApprovalIds,
   stubApprovalConsumer,
@@ -51,4 +52,40 @@ describe('pay action-approval consume', () => {
     });
     expect(row).toMatchObject({ status: 'CONSUMED', approverId: 'approver-1', targetService: 'svc-pay' });
   });
+
+  it('a fetch that never resolves is aborted by the signal', async () => {
+    // AbortSignal.timeout is not driven by fake timers. This waits the real 2000ms.
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = ((_input: unknown, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal == null) return;
+        const fail = () => reject(signal.reason);
+        if (signal.aborted) {
+          fail();
+          return;
+        }
+        signal.addEventListener('abort', fail, { once: true });
+      })) as typeof fetch;
+    try {
+      const consume = createIdentityApprovalClient('http://identity.test', 'test-internal-service-secret-32ch!!').consume({
+        approvalId: 'appr-1',
+        operationId: 'op-1',
+        payloadHash: 'sha256:abc',
+        targetService: 'svc-pay',
+        targetId: 'pay.kyb_decide',
+        expectedVersion: '1',
+      });
+      let caught: unknown;
+      try {
+        await consume;
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect(['TimeoutError', 'AbortError']).toContain((caught as Error).name);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  }, 10_000);
 });
