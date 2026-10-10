@@ -22,6 +22,17 @@ export type IndexerAbsent = typeof INDEXER_ABSENT;
 
 export const CHAIN_ACCOUNT_RE = /^0x[0-9a-fA-F]{40}$/;
 
+/** parseAmount, not a second decimal regex. Blank and non-decimals fail. JSON numbers never reach it. */
+function isDecimalString(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  try {
+    parseAmount(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const indexerAbsentSchema = z.object({
   status: z.literal('absent'),
   reason: z.literal(PORTFOLIO_INDEXER_UNWIRED),
@@ -30,9 +41,9 @@ export const indexerAbsentSchema = z.object({
 export const indexerPositionSchema = z.object({
   market: z.string().min(1).max(64),
   /** Signed decimal string — negative is short. Never a JSON number. */
-  size: z.string(),
+  size: z.string().refine(isDecimalString),
   /** Decimal string. Never a JSON number. */
-  entryPrice: z.string(),
+  entryPrice: z.string().refine(isDecimalString),
 });
 
 export const indexerPresentSchema = z.object({
@@ -48,7 +59,7 @@ export const custodialHoldingSchema = z.object({
   kind: z.string(),
   purpose: z.string(),
   /** Decimal string. Money never crosses as a `number`. */
-  amount: z.string(),
+  amount: z.string().refine(isDecimalString),
 });
 
 export const portfolioViewSchema = z.object({
@@ -75,9 +86,11 @@ export interface PortfolioViewInput {
 /**
  * Map existing ledger balances into a portfolio view. Read-only: does not post.
  * Does not invent chain amounts. Does not fill an empty custodial book.
- * Indexer half is whatever the caller already resolved — default named absent.
+ * A caller-supplied indexer is parsed with indexerHalfSchema. Omitted or
+ * rejected is named absent — never copied, never a zero amount.
  */
 export function portfolioViewFromLedgerBalances(input: PortfolioViewInput): PortfolioView {
+  const supplied = input.indexer === undefined ? undefined : indexerHalfSchema.safeParse(input.indexer);
   return {
     ownerType: input.ownerType,
     ownerId: input.ownerId,
@@ -88,7 +101,7 @@ export function portfolioViewFromLedgerBalances(input: PortfolioViewInput): Port
       purpose: b.account.purpose ?? '',
       amount: formatAmount(b.amount),
     })),
-    indexer: input.indexer ?? INDEXER_ABSENT,
+    indexer: supplied === undefined || !supplied.success ? INDEXER_ABSENT : supplied.data,
   };
 }
 
@@ -110,16 +123,6 @@ export function indexerUrlOf(raw: string | undefined): string | undefined {
     return trimmed.replace(/\/+$/, '');
   } catch {
     return undefined;
-  }
-}
-
-function isDecimalString(value: unknown): value is string {
-  if (typeof value !== 'string') return false;
-  try {
-    parseAmount(value);
-    return true;
-  } catch {
-    return false;
   }
 }
 

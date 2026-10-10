@@ -4,6 +4,8 @@ import {
   INDEXER_ABSENT,
   PORTFOLIO_INDEXER_UNWIRED,
   composePortfolioView,
+  custodialHoldingSchema,
+  indexerPositionSchema,
   portfolioViewFromLedgerBalances,
   portfolioViewSchema,
   resolveIndexerHalf,
@@ -124,6 +126,58 @@ describe('portfolioViewFromLedgerBalances — ops.portfolio', () => {
         indexer: { status: 'present', positions: [{ market: 'IFC-USD', size: 0, entryPrice: '1' }] },
       }),
     ).toThrow();
+  });
+
+  it("rejects '', '   ', and 'nope' for size, entryPrice, and amount", () => {
+    const holding = {
+      accountId: 'acct-1',
+      assetId: 'USDT',
+      kind: 'available',
+      purpose: '',
+    };
+
+    for (const value of ['', '   ', 'nope']) {
+      expect(indexerPositionSchema.safeParse({ market: 'IFC-USD', size: value, entryPrice: '1' }).success).toBe(false);
+      expect(indexerPositionSchema.safeParse({ market: 'IFC-USD', size: '1', entryPrice: value }).success).toBe(false);
+      expect(custodialHoldingSchema.safeParse({ ...holding, amount: value }).success).toBe(false);
+    }
+  });
+
+  it("accepts a string parseAmount accepts, including a negative size when parseAmount accepts '-1'", () => {
+    expect(() => amt('-1')).not.toThrow();
+    expect(indexerPositionSchema.parse({ market: 'IFC-USD', size: '-1', entryPrice: '1' })).toEqual({
+      market: 'IFC-USD',
+      size: '-1',
+      entryPrice: '1',
+    });
+    expect(custodialHoldingSchema.parse({ accountId: 'acct-1', assetId: 'USDT', kind: 'available', purpose: '', amount: '1' }).amount).toBe(
+      '1',
+    );
+  });
+
+  it('names a present indexer with a blank size absent, and copies size 1 with entryPrice 1', () => {
+    const blank = portfolioViewFromLedgerBalances({
+      ownerType: 'user',
+      ownerId: USER,
+      balances: balances(),
+      indexer: { status: 'present', positions: [{ market: 'IFC-USD', size: '', entryPrice: '1' }] },
+    });
+    expect(blank.indexer).toEqual(INDEXER_ABSENT);
+    expect(blank.indexer).toEqual({ status: 'absent', reason: PORTFOLIO_INDEXER_UNWIRED });
+    expect(blank.indexer).not.toHaveProperty('positions');
+    expect(blank.indexer).not.toHaveProperty('amount');
+    expect(JSON.stringify(blank.indexer)).not.toMatch(/"0"/);
+
+    const copied = portfolioViewFromLedgerBalances({
+      ownerType: 'user',
+      ownerId: USER,
+      balances: balances(),
+      indexer: { status: 'present', positions: [{ market: 'IFC-USD', size: '1', entryPrice: '1' }] },
+    });
+    expect(copied.indexer).toEqual({
+      status: 'present',
+      positions: [{ market: 'IFC-USD', size: '1', entryPrice: '1' }],
+    });
   });
 });
 
