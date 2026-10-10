@@ -18,6 +18,7 @@ const MIGRATION_0001 = readFileSync(join(here, '..', 'drizzle', '0001_support_au
 const MIGRATION_0002 = readFileSync(join(here, '..', 'drizzle', '0002_support_lifecycle_full.sql'), 'utf8');
 const MIGRATION_0003 = readFileSync(join(here, '..', 'drizzle', '0003_kb_articles.sql'), 'utf8');
 const MIGRATION_0004 = readFileSync(join(here, '..', 'drizzle', '0004_kb_article_versions.sql'), 'utf8');
+const MIGRATION_0005 = readFileSync(join(here, '..', 'drizzle', '0005_support_audit_delete_refused.sql'), 'utf8');
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const OP_A = '33333333-3333-4333-8333-333333333333';
@@ -39,6 +40,7 @@ if (available && sql) {
   await sql.unsafe(MIGRATION_0002);
   await sql.unsafe(MIGRATION_0003);
   await sql.unsafe(MIGRATION_0004);
+  await sql.unsafe(MIGRATION_0005);
 }
 
 afterAll(async () => {
@@ -49,10 +51,10 @@ describe.skipIf(!available)('PostgresSupportStore — durable desk', () => {
   const store = () => new PostgresSupportStore(sql!);
 
   beforeEach(async () => {
-    await sql!`DELETE FROM support.comments`;
-    // ticket_events and case_files cascade from tickets. They cannot be DELETEd
-    // directly — the append-only triggers refuse it, which is the point.
-    await sql!`DELETE FROM support.tickets`;
+    // Ticket removal no longer clears the audit, so this suite resets its own tables.
+    await sql!.unsafe(
+      'TRUNCATE TABLE support.comments, support.ticket_events, support.case_files, support.tickets RESTART IDENTITY CASCADE',
+    );
   });
 
   it('creates and lists tickets by owner', async () => {
@@ -108,8 +110,10 @@ describe.skipIf(!available)('audit trail and case file — enforced in Postgres'
   const store = () => new PostgresSupportStore(sql!);
 
   beforeEach(async () => {
-    await sql!`DELETE FROM support.comments`;
-    await sql!`DELETE FROM support.tickets`;
+    // Ticket removal no longer clears the audit, so this suite resets its own tables.
+    await sql!.unsafe(
+      'TRUNCATE TABLE support.comments, support.ticket_events, support.case_files, support.tickets RESTART IDENTITY CASCADE',
+    );
   });
 
   const open = () => store().createTicket({ userId: USER, category: 'account', subject: 'S', body: 'B' });
@@ -135,18 +139,15 @@ describe.skipIf(!available)('audit trail and case file — enforced in Postgres'
     expect(await store().listEvents(t.id)).toHaveLength(1);
   });
 
-  it('erasing the ticket DOES take its history with it', async () => {
-    // The counterpart to the test above, and the reason the trigger is not a
-    // flat "no deletes": an unconditional refusal made `support.tickets` a table
-    // no row could ever leave, which would have broken retention and erasure.
+  it('erasing the ticket does not erase its history', async () => {
     const t = await open();
-    await sql!`DELETE FROM support.tickets WHERE id = ${t.id}`;
-    expect(await store().listEvents(t.id)).toHaveLength(0);
+    await expect(sql!`DELETE FROM support.tickets WHERE id = ${t.id}`).rejects.toMatchObject({ code: '23503' });
+    expect(await store().listEvents(t.id)).toHaveLength(1);
     const left = await sql!`SELECT 1 FROM support.ticket_events WHERE ticket_id = ${t.id}`;
-    expect(left).toHaveLength(0);
+    expect(left).toHaveLength(1);
   });
 
-  it('erasing a ticket takes its case file too — no orphaned evidence', async () => {
+  it('erasing a ticket does not erase its case file', async () => {
     const s = store();
     const t = await open();
     await s.putCaseFile({
@@ -158,8 +159,8 @@ describe.skipIf(!available)('audit trail and case file — enforced in Postgres'
       summary: 'Escalating.',
       createdAt: '2026-08-09T10:00:00.000Z',
     });
-    await sql!`DELETE FROM support.tickets WHERE id = ${t.id}`;
-    expect(await s.latestCaseFile(t.id)).toBeNull();
+    await expect(sql!`DELETE FROM support.tickets WHERE id = ${t.id}`).rejects.toMatchObject({ code: '23503' });
+    expect(await s.latestCaseFile(t.id)).not.toBeNull();
   });
 
   it('sequence is unique per ticket — a duplicate is refused by the index', async () => {
