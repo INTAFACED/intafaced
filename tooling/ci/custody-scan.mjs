@@ -59,7 +59,8 @@
  */
 import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const ROOT = process.cwd();
 const SERVICES = join(ROOT, 'services');
@@ -80,15 +81,411 @@ const MODULES_TS = join(ROOT, 'packages', 'config', 'src', 'modules.ts');
  * So it is read from the registry instead. `modules.ts` is TypeScript and this
  * is a plain .mjs run by node with no build step, so it is parsed as text
  * rather than imported. That is a real constraint, not a shortcut: the parse
- * therefore FAILS CLOSED. If the file moves, or its shape changes enough that
- * no module matches, this exits 1 rather than scanning nothing and calling it
- * clean — the exact failure being designed out.
+ * therefore FAILS CLOSED. Zero Protocol Plane modules is a failure. So is a
+ * partial parse: one entry in the service-then-planes-then-custodial shape
+ * must not let a protocol service in another shape drop out while this scan
+ * prints clean. The old single-quoted, order-locked regex did that.
  *
  * svc-bridge is excluded by the rule itself, not by a special case: its
  * `planes` is ['fiat','protocol'] and its `custodial` is true. It is the one
  * seam that debits the ledger and credits the chain, custodial by design
  * (§17.3), and the registry already says so.
  */
+function scanString(source, i) {
+  const quote = source[i];
+  if (quote !== "'" && quote !== '"' && quote !== '`') return null;
+  let j = i + 1;
+  while (j < source.length) {
+    const c = source[j];
+    if (c === '\\') {
+      j += 2;
+      continue;
+    }
+    // A template expression is not a registry literal. Refuse it.
+    if (quote === '`' && c === '$' && source[j + 1] === '{') return null;
+    if (c === '\n' && quote !== '`') return null;
+    if (c === quote) return j + 1;
+    j++;
+  }
+  return null;
+}
+
+function scanPastTrivia(source, i) {
+  while (i < source.length) {
+    const c = source[i];
+    const n = source[i + 1];
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f') {
+      i++;
+      continue;
+    }
+    if (c === '/' && n === '/') {
+      const end = source.indexOf('\n', i + 2);
+      i = end === -1 ? source.length : end + 1;
+      continue;
+    }
+    if (c === '/' && n === '*') {
+      const end = source.indexOf('*/', i + 2);
+      if (end === -1) return -1;
+      i = end + 2;
+      continue;
+    }
+    break;
+  }
+  return i;
+}
+
+function matchBracket(source, openIndex, open, close) {
+  let depth = 0;
+  let i = openIndex;
+  while (i < source.length) {
+    const c = source[i];
+    const n = source[i + 1];
+    if (c === '/' && n === '/') {
+      const end = source.indexOf('\n', i + 2);
+      i = end === -1 ? source.length : end + 1;
+      continue;
+    }
+    if (c === '/' && n === '*') {
+      const end = source.indexOf('*/', i + 2);
+      if (end === -1) return -1;
+      i = end + 2;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') {
+      const end = scanString(source, i);
+      if (end === null) return -1;
+      i = end;
+      continue;
+    }
+    if (c === open) depth++;
+    else if (c === close) {
+      depth--;
+      if (depth === 0) return i;
+    }
+    i++;
+  }
+  return -1;
+}
+
+function identContinues(source, index) {
+  const c = source[index];
+  return c !== undefined && /[A-Za-z0-9_$]/.test(c);
+}
+
+function skipUntilAssign(source, i) {
+  let angle = 0;
+  let brace = 0;
+  let paren = 0;
+  let bracket = 0;
+  while (i < source.length) {
+    const c = source[i];
+    const n = source[i + 1];
+    if (c === '/' && n === '/') {
+      const end = source.indexOf('\n', i + 2);
+      i = end === -1 ? source.length : end + 1;
+      continue;
+    }
+    if (c === '/' && n === '*') {
+      const end = source.indexOf('*/', i + 2);
+      if (end === -1) return -1;
+      i = end + 2;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') {
+      const end = scanString(source, i);
+      if (end === null) return -1;
+      i = end;
+      continue;
+    }
+    if (c === '=' && angle === 0 && brace === 0 && paren === 0 && bracket === 0) {
+      if (n === '>') {
+        i += 2;
+        continue;
+      }
+      return i;
+    }
+    if (c === '<') angle++;
+    else if (c === '>' && angle > 0) angle--;
+    else if (c === '{') brace++;
+    else if (c === '}') {
+      if (brace === 0) return -1;
+      brace--;
+    } else if (c === '(') paren++;
+    else if (c === ')') {
+      if (paren === 0) return -1;
+      paren--;
+    } else if (c === '[') bracket++;
+    else if (c === ']') {
+      if (bracket === 0) return -1;
+      bracket--;
+    }
+    i++;
+  }
+  return -1;
+}
+
+/** The object assigned to `export const MODULES`, comments and strings skipped. */
+function findModulesBody(source) {
+  let i = 0;
+  while (i < source.length) {
+    const c = source[i];
+    const n = source[i + 1];
+    if (c === '/' && n === '/') {
+      const end = source.indexOf('\n', i + 2);
+      i = end === -1 ? source.length : end + 1;
+      continue;
+    }
+    if (c === '/' && n === '*') {
+      const end = source.indexOf('*/', i + 2);
+      if (end === -1) return { error: 'unterminated comment before MODULES' };
+      i = end + 2;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') {
+      const end = scanString(source, i);
+      if (end === null) return { error: 'unterminated string before MODULES' };
+      i = end;
+      continue;
+    }
+    const atExport = source.startsWith('export', i) && !identContinues(source, i + 6) && (i === 0 || !identContinues(source, i - 1));
+    if (atExport) {
+      let j = scanPastTrivia(source, i + 6);
+      if (j < 0) return { error: 'unterminated comment before MODULES' };
+      if (source.startsWith('const', j) && !identContinues(source, j + 5)) {
+        j = scanPastTrivia(source, j + 5);
+        if (j < 0) return { error: 'unterminated comment before MODULES' };
+        if (source.startsWith('MODULES', j) && !identContinues(source, j + 7)) {
+          j = scanPastTrivia(source, j + 7);
+          if (j < 0) return { error: 'unterminated comment in the MODULES declaration' };
+          if (source[j] === ':') {
+            j = skipUntilAssign(source, j + 1);
+            if (j < 0) return { error: 'MODULES type annotation is unreadable' };
+          }
+          if (source[j] !== '=') return { error: 'MODULES is not assigned an object' };
+          j = scanPastTrivia(source, j + 1);
+          if (j < 0) return { error: 'unterminated comment before the MODULES object' };
+          if (source[j] !== '{') return { error: 'MODULES is not an object' };
+          const close = matchBracket(source, j, '{', '}');
+          if (close < 0) return { error: 'MODULES object is unterminated' };
+          return { bodyStart: j + 1, bodyEnd: close };
+        }
+      }
+    }
+    i++;
+  }
+  return { error: 'cannot find export const MODULES' };
+}
+
+function readKey(source, i, limit) {
+  const c = source[i];
+  if (c === "'" || c === '"') {
+    const end = scanString(source, i);
+    if (end === null || end > limit) return null;
+    return { end };
+  }
+  if (!/[A-Za-z_$]/.test(c)) return null;
+  let j = i + 1;
+  while (j < limit && /[A-Za-z0-9_$]/.test(source[j])) j++;
+  return { end: j };
+}
+
+function readIdent(source, i, limit) {
+  if (!/[A-Za-z_$]/.test(source[i] || '')) return null;
+  let j = i + 1;
+  while (j < limit && /[A-Za-z0-9_$]/.test(source[j])) j++;
+  return { name: source.slice(i, j), end: j };
+}
+
+function readValue(source, i, limit) {
+  const c = source[i];
+  if (c === "'" || c === '"' || c === '`') {
+    const end = scanString(source, i);
+    if (end === null || end > limit) return null;
+    return { text: source.slice(i, end), end };
+  }
+  if (c === '{') {
+    const close = matchBracket(source, i, '{', '}');
+    if (close < 0 || close >= limit) return null;
+    return { text: source.slice(i, close + 1), end: close + 1 };
+  }
+  if (c === '[') {
+    const close = matchBracket(source, i, '[', ']');
+    if (close < 0 || close >= limit) return null;
+    return { text: source.slice(i, close + 1), end: close + 1 };
+  }
+  let j = i;
+  let paren = 0;
+  while (j < limit) {
+    const cur = source[j];
+    const next = source[j + 1];
+    if (cur === '/' && (next === '/' || next === '*') && paren === 0) break;
+    if (cur === "'" || cur === '"' || cur === '`') {
+      const end = scanString(source, j);
+      if (end === null || end > limit) return null;
+      j = end;
+      continue;
+    }
+    if (cur === '(') paren++;
+    else if (cur === ')') {
+      if (paren === 0) break;
+      paren--;
+    } else if (paren === 0 && (cur === ',' || cur === '}' || cur === ']')) break;
+    else if (cur === '{' || cur === '[') {
+      const close = matchBracket(source, j, cur, cur === '{' ? '}' : ']');
+      if (close < 0 || close >= limit) return null;
+      j = close + 1;
+      continue;
+    }
+    j++;
+  }
+  const text = source.slice(i, j).trim();
+  if (!text) return null;
+  return { text, end: j };
+}
+
+function parseEntryFields(entry) {
+  const fields = new Map();
+  let i = 1;
+  const end = entry.length - 1;
+  while (i < end) {
+    i = scanPastTrivia(entry, i);
+    if (i < 0) return { error: 'unterminated comment in a module entry' };
+    if (i >= end) break;
+    const key = readIdent(entry, i, end);
+    if (!key) return { error: 'unreadable field in a module entry' };
+    i = scanPastTrivia(entry, key.end);
+    if (i < 0) return { error: 'unterminated comment in a module entry' };
+    if (i >= end || entry[i] !== ':') return { error: `field ${key.name} is missing :` };
+    i = scanPastTrivia(entry, i + 1);
+    if (i < 0) return { error: 'unterminated comment in a module entry' };
+    if (i >= end) return { error: `field ${key.name} has an unreadable value` };
+    const value = readValue(entry, i, end);
+    if (!value) return { error: `field ${key.name} has an unreadable value` };
+    if (fields.has(key.name)) return { error: `duplicate field ${key.name}` };
+    fields.set(key.name, value.text);
+    i = scanPastTrivia(entry, value.end);
+    if (i < 0) return { error: 'unterminated comment in a module entry' };
+    if (i < end && entry[i] === ',') {
+      i++;
+      continue;
+    }
+    if (i < end) return { error: `field ${key.name} is not followed by a comma` };
+  }
+  return { fields };
+}
+
+function parseQuotedName(text) {
+  const match = text.match(/^(['"])([A-Za-z0-9_-]+)\1$/);
+  return match ? match[2] : null;
+}
+
+function parsePlanes(text) {
+  if (!text.startsWith('[') || !text.endsWith(']')) return null;
+  const inner = text.slice(1, -1);
+  const planes = [];
+  let i = 0;
+  while (i < inner.length) {
+    i = scanPastTrivia(inner, i);
+    if (i < 0) return null;
+    if (i >= inner.length) break;
+    if (inner[i] !== "'" && inner[i] !== '"') return null;
+    const end = scanString(inner, i);
+    if (end === null) return null;
+    const name = parseQuotedName(inner.slice(i, end));
+    if (name === null) return null;
+    planes.push(name);
+    i = scanPastTrivia(inner, end);
+    if (i < 0) return null;
+    if (i < inner.length && inner[i] === ',') {
+      i++;
+      continue;
+    }
+    if (i < inner.length) return null;
+  }
+  return planes;
+}
+
+function parseCustodial(text) {
+  if (text === 'true') return true;
+  if (text === 'false') return false;
+  return null;
+}
+
+function classifyEntry(entrySource) {
+  const parsed = parseEntryFields(entrySource);
+  if (parsed.error) return { error: parsed.error };
+  for (const name of ['service', 'planes', 'custodial']) {
+    if (!parsed.fields.has(name)) return { error: `module entry is missing ${name}` };
+  }
+  const service = parseQuotedName(parsed.fields.get('service').trim());
+  const planes = parsePlanes(parsed.fields.get('planes').trim());
+  const custodial = parseCustodial(parsed.fields.get('custodial').trim());
+  if (service === null || planes === null || custodial === null) {
+    return { error: 'module entry service, planes, or custodial is not a literal' };
+  }
+  return { service, planes, custodial };
+}
+
+function parseRegistryEntries(source, bodyStart, bodyEnd) {
+  const entries = [];
+  let i = bodyStart;
+  while (i < bodyEnd) {
+    i = scanPastTrivia(source, i);
+    if (i < 0) return { error: 'unterminated comment in MODULES' };
+    if (i >= bodyEnd) break;
+    const key = readKey(source, i, bodyEnd);
+    if (!key) return { error: 'unreadable module key in MODULES' };
+    i = scanPastTrivia(source, key.end);
+    if (i < 0) return { error: 'unterminated comment in MODULES' };
+    if (i >= bodyEnd || source[i] !== ':') return { error: 'module entry is missing :' };
+    i = scanPastTrivia(source, i + 1);
+    if (i < 0) return { error: 'unterminated comment in MODULES' };
+    if (i >= bodyEnd || source[i] !== '{') return { error: 'module entry is not an object' };
+    const close = matchBracket(source, i, '{', '}');
+    if (close < 0 || close >= bodyEnd) return { error: 'module entry object is unterminated' };
+    entries.push(source.slice(i, close + 1));
+    i = scanPastTrivia(source, close + 1);
+    if (i < 0) return { error: 'unterminated comment in MODULES' };
+    if (i < bodyEnd && source[i] === ',') {
+      i++;
+      continue;
+    }
+    if (i < bodyEnd) return { error: 'module entries must be separated by commas' };
+  }
+  return { entries };
+}
+
+/**
+ * Protocol-only, non-custodial services in `export const MODULES`.
+ * Field order and quote style do not matter. A nested `}` does not end an
+ * entry. An entry that has service, planes, or custodial but is not a literal
+ * fails the whole parse — a partial list must not look clean.
+ */
+function classifyProtocolPlaneServices(source) {
+  const located = findModulesBody(source);
+  if (located.error) return { ok: false, reason: located.error };
+  const registry = parseRegistryEntries(source, located.bodyStart, located.bodyEnd);
+  if (registry.error) return { ok: false, reason: registry.error };
+  if (registry.entries.length === 0) {
+    return { ok: false, reason: 'parsed MODULES and found no module entry' };
+  }
+  const derived = [];
+  for (const entry of registry.entries) {
+    const item = classifyEntry(entry);
+    if (item.error) {
+      return {
+        ok: false,
+        reason: `registry parse is partial (${item.error}). A protocol service in another shape must not be omitted.`,
+      };
+    }
+    if (item.planes.length === 1 && item.planes[0] === 'protocol' && item.custodial === false) derived.push(item.service);
+  }
+  if (derived.length === 0) {
+    return { ok: false, reason: 'parsed the registry and found no Protocol Plane module' };
+  }
+  return { ok: true, services: [...new Set(derived)].sort() };
+}
+
 function deriveProtocolPlaneServices() {
   if (!existsSync(MODULES_TS)) {
     console.error(`\n✖ CUSTODY SCAN FAILED — cannot read the module registry at ${relative(ROOT, MODULES_TS)}\n`);
@@ -96,26 +493,183 @@ function deriveProtocolPlaneServices() {
     process.exit(1);
   }
 
-  const source = readFileSync(MODULES_TS, 'utf8');
-  // One module literal per entry: `id: { id: 'x', service: 'svc-x', planes: [...], phase: '..', custodial: false }`.
-  const entry = /service:\s*'([^']+)'[^}]*?planes:\s*\[([^\]]*)\][^}]*?custodial:\s*(true|false)/g;
-  const derived = [];
-  let match;
-  while ((match = entry.exec(source)) !== null) {
-    const [, service, planesRaw, custodial] = match;
-    const planes = [...planesRaw.matchAll(/'([^']+)'/g)].map((m) => m[1]);
-    if (planes.length === 1 && planes[0] === 'protocol' && custodial === 'false') derived.push(service);
-  }
-
-  if (derived.length === 0) {
+  const result = classifyProtocolPlaneServices(readFileSync(MODULES_TS, 'utf8'));
+  if (!result.ok) {
     console.error(`\n✖ CUSTODY SCAN FAILED — parsed ${relative(ROOT, MODULES_TS)} and found no Protocol Plane module\n`);
+    console.error(`  ${result.reason}\n`);
     console.error('  Either the registry changed shape or every protocol module became custodial. Both need a human.\n');
-    console.error('  This is a fail-closed guard: scanning an empty set and printing ✓ is the bug it exists to prevent.\n');
+    console.error('  A partial parse is the same failure: one matched entry must not hide a protocol service.\n');
+    console.error('  This is a fail-closed guard: scanning an empty or partial set and printing ✓ is the bug it exists to prevent.\n');
     process.exit(1);
   }
-
-  return derived.sort();
+  return result.services;
 }
+
+function registryFixture(body) {
+  return `export const PLANES = ['fiat', 'protocol'] as const;\nexport const MODULES: Readonly<Record<string, unknown>> = {\n${body}\n};\n`;
+}
+
+function sameServiceSet(got, expected) {
+  if (!Array.isArray(got) || got.length !== expected.length) return false;
+  const left = [...got].sort();
+  const right = [...expected].sort();
+  return left.every((name, index) => name === right[index]);
+}
+
+/**
+ * Hermetic fixtures. No secret values. Proves a second protocol service in
+ * another shape is not dropped just because one canonical entry matched.
+ */
+function selfTest() {
+  const fails = [];
+  let checks = 0;
+  const assert = (cond, message) => {
+    checks++;
+    if (!cond) fails.push(message);
+  };
+  const described = (result) => (result.ok ? result.services.join(',') : `FAIL:${result.reason}`);
+
+  const canonical = classifyProtocolPlaneServices(
+    registryFixture(
+      [
+        "  // custodial:false service: 'svc-comment' must not count",
+        "  /** planes: ['protocol'], custodial: false */",
+        "  dex: { id: 'dex', service: 'svc-dex', planes: ['protocol'], phase: '5', custodial: false },",
+        "  edge: { id: 'edge', service: 'svc-edge', planes: ['fiat', 'protocol'], phase: '1', custodial: false },",
+        "  pay: { id: 'pay', service: 'svc-pay', planes: ['fiat'], phase: '3', custodial: true },",
+        "  bridge: { id: 'bridge', service: 'svc-bridge', planes: ['fiat', 'protocol'], phase: '4P', custodial: true },",
+        "  chain: { id: 'chain', service: 'svc-chain', planes: ['protocol'], phase: '4P', custodial: false },",
+      ].join('\n'),
+    ),
+  );
+  assert(canonical.ok === true, `canonical registry parses (${described(canonical)})`);
+  assert(sameServiceSet(canonical.services, ['svc-chain', 'svc-dex']), `canonical services (${described(canonical)})`);
+
+  const doubled = classifyProtocolPlaneServices(
+    registryFixture(
+      [
+        "  dex: { id: 'dex', service: 'svc-dex', planes: ['protocol'], phase: '5', custodial: false },",
+        '  hidden: { id: "hidden", service: "svc-hidden", planes: ["protocol"], phase: "9", custodial: false },',
+      ].join('\n'),
+    ),
+  );
+  assert(
+    doubled.ok === true && sameServiceSet(doubled.services, ['svc-dex', 'svc-hidden']),
+    `double-quoted protocol service is examined (${described(doubled)})`,
+  );
+
+  const reordered = classifyProtocolPlaneServices(
+    registryFixture(
+      [
+        "  dex: { id: 'dex', service: 'svc-dex', planes: ['protocol'], phase: '5', custodial: false },",
+        "  hidden: {",
+        "    custodial: false,",
+        "    phase: '9',",
+        "    planes: ['protocol'],",
+        "    id: 'hidden',",
+        "    service: 'svc-hidden',",
+        '  },',
+      ].join('\n'),
+    ),
+  );
+  assert(
+    reordered.ok === true && sameServiceSet(reordered.services, ['svc-dex', 'svc-hidden']),
+    `reordered protocol service is examined (${described(reordered)})`,
+  );
+
+  const planesAfterCustodial = classifyProtocolPlaneServices(
+    registryFixture(
+      [
+        "  dex: { service: 'svc-dex', planes: ['protocol'], custodial: false },",
+        "  hidden: { service: 'svc-hidden', custodial: false, planes: ['protocol'] },",
+      ].join('\n'),
+    ),
+  );
+  assert(
+    planesAfterCustodial.ok === true && sameServiceSet(planesAfterCustodial.services, ['svc-dex', 'svc-hidden']),
+    `planes after custodial is examined (${described(planesAfterCustodial)})`,
+  );
+
+  const nested = classifyProtocolPlaneServices(
+    registryFixture(
+      [
+        "  dex: { service: 'svc-dex', planes: ['protocol'], custodial: false },",
+        "  hidden: { service: 'svc-hidden', meta: { note: 'x' }, planes: ['protocol'], custodial: false },",
+      ].join('\n'),
+    ),
+  );
+  assert(
+    nested.ok === true && sameServiceSet(nested.services, ['svc-dex', 'svc-hidden']),
+    `nested brace does not hide a protocol service (${described(nested)})`,
+  );
+
+  const decoy = classifyProtocolPlaneServices(
+    registryFixture(
+      [
+        "  dex: { service: 'svc-dex', planes: ['protocol'], custodial: false },",
+        `  note: { service: 'svc-note', planes: ['protocol'], custodial: false, decoy: "{ service: 'svc-decoy', planes: ['protocol'], custodial: false }" },`,
+      ].join('\n'),
+    ),
+  );
+  assert(
+    decoy.ok === true && sameServiceSet(decoy.services, ['svc-dex', 'svc-note']),
+    `string decoy is not a second service (${described(decoy)})`,
+  );
+
+  const unreadable = classifyProtocolPlaneServices(
+    registryFixture(
+      [
+        "  dex: { service: 'svc-dex', planes: ['protocol'], custodial: false },",
+        "  hidden: { service: nameOf('hidden'), planes: ['protocol'], custodial: false },",
+      ].join('\n'),
+    ),
+  );
+  assert(unreadable.ok === false, `unreadable service is not a clean partial parse (${described(unreadable)})`);
+
+  const spread = classifyProtocolPlaneServices(
+    registryFixture(
+      [
+        "  dex: { service: 'svc-dex', planes: ['protocol'], custodial: false },",
+        "  hidden: { service: 'svc-hidden', planes: ['protocol', ...extra], custodial: false },",
+      ].join('\n'),
+    ),
+  );
+  assert(spread.ok === false, `spread planes is not a clean partial parse (${described(spread)})`);
+
+  const onlyFiat = classifyProtocolPlaneServices(
+    registryFixture("  pay: { service: 'svc-pay', planes: ['fiat'], custodial: true },"),
+  );
+  assert(onlyFiat.ok === false, `zero protocol modules still fails closed (${described(onlyFiat)})`);
+
+  const missing = classifyProtocolPlaneServices(
+    "export const OTHER = { dex: { service: 'svc-dex', planes: ['protocol'], custodial: false } };",
+  );
+  assert(missing.ok === false, `missing MODULES is not a clean scan (${described(missing)})`);
+
+  if (!existsSync(MODULES_TS)) {
+    assert(false, 'live modules.ts is missing');
+  } else {
+    const live = classifyProtocolPlaneServices(readFileSync(MODULES_TS, 'utf8'));
+    assert(live.ok === true, `live modules.ts parses (${described(live)})`);
+    for (const service of ['svc-dex', 'svc-chain', 'svc-indexer', 'svc-protocol']) {
+      assert(live.ok === true && live.services.includes(service), `live registry examines ${service} (${described(live)})`);
+    }
+    for (const service of ['svc-bridge', 'svc-pay', 'svc-edge', 'svc-ledger']) {
+      assert(live.ok === true && !live.services.includes(service), `live registry does not treat ${service} as protocol-only (${described(live)})`);
+    }
+  }
+
+  if (fails.length > 0) {
+    console.error(`custody-scan --self-test FAIL (${fails.length}/${checks}):`);
+    for (const failure of fails) console.error(`  · ${failure}`);
+    process.exit(1);
+  }
+  console.log(`custody-scan --self-test OK (${checks} checks)`);
+  process.exit(0);
+}
+
+const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+if (isDirectRun && process.argv.includes('--self-test')) selfTest();
 
 const PROTOCOL_PLANE_SERVICES = deriveProtocolPlaneServices();
 
