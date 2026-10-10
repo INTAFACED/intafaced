@@ -4,9 +4,12 @@
 --
 -- An approved row whose checker is the maker is refused, at any amount. An
 -- approved row with no checker is refused when its amount is at or above the
--- account's spend_threshold. A blank or whitespace-only checker is not present:
--- btrim(checker_user_id) = '' is the same as NULL for that over-threshold rule.
--- An approved row below the threshold with no checker still stores: the service
+-- account's spend_threshold. A checker that trims to empty is not present, and
+-- a checker that trims to the maker is the maker. The CHECK and the trigger
+-- use one trim: btrim(id, E' \t\n\r\f' || chr(11) || chr(160)). That set is
+-- space, tab, LF, CR, form feed, vertical tab, and NBSP. Bare btrim() strips
+-- only U+0020, and E'\v' is the letter v, so vertical tab is chr(11). An
+-- approved row below the threshold with no checker still stores: the service
 -- records an under-threshold spend that way (single control, posted at propose).
 -- Pending, rejected and cancelled rows are not constrained here; a maker may
 -- cancel their own proposal.
@@ -25,7 +28,8 @@ ALTER TABLE "bank"."business_approvals"
   CHECK (
     "status" <> 'approved'
     OR "checker_user_id" IS NULL
-    OR "checker_user_id" <> "maker_user_id"
+    OR btrim("checker_user_id", E' \t\n\r\f' || chr(11) || chr(160))
+         <> btrim("maker_user_id", E' \t\n\r\f' || chr(11) || chr(160))
   ) NOT VALID;
 
 CREATE OR REPLACE FUNCTION "bank"."business_approvals_over_threshold_checker"() RETURNS trigger
@@ -34,7 +38,10 @@ DECLARE
   threshold numeric;
 BEGIN
   IF NEW."status" = 'approved'
-     AND (NEW."checker_user_id" IS NULL OR btrim(NEW."checker_user_id") = '') THEN
+     AND (
+       NEW."checker_user_id" IS NULL
+       OR btrim(NEW."checker_user_id", E' \t\n\r\f' || chr(11) || chr(160)) = ''
+     ) THEN
     SELECT "spend_threshold" INTO threshold
       FROM "bank"."business_accounts"
      WHERE "id" = NEW."account_id";
