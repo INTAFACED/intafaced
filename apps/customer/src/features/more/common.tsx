@@ -1,5 +1,8 @@
-import { copy, t as copyText, Text } from './copy';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { copy as legacyCopy, t as copyText, Text } from './copy';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
+import { createMoreActionJournal, morePendingKey, type MoreKnown } from './more-action-journal';
+import { moreActionCopy } from './more-action-copy';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
@@ -107,19 +110,11 @@ export function Details({ items }: { items: readonly [string, ReactNode][] }) {
     </dl>
   );
 }
-type Pending = { id: string; title: string; reference?: string };
 // Presentation may follow View while the staged operation and journal stay fixed.
 type Presented<T> = T | (() => T);
 function present<T>(value: Presented<T>): T {
   return typeof value === 'function' ? (value as () => T)() : value;
 }
-type LocalFailureKey =
-  | 'common.the.account.or.pending.request.changed.review'
-  | 'common.recovery.storage.is.unavailable.no.action.was'
-  | 'common.the.connection.ended.before.the.service.confirmed'
-  | 'common.this.account.has.an.action.running.in'
-  | 'common.this.browser.has.no.cross.tab.mutation'
-  | 'common.the.original.outcome.lookup.could.not.be';
 type FailurePresentation = (locale: UiLocale) => { message: string; language: UiLocale };
 const failurePresentations = new WeakMap<object, FailurePresentation>();
 /** Academy's compatible action hook shares authored failure presentation only. */
@@ -134,170 +129,244 @@ export function presentActionFailure<T extends Extract<ApiResult<unknown>, { ok:
   failurePresentations.set(result, presentation);
   return result;
 }
-function localRefusal(reason: Extract<ApiResult<unknown>, { ok: false }>['reason'], key: LocalFailureKey) {
-  return presentActionFailure({ ok: false as const, reason, message: copyText(key) }, (locale) => {
-    const current = copy.forLocale(locale);
-    return { message: current.t(key), language: current.languageFor(key) };
-  });
-}
-function pendingAt(key: string): Pending | null {
-  let raw: string | null;
-  try {
-    raw = localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as Pending;
-    if (typeof parsed.id === 'string' && typeof parsed.title === 'string') return parsed;
-  } catch {}
-  return { id: 'legacy', title: copyText('common.earlier.request.with.unreadable.recovery.metadata') };
-}
 
+type Stage = {
+  title: Presented<string>;
+  content: Presented<ReactNode>;
+  confirm: Presented<string>;
+  reference?: string;
+  run: (canDispatch: () => boolean) => Promise<ApiResult<unknown>>;
+  done?: () => void;
+  success: Presented<string>;
+};
+type Review = Stage & { journalTitle: string; epoch: number };
 export function useAction(room: string, recovery?: { recover: (reference: string) => Promise<ApiResult<unknown>>; done?: () => void }) {
-  const { userId } = useSession();
+  const { userId, api, session } = useSession();
   const { language } = usePreferences();
-  const actor = useRef(userId);
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-  actor.current = userId;
-  const key = `intafaced:more:pending:${userId ?? 'anonymous'}:${room}`,
-    running = useRef(new Set<string>());
-  const [state, setState] = useState<{ key: string; busy: boolean; result: ApiResult<unknown> | null; success: Presented<string> }>({
-    key,
-    busy: false,
+  const key = morePendingKey(userId ?? 'anonymous', room);
+  const owner = useRef({ userId, api, session, key, href: location.href, epoch: 0 });
+  if (
+    owner.current.userId !== userId ||
+    owner.current.api !== api ||
+    owner.current.session !== session ||
+    owner.current.key !== key ||
+    owner.current.href !== location.href
+  )
+    owner.current = { userId, api, session, key, href: location.href, epoch: owner.current.epoch + 1 };
+  const context = owner.current;
+  const lifetime = useRef({ context, mounted: true });
+  lifetime.current.context = context;
+  const model = useRef<{ key: string; api: typeof api; value: ReturnType<typeof createMoreActionJournal> } | null>(null);
+  if (!model.current || model.current.key !== key || model.current.api !== api)
+    model.current = { key, api, value: createMoreActionJournal(key) };
+  const journal = model.current.value;
+  const live = () =>
+    Boolean(
+      userId &&
+      lifetime.current.mounted &&
+      lifetime.current.context === context &&
+      owner.current === context &&
+      location.href === context.href &&
+      api.canWrite(),
+    );
+  const interaction = useRef(0),
+    admitted = useRef<Review | null>(null),
+    operation = useRef<object | null>(null);
+  const original = useRef<{ raw: string | null; context: typeof context; identity: object } | null>(null);
+  const [revision, invalidate] = useState(0);
+  const [state, setState] = useState<{ context: typeof context; result: ApiResult<unknown> | null; success: Presented<string> }>({
+    context,
     result: null,
     success: '',
   });
-  const [review, setReview] = useState<{
-    key: string;
-    title: Presented<string>;
-    journalTitle: string;
-    content: Presented<ReactNode>;
-    confirm: Presented<string>;
-    reference?: string;
-    run: (canDispatch: () => boolean) => Promise<ApiResult<unknown>>;
-    done?: () => void;
-    success: Presented<string>;
-  } | null>(null);
-  const current = state.key === key ? state : { key, busy: false, result: null, success: '' },
-    pending = pendingAt(key);
-  useEffect(() => {
-    setReview(null);
-    const listener = (event: StorageEvent) => {
-      if (event.key === key) {
-        setReview(null);
-        setState({ key, busy: false, result: null, success: '' });
+  const snapshot = journal.inspect(live),
+    saved = snapshot.saved;
+  const raw = saved.status === 'present' ? saved.raw : null;
+  if (original.current?.raw !== raw || original.current.context !== context) original.current = { raw, context, identity: {} };
+  const capturedOriginal = original.current;
+  const shown = state.context === context && live() ? state : { context, result: null, success: '' };
+  const redraw = () => invalidate((n) => n + 1);
+  const update = (result: ApiResult<unknown> | null, success: Presented<string> = '') => {
+    if (live()) setState({ context, result, success });
+  };
+  function retire() {
+    interaction.current++;
+    admitted.current = null;
+    original.current = null;
+  }
+  useLayoutEffect(() => {
+    lifetime.current.mounted = true;
+    const departed = () => {
+      if (owner.current.href === location.href) return;
+      owner.current = { ...owner.current, href: location.href, epoch: owner.current.epoch + 1 };
+      lifetime.current.context = owner.current;
+      retire();
+      flushSync(redraw);
+    };
+    window.addEventListener('popstate', departed);
+    window.addEventListener('hashchange', departed);
+    return () => {
+      lifetime.current.mounted = false;
+      retire();
+      window.removeEventListener('popstate', departed);
+      window.removeEventListener('hashchange', departed);
+    };
+  }, []);
+  useLayoutEffect(() => {
+    retire();
+    operation.current = null;
+    const changed = (event: StorageEvent) => {
+      if (event.key === key || event.key === null) {
+        retire();
+        journal.invalidateKnown();
+        update(null);
+        redraw();
       }
     };
-    window.addEventListener('storage', listener);
-    return () => window.removeEventListener('storage', listener);
-  }, [key]);
-  function stage(input: Omit<NonNullable<typeof review>, 'key' | 'journalTitle'>) {
-    if (!userId || current.busy || pendingAt(key) || running.current.has(key)) return;
-    setReview({ ...input, key, journalTitle: present(input.title) });
+    window.addEventListener('storage', changed);
+    redraw();
+    return () => window.removeEventListener('storage', changed);
+  }, [context]);
+  function stage(input: Stage) {
+    const current = journal.inspect(live);
+    if (!live() || operation.current || current.saved.status !== 'empty' || current.known) return;
+    admitted.current = { ...input, epoch: ++interaction.current, journalTitle: present(input.title) };
+    update(null);
+    redraw();
   }
-  function clear(marker: Pending) {
-    if (pendingAt(key)?.id === marker.id) localStorage.removeItem(key);
+  function dismiss(request: Review) {
+    if (!live() || admitted.current !== request || operation.current) return;
+    retire();
+    redraw();
   }
-  async function send() {
-    const request = review;
-    if (!request || request.key !== key || !userId || current.busy || pendingAt(key) || running.current.has(key)) return;
-    const identity = userId;
-    running.current.add(key);
-    setReview(null);
-    setState({ key, busy: true, result: null, success: '' });
-    const operation = async (): Promise<ApiResult<unknown>> => {
-      if (!mounted.current || actor.current !== identity || pendingAt(key))
-        return localRefusal('aborted', 'common.the.account.or.pending.request.changed.review');
-      const marker = {
-        id: crypto.randomUUID(),
-        title: request.journalTitle,
-        ...(request.reference ? { reference: request.reference } : {}),
-      };
-      try {
-        localStorage.setItem(key, JSON.stringify(marker));
-      } catch {
-        return localRefusal('error', 'common.recovery.storage.is.unavailable.no.action.was');
-      }
-      let result: ApiResult<unknown>;
-      try {
-        result = await request.run(() => mounted.current && actor.current === identity && pendingAt(key)?.id === marker.id);
-      } catch {
-        result = localRefusal('uncertain', 'common.the.connection.ended.before.the.service.confirmed');
-      }
-      if (result.ok || result.reason !== 'uncertain') clear(marker);
-      return result;
+  async function send(request: Review) {
+    if (!live() || admitted.current !== request || request.epoch !== interaction.current || operation.current) return;
+    const action = {};
+    operation.current = action;
+    redraw();
+    const current = () => live() && admitted.current === request && request.epoch === interaction.current && operation.current === action;
+    const result = await journal.execute(
+      { id: crypto.randomUUID(), title: request.journalTitle, ...(request.reference ? { reference: request.reference } : {}) },
+      request.run,
+      current,
+      live,
+    );
+    if (!live() || operation.current !== action) return;
+    const stillReviewed = current();
+    operation.current = null;
+    if (admitted.current === request) admitted.current = null;
+    update(result, stillReviewed && result.ok ? request.success : '');
+    redraw();
+    if (stillReviewed && result.ok) request.done?.();
+  }
+  async function recoverOriginal() {
+    const current = () => {
+      const now = journal.inspect(live).saved;
+      return live() && original.current === capturedOriginal && now.status === 'present' && now.raw === raw;
     };
-    let result: ApiResult<unknown>;
-    if (navigator.locks)
-      result = await navigator.locks.request(`more-action:${key}`, { ifAvailable: true }, (lock) =>
-        lock ? operation() : Promise.resolve(localRefusal('error', 'common.this.account.has.an.action.running.in')),
-      );
-    else result = localRefusal('not_supported', 'common.this.browser.has.no.cross.tab.mutation');
-    running.current.delete(key);
-    if (!mounted.current || actor.current !== identity) return;
-    setState({ key, busy: false, result, success: result.ok ? request.success : '' });
-    if (result.ok) request.done?.();
-  }
-  async function recover() {
-    const marker = pendingAt(key);
-    if (!marker?.reference || !recovery || !userId || running.current.has(key)) return;
-    const identity = userId;
-    running.current.add(key);
-    setState({ key, busy: true, result: null, success: '' });
-    let result: ApiResult<unknown>;
-    try {
-      result = await recovery.recover(marker.reference);
-    } catch {
-      result = localRefusal('unreachable', 'common.the.original.outcome.lookup.could.not.be');
+    if (!raw || !recovery || saved.status !== 'present' || !saved.value.reference || snapshot.known || operation.current || !current())
+      return;
+    const action = {};
+    operation.current = action;
+    update(null);
+    redraw();
+    const result = await journal.recover(raw, recovery.recover, () => current() && operation.current === action, live);
+    if (!live() || operation.current !== action) return;
+    const after = journal.inspect(live).saved;
+    const ownCleanup = result.ok && after.status === 'empty' && original.current === capturedOriginal;
+    operation.current = null;
+    if (!current() && !ownCleanup) {
+      redraw();
+      return;
     }
-    running.current.delete(key);
-    if (!mounted.current || actor.current !== identity) return;
-    if (result.ok) {
-      clear(marker);
-      recovery.done?.();
-    }
-    setState({ key, busy: false, result, success: result.ok ? () => copyText('common.original.outcome.verified') : '' });
+    update(result, result.ok ? () => copyText('common.original.outcome.verified') : '');
+    redraw();
+    if (result.ok) recovery.done?.();
   }
-  const failurePresentation = current.result ? failurePresentations.get(current.result)?.(language) : undefined;
+  async function cleanup(proof: MoreKnown) {
+    if (!live() || journal.inspect(live).known !== proof || operation.current) return;
+    const action = {};
+    operation.current = action;
+    redraw();
+    await journal.cleanup(proof, () => live() && operation.current === action);
+    if (!live() || operation.current !== action) return;
+    operation.current = null;
+    redraw();
+  }
+  const failure = shown.result && !shown.result.ok ? shown.result : null;
+  const presentation = failure ? failurePresentations.get(failure)?.(language) : undefined;
+  const copy = moreActionCopy.forLocale(language);
+  const problem = failure?.code?.startsWith('more.original_') ? failure.code.slice('more.original_'.length) : null;
+  const problemKey =
+    problem === 'busy'
+      ? 'common.this.account.has.an.action.running.in'
+      : problem === 'locks-unavailable'
+        ? 'common.this.browser.has.no.cross.tab.mutation'
+        : problem === 'connection'
+          ? 'common.the.connection.ended.before.the.service.confirmed'
+          : problem === 'lookup'
+            ? 'common.the.original.outcome.lookup.could.not.be'
+            : problem === 'changed' || problem === 'pending'
+              ? 'common.the.account.or.pending.request.changed.review'
+              : 'common.recovery.storage.is.unavailable.no.action.was';
   const feedback = (
     <>
-      {current.busy ? (
+      {operation.current ? (
         <Loading label={copyText('common.waiting.for.the.service')} />
-      ) : current.result && !current.result.ok ? (
-        <div lang={failurePresentation?.language ?? 'und'} style={{ display: 'contents' }}>
+      ) : failure ? (
+        <div lang={problem ? language : (presentation?.language ?? 'und')} style={{ display: 'contents' }}>
           <Failure
             result={
-              failurePresentation ? { ...current.result, message: failurePresentation.message, messageCopy: undefined } : current.result
+              problem
+                ? { ...failure, message: legacyCopy.forLocale(language).t(problemKey) }
+                : presentation
+                  ? { ...failure, message: presentation.message, messageCopy: undefined }
+                  : failure
             }
           />
         </div>
-      ) : current.success ? (
-        <p className="more-success" role="status" lang={typeof current.success === 'function' ? language : 'und'}>
-          {present(current.success)}
+      ) : shown.success ? (
+        <p className="more-success" role="status" lang={typeof shown.success === 'function' ? language : 'und'}>
+          {present(shown.success)}
         </p>
       ) : null}
-      {pending && !current.busy ? (
+      {snapshot.known && !operation.current ? (
+        <div className="failure" role="alert" lang={language}>
+          <p>{copy.t('cleanup')}</p>
+          <code lang="zxx" style={{ overflowWrap: 'anywhere' }}>
+            {JSON.parse(snapshot.known.raw).reference ?? JSON.parse(snapshot.known.raw).id}
+          </code>
+          <Button variant="secondary" onClick={() => void cleanup(snapshot.known!)}>
+            {copy.t('retryCleanup')}
+          </Button>
+        </div>
+      ) : saved.status === 'unreadable' && !operation.current ? (
+        <div className="failure" role="alert" lang={language}>
+          <h3>{copy.t('storageTitle')}</h3>
+          <p>{copy.t('storageBody')}</p>
+          <Button variant="secondary" onClick={redraw}>
+            {copy.t('retryStorage')}
+          </Button>
+        </div>
+      ) : saved.status === 'present' && !operation.current ? (
         <div className="failure" role="alert">
-          {!current.result && (
+          {!shown.result && (
             <h3>
               <Text k="common.outcome.not.confirmed" />
             </h3>
           )}
           <p>
             <Text k="common.earlier.request" />
-            <span lang="und">{pending.title}</span>. {pending.reference && <code lang="zxx">{pending.reference}</code>}
+            <span lang="und">{saved.value.title}</span>.{' '}
+            {saved.value.reference && (
+              <code lang="zxx" style={{ overflowWrap: 'anywhere' }}>
+                {saved.value.reference}
+              </code>
+            )}
             <Text k="common.read.its.original.records.before.continuing" />
           </p>
-          {pending.reference && recovery ? (
-            <Button variant="secondary" onClick={() => void recover()}>
+          {saved.value.reference && recovery ? (
+            <Button variant="secondary" onClick={() => void recoverOriginal()}>
               <Text k="common.check.original.outcome" />
             </Button>
           ) : (
@@ -309,14 +378,15 @@ export function useAction(room: string, recovery?: { recover: (reference: string
       ) : null}
     </>
   );
+  const request = admitted.current;
   const dialog =
-    review && review.key === key ? (
+    live() && request && request.epoch === interaction.current && !operation.current ? (
       <Dialog
-        title={<span lang={typeof review.title === 'function' ? language : 'und'}>{present(review.title)}</span>}
-        onClose={() => setReview(null)}
+        title={<span lang={typeof request.title === 'function' ? language : 'und'}>{present(request.title)}</span>}
+        onClose={() => dismiss(request)}
       >
-        <div lang={typeof review.content === 'function' ? language : 'und'} style={{ display: 'contents' }}>
-          {present(review.content)}
+        <div lang={typeof request.content === 'function' ? language : 'und'} style={{ display: 'contents' }}>
+          {present(request.content)}
         </div>
         <p className="muted">
           <Text k="common.acting.as.account" />
@@ -324,21 +394,22 @@ export function useAction(room: string, recovery?: { recover: (reference: string
           <Text k="common.the.service.enforces.your.scope.and.jurisdiction" />
         </p>
         <div className="actions">
-          <Button variant="secondary" onClick={() => setReview(null)}>
+          <Button variant="secondary" onClick={() => dismiss(request)}>
             <Text k="common.back" />
           </Button>
-          <Button lang={typeof review.confirm === 'function' ? language : 'und'} onClick={() => void send()}>
-            {present(review.confirm)}
+          <Button lang={typeof request.confirm === 'function' ? language : 'und'} onClick={() => void send(request)}>
+            {present(request.confirm)}
           </Button>
         </div>
       </Dialog>
     ) : null;
+  void revision;
   return {
     stage,
     feedback,
     dialog,
-    isCurrent: () => mounted.current && actor.current === userId,
-    result: current.result,
-    disabled: current.busy || Boolean(pending) || !userId,
+    isCurrent: live,
+    result: shown.result,
+    disabled: Boolean(operation.current || saved.status !== 'empty' || snapshot.known || !live()),
   };
 }
