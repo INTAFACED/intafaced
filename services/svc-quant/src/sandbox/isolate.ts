@@ -162,6 +162,14 @@ function valuesEqual(a: Val, b: Val): boolean {
   return stringify(a) === stringify(b);
 }
 
+function isTruthy(v: Val): boolean {
+  // "0" is a non-empty string. An amount is truthy only when the scaled value is not zero.
+  if (typeof v === 'boolean') return v;
+  if (isAmountString(v)) return parseAmount(v) !== 0n;
+  if (typeof v === 'string') return v !== '';
+  return v !== null;
+}
+
 export function runIsolate(language: Language, source: string, book: PaperBook, limits: IsolateLimits, wired: boolean): IsolateResult {
   const maxSource = assertPublishedSandboxMaxSource(limits.maxSource);
   const maxOps = assertPublishedSandboxMaxOps(limits.maxOps);
@@ -371,7 +379,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
   const parseUnary = (): Val => {
     if (tryOp('!')) {
       const v = parseUnary();
-      return !v;
+      return !isTruthy(v);
     }
     if (tryOp('-')) {
       const v = parseUnary();
@@ -486,14 +494,14 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
     if (t.k === 'id' && t.v === 'if') {
       p++;
       if (!python) eatOp('(');
-      const cond = parseExpr();
+      const pass = isTruthy(parseExpr());
       if (!python) eatOp(')');
       if (python) eatOp(':');
       else eatOp('{');
       // Indentation is discarded, so a python if body is the next statement, not a brace block.
       if (python) {
         while (peek().k === 'nl') p++;
-        if (!cond) {
+        if (!pass) {
           const prev = live;
           live = false;
           parseStmt();
@@ -505,7 +513,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
       }
       // else is an identifier. The tokenizer never emits an operator named else.
       const trueBranchStops = (): boolean => peek().k === 'eof' || isOp('}') || isId('else');
-      if (cond) {
+      if (pass) {
         while (!trueBranchStops()) {
           parseStmt();
           skipNl();
@@ -521,13 +529,13 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
         skipNl();
         if (isId('if')) {
           const prev = live;
-          const runElse = !cond && live && !exited;
+          const runElse = !pass && live && !exited;
           if (!runElse) live = false;
           parseStmt();
           if (!exited) live = prev;
         } else {
           eatOp('{');
-          if (!cond && live && !exited) {
+          if (!pass && live && !exited) {
             while (peek().k !== 'eof' && !isOp('}')) {
               parseStmt();
               skipNl();
