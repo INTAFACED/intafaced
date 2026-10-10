@@ -111,8 +111,8 @@ P0-18 itself is the meta-seal for that tracking, not a product number.
 
 ## P0-14 · `DEFAULT_MIN_BEST_LEVEL_*` + mark dust floor
 
-**Status:** **SEALED 2026-08-13** — [`docs/adr/2026-08-13-mark-dust-floor.md`](adr/2026-08-13-mark-dust-floor.md).  
-**Covered in part one item 4.** Keep shipped `'100'` + 100 bps until a real market lists with observed depth. Ties P0-01 Q3 (no inventing a second % cap).
+**Status:** A blank mark-dust limit stays blank and refuse-closed. Shipped placeholders are not the live limit.  
+**Covered in part one item 4.** Do not keep those placeholders as the live mark-dust limit, and do not invent a magnitude. Ties P0-01 Q3 (no inventing a second % cap).
 
 ---
 
