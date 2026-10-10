@@ -14,6 +14,7 @@ export function useKeepKeyboardFocusVisible() {
         pointerFocus ||
         !(target instanceof HTMLElement) ||
         !target.matches(':focus-visible') ||
+        target.matches('main#main[tabindex="-1"]') ||
         target.closest('.mobile-doors, [inert], [hidden], [aria-hidden="true"], dialog, [role="dialog"]') ||
         document.querySelector('dialog[open], [aria-modal="true"]')
       )

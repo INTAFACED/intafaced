@@ -9,6 +9,7 @@ import { AccountRoutes } from '../features/account/AccountRoutes';
 import { ApplyView } from '../features/account/View';
 import { appCopy } from './app-copy';
 import { useKeepKeyboardFocusVisible } from '../shared/keyboard-focus';
+import { useCustomerRoomArrival } from './room-arrival';
 
 function configuredTeamHref(path: string): string | undefined {
   const configured: string | undefined = import.meta.env.VITE_TEAM_URL;
@@ -75,6 +76,7 @@ export function App() {
   const path = current.split('?')[0] ?? '/';
   const room = findRoom(path);
   const { session } = useSession();
+  useCustomerRoomArrival(path, !room || !['public', 'team', 'parked'].includes(room.area), Boolean(room?.alias));
   const teamHref = room?.area === 'team' ? configuredTeamHref(current) : undefined;
   useEffect(() => {
     if (room?.alias) navigate(room.alias + location.search, true);

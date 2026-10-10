@@ -11,24 +11,10 @@ import { Prediction } from './Prediction';
 import { Quant } from './Quant';
 import { Support } from './Support';
 import { Token } from './Token';
-import { preservePaperHref } from './trade-context';
+import { MoreDiscovery } from './MoreDiscovery';
+import { discoveryCopy } from './discovery-copy';
+import type { ReactNode } from 'react';
 import './more.css';
-const rooms = () =>
-  [
-    ['/academy', copyText('moreroutes.academy'), copyText('moreroutes.learning.paths.certificates.hosted.sessions.and.programmes')],
-    ['/agents', copyText('moreroutes.agents'), copyText('moreroutes.read.permissions.run.approved.tasks.and.inspect')],
-    ['/quant', copyText('moreroutes.quant'), copyText('moreroutes.write.strategies.in.a.simulation.sandbox.and')],
-    ['/launch', copyText('moreroutes.launch'), copyText('moreroutes.issuance.listing.and.sale.participation.prerequisites')],
-    ['/market', copyText('moreroutes.market'), copyText('moreroutes.browse.published.listings.and.manage.your.seller')],
-    ['/predict', copyText('moreroutes.prediction'), copyText('moreroutes.read.listed.events.and.their.actual.yes')],
-    ['/mining', copyText('moreroutes.mining'), copyText('moreroutes.pool.connection.and.the.customer.activity.contracts')],
-    ['/token', copyText('moreroutes.token'), copyText('moreroutes.your.exact.stake.projection.access.and.governance')],
-    ['/blueprint', copyText('moreroutes.blueprint'), copyText('moreroutes.your.profile.share.card.mentor.shortlist.and')],
-    ['/support', copyText('moreroutes.support'), copyText('moreroutes.published.help.and.your.support.conversations')],
-    ['/campaigns', copyText('moreroutes.campaigns'), copyText('moreroutes.campaign.participation')],
-    ['/trade/copy', copyText('moreroutes.copy'), copyText('moreroutes.follow.leaders.through.the.trade.permission.and')],
-    ['/trade/bots', copyText('moreroutes.bots'), copyText('moreroutes.inspect.existing.trading.algorithms.and.their.actual')],
-  ] as const;
 export function MoreRoutes({ path }: { path: string }) {
   const { languageFor } = copy.useCopy();
   return (
@@ -42,18 +28,10 @@ function MoreRooms({ path }: { path: string }) {
   const url = new URL(path, location.origin),
     p = url.pathname;
   const paper = url.searchParams.get('simulated') === 'true';
-  let title = copyText('moreroutes.more'),
-    description = copyText('moreroutes.explore.the.rooms.behind.your.everyday.account'),
-    content = (
-      <div className="more-rooms">
-        {rooms().map(([href, name, copy]) => (
-          <a className="more-room-link" href={preservePaperHref(href, paper)} key={href}>
-            <strong>{name}</strong>
-            <p>{copy}</p>
-          </a>
-        ))}
-      </div>
-    );
+  const { Copy } = discoveryCopy.useCopy();
+  let title: ReactNode = <Copy k="heading" />,
+    description: ReactNode = <Copy k="description" />,
+    content = <MoreDiscovery paper={paper} />;
   if (p === '/academy' || p.startsWith('/academy/')) {
     title = copyText('moreroutes.academy');
     description = copyText('moreroutes.learn.practise.and.join.hosted.sessions');
@@ -127,7 +105,7 @@ function MoreRooms({ path }: { path: string }) {
     );
   }
   return (
-    <div className="more-feature">
+    <div className={p === '/more' ? 'more-feature more-feature--discovery' : 'more-feature'}>
       <Page key={userId ?? 'anonymous'} eyebrow={copyText('moreroutes.more')} title={title} description={description}>
         {content}
       </Page>
