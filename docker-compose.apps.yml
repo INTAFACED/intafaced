@@ -574,7 +574,7 @@ services:
       TRADE_MM_SEED_HALF_SPREAD_BPS: ${TRADE_MM_SEED_HALF_SPREAD_BPS:-}
       TRADE_MM_SEED_STEP_BPS: ${TRADE_MM_SEED_STEP_BPS:-}
       TRADE_MM_SEED_LEVELS: ${TRADE_MM_SEED_LEVELS:-3}
-      TRADE_MM_SEED_QTY: ${TRADE_MM_SEED_QTY:-1}
+      TRADE_MM_SEED_QTY: ${TRADE_MM_SEED_QTY}
       TRADE_MM_SEED_STATE_PATH: ${TRADE_MM_SEED_STATE_PATH:-.data/mm-seed-last-run.json}
       # TWAP create vs scheduler (trade.algo). Same process as MM seed — splitting
       # PRs collides on this block. Create defaults ON (matches env.ts); JOBS stay
