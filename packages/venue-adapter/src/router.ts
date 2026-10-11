@@ -205,6 +205,11 @@ export async function planRoute(
   sources: readonly LiquiditySource[],
   options: RouterOptions = {},
 ): Promise<RoutePlan> {
+  // Zero and negative sizes are not orders. Gathering them calls sources and
+  // reports a non-positive unfilled amount instead of refusing.
+  if (request.amount <= 0n) {
+    throw new Error('a non-positive amount is not an order');
+  }
   const opts = {
     ...DEFAULTS,
     ...options,
