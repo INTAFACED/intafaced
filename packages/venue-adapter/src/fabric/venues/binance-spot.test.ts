@@ -862,6 +862,36 @@ describe('BinanceSpotTrade / BinanceSpotAccount without credentials', () => {
     expect(http.requests[0]).toContain('signature=');
   });
 
+  it('records a governor backoff when a signed account read answers 429 or 418', async () => {
+    const clockNow = 1_700_000_000_000;
+    const keys = { venueId: 'binance-spot' as const, apiKey: 'k', apiSecret: 's', scopes: ['read', 'trade'] as const };
+    const policy = { venueId: 'binance-spot', capacity: 6_000, windowMs: 60_000 } as const;
+
+    const http429 = new FakeHttp().queue(null, 429, { 'Retry-After': '30' }).queue({ balances: [] });
+    const governor429 = new RateLimitGovernor(policy, clockNow);
+    const account429 = new BinanceSpotAccount(keys, {
+      http: http429,
+      restBase: 'https://rest.test',
+      clock: () => clockNow,
+      governor: governor429,
+    });
+    await expect(account429.balances()).rejects.toMatchObject({ reason: 'rate_limited' });
+    expect(governor429.backoffUntil(clockNow)).toBe(clockNow + 30_000);
+    await expect(account429.balances()).rejects.toMatchObject({ reason: 'rate_limited' });
+    expect(http429.requests).toHaveLength(1);
+
+    const http418 = new FakeHttp().queue(null, 418, {});
+    const governor418 = new RateLimitGovernor(policy, clockNow);
+    const account418 = new BinanceSpotAccount(keys, {
+      http: http418,
+      restBase: 'https://rest.test',
+      clock: () => clockNow,
+      governor: governor418,
+    });
+    await expect(account418.balances()).rejects.toMatchObject({ reason: 'rate_limited' });
+    expect(governor418.backoffUntil(clockNow)).toBe(clockNow + 60_000);
+  });
+
   it('spot positions is [] — honest empty, not not_ready', async () => {
     const keys = { venueId: 'binance-spot' as const, apiKey: 'k', apiSecret: 's', scopes: ['read', 'trade'] as const };
     expect(await new BinanceSpotAccount(keys, { http: new FakeHttp() }).positions()).toEqual([]);

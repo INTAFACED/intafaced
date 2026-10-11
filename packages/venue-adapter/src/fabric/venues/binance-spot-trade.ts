@@ -23,7 +23,7 @@ function venueSymbolOf(unified: string): string {
   return unified.replace(/[/:]/g, '').toUpperCase();
 }
 
-function retryAfterFrom(header: string | null, fallbackMs = 60_000): number {
+export function retryAfterFrom(header: string | null, fallbackMs = 60_000): number {
   if (!header) return fallbackMs;
   const seconds = Number(header.trim());
   if (!Number.isFinite(seconds) || seconds <= 0) return fallbackMs;
