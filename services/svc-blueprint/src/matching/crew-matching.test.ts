@@ -50,7 +50,7 @@ const OPPOSITE: MatchableProfile = {
 const NEAR_TWIN: MatchableProfile = { ...ANALYST, crewRole: 'scout' };
 
 function crew(id: string, members: readonly MatchableProfile[], capacity = 6): CrewCandidate {
-  return { crewId: id, capacity, members };
+  return { crewId: id, capacity, members, occupied: members.length };
 }
 
 const uuid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
@@ -233,6 +233,16 @@ describe('complementary crews beat identical ones', () => {
 });
 
 describe('capacity', () => {
+  it('excludes occupied seats without matchable profiles from open crews', () => {
+    const partiallyScorable = { ...crew(uuid(1), [OPPOSITE], 2), occupied: 2 };
+    const unscorable = { ...crew(uuid(2), [], 2), occupied: 2 };
+
+    expect(isFull(partiallyScorable)).toBe(true);
+    expect(isFull(unscorable)).toBe(true);
+    expect(rankCrews(ANALYST, [partiallyScorable, unscorable])).toEqual([]);
+    expect(chooseCrew(ANALYST, [partiallyScorable, unscorable])).toBeNull();
+  });
+
   it('excludes full crews from the ranking entirely', () => {
     const full = crew(uuid(1), [OPPOSITE, OPPOSITE], 2);
     const open = crew(uuid(2), [ANALYST], 6);

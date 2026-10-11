@@ -4,10 +4,11 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
 import { describe, expect, it, beforeEach, afterAll } from 'vitest';
-import { MemoryEventBus } from '@intafaced/events';
+import { MemoryEventBus, MemorySeenStore, idempotent } from '@intafaced/events';
 import { CARD_DIMENSIONS, cardRenderSchema, type BlueprintProfile, type CardRaster, type OnboardInput } from '@intafaced/contracts';
 import { BlueprintService, BlueprintError } from './blueprint-service.js';
 import { MockNeuralEngine, deriveProfile, MOCK_ENGINE_VERSION } from './engine/mock-engine.js';
+import { deterministicUuid } from './deterministic.js';
 import { EMPTY_CREW_SCORE, complementarity, newCrewId } from './matching/crew-matching.js';
 import { UnconfiguredCardRenderer, type CardRasterizeRequest, type CardRenderer } from './card/card-renderer.js';
 
@@ -411,6 +412,20 @@ if (!available) {
       expect(result.placement.crewFormed).toBe(true);
       expect(result.placement.crewId).toBe(newCrewId(1, USER_A));
     });
+
+    it('starts fresh past an occupied founder crew rejected for complementarity even with spare seats', async () => {
+      const subject = sessionFor((p) => p.crewRole === 'builder');
+      const rejected = newCrewId(1, USER_A);
+      await seedCrew(rejected, [profileOf(subject)], 4);
+
+      const result = await blueprint.onboard(onboardInput(USER_A, subject));
+
+      expect(result.placement.crewId).toBe(deterministicUuid('crew:s1:start-fresh', USER_A));
+      expect(result.placement.crewFormed).toBe(true);
+      expect(await rowCount('crew_members', 'crew_id', rejected)).toBe(1);
+      expect(await rowCount('crew_members', 'crew_id', result.placement.crewId)).toBe(1);
+      expect(await rowCount('blueprints', 'user_id', USER_A)).toBe(1);
+    });
   });
 
   // ── Capacity ──────────────────────────────────────────────────────────────
@@ -442,6 +457,181 @@ if (!available) {
 
       expect(result.placement.crewId).not.toBe(full);
       expect(await rowCount('crew_members', 'crew_id', full)).toBe(4);
+    });
+
+    it('routes onboarding past a crew that is full once a member without a blueprint is counted', async () => {
+      const subject = sessionFor((p) => p.crewRole === 'scout');
+      const subjectProfile = profileOf(subject);
+      const stranger: BlueprintProfile = {
+        ...subjectProfile,
+        crewRole: 'anchor',
+        decisionStyle: subjectProfile.decisionStyle === 'analytical' ? 'intuitive' : 'analytical',
+        riskTemperament: subjectProfile.riskTemperament === 'bold' ? 'guarded' : 'bold',
+        energyRhythm: subjectProfile.energyRhythm === 'dawn' ? 'nocturnal' : 'dawn',
+        learningMode: subjectProfile.learningMode === 'visual' ? 'systematic' : 'visual',
+      };
+      // The scored seat is complementary, so an undercount of one would treat
+      // this crew as open and choose it. Capacity stays 2: the second seat is
+      // a crew_members row with no blueprint.
+      expect(complementarity(subjectProfile, [stranger])).toBeGreaterThanOrEqual(EMPTY_CREW_SCORE);
+
+      const full = uuid(305);
+      await seedCrew(full, [stranger], 2);
+      await sql`
+        INSERT INTO blueprint.crew_members (crew_id, user_id, role)
+        VALUES (${full}, ${uuid(9105)}, 'builder')
+      `;
+
+      const result = await blueprint.onboard(onboardInput(USER_A, subject));
+
+      expect(result.placement.crewId).not.toBe(full);
+      expect(result.placement.crewFormed).toBe(true);
+      expect(await rowCount('crew_members', 'crew_id', full)).toBe(2);
+    });
+
+    it('starts fresh on another crew when the derived crew chooseCrew rejected is full of other members', async () => {
+      const subject = sessionFor((p) => p.crewRole === 'scout');
+      const subjectProfile = profileOf(subject);
+      const stranger: BlueprintProfile = {
+        ...subjectProfile,
+        crewRole: 'anchor',
+        decisionStyle: subjectProfile.decisionStyle === 'analytical' ? 'intuitive' : 'analytical',
+        riskTemperament: subjectProfile.riskTemperament === 'bold' ? 'guarded' : 'bold',
+        energyRhythm: subjectProfile.energyRhythm === 'dawn' ? 'nocturnal' : 'dawn',
+        learningMode: subjectProfile.learningMode === 'visual' ? 'systematic' : 'visual',
+      };
+      // The scored seats are complementary, so the crew is skipped only because
+      // it is full. Capacity stays 4. The fourth seat is a crew_members row
+      // with no blueprint.
+      expect(complementarity(subjectProfile, [stranger, stranger, stranger])).toBeGreaterThanOrEqual(EMPTY_CREW_SCORE);
+
+      const rejected = newCrewId(1, USER_A);
+      await seedCrew(rejected, [stranger, stranger, stranger], 4);
+      await sql`
+        INSERT INTO blueprint.crew_members (crew_id, user_id, role)
+        VALUES (${rejected}, ${uuid(9106)}, 'builder')
+      `;
+
+      const result = await blueprint.onboard(onboardInput(USER_A, subject));
+
+      expect(result.placement.crewId).not.toBe(rejected);
+      expect(result.placement.crewFormed).toBe(true);
+      expect(await rowCount('blueprints', 'user_id', USER_A)).toBe(1);
+      expect(await rowCount('crew_members', 'crew_id', rejected)).toBe(4);
+      expect(await rowCount('crew_members', 'user_id', USER_A)).toBe(1);
+    });
+
+    it('starts fresh on a crew that is not an occupied derived id when the second derived id is also full of other members', async () => {
+      const subject = sessionFor((p) => p.crewRole === 'scout');
+      const subjectProfile = profileOf(subject);
+      const stranger: BlueprintProfile = {
+        ...subjectProfile,
+        crewRole: 'anchor',
+        decisionStyle: subjectProfile.decisionStyle === 'analytical' ? 'intuitive' : 'analytical',
+        riskTemperament: subjectProfile.riskTemperament === 'bold' ? 'guarded' : 'bold',
+        energyRhythm: subjectProfile.energyRhythm === 'dawn' ? 'nocturnal' : 'dawn',
+        learningMode: subjectProfile.learningMode === 'visual' ? 'systematic' : 'visual',
+      };
+      // These derived crews are complementary and skipped only because they are
+      // full. Capacity stays 4. The fourth seat on each is a crew_members row
+      // with no blueprint.
+      expect(complementarity(subjectProfile, [stranger, stranger, stranger])).toBeGreaterThanOrEqual(EMPTY_CREW_SCORE);
+
+      const rejected = newCrewId(1, USER_A);
+      // The start-fresh salt. formCrew returns this existing row, insertMembership
+      // raises blueprint.crew_full, and the new blueprint rolls back.
+      const alternate = deterministicUuid('crew:s1:start-fresh', USER_A);
+      expect(alternate).toBe('115fa7a5-2acb-45ef-8a76-b09e22c291db');
+      // The next salt. A single swap off `start-fresh` must not join this one either.
+      const further = deterministicUuid('crew:s1:start-fresh:2', USER_A);
+
+      await seedCrew(rejected, [stranger, stranger, stranger], 4);
+      await sql`
+        INSERT INTO blueprint.crew_members (crew_id, user_id, role)
+        VALUES (${rejected}, ${uuid(9107)}, 'builder')
+      `;
+      await seedCrew(alternate, [stranger, stranger, stranger], 4);
+      await sql`
+        INSERT INTO blueprint.crew_members (crew_id, user_id, role)
+        VALUES (${alternate}, ${uuid(9108)}, 'builder')
+      `;
+      await seedCrew(further, [stranger, stranger, stranger], 4);
+      await sql`
+        INSERT INTO blueprint.crew_members (crew_id, user_id, role)
+        VALUES (${further}, ${uuid(9109)}, 'builder')
+      `;
+
+      const result = await blueprint.onboard(onboardInput(USER_A, subject));
+
+      expect(result.placement.crewId).not.toBe(rejected);
+      expect(result.placement.crewId).not.toBe(alternate);
+      expect(result.placement.crewId).not.toBe(further);
+      expect(result.placement.crewFormed).toBe(true);
+      expect(await rowCount('blueprints', 'user_id', USER_A)).toBe(1);
+      expect(await rowCount('crew_members', 'crew_id', rejected)).toBe(4);
+      expect(await rowCount('crew_members', 'crew_id', alternate)).toBe(4);
+      expect(await rowCount('crew_members', 'crew_id', further)).toBe(4);
+      expect(await rowCount('crew_members', 'user_id', USER_A)).toBe(1);
+      const placed = await sql<Array<{ user_id: string }>>`
+        SELECT user_id FROM blueprint.crew_members WHERE crew_id = ${result.placement.crewId}
+      `;
+      expect(placed).toEqual([{ user_id: USER_A }]);
+    });
+
+    it('keeps the new blueprint and forms an empty crew when newCrewId and start-fresh through start-fresh:7 already have members', async () => {
+      const subject = sessionFor((p) => p.crewRole === 'scout');
+      const subjectProfile = profileOf(subject);
+      const stranger: BlueprintProfile = {
+        ...subjectProfile,
+        crewRole: 'anchor',
+        decisionStyle: subjectProfile.decisionStyle === 'analytical' ? 'intuitive' : 'analytical',
+        riskTemperament: subjectProfile.riskTemperament === 'bold' ? 'guarded' : 'bold',
+        energyRhythm: subjectProfile.energyRhythm === 'dawn' ? 'nocturnal' : 'dawn',
+        learningMode: subjectProfile.learningMode === 'visual' ? 'systematic' : 'visual',
+      };
+      // These derived crews are complementary and skipped only because they are
+      // full. Capacity stays 4. The fourth seat on each is a crew_members row
+      // with no blueprint, so a member without a profile still occupies the id.
+      expect(complementarity(subjectProfile, [stranger, stranger, stranger])).toBeGreaterThanOrEqual(EMPTY_CREW_SCORE);
+
+      const occupied = [
+        newCrewId(1, USER_A),
+        deterministicUuid('crew:s1:start-fresh', USER_A),
+        deterministicUuid('crew:s1:start-fresh:2', USER_A),
+        deterministicUuid('crew:s1:start-fresh:3', USER_A),
+        deterministicUuid('crew:s1:start-fresh:4', USER_A),
+        deterministicUuid('crew:s1:start-fresh:5', USER_A),
+        deterministicUuid('crew:s1:start-fresh:6', USER_A),
+        deterministicUuid('crew:s1:start-fresh:7', USER_A),
+      ];
+      expect(occupied[1]).toBe('115fa7a5-2acb-45ef-8a76-b09e22c291db');
+      expect(occupied[7]).toBe('cf206e53-7856-44c4-b398-924a5820a9e4');
+
+      for (const [index, crewId] of occupied.entries()) {
+        await seedCrew(crewId, [stranger, stranger, stranger], 4);
+        await sql`
+          INSERT INTO blueprint.crew_members (crew_id, user_id, role)
+          VALUES (${crewId}, ${uuid(9120 + index)}, 'builder')
+        `;
+      }
+
+      const result = await blueprint.onboard(onboardInput(USER_A, subject));
+
+      // The next counter step after the published salts. It was empty, so the
+      // founder forms it and the blueprint transaction commits.
+      const opened = deterministicUuid('crew:s1:start-fresh:8', USER_A);
+      expect(opened).toBe('430a25c3-a56b-4960-b0c5-ac66e9836781');
+      expect(result.placement.crewId).toBe(opened);
+      expect(result.placement.crewFormed).toBe(true);
+      expect(await rowCount('blueprints', 'user_id', USER_A)).toBe(1);
+      expect(await rowCount('crew_members', 'user_id', USER_A)).toBe(1);
+      for (const crewId of occupied) {
+        expect(await rowCount('crew_members', 'crew_id', crewId)).toBe(4);
+      }
+      const placed = await sql<Array<{ user_id: string }>>`
+        SELECT user_id FROM blueprint.crew_members WHERE crew_id = ${result.placement.crewId}
+      `;
+      expect(placed).toEqual([{ user_id: USER_A }]);
     });
 
     it('is idempotent when the member is already in the crew', async () => {
@@ -852,6 +1042,85 @@ if (!available) {
       expect(after.blueprint.profile).toEqual(before.blueprint.profile);
       expect(after.blueprint.id).not.toBe(before.blueprint.id);
       expect(identity.blueprintIdByUser.get(USER_A)).toBe(after.blueprint.id);
+    });
+
+    it('publishes a distinct erase key for each blueprint, so a later hard delete is not deduped', async () => {
+      const store = new MemorySeenStore();
+      const received: string[] = [];
+      await bus.subscribe(
+        'blueprintDeleted',
+        idempotent(
+          async (payload) => {
+            received.push(payload.blueprintId);
+          },
+          store,
+          'identity-clears-blueprint-id',
+        ),
+        { durable: 'erase-key-includes-blueprint' },
+      );
+
+      const first = await blueprint.onboard(onboardInput(USER_A, [{ key: 'q1', value: 'first life' }]));
+      await blueprint.erase({ userId: USER_A });
+      const second = await blueprint.onboard(onboardInput(USER_A, [{ key: 'q1', value: 'second life' }]));
+      await blueprint.erase({ userId: USER_A });
+
+      const deleted = bus.emitted('blueprintDeleted');
+      expect(deleted).toHaveLength(2);
+      expect(first.blueprint.id).not.toBe(second.blueprint.id);
+      expect(deleted.map((envelope) => envelope.payload.blueprintId)).toEqual([first.blueprint.id, second.blueprint.id]);
+      expect(deleted.map((envelope) => envelope.idempotencyKey)).toEqual([
+        `blueprint.erase:${USER_A}:${first.blueprint.id}`,
+        `blueprint.erase:${USER_A}:${second.blueprint.id}`,
+      ]);
+      expect(received).toEqual([first.blueprint.id, second.blueprint.id]);
+
+      await blueprint.erase({ userId: USER_A });
+      expect(bus.emitted('blueprintDeleted')).toHaveLength(2);
+      expect(received).toEqual([first.blueprint.id, second.blueprint.id]);
+
+      await blueprint.erase({ userId: USER_C });
+      expect(bus.emitted('blueprintDeleted')).toHaveLength(2);
+    });
+
+    it('publishes a distinct placement key for each blueprint, so a later join of the same crew is not deduped', async () => {
+      const store = new MemorySeenStore();
+      const received: string[] = [];
+      await bus.subscribe(
+        'crewMemberCreated',
+        idempotent(
+          async (_payload, envelope) => {
+            received.push(envelope.idempotencyKey);
+          },
+          store,
+          'academy-opens-crew-channel',
+        ),
+        { durable: 'placement-key-includes-blueprint' },
+      );
+
+      const first = await blueprint.onboard(onboardInput(USER_A, [{ key: 'q1', value: 'first life' }]));
+      const redelivery = await blueprint.onboard(onboardInput(USER_A, [{ key: 'q1', value: 'first life' }]));
+
+      expect(redelivery.blueprint.id).toBe(first.blueprint.id);
+      expect(redelivery.placement.crewId).toBe(first.placement.crewId);
+
+      const sameBlueprint = bus.emitted('crewMemberCreated');
+      expect(sameBlueprint).toHaveLength(2);
+      expect(sameBlueprint[0]?.idempotencyKey).toBe(sameBlueprint[1]?.idempotencyKey);
+      const firstKey = `blueprint.placed:${first.placement.crewId}:${USER_A}:${first.blueprint.id}`;
+      expect(sameBlueprint[0]?.idempotencyKey).toBe(firstKey);
+      expect(received).toEqual([firstKey]);
+
+      await blueprint.erase({ userId: USER_A });
+      const second = await blueprint.onboard(onboardInput(USER_A, [{ key: 'q1', value: 'second life' }]));
+
+      expect(second.placement.crewId).toBe(first.placement.crewId);
+      expect(second.blueprint.id).not.toBe(first.blueprint.id);
+
+      const secondKey = `blueprint.placed:${second.placement.crewId}:${USER_A}:${second.blueprint.id}`;
+      expect(secondKey).not.toBe(firstKey);
+      const placed = bus.emitted('crewMemberCreated');
+      expect(placed.map((envelope) => envelope.idempotencyKey)).toEqual([firstKey, firstKey, secondKey]);
+      expect(received).toEqual([firstKey, secondKey]);
     });
   });
 

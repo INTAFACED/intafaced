@@ -14,6 +14,34 @@ export const PROD_ENGINE_CONFIG_CODE = 'blueprint.prod_engine_config' as const;
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
 
+/** True for any address in 127.0.0.0/8, including 127.0.0.2. */
+function isIpv4Loopback(host: string): boolean {
+  const parts = host.split('.');
+  if (parts.length !== 4) return false;
+  const octets: number[] = [];
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) return false;
+    const octet = Number(part);
+    if (octet > 255) return false;
+    octets.push(octet);
+  }
+  return octets[0] === 127;
+}
+
+/**
+ * IPv4-mapped IPv6 loopback. Node canonicalizes `[::ffff:127.0.0.1]` to
+ * hostname `::ffff:7f00:1` (127.0.0.1). The high octet of that pair is 0x7f
+ * for every address in 127.0.0.0/8.
+ */
+function isIpv4MappedLoopback(host: string): boolean {
+  const match = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
+  if (!match) return false;
+  const hi = Number.parseInt(match[1] ?? '', 16);
+  const lo = Number.parseInt(match[2] ?? '', 16);
+  if (!Number.isInteger(hi) || !Number.isInteger(lo) || hi > 0xffff || lo > 0xffff) return false;
+  return hi >> 8 === 0x7f;
+}
+
 export class ProdEngineConfigError extends Error {
   readonly code = PROD_ENGINE_CONFIG_CODE;
 
@@ -36,9 +64,11 @@ export function isLoopbackEngineUrl(url: string): boolean {
   } catch {
     return true;
   }
-  // Node keeps brackets on IPv6 hostnames (`[::1]`).
+  // Node keeps brackets on IPv6 hostnames (`[::1]`, `[::ffff:7f00:1]`).
   if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
-  return LOOPBACK_HOSTS.has(host);
+  // `http://localhost.` keeps the trailing dot; it is still localhost.
+  if (host === 'localhost.') return true;
+  return LOOPBACK_HOSTS.has(host) || isIpv4Loopback(host) || isIpv4MappedLoopback(host);
 }
 
 export function assertProdEngine(env: ProdEngineEnv): void {

@@ -101,6 +101,25 @@ describe('card / attestation DTO PII sneak', () => {
     if (!result.ok) expect(result.code).toBe(ATTESTATION_PII_IDENTITY);
   });
 
+  it('refuses camel-case phoneNumber, emailAddress, and dateOfBirth the same as phone, email, and birthdate', () => {
+    const refused = (field: string, value: string) => {
+      const result = inspectZeroPiiPayload({ schemaVersion: 1, kind: 'rank', [field]: value });
+      expect(result.ok, field).toBe(false);
+      if (!result.ok) expect(result.code, field).toBe(ATTESTATION_PII_IDENTITY);
+      const nested = inspectZeroPiiPayload({ cards: [{ [field]: value }] });
+      expect(nested.ok, field).toBe(false);
+      if (!nested.ok) expect(nested.code, field).toBe(ATTESTATION_PII_IDENTITY);
+      expect(() => composeCard({ ...SUBJECT, [field]: value } as CardSubject, 'portrait'), field).toThrow(AttestationSurfaceError);
+    };
+    refused('phone', '555');
+    refused('phoneNumber', '555');
+    refused('email', 'a@b.c');
+    refused('emailAddress', 'a@b.c');
+    refused('birthdate', '1990-01-01');
+    refused('dateOfBirth', '1990-01-01');
+    expect(inspectZeroPiiPayload({ schemaVersion: 1, kind: 'rank', rank: 'sovereign', season: 1, crewRole: 'anchor' }).ok).toBe(true);
+  });
+
   it('fails when a nested cross-plane address lands on an attestation payload', () => {
     const result = inspectZeroPiiPayload({ schemaVersion: 1, kind: 'rank', link: { walletAddress: '0xabc' } });
     expect(result.ok).toBe(false);

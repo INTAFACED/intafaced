@@ -66,7 +66,7 @@ HTTP: `GET /health`, `GET /ready`. `/ready` is process-up (`ready: true` after l
 - on create, `blueprintCreated` carries the id svc-identity stores;
 - on erase, `blueprintDeleted` tells it to clear the field.
 
-`blueprintDeleted` is keyed on the **user**, not the blueprint, so a redelivery clears the field once rather than clobbering a field the user has since legitimately repopulated by onboarding again.
+`blueprintDeleted` is keyed `blueprint.erase:<userId>:<blueprintId>` for the blueprint that was just erased. A redelivery of that erase shares the key. A later hard delete of a new blueprint is a different key, so a consumer that dedupes still clears the new id. svc-identity clears `profiles.blueprint_id` only when it still matches the payload blueprintId, so a late duplicate of an earlier erase cannot clear a blueprint the user has since created.
 
 > ### Cascade completes across the bus (identity consumer on tip)
 >
