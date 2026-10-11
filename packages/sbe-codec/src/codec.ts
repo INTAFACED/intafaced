@@ -190,10 +190,10 @@ export function createSbeCodec(deps: { readonly java?: JavaSbeCodec | null } = {
       const template = stringField(parsed, 'template');
       const instrument = stringField(parsed, 'instrument');
       const side = stringField(parsed, 'side');
-      const price = stringField(parsed, 'price');
-      const qty = stringField(parsed, 'qty');
+      const priceField = stringField(parsed, 'price');
+      const qtyField = stringField(parsed, 'qty');
       const eventTimeNs = stringField(parsed, 'eventTimeNs');
-      if (template === null || instrument === null || side === null || price === null || qty === null || eventTimeNs === null) {
+      if (template === null || instrument === null || side === null || priceField === null || qtyField === null || eventTimeNs === null) {
         return refuse(linked, 'invalid_message', 'SBE Java decode omitted a decimal field');
       }
       if (side !== 'buy' && side !== 'sell') {
@@ -203,7 +203,19 @@ export function createSbeCodec(deps: { readonly java?: JavaSbeCodec | null } = {
       if (typeof parsed.price === 'number' || typeof parsed.qty === 'number') {
         return refuse(linked, 'ieee_input', 'SBE Java decode leaked a JSON number for money');
       }
-      const common = { ok: true as const, linked: true as const, instrument, side: decodedSide, price, qty, eventTimeNs };
+      const priceRead = readDecimalString(priceField, 'price');
+      if (!priceRead.ok) return refuse(linked, priceRead.reason, priceRead.message, 'price');
+      const qtyRead = readDecimalString(qtyField, 'qty');
+      if (!qtyRead.ok) return refuse(linked, qtyRead.reason, qtyRead.message, 'qty');
+      const common = {
+        ok: true as const,
+        linked: true as const,
+        instrument,
+        side: decodedSide,
+        price: priceRead.value,
+        qty: qtyRead.value,
+        eventTimeNs,
+      };
       if (template === 'Trade') {
         const tradeId = stringField(parsed, 'tradeId');
         if (tradeId === null) return refuse(linked, 'invalid_message', 'decoded tradeId is missing');

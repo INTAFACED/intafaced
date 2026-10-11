@@ -170,7 +170,10 @@ export function assessBacktestSurface(candidate: BacktestSurfaceCandidate): Back
       strategyId: candidate.strategyId,
       claimLabel: 'Historical simulation — not a forecast',
       outOfSample: {
-        ...verdict,
+        status: verdict.status,
+        evaluatedFrom: verdict.evaluatedFrom,
+        evaluatedTo: verdict.evaluatedTo,
+        sampleCount: verdict.sampleCount,
         label: `Out-of-sample: ${verdict.status}`,
       },
       strategyCount: {
@@ -282,7 +285,7 @@ function refuseSimulatedNotLive(code: SimulatedNotLiveRefusalCode, detail: strin
 
 function presentedAsLive(presentedAs: string): boolean {
   const normalized = presentedAs.trim().toLowerCase();
-  return normalized === 'live' || normalized === 'live performance';
+  return normalized === 'live' || normalized === 'live performance' || normalized.startsWith('live ');
 }
 
 /**
