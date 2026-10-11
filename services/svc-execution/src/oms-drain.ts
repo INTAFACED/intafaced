@@ -8,6 +8,7 @@
 import { add, formatAmount, ZERO, type Amount } from '@intafaced/ledger-client';
 import type { VenueKind } from '@intafaced/venue-adapter';
 import { cancelOmsOrder, type OmsCancelFn } from './oms-cancel.js';
+import { hasTerminalSliceEvidence } from './oms-slice-intent.js';
 import { venueOrderToExecution } from './oms-trade-submit.js';
 import type { EmsOrderEvidence, EmsOrderStore } from './oms-ems-store.js';
 
@@ -56,7 +57,7 @@ type ResidualPiece = {
 };
 
 function alreadyStopped(row: EmsOrderEvidence): boolean {
-  return row.state === 'REJECTED' || row.state === 'UNWIRED' || row.state === 'CANCELED';
+  return row.state === 'REJECTED' || row.state === 'UNWIRED' || row.state === 'CANCELED' || hasTerminalSliceEvidence(row);
 }
 
 /** Stored terminal observations survive restart; legacy remaining is never backfilled. */
@@ -147,6 +148,25 @@ export async function drainInFlightAlgo(input: OmsDrainInput): Promise<OmsDrainR
         venueId: row.venueId,
         outcome: 'unknown',
         reason: cancelled.reason,
+      });
+      continue;
+    }
+
+    // A concurrent bound observation may have stopped the child while cancel awaited.
+    // Consume that retained outcome instead of resynthesizing it from a late response.
+    const retained = input.emsStore.get(row.clientOrderId);
+    if (retained && hasTerminalSliceEvidence(retained)) {
+      const stored = storedResidual(retained);
+      if (stored) confirmed.push(stored);
+      if (retained.drainedRemaining === undefined) unknown = true;
+      const terminalResponse = TERMINAL_STOPPED.has(cancelled.order.status);
+      children.push({
+        clientOrderId: row.clientOrderId,
+        venueId: row.venueId,
+        outcome: terminalResponse ? 'stopped' : 'already_stopped',
+        ...(terminalResponse
+          ? { status: retained.execution?.status === 'filled' ? 'filled' : cancelled.order.status }
+          : { reason: retained.state }),
       });
       continue;
     }

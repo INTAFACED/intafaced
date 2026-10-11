@@ -69,13 +69,17 @@ export async function cancelOmsOrder(input: OmsCancelInput): Promise<OmsCancelRe
     };
   }
 
+  // Read the retained row after the remote await: another observation may have completed this child.
   const evidence = input.emsStore?.get(clientOrderId);
   if (evidence && !matchesRetainedSliceIntent(evidence, order)) {
     return { ok: false, reason: 'cancel_failed', detail: 'venue observation does not match the retained slice intent' };
   }
   const retainedSlice = evidence !== null && evidence !== undefined && hasRetainedSliceIntent(evidence);
-  const terminalEvidence = evidence?.state === 'CANCELED' || evidence?.state === 'REJECTED' || evidence?.state === 'UNWIRED';
-  if (evidence && ((retainedSlice && !terminalEvidence) || order.status === 'filled' || order.status === 'partially_filled')) {
+  if (
+    evidence &&
+    !hasTerminalSliceEvidence(evidence) &&
+    (retainedSlice || order.status === 'filled' || order.status === 'partially_filled')
+  ) {
     try {
       const observed = venueOrderToExecution(order, {
         symbol,
@@ -109,4 +113,4 @@ export async function cancelOmsOrder(input: OmsCancelInput): Promise<OmsCancelRe
 
   return { ok: true, order };
 }
-import { hasRetainedSliceIntent, matchesRetainedSliceIntent } from './oms-slice-intent.js';
+import { hasRetainedSliceIntent, hasTerminalSliceEvidence, matchesRetainedSliceIntent } from './oms-slice-intent.js';

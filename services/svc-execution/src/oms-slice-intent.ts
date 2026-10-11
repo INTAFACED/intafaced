@@ -11,6 +11,17 @@ export function hasRetainedSliceIntent(evidence: EmsOrderEvidence): boolean {
   }
 }
 
+/** Terminal evidence for the new slice contract; older command fingerprints are unchanged. */
+export function hasTerminalSliceEvidence(evidence: EmsOrderEvidence): boolean {
+  return (
+    hasRetainedSliceIntent(evidence) &&
+    (evidence.state === 'CANCELED' ||
+      evidence.state === 'REJECTED' ||
+      evidence.state === 'UNWIRED' ||
+      evidence.execution?.status === 'filled')
+  );
+}
+
 /** Bind new slice observations to their retained terms. Older fingerprint contracts are unchanged. */
 export function matchesRetainedSliceIntent(evidence: EmsOrderEvidence, order: VenueOrder): boolean {
   let terms: unknown;

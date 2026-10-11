@@ -453,3 +453,219 @@ describe('actual trade adapter resting limits in native EMS', () => {
     }
   });
 });
+
+describe('retained slice terminal finality', () => {
+  async function resting(f: ReturnType<typeof fixture>) {
+    const adapter: TradeAdapter = {
+      venue: { id: 'street', displayName: 'Street fixture', kind: 'external-cex', sequencedDepth: true },
+      placeOrder: async (request) => order(request.clientOrderId),
+      fetchOrder: async (_symbol, id) => order(id),
+      cancelOrder: async (_symbol, id) => order(id),
+      openOrders: async () => [],
+    };
+    const result = await scheduleSliceLiveAlgoParent({ ...fields, ...f, submit: tradeAdapterSubmit(adapter) });
+    if (!result.ok) throw new Error('resting slice refused');
+    return result.child.clientOrderId;
+  }
+
+  it.each(['fetch', 'cancel'] as const)('delayed %s partial cannot reopen a terminal cancel after native reload', async (port) => {
+    const f = fixture();
+    try {
+      const id = await resting(f);
+      const store = new FileEmsOrderStore(f.emsPath);
+      let release!: (value: VenueOrder) => void;
+      const response = new Promise<VenueOrder>((resolve) => {
+        release = resolve;
+      });
+      const input = { venueId: 'street', symbol: 'BTC/USDT', clientOrderId: id, emsStore: store };
+      const pending =
+        port === 'fetch'
+          ? fetchOmsOrder({ ...input, fetchByVenue: { street: async () => response } })
+          : cancelOmsOrder({ ...input, cancelByVenue: { street: async () => response } });
+      expect(
+        await drainInFlightAlgo({
+          parentClientOrderId: 'parent',
+          emsStore: store,
+          cancelByVenue: {
+            street: async () =>
+              order(id, { status: 'canceled', filled: parseAmount('0.4'), remaining: parseAmount('0.6'), averagePrice: parseAmount('99') }),
+          },
+        }),
+      ).toMatchObject({ residual: { filled: '0.4', remaining: '0.6' } });
+      const terminal = new FileEmsOrderStore(f.emsPath).get(id)!;
+      release(
+        order(id, {
+          status: 'partially_filled',
+          filled: parseAmount('0.1'),
+          remaining: parseAmount('0.9'),
+          averagePrice: parseAmount('99'),
+          observedAt: new Date(NOW.getTime() + 90000),
+        }),
+      );
+      expect((await pending).ok).toBe(true);
+      expect(new FileEmsOrderStore(f.emsPath).get(id)).toEqual(terminal);
+      for (let repeat = 0; repeat < 2; repeat += 1) {
+        expect(await drainInFlightAlgo({ parentClientOrderId: 'parent', emsStore: new FileEmsOrderStore(f.emsPath) })).toMatchObject({
+          residual: { filled: '0.4', remaining: '0.6' },
+        });
+      }
+    } finally {
+      rmSync(f.dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['fetch', 'cancel'] as const)('delayed %s OPEN cannot erase a matched full fill after native reload', async (port) => {
+    const f = fixture();
+    try {
+      const id = await resting(f);
+      const store = new FileEmsOrderStore(f.emsPath);
+      let release!: (value: VenueOrder) => void;
+      const response = new Promise<VenueOrder>((resolve) => {
+        release = resolve;
+      });
+      const input = { venueId: 'street', symbol: 'BTC/USDT', clientOrderId: id, emsStore: store };
+      const pending =
+        port === 'fetch'
+          ? fetchOmsOrder({ ...input, fetchByVenue: { street: async () => response } })
+          : cancelOmsOrder({ ...input, cancelByVenue: { street: async () => response } });
+      expect(
+        (
+          await fetchOmsOrder({
+            ...input,
+            fetchByVenue: {
+              street: async () =>
+                order(id, { status: 'filled', filled: parseAmount('1'), remaining: ZERO, averagePrice: parseAmount('99') }),
+            },
+          })
+        ).ok,
+      ).toBe(true);
+      const terminal = new FileEmsOrderStore(f.emsPath).get(id)!;
+      expect(terminal).toMatchObject({ state: 'ACKNOWLEDGED', execution: { status: 'filled' }, drainedRemaining: ZERO });
+      release(order(id, { observedAt: new Date(NOW.getTime() + 90000) }));
+      expect((await pending).ok).toBe(true);
+      expect(new FileEmsOrderStore(f.emsPath).get(id)).toEqual(terminal);
+      for (let repeat = 0; repeat < 2; repeat += 1) {
+        expect(await drainInFlightAlgo({ parentClientOrderId: 'parent', emsStore: new FileEmsOrderStore(f.emsPath) })).toMatchObject({
+          residual: { filled: '1', remaining: '0' },
+        });
+        expect(new FileEmsOrderStore(f.emsPath).get(id)).toEqual(terminal);
+      }
+    } finally {
+      rmSync(f.dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['partial-after-cancel', 'cancel-after-filled'] as const)(
+    'a delayed drain %s consumes fresh terminal evidence instead of rewriting it',
+    async (mode) => {
+      const f = fixture();
+      try {
+        const id = await resting(f);
+        const store = new FileEmsOrderStore(f.emsPath);
+        let release!: (value: VenueOrder) => void;
+        const response = new Promise<VenueOrder>((resolve) => {
+          release = resolve;
+        });
+        const pending = drainInFlightAlgo({
+          parentClientOrderId: 'parent',
+          emsStore: store,
+          cancelByVenue: { street: async () => response },
+        });
+        const input = { venueId: 'street', symbol: 'BTC/USDT', clientOrderId: id, emsStore: store };
+        if (mode === 'partial-after-cancel') {
+          expect(
+            (
+              await cancelOmsOrder({
+                ...input,
+                cancelByVenue: {
+                  street: async () =>
+                    order(id, {
+                      status: 'canceled',
+                      filled: parseAmount('0.4'),
+                      remaining: parseAmount('0.6'),
+                      averagePrice: parseAmount('99'),
+                    }),
+                },
+              })
+            ).ok,
+          ).toBe(true);
+        } else {
+          expect(
+            (
+              await fetchOmsOrder({
+                ...input,
+                fetchByVenue: {
+                  street: async () =>
+                    order(id, { status: 'filled', filled: parseAmount('1'), remaining: ZERO, averagePrice: parseAmount('99') }),
+                },
+              })
+            ).ok,
+          ).toBe(true);
+        }
+        const terminal = new FileEmsOrderStore(f.emsPath).get(id)!;
+        release(
+          order(id, {
+            status: mode === 'partial-after-cancel' ? 'partially_filled' : 'canceled',
+            filled: parseAmount('0.1'),
+            remaining: parseAmount('0.9'),
+            averagePrice: parseAmount('99'),
+          }),
+        );
+        const expected = mode === 'partial-after-cancel' ? { filled: '0.4', remaining: '0.6' } : { filled: '1', remaining: '0' };
+        expect(await pending).toMatchObject({ residual: expected });
+        expect(new FileEmsOrderStore(f.emsPath).get(id)).toEqual(terminal);
+        expect(await drainInFlightAlgo({ parentClientOrderId: 'parent', emsStore: new FileEmsOrderStore(f.emsPath) })).toMatchObject({
+          residual: expected,
+        });
+      } finally {
+        rmSync(f.dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('matched OPEN then partial then terminal progresses normally and survives repeated native drain', async () => {
+    const f = fixture();
+    try {
+      const id = await resting(f);
+      const store = new FileEmsOrderStore(f.emsPath);
+      const input = { venueId: 'street', symbol: 'BTC/USDT', clientOrderId: id, emsStore: store };
+      for (const observation of [
+        order(id),
+        order(id, {
+          status: 'partially_filled',
+          filled: parseAmount('0.1'),
+          remaining: parseAmount('0.9'),
+          averagePrice: parseAmount('99'),
+        }),
+      ]) {
+        expect((await fetchOmsOrder({ ...input, fetchByVenue: { street: async () => observation } })).ok).toBe(true);
+        expect(new FileEmsOrderStore(f.emsPath).get(id)?.execution?.filledAmount).toBe(observation.filled);
+      }
+      expect(
+        (
+          await cancelOmsOrder({
+            ...input,
+            cancelByVenue: {
+              street: async () =>
+                order(id, {
+                  status: 'canceled',
+                  filled: parseAmount('0.4'),
+                  remaining: parseAmount('0.6'),
+                  averagePrice: parseAmount('99'),
+                }),
+            },
+          })
+        ).ok,
+      ).toBe(true);
+      const terminal = new FileEmsOrderStore(f.emsPath).get(id)!;
+      for (let repeat = 0; repeat < 2; repeat += 1) {
+        expect(await drainInFlightAlgo({ parentClientOrderId: 'parent', emsStore: new FileEmsOrderStore(f.emsPath) })).toMatchObject({
+          residual: { filled: '0.4', remaining: '0.6' },
+        });
+        expect(new FileEmsOrderStore(f.emsPath).get(id)).toEqual(terminal);
+      }
+    } finally {
+      rmSync(f.dir, { recursive: true, force: true });
+    }
+  });
+});
