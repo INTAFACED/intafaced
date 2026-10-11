@@ -37,6 +37,12 @@ RUN npm ci --ignore-scripts --no-audit --no-fund
 # pins, and a stale local `dist` could be served as if it were this commit.
 COPY . .
 
+# Approved public privacy text is compiled into the SPA; these are not secrets.
+ARG OUTREACH_CONTACT_URL
+ARG OUTREACH_RETENTION_NOTICE
+ENV OUTREACH_CONTACT_URL=$OUTREACH_CONTACT_URL
+ENV OUTREACH_RETENTION_NOTICE=$OUTREACH_RETENTION_NOTICE
+
 RUN npm run build
 
 # ── serve ───────────────────────────────────────────────────────────────────

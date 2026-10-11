@@ -29,7 +29,7 @@ module.exports = {
                 options: vueLoaderConfig
             },
             {
-                test: /\.(png|jpe?g|gif|svg)(\?.*)?$/,
+                test: /\.(png|jpe?g|gif|svg|webp)(\?.*)?$/,
                 type: 'asset',
                 parser: { dataUrlCondition: { maxSize: 10000 } },
                 generator: {
