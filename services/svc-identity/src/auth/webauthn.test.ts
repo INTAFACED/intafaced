@@ -179,6 +179,36 @@ describe('SqlChallengeStore (shared backend — multi-pod simulation)', () => {
 });
 
 describe('registration ceremony', () => {
+  it('rejects duplicate attestation format and appended CBOR at the credential verifier', () => {
+    const challenge = generateChallenge();
+    const keys = makeKeyPair();
+    const credId = randomBytes(16);
+    const clientDataJSON = buildClientDataJSON({ type: 'webauthn.create', challenge, origin: config.origin });
+    const authData = buildAuthenticatorData({
+      rpID: config.rpID,
+      counter: 0,
+      credential: { id: credId, publicKeyCose: keys.cose },
+    });
+    const valid = noneAttestation(authData);
+    const duplicate = Buffer.concat([
+      Buffer.from([0xa4]),
+      Buffer.from(encodeCbor('fmt')),
+      Buffer.from(encodeCbor('packed')),
+      valid.subarray(1),
+    ]);
+    const response = (attestation: Buffer): RegistrationResponseJSON => ({
+      id: b64urlEncode(credId),
+      rawId: b64urlEncode(credId),
+      type: 'public-key',
+      response: { clientDataJSON: b64urlEncode(clientDataJSON), attestationObject: b64urlEncode(attestation) },
+    });
+    expect(verifyRegistrationResponse(config, challenge, response(valid)).credentialId).toBe(b64urlEncode(credId));
+    expect(() => verifyRegistrationResponse(config, challenge, response(duplicate))).toThrow(/duplicate map key/);
+    expect(() => verifyRegistrationResponse(config, challenge, response(Buffer.concat([valid, Buffer.from([0])])))).toThrow(
+      /trailing bytes/,
+    );
+  });
+
   it('accepts a well-formed none-attestation credential and returns a stored shape', () => {
     const challenge = generateChallenge();
     const keys = makeKeyPair();

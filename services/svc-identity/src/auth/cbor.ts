@@ -10,11 +10,21 @@ export type CborValue = number | bigint | string | Uint8Array | boolean | null |
 
 export type CborMap = Map<CborValue, CborValue> | { [key: string]: CborValue };
 
+/**
+ * Maximum enclosing arrays or maps. WebAuthn COSE keys and attestation maps
+ * are only a few levels deep. The cap sits far below the stack, so a nested
+ * one-element array is rejected before the walk overflows.
+ */
+export const MAX_CBOR_NESTING_DEPTH = 32;
+
 export function decodeCbor(input: Uint8Array): CborValue {
   const view = new DataView(input.buffer, input.byteOffset, input.byteLength);
   let offset = 0;
 
-  function read(): CborValue {
+  function read(depth: number): CborValue {
+    // Each array element and each map key and value calls read again.
+    // A nested one-element array grows the stack with no bound. Stop first.
+    if (depth > MAX_CBOR_NESTING_DEPTH) throw new Error('CBOR: nesting too deep');
     if (offset >= input.length) throw new Error('CBOR: unexpected end of input');
     const initial = input[offset++]!;
     const major = initial >> 5;
@@ -61,30 +71,50 @@ export function decodeCbor(input: Uint8Array): CborValue {
       }
       case 2: {
         const len = asLength(argument());
-        const slice = input.subarray(offset, offset + len);
-        if (slice.length !== len) throw new Error('CBOR: truncated bytes');
+        const view = input.subarray(offset, offset + len);
+        if (view.length !== len) throw new Error('CBOR: truncated bytes');
         offset += len;
-        return slice;
+        // subarray shares the caller buffer. A reused request would rewrite
+        // credential bytes already returned, so hand back a copy.
+        return new Uint8Array(view);
       }
       case 3: {
         const len = asLength(argument());
         const slice = input.subarray(offset, offset + len);
         if (slice.length !== len) throw new Error('CBOR: truncated text');
         offset += len;
-        return new TextDecoder().decode(slice);
+        // Replacement mode maps every ill-formed sequence to U+FFFD, so
+        // distinct bad text keys collapse to one string. Reject them.
+        try {
+          return new TextDecoder('utf-8', { fatal: true }).decode(slice);
+        } catch (err) {
+          if (err instanceof TypeError) throw new Error('CBOR: ill-formed UTF-8');
+          throw err;
+        }
       }
       case 4: {
         const len = asLength(argument());
         const arr: CborValue[] = [];
-        for (let i = 0; i < len; i++) arr.push(read());
+        for (let i = 0; i < len; i++) arr.push(read(depth + 1));
         return arr;
       }
       case 5: {
         const len = asLength(argument());
         const map = new Map<CborValue, CborValue>();
+        // A 64-bit argument is a bigint; a shorter argument of the same
+        // integer is a number. Map treats those as different keys.
+        const repeatsKey = (k: CborValue): boolean => {
+          if (map.has(k)) return true;
+          if (typeof k === 'number' && Number.isSafeInteger(k)) return map.has(BigInt(k));
+          if (typeof k === 'bigint' && k >= BigInt(Number.MIN_SAFE_INTEGER) && k <= BigInt(Number.MAX_SAFE_INTEGER)) {
+            return map.has(Number(k));
+          }
+          return false;
+        };
         for (let i = 0; i < len; i++) {
-          const k = read();
-          const v = read();
+          const k = read(depth + 1);
+          const v = read(depth + 1);
+          if (repeatsKey(k)) throw new Error('CBOR: duplicate map key');
           map.set(k, v);
         }
         return map;
@@ -99,7 +129,8 @@ export function decodeCbor(input: Uint8Array): CborValue {
     }
   }
 
-  const value = read();
+  const value = read(0);
+  if (offset !== input.length) throw new Error('CBOR: trailing bytes');
   return value;
 }
 
