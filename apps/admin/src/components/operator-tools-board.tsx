@@ -11,7 +11,7 @@ import {
   type ToolListItem,
   type ToolListResponse,
 } from '@/lib/operator-tools-browser';
-import { TOOL_GROUPS } from '@/lib/operator-tools-catalog';
+import { TOOL_GROUPS, usesAccountConsole } from '@/lib/operator-tools-catalog';
 
 /**
  * Operator tools board — lists mounted procedures and invokes via BFF.
@@ -67,6 +67,7 @@ export function OperatorToolsBoard({ initial }: OperatorToolsBoardProps) {
 
   function run() {
     if (!selected) return;
+    if (usesAccountConsole(selected.id)) return;
     if (invocationLockRef.current) return;
     if (selected.wire === 'not-wired') return;
     if (selected.consequential && (!acknowledged || typedConfirmation !== confirmationPhrase(selected))) return;
@@ -156,7 +157,9 @@ export function OperatorToolsView(props: OperatorToolsViewProps) {
     selected?.fields.every((field) => !field.required || (props.fieldValues[field.name] ?? '').trim() !== '') ?? false;
   const confirmationReady =
     selected == null || !selected.consequential || (props.acknowledged && props.typedConfirmation === confirmationPhrase(selected));
-  const canRun = selected != null && selected.wire === 'wired' && !props.pending && requiredFieldsReady && confirmationReady;
+  const accountConsole = selected !== null && usesAccountConsole(selected.id);
+  const canRun =
+    selected != null && !accountConsole && selected.wire === 'wired' && !props.pending && requiredFieldsReady && confirmationReady;
 
   return (
     <>
@@ -164,9 +167,8 @@ export function OperatorToolsView(props: OperatorToolsViewProps) {
         <div>
           <h1>Operator tools</h1>
           <p>
-            Procedures already mounted on svc-edge under <code>/api/*/trpc/*</code>. This console proxies with the server-side operator or
-            treasury token. Missing env → <strong>not-wired</strong>, never a local green success for money or compliance mutations. Ledger
-            reconcile stays simulated on <code>/ledger</code>.
+            Review the available operator procedures. Requests use your current founder session; each service checks the permissions needed
+            for the action. Account restrictions are managed in <a href="/accounts">Account controls</a>.
           </p>
         </div>
         <button type="button" className="adm-btn" onClick={props.onRefresh} disabled={props.pending}>
@@ -181,9 +183,7 @@ export function OperatorToolsView(props: OperatorToolsViewProps) {
         {catalog.edgeUrl ? (
           <>
             {' '}
-            Edge <code>{catalog.edgeUrl}</code>. Module token{' '}
-            <Chip tone={catalog.moduleConfigured ? 'live' : 'warn'}>{catalog.moduleConfigured ? 'set' : 'missing'}</Chip> · Treasury token{' '}
-            <Chip tone={catalog.treasuryConfigured ? 'live' : 'warn'}>{catalog.treasuryConfigured ? 'set' : 'missing'}</Chip>
+            Current founder session <Chip tone="live">required</Chip>. Connection availability does not grant service permissions.
           </>
         ) : (
           <>
@@ -271,7 +271,12 @@ export function OperatorToolsView(props: OperatorToolsViewProps) {
                   </div>
                 )}
 
-                {selected.fields.map((field) => (
+                {accountConsole && (
+                  <p>
+                    Inspect current state and record a reason in <a href="/accounts">Account controls</a>.
+                  </p>
+                )}
+                {(accountConsole ? [] : selected.fields).map((field) => (
                   <div key={field.name} className="adm-field">
                     <label htmlFor={`tool-field-${field.name}`}>
                       {field.label}

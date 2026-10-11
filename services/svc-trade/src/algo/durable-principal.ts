@@ -2,10 +2,11 @@
  * Durable algo place grant — the caller presented these claims at createTwap
  * (TWAP / VWAP / POV share that door).
  *
- * Creating the schedule *is* the authorisation for child slices until it ends
- * or is cancelled. We persist the presented claims (scopes / session / tier),
- * never a JWT or secret. After restart, tick reconstructs a Principal from this
- * grant so children use the same placeOrder path.
+ * Persisted claims (scopes / session / tier) reconstruct the original credential
+ * provenance after restart, never a JWT or secret. The owned strategy admission
+ * binds this provenance to an identity grant. Every fresh child still requires
+ * its own live identity decision and local trading admission; these claims alone
+ * cannot authorize new exposure.
  *
  * Missing grant (pre-migration rows) still halt `trade.algo_principal_unavailable`.
  * Never mint a principal from userId alone.

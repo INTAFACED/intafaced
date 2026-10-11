@@ -1,3 +1,4 @@
+import { CopyService } from '../controls/test-admission.js';
 /**
  * trade.copy product mount — tRPC surface (wave 10 L02 Done bar).
  *
@@ -11,7 +12,7 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafa
 import { MemoryLedger, parseAmount, recipes, userAvailable } from '@intafaced/ledger-client';
 import { createTradeRouter } from '../router.js';
 import type { TradeService } from '../spot/trade-service.js';
-import { CopyService, type LookupFollowerFillFeePort, type LookupLeaderFillPort } from './copy-service.js';
+import { type LookupFollowerFillFeePort, type LookupLeaderFillPort } from './copy-service.js';
 import type { CopyFeeShareLaw, CopyJurisdictionLaw } from './fee-share-law.js';
 import { MemoryCopyFollowStore } from './follow-store.js';
 

@@ -1,3 +1,4 @@
+import { PositionService, TradeService } from '../controls/test-admission.js';
 /**
  * CARD F5 money proof — pre-trade credit dimensions refuse unset (PTX-M09-R10).
  *
@@ -19,7 +20,7 @@ import { MemoryLedger, formatAmount, parseAmount as amt, recipes, userAvailable 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { TEST_MAX_LEVERAGE_AMOUNT } from './initial-margin.test-harness.js';
 import { memoryMarkBook } from './mark-source.js';
-import { FuturesError, PositionService, type OpenPositionInput } from './position-service.js';
+import { FuturesError, type OpenPositionInput } from './position-service.js';
 import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } from './profit-source.js';
 import {
   MAX_LOSS_UNSET,
@@ -29,7 +30,7 @@ import {
   installPreTradeCredit,
   readOwnerPreTradeCredit,
 } from './pretrade-credit.js';
-import { TradeService } from '../spot/trade-service.js';
+
 import { TradeError } from '../spot/types.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
 

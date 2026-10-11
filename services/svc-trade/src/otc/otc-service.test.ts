@@ -1,6 +1,7 @@
+import { OtcDeskService } from '../controls/test-admission.js';
 import { describe, expect, it } from 'vitest';
 import { MemoryLedger, parseAmount, recipes } from '@intafaced/ledger-client';
-import { OtcDeskService } from './otc-service.js';
+
 import { MemoryOtcQuoteStore } from './quote-store.js';
 import { FixedOtcStake } from './stake-source.js';
 import { UNPUBLISHED_OTC_DESK_LAW, type OtcDeskLaw } from './desk-law.js';

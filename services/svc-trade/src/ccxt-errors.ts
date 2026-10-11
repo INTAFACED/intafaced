@@ -3,6 +3,7 @@ import { type ExchangeErrorCode } from '@intafaced/exchange-contract';
 import { InsufficientFundsError, LedgerError, MoneyError } from '@intafaced/ledger-client';
 import { MatchingNoBookError, MatchingUnavailableError } from './spot/matching-client.js';
 import { TradeError, type TradeErrorCode } from './spot/types.js';
+import { TradingControlError } from './controls/trading-controls.js';
 
 /**
  * CCXT ERROR TAXONOMY FOR THE PUBLIC REST SURFACE (trade.ccxt-api).
@@ -514,6 +515,19 @@ export function invalidOrder(message: string, intafacedCode = 'trade.validation_
  * will confidently retry forever.
  */
 export function toCcxtError(err: unknown): CcxtErrorResponse | null {
+  if (err instanceof TradingControlError) {
+    let status = 403;
+    if (err.code === 'authority.unavailable') status = 503;
+    else if (err.code === 'operation.conflict') status = 409;
+    return {
+      status,
+      body: {
+        code: err.code === 'authority.unavailable' ? 'ExchangeNotAvailable' : 'PermissionDenied',
+        message: err.message,
+        intafacedCode: err.code,
+      },
+    };
+  }
   if (err instanceof MatchingNoBookError) {
     // Engine answered: it does not hold this market. Not a live empty book.
     return {

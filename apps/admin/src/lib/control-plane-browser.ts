@@ -7,6 +7,7 @@
  */
 
 import type { ModuleId } from '@intafaced/config';
+import { founderMutationHeaders } from './founder-browser';
 
 export type ControlPlaneStatus = 'reachable' | 'unconfigured' | 'unreachable';
 
@@ -77,7 +78,7 @@ export async function postKillSwitch(input: { module: ModuleId; disabled: boolea
   try {
     const res = await fetch('/api/kill-switch', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: await founderMutationHeaders(),
       body: JSON.stringify(input),
       cache: 'no-store',
     });

@@ -27,6 +27,8 @@ import { describeFuturesPolicy } from './futures/futures-policy.js';
 import { describeOptionsPolicy } from './spot/options-policy.js';
 import { describeOtcPolicy } from './otc/otc-policy.js';
 import { describeAlgoPolicy } from './algo/algo-policy.js';
+import { tradingControlsRouter } from './controls/router.js';
+import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 
 /**
  * svc-trade's API (§5.2).
@@ -256,6 +258,16 @@ function presentFill(fill: FillRecord) {
  * order may not have been placed at all.
  */
 function toTrpcError(err: unknown): TRPCError {
+  if (err instanceof TradingControlError) {
+    let code: 'SERVICE_UNAVAILABLE' | 'CONFLICT' | 'FORBIDDEN' = 'FORBIDDEN';
+    if (err.code === 'authority.unavailable') code = 'SERVICE_UNAVAILABLE';
+    else if (err.code === 'operation.conflict') code = 'CONFLICT';
+    return new TRPCError({
+      code,
+      message: err.message,
+      cause: err,
+    });
+  }
   if (err instanceof InsufficientFundsError) {
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
@@ -375,8 +387,9 @@ async function guard<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, copy?: CopyService) {
+export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, copy?: CopyService, controls?: TradingControls) {
   return router({
+    accountControls: tradingControlsRouter(controls),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),

@@ -17,6 +17,7 @@
  * updates rather than duplicating.
  */
 import { execFileSync } from 'node:child_process';
+import { throwOnGitHubRefusal } from './github-refusal.mjs';
 import { FEATURES, PHASE_NAMES } from '../tracker/features.mjs';
 
 const dryRun = process.argv.includes('--dry-run');
@@ -30,6 +31,7 @@ function gh(args, { allowFail = false, input } = {}) {
   try {
     return execFileSync('gh', args, { encoding: 'utf8', ...(input ? { input } : {}) }).trim();
   } catch (err) {
+    throwOnGitHubRefusal(err);
     if (allowFail) return null;
     console.error(`\n✖ gh ${args.join(' ')}\n${err.stdout ?? ''}${err.stderr ?? ''}`);
     process.exitCode = 1;

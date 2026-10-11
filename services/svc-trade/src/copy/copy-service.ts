@@ -67,6 +67,9 @@ import {
   type CopyFollowStore,
 } from './follow-store.js';
 import { generateCopySessionKey, requireUnrevokedCopySessionKey } from './session-key.js';
+import type { TradingAdmissionPort } from '../controls/trading-controls.js';
+import { TradingControlError } from '../controls/trading-controls.js';
+import { businessPayload } from '../controls/business-payload.js';
 import { bindEnvelopeLimits, type CopyLeaderLimitSettings } from './follower-limits.js';
 
 /** Settled follower fill fee — `fills.fee_amount`, never a notional×bps invent. */
@@ -108,6 +111,8 @@ export interface CopyServiceOptions {
    * at the planned envelope. Absent → placeMirror refuse-closed.
    */
   placeFollowerOrder?: PlaceFollowerOrderPort;
+  /** Mandatory for creating a live delegation; each mirror gets a separate decision. */
+  accountAdmission?: TradingAdmissionPort;
   /**
    * Explicit operator flag. Default reads TRADE_COPY_PLACE_MIRROR (off).
    * Port wired + flag off still refuses by name.
@@ -189,6 +194,7 @@ export function publishedListMyFollowsLimit(value: number | undefined | null): n
 }
 
 export class CopyService {
+  private readonly accountAdmission: TradingAdmissionPort | undefined;
   private readonly store: CopyFollowStore;
   private readonly feeShareLaw: CopyFeeShareLaw;
   private readonly jurisdictionLaw: CopyJurisdictionLaw;
@@ -204,6 +210,7 @@ export class CopyService {
     private readonly ledger: LedgerClient,
     options: CopyServiceOptions = {},
   ) {
+    this.accountAdmission = options.accountAdmission;
     this.feeShareLaw = options.feeShareLaw ?? UNPUBLISHED_COPY_FEE_SHARE_LAW;
     this.jurisdictionLaw = options.jurisdictionLaw ?? UNPUBLISHED_COPY_JURISDICTION_LAW;
     this.now = options.now ?? (() => new Date());
@@ -306,6 +313,7 @@ export class CopyService {
       const once = await store.runPlaceMirrorOnce(follow.followId, prior.fillId, async () => {
         const clientOrderId = copyMirrorClientOrderId(follow.followId, prior.fillId);
         const placed = await this.placeFollowerOrder!(principal, {
+          followId: follow.followId,
           symbol: prior.marketId,
           marketId: prior.marketId,
           side: prior.side,
@@ -441,6 +449,20 @@ export class CopyService {
       feeShareKilled: false,
       relationshipState: 'ACTIVE',
     };
+    if (!this.accountAdmission) throw new TradingControlError('authority.unavailable');
+    await this.accountAdmission.admit(
+      principal,
+      'strategy.start',
+      `copy.follow:${follow.followId}`,
+      businessPayload({
+        followId: follow.followId,
+        followerId: follow.followerId,
+        leaderId: follow.leaderId,
+        envelope: follow.envelope,
+        region: follow.region,
+        createdAt: follow.createdAt,
+      }),
+    );
     try {
       await this.store.saveFollow(follow, 0n);
     } catch (err) {

@@ -5,14 +5,15 @@
  * Hits GET /api/kill-switch on a live listener. Does not call adminBffGate()
  * in-process — that coverage already lives in vitest.
  *
- * The harness boots Next with ADMIN_BFF_SHARED_SECRET unset and sets
- * ADMIN_BFF_HARNESS_URL. Running this file alone must fail (no foreign
- * default port, no in-process shortcut).
+ * The harness boots Next without founder-session configuration and sets
+ * ADMIN_BFF_HARNESS_URL. The obsolete shared proxy header is sent as an
+ * adversarial credential and must not authorize the request. Running this file
+ * alone must fail (no foreign default port, no in-process shortcut).
  */
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const UNCONFIGURED_CODE = 'admin.bff_gate_unconfigured';
+export const UNCONFIGURED_CODE = 'admin.session_unconfigured';
 
 export async function assertBffUnconfigured(baseUrl) {
   if (typeof baseUrl !== 'string' || baseUrl.trim() === '') {
@@ -23,6 +24,7 @@ export async function assertBffUnconfigured(baseUrl) {
   const res = await fetch(url, {
     method: 'GET',
     redirect: 'manual',
+    headers: { 'x-intafaced-admin-bff': 'former-shared-secret' },
     signal: AbortSignal.timeout(30_000),
   });
   const text = await res.text();

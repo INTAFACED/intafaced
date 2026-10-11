@@ -1,3 +1,4 @@
+import { CopyService } from './controls/test-admission.js';
 /**
  * Unit card — tRPC copy.listMyFollows optional limit → named refuse (no invented 50)
  *
@@ -17,7 +18,7 @@ import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createTradeRouter } from './router.js';
-import { TRADE_LIST_MY_FOLLOWS_LIMIT_UNSET, type CopyService } from './copy/copy-service.js';
+import { TRADE_LIST_MY_FOLLOWS_LIMIT_UNSET } from './copy/copy-service.js';
 import type { TradeService } from './spot/trade-service.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));

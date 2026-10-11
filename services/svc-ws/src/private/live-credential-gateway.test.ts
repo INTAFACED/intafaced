@@ -1,3 +1,4 @@
+import { TEST_AUTHORITY } from '../test-support/authority.js';
 import { createServer, request as httpRequest, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
@@ -128,6 +129,7 @@ describe('private stream live-credential revoke', () => {
     baseUrl = `ws://127.0.0.1:${addr.port}`;
     const log: HubLogger = { info: () => undefined, warn: () => undefined };
     gateway = createPrivateWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server,
       hub,
       heartbeatMs: opts.heartbeatMs ?? 30_000,
@@ -306,7 +308,7 @@ describe('private stream live-credential revoke', () => {
     expect(gateway.armedCount).toBe(0);
   });
 
-  it('omitted port still accepts a live JWT (existing JWT-only path)', async () => {
+  it('explicit authority accepts a live JWT without an optional supplemental adapter', async () => {
     await boot();
     const access = await token();
     expect(await upgradeStatus(`${PRIVATE_STREAM_PATH}?access_token=${access}`)).toBe(101);

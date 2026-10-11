@@ -85,7 +85,7 @@ When `freeProduct=0`, **do not** burn the night on tip-bump stamp PRs (R07/R01/P
 | **`.githooks/pre-push`**                       | `format:check` + refuse direct push to `main`. **Nothing counts runs.** Delivery is never blocked by a volume number.                                                                                                                           |
 | **CI triggers**                                | `push: main` **and** `pull_request` (push:main restored 2026-08-07 — only a push check proves the trunk is green). Docs-format is PR-only and skips FREEZE/claims/R00–R02/DASHBOARD-only. Manual: `workflow_dispatch`.                          |
 | **Main CI no-cancel**                          | `ci.yml`: `cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}`. Every merge to main is allowed to finish CI (public Actions free). PR branches still cancel superseding runs. **Not a merge throttle** — unlimited parallel ship stays. |
-| **Red tip = one heal lane**                    | Claim `main-heal` / `blocked-main`; one fix PR; no competing heal PRs; no product merges onto red tip. Path-disjoint craft may continue in worktrees. Full text: `CONTRIBUTING.md` §1.                                                          |
+| **Red tip repair**                             | Coordinate a focused fix without competing edits. Independent work and verified merges continue when their required checks pass. Failures affecting the change must be resolved. Full text: `CONTRIBUTING.md` §1.                               |
 | **Coordination PR ban**                        | No PR whose sole job is R07/peace/cycle/FREEZE tip-bump/claims meter/status. Those stay files; ship only with a real product/law delta.                                                                                                         |
 | `pnpm swarm:status` ops-churn / Actions 24h    | Informational counts only — the bill is zero, parallel work stays, a 403 or 429 is a stop                                                                                                                                                       |
 | `pnpm swarm:lanes`                             | **Discoverability only** — enumerates P0–P3                                                                                                                                                                                                     |
@@ -117,17 +117,17 @@ When the primary board finish is met but the session continues (AFK / “never s
 **There is no PR budget and no Actions budget.** The bill is zero; parallel work stays; a 403 or
 429 is a stop. Old spend thrift was **deleted 2026-08-07**
 (retirement: [`../GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](../GITHUB-CI-SPEND-CONTROL-2026-07-31.md)).
-**Finished work is never held back for CI cost.** No caps, no cooling window, no override flags.
+**Finished work is never held back for CI cost.** No PR caps, no CI-spend cooling window, no spend override flags. GitHub rate-limit cooldowns and access restrictions still apply; see [`AGENT_PROTOCOL.md`](../../tooling/agent-protocol/AGENT_PROTOCOL.md) §3.
 GitHub is the **merge seal**, not the chat log.
 
-| Rule                    | Detail                                                                                                                                 |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| **Verify before push**  | `pnpm verify` green locally first — local is seconds, a CI round trip is minutes. Fast feedback, not spend.                            |
-| **No coordination PRs** | Forbidden: R07 / peace / cycle N / FREEZE-only / claims-only / “board unchanged” PRs. Files stay local until a real product/law delta. |
-| **One concern per PR**  | One service per PR (CONTRIBUTING §15.1) — **reviewability**. Do not fatten a PR to save runs; that reason is gone.                     |
-| **Open path**           | `pnpm pr -- …`.                                                                                                                        |
-| **Push path**           | `.githooks/pre-push` runs `format:check` and refuses direct push to `main`.                                                            |
-| **Stamp mill**          | Stopped by `value-gate`, on **content**. Never by a volume number.                                                                     |
+| Rule                    | Detail                                                                                                                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Verify the change**   | Agents run relevant local checks and review the actual behavior. Full-suite CI and `pnpm verify` are informational; required protection checks still apply. Do not wait for CI green. |
+| **No coordination PRs** | Forbidden: R07 / peace / cycle N / FREEZE-only / claims-only / “board unchanged” PRs. Files stay local until a real product/law delta.                                                |
+| **One concern per PR**  | One service per PR (CONTRIBUTING §15.1) — **reviewability**. Do not fatten a PR to save runs; that reason is gone.                                                                    |
+| **Open path**           | `pnpm pr -- …`.                                                                                                                                                                       |
+| **Push path**           | `.githooks/pre-push` runs `format:check` and refuses direct push to `main`.                                                                                                           |
+| **Stamp mill**          | Stopped by `value-gate`, on **content**. Never by a volume number.                                                                                                                    |
 
 **Cold resume (no third file):** regenerate + read [`FREEZE-LIVE.md`](./FREEZE-LIVE.md) · [`../COORDINATION-TRUTH-LAYERS.md`](../COORDINATION-TRUTH-LAYERS.md) § Agent cold-start · human inbox [`../BOARD-CLEAR-HUMAN-BLOCKERS.md`](../BOARD-CLEAR-HUMAN-BLOCKERS.md).
 

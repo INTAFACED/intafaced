@@ -130,6 +130,14 @@ export class TwapEngine {
   }
 
   create(userId: string, input: CreateTwapInput, lotSize: Amount): TwapParent {
+    const { parent, plan } = this.prepare(userId, input, lotSize);
+    this.hydrate(parent, plan);
+    this.emitChange(parent);
+    return parent;
+  }
+
+  /** Validate and freeze a proposal without publishing an unadmitted strategy. */
+  prepare(userId: string, input: CreateTwapInput, lotSize: Amount): { parent: TwapParent; plan: readonly Amount[] } {
     if (input.durationMs > this.maxDurationMs) {
       throw new TradeError(`algo duration exceeds max ${this.maxDurationMs}ms`, 'trade.algo_invalid_schedule');
     }
@@ -207,10 +215,7 @@ export class TwapEngine {
       misses: [],
     };
 
-    this.parents.set(id, parent);
-    this.plans.set(id, slices);
-    this.emitChange(parent);
-    return parent;
+    return { parent, plan: slices };
   }
 
   pause(userId: string, parentId: string): TwapParent {

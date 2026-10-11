@@ -1,3 +1,4 @@
+import { PositionService } from '../controls/test-admission.js';
 /**
  * Unit card — listClosed limit unset refuse (no invented 100)
  *
@@ -20,7 +21,6 @@ import { describe, expect, it } from 'vitest';
 import {
   LIST_CLOSED_LIMIT_MAX,
   ListClosedLimitUnsetError,
-  PositionService,
   publishedListClosedLimit,
   TRADE_LIST_CLOSED_LIMIT_UNSET,
 } from './position-service.js';

@@ -1,3 +1,4 @@
+import { TradeService } from '../controls/test-admission.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,7 +19,7 @@ import {
   userAvailable,
   orderHoldAccount,
 } from '@intafaced/ledger-client';
-import { TradeService } from './trade-service.js';
+
 import { TradeError, type Market } from './types.js';
 import { HOUSE_MM_USER_UUID, mmSeedOrderIdFor, orderIdFor } from './ids.js';
 import { MM_MATCHING_ACCOUNT_ID } from '../mm/seed-market.js';

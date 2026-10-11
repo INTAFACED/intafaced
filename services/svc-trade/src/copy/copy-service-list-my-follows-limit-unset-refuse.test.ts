@@ -1,3 +1,4 @@
+import { CopyService } from '../controls/test-admission.js';
 /**
  * Unit card — CopyService.listMyFollows limit unset refuse (no invented 50)
  *
@@ -22,7 +23,6 @@ import {
   ListMyFollowsLimitUnsetError,
   publishedListMyFollowsLimit,
   TRADE_LIST_MY_FOLLOWS_LIMIT_UNSET,
-  CopyService,
 } from './copy-service.js';
 import { MemoryCopyFollowStore } from './follow-store.js';
 

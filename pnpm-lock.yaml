@@ -1495,6 +1495,9 @@ importers:
       '@intafaced/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@intafaced/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@intafaced/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
@@ -1507,6 +1510,9 @@ importers:
       fastify:
         specifier: ^5.12.5
         version: 5.12.5
+      postgres:
+        specifier: ^3.4.5
+        version: 3.4.9
       zod:
         specifier: ^3.24.1
         version: 3.25.76

@@ -23,8 +23,8 @@ export class PayoutDestinationMissingError extends Error {
 export type PayoutDestination = { kind: string; ref: string };
 
 export type MerchantPayoutDestinations = {
-  persist(input: { merchantId: string; railId: string; kind: string; ref: string }): Promise<PayoutDestination>;
-  require(input: { merchantId: string; railId: string }): Promise<PayoutDestination>;
+  persist(input: { merchantId: string; railId: string; kind: string; ref: string; connection?: Sql }): Promise<PayoutDestination>;
+  require(input: { merchantId: string; railId: string; connection?: Sql }): Promise<PayoutDestination>;
 };
 
 /** Assert kind+shape. Does not register or enable any rail. */
@@ -74,9 +74,9 @@ export function memoryPayoutDestinations(): MerchantPayoutDestinations {
 export class MerchantPayoutDestinationStore implements MerchantPayoutDestinations {
   constructor(private readonly sql: Sql) {}
 
-  async persist(input: { merchantId: string; railId: string; kind: string; ref: string }): Promise<PayoutDestination> {
+  async persist(input: { merchantId: string; railId: string; kind: string; ref: string; connection?: Sql }): Promise<PayoutDestination> {
     const dest = assertPersistableDestination(input.railId, input);
-    await this.sql`
+    await (input.connection ?? this.sql)`
       INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref)
       VALUES (${input.merchantId}, ${input.railId}, ${dest.kind}, ${dest.ref})
       ON CONFLICT (merchant_id, rail_id)
@@ -85,8 +85,8 @@ export class MerchantPayoutDestinationStore implements MerchantPayoutDestination
     return dest;
   }
 
-  async require(input: { merchantId: string; railId: string }): Promise<PayoutDestination> {
-    const rows = await this.sql<Array<{ kind: string; ref: string }>>`
+  async require(input: { merchantId: string; railId: string; connection?: Sql }): Promise<PayoutDestination> {
+    const rows = await (input.connection ?? this.sql)<Array<{ kind: string; ref: string }>>`
       SELECT kind, ref FROM pay.merchant_payout_destinations
        WHERE merchant_id = ${input.merchantId} AND rail_id = ${input.railId}
     `;
