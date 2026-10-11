@@ -185,6 +185,125 @@ describe('event catalog', () => {
       }),
     ).toThrow(EventValidationError);
   });
+
+  it('refuses a leading minus on unsigned money and keeps it on drift and pnl', () => {
+    const uid = () => crypto.randomUUID();
+    const ts = new Date().toISOString();
+    const filled = {
+      marketId: 'btc-usdt',
+      makerOrderId: uid(),
+      takerOrderId: uid(),
+      price: '64000',
+      qty: '0.1',
+      sequence: 1,
+      ts,
+    };
+    expect(() => validatePayload('orderFilled', { ...filled, price: '-1' })).toThrow(EventValidationError);
+    expect(() => validatePayload('orderFilled', { ...filled, qty: '-0.1' })).toThrow(EventValidationError);
+
+    const settled = {
+      fillId: uid(),
+      orderId: uid(),
+      userId: uid(),
+      marketId: 'btc-usdt',
+      side: 'buy' as const,
+      liquidity: 'taker' as const,
+      price: '100',
+      qty: '1',
+      quoteAmount: '100',
+      feeAsset: 'USDT',
+      feeAmount: '0.1',
+      feeBps: 10,
+      sequence: 1,
+      ts,
+    };
+    expect(() => validatePayload('fillSettled', { ...settled, price: '-100' })).toThrow(EventValidationError);
+    expect(() => validatePayload('fillSettled', { ...settled, qty: '-1' })).toThrow(EventValidationError);
+    expect(() => validatePayload('fillSettled', { ...settled, feeAmount: '-0.1' })).toThrow(EventValidationError);
+
+    const position = {
+      positionId: uid(),
+      userId: uid(),
+      marketId: 'btc-usdt-perp',
+      symbol: 'BTC/USDT:USDT',
+      status: 'open' as const,
+      side: 'long' as const,
+      contracts: '1',
+      entryPrice: '64000',
+      markPrice: '64100',
+      notional: '64000',
+      leverage: '5',
+      collateral: '12800',
+      unrealizedPnl: '100',
+      realizedPnl: '0',
+      liquidationPrice: '50000',
+      marginMode: 'cross' as const,
+      fundingPaid: '0',
+      ts,
+    };
+    expect(() => validatePayload('positionUpdated', { ...position, entryPrice: '-64000' })).toThrow(EventValidationError);
+    expect(() => validatePayload('positionUpdated', { ...position, contracts: '-1' })).toThrow(EventValidationError);
+    expect(() => validatePayload('positionUpdated', { ...position, notional: '-64000' })).toThrow(EventValidationError);
+    expect(() => validatePayload('positionUpdated', { ...position, collateral: '-12800' })).toThrow(EventValidationError);
+
+    const released = {
+      tradeId: uid(),
+      sellerId: uid(),
+      buyerId: uid(),
+      asset: 'BTC',
+      amount: '0.1',
+      fee: '0.001',
+      resolvedBy: 'seller' as const,
+      releaseSeconds: 60,
+    };
+    expect(() => validatePayload('p2pEscrowReleased', { ...released, amount: '-0.1' })).toThrow(EventValidationError);
+    expect(() => validatePayload('p2pEscrowReleased', { ...released, fee: '-0.001' })).toThrow(EventValidationError);
+
+    expect(() =>
+      validatePayload('stakeCreated', {
+        stakeId: uid(),
+        userId: uid(),
+        amount: '-100.00',
+        tier: 'flex',
+        unlocksAt: null,
+      }),
+    ).toThrow(EventValidationError);
+
+    expect(() =>
+      validatePayload('ledgerTxPosted', {
+        txId: uid(),
+        module: 'trade',
+        reason: 'trade.fill',
+        hash: 'h1',
+        previousHash: null,
+        entries: [
+          { accountId: uid(), assetId: 'USDT', direction: 'debit', amount: '-10.00' },
+          { accountId: uid(), assetId: 'USDT', direction: 'credit', amount: '10.00' },
+        ],
+        postedAt: ts,
+      }),
+    ).toThrow(EventValidationError);
+
+    expect(() =>
+      validatePayload('ledgerReconciliationFailed', {
+        accountId: uid(),
+        assetId: 'USDT',
+        snapshotBalance: '1.00',
+        replayBalance: '1.01',
+        drift: '-0.01',
+        module: 'ledger',
+      }),
+    ).not.toThrow();
+
+    const loss = validatePayload('positionUpdated', {
+      ...position,
+      unrealizedPnl: '-137.5',
+      realizedPnl: '-10.5',
+      fundingPaid: '-0.004',
+    });
+    expect(loss.unrealizedPnl).toBe('-137.5');
+    expect(loss.realizedPnl).toBe('-10.5');
+  });
 });
 
 describe('bus', () => {
@@ -523,10 +642,10 @@ describe('§10 consumer idempotency', () => {
   });
 
   /**
-   * The mark is held for an in-flight handler and for a success — NOT for a
-   * failure. Before this, `checkAndSet` marked on arrival, so a handler that
-   * threw was already recorded as processed and the redelivery was swallowed
-   * and acked: at-most-once, silently.
+   * A failure is not a completion. The success mark is written only after the
+   * handler returns, so a redelivery runs it again. Before this, `checkAndSet`
+   * marked on arrival, a thrown handler was already recorded as processed, and
+   * the redelivery was swallowed and acked: at-most-once, silently.
    *
    * That mattered most where a throw is the design. `svc-identity/src/events.ts`
    * documents an XP award for an unknown user as an FK violation "which throws,
@@ -561,7 +680,56 @@ describe('§10 consumer idempotency', () => {
     expect(attempts).toBe(2);
   });
 
-  it('keeps failing a handler that always throws, so it can reach the dead-letter', async () => {
+  it('a mark left behind without a success does not return without running the handler', async () => {
+    const store = new MemorySeenStore();
+    const scope = 'fill-settle';
+    const envelope = { subject: 'xpEarned', idempotencyKey: 'fill-crash-1' } as never;
+    // Crash after checkAndSet: the seen-key is marked and the handler never succeeded.
+    await store.checkAndSet(`${scope}:xpEarned:fill-crash-1`);
+
+    let runs = 0;
+    const wrapped = idempotent(
+      async () => {
+        runs += 1;
+      },
+      store,
+      scope,
+    );
+
+    const outcome = await Promise.resolve(wrapped({} as never, envelope)).then(
+      () => 'returned' as const,
+      () => 'threw' as const,
+    );
+
+    // A normal return is an ack. That is only legal when this delivery ran the handler, or when it throws so the pump naks.
+    expect(outcome === 'threw' || runs === 1).toBe(true);
+
+    // An ack-wait redelivery must not return while the first attempt can still throw.
+    let open!: () => void;
+    const opened = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    let unblock!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      unblock = resolve;
+    });
+    const racing = idempotent(
+      async () => {
+        open();
+        await blocked;
+      },
+      store,
+      scope,
+    );
+    const live = { subject: 'xpEarned', idempotencyKey: 'fill-live-1' } as never;
+    const first = racing({} as never, live);
+    await opened;
+    await expect(racing({} as never, live)).rejects.toThrow();
+    unblock();
+    await first;
+  });
+
+  it('keeps failing a handler that always throws, so it can exhaust max_deliver', async () => {
     const store = new MemorySeenStore();
     let attempts = 0;
     const wrapped = idempotent(
@@ -580,6 +748,135 @@ describe('§10 consumer idempotency', () => {
 
     // Every delivery reached the handler; none was silently acked on its behalf.
     expect(attempts).toBe(5);
+  });
+
+  it('does not acknowledge a duplicate from another wrapper while the first delivery later fails', async () => {
+    const store = new MemorySeenStore();
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let fail!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      fail = resolve;
+    });
+    const firstHandler = vi.fn(async () => {
+      started();
+      await waiting;
+      throw new Error('first failed');
+    });
+    const retryHandler = vi.fn(async () => undefined);
+    const first = idempotent(firstHandler, store, 'rank-recalc');
+    const duplicate = idempotent(retryHandler, store, 'rank-recalc');
+    const envelope = { subject: 'xpEarned', idempotencyKey: 'concurrent-failure' } as never;
+    const pending = first({} as never, envelope);
+    const rejected = expect(pending).rejects.toThrow('first failed');
+    await ready;
+    await expect(duplicate({} as never, envelope)).rejects.toThrow('delivery still in flight');
+    expect(retryHandler).not.toHaveBeenCalled();
+    fail();
+    await rejected;
+    await duplicate({} as never, envelope);
+    await duplicate({} as never, envelope);
+    expect(retryHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a failed commit without requiring a release method', async () => {
+    const seen = new Set<string>();
+    let commits = 0;
+    const store = {
+      checkAndSet: async (key: string) => seen.has(key),
+      commit: async (key: string) => {
+        if (++commits === 1) throw new Error('store unavailable');
+        seen.add(key);
+      },
+    };
+    const handler = vi.fn(async () => undefined);
+    const wrapped = idempotent(handler, store, 'rank-recalc');
+    const envelope = { subject: 'xpEarned', idempotencyKey: 'commit-failure' } as never;
+    await expect(wrapped({} as never, envelope)).rejects.toThrow('store unavailable');
+    await wrapped({} as never, envelope);
+    await wrapped({} as never, envelope);
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(commits).toBe(2);
+  });
+
+  it('JetStream pump naks in-flight and failed deliveries, then acks success and its redelivery', async () => {
+    const payload = { userId: crypto.randomUUID(), sourceModule: 'academy', action: 'cert.earned', xpDelta: 500 };
+    const data = encodeEnvelope(
+      createEnvelope({
+        subject: EVENT_CATALOG.xpEarned.subject,
+        version: 1,
+        producer: 'svc-academy',
+        idempotencyKey: 'pump-failure',
+        payload,
+      }),
+    );
+    const messages = Array.from({ length: 4 }, () => ({ data, ack: vi.fn(), nak: vi.fn(), info: { redeliveryCount: 1 } }));
+    let next = 0;
+    const consumer = {
+      consume: async () => {
+        const message = messages[next++]!;
+        return Object.assign(
+          (async function* () {
+            yield message;
+          })(),
+          { stop: vi.fn() },
+        );
+      },
+    };
+    const connection = {
+      jetstream: () => ({ consumers: { get: async () => consumer } }),
+      jetstreamManager: async () => ({ consumers: { add: async (_stream: string, config: unknown) => ({ config }) } }),
+      drain: vi.fn(async () => undefined),
+    };
+    vi.resetModules();
+    vi.doMock('nats', async () => ({ ...(await vi.importActual<typeof import('nats')>('nats')), connect: async () => connection }));
+    let unblock!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      unblock = resolve;
+    });
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const { JetStreamEventBus } = await import('./jetstream-bus.js');
+    const bus = await JetStreamEventBus.connect({ servers: 'nats://unused', producer: 'svc-identity' });
+    try {
+      const store = new MemorySeenStore();
+      const failure = idempotent(
+        async () => {
+          started();
+          await blocked;
+          throw new Error('downstream failed');
+        },
+        store,
+        'rank-recalc',
+      );
+      const handler = vi.fn(async () => undefined);
+      const retry = idempotent(handler, store, 'rank-recalc');
+      await bus.subscribe('xpEarned', failure, { durable: 'first' });
+      await ready;
+      await bus.subscribe('xpEarned', retry, { durable: 'concurrent' });
+      await vi.waitFor(() => expect(messages[1]!.nak).toHaveBeenCalledOnce());
+      expect(messages[1]!.ack).not.toHaveBeenCalled();
+      expect(handler).not.toHaveBeenCalled();
+      unblock();
+      await vi.waitFor(() => expect(messages[0]!.nak).toHaveBeenCalledOnce());
+      expect(messages[0]!.ack).not.toHaveBeenCalled();
+      await bus.subscribe('xpEarned', retry, { durable: 'retry' });
+      await vi.waitFor(() => expect(messages[2]!.ack).toHaveBeenCalledOnce());
+      await bus.subscribe('xpEarned', retry, { durable: 'completed' });
+      await vi.waitFor(() => expect(messages[3]!.ack).toHaveBeenCalledOnce());
+      expect(handler).toHaveBeenCalledOnce();
+      expect(messages[2]!.nak).not.toHaveBeenCalled();
+      expect(messages[3]!.nak).not.toHaveBeenCalled();
+    } finally {
+      unblock();
+      await bus.close();
+      vi.doUnmock('nats');
+      vi.resetModules();
+    }
   });
 
   it('scopes dedupe per consumer, so two consumers each see the event', async () => {
