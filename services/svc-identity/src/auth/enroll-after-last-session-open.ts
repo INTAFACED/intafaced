@@ -1,11 +1,12 @@
 /**
  * Open a live session only after the newly enrolled passkey verifies following a last-unenroll.
- * Refuse if none remain. Reuses requireVerifiedPasskey and PlaceDoor.assertSessionLive.
+ * Refuse if none remain. Return a live session only when its owner is input.userId.
+ * Reuses requireVerifiedPasskey and PlaceDoor.assertSessionLive.
  * No invented challenge. No invented session.
  */
 import type { Sql } from 'postgres';
 import { MintApiKeyPasskeyError, requireVerifiedPasskey } from './mint-api-key-passkey.js';
-import { PlaceDoor } from './place-door.js';
+import { PlaceDoor, PlaceDoorError } from './place-door.js';
 
 export function newlyEnrolledPasskeyOpensSession(raw: unknown): void {
   requireVerifiedPasskey(raw);
@@ -21,5 +22,9 @@ export async function openLiveSessionAfterNewlyEnrolledPasskey(
   const user = rows[0];
   if (!user) throw new MintApiKeyPasskeyError('User not found', 'auth.not_found');
   requireVerifiedPasskey(user.webauthn_creds);
-  return new PlaceDoor(sql).assertSessionLive(input.sessionId);
+  const live = await new PlaceDoor(sql).assertSessionLive(input.sessionId);
+  if (live.userId !== input.userId) {
+    throw new PlaceDoorError('Session not found', 'auth.session_denied');
+  }
+  return live;
 }
