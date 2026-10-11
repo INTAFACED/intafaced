@@ -353,6 +353,7 @@ function toTrpcError(err: unknown): TRPCError {
       // server error and must never page anybody.
       case 'trade.futures_disabled':
       case 'trade.fx_not_spot':
+      case 'trade.paper_fill_refused':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       case 'trade.perks_unavailable':
         return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.message, cause: err });

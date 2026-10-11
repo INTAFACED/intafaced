@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { AuthError, requireScope } from '@intafaced/auth';
+import { checkAccess } from '@intafaced/config';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import { formatAmount, mul, mulBps, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { MarketAction } from '@intafaced/exchange-contract';
@@ -22,7 +23,7 @@ export const SPOT_ORDER_PREVIEW_PATH = '/api/v1/orders/preview';
 
 export interface SpotOrderPreviewRefusal {
   code: string;
-  field: 'symbol' | 'type' | 'side' | 'amount' | 'price' | 'holdAmount' | 'fee' | 'protectionPrice';
+  field: 'symbol' | 'type' | 'side' | 'amount' | 'price' | 'holdAmount' | 'fee' | 'protectionPrice' | 'region';
   message: string;
 }
 
@@ -133,7 +134,8 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
 
   app.post(SPOT_ORDER_PREVIEW_PATH, async (req, reply) => {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };
-    const principal = edgeContext(edgeReq).principal;
+    const edge = edgeContext(edgeReq);
+    const principal = edge.principal;
     if (!principal) return sendError(reply, 401, 'trade.unauthenticated', 'signed principal required');
     try {
       requireScope(principal, 'trade:read');
@@ -350,6 +352,19 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
           feeAsset = market.quoteAsset;
         }
       }
+    }
+
+    // Same trade checkAccess gate as POST /api/v1/orders. Fail closed so a blank
+    // list is a refusal, not a clearance. This route posts no hold.
+    const access = checkAccess({
+      module: 'trade',
+      plane: 'fiat',
+      region: edge.region,
+      kycTier: principal.tier,
+      screeningFailClosed: true,
+    });
+    if (!access.allowed) {
+      refusals.push({ code: access.code, field: 'region', message: access.reason });
     }
 
     const uniqueRefusals = dedupeRefusals(refusals);

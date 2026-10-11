@@ -271,10 +271,11 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       expect(maker.status).toBe('open');
       expect(maker.lifecycleProof?.action).toBe('PLACE');
       expect(maker.lifecycleProof?.decision).toBe('ELIGIBLE');
-      const persistedProof = await sql<Array<{ lifecycle_proof: { action?: string; decision?: string } | null }>>`
+      const persistedProof = await sql<Array<{ lifecycle_proof: { action?: string; decision?: string } | string | null }>>`
         SELECT lifecycle_proof FROM trade.orders WHERE id = ${maker.id}
       `;
-      expect(persistedProof[0]?.lifecycle_proof).toMatchObject({ action: 'PLACE', decision: 'ELIGIBLE' });
+      const proof = persistedProof[0]?.lifecycle_proof;
+      expect(typeof proof === 'string' ? JSON.parse(proof) : proof).toMatchObject({ action: 'PLACE', decision: 'ELIGIBLE' });
       expect(await held(BOB, 'BTC')).toBe('2');
       expect(await avail(BOB, 'BTC')).toBe('3');
 
@@ -726,7 +727,7 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
     it('preserves a replacement hold on SUBMIT_UNKNOWN and never resubmits it', async () => {
       await fund(ALICE, 'USDT', '1000');
       const original = await rest(ALICE, btcusdt, 'buy', '2', '100', 'submit-unknown');
-      matching.submit = async () => {
+      matching.onSubmit = () => {
         throw new Error('submit transport timed out');
       };
 
@@ -943,6 +944,176 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       expect(await avail(ALICE, 'USDT')).toBe('2000');
       // The aggressor's own base hold is untouched — it is still in the book.
       expect(await held(ALICE, 'BTC')).toBe('2');
+    });
+  });
+
+  // Paper rows stay at hold 0. They are not a second book and not a funded hold.
+  describe('paper orders are not live fills', () => {
+    const grid = {
+      baseAsset: 'BTC',
+      quoteAsset: 'USDT',
+      tickSize: amt('0.01'),
+      lotSize: amt('0.0001'),
+      minQty: amt('0.0001'),
+      maxQty: amt('1000'),
+      minNotional: amt('1'),
+      makerBps: 10,
+      takerBps: 20,
+    };
+
+    async function fillCount(): Promise<string> {
+      const rows = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM trade.fills`;
+      return rows[0]?.n ?? '0';
+    }
+
+    it('inserts a paper option limit at hold 0 and does not call matching.submit', async () => {
+      const paper = await trade.listMarket({
+        ...grid,
+        symbol: 'BTC/USDT-OPT-PAPER',
+        kind: 'options',
+        optionType: 'call',
+        optionStrike: amt('100'),
+        optionExpiryAt: new Date('2027-06-01T00:00:00.000Z'),
+        paper: true,
+      });
+      expect(paper.paper).toBe(true);
+
+      const maker = await rest(BOB, paper, 'sell', '1', '10', 'bob-paper-opt');
+      const taker = await rest(ALICE, paper, 'buy', '1', '10', 'alice-paper-opt');
+
+      expect(matching.submitted).toEqual([]);
+      expect(maker.status).toBe('open');
+      expect(taker.status).toBe('open');
+      expect(maker.holdAmount).toBe(0n);
+      expect(taker.holdAmount).toBe(0n);
+      expect(maker.price).toBe(amt('10'));
+      expect(maker.protectionPrice).toBeNull();
+      expect(taker.protectionPrice).toBeNull();
+      expect(postsWithReason('order.hold')).toHaveLength(0);
+      expect(postsWithReason('trade.fill')).toHaveLength(0);
+      expect(ledger.journal()).toEqual([]);
+      expect(await heldFor(BOB, 'BTC', maker.id)).toBe('0');
+      expect(await heldFor(ALICE, 'USDT', taker.id)).toBe('0');
+    });
+
+    it('refuses a paper fill before trade.fills and before recipes.tradeFill', async () => {
+      const paper = await trade.listMarket({
+        ...grid,
+        symbol: 'BTC/USDT-OPT-PAPER',
+        kind: 'options',
+        optionType: 'call',
+        optionStrike: amt('100'),
+        optionExpiryAt: new Date('2027-06-01T00:00:00.000Z'),
+        paper: true,
+      });
+      const maker = await rest(BOB, paper, 'sell', '1', '10', 'bob-paper-fill');
+      const taker = await rest(ALICE, paper, 'buy', '1', '10', 'alice-paper-fill');
+
+      let caught: unknown;
+      try {
+        await trade.settleFillEvent({
+          marketId: paper.id,
+          makerOrderId: maker.id,
+          takerOrderId: taker.id,
+          price: '10',
+          qty: '1',
+          sequence: 1,
+          makerAccountId: BOB,
+          takerAccountId: ALICE,
+        });
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(await fillCount()).toBe('0');
+      expect(postsWithReason('trade.fill')).toHaveLength(0);
+      expect(postsWithReason('order.hold')).toHaveLength(0);
+      expect(ledger.journal()).toEqual([]);
+      expect(caught).toBeInstanceOf(TradeError);
+      expect((caught as TradeError).code).toBe('trade.paper_fill_refused');
+      const makerAfter = await trade.getOrder(principalFor(BOB, ['trade:read']), maker.id);
+      const takerAfter = await trade.getOrder(principalFor(ALICE, ['trade:read']), taker.id);
+      expect(makerAfter.filledQty).toBe(0n);
+      expect(takerAfter.filledQty).toBe(0n);
+      expect(makerAfter.holdAmount).toBe(0n);
+      expect(takerAfter.holdAmount).toBe(0n);
+    });
+
+    it('refuses a paper spot fill the same way', async () => {
+      const paper = await trade.listMarket({
+        ...grid,
+        symbol: 'BTC/USDT-PAPER',
+        paper: true,
+      });
+      const maker = await rest(BOB, paper, 'sell', '1', '10', 'bob-paper-spot');
+      const taker = await rest(ALICE, paper, 'buy', '1', '10', 'alice-paper-spot');
+
+      let caught: unknown;
+      try {
+        await trade.settleFillEvent({
+          marketId: paper.id,
+          makerOrderId: maker.id,
+          takerOrderId: taker.id,
+          price: '10',
+          qty: '1',
+          sequence: 1,
+          makerAccountId: BOB,
+          takerAccountId: ALICE,
+        });
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(await fillCount()).toBe('0');
+      expect(postsWithReason('trade.fill')).toHaveLength(0);
+      expect(caught).toBeInstanceOf(TradeError);
+      expect((caught as TradeError).code).toBe('trade.paper_fill_refused');
+    });
+
+    it('does not throw trade.hold_uncovered when a paper order never filled', async () => {
+      const paper = await trade.listMarket({
+        ...grid,
+        symbol: 'BTC/USDT-OPT-PAPER',
+        kind: 'options',
+        optionType: 'call',
+        optionStrike: amt('100'),
+        optionExpiryAt: new Date('2027-06-01T00:00:00.000Z'),
+        paper: true,
+      });
+      const maker = await rest(BOB, paper, 'sell', '1', '10', 'bob-paper-cancel');
+      const taker = await rest(ALICE, paper, 'buy', '1', '10', 'alice-paper-cancel');
+
+      // A fill event must not leave a phantom trade.fills row that later
+      // makes consumed > the zero hold. Swallow the refuse; the cancel is
+      // what used to throw trade.hold_uncovered.
+      await trade
+        .settleFillEvent({
+          marketId: paper.id,
+          makerOrderId: maker.id,
+          takerOrderId: taker.id,
+          price: '10',
+          qty: '1',
+          sequence: 1,
+          makerAccountId: BOB,
+          takerAccountId: ALICE,
+        })
+        .catch(() => undefined);
+
+      const cancelled = await trade.cancelOrder(principalFor(BOB), maker.id);
+      expect(cancelled.status).toBe('cancelled');
+      expect(cancelled.filledQty).toBe(0n);
+      expect(cancelled.holdAmount).toBe(0n);
+
+      await trade.releaseOnCancelEvent(taker.id);
+      const takerAfter = await trade.getOrder(principalFor(ALICE, ['trade:read']), taker.id);
+      expect(takerAfter.status).toBe('cancelled');
+      expect(takerAfter.filledQty).toBe(0n);
+      expect(takerAfter.holdAmount).toBe(0n);
+      expect(await fillCount()).toBe('0');
+      expect(postsWithReason('trade.fill')).toHaveLength(0);
+      expect(postsWithReason('order.hold')).toHaveLength(0);
+      expect(postsWithReason('order.hold.released')).toHaveLength(0);
+      expect(ledger.journal()).toEqual([]);
     });
   });
 
