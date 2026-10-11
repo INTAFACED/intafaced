@@ -101,24 +101,28 @@ const BPS = 10_000n;
  * quote amount would misprice one side.
  *
  * Settlement cost is added to a buy and subtracted from a sell for the same
- * reason — it is a cost to the taker in both directions.
+ * reason — it is a cost to the taker in both directions. It is charged once
+ * on the quantity actually taken. Spreading it across the venue's unused
+ * size makes a partial take of a large pool look cheaper than the book.
  */
-export function effectivePrice(quote: VenueQuote, side: 'buy' | 'sell'): Amount {
-  if (quote.fillableQty <= 0n) throw new RangeError('cannot price a quote with no fillable quantity');
+export function effectivePrice(quote: VenueQuote, side: 'buy' | 'sell', takeQty?: Amount): Amount {
+  const take = takeQty ?? quote.fillableQty;
+  if (quote.fillableQty <= 0n || take <= 0n) throw new RangeError('cannot price a quote with no fillable quantity');
 
-  const feeOnBase = (quote.fillableQty * BigInt(quote.feeBps)) / BPS;
+  // Pro-rate only the venue notional. Settlement stays whole.
+  const variable = (quote.quoteAmount * take) / quote.fillableQty;
+  const feeBps = BigInt(quote.feeBps);
 
   if (side === 'buy') {
-    // Buyer pays quote + gas, receives base minus fee.
-    const received = quote.fillableQty - feeOnBase;
+    // Buyer pays the taken notional plus gas, and receives base minus fee.
+    const received = take - (take * feeBps) / BPS;
     if (received <= 0n) throw new RangeError('venue fee consumes the entire fill');
-    return ((quote.quoteAmount + quote.settlementCost) * SCALE) / received;
+    return ((variable + quote.settlementCost) * SCALE) / received;
   }
 
-  // Seller delivers base, receives quote minus fee, minus gas.
-  const feeOnQuote = (quote.quoteAmount * BigInt(quote.feeBps)) / BPS;
-  const proceeds = quote.quoteAmount - feeOnQuote - quote.settlementCost;
-  return (proceeds * SCALE) / quote.fillableQty;
+  // Seller delivers the taken base, receives notional minus fee, minus gas.
+  const proceeds = variable - (variable * feeBps) / BPS - quote.settlementCost;
+  return (proceeds * SCALE) / take;
 }
 
 /**
@@ -137,31 +141,42 @@ export function effectivePrice(quote: VenueQuote, side: 'buy' | 'sell'): Amount 
 export function route(request: RouteRequest, quotes: readonly VenueQuote[]): Route {
   if (request.qty <= 0n) throw new RangeError('route quantity must be positive');
 
-  const priced = quotes
-    .filter((q) => q.fillableQty > 0n)
-    .map((q) => ({ quote: q, price: effectivePrice(q, request.side) }))
-    .sort((a, b) => {
-      // Buy: cheapest first. Sell: highest proceeds first.
-      const better = request.side === 'buy' ? a.price - b.price : b.price - a.price;
-      if (better !== 0n) return better < 0n ? -1 : 1;
-      return a.quote.venue < b.quote.venue ? -1 : a.quote.venue > b.quote.venue ? 1 : 0;
-    });
-
+  const open = quotes.filter((q) => q.fillableQty > 0n);
   const legs: RouteLeg[] = [];
   let remaining = request.qty;
   let totalQuote = 0n;
 
-  for (const { quote, price } of priced) {
-    if (remaining === 0n) break;
+  while (remaining > 0n && open.length > 0) {
+    // Rank on the quantity this step would actually take, so a fixed settlement
+    // cost is not diluted across size the order will not consume.
+    const ranked = open
+      .map((quote) => {
+        const take = quote.fillableQty < remaining ? quote.fillableQty : remaining;
+        return { quote, take, price: effectivePrice(quote, request.side, take) };
+      })
+      .sort((a, b) => {
+        // Buy: cheapest first. Sell: highest proceeds first.
+        const better = request.side === 'buy' ? a.price - b.price : b.price - a.price;
+        if (better !== 0n) return better < 0n ? -1 : 1;
+        return a.quote.venue < b.quote.venue ? -1 : a.quote.venue > b.quote.venue ? 1 : 0;
+      });
 
-    const take = quote.fillableQty < remaining ? quote.fillableQty : remaining;
-    // Pro-rate the quote amount when taking only part of a venue's fill. Exact
-    // integer arithmetic: no rounding to a float, ever.
-    const legQuote = (quote.quoteAmount * take) / quote.fillableQty;
+    const best = ranked[0]!;
+    // Pro-rate the venue notional only. Settlement is paid once, in full.
+    // Exact integer arithmetic: no rounding to a float, ever.
+    const variable = (best.quote.quoteAmount * best.take) / best.quote.fillableQty;
+    const legQuote = request.side === 'buy' ? variable + best.quote.settlementCost : variable - best.quote.settlementCost;
 
-    legs.push({ venue: quote.venue, kind: quote.kind, qty: take, quoteAmount: legQuote, effectivePrice: price });
-    remaining -= take;
+    legs.push({
+      venue: best.quote.venue,
+      kind: best.quote.kind,
+      qty: best.take,
+      quoteAmount: legQuote,
+      effectivePrice: best.price,
+    });
+    remaining -= best.take;
     totalQuote += legQuote;
+    open.splice(open.indexOf(best.quote), 1);
   }
 
   return { legs, filledQty: request.qty - remaining, unfilledQty: remaining, totalQuoteAmount: totalQuote };

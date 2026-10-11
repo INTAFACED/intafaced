@@ -12,7 +12,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { SANCTIONS_REGIONS_ENV, SANCTIONS_SOURCE_ENV, SCREENING_REVIEWED_EMPTY } from '@intafaced/config';
 import { createEdgeContext } from '@intafaced/contracts';
 import { parseAmount as amt, type Amount } from '@intafaced/ledger-client/money';
 import { createDexRouter, type DexRouter } from '../router.js';
@@ -21,6 +22,20 @@ import { MarketDataSource } from './market-data-source.js';
 import type { BookLevel, TimestampedBook, VenueKind } from './venue.js';
 
 const SECRET = 'dex-q-internal-book-http-honesty-secret-32';
+
+/** Attributed empty screening answer so quote is not refused for a blank list. */
+const priorRegions = process.env[SANCTIONS_REGIONS_ENV];
+const priorSource = process.env[SANCTIONS_SOURCE_ENV];
+beforeAll(() => {
+  process.env[SANCTIONS_REGIONS_ENV] = SCREENING_REVIEWED_EMPTY;
+  process.env[SANCTIONS_SOURCE_ENV] = 'counsel-memo-ref';
+});
+afterAll(() => {
+  if (priorRegions === undefined) delete process.env[SANCTIONS_REGIONS_ENV];
+  else process.env[SANCTIONS_REGIONS_ENV] = priorRegions;
+  if (priorSource === undefined) delete process.env[SANCTIONS_SOURCE_ENV];
+  else process.env[SANCTIONS_SOURCE_ENV] = priorSource;
+});
 const NOW = new Date('2026-07-29T12:00:00.000Z');
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-dex' });
 
