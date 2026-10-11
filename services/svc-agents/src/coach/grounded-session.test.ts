@@ -91,6 +91,40 @@ describe('coach grounded session — empty is a chatbot, not a coach', () => {
     assertNotAdvice(result);
   });
 
+  it('a blank ask with a present catalog is not an empty curriculum', () => {
+    const licensedResult = runCoachSession({ ask: '', grounding: licensed });
+    expect(licensedResult.status).toBe('grounded');
+    if (licensedResult.status !== 'grounded') return;
+    expect(licensedResult.citedCount).toBe(licensed.items.length);
+    expect(licensedResult.citations).toEqual([
+      { slug: 'foundations-risk-first', title: 'Risk first' },
+      { slug: 'markets-spot-path', title: 'Spot path' },
+    ]);
+    expect(licensedResult.licensedLibraryImported).toBe(true);
+    assertNotAdvice(licensedResult);
+
+    expect(runCoachSession({ ask: '   ', grounding: spine })).toMatchObject({
+      status: 'refuse',
+      reason: 'library_import_pending',
+      licensedLibraryImported: false,
+      citedCount: 0,
+    });
+  });
+
+  it('a blank ask still refuses when the catalog is actually empty', () => {
+    expect(
+      runCoachSession({
+        ask: '',
+        grounding: { items: [], licensedLibraryImported: true },
+      }),
+    ).toMatchObject({
+      status: 'refuse',
+      reason: 'curriculum_empty',
+      citedCount: 0,
+      licensedLibraryImported: true,
+    });
+  });
+
   it('fails if a session is dressed as advice or a live recommendation', () => {
     expect(looksLikeAdvice({ status: 'grounded', kind: 'advice', isAdvice: true })).toBe(true);
     expect(looksLikeAdvice({ status: 'ok', positionsReferenced: true })).toBe(true);

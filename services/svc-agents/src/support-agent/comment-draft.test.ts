@@ -32,6 +32,35 @@ describe('support agent L3 comment draft', () => {
     const r = draftTicketComment({ ticketId: 't-1', body: 'I have refunded you already.' });
     expect(r).toMatchObject({ status: 'refuse', reason: 'money_invent_language' });
   });
+
+  it('refuses a multi-digit balance claim', () => {
+    expect(draftTicketComment({ ticketId: 't-1', body: 'balance is 50' })).toMatchObject({
+      status: 'refuse',
+      reason: 'money_invent_language',
+    });
+  });
+
+  it('refuses a multi-digit credit claim', () => {
+    expect(draftTicketComment({ ticketId: 't-1', body: 'credited $100' })).toMatchObject({
+      status: 'refuse',
+      reason: 'money_invent_language',
+    });
+  });
+
+  it('refuses a one-digit balance claim', () => {
+    expect(draftTicketComment({ ticketId: 't-1', body: 'balance is 5' })).toMatchObject({
+      status: 'refuse',
+      reason: 'money_invent_language',
+    });
+  });
+
+  it('returns ok when the comment does not claim a refund, balance, credit, wire, or payout', () => {
+    expect(draftTicketComment({ ticketId: 't-1', body: 'We are looking into your ticket.' })).toEqual({
+      status: 'ok',
+      ticketId: 't-1',
+      body: 'We are looking into your ticket.',
+    });
+  });
 });
 
 describe('L3 wave50 comment-draft status/export', () => {

@@ -55,4 +55,26 @@ describe('navigator Stage-2 tier gate', () => {
       userMessageKey: 'agents.navigator.tier_closed',
     });
   });
+
+  it('refuses a userTier that is only an Object.prototype name', () => {
+    const law = {
+      published: true as const,
+      matrix: { free: ['trade.quote'] },
+    };
+    const refused = {
+      status: 'refuse' as const,
+      reason: 'tier_not_granted' as const,
+      userMessageKey: 'agents.navigator.tier_closed' as const,
+    };
+
+    const constructorResult = navigatorTierGate({ law, userTier: 'constructor' });
+    expect(constructorResult).toEqual(refused);
+    expect(constructorResult.status).not.toBe('ok');
+    expect(constructorResult).not.toHaveProperty('allowedTools', Object.prototype.constructor);
+
+    const toStringResult = navigatorTierGate({ law, userTier: 'toString' });
+    expect(toStringResult).toEqual(refused);
+    expect(toStringResult.status).not.toBe('ok');
+    expect(toStringResult).not.toHaveProperty('allowedTools', Object.prototype.toString);
+  });
 });

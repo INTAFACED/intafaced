@@ -50,6 +50,11 @@ export function accountFromState(state: AccountState, requesterUserId: string): 
   if (accountProjectionHasInventMoney(state)) {
     return { status: 'refuse', reason: 'balance_field_forbidden' };
   }
+  for (const key of Object.keys(state)) {
+    if (key !== 'userId' && key !== 'status' && key !== 'kycTier') {
+      return { status: 'refuse', reason: 'balance_field_forbidden' };
+    }
+  }
   if (!state.userId.trim() || !state.kycTier.trim()) {
     return { status: 'refuse', reason: 'incomplete_account' };
   }
@@ -103,7 +108,9 @@ export type ResolveAskFixturesRefuse = {
 /**
  * Resolve one ask against optional published KB catalog + account grounding.
  * Does not invent: missing catalog+query → empty articles (tool escalates);
- * unread grounding → refuse with a named reason.
+ * unread grounding → refuse with a named reason. A raw account with no
+ * grounding is still projected through `accountFromState` — a different owner
+ * or any key other than userId, status, and kycTier refuses, and is not stripped.
  */
 export function resolveSupportAskFixtures(input: {
   ask: SupportAskGrounding;
@@ -116,9 +123,15 @@ export function resolveSupportAskFixtures(input: {
     articles = searchKbCatalog(input.ask.kbQuery, catalog);
   }
 
-  let account: AccountProjectionFixture | null = input.ask.account ?? null;
+  let account: AccountProjectionFixture | null = null;
   if (input.ask.accountGrounding) {
     const resolved = accountFromGrounding(input.ask.accountGrounding, input.requesterUserId);
+    if (resolved.status === 'refuse') {
+      return { status: 'refuse', reason: resolved.reason };
+    }
+    account = resolved.account;
+  } else if (input.ask.account) {
+    const resolved = accountFromState(input.ask.account as AccountState, input.requesterUserId);
     if (resolved.status === 'refuse') {
       return { status: 'refuse', reason: resolved.reason };
     }

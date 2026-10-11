@@ -111,4 +111,50 @@ describe('createHttpNavigatorTradeDataPort', () => {
     });
     await expect(port.listMarkets(500)).resolves.toEqual([]);
   });
+
+  it('refuses a ticker body whose symbol does not match the symbol on the ticker URL', async () => {
+    const fetchImpl = async (url: string) => {
+      expect(url).toBe('http://trade.test/api/v1/ticker/BTC%2FUSDT');
+      return new Response(
+        JSON.stringify({
+          symbol: 'ETH/USDT',
+          timestamp: 1_700_000_000_000,
+          datetime: '2023-11-14T22:13:20.000Z',
+          last: '3500.25',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    };
+    const port = createHttpNavigatorTradeDataPort({
+      tradeUrl: 'http://trade.test',
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    await expect(port.quote('btc-usdt')).rejects.toMatchObject({
+      name: 'TradeTickerSymbolMismatchError',
+      code: 'trade.ticker_symbol_mismatch',
+    });
+  });
+
+  it('refuses a matching ticker whose last is blank', async () => {
+    for (const last of [null, '', '   '] as const) {
+      const fetchImpl = async (url: string) => {
+        expect(url).toBe('http://trade.test/api/v1/ticker/BTC%2FUSDT');
+        return new Response(
+          JSON.stringify({
+            symbol: 'BTC/USDT',
+            timestamp: 1_700_000_000_000,
+            datetime: '2023-11-14T22:13:20.000Z',
+            last,
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      };
+      const port = createHttpNavigatorTradeDataPort({
+        tradeUrl: 'http://trade.test',
+        fetchImpl: fetchImpl as typeof fetch,
+      });
+      await expect(port.quote('btc-usdt')).rejects.toThrow('trade ticker empty last');
+    }
+  });
 });

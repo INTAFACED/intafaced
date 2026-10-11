@@ -136,10 +136,8 @@ export function runCoachSession(input: CoachSessionInput = {}): CoachSessionResu
     return refuse('library_import_pending', grounding);
   }
 
-  if (ask === '') {
-    return refuse('curriculum_empty', grounding);
-  }
-
+  // A blank ask is not an empty catalog. The empty check already returned.
+  // Cite only catalog rows this door was given.
   const citations = grounding.items.slice(0, 3);
   return {
     status: 'grounded',
