@@ -299,8 +299,17 @@ describe('p2p export and erasure', () => {
     });
 
     it('refuses while a decision is recorded but not yet settled — value that is LATE', async () => {
-      const { trade } = await completedTrade();
-      await sql`UPDATE p2p.p2p_trades SET settled_at = NULL WHERE id = ${trade.id}`;
+      await fund(MAKER, '1000');
+      const offer = await sellOffer();
+      const trade = await p2p.takeOffer({
+        offerId: offer.id,
+        takerId: TAKER,
+        amount: amt('100'),
+        method: 'sepa',
+        tradeId: crypto.randomUUID(),
+      });
+      // A real undecided-to-decided transition, before its ledger post.
+      await sql`UPDATE p2p.p2p_trades SET status = 'released', resolution = 'released', resolution_reason = 'seller.confirmed', resolved_at = now(), deadline_at = null WHERE id = ${trade.id}`;
 
       await expect(erasure.eraseFor(MAKER)).rejects.toMatchObject({ code: 'p2p.erase_blocked' });
     });

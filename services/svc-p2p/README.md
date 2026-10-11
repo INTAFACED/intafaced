@@ -28,7 +28,19 @@ This is also why §5's rule about moderators falls out for free — the ruling _
 
 "Did the escrow lock post?" is answered by **calling `escrowLock` again**. Its business key `p2p.escrow.lock:<tradeId>` makes a retry return the original transaction if it did, and fail on `ledger.insufficient_funds` if it did not — because the ledger checks idempotency _before_ it checks funds.
 
-So a trade stuck in `created` is never ambiguous. This matters more than it looks: each lock lands in a **per-trade** escrow pot (`tradeEscrowAccount(seller, asset, tradeId)`), but a refund posted against a lock that never happened would still be wrong — it would invent a pot credit with no matching lock history, and the refund path is therefore unreachable from `created`. `created` is the only state where the lock is not provably done.
+A transport error, failed SQL commit, or lost acknowledgement can leave a trade in `created` with an uncertain ledger outcome. Only a complete definitive `ledger.insufficient_funds` refusal on the first durably claimed attempt permits a void; concurrent attempts serialize on the same trade row through the post and its outcome. This matters more than it looks: each lock lands in a **per-trade** escrow pot (`tradeEscrowAccount(seller, asset, tradeId)`), but a refund posted against a lock that never happened would still be wrong — it would invent a pot credit with no matching lock history, and the refund path is therefore unreachable from `created`. `created` is the only state where the lock is not provably done.
+
+The service-local ledger HTTP client has a 15,000 ms transport budget covering response headers and body reads. An abort releases the SQL transaction without treating the timeout as proof that the ledger did nothing. The SQL statement timeout does not bound an HTTP await. This transport budget does not set an escrow or business deadline.
+
+Before every remote lock request, a separate transaction commits its possible attempt on the trade. A timeout stops the local HTTP await, not an accepted remote ledger handler. Later funds refusals cannot erase earlier uncertain attempts or restore inventory. A validated positive acknowledgement lets the existing sweep converge on the exact original recipe and business key. Existing attempt history stays NULL on upgrade; no count or receipt is inferred. Counter down migration refuses to erase unresolved history from claimed created trades. The migration runner executes each complete down and its tracking-row deletion in one transaction; 0014 acquires an exclusive table lock before checking history and holds it through DDL. Direct callers must use the same transaction contract.
+
+A destructive first funds refusal must be a complete structured HTTP400 response whose decimal shortage matches the posted credit's asset and amount. An additional bounded read-only balance lookup verifies the opaque account identity, including explicit absence; its current amount is never evidence about the earlier post. Missing fields, inconsistent quantities, identity mismatch or a failed lookup retain uncertain intent. This read adds one HTTP budget to the refusal path.
+
+Post acknowledgements must contain nonblank transaction ID and hash strings plus the server's valid canonical ISO timestamp. Missing, malformed or incomplete acknowledgements retain uncertain intent and publish no escrow event. No transaction-ID or hash format is inferred beyond the published response contract.
+
+New trades claim their complete original terms before the first ledger intent. Those terms, the payment destination, terminal decision and human ruling cannot subsequently change. The claim timestamp proves the initial terms; it is not a ledger receipt or an acknowledgement that funds locked.
+
+Upgraded legacy trades retain their populated terms and a NULL claim. Escrow actions and payment-detail disclosure refuse with `p2p.escrow_terms_unproven`; the migration does not fabricate proof from a mutable legacy amount. The current HTTP client exposes no readable transaction receipt, so it cannot prove legacy terms automatically. Duplicate take requests still return `p2p.trade_exists`; recovery uses the existing sweeper and the original immutable recipe and business key.
 
 ---
 
@@ -55,14 +67,16 @@ So a trade stuck in `created` is never ambiguous. This matters more than it look
 
 The six states are §6.2's enum exactly. `resolution` (`released` · `refunded` · `voided`) records where the value went; `voided` means the lock never happened, so nothing had to move.
 
-| State       | Holds escrow? | Deadline | What the clock does about it                                   |
-| ----------- | ------------- | -------- | -------------------------------------------------------------- |
-| `created`   | not provably  | 2 min    | re-drive the lock, then refund or void                         |
-| `escrowed`  | yes           | 15 min   | **refund** — the buyer never even claimed to pay               |
-| `fiat_sent` | yes           | 30 min   | **open a dispute** — never auto-release                        |
-| `disputed`  | yes           | 7 days   | **escalate and re-arm** — nothing moves without a human ruling |
-| `released`  | no            | —        | terminal                                                       |
-| `cancelled` | no            | —        | terminal                                                       |
+| State       | Holds escrow? | Deadline                | What the clock does about it                                   |
+| ----------- | ------------- | ----------------------- | -------------------------------------------------------------- |
+| `created`   | not provably  | owner-published integer | re-drive the lock, then refund or void                         |
+| `escrowed`  | yes           | owner-published integer | **refund** — the buyer never even claimed to pay               |
+| `fiat_sent` | yes           | owner-published integer | **open a dispute** — never auto-release                        |
+| `disputed`  | yes           | owner-published integer | **escalate and re-arm** — nothing moves without a human ruling |
+| `released`  | no            | —                       | terminal                                                       |
+| `cancelled` | no            | —                       | terminal                                                       |
+
+The four clocks in that table are owner-published integers. `index.ts` installs only `publishedEscrowDeadlineSeconds`, `publishedPaymentDeadlineSeconds`, `publishedReleaseDeadlineSeconds`, and `publishedDisputeSlaSeconds`. A blank env throws `p2p.escrow_deadline_unset`, `p2p.payment_deadline_unset`, `p2p.release_deadline_unset`, or `p2p.dispute_sla_unset`. The payment and release clocks keep the existing 60-second floor.
 
 The three states that hold escrow are also **exactly** the three in which the seller's payment destination is disclosed to the buyer. That is not a coincidence and it is not two rules: the buyer needs somewhere to pay for precisely as long as the seller's asset is locked against that payment, and not one moment before or after. See the payment-instruments section below.
 
@@ -335,13 +349,13 @@ The remaining question is the one worth stating plainly: **funds can be late.** 
 
 _If it crashes exactly here, whose funds are stranded?_
 
-| Crash point                                        | Whose funds                 | Why not                                                                                                                |
-| -------------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| after the inventory reserve, before `escrowLock`   | nobody's                    | nothing is locked; `created` expires in 2 min and voids                                                                |
-| after `escrowLock`, before the row says `escrowed` | nobody's, but non-obviously | the sweep re-calls `escrowLock`, which is idempotent, so the lock becomes a fact rather than a guess — then refunds    |
-| after the resolution is recorded, before the post  | nobody's, but they are late | `sweepSettlements()` re-posts; the recipe key stops it doubling; `last_settle_error` names why if a post keeps failing |
-| after the post, before `settled_at`                | nobody's                    | the re-post is idempotent and the stamp is retried                                                                     |
-| during a concurrent release/refund race            | nobody's                    | both take the trade's row lock; the loser sees a terminal status and posts nothing at all                              |
+| Crash point                                        | Whose funds                 | Why not                                                                                                                                               |
+| -------------------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| after the inventory reserve, before `escrowLock`   | nobody's                    | nothing is locked; `created` expires on the owner-published escrow clock and voids, or refuses when that clock is blank (`p2p.escrow_deadline_unset`) |
+| after `escrowLock`, before the row says `escrowed` | nobody's, but non-obviously | the sweep re-calls `escrowLock`, which is idempotent, so the lock becomes a fact rather than a guess — then refunds                                   |
+| after the resolution is recorded, before the post  | nobody's, but they are late | `sweepSettlements()` re-posts; the recipe key stops it doubling; `last_settle_error` names why if a post keeps failing                                |
+| after the post, before `settled_at`                | nobody's                    | the re-post is idempotent and the stamp is retried                                                                                                    |
+| during a concurrent release/refund race            | nobody's                    | both take the trade's row lock; the loser sees a terminal status and posts nothing at all                                                             |
 
 ### Not built here (named so nobody invents them)
 

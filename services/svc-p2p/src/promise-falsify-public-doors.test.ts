@@ -27,7 +27,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi, afterEach } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import type { Principal } from '@intafaced/auth';
@@ -48,6 +48,14 @@ import {
   reputationOnPublicDoor,
 } from './merchant-programme.js';
 import { snapshotOf, type ReputationCounters } from './reputation.js';
+
+// Attributed local fixture for downstream doors; never a production screening declaration.
+beforeEach(() => {
+  vi.stubEnv('INTAFACED_SANCTIONS_REGIONS', 'none');
+  vi.stubEnv('INTAFACED_SANCTIONS_LIST_SOURCE', 'test-fixture:p2p-public-doors');
+  vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'false');
+});
+afterEach(() => vi.unstubAllEnvs());
 
 const EDGE_SECRET = 'p2p-promise-falsify-public-doors-edge-secret-32';
 const INTERNAL_SECRET = 'p2p-promise-falsify-public-doors-internal-secret';
@@ -71,6 +79,11 @@ const migrations = [
   '0005_p2p_late_settle_error.sql',
   '0006_p2p_dispute_open_origin.sql',
   '0007_p2p_dispute_chat_thread.sql',
+  '0010_p2p_immutable_trade_terms.sql',
+  '0011_p2p_payto_snapshot.sql',
+  '0012_p2p_dispute_resolution_match.sql',
+  '0013_p2p_dispute_ruling_frozen.sql',
+  '0014_p2p_escrow_lock_attempts.sql',
 ].map((file) => readFileSync(join(here, '..', 'drizzle', file), 'utf8'));
 
 const H8A_IMAGE = 'postgres:16-alpine';
@@ -983,8 +996,8 @@ describe('D26-P2-01f public doors money', () => {
         signedHeaders(principal({ sub: STRANGER, userId: STRANGER })),
       );
 
-      expect(statusCode).toBe(403);
-      expect(body.error!.message).toMatch(/seller|party|not the/i);
+      expect(statusCode).toBe(404);
+      expect(body.error!.message).toBe(`Trade ${trade.id} not found`);
       expect(await availableOf(SELLER)).toBe('900');
       expect(await availableOf(BUYER)).toBe('0');
       expect((await p2p.getTrade(trade.id)).status).toBe('escrowed');

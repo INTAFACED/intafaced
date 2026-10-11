@@ -22,6 +22,18 @@ describe('dualControlRefuse', () => {
     expect(requireDualControl(OP, CONFIRM)).toBe(CONFIRM);
   });
 
+  it('a padded or same-case confirm id is not a second operator', () => {
+    const paddedSame = `  ${OP}  `;
+    const differentCase = OP.toUpperCase();
+    expect(() => requireDualControl(OP, '')).toThrow(DualControlError);
+    expect(() => requireDualControl(OP, '   ')).toThrow(DualControlError);
+    expect(() => requireDualControl(OP, paddedSame)).toThrow(DualControlError);
+    expect(() => requireDualControl(OP, differentCase)).toThrow(DualControlError);
+    expect(() => requireDualControl(` ${OP.toUpperCase()} `, ` ${OP.toLowerCase()} `)).toThrow(DualControlError);
+    expect(requireDualControl(OP, `  ${CONFIRM}  `)).toBe(CONFIRM);
+    expect(requireDualControl(`  ${OP}  `, `  ${CONFIRM.toUpperCase()}  `)).toBe(CONFIRM.toUpperCase());
+  });
+
   it('requireDualControl throws DualControlError on refuse', () => {
     expect(() => requireDualControl(OP, null)).toThrow(DualControlError);
     try {
