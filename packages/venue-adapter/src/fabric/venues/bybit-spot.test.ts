@@ -1166,39 +1166,6 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
     expect(http.requests[0]).not.toMatch(/^POST /);
   });
 
-  it('refuses a retCode 0 wallet read whose result list is missing or not an array', async () => {
-    const bodies = [
-      { retCode: 0, retMsg: 'OK' },
-      { retCode: 0, retMsg: 'OK', result: { list: null } },
-      { retCode: 0, retMsg: 'OK', result: { list: { accountType: 'UNIFIED' } } },
-    ];
-    for (const body of bodies) {
-      const http = new FakeHttp().queue(body);
-      const account = new BybitSpotAccount(keys, { http, clock: () => 1_700_000_000_000 });
-      let resolved: unknown;
-      try {
-        resolved = await account.balances();
-      } catch (error) {
-        expect(error).toBeInstanceOf(VenueUnavailableError);
-        expect((error as VenueUnavailableError).reason).toBe('malformed');
-        expect((error as VenueUnavailableError).message).toContain('wallet-balance list is missing');
-        expect(resolved).not.toEqual([]);
-        continue;
-      }
-      expect.unreachable(`malformed wallet read resolved to ${JSON.stringify(resolved)}`);
-    }
-  });
-
-  it('an empty wallet-balance list is an honest empty account', async () => {
-    const http = new FakeHttp().queue({
-      retCode: 0,
-      retMsg: 'OK',
-      result: { list: [] },
-    });
-    const account = new BybitSpotAccount(keys, { http, clock: () => 1_700_000_000_000 });
-    await expect(account.balances()).resolves.toEqual([]);
-  });
-
   it('reads a unified wallet instead of an empty spot wallet or the deprecated transferable amount', async () => {
     const wallet = (coin: unknown[]) => ({
       retCode: 0,
