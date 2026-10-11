@@ -1,7 +1,6 @@
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
-import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { Button, DataTable, Field, Page } from '../../shared/ui';
@@ -19,10 +18,17 @@ import {
   PayTime,
 } from './components';
 import { id, type Offer, type Trade } from './schemas';
+import { useP2PView, type P2PView } from './p2p-view';
+import { P2POrder } from './P2POrder';
+import { orderCopy } from './p2p-order-copy';
 
 export function P2P({ path }: { path: string }) {
-  const { api, userId } = useSession();
-  const pay = useMemo(() => createPersonalPayApi(api, userId), [api, userId]);
+  const view = useP2PView();
+  return <P2PCurrent key={view.epoch} path={path} view={view} />;
+}
+function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
+  const { api, userId } = view;
+  const pay = useMemo(() => createPersonalPayApi(api, userId, undefined, view.current), [view]);
   const params = new URLSearchParams(
     path.includes('?') ? path.slice(path.indexOf('?')) : typeof location === 'undefined' ? '' : location.search,
   );
@@ -49,13 +55,19 @@ export function P2P({ path }: { path: string }) {
               ? payCopy.t('createAnOffer')
               : payCopy.t('personToPerson')
       }
-      description={payCopy.t('externalPaymentLedgerEscrowAndARecorded')}
+      description={tradeId || current === '/chat' ? undefined : payCopy.t('externalPaymentLedgerEscrowAndARecorded')}
     >
-      <nav className="pay-room-tabs" aria-label={payCopy.t('p2pRooms')}>
+      <nav
+        className={`pay-room-tabs${tradeId || current === '/chat' ? ' pay-order-tabs' : ''}`}
+        aria-label={payCopy.t('p2pRooms')}
+        onFocus={(event) => {
+          if (event.target instanceof HTMLAnchorElement) event.target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }}
+      >
         <a href="/p2p" aria-current={!showOrders && !showMine && !showMethods && !showAccess && !publish && !tradeId ? 'page' : undefined}>
           <PayCopy k="offers" />
         </a>
-        <a href="/uc/order" aria-current={showOrders ? 'page' : undefined}>
+        <a href="/uc/order" aria-current={showOrders || tradeId || current === '/chat' ? 'page' : undefined}>
           <PayCopy k="yourOrders" />
         </a>
         <a href="/uc/ad" aria-current={showMine ? 'page' : undefined}>
@@ -434,139 +446,116 @@ function OrderList({ pay, userId }: { pay: PersonalPayApi; userId: string | null
   );
 }
 function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: string; userId: string | null }) {
-  const valid = id.safeParse(tradeId).success;
-  const order = useResource(
-    (signal) => (valid ? pay.trade(tradeId, signal) : Promise.resolve(payRefusal('openAValidP2pOrderFromYour', { reason: 'error' }))),
-    `pay:order:${userId}:${tradeId}`,
-  );
-  const [destinationRequested, setDestinationRequested] = useState(false);
-  const destination = useResource(
-    (signal) =>
-      destinationRequested
-        ? pay.destination(tradeId, signal)
-        : Promise.resolve(payRefusal('paymentDetailsAreRevealedOnlyOnYour', { reason: 'not_supported' })),
-    `pay:order-destination:${userId}:${tradeId}:${destinationRequested}`,
-  );
   return (
-    <PayState resource={order.resource} retry={order.reload}>
-      {(trade) => (
-        <div className="pay-order-grid">
-          <div className="stack">
-            <PaySection
-              title={payCopy.t('orderDetails')}
-              action={
-                <Button variant="secondary" onClick={order.reload}>
-                  <PayCopy k="refreshStatus" />
-                </Button>
-              }
-            >
-              <PayDetails
-                values={[
-                  [payCopy.t('order'), <span lang="zxx">{trade.id}</span>],
-                  [payCopy.t('you'), trade.buyerId === userId ? payCopy.t('buyer') : payCopy.t('seller')],
-                  [payCopy.t('orderStatus'), <Status value={trade.status} />],
-                  [payCopy.t('assetQuantity'), <PayAmount value={trade.amount} unit={trade.asset} label={payCopy.t('assetQuantity')} />],
-                  [
-                    payCopy.t('externalPayment'),
-                    <PayAmount value={trade.fiatAmount} unit={trade.fiatCurrency} label={payCopy.t('externalPayment')} />,
-                  ],
-                  [
-                    payCopy.t('price'),
-                    payCopy.t('per2', { value1: displayAmount(trade.price), fiatCurrency: trade.fiatCurrency, asset: trade.asset }),
-                  ],
-                  [payCopy.t('paymentMethod'), <span lang="zxx">{trade.method}</span>],
-                  [payCopy.t('deadline'), trade.deadlineAt ? <PayTime value={trade.deadlineAt} /> : payCopy.t('notSupplied')],
-                  [payCopy.t('ledgerSettlement'), trade.settledAt ? <PayTime value={trade.settledAt} /> : payCopy.t('notConfirmed')],
-                ]}
-              />
-              {['released', 'cancelled'].includes(trade.status) && !trade.settledAt && (
-                <PayNotice title={payCopy.t('ledgerSettlementIsNotConfirmed')}>
-                  <PayCopy k="theOrderReachedATerminalStateBut" />
-                </PayNotice>
-              )}
-              <OrderActions trade={trade} pay={pay} userId={userId} reload={order.reload} />
-            </PaySection>
-            <PaySection title={payCopy.t('externalPaymentDestination')} description={payCopy.t('revealingDetailsIsLoggedByTheService')}>
-              {destinationRequested ? (
-                <PayState resource={destination.resource} retry={destination.reload}>
-                  {(data) => (
-                    <PayDetails
-                      values={[
-                        [payCopy.t('destinationLabel'), <span lang="und">{data.label}</span>],
-                        [payCopy.t('countryCurrency'), `${data.country} / ${data.fiatCurrency}`],
-                        ...Object.entries(data.details).map(([label, value]): [string, ReactNode, string?] => [
-                          label,
-                          <span lang="und">{value}</span>,
-                          'und',
-                        ]),
-                      ]}
-                    />
-                  )}
-                </PayState>
-              ) : (
-                <Button
-                  variant="secondary"
-                  disabled={!['escrowed', 'fiat_sent', 'disputed'].includes(trade.status)}
-                  onClick={() => setDestinationRequested(true)}
-                >
-                  <PayCopy k="revealAgreedPaymentDetails" />
-                </Button>
-              )}
-            </PaySection>
-          </div>
-          <div className="stack">
-            <PaySection title={payCopy.t('orderChat')}>
-              <PayNotice title={payCopy.t('messageThreadIsNotConnected')}>
-                <PayCopy k="theLegacyChatTransportIsAbsentFrom" />
-              </PayNotice>
-            </PaySection>
-            <OrderDispute trade={trade} pay={pay} reloadOrder={order.reload} />
-          </div>
-        </div>
+    <P2POrder
+      pay={pay}
+      tradeId={tradeId}
+      userId={userId}
+      renderActions={(trade, reload, locked, outcome) => (
+        <OrderActions trade={trade} pay={pay} userId={userId} reload={reload} locked={locked} onOutcome={outcome} />
       )}
-    </PayState>
+      renderSecondary={(trade, reload) => (
+        <>
+          <OrderPaymentDetails key={trade.id + ':' + trade.status} trade={trade} pay={pay} userId={userId} />
+          <PaySection title={payCopy.t('orderChat')}>
+            <PayNotice title={payCopy.t('messageThreadIsNotConnected')}>
+              <PayCopy k="theLegacyChatTransportIsAbsentFrom" />
+            </PayNotice>
+          </PaySection>
+          <OrderDispute trade={trade} pay={pay} reloadOrder={reload} />
+        </>
+      )}
+    />
   );
 }
-function OrderActions({ trade, pay, userId, reload }: { trade: Trade; pay: PersonalPayApi; userId: string | null; reload: () => void }) {
+function OrderPaymentDetails({ trade, pay, userId }: { trade: Trade; pay: PersonalPayApi; userId: string | null }) {
+  const [requested, setRequested] = useState(false);
+  const destination = useResource(
+    (signal) =>
+      requested
+        ? pay.destination(trade.id, signal, { method: trade.method, fiatCurrency: trade.fiatCurrency })
+        : Promise.resolve(payRefusal('paymentDetailsAreRevealedOnlyOnYour', { reason: 'not_supported' })),
+    `pay:order-destination:${userId}:${trade.id}:${requested}`,
+  );
+  return (
+    <PaySection title={payCopy.t('externalPaymentDestination')} description={payCopy.t('revealingDetailsIsLoggedByTheService')}>
+      {requested ? (
+        <PayState resource={destination.resource} retry={destination.reload}>
+          {(data) => (
+            <PayDetails
+              values={[
+                [payCopy.t('destinationLabel'), <span lang="und">{data.label}</span>],
+                [payCopy.t('countryCurrency'), `${data.country} / ${data.fiatCurrency}`],
+                ...Object.entries(data.details).map(([label, value]): [string, ReactNode, string?] => [
+                  label,
+                  <span lang="und">{value}</span>,
+                  'und',
+                ]),
+              ]}
+            />
+          )}
+        </PayState>
+      ) : (
+        <Button
+          variant="secondary"
+          disabled={!['escrowed', 'fiat_sent', 'disputed'].includes(trade.status)}
+          onClick={() => setRequested(true)}
+        >
+          <PayCopy k="revealAgreedPaymentDetails" />
+        </Button>
+      )}
+    </PaySection>
+  );
+}
+function OrderActions({
+  trade,
+  pay,
+  userId,
+  reload,
+  locked,
+  onOutcome,
+}: {
+  trade: Trade;
+  pay: PersonalPayApi;
+  userId: string | null;
+  reload: () => void;
+  locked: boolean;
+  onOutcome: (result: ApiResult<Trade>) => void;
+}) {
   const [reason, setReason] = useState('');
-  const [reconciled, setReconciled] = useState<ApiResult<Trade> | null>(null);
-  const locked = Boolean(pay.guard.status(`${userId}:trade:${trade.id}`));
+  const { Copy, t } = orderCopy.useCopy();
+  if (locked) return null;
+  const reviewValues: [string, ReactNode][] = [
+    [payCopy.t('order'), <span lang="zxx">{trade.id}</span>],
+    [payCopy.t('you'), trade.sellerId === userId ? payCopy.t('seller') : payCopy.t('buyer')],
+  ];
+  const perform = async (action: 'markFiatSent' | 'confirmReceived' | 'cancel', current: () => boolean) => {
+    const result = await pay.manageTrade(trade.id, action, action === 'cancel' ? reason : undefined, { expected: trade, current });
+    onOutcome(result);
+    return result;
+  };
   return (
     <div className="stack">
-      {locked && (
-        <PayNotice title={payCopy.t('originalOrderActionIsUnresolved')}>
-          <PayCopy k="refreshOrderStatusDoNotRepeatThe" />
-          <Button
-            variant="secondary"
-            onClick={() => {
-              void pay.reconcileTrade(trade.id).then((result) => {
-                setReconciled(result);
-                if (result.ok) reload();
-              });
-            }}
-          >
-            <PayCopy k="checkOriginalOrderAction" />
-          </Button>
-        </PayNotice>
-      )}
-      <MutationResult result={reconciled} />
       <div className="actions">
         {trade.buyerId === userId && trade.status === 'escrowed' && (
           <ReviewedAction
             title={payCopy.t('markPaymentSent')}
             description={payCopy.t('confirmOnlyAfterSendingTheExternalPayment')}
             review={
-              <PayDetails
-                values={[
-                  [
-                    payCopy.t('externalPayment'),
-                    <PayAmount value={trade.fiatAmount} unit={trade.fiatCurrency} label={payCopy.t('externalPayment')} />,
-                  ],
-                  [payCopy.t('order'), <span lang="zxx">{trade.id}</span>],
-                ]}
-              />
+              <div className="p2p-order-review">
+                <PayDetails
+                  values={[
+                    ...reviewValues,
+                    [
+                      payCopy.t('externalPayment'),
+                      <PayAmount value={trade.fiatAmount} unit={trade.fiatCurrency} label={payCopy.t('externalPayment')} />,
+                    ],
+                    [payCopy.t('paymentMethod'), <span lang="zxx">{trade.method}</span>],
+                  ]}
+                />
+              </div>
             }
-            perform={() => pay.manageTrade(trade.id, 'markFiatSent')}
+            perform={(current) => perform('markFiatSent', current)}
             onConfirmed={reload}
             disabled={locked}
           />
@@ -577,24 +566,35 @@ function OrderActions({ trade, pay, userId, reload }: { trade: Trade; pay: Perso
             variant="primary"
             description={payCopy.t('confirmOnlyAfterTheExternalPaymentHas')}
             review={
-              <PayDetails
-                values={[
-                  [payCopy.t('release'), <PayAmount value={trade.amount} unit={trade.asset} label={payCopy.t('release')} />],
-                  [
-                    payCopy.t('paymentToVerify'),
-                    <PayAmount value={trade.fiatAmount} unit={trade.fiatCurrency} label={payCopy.t('paymentToVerify')} />,
-                  ],
-                ]}
-              />
+              <div className="p2p-order-review">
+                <PayDetails
+                  values={[
+                    ...reviewValues,
+                    [t('gross'), <PayAmount value={trade.amount} unit={trade.asset} label={t('gross')} />],
+                    [t('releaseTo'), <span lang="zxx">{trade.buyerId}</span>],
+                    [
+                      payCopy.t('paymentToVerify'),
+                      <PayAmount value={trade.fiatAmount} unit={trade.fiatCurrency} label={payCopy.t('paymentToVerify')} />,
+                    ],
+                    [payCopy.t('paymentMethod'), <span lang="zxx">{trade.method}</span>],
+                  ]}
+                />
+                <p className="muted">
+                  <Copy k="releaseTerms" />
+                </p>
+              </div>
             }
-            perform={() => pay.manageTrade(trade.id, 'confirmReceived')}
+            perform={(current) => perform('confirmReceived', current)}
             onConfirmed={reload}
             disabled={locked}
           />
         )}
       </div>
-      {['created', 'escrowed'].includes(trade.status) && (
-        <>
+      {(['created', 'escrowed'].includes(trade.status) || (trade.status === 'fiat_sent' && trade.sellerId === userId)) && (
+        <details className="p2p-order-other">
+          <summary>
+            <Copy k="other" />
+          </summary>
           <Field
             label={payCopy.t('cancellationReason')}
             value={reason}
@@ -603,12 +603,28 @@ function OrderActions({ trade, pay, userId, reload }: { trade: Trade; pay: Perso
           />
           <ReviewedAction
             title={payCopy.t('cancelOrder')}
-            description={payCopy.t('theServiceChecksCurrentOrderStateAn')}
-            perform={() => pay.manageTrade(trade.id, 'cancel', reason)}
+            description={t('cancelBody')}
+            review={
+              <div className="p2p-order-review">
+                <PayDetails
+                  values={[
+                    ...reviewValues,
+                    [t('refundTo'), <span lang="zxx">{trade.sellerId}</span>],
+                    [payCopy.t('assetQuantity'), <PayAmount value={trade.amount} unit={trade.asset} label={payCopy.t('assetQuantity')} />],
+                    [
+                      payCopy.t('externalPayment'),
+                      <PayAmount value={trade.fiatAmount} unit={trade.fiatCurrency} label={payCopy.t('externalPayment')} />,
+                    ],
+                    [payCopy.t('cancellationReason'), <span lang="und">{reason || payCopy.t('notSupplied')}</span>],
+                  ]}
+                />
+              </div>
+            }
+            perform={(current) => perform('cancel', current)}
             onConfirmed={reload}
             disabled={locked}
           />
-        </>
+        </details>
       )}
     </div>
   );

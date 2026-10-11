@@ -307,8 +307,39 @@ function sendContextChanged() {
   return payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.send_context_changed', reason: 'aborted' });
 }
 
-export function createPersonalPayApi(api: ApiClient, userId: string | null, guard = payMutationGuard()) {
+export function createPersonalPayApi(
+  api: ApiClient,
+  userId: string | null,
+  guard = payMutationGuard(),
+  p2pCurrent: () => boolean = () => api.canWrite(),
+) {
   const signedIn = () => (userId ? null : payRefusal('signInToUseYourOwnPay', { code: 'pay.session_required', reason: 'unauthorized' }));
+  const p2pDeparted = () => payRefusal('p2pViewChanged', { code: 'pay.p2p_view_changed', reason: 'aborted' });
+  async function currentTrade(tradeId: string, signal?: AbortSignal) {
+    const denied = signedIn();
+    if (denied) return denied;
+    if (!p2pCurrent()) return p2pDeparted();
+    const result = await api.query('p2p', 'trades.get', { tradeId }, s.tradeSchema, { signal });
+    if (!p2pCurrent()) return p2pDeparted();
+    if (!result.ok) return result;
+    if (result.data.id.toLowerCase() !== tradeId.toLowerCase())
+      return payRefusal('p2pProjectionMismatch', { code: 'pay.trade_projection_invalid', reason: 'invalid_response' });
+    if (result.data.buyerId !== userId && result.data.sellerId !== userId)
+      return payRefusal('thisOrderBelongsToAnotherAccount', { code: 'pay.trade_not_owned' });
+    return result;
+  }
+  const sameImmutableTerms = (a: s.Trade, b: s.Trade) =>
+    a.id.toLowerCase() === b.id.toLowerCase() &&
+    a.offerId.toLowerCase() === b.offerId.toLowerCase() &&
+    a.sellerId === b.sellerId &&
+    a.buyerId === b.buyerId &&
+    a.asset === b.asset &&
+    a.fiatCurrency === b.fiatCurrency &&
+    a.method === b.method &&
+    parseAmount(a.amount) === parseAmount(b.amount) &&
+    parseAmount(a.fiatAmount) === parseAmount(b.fiatAmount) &&
+    parseAmount(a.price) === parseAmount(b.price);
+  const sameTerms = (a: s.Trade, b: s.Trade) => sameImmutableTerms(a, b) && a.status === b.status && a.deadlineAt === b.deadlineAt;
   async function spaces(signal?: AbortSignal) {
     const denied = signedIn();
     if (denied) return denied;
@@ -372,49 +403,108 @@ export function createPersonalPayApi(api: ApiClient, userId: string | null, guar
     offer: (offerId: string, signal?: AbortSignal) => api.query('p2p', 'offers.get', { offerId }, s.offerSchema, { signal }),
     trades: (limit: number, signal?: AbortSignal) =>
       signedIn() ? Promise.resolve(signedIn()!) : api.query('p2p', 'trades.list', { limit }, z.array(s.tradeSchema), { signal }),
-    trade: (tradeId: string, signal?: AbortSignal) => api.query('p2p', 'trades.get', { tradeId }, s.tradeSchema, { signal }),
+    trade: currentTrade,
     health: (signal?: AbortSignal) => api.query('p2p', 'health', undefined, s.p2pHealthSchema, { signal }),
     fiat: (signal?: AbortSignal) => api.query('p2p', 'fiat.list', undefined, z.array(s.fiatSchema), { signal }),
     methods: (signal?: AbortSignal) => api.query('p2p', 'instruments.methods.list', { limit: 200 }, z.array(s.methodSchema), { signal }),
     instruments: (limit: number, signal?: AbortSignal) =>
       api.query('p2p', 'instruments.list', { limit }, z.array(s.instrumentSchema), { signal }),
-    destination: (tradeId: string, signal?: AbortSignal) =>
-      api.query('p2p', 'trades.paymentInstrument', { tradeId }, s.tradeDestinationSchema, { signal }),
+    async destination(tradeId: string, signal?: AbortSignal, expected?: { method: string; fiatCurrency: string }) {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      const result = await api.query('p2p', 'trades.paymentInstrument', { tradeId }, s.tradeDestinationSchema, { signal });
+      if (!p2pCurrent()) return p2pDeparted();
+      if (!result.ok) return result;
+      if (
+        result.data.tradeId.toLowerCase() !== tradeId.toLowerCase() ||
+        (expected &&
+          (result.data.methodId.toLowerCase() !== expected.method.toLowerCase() || result.data.fiatCurrency !== expected.fiatCurrency))
+      )
+        return payRefusal('p2pPaymentProjectionMismatch', { code: 'pay.trade_destination_mismatch', reason: 'invalid_response' });
+      return result;
+    },
     reputation: (counterparty: string, signal?: AbortSignal) =>
       api.query('p2p', 'reputation.get', { userId: counterparty }, s.reputationSchema, { signal }),
     standing: (signal?: AbortSignal) => api.query('p2p', 'merchants.me', undefined, s.p2pStandingSchema.nullable(), { signal }),
     apiAccess: (signal?: AbortSignal) => api.query('p2p', 'merchants.apiAccess', undefined, s.p2pApiAccessSchema, { signal }),
     applyProgramme: () =>
-      guard.run(`${userId}:p2p-programme`, () => api.mutate('p2p', 'merchants.submitApplication', {}, s.p2pStandingSchema)),
+      guard.run(
+        `${userId}:p2p-programme`,
+        () => api.mutate('p2p', 'merchants.submitApplication', {}, s.p2pStandingSchema),
+        undefined,
+        p2pCurrent,
+      ),
     withdrawProgramme: (reason: string) =>
-      guard.run(`${userId}:p2p-programme`, () => api.mutate('p2p', 'merchants.withdraw', { reason }, s.p2pStandingSchema)),
+      guard.run(
+        `${userId}:p2p-programme`,
+        () => api.mutate('p2p', 'merchants.withdraw', { reason }, s.p2pStandingSchema),
+        undefined,
+        p2pCurrent,
+      ),
     dispute: (tradeId: string, signal?: AbortSignal) => api.query('p2p', 'disputes.get', { tradeId }, s.disputeSchema, { signal }),
     async manageOffer(offerId: string, action: 'pause' | 'resume' | 'close') {
       const denied = signedIn();
       if (denied) return denied;
       const latest = await api.query('p2p', 'offers.get', { offerId }, s.offerSchema);
+      if (!p2pCurrent()) return p2pDeparted();
       if (!latest.ok) return latest;
+      if (latest.data.id.toLowerCase() !== offerId.toLowerCase())
+        return payRefusal('p2pOfferProjectionMismatch', { code: 'pay.offer_projection_invalid', reason: 'invalid_response' });
       if (latest.data.makerId !== userId) return payRefusal('onlyTheOfferSMakerCanManage', { code: 'pay.offer_not_owned' });
-      return guard.run(`${userId}:offer:${offerId}`, () => api.mutate('p2p', `offers.${action}`, { offerId }, s.offerSchema), action);
+      return guard.run(
+        `${userId}:offer:${offerId}`,
+        () => api.mutate('p2p', `offers.${action}`, { offerId }, s.offerSchema),
+        action,
+        p2pCurrent,
+      );
     },
-    async manageTrade(tradeId: string, action: 'markFiatSent' | 'confirmReceived' | 'cancel', reason?: string) {
+    async manageTrade(
+      tradeId: string,
+      action: 'markFiatSent' | 'confirmReceived' | 'cancel',
+      reason?: string,
+      review?: { expected: s.Trade; current: () => boolean },
+    ) {
       const denied = signedIn();
       if (denied) return denied;
-      const latest = await api.query('p2p', 'trades.get', { tradeId }, s.tradeSchema);
+      const current = () => p2pCurrent() && (review?.current() ?? true);
+      if (!current()) return p2pDeparted();
+      const latest = await currentTrade(tradeId);
+      if (!current()) return p2pDeparted();
       if (!latest.ok) return latest;
       const trade = latest.data;
-      if (trade.buyerId !== userId && trade.sellerId !== userId)
-        return payRefusal('thisOrderBelongsToAnotherAccount', { code: 'pay.trade_not_owned' });
+      if (review && !sameTerms(trade, review.expected))
+        return payRefusal('p2pTermsChanged', { code: 'pay.trade_terms_changed', reason: 'invalid_response' });
       if (action === 'markFiatSent' && (trade.buyerId !== userId || trade.status !== 'escrowed'))
         return payRefusal('onlyTheBuyerOfAnEscrowedOrder', { code: 'pay.trade_action_invalid' });
       if (action === 'confirmReceived' && (trade.sellerId !== userId || trade.status !== 'fiat_sent'))
         return payRefusal('releaseRequiresTheSellerToConfirmAn', { code: 'pay.trade_action_invalid' });
-      if (action === 'cancel' && !['created', 'escrowed'].includes(trade.status))
+      if (
+        action === 'cancel' &&
+        !(['created', 'escrowed'].includes(trade.status) || (trade.status === 'fiat_sent' && trade.sellerId === userId))
+      )
         return payRefusal('thisOrderCannotBeCancelledInIts', { code: 'pay.trade_action_invalid' });
       return guard.run(
         `${userId}:trade:${tradeId}`,
-        () => api.mutate('p2p', `trades.${action}`, { tradeId, ...(action === 'cancel' && reason ? { reason } : {}) }, s.tradeSchema),
+        () =>
+          api.mutate(
+            'p2p',
+            `trades.${action}`,
+            { tradeId, ...(action === 'cancel' && reason ? { reason } : {}) },
+            s.tradeSchema.refine(
+              (result) =>
+                sameImmutableTerms(result, trade) &&
+                (action === 'markFiatSent'
+                  ? result.status === 'fiat_sent'
+                  : action === 'confirmReceived'
+                    ? result.status === 'released' && result.resolution === 'released'
+                    : result.status === 'cancelled' && ['refunded', 'voided'].includes(result.resolution ?? '')),
+              'The reply does not match this owner, order, reviewed asset/payment terms and original action.',
+            ),
+          ),
         action,
+        current,
+        p2pCurrent,
       );
     },
     async reconcileTrade(tradeId: string) {
@@ -438,15 +528,19 @@ export function createPersonalPayApi(api: ApiClient, userId: string | null, guar
             action === 'markFiatSent'
               ? ['fiat_sent', 'disputed', 'released', 'cancelled'].includes(trade.status)
               : action === 'confirmReceived'
-                ? trade.status === 'released' && trade.settledAt !== null
+                ? trade.status === 'released' &&
+                  trade.resolution === 'released' &&
+                  z.string().datetime({ offset: true }).safeParse(trade.settledAt).success
                 : action === 'cancel'
-                  ? trade.status === 'cancelled' && trade.settledAt !== null
+                  ? trade.status === 'cancelled' &&
+                    trade.resolution === 'refunded' &&
+                    z.string().datetime({ offset: true }).safeParse(trade.settledAt).success
                   : false;
           return confirmed
             ? latest
             : payRefusal('theOriginalOrderActionIsStillUnresolved', { code: 'pay.operation_unresolved', reason: 'uncertain' });
         },
-        () => api.canWrite(),
+        p2pCurrent,
       );
     },
     async reconcileOffer(offerId: string) {
@@ -466,23 +560,35 @@ export function createPersonalPayApi(api: ApiClient, userId: string | null, guar
             ? latest
             : payRefusal('theOriginalOfferActionHasNotBeen', { code: 'pay.operation_unresolved', reason: 'uncertain' });
         },
-        () => api.canWrite(),
+        p2pCurrent,
       );
     },
     openDispute: (tradeId: string, reason: string) =>
-      guard.run(`${userId}:dispute:${tradeId}`, () => api.mutate('p2p', 'disputes.open', { tradeId, reason }, s.disputeOpenedSchema)),
+      guard.run(
+        `${userId}:dispute:${tradeId}`,
+        () => api.mutate('p2p', 'disputes.open', { tradeId, reason }, s.disputeOpenedSchema),
+        undefined,
+        p2pCurrent,
+      ),
     appendEvidence: (tradeId: string, evidence: string) =>
-      guard.run(`${userId}:evidence:${tradeId}`, () =>
-        api.mutate(
-          'p2p',
-          'disputes.appendEvidence',
-          { tradeId, evidence: [evidence] },
-          z.object({ disputeId: s.id, tradeId: s.id, evidence: s.disputeSchema.shape.evidence }),
-        ),
+      guard.run(
+        `${userId}:evidence:${tradeId}`,
+        () =>
+          api.mutate(
+            'p2p',
+            'disputes.appendEvidence',
+            { tradeId, evidence: [evidence] },
+            z.object({ disputeId: s.id, tradeId: s.id, evidence: s.disputeSchema.shape.evidence }),
+          ),
+        undefined,
+        p2pCurrent,
       ),
     removeInstrument: (instrumentId: string) =>
-      guard.run(`${userId}:instrument:${instrumentId}`, () =>
-        api.mutate('p2p', 'instruments.remove', { instrumentId }, s.instrumentSchema),
+      guard.run(
+        `${userId}:instrument:${instrumentId}`,
+        () => api.mutate('p2p', 'instruments.remove', { instrumentId }, s.instrumentSchema),
+        undefined,
+        p2pCurrent,
       ),
     guard,
   };

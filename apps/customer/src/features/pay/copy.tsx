@@ -826,6 +826,11 @@ const messages = {
   invalidSendInput: 'Enter valid account references and an exact positive amount with at most 18 decimal places.',
   invalidWebhookUrl: 'Enter a valid HTTPS receiver URL without embedded credentials.',
   scrollFullAmount: 'Scroll horizontally to inspect the full amount.',
+  p2pViewChanged: 'This order review is no longer current. Open the current order and review again.',
+  p2pProjectionMismatch: 'The response does not identify this order. Its facts are hidden; try a current read.',
+  p2pOfferProjectionMismatch: 'The response does not identify this offer. Refresh its current record before reviewing an action.',
+  p2pTermsChanged: 'The order changed after review. Refresh its current terms and review again.',
+  p2pPaymentProjectionMismatch: 'The payment details do not match this order and its agreed method and currency.',
 } as const;
 
 const es = {
@@ -1667,6 +1672,11 @@ const es = {
   invalidSendInput: 'Introduce referencias de cuenta válidas y un importe positivo exacto con un máximo de 18 decimales.',
   invalidWebhookUrl: 'Introduce una URL de receptor HTTPS válida sin credenciales integradas.',
   scrollFullAmount: 'Desplázate horizontalmente para consultar el importe completo.',
+  p2pViewChanged: 'Esta revisión del pedido ya no está vigente. Abre el pedido actual y revísalo de nuevo.',
+  p2pProjectionMismatch: 'La respuesta no identifica este pedido. Sus datos se ocultan; intenta una lectura actual.',
+  p2pOfferProjectionMismatch: 'La respuesta no identifica esta oferta. Actualiza su registro antes de revisar una acción.',
+  p2pTermsChanged: 'El pedido cambió después de la revisión. Actualiza sus condiciones y revísalo de nuevo.',
+  p2pPaymentProjectionMismatch: 'Los datos de pago no corresponden a este pedido, su método y su moneda acordados.',
 } satisfies Record<keyof typeof messages, string>;
 
 const fr = {
@@ -2508,6 +2518,11 @@ const fr = {
   invalidSendInput: 'Saisissez des références de compte valides et un montant positif exact avec au maximum 18 décimales.',
   invalidWebhookUrl: 'Saisissez une URL de destinataire HTTPS valide sans identifiants d’accès intégrés.',
   scrollFullAmount: 'Faites défiler horizontalement pour consulter le montant complet.',
+  p2pViewChanged: 'Cette vérification de la commande n’est plus actuelle. Ouvrez la commande actuelle et vérifiez-la à nouveau.',
+  p2pProjectionMismatch: 'La réponse n’identifie pas cette commande. Ses données sont masquées ; réessayez une lecture actuelle.',
+  p2pOfferProjectionMismatch: 'La réponse n’identifie pas cette offre. Actualisez son enregistrement avant de vérifier une action.',
+  p2pTermsChanged: 'La commande a changé après vérification. Actualisez ses conditions et vérifiez-la à nouveau.',
+  p2pPaymentProjectionMismatch: 'Les coordonnées de paiement ne correspondent pas à cette commande, à sa méthode et à sa devise convenues.',
 } satisfies Record<keyof typeof messages, string>;
 
 /** Authored UI only; original service/user values enter through explicit parameters. */

@@ -1,5 +1,5 @@
 import { payCopy, PayCopy, payAuthoredMessage } from './copy';
-import { isValidElement, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
@@ -227,7 +227,7 @@ export function ReviewedAction<T>({
   title: string;
   description: string;
   review?: ReactNode;
-  perform: () => Promise<ApiResult<T>>;
+  perform: (currentReview: () => boolean) => Promise<ApiResult<T>>;
   onConfirmed?: (data: T) => void;
   disabled?: boolean;
   variant?: 'primary' | 'secondary' | 'danger';
@@ -236,19 +236,35 @@ export function ReviewedAction<T>({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ApiResult<T> | null>(null);
   const inFlight = useRef(false);
+  const lifetime = useRef({ mounted: true, opened, disabled, review: 0 });
+  const reviewId = lifetime.current.review;
+  useLayoutEffect(() => {
+    lifetime.current.opened = opened;
+    lifetime.current.disabled = disabled;
+  });
+  useLayoutEffect(() => {
+    lifetime.current.mounted = true;
+    return () => {
+      lifetime.current.mounted = false;
+    };
+  }, []);
+  const currentReview = () => lifetime.current.mounted && lifetime.current.opened && lifetime.current.review === reviewId;
   async function confirm() {
-    if (inFlight.current) return;
+    if (inFlight.current || !currentReview() || lifetime.current.disabled) return;
     inFlight.current = true;
     setBusy(true);
     try {
-      const outcome = await perform();
+      const outcome = await perform(currentReview);
+      if (!currentReview()) return;
       setResult(outcome);
       if (outcome.ok) {
+        lifetime.current.opened = false;
+        lifetime.current.review += 1;
         onConfirmed?.(outcome.data);
         setOpened(false);
       }
     } finally {
-      setBusy(false);
+      if (lifetime.current.mounted) setBusy(false);
       inFlight.current = false;
     }
   }
@@ -258,6 +274,8 @@ export function ReviewedAction<T>({
         variant={variant}
         disabled={disabled || busy || Boolean(result && !result.ok && result.reason === 'uncertain')}
         onClick={() => {
+          if (!lifetime.current.mounted || lifetime.current.disabled || inFlight.current) return;
+          lifetime.current.review += 1;
           setResult(null);
           setOpened(true);
         }}
@@ -269,7 +287,11 @@ export function ReviewedAction<T>({
         <Dialog
           title={payCopy.t('review', { title: title })}
           onClose={() => {
-            if (!busy) setOpened(false);
+            if (!inFlight.current) {
+              lifetime.current.opened = false;
+              lifetime.current.review += 1;
+              setOpened(false);
+            }
           }}
         >
           <div className="form-stack">
