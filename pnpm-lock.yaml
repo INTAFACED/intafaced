@@ -94,6 +94,52 @@ importers:
         specifier: ^3.0.5
         version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)(yaml@2.9.1)
 
+  apps/customer:
+    dependencies:
+      '@intafaced/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@intafaced/exchange-contract':
+        specifier: workspace:*
+        version: link:../../packages/exchange-contract
+      '@intafaced/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
+      '@intafaced/ledger-client':
+        specifier: workspace:*
+        version: link:../../packages/ledger-client
+      '@intafaced/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      react:
+        specifier: ^19.0.0
+        version: 19.3.0
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.3.0(react@19.3.0)
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.1
+      '@types/react':
+        specifier: ^19.2.18
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: ^19.2.4
+        version: 19.3.0(@types/react@19.3.0)
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vite:
+        specifier: 7.3.6
+        version: 7.3.6(@types/node@22.20.1)(tsx@4.23.12)(yaml@2.9.1)
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)(yaml@2.9.1)
+
   apps/mobile:
     dependencies:
       '@capacitor/android':

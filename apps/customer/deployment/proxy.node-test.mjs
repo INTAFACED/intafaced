@@ -1,0 +1,187 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createServer, request } from 'node:http';
+import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const customer = dirname(dirname(fileURLToPath(import.meta.url)));
+const binary = process.env.NGINX_BINARY || 'nginx';
+const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
+const stop = (server) =>
+  new Promise((resolve) => {
+    server.closeAllConnections();
+    server.close(resolve);
+  });
+
+test('customer proxy serves React deep links, refuses bare API paths, caches assets, and preserves edge/WS contracts', async () => {
+  const temp = mkdtempSync(join(tmpdir(), 'intafaced-customer-proxy-'));
+  const api = createServer((req, res) => {
+    let body = '';
+    req.on('data', (data) => {
+      body += data;
+    });
+    req.on('end', () => {
+      res.setHeader('content-type', 'application/json');
+      res.setHeader('set-cookie', 'session=opaque; HttpOnly; SameSite=Lax; Path=/');
+      res.end(
+        JSON.stringify({
+          path: req.url,
+          method: req.method,
+          cookie: req.headers.cookie,
+          authorization: req.headers.authorization,
+          origin: req.headers.origin,
+          body,
+        }),
+      );
+    });
+  });
+  const sockets = new Set();
+  let upgrade;
+  const ws = createServer((req, res) => {
+    res.end('not upgraded');
+  });
+  ws.on('upgrade', (req, socket) => {
+    upgrade = { path: req.url, cookie: req.headers.cookie, connection: req.headers.connection, upgrade: req.headers.upgrade };
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+    const accept = createHash('sha1')
+      .update(req.headers['sec-websocket-key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
+      .digest('base64');
+    socket.write(
+      `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`,
+    );
+    socket.write(Buffer.from([0x81, 0x05, ...Buffer.from('hello')]));
+  });
+  let nginx;
+  try {
+    const apiPort = await listen(api),
+      wsPort = await listen(ws);
+    const portReservation = createServer();
+    const port = await listen(portReservation);
+    await stop(portReservation);
+    const source = readFileSync(join(customer, 'nginx.conf'), 'utf8')
+      .replace('listen 80;', `listen 127.0.0.1:${port};`)
+      .replace('listen [::]:80;', '')
+      .replace('/usr/share/nginx/html', join(customer, 'dist'))
+      .replaceAll('svc-edge:4000', `127.0.0.1:${apiPort}`)
+      .replaceAll('svc-ws:4014', `127.0.0.1:${wsPort}`);
+    const config = join(temp, 'nginx.conf');
+    writeFileSync(
+      config,
+      `daemon off;\npid ${temp}/nginx.pid;\nerror_log ${temp}/error.log;\nevents {}\nhttp { access_log off; types { text/html html; application/javascript js; text/css css; }\n${source}\n}`,
+    );
+    const syntax = spawnSync(binary, ['-t', '-p', temp, '-c', config], { encoding: 'utf8' });
+    assert.equal(syntax.status, 0, syntax.stderr || syntax.error?.message || 'NGINX_BINARY must point to a real Nginx executable');
+    nginx = spawn(binary, ['-p', temp, '-c', config], { stdio: 'ignore' });
+    const origin = `http://127.0.0.1:${port}`;
+    let ready = false;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      try {
+        await fetch(origin);
+        ready = true;
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+    assert.ok(ready, 'Nginx started');
+    const index = readFileSync(join(customer, 'dist/index.html'), 'utf8');
+    for (const path of ['/', '/index.html', '/bank/transfers?status=pending', '/portfolio/BTC/repeat-buy', '/person/security']) {
+      const response = await fetch(origin + path);
+      assert.equal(response.status, 200, path);
+      assert.equal(await response.text(), index, path);
+      assert.equal(response.headers.get('cache-control'), 'no-store', path);
+    }
+    assert.equal((await fetch(origin + '/api')).status, 404);
+    assert.equal((await fetch(origin + '/ws')).status, 404);
+    const asset = /src="(\/assets\/[^"\s]+\.js)"/.exec(index)[1];
+    const chunk = await fetch(origin + asset);
+    assert.equal(chunk.status, 200);
+    assert.match(chunk.headers.get('content-type'), /javascript/);
+    assert.equal(chunk.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+    const missing = await fetch(origin + '/assets/missing-chunk.js');
+    assert.equal(missing.status, 404);
+    assert.notEqual(await missing.text(), index);
+    assert.equal(missing.headers.get('cache-control'), null);
+    const descriptor = await fetch(origin + '/customer-deployment.json');
+    assert.equal(descriptor.headers.get('cache-control'), 'no-store');
+    assert.equal((await descriptor.json()).product, 'intafaced-customer');
+    const edge = await fetch(origin + '/api/bank/transfers?limit=20', {
+      method: 'POST',
+      headers: { cookie: 'session=opaque', authorization: 'Bearer opaque', origin, 'content-type': 'application/json' },
+      body: '{"reference":"public-contract-test"}',
+    });
+    assert.equal(edge.headers.get('cache-control'), 'no-store');
+    assert.match(edge.headers.get('set-cookie'), /HttpOnly/);
+    assert.deepEqual(await edge.json(), {
+      path: '/api/bank/transfers?limit=20',
+      method: 'POST',
+      cookie: 'session=opaque',
+      authorization: 'Bearer opaque',
+      origin,
+      body: '{"reference":"public-contract-test"}',
+    });
+    const handshake = await new Promise((resolve, reject) => {
+      const client = request(origin + '/ws/stream?market=BTC-USD', {
+        headers: {
+          connection: 'Upgrade',
+          upgrade: 'websocket',
+          'sec-websocket-version': '13',
+          'sec-websocket-key': Buffer.from('the sample nonce').toString('base64'),
+          cookie: 'session=opaque',
+        },
+      });
+      client.on('error', reject);
+      client.on('response', (res) => reject(new Error(`upgrade returned ${res.statusCode}`)));
+      client.on('upgrade', (res, socket, head) => {
+        const finish = (data) => {
+          resolve({ status: res.statusCode, data });
+          socket.destroy();
+        };
+        if (head.length) finish(head);
+        else socket.once('data', finish);
+        socket.on('error', reject);
+      });
+      client.end();
+    });
+    assert.equal(handshake.status, 101);
+    assert.deepEqual(handshake.data, Buffer.from([0x81, 0x05, ...Buffer.from('hello')]));
+    assert.deepEqual(upgrade, { path: '/stream?market=BTC-USD', cookie: 'session=opaque', connection: 'upgrade', upgrade: 'websocket' });
+    if (process.env.CUTOVER_BROWSER_SMOKE === '1') {
+      const { chromium } = await import('@playwright/test');
+      const browser = await chromium.launch({ headless: true });
+      try {
+        for (const width of [1440, 390, 320]) {
+          const page = await browser.newPage({ viewport: { width, height: 900 } });
+          const errors = [];
+          page.on('pageerror', (error) => errors.push(error.message));
+          for (const path of ['/', '/login', '/bank/transfers', '/portfolio/BTC/repeat-buy', '/trade/convert']) {
+            await page.goto(origin + path);
+            await page.locator('#root > *').first().waitFor();
+            assert.ok((await page.locator('body').innerText()).length > 20, `${width}px ${path} has React content`);
+            assert.ok(
+              await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
+              `${width}px ${path} has no horizontal overflow`,
+            );
+          }
+          assert.deepEqual(errors, [], `${width}px has no browser exceptions`);
+          await page.close();
+        }
+      } finally {
+        await browser.close();
+      }
+    }
+  } finally {
+    if (nginx) {
+      nginx.kill('SIGTERM');
+      await new Promise((resolve) => nginx.once('close', resolve));
+    }
+    for (const socket of sockets) socket.destroy();
+    await Promise.all([stop(api), stop(ws)]);
+    rmSync(temp, { recursive: true, force: true });
+  }
+});

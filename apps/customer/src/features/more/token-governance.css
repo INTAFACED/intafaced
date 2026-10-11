@@ -1,0 +1,180 @@
+.token-governance {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+.token-governance-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 352px) minmax(0, 1fr);
+  gap: var(--spacing-32);
+  align-items: start;
+}
+.token-governance-layout > *,
+.token-governance .panel {
+  min-width: 0;
+}
+.token-governance-heading,
+.token-proposal-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing-12);
+  align-items: start;
+}
+.token-governance-heading {
+  align-items: center;
+  margin-bottom: var(--spacing-16);
+}
+.token-governance-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-12);
+  margin-bottom: var(--spacing-16);
+}
+.token-proposal-list {
+  display: grid;
+}
+.token-proposal-row {
+  width: 100%;
+  min-height: 72px;
+  padding: var(--spacing-16) var(--spacing-12);
+  border-radius: 0;
+  border-bottom: 1px solid var(--color-divider);
+  text-align: start;
+  white-space: normal;
+}
+.token-proposal-row[aria-pressed='true'] {
+  background: var(--color-selected);
+}
+.token-proposal-row > span:first-child {
+  display: grid;
+  gap: var(--spacing-8);
+  min-width: 0;
+}
+.token-proposal-row strong,
+.token-proposal-row code,
+.token-proposal-title {
+  overflow-wrap: anywhere;
+}
+.token-proposal-row > span:last-child {
+  width: 76px;
+  flex-shrink: 0;
+  text-align: end;
+  font-size: 13px;
+}
+.token-proposal-row code {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.token-proposal-row small {
+  color: var(--color-muted);
+}
+.token-proposal-title {
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 500;
+  margin-bottom: var(--spacing-12);
+}
+.token-proposal-body,
+.token-ballot-review pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: auto;
+  padding: var(--spacing-16);
+  background: var(--color-shell);
+  border-radius: var(--radius-4);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 24px;
+  max-height: 420px;
+}
+.token-proposal-section {
+  display: grid;
+  gap: var(--spacing-12);
+  margin-top: 24px;
+}
+.token-tally {
+  display: grid;
+  margin: 0;
+}
+.token-tally > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing-16);
+  padding: var(--spacing-12) 0;
+  border-bottom: 1px solid var(--color-divider);
+  align-items: baseline;
+}
+.token-tally dt {
+  color: var(--color-muted);
+}
+.token-tally dd {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  text-align: end;
+}
+.token-ballot-context code,
+.token-ballot-review code {
+  overflow-wrap: anywhere;
+}
+.token-ballot-context .more-details {
+  margin-bottom: var(--spacing-16);
+}
+.token-ballot-review {
+  display: grid;
+  gap: var(--spacing-16);
+  min-width: 0;
+}
+.token-ballot-review .more-details {
+  margin: 0;
+}
+.token-create > summary {
+  cursor: pointer;
+  font-weight: 500;
+  padding: var(--spacing-16) 0;
+}
+@media (max-width: 900px) {
+  .token-governance-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 440px) {
+  .token-governance-heading {
+    align-items: start;
+    flex-direction: column;
+  }
+  .token-governance-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .token-proposal-title {
+    font-size: 20px;
+    line-height: 28px;
+  }
+  .token-proposal-section .actions > .button,
+  .token-ballot-context .actions > .button {
+    flex: 1 1 100%;
+  }
+  .token-tally > div {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--spacing-8);
+  }
+  .token-tally dt {
+    font-size: 13px;
+    line-height: 20px;
+  }
+  .token-tally dd {
+    font-size: 18px;
+    line-height: 26px;
+    text-align: start;
+    font-variant-numeric: tabular-nums;
+  }
+}
+@media (max-width: 360px) {
+  .token-tally dd {
+    font-size: 16px;
+    line-height: 24px;
+  }
+}
