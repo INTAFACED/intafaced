@@ -1654,7 +1654,14 @@ describe('svc-bank money PG-hard', () => {
       );
 
       expect(results.filter((r) => r === 'ok')).toHaveLength(1);
+      // A credit back to available is not a close. One winner releases the stake; the row and the books have to agree.
       expect(await availableOf(USER_A, 'USDT')).toBe('1000');
+      expect(await stakedOf(USER_A, 'USDT')).toBe('0');
+      const row = await sql<Array<{ status: string }>>`
+        SELECT status FROM bank.earn_positions WHERE id = ${position.id}
+      `;
+      expect(row[0]!.status).toBe('closed');
+      expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
     it('enforces the minimum deposit', async () => {
