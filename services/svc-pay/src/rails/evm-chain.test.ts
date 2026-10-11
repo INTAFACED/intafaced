@@ -166,6 +166,52 @@ describe('EvmLiveChain deposit scan cursor', () => {
 });
 
 describe('EvmLiveChain inbound identity', () => {
+  it.each(['contract', 'sender'] as const)(
+    'does not finalize an original token deposit using a receipt with a foreign %s',
+    async (changed) => {
+      const token = '0x00000000000000000000000000000000000000a1';
+      const port = new EvmLiveChain({
+        rpcUrl: 'http://127.0.0.1:9',
+        chainId: 31337,
+        depositMnemonic: MNEMONIC,
+        hotWalletKey: HOT_KEY,
+        assets: parseEvmAssets(`USDC:${token}:6`),
+        broadcasts: new MemoryBroadcastStore(),
+        minConfirmations: 1,
+      });
+      const address = await port.acceptanceAddress('receipt-identity', 'USDC');
+      const txHash = `0x${'a'.repeat(64)}` as Hex;
+      const original = erc20Log({ token, to: address, value: 1_000_000n, txHash, logIndex: 3, blockNumber: 5n });
+      let receiptLog = original;
+      let tip = 5n;
+      installRpc(port, {
+        getBlockNumber: async () => tip,
+        getBlock: async ({ blockNumber }) => block(blockNumber),
+        getLogs: async ({ fromBlock }) => (fromBlock !== undefined && fromBlock <= 5n ? [original] : []),
+        getTransactionReceipt: async () => ({ status: 'success', transactionHash: txHash, blockNumber: 5n, logs: [receiptLog] }),
+      });
+      await port.refresh();
+      expect(port.drainFinalized()[0]?.transfer).toMatchObject({ txHash, from: PAYER, assetId: 'USDC', amount: parseAmount('1') });
+      receiptLog =
+        changed === 'contract'
+          ? { ...original, address: '0x00000000000000000000000000000000000000b1' }
+          : { ...original, topics: [original.topics[0], addressTopic('0x0000000000000000000000000000000000000002'), original.topics[2]] };
+      tip++;
+      await port.refresh();
+      expect(port.drainFinalized()).toEqual([]);
+      expect(listObserved(port)).toHaveLength(1);
+      expect(listObserved(port)[0]).toMatchObject({ txHash, from: PAYER, assetId: 'USDC', amount: parseAmount('1'), inReceipt: false });
+      receiptLog = original;
+      tip++;
+      await port.refresh();
+      expect(port.drainFinalized()).toHaveLength(1);
+      expect(port.drainFinalized()[0]?.transfer).toMatchObject({ txHash, from: PAYER, assetId: 'USDC', amount: parseAmount('1') });
+      port.markFinalizedEmitted(address);
+      await port.refresh();
+      expect(port.drainFinalized()).toEqual([]);
+    },
+  );
+
   it('keeps every log and does not drain a transfer whose receipt is gone after it would have aged in', async () => {
     const token = '0x00000000000000000000000000000000000000a1';
     const port = new EvmLiveChain({
@@ -255,6 +301,107 @@ describe('EvmLiveChain inbound identity', () => {
 });
 
 describe('EvmLiveChain ERC-20 scan cursor', () => {
+  it.each([
+    ['native block', 5n],
+    ['native block', 6n],
+    ['later token', 5n],
+    ['later token', 6n],
+  ] as const)(
+    'retries the original range after %s failure at retry tip %s without duplicating partial observations',
+    async (failure, retryTip) => {
+      const tokenA = '0x00000000000000000000000000000000000000a1';
+      const tokenB = '0x00000000000000000000000000000000000000b1';
+      const port = new EvmLiveChain({
+        rpcUrl: 'http://127.0.0.1:9',
+        chainId: 31337,
+        depositMnemonic: MNEMONIC,
+        hotWalletKey: HOT_KEY,
+        assets: parseEvmAssets(`ETH:native,USDC:${tokenA}:6,USDT:${tokenB}:6`),
+        broadcasts: new MemoryBroadcastStore(),
+        minConfirmations: 1,
+      });
+      const nativeAddress = await port.acceptanceAddress('retry-native', 'ETH');
+      const addressA = await port.acceptanceAddress('retry-token-a', 'USDC');
+      const addressB = await port.acceptanceAddress('retry-token-b', 'USDT');
+      const nativeHash = `0x${'1'.repeat(64)}` as Hex;
+      const hashA = `0x${'2'.repeat(64)}` as Hex;
+      const hashB = `0x${'3'.repeat(64)}` as Hex;
+      const nativeAmount = parseAmount('0.25');
+      const logA = erc20Log({ token: tokenA, to: addressA, value: 1_000_000n, txHash: hashA, logIndex: 2, blockNumber: 3n });
+      const logB = erc20Log({ token: tokenB, to: addressB, value: 2_000_000n, txHash: hashB, logIndex: 4, blockNumber: 5n });
+      let tip = 5n;
+      let failed = false;
+      let receiptBAvailable = false;
+      const blocks: bigint[] = [];
+      const ranges: Array<{ address?: string; fromBlock?: bigint; toBlock?: bigint }> = [];
+      installRpc(port, {
+        getBlockNumber: async () => tip,
+        getBlock: async ({ blockNumber }) => {
+          blocks.push(blockNumber);
+          if (failure === 'native block' && blockNumber === 4n && !failed) {
+            failed = true;
+            throw new Error('transient native block failure');
+          }
+          return block(
+            blockNumber,
+            blockNumber === 2n ? [{ to: nativeAddress, from: PAYER, value: nativeAmount, hash: nativeHash, transactionIndex: 1 }] : [],
+          );
+        },
+        getLogs: async (args) => {
+          ranges.push(args);
+          if (failure === 'later token' && args.address?.toLowerCase() === tokenB && !failed) {
+            failed = true;
+            throw new Error('transient later token failure');
+          }
+          const log = args.address?.toLowerCase() === tokenA ? logA : logB;
+          return log.blockNumber >= (args.fromBlock ?? 0n) && log.blockNumber <= (args.toBlock ?? tip) ? [log] : [];
+        },
+        getTransactionReceipt: async ({ hash }) => {
+          if (hash === hashB && !receiptBAvailable) return null;
+          return {
+            status: 'success',
+            transactionHash: hash,
+            blockNumber: hash === nativeHash ? 2n : hash === hashA ? 3n : 5n,
+            to: hash === nativeHash ? nativeAddress : null,
+            logs: hash === hashA ? [logA] : hash === hashB ? [logB] : [],
+          };
+        },
+      });
+      await expect(port.refresh()).rejects.toThrow(`transient ${failure} failure`);
+      const partial = listObserved(port).map(({ txHash, amount, logIndex }) => ({ txHash, amount, logIndex }));
+      expect(partial).toHaveLength(failure === 'native block' ? 1 : 2);
+      expect(partial).toContainEqual(expect.objectContaining({ txHash: nativeHash, amount: nativeAmount, logIndex: 1 }));
+      expect(scanCursorOf(port)).toBe(0n);
+      expect(port.drainFinalized()).toEqual([]);
+      const priorBlockCalls = blocks.length;
+      tip = retryTip;
+      await port.refresh();
+      expect(blocks[priorBlockCalls]).toBe(0n);
+      expect(ranges.slice(-2).map((range) => ({ ...range, address: range.address?.toLowerCase() }))).toEqual([
+        expect.objectContaining({ address: tokenA, fromBlock: 0n, toBlock: retryTip }),
+        expect.objectContaining({ address: tokenB, fromBlock: 0n, toBlock: retryTip }),
+      ]);
+      expect(scanCursorOf(port)).toBe(retryTip + 1n);
+      expect(listObserved(port)).toHaveLength(3);
+      for (const row of partial) expect(listObserved(port)).toContainEqual(expect.objectContaining(row));
+      expect(port.drainFinalized().map((item) => item.transfer.txHash)).toEqual([nativeHash, hashA]);
+      expect(port.drainFinalized().map((item) => item.transfer.amount)).toEqual([nativeAmount, parseAmount('1')]);
+      port.markFinalizedEmitted(nativeAddress);
+      port.markFinalizedEmitted(addressA);
+      await port.refresh();
+      expect(port.drainFinalized()).toEqual([]);
+      receiptBAvailable = true;
+      tip++;
+      await port.refresh();
+      expect(port.drainFinalized()).toHaveLength(1);
+      expect(port.drainFinalized()[0]?.transfer).toMatchObject({ txHash: hashB, amount: parseAmount('2') });
+      port.markFinalizedEmitted(addressB);
+      await port.refresh();
+      expect(listObserved(port)).toHaveLength(3);
+      expect(port.drainFinalized()).toEqual([]);
+    },
+  );
+
   it('records a Transfer older than the short confirmation window when it is inside the lookback', async () => {
     const token = '0x00000000000000000000000000000000000000a1';
     const minConfirmations = 2;

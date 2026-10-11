@@ -274,13 +274,14 @@ export class EvmLiveChain implements CryptoChainPort {
       return;
     }
 
-    // ERC-20 logs use the cursor this refresh is about to walk, including the
-    // first-refresh lookback. The loop moves scanCursor to tip+1; reading it
-    // afterward would request an empty range and drop every Transfer in it.
-    const erc20FromBlock = this.scanCursor;
+    // Keep the original range until every native block and configured token
+    // scan succeeds. A failed later RPC must retry earlier observations with
+    // their same transaction/log identity rather than discard the whole range.
+    const fromBlock = this.scanCursor;
+    const toBlock = this.tip;
 
-    while (this.scanCursor <= this.tip) {
-      const block = await this.public.getBlock({ blockNumber: this.scanCursor, includeTransactions: true });
+    for (let blockNumber = fromBlock; blockNumber <= toBlock; blockNumber += 1n) {
+      const block = await this.public.getBlock({ blockNumber, includeTransactions: true });
       // Read the watch set for this block. acceptanceAddress may add an address
       // during the awaited getBlock; a snapshot taken before the walk would
       // miss it on every block still ahead while the cursor still advances.
@@ -304,11 +305,11 @@ export class EvmLiveChain implements CryptoChainPort {
           logIndex: typeof tx.transactionIndex === 'number' ? tx.transactionIndex : 0,
         });
       }
-      this.scanCursor += 1n;
     }
 
-    await this.scanErc20(erc20FromBlock);
+    await this.scanErc20(fromBlock, toBlock);
     await this.recomputeConfirmations();
+    if (fromBlock <= toBlock) this.scanCursor = toBlock + 1n;
   }
 
   /**
@@ -392,17 +393,17 @@ export class EvmLiveChain implements CryptoChainPort {
     this.observed.set(key, next);
   }
 
-  private async scanErc20(fromBlock: bigint): Promise<void> {
+  private async scanErc20(fromBlock: bigint, toBlock: bigint): Promise<void> {
     const erc20 = [...this.assets.values()].filter((a): a is Extract<EvmAsset, { kind: 'erc20' }> => a.kind === 'erc20');
     if (erc20.length === 0) return;
     // Nothing new since the cursor already passed the tip.
-    if (fromBlock > this.tip) return;
+    if (fromBlock > toBlock) return;
 
     for (const asset of erc20) {
       const logs = await this.public.getLogs({
         address: asset.address,
         fromBlock,
-        toBlock: this.tip,
+        toBlock,
         events: [
           {
             type: 'event',
@@ -482,13 +483,17 @@ export class EvmLiveChain implements CryptoChainPort {
       return true;
     }
     for (const log of receipt.logs) {
+      if (log.address.toLowerCase() !== asset.address.toLowerCase()) continue;
       if (log.logIndex !== observed.logIndex) continue;
       if (!log.transactionHash || log.transactionHash.toLowerCase() !== observed.txHash.toLowerCase()) continue;
       if (log.topics[0]?.toLowerCase() !== ERC20_TRANSFER_TOPIC.toLowerCase()) continue;
       const toTopic = log.topics[2];
-      if (!toTopic) continue;
+      const fromTopic = log.topics[1];
+      if (!toTopic || !fromTopic) continue;
       const to = getAddress(`0x${toTopic.slice(26)}`);
       if (to.toLowerCase() !== observed.address.toLowerCase()) continue;
+      const from = getAddress(`0x${fromTopic.slice(26)}`);
+      if (from.toLowerCase() !== observed.from.toLowerCase()) continue;
       const value = log.data && log.data !== '0x' ? BigInt(log.data) : 0n;
       if (fromChainUnits(value, asset.decimals) !== observed.amount) continue;
       return true;
