@@ -252,7 +252,11 @@ describe('JIT conversion arithmetic (§18) — no rate is invented, and the roun
     for (const part of ['0.01', '1', '250', '999.98']) {
       expect(fundingFor(amt(part), rate) <= whole).toBe(true);
     }
-    expect(fundingFor(amt('999.99'), rate)).toBe(whole);
+    // Ceil of 999.99 / 1234.5678. Not a second fundingFor call of that amount.
+    expect(formatAmount(whole)).toBe('0.809991966419341247');
+    // Capture fixture clears 40 of 100 at 50,000, which divides evenly.
+    // Same partial at this rate: a larger funding amount than the authorisation fails.
+    expect(fundingFor(amt('40'), rate) < fundingFor(amt('100'), rate)).toBe(true);
   });
 
   it('refuses a non-positive rate rather than treating it as a free card', () => {
