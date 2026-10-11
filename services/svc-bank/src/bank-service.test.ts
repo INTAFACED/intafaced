@@ -1617,7 +1617,15 @@ describe('svc-bank money PG-hard', () => {
       const position = await bank.earn.deposit({ positionId: randomUUID(), poolId: pool.id, userId: USER_A, amount: amt('400') });
 
       await bank.earn.withdraw(position.id, new Date(Date.now() + 100 * DAY_MS));
+
+      // A credit back to available is not a close. The stake pot, the row, and the books have to agree.
       expect(await availableOf(USER_A, 'USDT')).toBe('1000');
+      expect(await stakedOf(USER_A, 'USDT')).toBe('0');
+      const row = await sql<Array<{ status: string }>>`
+        SELECT status FROM bank.earn_positions WHERE id = ${position.id}
+      `;
+      expect(row[0]!.status).toBe('closed');
+      expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
     it('refuses to withdraw twice — the principal is returned exactly once', async () => {
