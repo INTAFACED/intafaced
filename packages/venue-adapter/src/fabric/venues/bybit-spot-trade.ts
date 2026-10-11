@@ -75,7 +75,10 @@ export function mapBybitSpotOrder(row: Record<string, unknown>, unified: string,
     averagePrice = readDecimal(avgRaw, VENUE.id, 'avgPrice');
   }
   const typeRaw = String(row.orderType ?? '').toLowerCase();
-  const type: VenueOrder['type'] = typeRaw === 'market' ? 'market' : 'limit';
+  if (typeRaw !== 'limit' && typeRaw !== 'market') {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', `order type ${typeRaw || '(empty)'} is unknown`);
+  }
+  const type: VenueOrder['type'] = typeRaw;
   const price =
     type === 'market' || row.price === undefined || row.price === null || String(row.price) === '0'
       ? null
