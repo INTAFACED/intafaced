@@ -517,23 +517,47 @@ export function assertCombinedPageLimit(limit: number | null | undefined): numbe
   return n;
 }
 
-/** L3 — page plan decisions. Empty → []. Omit limit refuses. */
+export const NOTIFY_COMBINED_PAGE_OFFSET_UNSET = 'notify.combined_page_offset_unset' as const;
+
+/** Combined plan page offset is non-finite. Omitted stays 0. Never invent a page. */
+export class NotifyCombinedPageOffsetUnsetError extends Error {
+  readonly code = NOTIFY_COMBINED_PAGE_OFFSET_UNSET;
+  constructor() {
+    super(NOTIFY_COMBINED_PAGE_OFFSET_UNSET);
+    this.name = 'NotifyCombinedPageOffsetUnsetError';
+  }
+}
+
+/**
+ * Combined plan page offset.
+ * Omitted stays 0. Non-finite refuses. Finite values floor and clamp at 0.
+ * Never invent a page size.
+ */
+export function assertCombinedPageOffset(offset: number | null | undefined): number {
+  if (offset === undefined || offset === null) return 0;
+  if (typeof offset !== 'number' || !Number.isFinite(offset)) {
+    throw new NotifyCombinedPageOffsetUnsetError();
+  }
+  return Math.max(0, Math.floor(offset));
+}
+
+/** L3 — page plan decisions. Empty → []. Omit limit refuses. Non-finite offset refuses. */
 export function pagePlanDecisions(
   plan: readonly DeliveryDecision[],
   options: { offset?: number; limit?: number } = {},
 ): readonly DeliveryDecision[] {
-  const offset = Math.max(0, Math.floor(options.offset ?? 0));
+  const offset = assertCombinedPageOffset(options.offset);
   const limit = assertCombinedPageLimit(options.limit);
   return plan.slice(offset, offset + limit);
 }
 
-/** L3 — page send channels. Empty → []. Omit limit refuses. */
+/** L3 — page send channels. Empty → []. Omit limit refuses. Non-finite offset refuses. */
 export function pagePlanSendChannels(
   plan: readonly DeliveryDecision[],
   options: { offset?: number; limit?: number } = {},
 ): readonly (MuteableChannel | 'inapp')[] {
   const all = channelsToSendNow(plan);
-  const offset = Math.max(0, Math.floor(options.offset ?? 0));
+  const offset = assertCombinedPageOffset(options.offset);
   const limit = assertCombinedPageLimit(options.limit);
   return all.slice(offset, offset + limit);
 }

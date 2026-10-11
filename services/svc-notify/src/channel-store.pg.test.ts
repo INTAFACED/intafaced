@@ -300,6 +300,51 @@ describe.skipIf(!available)('PostgresDeliveryStore — the claim guard, executed
       expect(await s.listRecent(1)).toHaveLength(1);
     });
 
+    it('a noted receipt is not reclaimed for another send, even on the last attempt', async () => {
+      const s = new PostgresDeliveryStore(sql!, { leaseMs: 60_000 });
+      const first = await s.claim(NOTIFICATION, 'email', 1);
+      expect(first.claimed).toBe(true);
+      if (!first.claimed) return;
+      await s.noteReceipt({ id: first.id, attempt: first.attempt, reference: 'gw-1' });
+      await sql!`
+        UPDATE notify.deliveries
+           SET lease_until = now() - interval '1 hour',
+               updated_at = now() - interval '1 hour'
+         WHERE id = ${first.id}
+      `;
+
+      const second = await s.claim(NOTIFICATION, 'email', 1);
+      expect(second.claimed).toBe(false);
+      if (second.claimed) return;
+      expect(second.reason).toBe('receipt_pending');
+      expect(second.record.attempts).toBe(1);
+      expect(second.record.status).toBe('pending');
+      expect(second.record.reference).toBe('gw-1');
+      expect(second.record.acceptedAt).toBeNull();
+
+      await s.reapExhausted(1, { stuckGraceMs: 1_000 });
+      const [row] = await s.listForNotification(NOTIFICATION);
+      expect(row?.status).toBe('pending');
+      expect(row?.reference).toBe('gw-1');
+      expect(row?.refusalCode).toBeNull();
+    });
+
+    it('a noted receipt with no transport handle stays null', async () => {
+      const s = store();
+      const first = await s.claim(NOTIFICATION, 'sms', 3);
+      expect(first.claimed).toBe(true);
+      if (!first.claimed) return;
+      await s.noteReceipt({ id: first.id, attempt: first.attempt, reference: null });
+
+      const second = await s.claim(NOTIFICATION, 'sms', 3);
+      expect(second.claimed).toBe(false);
+      if (second.claimed) return;
+      expect(second.reason).toBe('receipt_pending');
+      expect(second.record.reference).toBeNull();
+      expect(second.record.attemptedAt).not.toBeNull();
+      expect(second.record.acceptedAt).toBeNull();
+    });
+
     it('arm 2 on Postgres names delivery_stuck when attempts are still below max', async () => {
       // THE in_flight hole, executed against real SQL: one claim (attempts=1),
       // lease dies, stuckGrace short so we do not wait 150s. Must not stamp

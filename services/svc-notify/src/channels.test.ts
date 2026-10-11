@@ -91,7 +91,7 @@ function harness(
   });
   const notify = new NotifyService(
     store,
-    { fanoutEnabled: options.fanoutEnabled ?? true, verifyTtlMinutes: 15 },
+    { fanoutEnabled: options.fanoutEnabled ?? true, verifyTtlMinutes: 15, verifyCodePepper: 'test-verify-pepper' },
     { targets, deliveries, channels, dispatcher, muteStore },
   );
   return { notify, store, targets, deliveries, muteStore };
@@ -616,7 +616,7 @@ describe('addresses are confirmed before anything is sent to them', () => {
     });
     const notify = new NotifyService(
       store,
-      { fanoutEnabled: true, verifyTtlMinutes: 15, targetRateLimiter: limiter },
+      { fanoutEnabled: true, verifyTtlMinutes: 15, verifyCodePepper: 'test-verify-pepper', targetRateLimiter: limiter },
       { targets, deliveries, channels, dispatcher },
     );
 
@@ -644,7 +644,7 @@ describe('addresses are confirmed before anything is sent to them', () => {
     });
     const notify = new NotifyService(
       store,
-      { fanoutEnabled: true, verifyTtlMinutes: 15, targetRateLimiter: limiter },
+      { fanoutEnabled: true, verifyTtlMinutes: 15, verifyCodePepper: 'test-verify-pepper', targetRateLimiter: limiter },
       { targets, deliveries, channels, dispatcher },
     );
     await notify.registerTarget({ userId: USER, channel: 'email', address: 'new@example.com', locale: 'en' });

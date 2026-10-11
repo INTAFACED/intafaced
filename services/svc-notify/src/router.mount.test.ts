@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createNotifyRouter } from './router.js';
@@ -11,6 +11,8 @@ import { assertNotifyListLimit, assertOperatorDeliveriesLimit, type NotifyServic
  * principal. list / markRead / markAllRead must only run for the edge-signed
  * principal; a forgeable principal here is another account's inbox.
  */
+
+afterEach(() => vi.unstubAllEnvs());
 
 const SECRET = 'a-notify-mount-test-edge-secret-long';
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -65,6 +67,26 @@ function stubNotify(overrides: Partial<NotifyService> = {}): NotifyService {
 }
 
 describe('svc-notify mount — authorisation', () => {
+  it('strict screening refuses a signed inbox read and target mutation before service effects', async () => {
+    vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'true');
+    vi.stubEnv('INTAFACED_REGION_FAIL_CLOSED', 'true');
+    vi.stubEnv('INTAFACED_SANCTIONS_REGIONS', '');
+    vi.stubEnv('INTAFACED_SANCTIONS_LIST_SOURCE', '');
+    const notify = stubNotify({ registerTarget: vi.fn() });
+    const caller = createNotifyRouter(notify).createCaller(signed());
+    const refusal = {
+      code: 'FORBIDDEN',
+      cause: {
+        code: 'denied.screening_unconfigured',
+        decision: { screening: { listConfigured: false, moneyGrade: 'unconfigured', readsAsScreenedClean: false } },
+      },
+    };
+    await expect(caller.notify.list({ limit: 10 })).rejects.toMatchObject(refusal);
+    await expect(caller.notify.registerTarget({ channel: 'email', address: 'a@b.c' })).rejects.toMatchObject(refusal);
+    expect(notify.list).not.toHaveBeenCalled();
+    expect(notify.registerTarget).not.toHaveBeenCalled();
+  });
+
   it('refuses an anonymous caller on list, and reads nothing', async () => {
     let read = false;
     const notify = stubNotify({

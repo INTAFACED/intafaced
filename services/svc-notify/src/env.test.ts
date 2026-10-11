@@ -100,6 +100,51 @@ describe('dev and test stay frictionless', () => {
   });
 });
 
+describe('a blank bool is absent and a padded false is off', () => {
+  it('does not arm the incident latches when compose leaves them blank', () => {
+    for (const blank of ['', ' ', '   ', '\t', '\n']) {
+      const result = parse({
+        APP_ENV: 'dev',
+        NOTIFY_INCIDENT_SILENCE: blank,
+        NOTIFY_INCIDENT_ALL_CLEAR: blank,
+      });
+      expect(result.success, JSON.stringify(blank)).toBe(true);
+      expect(result.data.NOTIFY_INCIDENT_SILENCE, JSON.stringify(blank)).toBe(false);
+      expect(result.data.NOTIFY_INCIDENT_ALL_CLEAR, JSON.stringify(blank)).toBe(false);
+    }
+  });
+
+  it('does not leave sending on when fan-out or out-of-app is a padded false', () => {
+    for (const padded of [' false ', 'false ', ' false', '\tfalse\n', ' FALSE ']) {
+      const result = parse({
+        APP_ENV: 'dev',
+        NOTIFY_FANOUT_ENABLED: padded,
+        NOTIFY_OUT_OF_APP_ENABLED: padded,
+      });
+      expect(result.success, JSON.stringify(padded)).toBe(true);
+      expect(result.data.NOTIFY_FANOUT_ENABLED, JSON.stringify(padded)).toBe(false);
+      expect(result.data.NOTIFY_OUT_OF_APP_ENABLED, JSON.stringify(padded)).toBe(false);
+    }
+  });
+
+  it('still enables a flag on an explicit true', () => {
+    for (const on of ['true', ' true ', 'TRUE']) {
+      const result = parse({
+        APP_ENV: 'dev',
+        NOTIFY_INCIDENT_SILENCE: on,
+        NOTIFY_INCIDENT_ALL_CLEAR: on,
+        NOTIFY_FANOUT_ENABLED: on,
+        NOTIFY_OUT_OF_APP_ENABLED: on,
+      });
+      expect(result.success, JSON.stringify(on)).toBe(true);
+      expect(result.data.NOTIFY_INCIDENT_SILENCE, JSON.stringify(on)).toBe(true);
+      expect(result.data.NOTIFY_INCIDENT_ALL_CLEAR, JSON.stringify(on)).toBe(true);
+      expect(result.data.NOTIFY_FANOUT_ENABLED, JSON.stringify(on)).toBe(true);
+      expect(result.data.NOTIFY_OUT_OF_APP_ENABLED, JSON.stringify(on)).toBe(true);
+    }
+  });
+});
+
 describe('an enforced environment must state what it depends on', () => {
   for (const APP_ENV of ['staging', 'prod']) {
     it(`refuses to boot in ${APP_ENV} with NOTIFY_REQUIRED_CHANNELS unset`, () => {
@@ -183,5 +228,31 @@ describe('the two settings may not disagree about whether messages go out', () =
 
   it('allows the kill-switch when nothing is required — that is a considered posture, not a contradiction', () => {
     expect(parse({ APP_ENV: 'prod', NOTIFY_REQUIRED_CHANNELS: 'none', NOTIFY_OUT_OF_APP_ENABLED: 'false' }).success).toBe(true);
+  });
+
+  it('refuses prod when a required channel is wired, out-of-app is on, and fan-out is off', () => {
+    // Credentials and out-of-app on used to satisfy the refine while fan-out
+    // off still acked, inserted nothing, and sent nothing.
+    const result = parse({
+      APP_ENV: 'prod',
+      NOTIFY_REQUIRED_CHANNELS: 'sms',
+      NOTIFY_OUT_OF_APP_ENABLED: 'true',
+      NOTIFY_FANOUT_ENABLED: 'false',
+      ...CREDS,
+    });
+    expect(result.success).toBe(false);
+    expect(messages(result)).toMatch(/NOTIFY_FANOUT_ENABLED is off/);
+    expect(messages(result)).toMatch(/insert no inbox rows/);
+  });
+
+  it('still allows fan-out off when nothing is required — the kill-switch is not itself a contradiction', () => {
+    expect(
+      parse({
+        APP_ENV: 'prod',
+        NOTIFY_REQUIRED_CHANNELS: 'none',
+        NOTIFY_OUT_OF_APP_ENABLED: 'true',
+        NOTIFY_FANOUT_ENABLED: 'false',
+      }).success,
+    ).toBe(true);
   });
 });

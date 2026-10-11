@@ -186,9 +186,9 @@ export function createTradeHttpMarkSource(options: TradeHttpMarkOptions): MarkSo
           };
         }
 
-        let body: TickerRow;
+        let body: TickerRow | null;
         try {
-          body = (await res.json()) as TickerRow;
+          body = (await res.json()) as TickerRow | null;
         } catch {
           return {
             kind: 'unavailable',
@@ -197,8 +197,9 @@ export function createTradeHttpMarkSource(options: TradeHttpMarkOptions): MarkSo
           };
         }
 
-        const priced = priceFromTicker(body);
-        if (!priced) {
+        // JSON null is a 200 body. res.json() does not throw, and body.bid would.
+        const priced = body === null ? null : priceFromTicker(body);
+        if (body === null || !priced) {
           return {
             kind: 'unavailable',
             reason: 'stale',
