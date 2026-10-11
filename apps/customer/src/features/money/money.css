@@ -554,6 +554,318 @@
     align-self: flex-start;
   }
 }
+.money-owner-cards {
+  min-width: 0;
+}
+.money-card-programme {
+  background: var(--color-surface);
+  border-inline-start: 2px solid var(--color-divider);
+  padding: 12px 16px;
+  margin-bottom: 32px;
+  overflow-wrap: anywhere;
+}
+.money-card-programme h3 {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+}
+.money-card-programme p {
+  margin-top: 4px;
+}
+.money-selected-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 20px;
+  margin-bottom: 40px;
+}
+.money-selected-card > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.money-selected-card > header > .button--ghost,
+.money-card-continuation .button--ghost,
+.money-owner-cards > .money-section > header .button--ghost {
+  color: var(--color-accent);
+}
+.money-selected-card h2,
+.money-card-history h3 {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+}
+#money-selected-card-heading,
+#money-card-list-heading {
+  scroll-margin-block-start: 24px;
+  scroll-margin-block-end: 84px;
+}
+.money-card-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.money-card-identity h3,
+.money-card-decision h4,
+.money-card-conversion h5 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+}
+.money-card-reference,
+.money-card-assets,
+.money-card-decision dl,
+.money-card-configuration dl {
+  margin: 0;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 20px;
+}
+.money-card-reference dd,
+.money-card-assets dd,
+.money-card-decision dd,
+.money-card-configuration dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.money-card-assets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+.money-card-assets > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.money-card-assets dt,
+.money-card-decision dt,
+.money-card-configuration dt {
+  color: var(--color-muted);
+}
+.money-card-history {
+  min-width: 0;
+}
+.money-card-history > header {
+  padding-bottom: 12px;
+}
+.money-card-history > header p {
+  margin-top: 4px;
+}
+.money-card-decisions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.money-card-decision {
+  border-top: 1px solid var(--color-divider);
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1.35fr) 230px minmax(0, 1fr);
+  gap: 4px 24px;
+  padding: 16px 0;
+  min-width: 0;
+}
+.money-card-decision > header {
+  display: contents;
+}
+.money-card-decision h4 {
+  grid-column: 1;
+  grid-row: 1;
+  overflow-wrap: anywhere;
+}
+.money-card-status {
+  grid-column: 1;
+  grid-row: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.money-card-funding {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+.money-card-quantity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.money-card-funding .numeric {
+  font-size: 24px;
+  line-height: 28px;
+  font-weight: 500;
+}
+.money-card-decision-time {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  color: var(--color-muted);
+}
+.money-card-decision-time > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.money-card-authorization {
+  grid-column: 4;
+  grid-row: 1 / span 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.money-card-decline {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.money-card-conversion {
+  grid-column: 2 / -1;
+  background: var(--color-surface);
+  padding: 12px;
+  margin-top: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.money-card-conversion h5 {
+  margin-bottom: 8px;
+}
+.money-card-conversion dl {
+  display: grid;
+  gap: 8px;
+}
+.money-card-conversion dl > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.money-card-conversion .money-card-quantity {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.money-card-continuation {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 0;
+}
+.money-card-continuation .actions {
+  margin-top: 8px;
+}
+.money-card-configuration {
+  border-top: 1px solid var(--color-divider);
+  padding: 16px 0;
+  min-width: 0;
+}
+.money-card-configuration summary {
+  min-height: 44px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 24px;
+  overflow-wrap: anywhere;
+}
+.money-card-configuration dl {
+  display: grid;
+  gap: 12px;
+  margin-top: 8px;
+}
+.money-card-configuration .numeric {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 500;
+}
+.money-card-record {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 12px 24px;
+  border-top: 1px solid var(--color-divider);
+  padding: 20px 0;
+  min-width: 0;
+}
+.money-card-record-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+}
+.money-card-record .money-card-configuration {
+  grid-column: 1 / -1;
+  padding: 0;
+  border: 0;
+}
+.money-card-record .money-card-record-actions .actions {
+  flex-wrap: wrap;
+}
+.money-card-missing {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.money-card-missing h4 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+}
+.money-card-missing p,
+.money-card-missing details {
+  color: var(--color-muted);
+}
+@media (max-width: 1023px) {
+  .money-card-decision {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+  }
+  .money-card-status {
+    grid-column: 2;
+    grid-row: 1;
+    justify-content: flex-end;
+    text-align: end;
+  }
+  .money-card-funding {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .money-card-funding .numeric {
+    font-size: 20px;
+  }
+  .money-card-decision-time {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+  .money-card-authorization {
+    grid-column: 1 / -1;
+    grid-row: 4;
+  }
+  .money-card-decline,
+  .money-card-conversion {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 767px) {
+  .money-card-record {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .money-card-record .money-card-configuration {
+    grid-column: 1;
+  }
+}
 .money-overview-lane > .money-section,
 .money-action-lane > .money-section {
   margin-bottom: 0;

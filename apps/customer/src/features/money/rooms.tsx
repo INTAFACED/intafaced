@@ -30,8 +30,10 @@ import { earnCopy } from './earn-copy';
 import { LoanHealth, currentLoanPreflight, loanActionAllowed, loanStatusNote } from './LoanHealth';
 import { loanCopy } from './loan-copy';
 import { MoneyActivity } from './activity';
-import { ExecutionHistory, StandingFacts, currentInstruction, useStandingView, type StandingInstruction } from './ScheduleHistory';
+import { ExecutionHistory, StandingFacts, currentInstruction, type StandingInstruction } from './ScheduleHistory';
 import { standingCopy } from './standing-copy';
+import { useBankView } from './bank-context';
+import { OwnerCards } from './Cards';
 import { SelectedSpace } from './SelectedSpace';
 import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
@@ -281,7 +283,7 @@ function ScheduleActions({
   open: (spec: ActionSpec) => void;
   disabled?: boolean;
 }) {
-  const current = useStandingView();
+  const current = useBankView();
   const protectedOpen = (spec: ActionSpec) => {
     if (!disabled && current()) open(spec);
   };
@@ -334,7 +336,7 @@ function ScheduleActions({
 }
 function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
   const { Copy, t, languageFor, directionFor } = standingCopy.useCopy();
-  const current = useStandingView();
+  const current = useBankView();
   const [limit, setLimit] = usePageLimit();
   const [selected, setSelected] = useState<{ id: string; serial: number } | null>(null);
   const serial = useRef(0);
@@ -1199,210 +1201,10 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
   );
 }
 
-function CardAuthorizations({ id, asset }: { id: string; asset: string }) {
-  const [limit, setLimit] = usePageLimit();
-  const query = useBankRead('cards.authorizations', { cardId: id, limit });
-  return (
-    <Section title={copyText('rooms.card.decisions')} description={copyText('rooms.approvals.and.declines.remain.visible.including.the')}>
-      <ResourceView resource={query.resource} reload={query.reload}>
-        {(rows) => (
-          <>
-            {rows.length ? (
-              rows.map((row) => (
-                <article className="money-record" key={row.id}>
-                  <header>
-                    <div>
-                      <h3>
-                        {row.decision} · {row.status}
-                      </h3>
-                      <p>
-                        {date(row.decidedAt)} · {row.merchantCategory ?? copyText('rooms.category.not.supplied')}
-                      </p>
-                    </div>
-                    <strong className="numeric">{funds(row.amount, asset)}</strong>
-                  </header>
-                  {row.declineCode && (
-                    <p className="notice">
-                      <Text k="rooms.decline" />
-                      {row.declineCode}
-                    </p>
-                  )}
-                  <p className="money-reference">
-                    <Text k="rooms.authorization" />
-                    {row.authorizationRef}
-                  </p>
-                  {row.conversion && (
-                    <dl className="detail-list">
-                      <div>
-                        <dt>
-                          <Text k="rooms.merchant.charge" />
-                        </dt>
-                        <dd>{funds(row.conversion.settlementAmount, row.conversion.settlementAssetId)}</dd>
-                      </div>
-                      <div>
-                        <dt>
-                          <Text k="rooms.conversion.rate" />
-                        </dt>
-                        <dd>
-                          {row.conversion.rate} · {row.conversion.rateQuality}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>
-                          <Text k="rooms.rate.time" />
-                        </dt>
-                        <dd>{date(row.conversion.rateAsOf)}</dd>
-                      </div>
-                    </dl>
-                  )}
-                </article>
-              ))
-            ) : (
-              <NoRows title={copyText('rooms.no.card.decisions.returned')}>
-                <Text k="rooms.no.purchase.or.decline.is.invented.here" />
-              </NoRows>
-            )}
-            <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
-          </>
-        )}
-      </ResourceView>
-    </Section>
-  );
-}
 function Cards({ open }: { open: (spec: ActionSpec) => void }) {
-  const [limit, setLimit] = usePageLimit();
-  const programme = useBankRead('cards.programme', undefined);
-  const cards = useBankRead('cards.list', { limit });
-  const [selected, setSelected] = useState<{ id: string; asset: string } | null>(null);
-  const live = programme.resource.status === 'ready' && !programme.resource.data.simulated && programme.resource.data.id !== 'none';
   return (
     <BankPage room="Cards" description={copyText('rooms.issuer.connectivity.and.card.outcomes.are.separate')}>
-      <Section title={copyText('rooms.issuer.programme')}>
-        <ResourceView resource={programme.resource} reload={programme.reload}>
-          {(info) => (
-            <div className="money-capability">
-              <h3>{info.id === 'none' ? copyText('rooms.card.issuer.is.not.connected') : info.displayName}</h3>
-              <p>
-                {info.simulated
-                  ? copyText('rooms.simulation.programme.it.does.not.issue.a')
-                  : info.id === 'none'
-                    ? copyText('rooms.a.live.card.requires.a.connected.issuer')
-                    : copyText('rooms.issuer.programme.confirmed.by.the.service')}
-              </p>
-              <p>
-                <Text k="rooms.new.card.issuance.is.unavailable.until.live" />
-              </p>
-            </div>
-          )}
-        </ResourceView>
-      </Section>
-      <Section title={copyText('rooms.your.card.records')}>
-        <ResourceView resource={cards.resource} reload={cards.reload}>
-          {(rows) => (
-            <>
-              {rows.length ? (
-                rows.map((card) => (
-                  <article className="money-record" key={card.id}>
-                    <header>
-                      <div>
-                        <h3>
-                          {card.simulated ? copyText('rooms.simulation.record') : copyText('rooms.card')} · {card.panTail}
-                        </h3>
-                        <p>
-                          {card.status} · {card.issuer}
-                          {card.simulated && copyText('rooms.not.a.live.card')}
-                        </p>
-                      </div>
-                      <strong>{card.assetId}</strong>
-                    </header>
-                    <dl className="detail-list">
-                      <div>
-                        <dt>
-                          <Text k="rooms.funding.asset" />
-                        </dt>
-                        <dd>{card.assetId}</dd>
-                      </div>
-                      <div>
-                        <dt>
-                          <Text k="rooms.merchant.settlement.asset" />
-                        </dt>
-                        <dd>{card.settlementAssetId}</dd>
-                      </div>
-                      <div>
-                        <dt>
-                          <Text k="rooms.authorization.limit" />
-                        </dt>
-                        <dd>{funds(card.perAuthorizationLimit, card.assetId)}</dd>
-                      </div>
-                      <div>
-                        <dt>
-                          <Text k="rooms.configured.cashback" />
-                        </dt>
-                        <dd>{bps(card.cashbackBps)}</dd>
-                      </div>
-                    </dl>
-                    <div className="actions">
-                      <Button variant="secondary" onClick={() => setSelected({ id: card.id, asset: card.assetId })}>
-                        <Text k="rooms.decisions.and.declines" />
-                      </Button>
-                      {live && !card.simulated && card.status !== 'closed' && (
-                        <>
-                          <Button
-                            variant="secondary"
-                            onClick={() =>
-                              open({
-                                title: card.status === 'frozen' ? copyText('rooms.unfreeze.card') : copyText('rooms.freeze.card'),
-                                procedure: 'cards.setStatus',
-                                facts: [
-                                  [copyText('rooms.card'), card.panTail],
-                                  [copyText('rooms.funding.asset'), card.assetId],
-                                ],
-                                notes: [
-                                  card.status === 'frozen'
-                                    ? copyText('rooms.resume.issuer.use.of.this.existing.card')
-                                    : copyText('rooms.ask.the.issuer.to.freeze.this.existing'),
-                                ],
-                                input: () => ({ cardId: card.id, status: card.status === 'frozen' ? 'active' : 'frozen' }),
-                              })
-                            }
-                          >
-                            {card.status === 'frozen' ? copyText('rooms.unfreeze') : copyText('rooms.freeze')}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={() =>
-                              open({
-                                title: copyText('rooms.close.card'),
-                                procedure: 'cards.setStatus',
-                                facts: [[copyText('rooms.card'), card.panTail]],
-                                notes: [copyText('rooms.close.this.card.this.action.does.not')],
-                                input: () => ({ cardId: card.id, status: 'closed' }),
-                              })
-                            }
-                          >
-                            <Text k="rooms.close.card" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                    {(!live || card.simulated) && (
-                      <p className="money-caption">
-                        <Text k="rooms.issuer.actions.remain.unavailable.for.this.record" />
-                      </p>
-                    )}
-                  </article>
-                ))
-              ) : (
-                <NoRows title={copyText('rooms.no.card.records.returned')}>
-                  <Text k="rooms.an.empty.list.does.not.establish.issuer" />
-                </NoRows>
-              )}
-              <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
-            </>
-          )}
-        </ResourceView>
-      </Section>
-      {selected && <CardAuthorizations id={selected.id} asset={selected.asset} />}
+      <OwnerCards open={open} />
     </BankPage>
   );
 }

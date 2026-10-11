@@ -1,56 +1,16 @@
-import { useLayoutEffect, useMemo, useRef } from 'react';
 import { z } from 'zod';
 import { Button } from '../../shared/ui';
-import { usePreferences } from '../../shared/preferences';
-import { useSession } from '../session/session';
 import { funds, ResourceView, Section, useBankRead, usePageLimit } from './components';
 import type { scheduleSchema } from './contracts';
 import { standingCopy } from './standing-copy';
-import { Text } from './copy';
+import { ReportedTime, currentOwnerRecord, useBankView } from './bank-context';
 
 export type StandingInstruction = z.infer<typeof scheduleSchema>;
 
-/** An instruction must be unique in the current owner response, including
- * alternate UUID casing. This does not replace the producer ownership check. */
-export function currentInstruction(rows: readonly StandingInstruction[], id: string) {
-  if (!z.string().uuid().safeParse(id).success) return undefined;
-  const matches = rows.filter((row) => row.id.toLowerCase() === id.toLowerCase());
-  return matches.length === 1 ? matches[0] : undefined;
-}
-
-/** Scoped read/navigation callbacks retire with their rendered view. Bank's
- * existing synchronous full-URL observer also retires a batched departure. */
-export function useStandingView() {
-  const { api, userId } = useSession();
-  const mounted = useRef(false);
-  const view = { api, userId, href: location.href };
-  const latest = useRef(view);
-  latest.current = view;
-  useLayoutEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-  return () => mounted.current && latest.current === view && location.href === view.href && !!userId && api.canWrite();
-}
+export const currentInstruction = currentOwnerRecord<StandingInstruction>;
 
 export function StandingFacts({ instruction }: { instruction: StandingInstruction }) {
   const { Copy } = standingCopy.useCopy();
-  const { language, timeZone } = usePreferences();
-  const formatter = useMemo(
-    () =>
-      new Intl.DateTimeFormat(language, {
-        ...(timeZone === 'device' ? {} : { timeZone: timeZone === 'UTC+8' ? 'Etc/GMT-8' : 'UTC' }),
-        year: 'numeric',
-        month: 'numeric',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        second: '2-digit',
-      }),
-    [language, timeZone],
-  );
   return (
     <dl className="money-standing-facts">
       <div>
@@ -74,13 +34,7 @@ export function StandingFacts({ instruction }: { instruction: StandingInstructio
           <Copy k="nextRun" />
         </dt>
         <dd>
-          {Number.isFinite(Date.parse(instruction.nextRunAt)) ? (
-            <time dateTime={instruction.nextRunAt} lang={formatter.resolvedOptions().locale} dir="auto">
-              {formatter.format(new Date(instruction.nextRunAt))}
-            </time>
-          ) : (
-            <Text k="components.date.unavailable" />
-          )}
+          <ReportedTime value={instruction.nextRunAt} />
         </dd>
       </div>
     </dl>
@@ -122,7 +76,7 @@ export function ExecutionHistory({ id, asset, refreshInstructions }: { id: strin
 
 function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: string; refreshInstructions?: () => void }) {
   const { Copy, t, languageFor, directionFor } = standingCopy.useCopy();
-  const current = useStandingView();
+  const current = useBankView();
   const [limit, setLimit] = usePageLimit();
   const query = useBankRead('transfers.executions', { scheduleId: id, limit });
   const retry = () => {
