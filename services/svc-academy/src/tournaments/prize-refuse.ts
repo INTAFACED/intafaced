@@ -200,19 +200,45 @@ export function prizePoolUnsetResidualIsHonest(residual: string): boolean {
 }
 
 /**
+ * Prize-shaped keys on a freeze / end payload. `amount` and `ifcAmount` match
+ * the amount keys `isPrizePoolUnset` already treats as a pool. Decimal strings
+ * stay on the caller; this list never parses or stores them.
+ */
+const PRIZE_ATTACHMENT_KEYS = [
+  'prize',
+  'prizePool',
+  'prizeAmount',
+  'ifcPrize',
+  'payout',
+  'escrowAmount',
+  'poolBalance',
+  'amount',
+  'ifcAmount',
+] as const;
+
+function rejectPrizeAttachmentKeys(record: Record<string, unknown>): void {
+  for (const key of PRIZE_ATTACHMENT_KEYS) {
+    if (key in record && record[key] != null) {
+      throw new TournamentError(MESSAGE, 'academy.season_invalid');
+    }
+  }
+}
+
+/**
  * Hard assert for lifecycle edges (freeze / end). Throws if a caller tries to
  * attach prize amounts — never silently drop money fields.
  * Start-with-blank is `assertMayStartPrizeSeason` / `decidePrizePoolStart`
  * (typed `academy.prize_pool_unset`) — do not collapse those into season_invalid.
+ * Nested `standings` rows are the same gate: a prize on a rank row is an attachment.
  */
 export function assertNoPrizeAttachment(payload: unknown): void {
   if (payload == null || typeof payload !== 'object') return;
   const o = payload as Record<string, unknown>;
-  const banned = ['prize', 'prizePool', 'prizeAmount', 'ifcPrize', 'payout', 'escrowAmount', 'poolBalance'] as const;
-  for (const key of banned) {
-    if (key in o && o[key] != null) {
-      throw new TournamentError(MESSAGE, 'academy.season_invalid');
-    }
+  rejectPrizeAttachmentKeys(o);
+  if (!Array.isArray(o.standings)) return;
+  for (const row of o.standings) {
+    if (row == null || typeof row !== 'object') continue;
+    rejectPrizeAttachmentKeys(row as Record<string, unknown>);
   }
 }
 
