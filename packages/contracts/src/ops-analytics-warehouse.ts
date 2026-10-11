@@ -91,12 +91,32 @@ export type AnalyticsReplicaEndpoint = z.infer<typeof analyticsReplicaEndpointSc
 export type ReplicaRoleCheck = { readonly ok: true; readonly username: string } | { readonly ok: false; readonly reason: string };
 
 /**
- * Extract the username from a postgres URL. Invalid URL → empty string.
+ * Extract the username postgres.js will connect as. Invalid URL → empty string.
+ *
+ * `parseUrl` decodes the host, then `url.replace(decodedHost, decodedHost.split(',')[0])`
+ * before `decodeURIComponent` of the username. The first match can sit in the
+ * userinfo, so `postgres://post,XXgres_ro:pw@post,XX/db` connects as `postgres_ro`.
+ * WHATWG `URL.username` stays percent-encoded; postgres.js runs
+ * `decodeURIComponent` on it before auth. Query keys that are not driver
+ * defaults are copied into `options.connection`, and `StartupMessage`
+ * Object.assigns them over the URL user (SCRAM sends `n=*`). Last `user`
+ * wins, matching that reduce.
  */
 export function analyticsReplicaUsername(url: string): string {
   try {
-    const normalized = url.replace(/^postgres(ql)?:\/\//i, 'http://');
-    return new URL(normalized).username || '';
+    let host = url;
+    host = host.slice(host.indexOf('://') + 3).split(/[?/]/)[0] ?? '';
+    host = decodeURIComponent(host.slice(host.indexOf('@') + 1));
+    const rewritten = url.replace(host, host.split(',')[0] ?? '');
+    const normalized = rewritten.replace(/^postgres(ql)?:\/\//i, 'http://');
+    const parsed = new URL(normalized);
+    let username = decodeURIComponent(parsed.username || '');
+    let queryUser: string | undefined;
+    for (const [key, value] of parsed.searchParams) {
+      if (key === 'user') queryUser = value;
+    }
+    if (queryUser !== undefined) username = queryUser;
+    return username;
   } catch {
     return '';
   }
