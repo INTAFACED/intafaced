@@ -81,6 +81,7 @@ export function createIdentityApprovalClient(baseUrl: string, internalSecret: st
           ...serviceAuthHeadersForBody('svc-pay', internalSecret, payload),
         },
         body: payload,
+        signal: AbortSignal.timeout(2_000),
       });
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
@@ -122,5 +123,6 @@ export async function consumePayApproval(
     targetId: actionType,
     expectedVersion: '1',
   });
-  return consumed.approverId ?? consumed.requesterId;
+  if (consumed.status === 'CONSUMED' && consumed.approverId?.trim()) return consumed.approverId;
+  throw new ActionApprovalConsumeError('Identity did not return a consumed approval with an approver', 'action_approval.consume_failed');
 }

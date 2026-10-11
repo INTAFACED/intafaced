@@ -68,13 +68,18 @@ export type MerchantWatchMetricsRouteDeps = {
   readonly installRawBody?: boolean;
 };
 
+/** Digits with an optional fraction. Same shape as a non-negative decimal string. */
+const NON_NEGATIVE_DECIMAL = /^\d+(\.\d+)?$/;
+
 function parsePublishBody(raw: unknown): MerchantWatchMetricsOk['points'][number] | null {
   if (raw === null || typeof raw !== 'object') return null;
   const body = raw as Record<string, unknown>;
   if (typeof body.railId !== 'string' || !body.railId.trim()) return null;
   if (body.approvalRate !== null && typeof body.approvalRate !== 'string') return null;
+  if (typeof body.approvalRate === 'string' && !NON_NEGATIVE_DECIMAL.test(body.approvalRate)) return null;
   if (body.attempts !== null && typeof body.attempts !== 'number') return null;
-  if (typeof body.asOf !== 'string' || !body.asOf.trim()) return null;
+  if (typeof body.attempts === 'number' && (!Number.isInteger(body.attempts) || body.attempts < 0)) return null;
+  if (typeof body.asOf !== 'string' || !Number.isFinite(Date.parse(body.asOf))) return null;
   if (typeof body.maxAgeMs !== 'number' || !Number.isFinite(body.maxAgeMs) || body.maxAgeMs < 0) return null;
   return {
     railId: body.railId.trim(),

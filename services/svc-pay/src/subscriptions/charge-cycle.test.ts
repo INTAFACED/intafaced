@@ -317,6 +317,33 @@ describe('never charge more than the mandate authorises', () => {
   it('an open-ended mandate has no time ceiling', () => {
     expect(() => assertWithinMandateWindow({ startsAt: utc(2026, 1, 1), endsAt: null }, utc(2099, 1, 1))).not.toThrow();
   });
+
+  /**
+   * `Invalid Date#getTime()` is NaN, and every NaN comparison is false. A blank
+   * bound used to skip both guards and count as inside the consent window.
+   */
+  it('refuses an Invalid Date bound — NaN is not inside the window', () => {
+    const startsAt = utc(2026, 1, 1);
+    const endsAt = utc(2026, 7, 1);
+    const at = utc(2026, 3, 1);
+    const invalid = new Date(NaN);
+
+    for (const call of [
+      () => assertWithinMandateWindow({ startsAt: invalid, endsAt }, at),
+      () => assertWithinMandateWindow({ startsAt, endsAt: invalid }, at),
+      () => assertWithinMandateWindow({ startsAt, endsAt }, invalid),
+    ]) {
+      try {
+        call();
+        throw new Error('should have refused');
+      } catch (err) {
+        expect(err).toBeInstanceOf(PayError);
+        expect((err as PayError).code).toBe('pay.subscription_exceeds_mandate');
+      }
+    }
+    expect(() => assertWithinMandateWindow({ startsAt, endsAt }, at)).not.toThrow();
+    expect(() => assertWithinMandateWindow({ startsAt, endsAt: null }, at)).not.toThrow();
+  });
 });
 
 // ── 5. EVERY RATE IS OWNER-ONLY ─────────────────────────────────────────────

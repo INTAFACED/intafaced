@@ -9,6 +9,8 @@ import {
   unwiredApprovalConsumer,
 } from './action-approval-consume.js';
 import { KybError, KYB_STATUSES, type KybService } from './kyb-service.js';
+import { assertMerchantOwnership, type MerchantOwnerLookup } from './merchant-ownership.js';
+import { PayError } from './payment-service.js';
 import { PspModeError, type PspModeService } from './psp-mode.js';
 
 /**
@@ -68,6 +70,10 @@ function toTrpcError(err: unknown): unknown {
   if (err instanceof DualControlError || err instanceof ActionApprovalConsumeError) {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
+  if (err instanceof PayError) {
+    const code = err.code === 'pay.merchant_not_found' ? 'NOT_FOUND' : err.code === 'pay.merchant_forbidden' ? 'FORBIDDEN' : 'BAD_REQUEST';
+    return new TRPCError({ code, message: `${err.code}: ${err.message}`, cause: err });
+  }
   if (err instanceof KybError || err instanceof PspModeError) {
     if (err.code === 'pay.merchant_not_found') {
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
@@ -80,7 +86,16 @@ function toTrpcError(err: unknown): unknown {
   return err;
 }
 
-export function createKybPspRouter(kyb: KybService, psp: PspModeService, approvals: ActionApprovalConsumer = unwiredApprovalConsumer()) {
+export function createKybPspRouter(
+  kyb: KybService,
+  psp: PspModeService,
+  approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
+  merchants: MerchantOwnerLookup = {
+    async getMerchant() {
+      throw new PayError('Merchant ownership lookup is unavailable', 'pay.merchant_forbidden');
+    },
+  },
+) {
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
       return await fn();
@@ -94,6 +109,9 @@ export function createKybPspRouter(kyb: KybService, psp: PspModeService, approva
       /**
        * Merchant submits a dossier reference. Durable — writes history.
        * Does not invent a partner decision.
+       *
+       * The body names the merchant. The caller must own that row
+       * (`pay.merchant_forbidden`). The stored actor is still the caller.
        */
       submit: scopedProcedure('pay:write', { module: 'pay' })
         .input(
@@ -113,6 +131,7 @@ export function createKybPspRouter(kyb: KybService, psp: PspModeService, approva
         )
         .mutation(({ ctx, input }) =>
           wrap(async () => {
+            await assertMerchantOwnership(merchants, ctx.principal.userId, input.merchantId);
             const result = await kyb.submit({
               merchantId: input.merchantId,
               kybRef: input.kybRef,

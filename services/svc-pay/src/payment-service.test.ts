@@ -1,3 +1,4 @@
+import { truncatePayForTest } from './payment-events-test-reset.js';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -151,7 +152,11 @@ describe('svc-pay money PG-hard', () => {
   }, 120_000);
 
   beforeEach(async () => {
-    await sql`TRUNCATE pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants RESTART IDENTITY CASCADE`;
+    await truncatePayForTest(
+      sql,
+      'pay',
+      `TRUNCATE pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants RESTART IDENTITY CASCADE`,
+    );
     ledger = new MemoryLedger();
     chain = new MemoryChain();
     card = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });

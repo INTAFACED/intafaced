@@ -1,3 +1,4 @@
+import { truncatePayForTest } from './payment-events-test-reset.js';
 import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -36,7 +37,7 @@ describe('PayFac original credential admission real PostgreSQL', () => {
     await db.drop();
   });
   beforeEach(async () => {
-    await db.sql`TRUNCATE pay.merchants CASCADE`;
+    await truncatePayForTest(db.sql, 'pay', `TRUNCATE pay.merchants CASCADE`);
     trees = new SubMerchantService(db.sql);
     ledger = new MemoryLedger();
   });

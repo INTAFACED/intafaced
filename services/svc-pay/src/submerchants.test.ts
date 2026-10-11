@@ -1,3 +1,4 @@
+import { truncatePayForTest } from './payment-events-test-reset.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -120,7 +121,7 @@ describe('svc-pay sub-merchant trees PG-hard', () => {
 
   beforeEach(async () => {
     if (!db || !sql) throw new Error('H8a: svc-pay submerchants PG was not opened');
-    await sql`TRUNCATE pay.merchant_permission_events, pay.merchants RESTART IDENTITY CASCADE`;
+    await truncatePayForTest(sql, 'pay', `TRUNCATE pay.merchant_permission_events, pay.merchants RESTART IDENTITY CASCADE`);
     trees = new SubMerchantService(sql);
     seq = 0;
   });
@@ -361,7 +362,12 @@ describe('svc-pay sub-merchant trees PG-hard', () => {
       // insert, to a node that already exists. It can still arrive from a
       // restore or a hand-run UPDATE, and an authorization check that hangs on
       // one is an authorization check that gets bypassed.
-      await sql`UPDATE pay.merchants SET parent_merchant_id = ${sub.id} WHERE id = ${platform.merchantId}`;
+      // Deliberate legacy-corruption fixture inside this suite's unique DB.
+      await sql.begin(async (tx) => {
+        await tx`ALTER TABLE pay.merchants DISABLE TRIGGER merchants_parent_no_cycle_trg`;
+        await tx`UPDATE pay.merchants SET parent_merchant_id = ${sub.id} WHERE id = ${platform.merchantId}`;
+        await tx`ALTER TABLE pay.merchants ENABLE TRIGGER merchants_parent_no_cycle_trg`;
+      });
 
       const err = await rejection(trees.getSubMerchant(platform.merchantId, sub.id), SubMerchantError);
       expect(err.code).toBe('pay.submerchant_cycle');
@@ -371,7 +377,7 @@ describe('svc-pay sub-merchant trees PG-hard', () => {
       const platform = await root();
       await expect(
         sql`UPDATE pay.merchants SET parent_merchant_id = ${platform.merchantId} WHERE id = ${platform.merchantId}`,
-      ).rejects.toThrow(/merchants_parent_not_self/);
+      ).rejects.toThrow(/merchants_parent_(not_self|no_cycle)/);
     });
   });
 
