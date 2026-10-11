@@ -4,11 +4,10 @@
       Your previous draft access expired. You can start a new enquiry.
     </p>
     <section v-if="screen === 'welcome'" class="outreach-welcome" aria-labelledby="welcome-title">
-      <div class="outreach-sculpture" aria-hidden="true">
-        <div class="sculpture-ring ring-a"></div>
-        <div class="sculpture-ring ring-b"></div>
-        <div class="sculpture-ring ring-c"></div>
-      </div>
+      <picture class="outreach-hero-art" aria-hidden="true">
+        <source media="(max-width: 680px)" :srcset="heroPhone" width="840" height="504" />
+        <img :src="heroDesktop" alt="" width="1672" height="941" decoding="async" fetchpriority="high" />
+      </picture>
       <div class="welcome-content">
         <p class="outreach-eyebrow">
           <span class="status-dot"></span> {{ investorEntry ? 'INTAFACED · INVESTOR ENQUIRY' : 'INTAFACED · PRELAUNCH' }}
@@ -38,15 +37,13 @@
           Explore another interest <span aria-hidden="true">→</span>
         </button>
       </div>
-      <div class="welcome-footer">
-        <span>YOUR NEXT CHAPTER, CONNECTED.</span><span>{{ investorEntry ? 'INVESTOR ENQUIRIES' : 'OPEN CONVERSATIONS' }}</span>
-      </div>
     </section>
 
     <section v-else class="outreach-workspace" :aria-busy="busy ? 'true' : 'false'" aria-labelledby="intake-heading">
       <aside class="outreach-rail">
         <p class="outreach-eyebrow">YOUR CONVERSATION</p>
         <h2>{{ investorEntry ? 'Build with us.' : 'Find your way in.' }}</h2>
+        <div class="conversation-art" aria-hidden="true"><img :src="heroPhone" alt="" width="840" height="504" /></div>
         <p>Share a little about yourself.<br />We will take it from there.</p>
         <ol class="journey-steps" aria-label="Enquiry progress">
           <li :class="{ active: !draft, done: !!draft }"><span>01</span> Your details <small v-if="draft">Saved</small></li>
@@ -146,18 +143,21 @@
             ></label
           >
           <p class="outreach-small consent-help">Optional marketing permission is separate from replies about this enquiry.</p>
-          <label class="outreach-consent"
-            ><input v-model="remember" type="checkbox" :disabled="busy || !persistentAvailable" /><span
-              >Remember my draft on this device.</span
-            ></label
-          >
-          <p class="outreach-small consent-help">
-            {{
-              persistentAvailable
-                ? 'An encrypted draft lets you close this tab and return on this device. Leave this off on a shared device.'
-                : 'Device recovery is unavailable in this browser. Keep this tab open to finish.'
-            }}
-          </p>
+          <details class="recovery-options">
+            <summary>Draft recovery <span>Optional</span></summary>
+            <label class="outreach-consent"
+              ><input v-model="remember" type="checkbox" :disabled="busy || !persistentAvailable" /><span
+                >Remember my draft on this device.</span
+              ></label
+            >
+            <p class="outreach-small consent-help">
+              {{
+                persistentAvailable
+                  ? 'An encrypted draft lets you close this tab and return on this device. Leave this off on a shared device.'
+                  : 'Device recovery is unavailable in this browser. Keep this tab open to finish.'
+              }}
+            </p>
+          </details>
           <div class="outreach-actions">
             <button type="button" class="outreach-text-button" @click="screen = 'welcome'">← Back</button
             ><button type="submit" class="outreach-primary" :disabled="busy || !storageReady">
@@ -172,8 +172,7 @@
 
         <template v-else>
           <div class="selected-interest-summary saved-summary">
-            <span><span class="saved-dot" aria-hidden="true">✓</span> {{ savedStageMessage }}</span
-            ><button type="button" class="outreach-text-button" :disabled="busy" @click="openAddInterests">Add an interest</button>
+            <span><span class="saved-dot" aria-hidden="true">✓</span> {{ savedStageMessage }}</span>
           </div>
           <details class="saved-contact-details">
             <summary>View your saved details</summary>
@@ -201,6 +200,7 @@
                 >For a correction, <a :href="publicInfo.contactUrl">contact the INTAFACED team</a>.</template
               ><template v-else>You can request a correction when the team follows up.</template>
             </p>
+            <button type="button" class="outreach-text-button" :disabled="busy" @click="openAddInterests">Add an interest</button>
           </details>
           <form v-if="interestsOpen" class="interest-extension" @submit.prevent="saveInterests">
             <fieldset :disabled="busy">
@@ -241,9 +241,7 @@
               </button>
             </nav>
             <form v-if="group < 2" :key="currentAudience + ':' + group" ref="questionForm" @submit.prevent="advance">
-              <p class="section-description">
-                {{ group === 0 ? audienceDescription : 'A little context helps us make the next conversation useful.' }}
-              </p>
+              <p v-if="group > 0" class="section-description">A little context helps us make the next conversation useful.</p>
               <div class="outreach-questions">
                 <template v-for="f in visibleFields">
                   <fieldset v-if="f.type === 'checks' || (f.type === 'select' && f.options.length <= 3)" :key="f.key" :disabled="busy">
@@ -406,19 +404,22 @@
                 </button>
               </div>
             </div>
-            <p class="outreach-small draft-status" role="status">
-              {{
-                !state.storageAvailable
-                  ? 'Draft in this page'
-                  : !state.draftStored
-                    ? 'Saving draft…'
-                    : remember
-                      ? 'Draft kept on this device'
-                      : 'Draft kept in this tab'
-              }}
-              · {{ savedCount }} of {{ draft.contact.interests.length }} questionnaires submitted.
-              <button type="button" class="outreach-inline-link" :disabled="busy" @click="reopen">Check saved progress</button>
-            </p>
+            <details class="recovery-options draft-recovery">
+              <summary>Draft and recovery</summary>
+              <p class="outreach-small draft-status" role="status">
+                {{
+                  !state.storageAvailable
+                    ? 'Draft in this page'
+                    : !state.draftStored
+                      ? 'Saving draft…'
+                      : remember
+                        ? 'Draft kept on this device'
+                        : 'Draft kept in this tab'
+                }}
+                · {{ savedCount }} of {{ draft.contact.interests.length }} questionnaires submitted.
+                <button type="button" class="outreach-inline-link" :disabled="busy" @click="reopen">Check saved progress</button>
+              </p>
+            </details>
           </template>
           <div v-else-if="complete" class="outreach-complete">
             <div class="completion-mark" aria-hidden="true">✓</div>
@@ -513,6 +514,8 @@ export default {
       busy: false,
       error: '',
       errorCode: '',
+      heroDesktop: require('../../assets/images/outreach/graphite-fins-desktop.webp'),
+      heroPhone: require('../../assets/images/outreach/graphite-fins-phone.webp'),
       audiences: AUDIENCES,
       countries: countries,
       currencies: currencyOptions(),
@@ -939,9 +942,9 @@ export default {
 }
 .outreach-page {
   --o-bg: #090a0b;
-  --o-surface: #111413;
-  --o-raised: #181d1a;
-  --o-border: #2a332d;
+  --o-surface: #111416;
+  --o-raised: #191c1e;
+  --o-border: #2c3335;
   --o-text: #f2f5ef;
   --o-muted: #a3ada5;
   --o-accent: #b9f65a;
@@ -965,22 +968,44 @@ export default {
   font: inherit;
 }
 .outreach-welcome {
-  min-height: calc(100svh - 160px);
-  max-width: 1280px;
+  min-height: min(900px, 100svh);
+  max-width: 1440px;
   position: relative;
-  margin: auto;
+  margin: -94px auto 0;
   overflow: hidden;
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 80px 24px 110px;
+  justify-content: flex-start;
+  padding: 150px 7.2% 105px;
+  isolation: isolate;
 }
 .welcome-content {
   position: relative;
   z-index: 1;
-  text-align: center;
-  max-width: 680px;
-  animation: welcome-arrive 0.28s ease-out both;
+  text-align: left;
+  max-width: 550px;
+  animation: welcome-arrive 0.35s ease-out both;
+}
+.outreach-hero-art {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+.outreach-hero-art img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: center;
+}
+.outreach-welcome::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(9, 10, 11, 0.18), transparent 72%), linear-gradient(0deg, #090a0b, transparent 18%);
 }
 .outreach-eyebrow {
   color: var(--o-muted);
@@ -1000,7 +1025,7 @@ export default {
 }
 .welcome-content h1 {
   color: var(--o-text);
-  font-size: clamp(48px, 6.2vw, 86px);
+  font-size: clamp(54px, 5.2vw, 74px);
   font-weight: 600;
   letter-spacing: -0.06em;
   line-height: 1.04;
@@ -1011,72 +1036,70 @@ export default {
   color: var(--o-text);
 }
 .welcome-description {
-  font-size: 16px;
-  line-height: 1.7;
-  color: #c4ccc2;
-  max-width: 53ch;
-  margin: 0 auto 30px;
+  font-size: 15px;
+  line-height: 1.8;
+  color: #bec6c4;
+  max-width: 43ch;
+  margin: 0 0 28px;
   text-wrap: balance;
 }
-.outreach-sculpture {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.66;
-  overflow: hidden;
-  mask-image: linear-gradient(to bottom, transparent, #000 10%, #000 82%, transparent);
-}
-.sculpture-ring {
-  position: absolute;
-  width: 630px;
-  height: 330px;
-  border: 50px solid #212921;
-  border-radius: 50%;
-  transform: rotate(-32deg);
-  box-shadow:
-    inset 5px 12px 15px #e6ffaf,
-    inset -20px -12px 35px #030604,
-    2px -4px 12px #afdb6b,
-    0 18px 32px #000,
-    0 -8px 25px #6e893b;
-  background: transparent;
-}
-.ring-a {
-  top: -220px;
-  right: -155px;
-  opacity: 0.8;
-  transform: rotate(-35deg) scale(1.2);
-}
-.ring-b {
-  bottom: -270px;
-  left: -160px;
-  transform: rotate(-35deg) scale(1.6);
-  opacity: 0.55;
-}
-.ring-c {
-  top: 28%;
-  right: -340px;
-  transform: rotate(-35deg) scale(0.8);
-  opacity: 0.35;
-}
-.welcome-footer {
-  position: absolute;
-  bottom: 35px;
-  left: 32px;
-  right: 32px;
-  display: flex;
-  justify-content: space-between;
-  color: #859080;
-  font-size: 9px;
-  letter-spacing: 0.16em;
-}
 .outreach-workspace {
-  max-width: 1160px;
+  max-width: 1120px;
   margin: auto;
   display: grid;
-  grid-template-columns: 285px minmax(0, 1fr);
-  gap: 90px;
-  padding: 64px 32px 88px;
+  grid-template-columns: 230px minmax(0, 1fr);
+  gap: 88px;
+  padding: 48px 32px 72px;
+}
+.conversation-art {
+  height: 116px;
+  overflow: hidden;
+  border-radius: 10px;
+  margin: 24px 0;
+  opacity: 0.85;
+  border: 1px solid var(--o-border);
+}
+.conversation-art img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+.recovery-options {
+  margin: 18px 0;
+  border: 1px solid var(--o-border);
+  border-radius: 9px;
+  padding: 0 14px;
+}
+.recovery-options summary {
+  cursor: pointer;
+  min-height: 44px;
+  display: list-item;
+  align-content: center;
+  color: var(--o-muted);
+  font-size: 11px;
+}
+.recovery-options summary span {
+  margin-left: 8px;
+  opacity: 0.7;
+}
+.recovery-options summary:focus-visible {
+  outline: 2px solid var(--o-accent);
+  outline-offset: 4px;
+}
+.recovery-options[open] {
+  padding-bottom: 8px;
+}
+.recovery-options .outreach-consent {
+  margin-top: 6px;
+}
+.recovery-options .consent-help {
+  margin-bottom: 12px;
+}
+.draft-recovery {
+  margin-top: 24px;
+  border: 0;
+  padding: 0;
 }
 .outreach-rail h2 {
   font-size: 31px;
@@ -1141,9 +1164,9 @@ export default {
 }
 .section-description {
   color: var(--o-muted);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.8;
-  margin-bottom: 28px;
+  margin-bottom: 20px;
   max-width: 58ch;
 }
 .outreach-small {
@@ -1162,7 +1185,7 @@ export default {
   margin: 0 0 24px;
 }
 .outreach-page legend {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--o-text);
   margin-bottom: 12px;
@@ -1185,7 +1208,7 @@ export default {
 .outreach-questions > label,
 .outreach-amount label {
   display: block;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--o-text);
   line-height: 1.7;
@@ -1203,7 +1226,7 @@ export default {
   border: 1px solid var(--o-control-border) !important;
   border-radius: 7px;
   color: var(--o-text) !important;
-  font-size: 13px;
+  font-size: 14px;
   transition:
     border-color 0.15s,
     background 0.15s;
@@ -1252,8 +1275,9 @@ export default {
   min-width: 0;
 }
 .saved-summary {
-  margin: 24px 0;
-  font-size: 11px;
+  margin: 16px 0 10px;
+  padding-block: 10px;
+  font-size: 14px;
   color: var(--o-muted);
 }
 .saved-dot {
@@ -1292,8 +1316,8 @@ export default {
 }
 .outreach-interest.selected,
 .question-choice.selected {
-  border-color: #789a45;
-  background: #172010;
+  border-color: #94bd56;
+  background: #1a2116;
 }
 .choice-mark {
   color: var(--o-accent);
@@ -1388,7 +1412,7 @@ export default {
 .question-segments {
   display: flex;
   gap: 8px;
-  margin: 28px 0 32px;
+  margin: 16px 0 18px;
 }
 .question-segments button {
   display: flex;
@@ -1401,7 +1425,7 @@ export default {
   padding: 11px 0;
   color: var(--o-muted);
   text-align: left;
-  font-size: 10px !important;
+  font-size: 12px !important;
   min-height: 44px;
   cursor: pointer;
 }
@@ -1421,7 +1445,7 @@ export default {
 }
 .outreach-questions {
   display: grid;
-  gap: 25px;
+  gap: 20px;
   animation: question-arrive 0.18s ease-out;
 }
 .outreach-questions fieldset {
@@ -1437,12 +1461,12 @@ export default {
   align-items: center;
   gap: 9px;
   flex: 1 1 130px;
-  min-height: 52px;
+  min-height: 60px;
   padding: 12px 14px;
   border: 1px solid var(--o-control-border);
-  border-radius: 7px;
+  border-radius: 9px;
   background: var(--o-surface);
-  font-size: 11px;
+  font-size: 14px;
   line-height: 1.6;
   cursor: pointer;
 }
@@ -1497,7 +1521,7 @@ export default {
   margin-top: 12px;
 }
 .outreach-complete {
-  padding: 25px 0;
+  padding: 12px 0;
 }
 .completion-mark {
   display: flex;
@@ -1522,7 +1546,7 @@ export default {
 }
 .outreach-complete p {
   max-width: 48ch;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.8;
   color: var(--o-muted);
 }
@@ -1557,7 +1581,7 @@ export default {
 }
 .outreach-privacy p {
   color: var(--o-muted);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.9;
 }
 .outreach-privacy a {
@@ -1573,12 +1597,12 @@ export default {
 }
 .saved-contact-details {
   color: var(--o-muted);
-  margin: -10px 0 22px;
-  font-size: 11px;
+  margin: 0 0 10px;
+  font-size: 14px;
 }
 .saved-contact-details summary {
   cursor: pointer;
-  min-height: 44px;
+  min-height: 32px;
   display: flex;
   align-items: center;
 }
@@ -1651,43 +1675,66 @@ export default {
 }
 @media (max-width: 680px) {
   .outreach-welcome {
-    min-height: calc(100svh - 120px);
-    padding: 80px 24px 120px;
-    align-items: center;
+    min-height: 0;
+    padding: 0 22px 68px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .outreach-hero-art {
+    position: relative;
+    inset: auto;
+    width: calc(100% + 44px);
+    margin: -14px -22px -22px;
+    aspect-ratio: 5 / 3;
+  }
+  .outreach-hero-art img {
+    object-fit: contain;
+  }
+  .outreach-hero-art::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(0deg, #090a0b, transparent 42%), linear-gradient(180deg, #090a0b, transparent 14%);
+  }
+  .outreach-welcome::after {
+    display: none;
+  }
+  .welcome-content {
+    max-width: none;
+    padding: 0;
   }
   .welcome-content h1 {
-    font-size: 58px;
+    font-size: clamp(43px, 11.8vw, 54px);
+    line-height: 1.07;
+    letter-spacing: -0.055em;
+    margin-bottom: 20px;
+  }
+  .welcome-content .outreach-eyebrow {
+    font-size: 9px;
+    margin-bottom: 16px;
   }
   .welcome-description {
-    font-size: 13px;
-    max-width: 34ch;
-    line-height: 1.9;
+    font-size: 14px;
+    max-width: 43ch;
+    line-height: 1.8;
+    margin-bottom: 24px;
+    text-wrap: pretty;
   }
-  .ring-a {
-    width: 450px;
-    right: -290px;
-    top: -170px;
-  }
-  .ring-b {
-    left: -270px;
-    bottom: -310px;
-    opacity: 0.55;
-  }
-  .ring-c {
-    display: none;
-  }
-  .welcome-footer {
-    left: 24px;
-    right: 24px;
-    bottom: 30px;
-    font-size: 8px;
-  }
-  .welcome-footer span:last-child {
-    display: none;
+  .welcome-cta {
+    min-width: 180px;
   }
   .outreach-workspace {
     display: block;
-    padding: 28px 22px 60px;
+    padding: 30px 22px 60px;
+  }
+  .outreach-rail {
+    display: none;
+  }
+  .question-choice {
+    flex-basis: 100%;
+    min-height: 58px;
   }
   .outreach-rail > h2,
   .outreach-rail > p,
@@ -1725,13 +1772,13 @@ export default {
     font-size: 30px;
   }
   .selected-interest-summary {
-    font-size: 11px;
+    font-size: 14px;
   }
   .outreach-primary {
     padding: 13px 16px;
   }
   .question-choice {
-    flex-basis: 120px;
+    flex-basis: 100%;
   }
   .outreach-page input:not([type='checkbox']):not([type='radio']),
   .outreach-page select,
@@ -1739,8 +1786,12 @@ export default {
     font-size: 16px;
   }
   .outreach-actions {
-    position: relative;
-    padding-top: 20px;
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    background: var(--o-bg);
+    padding: 14px 0 max(14px, env(safe-area-inset-bottom));
+    box-shadow: 0 -14px 20px var(--o-bg);
   }
   .outreach-page {
     scroll-padding-bottom: 20px;

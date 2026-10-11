@@ -38,7 +38,7 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const origin = `http://127.0.0.1:${server.address().port}`;
 
 let browser;
-const proof = '/tmp/intafaced-outreach-lime-proof';
+const proof = '/tmp/intafaced-outreach-quality-journey-proof';
 await (await import('node:fs/promises')).mkdir(proof, { recursive: true });
 async function fixtures(context, options = {}) {
   let draft,
@@ -117,8 +117,16 @@ async function fillContact(page, remember = false) {
   await page.getByLabel('Email', { exact: false }).fill('proof@example.com');
   await page.getByLabel('Organisation', { exact: false }).fill('Local proof');
   await page.getByLabel('Country', { exact: false }).selectOption('ID');
-  if (remember) await page.getByRole('checkbox', { name: 'Remember my draft on this device.' }).check();
+  if (remember) {
+    await page.locator('.recovery-options summary').click();
+    await page.getByRole('checkbox', { name: 'Remember my draft on this device.' }).check();
+    await page.locator('.recovery-options summary').click();
+  }
   await page.getByRole('button', { name: 'Save details & continue' }).click();
+}
+async function showDraftStatus(page) {
+  const details = page.locator('.draft-recovery');
+  if ((await details.getAttribute('open')) === null) await details.locator('summary').click();
 }
 async function continueGroup(page) {
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -153,7 +161,7 @@ async function geometry(page) {
 }
 try {
   browser = await chromium.launch({ ...(executablePath ? { executablePath } : {}), args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-  for (const width of [1280, 390, 320]) {
+  for (const width of [1280, 1440, 390, 320]) {
     const context = await browser.newContext({
       viewport: { width, height: 850 },
       reducedMotion: width === 320 ? 'reduce' : 'no-preference',
@@ -187,6 +195,7 @@ try {
     await page.getByRole('radio', { name: 'I’m considering investing' }).check();
     await page.getByLabel('Which best describes you or the organisation you represent?').selectOption('individual');
     await page.getByLabel('What is your role in the decision?').selectOption('decision_maker');
+    await showDraftStatus(page);
     await expect(page.getByRole('status').filter({ hasText: 'Draft kept on this device' })).toBeVisible();
     await page.screenshot({ path: `${proof}/invest-questions-${width}.png`, fullPage: true });
     const welcomeVideo = page.video();
@@ -219,6 +228,7 @@ try {
     await page.reload();
     await reopen(page);
     await expect(page.getByRole('heading', { name: 'Tell us about your trading interests' })).toBeVisible();
+    await page.screenshot({ path: `${proof}/trader-questions-${width}.png`, fullPage: true });
     assert.equal(api.answerRequests[0].questionnaire.answers.indicativeContribution.amount, '9007199254740993.000000000000000001');
     await page.getByRole('checkbox', { name: 'Spot', exact: true }).check();
     await page.getByRole('radio', { name: 'Advanced', exact: true }).check();
@@ -228,6 +238,7 @@ try {
     await review(page);
     await page.getByRole('button', { name: 'Send enquiry', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Tell us about your payment needs' })).toBeVisible();
+    await page.screenshot({ path: `${proof}/merchant-questions-${width}.png`, fullPage: true });
     await page.getByLabel('Business name').fill('Example');
     await page.getByLabel('Industry').fill('Retail');
     await page.getByLabel('Operating countries', { exact: true }).selectOption(['ID', 'SG']);
@@ -240,6 +251,7 @@ try {
     await review(page, 'as_available');
     await page.getByRole('button', { name: 'Send enquiry', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'What would you like to learn?', exact: true })).toBeVisible();
+    await page.screenshot({ path: `${proof}/academy-questions-${width}.png`, fullPage: true });
     await page.getByRole('textbox', { name: 'What would you like to learn?', exact: true }).fill('Markets');
     await page.getByRole('radio', { name: 'Beginner', exact: true }).check();
     await page.getByLabel('Preferred subjects').fill('Risk, Markets');
@@ -248,6 +260,7 @@ try {
     await review(page, 'within_three_months');
     await page.getByRole('button', { name: 'Send enquiry', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Tell us about a potential collaboration' })).toBeVisible();
+    await page.screenshot({ path: `${proof}/partner-questions-${width}.png`, fullPage: true });
     await page.getByLabel('Your expertise').fill('Education');
     await page.getByLabel('What would you like to contribute?').fill('A learning community');
     await page.getByRole('radio', { name: 'Collaboration', exact: true }).check();
@@ -306,12 +319,14 @@ try {
     await page.getByRole('button', { name: 'Send enquiry', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Your enquiry is with the team.', exact: true })).toBeVisible();
     assert.deepEqual(api.answerRequests[0].questionnaire.answers.indicativeContribution, { status: 'undecided' });
+    await page.locator('.saved-contact-details summary').click();
     await page.getByRole('button', { name: 'Add an interest' }).click();
     await page.getByRole('checkbox', { name: /^Academy/ }).check();
     await page.getByRole('button', { name: 'Add & continue' }).click();
     await expect(page.getByRole('heading', { name: 'What would you like to learn?', exact: true })).toBeVisible();
     assert.equal(api.draft().questionnaires[0].audience, 'investor');
     assert.equal(api.draft().completedAt, null);
+    await showDraftStatus(page);
     await expect(page.getByRole('status').filter({ hasText: 'Draft kept on this device' })).toBeVisible();
     await page.evaluate(async () => {
       const db = await new Promise((r) => {
@@ -343,9 +358,10 @@ try {
   let tabPage = await tabContext.newPage();
   await tabPage.goto(origin + '/invest');
   await begin(tabPage);
-  await expect(tabPage.getByRole('checkbox', { name: 'Remember my draft on this device.' })).not.toBeChecked();
+  await expect(tabPage.getByRole('checkbox', { name: 'Remember my draft on this device.', includeHidden: true })).not.toBeChecked();
   await fillContact(tabPage);
   await tabPage.getByRole('radio', { name: 'Both', exact: true }).check();
+  await showDraftStatus(tabPage);
   await expect(tabPage.getByRole('status').filter({ hasText: 'Draft kept in this tab' })).toBeVisible();
   await tabPage.reload();
   await reopen(tabPage);
@@ -370,11 +386,12 @@ try {
   const blockedPage = await blocked.newPage();
   await blockedPage.goto(origin + '/invest');
   await begin(blockedPage);
-  await expect(blockedPage.getByRole('checkbox', { name: 'Remember my draft on this device.' })).toBeDisabled();
+  await expect(blockedPage.getByRole('checkbox', { name: 'Remember my draft on this device.', includeHidden: true })).toBeDisabled();
   await fillContact(blockedPage);
   await expect(blockedPage.getByRole('alert')).toContainText('could not confirm');
   await blockedPage.getByRole('button', { name: 'Reopen saved enquiry' }).click();
   await expect(blockedPage.getByRole('heading', { name: 'Investor enquiry', exact: true })).toBeVisible();
+  await showDraftStatus(blockedPage);
   await expect(blockedPage.getByRole('status').filter({ hasText: 'cannot be stored' })).toContainText('cannot be stored');
   assert.equal(blockedApi.captureRequests[0].requestId, blockedApi.captureRequests[1].requestId);
   await blocked.close();
@@ -386,6 +403,7 @@ try {
   await forgetPage.goto(origin + '/invest');
   await begin(forgetPage);
   await fillContact(forgetPage, true);
+  await showDraftStatus(forgetPage);
   await expect(forgetPage.getByRole('status').filter({ hasText: 'Draft kept on this device' })).toBeVisible();
   await forgetPage.getByRole('button', { name: 'Privacy & your enquiry ↗', exact: true }).last().click();
   await expect(forgetPage.getByRole('heading', { name: 'Your enquiry, thoughtfully handled.' })).toBeFocused();

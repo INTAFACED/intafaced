@@ -2754,7 +2754,7 @@ body, #app, .page-view, .page-view2, .page-content {
 <style>
 .is-outreach-route { --ix-orange:#b9f65a; --ix-text:#f2f5ef; background:#090a0b!important; }
 .is-outreach-route .page-content { background:#090a0b!important; padding-bottom:0!important; }
-.is-outreach-route .outreach-shell-header { width:calc(100% - 64px); max-width:1216px; height:74px; margin:20px auto 0; padding:0 28px; border:1px solid #2a332d; border-radius:15px; background:#101211; font-family:'Outreach Inter',Inter,Arial,sans-serif; }
+.is-outreach-route .outreach-shell-header { width:calc(100% - 64px); max-width:1216px; height:74px; position:relative; z-index:3; margin:20px auto 0; padding:0 28px; border:1px solid #2a332d; border-radius:15px; background:#101211; font-family:'Outreach Inter',Inter,Arial,sans-serif; }
 .outreach-shell-header .marketing-os-brand { display:flex; align-items:center; }
 .outreach-shell-header .marketing-os-brand img { display:block; width:172px; height:32px; }
 .outreach-shell-header nav a { color:#a3ada5!important; font-size:11px; min-height:44px; display:flex; align-items:center; }

@@ -17,7 +17,8 @@
     ],
     "assets": [
       "src/assets/images/logo.svg",
-      "src/assets/fonts"
+      "src/assets/fonts",
+      "src/assets/images/outreach"
     ],
     "instructions": [
       "README.md"
@@ -27,9 +28,9 @@
     "colorMode": "dark",
     "colors": {
       "background": "#090A0B",
-      "surface": "#111413",
-      "surfaceRaised": "#181D1A",
-      "border": "#2A332D",
+      "surface": "#111416",
+      "surfaceRaised": "#191C1E",
+      "border": "#2C3335",
       "text": "#F2F5EF",
       "muted": "#A3ADA5",
       "accent": "#B9F65A",
@@ -39,20 +40,20 @@
     },
     "typography": {
       "family": "Self-hosted Inter variable Latin/extended, SIL Open Font License",
-      "display": "48\u201386px, 600, tracking -0.06em",
-      "heading": "28\u201338px, 500",
-      "body": "13\u201316px, 400, line-height 1.7\u20131.9"
+      "display": "43–74px, 600, tracking -0.055em",
+      "heading": "28–38px, 500",
+      "body": "14–16px, 400, line-height 1.7–1.9"
     },
     "radius": {
       "controls": "7px",
-      "navigation": "12\u201315px"
+      "navigation": "12–15px"
     },
     "motion": {
       "arrival": "280ms once",
       "questions": "180ms once",
       "controls": "150ms; disabled under prefers-reduced-motion"
     },
-    "density": "Expressive centered welcome, focused questions, quiet review"
+    "density": "Left-aligned rendered-art welcome, compact questions, quiet review"
   },
   "components": {
     "installed": [],
@@ -62,9 +63,10 @@
     ],
     "patterns": [
       "Native Vue choice cards and segmented progress adapted from searched 21st references 29790/28569",
-      "Original static graphite/lime sculptural rings",
       "Native accessible form validation",
-      "Explicit opt-in encrypted IndexedDB device recovery"
+      "Explicit opt-in encrypted IndexedDB device recovery",
+      "Original rendered graphite fins; deliberate 5:3 phone crop; static responsive picture",
+      "Native disclosure for optional device recovery and saved contact options"
     ]
   },
   "constraints": {
@@ -90,7 +92,14 @@
         "https://21st.dev/@sean0205/components/questionnaire-segmented-progress",
         "https://21st.dev/@uiable/components/questionnaire"
       ],
-      "brand": "Existing INTAFACED logo.svg; original CSS sculpture, no copied brand assets"
+      "brand": "Existing INTAFACED logo.svg; earlier CSS sculpture superseded by the 2026-10-11 original rendered-art decision"
+    },
+    {
+      "decision": "Original material/light/texture art replaces rejected CSS rings; live HTML copy uses dark left space, phone uses deliberate art-before-copy",
+      "source": "Nitro-authorized QUALITY-SPEC.txt, 2026-10-11",
+      "artSourceSha256": "e9c2adba8b190a8f8fbbbc71e6e83eb1e508f4d1734d7a87cb72b2260ecb5bbb",
+      "recipe": "src/assets/images/outreach/art-recipe.json",
+      "brand": "Existing logo.svg and self-hosted Inter retained"
     }
   ],
   "evidence": [
@@ -111,7 +120,7 @@
       "source": "src/pages/intafaced/Outreach.vue"
     },
     {
-      "fact": "Measured text contrast 18.00:1; muted/surface 8.01:1; primary action 14.25:1; input boundaries 3.07:1",
+      "fact": "Measured text/background 18.00:1; muted/surface 7.99:1; primary action 14.25:1; input boundaries 3.07:1",
       "source": "Chosen hex colors in Outreach.vue, WCAG relative-luminance calculation"
     }
   ],
