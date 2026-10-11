@@ -284,6 +284,10 @@ const presentation = {
     focusHeading() {
       this.afterRender(() => {
         let heading = this.refs.stepHeading || this.refs.welcomeTitle;
+        let active = document.activeElement;
+        // A visitor may begin typing before the scheduled heading focus runs.
+        // Preserve a control they have already focused in the current view.
+        if (active && active.closest('form') && active.matches('input, textarea, select, button, [contenteditable="true"]')) return;
         if (heading) heading.focus();
       });
     },
