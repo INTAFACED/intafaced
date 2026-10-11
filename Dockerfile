@@ -133,7 +133,9 @@ COPY . .
 # turbo builds the dependency graph once: packages, then services, then the two
 # Next apps. Nothing here touches Postgres or NATS — a build must not need the
 # platform to be running.
-RUN pnpm build
+# Native packaging requires a verified HTTPS origin and ships separately.
+# This image is for HTTP services and browser apps, including Customer and Invitation.
+RUN pnpm exec turbo run build --filter='!mobile'
 
 # ── runtime ─────────────────────────────────────────────────────────────────
 # Deliberately keeps devDependencies. `tsx` is a devDependency and every
