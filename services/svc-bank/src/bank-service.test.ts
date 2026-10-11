@@ -2327,6 +2327,9 @@ describe('svc-bank money PG-hard', () => {
       // shows as an outflow of 200 with a matching inflow — moving your own
       // money between your own pots is not spending it.
       expect(summary.outflowByCategory.transfers).toBe('200');
+      // fund() posts deposit.credited for 1000. That arrival is a deposit, not a reward.
+      expect(summary.outflowByCategory.deposits).toBe('1000');
+      expect(summary.outflowByCategory.rewards).toBe('0');
       expect(summary.totalOutflow).toBe('205');
       expect(summary.totalInflow).toBe('1200');
     });
@@ -2345,6 +2348,7 @@ describe('svc-bank money PG-hard', () => {
 
       expect(summary.movements).toBe(0);
       expect(summary.totalOutflow).toBe('0');
+      expect(summary.outflowByCategory.deposits).toBe('0');
     });
 
     it('gives the same answer twice — nothing is consumed by asking', async () => {
@@ -2859,7 +2863,7 @@ describe('svc-bank money PG-hard', () => {
       expect(categorise('p2p.escrow.lock')).toBe('p2p');
       expect(categorise('fee.charged')).toBe('fees');
       expect(categorise('withdraw.settled')).toBe('withdrawals');
-      expect(categorise('deposit.credited')).toBe('rewards');
+      expect(categorise('deposit.credited')).toBe('deposits');
     });
 
     it('never drops an unknown reason', () => {
