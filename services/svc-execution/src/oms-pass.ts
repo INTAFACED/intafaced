@@ -7,7 +7,7 @@
  * expireAt refuses — this door never invents a duration or wall clock,
  * never invents an operator, never steals, never places children, and
  * does not touch matching. Unconfirmed EMS fills on the parent refuse
- * the offer — handoff must not hide prints from the incoming owner.
+ * the offer and the accept — handoff must not hide prints from the incoming owner.
  */
 import type { EmsOrderStore } from './oms-ems-store.js';
 import type { FillConfirmStore } from './oms-fill-confirm.js';
@@ -224,6 +224,8 @@ export function acceptLiveAlgoParentPass(input: {
   parentClientOrderId?: string;
   operatorId?: string;
   parentStore?: ApprovedAlgoParentStore;
+  emsStore?: EmsOrderStore;
+  fillConfirmStore?: FillConfirmStore;
 }): OmsPassAcceptResult {
   const located = locateLiveParent(input);
   if (!located.ok) return located;
@@ -237,6 +239,16 @@ export function acceptLiveAlgoParentPass(input: {
   if (!input.parentStore?.acceptPass) {
     return refuse('parent_store_unwired', 'approved algo parent store.acceptPass is required for accept');
   }
+  const fence = refuseUnconfirmedHandoff(
+    {
+      parentClientOrderId: located.parent.parentClientOrderId,
+      parentStore: input.parentStore,
+      emsStore: input.emsStore,
+      fillConfirmStore: input.fillConfirmStore,
+    },
+    'accept',
+  );
+  if (!fence.ok) return fence;
   const accepted = input.parentStore.acceptPass(located.parent.parentClientOrderId, located.operatorId);
   if (!accepted) {
     return refuse('not_target', `parent ${located.parent.parentClientOrderId} is not offered to this operator`);

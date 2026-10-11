@@ -8,13 +8,7 @@ import { parseAmount } from '@intafaced/ledger-client';
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsIsPaperStartRefuseReason =
-  | 'missing_parent'
-  | 'not_approved'
-  | 'already_started'
-  | 'missing_schedule'
-  | 'paper_gate_unwired'
-  | 'paper_off'
-  | 'missing_operator';
+  'missing_parent' | 'not_approved' | 'already_started' | 'missing_schedule' | 'paper_gate_unwired' | 'paper_off' | 'missing_operator';
 
 export type OmsIsPaperStartRefusal = {
   readonly ok: false;
@@ -38,9 +32,7 @@ function refuse(reason: OmsIsPaperStartRefuseReason, detail: string): OmsIsPaper
   return { ok: false, reason, detail };
 }
 
-function parseRetainedArrival(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsIsPaperStartRefusal {
+function parseRetainedArrival(raw: string | null | undefined): { ok: true; text: string } | OmsIsPaperStartRefusal {
   if (raw === null || raw === undefined) {
     return refuse('missing_schedule', 'arrival price is missing — refusing to invent an IS schedule');
   }
@@ -67,7 +59,7 @@ export function startPaperImplementationShortfallParent(input: {
   parentClientOrderId?: string;
   /** Must be true — start needs an already-approved paper IS parent. */
   approved?: boolean;
-  /** Paper-approved status is 'paper'. Live running refuses already_started. */
+  /** Omitted, paper, or approved may start. Running refuses already_started. Any other status refuses not_approved. */
   status?: 'paper' | 'approved' | 'running' | string;
   /** Retained arrival from paper approve. Blank refuses — never invent a schedule. */
   arrivalPrice?: string | null;
@@ -87,7 +79,12 @@ export function startPaperImplementationShortfallParent(input: {
   if (input.status === 'running') {
     return refuse('already_started', `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`);
   }
-  if (input.approved !== true && input.status !== 'paper' && input.status !== 'approved') {
+  const statusOmitted = input.status === undefined;
+  const paperOrApproved = input.status === 'paper' || input.status === 'approved';
+  if (!statusOmitted && !paperOrApproved) {
+    return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper parent`);
+  }
+  if (input.approved !== true && !paperOrApproved) {
     return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper parent`);
   }
   const operatorId = input.operatorId?.trim() ?? '';

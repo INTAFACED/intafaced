@@ -358,6 +358,57 @@ describe('paperRunAlgoParent', () => {
     expect(out.children).toEqual([]);
     expect(parentStore.get('parent-none')?.residual).toBeUndefined();
   });
+
+  it('blank remaining is not a leftover and papers with residual null', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(
+      approved({
+        parentClientOrderId: 'parent-blank',
+        kind: 'twap',
+        residual: { remaining: '   ' },
+      }),
+    );
+    parentStore.seed(
+      approved({
+        parentClientOrderId: 'parent-empty',
+        kind: 'vwap',
+        residual: { remaining: '' },
+      }),
+    );
+    const blank = paperRunAlgoParent({
+      parentClientOrderId: 'parent-blank',
+      parentStore,
+      paper: { enabled: true },
+    });
+    const empty = paperRunAlgoParent({
+      parentClientOrderId: 'parent-empty',
+      parentStore,
+      paper: { enabled: true },
+    });
+    expect(blank).toMatchObject({ ok: true, paper: true, status: 'paper', children: [], residual: null });
+    expect(empty).toMatchObject({ ok: true, paper: true, status: 'paper', children: [], residual: null });
+    expect(parentStore.get('parent-blank')?.status).toBe('paper');
+    expect(parentStore.get('parent-empty')?.status).toBe('paper');
+  });
+
+  it('refuses a retained remaining that is not a ledger amount with missing_residual', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(
+      approved({
+        parentClientOrderId: 'parent-bad',
+        kind: 'twap',
+        residual: { remaining: 'not-a-number' },
+      }),
+    );
+    const out = paperRunAlgoParent({
+      parentClientOrderId: 'parent-bad',
+      parentStore,
+      paper: { enabled: true },
+    });
+    expect(out).toMatchObject({ ok: false, reason: 'missing_residual' });
+    expect(parentStore.get('parent-bad')?.status).toBe('approved');
+    expect(parentStore.get('parent-bad')?.residual).toEqual({ remaining: 'not-a-number' });
+  });
 });
 
 describe('execution.oms.paper tRPC', () => {

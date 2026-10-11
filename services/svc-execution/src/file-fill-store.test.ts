@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -60,6 +60,36 @@ describe('FileFillConfirmStore', () => {
     });
     expect(reloaded.confirm({ ...recorded!, confirmerId: 'op-2' })).toBeNull();
   });
+
+  it('a thrown confirm append leaves the confirmation out of memory, and a retry writes the line', () => {
+    const path = join(tempDir(), 'fill-confirms.jsonl');
+    const store = new FileFillConfirmStore(path);
+    writeFileSync(path, '');
+    chmodSync(path, 0o444);
+    const row = {
+      clientOrderId: 'child-1',
+      parentClientOrderId: 'parent-1',
+      confirmerId: 'op-1',
+      confirmedAt: '2026-09-09T00:00:00.000Z',
+    };
+
+    try {
+      expect(() => store.confirm(row)).toThrow(/EACCES/);
+    } finally {
+      chmodSync(path, 0o644);
+    }
+
+    expect(store.get('child-1')).toBeNull();
+    expect(new FileFillConfirmStore(path).get('child-1')).toBeNull();
+
+    expect(store.confirm(row)).toMatchObject(row);
+    expect(store.get('child-1')).toMatchObject(row);
+    expect(readFileSync(path, 'utf8')).toBe(`${JSON.stringify(row)}\n`);
+    expect(new FileFillConfirmStore(path).get('child-1')).toMatchObject(row);
+
+    expect(store.confirm({ ...row, confirmerId: 'op-2' })).toBeNull();
+    expect(readFileSync(path, 'utf8')).toBe(`${JSON.stringify(row)}\n`);
+  });
 });
 
 describe('FileManualFillStore', () => {
@@ -88,6 +118,38 @@ describe('FileManualFillStore', () => {
       confirmerId: 'op-1',
     });
     expect(reloaded.record({ ...reloaded.get('child-1')!, confirmerId: 'op-2' })).toBeNull();
+  });
+
+  it('a thrown record append leaves the manual fill out of memory, and a retry writes the line', () => {
+    const path = join(tempDir(), 'manual-fills.jsonl');
+    const store = new FileManualFillStore(path);
+    writeFileSync(path, '');
+    chmodSync(path, 0o444);
+    const row = {
+      clientOrderId: 'child-1',
+      parentClientOrderId: 'parent-1',
+      filledAmount: '1.5',
+      averagePrice: '100.25',
+      confirmerId: 'op-1',
+      confirmedAt: '2026-09-09T00:00:00.000Z',
+    };
+
+    try {
+      expect(() => store.record(row)).toThrow(/EACCES/);
+    } finally {
+      chmodSync(path, 0o644);
+    }
+
+    expect(store.get('child-1')).toBeNull();
+    expect(new FileManualFillStore(path).get('child-1')).toBeNull();
+
+    expect(store.record(row)).toMatchObject(row);
+    expect(store.get('child-1')).toMatchObject(row);
+    expect(readFileSync(path, 'utf8')).toBe(`${JSON.stringify(row)}\n`);
+    expect(new FileManualFillStore(path).get('child-1')).toMatchObject(row);
+
+    expect(store.record({ ...row, confirmerId: 'op-2' })).toBeNull();
+    expect(readFileSync(path, 'utf8')).toBe(`${JSON.stringify(row)}\n`);
   });
 });
 
@@ -132,6 +194,44 @@ describe('FileFillAssignStore', () => {
     expect(reloaded.trail('child-1')).toHaveLength(2);
     expect(reloaded.trail('child-1')[0]?.kind).toBe('assign');
     expect(reloaded.assign({ ...reloaded.get('child-1')!, kind: 'assign' })).toBeNull();
+  });
+
+  it('a thrown assign append leaves the assignment out of memory, and a retry writes the line', () => {
+    const path = join(tempDir(), 'fill-assigns.jsonl');
+    const store = new FileFillAssignStore(path);
+    writeFileSync(path, '');
+    chmodSync(path, 0o444);
+    const row = {
+      clientOrderId: 'child-1',
+      parentClientOrderId: 'parent-1',
+      accountTag: 'acct-a',
+      filledAmount: '1',
+      averagePrice: '100',
+      operatorId: 'op-1',
+      recordedAt: '2026-09-09T00:00:00.000Z',
+      kind: 'assign' as const,
+    };
+
+    try {
+      expect(() => store.assign(row)).toThrow(/EACCES/);
+    } finally {
+      chmodSync(path, 0o644);
+    }
+
+    expect(store.get('child-1')).toBeNull();
+    expect(store.trail('child-1')).toEqual([]);
+    expect(new FileFillAssignStore(path).get('child-1')).toBeNull();
+
+    expect(store.assign(row)).toMatchObject(row);
+    expect(store.get('child-1')).toMatchObject(row);
+    expect(store.trail('child-1')).toHaveLength(1);
+    expect(readFileSync(path, 'utf8')).toBe(`${JSON.stringify(row)}\n`);
+    expect(new FileFillAssignStore(path).get('child-1')).toMatchObject(row);
+    expect(new FileFillAssignStore(path).trail('child-1')).toHaveLength(1);
+
+    expect(store.assign({ ...row, accountTag: 'acct-b' })).toBeNull();
+    expect(readFileSync(path, 'utf8')).toBe(`${JSON.stringify(row)}\n`);
+    expect(store.trail('child-1')).toHaveLength(1);
   });
 });
 

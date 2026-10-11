@@ -10,7 +10,8 @@ import { createHash } from 'node:crypto';
 import { executionCommandOutcomeSchema, type ExecutionCommandOutcome } from '@intafaced/exchange-contract';
 import { parseAmount } from '@intafaced/ledger-client';
 import type { SealedHouseTenantRegistry } from '@intafaced/execution-house-tenant';
-import type { ExecutionReport, LiquiditySource, VenueExecution } from '@intafaced/venue-adapter';
+import type { ExecutionReport } from '@intafaced/venue-adapter';
+import type { OmsSubmitFn, OmsVenueExecution as VenueExecution } from './oms-trade-submit.js';
 import type { EmsOrderEvidence, EmsOrderState, EmsOrderStore } from './oms-ems-store.js';
 import type { AlgoPauseStore } from './oms-pause.js';
 import { planOmsRoute, type OmsPlanInput, type OmsPlanRefuse, type OmsPlanVenue } from './oms-plan.js';
@@ -25,7 +26,7 @@ import { refuseUnsetTcaClaim } from './oms-tca-refuse.js';
 import { refuseLiveOmsPaper } from './oms-paper-refuse.js';
 import { refuseLiveOmsMultivenue } from './oms-multivenue-refuse.js';
 
-export type OmsSubmitFn = LiquiditySource['submit'];
+export type { OmsSubmitFn } from './oms-trade-submit.js';
 export type OmsExecuteVenue = OmsPlanVenue & { readonly submit?: OmsSubmitFn };
 
 export type OmsExecuteInput = Omit<OmsPlanInput, 'venues'> & {
@@ -99,7 +100,31 @@ export type OmsExecuteOk = {
 
 export type OmsExecuteIdentityRefuse = {
   readonly ok: false;
-  readonly reason: 'missing_identity' | 'identity_conflict' | 'ems_store_unwired' | 'algo_paused' | 'not_matching_iceberg' | 'peg_unsupported' | 'midpoint_unsupported' | 'relative_unsupported' | 'oco_unsupported' | 'bracket_unsupported' | 'buying_power_unset' | 'scale_unsupported' | 'mmp_unsupported' | 'discretion_unset' | 'care_unsupported' | 'cod_unset' | 'kill_unsupported' | 'tca_claim_unset' | 'tca_unsupported' | 'paper_unsupported' | 'best_ex_unset' | 'outage_invented_fill' | 'dex_risk_unset' | 'invented_venue';
+  readonly reason:
+    | 'missing_identity'
+    | 'identity_conflict'
+    | 'ems_store_unwired'
+    | 'algo_paused'
+    | 'not_matching_iceberg'
+    | 'peg_unsupported'
+    | 'midpoint_unsupported'
+    | 'relative_unsupported'
+    | 'oco_unsupported'
+    | 'bracket_unsupported'
+    | 'buying_power_unset'
+    | 'scale_unsupported'
+    | 'mmp_unsupported'
+    | 'discretion_unset'
+    | 'care_unsupported'
+    | 'cod_unset'
+    | 'kill_unsupported'
+    | 'tca_claim_unset'
+    | 'tca_unsupported'
+    | 'paper_unsupported'
+    | 'best_ex_unset'
+    | 'outage_invented_fill'
+    | 'dex_risk_unset'
+    | 'invented_venue';
   readonly detail: string;
   readonly executions: readonly VenueExecution[];
   readonly children: readonly OmsChildExecution[];
@@ -162,6 +187,16 @@ function lineage(input: OmsExecuteInput): OmsExecutionLineage {
 export type OmsChildIds = { childOrderId: string; clientOrderId: string };
 
 /** Shared deterministic parent/group-bound child identity for all external legs. */
+/** Parent-scoped claim id. It is not a child id, so a later leg lookup does not treat the claim as an execution. */
+function fingerprintClaimClientOrderId(lineageIds: OmsExecutionLineage): string {
+  const digest = createHash('sha256')
+    .update(JSON.stringify({ parent: lineageIds.parentClientOrderId, group: lineageIds.executionGroupId, claim: 'request-fingerprint' }))
+    .digest('hex')
+    .slice(0, 24);
+  const prefix = (lineageIds.parentClientOrderId.replace(/[^A-Za-z0-9._~-]/g, '_').slice(0, 48) || 'oms').replace(/[-_.]+$/, '');
+  return `${prefix}/claim/${digest}`;
+}
+
 export function childIds(lineageIds: OmsExecutionLineage, legIndex: number, occurrence: number, venueId = ''): OmsChildIds {
   const suffix = `leg-${legIndex}-${occurrence}`;
   const digest = createHash('sha256')
@@ -222,7 +257,7 @@ export function childFromAck(
   const outcome: OmsChildOutcome =
     ack.state === 'UNWIRED'
       ? 'UNWIRED'
-      : ack.state === 'SUBMIT_UNKNOWN' || ack.state === 'OUTCOME_UNKNOWN' || ack.execution === null
+      : ack.state === 'SUBMIT_UNKNOWN' || ack.state === 'OUTCOME_UNKNOWN' || ack.state === 'CANCELED' || ack.execution === null
         ? 'OUTCOME_UNKNOWN'
         : ack.state === 'REJECTED' || ack.execution.status === 'rejected'
           ? 'REFUSED'
@@ -280,7 +315,10 @@ function identityRefusal(
   };
 }
 
-function evidenceKillScope(input: OmsExecuteInput, lineageIds: OmsExecutionLineage): { readonly account?: string; readonly session?: string } {
+function evidenceKillScope(
+  input: OmsExecuteInput,
+  lineageIds: OmsExecutionLineage,
+): { readonly account?: string; readonly session?: string } {
   const account = input.tenantId?.trim();
   const session = lineageIds.executionGroupId.trim();
   return {
@@ -383,15 +421,29 @@ export async function executeOmsRoute(input: OmsExecuteInput, registry?: SealedH
   if (omsMmp) return identityRefusal(lineageIds, omsMmp.reason, omsMmp.detail);
 
   if (
-    extraKind === 'claim' || extraKind === 'assign' || extraKind === 'pass' ||
-    extraKind === 'shift' || extraKind === 'fill-confirm' || extraKind === 'fill_confirm' ||
-    extraKind === 'manual-fill' || extraKind === 'manual_fill' || extraKind === 'abandon' ||
+    extraKind === 'claim' ||
+    extraKind === 'assign' ||
+    extraKind === 'pass' ||
+    extraKind === 'shift' ||
+    extraKind === 'fill-confirm' ||
+    extraKind === 'fill_confirm' ||
+    extraKind === 'manual-fill' ||
+    extraKind === 'manual_fill' ||
+    extraKind === 'abandon' ||
     extraKind === 'care'
   ) {
-    return identityRefusal(lineageIds, 'care_unsupported', `live OMS kind ${String(input.kind)} is care-desk mill — refusing rather than dual-implementing execute`);
+    return identityRefusal(
+      lineageIds,
+      'care_unsupported',
+      `live OMS kind ${String(input.kind)} is care-desk mill — refusing rather than dual-implementing execute`,
+    );
   }
   if (input.care === true) {
-    return identityRefusal(lineageIds, 'care_unsupported', 'live OMS care desk is mill helpers — refusing rather than dual-implementing execute');
+    return identityRefusal(
+      lineageIds,
+      'care_unsupported',
+      'live OMS care desk is mill helpers — refusing rather than dual-implementing execute',
+    );
   }
   if (input.discretionCap !== undefined) {
     const cap = refuseUnsetDiscretionCap(input.discretionCap);
@@ -399,14 +451,26 @@ export async function executeOmsRoute(input: OmsExecuteInput, registry?: SealedH
   }
 
   if (
-    extraKind === 'kill' || extraKind === 'drain' || extraKind === 'cod' ||
-    extraKind === 'dead-man' || extraKind === 'deadman' ||
-    extraKind === 'cancel-on-disconnect' || extraKind === 'halt'
+    extraKind === 'kill' ||
+    extraKind === 'drain' ||
+    extraKind === 'cod' ||
+    extraKind === 'dead-man' ||
+    extraKind === 'deadman' ||
+    extraKind === 'cancel-on-disconnect' ||
+    extraKind === 'halt'
   ) {
-    return identityRefusal(lineageIds, 'kill_unsupported', `live OMS kind ${String(input.kind)} is kill/drain/COD mill — refusing rather than dual-implementing execute`);
+    return identityRefusal(
+      lineageIds,
+      'kill_unsupported',
+      `live OMS kind ${String(input.kind)} is kill/drain/COD mill — refusing rather than dual-implementing execute`,
+    );
   }
   if (input.kill === true || input.drain === true) {
-    return identityRefusal(lineageIds, 'kill_unsupported', 'live OMS kill/drain is mill helpers — refusing rather than dual-implementing execute');
+    return identityRefusal(
+      lineageIds,
+      'kill_unsupported',
+      'live OMS kill/drain is mill helpers — refusing rather than dual-implementing execute',
+    );
   }
   if (input.cancelOnDisconnect !== undefined) {
     const cod = refuseUnsetCancelOnDisconnect(input.cancelOnDisconnect);
@@ -414,10 +478,17 @@ export async function executeOmsRoute(input: OmsExecuteInput, registry?: SealedH
   }
 
   if (
-    extraKind === 'tca' || extraKind === 'tca-claim' || extraKind === 'tca_claim' ||
-    extraKind === 'beat-vwap' || extraKind === 'markout'
+    extraKind === 'tca' ||
+    extraKind === 'tca-claim' ||
+    extraKind === 'tca_claim' ||
+    extraKind === 'beat-vwap' ||
+    extraKind === 'markout'
   ) {
-    return identityRefusal(lineageIds, 'tca_unsupported', `live OMS kind ${String(input.kind)} is TCA mill — refusing rather than dual-implementing execute`);
+    return identityRefusal(
+      lineageIds,
+      'tca_unsupported',
+      `live OMS kind ${String(input.kind)} is TCA mill — refusing rather than dual-implementing execute`,
+    );
   }
   if (input.tca === true) {
     return identityRefusal(lineageIds, 'tca_unsupported', 'live OMS TCA is mill helpers — refusing rather than dual-implementing execute');
@@ -474,6 +545,22 @@ export async function executeOmsRoute(input: OmsExecuteInput, registry?: SealedH
     }
   }
 
+  if (!input.pauseStore?.isPaused(lineageIds)) {
+    input.emsStore.record({
+      clientOrderId: fingerprintClaimClientOrderId(lineageIds),
+      requestFingerprint,
+      parentClientOrderId: lineageIds.parentClientOrderId,
+      executionGroupId: lineageIds.executionGroupId,
+      ...killScope,
+      venueId: '',
+      symbol: input.symbol,
+      side: input.side,
+      execution: null,
+      state: 'UNWIRED',
+      reconciliationKey: null,
+    });
+  }
+
   const planned = await planOmsRoute(input, registry);
   if (!planned.ok) return planned;
 
@@ -505,7 +592,11 @@ export async function executeOmsRoute(input: OmsExecuteInput, registry?: SealedH
     }
 
     if (input.pauseStore?.isPaused(lineageIds)) {
-      return identityRefusal(lineageIds, 'algo_paused', 'paused algo takes no new children');
+      return {
+        ...identityRefusal(lineageIds, 'algo_paused', 'paused algo takes no new children'),
+        executions,
+        children,
+      };
     }
 
     const submit = venue ? submitFor(venue, input.submitByVenue) : input.submitByVenue?.[leg.venueId];
@@ -542,7 +633,16 @@ export async function executeOmsRoute(input: OmsExecuteInput, registry?: SealedH
     let execution: VenueExecution;
     const reconciliationKey = `lookup:${ids.clientOrderId}`;
     input.emsStore.record({
-      ...childReservation(lineageIds, ids, legIndex, leg.venueId, planned.report.symbol, planned.report.side, requestFingerprint, killScope),
+      ...childReservation(
+        lineageIds,
+        ids,
+        legIndex,
+        leg.venueId,
+        planned.report.symbol,
+        planned.report.side,
+        requestFingerprint,
+        killScope,
+      ),
       execution: null,
       state: 'SUBMIT_UNKNOWN',
       commandOutcome: commandOutcome(ids.childOrderId, 'OUTCOME_UNKNOWN', 'venue.dispatch_unconfirmed', reconciliationKey),

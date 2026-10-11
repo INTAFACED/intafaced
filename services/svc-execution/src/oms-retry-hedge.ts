@@ -1,11 +1,13 @@
 /**
  * Retry one listed failed EMS hedge child on a live TWAP/VWAP/POV parent.
  *
- * Reuses the failed-hedge list and repair residual. Venue comes from the
- * stored EMS child — this door never invents a venue or fill, never
- * submits a replacement hedge, never posts ledger, and does not touch
- * matching. Paper and non-live parents refuse.
+ * Reuses the failed-hedge list and the repair fill. Residual remaining is
+ * the parent's retained leftover. Venue comes from the stored EMS child —
+ * this door never invents a venue or fill, never submits a replacement
+ * hedge, never posts ledger, and does not touch matching. Paper and
+ * non-live parents refuse.
  */
+import { formatAmount, MoneyError, parseAmount } from '@intafaced/ledger-client';
 import { listFailedHedgeChildren, type OmsFailedHedgesRefuse } from './oms-failed-hedges.js';
 import { repairFailedHedgeChild, type OmsRepairHedgeResidual } from './oms-repair-hedge.js';
 import type { EmsOrderStore } from './oms-ems-store.js';
@@ -51,6 +53,19 @@ function refuse(reason: 'missing_child' | 'parent_only' | 'not_listed', detail: 
   return { ok: false, reason, detail };
 }
 
+/** Blank, missing, or unparsable leftover stays null. Never invent "0". */
+function retainedRemaining(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const text = raw.trim();
+  if (text.length === 0) return null;
+  try {
+    return formatAmount(parseAmount(text));
+  } catch (error) {
+    if (error instanceof MoneyError) return null;
+    throw error;
+  }
+}
+
 export function retryFailedHedgeChild(input: OmsRetryHedgeInput): OmsRetryHedgeResult {
   const executionGroupId = input.executionGroupId?.trim() ?? '';
   if (executionGroupId) {
@@ -81,6 +96,7 @@ export function retryFailedHedgeChild(input: OmsRetryHedgeInput): OmsRetryHedgeR
   });
   if (!repaired.ok) return repaired;
 
+  const parent = input.parentStore?.get(listed.parent.parentClientOrderId);
   return {
     ok: true,
     retried: true,
@@ -95,6 +111,9 @@ export function retryFailedHedgeChild(input: OmsRetryHedgeInput): OmsRetryHedgeR
       outcome: 'retried',
       reason: repaired.child.reason,
     },
-    residual: repaired.residual,
+    residual: {
+      filled: repaired.residual.filled,
+      remaining: retainedRemaining(parent?.residual?.remaining),
+    },
   };
 }

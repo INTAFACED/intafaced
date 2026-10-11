@@ -128,13 +128,73 @@ describe('expirePaperIcebergParent', () => {
     ).toMatchObject({ ok: false, reason: 'missing_expire_at' });
   });
 
-  it("happy: status paper + expireAt + remaining '10' + paper on", () => {
+  it('refuses not_due when now is still before the retained expireAt', () => {
+    const result = expirePaperIcebergParent({
+      parentClientOrderId: 'p-ice',
+      status: 'paper',
+      expireAt: EXPIRE_AT,
+      remaining: '10',
+      paper: PAPER_ON,
+      now: NOW,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'not_due' });
+    expect(result).not.toMatchObject({ status: 'expired' });
+  });
+
+  it('refuses missing_clock when now is omitted, not a Date, or an invalid Date', () => {
+    const paperParent = {
+      parentClientOrderId: 'p-ice',
+      status: 'paper',
+      expireAt: EXPIRE_AT,
+      remaining: '10',
+      paper: PAPER_ON,
+    };
+    expect(expirePaperIcebergParent(paperParent)).toMatchObject({
+      ok: false,
+      reason: 'missing_clock',
+    });
+    expect(
+      expirePaperIcebergParent({
+        ...paperParent,
+        now: '2026-08-31T18:00:00.000Z' as unknown as Date,
+      }),
+    ).toMatchObject({ ok: false, reason: 'missing_clock' });
+    expect(
+      expirePaperIcebergParent({
+        ...paperParent,
+        now: new Date(Number.NaN),
+      }),
+    ).toMatchObject({ ok: false, reason: 'missing_clock' });
+  });
+
+  it("happy: status paper + expireAt + remaining '10' + paper on at expireAt", () => {
     const expired = expirePaperIcebergParent({
       parentClientOrderId: 'p-ice',
       status: 'paper',
       expireAt: EXPIRE_AT,
       remaining: '10',
       paper: PAPER_ON,
+      now: new Date(EXPIRE_AT),
+    });
+    expect(expired).toEqual({
+      ok: true,
+      expired: true,
+      paper: true,
+      parent: { parentClientOrderId: 'p-ice', kind: 'iceberg' },
+      status: 'expired',
+      expireAt: EXPIRE_AT,
+      residual: { remaining: '10' },
+    });
+  });
+
+  it('expires when now is after the retained expireAt and echoes residual', () => {
+    const expired = expirePaperIcebergParent({
+      parentClientOrderId: 'p-ice',
+      status: 'paper',
+      expireAt: EXPIRE_AT,
+      remaining: '10',
+      paper: PAPER_ON,
+      now: new Date('2026-08-31T19:00:00.000Z'),
     });
     expect(expired).toEqual({
       ok: true,
@@ -153,6 +213,7 @@ describe('expirePaperIcebergParent', () => {
       status: 'paper',
       expireAt: EXPIRE_AT,
       paper: PAPER_ON,
+      now: new Date(EXPIRE_AT),
     });
     expect(expired).toMatchObject({
       ok: true,

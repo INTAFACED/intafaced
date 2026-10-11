@@ -88,6 +88,37 @@ describe('venueOrderToExecution', () => {
     }
   });
 
+  it('does not report a cancel or expiry that already filled some size as a failed execution', () => {
+    for (const status of ['canceled', 'expired'] as const) {
+      const ex = venueOrderToExecution(
+        order({
+          status,
+          filled: parseAmount('0.4'),
+          remaining: parseAmount('0.6'),
+          averagePrice: parseAmount('99'),
+          feePaid: parseAmount('0.01'),
+          feeAsset: 'USDT',
+        }),
+        request(),
+      );
+      expect(ex.status).toBe('partial');
+      expect(ex.filledAmount).toBe(parseAmount('0.4'));
+      expect(ex.averagePrice).toBe(parseAmount('99'));
+    }
+
+    const rejected = venueOrderToExecution(
+      order({
+        status: 'rejected',
+        filled: parseAmount('0.4'),
+        remaining: parseAmount('0.6'),
+        averagePrice: parseAmount('99'),
+      }),
+      request(),
+    );
+    expect(rejected.status).toBe('rejected');
+    expect(rejected.filledAmount).toBe(parseAmount('0.4'));
+  });
+
   it('does not substitute request.limitPrice when averagePrice is null (rejected/canceled/open filled=0)', () => {
     const req = request();
     for (const status of ['rejected', 'canceled', 'open'] as const) {

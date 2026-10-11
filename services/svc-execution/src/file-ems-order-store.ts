@@ -2,11 +2,24 @@
  * File-backed EMS order-ack journal — survives process restart (D29).
  *
  * JSONL append-only log. Missing file is an honest empty journal, not invented acks.
+ * A blank or whitespace clientOrderId refuses. The ack is not written and not kept.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { EmsOrderEvidence, EmsOrderStore, EmsListFilter } from './oms-ems-store.js';
+
+export const EXECUTION_EMS_CLIENT_ORDER_ID_REQUIRED = 'execution.ems_client_order_id_required' as const;
+
+/** Blank clientOrderId — the venue ack is not stored, and the caller can see the refusal. */
+export class EmsClientOrderIdRequiredError extends Error {
+  readonly code = EXECUTION_EMS_CLIENT_ORDER_ID_REQUIRED;
+
+  constructor() {
+    super('clientOrderId is blank — refusing to journal the venue ack');
+    this.name = 'EmsClientOrderIdRequiredError';
+  }
+}
 
 type StoredLine = {
   readonly clientOrderId: string;
@@ -24,13 +37,15 @@ type StoredLine = {
     readonly venueId: string;
     readonly venueOrderId: string;
     readonly filledAmount: string;
-    readonly averagePrice: string;
+    readonly remainingAmount?: string;
+    readonly averagePrice: string | null;
     readonly feeAmount: string;
     readonly feeAsset: string;
     readonly status: 'filled' | 'partial' | 'rejected';
     readonly executedAt: string;
   } | null;
   readonly state?: EmsOrderEvidence['state'];
+  readonly drainedRemaining?: string;
   readonly commandOutcome?: EmsOrderEvidence['commandOutcome'];
   readonly reconciliationKey?: string | null;
   readonly recordedAtMs: number;
@@ -54,7 +69,8 @@ function toStoredLine(ack: EmsOrderEvidence): StoredLine {
           venueId: ack.execution.venueId,
           venueOrderId: ack.execution.venueOrderId,
           filledAmount: formatAmount(ack.execution.filledAmount),
-          averagePrice: formatAmount(ack.execution.averagePrice),
+          ...(ack.execution.remainingAmount !== undefined ? { remainingAmount: formatAmount(ack.execution.remainingAmount) } : {}),
+          averagePrice: ack.execution.averagePrice === null ? null : formatAmount(ack.execution.averagePrice),
           feeAmount: formatAmount(ack.execution.feeAmount),
           feeAsset: ack.execution.feeAsset,
           status: ack.execution.status,
@@ -62,6 +78,7 @@ function toStoredLine(ack: EmsOrderEvidence): StoredLine {
         }
       : null,
     ...(ack.state !== undefined ? { state: ack.state } : {}),
+    ...(ack.drainedRemaining !== undefined ? { drainedRemaining: formatAmount(ack.drainedRemaining) } : {}),
     ...(ack.commandOutcome !== undefined ? { commandOutcome: ack.commandOutcome } : {}),
     reconciliationKey: ack.reconciliationKey ?? null,
     recordedAtMs: ack.recordedAtMs,
@@ -86,7 +103,8 @@ function fromStoredLine(line: StoredLine): EmsOrderEvidence {
           venueId: line.execution.venueId,
           venueOrderId: line.execution.venueOrderId,
           filledAmount: parseAmount(line.execution.filledAmount),
-          averagePrice: parseAmount(line.execution.averagePrice),
+          ...(line.execution.remainingAmount !== undefined ? { remainingAmount: parseAmount(line.execution.remainingAmount) } : {}),
+          averagePrice: line.execution.averagePrice === null ? null : parseAmount(line.execution.averagePrice),
           feeAmount: parseAmount(line.execution.feeAmount),
           feeAsset: line.execution.feeAsset,
           status: line.execution.status,
@@ -94,15 +112,16 @@ function fromStoredLine(line: StoredLine): EmsOrderEvidence {
         }
       : null,
     state: line.state,
+    drainedRemaining: line.drainedRemaining === undefined ? undefined : parseAmount(line.drainedRemaining),
     commandOutcome: line.commandOutcome,
     reconciliationKey: line.reconciliationKey ?? null,
     recordedAtMs: line.recordedAtMs,
   };
 }
 
-function normalizeAck(input: Omit<EmsOrderEvidence, 'recordedAtMs'> & { readonly recordedAtMs?: number }): EmsOrderEvidence | null {
+function normalizeAck(input: Omit<EmsOrderEvidence, 'recordedAtMs'> & { readonly recordedAtMs?: number }): EmsOrderEvidence {
   const clientOrderId = input.clientOrderId.trim();
-  if (!clientOrderId) return null;
+  if (!clientOrderId) throw new EmsClientOrderIdRequiredError();
   return {
     clientOrderId,
     requestFingerprint: input.requestFingerprint,
@@ -117,6 +136,7 @@ function normalizeAck(input: Omit<EmsOrderEvidence, 'recordedAtMs'> & { readonly
     side: input.side,
     execution: input.execution,
     state: input.state,
+    drainedRemaining: input.drainedRemaining,
     commandOutcome: input.commandOutcome,
     reconciliationKey: input.reconciliationKey ?? null,
     recordedAtMs: input.recordedAtMs ?? Date.now(),
@@ -145,9 +165,8 @@ export class FileEmsOrderStore implements EmsOrderStore {
 
   record(input: Omit<EmsOrderEvidence, 'recordedAtMs'> & { readonly recordedAtMs?: number }): void {
     const ack = normalizeAck(input);
-    if (!ack) return;
-    this.byClientOrderId.set(ack.clientOrderId, ack);
     appendFileSync(this.filePath, `${JSON.stringify(toStoredLine(ack))}\n`, 'utf8');
+    this.byClientOrderId.set(ack.clientOrderId, ack);
   }
 
   get(clientOrderId: string): EmsOrderEvidence | null {

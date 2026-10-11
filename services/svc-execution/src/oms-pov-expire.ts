@@ -1,5 +1,6 @@
 /**
  * Expire one live POV parent when its window ends.
+ * The caller supplies now. A missing clock or a now before expireAt refuses.
  * Jobs off refuses. Residual leftover is a ledger amount and stays on the parent.
  * This door never invents expireAt from participation, duration, or the wall clock,
  * never invents leftover from participation or duration, and does not touch matching.
@@ -16,6 +17,8 @@ export type OmsPovExpireRefuseReason =
   | 'already_expired'
   | 'already_stopped'
   | 'missing_expire_at'
+  | 'missing_clock'
+  | 'not_due'
   | 'missing_residual'
   | 'jobs_gate_unwired'
   | 'jobs_off'
@@ -55,6 +58,13 @@ function retainedExpireAt(raw: string | null | undefined): string | null {
   return trimmed;
 }
 
+function injectedNow(now?: Date): Date | null {
+  if (!(now instanceof Date)) return null;
+  const ms = now.getTime();
+  if (!Number.isFinite(ms)) return null;
+  return now;
+}
+
 function parseRetainedRemaining(raw: string | null | undefined): { ok: true; text: string } | OmsPovExpireRefusal {
   if (raw === null || raw === undefined) {
     return refuse(
@@ -78,6 +88,7 @@ function parseRetainedRemaining(raw: string | null | undefined): { ok: true; tex
 
 /**
  * Expire a running live POV parent using expireAt already retained on the schedule.
+ * The caller supplies now. A missing clock or a now before expireAt refuses.
  * Residual is not released or consumed. Jobs off refuses. Not paper.
  */
 export function expirePovParent(input: {
@@ -117,6 +128,13 @@ export function expirePovParent(input: {
   const expireAt = retainedExpireAt(input.expireAt);
   if (!expireAt) {
     return refuse('missing_expire_at', 'expireAt is missing — refusing to invent a schedule from participation, duration, or the clock');
+  }
+  const now = injectedNow(input.now);
+  if (!now) {
+    return refuse('missing_clock', 'now is required — refusing to invent a wall clock');
+  }
+  if (now.getTime() < Date.parse(expireAt)) {
+    return refuse('not_due', `parent ${parentClientOrderId} expires at ${expireAt} — injected clock is not past the deadline`);
   }
   const leftover = parseRetainedRemaining(input.remaining);
   if (!leftover.ok) return leftover;

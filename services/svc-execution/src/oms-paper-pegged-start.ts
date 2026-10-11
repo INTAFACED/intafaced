@@ -35,36 +35,22 @@ export type OmsPaperPeggedStartOk = {
 
 export type OmsPaperPeggedStartResult = OmsPaperPeggedStartOk | OmsPaperPeggedStartRefusal;
 
-function refuse(
-  reason: OmsPaperPeggedStartRefuseReason,
-  detail: string,
-): OmsPaperPeggedStartRefusal {
+function refuse(reason: OmsPaperPeggedStartRefuseReason, detail: string): OmsPaperPeggedStartRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseRetainedOffset(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperPeggedStartRefusal {
+function parseRetainedOffset(raw: string | null | undefined): { ok: true; text: string } | OmsPaperPeggedStartRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'missing_offset',
-      'pegged offset is missing — refusing to invent offset or a live venue',
-    );
+    return refuse('missing_offset', 'pegged offset is missing — refusing to invent offset or a live venue');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'missing_offset',
-      'pegged offset is missing — refusing to invent offset or a live venue',
-    );
+    return refuse('missing_offset', 'pegged offset is missing — refusing to invent offset or a live venue');
   }
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      'missing_offset',
-      'pegged offset is not a ledger amount — refusing to invent offset',
-    );
+    return refuse('missing_offset', 'pegged offset is not a ledger amount — refusing to invent offset');
   }
 }
 
@@ -77,7 +63,7 @@ export function startPaperPeggedParent(input: {
   kind?: string;
   /** Must be true — start needs an already-approved paper pegged parent. */
   approved?: boolean;
-  /** Paper-approved status is 'paper'. Live running refuses already_started. */
+  /** Paper-approved status is 'paper' or 'approved'. Trimmed 'running' refuses already_started. Stopped and expired refuse not_approved. */
   status?: 'paper' | 'approved' | 'running' | string;
   /** Retained offset from paper approve. Blank refuses — never invent offset. */
   offset?: string | null;
@@ -97,17 +83,12 @@ export function startPaperPeggedParent(input: {
   if (input.kind !== undefined && input.kind !== 'pegged') {
     return refuse('not_live', `kind ${String(input.kind)} is not pegged`);
   }
-  if (input.status === 'running') {
-    return refuse(
-      'already_started',
-      `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`,
-    );
+  const status = input.status?.trim();
+  if (status === 'running') {
+    return refuse('already_started', `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`);
   }
-  if (input.approved !== true && input.status !== 'paper' && input.status !== 'approved') {
-    return refuse(
-      'not_approved',
-      `parent ${parentClientOrderId} is not an approved paper pegged parent`,
-    );
+  if (status === 'stopped' || status === 'expired' || (input.approved !== true && status !== 'paper' && status !== 'approved')) {
+    return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper pegged parent`);
   }
   const operatorId = input.operatorId?.trim() ?? '';
   if (!operatorId) {

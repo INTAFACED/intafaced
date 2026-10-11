@@ -107,6 +107,26 @@ async function trpcMutation(app: FastifyInstance, path: string, input: unknown, 
 }
 
 describe('execution promise-falsify public doors (D32)', () => {
+  it('mounted EMS read refuses an unconfigured screening list', async () => {
+    const keys = ['INTAFACED_SCREENING_FAIL_CLOSED', 'INTAFACED_SANCTIONS_REGIONS', 'INTAFACED_SANCTIONS_SOURCE'] as const;
+    const prior = keys.map((key) => process.env[key]);
+    const app = await mountRouter();
+    try {
+      process.env.INTAFACED_SCREENING_FAIL_CLOSED = 'on';
+      delete process.env.INTAFACED_SANCTIONS_REGIONS;
+      delete process.env.INTAFACED_SANCTIONS_SOURCE;
+      const out = await trpcQuery(app, 'execution.oms.ems.get', { clientOrderId: 'missing' });
+      expect(out.status).toBe(403);
+      expect(out.body.error?.data?.code).toBe('FORBIDDEN');
+      expect(out.body.error?.message).toMatch(/screening list is unset/i);
+    } finally {
+      keys.forEach((key, index) => {
+        if (prior[index] === undefined) delete process.env[key];
+        else process.env[key] = prior[index];
+      });
+      await app.close();
+    }
+  });
   it('oms.execute refuses submit_failed when venue submit is not wired', async () => {
     const app = await mountRouter();
     const input = {

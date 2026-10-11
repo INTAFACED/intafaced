@@ -35,14 +35,15 @@ export type OmsCareDoorBody = {
   readonly parentCap?: string;
 };
 
-export type OmsCareDoorOk = {
-  readonly ok: true;
-  readonly discretionCap: string;
+export type OmsCareActionRefusal = {
+  readonly ok: false;
+  readonly reason: 'action_required';
+  readonly detail: string;
 };
 
 export type OmsCareDoorResult =
   | OmsDiscretionRefusal
-  | OmsCareDoorOk
+  | OmsCareActionRefusal
   | OmsClaimResult
   | OmsAssignResult
   | OmsPassResult
@@ -76,7 +77,7 @@ export function handleOmsCareDiscretionDoor(body: OmsCareDoorBody) {
   return refuseUnsetDiscretionCap(body.discretionCap);
 }
 
-/** Pure door — tests call this. Discretion refuse first, then mill hitch. Stores stay unwired. */
+/** Pure door — tests call this. Discretion refuse first, then mill hitch. A missing or unknown action refuses. Stores stay unwired. */
 export function handleOmsCareDoor(body: OmsCareDoorBody): OmsCareDoorResult {
   const cap = refuseUnsetDiscretionCap(body.discretionCap);
   if (!cap.ok) return cap;
@@ -89,7 +90,11 @@ export function handleOmsCareDoor(body: OmsCareDoorBody): OmsCareDoorResult {
   if (action === 'fill-assign' || action === 'fill_assign') return assignChildFill(body);
   if (action === 'manual-fill' || action === 'manual_fill') return millManualFill(body);
   if (action === 'abandon') return abandonStagedParent(body);
-  return cap;
+  return {
+    ok: false,
+    reason: 'action_required',
+    detail: 'care action is missing or unknown — refusing rather than reporting success',
+  };
 }
 
 export function registerOmsCareDoor(app: FastifyInstance, deps: OmsCareDoorDeps): void {

@@ -5,7 +5,7 @@
  * Does not invent a canceled status: if the venue still says open/filled, that
  * result is returned. Missing injection or throw is `cancel_failed`.
  */
-import type { VenueExecution, VenueKind } from '@intafaced/venue-adapter';
+import type { VenueKind } from '@intafaced/venue-adapter';
 import type { VenueOrder } from '@intafaced/venue-contracts';
 import { venueOrderToExecution } from './oms-trade-submit.js';
 import type { EmsOrderStore } from './oms-ems-store.js';
@@ -69,8 +69,17 @@ export async function cancelOmsOrder(input: OmsCancelInput): Promise<OmsCancelRe
     };
   }
 
+  // Read the retained row after the remote await: another observation may have completed this child.
   const evidence = input.emsStore?.get(clientOrderId);
-  if (evidence && (order.status === 'filled' || order.status === 'partially_filled')) {
+  if (evidence && !matchesRetainedSliceIntent(evidence, order)) {
+    return { ok: false, reason: 'cancel_failed', detail: 'venue observation does not match the retained slice intent' };
+  }
+  const retainedSlice = evidence !== null && evidence !== undefined && hasRetainedSliceIntent(evidence);
+  if (
+    evidence &&
+    !hasTerminalSliceEvidence(evidence) &&
+    (retainedSlice || order.status === 'filled' || order.status === 'partially_filled')
+  ) {
     try {
       const observed = venueOrderToExecution(order, {
         symbol,
@@ -79,22 +88,29 @@ export async function cancelOmsOrder(input: OmsCancelInput): Promise<OmsCancelRe
         limitPrice: order.averagePrice ?? order.price ?? 0n,
         clientOrderId,
       });
-      if (observed.averagePrice === null) {
+      if (!retainedSlice && observed.averagePrice === null) {
         return { ok: true, order };
       }
-      const execution: VenueExecution = { ...observed, averagePrice: observed.averagePrice };
+      const execution = observed;
+      const stopped = order.status === 'canceled' || order.status === 'expired' || order.status === 'rejected' || order.status === 'filled';
       input.emsStore?.record({
         ...evidence,
         execution,
-        state: execution.status === 'rejected' ? 'REJECTED' : 'ACKNOWLEDGED',
+        state:
+          retainedSlice && (order.status === 'canceled' || order.status === 'expired')
+            ? 'CANCELED'
+            : execution.status === 'rejected'
+              ? 'REJECTED'
+              : 'ACKNOWLEDGED',
+        ...(retainedSlice && stopped ? { drainedRemaining: order.remaining } : {}),
         reconciliationKey: null,
         recordedAtMs: Date.now(),
       });
     } catch {
-      // A cancel response is not submit evidence. Only a confirmed fill can
-      // reconcile an execution; otherwise preserve the unknown EMS record.
+      // Preserve the retained row when the venue response cannot provide valid execution evidence.
     }
   }
 
   return { ok: true, order };
 }
+import { hasRetainedSliceIntent, hasTerminalSliceEvidence, matchesRetainedSliceIntent } from './oms-slice-intent.js';

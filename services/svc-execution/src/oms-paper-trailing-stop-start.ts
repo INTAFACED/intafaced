@@ -33,40 +33,24 @@ export type OmsPaperTrailingStopStartOk = {
   readonly trailOffset: string;
 };
 
-export type OmsPaperTrailingStopStartResult =
-  | OmsPaperTrailingStopStartOk
-  | OmsPaperTrailingStopStartRefusal;
+export type OmsPaperTrailingStopStartResult = OmsPaperTrailingStopStartOk | OmsPaperTrailingStopStartRefusal;
 
-function refuse(
-  reason: OmsPaperTrailingStopStartRefuseReason,
-  detail: string,
-): OmsPaperTrailingStopStartRefusal {
+function refuse(reason: OmsPaperTrailingStopStartRefuseReason, detail: string): OmsPaperTrailingStopStartRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseRetainedTrailOffset(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperTrailingStopStartRefusal {
+function parseRetainedTrailOffset(raw: string | null | undefined): { ok: true; text: string } | OmsPaperTrailingStopStartRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'missing_trail',
-      'trailing-stop trail is missing — refusing to invent trail or a live venue',
-    );
+    return refuse('missing_trail', 'trailing-stop trail is missing — refusing to invent trail or a live venue');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'missing_trail',
-      'trailing-stop trail is missing — refusing to invent trail or a live venue',
-    );
+    return refuse('missing_trail', 'trailing-stop trail is missing — refusing to invent trail or a live venue');
   }
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      'missing_trail',
-      'trailing-stop trail is not a ledger amount — refusing to invent trail',
-    );
+    return refuse('missing_trail', 'trailing-stop trail is not a ledger amount — refusing to invent trail');
   }
 }
 
@@ -79,7 +63,7 @@ export function startPaperTrailingStopParent(input: {
   kind?: string;
   /** Must be true — start needs an already-approved paper trailing-stop parent. */
   approved?: boolean;
-  /** Paper-approved status is 'paper'. Live running refuses already_started. */
+  /** Trimmed before compare. 'running' refuses already_started. A present blank or other non-startable status refuses not_approved. */
   status?: 'paper' | 'approved' | 'running' | string;
   /** Retained trail offset from paper approve. Blank refuses — never invent trail. */
   trailOffset?: string | null;
@@ -99,17 +83,17 @@ export function startPaperTrailingStopParent(input: {
   if (input.kind !== undefined && input.kind !== 'trailing-stop') {
     return refuse('not_live', `kind ${String(input.kind)} is not trailing-stop`);
   }
-  if (input.status === 'running') {
-    return refuse(
-      'already_started',
-      `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`,
-    );
+  const status = input.status?.trim();
+  if (status === 'running') {
+    return refuse('already_started', `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`);
   }
-  if (input.approved !== true && input.status !== 'paper' && input.status !== 'approved') {
-    return refuse(
-      'not_approved',
-      `parent ${parentClientOrderId} is not an approved paper trailing-stop parent`,
-    );
+  // Trimmed '' is present. Only an omitted status is undefined and may follow approved.
+  const startableStatus = status === 'paper' || status === 'approved';
+  if (status !== undefined && !startableStatus) {
+    return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper trailing-stop parent`);
+  }
+  if (input.approved !== true && !startableStatus) {
+    return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper trailing-stop parent`);
   }
   const operatorId = input.operatorId?.trim() ?? '';
   if (!operatorId) {

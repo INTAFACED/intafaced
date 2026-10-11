@@ -12,6 +12,8 @@ export type OmsIsPaperExpireRefuseReason =
   | 'already_expired'
   | 'already_stopped'
   | 'missing_expire_at'
+  | 'missing_clock'
+  | 'not_due'
   | 'paper_gate_unwired'
   | 'paper_off';
 
@@ -54,8 +56,16 @@ function retainedExpireAt(raw: string | null | undefined): string | null {
   return trimmed;
 }
 
+function injectedNow(now?: Date): Date | null {
+  if (!(now instanceof Date)) return null;
+  const ms = now.getTime();
+  if (!Number.isFinite(ms)) return null;
+  return now;
+}
+
 /**
  * Expire a paper IS parent using expireAt already retained on the schedule.
+ * The caller supplies now. A missing clock or a now before expireAt refuses.
  * Residual is not released or consumed. Paper off refuses a live venue.
  */
 export function expirePaperImplementationShortfallParent(input: {
@@ -96,10 +106,14 @@ export function expirePaperImplementationShortfallParent(input: {
 
   const expireAt = retainedExpireAt(input.expireAt);
   if (!expireAt) {
-    return refuse(
-      'missing_expire_at',
-      'expireAt is missing — refusing to invent a schedule from duration or the clock',
-    );
+    return refuse('missing_expire_at', 'expireAt is missing — refusing to invent a schedule from duration or the clock');
+  }
+  const now = injectedNow(input.now);
+  if (!now) {
+    return refuse('missing_clock', 'now is required — refusing to invent a wall clock');
+  }
+  if (now.getTime() < Date.parse(expireAt)) {
+    return refuse('not_due', `parent ${parentClientOrderId} expires at ${expireAt} — injected clock is not past the deadline`);
   }
 
   return {

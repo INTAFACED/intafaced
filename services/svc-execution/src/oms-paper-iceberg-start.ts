@@ -35,43 +35,26 @@ export type OmsPaperIcebergStartOk = {
 
 export type OmsPaperIcebergStartResult = OmsPaperIcebergStartOk | OmsPaperIcebergStartRefusal;
 
-function refuse(
-  reason: OmsPaperIcebergStartRefuseReason,
-  detail: string,
-): OmsPaperIcebergStartRefusal {
+function refuse(reason: OmsPaperIcebergStartRefuseReason, detail: string): OmsPaperIcebergStartRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseRetainedDisplayQty(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperIcebergStartRefusal {
+function parseRetainedDisplayQty(raw: string | null | undefined): { ok: true; text: string } | OmsPaperIcebergStartRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'missing_display_qty',
-      'iceberg display qty is missing — refusing to invent size or a live venue',
-    );
+    return refuse('missing_display_qty', 'iceberg display qty is missing — refusing to invent size or a live venue');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'missing_display_qty',
-      'iceberg display qty is missing — refusing to invent size or a live venue',
-    );
+    return refuse('missing_display_qty', 'iceberg display qty is missing — refusing to invent size or a live venue');
   }
   try {
     const value = parseAmount(text);
     if (value <= 0n) {
-      return refuse(
-        'missing_display_qty',
-        'iceberg display qty must be a positive ledger amount — refusing to invent size',
-      );
+      return refuse('missing_display_qty', 'iceberg display qty must be a positive ledger amount — refusing to invent size');
     }
     return { ok: true, text: formatAmount(value) };
   } catch {
-    return refuse(
-      'missing_display_qty',
-      'iceberg display qty is not a ledger amount — refusing to invent size',
-    );
+    return refuse('missing_display_qty', 'iceberg display qty is not a ledger amount — refusing to invent size');
   }
 }
 
@@ -84,7 +67,7 @@ export function startPaperIcebergParent(input: {
   kind?: string;
   /** Must be true — start needs an already-approved paper iceberg parent. */
   approved?: boolean;
-  /** Paper-approved status is 'paper'. Live running refuses already_started. */
+  /** Paper-approved status is 'paper' or 'approved'. Trimmed 'running' refuses already_started. Stopped and expired refuse not_approved. */
   status?: 'paper' | 'approved' | 'running' | string;
   /** Retained display qty from paper approve. Blank refuses — never invent size. */
   displayQty?: string | null;
@@ -104,17 +87,12 @@ export function startPaperIcebergParent(input: {
   if (input.kind !== undefined && input.kind !== 'iceberg') {
     return refuse('not_live', `kind ${String(input.kind)} is not iceberg`);
   }
-  if (input.status === 'running') {
-    return refuse(
-      'already_started',
-      `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`,
-    );
+  const status = input.status?.trim();
+  if (status === 'running') {
+    return refuse('already_started', `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`);
   }
-  if (input.approved !== true && input.status !== 'paper' && input.status !== 'approved') {
-    return refuse(
-      'not_approved',
-      `parent ${parentClientOrderId} is not an approved paper iceberg parent`,
-    );
+  if (status === 'stopped' || status === 'expired' || (input.approved !== true && status !== 'paper' && status !== 'approved')) {
+    return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper iceberg parent`);
   }
   const operatorId = input.operatorId?.trim() ?? '';
   if (!operatorId) {

@@ -6,7 +6,7 @@
  * duration, or slicesPlanned, never posts ledger value, and does not
  * touch matching. An unconfirmed child fill is never client-accepted.
  */
-import { formatAmount } from '@intafaced/ledger-client';
+import { formatAmount, isNegative, isZero } from '@intafaced/ledger-client';
 import type { EmsOrderEvidence, EmsOrderStore } from './oms-ems-store.js';
 import type { AlgoKind, ApprovedAlgoParent, ApprovedAlgoParentStore } from './oms-start.js';
 
@@ -115,11 +115,14 @@ function confirmerOf(confirmerId?: string): string {
   return confirmerId?.trim() ?? '';
 }
 
-/** Venue filled|partial evidence only — never invents leftover as a fill. */
+/** Venue filled|partial evidence only. A zero or negative amount or price is not a fill. */
 export function fillFacts(row: EmsOrderEvidence): ChildFillFacts | null {
   const execution = row.execution;
   if (!execution) return null;
   if (execution.status !== 'filled' && execution.status !== 'partial') return null;
+  if (isZero(execution.filledAmount) || isNegative(execution.filledAmount)) return null;
+  if (execution.averagePrice === null) return null;
+  if (isZero(execution.averagePrice) || isNegative(execution.averagePrice)) return null;
   return {
     clientOrderId: row.clientOrderId,
     childOrderId: row.childOrderId ?? null,

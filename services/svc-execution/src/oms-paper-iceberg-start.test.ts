@@ -79,6 +79,34 @@ describe('startPaperIcebergParent', () => {
     ).toMatchObject({ ok: false, reason: 'already_started' });
   });
 
+  it("refuses padded status 'running ' with already_started and does not start", () => {
+    const result = startPaperIcebergParent({
+      parentClientOrderId: 'p-ice',
+      approved: true,
+      status: 'running ',
+      displayQty: DISPLAY,
+      operatorId: OP,
+      paper: PAPER_ON,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'already_started' });
+    expect(result).not.toMatchObject({ started: true });
+  });
+
+  it('refuses stopped and expired with not_approved even when approved is true', () => {
+    for (const status of ['stopped', 'expired'] as const) {
+      const result = startPaperIcebergParent({
+        parentClientOrderId: 'p-ice',
+        approved: true,
+        status,
+        displayQty: DISPLAY,
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(result).toMatchObject({ ok: false, reason: 'not_approved' });
+      expect(result).not.toMatchObject({ started: true });
+    }
+  });
+
   it('refuses omitted status and approved:false with not_approved', () => {
     expect(
       startPaperIcebergParent({
@@ -113,7 +141,7 @@ describe('startPaperIcebergParent', () => {
     ).toMatchObject({ ok: false, reason: 'missing_operator' });
   });
 
-  it('refuses omitted / blank / 0 displayQty with missing_display_qty', () => {
+  it('refuses omitted / blank / 0 / negative displayQty with missing_display_qty', () => {
     expect(
       startPaperIcebergParent({
         parentClientOrderId: 'p-ice',
@@ -143,6 +171,16 @@ describe('startPaperIcebergParent', () => {
         paper: PAPER_ON,
       }),
     ).toMatchObject({ ok: false, reason: 'missing_display_qty' });
+    expect(
+      startPaperIcebergParent({
+        parentClientOrderId: 'p-ice',
+        approved: true,
+        status: 'paper',
+        displayQty: '-1',
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toMatchObject({ ok: false, reason: 'missing_display_qty' });
   });
 
   it("happy: status paper + displayQty '100' + operator + paper on", () => {
@@ -163,6 +201,48 @@ describe('startPaperIcebergParent', () => {
       displayQty: formatAmount(parseAmount(DISPLAY)),
     });
     expect(started).not.toMatchObject({ status: 'running' });
+  });
+
+  it("happy: approved true + status paper + displayQty '100' + operator + paper on", () => {
+    expect(
+      startPaperIcebergParent({
+        parentClientOrderId: 'p-ice',
+        approved: true,
+        status: 'paper',
+        displayQty: DISPLAY,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-ice',
+      kind: 'iceberg',
+      status: 'paper',
+      displayQty: formatAmount(parseAmount(DISPLAY)),
+    });
+  });
+
+  it("happy: approved true + status approved + displayQty '100' + operator + paper on", () => {
+    expect(
+      startPaperIcebergParent({
+        parentClientOrderId: 'p-ice',
+        approved: true,
+        status: 'approved',
+        displayQty: DISPLAY,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-ice',
+      kind: 'iceberg',
+      status: 'paper',
+      displayQty: formatAmount(parseAmount(DISPLAY)),
+    });
   });
 
   it("happy: approved true + displayQty '100' + operator + paper on (status omitted)", () => {

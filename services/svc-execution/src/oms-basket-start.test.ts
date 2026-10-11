@@ -83,6 +83,15 @@ describe('startBasketParent', () => {
     });
   });
 
+  it('refuses status paper even when approved is true, and does not start', () => {
+    const result = startBasketParent(base({ approved: true, status: 'paper' }));
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'not_approved',
+    });
+    expect(result).not.toMatchObject({ started: true, status: 'running' });
+  });
+
   it('refuses missing / whitespace operator', () => {
     expect(startBasketParent(base({ operatorId: undefined }))).toMatchObject({
       ok: false,
@@ -192,6 +201,20 @@ describe('startBasketParent', () => {
     expect(startBasketParent(base({ credit: 'not-an-amount' }))).toMatchObject({
       ok: false,
       reason: 'credit_invalid',
+    });
+  });
+
+  it('refuses a negative residual.remaining and does not copy it onto the started parent', () => {
+    const negative = '-1.25';
+    const result = startBasketParent(base({ remaining: negative }));
+    expect(parseAmount(negative) < 0n).toBe(true);
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'missing_residual',
+    });
+    expect(result).not.toMatchObject({
+      started: true,
+      residual: { remaining: formatAmount(parseAmount(negative)) },
     });
   });
 

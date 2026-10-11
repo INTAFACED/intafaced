@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { parseAmount } from '@intafaced/ledger-client';
+import { parseAmount, ZERO } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { SealedHouseTenantRegistry } from '@intafaced/execution-house-tenant';
-import type { SubmitRequest } from '@intafaced/venue-adapter';
+import type { SubmitRequest, VenueExecution } from '@intafaced/venue-adapter';
 import { InMemoryEmsOrderStore } from './oms-ems-store.js';
 import { executeOmsRoute, type OmsSubmitFn } from './oms-execute.js';
 import { InMemoryAlgoPauseStore, pauseInFlightAlgo } from './oms-pause.js';
@@ -80,6 +80,20 @@ class FakeSource {
   };
 }
 
+function execution(over: Partial<VenueExecution> = {}): VenueExecution {
+  return {
+    venueId: 'street',
+    venueOrderId: 'v-1',
+    filledAmount: ZERO,
+    averagePrice: parseAmount('100'),
+    feeAmount: ZERO,
+    feeAsset: 'USDT',
+    status: 'partial',
+    executedAt: new Date('2026-08-25T00:00:00.000Z'),
+    ...over,
+  };
+}
+
 function seedAck(
   store: InMemoryEmsOrderStore,
   over: {
@@ -88,6 +102,7 @@ function seedAck(
     executionGroupId?: string;
     venueId?: string;
     state?: 'ACKNOWLEDGED' | 'REJECTED' | 'UNWIRED' | 'SUBMIT_UNKNOWN' | 'OUTCOME_UNKNOWN';
+    execution?: VenueExecution | null;
   } = {},
 ) {
   store.record({
@@ -99,7 +114,7 @@ function seedAck(
     venueId: over.venueId ?? 'street',
     symbol: 'BTC/USDT',
     side: 'buy',
-    execution: null,
+    execution: over.execution === undefined ? null : over.execution,
     state: over.state ?? 'ACKNOWLEDGED',
     reconciliationKey: null,
   });
@@ -177,6 +192,47 @@ describe('resumeInFlightAlgo', () => {
       ok: false,
       reason: 'not_paused',
     });
+  });
+
+  it('an acknowledged child whose execution is rejected is already stopped', () => {
+    const store = new InMemoryEmsOrderStore();
+    const pauseStore = new InMemoryAlgoPauseStore();
+    seedAck(store, {
+      clientOrderId: 'child-rejected',
+      state: 'ACKNOWLEDGED',
+      execution: execution({ status: 'rejected', venueOrderId: 'v-rej' }),
+    });
+    seedAck(store, { clientOrderId: 'child-null', state: 'ACKNOWLEDGED' });
+    seedAck(store, { clientOrderId: 'child-submit', state: 'SUBMIT_UNKNOWN' });
+    seedAck(store, { clientOrderId: 'child-outcome', state: 'OUTCOME_UNKNOWN' });
+    seedAck(store, {
+      clientOrderId: 'child-filled',
+      execution: execution({ status: 'filled', venueOrderId: 'v-filled' }),
+    });
+    seedAck(store, {
+      clientOrderId: 'child-partial',
+      execution: execution({ status: 'partial', venueOrderId: 'v-partial' }),
+    });
+    seedAck(store, { clientOrderId: 'child-state-rejected', state: 'REJECTED' });
+    seedAck(store, { clientOrderId: 'child-unwired', state: 'UNWIRED' });
+    expect(pauseInFlightAlgo({ parentClientOrderId: 'parent-1', emsStore: store, pauseStore }).ok).toBe(true);
+    const result = resumeInFlightAlgo({
+      parentClientOrderId: 'parent-1',
+      emsStore: store,
+      pauseStore,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.children).toEqual([
+      { clientOrderId: 'child-rejected', venueId: 'street', outcome: 'already_stopped', status: 'rejected' },
+      { clientOrderId: 'child-null', venueId: 'street', outcome: 'unknown', reason: 'ACKNOWLEDGED' },
+      { clientOrderId: 'child-submit', venueId: 'street', outcome: 'unknown', reason: 'SUBMIT_UNKNOWN' },
+      { clientOrderId: 'child-outcome', venueId: 'street', outcome: 'unknown', reason: 'OUTCOME_UNKNOWN' },
+      { clientOrderId: 'child-filled', venueId: 'street', outcome: 'live', status: 'filled' },
+      { clientOrderId: 'child-partial', venueId: 'street', outcome: 'live', status: 'partial' },
+      { clientOrderId: 'child-state-rejected', venueId: 'street', outcome: 'already_stopped', reason: 'REJECTED' },
+      { clientOrderId: 'child-unwired', venueId: 'street', outcome: 'already_stopped', reason: 'UNWIRED' },
+    ]);
   });
 
   it('missing EMS or pause store is refused', () => {

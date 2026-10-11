@@ -5,7 +5,7 @@
  * submits, never plans a replacement hedge, never invents venue/side/
  * amount/price, and does not touch matching.
  */
-import { add, formatAmount, ZERO, type Amount } from '@intafaced/ledger-client';
+import { add, formatAmount, type Amount } from '@intafaced/ledger-client';
 import { isFailedHedge } from './oms-failed-hedges.js';
 import type { EmsOrderEvidence, EmsOrderStore } from './oms-ems-store.js';
 
@@ -17,7 +17,7 @@ export type OmsRepairHedgeInput = {
 };
 
 export type OmsRepairHedgeResidual = {
-  readonly filled: string;
+  readonly filled: string | null;
   readonly remaining: string | null;
 };
 
@@ -56,26 +56,17 @@ function failureReason(row: EmsOrderEvidence): string {
   return row.state ?? 'failed';
 }
 
-function alreadyStopped(row: EmsOrderEvidence): boolean {
-  return row.state === 'REJECTED' || row.state === 'UNWIRED' || row.execution?.status === 'rejected';
-}
-
 function parentResidual(rows: readonly EmsOrderEvidence[]): OmsRepairHedgeResidual {
-  let filled: Amount = ZERO;
-  let unknown = false;
+  let filled: Amount | null = null;
   for (const row of rows) {
-    if (alreadyStopped(row)) continue;
     if (row.state === 'SUBMIT_UNKNOWN' || row.state === 'OUTCOME_UNKNOWN' || row.execution === null) {
-      unknown = true;
       continue;
     }
-    if (row.execution.status === 'partial') unknown = true;
-    filled = add(filled, row.execution.filledAmount);
+    const amount = row.execution.filledAmount;
+    filled = filled === null ? amount : add(filled, amount);
   }
-  return {
-    filled: formatAmount(filled),
-    remaining: unknown ? null : formatAmount(ZERO),
-  };
+  if (filled === null) return { filled: null, remaining: null };
+  return { filled: formatAmount(filled), remaining: null };
 }
 
 export function repairFailedHedgeChild(input: OmsRepairHedgeInput): OmsRepairHedgeResult {

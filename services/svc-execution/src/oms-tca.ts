@@ -280,6 +280,7 @@ function vwap(fills: readonly TcaFill[]): Amount | TcaGap {
     if (isGap(px)) return px;
     if (isGap(amt)) return amt;
     if (amt <= 0n) continue;
+    if (px <= 0n) continue;
     notional = add(notional, mul(px, amt, 'half-up'));
     qty = add(qty, amt);
   }
@@ -297,6 +298,7 @@ function intervalVwap(prints: readonly TcaPrint[]): Amount | TcaGap {
     if (isGap(px)) return px;
     if (isGap(amt)) return { code: 'missing_prints', detail: 'interval VWAP print is missing amount — refusing to invent volume' };
     if (amt <= 0n) continue;
+    if (px <= 0n) continue;
     notional = add(notional, mul(px, amt, 'half-up'));
     qty = add(qty, amt);
   }
@@ -329,6 +331,7 @@ function intervalTwap(prints: readonly TcaPrint[], windowFrom: string | undefine
     const end = i + 1 < stamped.length ? Math.min(stamped[i + 1]!.at, toMs) : toMs;
     const dt = end - start;
     if (dt <= 0) continue;
+    if (stamped[i]!.px <= 0n) continue;
     const dtAmt = parseAmount(String(dt));
     weighted = add(weighted, mul(stamped[i]!.px, dtAmt, 'half-up'));
     duration = add(duration, dtAmt);
@@ -369,6 +372,9 @@ function toFill(row: EmsOrderEvidence): TcaFill | TcaGap {
   }
   if (row.execution.status !== 'filled' && row.execution.status !== 'partial') {
     return { code: 'no_fill_evidence', detail: `EMS child ${row.clientOrderId} status is not a fill` };
+  }
+  if (row.execution.averagePrice === null) {
+    return { code: 'no_fill_evidence', detail: `EMS child ${row.clientOrderId} has no observed fill price` };
   }
   return {
     clientOrderId: row.clientOrderId,
@@ -454,6 +460,9 @@ function priceBenchmark(
       const bid = parseDecimal(obs.bid, 'bid');
       const ask = parseDecimal(obs.ask, 'ask');
       if (isGap(bid) || isGap(ask)) return unavailable(cls, 'missing_book', 'quoted spread needs bid and ask', obs.source);
+      if ((bid as Amount) <= 0n || (ask as Amount) <= 0n) {
+        return unavailable(cls, 'missing_book', 'bid/ask must be positive', obs.source);
+      }
       const spread = sub(ask as Amount, bid as Amount);
       if (spread <= 0n) return unavailable(cls, 'one_sided_book', 'quoted spread is not positive', obs.source);
       return {

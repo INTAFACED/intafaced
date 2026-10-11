@@ -83,18 +83,63 @@ describe('startImplementationShortfallParent', () => {
   });
 
   it('status running refuses already_started even if approved true', () => {
-    expect(
-      startImplementationShortfallParent({
+    const result = startImplementationShortfallParent({
+      parentClientOrderId: 'p-is',
+      approved: true,
+      status: 'running',
+      arrivalPrice: '100',
+      operatorId: OP,
+      jobs: { enabled: true },
+      matchingVenueHalt: MATCHING_OPEN,
+      now,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'already_started' });
+    expect(result).not.toHaveProperty('started');
+  });
+
+  it.each(['stopped', 'expired', 'paper', 'cancelled'])(
+    'approved true with status %s refuses not_approved and does not start',
+    (status) => {
+      const result = startImplementationShortfallParent({
         parentClientOrderId: 'p-is',
         approved: true,
-        status: 'running',
-        arrivalPrice: '100',
+        status,
+        arrivalPrice: '100.5',
         operatorId: OP,
         jobs: { enabled: true },
         matchingVenueHalt: MATCHING_OPEN,
         now,
-      }),
-    ).toMatchObject({ ok: false, reason: 'already_started' });
+      });
+      expect(result).toEqual({
+        ok: false,
+        reason: 'not_approved',
+        detail: 'parent p-is is not approved',
+      });
+      expect(result).not.toHaveProperty('started');
+      expect(result).not.toHaveProperty('arrivalPrice');
+      expect(result).not.toHaveProperty('slices');
+      expect(result).not.toHaveProperty('venue');
+      expect(result).not.toHaveProperty('child');
+    },
+  );
+
+  it.each([' running', 'Running', 'RUNNING', '  running  '])('status %j refuses already_started and does not start', (status) => {
+    const result = startImplementationShortfallParent({
+      parentClientOrderId: 'p-is',
+      approved: true,
+      status,
+      arrivalPrice: '100.5',
+      operatorId: OP,
+      jobs: { enabled: true },
+      matchingVenueHalt: MATCHING_OPEN,
+      now,
+    });
+    expect(result).toEqual({
+      ok: false,
+      reason: 'already_started',
+      detail: 'parent p-is is already running',
+    });
+    expect(result).not.toHaveProperty('started');
   });
 
   it('blank/null arrival with approved true refuses missing_schedule and does not invent slices', () => {
@@ -223,6 +268,40 @@ describe('startImplementationShortfallParent', () => {
       arrivalPrice: '100.5',
       startedAt: '2026-08-31T12:00:00.000Z',
     });
+  });
+
+  it('approved true with status omitted or approved still starts as running', () => {
+    const omitted = startImplementationShortfallParent({
+      parentClientOrderId: 'p-is',
+      approved: true,
+      arrivalPrice: '100.5',
+      operatorId: OP,
+      jobs: { enabled: true },
+      matchingVenueHalt: MATCHING_OPEN,
+      now,
+    });
+    const approvedStatus = startImplementationShortfallParent({
+      parentClientOrderId: 'p-is',
+      approved: true,
+      status: 'approved',
+      arrivalPrice: '100.5',
+      operatorId: OP,
+      jobs: { enabled: true },
+      matchingVenueHalt: MATCHING_OPEN,
+      now,
+    });
+    for (const result of [omitted, approvedStatus]) {
+      expect(result).toEqual({
+        ok: true,
+        started: true,
+        parentClientOrderId: 'p-is',
+        kind: 'implementation_shortfall',
+        status: 'running',
+        arrivalPrice: '100.5',
+        startedAt: '2026-08-31T12:00:00.000Z',
+      });
+      expect(typeof (result as { arrivalPrice: string }).arrivalPrice).toBe('string');
+    }
   });
 
   it("status 'approved' without approved true still starts", () => {
