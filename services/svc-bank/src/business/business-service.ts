@@ -381,8 +381,8 @@ export class BusinessService {
         return { transferId: approval.transferId ?? approval.id, ledgerTxId: approval.ledgerTxId };
       }
       if (approval.status === 'approved') {
-        // The row was claimed and the settle post did not land. The settle
-        // key is the approval id, so this retry posts once.
+        // No ledger tx id yet. A settle that already posted is stored here
+        // and not released. A settle post that threw is rejected in finishSettle.
         if (approval.makerUserId === input.checkerUserId) {
           throw new BankError('Maker cannot approve their own transfer', 'bank.business_self_approve');
         }
@@ -765,18 +765,40 @@ export class BusinessService {
     await this.releaseHold(approval);
   }
 
-  /** Settle key is the approval id. A second call returns the posted tx. */
+  /**
+   * Settle key is the approval id. A posted settle is stored and not released.
+   * A thrown settle releases the held row amount once and leaves the row
+   * rejected, so a later approve cannot post it.
+   */
   private async finishSettle(approval: BusinessApproval): Promise<{ transferId: string; ledgerTxId: string }> {
     const from = await this.spaces.get(approval.fromSpaceId);
     const to = await this.spaces.resolveForCredit(approval.toSpaceId);
-    const settled = await this.ledger.post(
-      recipes.businessApprovalSettle({
-        approvalId: approval.id,
-        from: accountForSpace(from),
-        to: accountForSpace(to),
-        amount: approval.amount,
-      }),
-    );
+    let settled: LedgerTx;
+    try {
+      settled = await this.ledger.post(
+        recipes.businessApprovalSettle({
+          approvalId: approval.id,
+          from: accountForSpace(from),
+          to: accountForSpace(to),
+          amount: approval.amount,
+        }),
+      );
+    } catch {
+      await this.releaseHold(approval);
+      await this.sql`
+        UPDATE bank.business_approvals
+           SET status = 'rejected',
+               rejection_code = ${'bank.business_settle_unposted'},
+               decided_at = now()
+         WHERE id = ${approval.id}::uuid
+           AND status = 'approved'
+           AND ledger_tx_id IS NULL
+      `;
+      throw new BankError(
+        'The settle did not post and the hold was released',
+        'bank.business_rejected',
+      );
+    }
     await this.sql`
         UPDATE bank.business_approvals
            SET ledger_tx_id = ${settled.id}
