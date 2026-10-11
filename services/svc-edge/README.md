@@ -169,6 +169,8 @@ Until this landed the edge sent **no CORS headers at all** — not a permissive 
 | `EDGE_KILL_STATE_PATH`                 | JSON path for single-process kill restart durability. Empty = memory only. **Not** multi-replica share.                                                               |
 | `LEDGER_URL`                           | optional; operator freeze surface. Unset → `/admin/status.ledgerConfigured: false`.                                                                                   |
 
+Authenticated forwarding now checks current identity authority on every request with the dedicated `IDENTITY_OWNERSHIP_SECRET`, matching identity's `IDENTITY_EDGE_AUTHORITY_SECRET`. It never substitutes the generic internal service secret, a WebSocket read key or an owner money-admission key. Missing configuration, a revoked or expired credential, unavailable identity or a response beyond the bounded three-second read refuses authenticated forwarding. Anonymous public enquiry routes remain reachable. The check covers the response body, avoids cached responses and redirects, and binds the original user/credential/subaccount. API keys additionally use current owner, expiry, IP, origin, product and account restrictions; the route determines the product. Identity's current KYC tier replaces the token's older tier. Ordinary interactive TOTP sessions can use the platform; existing explicit passkey and money-admission policies retain their own gates.
+
 ## Not built yet
 
 - **Full geo topology + CDN contract.** Mechanism: trusted header + trustProxy (`EDGE_GEO_COUNTRY_HEADER`). Still needs deployment topology proof (socket.geo-region-resolution residual) and Class X counsel list content.
