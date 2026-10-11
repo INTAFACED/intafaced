@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
-import { rankPerksSchema, rankStateSchema } from '@intafaced/contracts';
+import { rankPerksSchema, rankStateSchema, accountControlResultSchema } from '@intafaced/contracts';
+import {
+  callFounderControl,
+  identityFreezeInputSchema,
+  identityRestoreInputSchema,
+  type FounderControlsPort,
+} from './controls/founder-controls-router.js';
 import { AuthError as GuardError, requireMfa } from '@intafaced/auth';
 import { requestIpAls } from './auth/auth-service-ip.js';
 import {
@@ -355,6 +361,7 @@ export function createIdentityRouter(
   auth: AuthService,
   rank: RankService,
   options: {
+    founderControls?: Pick<FounderControlsPort, 'change'>;
     /**
      * Owner-published registration gate. Unset → register refuses
      * `identity.registration_open_unset`. Explicit false → closed. Never invent true.
@@ -1302,34 +1309,15 @@ export function createIdentityRouter(
      * Cascades: user frozen + all sessions revoked + all sub-accounts + all API keys revoked.
      */
     compliance: router({
-      freezeIdentity: scopedProcedure('admin:compliance')
-        .input(z.object({ userId: z.string().uuid() }))
-        .output(
-          z.object({
-            userId: z.string().uuid(),
-            status: z.literal('frozen'),
-            subAccountsRevoked: z.number().int(),
-            apiKeysRevoked: z.number().int(),
-          }),
-        )
-        .mutation(async ({ input }) => {
-          try {
-            return await auth.freezeIdentity(input.userId);
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
+      freezeIdentity: protectedProcedure
+        .input(identityFreezeInputSchema)
+        .output(accountControlResultSchema)
+        .mutation(({ ctx, input }) => callFounderControl(options.founderControls, ctx, input)),
 
-      unfreezeIdentity: scopedProcedure('admin:compliance')
-        .input(z.object({ userId: z.string().uuid() }))
-        .output(z.object({ userId: z.string().uuid(), status: z.literal('active') }))
-        .mutation(async ({ input }) => {
-          try {
-            return await auth.unfreezeIdentity(input.userId);
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
+      unfreezeIdentity: protectedProcedure
+        .input(identityRestoreInputSchema)
+        .output(accountControlResultSchema)
+        .mutation(({ ctx, input }) => callFounderControl(options.founderControls, ctx, input)),
     }),
 
     subAccounts: router({

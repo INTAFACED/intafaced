@@ -63,6 +63,7 @@ export const users = identity.table(
     /** WebAuthn credentials — array of {credentialId, publicKey, counter, ...}. */
     webauthnCreds: jsonb('webauthn_creds').notNull().default([]),
     status: userStatusEnum('status').notNull().default('active'),
+    identityControlVersion: bigint('identity_control_version', { mode: 'bigint' }).notNull().default(0n),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
