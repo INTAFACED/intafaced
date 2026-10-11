@@ -86,7 +86,10 @@ export class BybitSpotAccount implements AccountAdapter {
     const keys = requireCredentials(VENUE.id, 'balances', this.#credentials);
     const body = await this.#signedGet({ accountType: 'UNIFIED' }, keys);
     const list = (body.result as { list?: unknown } | undefined)?.list;
-    if (!Array.isArray(list) || list.length === 0) {
+    if (!Array.isArray(list)) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', 'wallet-balance list is missing');
+    }
+    if (list.length === 0) {
       return [];
     }
     const first = list[0];
