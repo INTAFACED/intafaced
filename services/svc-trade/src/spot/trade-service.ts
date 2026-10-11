@@ -1517,9 +1517,10 @@ export class TradeService {
   /**
    * Paper market place — Stage-1 isolation.
    *
-   * Records an intent/open order with zero hold and never calls the ledger.
-   * Simulated fills / workbook wiring are Stage-2. Live placeOrder path is
-   * unchanged for non-paper markets.
+   * Records an open order with zero hold. Never calls the ledger and never
+   * calls matching.submit. A later fill is refused in settleFill before any
+   * trade.fills row or tradeFill post. Live placeOrder is unchanged for
+   * non-paper markets.
    */
   private async placePaperOrderIsolated(
     principal: Principal,
@@ -1573,15 +1574,8 @@ export class TradeService {
       if (raced) return assertSamePlaceCommand(raced, input, orderType, tif, false);
       throw new TradeError(`order ${orderId} vanished between insert and read`, 'trade.order_not_found');
     }
-    // No ledger.post. Paper options rest on the matching book so the desk is
-    // not an empty invented book — still no live settlement asset.
-    if (market.kind === 'options' && orderType === 'limit' && input.price != null) {
-      try {
-        await this.matching.submit(market.id, this.toEngineRequest(orderId, userId, input, orderType, tif, null, lifecycleProof));
-      } catch {
-        // Transport miss: the paper row still exists. Recovery is cancel.
-      }
-    }
+    // No ledger.post and no matching.submit. A zero-hold paper order on the
+    // live book is how a later fill posts tradeFill against an unfunded hold.
     const settled = await this.findOrder(orderId);
     if (!settled) throw new TradeError(`order ${orderId} vanished during paper place`, 'trade.order_not_found');
     await this.publishOrderUpdated(settled);
@@ -2482,6 +2476,16 @@ export class TradeService {
   }
 
   private async settleFill(market: Market, fill: EngineFill): Promise<void> {
+    // Before trade.fills and before any ledger post. The paper hold is zero
+    // and unfunded; a recorded match makes a later finalize throw
+    // trade.hold_uncovered. Do not fund the hold to make the post succeed.
+    if (market.paper) {
+      throw new TradeError(
+        `${market.symbol} is paper — refusing the fill before trade.fills and before any ledger post`,
+        'trade.paper_fill_refused',
+      );
+    }
+
     const qty = parseAmount(fill.qty);
     const price = parseAmount(fill.price);
 

@@ -326,6 +326,11 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    * 10/20. Operator publishes; not a retry loop and not a symbol to drop.
    */
   'trade.fee_schedule_blank': { ccxt: 'BadRequest', status: 400 },
+  /**
+   * Paper markets do not settle. Not a venue fault and not a retry: funding
+   * the zero hold to make tradeFill succeed is the bug this refuses.
+   */
+  'trade.paper_fill_refused': { ccxt: 'NotSupported', status: 403 },
   'trade.hold_uncovered': { ccxt: 'ExchangeError', status: 500 },
   /**
    * Funded engine-miss whose fills do not prove no fill. Hold stays.
