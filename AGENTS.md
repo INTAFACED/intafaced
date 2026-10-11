@@ -4,6 +4,8 @@ INTAFACED monorepo. Build the product and ship it.
 
 Doctrine: [`INTAFACED_DEFINITIVE_BUILD.md`](INTAFACED_DEFINITIVE_BUILD.md). Protocol: [`tooling/agent-protocol/AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md).
 
+Locate code with `rg`, `rg --files`, and focused Git history. Graphify is retired; historical instructions to install, query, or update it are obsolete.
+
 ## Ship (full access)
 
 1. Review, audit, and debug the change. **Merge when done.** Any agent may merge their own pull request.

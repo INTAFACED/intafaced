@@ -109,11 +109,11 @@ const ROWS = [
   },
   {
     id: '18.2-visual',
-    bullet: 'Visual proof durable and tied to an exact commit; scorecard and Graphify updated',
+    bullet: 'Visual proof durable and tied to an exact commit; scorecard updated',
     cls: 'BROWSER-PROVED',
     evidence:
       'tooling/uiproof/crops/look-tier-a-f1/SHA256SUMS, tooling/uiproof/crops/look-money-layer-a/SHA256SUMS, tooling/uiproof/crops/look-bank-os-glance/SHA256SUMS, tooling/uiproof/crops/look-pay-os-glance/SHA256SUMS, tooling/uiproof/crops/look-n4-residual-orange/SHA256SUMS, tooling/uiproof/crops/look-member-orange-janitor/SHA256SUMS, tooling/uiproof/crops/look-restrained-accent-member/SHA256SUMS, tooling/uiproof/crops/look-restrained-accent-admin/SHA256SUMS',
-    note: '178 F1 + Money/Bank/Pay Layer A #4017 + N4 catalog #4088 + member janitor #4163 + restrained pin KEEP member #4210 35aa4f654 / admin #4215 ffadd7130. Layer A freeze 2026-09-09. Graphify skips vendor Vue.',
+    note: '178 F1 + Money/Bank/Pay Layer A #4017 + N4 catalog #4088 + member janitor #4163 + restrained pin KEEP member #4210 35aa4f654 / admin #4215 ffadd7130. Layer A freeze 2026-09-09.',
   },
   {
     id: '18.2-docs',

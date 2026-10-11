@@ -17,9 +17,6 @@ docs/TRACKER.md
 # skips vendor/; format must match.
 vendor/
 
-# Official Graphify skill (copied by `graphify install --project`). Upstream
-# formatting; Prettier would fight every graphify upgrade.
+# Retired Graphify installer remnants and generated maps in older checkouts.
 .agents/skills/graphify/
-
-# Generated Graphify map (graph.json is ~20MB). Do not Prettier.
 graphify-out/

@@ -24,7 +24,7 @@ Trust floor history: [`PEACE-OF-MIND-AUDIT-CURRENT.md`](PEACE-OF-MIND-AUDIT-CURR
 - **Send to Denon / partner agent:** [`INTERNET-LEVERAGE-PARTNER-BRIEF-2026-08-05.md`](INTERNET-LEVERAGE-PARTNER-BRIEF-2026-08-05.md) — full context pack, no compromise.
 - **Post-Denon close-out (2026-08-05):** [`POST-DENON-REUSE-CLOSEOUT-2026-08-05.md`](POST-DENON-REUSE-CLOSEOUT-2026-08-05.md) — law aligned; what remains Denon vs Nitro residual.
 - **You do not manage this day-to-day.** Agents load it from `AGENTS.md`; CI fails if that chain is removed.
-- **Agents find code via Graphify** (not by re-reading the repo): `graphify query "…"`. The map is **in git** (`graphify-out/graph.json`) so a GitHub clone already has it. You do not run this. Later check: say **graphify peace** — [`GRAPHIFY-PEACE-CHECK.md`](GRAPHIFY-PEACE-CHECK.md).
+- **Agents find code locally:** use `rg`, `rg --files`, and focused Git history. Graphify was retired on 2026-10-11; old instructions to install, query, or refresh it are obsolete.
 
 ## What we are building (one breath)
 
