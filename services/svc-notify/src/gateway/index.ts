@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import postgres from 'postgres';
 import { readRelayEnvironment } from './env.js';
 import { buildMailboxRelay } from './relay.js';
+import { createRelayShutdown } from './shutdown.js';
 
 // Optional independent entrypoint. No platform identity, events, telemetry,
 // channels or NATS import is required to boot this private mailbox relay.
@@ -22,10 +23,10 @@ try {
   app = buildMailboxRelay({ sql, ...config });
   await app.listen({ host: config.host, port: config.port });
   console.info('notify.relay.listening');
-  const shutdown = async () => {
-    await app?.close();
-    await sql?.end({ timeout: 5 });
-  };
+  const shutdown = createRelayShutdown({
+    closeHttp: async () => app?.close(),
+    closeSql: async () => sql?.end({ timeout: 5 }),
+  });
   process.once('SIGINT', () => {
     void shutdown();
   });

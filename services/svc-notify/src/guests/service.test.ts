@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createServer, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { GuestNotificationService } from './service.js';
 import { EmailChannel } from '../channels/adapters.js';
@@ -129,6 +129,87 @@ describe('Guest notification durable boundary (isolated PostgreSQL)', () => {
     await new Promise((resolve) => setTimeout(resolve, 80));
     expect(await service.get({ businessKey: input.businessKey })).toEqual(first);
     expect(wire.messages).toHaveLength(1);
+  });
+  it.each([0, -3600000])(
+    'a delayed committed claim cannot first hand off after erase, including wall-clock shift %i',
+    async (wallShift) => {
+      const wire = await gateway((res) => {
+        res.writeHead(202);
+        res.end('{}');
+      });
+      let committed!: () => void, release!: () => void;
+      const claimCommitted = new Promise<void>((resolve) => {
+        committed = resolve;
+      });
+      const delayedReturn = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const delayedSql = new Proxy(db.sql, {
+        get(target, property, receiver) {
+          if (property === 'begin')
+            return async (...args: Parameters<typeof db.sql.begin>) => {
+              const result = await target.begin(...args); // Actual PostgreSQL COMMIT, not a fabricated claim.
+              committed();
+              await delayedReturn;
+              return result;
+            };
+          return Reflect.get(target, property, receiver);
+        },
+      });
+      const input = request();
+      const pending = new GuestNotificationService(delayedSql, wire.email, { timeoutMs: 100, leaseMs: 150 }).send(input);
+      try {
+        await claimCommitted;
+        expect(
+          (await db.sql`SELECT status,payload FROM notify.guest_notifications WHERE business_key=${input.businessKey}`)[0],
+        ).toMatchObject({ status: 'attempting', payload: input });
+        await db.sql`SELECT pg_sleep(0.18)`;
+        const other = new GuestNotificationService(db.sql, wire.email);
+        const erased = await other.eraseSubmission({ requestId: randomUUID(), submissionId: input.submissionId });
+        expect(erased.erasedCount).toBe(1);
+        if (wallShift) vi.spyOn(Date, 'now').mockReturnValue(Date.now() + wallShift);
+        release();
+        const result = await pending;
+        expect(result).toMatchObject({ status: 'unresolved', code: 'guest.acceptance_unknown', reference: null, acceptedAt: null });
+        expect(wire.messages).toHaveLength(0);
+        expect(await other.get({ businessKey: input.businessKey })).toEqual(result);
+        expect(
+          (await db.sql`SELECT payload,erased_at FROM notify.guest_notifications WHERE business_key=${input.businessKey}`)[0],
+        ).toMatchObject({ payload: null, erased_at: expect.any(Date) });
+        expect(
+          (await db.sql`SELECT submission_id FROM notify.guest_erased_submissions WHERE submission_id=${input.submissionId}`)[0],
+        ).toMatchObject({ submission_id: input.submissionId });
+      } finally {
+        release();
+        await pending.catch(() => undefined);
+        vi.restoreAllMocks();
+      }
+    },
+  );
+  it('a still-live claim with insufficient remaining delivery budget never hands off', async () => {
+    const wire = await gateway((res) => {
+      res.writeHead(202);
+      res.end('{}');
+    });
+    let sawLiveLease = false;
+    const delayedSql = new Proxy(db.sql, {
+      get(target, property, receiver) {
+        if (property === 'begin')
+          return async (...args: Parameters<typeof db.sql.begin>) => {
+            const result = await target.begin(...args);
+            await db.sql`SELECT pg_sleep(0.2)`;
+            sawLiveLease =
+              (await db.sql`SELECT 1 FROM notify.guest_notifications WHERE status='attempting' AND lease_until>clock_timestamp()`)
+                .length === 1;
+            return result;
+          };
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const result = await new GuestNotificationService(delayedSql, wire.email, { timeoutMs: 900, leaseMs: 1000 }).send(request());
+    expect(sawLiveLease).toBe(true);
+    expect(result).toMatchObject({ status: 'unresolved', code: 'guest.acceptance_unknown', acceptedAt: null, reference: null });
+    expect(wire.messages).toHaveLength(0);
   });
   it('two concurrent workers share one durable claim and erasure refuses during the active attempt', async () => {
     let release!: () => void;

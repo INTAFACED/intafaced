@@ -193,7 +193,7 @@ No continuation capability is placed in a message, URL or log.
 
 The owned guest queue commits the immutable business key, normalized request/hash
 and claim before handing a message to the transport. Concurrent callers and
-replicas share the claim. Accepted duplicates return the original receipt.
+replicas share the claim. A conservative monotonic dispatch budget starts before the claim transaction; a delayed commit receipt cannot restart it. Before handoff, the remaining lease must cover the delivery timeout, otherwise the claim becomes unresolved without invoking the transport. Accepted duplicates return the original receipt.
 Changing recipient or content under the same key refuses `guest.request_conflict`.
 URL/token configuration is not reachability; `accepted` is gateway acceptance,
 never delivery or human receipt. Error bodies are discarded; only bounded opaque

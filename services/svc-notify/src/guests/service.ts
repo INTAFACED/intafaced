@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
@@ -34,6 +35,7 @@ type Row = {
   attempted_at: Date | null;
   accepted_at: Date | null;
   claim_token: string | null;
+  lease_until: Date | null;
 };
 const digest = (input: GuestNotificationSendInput) => createHash('sha256').update(JSON.stringify(input)).digest('hex');
 function receipt(row: Row): GuestNotificationReceipt {
@@ -101,6 +103,9 @@ export class GuestNotificationService {
           ? parsed.message
           : { ...parsed.message, activityId: parsed.message.activityId.toLowerCase() },
     };
+    const deliveryTimeoutMs = this.options.timeoutMs ?? 5000;
+    const leaseMs = this.options.leaseMs ?? deliveryTimeoutMs + 1000;
+    const claimStartedAt = performance.now();
     try {
       const prepared = await transaction(
         this.sql,
@@ -154,7 +159,7 @@ export class GuestNotificationService {
             return { row: row!, attempt: false };
           }
           [row] = await tx<Row[]>`UPDATE notify.guest_notifications SET status = 'attempting', code = NULL,
-          attempted_at = clock_timestamp(), claim_token = ${randomUUID()}, lease_until = clock_timestamp() + ${this.options.leaseMs ?? (this.options.timeoutMs ?? 5000) + 1000} * interval '1 millisecond', updated_at = now()
+          attempted_at = clock_timestamp(), claim_token = ${randomUUID()}, lease_until = clock_timestamp() + ${leaseMs} * interval '1 millisecond', updated_at = now()
           WHERE business_key = ${input.businessKey} RETURNING *`;
           return { row: row!, attempt: true };
         },
@@ -165,31 +170,48 @@ export class GuestNotificationService {
       let code: GuestNotificationReceipt['code'] = null;
       let reference: string | null = null;
       let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        const result = await Promise.race([
-          this.email!.deliver(message(prepared.row)),
-          new Promise<never>((_, reject) => {
-            timer = setTimeout(() => reject(new Error('Guest gateway deadline')), this.options.timeoutMs ?? 5000);
-          }),
-        ]);
-        status = 'accepted';
-        // Never retain gateway error bodies or a URL containing a token as a reference.
-        reference =
-          result.reference && /^[A-Za-z0-9._:-]{1,256}$/.test(result.reference) && !result.reference.includes('://')
-            ? result.reference
-            : null;
-      } catch (error) {
-        const refused =
-          error instanceof ChannelRefusal ||
-          (error instanceof ChannelDeliveryError &&
-            error.status !== null &&
-            error.status >= 400 &&
-            error.status < 500 &&
-            ![408, 425, 429].includes(error.status));
-        status = refused ? 'refused' : 'unresolved';
-        code = refused ? 'guest.gateway_refused' : 'guest.acceptance_unknown';
-      } finally {
-        if (timer) clearTimeout(timer);
+      const expiresAt = prepared.row.lease_until?.getTime() ?? NaN;
+      const attemptedAt = prepared.row.attempted_at?.getTime() ?? NaN;
+      const elapsed = performance.now() - claimStartedAt;
+      // Start BEFORE SQL: a delayed COMMIT receipt cannot restart the dispatch window.
+      // Database wall time can shorten the budget; it cannot extend the monotonic cap.
+      const remaining = Math.min(Math.min(leaseMs, expiresAt - attemptedAt) - elapsed, expiresAt - Date.now());
+      if (
+        !Number.isFinite(remaining) ||
+        !Number.isFinite(deliveryTimeoutMs) ||
+        elapsed < 0 ||
+        remaining < deliveryTimeoutMs ||
+        deliveryTimeoutMs <= 0
+      ) {
+        status = 'unresolved';
+        code = 'guest.acceptance_unknown';
+      } else {
+        try {
+          const result = await Promise.race([
+            this.email!.deliver(message(prepared.row)),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new Error('Guest gateway deadline')), deliveryTimeoutMs);
+            }),
+          ]);
+          status = 'accepted';
+          // Never retain gateway error bodies or a URL containing a token as a reference.
+          reference =
+            result.reference && /^[A-Za-z0-9._:-]{1,256}$/.test(result.reference) && !result.reference.includes('://')
+              ? result.reference
+              : null;
+        } catch (error) {
+          const refused =
+            error instanceof ChannelRefusal ||
+            (error instanceof ChannelDeliveryError &&
+              error.status !== null &&
+              error.status >= 400 &&
+              error.status < 500 &&
+              ![408, 425, 429].includes(error.status));
+          status = refused ? 'refused' : 'unresolved';
+          code = refused ? 'guest.gateway_refused' : 'guest.acceptance_unknown';
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
       }
       const [finished] = await this.sql<
         Row[]
