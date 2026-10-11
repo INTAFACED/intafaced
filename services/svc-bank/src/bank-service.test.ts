@@ -2082,6 +2082,10 @@ describe('svc-bank money PG-hard', () => {
       );
       expect(report.results.some((r) => r.poolId === healthy.id && formatAmount(r.paid) === '1')).toBe(true);
       expect(await availableOf(USER_B, 'USDT')).toBe('1');
+      // A deposited their whole balance into the unfunded pool. pool_underfunded
+      // is not proof they were unpaid, and this accrue must not invent a credit.
+      expect(await availableOf(USER_A, 'USDT')).toBe('0');
+      expect(ledger.journal().some((tx) => tx.reason === 'bank.earn.interest' && tx.meta.poolId === empty.id)).toBe(false);
       // Empty day not consumed.
       const emptyRows = await sql`SELECT id FROM bank.interest_accruals WHERE pool_id = ${empty.id}`;
       expect(emptyRows).toHaveLength(0);
