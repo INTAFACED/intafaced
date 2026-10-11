@@ -19,6 +19,7 @@ import {
   Status,
 } from './components';
 import './p2p-offer.css';
+import { CounterpartyLink, offerReturn, p2pReturn, closeReturnedOffer, consumeMarketArrival, type P2PReturn } from './p2p-return';
 
 /** Only the owner-key/reference names are enumerated. Opaque originals are
  * left intact and the shared journal separately validates every admission. */
@@ -82,20 +83,32 @@ function OfferPrice({ offer }: { offer: Offer }) {
 }
 export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: string | null; mine: boolean }) {
   const { Copy, t, languageFor, directionFor } = offerCopy.useCopy();
-  const [limit, setLimit] = useState(50);
-  const [asset, setAsset] = useState(''),
-    [fiat, setFiat] = useState(''),
-    [side, setSide] = useState('');
-  const [filter, setFilter] = useState<{ asset?: string; fiatCurrency?: string; side?: 'buy' | 'sell' }>({});
+  const arrival = new URL(p2pReturn(location.pathname + location.search + location.hash).href, location.origin);
+  const initialFilter = {
+    ...(arrival.searchParams.get('asset') ? { asset: arrival.searchParams.get('asset')! } : {}),
+    ...(arrival.searchParams.get('fiatCurrency') ? { fiatCurrency: arrival.searchParams.get('fiatCurrency')! } : {}),
+    ...(arrival.searchParams.get('side') ? { side: arrival.searchParams.get('side') as 'buy' | 'sell' } : {}),
+  };
+  const [limit, setLimit] = useState(arrival.searchParams.get('limit') === '200' ? 200 : 50);
+  const [asset, setAsset] = useState(initialFilter.asset ?? ''),
+    [fiat, setFiat] = useState(initialFilter.fiatCurrency ?? ''),
+    [side, setSide] = useState(initialFilter.side ?? '');
+  const [filter, setFilter] = useState<{ asset?: string; fiatCurrency?: string; side?: 'buy' | 'sell' }>(initialFilter);
   const [reference, setReference] = useState('');
   const [error, setError] = useState<'fiatCurrencyMustUseItsThreeLetter' | 'invalidId' | null>(null);
-  const [selected, setSelected] = useState<{ id: string; serial: number } | null>(null);
+  const [selected, setSelected] = useState<{ id: string; serial: number } | null>(() =>
+    arrival.searchParams.get('offerId') ? { id: arrival.searchParams.get('offerId')!.toLowerCase(), serial: 0 } : null,
+  );
   const lifetime = useRef({ mounted: true, serial: 0, selected: selected as typeof selected });
   const returnTarget = useRef<HTMLElement | null>(null),
     marketHeading = useRef<HTMLDivElement>(null);
   const returning = useRef(false);
   useLayoutEffect(() => {
     lifetime.current.mounted = true;
+    if (consumeMarketArrival(userId)) {
+      marketHeading.current?.focus({ preventScroll: true });
+      marketHeading.current?.scrollIntoView({ block: 'nearest' });
+    }
     return () => {
       lifetime.current.mounted = false;
       lifetime.current.selected = null;
@@ -119,6 +132,10 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
   const close = () => {
     lifetime.current.selected = null;
     lifetime.current.serial++;
+    if (new URLSearchParams(location.search).has('offerId')) {
+      closeReturnedOffer(userId);
+      return;
+    }
     returning.current = true;
     setSelected(null);
   };
@@ -305,6 +322,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
           pay={pay}
           userId={userId}
           offerId={selected.id}
+          returnTo={offerReturn(selected.id, filter, limit)}
           mine={mine}
           onMarketChange={list.reload}
           current={() => lifetime.current.mounted && lifetime.current.selected === selected}
@@ -320,6 +338,7 @@ function OfferInspector({
   pay,
   userId,
   offerId,
+  returnTo,
   mine,
   onMarketChange,
   current,
@@ -328,6 +347,7 @@ function OfferInspector({
   pay: PersonalPayApi;
   userId: string | null;
   offerId: string;
+  returnTo: P2PReturn;
   mine: boolean;
   onMarketChange: () => void;
   current: () => boolean;
@@ -463,6 +483,7 @@ function OfferInspector({
             key={`${offer.id}:${recordId}`}
             pay={pay}
             offer={offer}
+            returnTo={returnTo}
             userId={userId}
             locked={locked}
             current={() => frameCurrent() && recordVersion.current === recordId}
@@ -480,6 +501,7 @@ function OfferInspector({
 function CurrentOffer({
   pay,
   offer,
+  returnTo,
   userId,
   locked,
   current,
@@ -488,6 +510,7 @@ function CurrentOffer({
 }: {
   pay: PersonalPayApi;
   offer: Offer;
+  returnTo: P2PReturn;
   userId: string | null;
   locked: boolean;
   current: () => boolean;
@@ -580,9 +603,9 @@ function CurrentOffer({
       ) : (
         <>
           {id.safeParse(offer.makerId).success && (
-            <a className="text-link" href={`/checkuser?userId=${encodeURIComponent(offer.makerId)}`}>
+            <CounterpartyLink userId={offer.makerId} returnTo={returnTo}>
               <PayCopy k="reviewCounterparty" />
-            </a>
+            </CounterpartyLink>
           )}
           <PayNotice title={payCopy.t('newOrderReviewIsUnavailable')}>
             <PayCopy k="anAuthoritativeFeeAndReservationPreviewIs" />

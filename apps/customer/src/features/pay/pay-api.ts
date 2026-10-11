@@ -448,8 +448,15 @@ export function createPersonalPayApi(
         return payRefusal('p2pPaymentProjectionMismatch', { code: 'pay.trade_destination_mismatch', reason: 'invalid_response' });
       return result;
     },
-    reputation: (counterparty: string, signal?: AbortSignal) =>
-      api.query('p2p', 'reputation.get', { userId: counterparty }, s.reputationSchema, { signal }),
+    reputation: async (counterparty: string, signal?: AbortSignal) => {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      const result = await api.query('p2p', 'reputation.get', { userId: counterparty }, s.reputationSchema, { signal });
+      // The contract has no returned subject ID: association belongs to this
+      // exact requested UUID and current owner/URL view, never a guessed field.
+      return p2pCurrent() ? result : p2pDeparted();
+    },
     standing: (signal?: AbortSignal) => api.query('p2p', 'merchants.me', undefined, s.p2pStandingSchema.nullable(), { signal }),
     apiAccess: (signal?: AbortSignal) => api.query('p2p', 'merchants.apiAccess', undefined, s.p2pApiAccessSchema, { signal }),
     applyProgramme: () =>

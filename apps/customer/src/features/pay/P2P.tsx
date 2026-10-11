@@ -22,6 +22,8 @@ import { useP2PView, type P2PView } from './p2p-view';
 import { P2POffers } from './P2POffers';
 import { P2POrder } from './P2POrder';
 import { orderCopy } from './p2p-order-copy';
+import { P2PCounterparty } from './P2PCounterparty';
+import { p2pReturn } from './p2p-return';
 
 export function P2P({ path }: { path: string }) {
   const view = useP2PView();
@@ -44,6 +46,8 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
   const showAccess = params.get('view') === 'access';
   const publish = current === '/uc/ad/create' || current === '/uc/ad/update' || current === '/p2p/offers/new';
   const counterparty = params.get('userId') ?? params.get('userid') ?? (current === '/checkuser' ? params.get('id') : null);
+  const inspectionReturn = p2pReturn(params.get('returnTo'));
+  const inspectionMine = current === '/checkuser' && inspectionReturn.href.split(/[?#]/)[0] === '/uc/ad';
   return (
     <Page
       eyebrow={payCopy.t('personalPay')}
@@ -69,13 +73,37 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
           if (event.target instanceof HTMLAnchorElement) event.target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         }}
       >
-        <a href="/p2p" aria-current={!showOrders && !showMine && !showMethods && !showAccess && !publish && !tradeId ? 'page' : undefined}>
+        <a
+          href="/p2p"
+          aria-current={
+            !showOrders &&
+            !showMine &&
+            !showMethods &&
+            !showAccess &&
+            !publish &&
+            !tradeId &&
+            !inspectionMine &&
+            (current !== '/checkuser' || inspectionReturn.kind === 'offer' || inspectionReturn.kind === 'offers')
+              ? 'page'
+              : undefined
+          }
+        >
           <PayCopy k="offers" />
         </a>
-        <a href="/uc/order" aria-current={showOrders || tradeId || current === '/chat' ? 'page' : undefined}>
+        <a
+          href="/uc/order"
+          aria-current={
+            showOrders ||
+            tradeId ||
+            current === '/chat' ||
+            (current === '/checkuser' && ['order', 'orders'].includes(inspectionReturn.kind))
+              ? 'page'
+              : undefined
+          }
+        >
           <PayCopy k="yourOrders" />
         </a>
-        <a href="/uc/ad" aria-current={showMine ? 'page' : undefined}>
+        <a href="/uc/ad" aria-current={showMine || inspectionMine ? 'page' : undefined}>
           <PayCopy k="yourOffers" />
         </a>
         <a href="/p2p?view=methods" aria-current={showMethods ? 'page' : undefined}>
@@ -89,7 +117,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
         <OrderDetail pay={pay} tradeId={tradeId ?? ''} userId={userId} />
       ) : current === '/checkuser' ? (
         counterparty && id.safeParse(counterparty).success ? (
-          <Counterparty pay={pay} userId={counterparty} />
+          <P2PCounterparty pay={pay} userId={counterparty} returnTo={params.get('returnTo')} />
         ) : (
           <PayNotice title={payCopy.t('chooseACounterparty')}>
             <PayCopy k="openACounterpartyFromAnOfferTo" />
@@ -531,35 +559,6 @@ function PaymentMethods({ pay, userId }: { pay: PersonalPayApi; userId: string |
         </PayState>
       </PaySection>
     </div>
-  );
-}
-function Counterparty({ pay, userId }: { pay: PersonalPayApi; userId: string }) {
-  const reputation = useResource((signal) => pay.reputation(userId, signal), `pay:reputation:${userId}`);
-  return (
-    <PaySection title={payCopy.t('counterpartyRecord')}>
-      <p className="pay-account-id">{userId}</p>
-      <PayState resource={reputation.resource} retry={reputation.reload}>
-        {(data) => (
-          <PayDetails
-            values={[
-              [payCopy.t('tradesRecorded'), String(data.tradesTotal)],
-              [payCopy.t('completed'), String(data.completed)],
-              [payCopy.t('cancelled'), String(data.cancelled)],
-              [payCopy.t('disputed'), String(data.disputed)],
-              [
-                payCopy.t('programmeStanding'),
-                data.merchant === null
-                  ? payCopy.t('programmeUnavailable')
-                  : data.merchant
-                    ? payCopy.t('approvedP2pMerchant')
-                    : payCopy.t('notApproved'),
-              ],
-              [payCopy.t('badges'), data.badges.join(', ') || payCopy.t('noneReturned')],
-            ]}
-          />
-        )}
-      </PayState>
-    </PaySection>
   );
 }
 function TradingProgramme({ pay, userId }: { pay: PersonalPayApi; userId: string | null }) {
