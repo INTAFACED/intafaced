@@ -67,7 +67,7 @@ describe('fixed earn term is required', () => {
     });
     const earn = service(sql);
 
-    expectTermRequired(await earn.createPool({ assetId: 'USDT', kind: 'fixed', name: 'Fixed', aprBps: 1000 }).catch((err: unknown) => err));
+    expectTermRequired(await earn.createPool({ assetId: 'USDT', kind: 'fixed', name: 'Fixed', aprBps: 1000, minDeposit: 0n }).catch((err: unknown) => err));
     expect(poolInserts(captured)).toHaveLength(0);
   });
 
@@ -78,7 +78,7 @@ describe('fixed earn term is required', () => {
     const earn = service(sql);
 
     expectTermRequired(
-      await earn.createPool({ assetId: 'USDT', kind: 'fixed', name: 'Fixed', aprBps: 1000, termDays }).catch((err: unknown) => err),
+      await earn.createPool({ assetId: 'USDT', kind: 'fixed', name: 'Fixed', aprBps: 1000, termDays, minDeposit: 0n }).catch((err: unknown) => err),
     );
     expect(poolInserts(captured)).toHaveLength(0);
   });
@@ -93,6 +93,7 @@ describe('fixed earn term is required', () => {
       name: 'Fixed 90',
       aprBps: 2000,
       termDays: 90,
+      minDeposit: 0n,
     });
 
     expect(poolInserts(captured)).toHaveLength(1);
@@ -104,7 +105,7 @@ describe('fixed earn term is required', () => {
     const { sql, captured } = fakeSql((_text, values) => insertedPool(values));
     const earn = service(sql);
 
-    const pool = await earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Flexible', aprBps: 500 });
+    const pool = await earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Flexible', aprBps: 500, minDeposit: 0n });
 
     expect(poolInserts(captured)).toHaveLength(1);
     expect(poolInserts(captured)[0]!.values[4]).toBeNull();

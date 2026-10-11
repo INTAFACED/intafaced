@@ -275,6 +275,7 @@ describe('D26-P2-01e public doors (PG-hard)', () => {
         kind: 'flexible',
         name: 'Unfunded invent probe',
         aprBps: 3650,
+        minDeposit: 0n,
       });
       await fund(ledger, HOLDER, 'USDT', '1000');
       // Seed position with a past opened_at so the accrual day is interest-eligible.
@@ -305,6 +306,7 @@ describe('D26-P2-01e public doors (PG-hard)', () => {
         kind: 'flexible',
         name: 'Empty first',
         aprBps: 5000,
+        minDeposit: 0n,
       });
       await fund(ledger, HOLDER, 'USDT', '1000');
       await bank.earn.deposit({ positionId: randomUUID(),
@@ -330,6 +332,7 @@ describe('D26-P2-01e public doors (PG-hard)', () => {
         kind: 'flexible',
         name: 'HTTP unfunded day',
         aprBps: 3650,
+        minDeposit: 0n,
       });
       await fund(ledger, HOLDER, 'USDT', '1000');
       await bank.earn.deposit({ positionId: randomUUID(),

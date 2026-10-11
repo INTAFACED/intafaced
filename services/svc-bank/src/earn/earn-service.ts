@@ -169,6 +169,9 @@ export class EarnService {
     termDays?: number | null;
     minDeposit?: Amount;
   }): Promise<PoolRecord> {
+    if (input.minDeposit === undefined) {
+      throw new BankError(`Earn pool "${input.name}" has no minimum deposit. A blank limit is not zero.`, 'bank.below_minimum');
+    }
     this.assertEarnable(input.assetId);
     const termDays = input.kind === 'fixed' ? assertFixedTerm(input.termDays) : null;
 
@@ -177,7 +180,7 @@ export class EarnService {
       VALUES (
         ${input.assetId}, ${input.kind}, ${input.name}, ${input.aprBps},
         ${termDays},
-        ${formatAmount(input.minDeposit ?? 0n)}::numeric
+        ${formatAmount(input.minDeposit)}::numeric
       )
       RETURNING id, asset_id, kind, name, apr_bps, term_days, min_deposit, status
     `;

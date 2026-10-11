@@ -165,6 +165,7 @@ describe('EarnService.deposit — retry with the same positionId is one stake', 
       kind: 'flexible',
       name: 'USDT flex',
       aprBps: 3650,
+      minDeposit: 0n,
     });
     await fund(ledger, USER, '5000');
     await expect(
@@ -180,6 +181,7 @@ describe('EarnService.deposit — retry with the same positionId is one stake', 
       kind: 'flexible',
       name: 'USDT flex',
       aprBps: 3650,
+      minDeposit: 0n,
     });
     await fund(ledger, USER, '5000');
     const positionId = randomUUID();
@@ -204,6 +206,7 @@ describe('EarnService.deposit — retry with the same positionId is one stake', 
       kind: 'flexible',
       name: 'USDT flex',
       aprBps: 3650,
+      minDeposit: 0n,
     });
     await fund(ledger, USER, '5000');
     const positionId = randomUUID();
@@ -237,6 +240,7 @@ describe('EarnService.deposit — retry with the same positionId is one stake', 
       kind: 'flexible',
       name: 'USDT flex',
       aprBps: 3650,
+      minDeposit: 0n,
     });
     await fund(ledger, USER, '5000');
     const a = randomUUID();
@@ -267,6 +271,7 @@ describe('HTTP /trpc/earn.deposit — retry with the same positionId is one stak
       kind: 'flexible',
       name: 'USDT flex',
       aprBps: 3650,
+      minDeposit: 0n,
     });
     await fund(ledger, USER, '5000');
     const app = await mountDoors(bank);
@@ -283,6 +288,7 @@ describe('HTTP /trpc/earn.deposit — retry with the same positionId is one stak
       kind: 'flexible',
       name: 'USDT flex',
       aprBps: 3650,
+      minDeposit: 0n,
     });
     await fund(ledger, USER, '5000');
     const positionId = randomUUID();

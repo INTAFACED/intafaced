@@ -1570,6 +1570,7 @@ describe('svc-bank money PG-hard', () => {
         name: 'Flexible USDT',
         aprBps: input.apr ?? 1000,
         termDays: input.termDays ?? null,
+        minDeposit: 0n,
       });
     }
 
@@ -1599,7 +1600,7 @@ describe('svc-bank money PG-hard', () => {
     });
 
     it('refuses the native asset — svc-token owns staking IFC (§8.1)', async () => {
-      await expect(bank.earn.createPool({ assetId: 'IFC', kind: 'flexible', name: 'IFC pool', aprBps: 500 })).rejects.toMatchObject({
+      await expect(bank.earn.createPool({ assetId: 'IFC', kind: 'flexible', name: 'IFC pool', aprBps: 500, minDeposit: 0n })).rejects.toMatchObject({
         code: 'bank.native_asset_not_earnable',
       });
     });
@@ -1941,7 +1942,7 @@ describe('svc-bank money PG-hard', () => {
   describe('interest accrual', () => {
     async function fundedPool(apr = 3650) {
       // 3650 bps = 36.5% APR = 0.1% per day on a 365-day year: exact daily maths.
-      const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Flexible', aprBps: apr });
+      const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Flexible', aprBps: apr, minDeposit: 0n });
       await accrueBankFees('USDT', '10000');
       await bank.earn.fundPool({ poolId: pool.id, fundingId: 'seed-1', amount: amt('10000') });
       return pool;
@@ -2030,7 +2031,7 @@ describe('svc-bank money PG-hard', () => {
     });
 
     it('refuses to accrue from an unfunded pool, and moves nothing', async () => {
-      const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Empty', aprBps: 3650 });
+      const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Empty', aprBps: 3650, minDeposit: 0n });
       await fund(USER_A, 'USDT', '1000');
       await bank.earn.deposit({
         positionId: randomUUID(),
@@ -2068,8 +2069,8 @@ describe('svc-bank money PG-hard', () => {
     it('one underfunded pool does not withhold every other pool’s yield for the day', async () => {
       // Empty pool first by name/asset sort: asset_id ASC then apr DESC —
       // both USDT; give empty a higher APR so it is first in listPools.
-      const empty = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Empty first', aprBps: 5000 });
-      const healthy = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Healthy', aprBps: 3650 });
+      const empty = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Empty first', aprBps: 5000, minDeposit: 0n });
+      const healthy = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Healthy', aprBps: 3650, minDeposit: 0n });
       await fund(USER_A, 'USDT', '1000');
       await fund(USER_B, 'USDT', '1000');
       await bank.earn.deposit({
@@ -2254,6 +2255,7 @@ describe('svc-bank money PG-hard', () => {
           kind: 'flexible',
           name: 'Crash-window USDT',
           aprBps: 1000,
+          minDeposit: 0n,
         });
       }
 
@@ -2455,7 +2457,7 @@ describe('svc-bank money PG-hard', () => {
 
       await bank.transfers.runDueTransfers({ now: new Date('2026-01-03T00:00:00Z'), limit: 200 });
 
-      const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Flexible', aprBps: 3650 });
+      const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Flexible', aprBps: 3650, minDeposit: 0n });
       await accrueBankFees('USDT', '500');
       await bank.earn.fundPool({ poolId: pool.id, fundingId: 'mixed-seed', amount: amt('500') });
 
@@ -2525,8 +2527,8 @@ describe('svc-bank money PG-hard', () => {
     });
 
     it('earn principal in this table always equals the ledger stake account', async () => {
-      const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Flexible', aprBps: 1000 });
-      const fixed = await bank.earn.createPool({ assetId: 'USDT', kind: 'fixed', name: 'Fixed 90', aprBps: 2000, termDays: 90 });
+      const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Flexible', aprBps: 1000, minDeposit: 0n });
+      const fixed = await bank.earn.createPool({ assetId: 'USDT', kind: 'fixed', name: 'Fixed 90', aprBps: 2000, termDays: 90, minDeposit: 0n });
 
       await fund(USER_A, 'USDT', '10000');
       await fund(USER_B, 'USDT', '5000');
@@ -2547,7 +2549,7 @@ describe('svc-bank money PG-hard', () => {
     });
 
     it('interest recorded per day always equals what left the pool reserve', async () => {
-      const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Flexible', aprBps: 3650 });
+      const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Flexible', aprBps: 3650, minDeposit: 0n });
       await accrueBankFees('USDT', '1000');
       await bank.earn.fundPool({ poolId: pool.id, fundingId: 'audit-1', amount: amt('1000') });
 
@@ -2763,7 +2765,7 @@ describe('svc-bank money PG-hard', () => {
         startsAt: new Date('2026-01-01T00:00:00Z'),
       });
 
-      const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Flexible', aprBps: 3650 });
+      const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Flexible', aprBps: 3650, minDeposit: 0n });
       await accrueBankFees('USDT', '1000');
       await bank.earn.fundPool({ poolId: pool.id, fundingId: 'immutable-1', amount: amt('1000') });
       const position = await bank.earn.deposit({
@@ -3001,7 +3003,7 @@ describe('svc-bank money PG-hard', () => {
       await accrueBankFees('USDT', '250');
       expect(formatAmount((await ledger.balance(houseFees('bank', 'USDT'))).amount)).toBe('250');
 
-      const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Flexible', aprBps: 500 });
+      const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Flexible', aprBps: 500, minDeposit: 0n });
       await bank.earn.fundPool({ poolId: pool.id, fundingId: 'guard-fund-1', amount: amt('250') });
 
       expect(formatAmount((await ledger.balance(houseFees('bank', 'USDT'))).amount)).toBe('0');
@@ -3010,7 +3012,7 @@ describe('svc-bank money PG-hard', () => {
     });
 
     it('refuses to fund a pool reserve out of revenue that does not exist', async () => {
-      const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Flexible', aprBps: 500 });
+      const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Flexible', aprBps: 500, minDeposit: 0n });
       await expect(bank.earn.fundPool({ poolId: pool.id, fundingId: 'guard-fund-2', amount: amt('1') })).rejects.toMatchObject({
         code: 'ledger.insufficient_funds',
       });
