@@ -1,3 +1,4 @@
+import { TradeService } from '../controls/test-admission.js';
 /**
  * Unit card — TradeService.candles limit unset refuse (no invented 500)
  *
@@ -15,7 +16,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { TRADE_CANDLES_FILL_LIMIT_UNSET } from './candles.js';
-import { TradeService } from './trade-service.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 

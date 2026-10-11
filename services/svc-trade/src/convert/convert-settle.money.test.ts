@@ -1,3 +1,4 @@
+import { TradeService } from '../controls/test-admission.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -6,7 +7,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, formatAmount, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { TradeService } from '../spot/trade-service.js';
+
 import type { Market } from '../spot/types.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
 import { DROP_COPY_SOURCE_RFQ, type DropCopyFillWire } from '../spot/drop-copy-ingest.js';
@@ -19,9 +20,9 @@ import { SqlConvertQuoteStore } from './quote-store.js';
  * CARD B7 money proof — convert settle binds quoted in/out.
  *
  * H8a PG-hard: never describe.skip; CI uses TEST_DATABASE_URL; local starts Testcontainers postgres:16-alpine.
- * convertExecute hitch (bound-then-expire still posts) is closed IN settle.ts:
- * planConvertSettle refuses when now > quote.expiresAt (default now = new Date()).
- * Does not recut trade-service.ts or router.ts. Never invents convert spread 10.
+ * Fresh acceptance refuses after quote expiry. Already bound immutable effects
+ * recover using their original acceptedAt, including legacy persisted bindings.
+ * The standalone planner still checks its supplied/default time. No spread invent.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -69,7 +70,7 @@ describe('convert settle B7 hitch (source)', () => {
   it('trade-service.ts contains convertExecute + planConvertSettle + postConvertSettle', () => {
     const src = readFileSync(join(here, '..', 'spot', 'trade-service.ts'), 'utf8');
     expect(src).toMatch(/async convertExecute\(/);
-    expect(src).toMatch(/planConvertSettle\(\{ bound, \.\.\.ids \}\)/);
+    expect(src).toMatch(/planConvertSettle\(\{ bound, \.\.\.ids, now: new Date\(bound.acceptedAt\) \}\)/);
     expect(src).toMatch(/await postConvertSettle\(this\.ledger, plan\)/);
     expect(src).toMatch(/requireConvertSpreadBps\(this\.convertSpreadBps\)/);
     expect(src).toMatch(/requireConvertQuoteTtlMs\(this\.convertQuoteTtlMs\)/);
@@ -293,7 +294,7 @@ describe('svc-trade convert-settle (H8a PG-hard)', () => {
       expect(await avail('BTC')).toBe(btc);
     });
 
-    it('bound-then-expire convertExecute hitch: planConvertSettle wall clock refuses, posts nothing', async () => {
+    it('already bound legacy Convert recovers after expiry using its immutable acceptedAt exactly once', async () => {
       const created = new Date(Date.now() - 20_000);
       const estimate = estimateConvert({
         side: 'buy',
@@ -322,12 +323,12 @@ describe('svc-trade convert-settle (H8a PG-hard)', () => {
       const usdt = await avail('USDT');
       const btc = await avail('BTC');
 
-      await expect(trade.convertExecute(principal, { quoteId: quote.quoteId })).rejects.toMatchObject({
-        code: 'trade.convert_quote_expired',
-      });
-      expect(fillPosts()).toHaveLength(0);
-      expect(await avail('USDT')).toBe(usdt);
-      expect(await avail('BTC')).toBe(btc);
+      const first = await trade.convertExecute(principal, { quoteId: quote.quoteId });
+      expect(fillPosts()).toHaveLength(1);
+      expect(amt(await avail('USDT'))).toBeLessThan(amt(usdt));
+      expect(amt(await avail('BTC'))).toBe(amt(btc) + amt('1'));
+      expect((await trade.convertExecute(principal, { quoteId: quote.quoteId })).fillId).toBe(first.fillId);
+      expect(fillPosts()).toHaveLength(1);
     });
 
     it('settled quote after expiry still returns the first settle — no second fill', async () => {

@@ -1,6 +1,7 @@
+import { OtcDeskService } from '../controls/test-admission.js';
 import { describe, expect, it } from 'vitest';
 import { MemoryLedger, parseAmount } from '@intafaced/ledger-client';
-import { OtcDeskService } from './otc-service.js';
+
 import { FixedOtcStake } from './stake-source.js';
 import {
   describeOtcMidFeedWiring,

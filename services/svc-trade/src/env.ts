@@ -18,6 +18,8 @@ const schema = serviceEnvSchema
 
       /** svc-identity — rank perks at order accept + sub-account ownership gate. */
       IDENTITY_URL: z.string().url().default('http://localhost:4002'),
+      /** Dedicated trading decision key; blank disables new exposure, never founder/read auth. */
+      IDENTITY_ADMISSION_SECRET: z.string().default(''),
 
       /** svc-matching — the book. This service never runs one of its own. */
       MATCHING_URL: z.string().url().default('http://localhost:4005'),

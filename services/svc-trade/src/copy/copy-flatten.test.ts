@@ -1,3 +1,4 @@
+import { CopyService } from '../controls/test-admission.js';
 /**
  * PTX-M26-R05 — explicit follower flatten.
  *
@@ -13,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { createTradeRouter } from '../router.js';
 import type { TradeService } from '../spot/trade-service.js';
 import type { PlaceFollowerOrderPort } from './auto-mirror-place.js';
-import { CopyService } from './copy-service.js';
+
 import { MemoryCopyFollowStore } from './follow-store.js';
 import { applyCopyFlatten, flattenFollowerCopyPosition, presentCopyFlattenAck } from './copy-flatten.js';
 import type { FlattenCopyPositionPort } from './copy-flatten.js';

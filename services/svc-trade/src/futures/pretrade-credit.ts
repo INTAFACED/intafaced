@@ -111,16 +111,16 @@ export function installPreTradeCreditPlace(ctor: typeof TradeService): void {
 
 export function installPreTradeCreditOpen(ctor: typeof PositionService): void {
   const proto = ctor.prototype as unknown as {
-    open: (input: OpenPositionInput) => Promise<unknown>;
+    open: (input: OpenPositionInput, principal?: Principal) => Promise<unknown>;
     [OPEN_FLAG]?: true;
   };
   if (proto[OPEN_FLAG]) return;
   proto[OPEN_FLAG] = true;
   const origOpen = proto.open;
-  proto.open = async function (this: PositionService, input: OpenPositionInput) {
+  proto.open = async function (this: PositionService, input: OpenPositionInput, principal?: Principal) {
     const check = checkPreTradeCreditDimensions(readOwnerPreTradeCredit());
     if (!check.ok) refuseOpen(check);
-    return origOpen.call(this, input);
+    return origOpen.call(this, input, principal);
   };
 }
 

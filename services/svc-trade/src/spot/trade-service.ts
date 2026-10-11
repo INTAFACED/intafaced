@@ -1,6 +1,13 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
+import {
+  TradingControlError,
+  canonicalPayload,
+  type TradingAdmissionPort,
+  type TradingOperationKind,
+} from '../controls/trading-controls.js';
+import { businessPayload } from '../controls/business-payload.js';
 import type { Timeframe } from '@intafaced/exchange-contract';
 import type { EventBus } from '@intafaced/events';
 import { requireScope, type Principal } from '@intafaced/auth';
@@ -67,6 +74,7 @@ import {
   presentConvertQuote,
   requireConvertQuoteTtlMs,
   requireConvertSpreadBps,
+  type BoundConvertFill,
   type ConvertTradeWire,
 } from '../convert/quote.js';
 import { convertSettleIdsFor } from '../convert/ids.js';
@@ -94,7 +102,7 @@ import {
   type TwapParent,
   type TwapParentStore,
 } from '../algo/index.js';
-import { captureAlgoPlaceGrant, principalFromAlgoGrant } from '../algo/durable-principal.js';
+import { captureAlgoPlaceGrant, parseAlgoPlaceGrant, principalFromAlgoGrant } from '../algo/durable-principal.js';
 import { alignLookbackVolumes, sliceCount, timeframeForSliceInterval } from '../algo/volume-plan.js';
 import type { TwapParentRecord } from '../algo/parent-store.js';
 import { hydrateAlgoFromStore, hydrateAlgoIfMissing, persistAlgoCancelAttempt, persistAlgoMutation } from '../algo/hydrate-on-mutate.js';
@@ -155,6 +163,8 @@ export function fillsProveNoFill(filledQty: Amount, fills: { count: number; qty:
 }
 
 export interface TradeServiceOptions {
+  /** Mandatory for fresh exposure; absent refuses while cancels/recovery remain. */
+  accountAdmission?: TradingAdmissionPort;
   /** PX-S01 authority port; absent means new placement is refused. */
   marketLifecycle?: MarketLifecyclePort;
   /** Mirror of the `trade.spot` flag. OFF refuses new orders; cancels still work. */
@@ -589,6 +599,7 @@ export function publishedMarketsLimit(value: number | undefined | null): number 
 }
 
 export class TradeService {
+  private readonly accountAdmission: TradingAdmissionPort | undefined;
   private readonly marketLifecycle?: MarketLifecyclePort;
   private readonly spotEnabled: boolean;
   private readonly futuresEnabled: boolean;
@@ -628,6 +639,7 @@ export class TradeService {
     private readonly bus: EventBus,
     options: TradeServiceOptions = {},
   ) {
+    this.accountAdmission = options.accountAdmission;
     this.marketLifecycle = options.marketLifecycle;
     this.spotEnabled = options.spotEnabled ?? true;
     // `?? false`, and the asymmetry with the line above is the whole point: a
@@ -670,17 +682,22 @@ export class TradeService {
             );
           }
           try {
-            const order = await this.placeOrder(principal, {
-              symbol: req.symbol,
-              marketId: req.marketId,
-              side: req.side,
-              type: req.limitPrice === null ? 'market' : 'limit',
-              qty: req.qty,
-              price: req.limitPrice,
-              tif: req.limitPrice === null ? 'IOC' : 'GTC',
-              clientOrderId: req.clientOrderId,
-              subAccountId: req.subAccountId ?? undefined,
-            });
+            const order = await this.placeOrderInner(
+              principal,
+              {
+                symbol: req.symbol,
+                marketId: req.marketId,
+                side: req.side,
+                type: req.limitPrice === null ? 'market' : 'limit',
+                qty: req.qty,
+                price: req.limitPrice,
+                tif: req.limitPrice === null ? 'IOC' : 'GTC',
+                clientOrderId: req.clientOrderId,
+                subAccountId: req.subAccountId ?? undefined,
+              },
+              'algo.child',
+              `algo:${parent.id}`,
+            );
             return { orderId: order.id };
           } catch (err) {
             if (err instanceof InsufficientFundsError) {
@@ -775,6 +792,59 @@ export class TradeService {
   }
 
   private readonly algoPrincipals = new Map<string, Principal>();
+
+  async admitAccountOperation(
+    principal: Principal,
+    kind: TradingOperationKind,
+    businessId: string,
+    payload: unknown,
+    parentBusinessId?: string,
+    subAccountId?: string,
+  ) {
+    if (!this.accountAdmission) throw new TradingControlError('authority.unavailable');
+    const parent = parentBusinessId ? await this.accountAdmission.original(principal.userId, parentBusinessId) : null;
+    if (parentBusinessId && (!parent?.admission || !parent.grantId)) throw new TradingControlError('auth.credential_denied');
+    return this.accountAdmission.admit(
+      principal,
+      kind,
+      businessId,
+      payload,
+      parentBusinessId && parent?.grantId ? { parentBusinessId, parentGrantId: parent.grantId } : undefined,
+      subAccountId,
+    );
+  }
+
+  /** Original native-amend funding can be recovered; it never authorizes changed risk. */
+  async admitNativeQtyIncrease(principal: Principal, businessId: string, payload: Record<string, unknown>) {
+    if (!this.accountAdmission) throw new TradingControlError('authority.unavailable');
+    const original = await this.accountAdmission.original(principal.userId, businessId);
+    if (!original) return this.admitAccountOperation(principal, 'order.increase', businessId, payload);
+    const frozen = original.payload as Record<string, unknown>;
+    if (
+      !frozen ||
+      ['orderId', 'expectedVersion', 'qty', 'newHold', 'holdAsset'].some((key) => frozen[key] !== payload[key]) ||
+      (payload.extra !== '0' && (frozen.extra !== payload.extra || frozen.holdAmount !== payload.holdAmount))
+    )
+      throw new TradingControlError('operation.conflict');
+    // An already-funded original increase needs no second hold. A changed
+    // remaining risk/amount requires reconciliation, never reuse of this grant.
+    return this.admitAccountOperation(principal, 'order.increase', businessId, frozen);
+  }
+
+  /** Owning CopyService supplies its verified follow id; old follows refuse new mirrors. */
+  async placeCopyMirror(principal: Principal, input: PlaceOrderInput, followId: string): Promise<OrderRecord> {
+    return this.placeOrderInner(principal, input, 'copy.mirror', `copy.follow:${followId}`);
+  }
+
+  /** Owned worker hook: resolve uncertain grant, then execute only its original payload. */
+  async recoverAdmittedOrder(userId: string, orderId: string): Promise<OrderRecord | null> {
+    const existing = await this.findOrder(orderId);
+    if (existing) return existing.userId === userId ? existing : null;
+    if (!this.accountAdmission) throw new TradingControlError('authority.unavailable');
+    const original = await this.accountAdmission.resolve(userId, `order:${orderId}`);
+    if (!original) return null;
+    return this.executeAdmittedOrder(original.payload as Record<string, unknown>);
+  }
 
   // ── Listings (operator surface) ────────────────────────────────────────────
 
@@ -990,19 +1060,42 @@ export class TradeService {
           throw new TradeError('convert accept must honour the quoted quantity', 'trade.convert_price_moved');
         }
 
-        const bound =
-          stored.lifecycle === 'bound'
-            ? stored.bound
-            : acceptConvertQuote({
-                quote: stored.quote,
-                now: this.now(),
-                assertedPrice: input.maxAvgPrice ?? null,
-              });
+        const original = await this.accountAdmission?.original(principal.userId, `convert:${stored.quote.quoteId}`);
+        const recordedBound = (original?.payload as { bound?: { fillPrice: string; fillNotional: string; acceptedAt: string } } | undefined)
+          ?.bound;
+        let bound: BoundConvertFill;
+        if (recordedBound) {
+          bound = {
+            quote: stored.quote,
+            fillPrice: parseAmount(recordedBound.fillPrice),
+            fillNotional: parseAmount(recordedBound.fillNotional),
+            acceptedAt: recordedBound.acceptedAt,
+          };
+        } else if (stored.lifecycle === 'bound') {
+          bound = stored.bound;
+        } else {
+          bound = acceptConvertQuote({
+            quote: stored.quote,
+            now: this.now(),
+            assertedPrice: input.maxAvgPrice ?? null,
+          });
+        }
+        // The quote's immutable original bound is the business payload. A retry
+        // recovers this decision rather than sampling a new price or quantity.
+        if (stored.lifecycle === 'open' || original) {
+          await this.admitAccountOperation(
+            principal,
+            'order.place',
+            `convert:${stored.quote.quoteId}`,
+            original?.payload ?? businessPayload({ quote: stored.quote, bound, ids }),
+          );
+        }
         if (stored.lifecycle === 'open') {
           await this.convertStore.saveBound(stored.quote, bound);
         }
 
-        const plan = planConvertSettle({ bound, ...ids });
+        // Expiry governs the original accept, not recovery of already bound effects.
+        const plan = planConvertSettle({ bound, ...ids, now: new Date(bound.acceptedAt) });
         await postConvertSettle(this.ledger, plan);
         const settledAt = this.now();
         await this.convertStore.saveSettled(stored.quote, bound, settledAt);
@@ -1110,7 +1203,12 @@ export class TradeService {
     );
   }
 
-  private async placeOrderInner(principal: Principal, input: PlaceOrderInput): Promise<OrderRecord> {
+  private async placeOrderInner(
+    principal: Principal,
+    input: PlaceOrderInput,
+    kind: TradingOperationKind = 'order.place',
+    parentBusinessId?: string,
+  ): Promise<OrderRecord> {
     // ── 1 · AUTH + SCOPE ────────────────────────────────────────────────────
     // First, before anything is read and long before anything is held. The
     // tRPC router applies the same check as a `scopedProcedure`; it is repeated
@@ -1158,6 +1256,15 @@ export class TradeService {
     const orderId = orderIdFor(userId, market.id, input.clientOrderId);
     const existing = await this.findOrder(orderId);
     if (existing) return assertSamePlaceCommand(existing, input, orderType, tif, expectedSeeded);
+    const businessId = `order:${orderId}`;
+    const request = businessPayload({ ...input, symbol: market.symbol, marketId: market.id, type: orderType, tif });
+    const original = await this.accountAdmission?.original(userId, businessId);
+    if (original) {
+      const evidence = original.payload as Record<string, unknown>;
+      if (canonicalPayload(evidence.request) !== canonicalPayload(request)) throw new TradingControlError('operation.conflict');
+      await this.admitAccountOperation(principal, kind, businessId, evidence, parentBusinessId, input.subAccountId);
+      return this.executeAdmittedOrder(evidence);
+    }
 
     // Normalize the actual command before PX-S01. Seed/mm is forced post-only,
     // so its proof must say PLACE_POST_ONLY even when the caller omitted tif.
@@ -1281,6 +1388,50 @@ export class TradeService {
     // right place to be strict about a dependency being down.
     const perks = await this.perks.perksOf(userId);
 
+    const evidence = businessPayload({
+      request,
+      market,
+      orderId,
+      userId,
+      orderType,
+      tif,
+      hold,
+      perks,
+      protectionPrice,
+      seeded,
+      attribution,
+      lifecycleProof,
+      engineRequest: this.toEngineRequest(orderId, userId, input, orderType, tif, protectionPrice, lifecycleProof),
+    });
+    await this.admitAccountOperation(principal, kind, businessId, evidence, parentBusinessId, input.subAccountId);
+    return this.executeAdmittedOrder(evidence);
+  }
+
+  /** Only called with the owner's immutable prepared payload, never public receipts. */
+  private async executeAdmittedOrder(evidence: Record<string, unknown>): Promise<OrderRecord> {
+    const rawInput = evidence.request as Record<string, unknown>;
+    const input = {
+      ...rawInput,
+      qty: parseAmount(String(rawInput.qty)),
+      price: rawInput.price == null ? null : parseAmount(String(rawInput.price)),
+    } as unknown as PlaceOrderInput;
+    const rawMarket = evidence.market as Record<string, unknown>;
+    const market = { ...rawMarket } as unknown as Market;
+    for (const field of ['tickSize', 'lotSize', 'minQty', 'maxQty', 'minNotional'] as const) {
+      (market as unknown as Record<string, unknown>)[field] = rawMarket[field] == null ? null : parseAmount(String(rawMarket[field]));
+    }
+    const orderId = String(evidence.orderId),
+      userId = String(evidence.userId);
+    const orderType = evidence.orderType as OrderType,
+      tif = evidence.tif as TimeInForce;
+    const rawHold = evidence.hold as { assetId: string; amount: string };
+    const hold = { assetId: rawHold.assetId, amount: parseAmount(rawHold.amount) };
+    const perks = evidence.perks as { feeDiscountBps: number };
+    const protectionPrice = evidence.protectionPrice == null ? null : parseAmount(String(evidence.protectionPrice));
+    const seeded = evidence.seeded === true;
+    const attribution = evidence.attribution as AuthAttribution;
+    const lifecycleProof = evidence.lifecycleProof as LifecycleAdmissionProof;
+    const engineRequest = evidence.engineRequest as EngineSubmitRequest;
     // ── 2b · THE INTENT ROW ─────────────────────────────────────────────────
     //
     // If this crashes exactly here, whose funds are stranded? Nobody's. A
@@ -1298,7 +1449,7 @@ export class TradeService {
         price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, protection_price, seeded, lifecycle_proof,
         replacement_of, replacement_request_hash, session_id, api_key_id
       ) VALUES (
-        ${orderId}, ${userId}, ${input.subAccountId ?? null}, ${market.id}, ${input.clientOrderId},
+        ${orderId}, ${userId}, ${input.subAccountId ?? null}, ${market.id}, ${input.clientOrderId!},
         ${input.side}, ${orderType},
         ${input.price == null ? null : formatAmount(input.price)}::numeric,
         ${formatAmount(input.qty)}::numeric, 'pending', ${tif},
@@ -1346,10 +1497,7 @@ export class TradeService {
     // ── 4 · THE ENGINE ──────────────────────────────────────────────────────
     let result: EngineSubmitResult;
     try {
-      result = await this.matching.submit(
-        market.id,
-        this.toEngineRequest(orderId, userId, input, orderType, tif, protectionPrice, lifecycleProof),
-      );
+      result = await this.matching.submit(market.id, engineRequest);
     } catch (err) {
       // INDETERMINATE. The request failed at the transport, so the engine may
       // or may not hold this order. Persist the frozen spine's
@@ -3646,18 +3794,68 @@ export class TradeService {
       createInput = { ...createInput, participationBps: input.participationBps };
     }
 
-    // Store principal on a side map so child place uses the real caller scopes.
-    this.algoPrincipals.set(principal.userId, principal);
-
-    const parent = this.algo.create(principal.userId, createInput, market.lotSize);
-    const plan = this.algo.planOf(parent.id) ?? [];
+    // A preview must not emit the store callback or expose an active parent
+    // before its durable owner admission. Children are separate decisions.
+    const { parent, plan } = this.algo.prepare(principal.userId, createInput, market.lotSize);
+    await this.admitAccountOperation(
+      principal,
+      'strategy.start',
+      `algo:${parent.id}`,
+      businessPayload({ request: input, parent, plan, grant: captureAlgoPlaceGrant(principal) }),
+      undefined,
+      input.subAccountId,
+    );
     await this.algoStore.save({ parent, plan, grant: captureAlgoPlaceGrant(principal) });
+    this.algoPrincipals.set(principal.userId, principal);
+    this.algo.hydrate(parent, plan);
     return parent;
   }
 
   async getAlgo(principal: Principal, parentId: string): Promise<TwapParent> {
     requireScope(principal, 'trade:read');
     return hydrateAlgoIfMissing(this.algo, this.algoStore, principal.userId, parentId);
+  }
+
+  /** Owner recovery restores only the immutable admitted proposal. Each child
+   * still needs a fresh identity decision and local trading admission. */
+  async recoverAdmittedAlgo(userId: string, parentId: string): Promise<TwapParent | null> {
+    const existing = await this.algoStore.load(parentId);
+    if (existing) return existing.parent.userId === userId ? existing.parent : null;
+    if (!this.accountAdmission) throw new TradingControlError('authority.unavailable');
+    const original = await this.accountAdmission.resolve(userId, `algo:${parentId}`);
+    if (!original) return null;
+    const wire = original.payload as { parent: Record<string, unknown>; plan: string[]; grant: unknown };
+    if (
+      wire.parent?.id !== parentId ||
+      wire.parent.userId !== userId ||
+      !Array.isArray(wire.plan) ||
+      !Array.isArray(wire.parent.children) ||
+      wire.parent.children.length !== 0 ||
+      !Array.isArray(wire.parent.misses) ||
+      wire.parent.misses.length !== 0
+    )
+      throw new TradingControlError('operation.conflict');
+    const parent = {
+      ...wire.parent,
+      totalQty: parseAmount(String(wire.parent.totalQty)),
+      limitPrice: wire.parent.limitPrice == null ? null : parseAmount(String(wire.parent.limitPrice)),
+      lotSize: wire.parent.lotSize == null ? null : parseAmount(String(wire.parent.lotSize)),
+      createdAt: new Date(String(wire.parent.createdAt)),
+      startedAt: new Date(String(wire.parent.startedAt)),
+      nextDueAt: new Date(String(wire.parent.nextDueAt)),
+      projectedEndsAt: new Date(String(wire.parent.projectedEndsAt)),
+      pausedAt: null,
+      children: [],
+      misses: [],
+    } as unknown as TwapParent;
+    const record = { parent, plan: wire.plan.map(parseAmount), grant: parseAlgoPlaceGrant(wire.grant) };
+    // Recovery must never rewind a parent that another worker already advanced.
+    await this.algoStore.save(record, true);
+    const saved = await this.algoStore.load(parentId);
+    if (!saved || saved.parent.userId !== userId) throw new TradingControlError('operation.conflict');
+    this.algo.hydrate(saved.parent, saved.plan);
+    this.installAlgoPlaceGrant(saved);
+    return saved.parent;
   }
 
   async algoProgress(principal: Principal, parentId: string): Promise<AlgoProgressView> {
@@ -3678,7 +3876,13 @@ export class TradeService {
 
   async resumeAlgo(principal: Principal, parentId: string): Promise<TwapParent> {
     requireScope(principal, 'trade:write');
-    await hydrateAlgoIfMissing(this.algo, this.algoStore, principal.userId, parentId);
+    const parent = await hydrateAlgoIfMissing(this.algo, this.algoStore, principal.userId, parentId);
+    await this.admitAccountOperation(
+      principal,
+      'strategy.start',
+      `algo.resume:${orderIdFor(principal.userId, parent.id, `${parent.nextSliceIndex}:${parent.pausedAt?.toISOString() ?? 'none'}`)}`,
+      businessPayload({ parentId, nextSliceIndex: parent.nextSliceIndex, pausedAt: parent.pausedAt }),
+    );
     return persistAlgoMutation(this.algo, this.algoStore, this.algo.resume(principal.userId, parentId));
   }
 

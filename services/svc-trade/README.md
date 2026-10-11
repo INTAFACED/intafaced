@@ -444,6 +444,40 @@ profit pot does not move.
 
 ## Running it
 
+### Founder restrictions and operation admission
+
+Apply migration `0048_account_controls.sql` before enabling controls. The protected
+`accountControls.getState`, `history`, and `change` procedures own only the `trading`
+target. Each command independently verifies the original interactive founder with
+identity, including current session/MFA and revocable entitlement. Subaccount,
+API-key, service, ordinary admin, missing authority, and malformed commands refuse.
+Commands carry a reason, UUID request ID and expected version; actor-bound replay,
+restriction/version changes and immutable attributed history commit together.
+
+Production always installs the identity decision client. Configure `IDENTITY_URL`
+and a dedicated `IDENTITY_ADMISSION_SECRET`; identity must configure the matching
+`IDENTITY_TRADE_ADMISSION_SECRET`. This owner key must differ from generic service,
+read-authority and other admission keys. Founder delegation also needs the existing
+service-auth and edge principal-signing configuration. Missing configuration or
+authority refuses fresh exposure; an authority snapshot is never an operation grant.
+
+Fresh orders, native quantity increases, Convert execution, futures opens/leverage
+increases, strategy starts, algorithm children and copy mirrors use owned immutable
+intents. Preparation commits the original normalized payload and identity-request
+marker before contacting identity. Finalization holds the same per-user owner guard
+as restriction. Restriction resolves or cancels every marked pending intent before
+committing; an uncertain granted intent becomes its original owner admission, never
+a fresh admission under restriction. Each child/mirror needs its own decision and
+verified persisted parent provenance; legacy parents lacking it refuse new exposure.
+
+Cancellation, closing and recovery of original admitted effects remain available.
+Internal `recoverAdmittedOrder`, `recoverAdmittedPosition` and `recoverAdmittedAlgo`
+hooks reconstruct owned stored payloads after uncertain responses. They accept no
+public admission receipts, and strategy recovery cannot rewind an existing parent.
+These hooks are available to owner recovery workers; this change does not install a
+new automatic recovery queue. Restoration permits new decisions but does not revive
+revoked credentials or rebind an old strategy to a new credential.
+
 ```bash
 docker compose up -d
 pnpm --filter @intafaced/svc-trade db:migrate
