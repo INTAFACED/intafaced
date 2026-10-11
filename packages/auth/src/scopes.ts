@@ -100,34 +100,14 @@ export function isScope(value: string): value is Scope {
 }
 
 /**
- * Explicit implication. `admin:write` grants `admin:read` because an operator
- * who can change a thing can self-evidently see it; nothing else cascades.
+ * Explicit implication. A listed scope grants only itself, except these two
+ * operator scopes, which also grant `admin:read`. `bank:card`, `market:ops`,
+ * `agents:execute`, and `support:ops` do not add a `:read` the caller left
+ * off the list.
  */
 const IMPLIED: Partial<Record<Scope, readonly Scope[]>> = {
-  'admin:write': ['admin:read'],
   'admin:treasury': ['admin:read'],
   'admin:compliance': ['admin:read'],
-  'identity:write': ['identity:read'],
-  'trade:write': ['trade:read'],
-  'pay:write': ['pay:read'],
-  'pay:refund': ['pay:read'],
-  'pay:payout': ['pay:read'],
-  'p2p:write': ['p2p:read'],
-  'token:stake': ['token:read'],
-  'blueprint:write': ['blueprint:read'],
-  'bank:write': ['bank:read'],
-  'bank:card': ['bank:read'],
-  'launch:write': ['launch:read'],
-  'market:write': ['market:read'],
-  // An operator has to read the queue to work it, and reads an application's
-  // fields to decide on it. Mirrors `support:ops`.
-  'market:ops': ['market:read', 'market:write'],
-  'academy:write': ['academy:read'],
-  'agents:execute': ['agents:read'],
-  'notify:write': ['notify:read'],
-  'support:write': ['support:read'],
-  'support:ops': ['support:read', 'support:write'],
-  'ops:write': ['ops:read'],
 };
 
 /** Expand a scope list to everything it actually grants. */

@@ -7,6 +7,21 @@ describe('FH-SEC-01 safe-regex (RE2)', () => {
     expect(r).toEqual({ ok: true, matched: true, groups: [] });
   });
 
+  it('returns capture groups in order, without group 0', () => {
+    const r = safeTest('^(he)(llo)$', 'hello');
+    expect(r).toEqual({ ok: true, matched: true, groups: ['he', 'llo'] });
+  });
+
+  it('keeps an unmatched optional group as null', () => {
+    const r = safeTest('^(x)(y)?$', 'x');
+    expect(r).toEqual({ ok: true, matched: true, groups: ['x', null] });
+  });
+
+  it('returns no groups when the pattern does not match', () => {
+    const r = safeTest('^(a)(b)$', 'z');
+    expect(r).toEqual({ ok: true, matched: false, groups: [] });
+  });
+
   it('refuses oversize input without matching (length cap)', () => {
     const huge = 'a'.repeat(DEFAULT_MAX_INPUT_LEN + 1);
     const r = safeTest('^a+$', huge, { maxInputLen: DEFAULT_MAX_INPUT_LEN });
