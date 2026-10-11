@@ -6,6 +6,7 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
 import {
+  LedgerError,
   MemoryLedger,
   formatAmount,
   parseAmount as amt,
@@ -251,7 +252,11 @@ describe('JIT conversion arithmetic (§18) — no rate is invented, and the roun
     for (const part of ['0.01', '1', '250', '999.98']) {
       expect(fundingFor(amt(part), rate) <= whole).toBe(true);
     }
-    expect(fundingFor(amt('999.99'), rate)).toBe(whole);
+    // Ceil of 999.99 / 1234.5678. Not a second fundingFor call of that amount.
+    expect(formatAmount(whole)).toBe('0.809991966419341247');
+    // Capture fixture clears 40 of 100 at 50,000, which divides evenly.
+    // Same partial at this rate: a larger funding amount than the authorisation fails.
+    expect(fundingFor(amt('40'), rate) < fundingFor(amt('100'), rate)).toBe(true);
   });
 
   it('refuses a non-positive rate rather than treating it as a free card', () => {
@@ -460,6 +465,48 @@ describe('svc-bank cards PG-hard', () => {
       });
     }
 
+    /** Not card-sim. Exercises rewardPay only when a non-simulated issuer is connected. */
+    function connectedIssuer(): CardIssuerAdapter {
+      const programme = cardProgrammeOutput({
+        id: 'outside-issuer',
+        simulated: false,
+        displayName: 'Connected card issuer',
+      });
+      const sim = cardSim();
+      return {
+        programme,
+        issue: (input) => sim.issue(input),
+        respondToAuthorization: (input) => sim.respondToAuthorization(input),
+        setStatus: (input) => sim.setStatus(input),
+      };
+    }
+
+    function connectedCards(): CardService {
+      return new CardService(sql, ledger, { issuer: connectedIssuer() });
+    }
+
+    /** Model a preserved pre-0024 connected card only in this disposable DB.
+     * Restore the unchanged NOT VALID constraint before exercising the service.
+     */
+    async function seedLegacyConnectedCard(cardId: string, cashbackBps?: number): Promise<void> {
+      await sql.begin(async (tx) => {
+        await tx.unsafe(readFileSync(join(here, '..', '..', 'drizzle', '0024_card_simulated_true.down.sql'), 'utf8'));
+        await tx`
+          UPDATE bank.cards
+             SET issuer = ${connectedIssuer().programme.id}, simulated = false,
+                 cashback_bps = COALESCE(${cashbackBps ?? null}::integer, cashback_bps)
+           WHERE id = ${cardId}
+        `;
+        await tx.unsafe(readFileSync(join(here, '..', '..', 'drizzle', '0024_card_simulated_true.sql'), 'utf8'));
+      });
+    }
+
+    async function legacyConnectedCard(input: Parameters<CardService['issue']>[0]) {
+      const card = await cards.issue(input);
+      await seedLegacyConnectedCard(card.id);
+      return connectedCards().card(card.id);
+    }
+
     // ── Issue ────────────────────────────────────────────────────────────────
 
     it('issues a card that says it is simulated, and no card number exists anywhere', async () => {
@@ -651,15 +698,173 @@ describe('svc-bank cards PG-hard', () => {
         'svc-ledger unreachable',
       );
 
-      const rows = await sql<Array<{ decision: string; status: string }>>`
-        SELECT decision, status FROM bank.card_authorizations WHERE card_id = ${card.id}
+      const rows = await sql<Array<{ decision: string; status: string; hold_ledger_tx_id: string | null }>>`
+        SELECT decision, status, hold_ledger_tx_id FROM bank.card_authorizations WHERE card_id = ${card.id}
       `;
-      expect(rows[0]).toMatchObject({ decision: 'approved', status: 'pending' });
+      expect(rows[0]).toMatchObject({ decision: 'approved', status: 'pending', hold_ledger_tx_id: null });
 
-      // And re-driving completes it, because the hold post is idempotent on the
-      // authorisation's own uuid.
+      // And re-driving completes it, at the stored amount, not the number this
+      // delivery arrived with. The hold post is idempotent on the authorisation's
+      // own uuid.
+      const redriven = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('80') });
+      expect(redriven.status).toBe('settled');
+      expect(redriven.decision).toBe('approved');
+      expect(redriven.holdLedgerTxId).not.toBeNull();
+      expect(formatAmount(redriven.amount)).toBe('10');
+      expect(await heldOn(redriven.id)).toBe('10');
+      expect(await availableOf(HOLDER, 'USDT')).toBe('490');
+    });
+
+    /**
+     * A crash after the approved pending insert and before hold_ledger_tx_id is
+     * written. Redelivery must post the stored hold, not hand back the pending
+     * row, and not size the hold from whatever amount arrived this time.
+     */
+    it('re-drives an approved pending hold at the stored amount, and a second post does not move it again', async () => {
+      await fund(HOLDER, 'USDT', '500');
+      const card = await issueCard();
+
+      const broken = new CardService(
+        sql,
+        {
+          ...ledger,
+          balance: ledger.balance.bind(ledger),
+          post: async (tx: Parameters<MemoryLedger['post']>[0]) => {
+            if (tx.idempotencyKey.startsWith('withdraw.hold:')) throw new Error('svc-ledger unreachable');
+            return ledger.post(tx);
+          },
+        } as unknown as MemoryLedger,
+        { issuer: cardSim() },
+      );
+
+      await expect(broken.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('10') })).rejects.toThrow(
+        'svc-ledger unreachable',
+      );
+
+      const stranded = await sql<Array<{ id: string; amount: string }>>`
+        SELECT id, amount::text AS amount FROM bank.card_authorizations WHERE card_id = ${card.id}
+      `;
+      const authorizationId = stranded[0]!.id;
+      expect(formatAmount(amt(stranded[0]!.amount))).toBe('10');
+
+      // The post landed; the row update did not. The redelivery must reuse this key.
+      const posted = await ledger.post(
+        recipes.withdrawHold({
+          userId: HOLDER,
+          assetId: 'USDT',
+          amount: amt('10'),
+          rail: 'card-sim',
+          withdrawalId: authorizationId,
+        }),
+      );
+      const journalLength = ledger.journal().length;
+
+      // A different number on the redelivery is not a new quote to hold against.
+      const redriven = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('80') });
+
+      expect(redriven.id).toBe(authorizationId);
+      expect(redriven.status).toBe('settled');
+      expect(redriven.decision).toBe('approved');
+      expect(redriven.holdLedgerTxId).toBe(posted.id);
+      expect(formatAmount(redriven.amount)).toBe('10');
+      expect(ledger.journal().length).toBe(journalLength);
+      expect(await heldOn(authorizationId)).toBe('10');
+      expect(await availableOf(HOLDER, 'USDT')).toBe('490');
+      expect(ledger.totalsByAsset().USDT).toBe('0');
+
+      const hold = await ledger.getTxByKey(`withdraw.hold:${authorizationId}`);
+      expect(hold?.meta).toMatchObject({ withdrawalId: authorizationId });
+      expect(formatAmount(hold!.entries[0]!.amount)).toBe('10');
+
+      const again = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('80') });
+      expect(again.holdLedgerTxId).toBe(posted.id);
+      expect(ledger.journal().length).toBe(journalLength);
+      expect(await heldOn(authorizationId)).toBe('10');
+    });
+
+    it('returns a declined authorisation on redelivery and does not hold', async () => {
+      await fund(HOLDER, 'USDT', '50');
+      const card = await issueCard();
+
+      const first = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') });
+      const again = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('1') });
+
+      expect(again.id).toBe(first.id);
+      expect(again.decision).toBe('declined');
+      expect(again.status).toBe('rejected');
+      expect(again.declineCode).toBe('ledger.insufficient_funds');
+      expect(again.holdLedgerTxId).toBeNull();
+      expect(await availableOf(HOLDER, 'USDT')).toBe('50');
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('withdraw.hold:'))).toHaveLength(0);
+    });
+
+    it('declines a re-driven hold when the ledger answers insufficient funds', async () => {
+      await fund(HOLDER, 'USDT', '500');
+      const card = await issueCard();
+
+      const broken = new CardService(
+        sql,
+        {
+          ...ledger,
+          balance: ledger.balance.bind(ledger),
+          post: async (tx: Parameters<MemoryLedger['post']>[0]) => {
+            if (tx.idempotencyKey.startsWith('withdraw.hold:')) throw new Error('svc-ledger unreachable');
+            return ledger.post(tx);
+          },
+        } as unknown as MemoryLedger,
+        { issuer: cardSim() },
+      );
+
+      await expect(broken.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('10') })).rejects.toThrow(
+        'svc-ledger unreachable',
+      );
+
+      // The balance is gone before the re-drive. The ledger's answer is the decline.
+      await cards.authorize({ cardId: card.id, authorizationRef: 'auth-other', amount: amt('500') });
       const redriven = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('10') });
-      expect(redriven.status).toBe('pending');
+
+      expect(redriven.decision).toBe('declined');
+      expect(redriven.declineCode).toBe('ledger.insufficient_funds');
+      expect(redriven.status).toBe('rejected');
+      expect(redriven.holdLedgerTxId).toBeNull();
+      expect(await availableOf(HOLDER, 'USDT')).toBe('0');
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey === `withdraw.hold:${redriven.id}`)).toHaveLength(0);
+      expect(ledger.totalsByAsset().USDT).toBe('0');
+    });
+
+    it('leaves the pending hold and throws when a re-drive cannot reach the ledger', async () => {
+      await fund(HOLDER, 'USDT', '500');
+      const card = await issueCard();
+
+      const broken = new CardService(
+        sql,
+        {
+          ...ledger,
+          balance: ledger.balance.bind(ledger),
+          post: async (tx: Parameters<MemoryLedger['post']>[0]) => {
+            if (tx.idempotencyKey.startsWith('withdraw.hold:')) throw new Error('svc-ledger unreachable');
+            return ledger.post(tx);
+          },
+        } as unknown as MemoryLedger,
+        { issuer: cardSim() },
+      );
+
+      await expect(broken.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('10') })).rejects.toThrow(
+        'svc-ledger unreachable',
+      );
+      await expect(broken.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('80') })).rejects.toThrow(
+        'svc-ledger unreachable',
+      );
+
+      const rows = await sql<Array<{ decision: string; status: string; hold_ledger_tx_id: string | null; amount: string }>>`
+        SELECT decision, status, hold_ledger_tx_id, amount::text AS amount
+          FROM bank.card_authorizations WHERE card_id = ${card.id}
+      `;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ decision: 'approved', status: 'pending', hold_ledger_tx_id: null });
+      expect(formatAmount(amt(rows[0]!.amount))).toBe('10');
+      expect(await availableOf(HOLDER, 'USDT')).toBe('500');
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('withdraw.hold:'))).toHaveLength(0);
     });
 
     // ── Capture, reversal, and the hold that must end at zero ────────────────
@@ -805,6 +1010,67 @@ describe('svc-bank cards PG-hard', () => {
     });
 
     /**
+     * A rejected full capture leaves kind `capture` and an amount equal to the
+     * hold, on sequence 0. `reverse()` used to post onto that same row, and
+     * when the row already had a ledger transaction id it returned that id and
+     * called it the reversal.
+     *
+     * The hold still goes back — the capture post did not land — but the
+     * reversal is a different row and a different transaction.
+     */
+    it('does not reuse a rejected full capture row, or report its ledger transaction as the reversal', async () => {
+      await fund(HOLDER, 'USDT', '500');
+      const card = await issueCard();
+      const auth = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') });
+
+      const broken = ledgerFailingOn('withdraw.settle');
+      await expect(broken.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') })).rejects.toThrow(
+        'svc-ledger unreachable',
+      );
+
+      const captureRows = await sql<Array<{ id: string; kind: string; status: string; amount: string; ledger_tx_id: string | null }>>`
+        SELECT id, kind, status, amount::text AS amount, ledger_tx_id
+          FROM bank.card_settlements
+         WHERE authorization_id = ${auth.id} AND sequence = 0
+      `;
+      expect(captureRows).toHaveLength(1);
+      const captureRow = captureRows[0]!;
+      expect(captureRow.kind).toBe('capture');
+      expect(captureRow.status).toBe('rejected');
+      expect(captureRow.ledger_tx_id).toBeNull();
+      expect(formatAmount(amt(captureRow.amount))).toBe('120');
+      expect(await heldOn(auth.id)).toBe('120');
+
+      // The reject left the capture's ledger transaction id on the row.
+      const captureLedgerTxId = randomUUID();
+      await sql`
+        UPDATE bank.card_settlements
+           SET ledger_tx_id = ${captureLedgerTxId}
+         WHERE id = ${captureRow.id} AND status = 'rejected'
+      `;
+
+      const reversed = await cards.reverse({ cardId: card.id, authorizationRef: 'auth-1' });
+
+      expect(reversed.ledgerTxId).not.toBe(captureLedgerTxId);
+      expect(formatAmount(reversed.returned)).toBe('120');
+      const reversalTx = await ledger.getTx(reversed.ledgerTxId);
+      expect(reversalTx?.idempotencyKey).toBe(`withdraw.reverse:${auth.id}`);
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey === `withdraw.settle:${auth.id}`)).toHaveLength(0);
+
+      const rows = await sql<Array<{ id: string; kind: string; status: string; ledger_tx_id: string | null }>>`
+        SELECT id, kind, status, ledger_tx_id
+          FROM bank.card_settlements
+         WHERE authorization_id = ${auth.id}
+         ORDER BY sequence
+      `;
+      expect(rows).toEqual([{ id: expect.any(String), kind: 'reversal', status: 'settled', ledger_tx_id: reversed.ledgerTxId }]);
+      expect(rows[0]!.id).not.toBe(captureRow.id);
+      expect(await heldOn(auth.id)).toBe('0');
+      expect(await availableOf(HOLDER, 'USDT')).toBe('500');
+      expect(ledger.totalsByAsset().USDT).toBe('0');
+    });
+
+    /**
      * The remainder case, and the reason `resumeSettlements` exists as a CALL.
      *
      * Sequence 0 settled, so the authorisation is correctly closed to new
@@ -874,6 +1140,150 @@ describe('svc-bank cards PG-hard', () => {
       expect(ledger.totalsByAsset().USDT).toBe('0');
     });
 
+    /**
+     * A full capture and a reverse both use sequence 0. While the capture claim
+     * is still pending they used to share that row, and once it carried a ledger
+     * transaction id the reverse handed that id back as the reversal.
+     *
+     * The same kind at the same amount still is a re-drive: it returns the
+     * existing transaction and posts nothing else. The other kind is a conflict.
+     * A pending reversal is the same door, shut the other way.
+     */
+    it('refuses a reverse while a full capture claim is still pending, and does not report the capture transaction as the reversal', async () => {
+      await fund(HOLDER, 'USDT', '500');
+      const card = await issueCard();
+      const auth = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') });
+
+      let releaseCapture!: () => void;
+      const captureGate = new Promise<void>((resolve) => {
+        releaseCapture = resolve;
+      });
+      let capturePending!: () => void;
+      const captureClaimed = new Promise<void>((resolve) => {
+        capturePending = resolve;
+      });
+      let captureTxId = '';
+
+      const pausing = new CardService(
+        sql,
+        {
+          ...ledger,
+          balance: ledger.balance.bind(ledger),
+          post: async (tx: Parameters<MemoryLedger['post']>[0]) => {
+            if (tx.idempotencyKey.startsWith('withdraw.settle:')) {
+              const posted = await ledger.post(tx);
+              captureTxId = posted.id;
+              capturePending();
+              await captureGate;
+              return posted;
+            }
+            return ledger.post(tx);
+          },
+        } as unknown as MemoryLedger,
+        { issuer: cardSim() },
+      );
+
+      const captureInFlight = pausing.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') });
+      await captureClaimed;
+
+      // The ledger has the capture. The row is still pending — the status write
+      // has not happened — so a reverse can see the transaction id.
+      await sql`
+        UPDATE bank.card_settlements
+           SET ledger_tx_id = ${captureTxId}
+         WHERE authorization_id = ${auth.id} AND sequence = 0 AND status = 'pending'
+      `;
+      const pending = await sql<Array<{ kind: string; status: string; ledger_tx_id: string | null }>>`
+        SELECT kind, status, ledger_tx_id FROM bank.card_settlements WHERE authorization_id = ${auth.id}
+      `;
+      expect(pending).toEqual([{ kind: 'capture', status: 'pending', ledger_tx_id: captureTxId }]);
+
+      const settleCount = () => ledger.journal().filter((tx) => tx.idempotencyKey === `withdraw.settle:${auth.id}`).length;
+      expect(settleCount()).toBe(1);
+
+      // Same kind, same amount: the existing transaction, and no second movement.
+      const redriven = await cards.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') });
+      expect(redriven.captureLedgerTxId).toBe(captureTxId);
+      expect(settleCount()).toBe(1);
+
+      await expect(pausing.reverse({ cardId: card.id, authorizationRef: 'auth-1' })).rejects.toMatchObject({
+        code: 'bank.card_settlement_kind_conflict',
+      });
+
+      const afterReverse = await sql<Array<{ kind: string; status: string; ledger_tx_id: string | null }>>`
+        SELECT kind, status, ledger_tx_id FROM bank.card_settlements WHERE authorization_id = ${auth.id}
+      `;
+      expect(afterReverse).toEqual([{ kind: 'capture', status: 'pending', ledger_tx_id: captureTxId }]);
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey === `withdraw.reverse:${auth.id}`)).toHaveLength(0);
+
+      releaseCapture();
+      const captured = await captureInFlight;
+      expect(captured.captureLedgerTxId).toBe(captureTxId);
+      expect(settleCount()).toBe(1);
+
+      const settled = await sql<Array<{ kind: string; status: string; ledger_tx_id: string | null }>>`
+        SELECT kind, status, ledger_tx_id FROM bank.card_settlements WHERE authorization_id = ${auth.id} AND sequence = 0
+      `;
+      expect(settled).toEqual([{ kind: 'capture', status: 'settled', ledger_tx_id: captureTxId }]);
+      await expect(cards.reverse({ cardId: card.id, authorizationRef: 'auth-1' })).rejects.toMatchObject({
+        code: 'bank.card_authorization_closed',
+      });
+
+      // The other direction: a pending reversal is not an open door for a capture.
+      const voided = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-2', amount: amt('80') });
+      let releaseReverse!: () => void;
+      const reverseGate = new Promise<void>((resolve) => {
+        releaseReverse = resolve;
+      });
+      let reversePending!: () => void;
+      const reverseClaimed = new Promise<void>((resolve) => {
+        reversePending = resolve;
+      });
+      let reverseTxId = '';
+      const pausingReverse = new CardService(
+        sql,
+        {
+          ...ledger,
+          balance: ledger.balance.bind(ledger),
+          post: async (tx: Parameters<MemoryLedger['post']>[0]) => {
+            if (tx.idempotencyKey === `withdraw.reverse:${voided.id}`) {
+              const posted = await ledger.post(tx);
+              reverseTxId = posted.id;
+              reversePending();
+              await reverseGate;
+              return posted;
+            }
+            return ledger.post(tx);
+          },
+        } as unknown as MemoryLedger,
+        { issuer: cardSim() },
+      );
+
+      const reverseInFlight = pausingReverse.reverse({ cardId: card.id, authorizationRef: 'auth-2' });
+      await reverseClaimed;
+      await sql`
+        UPDATE bank.card_settlements
+           SET ledger_tx_id = ${reverseTxId}
+         WHERE authorization_id = ${voided.id} AND sequence = 0 AND status = 'pending'
+      `;
+
+      await expect(cards.capture({ cardId: card.id, authorizationRef: 'auth-2', amount: amt('80') })).rejects.toMatchObject({
+        code: 'bank.card_settlement_kind_conflict',
+      });
+      const reverseRow = await sql<Array<{ kind: string; status: string; ledger_tx_id: string | null }>>`
+        SELECT kind, status, ledger_tx_id FROM bank.card_settlements WHERE authorization_id = ${voided.id}
+      `;
+      expect(reverseRow).toEqual([{ kind: 'reversal', status: 'pending', ledger_tx_id: reverseTxId }]);
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey === `withdraw.settle:${voided.id}`)).toHaveLength(0);
+
+      releaseReverse();
+      const reversed = await reverseInFlight;
+      expect(reversed.ledgerTxId).toBe(reverseTxId);
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey === `withdraw.reverse:${voided.id}`)).toHaveLength(1);
+      expect(await heldOn(voided.id)).toBe('0');
+      expect(ledger.totalsByAsset().USDT).toBe('0');
+    });
+
     it('refuses a capture larger than what was authorised and held', async () => {
       await fund(HOLDER, 'USDT', '500');
       const card = await issueCard();
@@ -907,10 +1317,17 @@ describe('svc-bank cards PG-hard', () => {
     it('pays cashback out of a pot funded from real bank revenue', async () => {
       await fund(HOLDER, 'USDT', '500');
       await fundCashbackPot('USDT', '10');
-      const card = await issueCard({ cashbackBps: 100 }); // 1%
+      const paying = connectedCards();
+      const card = await legacyConnectedCard({
+        cardId: randomUUID(),
+        userId: HOLDER,
+        assetId: 'USDT',
+        cashbackBps: 100,
+        perAuthorizationLimit: amt('1000'),
+      });
 
-      await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') });
-      const result = await cards.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') });
+      await paying.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') });
+      const result = await paying.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') });
 
       expect(result.cashback.status).toBe('paid');
       expect(formatAmount(result.cashback.amount)).toBe('2');
@@ -921,7 +1338,7 @@ describe('svc-bank cards PG-hard', () => {
       expect(ledger.totalsByAsset().USDT).toBe('0');
     });
 
-    it('pays cashback on the CAPTURED amount, never on the authorised one', async () => {
+    it('refuses simulated cashback on the captured amount and leaves the capture standing', async () => {
       // A reward on an amount the merchant did not take would be cashback on a
       // purchase that did not happen at that size.
       await fund(HOLDER, 'USDT', '500');
@@ -931,7 +1348,10 @@ describe('svc-bank cards PG-hard', () => {
       await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') });
       const result = await cards.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('50') });
 
+      expect(result.cashback).toMatchObject({ status: 'refused', reason: 'bank.rewards_issuer_unset' });
       expect(formatAmount(result.cashback.amount)).toBe('0.5');
+      expect(await availableOf(HOLDER, 'USDT')).toBe('450');
+      expect(formatAmount((await ledger.balance(rewardsEngine('USDT'))).amount)).toBe('10');
     });
 
     it('pays nothing at all on a reversed authorisation', async () => {
@@ -958,21 +1378,155 @@ describe('svc-bank cards PG-hard', () => {
      */
     it('refuses cashback by name when the pot is unfunded, and leaves the capture standing', async () => {
       await fund(HOLDER, 'USDT', '500');
-      const card = await issueCard({ cashbackBps: 100 });
+      const paying = connectedCards();
+      const card = await legacyConnectedCard({
+        cardId: randomUUID(),
+        userId: HOLDER,
+        assetId: 'USDT',
+        cashbackBps: 100,
+        perAuthorizationLimit: amt('1000'),
+      });
 
-      await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') });
-      const result = await cards.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') });
+      await paying.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') });
+      const result = await paying.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') });
 
       expect(result.cashback).toMatchObject({ status: 'refused', reason: 'bank.cashback_pot_unfunded' });
       expect(formatAmount(result.cashback.amount)).toBe('2');
 
       // The capture happened: the merchant has the money, the user does not.
       expect(await availableOf(HOLDER, 'USDT')).toBe('300');
-      expect(formatAmount((await ledger.balance(railBoundary('card-sim', 'USDT'))).amount)).toBe('200');
+      expect(formatAmount((await ledger.balance(railBoundary('outside-issuer', 'USDT'))).amount)).toBe('200');
 
       // And the unpaid reward is a row somebody can look at, not an absence.
-      const record = await cards.cashbackFor(result.authorizationId);
+      const record = await paying.cashbackFor(result.authorizationId);
       expect(record).toMatchObject({ status: 'rejected', rejectionCode: 'bank.cashback_pot_unfunded' });
+      expect(ledger.totalsByAsset().USDT).toBe('0');
+
+      // A rejected empty pot is not a retry. Resume must not pay it and must
+      // not open another capture.
+      const posts = ledger.journal().length;
+      const resumed = await cards.resumeSettlements({ cardId: card.id, authorizationRef: 'auth-1' });
+      expect(resumed.resumed).toEqual([]);
+      expect(await cards.cashbackFor(result.authorizationId)).toMatchObject({
+        status: 'rejected',
+        rejectionCode: 'bank.cashback_pot_unfunded',
+      });
+      expect(ledger.journal()).toHaveLength(posts);
+      expect(ledger.journal().filter((tx) => tx.reason === 'bank.card.cashback')).toHaveLength(0);
+    });
+
+    /**
+     * The capture and the remainder reversal have already landed. An unknown
+     * cashback post must not reject the row and must not throw: a later capture
+     * is closed, and the only retry is `resumeSettlements` on the same reward
+     * id. That id is idempotent, so a post that did land is not paid twice, and
+     * a post that did not land is paid once.
+     */
+    it('leaves an unknown cashback post unsettled and retries it without a second reward', async () => {
+      await fund(HOLDER, 'USDT', '500');
+      await fundCashbackPot('USDT', '10');
+      const paying = connectedCards();
+      const card = await legacyConnectedCard({
+        cardId: randomUUID(),
+        userId: HOLDER,
+        assetId: 'USDT',
+        cashbackBps: 100,
+        perAuthorizationLimit: amt('1000'),
+      });
+
+      const landed = await paying.authorize({ cardId: card.id, authorizationRef: 'auth-landed', amount: amt('200') });
+      const missed = await paying.authorize({ cardId: card.id, authorizationRef: 'auth-missed', amount: amt('200') });
+      const rewardKey = (authorizationId: string) => `reward:bank.card.cashback:${authorizationId}`;
+      const rewardTxs = (authorizationId: string) => ledger.journal().filter((tx) => tx.idempotencyKey === rewardKey(authorizationId));
+
+      const broken = new CardService(
+        sql,
+        {
+          ...ledger,
+          balance: ledger.balance.bind(ledger),
+          getTx: ledger.getTx.bind(ledger),
+          getTxByKey: ledger.getTxByKey.bind(ledger),
+          post: async (tx: Parameters<MemoryLedger['post']>[0]) => {
+            if (tx.idempotencyKey === rewardKey(landed.id)) {
+              await ledger.post(tx);
+              throw new LedgerError('reward ack lost', 'ledger.unavailable');
+            }
+            if (tx.idempotencyKey === rewardKey(missed.id)) throw new Error('svc-ledger unreachable');
+            return ledger.post(tx);
+          },
+        } as unknown as MemoryLedger,
+        { issuer: connectedIssuer() },
+      );
+
+      const landedCapture = await broken.capture({ cardId: card.id, authorizationRef: 'auth-landed', amount: amt('80') });
+      expect(landedCapture.cashback).toMatchObject({ status: 'refused', reason: 'ledger.unavailable' });
+      expect(formatAmount(landedCapture.cashback.amount)).toBe('0.8');
+      expect(rewardTxs(landed.id)).toHaveLength(1);
+
+      const missedCapture = await broken.capture({ cardId: card.id, authorizationRef: 'auth-missed', amount: amt('80') });
+      expect(missedCapture.cashback).toMatchObject({ status: 'refused', reason: 'bank.post_failed' });
+      expect(formatAmount(missedCapture.cashback.amount)).toBe('0.8');
+      expect(rewardTxs(missed.id)).toHaveLength(0);
+
+      for (const [authorization, ref] of [
+        [landed, 'auth-landed'],
+        [missed, 'auth-missed'],
+      ] as const) {
+        const row = await paying.cashbackFor(authorization.id);
+        expect(row).toMatchObject({ status: 'pending', rejectionCode: null });
+        expect(formatAmount(row!.amount)).toBe('0.8');
+        const settlements = await sql<Array<{ kind: string; status: string }>>`
+          SELECT kind, status FROM bank.card_settlements
+           WHERE authorization_id = ${authorization.id}
+           ORDER BY sequence
+        `;
+        expect(settlements).toEqual([
+          { kind: 'capture', status: 'settled' },
+          { kind: 'reversal', status: 'settled' },
+        ]);
+        await expect(cards.capture({ cardId: card.id, authorizationRef: ref, amount: amt('80') })).rejects.toMatchObject({
+          code: 'bank.card_authorization_closed',
+        });
+      }
+
+      // 500 − 160 captured + the one reward that already landed.
+      expect(await availableOf(HOLDER, 'USDT')).toBe('340.8');
+      expect(await heldOn(landed.id)).toBe('0');
+      expect(await heldOn(missed.id)).toBe('0');
+
+      const landedTxId = rewardTxs(landed.id)[0]!.id;
+      const resumedLanded = await paying.resumeSettlements({ cardId: card.id, authorizationRef: 'auth-landed' });
+      expect(resumedLanded.resumed).toEqual([]);
+      expect(rewardTxs(landed.id)).toHaveLength(1);
+      const landedRow = await sql<Array<{ status: string; ledger_tx_id: string | null; rejection_code: string | null }>>`
+        SELECT status, ledger_tx_id, rejection_code FROM bank.card_cashback WHERE authorization_id = ${landed.id}
+      `;
+      expect(landedRow).toEqual([{ status: 'settled', ledger_tx_id: landedTxId, rejection_code: null }]);
+
+      const resumedMissed = await paying.resumeSettlements({ cardId: card.id, authorizationRef: 'auth-missed' });
+      expect(resumedMissed.resumed).toEqual([]);
+      expect(rewardTxs(missed.id)).toHaveLength(1);
+      const missedTxId = rewardTxs(missed.id)[0]!.id;
+      const missedRow = await sql<Array<{ status: string; ledger_tx_id: string | null; rejection_code: string | null; amount: string }>>`
+        SELECT status, ledger_tx_id, rejection_code, amount::text AS amount
+          FROM bank.card_cashback WHERE authorization_id = ${missed.id}
+      `;
+      expect(missedRow[0]!.status).toBe('settled');
+      expect(missedRow[0]!.ledger_tx_id).toBe(missedTxId);
+      expect(missedRow[0]!.rejection_code).toBeNull();
+      expect(formatAmount(amt(missedRow[0]!.amount))).toBe('0.8');
+
+      await paying.resumeSettlements({ cardId: card.id, authorizationRef: 'auth-landed' });
+      await paying.resumeSettlements({ cardId: card.id, authorizationRef: 'auth-missed' });
+      expect(rewardTxs(landed.id)).toHaveLength(1);
+      expect(rewardTxs(missed.id)).toHaveLength(1);
+      const settlementCount = await sql<Array<{ count: string }>>`
+        SELECT count(*)::text AS count FROM bank.card_settlements
+         WHERE authorization_id = ${landed.id} OR authorization_id = ${missed.id}
+      `;
+      expect(settlementCount[0]!.count).toBe('4');
+      expect(await availableOf(HOLDER, 'USDT')).toBe('341.6');
+      expect(formatAmount((await ledger.balance(rewardsEngine('USDT'))).amount)).toBe('8.4');
       expect(ledger.totalsByAsset().USDT).toBe('0');
     });
 
@@ -992,13 +1546,20 @@ describe('svc-bank cards PG-hard', () => {
     it('pays one cashback per authorisation however many times a capture is re-driven', async () => {
       await fund(HOLDER, 'USDT', '500');
       await fundCashbackPot('USDT', '10');
-      const card = await issueCard({ cashbackBps: 100 });
+      const paying = connectedCards();
+      const card = await legacyConnectedCard({
+        cardId: randomUUID(),
+        userId: HOLDER,
+        assetId: 'USDT',
+        cashbackBps: 100,
+        perAuthorizationLimit: amt('1000'),
+      });
 
-      await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') });
-      await cards.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') });
+      await paying.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') });
+      await paying.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') });
       // The second capture is refused as closed, which is the guard that makes
       // the reward unrepeatable too.
-      await cards.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') }).catch(() => undefined);
+      await paying.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') }).catch(() => undefined);
 
       const rows = await sql`SELECT id FROM bank.card_cashback`;
       expect(rows).toHaveLength(1);
@@ -1008,12 +1569,19 @@ describe('svc-bank cards PG-hard', () => {
     it('snapshots the rate, so re-rating the card later cannot rewrite what was promised', async () => {
       await fund(HOLDER, 'USDT', '500');
       await fundCashbackPot('USDT', '10');
-      const card = await issueCard({ cashbackBps: 100 });
+      const paying = connectedCards();
+      const card = await legacyConnectedCard({
+        cardId: randomUUID(),
+        userId: HOLDER,
+        assetId: 'USDT',
+        cashbackBps: 100,
+        perAuthorizationLimit: amt('1000'),
+      });
 
-      await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') });
-      const result = await cards.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') });
+      await paying.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') });
+      const result = await paying.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('200') });
 
-      await sql`UPDATE bank.cards SET cashback_bps = 500 WHERE id = ${card.id}`;
+      await seedLegacyConnectedCard(card.id, 500);
       const rows = await sql<Array<{ rate_bps: number }>>`
         SELECT rate_bps FROM bank.card_cashback WHERE authorization_id = ${result.authorizationId}
       `;
@@ -1042,20 +1610,27 @@ describe('svc-bank cards PG-hard', () => {
     it('conserves value across issue, authorise, decline, partial capture, reversal and cashback', async () => {
       await fund(HOLDER, 'USDT', '1000');
       await fundCashbackPot('USDT', '25');
-      const card = await issueCard({ cashbackBps: 250 });
+      const paying = connectedCards();
+      const card = await legacyConnectedCard({
+        cardId: randomUUID(),
+        userId: HOLDER,
+        assetId: 'USDT',
+        cashbackBps: 250,
+        perAuthorizationLimit: amt('1000'),
+      });
 
-      await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('300') });
-      await cards.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('180') });
+      await paying.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('300') });
+      await paying.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('180') });
 
-      await cards.authorize({ cardId: card.id, authorizationRef: 'auth-2', amount: amt('90') });
-      await cards.reverse({ cardId: card.id, authorizationRef: 'auth-2' });
+      await paying.authorize({ cardId: card.id, authorizationRef: 'auth-2', amount: amt('90') });
+      await paying.reverse({ cardId: card.id, authorizationRef: 'auth-2' });
 
-      await cards.authorize({ cardId: card.id, authorizationRef: 'auth-3', amount: amt('5000') }); // declined: over limit
+      await paying.authorize({ cardId: card.id, authorizationRef: 'auth-3', amount: amt('5000') }); // declined: over limit
 
       expect(ledger.totalsByAsset().USDT).toBe('0');
       // 1000 − 180 captured + 4.5 cashback (2.5% of 180).
       expect(await availableOf(HOLDER, 'USDT')).toBe('824.5');
-      expect(formatAmount((await ledger.balance(railBoundary('card-sim', 'USDT'))).amount)).toBe('180');
+      expect(formatAmount((await ledger.balance(railBoundary('outside-issuer', 'USDT'))).amount)).toBe('180');
       expect(formatAmount((await ledger.balance(rewardsEngine('USDT'))).amount)).toBe('20.5');
     });
 
@@ -1315,6 +1890,51 @@ describe('svc-bank cards PG-hard', () => {
        * re-quoted on redelivery would hold twice, at two different sizes, for
        * one swipe.
        */
+      it('re-drives a pending converted hold at the stored funding amount, not a fresh quote', async () => {
+        await fund(HOLDER, 'BTC', '1');
+        const { source, state } = movableRates({ rate: '50000' });
+        const failing = {
+          ...ledger,
+          balance: ledger.balance.bind(ledger),
+          post: async (tx: Parameters<MemoryLedger['post']>[0]) => {
+            if (tx.idempotencyKey.startsWith('withdraw.hold:')) throw new Error('svc-ledger unreachable');
+            return ledger.post(tx);
+          },
+        } as unknown as MemoryLedger;
+        const broken = new CardService(sql, failing, { issuer: cardSim(), rates: source, clock: () => NOW });
+        const card = await broken.issue({
+          cardId: randomUUID(),
+          userId: HOLDER,
+          assetId: 'BTC',
+          settlementAssetId: 'USDT',
+          perAuthorizationLimit: amt('1'),
+        });
+
+        await expect(broken.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('100') })).rejects.toThrow(
+          'svc-ledger unreachable',
+        );
+        const callsAfterDecision = state.calls;
+
+        // Inside the deviation breaker, so a fresh quote would be a different hold.
+        state.rate = '45000';
+        const healthy = new CardService(sql, ledger, { issuer: cardSim(), rates: source, clock: () => NOW });
+        const redriven = await healthy.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('100') });
+
+        expect(state.calls).toBe(callsAfterDecision);
+        expect(redriven.status).toBe('settled');
+        expect(redriven.decision).toBe('approved');
+        expect(formatAmount(redriven.amount)).toBe('0.002');
+        expect(formatAmount(redriven.conversion!.rate)).toBe('50000');
+        expect(await heldOn(redriven.id, HOLDER, 'BTC')).toBe('0.002');
+        expect(await availableOf(HOLDER, 'BTC')).toBe('0.998');
+        expect(ledger.totalsByAsset().BTC).toBe('0');
+
+        const again = await healthy.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('100') });
+        expect(again.holdLedgerTxId).toBe(redriven.holdLedgerTxId);
+        expect(state.calls).toBe(callsAfterDecision);
+        expect(await heldOn(redriven.id, HOLDER, 'BTC')).toBe('0.002');
+      });
+
       it('re-quotes nothing on a redelivered authorisation, and holds exactly once', async () => {
         await fund(HOLDER, 'BTC', '1');
         const { source, state } = movableRates({ rate: '50000' });

@@ -16,7 +16,7 @@ import type { HistoryRange, LedgerHistory } from './ledger-history.js';
  * by movement, against the book.
  */
 
-export const SPEND_CATEGORIES = ['transfers', 'trading', 'p2p', 'fees', 'withdrawals', 'earn', 'rewards', 'other'] as const;
+export const SPEND_CATEGORIES = ['transfers', 'trading', 'p2p', 'fees', 'withdrawals', 'earn', 'deposits', 'rewards', 'other'] as const;
 export type SpendCategory = (typeof SPEND_CATEGORIES)[number];
 
 /**
@@ -38,7 +38,8 @@ export function categorise(reason: string): SpendCategory {
   if (reason.startsWith('p2p.')) return 'p2p';
   if (reason.startsWith('fee.') || reason.endsWith('.fee')) return 'fees';
   if (reason.startsWith('withdraw.')) return 'withdrawals';
-  if (reason.startsWith('deposit') || reason.startsWith('reward') || reason.startsWith('token.yield')) return 'rewards';
+  if (reason.startsWith('deposit')) return 'deposits';
+  if (reason.startsWith('reward') || reason.startsWith('token.yield')) return 'rewards';
   return 'other';
 }
 
@@ -47,7 +48,11 @@ export interface SpendSummary {
   readonly assetId: string;
   readonly from: string;
   readonly to: string;
-  /** Value that left the account, by category. Decimal strings. */
+  /**
+   * Value that left the account, by category. Decimal strings.
+   * `deposits` also includes value that arrived under a deposit reason.
+   * That arrival is not spending, so it is not part of `totalOutflow`.
+   */
   readonly outflowByCategory: Readonly<Record<SpendCategory, string>>;
   readonly totalOutflow: string;
   readonly totalInflow: string;
@@ -75,6 +80,7 @@ export class SpendAnalytics {
     const spaces = await this.spaces.namedSpaces(input.userId, input.assetId);
 
     const outflow = new Map<SpendCategory, Amount>();
+    let depositInflow: Amount = 0n;
     let totalOutflow = 0n;
     let totalInflow = 0n;
     let movements = 0;
@@ -90,17 +96,22 @@ export class SpendAnalytics {
           outflow.set(category, (outflow.get(category) ?? 0n) + entry.amount);
         } else {
           totalInflow += entry.amount;
+          // A deposit arrives as a debit. It is not spending, and it is not a reward.
+          if (categorise(entry.reason) === 'deposits') depositInflow += entry.amount;
         }
       }
     }
 
-    const outflowByCategory = Object.fromEntries(SPEND_CATEGORIES.map((c) => [c, formatAmount(outflow.get(c) ?? 0n)])) as Record<
-      SpendCategory,
-      string
-    >;
+    const outflowByCategory = Object.fromEntries(
+      SPEND_CATEGORIES.map((c) => {
+        const left = outflow.get(c) ?? 0n;
+        const amount = c === 'deposits' ? left + depositInflow : left;
+        return [c, formatAmount(amount)];
+      }),
+    ) as Record<SpendCategory, string>;
 
-    // The parts must equal the whole. If this ever fails, a category was dropped
-    // rather than bucketed, and the breakdown would quietly understate spending.
+    // The parts that left must equal totalOutflow. Deposit arrivals are reported
+    // in the deposits bucket and are not part of this sum.
     const summed = [...outflow.values()].reduce((a, b) => a + b, 0n);
     if (summed !== totalOutflow) {
       throw new Error(`Spend breakdown does not reconcile: parts ${formatAmount(summed)} vs total ${formatAmount(totalOutflow)}`);

@@ -537,6 +537,21 @@ export class EarnService {
   /**
    * Close a position and return the principal.
    *
+   * The money is the ledger stake pot, checked with `stakePrincipalForAccrual`
+   * the same way `principalOf` checks it. A column that disagrees with a
+   * still-funded pot refuses `bank.earn_principal_mismatch` before anything is
+   * posted, so the row stays open and the pot stays whole.
+   *
+   * A crash after the ledger post and before this close leaves the pot at 0,
+   * the principal already in available, and the row still active. That retry
+   * replays `bank.earn.withdraw:<positionId>` with the column amount. The
+   * ledger returns the committed transaction and does not move the principal
+   * again, then the row closes. Checking the mismatch first never reaches
+   * that key, so the row stays active and interest for the pool stops. An
+   * empty pot with no such key fails the replay and leaves the row active.
+   * A zero column stays a typed refusal — the replay amount is the column,
+   * never a balance invented from the empty pot.
+   *
    * The row is locked for the duration so two concurrent withdrawals cannot both
    * post. The ledger's idempotency key would catch the double-post anyway, but
    * relying on the last line of defence for ordinary correctness is how the last
@@ -567,7 +582,11 @@ export class EarnService {
           throw new BankError(`Fixed-term position is locked until ${row.matures_at.toISOString()}`, 'bank.position_locked');
         }
 
-        const principal = parseAmount(row.principal);
+        const recorded = parseAmount(row.principal);
+        const book = (await this.ledger.balance(earnStakeAccount(row.user_id, row.asset_id, row.id))).amount;
+        // Empty pot, positive column: the withdraw already committed. Replay
+        // the same key. Any other disagreement is drift and refuses first.
+        const principal = book === 0n && recorded > 0n ? recorded : stakePrincipalForAccrual(row.id, recorded, book);
 
         await this.ledger.post(
           recipes.earnWithdraw({

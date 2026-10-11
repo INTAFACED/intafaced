@@ -1,5 +1,14 @@
 import type { Sql } from 'postgres';
-import { InsufficientFundsError, formatAmount, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { transaction } from '@intafaced/db';
+import {
+  InsufficientFundsError,
+  formatAmount,
+  parseAmount,
+  recipes,
+  type Amount,
+  type LedgerClient,
+  type LedgerTx,
+} from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { assertBusinessListLimit, assertBusinessPendingListLimit } from '../owner-list-limit.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
@@ -155,6 +164,42 @@ function toApproval(row: ApprovalRow): BusinessApproval {
   };
 }
 
+/**
+ * One decision for a client id that already has a row: the opening lookup and
+ * the insert that loses ON CONFLICT DO NOTHING. Different terms conflict.
+ * Pending retries. An approved row with a ledger tx is the original post.
+ * Anything else is inactive.
+ */
+function decideExistingProposal(
+  existing: BusinessApproval,
+  input: {
+    clientId: string;
+    accountId: string;
+    makerUserId: string;
+    fromSpaceId: string;
+    toSpaceId: string;
+    amount: Amount;
+  },
+): { kind: 'posted'; transferId: string; ledgerTxId: string } | { kind: 'pending'; approval: BusinessApproval } {
+  if (
+    existing.accountId !== input.accountId ||
+    existing.makerUserId !== input.makerUserId ||
+    existing.fromSpaceId !== input.fromSpaceId ||
+    existing.toSpaceId !== input.toSpaceId ||
+    existing.amount !== input.amount
+  ) {
+    throw new BankError(
+      `Proposal ${input.clientId} already exists on different terms — a retry must carry the same instruction`,
+      'bank.business_request_conflict',
+    );
+  }
+  if (existing.status === 'pending') return { kind: 'pending', approval: existing };
+  if (existing.status === 'approved' && existing.ledgerTxId) {
+    return { kind: 'posted', transferId: existing.transferId ?? existing.id, ledgerTxId: existing.ledgerTxId };
+  }
+  throw new BankError(`Approval ${existing.id} is ${existing.status}`, 'bank.business_approval_inactive');
+}
+
 export class BusinessService {
   constructor(
     private readonly sql: Sql,
@@ -252,26 +297,7 @@ export class BusinessService {
              rejection_code, created_at, decided_at
         FROM bank.business_approvals WHERE id = ${clientId}::uuid
     `;
-    if (existingRows[0]) {
-      const existing = toApproval(existingRows[0]);
-      if (
-        existing.accountId !== input.accountId ||
-        existing.makerUserId !== input.makerUserId ||
-        existing.fromSpaceId !== input.fromSpaceId ||
-        existing.toSpaceId !== input.toSpaceId ||
-        existing.amount !== input.amount
-      ) {
-        throw new BankError(
-          `Proposal ${clientId} already exists on different terms — a retry must carry the same instruction`,
-          'bank.business_request_conflict',
-        );
-      }
-      if (existing.status === 'pending') return { kind: 'pending', approval: existing };
-      if (existing.status === 'approved' && existing.ledgerTxId) {
-        return { kind: 'posted', transferId: existing.transferId ?? existing.id, ledgerTxId: existing.ledgerTxId };
-      }
-      throw new BankError(`Approval ${existing.id} is ${existing.status}`, 'bank.business_approval_inactive');
-    }
+    if (existingRows[0]) return decideExistingProposal(toApproval(existingRows[0]), input);
 
     if (input.amount < account.spendThreshold) {
       const posted = await this.transfers.transfer({
@@ -280,6 +306,20 @@ export class BusinessService {
         toSpaceId: input.toSpaceId,
         amount: input.amount,
       });
+      // Record the client id on the same row the lookup above already reads.
+      // Status is approved and ledger_tx_id is the transfer that just posted, so
+      // a later call sees the instruction: different terms conflict, the same
+      // terms return this post, and a checker cannot settle a second time.
+      await this.sql`
+        INSERT INTO bank.business_approvals
+          (id, account_id, maker_user_id, from_space_id, to_space_id, asset_id, amount, status, transfer_id, ledger_tx_id, decided_at)
+        VALUES (
+          ${clientId}::uuid, ${input.accountId}::uuid, ${input.makerUserId},
+          ${input.fromSpaceId}::uuid, ${input.toSpaceId}::uuid,
+          ${account.assetId}, ${formatAmount(input.amount)}::numeric, 'approved',
+          ${posted.transferId}, ${posted.ledgerTxId}, now()
+        )
+      `;
       return { kind: 'posted', transferId: posted.transferId, ledgerTxId: posted.ledgerTxId };
     }
 
@@ -328,7 +368,7 @@ export class BusinessService {
                  rejection_code, created_at, decided_at
             FROM bank.business_approvals WHERE id = ${approvalId}::uuid
         `;
-        return { kind: 'pending' as const, approval: toApproval(raced[0]!) };
+        return decideExistingProposal(toApproval(raced[0]!), input);
       },
     );
   }
@@ -341,8 +381,8 @@ export class BusinessService {
         return { transferId: approval.transferId ?? approval.id, ledgerTxId: approval.ledgerTxId };
       }
       if (approval.status === 'approved') {
-        // The row was claimed and the settle post did not land. The settle
-        // key is the approval id, so this retry posts once.
+        // No ledger tx id yet. A settle that already posted is stored here
+        // and not released. A settle post that threw is rejected in finishSettle.
         if (approval.makerUserId === input.checkerUserId) {
           throw new BankError('Maker cannot approve their own transfer', 'bank.business_self_approve');
         }
@@ -452,6 +492,11 @@ export class BusinessService {
    * Same-asset only. A mix would invent an FX/withholding rate — refused as
    * `bank.business_payroll_rate_unset`. Amounts are caller-supplied instruction
    * strings (parsed upstream); this door never computes a salary table.
+   *
+   * A total at or above the account spend threshold does not post. The approval
+   * hold settles one destination for one amount, so it cannot carry these
+   * recipients without a new recipe or a new amount. One admin or maker is not
+   * a different checker.
    */
   async runPayroll(input: {
     payrollId: string;
@@ -468,10 +513,7 @@ export class BusinessService {
     await this.assertRole(input.accountId, input.actorUserId, ['admin', 'maker']);
 
     const existing = await this.payrollRun(input.payrollId);
-    if (existing) {
-      this.assertPayrollSameTerms(existing, input);
-      return existing;
-    }
+    if (existing) this.assertPayrollVisibleTerms(existing, input);
 
     const now = new Date();
     const from = await this.spaces.resolveForDebit(input.fromSpaceId, now);
@@ -500,50 +542,159 @@ export class BusinessService {
       resolved.push({ toSpaceId: line.toSpaceId, amount: line.amount, acct: accountForSpace(to) });
     }
 
+    let total: Amount = 0n;
+    for (const line of resolved) total += line.amount;
+    if (total >= account.spendThreshold) {
+      throw new BankError(
+        'Dual control is required for a payroll at or above the spend threshold. An admin or maker alone is not a different checker.',
+        'bank.business_self_approve',
+      );
+    }
+
+    const fromAcct = accountForSpace(from);
     return withMoneySpan(
       'bank.business.payroll',
-      { operation: 'business-payroll', userId: input.actorUserId, amount: formatAmount(resolved.reduce((acc, l) => acc + l.amount, 0n)) },
+      { operation: 'business-payroll', userId: input.actorUserId, amount: formatAmount(total) },
       async () => {
-        let posted;
-        try {
-          posted = await this.ledger.post(
-            recipes.businessPayroll({
-              payrollId: input.payrollId,
-              from: accountForSpace(from),
-              recipients: resolved.map((line) => ({ to: line.acct, amount: line.amount })),
-            }),
-          );
-        } catch (err) {
-          if (err instanceof InsufficientFundsError) throw err;
-          throw err;
+        const posted = await this.ledger.post(
+          recipes.businessPayroll({
+            payrollId: input.payrollId,
+            from: fromAcct,
+            recipients: resolved.map((line) => ({ to: line.acct, amount: line.amount })),
+          }),
+        );
+        // Empty entries: this client did not return the book. That is not a
+        // different instruction, and it is not a reason to invent a recipient.
+        const agreed = await this.payrollEntriesAgree(posted, fromAcct, resolved);
+        if (agreed === false) {
+          throw new BankError(`Payroll ${input.payrollId} already exists on different terms`, 'bank.business_request_conflict');
+        }
+        if (existing && existing.ledgerTxId !== posted.id) {
+          throw new BankError(`Payroll ${input.payrollId} already exists on different terms`, 'bank.business_request_conflict');
+        }
+        // Equal stored and requested counts are the same instruction only when
+        // the book does not show a recipient this request dropped.
+        if (existing && existing.recipients.length === input.recipients.length) {
+          this.assertPayrollSameTerms(existing, input);
+          return existing;
         }
 
-        const inserted = await this.sql<PayrollRunRow[]>`
-          INSERT INTO bank.business_payroll_runs
-            (id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id)
-          VALUES (
-            ${input.payrollId}::uuid, ${input.accountId}::uuid, ${input.actorUserId},
-            ${input.fromSpaceId}::uuid, ${account.assetId}, ${posted.id}
-          )
-          ON CONFLICT (id) DO NOTHING
-          RETURNING id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id, created_at
-        `;
-        const row = inserted[0] ?? (await this.payrollRunRow(input.payrollId));
-        if (!row) throw new BankError(`Payroll ${input.payrollId} could not be recorded`, 'bank.business_request_conflict');
-        if (inserted[0]) {
-          for (const line of resolved) {
-            await this.sql`
-              INSERT INTO bank.business_payroll_lines (payroll_id, to_space_id, amount)
-              VALUES (${input.payrollId}::uuid, ${line.toSpaceId}::uuid, ${formatAmount(line.amount)}::numeric)
-            `;
+        return transaction(this.sql, async (tx) => {
+          const inserted = await tx<PayrollRunRow[]>`
+            INSERT INTO bank.business_payroll_runs
+              (id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id)
+            VALUES (
+              ${input.payrollId}::uuid, ${input.accountId}::uuid, ${input.actorUserId},
+              ${input.fromSpaceId}::uuid, ${account.assetId}, ${posted.id}
+            )
+            ON CONFLICT (id) DO NOTHING
+            RETURNING id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id, created_at
+          `;
+          if (inserted[0]) {
+            for (const line of resolved) {
+              await tx`
+                INSERT INTO bank.business_payroll_lines (payroll_id, to_space_id, amount)
+                VALUES (${input.payrollId}::uuid, ${line.toSpaceId}::uuid, ${formatAmount(line.amount)}::numeric)
+              `;
+            }
+            const recorded = await this.payrollRun(input.payrollId, tx);
+            if (!recorded) {
+              throw new BankError(`Payroll ${input.payrollId} could not be recorded`, 'bank.business_request_conflict');
+            }
+            this.assertPayrollSameTerms(recorded, input);
+            return recorded;
           }
-        }
-        const recorded = await this.payrollRun(input.payrollId);
-        if (!recorded) throw new BankError(`Payroll ${input.payrollId} could not be recorded`, 'bank.business_request_conflict');
-        this.assertPayrollSameTerms(recorded, input);
-        return recorded;
+          const locked = await this.payrollRun(input.payrollId, tx, true);
+          if (!locked || locked.ledgerTxId !== posted.id) {
+            throw new BankError(`Payroll ${input.payrollId} could not be recorded`, 'bank.business_request_conflict');
+          }
+          return this.completePayrollLines(tx, locked, input);
+        });
       },
     );
+  }
+
+  /**
+   * Lines already stored must agree with the request. Lines that are not
+   * visible yet are not a different instruction — the caller completes them
+   * when the ledger payment is that same instruction.
+   */
+  private assertPayrollVisibleTerms(
+    existing: BusinessPayrollRun,
+    input: { accountId: string; fromSpaceId: string; recipients: ReadonlyArray<BusinessPayrollLine> },
+  ): void {
+    if (existing.accountId !== input.accountId || existing.fromSpaceId !== input.fromSpaceId) {
+      throw new BankError(`Payroll ${existing.payrollId} already exists on different terms`, 'bank.business_request_conflict');
+    }
+    const requested = new Map(input.recipients.map((line) => [line.toSpaceId, line.amount]));
+    for (const line of existing.recipients) {
+      if (requested.get(line.toSpaceId) !== line.amount) {
+        throw new BankError(`Payroll ${existing.payrollId} already exists on different terms`, 'bank.business_request_conflict');
+      }
+    }
+  }
+
+  private async completePayrollLines(
+    tx: Sql,
+    existing: BusinessPayrollRun,
+    input: { payrollId: string; accountId: string; fromSpaceId: string; recipients: ReadonlyArray<BusinessPayrollLine> },
+  ): Promise<BusinessPayrollRun> {
+    this.assertPayrollVisibleTerms(existing, input);
+    const have = new Set(existing.recipients.map((line) => line.toSpaceId));
+    for (const line of input.recipients) {
+      if (have.has(line.toSpaceId)) continue;
+      await tx`
+        INSERT INTO bank.business_payroll_lines (payroll_id, to_space_id, amount)
+        VALUES (${input.payrollId}::uuid, ${line.toSpaceId}::uuid, ${formatAmount(line.amount)}::numeric)
+        ON CONFLICT (payroll_id, to_space_id) DO NOTHING
+      `;
+    }
+    const recorded = await this.payrollRun(input.payrollId, tx);
+    if (!recorded) {
+      throw new BankError(`Payroll ${input.payrollId} could not be recorded`, 'bank.business_request_conflict');
+    }
+    this.assertPayrollSameTerms(recorded, input);
+    return recorded;
+  }
+
+  /**
+   * `null` — the client returned no entries, so the book was not shown.
+   * `true` / `false` — the entries that were returned agree with this request, or they do not.
+   */
+  private async payrollEntriesAgree(
+    posted: LedgerTx,
+    fromAcct: ReturnType<typeof accountForSpace>,
+    resolved: ReadonlyArray<{ amount: Amount; acct: ReturnType<typeof accountForSpace> }>,
+  ): Promise<boolean | null> {
+    if (posted.entries.length === 0) return null;
+    return this.postedPayrollMatches(posted, fromAcct, resolved);
+  }
+
+  /** The posted book is the instruction. A same key with other lines is not a second payment. */
+  private async postedPayrollMatches(
+    posted: LedgerTx,
+    fromAcct: ReturnType<typeof accountForSpace>,
+    resolved: ReadonlyArray<{ amount: Amount; acct: ReturnType<typeof accountForSpace> }>,
+  ): Promise<boolean> {
+    const source = await this.ledger.balance(fromAcct);
+    if (!source.accountId) return false;
+    let total = 0n;
+    for (const line of resolved) total += line.amount;
+    const credits = posted.entries.filter((entry) => entry.direction === 'credit');
+    const debits = posted.entries.filter((entry) => entry.direction === 'debit');
+    const credit = credits[0];
+    if (credits.length !== 1 || !credit || credit.accountId !== source.accountId || credit.amount !== total) return false;
+    if (debits.length !== resolved.length) return false;
+    const paid = new Map<string, Amount>();
+    for (const entry of debits) {
+      if (paid.has(entry.accountId)) return false;
+      paid.set(entry.accountId, entry.amount);
+    }
+    for (const line of resolved) {
+      const dest = await this.ledger.balance(line.acct);
+      if (!dest.accountId || paid.get(dest.accountId) !== line.amount) return false;
+    }
+    return true;
   }
 
   private assertPayrollSameTerms(
@@ -564,18 +715,24 @@ export class BusinessService {
     }
   }
 
-  private async payrollRunRow(id: string): Promise<PayrollRunRow | null> {
-    const rows = await this.sql<PayrollRunRow[]>`
-      SELECT id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id, created_at
-        FROM bank.business_payroll_runs WHERE id = ${id}
-    `;
+  private async payrollRunRow(id: string, sql: Sql = this.sql, lock = false): Promise<PayrollRunRow | null> {
+    const rows = lock
+      ? await sql<PayrollRunRow[]>`
+          SELECT id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id, created_at
+            FROM bank.business_payroll_runs WHERE id = ${id}::uuid
+           FOR UPDATE
+        `
+      : await sql<PayrollRunRow[]>`
+          SELECT id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id, created_at
+            FROM bank.business_payroll_runs WHERE id = ${id}
+        `;
     return rows[0] ?? null;
   }
 
-  private async payrollRun(id: string): Promise<BusinessPayrollRun | null> {
-    const row = await this.payrollRunRow(id);
+  private async payrollRun(id: string, sql: Sql = this.sql, lock = false): Promise<BusinessPayrollRun | null> {
+    const row = await this.payrollRunRow(id, sql, lock);
     if (!row) return null;
-    const lines = await this.sql<PayrollLineRow[]>`
+    const lines = await sql<PayrollLineRow[]>`
       SELECT payroll_id, to_space_id, amount
         FROM bank.business_payroll_lines WHERE payroll_id = ${id}
        ORDER BY to_space_id ASC
@@ -616,18 +773,38 @@ export class BusinessService {
     await this.releaseHold(approval);
   }
 
-  /** Settle key is the approval id. A second call returns the posted tx. */
+  /**
+   * Settle key is the approval id. A posted settle is stored and not released.
+   * A thrown settle writes rejected before the release post. A throw from
+   * that post cannot leave the row approved with a null ledger tx id, so a
+   * later approve does not settle. A later reject may post the same release.
+   */
   private async finishSettle(approval: BusinessApproval): Promise<{ transferId: string; ledgerTxId: string }> {
     const from = await this.spaces.get(approval.fromSpaceId);
     const to = await this.spaces.resolveForCredit(approval.toSpaceId);
-    const settled = await this.ledger.post(
-      recipes.businessApprovalSettle({
-        approvalId: approval.id,
-        from: accountForSpace(from),
-        to: accountForSpace(to),
-        amount: approval.amount,
-      }),
-    );
+    let settled: LedgerTx;
+    try {
+      settled = await this.ledger.post(
+        recipes.businessApprovalSettle({
+          approvalId: approval.id,
+          from: accountForSpace(from),
+          to: accountForSpace(to),
+          amount: approval.amount,
+        }),
+      );
+    } catch {
+      await this.sql`
+        UPDATE bank.business_approvals
+           SET status = 'rejected',
+               rejection_code = ${'bank.business_settle_unposted'},
+               decided_at = now()
+         WHERE id = ${approval.id}::uuid
+           AND status = 'approved'
+           AND ledger_tx_id IS NULL
+      `;
+      await this.releaseHold(approval);
+      throw new BankError('The settle did not post and the hold was released', 'bank.business_rejected');
+    }
     await this.sql`
         UPDATE bank.business_approvals
            SET ledger_tx_id = ${settled.id}
