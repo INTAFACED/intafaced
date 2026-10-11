@@ -40,9 +40,9 @@ export const comments = schema.table('comments', {
 });
 
 /**
- * The audit trail. Append-only — enforced by a trigger in migration 0001,
- * because a history TypeScript alone protects is a history a psql session can
- * rewrite.
+ * The audit trail. Append-only — the trigger is in migration 0001, and 0005
+ * refuses every update and row removal even after the ticket row is gone.
+ * The foreign key does not cascade: ticket removal must not erase the trail.
  */
 export const ticketEvents = schema.table(
   'ticket_events',
@@ -50,7 +50,7 @@ export const ticketEvents = schema.table(
     id: pk(),
     ticketId: uuid('ticket_id')
       .notNull()
-      .references(() => tickets.id, { onDelete: 'cascade' }),
+      .references(() => tickets.id, { onDelete: 'restrict' }),
     /** 1-based, dense per ticket. The gap is the evidence a row was lost. */
     sequence: integer('sequence').notNull(),
     kind: text('kind').$type<'opened' | 'assigned' | 'status_changed' | 'grounding_read' | 'escalated'>().notNull(),
@@ -69,10 +69,10 @@ export const ticketEvents = schema.table(
 );
 
 /**
- * The context an escalation carries. Immutable once written (trigger, 0001):
- * the record's whole value is that it says what was read at the moment the
- * decision was made, and a mutable one can be brought into line with the
- * outcome afterwards.
+ * The context an escalation carries. Immutable once written (trigger, 0001;
+ * 0005 refuses row removal even when the ticket row is gone). The foreign
+ * key does not cascade. A mutable case file can be brought into line with
+ * the outcome afterwards, which is the failure this table exists to prevent.
  *
  * NO AMOUNT COLUMN, deliberately. `reason` may be `money_request` — support
  * files the request and the pay/ledger recipe moves the value (§0.6).
@@ -81,7 +81,7 @@ export const caseFiles = schema.table('case_files', {
   id: pk(),
   ticketId: uuid('ticket_id')
     .notNull()
-    .references(() => tickets.id, { onDelete: 'cascade' }),
+    .references(() => tickets.id, { onDelete: 'restrict' }),
   escalatedBy: text('escalated_by').notNull(),
   reason: text('reason').$type<'account_state' | 'kyc_review' | 'money_request' | 'technical' | 'other'>().notNull(),
   /** `{kind, ref, digest, readAt}[]` — proof of what was read, never a copy. */

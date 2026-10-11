@@ -10,9 +10,7 @@ import {
 
 describe('support settlement refuse — M17 cannot settle', () => {
   it('names the three acts the desk must never perform', () => {
-    expect([...SUPPORT_FORBIDDEN_SETTLEMENT_ACTS].sort()).toEqual(
-      ['complete_withdrawal', 'move_money', 'unfreeze_account'].sort(),
-    );
+    expect([...SUPPORT_FORBIDDEN_SETTLEMENT_ACTS].sort()).toEqual(['complete_withdrawal', 'move_money', 'unfreeze_account'].sort());
     for (const act of SUPPORT_FORBIDDEN_SETTLEMENT_ACTS) {
       expect(isForbiddenSettlementAct(act)).toBe(true);
       expect(checkSupportSettlement({ act })).toEqual({
@@ -30,9 +28,7 @@ describe('support settlement refuse — M17 cannot settle', () => {
   });
 
   it('resolving a deposit_withdraw ticket implies a payout', () => {
-    expect(
-      checkSupportSettlement({ toStatus: 'resolved', category: 'deposit_withdraw' }),
-    ).toEqual({
+    expect(checkSupportSettlement({ toStatus: 'resolved', category: 'deposit_withdraw' })).toEqual({
       status: 'refuse',
       reason: 'implied_payout',
       code: SUPPORT_SETTLE_REFUSE,
@@ -44,13 +40,34 @@ describe('support settlement refuse — M17 cannot settle', () => {
   });
 
   it('resolving after a money_request escalation implies a payout', () => {
-    expect(
-      checkSupportSettlement({ toStatus: 'resolved', category: 'account', escalationReason: 'money_request' }),
-    ).toEqual({
+    expect(checkSupportSettlement({ toStatus: 'resolved', category: 'account', escalationReason: 'money_request' })).toEqual({
       status: 'refuse',
       reason: 'implied_payout',
       code: SUPPORT_SETTLE_REFUSE,
     });
+  });
+
+  it('a money_request file refuses resolved and closed even when a later reason is technical', () => {
+    for (const toStatus of ['resolved', 'closed'] as const) {
+      expect(
+        checkSupportSettlement({
+          toStatus,
+          category: 'account',
+          escalationReason: 'technical',
+          escalationReasons: ['money_request', 'technical'],
+        }),
+      ).toEqual({
+        status: 'refuse',
+        reason: 'implied_payout',
+        code: SUPPORT_SETTLE_REFUSE,
+      });
+    }
+    expect(checkSupportSettlement({ toStatus: 'closed', category: 'deposit_withdraw', escalationReason: 'money_request' })).toEqual({
+      status: 'refuse',
+      reason: 'implied_payout',
+      code: SUPPORT_SETTLE_REFUSE,
+    });
+    expect(checkSupportSettlement({ toStatus: 'resolved', category: 'account', escalationReasons: ['technical'] }).status).toBe('ok');
   });
 
   it('a resolve/close note that claims the money moved is refused', () => {
@@ -58,6 +75,24 @@ describe('support settlement refuse — M17 cannot settle', () => {
       expect(noteImpliesSettlement(note)).toBe(true);
       expect(checkSupportSettlement({ toStatus: 'resolved', category: 'other', note }).status).toBe('refuse');
       expect(checkSupportSettlement({ toStatus: 'closed', category: 'other', note }).status).toBe('refuse');
+    }
+  });
+
+  it('a filler word between claim tokens still implies a payout', () => {
+    const notes = ['withdrawal was completed', 'completed the withdrawal', 'moved the money', 'unfroze the account'];
+    const statuses = ['resolved', 'closed'] as const;
+    const categories = ['deposit_withdraw', 'other'] as const;
+    for (const note of notes) {
+      expect(noteImpliesSettlement(note)).toBe(true);
+      for (const toStatus of statuses) {
+        for (const category of categories) {
+          expect(checkSupportSettlement({ toStatus, category, note })).toEqual({
+            status: 'refuse',
+            reason: 'implied_payout',
+            code: SUPPORT_SETTLE_REFUSE,
+          });
+        }
+      }
     }
   });
 

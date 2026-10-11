@@ -21,10 +21,17 @@ export type SupportSettlementCheck =
 
 /**
  * Claims that the money already moved or the freeze already lifted.
- * "cannot refund" is not a claim — only past-tense / completed forms.
+ * One function word may sit between a pair ("moved the money",
+ * "withdrawal was completed"). "cannot refund" is not a claim —
+ * only past-tense / completed forms.
  */
-const SETTLEMENT_CLAIM_RE =
-  /\b(refunded|paid[\s_-]?out|payout|credited|unfrozen|withdrawal[\s_-]?complete(?:d)?|completed[\s_-]?withdrawal|settled|moved[\s_-]?money)\b/i;
+const CLAIM_BETWEEN = String.raw`(?:[\s_-]+(?:the|a|an|was|were|is|been|has|have|had)[\s_-]+|[\s_-]?)`;
+const SETTLEMENT_CLAIM_RE = new RegExp(
+  String.raw`\b(?:refunded|paid[\s_-]?out|payout|credited|unfroz(?:e|en)|` +
+    String.raw`withdrawal${CLAIM_BETWEEN}complete(?:d)?|completed${CLAIM_BETWEEN}withdrawal|` +
+    String.raw`settled|moved${CLAIM_BETWEEN}money)\b`,
+  'i',
+);
 
 export function isForbiddenSettlementAct(act: string): act is SupportForbiddenSettlementAct {
   return (SUPPORT_FORBIDDEN_SETTLEMENT_ACTS as readonly string[]).includes(act);
@@ -41,14 +48,23 @@ export type SupportSettlementInput = {
   readonly category?: SupportTicketCategory;
   readonly note?: string | null;
   readonly escalationReason?: SupportEscalationReason | null;
+  /** Every case-file reason. One `money_request` is enough; the newest reason is not. */
+  readonly escalationReasons?: readonly SupportEscalationReason[] | null;
 };
+
+function caseFileRequestsMoney(input: SupportSettlementInput): boolean {
+  if (input.escalationReason === 'money_request') return true;
+  return input.escalationReasons?.includes('money_request') ?? false;
+}
 
 /**
  * Pure settle check. Callers map the refuse to `support.settle.refused`.
  *
- * `resolved` on `deposit_withdraw`, or after a `money_request` escalation, is
- * a payout claim. `closed` without a settlement note is the desk finishing
- * without paying. Cite-KB is not an act this function sees.
+ * `resolved` on `deposit_withdraw` is a payout claim. `resolved` or `closed`
+ * after any `money_request` case file is a payout claim, including when a
+ * later file names a different reason. `closed` on `deposit_withdraw` with no
+ * payout note and no `money_request` file is the desk finishing without
+ * paying. Cite-KB is not an act this function sees.
  */
 export function checkSupportSettlement(input: SupportSettlementInput): SupportSettlementCheck {
   if (input.act && isForbiddenSettlementAct(input.act)) {
@@ -64,7 +80,7 @@ export function checkSupportSettlement(input: SupportSettlementInput): SupportSe
     return { status: 'refuse', reason: 'implied_payout', code: SUPPORT_SETTLE_REFUSE };
   }
 
-  if (input.toStatus === 'resolved' && input.escalationReason === 'money_request') {
+  if (finishing && caseFileRequestsMoney(input)) {
     return { status: 'refuse', reason: 'implied_payout', code: SUPPORT_SETTLE_REFUSE };
   }
 
