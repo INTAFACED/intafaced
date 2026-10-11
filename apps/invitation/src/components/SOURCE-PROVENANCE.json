@@ -66,5 +66,30 @@
     "localChanges": [
       "Original React tray/rim/well/ring/channel/raised surface retained; controlled public multi-choice values, text labels and keyboard semantics replace hardcoded app nav/icons/theme. Static graphite/lime; reduced motion disables transitions."
     ]
+  },
+  {
+    "component": "metal-button",
+    "registry": "https://www.cult-ui.com/r/metal-button.json",
+    "originalSha256": "54a91e7e9404b1762117341fe3b3fece9c91296153130a973d8f3bc44a178c47",
+    "localChanges": [
+      "relative import paths; original MetalFx wrapper and native Button prop routing retained; shared app wrapper supplies silver/dark preset"
+    ]
+  },
+  {
+    "component": "button",
+    "registry": "https://ui.shadcn.com/r/styles/new-york-v4/button.json",
+    "originalSha256": "79dd6f75f8136394442202d6b8b922fb269eaad0a5dba579397c9d5b41f893bb",
+    "localChanges": ["relative cn import; original Slot.Root mapped to the same individual Radix Slot package"]
+  },
+  {
+    "component": "metal-fx",
+    "version": "2.0.11",
+    "license": "MIT",
+    "localChanges": [
+      "Published original ESM/type surface copied into src/vendor/metal-fx; lost/restored handlers mutate shared renderer only when the event canvas is the current renderer canvas",
+      "Native dark surface remains visible independently of decorative first-copy readiness",
+      "Allocation or shader initialization failure selects the existing original MetalFx fallback branch; per-instance failure ref prevents further initialization effects"
+    ],
+    "originalRuntimeSha256": "4d904d0a17e8139f655a98bb6fb3a8e38f394d293bb847eb460ccb32618bf495"
   }
 ]

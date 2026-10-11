@@ -2165,6 +2165,12 @@ importers:
       tailwind-merge:
         specifier: 3.7.0
         version: 3.7.0
+      metal-fx:
+        specifier: 2.0.11
+        version: 2.0.11(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      "@radix-ui/react-slot":
+        specifier: 1.4.0
+        version: 1.4.0(@types/react@19.3.0)(react@19.3.0)
     devDependencies:
       "@tailwindcss/postcss":
         specifier: 4.3.3
@@ -5708,6 +5714,13 @@ packages:
     os:
       - win32
 
+  metal-fx@2.0.11:
+    resolution:
+      integrity: sha512-BdAdXXmJmqVbPxwjb3mN5TmS9r1+fde4RhGdK6In3ktT53/oLNFIwM2idRxR9KmVCa+7Yod1i0tR9nljsfLH1g==
+    peerDependencies:
+      react: ">=18.0.0"
+      react-dom: ">=18.0.0"
+
 snapshots:
 
   '@adraffy/ens-normalize@1.11.1': {}
@@ -8890,3 +8903,7 @@ snapshots:
       lightningcss: 1.32.0
       tsx: 4.23.12
       yaml: 2.9.1
+  metal-fx@2.0.11(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
+    dependencies:
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)

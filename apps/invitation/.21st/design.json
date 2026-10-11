@@ -1,7 +1,7 @@
 {
   "scope": "Independent public invitation; customer/trading and founder CRM remain separate",
   "framework": "React 19 + Vite 7.3.6; original React registry sources locally modified",
-  "direction": "Raycast-inspired continuous graphite/lime scene, quiet invitation, one main decision per view",
+  "direction": "Centred dark continuous graphite/lime welcome; left-aligned native invitation forms",
   "tokens": {
     "background": "#090a0b",
     "text": "#f2f5ef",
@@ -22,9 +22,9 @@
     "Cult HaloToggleGroup controlled without implicit first answer",
     "Cult GradientButtonGroup controlled multi-interest choice",
     "Cult HaloProgress truthful frontend progress, not backend completion",
-    "Magic ShimmerButton finite entrance only",
     "Magic TextAnimate accessible heading blur entrance",
-    "Magic BlurFade finite question transition"
+    "Magic BlurFade finite question transition",
+    "Original Cult MetalButton + MetalFx silver/dark shared primary actions; native shadcn Button"
   ],
   "provenance": "src/components/SOURCE-PROVENANCE.json and LICENSES.txt",
   "art": "Original existing graphite-fins-desktop.webp; continuous scene, explicit phone40px offset and top/lateral falloff; decorative, static",
@@ -38,5 +38,6 @@
     "reduced motion"
   ],
   "authority": "Canonical existing framework-free intake/storage/transport modules; no extra backend writes per question",
-  "evidence": "Local fixtures and compiled browser evidence; visual acceptance and deployed API/HTTPS/mail remain separate"
+  "evidence": "Local fixtures and compiled browser evidence; visual acceptance and deployed API/HTTPS/mail remain separate",
+  "entrance": "Selected A: art450ms; original TextAnimate90ms start; support/action250\u2013700ms, once on entry, static reduced-motion"
 }
