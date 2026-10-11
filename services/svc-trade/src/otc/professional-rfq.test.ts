@@ -1,10 +1,11 @@
+import { OtcDeskService } from '../controls/test-admission.js';
 /**
  * Professional RFQ on svc-trade (PTX-M12): firm quote/accept/expire.
  * Reuses the OTC desk. Never invents a mid. Not a book fill.
  */
 import { describe, expect, it } from 'vitest';
 import { MemoryLedger, parseAmount } from '@intafaced/ledger-client';
-import { OtcDeskService } from './otc-service.js';
+
 import { MemoryOtcQuoteStore } from './quote-store.js';
 import { FixedOtcStake } from './stake-source.js';
 import { type OtcDeskLaw } from './desk-law.js';

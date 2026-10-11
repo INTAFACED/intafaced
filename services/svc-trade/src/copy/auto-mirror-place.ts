@@ -26,6 +26,8 @@ export const COPY_PAPER_LIVE_RESIDUAL = 'Paper leader fills cannot place a live 
 export const COPY_MIRROR_CLIENT_ORDER_ID_MAX = 64;
 
 export type PlaceFollowerOrderInput = {
+  /** Internal verified CopyService provenance, never a public admission receipt. */
+  readonly followId?: string;
   readonly symbol?: string;
   readonly marketId?: string;
   readonly side: 'buy' | 'sell';

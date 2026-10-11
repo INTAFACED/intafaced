@@ -2,7 +2,7 @@
 
 **One page.** Read this when confused. Agents: load this _after_ `AGENTS.md` if the human needs orientation, not instead of the law.
 
-**Ship rules (Denon / Shehzad / Nitro agents):** [`CONTRIBUTING.md`](../CONTRIBUTING.md) §0 — merge your own green PR; do not wait on Nitro; `audited:true` is not a coding gate.
+**Ship rules (Denon / Shehzad / Nitro agents):** [`CONTRIBUTING.md`](../CONTRIBUTING.md) §0 — review and verify your change, then merge your own PR when required protection checks pass; do not wait for full CI green or Nitro; `audited:true` is not a coding gate.
 
 **Re-derive every session (do not trust frozen SHAs in chat):**  
 `git fetch origin main && git rev-parse --short origin/main` · `gh pr list --state open`  
@@ -12,7 +12,7 @@
 [`ALIGNMENT-RESEARCH-VERDICT-2026-08-03.md`](ALIGNMENT-RESEARCH-VERDICT-2026-08-03.md) ·  
 [`REDUNDANT-VS-PORT-2026-08-03.md`](REDUNDANT-VS-PORT-2026-08-03.md) ·  
 [`DENON-CALL-EXTRACT-2026-08-03.md`](DENON-CALL-EXTRACT-2026-08-03.md).  
-**Local tip hygiene (agents, not Nitro):** `pnpm wt:gc` is the dry run — it lists every worktree and **why each one is kept**. Removal is attended-only and needs the explicit `pnpm wt:gc:apply -- --yes`; `--apply` on its own prints the plan and refuses. Read that plan before you pass `--yes` — this tool has deleted live work ([`LANE-CLOSEOUT-OPS-2026-08-08.md`](LANE-CLOSEOUT-OPS-2026-08-08.md)). It never deletes branches, only checkouts, and `pnpm wt <branch>` restores one. Never code on main checkout · after merge `pnpm wt:rm`.
+**Local tip hygiene (agents, not Nitro):** `pnpm wt:gc` is the dry run — it lists every worktree and **why each one is kept**. Removal is attended-only and needs the explicit `pnpm wt:gc:apply -- --yes`; `--apply` on its own prints the plan and refuses. Read that plan before you pass `--yes` — this tool has deleted live work ([`LANE-CLOSEOUT-OPS-2026-08-08.md`](LANE-CLOSEOUT-OPS-2026-08-08.md)). It never deletes branches, only checkouts, and `pnpm wt <branch>` restores one. Never code on the main checkout. After merge, preserve any remaining local work, remove the finished worktree from its home checkout with `git worktree remove --force <path>`, and keep the local branch.
 Trust floor history: [`PEACE-OF-MIND-AUDIT-CURRENT.md`](PEACE-OF-MIND-AUDIT-CURRENT.md).
 
 ---
@@ -97,7 +97,7 @@ Phase 3+ Pay/P2P/…   ██████░░░░ mounted; rails/sandbox sti
 - **Residual campaign (older partial-first mode):** [`NITRO-RESIDUAL-CAMPAIGN-2026-07-31.md`](NITRO-RESIDUAL-CAMPAIGN-2026-07-31.md) · lanes [`LIVE-LANES.md`](LIVE-LANES.md) — use only if Board Clear docs missing.
 - **Order-route:** #289 merged under Board Clear A-OR-1; residual Java dual-book = shehzad M7.
 - **Who owns what (durable — not a status board):** [`NITRO-OWNERSHIP-AND-DENON-DIRECTION-2026-07-31.md`](NITRO-OWNERSHIP-AND-DENON-DIRECTION-2026-07-31.md) · also in [`AGENTS.md`](../AGENTS.md) · paste [`NITRO-SESSION-PROMPT.md`](NITRO-SESSION-PROMPT.md). **Denon = direction; Nitro agents = ship + merge when gates pass.** Live tip/PRs: re-derive with git/`gh`, never from memory.
-- **GitHub CI money — there is none:** the repo is public, so Actions on standard runners are free and unlimited. The old throttling law was **retired 2026-08-07**; the note explaining why lives at [`GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](GITHUB-CI-SPEND-CONTROL-2026-07-31.md) so nobody reinvents it. Agents never hold finished work back to save CI.
+- **GitHub CI minutes — zero bill:** standard GitHub-hosted runner minutes are free on this public repo; service limits and acceptable-use rules still apply. Parallel pull requests and merge-when-done stay; there is no PR cap. A 403 or 429 from GitHub is a stop. Keep independent local work moving and follow [`AGENT_PROTOCOL.md`](../tooling/agent-protocol/AGENT_PROTOCOL.md) §3 for cooldowns and access restrictions. The old spend throttle was **retired 2026-08-07** and stays deleted; see [`GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](GITHUB-CI-SPEND-CONTROL-2026-07-31.md). Agents never hold finished work back to save CI minutes.
 - **#86 landed on main** (shell rebrand + custody locks). **Board Clear** authorizes trade-mountain Done bars (thin/§13, never invent prices) without waiting on new Denon chat — see constitution + ownership precedence.
 
 History only (may lag): [`STATUS-2026-07-27.md`](STATUS-2026-07-27.md)
@@ -127,7 +127,7 @@ History only (may lag): [`STATUS-2026-07-27.md`](STATUS-2026-07-27.md)
 
 1. **Never edit in the main folder** — worktree + feature branch.
 2. **Never push straight to main** — PR only.
-3. **Green `pnpm verify` before “done.”**
+3. **Agents verify the changed behavior and required protection checks. Do not wait for CI green.** Full-suite CI and `pnpm verify` are informational; report unrelated failures honestly.
 4. **One service / one concern per PR.**
 5. **Money only via ledger recipes; no float balances; no partner names in UI.**
 6. **Don’t rebuild services already on main** (or reopen merged Denon work).

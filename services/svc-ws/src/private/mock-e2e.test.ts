@@ -1,3 +1,4 @@
+import { TEST_AUTHORITY } from '../test-support/authority.js';
 /**
  * A-WS-MOCK-E2E — private stream integration with fixture bus events.
  *
@@ -156,6 +157,7 @@ describe('A-WS-MOCK-E2E private stream (fixture bus → socket)', () => {
     if (!addr || typeof addr === 'string') throw new Error('no port');
     baseUrl = `ws://127.0.0.1:${addr.port}`;
     gateway = createPrivateWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server,
       hub,
       heartbeatMs: 30_000,

@@ -1,3 +1,4 @@
+import { TEST_AUTHORITY } from '../test-support/authority.js';
 import { createServer, request as httpRequest, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
@@ -55,6 +56,7 @@ describe('private stream drops when the user is frozen', () => {
     if (!addr || typeof addr === 'string') throw new Error('no port');
     const log: HubLogger = { info: () => undefined, warn: () => undefined };
     gateway = createPrivateWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server,
       hub,
       heartbeatMs,

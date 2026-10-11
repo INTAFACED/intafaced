@@ -1,3 +1,8 @@
+import { MerchantAccountControls } from './merchant-account-controls.js';
+import { drainPendingPayoutIdentityIntents } from './payout-admission.js';
+import { drainPendingPaymentIdentityIntents } from './payment-admission.js';
+import { createPayfacAuthorityGuard, drainPayfacPermissionIntents } from './payfac-authority.js';
+import { createFounderAuthority } from './founder-authority.js';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { env } from './env.js';
@@ -40,7 +45,7 @@ import { SubscriptionService, registerSubscriptionCycleRoutes } from './subscrip
 import { createMerchantWatchMetricsStore } from './agents/merchant-watch-metrics-store.js';
 import { registerMerchantWatchMetricsRoutes } from './agents/merchant-watch-metrics-routes.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { createEdgeContext, mergeRouters, retainRawBody } from '@intafaced/contracts';
+import { createEdgeContext, mergeRouters, retainRawBody, createIdentityOperationDecisionClient } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 // §9 — register the TracerProvider before the first span is created.
@@ -168,7 +173,15 @@ for (const { railId } of env.PAY_CHECKOUT_RAILS) {
 const merchantWebhooks = new MerchantWebhookService(new PostgresMerchantWebhookStore(sql));
 
 const payoutDestinations = new MerchantPayoutDestinationStore(sql);
+const identityAdmission = createIdentityOperationDecisionClient({
+  owner: 'svc-pay',
+  identityUrl: env.IDENTITY_URL,
+  secret: env.IDENTITY_ADMISSION_SECRET,
+});
+const subMerchants = new SubMerchantService(sql, (tx, current) => drainPayfacPermissionIntents(tx, current, identityAdmission));
 const pay = new PayService(sql, ledger, rails, {
+  identityOperationAdmission: identityAdmission,
+  identityAuthorityGuard: createPayfacAuthorityGuard(subMerchants),
   payoutDestinations,
   defaultFeeBps: env.PAY_DEFAULT_FEE_BPS,
   valueMovement: railPosture.policy,
@@ -305,7 +318,6 @@ const pspMode = new PspModeService(sql);
  * amount. Value still leaves and enters the book through `PayService` /
  * `UserMoneyService` and their recipes, exactly as before (Doctrine §0.6).
  */
-const subMerchants = new SubMerchantService(sql);
 
 /**
  * MERGED, not nested.
@@ -329,7 +341,21 @@ const actionApprovals = env.IDENTITY_URL
 export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
   createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals),
-  createMerchantStateRouter(merchantState, actionApprovals),
+  createMerchantStateRouter(
+    merchantState,
+    new MerchantAccountControls(
+      sql,
+      createFounderAuthority({
+        identityUrl: env.IDENTITY_URL,
+        serviceSecret: env.INTERNAL_SERVICE_SECRET,
+        principalSecret: env.EDGE_PRINCIPAL_SECRET,
+      }),
+      async (tx, merchantId) => {
+        await drainPendingPayoutIdentityIntents(tx, merchantId, identityAdmission);
+        await drainPendingPaymentIdentityIntents(tx, merchantId, identityAdmission);
+      },
+    ),
+  ),
   createKybPspRouter(kyb, pspMode, actionApprovals),
   // `pay` is passed only as the ACTOR LOOKUP — the router resolves the caller's
   // own merchant node from the authenticated principal, because a merchant node

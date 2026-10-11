@@ -1,10 +1,11 @@
+import { PositionService } from '../controls/test-admission.js';
 import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client';
 import { registerPrivateRest, type PrivateRestDeps } from '../private-rest.js';
-import { FuturesError, PositionService } from './position-service.js';
+import { FuturesError } from './position-service.js';
 import { memoryMarkBook } from './mark-source.js';
 
 const SECRET = 'futures-leverage-rest-edge-secret-long-enough';

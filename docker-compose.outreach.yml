@@ -1,0 +1,69 @@
+# Optional guest-outreach runtime overlay.
+#
+# Use with the normal stack after setting the required owner values in .env:
+#   docker compose -f docker-compose.apps.yml -f docker-compose.outreach.yml up -d --build
+#
+# This file deliberately contains no example founder UUIDs, credentials, provider
+# endpoints, pool sizes, or publication copy. Required interpolation fails before
+# Compose starts the stack if an owner value is absent. The CRM service validates
+# its own structured configuration and refuses capture when it is invalid.
+
+services:
+  svc-identity:
+    environment:
+      IDENTITY_FOUNDER_NITRO_USER_ID: ${IDENTITY_FOUNDER_NITRO_USER_ID:?set the existing Nitro identity UUID}
+      IDENTITY_FOUNDER_PHANTOM_USER_ID: ${IDENTITY_FOUNDER_PHANTOM_USER_ID:?set the existing Phantom identity UUID}
+      IDENTITY_EDGE_AUTHORITY_SECRET: ${IDENTITY_EDGE_AUTHORITY_SECRET:?set a dedicated edge authority secret}
+      IDENTITY_WS_AUTHORITY_SECRET: ${IDENTITY_WS_AUTHORITY_SECRET:?set a distinct ws authority secret}
+      IDENTITY_PAY_ADMISSION_SECRET: ${IDENTITY_PAY_ADMISSION_SECRET:?set a dedicated pay admission secret}
+      IDENTITY_TRADE_ADMISSION_SECRET: ${IDENTITY_TRADE_ADMISSION_SECRET:?set a dedicated trade admission secret}
+
+  svc-edge:
+    environment:
+      IDENTITY_OWNERSHIP_SECRET: ${IDENTITY_EDGE_AUTHORITY_SECRET:?set a dedicated edge authority secret}
+
+  svc-ws:
+    environment:
+      IDENTITY_OWNERSHIP_SECRET: ${IDENTITY_WS_AUTHORITY_SECRET:?set a distinct ws authority secret}
+
+  svc-pay:
+    environment:
+      IDENTITY_ADMISSION_SECRET: ${IDENTITY_PAY_ADMISSION_SECRET:?set a dedicated pay admission secret}
+
+  svc-trade:
+    environment:
+      IDENTITY_ADMISSION_SECRET: ${IDENTITY_TRADE_ADMISSION_SECRET:?set a dedicated trade admission secret}
+
+  svc-ops:
+    environment:
+      # OPS_DATABASE_URL targets the dedicated svc_ops role/schema.
+      DATABASE_URL: ${OPS_DATABASE_URL:?set the dedicated svc_ops database URL}
+      OPS_DATABASE_POOL_MAX: ${OPS_DATABASE_POOL_MAX:?set a positive OPS database pool size}
+      OPS_OUTREACH_CONFIG: ${OPS_OUTREACH_CONFIG:?set the exact owner-reviewed outreach configuration JSON}
+      IDENTITY_URL: http://svc-identity:4002
+      NOTIFY_URL: http://svc-notify:4015
+      OPS_NOTIFY_SERVICE_SECRET: ${OPS_NOTIFY_SERVICE_SECRET:?set the dedicated ops-to-notify secret}
+      # Empty is safe: requests use the Docker socket peer unless trusted CIDRs
+      # are explicitly configured for the edge's overwritten client-IP header.
+      OPS_TRUSTED_PROXY_CIDRS: ${OPS_TRUSTED_PROXY_CIDRS:-}
+      # Explicit 1 keeps the privacy restore quarantine closed; absent means
+      # normal service runtime.
+      OPS_OUTREACH_RESTORE_QUARANTINED: ${OPS_OUTREACH_RESTORE_QUARANTINED:-0}
+
+  svc-notify:
+    environment:
+      NOTIFY_OPS_SERVICE_SECRET: ${OPS_NOTIFY_SERVICE_SECRET:?set the dedicated ops-to-notify secret}
+      NOTIFY_EMAIL_GATEWAY_URL: ${NOTIFY_EMAIL_GATEWAY_URL:?set a compatible authenticated email gateway URL}
+      NOTIFY_EMAIL_GATEWAY_TOKEN: ${NOTIFY_EMAIL_GATEWAY_TOKEN:?set the gateway credential}
+      NOTIFY_REQUIRED_CHANNELS: ${NOTIFY_REQUIRED_CHANNELS:?set required notification channels including email}
+
+  admin:
+    environment:
+      ADMIN_ORIGIN: ${ADMIN_ORIGIN:?set the exact HTTPS admin origin}
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:?set a canonical 32-byte base64url session key}
+
+  vendor-shell:
+    build:
+      args:
+        OUTREACH_CONTACT_URL: ${OUTREACH_CONTACT_URL:?set approved public correction/contact destination}
+        OUTREACH_RETENTION_NOTICE: ${OUTREACH_RETENTION_NOTICE:?set approved public retention notice}

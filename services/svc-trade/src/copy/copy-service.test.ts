@@ -1,12 +1,7 @@
+import { CopyService } from '../controls/test-admission.js';
 import { describe, expect, it } from 'vitest';
 import { MemoryLedger, parseAmount, recipes, formatAmount, userAvailable } from '@intafaced/ledger-client';
-import {
-  CopyService,
-  type FollowerFillFee,
-  type LeaderFill,
-  type LookupFollowerFillFeePort,
-  type LookupLeaderFillPort,
-} from './copy-service.js';
+import { type FollowerFillFee, type LeaderFill, type LookupFollowerFillFeePort, type LookupLeaderFillPort } from './copy-service.js';
 import { MemoryCopyFollowStore } from './follow-store.js';
 import { UNPUBLISHED_COPY_FEE_SHARE_LAW, type CopyFeeShareLaw, type CopyJurisdictionLaw } from './fee-share-law.js';
 import { CopyError } from './errors.js';

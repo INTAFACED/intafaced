@@ -75,6 +75,85 @@ the same containers and the same volumes. `platform:up` after `infra:up` adds
 the application containers to what is already running; it does not restart the
 database.
 
+### Optional investor outreach runtime
+
+The outreach overlay is opt-in; the default `pnpm platform:up` does not enable
+guest intake, CRM storage, or provider delivery. After supplying every required
+owner value listed in `.env.example`, run:
+
+```bash
+docker compose -f docker-compose.apps.yml -f docker-compose.outreach.yml up -d --build
+```
+
+The overlay requires the existing ordered founder identities, distinct identity
+authority/admission keys with their exact service-side mappings, an OPS-owned
+database URL and positive pool size, the owner-reviewed CRM configuration,
+one dedicated OPS-to-notify ingress key mapped to both service env names, admin
+HTTPS session settings, an authenticated email gateway, and approved public
+contact/retention build values. These are
+configuration inputs, not evidence that a host, founder identity, provider,
+domain, or delivery route has been verified.
+
+The admin ingress must preserve its configured public `Host`, overwrite
+`X-Forwarded-Proto` with one `https` value and keep the Next listener private.
+Next can construct request URLs using its internal host; the BFF validates the
+preserved public authority while retaining browser Origin, CSRF and current
+founder checks. See `apps/admin/README.md` for the exact proxy contract. This
+local Compose overlay does not provision that ingress or prove deployed TLS.
+
+On a **fresh local development volume**, `tooling/infra/postgres-init/01-service-schemas.sql`
+creates the dedicated `svc_ops` role and `ops` schema alongside `svc_core_ops`
+and `core_ops`. The CRM service owns and runs its own transactional migrations
+on startup; the general `migrate` container does not apply them. For an existing
+volume, the init script will not rerun. A database administrator must create
+the dedicated role/schema with explicit database `CONNECT` and schema ownership
+for the CRM's own migrations before setting `OPS_DATABASE_URL`. Database `CREATE`
+is not required once the owned schema exists. Do not solve this with a broad
+grant, `intafaced_ops`, or the local `svc_ops` development password. Production
+role credentials must come from the production secret manager.
+
+The base Postgres `pgdata` volume is already durable. Guest notification rows
+use the existing svc-notify-owned schema/migration and database connection.
+`NOTIFY_EMAIL_GATEWAY_URL` and token must implement the committed guest
+notification HTTP contract; SMTP or a generic provider API is not automatically
+compatible. Compose configuration does not probe delivery.
+
+The two founder accounts do not exist yet. Bootstrap the real identity and edge
+runtime with guest CRM capture unavailable, then use the existing `/register`
+and `/uc/safe` screens. Each founder completes their own TOTP or WebAuthn
+enrollment. Verify both live active users and bind the exact ordered pair before
+enabling the outreach overlay. The general registration screen is not a founder
+invitation; no fixture IDs or enrolled security credentials belong in production.
+
+The approved outreach policy is six **UTC calendar months** after the latest
+meaningful contact across linked originals. Set the existing configuration member
+`retention` to `{"publishedPolicy":"six_calendar_months_v1","automationEnabled":true}`
+when the live notification-erasure dependency is ready. Internal notes, assignment,
+automatic acknowledgements, page views and token refresh do not renew that clock.
+Active discussions require an evidenced founder review that expires within 30
+days; this review period is separate from the maximum backup lifetime. Inspect
+the actual retention status and aged-record result, not just an environment value.
+The service's last invocation timestamp does not prove a completed sweep.
+
+Configure encrypted **outreach-only** backups, restricted keys and scheduled
+expiration/disposal within 30 days, including any restorable replicas or WAL.
+Do not apply this outreach policy to ledger or statutory records. Preserve the
+latest durable, independently protected deletion archive for as long as a
+restorable copy needs it. Restore while quarantined; apply the current archive,
+reconcile notification deletion and verify that deleted contacts stay deleted
+before allowing HTTP traffic or either background worker. A local PostgreSQL
+restore test does not prove that hosted backup rotation or disposal is operating.
+
+The public build's approved contact is `mailto:privacy@intafaced.com`. After the
+actual policy and backup controls are enabled, its approved notice is:
+“Inactive enquiries become due for deletion six calendar months after our last
+meaningful contact. We review ongoing discussions separately. Outreach backups
+expire within 30 days, and deletion records are applied before restored contacts
+become available.” Verify actual receipt at the owned mailbox separately.
+Create separate questionnaire/admin deployment surfaces; preserve the existing
+`intafaced.com` apex website. Account sign-in and empty deployment projects do
+not establish the domain's DNS authority, backend host, database or email gateway.
+
 ---
 
 ## Ports

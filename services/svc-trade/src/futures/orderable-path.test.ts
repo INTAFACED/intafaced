@@ -1,3 +1,4 @@
+import { TradeService, PositionService } from '../controls/test-admission.js';
 /**
  * THE FUTURES ORDER PATH — REFUSED WHEN OFF, REAL WHEN ON, AND STILL NOT A
  * SELF-DEALING MACHINE.
@@ -88,10 +89,10 @@ import {
   recipes,
   userAvailable,
 } from '@intafaced/ledger-client';
-import { TradeService, type ListMarketInput } from '../spot/trade-service.js';
+import { type ListMarketInput } from '../spot/trade-service.js';
 import { StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from '../spot/testing.js';
 import { TradeError, type Market } from '../spot/types.js';
-import { PositionService } from './position-service.js';
+
 import {
   DEFAULT_MIN_BEST_LEVEL_BPS_OF_NOTIONAL,
   DEFAULT_MIN_BEST_LEVEL_NOTIONAL,

@@ -21,7 +21,7 @@ export interface TwapParentRecord {
 }
 
 export interface TwapParentStore {
-  save(record: TwapParentRecord): Promise<void>;
+  save(record: TwapParentRecord, onlyIfMissing?: boolean): Promise<void>;
   load(id: string): Promise<TwapParentRecord | null>;
   listForUser(userId: string): Promise<TwapParent[]>;
   listActive(): Promise<TwapParentRecord[]>;
@@ -105,7 +105,7 @@ function stretchFromRow(raw: unknown): AlgoScheduleStretchReason | null {
 export class SqlTwapParentStore implements TwapParentStore {
   constructor(private readonly sql: Sql) {}
 
-  async save(record: TwapParentRecord): Promise<void> {
+  async save(record: TwapParentRecord, onlyIfMissing = false): Promise<void> {
     const p = record.parent;
     const existing = record.grant === undefined ? (await this.load(p.id))?.grant : record.grant;
     const grantJson = existing
@@ -172,6 +172,7 @@ export class SqlTwapParentStore implements TwapParentStore {
         participation_bps = EXCLUDED.participation_bps,
         lot_size = COALESCE(EXCLUDED.lot_size, algo_parents.lot_size),
         updated_at = now()
+      WHERE NOT ${onlyIfMissing}
     `;
   }
 
@@ -242,7 +243,8 @@ function rowToRecord(row: Record<string, unknown>): TwapParentRecord {
 export class MemoryTwapParentStore implements TwapParentStore {
   private readonly byId = new Map<string, TwapParentRecord>();
 
-  async save(record: TwapParentRecord): Promise<void> {
+  async save(record: TwapParentRecord, onlyIfMissing = false): Promise<void> {
+    if (onlyIfMissing && this.byId.has(record.parent.id)) return;
     const prev = this.byId.get(record.parent.id);
     const grant = record.grant !== undefined ? record.grant : (prev?.grant ?? null);
     this.byId.set(record.parent.id, {

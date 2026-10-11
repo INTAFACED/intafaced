@@ -1,3 +1,4 @@
+import { TradeService } from './controls/test-admission.js';
 /**
  * Unit card — tRPC orders.open optional limit → named refuse (no invented 100)
  *
@@ -17,7 +18,7 @@ import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createTradeRouter } from './router.js';
-import { TRADE_OPEN_ORDERS_LIMIT_UNSET, type TradeService } from './spot/trade-service.js';
+import { TRADE_OPEN_ORDERS_LIMIT_UNSET } from './spot/trade-service.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 'a-trade-orders-open-limit-test-edge-secret';

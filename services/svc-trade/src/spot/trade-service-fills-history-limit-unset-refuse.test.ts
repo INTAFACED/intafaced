@@ -1,3 +1,4 @@
+import { TradeService } from '../controls/test-admission.js';
 /**
  * Unit card — fills.mine / orders.history limit unset refuse (no invented 100)
  *
@@ -28,7 +29,6 @@ import {
   publishedOrderHistoryLimit,
   TRADE_FILLS_MINE_LIMIT_UNSET,
   TRADE_ORDER_HISTORY_LIMIT_UNSET,
-  TradeService,
 } from './trade-service.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));

@@ -1,3 +1,4 @@
+import { TradeService } from '../controls/test-admission.js';
 /**
  * Unit card — TradeService.publicTape limit unset refuse (no invented 100)
  *
@@ -19,7 +20,6 @@ import {
   PublicTapeLimitUnsetError,
   publishedPublicTapeLimit,
   TRADE_PUBLIC_TAPE_LIMIT_UNSET,
-  TradeService,
 } from './trade-service.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));

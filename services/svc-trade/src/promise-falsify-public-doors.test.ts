@@ -1,3 +1,4 @@
+import { TradeService, CopyService } from './controls/test-admission.js';
 /**
  * Unit card (D26-P2-01a):
  * Promise: futures + convert + copy + algo refuse invent through mounted
@@ -34,8 +35,7 @@ import { createTradeRouter } from './router.js';
 import { registerPublicRest, fakeMarket } from './public-rest.js';
 import { registerPrivateRest, type PrivateRestDeps } from './private-rest.js';
 import { TradeError } from './spot/types.js';
-import { TradeService } from './spot/trade-service.js';
-import { CopyService } from './copy/copy-service.js';
+
 import { MemoryCopyFollowStore } from './copy/follow-store.js';
 import type { CopyFeeShareLaw, CopyJurisdictionLaw } from './copy/fee-share-law.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL } from './copy/errors.js';

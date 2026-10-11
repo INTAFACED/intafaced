@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { EDGE_PRINCIPAL_HEADER } from '@intafaced/contracts';
 import { exchangePrincipal } from './principal-exchange.js';
+import { currentAuthorityTestReply } from './test-current-authority.js';
 
 const tokens: TokenConfig = {
   secret: 'edge-test-jwt-signing-secret-32-chars',
@@ -34,7 +35,9 @@ function json(body: unknown, status = 200): Response {
 }
 
 function fetchIdentity(account: Record<string, unknown>): typeof fetch {
-  return async (input) => {
+  return async (input, init) => {
+    const authority = currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: SESSION });
+    if (authority) return authority;
     const url = String(input);
     if (url.includes('/internal/account/')) {
       return json({ userId: USER, status: 'active', kycTier: 'none', ...account });
@@ -44,7 +47,7 @@ function fetchIdentity(account: Record<string, unknown>): typeof fetch {
   };
 }
 
-describe('last enrolled passkey unenrolled closes the HTTP session door', () => {
+describe('current identity authority at the HTTP session door', () => {
   it('last remaining verified cred still places on the existing session', async () => {
     const token = await accessToken();
     const live = await exchangePrincipal(
@@ -61,7 +64,7 @@ describe('last enrolled passkey unenrolled closes the HTTP session door', () => 
     expect(live.headers[EDGE_PRINCIPAL_HEADER]).toBeDefined();
   });
 
-  it('last remaining places, then empty after last unenroll cannot', async () => {
+  it('generic session forwarding does not depend on passkey enrollment state', async () => {
     const token = await accessToken();
     const last = await exchangePrincipal(
       { authorization: `Bearer ${token}` },
@@ -76,19 +79,19 @@ describe('last enrolled passkey unenrolled closes the HTTP session door', () => 
     expect(last.principal?.userId).toBe(USER);
 
     const none = await exchangePrincipal({ authorization: `Bearer ${token}` }, { ...options, fetch: fetchIdentity({ webauthnCreds: [] }) });
-    expect(none.rejected).toBe('invalid');
-    expect(none.principal).toBeNull();
-    expect(none.headers[EDGE_PRINCIPAL_HEADER]).toBeUndefined();
+    expect(none.rejected).toBeNull();
+    expect(none.principal).toMatchObject({ userId: USER });
+    expect(none.headers[EDGE_PRINCIPAL_HEADER]).toBeDefined();
   });
 
-  it('last cred without lastVerifiedAt cannot place', async () => {
+  it('generic session forwarding does not depend on lastVerifiedAt', async () => {
     const token = await accessToken();
     const dead = await exchangePrincipal(
       { authorization: `Bearer ${token}` },
       { ...options, fetch: fetchIdentity({ webauthnCreds: [{ credentialId: 'cred-2' }] }) },
     );
-    expect(dead.rejected).toBe('invalid');
-    expect(dead.principal).toBeNull();
-    expect(dead.headers[EDGE_PRINCIPAL_HEADER]).toBeUndefined();
+    expect(dead.rejected).toBeNull();
+    expect(dead.principal).toMatchObject({ userId: USER });
+    expect(dead.headers[EDGE_PRINCIPAL_HEADER]).toBeDefined();
   });
 });

@@ -1,3 +1,4 @@
+import { PositionService } from '../controls/test-admission.js';
 /**
  * THE VENUE MARK PATH, MEASURED IN BALANCES.
  *
@@ -41,7 +42,7 @@ import {
 } from '@intafaced/ledger-client';
 import { MemoryEventBus } from '@intafaced/events';
 import type { VenueBookSnapshot } from '@intafaced/venue-contracts';
-import { PositionService } from './position-service.js';
+
 import { markSourceFromDepth } from './mark-from-depth.js';
 import { markSourceFromVenuePublicBook, markSourcePrefer } from './mark-from-venue.js';
 import type { EngineDepth } from '../spot/matching-client.js';
