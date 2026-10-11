@@ -13,6 +13,7 @@ import { Support } from './Support';
 import { Token } from './Token';
 import { MoreDiscovery } from './MoreDiscovery';
 import { launchCopy } from './launch-copy';
+import { miningCopy } from './mining-copy';
 import { discoveryCopy } from './discovery-copy';
 import type { ReactNode } from 'react';
 import './more.css';
@@ -74,7 +75,7 @@ function MoreRooms({ path }: { path: string }) {
     content = <Prediction />;
   } else if (p === '/mining') {
     title = copyText('moreroutes.mining');
-    description = copyText('moreroutes.pool.status.without.invented.miners.or.rewards');
+    description = <miningCopy.Copy k="scope" />;
     content = <Mining />;
   } else if (p === '/token') {
     title = copyText('moreroutes.token');

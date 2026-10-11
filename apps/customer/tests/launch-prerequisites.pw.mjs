@@ -40,8 +40,8 @@ async function scenario(browser, name, width, fn) {
           json: {
             ok: true,
             service: 'svc-mining-pool',
-            ledger: { status: 'absent', code: 'mining.ledger_unset' },
-            pg: { status: 'absent', code: 'mining.pg_unset' },
+            ledger: { status: 'absent', code: 'mining.ledger_unavailable' },
+            pg: { status: 'absent', code: 'mining.pg_unavailable' },
             jobs: [],
           },
         });
@@ -212,13 +212,14 @@ test('guest entry preserves its validated launch destination without showing iss
     await expect(page.locator('input[autocomplete="username"]')).toBeVisible();
   });
 });
-test('the unchanged Mining liveness read still distinguishes responding process from absent account capabilities', async ({ browser }) => {
+test('the Mining liveness read still distinguishes responding process from absent customer capabilities', async ({ browser }) => {
   await scenario(browser, 'mining-seam', 390, async ({ page, state }) => {
     await login(page, '/mining');
-    await expect(page.getByRole('heading', { name: 'Mining pool connection', exact: true })).toBeVisible();
-    await expect(page.getByText('mining.ledger_unset', { exact: false })).toBeVisible();
-    await expect(page.locator('#main')).toContainText('unprobed');
-    await expect(page.locator('#main')).toContainText('not a customer form');
+    await expect(page.getByRole('heading', { name: 'Mining activity unavailable', exact: true })).toBeVisible();
+    await page.locator('.mining-room summary').click();
+    await expect(page.getByText('mining.ledger_unavailable', { exact: true })).toBeVisible();
+    await expect(page.locator('.mining-room')).toContainText('have not been checked');
+    await expect(page.locator('.mining-room')).toContainText('before an instruction can be submitted here');
     expect(state.reads.filter((r) => r.procedure === 'health')).toHaveLength(1);
   });
 });

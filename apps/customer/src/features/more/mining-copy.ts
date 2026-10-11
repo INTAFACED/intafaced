@@ -1,0 +1,92 @@
+import { defineCopy } from '../../shared/i18n';
+const en = {
+  scope: 'Your workers, shares and mining credits',
+  unavailableTitle: 'Mining activity unavailable',
+  unavailableBody:
+    'This room cannot connect a worker or read your shares and credits yet. Unavailable records do not mean zero activity or rewards.',
+  support: 'Ask about mining access',
+  required: 'Required customer capabilities',
+  unavailable: 'Unavailable',
+  workers: 'Workers',
+  workersBody: 'Worker connection, registration, your roster and hashrate are unavailable.',
+  shares: 'Accepted shares',
+  sharesBody: 'Your accepted-share history cannot be read. No share count is inferred.',
+  credits: 'Credits and payouts',
+  creditsBody: 'Your mining credits and payout history are unavailable. No reward amount or payout is inferred.',
+  publicStatus: 'Public service status',
+  readScope: 'Liveness only. These results do not identify your workers or prove accepted shares, credits or a payout.',
+  process: 'Pool process',
+  responding: 'Responding',
+  ledger: 'Ledger connection',
+  store: 'Window store',
+  configured: 'Configured · not checked',
+  absent: 'Not configured',
+  jobs: 'Registered jobs',
+  noJobs: 'No jobs registered',
+  refresh: 'Refresh service status',
+  boundaries:
+    'Configured connections have not been checked. Registered jobs do not establish a successful run or payment. Customer access and account-owned records must be connected before an instruction can be submitted here.',
+  more: 'Explore More →',
+} as const;
+const es = {
+  scope: 'Tus trabajadores, aportaciones y créditos de minería',
+  unavailableTitle: 'La actividad de minería no está disponible',
+  unavailableBody:
+    'Esta sala aún no puede conectar un trabajador ni leer tus aportaciones y créditos. Que los registros no estén disponibles no significa que no haya actividad ni recompensas.',
+  support: 'Consultar el acceso a minería',
+  required: 'Funciones de cliente necesarias',
+  unavailable: 'No disponible',
+  workers: 'Trabajadores',
+  workersBody: 'La conexión y el registro de trabajadores, tu lista y la tasa de hash no están disponibles.',
+  shares: 'Aportaciones aceptadas',
+  sharesBody: 'No se puede leer tu historial de aportaciones aceptadas. No se deduce ningún recuento.',
+  credits: 'Créditos y pagos',
+  creditsBody: 'Tus créditos de minería y tu historial de pagos no están disponibles. No se deduce ninguna recompensa ni pago.',
+  publicStatus: 'Estado público del servicio',
+  readScope:
+    'Solo indica que el proceso responde. Estos resultados no identifican tus trabajadores ni prueban aportaciones aceptadas, créditos o pagos.',
+  process: 'Proceso del pool',
+  responding: 'Responde',
+  ledger: 'Conexión con el libro mayor',
+  store: 'Almacén de ventanas',
+  configured: 'Configurada · sin comprobar',
+  absent: 'Sin configurar',
+  jobs: 'Tareas registradas',
+  noJobs: 'No hay tareas registradas',
+  refresh: 'Actualizar el estado del servicio',
+  boundaries:
+    'Las conexiones configuradas no se han comprobado. Las tareas registradas no prueban una ejecución correcta ni un pago. El acceso del cliente y los registros de su cuenta deben estar conectados antes de poder enviar una instrucción aquí.',
+  more: 'Explorar More →',
+} satisfies Record<keyof typeof en, string>;
+const fr = {
+  scope: 'Tes workers, shares et crédits de minage',
+  unavailableTitle: 'L’activité de minage est indisponible',
+  unavailableBody:
+    'Cette salle ne peut pas encore connecter de worker ni lire tes shares et crédits. Des dossiers indisponibles ne signifient pas une absence d’activité ou de récompenses.',
+  support: 'Consulter l’accès au minage',
+  required: 'Fonctions client requises',
+  unavailable: 'Indisponible',
+  workers: 'Workers',
+  workersBody: 'La connexion et l’inscription des workers, ta liste et le taux de hachage sont indisponibles.',
+  shares: 'Shares acceptées',
+  sharesBody: 'Ton historique de shares acceptées ne peut pas être consulté. Aucun nombre de shares n’est déduit.',
+  credits: 'Crédits et paiements',
+  creditsBody:
+    'Tes crédits de minage et ton historique de paiements sont indisponibles. Aucun montant de récompense ni paiement n’est déduit.',
+  publicStatus: 'État public du service',
+  readScope:
+    'Le processus répond seulement. Ces résultats n’identifient pas tes workers et ne prouvent ni shares acceptées, ni crédits, ni paiement.',
+  process: 'Processus du pool',
+  responding: 'Répond',
+  ledger: 'Connexion au grand livre',
+  store: 'Stockage des fenêtres',
+  configured: 'Configurée · non vérifiée',
+  absent: 'Non configurée',
+  jobs: 'Tâches enregistrées',
+  noJobs: 'Aucune tâche enregistrée',
+  refresh: 'Actualiser l’état du service',
+  boundaries:
+    'Les connexions configurées n’ont pas été vérifiées. Les tâches enregistrées ne prouvent ni exécution réussie ni paiement. L’accès client et les dossiers de son compte doivent être connectés avant de pouvoir soumettre une instruction ici.',
+  more: 'Explorer More →',
+} satisfies Record<keyof typeof en, string>;
+export const miningCopy = defineCopy('more.mining.availability', en, { es, fr });
