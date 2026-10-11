@@ -79,6 +79,52 @@ describe('startPaperVwapParent', () => {
     ).toMatchObject({ ok: false, reason: 'already_started' });
   });
 
+  it("refuses padded status 'running ' with already_started and does not return ok", () => {
+    const started = startPaperVwapParent({
+      parentClientOrderId: 'p-vwap',
+      approved: true,
+      status: 'running ',
+      targetVolume: VOLUME,
+      operatorId: OP,
+      paper: PAPER_ON,
+    });
+    expect(started).toMatchObject({ ok: false, reason: 'already_started' });
+    expect(started.ok).toBe(false);
+    expect(started).not.toMatchObject({ ok: true, started: true, status: 'paper' });
+  });
+
+  it('refuses stopped, expired, and halted with not_approved even when approved is true', () => {
+    for (const status of ['stopped', 'expired', 'halted'] as const) {
+      const started = startPaperVwapParent({
+        parentClientOrderId: 'p-vwap',
+        approved: true,
+        status,
+        targetVolume: VOLUME,
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(started).toMatchObject({ ok: false, reason: 'not_approved' });
+      expect(started.ok).toBe(false);
+      expect(started).not.toMatchObject({ ok: true, started: true, status: 'paper' });
+    }
+  });
+
+  it('refuses blank and whitespace-only status with not_approved even when approved is true and does not start', () => {
+    for (const status of ['', '   '] as const) {
+      const started = startPaperVwapParent({
+        parentClientOrderId: 'p-vwap',
+        approved: true,
+        status,
+        targetVolume: VOLUME,
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(started).toMatchObject({ ok: false, reason: 'not_approved' });
+      expect(started.ok).toBe(false);
+      expect(started).not.toMatchObject({ ok: true, started: true, status: 'paper' });
+    }
+  });
+
   it('refuses omitted status and approved:false with not_approved', () => {
     expect(
       startPaperVwapParent({
@@ -163,6 +209,48 @@ describe('startPaperVwapParent', () => {
       targetVolume: formatAmount(parseAmount(VOLUME)),
     });
     expect(started).not.toMatchObject({ status: 'running' });
+  });
+
+  it("happy: approved true + status paper + targetVolume '1000' + operator + paper on", () => {
+    expect(
+      startPaperVwapParent({
+        parentClientOrderId: 'p-vwap',
+        approved: true,
+        status: 'paper',
+        targetVolume: VOLUME,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-vwap',
+      kind: 'vwap',
+      status: 'paper',
+      targetVolume: formatAmount(parseAmount(VOLUME)),
+    });
+  });
+
+  it("happy: approved true + status approved + targetVolume '1000' + operator + paper on", () => {
+    expect(
+      startPaperVwapParent({
+        parentClientOrderId: 'p-vwap',
+        approved: true,
+        status: 'approved',
+        targetVolume: VOLUME,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-vwap',
+      kind: 'vwap',
+      status: 'paper',
+      targetVolume: formatAmount(parseAmount(VOLUME)),
+    });
   });
 
   it("happy: approved true + targetVolume '1000' + operator + paper on (status omitted)", () => {

@@ -33,7 +33,7 @@ describe('startPaperOcoParent', () => {
     ).toMatchObject({ ok: false, reason: 'missing_parent' });
   });
 
-  it("paper unwired / paper_off refuse even with approved paper + both siblings", () => {
+  it('paper unwired / paper_off refuse even with approved paper + both siblings', () => {
     expect(
       startPaperOcoParent({
         parentClientOrderId: 'p-oco',
@@ -96,6 +96,36 @@ describe('startPaperOcoParent', () => {
         paper: PAPER_ON,
       }),
     ).toMatchObject({ ok: false, reason: 'already_started' });
+  });
+
+  it("refuses padded status 'running ' with already_started and does not start", () => {
+    const result = startPaperOcoParent({
+      parentClientOrderId: 'p-oco',
+      approved: true,
+      status: 'running ',
+      takeProfit: TAKE_PROFIT,
+      stopLoss: STOP_LOSS,
+      operatorId: OP,
+      paper: PAPER_ON,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'already_started' });
+    expect(result).not.toMatchObject({ started: true });
+  });
+
+  it('refuses stopped and expired with not_approved even when approved is true', () => {
+    for (const status of ['stopped', 'expired'] as const) {
+      const result = startPaperOcoParent({
+        parentClientOrderId: 'p-oco',
+        approved: true,
+        status,
+        takeProfit: TAKE_PROFIT,
+        stopLoss: STOP_LOSS,
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(result).toMatchObject({ ok: false, reason: 'not_approved' });
+      expect(result).not.toMatchObject({ started: true });
+    }
   });
 
   it('refuses omitted status and approved:false with not_approved', () => {
@@ -233,7 +263,53 @@ describe('startPaperOcoParent', () => {
     expect(started).not.toMatchObject({ status: 'running' });
   });
 
-  it("happy: approved true + both siblings + operator + paper on (status omitted) — not invented from amount", () => {
+  it('happy: approved true + status paper + both siblings + operator + paper on', () => {
+    expect(
+      startPaperOcoParent({
+        parentClientOrderId: 'p-oco',
+        approved: true,
+        status: 'paper',
+        takeProfit: TAKE_PROFIT,
+        stopLoss: STOP_LOSS,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-oco',
+      kind: 'oco',
+      status: 'paper',
+      takeProfit: formatAmount(parseAmount(TAKE_PROFIT)),
+      stopLoss: formatAmount(parseAmount(STOP_LOSS)),
+    });
+  });
+
+  it('happy: approved true + status approved + both siblings + operator + paper on', () => {
+    expect(
+      startPaperOcoParent({
+        parentClientOrderId: 'p-oco',
+        approved: true,
+        status: 'approved',
+        takeProfit: TAKE_PROFIT,
+        stopLoss: STOP_LOSS,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-oco',
+      kind: 'oco',
+      status: 'paper',
+      takeProfit: formatAmount(parseAmount(TAKE_PROFIT)),
+      stopLoss: formatAmount(parseAmount(STOP_LOSS)),
+    });
+  });
+
+  it('happy: approved true + both siblings + operator + paper on (status omitted) — not invented from amount', () => {
     const started = startPaperOcoParent({
       parentClientOrderId: 'p-oco',
       approved: true,

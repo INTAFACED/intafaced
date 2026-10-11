@@ -12,7 +12,9 @@ import { InMemoryEmsOrderStore } from './oms-ems-store.js';
 import { latencyGradeWire, type OmsPlanVenue } from './oms-plan.js';
 import { createExecutionRouter } from './router.js';
 import { handleOmsPaperDoor, handleOmsPaperExtraDoor, registerOmsPaperDoor } from './oms-paper-http.js';
+import type { PaperGate } from './oms-paper.js';
 import { refuseLiveOmsPaper } from './oms-paper-refuse.js';
+import { InMemoryApprovedAlgoParentStore, type ApprovedAlgoParentStore } from './oms-start.js';
 import { installOmsWriteRawBody } from './oms-write-hmac.js';
 
 const SECRET = 'a-execution-oms-paper-http-test-edge-secret';
@@ -190,6 +192,149 @@ describe('POST /execution/oms/paper*', () => {
   it('handleOmsPaperDoor never invents a live child', () => {
     expect(handleOmsPaperDoor({ parentClientOrderId: 'p1' })).toMatchObject({ ok: false, reason: 'parent_store_unwired' });
     expect(handleOmsPaperExtraDoor({ kind: 'paper-twap' })).toMatchObject({ ok: false, reason: 'paper_unsupported' });
+  });
+
+  it('an HMAC caller cannot paper a parent the server gate refused', async () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(approvedTwap('parent-twap'));
+    const f = Fastify();
+    installOmsWriteRawBody(f);
+    registerOmsPaperDoor(f, {
+      edgeContext,
+      internalSecret: SERVICE_SECRET,
+      parentStore,
+      paper: { enabled: false },
+    });
+    await f.ready();
+    const payload = {
+      parentClientOrderId: 'parent-twap',
+      paper: { enabled: true },
+      parentStore: {},
+    };
+    const res = await f.inject({
+      method: 'POST',
+      url: '/execution/oms/paper',
+      headers: hmacHeaders(payload),
+      payload: JSON.stringify(payload),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: false, reason: 'paper_off' });
+    expect(res.json()).not.toHaveProperty('children');
+    expect(parentStore.get('parent-twap')?.status).toBe('approved');
+    await f.close();
+  });
+});
+
+function approvedTwap(parentClientOrderId: string) {
+  return {
+    parentClientOrderId,
+    kind: 'twap' as const,
+    status: 'approved' as const,
+    startedAt: null,
+    schedule: {
+      durationMs: 60_000,
+      sliceIntervalMs: 10_000,
+      slicesPlanned: 6,
+      participationBps: null,
+    },
+  };
+}
+
+describe('handleOmsPaperDoor body cannot open the server gate', () => {
+  it('leaves an unwired or off server gate off for {} and {enabled:true}', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(approvedTwap('parent-twap'));
+    const bodies = [{ paper: {} as PaperGate }, { paper: { enabled: true as const } }];
+
+    for (const paper of bodies) {
+      const unwired = handleOmsPaperDoor({ parentClientOrderId: 'parent-twap', ...paper }, { edgeContext: () => ({}), parentStore });
+      expect(unwired).toMatchObject({ ok: false, reason: 'paper_gate_unwired' });
+      expect(parentStore.get('parent-twap')?.status).toBe('approved');
+
+      const off = handleOmsPaperDoor(
+        { parentClientOrderId: 'parent-twap', ...paper },
+        { edgeContext: () => ({}), parentStore, paper: { enabled: false } },
+      );
+      expect(off).toMatchObject({ ok: false, reason: 'paper_off' });
+      expect(parentStore.get('parent-twap')?.status).toBe('approved');
+    }
+  });
+
+  it('ignores body.parentStore so a JSON object does not shadow the server store or throw', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(approvedTwap('parent-twap'));
+    let forgedCalls = 0;
+    const forged = {
+      get(id: string) {
+        forgedCalls += 1;
+        return approvedTwap(id);
+      },
+      paper(id: string) {
+        forgedCalls += 1;
+        return { ...approvedTwap(id), status: 'paper' as const };
+      },
+    } as unknown as ApprovedAlgoParentStore;
+
+    const shadowed = handleOmsPaperDoor(
+      { parentClientOrderId: 'parent-twap', paper: { enabled: true }, parentStore: forged },
+      { edgeContext: () => ({}), parentStore, paper: { enabled: false } },
+    );
+    expect(shadowed).toMatchObject({ ok: false, reason: 'paper_off' });
+    expect(forgedCalls).toBe(0);
+    expect(parentStore.get('parent-twap')?.status).toBe('approved');
+
+    const bare = handleOmsPaperDoor(
+      {
+        parentClientOrderId: 'parent-twap',
+        paper: {} as PaperGate,
+        parentStore: {} as ApprovedAlgoParentStore,
+      },
+      { edgeContext: () => ({}), parentStore, paper: { enabled: true } },
+    );
+    expect(bare).toMatchObject({
+      ok: true,
+      paper: true,
+      status: 'paper',
+      children: [],
+    });
+    expect(bare).not.toHaveProperty('venue');
+    expect(parentStore.get('parent-twap')?.status).toBe('paper');
+    expect(forgedCalls).toBe(0);
+  });
+
+  it('papers through deps.paper and deps.parentStore when the server gate is on', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(approvedTwap('parent-on'));
+    let forgedCalls = 0;
+    const forged = {
+      get() {
+        forgedCalls += 1;
+        return null;
+      },
+      paper() {
+        forgedCalls += 1;
+        return null;
+      },
+    } as unknown as ApprovedAlgoParentStore;
+
+    const out = handleOmsPaperDoor(
+      {
+        parentClientOrderId: 'parent-on',
+        paper: { enabled: false },
+        parentStore: forged,
+      },
+      { edgeContext: () => ({}), parentStore, paper: { enabled: true } },
+    );
+    expect(out).toMatchObject({
+      ok: true,
+      paper: true,
+      parent: { parentClientOrderId: 'parent-on', kind: 'twap' },
+      status: 'paper',
+      children: [],
+    });
+    expect(out).not.toHaveProperty('venue');
+    expect(parentStore.get('parent-on')?.status).toBe('paper');
+    expect(forgedCalls).toBe(0);
   });
 });
 

@@ -122,6 +122,94 @@ describe('startPovParent', () => {
     ).toMatchObject({ ok: false, reason: 'already_started' });
   });
 
+  it('refuses approved paper with not_approved', () => {
+    expect(
+      startPovParent({
+        parentClientOrderId: 'p-pov',
+        kind: 'pov',
+        approved: true,
+        status: 'paper',
+        maxParticipationBps: PARTICIPATION,
+        credit: CREDIT,
+        remaining: REMAINING,
+        operatorId: OP,
+        jobs: JOBS_ON,
+        matchingVenueHalt: MATCHING_OPEN,
+        now: NOW,
+      }),
+    ).toMatchObject({ ok: false, reason: 'not_approved' });
+  });
+
+  it('refuses approved stopped, expired, halted, blank, and whitespace with not_approved', () => {
+    for (const status of ['stopped', 'expired', 'halted', '', '   ']) {
+      expect(
+        startPovParent({
+          parentClientOrderId: 'p-pov',
+          kind: 'pov',
+          approved: true,
+          status,
+          maxParticipationBps: PARTICIPATION,
+          credit: CREDIT,
+          remaining: REMAINING,
+          operatorId: OP,
+          jobs: JOBS_ON,
+          matchingVenueHalt: MATCHING_OPEN,
+          now: NOW,
+        }),
+      ).toMatchObject({ ok: false, reason: 'not_approved' });
+    }
+  });
+
+  it('refuses padded running with already_started', () => {
+    expect(
+      startPovParent({
+        parentClientOrderId: 'p-pov',
+        kind: 'pov',
+        approved: true,
+        status: 'running ',
+        maxParticipationBps: PARTICIPATION,
+        credit: CREDIT,
+        remaining: REMAINING,
+        operatorId: OP,
+        jobs: JOBS_ON,
+        matchingVenueHalt: MATCHING_OPEN,
+        now: NOW,
+      }),
+    ).toMatchObject({ ok: false, reason: 'already_started' });
+  });
+
+  it('refuses status approved when the approved flag is omitted or false', () => {
+    expect(
+      startPovParent({
+        parentClientOrderId: 'p-pov',
+        kind: 'pov',
+        status: 'approved',
+        maxParticipationBps: PARTICIPATION,
+        credit: CREDIT,
+        remaining: REMAINING,
+        operatorId: OP,
+        jobs: JOBS_ON,
+        matchingVenueHalt: MATCHING_OPEN,
+        now: NOW,
+      }),
+    ).toMatchObject({ ok: false, reason: 'not_approved' });
+    expect(
+      startPovParent({
+        parentClientOrderId: 'p-pov',
+        kind: 'pov',
+        approved: false,
+        status: 'approved',
+        maxParticipationBps: PARTICIPATION,
+        credit: CREDIT,
+        remaining: REMAINING,
+        operatorId: OP,
+        jobs: JOBS_ON,
+        matchingVenueHalt: MATCHING_OPEN,
+        now: NOW,
+      }),
+    ).toMatchObject({ ok: false, reason: 'not_approved' });
+  });
+
   it('refuses paper / omitted approved with not_approved', () => {
     expect(
       startPovParent({
@@ -390,5 +478,31 @@ describe('startPovParent', () => {
     expect(result).not.toHaveProperty('matching');
     expect(result).not.toMatchObject({ status: 'paper' });
     expect(result).not.toMatchObject({ status: 'approved' });
+  });
+
+  it('starts when approved is true and status is omitted', () => {
+    const result = startPovParent({
+      parentClientOrderId: 'p-pov',
+      kind: 'pov',
+      approved: true,
+      maxParticipationBps: PARTICIPATION,
+      credit: CREDIT,
+      remaining: REMAINING,
+      operatorId: OP,
+      jobs: JOBS_ON,
+      matchingVenueHalt: MATCHING_OPEN,
+      now: NOW,
+    });
+    expect(result).toEqual({
+      ok: true,
+      started: true,
+      parentClientOrderId: 'p-pov',
+      kind: 'pov',
+      status: 'running',
+      maxParticipationBps: PARTICIPATION,
+      credit: formatAmount(parseAmount(CREDIT)),
+      residual: { remaining: formatAmount(parseAmount(REMAINING)) },
+      startedAt: NOW.toISOString(),
+    });
   });
 });

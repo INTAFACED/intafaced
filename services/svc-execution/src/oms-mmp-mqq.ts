@@ -37,11 +37,7 @@ export type OmsMmpMqqCancelled = Readonly<{
   askRemaining: string;
 }>;
 
-export type OmsMmpMqqRefuseReason =
-  | 'mqq_blank'
-  | 'mqq_invalid'
-  | 'remaining_blank'
-  | 'remaining_invalid';
+export type OmsMmpMqqRefuseReason = 'mqq_blank' | 'mqq_invalid' | 'remaining_blank' | 'remaining_invalid';
 
 export type OmsMmpMqqRefusal = {
   readonly ok: false;
@@ -62,9 +58,7 @@ function refuse(reason: OmsMmpMqqRefuseReason, detail: string): OmsMmpMqqRefusal
   return { ok: false, reason, detail };
 }
 
-function parseOwnerMqq(
-  raw: string | null | undefined,
-): { ok: true; value: Amount; text: string } | OmsMmpMqqRefusal {
+function parseOwnerMqq(raw: string | null | undefined): { ok: true; value: Amount; text: string } | OmsMmpMqqRefusal {
   if (raw === null || raw === undefined) {
     return refuse('mqq_blank', 'MQQ is blank — refuse rather than invent a minimum quote quantity');
   }
@@ -84,10 +78,13 @@ function parseOwnerMqq(
   }
 }
 
-function parseRemaining(
-  raw: string,
-  label: string,
-): { ok: true; value: Amount } | OmsMmpMqqRefusal {
+function parseRemaining(raw: unknown, label: string): { ok: true; value: Amount } | OmsMmpMqqRefusal {
+  if (raw === null || raw === undefined) {
+    return refuse('remaining_blank', `${label} is blank — refuse rather than invent remaining size`);
+  }
+  if (typeof raw !== 'string') {
+    return refuse('remaining_invalid', `${label} is not a ledger amount — refuse rather than invent remaining size`);
+  }
   if (raw.trim().length === 0) {
     return refuse('remaining_blank', `${label} is blank — refuse rather than invent remaining size`);
   }
@@ -116,6 +113,9 @@ export function cancelBothSidesOnMqqBreach(input: OmsMmpMqqInput): OmsMmpMqqResu
   const leftStanding: OmsMmpMqqLiveQuote[] = [];
 
   for (const quote of input.quotes) {
+    if (quote === null || typeof quote !== 'object') {
+      return refuse('remaining_blank', 'quote is missing — refuse rather than invent remaining size');
+    }
     const bid = parseRemaining(quote.bidRemaining, 'bidRemaining');
     if (!bid.ok) return bid;
     const ask = parseRemaining(quote.askRemaining, 'askRemaining');

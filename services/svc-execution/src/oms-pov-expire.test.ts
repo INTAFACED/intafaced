@@ -246,6 +246,67 @@ describe('expirePovParent', () => {
     ).toMatchObject({ ok: false, reason: 'missing_residual' });
   });
 
+  it('refuses not_due when the retained expireAt is still after the injected now', () => {
+    const result = expirePovParent({
+      parentClientOrderId: 'p-pov',
+      kind: 'pov',
+      status: 'running',
+      expireAt: EXPIRE_AT,
+      remaining: REMAINING,
+      jobs: JOBS_ON,
+      matchingVenueHalt: MATCHING_OPEN,
+      now: new Date('2026-08-31T17:00:00.000Z'),
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'not_due' });
+    expect(result).not.toMatchObject({ status: 'expired' });
+  });
+
+  it('refuses missing_clock when now is omitted, not a Date, or an invalid Date', () => {
+    const running = {
+      parentClientOrderId: 'p-pov',
+      kind: 'pov' as const,
+      status: 'running' as const,
+      expireAt: EXPIRE_AT,
+      remaining: REMAINING,
+      jobs: JOBS_ON,
+      matchingVenueHalt: MATCHING_OPEN,
+    };
+    expect(expirePovParent(running)).toMatchObject({ ok: false, reason: 'missing_clock' });
+    expect(
+      expirePovParent({
+        ...running,
+        now: '2026-08-31T18:00:00.000Z' as unknown as Date,
+      }),
+    ).toMatchObject({ ok: false, reason: 'missing_clock' });
+    expect(
+      expirePovParent({
+        ...running,
+        now: new Date(Number.NaN),
+      }),
+    ).toMatchObject({ ok: false, reason: 'missing_clock' });
+  });
+
+  it('expires when the injected now is after the retained expireAt and formats residual', () => {
+    const result = expirePovParent({
+      parentClientOrderId: 'p-pov',
+      kind: 'pov',
+      status: 'running',
+      expireAt: EXPIRE_AT,
+      remaining: REMAINING,
+      jobs: JOBS_ON,
+      matchingVenueHalt: MATCHING_OPEN,
+      now: new Date('2026-08-31T19:00:00.000Z'),
+    });
+    expect(result).toEqual({
+      ok: true,
+      expired: true,
+      parent: { parentClientOrderId: 'p-pov', kind: 'pov' },
+      status: 'expired',
+      expireAt: EXPIRE_AT,
+      residual: { remaining: formatAmount(parseAmount(REMAINING)) },
+    });
+  });
+
   it('matching halt-all refuses venue_halted; missing halt source refuses venue_halt_unavailable', () => {
     expect(
       expirePovParent({

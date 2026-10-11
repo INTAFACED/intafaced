@@ -51,8 +51,11 @@ export interface ApprovedAlgoParentStore {
   undeploy(parentClientOrderId: string): ApprovedAlgoParent | null;
   expire(parentClientOrderId: string): ApprovedAlgoParent | null;
   releaseResidual?(parentClientOrderId: string): ApprovedAlgoParent | null;
-  /** Writes leftover already computed by a door — never invents remaining. */
-  consumeResidual?(parentClientOrderId: string, remaining: string): ApprovedAlgoParent | null;
+  /**
+   * Writes leftover already computed by a door — never invents remaining.
+   * When expectedRemaining is set, the write sticks only if the stored remaining is still that value.
+   */
+  consumeResidual?(parentClientOrderId: string, remaining: string, expectedRemaining?: string): ApprovedAlgoParent | null;
   paper?(parentClientOrderId: string): ApprovedAlgoParent | null;
   promote?(parentClientOrderId: string): ApprovedAlgoParent | null;
   /** Park an approved parent as staged (not live). Never invents an operator. */
@@ -80,6 +83,15 @@ export class InMemoryApprovedAlgoParentStore implements ApprovedAlgoParentStore 
     this.rows.set(parent.parentClientOrderId, cloneParent(parent));
   }
 
+  /** Put one row back after a journal append throws. Null means it was absent. */
+  restore(parentClientOrderId: string, previous: ApprovedAlgoParent | null): void {
+    if (!previous) {
+      this.rows.delete(parentClientOrderId);
+      return;
+    }
+    this.rows.set(parentClientOrderId, cloneParent(previous));
+  }
+
   get(parentClientOrderId: string): ApprovedAlgoParent | null {
     const row = this.rows.get(parentClientOrderId);
     return row ? cloneParent(row) : null;
@@ -98,15 +110,18 @@ export class InMemoryApprovedAlgoParentStore implements ApprovedAlgoParentStore 
   start(parentClientOrderId: string, startedAt: string, operatorId?: string): ApprovedAlgoParent | null {
     const row = this.rows.get(parentClientOrderId);
     if (!row) return null;
+    if (row.status !== 'approved') return null;
     const op = operatorId?.trim() ?? '';
+    if (!op) return null;
     const current = row.executionOwner?.trim() ?? '';
-    if (op && current && current !== op) return null;
+    if (current && current !== op) return null;
     const originator = row.originator?.trim() || op;
     const next = cloneParent({
       ...row,
       status: 'running',
       startedAt,
-      ...(op ? { executionOwner: op, originator } : {}),
+      executionOwner: op,
+      originator,
     });
     this.rows.set(parentClientOrderId, next);
     return cloneParent(next);
@@ -162,13 +177,14 @@ export class InMemoryApprovedAlgoParentStore implements ApprovedAlgoParentStore 
     return cloneParent(next);
   }
 
-  consumeResidual(parentClientOrderId: string, remaining: string): ApprovedAlgoParent | null {
+  consumeResidual(parentClientOrderId: string, remaining: string, expectedRemaining?: string): ApprovedAlgoParent | null {
     const row = this.rows.get(parentClientOrderId);
     if (!row) return null;
     const current = row.residual?.remaining?.trim();
     if (!current) return null;
     const nextRemaining = remaining.trim();
     if (!nextRemaining) return null;
+    if (expectedRemaining !== undefined && current !== expectedRemaining.trim()) return null;
     const next = cloneParent({
       ...row,
       residual: {
@@ -408,8 +424,9 @@ function refuse(reason: OmsStartRefuse['reason'], detail: string): OmsStartRefus
 
 function scheduleMissing(parent: ApprovedAlgoParent): boolean {
   const { durationMs, sliceIntervalMs, slicesPlanned, participationBps } = parent.schedule;
-  if (!(durationMs > 0) || !(sliceIntervalMs > 0) || slicesPlanned < 1) return true;
-  if (parent.kind === 'pov' && (participationBps === null || !Number.isInteger(participationBps))) return true;
+  if (!Number.isFinite(durationMs) || !(durationMs > 0) || !Number.isFinite(sliceIntervalMs) || !(sliceIntervalMs > 0)) return true;
+  if (!Number.isFinite(slicesPlanned) || slicesPlanned < 1) return true;
+  if (parent.kind === 'pov' && (participationBps === null || !Number.isInteger(participationBps) || participationBps < 0)) return true;
   return false;
 }
 

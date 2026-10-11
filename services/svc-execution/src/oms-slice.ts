@@ -9,12 +9,18 @@
  * must already be a ledger amount; a successful slice subtracts the
  * submitted qty and never invents leftover.
  */
-import { parseAmount, ZERO } from '@intafaced/ledger-client';
+import { add, formatAmount, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client';
 import type { VenueExecution } from '@intafaced/venue-adapter';
 import { childIds } from './oms-execute.js';
 import type { AlgoPauseStore } from './oms-pause.js';
 import type { EmsOrderStore } from './oms-ems-store.js';
-import { capAgainstParentPrice, capAgainstParentRemaining, consumeCappedRemaining, parentRemainingWriterWired } from './oms-parent-cap.js';
+import {
+  capAgainstParentPrice,
+  capAgainstParentRemaining,
+  consumeCappedRemaining,
+  parentRemainingWriterWired,
+  retainedRemaining,
+} from './oms-parent-cap.js';
 import type { AlgoKind, ApprovedAlgoParent, ApprovedAlgoParentStore } from './oms-start.js';
 import type { OmsSubmitFn } from './oms-trade-submit.js';
 
@@ -44,13 +50,17 @@ export type OmsSliceRefuse =
   | { readonly ok: false; readonly reason: 'missing_qty'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'missing_residual'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'exceeds_remaining'; readonly detail: string }
+  | { readonly ok: false; readonly reason: 'non_positive_qty'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'missing_venue'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'missing_symbol'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'missing_side'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'missing_price'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'missing_price_cap'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'worse_than_cap'; readonly detail: string }
-  | { readonly ok: false; readonly reason: 'submit_unwired'; readonly detail: string };
+  | { readonly ok: false; readonly reason: 'submit_unwired'; readonly detail: string }
+  | { readonly ok: false; readonly reason: 'ems_store_unwired'; readonly detail: string }
+  | { readonly ok: false; readonly reason: 'child_not_retained'; readonly detail: string }
+  | { readonly ok: false; readonly reason: 'children_unknown'; readonly detail: string };
 
 export type OmsSliceResult = OmsSliceOk | OmsSliceRefuse;
 
@@ -64,6 +74,43 @@ function refuse(reason: OmsSliceRefuse['reason'], detail: string): OmsSliceRefus
 
 function liveStatus(status: string): boolean {
   return status === 'approved' || status === 'running';
+}
+
+/** A reject restores the reservation except size the venue already traded. A missing or non-positive fill is not invented. */
+function leftoverAfterRejectedFill(priorRemaining: string, filledAmount: Amount | undefined): string {
+  if (typeof filledAmount !== 'bigint' || filledAmount <= ZERO) return priorRemaining;
+  return formatAmount(sub(parseAmount(priorRemaining), filledAmount));
+}
+
+function storedRemaining(parentStore: ApprovedAlgoParentStore, parentClientOrderId: string): string | null {
+  const row = parentStore.get(parentClientOrderId);
+  if (!row) return null;
+  return retainedRemaining(row);
+}
+
+/**
+ * Credit this reservation's unfilled size onto the leftover stored now.
+ * A sibling may already have consumed some of the post-reserve leftover, so
+ * the credit is compare-and-swapped onto that current value.
+ */
+function restoreUnfilledReservation(
+  parentStore: ApprovedAlgoParentStore,
+  parentClientOrderId: string,
+  postReserveRemaining: string,
+  absoluteIfUnchanged: string,
+): string {
+  const credit = sub(parseAmount(absoluteIfUnchanged), parseAmount(postReserveRemaining));
+  let attemptedAt: string | null = null;
+  for (;;) {
+    const current = storedRemaining(parentStore, parentClientOrderId);
+    if (!current) return attemptedAt ?? postReserveRemaining;
+    if (credit === ZERO || current === attemptedAt) return current;
+    attemptedAt = current;
+    const next = formatAmount(add(parseAmount(current), credit));
+    const restored = parentStore.consumeResidual?.(parentClientOrderId, next, current);
+    const written = restored?.residual?.remaining?.trim() ?? '';
+    if (written) return written;
+  }
 }
 
 function ownerOf(parent: ApprovedAlgoParent): string | null {
@@ -167,25 +214,82 @@ export async function sliceLiveAlgoParent(input: {
     return refuse('submit_unwired', `venue ${venueId} is not wired for submit`);
   }
 
+  if (!input.emsStore) return refuse('ems_store_unwired', 'EMS journal is required before submitting a slice');
+  const emsStore = input.emsStore;
+  const taken = emsStore.list({ parentClientOrderId }).filter((row) => row.venueId.trim() !== '');
+  if (taken.some((row) => row.state === 'SUBMIT_UNKNOWN' || row.state === 'OUTCOME_UNKNOWN')) {
+    return refuse('children_unknown', 'an earlier slice is unresolved — refusing another child');
+  }
+
   const cap = capAgainstParentRemaining(existing, amount, 'slice');
   if (!cap.ok) return cap;
   const writer = parentRemainingWriterWired(input.parentStore);
   if (!writer.ok) return writer;
+  const priorRemaining = retainedRemaining(existing);
+  if (!priorRemaining) {
+    return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover from duration or slicesPlanned');
+  }
 
-  const occurrence = input.emsStore?.list({ parentClientOrderId }).length ?? 0;
+  const consumed = consumeCappedRemaining(input.parentStore, parentClientOrderId, cap.nextRemaining, priorRemaining);
+  if (!consumed.ok) return consumed;
+
+  const occurrence = taken.length;
   const ids = childIds({ parentClientOrderId, executionGroupId: parentClientOrderId }, occurrence, occurrence, venueId);
 
-  const execution = await submit({
+  // Commit the original identity before the remote effect. A lost acknowledgement
+  // keeps both the intent and its size reservation until the existing lookup reconciles it.
+  const intent = {
+    requestFingerprint: JSON.stringify({
+      parentClientOrderId,
+      executionOwner: existing.executionOwner,
+      venueId,
+      symbol,
+      side,
+      amount: formatAmount(amount),
+      limitPrice: formatAmount(limitPrice),
+    }),
+    clientOrderId: ids.clientOrderId,
+    childOrderId: ids.childOrderId,
+    parentClientOrderId,
+    executionGroupId: parentClientOrderId,
+    venueId,
     symbol,
     side,
-    amount,
-    limitPrice,
-    clientOrderId: ids.clientOrderId,
-  });
+    execution: null,
+    state: 'SUBMIT_UNKNOWN' as const,
+    reconciliationKey: ids.clientOrderId,
+  };
+  try {
+    emsStore.record(intent);
+  } catch (err) {
+    restoreUnfilledReservation(input.parentStore, parentClientOrderId, consumed.remaining, priorRemaining);
+    throw err;
+  }
+  if (emsStore.get(ids.clientOrderId)?.state !== 'SUBMIT_UNKNOWN') {
+    restoreUnfilledReservation(input.parentStore, parentClientOrderId, consumed.remaining, priorRemaining);
+    return refuse('child_not_retained', 'slice intent was not retained — no child submitted');
+  }
 
-  const consumed = consumeCappedRemaining(input.parentStore, parentClientOrderId, cap.nextRemaining);
-  if (!consumed.ok) return consumed;
-  const nextRemaining = consumed.remaining;
+  let execution: VenueExecution;
+  try {
+    execution = await submit({
+      symbol,
+      side,
+      amount,
+      limitPrice,
+      clientOrderId: ids.clientOrderId,
+    });
+  } catch (err) {
+    throw err;
+  }
+
+  emsStore.record({ ...intent, execution, state: execution.status === 'rejected' ? 'REJECTED' : 'ACKNOWLEDGED', reconciliationKey: null });
+
+  let remaining = consumed.remaining;
+  if (execution.status === 'rejected') {
+    const restoreTo = leftoverAfterRejectedFill(priorRemaining, execution.filledAmount);
+    remaining = restoreUnfilledReservation(input.parentStore, parentClientOrderId, consumed.remaining, restoreTo);
+  }
 
   return {
     ok: true,
@@ -197,6 +301,6 @@ export async function sliceLiveAlgoParent(input: {
       venueId,
     },
     execution,
-    residual: { remaining: nextRemaining },
+    residual: { remaining },
   };
 }

@@ -163,6 +163,22 @@ describe('POST /execution/oms/mmp-post|hedge|mqq', () => {
     await f.ready();
     return f;
   }
+  async function authed(f: Awaited<ReturnType<typeof app>>, url: string, payload: unknown) {
+    return f.inject({
+      method: 'POST',
+      url,
+      headers: hmacHeaders(payload),
+      payload: JSON.stringify(payload),
+    });
+  }
+  const liveQuote = {
+    quoteId: 'q-1',
+    symbol: 'BTC/USDT',
+    bidQuoteId: 'bid-1',
+    askQuoteId: 'ask-1',
+    bidRemaining: '2.25',
+    askRemaining: '3.5',
+  };
   it('refuses anonymous mmp-post', async () => {
     const f = await app();
     const res = await f.inject({ method: 'POST', url: '/execution/oms/mmp-post', payload: twoSidedPost });
@@ -223,6 +239,121 @@ describe('POST /execution/oms/mmp-post|hedge|mqq', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ ok: false, reason: 'mqq_blank' });
+    await f.close();
+  });
+  it('non-string post size or mqq is a typed refusal, not a 500', async () => {
+    const f = await app();
+    const cases: { payload: unknown; reason: string }[] = [
+      { payload: { ...twoSidedPost, bidSize: 5 }, reason: 'size_invalid' },
+      { payload: { ...twoSidedPost, askSize: { n: 1 } }, reason: 'size_invalid' },
+      { payload: { ...twoSidedPost, mqq: 1 }, reason: 'mqq_invalid' },
+      { payload: { ...twoSidedPost, bidSize: '' }, reason: 'size_blank' },
+      { payload: { ...twoSidedPost, bidSize: '-1' }, reason: 'size_invalid' },
+      { payload: { ...twoSidedPost, mqq: 'nope' }, reason: 'mqq_invalid' },
+    ];
+    for (const { payload, reason } of cases) {
+      const res = await authed(f, '/execution/oms/mmp-post', payload);
+      expect(res.statusCode, reason).toBe(200);
+      expect(res.json(), reason).toMatchObject({ ok: false, reason });
+    }
+    const decimal = await authed(f, '/execution/oms/mmp-post', {
+      ...twoSidedPost,
+      mqq: '1.5',
+      bidSize: '2.25',
+      askSize: '3.5',
+    });
+    expect(decimal.statusCode).toBe(200);
+    expect(decimal.json()).toMatchObject({
+      ok: true,
+      posted: true,
+      sides: ['bid', 'ask'],
+      mqq: '1.5',
+      bidSize: '2.25',
+      askSize: '3.5',
+    });
+    const greekFirst = await authed(f, '/execution/oms/mmp-post', { ...twoSidedPost, bidSize: 5, delta: '1' });
+    expect(greekFirst.statusCode).toBe(200);
+    expect(greekFirst.json()).toMatchObject({ ok: false, reason: 'mmp_unsupported' });
+    await f.close();
+  });
+  it('non-string hedge size is a typed refusal, not a 500', async () => {
+    const f = await app();
+    const cases: { payload: unknown; reason: string }[] = [
+      { payload: { parentClientOrderId: 'parent-mmp', hedgeSize: 4 }, reason: 'hedge_size_invalid' },
+      { payload: { parentClientOrderId: 'parent-mmp', hedgeSize: { n: 1 } }, reason: 'hedge_size_invalid' },
+      { payload: { parentClientOrderId: 'parent-mmp', hedgeSize: '' }, reason: 'hedge_size_blank' },
+      { payload: { parentClientOrderId: 'parent-mmp', hedgeSize: '-2' }, reason: 'hedge_size_invalid' },
+    ];
+    for (const { payload, reason } of cases) {
+      const res = await authed(f, '/execution/oms/mmp-hedge', payload);
+      expect(res.statusCode, reason).toBe(200);
+      expect(res.json(), reason).toMatchObject({ ok: false, reason });
+    }
+    const decimal = await authed(f, '/execution/oms/mmp-hedge', {
+      parentClientOrderId: 'parent-mmp',
+      hedgeSize: '1.25',
+    });
+    expect(decimal.statusCode).toBe(200);
+    expect(decimal.json()).toMatchObject({ ok: true, hedged: true, hedgeSize: '1.25' });
+    const greekFirst = await authed(f, '/execution/oms/mmp-hedge', {
+      parentClientOrderId: 'parent-mmp',
+      hedgeSize: 4,
+      vega: '1',
+    });
+    expect(greekFirst.statusCode).toBe(200);
+    expect(greekFirst.json()).toMatchObject({ ok: false, reason: 'mmp_unsupported' });
+    await f.close();
+  });
+  it('non-string mqq or a quotes value that is not an array is a typed refusal, not a 500', async () => {
+    const f = await app();
+    const numericMqq = await authed(f, '/execution/oms/mmp-mqq', { mqq: 2, quotes: [] });
+    expect(numericMqq.statusCode).toBe(200);
+    expect(numericMqq.json()).toMatchObject({ ok: false, reason: 'mqq_invalid' });
+    const blankMqqBeatsBadQuotes = await authed(f, '/execution/oms/mmp-mqq', { mqq: '', quotes: {} });
+    expect(blankMqqBeatsBadQuotes.statusCode).toBe(200);
+    expect(blankMqqBeatsBadQuotes.json()).toMatchObject({ ok: false, reason: 'mqq_blank' });
+    const notArrays = ['', '10', { quoteId: 'q-1' }, 4];
+    for (const quotes of notArrays) {
+      const res = await authed(f, '/execution/oms/mmp-mqq', { mqq: '1', quotes });
+      expect(res.statusCode, JSON.stringify(quotes)).toBe(200);
+      expect(res.json(), JSON.stringify(quotes)).toMatchObject({ ok: false, reason: 'remaining_blank' });
+      expect(res.json().cancelled, JSON.stringify(quotes)).toBeUndefined();
+    }
+    const nullQuote = await authed(f, '/execution/oms/mmp-mqq', { mqq: '1', quotes: [null] });
+    expect(nullQuote.statusCode).toBe(200);
+    expect(nullQuote.json()).toMatchObject({ ok: false, reason: 'remaining_blank' });
+    const stringElement = await authed(f, '/execution/oms/mmp-mqq', { mqq: '1', quotes: ['10'] });
+    expect(stringElement.statusCode).toBe(200);
+    expect(stringElement.json()).toMatchObject({ ok: false, reason: 'remaining_blank' });
+    const numericSize = await authed(f, '/execution/oms/mmp-mqq', {
+      mqq: '1',
+      quotes: [{ ...liveQuote, bidRemaining: 2, askRemaining: '3' }],
+    });
+    expect(numericSize.statusCode).toBe(200);
+    expect(numericSize.json()).toMatchObject({ ok: false, reason: 'remaining_invalid' });
+    const nullSize = await authed(f, '/execution/oms/mmp-mqq', {
+      mqq: '1',
+      quotes: [{ ...liveQuote, bidRemaining: null }],
+    });
+    expect(nullSize.statusCode).toBe(200);
+    expect(nullSize.json()).toMatchObject({ ok: false, reason: 'remaining_blank' });
+    const negative = await authed(f, '/execution/oms/mmp-mqq', {
+      mqq: '1',
+      quotes: [{ ...liveQuote, askRemaining: '-1' }],
+    });
+    expect(negative.statusCode).toBe(200);
+    expect(negative.json()).toMatchObject({ ok: false, reason: 'remaining_invalid' });
+    const decimal = await authed(f, '/execution/oms/mmp-mqq', { mqq: '1.5', quotes: [liveQuote] });
+    expect(decimal.statusCode).toBe(200);
+    expect(decimal.json()).toMatchObject({
+      ok: true,
+      mqq: '1.5',
+      cancelled: [],
+      leftStanding: [liveQuote],
+    });
+    const greekFirst = await authed(f, '/execution/oms/mmp-mqq', { mqq: 2, quotes: '10', delta: '1' });
+    expect(greekFirst.statusCode).toBe(200);
+    expect(greekFirst.json()).toMatchObject({ ok: false, reason: 'mmp_unsupported' });
     await f.close();
   });
   it('handleOmsMmpPostDoor never invents greeks or matching', () => {

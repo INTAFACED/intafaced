@@ -79,6 +79,34 @@ describe('startPaperScaleInParent', () => {
     ).toMatchObject({ ok: false, reason: 'already_started' });
   });
 
+  it("refuses padded status 'running ' with already_started and does not start", () => {
+    const result = startPaperScaleInParent({
+      parentClientOrderId: 'p-scale',
+      approved: true,
+      status: 'running ',
+      childSize: CHILD,
+      operatorId: OP,
+      paper: PAPER_ON,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'already_started' });
+    expect(result).not.toMatchObject({ started: true });
+  });
+
+  it('refuses stopped and expired with not_approved even when approved is true', () => {
+    for (const status of ['stopped', 'expired'] as const) {
+      const result = startPaperScaleInParent({
+        parentClientOrderId: 'p-scale',
+        approved: true,
+        status,
+        childSize: CHILD,
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(result).toMatchObject({ ok: false, reason: 'not_approved' });
+      expect(result).not.toMatchObject({ started: true });
+    }
+  });
+
   it('refuses omitted status and approved:false with not_approved', () => {
     expect(
       startPaperScaleInParent({
@@ -89,6 +117,32 @@ describe('startPaperScaleInParent', () => {
         paper: PAPER_ON,
       }),
     ).toMatchObject({ ok: false, reason: 'not_approved' });
+  });
+
+  it("refuses approved false with status 'paper' — not_approved and does not start", () => {
+    const result = startPaperScaleInParent({
+      parentClientOrderId: 'p-scale',
+      approved: false,
+      status: 'paper',
+      childSize: CHILD,
+      operatorId: OP,
+      paper: PAPER_ON,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'not_approved' });
+    expect(result).not.toMatchObject({ started: true });
+  });
+
+  it("refuses approved false with status 'approved' — not_approved and does not start", () => {
+    const result = startPaperScaleInParent({
+      parentClientOrderId: 'p-scale',
+      approved: false,
+      status: 'approved',
+      childSize: CHILD,
+      operatorId: OP,
+      paper: PAPER_ON,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'not_approved' });
+    expect(result).not.toMatchObject({ started: true });
   });
 
   it('refuses missing / whitespace operator', () => {
@@ -178,6 +232,68 @@ describe('startPaperScaleInParent', () => {
     });
     expect(started).not.toMatchObject({ status: 'running' });
     expect(started).not.toHaveProperty('matching');
+  });
+
+  it("happy: approved true + status paper + childSize '100' + operator + paper on", () => {
+    expect(
+      startPaperScaleInParent({
+        parentClientOrderId: 'p-scale',
+        approved: true,
+        status: 'paper',
+        childSize: CHILD,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-scale',
+      kind: 'scale-in',
+      status: 'paper',
+      childSize: formatAmount(parseAmount(CHILD)),
+    });
+  });
+
+  it("happy: approved true + status approved + childSize '100' + operator + paper on", () => {
+    expect(
+      startPaperScaleInParent({
+        parentClientOrderId: 'p-scale',
+        approved: true,
+        status: 'approved',
+        childSize: CHILD,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-scale',
+      kind: 'scale-in',
+      status: 'paper',
+      childSize: formatAmount(parseAmount(CHILD)),
+    });
+  });
+
+  it("happy: status approved + childSize '100' + operator + paper on (approved omitted)", () => {
+    expect(
+      startPaperScaleInParent({
+        parentClientOrderId: 'p-scale',
+        status: 'approved',
+        childSize: CHILD,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-scale',
+      kind: 'scale-in',
+      status: 'paper',
+      childSize: formatAmount(parseAmount(CHILD)),
+    });
   });
 
   it("happy: approved true + childSize '100' + operator + paper on (status omitted) — not invented from amount", () => {

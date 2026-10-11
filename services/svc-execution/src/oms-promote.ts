@@ -7,12 +7,7 @@
  * touch matching.
  */
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
-import type {
-  AlgoJobsGate,
-  AlgoKind,
-  ApprovedAlgoParent,
-  ApprovedAlgoParentStore,
-} from './oms-start.js';
+import type { AlgoJobsGate, AlgoKind, ApprovedAlgoParent, ApprovedAlgoParentStore } from './oms-start.js';
 
 export type OmsPromoteOk = {
   readonly ok: true;
@@ -28,7 +23,8 @@ export type OmsPromoteRefuse =
   | { readonly ok: false; readonly reason: 'not_found'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'unsupported_kind'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'not_paper'; readonly detail: string }
-  | { readonly ok: false; readonly reason: 'missing_residual'; readonly detail: string };
+  | { readonly ok: false; readonly reason: 'missing_residual'; readonly detail: string }
+  | { readonly ok: false; readonly reason: 'promote_rejected'; readonly detail: string };
 
 export type OmsPromoteResult = OmsPromoteOk | OmsPromoteRefuse;
 
@@ -71,28 +67,19 @@ export function promotePaperParentToLive(input: {
     return refuse('unsupported_kind', `kind ${String(existing.kind)} is not twap|vwap|pov`);
   }
   if (existing.status !== 'paper') {
-    return refuse(
-      'not_paper',
-      `parent ${parentClientOrderId} is ${existing.status} — promote needs an already paper parent`,
-    );
+    return refuse('not_paper', `parent ${parentClientOrderId} is ${existing.status} — promote needs an already paper parent`);
   }
 
   const remaining = retainedRemaining(existing);
   if (!remaining) {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is missing — refusing to invent leftover from duration, slices, or a venue',
-    );
+    return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover from duration, slices, or a venue');
   }
 
   let echoed: string;
   try {
     echoed = formatAmount(parseAmount(remaining));
   } catch {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is not a ledger amount — refusing to invent leftover',
-    );
+    return refuse('missing_residual', 'residual.remaining is not a ledger amount — refusing to invent leftover');
   }
 
   if (!input.parentStore.promote) {
@@ -101,10 +88,23 @@ export function promotePaperParentToLive(input: {
 
   const promoted = input.parentStore.promote(parentClientOrderId);
   if (!promoted) {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is missing — refusing to invent leftover from duration, slices, or a venue',
-    );
+    const again = input.parentStore.get(parentClientOrderId);
+    if (!again) {
+      return refuse('not_found', `no approved algo parent for ${parentClientOrderId}`);
+    }
+    if (again.status !== 'paper') {
+      return refuse('not_paper', `parent ${parentClientOrderId} is ${again.status} — promote needs an already paper parent`);
+    }
+    const againRemaining = retainedRemaining(again);
+    if (!againRemaining) {
+      return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover from duration, slices, or a venue');
+    }
+    try {
+      formatAmount(parseAmount(againRemaining));
+    } catch {
+      return refuse('missing_residual', 'residual.remaining is not a ledger amount — refusing to invent leftover');
+    }
+    return refuse('promote_rejected', 'the store did not promote this parent');
   }
 
   return {

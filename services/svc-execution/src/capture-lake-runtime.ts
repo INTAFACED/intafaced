@@ -23,26 +23,57 @@ export type CaptureLakeRuntime = {
   readonly stop: () => Promise<void>;
 };
 
+/** Node stores timer delays in a signed 32-bit int and turns anything larger into a 1ms loop. */
+const MAX_DRAIN_INTERVAL_MS = 2_147_483_647;
+
+function drainIntervalMs(raw: string | undefined): number | undefined {
+  const trimmed = raw?.trim() ?? '';
+  if (trimmed.length === 0) return undefined;
+  const ms = Number(trimmed);
+  if (!Number.isFinite(ms) || ms <= 0 || ms > MAX_DRAIN_INTERVAL_MS) return undefined;
+  return ms;
+}
+
+function captureFailureDetail(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 function wrapOmsSnapshotWithCapture(lake: CaptureLake, venueId: string, snapshot: OmsSnapshotFn): OmsSnapshotFn {
   return async (symbol, limit) => {
+    let snap: Awaited<ReturnType<OmsSnapshotFn>>;
     try {
-      const snap = await snapshot(symbol, limit);
-      lake.recordBook(snap);
-      return snap;
+      snap = await snapshot(symbol, limit);
     } catch (err) {
       if (err instanceof VenueUnavailableError) {
         lake.recordHole(venueId, symbol, err.reason, err.message);
       } else {
-        lake.recordHole(venueId, symbol, 'capture_failed', err instanceof Error ? err.message : String(err));
+        lake.recordHole(venueId, symbol, 'capture_failed', captureFailureDetail(err));
       }
       throw err;
     }
+
+    // The venue book is already in hand. A failed capture write is a hole beside
+    // that book, not a reason to hide it from the OMS caller.
+    try {
+      lake.recordBook(snap);
+    } catch (err) {
+      try {
+        lake.recordHole(venueId, symbol, 'capture_failed', captureFailureDetail(err));
+      } catch {
+        // Writing the hole must not replace the fetched book.
+      }
+    }
+    return snap;
   };
 }
 
-export function createCaptureLakeRuntime(env: CaptureLakeRuntimeEnv = process.env): CaptureLakeRuntime {
+export function createCaptureLakeRuntime(
+  env: CaptureLakeRuntimeEnv = process.env,
+  drainToPersistence: typeof drainFabricCaptureLakeToPersistence = drainFabricCaptureLakeToPersistence,
+): CaptureLakeRuntime {
   const lake = new CaptureLake();
   let timer: ReturnType<typeof setInterval> | undefined;
+  let inFlight: Promise<void> | undefined;
 
   return {
     lake,
@@ -54,20 +85,33 @@ export function createCaptureLakeRuntime(env: CaptureLakeRuntimeEnv = process.en
       return out;
     },
     drain() {
-      return drainFabricCaptureLakeToPersistence(lake, env);
+      return drainToPersistence(lake, env);
     },
     start() {
-      const raw = env.CONNECT_DATA_LAKE_DRAIN_INTERVAL_MS?.trim() ?? '';
-      const ms = raw ? Number(raw) : NaN;
-      if (!Number.isFinite(ms) || ms <= 0 || timer) return;
+      const ms = drainIntervalMs(env.CONNECT_DATA_LAKE_DRAIN_INTERVAL_MS);
+      if (ms === undefined || timer) return;
       timer = setInterval(() => {
-        void drainFabricCaptureLakeToPersistence(lake, env);
+        if (inFlight) return;
+        let task: Promise<void>;
+        task = drainToPersistence(lake, env)
+          .then((result) => {
+            // persistence.ok false is a refused drain, same as a rejection: not a successful flush.
+            if (!result.persistence.ok) {
+              throw result.persistence;
+            }
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            if (inFlight === task) inFlight = undefined;
+          });
+        inFlight = task;
       }, ms);
     },
     async stop() {
       if (timer) clearInterval(timer);
       timer = undefined;
-      await drainFabricCaptureLakeToPersistence(lake, env);
+      if (inFlight) await inFlight;
+      await drainToPersistence(lake, env);
     },
   };
 }

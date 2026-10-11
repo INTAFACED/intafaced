@@ -6,6 +6,7 @@ import { SealedHouseTenantRegistry } from '@intafaced/execution-house-tenant';
 import type { SubmitRequest, VenueExecution } from '@intafaced/venue-adapter';
 import { executeOmsRoute, type OmsSubmitFn } from './oms-execute.js';
 import { InMemoryEmsOrderStore } from './oms-ems-store.js';
+import { InMemoryAlgoPauseStore } from './oms-pause.js';
 import { latencyGradeWire, planOmsRoute, type OmsPlanVenue } from './oms-plan.js';
 import { createExecutionRouter } from './router.js';
 
@@ -248,6 +249,42 @@ describe('executeOmsRoute', () => {
     expect(retryVenue.calls).toHaveLength(0);
   });
 
+  it('fences an idempotent retry when a child drain is already CANCELED and keeps the stored execution', async () => {
+    const street = new FakeSource('street');
+    const store = new InMemoryEmsOrderStore();
+    const input = {
+      symbol: 'BTC/USDT',
+      side: 'buy' as const,
+      amount: '1',
+      parentClientOrderId: 'parent-canceled-retry',
+      executionGroupId: 'group-canceled-retry',
+      venues: [completeVenue({ id: 'street', price: '100' })],
+      submitByVenue: { street: street.submit },
+      emsStore: store,
+    };
+    const first = await executeOmsRoute(input);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const clientOrderId = first.children[0]!.clientOrderId;
+    const stored = store.get(clientOrderId);
+    expect(stored?.execution?.venueOrderId).toBe('v-street');
+    expect(stored?.execution?.status).toBe('filled');
+    store.record({ ...stored!, state: 'CANCELED' });
+
+    const retry = await executeOmsRoute(input);
+    expect(retry).toMatchObject({ ok: false, reason: 'submit_failed', outcome: 'OUTCOME_UNKNOWN' });
+    if (retry.ok || retry.reason !== 'submit_failed') return;
+    expect(retry.children[0]).toMatchObject({
+      outcome: 'OUTCOME_UNKNOWN',
+      state: 'CANCELED',
+      clientOrderId,
+    });
+    expect(retry.children[0]?.execution).toEqual(stored!.execution);
+    expect(street.calls).toHaveLength(1);
+    expect(store.get(clientOrderId)?.state).toBe('CANCELED');
+    expect(store.get(clientOrderId)?.execution?.venueOrderId).toBe('v-street');
+  });
+
   it('retains the completed first leg when a later leg is unknown', async () => {
     const store = new InMemoryEmsOrderStore();
     const first = new FakeSource('first');
@@ -306,6 +343,50 @@ describe('executeOmsRoute', () => {
     expect(result.executions).toHaveLength(1);
     expect(result.children.map((child) => child.outcome)).toEqual(['APPLIED', 'UNWIRED']);
     expect(result.children[1]?.execution).toBeNull();
+  });
+
+  it('keeps legs already submitted when a later leg finds the algo paused', async () => {
+    const pauseStore = new InMemoryAlgoPauseStore();
+    const emsStore = new InMemoryEmsOrderStore();
+    const first = new FakeSource('first');
+    const later = new FakeSource('later');
+    const parentClientOrderId = 'parent-pause-later';
+    const result = await executeOmsRoute({
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      amount: '2',
+      parentClientOrderId,
+      executionGroupId: 'group-pause-later',
+      venues: [completeVenue({ id: 'first', price: '100', amount: '1' }), completeVenue({ id: 'later', price: '100', amount: '1' })],
+      submitByVenue: {
+        first: async (req) => {
+          const execution = await first.submit(req);
+          pauseStore.pause({ kind: 'parent', id: parentClientOrderId });
+          return execution;
+        },
+        later: later.submit,
+      },
+      emsStore,
+      pauseStore,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'algo_paused' });
+    expect(later.calls).toHaveLength(0);
+    expect(first.calls).toHaveLength(1);
+    if (result.ok || result.reason !== 'algo_paused') return;
+    expect(result.executions).toEqual([
+      {
+        venueId: 'first',
+        venueOrderId: 'v-first',
+        filledAmount: parseAmount('1'),
+        averagePrice: parseAmount('100'),
+        feeAmount: parseAmount('0'),
+        feeAsset: 'USDT',
+        status: 'filled',
+        executedAt: new Date('2026-08-17T00:00:00.000Z'),
+      },
+    ]);
+    expect(result.children).toMatchObject([{ venueId: 'first', outcome: 'APPLIED', execution: result.executions[0] }]);
+    expect(emsStore.get(result.children[0]!.clientOrderId)?.execution?.venueOrderId).toBe('v-first');
   });
 
   it('binds deterministic child IDs to the parent and prevents venue collisions', async () => {
@@ -391,6 +472,48 @@ describe('executeOmsRoute', () => {
     });
     expect(conflict).toMatchObject({ ok: false, reason: 'identity_conflict' });
     expect(venue.calls).toHaveLength(before);
+  });
+
+  it('refuses an overlapping execute with the same parent and a different side', async () => {
+    const buyVenue = new FakeSource('street');
+    const sellVenue = new FakeSource('street');
+    const store = new InMemoryEmsOrderStore();
+    const shared = {
+      symbol: 'BTC/USDT',
+      amount: '1',
+      parentClientOrderId: 'parent-overlap',
+      executionGroupId: 'group-overlap',
+      venues: [completeVenue({ id: 'street', price: '100' })],
+      emsStore: store,
+    };
+    const buyPromise = executeOmsRoute({
+      ...shared,
+      side: 'buy',
+      submitByVenue: { street: buyVenue.submit },
+    });
+    const sellPromise = executeOmsRoute({
+      ...shared,
+      side: 'sell',
+      submitByVenue: { street: sellVenue.submit },
+    });
+    const [buyResult, sellResult] = await Promise.all([buyPromise, sellPromise]);
+    const results = [buyResult, sellResult];
+    const successes = results.filter((result) => result.ok);
+    const conflicts = results.filter((result) => !result.ok && result.reason === 'identity_conflict');
+
+    expect(successes).toHaveLength(1);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({ ok: false, reason: 'identity_conflict', executions: [] });
+    expect(buyVenue.calls.length + sellVenue.calls.length).toBe(1);
+    if (buyVenue.calls.length === 1) {
+      expect(buyVenue.calls[0]?.side).toBe('buy');
+      expect(sellVenue.calls).toHaveLength(0);
+      expect(buyResult.ok).toBe(true);
+    } else {
+      expect(sellVenue.calls[0]?.side).toBe('sell');
+      expect(buyVenue.calls).toHaveLength(0);
+      expect(sellResult.ok).toBe(true);
+    }
   });
 });
 

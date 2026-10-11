@@ -239,6 +239,7 @@ describe('sliceLiveAlgoParent unattended', () => {
       parentClientOrderId: 'parent-twap',
       ...sliceFields,
       parentStore,
+      emsStore: new InMemoryEmsOrderStore(),
       submit: street.submit,
     });
     expect(out).toMatchObject({
@@ -333,3 +334,4 @@ describe('execution.oms.unattended tRPC', () => {
     });
   });
 });
+import { InMemoryEmsOrderStore } from './oms-ems-store.js';

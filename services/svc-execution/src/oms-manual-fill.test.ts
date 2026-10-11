@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { SealedHouseTenantRegistry } from '@intafaced/execution-house-tenant';
-import { InMemoryManualFillStore, recordManualChildFill } from './oms-manual-fill.js';
+import { InMemoryManualFillStore, recordManualChildFill, type ManualFillStore } from './oms-manual-fill.js';
 import { InMemoryApprovedAlgoParentStore, type ApprovedAlgoParent, type RetainedAlgoSchedule } from './oms-start.js';
 import { createExecutionRouter } from './router.js';
 
@@ -384,6 +384,48 @@ describe('recordManualChildFill', () => {
       filledAmount: '0.5',
       averagePrice: '100',
     });
+  });
+
+  it('record returning null leaves the parent residual unchanged and no fill on the trail', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(live({ parentClientOrderId: 'parent-twap', kind: 'twap', residual: { remaining: '10.00' } }));
+    const manualFillStore: ManualFillStore = {
+      get: () => null,
+      record: () => null,
+    };
+    expect(
+      recordManualChildFill({
+        parentClientOrderId: 'parent-twap',
+        confirmerId: OP,
+        parentStore,
+        manualFillStore,
+        ...print,
+      }),
+    ).toMatchObject({ ok: false, reason: 'already_recorded' });
+    expect(manualFillStore.get('child-1')).toBeNull();
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('10.00');
+  });
+
+  it('record throwing leaves the parent residual unchanged and no fill on the trail', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(live({ parentClientOrderId: 'parent-twap', kind: 'twap', residual: { remaining: '10.00' } }));
+    const manualFillStore: ManualFillStore = {
+      get: () => null,
+      record: () => {
+        throw new Error('trail append failed');
+      },
+    };
+    expect(() =>
+      recordManualChildFill({
+        parentClientOrderId: 'parent-twap',
+        confirmerId: OP,
+        parentStore,
+        manualFillStore,
+        ...print,
+      }),
+    ).toThrow(/trail append failed/);
+    expect(manualFillStore.get('child-1')).toBeNull();
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('10.00');
   });
 
   it('paper / not-live / missing parent / missing child refuse', () => {

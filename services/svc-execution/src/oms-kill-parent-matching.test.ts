@@ -145,6 +145,44 @@ describe('cancelKillParentMatching — unknown ≠ killed', () => {
     ).toEqual({ service: MATCHING_SERVICE_NAME, rejected: null, scheme: 'v2' });
   });
 
+  it('marketId "." or ".." refuses missing_market and does not fetch', async () => {
+    const calls: string[] = [];
+    const fetchFn: typeof fetch = async (input) => {
+      calls.push(String(input));
+      return new Response(JSON.stringify({ cancelled: true, sequence: 1 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+    const matchingUrl = 'http://matching.test';
+
+    for (const marketId of ['..', '.', ' .. ', ' . ']) {
+      calls.length = 0;
+      const out = await cancelKillParentMatching({
+        matchingUrl,
+        internalServiceSecret: SERVICE_SECRET,
+        fetch: fetchFn,
+        children: [{ marketId, orderId: CHILD }],
+      });
+      expect(out).toMatchObject({ ok: false, reason: 'missing_market' });
+      expect(calls).toEqual([]);
+    }
+
+    calls.length = 0;
+    const out = await cancelKillParentMatching({
+      matchingUrl,
+      internalServiceSecret: SERVICE_SECRET,
+      fetch: fetchFn,
+      children: [{ marketId: 'BTC-USDT', orderId: CHILD }],
+    });
+    expect(calls).toEqual([`${matchingUrl}/markets/BTC-USDT/orders/${CHILD}`]);
+    expect(out).toMatchObject({
+      ok: true,
+      killed: true,
+      children: [{ clientOrderId: CHILD, venueId: 'BTC-USDT', outcome: 'stopped', status: 'canceled' }],
+    });
+  });
+
   it('blank INTERNAL_SERVICE_SECRET refuses matching_service_auth_unconfigured — no unsigned DELETE', async () => {
     const matchingUrl = await listen(async (req, res) => {
       await capture(req, res, 200, { cancelled: true, sequence: 1, orderId: CHILD });

@@ -215,7 +215,7 @@ export function buildExecutionVenueTradeMaps(
   options: BuildExecutionVenueTradeMapsOptions = {},
 ): ExecutionVenueTradeMaps {
   const createAdapter = options.createAdapter ?? createVenueTradeAdapter;
-  const credentialsFor = options.credentialsFor ?? loadExecutionVenueCredentials;
+  const credentialsFor = options.credentialsFor ?? ((venueId: string) => loadExecutionVenueCredentials(venueId, options.env));
   const submitByVenue: Record<string, OmsSubmitFn> = {};
   const cancelByVenue: Record<string, OmsCancelFn> = {};
   const fetchByVenue: Record<string, OmsFetchFn> = {};

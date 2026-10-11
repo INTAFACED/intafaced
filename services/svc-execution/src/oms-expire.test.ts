@@ -273,6 +273,38 @@ describe('expireAlgoParent', () => {
       reason: 'undeployed',
     });
   });
+
+  it('refuses a paper parent with a parseable expireAt and does not mark it expired', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    const expireAt = '2026-08-25T18:00:00.000Z';
+    parentStore.seed(
+      live({
+        parentClientOrderId: 'parent-paper',
+        kind: 'twap',
+        status: 'paper',
+        schedule: { ...retainedTwap(), expireAt },
+      }),
+    );
+    let expireCalls = 0;
+    const watched: ApprovedAlgoParentStore = {
+      get: (id) => parentStore.get(id),
+      approve: (parent) => parentStore.approve(parent),
+      start: (id, startedAt, operatorId) => parentStore.start(id, startedAt, operatorId),
+      stop: (id) => parentStore.stop(id),
+      undeploy: (id) => parentStore.undeploy(id),
+      expire: (id) => {
+        expireCalls += 1;
+        return parentStore.expire(id);
+      },
+    };
+
+    expect(expireAlgoParent({ parentClientOrderId: 'parent-paper', parentStore: watched })).toMatchObject({
+      ok: false,
+      reason: 'not_live',
+    });
+    expect(expireCalls).toBe(0);
+    expect(parentStore.get('parent-paper')?.status).toBe('paper');
+  });
 });
 
 describe('execution.oms.expire tRPC', () => {

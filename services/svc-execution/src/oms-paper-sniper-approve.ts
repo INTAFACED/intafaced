@@ -8,13 +8,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsPaperSniperApproveRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'trigger_blank'
-  | 'trigger_invalid'
-  | 'paper_gate_unwired'
-  | 'paper_off'
-  | 'missing_operator';
+  'missing_parent' | 'not_live' | 'trigger_blank' | 'trigger_invalid' | 'paper_gate_unwired' | 'paper_off' | 'missing_operator';
 
 export type OmsPaperSniperApproveRefusal = {
   readonly ok: false;
@@ -34,40 +28,28 @@ export type OmsPaperSniperApproveOk = {
   readonly triggerPrice: string;
 };
 
-export type OmsPaperSniperApproveResult =
-  | OmsPaperSniperApproveOk
-  | OmsPaperSniperApproveRefusal;
+export type OmsPaperSniperApproveResult = OmsPaperSniperApproveOk | OmsPaperSniperApproveRefusal;
 
-function refuse(
-  reason: OmsPaperSniperApproveRefuseReason,
-  detail: string,
-): OmsPaperSniperApproveRefusal {
+function refuse(reason: OmsPaperSniperApproveRefuseReason, detail: string): OmsPaperSniperApproveRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseTriggerPrice(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperSniperApproveRefusal {
+function parseTriggerPrice(raw: string | null | undefined): { ok: true; text: string } | OmsPaperSniperApproveRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'trigger_blank',
-      'sniper trigger price is blank — refuse rather than invent a trigger',
-    );
+    return refuse('trigger_blank', 'sniper trigger price is blank — refuse rather than invent a trigger');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'trigger_blank',
-      'sniper trigger price is blank — refuse rather than invent a trigger',
-    );
+    return refuse('trigger_blank', 'sniper trigger price is blank — refuse rather than invent a trigger');
   }
   try {
-    return { ok: true, text: formatAmount(parseAmount(text)) };
+    const value = parseAmount(text);
+    if (value <= 0n) {
+      return refuse('trigger_blank', 'sniper trigger price is blank — refuse rather than invent a trigger');
+    }
+    return { ok: true, text: formatAmount(value) };
   } catch {
-    return refuse(
-      'trigger_invalid',
-      'sniper trigger price is not a ledger amount — refusing to invent a trigger',
-    );
+    return refuse('trigger_invalid', 'sniper trigger price is not a ledger amount — refusing to invent a trigger');
   }
 }
 

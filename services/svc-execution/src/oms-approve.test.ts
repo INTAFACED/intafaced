@@ -139,6 +139,47 @@ describe('approveAlgoParent', () => {
     expect(parentStore.get('parent-1')).toBeNull();
   });
 
+  it('refuses a non-finite schedule and a negative POV rate — never stores or invents one', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    const jobs = { enabled: true } as const;
+    const cases: Array<{ id: string; kind: 'twap' | 'vwap' | 'pov'; schedule: RetainedAlgoSchedule }> = [
+      { id: 'p-nan', kind: 'twap', schedule: { ...retainedTwap(), slicesPlanned: Number.NaN } },
+      { id: 'p-inf-slices', kind: 'twap', schedule: { ...retainedTwap(), slicesPlanned: Number.POSITIVE_INFINITY } },
+      { id: 'p-frac', kind: 'twap', schedule: { ...retainedTwap(), slicesPlanned: 1.5 } },
+      { id: 'p-inf-dur', kind: 'twap', schedule: { ...retainedTwap(), durationMs: Number.POSITIVE_INFINITY } },
+      { id: 'p-inf-int', kind: 'vwap', schedule: { ...retainedVwap(), sliceIntervalMs: Number.POSITIVE_INFINITY } },
+      { id: 'p-neg-bps', kind: 'pov', schedule: { ...retainedPov(), participationBps: -1 } },
+    ];
+    for (const row of cases) {
+      expect(
+        approveAlgoParent({
+          parentClientOrderId: row.id,
+          kind: row.kind,
+          schedule: row.schedule,
+          operatorId: OP,
+          parentStore,
+          jobs,
+          matchingVenueHalt: MATCHING_OPEN,
+        }),
+      ).toMatchObject({ ok: false, reason: 'missing_schedule' });
+      expect(parentStore.get(row.id)).toBeNull();
+    }
+
+    const kept = { ...retainedPov(), participationBps: 0 };
+    expect(
+      approveAlgoParent({
+        parentClientOrderId: 'p-zero-bps',
+        kind: 'pov',
+        schedule: kept,
+        operatorId: OP,
+        parentStore,
+        jobs,
+        matchingVenueHalt: MATCHING_OPEN,
+      }),
+    ).toMatchObject({ ok: true, schedule: kept });
+    expect(parentStore.get('p-zero-bps')?.schedule).toEqual(kept);
+  });
+
   it('records a new TWAP/VWAP/POV parent as approved from a retained schedule', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
     const twap = approveAlgoParent({

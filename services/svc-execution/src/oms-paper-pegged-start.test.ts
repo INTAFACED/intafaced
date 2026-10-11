@@ -79,6 +79,34 @@ describe('startPaperPeggedParent', () => {
     ).toMatchObject({ ok: false, reason: 'already_started' });
   });
 
+  it("refuses padded status 'running ' with already_started and does not start", () => {
+    const result = startPaperPeggedParent({
+      parentClientOrderId: 'p-peg',
+      approved: true,
+      status: 'running ',
+      offset: OFFSET,
+      operatorId: OP,
+      paper: PAPER_ON,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'already_started' });
+    expect(result).not.toMatchObject({ started: true });
+  });
+
+  it('refuses stopped and expired with not_approved even when approved is true', () => {
+    for (const status of ['stopped', 'expired'] as const) {
+      const result = startPaperPeggedParent({
+        parentClientOrderId: 'p-peg',
+        approved: true,
+        status,
+        offset: OFFSET,
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(result).toMatchObject({ ok: false, reason: 'not_approved' });
+      expect(result).not.toMatchObject({ started: true });
+    }
+  });
+
   it('refuses omitted status and approved:false with not_approved', () => {
     expect(
       startPaperPeggedParent({
@@ -163,6 +191,48 @@ describe('startPaperPeggedParent', () => {
       offset: formatAmount(parseAmount(OFFSET)),
     });
     expect(started).not.toMatchObject({ status: 'running' });
+  });
+
+  it("happy: approved true + status paper + offset '0.05' + operator + paper on", () => {
+    expect(
+      startPaperPeggedParent({
+        parentClientOrderId: 'p-peg',
+        approved: true,
+        status: 'paper',
+        offset: OFFSET,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-peg',
+      kind: 'pegged',
+      status: 'paper',
+      offset: formatAmount(parseAmount(OFFSET)),
+    });
+  });
+
+  it("happy: approved true + status approved + offset '0.05' + operator + paper on", () => {
+    expect(
+      startPaperPeggedParent({
+        parentClientOrderId: 'p-peg',
+        approved: true,
+        status: 'approved',
+        offset: OFFSET,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-peg',
+      kind: 'pegged',
+      status: 'paper',
+      offset: formatAmount(parseAmount(OFFSET)),
+    });
   });
 
   it("happy: approved true + offset '0.05' + operator + paper on (status omitted)", () => {

@@ -79,6 +79,64 @@ describe('startPaperSniperParent', () => {
     ).toMatchObject({ ok: false, reason: 'already_started' });
   });
 
+  it("refuses padded status 'running ' with already_started and does not start", () => {
+    const started = startPaperSniperParent({
+      parentClientOrderId: 'p-snip',
+      approved: true,
+      status: 'running ',
+      triggerPrice: TRIGGER,
+      operatorId: OP,
+      paper: PAPER_ON,
+    });
+    expect(started).toMatchObject({ ok: false, reason: 'already_started' });
+    expect(started).not.toMatchObject({ started: true });
+  });
+
+  it('refuses stopped, expired, and halted with not_approved even when approved is true', () => {
+    for (const status of ['stopped', 'expired', 'halted'] as const) {
+      const started = startPaperSniperParent({
+        parentClientOrderId: 'p-snip',
+        approved: true,
+        status,
+        triggerPrice: TRIGGER,
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(started).toMatchObject({ ok: false, reason: 'not_approved' });
+      expect(started).not.toMatchObject({ started: true });
+    }
+  });
+
+  it('refuses blank and whitespace-only status with not_approved even when approved is true and does not start', () => {
+    for (const status of ['', '   '] as const) {
+      const started = startPaperSniperParent({
+        parentClientOrderId: 'p-snip',
+        approved: true,
+        status,
+        triggerPrice: TRIGGER,
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(started).toMatchObject({ ok: false, reason: 'not_approved' });
+      expect(started).not.toMatchObject({ started: true });
+    }
+  });
+
+  it('refuses approved false with not_approved even when status is paper or approved', () => {
+    for (const status of ['paper', 'approved'] as const) {
+      const started = startPaperSniperParent({
+        parentClientOrderId: 'p-snip',
+        approved: false,
+        status,
+        triggerPrice: TRIGGER,
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(started).toMatchObject({ ok: false, reason: 'not_approved' });
+      expect(started).not.toMatchObject({ started: true });
+    }
+  });
+
   it('refuses omitted status and approved:false with not_approved', () => {
     expect(
       startPaperSniperParent({
@@ -171,6 +229,68 @@ describe('startPaperSniperParent', () => {
       startPaperSniperParent({
         parentClientOrderId: 'p-snip',
         approved: true,
+        triggerPrice: TRIGGER,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-snip',
+      kind: 'sniper',
+      status: 'paper',
+      triggerPrice: formatAmount(parseAmount(TRIGGER)),
+    });
+  });
+
+  it("happy: approved true + status paper + triggerPrice '100' starts paper", () => {
+    expect(
+      startPaperSniperParent({
+        parentClientOrderId: 'p-snip',
+        approved: true,
+        status: 'paper',
+        triggerPrice: TRIGGER,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-snip',
+      kind: 'sniper',
+      status: 'paper',
+      triggerPrice: formatAmount(parseAmount(TRIGGER)),
+    });
+  });
+
+  it("happy: approved true + status approved + triggerPrice '100' starts paper", () => {
+    expect(
+      startPaperSniperParent({
+        parentClientOrderId: 'p-snip',
+        approved: true,
+        status: 'approved',
+        triggerPrice: TRIGGER,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-snip',
+      kind: 'sniper',
+      status: 'paper',
+      triggerPrice: formatAmount(parseAmount(TRIGGER)),
+    });
+  });
+
+  it("happy: status approved + triggerPrice '100' starts when approved is omitted", () => {
+    expect(
+      startPaperSniperParent({
+        parentClientOrderId: 'p-snip',
+        status: 'approved',
         triggerPrice: TRIGGER,
         operatorId: OP,
         paper: PAPER_ON,

@@ -302,11 +302,11 @@ describe('undeployDrainStoppedAlgoParent', () => {
       emsStore,
       cancelByVenue: { street: street.fn },
     });
-    expect(out).toMatchObject({ ok: true, undeployed: true, status: 'undeployed' });
-    if (!out.ok) return;
+    expect(out).toMatchObject({ ok: false, reason: 'unknown_cancel', residual: { remaining: null } });
+    if (!('children' in out)) throw new Error('missing canceled child evidence');
     expect(out.children[0]).toMatchObject({ outcome: 'already_stopped', reason: 'REJECTED' });
     expect(street.calls).toHaveLength(0);
-    expect(parentStore.get('parent-1')?.status).toBe('undeployed');
+    expect(parentStore.get('parent-1')?.status).toBe('stopped');
   });
 
   it('does not cancel another parent', async () => {

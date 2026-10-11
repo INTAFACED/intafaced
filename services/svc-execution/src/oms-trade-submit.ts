@@ -5,7 +5,9 @@
  * throws. Unfilled + null average stays null — ZERO would read as filled-at-zero.
  * `open` still maps to `partial` (VenueExecution has no resting status); execute
  * treats only `rejected` as failure, so a 0-fill rest stays ok:true with a null
- * price. Does not treat pending as executed.
+ * price. A cancel or expiry that already filled some size maps to `partial`
+ * using that venue fill — the size is never invented. A zero-fill cancel or
+ * expiry stays `rejected`. Does not treat pending as executed.
  * Unknown fees are 0 — never a fabricated venue fee.
  */
 import { ZERO, type Amount } from '@intafaced/ledger-client';
@@ -30,9 +32,10 @@ function mapStatus(order: VenueOrder): VenueExecution['status'] {
     case 'partially_filled':
     case 'open':
       return 'partial';
-    case 'rejected':
     case 'canceled':
     case 'expired':
+      return hasFill(order.filled) ? 'partial' : 'rejected';
+    case 'rejected':
       return 'rejected';
     default:
       throw new Error(`cannot map venue order status ${order.status} to VenueExecution`);

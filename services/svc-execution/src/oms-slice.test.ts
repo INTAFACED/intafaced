@@ -1,4 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { FileApprovedAlgoParentStore } from './file-algo-store.js';
+import { FileEmsOrderStore } from './file-ems-order-store.js';
 import { formatAmount, parseAmount, sub, ZERO } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
@@ -10,10 +15,24 @@ import {
   type ApprovedAlgoParentStore,
   type RetainedAlgoSchedule,
 } from './oms-start.js';
-import { sliceLiveAlgoParent } from './oms-slice.js';
+import { sliceLiveAlgoParent as submitSlice } from './oms-slice.js';
+import { InMemoryEmsOrderStore, type EmsOrderStore } from './oms-ems-store.js';
 import type { OmsSubmitFn } from './oms-trade-submit.js';
 import { InMemoryAlgoPauseStore } from './oms-pause.js';
 import { createExecutionRouter } from './router.js';
+
+const fixtureJournals = new WeakMap<ApprovedAlgoParentStore, EmsOrderStore>();
+function sliceLiveAlgoParent(input: Parameters<typeof submitSlice>[0]) {
+  let emsStore = input.emsStore;
+  if (!emsStore && input.parentStore) {
+    emsStore = fixtureJournals.get(input.parentStore);
+    if (!emsStore) {
+      emsStore = new InMemoryEmsOrderStore();
+      fixtureJournals.set(input.parentStore, emsStore);
+    }
+  }
+  return submitSlice({ ...input, emsStore });
+}
 
 const SECRET = 'a-execution-oms-slice-test-edge-secret';
 const OP = '33333333-3333-4333-8333-333333333333';
@@ -118,6 +137,122 @@ function withResidual(
 }
 
 describe('sliceLiveAlgoParent', () => {
+  it('overlapping native journal slices reserve one child identity until its response is known', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'execution-overlap-'));
+    try {
+      const parentStore = new FileApprovedAlgoParentStore(join(dir, 'parents.jsonl'));
+      const emsStore = new FileEmsOrderStore(join(dir, 'ems.jsonl'));
+      parentStore.approve(withResidual({ parentClientOrderId: 'parent-twap', kind: 'twap' }, '10'));
+      let release!: (value: VenueExecution) => void;
+      const response = new Promise<VenueExecution>((resolve) => {
+        release = resolve;
+      });
+      const accepted: SubmitRequest[] = [];
+      const first = submitSlice({
+        parentClientOrderId: 'parent-twap',
+        ...sliceFields,
+        amount: '6',
+        parentStore,
+        emsStore,
+        submit: async (req) => {
+          accepted.push(req);
+          return response;
+        },
+      });
+      const second = await submitSlice({
+        parentClientOrderId: 'parent-twap',
+        ...sliceFields,
+        amount: '3',
+        parentStore,
+        emsStore,
+        submit: async (req) => {
+          accepted.push(req);
+          return ack(req);
+        },
+      });
+      expect(second).toMatchObject({ ok: false, reason: 'children_unknown' });
+      expect(accepted).toHaveLength(1);
+      expect(emsStore.list()[0]?.clientOrderId).toBe(accepted[0]!.clientOrderId);
+      expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('4');
+      release(ack(accepted[0]!));
+      expect(await first).toMatchObject({ ok: true, residual: { remaining: '4' } });
+      const next = await submitSlice({
+        parentClientOrderId: 'parent-twap',
+        ...sliceFields,
+        amount: '3',
+        parentStore,
+        emsStore,
+        submit: async (req) => {
+          accepted.push(req);
+          return ack(req);
+        },
+      });
+      expect(next).toMatchObject({ ok: true, residual: { remaining: '1' } });
+      expect(new Set(accepted.map((req) => req.clientOrderId)).size).toBe(2);
+      expect(new FileEmsOrderStore(join(dir, 'ems.jsonl')).list()).toHaveLength(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it('lost acknowledgement survives a native journal restart with its original terms and reserved size', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'execution-intent-'));
+    try {
+      const parentPath = join(dir, 'parents.jsonl');
+      const emsPath = join(dir, 'ems.jsonl');
+      const parentStore = new FileApprovedAlgoParentStore(parentPath);
+      const emsStore = new FileEmsOrderStore(emsPath);
+      parentStore.approve(withResidual({ parentClientOrderId: 'parent-twap', kind: 'twap' }, '10'));
+      const accepted: SubmitRequest[] = [];
+      await expect(
+        submitSlice({
+          parentClientOrderId: 'parent-twap',
+          ...sliceFields,
+          amount: '6',
+          parentStore,
+          emsStore,
+          submit: async (req) => {
+            accepted.push(req);
+            throw new Error('accepted remotely; acknowledgement lost');
+          },
+        }),
+      ).rejects.toThrow('acknowledgement lost');
+      const reloadedParents = new FileApprovedAlgoParentStore(parentPath);
+      const reloadedEms = new FileEmsOrderStore(emsPath);
+      const original = reloadedEms.list()[0]!;
+      expect(original.clientOrderId).toBe(accepted[0]!.clientOrderId);
+      expect(original.reconciliationKey).toBe(original.clientOrderId);
+      expect(JSON.parse(original.requestFingerprint!)).toEqual({
+        parentClientOrderId: 'parent-twap',
+        executionOwner: OP,
+        venueId: 'street',
+        symbol: 'BTC/USDT',
+        side: 'buy',
+        amount: '6',
+        limitPrice: '100',
+      });
+      expect(reloadedParents.get('parent-twap')?.residual?.remaining).toBe('4');
+      expect(
+        await submitSlice({
+          parentClientOrderId: 'parent-twap',
+          ...sliceFields,
+          amount: '4',
+          symbol: 'ETH/USDT',
+          limitPrice: '200',
+          parentCap: '200',
+          parentStore: reloadedParents,
+          emsStore: reloadedEms,
+          submit: async (req) => {
+            accepted.push(req);
+            return ack(req);
+          },
+        }),
+      ).toMatchObject({ ok: false, reason: 'children_unknown' });
+      expect(accepted).toHaveLength(1);
+      expect(reloadedEms.get(original.clientOrderId)?.requestFingerprint).toBe(original.requestFingerprint);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
   it('live parent + explicit slice qty → submit called once and remaining falls by qty', async () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
     parentStore.seed(withResidual({ parentClientOrderId: 'parent-twap', kind: 'twap' }));
@@ -626,6 +761,197 @@ describe('sliceLiveAlgoParent', () => {
     expect(street.calls).toHaveLength(1);
     expect(other.calls).toEqual([]);
   });
+
+  it('overlapping slices that both capped the same remaining leave one child and one subtraction', async () => {
+    const inner = new InMemoryApprovedAlgoParentStore();
+    inner.seed(withResidual({ parentClientOrderId: 'parent-twap', kind: 'twap' }, '10'));
+    let reads = 0;
+    const parentStore: ApprovedAlgoParentStore = {
+      get(id) {
+        reads += 1;
+        const row = inner.get(id);
+        if (!row?.residual || reads > 2) return row;
+        return { ...row, residual: { ...row.residual, remaining: '10' } };
+      },
+      approve: (row) => row,
+      start: () => null,
+      stop: () => null,
+      undeploy: () => null,
+      expire: () => null,
+      consumeResidual: (id, remaining, expected) => inner.consumeResidual(id, remaining, expected),
+    };
+    const calls: SubmitRequest[] = [];
+    const submit: OmsSubmitFn = async (req) => {
+      calls.push(req);
+      return ack(req);
+    };
+
+    const [first, second] = await Promise.all([
+      sliceLiveAlgoParent({
+        parentClientOrderId: 'parent-twap',
+        ...sliceFields,
+        amount: '6',
+        parentStore,
+        submit,
+      }),
+      sliceLiveAlgoParent({
+        parentClientOrderId: 'parent-twap',
+        ...sliceFields,
+        amount: '7',
+        parentStore,
+        submit,
+      }),
+    ]);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.amount).toBe(parseAmount('6'));
+    expect(inner.get('parent-twap')?.residual?.remaining).toBe('4');
+    expect(first).toMatchObject({
+      ok: true,
+      sliced: true,
+      residual: { remaining: '4' },
+      execution: { status: 'filled', venueOrderId: 'v-slice-1' },
+    });
+    expect(second.ok).toBe(false);
+    expect(reads).toBeGreaterThanOrEqual(2);
+  });
+
+  it('a consume that does not stick does not submit, and no live child is dropped', async () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(withResidual({ parentClientOrderId: 'parent-twap', kind: 'twap' }, '10'));
+    const refusing: ApprovedAlgoParentStore = {
+      get: (id) => parentStore.get(id),
+      approve: (row) => row,
+      start: () => null,
+      stop: () => null,
+      undeploy: () => null,
+      expire: () => null,
+      consumeResidual: () => null,
+    };
+    const street = trackingSubmit();
+    const out = await sliceLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      ...sliceFields,
+      parentStore: refusing,
+      submit: street.submit,
+    });
+    expect(out).toMatchObject({ ok: false, reason: 'missing_residual' });
+    expect(out).not.toHaveProperty('execution');
+    expect(street.calls).toEqual([]);
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('10');
+  });
+
+  it('puts the previous remaining back when the venue rejects the child, and returns that execution', async () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(withResidual({ parentClientOrderId: 'parent-twap', kind: 'twap' }, '10'));
+    const calls: SubmitRequest[] = [];
+    const submit: OmsSubmitFn = async (req) => {
+      calls.push(req);
+      return { ...ack(req), status: 'rejected', filledAmount: ZERO };
+    };
+    const out = await sliceLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      ...sliceFields,
+      parentStore,
+      submit,
+    });
+    expect(calls).toHaveLength(1);
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('10');
+    expect(out).toMatchObject({
+      ok: true,
+      sliced: true,
+      execution: { status: 'rejected', venueOrderId: 'v-slice-1' },
+      residual: { remaining: '10' },
+    });
+  });
+
+  it('a rejected slice with a partial fill leaves that fill out of the leftover so the next slice does not submit the old remaining', async () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(withResidual({ parentClientOrderId: 'parent-twap', kind: 'twap' }, '10'));
+    const calls: SubmitRequest[] = [];
+    const submit: OmsSubmitFn = async (req) => {
+      calls.push(req);
+      return { ...ack(req), status: 'rejected', filledAmount: parseAmount('2') };
+    };
+    const out = await sliceLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      ...sliceFields,
+      amount: '6',
+      parentStore,
+      submit,
+    });
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('8');
+    expect(out).toMatchObject({
+      ok: true,
+      sliced: true,
+      execution: { status: 'rejected', filledAmount: parseAmount('2') },
+      residual: { remaining: '8' },
+    });
+
+    const next = await sliceLiveAlgoParent({
+      parentClientOrderId: 'parent-twap',
+      ...sliceFields,
+      amount: '10',
+      parentStore,
+      submit,
+    });
+    expect(next).toMatchObject({ ok: false, reason: 'exceeds_remaining' });
+    expect(calls.map((call) => call.amount)).toEqual([parseAmount('6')]);
+  });
+
+  it('retains the reservation when submit throws after accepting the child', async () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(withResidual({ parentClientOrderId: 'parent-twap', kind: 'twap' }, '10'));
+    const submit: OmsSubmitFn = async () => {
+      throw new Error('venue down');
+    };
+    await expect(
+      sliceLiveAlgoParent({
+        parentClientOrderId: 'parent-twap',
+        ...sliceFields,
+        parentStore,
+        submit,
+      }),
+    ).rejects.toThrow('venue down');
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('9.5');
+    expect(fixtureJournals.get(parentStore)?.list()[0]?.state).toBe('SUBMIT_UNKNOWN');
+  });
+
+  it('lost acknowledgement blocks a later child and keeps the original identity', async () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(withResidual({ parentClientOrderId: 'parent-twap', kind: 'twap' }, '10'));
+    const accepted: SubmitRequest[] = [];
+    await expect(
+      sliceLiveAlgoParent({
+        parentClientOrderId: 'parent-twap',
+        ...sliceFields,
+        amount: '6',
+        parentStore,
+        submit: async (req) => {
+          accepted.push(req);
+          throw new Error('lost ACK');
+        },
+      }),
+    ).rejects.toThrow('lost ACK');
+    const original = fixtureJournals.get(parentStore)!.list()[0]!;
+    expect(original.clientOrderId).toBe(accepted[0]!.clientOrderId);
+    expect(original.state).toBe('SUBMIT_UNKNOWN');
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('4');
+    expect(
+      await sliceLiveAlgoParent({
+        parentClientOrderId: 'parent-twap',
+        ...sliceFields,
+        amount: '4',
+        parentStore,
+        submit: async (req) => {
+          accepted.push(req);
+          return ack(req);
+        },
+      }),
+    ).toMatchObject({ ok: false, reason: 'children_unknown' });
+    expect(accepted).toHaveLength(1);
+    expect(fixtureJournals.get(parentStore)!.get(original.clientOrderId)?.state).toBe('SUBMIT_UNKNOWN');
+  });
 });
 
 describe('execution.oms.slice tRPC', () => {
@@ -659,7 +985,7 @@ describe('execution.oms.slice tRPC', () => {
       {},
       {},
       {},
-      undefined,
+      new InMemoryEmsOrderStore(),
       undefined,
       undefined,
       parentStore,

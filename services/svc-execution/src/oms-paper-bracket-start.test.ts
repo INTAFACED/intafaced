@@ -187,6 +187,39 @@ describe('startPaperBracketParent', () => {
     ).toMatchObject({ ok: false, reason: 'missing_entry' });
   });
 
+  it("refuses entry '0' with missing_entry even when takeProfit and stopLoss are positive, and does not start", () => {
+    const started = startPaperBracketParent({
+      parentClientOrderId: 'p-brkt',
+      approved: true,
+      status: 'paper',
+      entry: '0',
+      takeProfit: TAKE_PROFIT,
+      stopLoss: STOP_LOSS,
+      operatorId: OP,
+      paper: PAPER_ON,
+    });
+    expect(started).toMatchObject({ ok: false, reason: 'missing_entry' });
+    expect(started).not.toMatchObject({ started: true });
+  });
+
+  it('refuses zero and negative entry with missing_entry even when the other legs are positive', () => {
+    for (const entry of ['0.0', '-1', '-1.25']) {
+      const started = startPaperBracketParent({
+        parentClientOrderId: 'p-brkt',
+        approved: true,
+        status: 'paper',
+        entry,
+        takeProfit: TAKE_PROFIT,
+        stopLoss: STOP_LOSS,
+        amount: '1000',
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(started).toMatchObject({ ok: false, reason: 'missing_entry' });
+      expect(started).not.toMatchObject({ started: true });
+    }
+  });
+
   it('refuses omitted / blank / invalid takeProfit with missing_take_profit even when entry, stopLoss, and amount are present', () => {
     expect(
       startPaperBracketParent({
@@ -228,6 +261,24 @@ describe('startPaperBracketParent', () => {
     ).toMatchObject({ ok: false, reason: 'missing_take_profit' });
   });
 
+  it('refuses zero and negative takeProfit with missing_take_profit even when the other legs are positive', () => {
+    for (const takeProfit of ['0', '0.0', '-1', '-1.25']) {
+      const started = startPaperBracketParent({
+        parentClientOrderId: 'p-brkt',
+        approved: true,
+        status: 'paper',
+        entry: ENTRY,
+        takeProfit,
+        stopLoss: STOP_LOSS,
+        amount: '1000',
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(started).toMatchObject({ ok: false, reason: 'missing_take_profit' });
+      expect(started).not.toMatchObject({ started: true });
+    }
+  });
+
   it('refuses omitted / blank / invalid stopLoss with missing_stop_loss even when entry, takeProfit, and amount are present', () => {
     expect(
       startPaperBracketParent({
@@ -267,6 +318,24 @@ describe('startPaperBracketParent', () => {
         paper: PAPER_ON,
       }),
     ).toMatchObject({ ok: false, reason: 'missing_stop_loss' });
+  });
+
+  it('refuses zero and negative stopLoss with missing_stop_loss even when the other legs are positive', () => {
+    for (const stopLoss of ['0', '0.0', '-1', '-1.25']) {
+      const started = startPaperBracketParent({
+        parentClientOrderId: 'p-brkt',
+        approved: true,
+        status: 'paper',
+        entry: ENTRY,
+        takeProfit: TAKE_PROFIT,
+        stopLoss,
+        amount: '1000',
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(started).toMatchObject({ ok: false, reason: 'missing_stop_loss' });
+      expect(started).not.toMatchObject({ started: true });
+    }
   });
 
   it("happy: status paper + entry '100' + takeProfit '101' + stopLoss '99' + operator + paper on — all three legs go live, status stays paper", () => {

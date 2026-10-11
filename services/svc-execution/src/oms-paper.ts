@@ -6,12 +6,7 @@
  * never invents a venue, never releases residual, and does not touch matching.
  */
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
-import type {
-  AlgoKind,
-  ApprovedAlgoParent,
-  ApprovedAlgoParentStore,
-  RetainedAlgoSchedule,
-} from './oms-start.js';
+import type { AlgoKind, ApprovedAlgoParent, ApprovedAlgoParentStore, RetainedAlgoSchedule } from './oms-start.js';
 
 export type PaperGate = { readonly enabled: boolean };
 
@@ -33,6 +28,7 @@ export type OmsPaperRefuse =
   | { readonly ok: false; readonly reason: 'not_found'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'unsupported_kind'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'missing_schedule'; readonly detail: string }
+  | { readonly ok: false; readonly reason: 'missing_residual'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'not_approved'; readonly detail: string };
 
 export type OmsPaperResult = OmsPaperOk | OmsPaperRefuse;
@@ -71,13 +67,13 @@ function retainedRemaining(parent: ApprovedAlgoParent): string | null {
   return trimmed || null;
 }
 
-function echoRetainedResidual(parent: ApprovedAlgoParent): OmsPaperOk['residual'] {
+function echoRetainedResidual(parent: ApprovedAlgoParent): OmsPaperOk['residual'] | OmsPaperRefuse {
   const remaining = retainedRemaining(parent);
   if (!remaining) return null;
   try {
     return { remaining: formatAmount(parseAmount(remaining)), released: false };
   } catch {
-    return null;
+    return refuse('missing_residual', 'residual.remaining is not a ledger amount — refusing to invent leftover');
   }
 }
 
@@ -117,6 +113,9 @@ export function paperRunAlgoParent(input: {
     return refuse('parent_store_unwired', 'approved algo parent store.paper is required for paper');
   }
 
+  const residual = echoRetainedResidual(existing);
+  if (residual !== null && 'ok' in residual) return residual;
+
   const papered = input.parentStore.paper(parentClientOrderId);
   if (!papered) {
     return refuse('not_found', `no approved algo parent for ${parentClientOrderId}`);
@@ -129,6 +128,6 @@ export function paperRunAlgoParent(input: {
     status: 'paper',
     schedule: cloneSchedule(papered.schedule),
     children: [],
-    residual: echoRetainedResidual(papered),
+    residual,
   };
 }

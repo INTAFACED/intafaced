@@ -196,6 +196,43 @@ describe('POST /execution/oms/care*', () => {
       reason: 'missing_confirmer',
     });
   });
+
+  it('refuses a missing, blank, or unknown care action and does not report success', () => {
+    const cap = '1000';
+    for (const action of [undefined, '', '   ', 'release', 'withdraw']) {
+      const result = handleOmsCareDoor({ discretionCap: cap, action });
+      expect(result.ok).toBe(false);
+      expect(result).toMatchObject({ ok: false, reason: 'action_required' });
+      expect(result).not.toHaveProperty('discretionCap');
+    }
+
+    const dispatched: ReadonlyArray<readonly [string, string]> = [
+      ['claim', 'missing_parent'],
+      ['assign', 'missing_operator'],
+      ['pass', 'missing_parent'],
+      ['shift', 'missing_parent'],
+      ['fill-confirm', 'missing_confirmer'],
+      ['fill_confirm', 'missing_confirmer'],
+      ['fill-assign', 'missing_operator'],
+      ['fill_assign', 'missing_operator'],
+      ['manual-fill', 'missing_confirmer'],
+      ['manual_fill', 'missing_confirmer'],
+      ['abandon', 'missing_parent'],
+    ];
+    for (const [action, reason] of dispatched) {
+      expect(handleOmsCareDoor({ discretionCap: cap, action })).toMatchObject({ ok: false, reason });
+    }
+
+    expect(handleOmsCareDoor({ action: 'claim' })).toMatchObject({ ok: false, reason: 'discretion_unset' });
+    expect(handleOmsCareDoor({ discretionCap: '  ', action: 'pass' })).toMatchObject({
+      ok: false,
+      reason: 'discretion_unset',
+    });
+    expect(handleOmsCareDoor({ discretionCap: null, action: 'abandon' })).toMatchObject({
+      ok: false,
+      reason: 'discretion_unset',
+    });
+  });
 });
 
 describe('care mill stays mill', () => {

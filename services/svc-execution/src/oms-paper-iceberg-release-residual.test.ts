@@ -128,6 +128,18 @@ describe('releaseExpiredPaperIcebergResidual', () => {
     ).toMatchObject({ ok: false, reason: 'missing_residual' });
   });
 
+  it.each(['0', '0.0', '-1', '-1.25'])('refuses remaining %j with missing_residual and does not release', (remaining) => {
+    const result = releaseExpiredPaperIcebergResidual({
+      parentClientOrderId: 'p-ice',
+      kind: 'iceberg',
+      status: 'expired',
+      remaining,
+      paper: PAPER_ON,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'missing_residual' });
+    expect(result).not.toMatchObject({ released: true });
+  });
+
   it("happy expired paper remaining '1.25' + paper on: released through ledger-client", () => {
     const result = releaseExpiredPaperIcebergResidual({
       parentClientOrderId: 'p-ice',

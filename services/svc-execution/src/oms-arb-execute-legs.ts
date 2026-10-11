@@ -52,7 +52,32 @@ export type OmsArbExecuteLegsSubmitFailed = {
   readonly commandOutcome: ExecutionCommandOutcome;
 };
 
-export type OmsArbExecuteLegsResult = OmsArbExecuteLegsPlanRefuse | OmsArbExecuteLegsOk | OmsArbExecuteLegsSubmitFailed;
+export type OmsArbExecuteLegsIdentityRefuse = {
+  readonly ok: false;
+  readonly reason: 'missing_identity';
+  readonly detail: string;
+  readonly parentClientOrderId: string;
+  readonly executionGroupId: string;
+  readonly executions: readonly VenueExecution[];
+  readonly children: readonly OmsChildExecution[];
+};
+
+export type OmsArbExecuteLegsLimitRefuse = {
+  readonly ok: false;
+  readonly reason: 'invalid_limit';
+  readonly detail: string;
+  readonly parentClientOrderId: string;
+  readonly executionGroupId: string;
+  readonly executions: readonly VenueExecution[];
+  readonly children: readonly OmsChildExecution[];
+};
+
+export type OmsArbExecuteLegsResult =
+  | OmsArbExecuteLegsPlanRefuse
+  | OmsArbExecuteLegsOk
+  | OmsArbExecuteLegsSubmitFailed
+  | OmsArbExecuteLegsIdentityRefuse
+  | OmsArbExecuteLegsLimitRefuse;
 
 function submitErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -86,9 +111,22 @@ export async function executeOmsArbAtomicLegs(
   submitByVenue: Readonly<Record<string, OmsSubmitFn>>,
   emsStore?: EmsOrderStore,
 ): Promise<OmsArbExecuteLegsResult> {
+  const parentClientOrderId = input.parentClientOrderId.trim();
+  const providedGroupId = input.executionGroupId?.trim() ?? '';
+  if (parentClientOrderId.length === 0) {
+    return {
+      ok: false,
+      reason: 'missing_identity',
+      detail: 'caller-owned parentClientOrderId is required',
+      parentClientOrderId,
+      executionGroupId: providedGroupId,
+      executions: [],
+      children: [],
+    };
+  }
   const lineageIds: OmsExecutionLineage = {
-    parentClientOrderId: input.parentClientOrderId.trim(),
-    executionGroupId: input.executionGroupId?.trim() || input.parentClientOrderId.trim(),
+    parentClientOrderId,
+    executionGroupId: providedGroupId || parentClientOrderId,
   };
   const planned = planOmsArbAtomicLegs(input);
   if (!planned.ok) {
@@ -101,9 +139,26 @@ export async function executeOmsArbAtomicLegs(
     };
   }
 
+  let sellLimit;
+  let buyLimit;
+  try {
+    sellLimit = parseAmount(input.sellLimitPrice);
+    buyLimit = parseAmount(input.buyLimitPrice);
+  } catch (err) {
+    return {
+      ok: false,
+      reason: 'invalid_limit',
+      detail: submitErrorMessage(err),
+      parentClientOrderId: lineageIds.parentClientOrderId,
+      executionGroupId: lineageIds.executionGroupId,
+      executions: [],
+      children: [],
+    };
+  }
+  const limits = { buy: buyLimit, sell: sellLimit } as const;
+
   const executions: VenueExecution[] = [];
   const children: OmsChildExecution[] = [];
-  const prices = { buy: input.buyLimitPrice, sell: input.sellLimitPrice } as const;
   const occurrences = new Map<string, number>();
 
   for (const [legIndex, leg] of planned.legs.entries()) {
@@ -158,13 +213,14 @@ export async function executeOmsArbAtomicLegs(
       return failure(lineageIds, executions, children, 'REFUSED', `venue ${leg.venueId} is not wired for submit`, command);
     }
 
+    const amount = parseAmount(leg.amount);
     let execution: VenueExecution;
     try {
       execution = await submit({
         symbol: leg.symbol,
         side: leg.side,
-        amount: parseAmount(leg.amount),
-        limitPrice: parseAmount(prices[leg.side]),
+        amount,
+        limitPrice: limits[leg.side],
         clientOrderId: ids.clientOrderId,
       });
     } catch (err) {
