@@ -1006,6 +1006,11 @@ export function createIdentityRouter(
             } catch {
               throw new TRPCError({ code: 'BAD_REQUEST', message: 'bytesBase64 is not valid base64' });
             }
+            // Buffer.from accepts ignored characters, padding and unused-bit
+            // variants. Store only the canonical encoding of the decoded bytes.
+            if (bytes.toString('base64') !== input.bytesBase64) {
+              throw new TRPCError({ code: 'BAD_REQUEST', message: 'bytesBase64 is not valid base64' });
+            }
             // Empty after decode is a put refusal from the store; reject early for a clean code.
             if (bytes.length === 0) {
               throw new TRPCError({ code: 'BAD_REQUEST', message: 'Document bytes empty' });

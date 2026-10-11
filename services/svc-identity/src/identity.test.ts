@@ -5,7 +5,7 @@ import { describe, expect, it, beforeEach, afterAll } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb, postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { verifyAccessToken, hasScope, SESSION_SCOPES } from '@intafaced/auth';
-import { checkAccess } from '@intafaced/config';
+import { checkAccess, screeningFailClosedFromEnv, UNSET_SCREENING_LIST } from '@intafaced/config';
 import { createHash, generateKeyPairSync, randomBytes, sign as cryptoSign, type KeyObject } from 'node:crypto';
 import { AuthService, AuthError } from './auth/auth-service.js';
 import { bindApiKeyOriginAllowlist } from './auth/auth-service-origin.js';
@@ -1313,15 +1313,45 @@ if (!available) {
       // `trade` is OPEN_BASIC — the CUSTODIAL spot venue, which holds user funds
       // in ledger accounts. Before approval a freshly registered user cannot
       // place an order at all.
-      const before = checkAccess({ module: 'trade', region: 'DE', plane: 'fiat', kycTier: await auth.kycTier(session.userId) });
+      // KYC-only fixture: no sanctions authority is supplied or claimed.
+      const before = checkAccess({
+        screeningFailClosed: false,
+        module: 'trade',
+        region: 'DE',
+        plane: 'fiat',
+        kycTier: await auth.kycTier(session.userId),
+      });
       expect(before.allowed).toBe(false);
       expect(before.code).toBe('denied.kyc_required');
 
       const submitted = await auth.submitKyc({ userId: session.userId, tier: 'basic', jurisdiction: 'DE' });
       await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId });
 
-      const after = checkAccess({ module: 'trade', region: 'DE', plane: 'fiat', kycTier: await auth.kycTier(session.userId) });
+      const after = checkAccess({
+        screeningFailClosed: false,
+        module: 'trade',
+        region: 'DE',
+        plane: 'fiat',
+        kycTier: await auth.kycTier(session.userId),
+      });
       expect(after.allowed).toBe(true);
+    });
+
+    it('still refuses an unconfigured sanctions list for a verified identity', async () => {
+      const session = await register();
+      await auth.approveKyc({ userId: session.userId, tier: 'full', jurisdiction: 'DE' });
+      expect(screeningFailClosedFromEnv({})).toBe(true);
+      const decision = checkAccess({
+        module: 'bank',
+        region: 'DE',
+        plane: 'fiat',
+        kycTier: await auth.kycTier(session.userId),
+        screening: UNSET_SCREENING_LIST,
+        screeningFailClosed: screeningFailClosedFromEnv({}),
+      });
+      expect(decision.allowed).toBe(false);
+      expect(decision.code).toBe('denied.screening_unconfigured');
+      expect(decision.screening.listConfigured).toBe(false);
     });
 
     it('leaves the PERMISSIONLESS plane alone — no tier is ever consulted there (§22)', async () => {
@@ -1332,7 +1362,14 @@ if (!available) {
       // is read, so an unverified account is not second class there — it is the
       // normal case. If this ever fails, a KYC gate has leaked onto a plane that
       // holds nothing.
-      const decision = checkAccess({ module: 'protocol', region: 'DE', plane: 'protocol', kycTier: await auth.kycTier(session.userId) });
+      // Custody-only fixture: no sanctions authority is supplied or claimed.
+      const decision = checkAccess({
+        screeningFailClosed: false,
+        module: 'protocol',
+        region: 'DE',
+        plane: 'protocol',
+        kycTier: await auth.kycTier(session.userId),
+      });
       expect(decision.allowed).toBe(true);
       expect(decision.code).toBe('allowed.permissionless');
     });
@@ -2054,12 +2091,29 @@ if (!available) {
     it('a verified user passes the jurisdiction matrix that an unverified one fails', async () => {
       const session = await register();
 
+      // KYC-only fixture: no sanctions authority is supplied or claimed.
       // Ties identity to §22: the tier this service issues is what the matrix reads.
-      expect(checkAccess({ module: 'bank', region: 'DE', plane: 'fiat', kycTier: await auth.kycTier(session.userId) }).allowed).toBe(false);
+      expect(
+        checkAccess({
+          screeningFailClosed: false,
+          module: 'bank',
+          region: 'DE',
+          plane: 'fiat',
+          kycTier: await auth.kycTier(session.userId),
+        }).allowed,
+      ).toBe(false);
 
       await auth.approveKyc({ userId: session.userId, tier: 'full', jurisdiction: 'DE' });
 
-      expect(checkAccess({ module: 'bank', region: 'DE', plane: 'fiat', kycTier: await auth.kycTier(session.userId) }).allowed).toBe(true);
+      expect(
+        checkAccess({
+          screeningFailClosed: false,
+          module: 'bank',
+          region: 'DE',
+          plane: 'fiat',
+          kycTier: await auth.kycTier(session.userId),
+        }).allowed,
+      ).toBe(true);
     });
   });
 }

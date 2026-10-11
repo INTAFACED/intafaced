@@ -28,15 +28,29 @@ function walkTs(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+function assertKycRecordsColumnBan(schema: string): void {
+  const start = schema.indexOf('export const kycRecords');
+  expect(start, 'schema must declare export const kycRecords').toBeGreaterThanOrEqual(0);
+  const end = schema.indexOf('export const rankState', start);
+  const block = schema.slice(start, end === -1 ? undefined : end).toLowerCase();
+  expect(block, 'kyc_records block must not be an empty slice').not.toBe('');
+  for (const col of BANNED_KYC_RECORD_COLUMNS) {
+    expect(block, `kyc_records must not define ${col}`).not.toMatch(new RegExp(`['"\`]${col}['"\`]|\\b${col}:`));
+  }
+}
+
 describe('PII isolation gate (kyc_records)', () => {
   it('forbids document/PII columns on kyc_records in schema', () => {
     const schema = readFileSync(join(serviceRoot, 'src/db/schema.ts'), 'utf8');
-    const start = schema.indexOf('export const kycRecords');
-    const end = schema.indexOf('export const rankState', start);
-    const block = schema.slice(start, end === -1 ? undefined : end).toLowerCase();
-    for (const col of BANNED_KYC_RECORD_COLUMNS) {
-      expect(block, `kyc_records must not define ${col}`).not.toMatch(new RegExp(`['"\`]${col}['"\`]|\\b${col}:`));
-    }
+    assertKycRecordsColumnBan(schema);
+  });
+
+  it('fails when schema text has no kycRecords export', () => {
+    const schema = [
+      "export const profiles = identity.table('profiles', {});",
+      "export const rankState = identity.table('rank_state', {});",
+    ].join('\n');
+    expect(() => assertKycRecordsColumnBan(schema)).toThrow(/kycRecords/);
   });
 
   it('document store table keeps ciphertext not plaintext columns', () => {

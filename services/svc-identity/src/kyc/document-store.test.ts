@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { assertDocAccess, KycDocumentError, MemoryKycDocumentStore } from './document-store.js';
+import type { Sql } from 'postgres';
+import { assertDocAccess, KycDocumentError, KycDocumentStore, MemoryKycDocumentStore } from './document-store.js';
 
 const USER_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const USER_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -89,9 +90,7 @@ describe('PII access control — no free cross-user document read', () => {
     const store = new MemoryKycDocumentStore(keyB64());
     const meta = await store.put({ userId: USER_A, contentType: 'image/png', bytes: Buffer.from('x') });
 
-    await expect(store.deleteFor(meta.id, { kind: 'owner', userId: USER_B })).rejects.toMatchObject({
-      code: 'kyc_doc.not_found',
-    });
+    await expect(store.deleteFor(meta.id, { kind: 'owner', userId: USER_B })).resolves.toBe(false);
     // still there for owner
     expect((await store.getFor(meta.id, { kind: 'owner', userId: USER_A })).meta.id).toBe(meta.id);
 
@@ -99,6 +98,66 @@ describe('PII access control — no free cross-user document read', () => {
     await expect(store.getFor(meta.id, { kind: 'compliance', operatorId: OP })).rejects.toMatchObject({
       code: 'kyc_doc.not_found',
     });
+  });
+
+  it('KycDocumentStore.deleteFor: another user gets false and the row stays', async () => {
+    const docId = '00000000-0000-4000-8000-000000000000';
+    const calls: string[] = [];
+    const sql = (async (strings: TemplateStringsArray) => {
+      const text = strings.join(' ');
+      calls.push(text);
+      if (text.includes('DELETE')) return [{ id: docId }];
+      if (text.includes('SELECT')) return [{ id: docId, user_id: USER_A }];
+      return [];
+    }) as unknown as Sql;
+    const store = new KycDocumentStore(sql, undefined);
+
+    await expect(store.deleteFor(docId, { kind: 'owner', userId: USER_B })).resolves.toBe(false);
+    expect(calls.some((text) => text.includes('DELETE'))).toBe(false);
+  });
+
+  it('KycDocumentStore.deleteFor: missing id returns false', async () => {
+    const calls: string[] = [];
+    const sql = (async (strings: TemplateStringsArray) => {
+      calls.push(strings.join(' '));
+      return [];
+    }) as unknown as Sql;
+    const store = new KycDocumentStore(sql, undefined);
+
+    await expect(store.deleteFor('00000000-0000-4000-8000-000000000000', { kind: 'owner', userId: USER_A })).resolves.toBe(false);
+    expect(calls.some((text) => text.includes('DELETE'))).toBe(false);
+  });
+
+  it('KycDocumentStore.deleteFor: owner deletes their row', async () => {
+    const docId = '00000000-0000-4000-8000-000000000000';
+    const calls: string[] = [];
+    const sql = (async (strings: TemplateStringsArray) => {
+      const text = strings.join(' ');
+      calls.push(text);
+      if (text.includes('DELETE')) return [{ id: docId }];
+      if (text.includes('SELECT')) return [{ id: docId, user_id: USER_A }];
+      return [];
+    }) as unknown as Sql;
+    const store = new KycDocumentStore(sql, undefined);
+
+    await expect(store.deleteFor(docId, { kind: 'owner', userId: USER_A })).resolves.toBe(true);
+    expect(calls.some((text) => text.includes('DELETE'))).toBe(true);
+  });
+
+  it('KycDocumentStore.deleteFor: compliance deletes a row they did not store', async () => {
+    const docId = '00000000-0000-4000-8000-000000000000';
+    const calls: string[] = [];
+    const sql = (async (strings: TemplateStringsArray) => {
+      const text = strings.join(' ');
+      calls.push(text);
+      if (text.includes('DELETE')) return [{ id: docId }];
+      if (text.includes('SELECT')) return [{ id: docId, user_id: USER_A }];
+      return [];
+    }) as unknown as Sql;
+    const store = new KycDocumentStore(sql, undefined);
+
+    await expect(store.deleteFor(docId, { kind: 'compliance', operatorId: OP })).resolves.toBe(true);
+    expect(calls.some((text) => text.includes('DELETE'))).toBe(true);
   });
 
   it('assertDocumentForUser refuses foreign ownership (provider_ref bind gate)', async () => {

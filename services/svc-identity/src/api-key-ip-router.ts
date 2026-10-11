@@ -37,8 +37,12 @@ export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter) {
       .output(z.object({ id: z.string().uuid(), ipAllowlist: z.array(z.string()) }))
       .mutation(async ({ ctx, input }) => {
         try {
+          assertDelegateCannotGrant(ctx.principal.kid);
           return await unbindApiKeyIpAllowlist(sql, ctx.principal.userId, input.keyId, input.ip);
         } catch (err) {
+          if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
+            throw new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+          }
           if (err instanceof ApiKeyIpError) {
             if (err.code === 'auth.not_found') {
               throw new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });

@@ -260,13 +260,14 @@ export class KycDocumentStore implements KycDocumentVault {
 
   async deleteFor(id: string, reader: DocReader): Promise<boolean> {
     assertReader(reader);
-    // Ownership check before delete — compliance may delete any; owner only self.
+    // Missing and wrong-owner both return false. Throwing not_found only for a
+    // stored row would tell the caller that another customer has this id.
     const rows = await this.sql<Array<{ id: string; user_id: string }>>`
       SELECT id, user_id FROM kyc_documents WHERE id = ${id}
     `;
     const row = rows[0];
     if (!row) return false;
-    assertDocAccess(row.user_id, reader);
+    if (reader.kind === 'owner' && reader.userId !== row.user_id) return false;
     const deleted = await this.sql<Array<{ id: string }>>`
       DELETE FROM kyc_documents WHERE id = ${id} RETURNING id
     `;
@@ -411,9 +412,11 @@ export class MemoryKycDocumentStore implements KycDocumentVault {
 
   async deleteFor(id: string, reader: DocReader): Promise<boolean> {
     assertReader(reader);
+    // Missing and wrong-owner both return false. Throwing not_found only for a
+    // stored row would tell the caller that another customer has this id.
     const row = this.rows.get(id);
     if (!row) return false;
-    assertDocAccess(row.userId, reader);
+    if (reader.kind === 'owner' && reader.userId !== row.userId) return false;
     this.rows.delete(id);
     return true;
   }

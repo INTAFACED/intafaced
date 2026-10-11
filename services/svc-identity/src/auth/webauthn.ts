@@ -1,6 +1,6 @@
 import { createHash, createPublicKey, randomBytes, verify as cryptoVerify, type KeyObject } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { decodeCbor, encodeCbor, mapGet, type CborValue } from './cbor.js';
+import { decodeCbor, decodeCborItem, encodeCbor, mapGet, type CborValue } from './cbor.js';
 
 /**
  * WebAuthn (W3C Level 2) — registration + assertion, ES256 only.
@@ -328,6 +328,18 @@ interface AuthData {
   publicKeyCose?: Buffer;
 }
 
+function validateAuthenticatorExtensions(bytes: Buffer): void {
+  let extensions: CborValue;
+  try {
+    extensions = decodeCbor(bytes);
+  } catch (err) {
+    throw new WebAuthnError(`authenticator extensions are not valid CBOR: ${(err as Error).message}`, 'webauthn.invalid');
+  }
+  if (!(extensions instanceof Map) || [...extensions.keys()].some((key) => typeof key !== 'string')) {
+    throw new WebAuthnError('authenticator extensions must be a text-keyed map', 'webauthn.invalid');
+  }
+}
+
 function parseAuthData(authData: Buffer, expectAttested: boolean): AuthData {
   if (authData.length < 37) throw new WebAuthnError('authenticatorData too short', 'webauthn.invalid');
 
@@ -336,12 +348,16 @@ function parseAuthData(authData: Buffer, expectAttested: boolean): AuthData {
   const up = (flags & 0x01) !== 0;
   const uv = (flags & 0x04) !== 0;
   const at = (flags & 0x40) !== 0;
+  const ed = (flags & 0x80) !== 0;
 
   if (!up) throw new WebAuthnError('user presence flag not set', 'webauthn.invalid');
   // Passwordless path marks the session MFA-complete — refuse presence-only
   // authenticators that never verified the user (L2-WA-UV).
   if (!uv) throw new WebAuthnError('user verification flag not set', 'webauthn.invalid');
 
+  let offset = 37;
+  let credentialId: Buffer | undefined;
+  let publicKeyCose: Buffer | undefined;
   if (expectAttested) {
     if (!at) throw new WebAuthnError('attested credential data missing', 'webauthn.invalid');
     // aaguid (16) + credIdLen (2) + credId + cose key
@@ -350,18 +366,39 @@ function parseAuthData(authData: Buffer, expectAttested: boolean): AuthData {
     const credIdStart = 37 + 18;
     const credIdEnd = credIdStart + credIdLen;
     if (authData.length < credIdEnd + 1) throw new WebAuthnError('credential id truncated', 'webauthn.invalid');
-    const credentialId = authData.subarray(credIdStart, credIdEnd);
-    const publicKeyCose = authData.subarray(credIdEnd);
-    return { flags, counter, credentialId, publicKeyCose };
+    credentialId = authData.subarray(credIdStart, credIdEnd);
+    // AT carries one COSE item, followed by the ED extension item when present.
+    // Its byte boundary comes from decoding, never from a re-encoded length.
+    try {
+      const item = decodeCborItem(authData.subarray(credIdEnd));
+      if (!(item.value instanceof Map)) throw new Error('COSE key is not a map');
+      offset = credIdEnd + item.bytesRead;
+      publicKeyCose = authData.subarray(credIdEnd, offset);
+    } catch (err) {
+      throw new WebAuthnError(`COSE key is not valid CBOR: ${(err as Error).message}`, 'webauthn.invalid');
+    }
+  } else if (at) {
+    throw new WebAuthnError('attested credential data is not valid in an assertion', 'webauthn.invalid');
   }
 
-  return { flags, counter };
+  if (ed) validateAuthenticatorExtensions(authData.subarray(offset));
+  else if (offset !== authData.length) throw new WebAuthnError('authenticatorData has trailing bytes without ED', 'webauthn.invalid');
+  return { flags, counter, credentialId, publicKeyCose };
 }
 
-function coseEc2ToKey(coseBytes: Buffer): { key: KeyObject; alg: number } {
+function coseEc2ToKey(coseBytes: Buffer, legacyStoredExtensions = false): { key: KeyObject; alg: number } {
   let decoded: CborValue;
   try {
-    decoded = decodeCbor(coseBytes);
+    if (legacyStoredExtensions) {
+      // Older registration stored the key plus ED bytes together. Read only
+      // this historical shape: one key and at most one complete extension map.
+      // The suffix grants no authority and the stored credential is not rewritten.
+      const item = decodeCborItem(coseBytes);
+      decoded = item.value;
+      if (item.bytesRead !== coseBytes.length) validateAuthenticatorExtensions(coseBytes.subarray(item.bytesRead));
+    } else {
+      decoded = decodeCbor(coseBytes);
+    }
   } catch (err) {
     throw new WebAuthnError(`COSE key is not valid CBOR: ${(err as Error).message}`, 'webauthn.invalid');
   }
@@ -497,7 +534,7 @@ export function verifyAuthenticationResponse(
   const signed = Buffer.concat([authData, clientDataHash]);
   const signature = b64urlDecode(response.response.signature);
 
-  const { key } = coseEc2ToKey(b64urlDecode(credential.publicKey));
+  const { key } = coseEc2ToKey(b64urlDecode(credential.publicKey), true);
   const ok = cryptoVerify('SHA256', signed, { key, dsaEncoding: 'ieee-p1363' }, signature);
   if (!ok) throw new WebAuthnError('signature verification failed', 'webauthn.invalid');
 
