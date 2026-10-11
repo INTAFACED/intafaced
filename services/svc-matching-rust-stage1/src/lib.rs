@@ -446,6 +446,10 @@ impl Book {
             return Err("unexpected_stop_price: a limit order must not carry a stopPrice".into());
         }
 
+        if self.has_live(&order.orderId) {
+            return Err("duplicate_order_id: orderId is already live; the engine does not invent a replacement id".into());
+        }
+
         if is_stop {
             let stop_px = require_stop(&order)?;
             if !self.is_triggered(&order.side, stop_px) {
@@ -1614,5 +1618,60 @@ mod tests {
         assert_eq!(state.asks[0].price, "100");
         assert_eq!(state.asks[0].orders[0].orderId, "desk-ask");
         assert_eq!(state.asks[0].orders[0].remaining, "5");
+    }
+
+    #[test]
+    fn a_live_order_id_cannot_be_submitted_twice() {
+        let mut book = Book { market: "BTC/USDT".into(), ..Book::default() };
+        book.submit(order_on("bid", "desk", "buy", "1")).unwrap();
+        let before = serde_json::to_value(book.state()).unwrap();
+        assert_eq!(before["sequence"], 1);
+        assert_eq!(resting_ids(&book.state().bids), vec!["bid".to_string()]);
+        assert!(book.state().asks.is_empty());
+        assert!(book.state().stops.is_empty());
+
+        let err = book.submit(order_on("bid", "mm", "buy", "1")).unwrap_err();
+        assert!(err.contains("duplicate_order_id"), "{err}");
+        assert_eq!(serde_json::to_value(book.state()).unwrap(), before);
+        assert_eq!(resting_ids(&book.state().bids), vec!["bid".to_string()]);
+
+        let mut stop_on_book = order_on("bid", "mm", "sell", "1");
+        stop_on_book.kind = "stop_limit".into();
+        stop_on_book.stopPrice = Some("150".into());
+        let err = book.submit(stop_on_book).unwrap_err();
+        assert!(err.contains("duplicate_order_id"), "{err}");
+        assert_eq!(serde_json::to_value(book.state()).unwrap(), before);
+        assert!(book.state().stops.is_empty());
+
+        let mut parked = order_on("stop", "mm", "sell", "1");
+        parked.kind = "stop_limit".into();
+        parked.stopPrice = Some("150".into());
+        book.submit(parked).unwrap();
+        let with_stop = serde_json::to_value(book.state()).unwrap();
+        assert_eq!(with_stop["stops"].as_array().unwrap().len(), 1);
+        assert_eq!(with_stop["stops"][0]["orderId"], "stop");
+        assert_eq!(resting_ids(&book.state().bids), vec!["bid".to_string()]);
+
+        let mut stop_again = order_on("stop", "desk", "buy", "1");
+        stop_again.kind = "stop_limit".into();
+        stop_again.stopPrice = Some("150".into());
+        let err = book.submit(stop_again).unwrap_err();
+        assert!(err.contains("duplicate_order_id"), "{err}");
+        assert_eq!(serde_json::to_value(book.state()).unwrap(), with_stop);
+
+        book.cancel("bid");
+        let cleared = book.state();
+        assert!(cleared.bids.is_empty());
+        assert!(cleared.asks.is_empty());
+        assert_eq!(cleared.stops.len(), 1);
+        assert_eq!(cleared.stops[0]["orderId"], "stop");
+        assert_eq!(cleared.sequence, with_stop["sequence"].as_u64().unwrap() + 1);
+
+        book.submit(order_on("other", "desk", "buy", "1")).unwrap();
+        let next = book.state();
+        assert_eq!(resting_ids(&next.bids), vec!["other".to_string()]);
+        assert!(next.asks.is_empty());
+        assert_eq!(next.stops.len(), 1);
+        assert_eq!(next.stops[0]["orderId"], "stop");
     }
 }
