@@ -4,6 +4,18 @@ import { currentAuthorityInputSchema, operationAdmissionInputSchema } from './ac
 const id = z.string().uuid();
 const version = z.string().regex(/^(0|[1-9][0-9]*)$/);
 const timestamp = z.string().datetime({ offset: true });
+const payfacProof = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('root_relation'), actorMerchantId: id, subjectMerchantId: id }).strict(),
+  z
+    .object({
+      kind: z.literal('explicit_grant'),
+      actorMerchantId: id,
+      subjectMerchantId: id,
+      grantEventId: id,
+      grantSequence: z.string().regex(/^[1-9][0-9]*$/),
+    })
+    .strict(),
+]);
 
 /** Server-derived authority, never accepted as a public request's permission. */
 export const identityOperationAuthoritySchema = z.discriminatedUnion('kind', [
@@ -14,6 +26,16 @@ export const identityOperationAuthoritySchema = z.discriminatedUnion('kind', [
   // Hosted checkout and provider events have no merchant browser session. The
   // owning payment service proves the merchant policy before requesting this.
   z.object({ kind: z.literal('merchant_policy'), merchantId: id }).strict(),
+  // svc-pay proves current tree ownership/grant under its own cutoff guard.
+  // Identity independently checks both the child owner and original actor.
+  z
+    .object({
+      kind: z.literal('payfac_credential'),
+      subject: currentAuthorityInputSchema,
+      area: z.enum(['payment', 'settlement.payout']),
+      proof: payfacProof,
+    })
+    .strict(),
 ]);
 
 export const identityOperationIntentSchema = operationAdmissionInputSchema
@@ -21,6 +43,19 @@ export const identityOperationIntentSchema = operationAdmissionInputSchema
   .strict()
   .superRefine((input, ctx) => {
     const authority = input.authority;
+    if (
+      authority.kind === 'payfac_credential' &&
+      (input.operation.service !== 'svc-pay' ||
+        input.operation.merchantId !== authority.proof.subjectMerchantId ||
+        authority.proof.actorMerchantId === authority.proof.subjectMerchantId ||
+        authority.area !== (input.operation.kind === 'payout' ? 'settlement.payout' : 'payment'))
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['authority'],
+        message: 'PayFac proof must match the payment operation and distinct actor merchant',
+      });
+    }
     if (authority.kind === 'credential' && authority.subject.userId !== input.operation.userId) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['authority'], message: 'Credential must belong to the operation owner' });
     }

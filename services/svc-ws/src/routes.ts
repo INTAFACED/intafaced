@@ -87,6 +87,8 @@ export interface RouteOptions {
   readonly tradesBus: () => boolean;
   /** Live JetStream subscription for private lifecycle (`privateSub !== null`). */
   readonly privateBus: () => boolean;
+  /** Configuration only; every private seat obtains its own live authority. */
+  readonly privateAuthorityConfigured?: () => boolean;
   /** Live JetStream subscription for drop-copy executions (independent durable). */
   readonly dropCopyBus?: () => boolean;
   /** Real Logic SBE 1.39.0 adapter. Tests inject; production uses the package singleton. */
@@ -154,6 +156,7 @@ export function registerRoutes(app: FastifyInstance, options: RouteOptions): voi
     dropCopyConnections: dropCopyHub?.connections ?? 0,
     tradesBus: tradesBus(),
     privateBus: privateBus(),
+    privateAuthorityConfigured: options.privateAuthorityConfigured?.() ?? false,
     dropCopyBus: dropCopyBus(),
     depthTransport: DEPTH_TRANSPORT_POLL,
     l3Transport: DEPTH_TRANSPORT_POLL,
@@ -212,6 +215,7 @@ export function registerRoutes(app: FastifyInstance, options: RouteOptions): voi
       },
       tradesBus: tradesBus(),
       privateBus: privateBus(),
+      privateAuthorityConfigured: options.privateAuthorityConfigured?.() ?? false,
       dropCopyBus: dropCopyBus(),
       depthTransport: DEPTH_TRANSPORT_POLL,
       l3Transport: DEPTH_TRANSPORT_POLL,

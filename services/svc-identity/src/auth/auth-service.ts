@@ -392,9 +392,17 @@ export class AuthService {
   ): Promise<SessionTokens> {
     const refreshToken = generateToken(48);
     const expiresAt = new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000);
-    const inserted = await this.sql<
-      Array<{ id: string }>
-    >`INSERT INTO sessions (user_id, refresh_hash, device, ip, mfa, expires_at) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? null}, ${options.mfa}, ${expiresAt}) RETURNING id`;
+    const inserted = await transaction(
+      this.sql,
+      async (tx) => {
+        const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId} FOR UPDATE`;
+        if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
+        return tx<
+          Array<{ id: string }>
+        >`INSERT INTO sessions (user_id, refresh_hash, device, ip, mfa, expires_at) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? null}, ${options.mfa}, ${expiresAt}) RETURNING id`;
+      },
+      { isolation: 'read committed' },
+    );
     const sessionId = inserted[0]!.id;
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
     const tier = await this.kycTier(userId);
@@ -750,9 +758,17 @@ export class AuthService {
     assertDelegatableScopes(input.scopes, input.grantorScopes);
     const mode = input.mode === 'sandbox' ? 'sandbox' : 'live';
     const { key, hash, prefix } = generateApiKey(mode);
-    const rows = await this.sql<
-      Array<{ id: string }>
-    >`INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes, domain_whitelist, expires_at, mode) VALUES (${input.userId}, ${input.name}, ${hash}, ${prefix}, ${input.scopes}, ${input.domainWhitelist ?? []}, ${input.expiresAt ?? null}, ${mode}) RETURNING id`;
+    const rows = await transaction(
+      this.sql,
+      async (tx) => {
+        const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${input.userId} FOR UPDATE`;
+        if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
+        return tx<
+          Array<{ id: string }>
+        >`INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes, domain_whitelist, expires_at, mode) VALUES (${input.userId}, ${input.name}, ${hash}, ${prefix}, ${input.scopes}, ${input.domainWhitelist ?? []}, ${input.expiresAt ?? null}, ${mode}) RETURNING id`;
+      },
+      { isolation: 'read committed' },
+    );
     return { id: rows[0]!.id, key, prefix, mode };
   }
 
@@ -1091,8 +1107,9 @@ export class AuthService {
       throw new AuthError('IDENTITY_MAX_SUB_ACCOUNTS is unset — owner must publish a live-partition cap', 'auth.sub_account_cap_unset');
     }
     return transaction(this.sql, async (tx) => {
-      const locked = await tx<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${userId} LIMIT 1 FOR UPDATE`;
+      const locked = await tx<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${userId} LIMIT 1 FOR UPDATE`;
       if (!locked[0]) throw new AuthError('User not found', 'auth.not_found');
+      if (locked[0].status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
       const live = await tx<
         Array<{ n: string }>
       >`SELECT count(*)::text AS n FROM sub_accounts WHERE parent_user_id = ${userId} AND revoked = false`;

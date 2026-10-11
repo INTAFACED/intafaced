@@ -430,7 +430,8 @@ describe('money crosses this boundary as a decimal string', () => {
     await api.payment.capture({ paymentId: PAYMENT });
     // Not `{ amount: undefined }` — the service branches on the key's presence,
     // and an explicit undefined would read as "capture zero".
-    expect(stub.calls.at(-1)!.args[1]).toEqual({});
+    expect(stub.calls.at(-1)!.args[1]).not.toHaveProperty('amount');
+    expect(stub.calls.at(-1)!.args[1]).toMatchObject({ identityAuthority: { kind: 'credential', subject: { userId: USER } } });
   });
 });
 

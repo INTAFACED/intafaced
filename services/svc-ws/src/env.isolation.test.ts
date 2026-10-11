@@ -4,10 +4,9 @@ import { FORBIDDEN_SERVICE_CREDENTIALS, SVC_WS_OWN_ENV_KEYS } from './env.js';
 /**
  * Credential-isolation pin for svc-ws.
  *
- * This process accepts anonymous public sockets. Holding S2S / principal /
- * database secrets would collapse the blast-radius argument in the README.
- * Optional `JWT_ACCESS_SECRET` is deliberate and only for `/private/stream`
- * and `/drop-copy/stream`.
+ * Anonymous public feeds never use identity credentials. Optional JWT and
+ * identity service authentication exist only for the two private doors; no
+ * principal-signing key or database connection is declared.
  */
 describe('svc-ws credential isolation', () => {
   it('documents the forbidden service credentials contract', () => {
@@ -19,6 +18,11 @@ describe('svc-ws credential isolation', () => {
     for (const key of FORBIDDEN_SERVICE_CREDENTIALS) {
       expect(own.has(key)).toBe(false);
     }
+  });
+
+  it('declares private identity configuration separately from public feed configuration', () => {
+    expect(SVC_WS_OWN_ENV_KEYS).toContain('IDENTITY_URL');
+    expect(SVC_WS_OWN_ENV_KEYS).toContain('IDENTITY_OWNERSHIP_SECRET');
   });
 
   it('loads without forbidden keys present in process.env (schema does not require them)', async () => {

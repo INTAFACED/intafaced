@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { verifyForwardedPrincipal, EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER } from '@intafaced/contracts';
 import { exchangePrincipal, looksLikeApiKey, requestOrigin, stripReserved } from './principal-exchange.js';
+import { currentAuthorityTestReply } from './test-current-authority.js';
 
 const tokens: TokenConfig = {
   secret: 'edge-test-jwt-signing-secret-32-chars',
@@ -14,7 +15,16 @@ const EDGE_SECRET = 'edge-test-principal-secret-32-chars!';
 const USER = '11111111-1111-4111-8111-111111111111';
 const SESSION = '22222222-2222-4222-8222-222222222222';
 
-const options = { tokens, edgeSecret: EDGE_SECRET, region: 'GB' };
+const AUTHORITY_SECRET = 'edge-test-identity-authority-secret-32';
+const options = {
+  tokens,
+  edgeSecret: EDGE_SECRET,
+  region: 'GB',
+  identityUrl: 'http://identity.test',
+  identityOwnershipSecret: AUTHORITY_SECRET,
+  fetch: async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) =>
+    currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: SESSION }) ?? new Response(null, { status: 404 }),
+};
 
 async function bearer(overrides: Partial<Parameters<typeof issueAccessToken>[0]> = {}) {
   const { token } = await issueAccessToken(
@@ -44,7 +54,8 @@ describe('the exchange — a bearer token becomes a signed principal', () => {
     expect(verified.rejected).toBeNull();
     expect(verified.principal?.userId).toBe(USER);
     expect(verified.principal?.scopes).toEqual(['trade:read', 'trade:write']);
-    expect(verified.principal?.tier).toBe('basic');
+    // Current identity ownership reports tier `none`; a stale JWT `basic` claim is lowered.
+    expect(verified.principal?.tier).toBe('none');
   });
 
   it('carries mfa through, because INTERACTIVE_ONLY_SCOPES depends on it', async () => {
@@ -270,6 +281,8 @@ describe('API key bearers (ifc_…) exchange into access JWTs', () => {
     );
 
     const fetchMock: typeof fetch = async (input, init) => {
+      const authority = currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: SESSION });
+      if (authority) return authority;
       expect(String(input)).toContain('/trpc/apiKeys.exchange');
       expect(init?.method).toBe('POST');
       const body = JSON.parse(String(init?.body));
@@ -314,6 +327,9 @@ describe('API key bearers (ifc_…) exchange into access JWTs', () => {
     const seen: string[] = [];
     const fetchMock: typeof fetch = async (_input, init) => {
       const headers = new Headers(init?.headers);
+      if (String(_input).endsWith('/trpc/accountControls.currentAuthority')) {
+        return currentAuthorityTestReply(_input, init, { expectedUserId: USER, expectedCredentialId: SESSION })!;
+      }
       seen.push(headers.get('origin') ?? '');
       return new Response(JSON.stringify({ result: { data: { json: { accessToken } } } }), {
         status: 200,

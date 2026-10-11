@@ -93,6 +93,40 @@ describe('identity operation decision wire shapes', () => {
     expect(identityOperationDecisionInputSchema.safeParse({ mode: 'grant', intent: tradeIntent, status: 'granted' }).success).toBe(false);
   });
 
+  it('preserves PayFac actor credentials with explicit journal or implicit root provenance, limited to matching pay operations', () => {
+    const delegated = {
+      ...payIntent,
+      authority: {
+        kind: 'payfac_credential',
+        area: 'payment',
+        subject: { userId: OTHER, credential: { kind: 'session', sessionId: CREDENTIAL } },
+        proof: {
+          kind: 'explicit_grant',
+          actorMerchantId: OTHER,
+          subjectMerchantId: MERCHANT,
+          grantEventId: GRANT,
+          grantSequence: '9007199254740993',
+        },
+      },
+    };
+    expect(identityOperationIntentSchema.safeParse(delegated).success).toBe(true);
+    expect(
+      identityOperationIntentSchema.safeParse({
+        ...delegated,
+        authority: { ...delegated.authority, proof: { kind: 'root_relation', actorMerchantId: OTHER, subjectMerchantId: MERCHANT } },
+      }).success,
+    ).toBe(true);
+    for (const authority of [
+      { ...delegated.authority, area: 'settlement.payout' },
+      { ...delegated.authority, proof: { ...delegated.authority.proof, actorMerchantId: MERCHANT } },
+      { ...delegated.authority, proof: { ...delegated.authority.proof, subjectMerchantId: OTHER } },
+      { ...delegated.authority, proof: { ...delegated.authority.proof, grantSequence: 9007199254740993 } },
+      { ...delegated.authority, proof: { ...delegated.authority.proof, grantSequence: '0' } },
+    ])
+      expect(identityOperationIntentSchema.safeParse({ ...delegated, authority }).success).toBe(false);
+    expect(identityOperationIntentSchema.safeParse({ ...tradeIntent, authority: delegated.authority }).success).toBe(false);
+  });
+
   it('keeps grant versions as decimal strings beyond JavaScript safe integers', () => {
     const grant = {
       status: 'granted',

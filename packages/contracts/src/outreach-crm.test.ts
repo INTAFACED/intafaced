@@ -138,11 +138,22 @@ describe('outreach and CRM boundary contracts', () => {
       createdAt: NOW,
       updatedAt: NOW,
     };
-    const page = { items: [opportunity], contacts: [contact], nextCursor: null };
+    const summary = { submissionId: opportunity.submissionId, completedAt: null, organisationName: 'Original organisation' };
+    const page = { items: [opportunity], contacts: [contact], submissions: [summary], nextCursor: null };
     expect(crmOpportunityPageSchema.safeParse(page).success).toBe(true);
     expect(crmOpportunityPageSchema.safeParse({ ...page, contacts: [] }).success).toBe(false);
     expect(crmOpportunityPageSchema.safeParse({ ...page, contacts: [contact, contact] }).success).toBe(false);
     expect(crmOpportunityPageSchema.safeParse({ ...page, items: [] }).success).toBe(false);
+    expect(crmOpportunityPageSchema.safeParse({ ...page, submissions: [] }).success).toBe(false);
+    expect(crmOpportunityPageSchema.safeParse({ ...page, submissions: [summary, summary] }).success).toBe(false);
+    expect(crmOpportunityPageSchema.safeParse({ ...page, submissions: [{ ...summary, submissionId: REQUEST_ID }] }).success).toBe(false);
+    expect(crmOpportunityPageSchema.safeParse({ ...page, submissions: [{ ...summary, completedAt: 'invalid' }] }).success).toBe(false);
+    expect(crmOpportunityPageSchema.safeParse({ ...page, submissions: [{ ...summary, email: 'private@example.test' }] }).success).toBe(
+      false,
+    );
+    expect(
+      crmOpportunityPageSchema.safeParse({ ...page, submissions: [{ ...summary, completedAt: '2026-10-11T00:00:00.000Z' }] }).success,
+    ).toBe(true);
   });
   it.each(['investor', 'trader', 'merchant', 'academy', 'partner'] as const)(
     'accepts the published version 1 %s questionnaire',

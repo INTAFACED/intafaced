@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { EDGE_PRINCIPAL_HEADER } from '@intafaced/contracts';
 import { exchangePrincipal } from './principal-exchange.js';
+import { currentAuthorityTestReply } from './test-current-authority.js';
 
 const tokens: TokenConfig = {
   secret: 'edge-test-jwt-signing-secret-32-chars',
@@ -38,7 +39,13 @@ function json(body: unknown, status = 200): Response {
 }
 
 function fetchIdentity(account: Record<string, unknown>, accountHttp = 200): typeof fetch {
-  return async (input) => {
+  return async (input, init) => {
+    const body = JSON.parse(String(init?.body ?? '{}')) as { credential?: { kind?: string } };
+    const authority = currentAuthorityTestReply(input, init, {
+      expectedUserId: USER,
+      expectedCredentialId: body.credential?.kind === 'api_key' ? KEY : SESSION,
+    });
+    if (authority) return authority;
     const url = String(input);
     if (url.includes('/internal/account/')) {
       if (accountHttp !== 200) return new Response(null, { status: accountHttp });
@@ -61,28 +68,31 @@ describe('enrolled passkey at the HTTP session door', () => {
     expect(live.headers[EDGE_PRINCIPAL_HEADER]).toBeDefined();
   });
 
-  it('empty webauthnCreds cannot place', async () => {
+  it('does not impose the owning service passkey gate on an ordinary session', async () => {
     const token = await accessToken();
-    const dead = await exchangePrincipal({ authorization: `Bearer ${token}` }, { ...options, fetch: fetchIdentity({ webauthnCreds: [] }) });
-    expect(dead.rejected).toBe('invalid');
-    expect(dead.principal).toBeNull();
-    expect(dead.headers[EDGE_PRINCIPAL_HEADER]).toBeUndefined();
+    const result = await exchangePrincipal(
+      { authorization: `Bearer ${token}` },
+      { ...options, fetch: fetchIdentity({ webauthnCreds: [] }) },
+    );
+    expect(result.rejected).toBeNull();
+    expect(result.principal?.userId).toBe(USER);
+    expect(result.headers[EDGE_PRINCIPAL_HEADER]).toBeDefined();
   });
 
-  it('account without passkey fields refuses as verify unavailable', async () => {
+  it('does not require account passkey fields for ordinary sessions', async () => {
     const token = await accessToken();
-    const dead = await exchangePrincipal({ authorization: `Bearer ${token}` }, { ...options, fetch: fetchIdentity({}) });
-    expect(dead.rejected).toBe('invalid');
-    expect(dead.principal).toBeNull();
-    expect(dead.headers[EDGE_PRINCIPAL_HEADER]).toBeUndefined();
+    const result = await exchangePrincipal({ authorization: `Bearer ${token}` }, { ...options, fetch: fetchIdentity({}) });
+    expect(result.rejected).toBeNull();
+    expect(result.principal?.userId).toBe(USER);
+    expect(result.headers[EDGE_PRINCIPAL_HEADER]).toBeDefined();
   });
 
-  it('identity 500 on account cannot place', async () => {
+  it('does not read the legacy account endpoint for ordinary session forwarding', async () => {
     const token = await accessToken();
-    const dead = await exchangePrincipal({ authorization: `Bearer ${token}` }, { ...options, fetch: fetchIdentity({}, 500) });
-    expect(dead.rejected).toBe('invalid');
-    expect(dead.principal).toBeNull();
-    expect(dead.headers[EDGE_PRINCIPAL_HEADER]).toBeUndefined();
+    const result = await exchangePrincipal({ authorization: `Bearer ${token}` }, { ...options, fetch: fetchIdentity({}, 500) });
+    expect(result.rejected).toBeNull();
+    expect(result.principal?.userId).toBe(USER);
+    expect(result.headers[EDGE_PRINCIPAL_HEADER]).toBeDefined();
   });
 
   it('an API-key bearer still places without passkey fields', async () => {
@@ -91,7 +101,10 @@ describe('enrolled passkey at the HTTP session door', () => {
       { authorization: 'Bearer ifc_live' },
       {
         ...options,
-        fetch: async (input) => {
+        fetch: async (input, init) => {
+          const authority = currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: KEY });
+          if (authority) return authority;
+          if (String(input).includes('/internal/api-keys/')) return json({ id: KEY, userId: USER, revoked: false });
           expect(String(input)).toContain('/trpc/apiKeys.exchange');
           expect(String(input)).not.toContain('/internal/sessions/');
           expect(String(input)).not.toContain('/internal/account/');
@@ -104,13 +117,13 @@ describe('enrolled passkey at the HTTP session door', () => {
     expect(result.headers[EDGE_PRINCIPAL_HEADER]).toBeDefined();
   });
 
-  it('missing ownership secret stays on JWT (no invented live-check)', async () => {
+  it('missing dedicated authority key refuses authenticated forwarding', async () => {
     const token = await accessToken();
     const result = await exchangePrincipal(
       { authorization: `Bearer ${token}` },
       { tokens, edgeSecret: EDGE_SECRET, region: 'GB', identityUrl: 'http://identity.test' },
     );
-    expect(result.rejected).toBeNull();
-    expect(result.principal?.userId).toBe(USER);
+    expect(result.rejected).toBe('invalid');
+    expect(result.principal).toBeNull();
   });
 });

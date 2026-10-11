@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AuthError, requireMfa } from '@intafaced/auth';
 import { router, scopedProcedure, publicProcedure, TRPCError } from '@intafaced/contracts';
+import { credentialAuthority } from './payment-authority.js';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
 import {
@@ -603,6 +604,7 @@ export function createPayRouter(
       create: scopedProcedure('pay:write', { module: 'pay' })
         .input(
           z.object({
+            requestId: z.string().uuid().optional(),
             merchantId: z.string().uuid(),
             profileId: z.string().uuid().nullish(),
             amount: amountSchema,
@@ -623,6 +625,7 @@ export function createPayRouter(
                 ...input,
                 profileId: input.profileId ?? null,
                 amount: parseAmount(input.amount),
+                identityAuthority: credentialAuthority(ctx.principal),
               }),
             );
           }),
@@ -635,7 +638,7 @@ export function createPayRouter(
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
             await assertAccess(ctx.principal?.userId, payment.merchantId, 'trpc.payment.authorize');
-            return toPaymentOut(await pay.authorize(input.paymentId));
+            return toPaymentOut(await pay.authorize(input.paymentId, { identityAuthority: credentialAuthority(ctx.principal) }));
           }),
         ),
 
@@ -647,7 +650,10 @@ export function createPayRouter(
             const payment = await pay.getPayment(input.paymentId);
             await assertAccess(ctx.principal?.userId, payment.merchantId, 'trpc.payment.capture');
             return toPaymentOut(
-              await pay.capture(input.paymentId, input.amount === undefined ? {} : { amount: parseAmount(input.amount) }),
+              await pay.capture(input.paymentId, {
+                ...(input.amount === undefined ? {} : { amount: parseAmount(input.amount) }),
+                identityAuthority: credentialAuthority(ctx.principal),
+              }),
             );
           }),
         ),
@@ -769,15 +775,12 @@ export function createPayRouter(
           wrap(async () => {
             const settlement = await pay.getSettlement(input.settlementId);
             await assertAccess(ctx.principal?.userId, settlement.merchantId, 'trpc.settlement.payout');
-            const destination = input.destination
-              ? await destinations.persist({
-                  merchantId: settlement.merchantId,
-                  railId: input.railId,
-                  kind: input.destination.kind,
-                  ref: input.destination.ref,
-                })
-              : await destinations.require({ merchantId: settlement.merchantId, railId: input.railId });
-            return toSettlementOut(await pay.payoutSettlement({ ...input, destination }));
+            return toSettlementOut(
+              await pay.payoutSettlement({
+                ...input,
+                identityAuthority: credentialAuthority(ctx.principal),
+              }),
+            );
           }),
         ),
 
@@ -1738,7 +1741,9 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.routing_input_missing':
         return 'BAD_REQUEST' as const;
       case 'pay.routing_no_rail':
+      case 'pay.identity_admission_unavailable':
       case 'pay.payout_destination_missing':
+      case 'pay.payout_admission_missing':
       case 'pay.fee_bps_unset':
       case 'pay.link_ttl_unset':
       case 'pay.link_max_ttl_unset':
@@ -1759,6 +1764,8 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.due_webhook_deliveries_batch_limit_unset':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.invalid_transition':
+      case 'pay.payout_recovery_conflict':
+      case 'pay.identity_admission_conflict':
       case 'pay.nothing_captured':
       case 'pay.capture_exceeds_authorized':
       case 'pay.refund_exceeds_captured':
@@ -1781,6 +1788,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.webhook_invalid':
         return 'UNAUTHORIZED' as const;
       case 'pay.merchant_inactive':
+      case 'pay.identity_admission_denied':
       case 'pay.merchant_forbidden':
       case 'pay.submerchant_permission_denied':
       case 'pay.rail_not_creditable':
