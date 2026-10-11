@@ -69,8 +69,8 @@ describe('founder browser mutation nonce', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     expect((await invokeOperatorToolBrowser('identity.kyc.pending', {})).ok).toBe(true);
-    expect((await postKillSwitch({ module: 'trade', disabled: true, reason: 'incident' })).ok).toBe(true);
-    expect((await postFreeze({ frozen: true, reason: 'incident' })).ok).toBe(true);
+    expect(await postKillSwitch({ module: 'trade', disabled: true, reason: 'incident' })).toMatchObject({ ok: false, uncertain: true });
+    expect(await postFreeze({ frozen: true, reason: 'incident' })).toMatchObject({ ok: false, uncertain: true });
 
     const mutations = calls.filter(({ init }) => init?.method === 'POST');
     expect(mutations).toHaveLength(3);

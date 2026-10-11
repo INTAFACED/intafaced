@@ -16,7 +16,7 @@ import { readKillSwitches, setKillSwitch } from '@/lib/control-plane-client';
  *     proving nothing about this app.
  *
  * `adminBffGate` refuses closed before either handler reaches the control plane.
- * The required deployment credential is not a substitute for per-operator SSO;
+ * Current main enforces a live individual founder session before these reads;
  * `apps/admin/README.md` retains that honest residual.
  */
 
@@ -26,7 +26,9 @@ export async function GET(request: Request) {
   const gate = await adminBffGate(request);
   if (gate) return gate;
   const state = await readKillSwitches();
-  return Response.json(state, { status: state.status === 'reachable' ? 200 : 503 });
+  return Response.json(state, {
+    status: state.status === 'reachable' ? 200 : state.status === 'refused' && state.httpStatus ? state.httpStatus : 503,
+  });
 }
 
 export async function POST(request: Request) {

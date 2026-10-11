@@ -1,4 +1,21 @@
 import 'server-only';
+import {
+  decodeRead,
+  decodeToggle,
+  unavailable,
+  unresolved,
+  type ControlPlaneState,
+  type ToggleInput,
+  type ToggleResult,
+} from './control-plane-contract';
+export type {
+  AuditEntry,
+  ControlPlaneState,
+  ControlPlaneStatus,
+  KillSwitchSnapshot,
+  ToggleInput,
+  ToggleResult,
+} from './control-plane-contract';
 import type { ModuleId } from '@intafaced/config';
 import { describeUnconfigured, readConsoleStatus, type Authority } from '@/lib/console-status';
 
@@ -49,40 +66,6 @@ import { describeUnconfigured, readConsoleStatus, type Authority } from '@/lib/c
  * `verifyAccessToken` + `requireScope` path as every other caller.
  */
 
-export interface AuditEntry {
-  readonly at: string;
-  readonly module: string;
-  readonly actor: string;
-  readonly reason: string;
-  readonly previous: boolean;
-  readonly next: boolean;
-  readonly changed: boolean;
-}
-
-export interface KillSwitchSnapshot {
-  readonly disabledModules: readonly ModuleId[];
-  readonly reasons: Readonly<Record<string, string>>;
-  /** Who halted what, when, and what it was before. Newest first. */
-  readonly audit: readonly AuditEntry[];
-}
-
-export type ControlPlaneStatus =
-  /** Configured and answering. */
-  | 'reachable'
-  /** No token / no `EDGE_URL` — the console must not pretend. */
-  | 'unconfigured'
-  /** Configured, and the edge did not answer or refused us. */
-  | 'unreachable';
-
-export interface ControlPlaneState {
-  readonly status: ControlPlaneStatus;
-  readonly snapshot: KillSwitchSnapshot;
-  /** One sentence an operator can act on. Null when everything is fine. */
-  readonly detail: string | null;
-}
-
-const EMPTY: KillSwitchSnapshot = { disabledModules: [], reasons: {}, audit: [] };
-
 /** How long the console waits before reporting the control plane as unreachable. */
 const TIMEOUT_MS = 5_000;
 
@@ -109,151 +92,89 @@ const isConfigured = (cfg: ReturnType<typeof config>): cfg is { edgeUrl: string;
 
 export async function readKillSwitches(): Promise<ControlPlaneState> {
   const cfg = config('module');
-  if (!isConfigured(cfg)) {
-    return { status: 'unconfigured', snapshot: EMPTY, detail: cfg.reason };
-  }
-
+  if (!isConfigured(cfg)) return unavailable('unconfigured', cfg.reason, 'admin.kill_unconfigured', 503);
   try {
     const res = await fetch(`${cfg.edgeUrl}/admin/kill-switches`, {
       headers: { authorization: `Bearer ${cfg.token}` },
       cache: 'no-store',
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-
-    if (!res.ok) {
-      return { status: 'unreachable', snapshot: EMPTY, detail: `svc-edge answered ${res.status} — check ADMIN_OPERATOR_TOKEN.` };
-    }
-
-    const body = (await res.json()) as Partial<KillSwitchSnapshot>;
-    return {
-      status: 'reachable',
-      snapshot: { disabledModules: body.disabledModules ?? [], reasons: body.reasons ?? {}, audit: body.audit ?? [] },
-      detail: null,
-    };
-  } catch (err) {
-    return { status: 'unreachable', snapshot: EMPTY, detail: `svc-edge did not answer: ${(err as Error).message}` };
+    return decodeRead(await res.json().catch(() => null), res.status, false);
+  } catch {
+    return unavailable('unreachable', 'svc-edge did not answer the original module state read.', 'admin.kill_read_unreachable', 502);
   }
 }
 
-export interface ToggleInput {
-  readonly module: ModuleId;
-  readonly disabled: boolean;
-  /** The edge requires ≥ 12 characters. A switch with no recorded reason is an outage nobody can explain. */
-  readonly reason: string;
-}
-
-export interface ToggleResult {
-  readonly ok: boolean;
-  readonly status: number;
-  readonly snapshot: KillSwitchSnapshot;
-  readonly detail: string | null;
-}
-
+/** Retained transport; the read-only inspector cannot arm it. No approval fields are invented. */
 export async function setKillSwitch(input: ToggleInput): Promise<ToggleResult> {
+  const intent = Object.freeze({ module: input.module, disabled: input.disabled, reason: input.reason });
   const cfg = config('module');
-  if (!isConfigured(cfg)) {
-    // 503, never a 200 with a cheerful snapshot. This is the branch a console
-    // with no token takes, and it is the branch that used to be invisible.
-    return { ok: false, status: 503, snapshot: EMPTY, detail: cfg.reason };
-  }
-
+  if (!isConfigured(cfg))
+    return {
+      ok: false,
+      status: 503,
+      snapshot: { disabledModules: [], reasons: {}, audit: [] },
+      detail: cfg.reason,
+      code: 'admin.kill_unconfigured',
+      uncertain: false,
+      intent,
+    };
   try {
     const res = await fetch(`${cfg.edgeUrl}/admin/kill-switches`, {
       method: 'POST',
       headers: { authorization: `Bearer ${cfg.token}`, 'content-type': 'application/json' },
-      body: JSON.stringify(input),
+      body: JSON.stringify(intent),
       cache: 'no-store',
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-
-    const body = (await res.json().catch(() => ({}))) as Partial<KillSwitchSnapshot> & { error?: string };
-    if (!res.ok) return { ok: false, status: res.status, snapshot: EMPTY, detail: body.error ?? `svc-edge answered ${res.status}` };
-
-    return {
-      ok: true,
-      status: res.status,
-      snapshot: { disabledModules: body.disabledModules ?? [], reasons: body.reasons ?? {}, audit: body.audit ?? [] },
-      detail: null,
-    };
-  } catch (err) {
-    return { ok: false, status: 502, snapshot: EMPTY, detail: `svc-edge did not answer: ${(err as Error).message}` };
+    return decodeToggle(await res.json().catch(() => null), res.status, intent, false);
+  } catch {
+    return unresolved(intent, 'The connection ended before svc-edge confirmed the original module command outcome.');
   }
 }
 
 // ── The money plane ─────────────────────────────────────────────────────────
 
-export interface FreezeState {
-  readonly frozen: boolean;
-  readonly reason: string | null;
-  /** Who last moved it. Written by svc-ledger from its own token verification. */
-  readonly actor: string | null;
-  readonly changedAt: string | null;
-}
-
-export interface FreezeResult {
-  readonly ok: boolean;
-  readonly status: number;
-  readonly state: FreezeState | null;
-  readonly detail: string | null;
-}
+import {
+  decodeFreezeRead,
+  decodeFreezeCommand,
+  freezeUnavailable,
+  freezeUnresolved,
+  type FreezeResult,
+  type FreezeCommandResult,
+} from './ledger-freeze-contract';
+export type { FreezeState, FreezeResult, FreezeCommandResult } from './ledger-freeze-contract';
 
 export async function readFreeze(): Promise<FreezeResult> {
   const cfg = config('treasury');
-  if (!isConfigured(cfg)) return { ok: false, status: 503, state: null, detail: cfg.reason };
-
+  if (!isConfigured(cfg)) return freezeUnavailable('unconfigured', cfg.reason, 'admin.ledger_unconfigured');
   try {
     const res = await fetch(`${cfg.edgeUrl}/admin/ledger/freeze`, {
       headers: { authorization: `Bearer ${cfg.token}` },
       cache: 'no-store',
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    const body = (await res.json().catch(() => ({}))) as Partial<FreezeState> & { error?: string; message?: string };
-    if (!res.ok)
-      return { ok: false, status: res.status, state: null, detail: body.error ?? body.message ?? `svc-edge answered ${res.status}` };
-
-    return {
-      ok: true,
-      status: res.status,
-      state: { frozen: body.frozen ?? false, reason: body.reason ?? null, actor: body.actor ?? null, changedAt: body.changedAt ?? null },
-      detail: null,
-    };
-  } catch (err) {
-    return { ok: false, status: 502, state: null, detail: `svc-edge did not answer: ${(err as Error).message}` };
+    return decodeFreezeRead(await res.json().catch(() => null), res.status, false);
+  } catch {
+    return freezeUnavailable('unreachable', 'svc-edge did not answer the ledger posting read.', 'admin.ledger_read_unreachable', 502);
   }
 }
 
-/**
- * Freeze or thaw ledger posting.
- *
- * A failure is never reported as a success. An operator who is told the platform
- * is halted when it is not is worse off than one who is told nothing — they walk
- * away from a book that is still accepting writes.
- */
-export async function setFreeze(frozen: boolean, reason?: string): Promise<FreezeResult> {
+/** Retained transport only. This desk has no human/session/approval/original-operation acquisition path. */
+export async function setFreeze(frozen: boolean, reason?: string): Promise<FreezeCommandResult> {
+  const intent = Object.freeze(frozen ? { frozen: true, ...(reason === undefined ? {} : { reason }) } : { frozen: false });
   const cfg = config('treasury');
-  if (!isConfigured(cfg)) return { ok: false, status: 503, state: null, detail: cfg.reason };
-
+  if (!isConfigured(cfg)) return decodeFreezeCommand({ code: 'admin.ledger_unconfigured', detail: cfg.reason }, 503, intent, false);
   try {
     const res = await fetch(`${cfg.edgeUrl}/admin/ledger/${frozen ? 'freeze' : 'unfreeze'}`, {
       method: 'POST',
       headers: { authorization: `Bearer ${cfg.token}`, 'content-type': 'application/json' },
-      // A thaw carries no reason — svc-ledger clears the column, because "why it
-      // is frozen" is meaningless once it is not.
       body: JSON.stringify(frozen ? { reason } : {}),
       cache: 'no-store',
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    const body = (await res.json().catch(() => ({}))) as Partial<FreezeState> & { error?: string; message?: string };
-    if (!res.ok)
-      return { ok: false, status: res.status, state: null, detail: body.error ?? body.message ?? `svc-edge answered ${res.status}` };
-
-    return {
-      ok: true,
-      status: res.status,
-      state: { frozen: body.frozen ?? frozen, reason: body.reason ?? null, actor: body.actor ?? null, changedAt: body.changedAt ?? null },
-      detail: null,
-    };
-  } catch (err) {
-    return { ok: false, status: 502, state: null, detail: `svc-edge did not answer: ${(err as Error).message}` };
+    return decodeFreezeCommand(await res.json().catch(() => null), res.status, intent, false);
+  } catch {
+    return freezeUnresolved(intent, 'The connection ended before the original ledger command outcome was verified.');
   }
 }
