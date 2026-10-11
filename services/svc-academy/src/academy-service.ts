@@ -377,7 +377,17 @@ export class AcademyService {
            WHERE id = ${session.id} AND status = 'scheduled'
           RETURNING *
         `;
-        return rows[0] ? toSession(rows[0]) : await this.session(session.id);
+        const started = rows[0];
+        if (!started) {
+          // This call lost the conditional update, so it did not start the session.
+          // Keep a same-name room only while its stored session is still live.
+          const current = await this.session(session.id);
+          if (streamRoom && (current.status !== 'live' || streamRoom !== current.streamRoom)) {
+            await this.stream.closeRoom(streamRoom);
+          }
+          throw new AcademyError(`A ${current.status} session cannot be started`, 'academy.session_not_live');
+        }
+        return toSession(started);
       },
     );
   }
@@ -394,19 +404,27 @@ export class AcademyService {
     const session = await this.session(input.sessionId);
     this.assertHost(session.hostId, input.hostId, 'session');
 
-    if (session.streamRoom) await this.stream.closeRoom(session.streamRoom);
-
     await transaction(this.sql, async (tx) => {
-      await tx`
-        UPDATE academy.session_attendees SET left_at = ${now} WHERE session_id = ${session.id} AND left_at IS NULL
-      `;
-      await tx`
+      // Publish the terminal state before the external delete. A delayed start
+      // that recreates the same-name room must see ended and compensate it.
+      const ended = await tx<SessionRow[]>`
         UPDATE academy.sessions SET status = 'ended', ends_at = ${now}, updated_at = now()
          WHERE id = ${session.id} AND status IN ('scheduled', 'live')
+        RETURNING *
       `;
+      if (ended[0]) {
+        await tx`
+          UPDATE academy.session_attendees SET left_at = ${now} WHERE session_id = ${session.id} AND left_at IS NULL
+        `;
+      }
     });
 
-    return this.session(session.id);
+    // Keep the stored room and original ended timestamp as the retry identity.
+    // Failed or lost delete acknowledgements cannot reopen the session; an
+    // authorized end retry re-drives cleanup without changing terminal state.
+    const terminal = await this.session(session.id);
+    if (terminal.streamRoom) await this.stream.closeRoom(terminal.streamRoom);
+    return terminal;
   }
 
   /** Live attendees. A COUNT, never a maintained counter. */
@@ -455,7 +473,14 @@ export class AcademyService {
         const decision = await transaction(
           this.sql,
           async (tx) => {
-            await tx`SELECT id FROM academy.sessions WHERE id = ${session.id} FOR UPDATE`;
+            const locked = await tx<Array<{ status: SessionRecord['status'] }>>`
+              SELECT status FROM academy.sessions WHERE id = ${session.id} FOR UPDATE
+            `;
+            // The external gate may finish after end/cancel removed this seat.
+            // Recheck under the existing lock before occupancy or attendee writes.
+            if (locked[0]?.status !== 'live') {
+              throw new AcademyError('That session is not live', 'academy.session_not_live');
+            }
             const occupancy = await this.occupancy(session.id, tx);
 
             const seat = decideSeat(
@@ -801,8 +826,8 @@ export class AcademyService {
 
     // live→frozen: snapshot + status flip MUST be one transaction.
     // Split writes left a crash hole: snapshot exists while status stays live
-    // (scores still write; later freeze ON CONFLICT DO NOTHING keeps the old
-    // snapshot — re-rank under a "frozen" audit that is not the real board).
+    // and scores still write. This freeze stores the standings computed now,
+    // replacing that earlier row, and then marks the season frozen.
     if (current.status === 'live' && input.status === 'frozen') {
       return transaction(
         this.sql,
@@ -866,7 +891,9 @@ export class AcademyService {
           await tx`
             INSERT INTO academy.tournament_freeze_snapshots (season_id, frozen_at, standings)
             VALUES (${input.seasonId}, ${snapshot.frozenAt}, ${tx.json(standingsJson as never)})
-            ON CONFLICT (season_id) DO NOTHING
+            ON CONFLICT (season_id) DO UPDATE
+              SET frozen_at = EXCLUDED.frozen_at,
+                  standings = EXCLUDED.standings
           `;
           const rows = await tx<
             Array<{
@@ -908,9 +935,14 @@ export class AcademyService {
       UPDATE academy.tournament_seasons
          SET status = ${input.status}, updated_at = now()
        WHERE id = ${input.seasonId}
+         AND status = ${current.status}
        RETURNING id, slug, title, status, rules_summary, starts_at, ends_at
     `;
-    return this.toSeason(rows[0]!);
+    const row = rows[0];
+    if (!row) {
+      throw new AcademyError(`Season ${input.seasonId} is no longer ${current.status}`, 'academy.season_invalid');
+    }
+    return this.toSeason(row);
   }
 
   /** Read durable freeze audit snapshot (null when season never frozen on this path). */
@@ -938,22 +970,56 @@ export class AcademyService {
   async setStanding(input: { seasonId: string; userId: string; score: number; now?: Date }): Promise<StandingRecord> {
     this.assertTournamentEnabled();
     const season = await this.season(input.seasonId);
+    const now = input.now ?? new Date();
     try {
       // Live status alone is not enough — calendar window must still be open.
-      assertScoreWindowOpen(season, input.now ?? new Date());
+      assertScoreWindowOpen(season, now);
       assertMayWriteScore(season.status);
       assertScore(input.score);
     } catch (e) {
       this.mapTournamentErr(e);
     }
-    const rows = await this.sql<Array<{ season_id: string; user_id: string; score: number; updated_at: Date }>>`
-      INSERT INTO academy.tournament_standings (season_id, user_id, score, updated_at)
-      VALUES (${input.seasonId}, ${input.userId}, ${input.score}, now())
-      ON CONFLICT (season_id, user_id) DO UPDATE SET score = EXCLUDED.score, updated_at = now()
-      RETURNING season_id, user_id, score, updated_at
-    `;
-    const r = rows[0]!;
-    return { seasonId: r.season_id, userId: r.user_id, score: r.score, updatedAt: r.updated_at };
+    // The read above is not the write gate. Freeze holds this same row from the
+    // snapshot read through the status flip, so the upsert waits, then refuses
+    // unless the stored status is still live.
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const locked = await tx<
+          Array<{
+            id: string;
+            slug: string;
+            title: string;
+            status: SeasonStatus;
+            rules_summary: string;
+            starts_at: Date;
+            ends_at: Date | null;
+          }>
+        >`
+          SELECT id, slug, title, status, rules_summary, starts_at, ends_at
+            FROM academy.tournament_seasons
+           WHERE id = ${input.seasonId}
+           FOR UPDATE
+        `;
+        if (!locked[0]) throw new AcademyError(`Season ${input.seasonId} not found`, 'academy.season_not_found');
+        const lockedSeason = this.toSeason(locked[0]);
+        try {
+          assertScoreWindowOpen(lockedSeason, now);
+          assertMayWriteScore(lockedSeason.status);
+        } catch (e) {
+          this.mapTournamentErr(e);
+        }
+        const rows = await tx<Array<{ season_id: string; user_id: string; score: number; updated_at: Date }>>`
+          INSERT INTO academy.tournament_standings (season_id, user_id, score, updated_at)
+          VALUES (${input.seasonId}, ${input.userId}, ${input.score}, now())
+          ON CONFLICT (season_id, user_id) DO UPDATE SET score = EXCLUDED.score, updated_at = now()
+          RETURNING season_id, user_id, score, updated_at
+        `;
+        const r = rows[0]!;
+        return { seasonId: r.season_id, userId: r.user_id, score: r.score, updatedAt: r.updated_at };
+      },
+      { isolation: 'read committed' },
+    );
   }
 
   /**

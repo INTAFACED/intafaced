@@ -28,6 +28,57 @@ describe('ambassador Stage-2 residency (no pay)', () => {
     expect(decided.decidedBy).toBe('op1');
   });
 
+  it('decide requires a non-blank operator id and stores it trimmed with its case', () => {
+    const desk = new MemoryResidencyDesk();
+    const statement = 'I host weekly risk-first lobbies and can commit six hours a week.';
+    const applied = desk.apply({
+      userId: 'u1',
+      cohortSlug: 'bali-2026',
+      statement,
+      now: NOW,
+    });
+
+    for (const operatorId of ['', ' ', '   ', '\t', '\n', ' \t\n ']) {
+      for (const decision of ['accepted', 'rejected'] as const) {
+        expect(() => desk.decide({ id: applied.id, operatorId, decision, now: NOW })).toThrow(
+          expect.objectContaining({ name: 'ResidencyError', code: 'academy.residency_invalid' }),
+        );
+      }
+      const still = desk.listByUser('u1').find((row) => row.id === applied.id);
+      expect(still).toMatchObject({ status: 'applied', decidedBy: null, decidedAt: null, decisionNote: null });
+    }
+
+    const accepted = desk.decide({
+      id: applied.id,
+      operatorId: '  OpMix  ',
+      decision: 'accepted',
+      note: 'strong host',
+      now: NOW,
+    });
+    expect(accepted.status).toBe('accepted');
+    expect(accepted.decidedBy).toBe('OpMix');
+
+    const pending = desk.apply({
+      userId: 'u2',
+      cohortSlug: 'bali-2026',
+      statement,
+      now: NOW,
+    });
+    const rejected = desk.decide({
+      id: pending.id,
+      operatorId: '  ReJectOp  ',
+      decision: 'rejected',
+      now: NOW,
+    });
+    expect(rejected.status).toBe('rejected');
+    expect(rejected.decidedBy).toBe('ReJectOp');
+
+    expect(() => desk.decide({ id: accepted.id, operatorId: 'OpMix', decision: 'rejected', now: NOW })).toThrow(
+      expect.objectContaining({ name: 'ResidencyError', code: 'academy.residency_not_pending' }),
+    );
+    expect(desk.listByUser('u1').find((row) => row.id === accepted.id)?.decidedBy).toBe('OpMix');
+  });
+
   it('short statement refused', () => {
     const desk = new MemoryResidencyDesk();
     expect(() => desk.apply({ userId: 'u1', cohortSlug: 'xx', statement: 'hi' })).toThrow(ResidencyError);
