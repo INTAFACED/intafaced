@@ -7,6 +7,13 @@ import { uiCopy, uiMessage, type UiMessage } from '../../shared/ui-copy';
 // Authored presentation only. Native symbols, IDs, statuses and monetary values
 // enter through explicit parameters and never become translated wire values.
 const en = {
+  unavailableMarketData: 'Market information unavailable',
+  unavailableMarketErrorDetails: 'View market error',
+  unavailableMarketWorkspace: 'Trading without market data',
+  unavailableMarketOwnerHint: 'You can still inspect your own orders. New orders need a published market and current rules.',
+  unavailableMarketSimulationHint:
+    'Account-wide simulated orders cannot be verified without a published simulated market. No live account orders are used.',
+  unavailableMarketTools: 'Market tools unavailable',
   savedRequestPrivacyBlocked:
     'The saved original remains blocked. Its private fields could not be removed from device storage. Restore writable storage and close other trading tabs, then reload to retry.',
   holdingUseClose: 'Use close in Trade',
@@ -800,6 +807,14 @@ const en = {
 } as const;
 type TradeCopy = ReturnType<typeof defineCopy<typeof en>>;
 const es = {
+  unavailableMarketData: 'Información de mercado no disponible',
+  unavailableMarketErrorDetails: 'Ver error de mercado',
+  unavailableMarketWorkspace: 'Trading sin datos de mercado',
+  unavailableMarketOwnerHint:
+    'Puedes seguir consultando tus propias órdenes. Las órdenes nuevas necesitan un mercado publicado y reglas actuales.',
+  unavailableMarketSimulationHint:
+    'No se pueden verificar las órdenes simuladas de toda la cuenta sin un mercado simulado publicado. No se usan órdenes reales de la cuenta.',
+  unavailableMarketTools: 'Herramientas de mercado no disponibles',
   savedRequestPrivacyBlocked:
     'La solicitud original guardada sigue bloqueada. No se pudieron eliminar sus datos privados del almacenamiento del dispositivo. Restablece el almacenamiento con escritura y cierra otras pestañas de trading; después recarga para reintentar.',
   holdingUseClose: 'Usar el cierre en Trade',
@@ -1618,6 +1633,14 @@ const es = {
   replacementOrderStatus: 'Reemplazo {status}.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
+  unavailableMarketData: 'Informations de marché indisponibles',
+  unavailableMarketErrorDetails: 'Voir l’erreur de marché',
+  unavailableMarketWorkspace: 'Trading sans données de marché',
+  unavailableMarketOwnerHint:
+    'Vous pouvez toujours consulter vos propres ordres. Les nouveaux ordres nécessitent un marché publié et des règles actuelles.',
+  unavailableMarketSimulationHint:
+    'Les ordres simulés de tout le compte ne peuvent pas être vérifiés sans marché simulé publié. Aucun ordre réel du compte n’est utilisé.',
+  unavailableMarketTools: 'Outils de marché indisponibles',
   savedRequestPrivacyBlocked:
     'La demande originale enregistrée reste bloquée. Ses données privées n’ont pas pu être supprimées du stockage de l’appareil. Rétablissez un stockage accessible en écriture et fermez les autres onglets de trading, puis rechargez pour réessayer.',
   holdingUseClose: 'Utiliser la clôture dans Trade',

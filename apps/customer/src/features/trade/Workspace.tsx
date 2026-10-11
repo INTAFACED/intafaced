@@ -427,7 +427,7 @@ export function DeskFrame({
   );
 }
 
-/** No market identity means no chart axes, book rows, private reads or order dispatch. */
+/** Public market failure does not disable independently authorized owner reads. */
 export function UnavailableDesk({
   resource,
   retry,
@@ -442,60 +442,39 @@ export function UnavailableDesk({
   management?: ReactNode;
 }) {
   return (
-    <DeskFrame
-      chart={
-        <section className="trade-chart trade-chart--absent" aria-label={copy.t('marketChartUnavailable')}>
-          <div className="trade-chart-toolbar">
+    <section className="trade-fallback" aria-label={copy.t('unavailableMarketWorkspace')}>
+      <div className="trade-fallback-status">
+        {resource.status === 'loading' ? (
+          <Loading label={<CopyText k="loadingPublishedMarkets" />} />
+        ) : resource.status === 'failed' ? (
+          <>
             <strong>
-              <CopyText k="chart3e5b90" />
+              <CopyText k="unavailableMarketData" />
             </strong>
-            <span className="muted">
-              <CopyText k="publishedMarketRequired" />
-            </span>
-          </div>
-          <div className="trade-absent-content">
-            {resource.status === 'loading' ? (
-              <Loading label={<CopyText k={'loadingPublishedMarkets'} />} />
-            ) : resource.status === 'failed' ? (
+            <details className="trade-fallback-error">
+              <summary>
+                <CopyText k="unavailableMarketErrorDetails" />
+              </summary>
               <Failure result={resource.failure} />
-            ) : (
-              <EmptyState title={title}>
-                {simulation ? copy.t('paperMarketRequiredForWorkspace') : copy.t('choosePublishedSpotMarket')}
-              </EmptyState>
-            )}
-            {resource.status !== 'loading' && (
-              <Button variant="secondary" onClick={retry}>
-                <CopyText k="retryPublishedMarkets" />
-              </Button>
-            )}
-          </div>
-        </section>
-      }
-      book={
-        <section className="trade-book trade-book--absent" aria-label={copy.t('orderBookUnavailable')}>
-          <div className="trade-chart-toolbar">
-            <strong>
-              <CopyText k="orderBook" />
-            </strong>
-          </div>
-          <div className="trade-absent-content">
-            <h3>
-              <CopyText k="liquidityUnavailable" />
-            </h3>
-            <p>
-              <CopyText k="theBookAndRecentTradesNeedAPublishedMarketIdentityPrices" />
-            </p>
-          </div>
-        </section>
-      }
-      management={
-        management ?? (
+            </details>
+          </>
+        ) : (
+          <EmptyState title={title}>
+            {simulation ? copy.t('paperMarketRequiredForWorkspace') : copy.t('choosePublishedSpotMarket')}
+          </EmptyState>
+        )}
+        <p>
+          <CopyText k={simulation ? 'unavailableMarketSimulationHint' : 'unavailableMarketOwnerHint'} />
+        </p>
+        {resource.status !== 'loading' && (
+          <Button variant="secondary" onClick={retry}>
+            <CopyText k="retryPublishedMarkets" />
+          </Button>
+        )}
+      </div>
+      <div className="trade-fallback-management">
+        {management ?? (
           <section className="trade-blotter" aria-label={copy.t('orderManagementUnavailable')}>
-            <div className="trade-chart-toolbar">
-              <strong>
-                <CopyText k="openOrdersHistoryFills" />
-              </strong>
-            </div>
             <div className="trade-absent-content">
               <h3>
                 <CopyText k="orderManagementUnavailable" />
@@ -505,30 +484,47 @@ export function UnavailableDesk({
               </p>
             </div>
           </section>
-        )
-      }
-      ticket={
-        <aside className="trade-ticket-column trade-ticket-column--absent" aria-label={copy.t('orderTicketUnavailable')}>
-          <div className="trade-ticket-body">
-            <h2>{copy.t(simulation ? 'absentSimulatedOrder' : 'absentSpotOrder')}</h2>
-            <p className="muted">
+        )}
+      </div>
+      <details className="trade-fallback-tools">
+        <summary>
+          <CopyText k="unavailableMarketTools" />
+        </summary>
+        <div className="trade-fallback-tools-body">
+          <section aria-label={copy.t('marketChartUnavailable')}>
+            <h3>
+              <CopyText k="chart3e5b90" />
+            </h3>
+            <p>
+              <CopyText k="publishedMarketRequired" />
+            </p>
+          </section>
+          <section aria-label={copy.t('orderBookUnavailable')}>
+            <h3>
+              <CopyText k="orderBook" />
+            </h3>
+            <p>
+              <CopyText k="theBookAndRecentTradesNeedAPublishedMarketIdentityPrices" />
+            </p>
+          </section>
+          <section aria-label={copy.t('orderTicketUnavailable')}>
+            <h3>{copy.t(simulation ? 'absentSimulatedOrder' : 'absentSpotOrder')}</h3>
+            <p>
               <CopyText k="aPublishedMarketIsRequiredToVerifyTradingRulesAndReview" />
             </p>
-            <Field label={<CopyText k={'orderAmount'} />} value="" disabled placeholder={copy.t('marketUnitsUnavailable')} />
-            <Field label={<CopyText k={'limitPrice'} />} value="" disabled placeholder={copy.t('quoteUnitUnavailable')} />
             <Button disabled>
               <CopyText k="reviewOrder" />
             </Button>
-          </div>
-          <section className="trade-funds">
+          </section>
+          <section aria-label={copy.t(simulation ? 'simulationFundsHeading' : 'absentFunds')}>
             <h3>{copy.t(simulation ? 'simulationFundsHeading' : 'absentFunds')}</h3>
             <p>{simulation ? copy.t('paperWorkspaceReadsNoLiveBalances') : copy.t('fundsRequirePublishedMarket')}</p>
             <a className="text-link" href="/money">
               <CopyText k="manageInMoney" />
             </a>
           </section>
-        </aside>
-      }
-    />
+        </div>
+      </details>
+    </section>
   );
 }
