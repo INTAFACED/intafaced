@@ -2038,6 +2038,11 @@ describe('svc-bank money PG-hard', () => {
       await bank.earn.fundPool({ poolId: pool.id, fundingId: 'rescue-1', amount: amt('100') });
       const rescued = await bank.earn.accrue({ poolId: pool.id, at: new Date('2026-03-02T00:00:00Z') });
       expect(formatAmount(rescued.paid)).toBe('1');
+      expect(await availableOf(USER_A, 'USDT')).toBe('1');
+      expect(formatAmount(await bank.earn.reserveBalance(pool.id))).toBe('99');
+      const rescuedRows = await sql`SELECT id FROM bank.interest_accruals WHERE pool_id = ${pool.id}`;
+      expect(rescuedRows).toHaveLength(1);
+      expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
     /**
