@@ -11,10 +11,12 @@ import { isRoutable, type LiquiditySource, type QuoteRequest, type VenueQuote } 
  * prices that have drifted too far from the best available.
  *
  * §28:770 cost model (D26-P1-X3): when `costTermsByVenue` is supplied, ranking
- * uses all-in cost (fee + expected impact + transfer) and unscored latency /
- * missing terms refuse with weight zero. Without that map, behaviour is the
- * fee-from-quote path (backward compatible). The only structural house thumb
- * remains `internalPreferenceBps` (default 5).
+ * uses all-in cost (fee + expected impact + transfer). A terms fee below the
+ * live quote fee is not the fee component — the quote fee is. A higher terms
+ * fee stays on the scored total. Unscored latency / missing terms refuse with
+ * weight zero. Without that map, behaviour is the fee-from-quote path
+ * (backward compatible). The only structural house thumb remains
+ * `internalPreferenceBps` (default 5).
  */
 
 export interface RouteLeg {
@@ -28,7 +30,8 @@ export interface RouteLeg {
    * internally-preferred ranking figure. What we show is what happens.
    *
    * When the §28 complete cost model scored the leg, `allInEffectivePrice` is
-   * the ranking figure (fee + impact + transfer); otherwise it equals this.
+   * the ranking figure (fee + impact + transfer; the quote fee replaces a
+   * lower terms fee). Otherwise it equals this.
    */
   readonly effectivePrice: Amount;
   /** All-in ranking price when cost terms were supplied; else same as effectivePrice. */
@@ -105,8 +108,9 @@ export interface RouterOptions {
   /**
    * §28 complete cost model (D26-P1-X3). When set, every candidate venue must
    * appear with complete terms (fee, expected impact, transfer, graded latency)
-   * or it is refused. Ranking uses all-in bps; missing/unscored → weight 0.
-   * Omit for the legacy fee-from-quote path.
+   * or it is refused. Ranking uses all-in bps. A terms fee below the live
+   * quote fee ranks at the quote fee plus scored impact and transfer.
+   * Missing/unscored → weight 0. Omit for the legacy fee-from-quote path.
    */
   readonly costTermsByVenue?: Readonly<Record<string, SorCostTerms>>;
 }
@@ -284,7 +288,18 @@ export async function planRoute(
         });
         continue;
       }
-      allIn = allInEffectivePrice(quote.price, scored.totalCostBps, request.side);
+      // The leg shows the quote fee. A lower terms fee must not rank this
+      // venue ahead of one whose displayed effective price is better.
+      // Impact and transfer stay the scored terms. A higher terms fee stays.
+      if (scored.feeBps < quote.feeBps) {
+        allIn = allInEffectivePrice(
+          quote.price,
+          quote.feeBps + scored.expectedImpactBps + scored.transferCostBps,
+          request.side,
+        );
+      } else {
+        allIn = allInEffectivePrice(quote.price, scored.totalCostBps, request.side);
+      }
       expectedImpactBps = scored.expectedImpactBps;
       transferCostBps = scored.transferCostBps;
     }
