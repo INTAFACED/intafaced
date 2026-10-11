@@ -14,7 +14,7 @@ import { AcademyService } from './academy-service.js';
 import { AcademyError } from './errors.js';
 import type { HostRightsSource } from './host-rights.js';
 import type { StakeSource } from './stake-source.js';
-import type { StreamProvider } from './stream/provider.js';
+import { LiveKitStreamProvider, type StreamProvider } from './stream/provider.js';
 
 const SESSION_ID = '11111111-1111-4111-8111-111111111111';
 const HOST_ID = '22222222-2222-4222-8222-222222222222';
@@ -195,9 +195,11 @@ describe('startSession room lifetime with PostgreSQL', () => {
     return { academy, session };
   }
 
-  it('closes a room opened after the session ended while openRoom was delayed', async () => {
+  it('closes a delayed room recreation while the end deletion acknowledgement is paused', async () => {
     const bothOpenCallsStarted = deferred<void>();
     const roomCreated = deferred<void>();
+    const firstRoomDeleted = deferred<void>();
+    const acknowledgeFirstClose = deferred<void>();
     const allowRoomOpen = deferred<string>();
     const activeRooms = new Set<string>();
     const closed: string[] = [];
@@ -220,6 +222,10 @@ describe('startSession room lifetime with PostgreSQL', () => {
       closeRoom: async (room) => {
         closed.push(room);
         activeRooms.delete(room);
+        if (closed.length === 1) {
+          firstRoomDeleted.resolve();
+          await acknowledgeFirstClose.promise;
+        }
       },
       credential: async () => ({
         url: 'wss://stream.example',
@@ -236,16 +242,75 @@ describe('startSession room lifetime with PostgreSQL', () => {
     await bothOpenCallsStarted.promise;
     await roomCreated.promise;
     await Promise.any(starting);
-    const ended = await academy.endSession({ sessionId: session.id, hostId: HOST_ID });
-    expect(ended.status).toBe('ended');
-
+    const ending = academy.endSession({ sessionId: session.id, hostId: HOST_ID });
+    await firstRoomDeleted.promise;
     allowRoomOpen.resolve('same-session-room');
-    const results = await Promise.allSettled(starting);
+    let results: PromiseSettledResult<unknown>[];
+    try {
+      results = await Promise.allSettled(starting);
+    } finally {
+      acknowledgeFirstClose.resolve();
+      await ending;
+    }
+    expect((await ending).status).toBe('ended');
 
     expect(results.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
     expect((await academy.session(session.id)).status).toBe('ended');
     expect(closed).toEqual(['same-session-room', 'same-session-room']);
     expect(activeRooms.size).toBe(0);
+  });
+
+  it.each([
+    { deleted: false, retryAcknowledged: true },
+    { deleted: true, retryAcknowledged: true },
+    { deleted: true, retryAcknowledged: false },
+  ])('end retains recoverable terminal state after provider close failure: %j', async ({ deleted, retryAcknowledged }) => {
+    const activeRooms = new Set<string>();
+    let closeCalls = 0;
+    const stream = new LiveKitStreamProvider({
+      url: 'wss://stream.example',
+      apiKey: 'test-key',
+      apiSecret: 'test-secret',
+      fetch: async (_url, init) => {
+        const payload = JSON.parse(String(init?.body)) as { name?: string; room?: string };
+        if (payload.name) {
+          activeRooms.add(payload.name);
+          return new Response(JSON.stringify({ name: payload.name }), { status: 200 });
+        }
+        const room = payload.room!;
+        closeCalls += 1;
+        if (closeCalls === 1) {
+          if (deleted) activeRooms.delete(room);
+          throw new Error(deleted ? 'delete acknowledgement lost' : 'delete transport failed');
+        }
+        if (!retryAcknowledged) return new Response(JSON.stringify({ code: 'not_found' }), { status: 404 });
+        activeRooms.delete(room);
+        return new Response('{}', { status: 200 });
+      },
+    });
+    const { academy, session } = await scheduledSession(`retry-close-${deleted}-${retryAcknowledged}`, stream);
+    const started = await academy.startSession({ sessionId: session.id, hostId: HOST_ID });
+    await db.sql`INSERT INTO academy.session_attendees (session_id, user_id) VALUES (${session.id}, ${HOST_ID})`;
+    const endedAt = new Date('2026-10-11T01:00:00.000Z');
+    await expect(academy.endSession({ sessionId: session.id, hostId: HOST_ID, now: endedAt })).rejects.toThrow(/delete/);
+    const terminal = await academy.session(session.id);
+    expect(terminal.status).toBe('ended');
+    expect(terminal.endsAt).toEqual(endedAt);
+    expect(terminal.streamRoom).toBe(started.streamRoom);
+    expect(await academy.occupancy(session.id)).toBe(0);
+    await expect(academy.startSession({ sessionId: session.id, hostId: HOST_ID })).rejects.toMatchObject({
+      code: 'academy.session_not_live',
+    });
+    const retry = academy.endSession({ sessionId: session.id, hostId: HOST_ID, now: new Date('2026-10-11T02:00:00.000Z') });
+    if (retryAcknowledged) await retry;
+    else await expect(retry).rejects.toMatchObject({ code: 'academy.stream_unavailable' });
+    const retried = await academy.session(session.id);
+    expect(retried.status).toBe('ended');
+    expect(retried.endsAt).toEqual(endedAt);
+    expect(activeRooms.size).toBe(0);
+    expect(closeCalls).toBe(2);
+    await expect(academy.endSession({ sessionId: session.id, hostId: SESSION_ID })).rejects.toMatchObject({ code: 'academy.not_host' });
+    expect(closeCalls).toBe(2);
   });
 
   it('keeps the shared provider room open for the start that won the live update', async () => {

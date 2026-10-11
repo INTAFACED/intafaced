@@ -404,19 +404,27 @@ export class AcademyService {
     const session = await this.session(input.sessionId);
     this.assertHost(session.hostId, input.hostId, 'session');
 
-    if (session.streamRoom) await this.stream.closeRoom(session.streamRoom);
-
     await transaction(this.sql, async (tx) => {
-      await tx`
-        UPDATE academy.session_attendees SET left_at = ${now} WHERE session_id = ${session.id} AND left_at IS NULL
-      `;
-      await tx`
+      // Publish the terminal state before the external delete. A delayed start
+      // that recreates the same-name room must see ended and compensate it.
+      const ended = await tx<SessionRow[]>`
         UPDATE academy.sessions SET status = 'ended', ends_at = ${now}, updated_at = now()
          WHERE id = ${session.id} AND status IN ('scheduled', 'live')
+        RETURNING *
       `;
+      if (ended[0]) {
+        await tx`
+          UPDATE academy.session_attendees SET left_at = ${now} WHERE session_id = ${session.id} AND left_at IS NULL
+        `;
+      }
     });
 
-    return this.session(session.id);
+    // Keep the stored room and original ended timestamp as the retry identity.
+    // Failed or lost delete acknowledgements cannot reopen the session; an
+    // authorized end retry re-drives cleanup without changing terminal state.
+    const terminal = await this.session(session.id);
+    if (terminal.streamRoom) await this.stream.closeRoom(terminal.streamRoom);
+    return terminal;
   }
 
   /** Live attendees. A COUNT, never a maintained counter. */
