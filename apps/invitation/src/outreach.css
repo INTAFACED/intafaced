@@ -126,7 +126,7 @@ body {
   mask-image: linear-gradient(180deg, transparent, #000 24%, #000 80%, transparent);
 }
 .is-welcome .invitation-scene img {
-  opacity: 0.48;
+  opacity: 0.72;
   object-position: 58% center;
 }
 .invitation-scene::after {
@@ -136,6 +136,20 @@ body {
   background:
     linear-gradient(90deg, #090a0b, rgba(9, 10, 11, 0.48) 25%, transparent 58%, rgba(9, 10, 11, 0.24) 86%, #090a0b),
     linear-gradient(0deg, #090a0b, transparent 35%, transparent 82%, rgba(9, 10, 11, 0.4));
+}
+.is-welcome .invitation-scene::after {
+  background:
+    radial-gradient(ellipse 420px 280px at 50% 50%, rgba(9, 10, 11, 0.72) 66%, transparent 100%),
+    linear-gradient(
+      90deg,
+      #090a0b,
+      rgba(9, 10, 11, 0.26) 20%,
+      rgba(9, 10, 11, 0.04) 44%,
+      rgba(9, 10, 11, 0.04) 66%,
+      rgba(9, 10, 11, 0.24) 84%,
+      #090a0b
+    ),
+    linear-gradient(0deg, #090a0b, rgba(9, 10, 11, 0.22) 20%, transparent 42%, transparent 70%, rgba(9, 10, 11, 0.24) 84%, #090a0b);
 }
 .invitation-header {
   position: absolute;
@@ -521,15 +535,68 @@ body {
   font-size: 15px;
 }
 .completion-mark {
-  display: grid;
-  place-items: center;
+  display: block;
   width: 48px;
   height: 48px;
-  border-radius: 50%;
-  border: 1px solid #627c3d;
-  background: #172010;
   color: var(--primary);
   margin-bottom: 25px;
+}
+.completion-outline {
+  opacity: 0.24;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+.completion-check {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+.completion-enter .completion-outline {
+  animation: invitation-completion-outline 700ms ease-out both;
+}
+.completion-enter .completion-check {
+  animation: invitation-completion-check 420ms 200ms ease-out both;
+}
+.completion-enter .completion-receipt-copy {
+  animation: invitation-completion-copy 360ms 340ms ease-out both;
+}
+@keyframes invitation-completion-outline {
+  0% {
+    stroke-dashoffset: 1;
+    opacity: 0.8;
+  }
+  45% {
+    stroke-dashoffset: 0;
+    opacity: 0.6;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0.24;
+  }
+}
+@keyframes invitation-completion-check {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes invitation-completion-copy {
+  from {
+    opacity: 0.55;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .completion-enter .completion-outline,
+  .completion-enter .completion-check,
+  .completion-enter .completion-receipt-copy {
+    animation: none;
+  }
 }
 .outreach-complete li {
   display: flex;
@@ -599,12 +666,18 @@ body {
     opacity: 0.14;
   }
   .is-welcome .invitation-scene img {
-    opacity: 0.42;
+    opacity: 0.64;
   }
   .invitation-scene::after {
     background:
       linear-gradient(180deg, #090a0b 3%, transparent 32%, rgba(9, 10, 11, 0.35) 53%, #090a0b 78%),
       linear-gradient(90deg, rgba(9, 10, 11, 0.62), transparent 70%, rgba(9, 10, 11, 0.2));
+  }
+  .is-welcome .invitation-scene::after {
+    background:
+      radial-gradient(ellipse 300px 230px at 50% 48%, rgba(9, 10, 11, 0.72) 66%, transparent 100%),
+      linear-gradient(180deg, #090a0b 3%, rgba(9, 10, 11, 0.14) 24%, rgba(9, 10, 11, 0.06) 40%, rgba(9, 10, 11, 0.24) 58%, #090a0b 78%),
+      linear-gradient(90deg, #090a0b, rgba(9, 10, 11, 0.16) 20%, transparent 56%, rgba(9, 10, 11, 0.12) 82%, #090a0b);
   }
   .outreach-welcome {
     padding: 140px 24px 112px;

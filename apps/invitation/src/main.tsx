@@ -1,5 +1,6 @@
 import React, { useEffect, useReducer, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { useReducedMotion } from 'motion/react';
 import { createJourney } from './journey';
 import { HaloInput, HaloTextarea } from './components/halo-input';
 import { HaloField, HaloFieldLabel, HaloFieldContent, HaloFieldDescription, HaloFieldError } from './components/halo-field';
@@ -52,6 +53,17 @@ function TextField({ id, label, help, multiline, hideLabel, ...props }: any) {
 function App() {
   const [, refresh] = useReducer((value) => value + 1, 0);
   const [vm] = useState<any>(() => createJourney(refresh));
+  const reduceMotion = useReducedMotion();
+  const [completionReveal, setCompletionReveal] = useState<string | null>(null);
+  const completionPlayed = useRef(new Set<string>());
+  const freshCompletionIntent = useRef(false);
+  useEffect(() => {
+    if (!completionReveal) return;
+    // CSS finishes at 700ms. Leave room for animationend delivery before
+    // this defensive cleanup so a timer cannot cancel the final frame.
+    const timer = window.setTimeout(() => setCompletionReveal(null), 1000);
+    return () => window.clearTimeout(timer);
+  }, [completionReveal]);
   const welcomePlayed = useRef(false);
   const [entryReveal, setEntryReveal] = useState(true);
   useEffect(() => {
@@ -61,14 +73,30 @@ function App() {
     }, 700);
     return () => window.clearTimeout(timer);
   }, []);
+  vm.onCompletionConfirmed = () => {
+    if (!freshCompletionIntent.current || !vm.complete || vm.error) return;
+    const receiptKey = `${vm.draft.submissionId}:${vm.draft.revision}`;
+    if (completionPlayed.current.has(receiptKey)) return;
+    completionPlayed.current.add(receiptKey);
+    if (!reduceMotion) setCompletionReveal(receiptKey);
+  };
   const contactValue = (key: string, value: unknown) => {
     vm.contact[key] = value;
     refresh();
   };
   const act = (key: string, ...args: unknown[]) => {
+    // A second native click can arrive before React paints the disabled state.
+    // Keep the first confirmed submission's presentation intent intact.
+    if (key === 'saveAnswers' && vm.busy) return;
     welcomePlayed.current = true;
     setEntryReveal(false);
-    void vm.act(key, ...args);
+    const wasComplete = !!vm.complete;
+    freshCompletionIntent.current = key === 'saveAnswers' && !wasComplete && !vm.busy && !vm.state.local?.answer;
+    if (key !== 'saveAnswers') setCompletionReveal(null);
+    void vm.act(key, ...args).then(() => {
+      freshCompletionIntent.current = false;
+      if (vm.error) setCompletionReveal(null);
+    });
   };
   const begin = () => {
     welcomePlayed.current = true;
@@ -528,9 +556,10 @@ function App() {
                         ? 'complete'
                         : 'contact'
               }
-              duration={0.2}
-              offset={4}
-              blur="2px"
+              {...(vm.complete ? { initial: false } : {})}
+              duration={vm.complete ? 0 : 0.2}
+              offset={vm.complete ? 0 : 4}
+              blur={vm.complete ? '0px' : '2px'}
             >
               {vm.resumeAvailable && (!vm.draft || vm.interestChangeRequested) ? (
                 <div className="outreach-resume">
@@ -718,23 +747,43 @@ function App() {
                   </details>
                 </>
               ) : vm.complete ? (
-                <div className="outreach-complete">
-                  <div className="completion-mark" aria-hidden="true">
-                    ✓
+                <div
+                  className={`outreach-complete${completionReveal === `${vm.draft.submissionId}:${vm.draft.revision}` ? ' completion-enter' : ''}`}
+                  data-completion-state={completionReveal ? 'entering' : 'static'}
+                  onAnimationEnd={(event) => {
+                    if (event.animationName === 'invitation-completion-copy') setCompletionReveal(null);
+                  }}
+                >
+                  <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+                    Your enquiry is saved.
+                  </span>
+                  <svg className="completion-mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+                    <circle className="completion-outline" cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="1" pathLength="1" />
+                    <path
+                      className="completion-check"
+                      d="M15 24.5 21.5 31 33 17.5"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      pathLength="1"
+                    />
+                  </svg>
+                  <div className="completion-receipt-copy">
+                    <p>
+                      {vm.draft.contact.interests.includes('investor')
+                        ? 'The team reviews enquiries before arranging calls.'
+                        : 'The team will review your enquiry.'}{' '}
+                      We’ll use {vm.draft.contact.email} for any follow-up.
+                    </p>
+                    <ul>
+                      {vm.draft.contact.interests.map((key: string) => (
+                        <li key={key}>
+                          {vm.audienceLabel(key)} <span>Saved ✓</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                  <p>
-                    {vm.draft.contact.interests.includes('investor')
-                      ? 'The team reviews enquiries before arranging calls.'
-                      : 'The team will review your enquiry.'}{' '}
-                    We’ll use {vm.draft.contact.email} for any follow-up.
-                  </p>
-                  <ul>
-                    {vm.draft.contact.interests.map((key: string) => (
-                      <li key={key}>
-                        {vm.audienceLabel(key)} <span>Saved ✓</span>
-                      </li>
-                    ))}
-                  </ul>
                   <button type="button" className="outreach-text-button" onClick={() => act('forget')}>
                     Forget this draft on my device
                   </button>
@@ -748,7 +797,7 @@ function App() {
             </BlurFade>
             {vm.draft && !vm.interestChangeRequested && (
               <>
-                {(vm.complete || vm.isReview) && <p className="outreach-small saved-summary">✓ {vm.savedStageMessage}</p>}
+                {vm.isReview && <p className="outreach-small saved-summary">✓ {vm.savedStageMessage}</p>}
                 <details className="saved-contact-details">
                   <summary>View your saved details</summary>
                   <dl>

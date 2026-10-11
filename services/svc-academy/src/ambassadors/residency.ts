@@ -105,11 +105,15 @@ export class MemoryResidencyDesk {
     if (row.status !== 'applied') {
       throw new ResidencyError(`Application is ${row.status}`, 'academy.residency_not_pending');
     }
+    const operatorId = input.operatorId.trim();
+    if (!operatorId) {
+      throw new ResidencyError('operatorId required', 'academy.residency_invalid');
+    }
     const next: ResidencyApplication = {
       ...row,
       status: input.decision,
       decidedAt: input.now ?? new Date(),
-      decidedBy: input.operatorId.trim() || 'operator',
+      decidedBy: operatorId,
       decisionNote: (input.note ?? '').trim().slice(0, 500) || null,
     };
     this.rows.set(next.id, next);

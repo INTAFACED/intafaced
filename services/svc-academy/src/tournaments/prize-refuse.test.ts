@@ -62,6 +62,26 @@ describe('tournament Stage-3 IFC prizes refuse-closed', () => {
     expect(() => assertNoPrizeAttachment({ poolBalance: '0' })).toThrow(TournamentError);
   });
 
+  it('assertNoPrizeAttachment rejects amount, ifcAmount, and a prize nested in standings', () => {
+    const cases = [{ amount: '1000.00' }, { ifcAmount: '10.00' }, { standings: [{ prize: '10.00' }] }] as const;
+    for (const payload of cases) {
+      let thrown: unknown;
+      try {
+        assertNoPrizeAttachment(payload);
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(TournamentError);
+      expect((thrown as TournamentError).code).toBe('academy.season_invalid');
+    }
+    expect(() =>
+      assertNoPrizeAttachment({
+        seasonId: 's1',
+        standings: [{ seasonId: 's1', userId: 'u1', score: 3, rank: 1 }],
+      }),
+    ).not.toThrow();
+  });
+
   it('status line is honest — no ledger, no invent IFC, unset code greppable', () => {
     expect(prizeRefuseStatusLine()).toBe(
       `prizes=refuse_closed code=${PRIZE_REFUSE_CODE} unset=${PRIZE_POOL_UNSET_CODE} ledger=0 inventIfc=0`,
