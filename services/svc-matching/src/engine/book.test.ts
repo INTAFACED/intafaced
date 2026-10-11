@@ -29,6 +29,10 @@ interface OrderSpec {
   price?: string;
   stopPrice?: string;
   tif?: TimeInForce;
+  expireAt?: string;
+  minQty?: string;
+  reduceOnly?: boolean;
+  ocoSiblingId?: string;
 }
 
 function order(spec: OrderSpec): EngineOrder {
@@ -42,6 +46,10 @@ function order(spec: OrderSpec): EngineOrder {
     price: spec.price === undefined ? null : A(spec.price),
     stopPrice: spec.stopPrice === undefined ? null : A(spec.stopPrice),
     tif: spec.tif ?? 'GTC',
+    ...(spec.expireAt !== undefined ? { expireAt: spec.expireAt } : {}),
+    ...(spec.minQty !== undefined ? { minQty: A(spec.minQty) } : {}),
+    ...(spec.reduceOnly ? { reduceOnly: true } : {}),
+    ...(spec.ocoSiblingId ? { ocoSiblingId: spec.ocoSiblingId } : {}),
   };
 }
 
@@ -895,5 +903,378 @@ describe('native amend', () => {
     const down = book2.amend({ orderId: 'keep', expectedVersion: 1, qty: A('1') });
     expect(down.priority).toBe('retained');
     expect(formatAmount(down.resting!.remaining)).toBe('1');
+  });
+
+  const EARLY = '2026-08-25T12:00:00.000Z';
+  const LATE = '2026-08-25T18:00:00.000Z';
+  const BEFORE = new Date('2026-08-25T11:00:00.000Z');
+  const BETWEEN = new Date('2026-08-25T15:00:00.000Z');
+
+  it('a retained amend stores an earlier expireAt and that deadline is the one expiry uses', () => {
+    const book = new OrderBook('BTC/USDT');
+    const rested = book.submit(order({ id: 'gtd', account: 'a', side: 'buy', qty: '1', price: '100', tif: 'GTD', expireAt: LATE }), BEFORE);
+    expect(rested.accepted).toBe(true);
+
+    const amended = book.amend({ orderId: 'gtd', expectedVersion: 1, expireAt: EARLY });
+
+    expect(amended.accepted).toBe(true);
+    expect(amended.priority).toBe('retained');
+    expect(amended.sequence).toBe(1);
+    expect(formatAmount(amended.resting!.remaining)).toBe('1');
+    expect(book.toState().bids[0]!.orders[0]!.expireAt).toBe(EARLY);
+
+    const take = book.submit(order({ id: 'taker', account: 'taker', side: 'sell', qty: '1', price: '100' }), BETWEEN);
+    expect(take.fills).toHaveLength(0);
+    expect(take.cancellations.map((c) => [c.orderId, c.reason])).toEqual([['gtd', 'expired']]);
+    expect(book.toState().bids).toEqual([]);
+  });
+
+  it('a retained amend that omits expireAt does not invent one', () => {
+    const book = new OrderBook('BTC/USDT');
+    seed(book, { id: 'gtc', account: 'a', side: 'buy', qty: '2', price: '100' });
+
+    const amended = book.amend({ orderId: 'gtc', expectedVersion: 1, qty: A('1') });
+
+    expect(amended.priority).toBe('retained');
+    expect(book.toState().bids[0]!.orders[0]!.expireAt).toBeUndefined();
+    expect(book.toState().bids[0]!.orders[0]!.remaining).toBe('1');
+  });
+
+  it('a retained amend that omits expireAt keeps the stored GTD deadline', () => {
+    const book = new OrderBook('BTC/USDT');
+    book.submit(order({ id: 'gtd', account: 'a', side: 'buy', qty: '2', price: '100', tif: 'GTD', expireAt: LATE }), BEFORE);
+
+    const amended = book.amend({ orderId: 'gtd', expectedVersion: 1, qty: A('1') });
+
+    expect(amended.priority).toBe('retained');
+    expect(book.toState().bids[0]!.orders[0]!.expireAt).toBe(LATE);
+    expect(book.toState().bids[0]!.orders[0]!.remaining).toBe('1');
+
+    const take = book.submit(order({ id: 'taker', account: 'taker', side: 'sell', qty: '1', price: '100' }), BETWEEN);
+    expect(take.fills).toHaveLength(1);
+    expect(take.fills[0]!.makerOrderId).toBe('gtd');
+  });
+
+  it('a retained stop amend stores an earlier expireAt and that deadline is the one expiry uses', () => {
+    const book = new OrderBook('BTC/USDT');
+    const rested = book.submit(
+      order({ id: 'stop', account: 'a', type: 'stop', side: 'sell', qty: '2', stopPrice: '90', tif: 'GTD', expireAt: LATE }),
+      BEFORE,
+    );
+    expect(rested.accepted).toBe(true);
+    expect(rested.resting?.kind).toBe('stop');
+
+    const amended = book.amend({ orderId: 'stop', expectedVersion: 1, expireAt: EARLY });
+
+    expect(amended.accepted).toBe(true);
+    expect(amended.priority).toBe('retained');
+    expect(amended.sequence).toBe(1);
+    expect(formatAmount(amended.resting!.remaining)).toBe('2');
+    expect(book.toState().stops[0]!.expireAt).toBe(EARLY);
+    expect(book.toState().stops[0]!.qty).toBe('2');
+
+    const later = book.submit(order({ id: 'other', account: 'b', side: 'buy', qty: '1', price: '100' }), BETWEEN);
+    expect(later.cancellations.map((c) => [c.orderId, c.reason])).toEqual([['stop', 'expired']]);
+    expect(book.toState().stops).toEqual([]);
+  });
+
+  it('a retained stop amend that omits expireAt keeps the stored deadline', () => {
+    const book = new OrderBook('BTC/USDT');
+    book.submit(
+      order({ id: 'stop', account: 'a', type: 'stop', side: 'sell', qty: '2', stopPrice: '90', tif: 'GTD', expireAt: LATE }),
+      BEFORE,
+    );
+
+    const amended = book.amend({ orderId: 'stop', expectedVersion: 1, qty: A('1') });
+
+    expect(amended.priority).toBe('retained');
+    expect(book.toState().stops[0]!.expireAt).toBe(LATE);
+    expect(book.toState().stops[0]!.qty).toBe('1');
+  });
+
+  it('a retained amend to PO stays post-only when a later amend omits tif', () => {
+    const book = new OrderBook('BTC/USDT');
+    seed(book, { id: 'ask', account: 'mm', side: 'sell', qty: '1', price: '100' });
+    seed(book, { id: 'bid', account: 'a', side: 'buy', qty: '2', price: '99' });
+
+    const po = book.amend({ orderId: 'bid', expectedVersion: 1, tif: 'PO' });
+    expect(po.accepted).toBe(true);
+    expect(po.priority).toBe('retained');
+    expect(book.toState().bids[0]!.orders[0]!.postOnly).toBe(true);
+
+    const down = book.amend({ orderId: 'bid', expectedVersion: 2, qty: A('1') });
+    expect(down.accepted).toBe(true);
+    expect(down.priority).toBe('retained');
+    expect(book.toState().bids[0]!.orders[0]!.postOnly).toBe(true);
+    expect(book.toState().bids[0]!.orders[0]!.remaining).toBe('1');
+
+    const cross = book.amend({ orderId: 'bid', expectedVersion: 3, price: A('100') });
+    expect(cross.accepted).toBe(false);
+    expect(cross.rejected?.code).toBe('post_only_would_cross');
+    expect(cross.fills).toHaveLength(0);
+    expect(book.toState().asks[0]!.orders[0]!.remaining).toBe('1');
+    expect(book.toState().bids[0]!.orders[0]!.postOnly).toBe(true);
+    expect(formatAmount(book.bestBid()!)).toBe('99');
+  });
+
+  it('a retained amend below the stored minQty is refused and does not rest a broken maker', () => {
+    const book = new OrderBook('BTC/USDT');
+    const rested = book.submit(order({ id: 'maker', account: 'mm', side: 'sell', qty: '10', price: '100', minQty: '5' }));
+    expect(rested.accepted).toBe(true);
+
+    const shrunk = book.amend({ orderId: 'maker', expectedVersion: 1, qty: A('4') });
+
+    expect(shrunk.accepted).toBe(false);
+    expect(shrunk.rejected?.code).toBe('min_qty_exceeds_qty');
+    expect(shrunk.fills).toHaveLength(0);
+    expect(book.toState().asks[0]!.orders[0]!.remaining).toBe('10');
+    expect(book.toState().asks[0]!.orders[0]!.minQty).toBe('5');
+    expect(book.toState().asks[0]!.orders[0]!.version).toBe(1);
+
+    const take = book.submit(order({ id: 'taker', account: 'taker', side: 'buy', qty: '5', price: '100' }));
+    expect(take.fills).toHaveLength(1);
+    expect(take.fills[0]!.makerOrderId).toBe('maker');
+    expect(formatAmount(take.fills[0]!.qty)).toBe('5');
+    expect(take.resting).toBeNull();
+    expect(book.toState().asks[0]!.orders[0]!.remaining).toBe('5');
+  });
+
+  it('a retained amend down to the stored minQty keeps priority and can still fill', () => {
+    const book = new OrderBook('BTC/USDT');
+    book.submit(order({ id: 'maker', account: 'mm', side: 'sell', qty: '10', price: '100', minQty: '5' }));
+    seed(book, { id: 'behind', account: 'b', side: 'sell', qty: '1', price: '100' });
+
+    const shrunk = book.amend({ orderId: 'maker', expectedVersion: 1, qty: A('5') });
+
+    expect(shrunk.accepted).toBe(true);
+    expect(shrunk.priority).toBe('retained');
+    expect(shrunk.sequence).toBe(1);
+    expect(book.toState().asks[0]!.orders[0]!.orderId).toBe('maker');
+    expect(book.toState().asks[0]!.orders[0]!.remaining).toBe('5');
+
+    const take = book.submit(order({ id: 'taker', account: 'taker', side: 'buy', qty: '5', price: '100' }));
+    expect(take.fills).toHaveLength(1);
+    expect(take.fills[0]!.makerOrderId).toBe('maker');
+    expect(formatAmount(take.fills[0]!.qty)).toBe('5');
+    expect(book.toState().asks[0]!.orders[0]!.orderId).toBe('behind');
+  });
+
+  /** Desk buys 2 from mm at 100. Position is the fill, long 2. */
+  function longTwo(book: OrderBook): void {
+    seed(book, { id: 'liq', account: 'mm', side: 'sell', qty: '2', price: '100' });
+    const open = book.submit(order({ id: 'open', account: 'desk', side: 'buy', qty: '2', price: '100' }));
+    expect(open.fills).toHaveLength(1);
+    expect(book.toState().positions).toEqual([
+      { accountId: 'desk', qty: '2' },
+      { accountId: 'mm', qty: '-2' },
+    ]);
+  }
+
+  it('refuses a reduce-only stop amend whose qty would increase the position, and does not park it', () => {
+    const book = new OrderBook('BTC/USDT');
+    longTwo(book);
+    const rested = book.submit(
+      order({ id: 'stop', account: 'desk', type: 'stop', side: 'sell', qty: '1', stopPrice: '90', reduceOnly: true }),
+    );
+    expect(rested.accepted).toBe(true);
+    expect(book.toState().stops[0]).toMatchObject({ orderId: 'stop', qty: '1', stopPrice: '90', version: 1 });
+
+    const amended = book.amend({ orderId: 'stop', expectedVersion: 1, qty: A('3') });
+
+    expect(amended.accepted).toBe(false);
+    expect(amended.rejected?.code).toBe('would_increase_position');
+    expect(amended.fills).toHaveLength(0);
+    expect(amended.triggered).toEqual([]);
+    expect(book.toState().stops[0]).toMatchObject({ orderId: 'stop', qty: '1', stopPrice: '90', version: 1, reduceOnly: true });
+    expect(book.toState().positions).toEqual([
+      { accountId: 'desk', qty: '2' },
+      { accountId: 'mm', qty: '-2' },
+    ]);
+  });
+
+  it('refuses a triggered reduce-only stop amend whose qty would increase the position, and does not fill or flip it', () => {
+    const book = new OrderBook('BTC/USDT');
+    longTwo(book);
+    seed(book, { id: 'bid', account: 'bid', side: 'buy', qty: '3', price: '100' });
+    book.submit(order({ id: 'stop', account: 'desk', type: 'stop', side: 'sell', qty: '1', stopPrice: '90', reduceOnly: true }));
+
+    const amended = book.amend({ orderId: 'stop', expectedVersion: 1, qty: A('3'), stopPrice: A('100') });
+
+    expect(amended.accepted).toBe(false);
+    expect(amended.rejected?.code).toBe('would_increase_position');
+    expect(amended.fills).toHaveLength(0);
+    expect(amended.triggered).toEqual([]);
+    expect(book.toState().stops[0]).toMatchObject({ orderId: 'stop', qty: '1', stopPrice: '90', version: 1, reduceOnly: true });
+    expect(book.toState().bids[0]!.orders[0]).toMatchObject({ orderId: 'bid', remaining: '3' });
+    expect(book.toState().positions).toEqual([
+      { accountId: 'desk', qty: '2' },
+      { accountId: 'mm', qty: '-2' },
+    ]);
+  });
+
+  it('amends a reduce-only stop to a qty that still reduces the position', () => {
+    const book = new OrderBook('BTC/USDT');
+    longTwo(book);
+    book.submit(order({ id: 'stop', account: 'desk', type: 'stop', side: 'sell', qty: '2', stopPrice: '90', reduceOnly: true }));
+
+    const amended = book.amend({ orderId: 'stop', expectedVersion: 1, qty: A('1') });
+
+    expect(amended.accepted).toBe(true);
+    expect(amended.priority).toBe('retained');
+    expect(amended.fills).toHaveLength(0);
+    expect(book.toState().stops[0]).toMatchObject({ orderId: 'stop', qty: '1', stopPrice: '90', version: 2, reduceOnly: true });
+    expect(book.toState().positions).toEqual([
+      { accountId: 'desk', qty: '2' },
+      { accountId: 'mm', qty: '-2' },
+    ]);
+  });
+
+  it('amends a reduce-only stop up to the net without parking a flip or filling', () => {
+    const book = new OrderBook('BTC/USDT');
+    longTwo(book);
+    book.submit(order({ id: 'stop', account: 'desk', type: 'stop', side: 'sell', qty: '1', stopPrice: '90', reduceOnly: true }));
+
+    const amended = book.amend({ orderId: 'stop', expectedVersion: 1, qty: A('2') });
+
+    expect(amended.accepted).toBe(true);
+    expect(amended.priority).toBe('lost');
+    expect(amended.fills).toHaveLength(0);
+    expect(book.toState().stops).toHaveLength(1);
+    expect(book.toState().stops[0]).toMatchObject({ orderId: 'stop', qty: '2', stopPrice: '90', reduceOnly: true });
+    expect(book.toState().positions).toEqual([
+      { accountId: 'desk', qty: '2' },
+      { accountId: 'mm', qty: '-2' },
+    ]);
+  });
+
+  it('amends a reduce-only stop onto a trigger that reduces the position and does not flip it', () => {
+    const book = new OrderBook('BTC/USDT');
+    longTwo(book);
+    seed(book, { id: 'bid', account: 'bid', side: 'buy', qty: '1', price: '100' });
+    book.submit(order({ id: 'stop', account: 'desk', type: 'stop', side: 'sell', qty: '1', stopPrice: '90', reduceOnly: true }));
+
+    const amended = book.amend({ orderId: 'stop', expectedVersion: 1, stopPrice: A('100') });
+
+    expect(amended.accepted).toBe(true);
+    expect(amended.fills).toHaveLength(1);
+    expect(formatAmount(amended.fills[0]!.qty)).toBe('1');
+    expect(book.toState().stops).toEqual([]);
+    expect(book.toState().positions).toEqual([
+      { accountId: 'bid', qty: '1' },
+      { accountId: 'desk', qty: '1' },
+      { accountId: 'mm', qty: '-2' },
+    ]);
+  });
+});
+
+describe('OCO sibling cancel', () => {
+  const TP = 'oco-tp';
+  const SL = 'oco-sl';
+
+  function liveIds(book: OrderBook): string[] {
+    const state = book.toState();
+    return [
+      ...state.bids.flatMap((level) => level.orders.map((o) => o.orderId)),
+      ...state.asks.flatMap((level) => level.orders.map((o) => o.orderId)),
+      ...state.stops.map((s) => s.orderId),
+    ].sort();
+  }
+
+  it('a stop_limit that triggers and rests with zero fills cancels its OCO sibling', () => {
+    const book = new OrderBook('BTC/USDT');
+    seed(book, { id: 'bid-print', account: 'mm', side: 'buy', qty: '1', price: '100' });
+    const printed = book.submit(order({ id: 'print', account: 'taker', side: 'sell', qty: '1', price: '100' }));
+    expect(formatAmount(printed.fills[0]!.price)).toBe('100');
+
+    seed(book, { id: 'bid-90', account: 'mm', side: 'buy', qty: '2', price: '90' });
+    const tp = book.submit(order({ id: TP, account: 'desk', side: 'sell', qty: '1', price: '110', ocoSiblingId: SL }));
+    expect(tp.accepted).toBe(true);
+    expect(tp.fills).toHaveLength(0);
+
+    const parked = book.submit(
+      order({
+        id: SL,
+        account: 'desk',
+        type: 'stop_limit',
+        side: 'sell',
+        qty: '1',
+        price: '100',
+        stopPrice: '95',
+        ocoSiblingId: TP,
+      }),
+    );
+    expect(parked.accepted).toBe(true);
+    expect(parked.fills).toHaveLength(0);
+    expect(parked.resting?.kind).toBe('stop');
+
+    const crash = book.submit(order({ id: 'crash', account: 'taker', side: 'sell', qty: '1', price: '90' }));
+
+    expect(crash.fills).toHaveLength(1);
+    expect(crash.fills[0]!.makerOrderId).toBe('bid-90');
+    expect(formatAmount(crash.fills[0]!.price)).toBe('90');
+    expect(formatAmount(crash.fills[0]!.qty)).toBe('1');
+    expect(crash.triggered.map((t) => t.orderId)).toEqual([SL]);
+
+    const triggered = crash.triggered[0]!;
+    expect(triggered.fills).toHaveLength(0);
+    expect(triggered.resting).toMatchObject({ kind: 'book', orderId: SL });
+    expect(formatAmount(triggered.resting!.remaining)).toBe('1');
+    expect(formatAmount(triggered.resting!.price)).toBe('100');
+    expect(triggered.cancellations.map((c) => [c.orderId, c.reason])).toContainEqual([TP, 'oco_sibling_filled']);
+    const pulled = triggered.cancellations.find((c) => c.orderId === TP);
+    expect(formatAmount(pulled!.remainingQty)).toBe('1');
+    expect(liveIds(book)).toEqual(['bid-90', SL].sort());
+    expect(book.depth(50).asks).toEqual([['100', '1']]);
+  });
+
+  it('a sweep that trades one linked order pulls the sibling before the other leg trades', () => {
+    const book = new OrderBook('BTC/USDT');
+    const near = book.submit(order({ id: 'oco-near', account: 'desk', side: 'sell', qty: '1', price: '100', ocoSiblingId: 'oco-far' }));
+    const mid = book.submit(order({ id: 'mid', account: 'mm', side: 'sell', qty: '1', price: '101' }));
+    const far = book.submit(order({ id: 'oco-far', account: 'desk', side: 'sell', qty: '1', price: '102', ocoSiblingId: 'oco-near' }));
+    expect(near.fills).toHaveLength(0);
+    expect(mid.fills).toHaveLength(0);
+    expect(far.fills).toHaveLength(0);
+    expect(liveIds(book)).toEqual(['mid', 'oco-far', 'oco-near']);
+
+    const sweep = book.submit(order({ id: 'buy', account: 'taker', side: 'buy', qty: '3', price: '102' }));
+
+    expect(sweep.fills.map((f) => f.makerOrderId)).toEqual(['oco-near', 'mid']);
+    expect(fillPrices(sweep)).toEqual(['100', '101']);
+    expect(fillQtys(sweep)).toEqual(['1', '1']);
+    expect(sweep.fills.map((f) => f.makerOrderId)).not.toContain('oco-far');
+    expect(sweep.cancellations.map((c) => [c.orderId, c.reason])).toContainEqual(['oco-far', 'oco_sibling_filled']);
+    const pulled = sweep.cancellations.find((c) => c.orderId === 'oco-far');
+    expect(formatAmount(pulled!.remainingQty)).toBe('1');
+    expect(formatAmount(sweep.resting!.remaining)).toBe('1');
+    expect(liveIds(book)).toEqual(['buy']);
+    expect(book.depth(50).asks).toEqual([]);
+  });
+
+  it('a leg that fills still cancels its OCO sibling', () => {
+    const book = new OrderBook('BTC/USDT');
+    seed(book, { id: 'bid', account: 'mm', side: 'buy', qty: '1', price: '110' });
+    book.submit(order({ id: SL, account: 'desk', type: 'stop', side: 'sell', qty: '1', stopPrice: '90', ocoSiblingId: TP }));
+    const tp = book.submit(order({ id: TP, account: 'desk', side: 'sell', qty: '1', price: '110', ocoSiblingId: SL }));
+
+    expect(tp.fills).toHaveLength(1);
+    expect(tp.fills[0]!.makerOrderId).toBe('bid');
+    expect(formatAmount(tp.fills[0]!.qty)).toBe('1');
+    expect(formatAmount(tp.fills[0]!.price)).toBe('110');
+    expect(tp.cancellations.map((c) => [c.orderId, c.reason])).toEqual([[SL, 'oco_sibling_filled']]);
+    expect(formatAmount(tp.cancellations[0]!.remainingQty)).toBe('1');
+    expect(liveIds(book)).toEqual([]);
+  });
+
+  it('resting a limit leg leaves its live OCO sibling on the book', () => {
+    const book = new OrderBook('BTC/USDT');
+    const sl = book.submit(order({ id: SL, account: 'desk', type: 'stop', side: 'sell', qty: '1', stopPrice: '90', ocoSiblingId: TP }));
+    const tp = book.submit(order({ id: TP, account: 'desk', side: 'sell', qty: '1', price: '110', ocoSiblingId: SL }));
+
+    expect(sl.accepted).toBe(true);
+    expect(tp.accepted).toBe(true);
+    expect(tp.fills).toHaveLength(0);
+    expect(tp.cancellations.filter((c) => c.reason === 'oco_sibling_filled')).toEqual([]);
+    expect(liveIds(book)).toEqual([SL, TP].sort());
   });
 });

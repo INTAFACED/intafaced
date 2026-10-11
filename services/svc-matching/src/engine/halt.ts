@@ -37,15 +37,17 @@ export function dualControlRefuse(
   operatorId: string | null,
   confirmOperatorId: string | null,
 ): { readonly code: typeof MISSING_OPERATOR; readonly message: string } | null {
-  const missing = operatorRefuse(operatorId);
+  const actor = readOperatorId({ operatorId });
+  const confirm = readConfirmOperatorId({ confirmOperatorId });
+  const missing = operatorRefuse(actor);
   if (missing) return missing;
-  if (confirmOperatorId === null) {
+  if (confirm === null) {
     return {
       code: MISSING_OPERATOR,
       message: 'confirming operator identity is required; the engine does not invent a second caller',
     };
   }
-  if (confirmOperatorId === operatorId) {
+  if (confirm === actor) {
     return {
       code: MISSING_OPERATOR,
       message: 'confirming operator must be a distinct identity; the engine does not invent a second caller',

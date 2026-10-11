@@ -20,6 +20,7 @@ import { installSurveillancePersist } from './engine/surveillance-persist.js';
 import { installRulebookRefuse } from './engine/rulebook-refuse.js';
 import { installLiquidity } from './engine/liquidity.js';
 import { FileJournal } from './engine/journal.js';
+import { shutdownMatching } from './shutdown.js';
 import { registerMetrics } from './metrics.js';
 import { registerRoutes } from './router.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
@@ -175,14 +176,15 @@ if (restingAtBoot > 0) {
 
 // Drain rather than drop: an in-flight submission finishes, its events publish,
 // and the journal file descriptor closes cleanly before the process exits.
+// A rejected app.close() or bus.close() still closes the journal and exits.
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
-    void (async () => {
-      engine.setEnabled(false);
-      await app.close();
-      await bus.close();
-      journal.close();
-      process.exit(0);
-    })();
+    void shutdownMatching({
+      engine,
+      app,
+      bus,
+      journal,
+      exit: process.exit,
+    });
   });
 }

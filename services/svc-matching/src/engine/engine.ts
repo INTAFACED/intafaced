@@ -1,9 +1,10 @@
-import { ZERO, formatAmount } from '@intafaced/ledger-client/money';
+import { ZERO, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import type { MarketLifecycleAdmissionProof } from '@intafaced/exchange-contract';
 import type { EventBus, PayloadOf } from '@intafaced/events';
 import { publishedEngineL2Limit } from '../l2-limit.js';
 import { withEngineSpan, withSpan } from '../tracing.js';
 import { OrderBook } from './book.js';
+import { unsupportedAmendField } from './amend-priority.js';
 import './trailing-stop.js';
 import './option.js';
 import { flattenCloseOrder, netPositionOf, positionFlatResult, type ClosePositionCommand } from './close-position.js';
@@ -23,7 +24,7 @@ import {
   replayReduceOnlyMarkets,
   wouldOpenOrIncrease,
 } from './reduce-only-market.js';
-import { isPostOnlySubmit, postOnlyMarketSubmitResult, replayPostOnlyMarkets } from './post-only-market.js';
+import { isPostOnlySubmit, postOnlyAmendRefusal, postOnlyMarketSubmitResult, replayPostOnlyMarkets } from './post-only-market.js';
 import { prelaunchAmendResult, prelaunchSubmitResult, replayPrelaunchMarkets } from './prelaunch.js';
 import {
   delistedAmendResult,
@@ -385,7 +386,7 @@ export class MatchingEngine {
   }
 
   snapshot(): EngineSnapshot {
-    return snapshotAll(this.books, this.journal.length);
+    return snapshotAll(this.books, this.journal.length, this.deadSessions);
   }
 
   serialize(): string {
@@ -443,10 +444,17 @@ export class MatchingEngine {
           return { ...duplicate, fillCount: 0, rejectCode: duplicate.rejected?.code };
         }
 
-        const at = this.clock().toISOString();
+        // One instant for the journal and the expiry check. A second read can
+        // reject already_expired while `at` is still early enough for replay to match.
+        const expiryNow = this.expiryClock ? this.expiryClock() : null;
+        if ((order.tif === 'GTD' || order.tif === 'GTT') && expiryNow == null) {
+          const result = clockMissing(order.orderId);
+          return { ...result, fillCount: 0, rejectCode: result.rejected?.code };
+        }
+        const at = (expiryNow ?? this.clock()).toISOString();
         this.journal.append({ kind: 'submit', marketId, at, order: toWire(order, lifecycleProof) });
 
-        const result = this.book(marketId).submit(order, this.expiryClock ? this.expiryClock() : null);
+        const result = this.book(marketId).submit(order, expiryNow);
         this.dropIfNeverTraded(marketId);
         await this.emit(this.eventsForSubmit(marketId, order.orderId, result, at));
         await this.maybeSnapshot();
@@ -557,44 +565,66 @@ export class MatchingEngine {
     });
   }
 
+  /**
+   * Refusal before the journal and the book. Null when the book would take the command.
+   * Omit `book` to read the live book. Pass a copy to preview an atomic group.
+   */
+  amendRefusal(marketId: MarketId, cmd: EngineAmend, book?: OrderBook | null): AmendResult | null {
+    if (!this.enabled) return disabledAmend(cmd.orderId);
+    if (this.venueHalted) return venueHaltedAmendResult(cmd.orderId);
+    if (this.halted.has(marketId)) return haltedAmendResult(marketId, cmd.orderId);
+    if (this.expiredMarkets.has(marketId)) return expiredAmendResult(marketId, cmd.orderId);
+    if (this.delistedMarkets.has(marketId)) return delistedAmendResult(marketId, cmd.orderId);
+    if (this.prelaunchMarkets.has(marketId)) return prelaunchAmendResult(marketId, cmd.orderId);
+    if (this.reduceOnlyMarkets.has(marketId)) {
+      const positionBook = book === undefined ? this.existingBook(marketId) : book;
+      const live = positionBook ? restingIdentity(positionBook, cmd.orderId) : null;
+      // A price or tif amend omits qty and the book re-executes the resting size.
+      const qty = cmd.qty ?? live?.qty;
+      if (
+        live &&
+        qty !== undefined &&
+        wouldOpenOrIncrease(positionBook, { orderId: cmd.orderId, accountId: live.accountId, side: live.side, qty })
+      ) {
+        return reduceOnlyMarketAmendResult(marketId, cmd.orderId);
+      }
+    }
+    if (this.postOnlyMarkets.has(marketId)) {
+      const seen = book === undefined ? this.existingBook(marketId) : book;
+      const postOnlyRefuse = postOnlyAmendRefusal(seen, marketId, cmd);
+      if (postOnlyRefuse) return postOnlyRefuse;
+    }
+    const inFlightAmend = this.refuseInFlightAmend(cmd.orderId);
+    if (inFlightAmend) return inFlightAmend;
+    const existing = book === undefined ? this.existingBook(marketId) : book;
+    if (!existing) {
+      return {
+        accepted: false,
+        orderId: cmd.orderId,
+        sequence: null,
+        version: null,
+        priority: null,
+        fills: [],
+        resting: null,
+        rejected: { code: 'order_not_found', message: `order ${cmd.orderId} is not live in ${marketId}` },
+        cancellations: [],
+        triggered: [],
+      };
+    }
+    return null;
+  }
+
   async amend(marketId: MarketId, cmd: EngineAmend, lifecycleProof?: MarketLifecycleAdmissionProof): Promise<AmendResult> {
     return withEngineSpan(
       'matching.amend',
       { marketId, orderId: cmd.orderId, tif: cmd.tif },
       async (): Promise<AmendResult & { fillCount: number; rejectCode?: string }> => {
-        if (!this.enabled) {
-          const result = disabledAmend(cmd.orderId);
-          return { ...result, fillCount: 0, rejectCode: result.rejected?.code };
+        const blocked = this.amendRefusal(marketId, cmd);
+        if (blocked) return { ...blocked, fillCount: 0, rejectCode: blocked.rejected?.code };
+        const unsupported = unsupportedAmendField(cmd);
+        if (unsupported) {
+          return { ...disabledAmend(cmd.orderId), rejected: unsupported, fillCount: 0, rejectCode: unsupported.code };
         }
-        if (this.venueHalted) {
-          const result = venueHaltedAmendResult(cmd.orderId);
-          return { ...result, fillCount: 0, rejectCode: result.rejected?.code };
-        }
-        if (this.halted.has(marketId)) {
-          const result = haltedAmendResult(marketId, cmd.orderId);
-          return { ...result, fillCount: 0, rejectCode: result.rejected?.code };
-        }
-        if (this.expiredMarkets.has(marketId)) {
-          const result = expiredAmendResult(marketId, cmd.orderId);
-          return { ...result, fillCount: 0, rejectCode: result.rejected?.code };
-        }
-        if (this.delistedMarkets.has(marketId)) {
-          const result = delistedAmendResult(marketId, cmd.orderId);
-          return { ...result, fillCount: 0, rejectCode: result.rejected?.code };
-        }
-        if (this.prelaunchMarkets.has(marketId)) {
-          const result = prelaunchAmendResult(marketId, cmd.orderId);
-          return { ...result, fillCount: 0, rejectCode: result.rejected?.code };
-        }
-        if (this.reduceOnlyMarkets.has(marketId) && cmd.qty !== undefined) {
-          const live = this.restingOrders(marketId).find((row) => row.orderId === cmd.orderId);
-          if (live && wouldOpenOrIncrease(this.existingBook(marketId), { accountId: live.accountId, side: live.side, qty: cmd.qty })) {
-            const result = reduceOnlyMarketAmendResult(marketId, cmd.orderId);
-            return { ...result, fillCount: 0, rejectCode: result.rejected?.code };
-          }
-        }
-        const inFlightAmend = this.refuseInFlightAmend(cmd.orderId);
-        if (inFlightAmend) return { ...inFlightAmend, fillCount: 0, rejectCode: inFlightAmend.rejected?.code };
 
         const existing = this.existingBook(marketId);
         if (!existing) {
@@ -614,7 +644,10 @@ export class MatchingEngine {
           };
         }
 
-        const at = this.clock().toISOString();
+        // One instant for the journal and the expiry sweep. A second read can
+        // cancel on one clock and journal an earlier `at` that replay would not match.
+        const expiryNow = this.expiryClock ? this.expiryClock() : null;
+        const at = (expiryNow ?? this.clock()).toISOString();
         this.beginInFlight(marketId, cmd.orderId, 'amend', at);
         this.journal.append({
           kind: 'amend',
@@ -626,7 +659,7 @@ export class MatchingEngine {
           lifecycleProof,
         });
 
-        const result = existing.amend(cmd);
+        const result = existing.amend(cmd, expiryNow);
         this.endInFlight(cmd.orderId);
         this.dropIfNeverTraded(marketId);
         await this.emit(this.eventsForAmend(marketId, result, at));
@@ -1050,10 +1083,9 @@ export class MatchingEngine {
   }
 
   private eventsForAmend(marketId: MarketId, result: AmendResult, at: string): PendingEvent[] {
-    if (!result.accepted) return [];
     const events: PendingEvent[] = [];
-    for (const fill of result.fills) events.push(filledEvent(marketId, fill, at));
     for (const cancellation of result.cancellations) events.push(cancelledEvent(marketId, cancellation));
+    for (const fill of result.fills) events.push(filledEvent(marketId, fill, at));
     for (const triggered of result.triggered as readonly TriggerOutcome[]) {
       for (const fill of triggered.fills) events.push(filledEvent(marketId, fill, at));
       for (const cancellation of triggered.cancellations) events.push(cancelledEvent(marketId, cancellation));
@@ -1136,6 +1168,36 @@ function disabled(orderId: OrderId): SubmitResult {
     cancellations: [],
     triggered: [],
   };
+}
+
+function clockMissing(orderId: OrderId): SubmitResult {
+  return {
+    accepted: false,
+    sequence: null,
+    fills: [],
+    resting: null,
+    rejected: {
+      code: 'engine_clock_missing',
+      message: `GTD/GTT expires on the engine clock; refuse when that clock is missing — order ${orderId} not journalled`,
+    },
+    cancellations: [],
+    triggered: [],
+  };
+}
+
+function restingIdentity(book: OrderBook, orderId: OrderId): { accountId: string; side: OrderSide; qty: Amount } | null {
+  const state = book.toState();
+  for (const level of state.bids) {
+    const row = level.orders.find((order) => order.orderId === orderId);
+    if (row) return { accountId: row.accountId, side: 'buy', qty: parseAmount(row.remaining) };
+  }
+  for (const level of state.asks) {
+    const row = level.orders.find((order) => order.orderId === orderId);
+    if (row) return { accountId: row.accountId, side: 'sell', qty: parseAmount(row.remaining) };
+  }
+  const stop = state.stops.find((row) => row.orderId === orderId);
+  if (stop) return { accountId: stop.accountId, side: stop.side, qty: parseAmount(stop.qty) };
+  return null;
 }
 
 function disabledAmend(orderId: OrderId): AmendResult {

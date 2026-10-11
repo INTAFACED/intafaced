@@ -193,6 +193,44 @@ describe('OCO — cancel both siblings', () => {
     expect(liveIds(book)).toEqual([PARENT]);
   });
 
+  it('does not invent a sibling id when only one side is named', () => {
+    const book = new OrderBook('BTC/USDT');
+    const coincidental = `${PARENT}:tp`;
+    book.submit(order({ id: coincidental, side: 'sell', qty: '1', price: '110' }));
+    book.submit(order({ id: SL, side: 'buy', qty: '1', price: '90' }));
+
+    const oneSide = order({
+      id: PARENT,
+      side: 'sell',
+      qty: '1',
+      oco: true,
+      cancel: true,
+      stopLossOrderId: SL,
+    });
+    expect(readOcoPair(book, oneSide)).toBeNull();
+
+    const pulled = book.submit(oneSide);
+    expect(pulled.accepted).toBe(false);
+    expect(pulled.rejected?.code).toBe('order_not_found');
+    expect(pulled.cancellations).toHaveLength(0);
+    expect(liveIds(book)).toEqual([SL, coincidental].sort());
+
+    const linked = book.submit(
+      order({
+        id: PARENT,
+        side: 'sell',
+        qty: '1',
+        oco: true,
+        cancel: true,
+        takeProfitOrderId: coincidental,
+        stopLossOrderId: SL,
+      }),
+    );
+    expect(linked.accepted).toBe(true);
+    expect(linked.cancellations.map((c) => c.orderId).sort()).toEqual([SL, coincidental].sort());
+    expect(liveIds(book)).toEqual([]);
+  });
+
   it('read helpers treat a missing pair as not set', () => {
     const book = new OrderBook('BTC/USDT');
     expect(wantsOcoCancel({ cancel: true } as EngineOrder & { cancel?: boolean })).toBe(false);

@@ -17,6 +17,7 @@ const RO = '33333333-3333-4333-8333-333333333333';
 const FLAT = '44444444-4444-4444-8444-444444444444';
 const CLOSE = '55555555-5555-4555-8555-555555555555';
 const TAKER = '66666666-6666-4666-8666-666666666666';
+const RO2 = '77777777-7777-4777-8777-777777777777';
 
 function order(spec: {
   id: string;
@@ -104,6 +105,27 @@ describe('reduce-only — rest if it shrinks the position', () => {
 
     expect(result.accepted).toBe(false);
     expect(result.rejected?.code).toBe('would_increase_position');
+    expect(liveIds(book)).toEqual([]);
+  });
+
+  it('two reduce-only sells that each equal the long do not both fill', () => {
+    const book = new OrderBook('BTC/USDT');
+    openLong(book);
+
+    const first = book.submit(order({ id: RO, side: 'sell', qty: '2', price: '101', reduceOnly: true }));
+    expect(first.accepted).toBe(true);
+    expect(first.fills).toHaveLength(0);
+
+    const second = book.submit(order({ id: RO2, side: 'sell', qty: '2', price: '102', reduceOnly: true }));
+    const lift = book.submit(order({ id: TAKER, account: 'buyer', side: 'buy', qty: '4', price: '102', tif: 'IOC' }));
+
+    const desk = book.toState().positions?.find((p) => p.accountId === 'desk');
+    expect(desk).toBeUndefined();
+    expect(lift.fills).toHaveLength(1);
+    expect(formatAmount(lift.fills[0]!.qty)).toBe('2');
+    expect(second.accepted).toBe(false);
+    expect(second.rejected?.code).toBe('would_increase_position');
+    expect(second.fills).toHaveLength(0);
     expect(liveIds(book)).toEqual([]);
   });
 

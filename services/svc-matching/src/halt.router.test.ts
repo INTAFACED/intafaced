@@ -196,6 +196,90 @@ describe('POST /markets/:marketId/halt', () => {
     await app.close();
   });
 
+  it('GET depth and GET /markets name reduce-only and post-only, and leave a market in neither mode off both', async () => {
+    const { app } = await mount();
+    const open = 'SOL-USDT';
+    await post(app, `/markets/${MARKET}/orders`, submitBody(MARKET, { orderId: '11111111-1111-4111-8111-111111111111' }));
+    await post(app, `/markets/${OTHER}/orders`, submitBody(OTHER, { orderId: '22222222-2222-4222-8222-222222222222' }));
+    await post(app, `/markets/${open}/orders`, submitBody(open, { orderId: '33333333-3333-4333-8333-333333333333' }));
+
+    const reduce = await post(app, `/markets/${MARKET}/reduce-only`, {
+      operatorId: 'ops-1',
+      confirmOperatorId: 'ops-2',
+      approvalId: 'appr-1',
+      operationId: 'op-1',
+    });
+    expect(reduce.statusCode).toBe(200);
+    expect(reduce.json().accepted).toBe(true);
+
+    const postOnly = await post(app, `/markets/${OTHER}/post-only`, {
+      operatorId: 'ops-1',
+      confirmOperatorId: 'ops-2',
+      approvalId: 'appr-2',
+      operationId: 'op-2',
+    });
+    expect(postOnly.statusCode).toBe(200);
+    expect(postOnly.json().accepted).toBe(true);
+
+    const reduceDepth = await app.inject({ method: 'GET', url: `/markets/${MARKET}/depth?limit=50` });
+    expect(reduceDepth.statusCode).toBe(200);
+    expect(reduceDepth.json()).toMatchObject({
+      marketId: MARKET,
+      reduceOnly: true,
+      postOnly: false,
+      halted: false,
+      prelaunch: false,
+      expired: false,
+      delisted: false,
+      venueHalted: false,
+    });
+    const reduceL3 = await app.inject({ method: 'GET', url: `/markets/${MARKET}/depth/l3?limit=50` });
+    expect(reduceL3.statusCode).toBe(200);
+    expect(reduceL3.json()).toMatchObject({ marketId: MARKET, reduceOnly: true, postOnly: false });
+
+    const postDepth = await app.inject({ method: 'GET', url: `/markets/${OTHER}/depth?limit=50` });
+    expect(postDepth.statusCode).toBe(200);
+    expect(postDepth.json()).toMatchObject({
+      marketId: OTHER,
+      reduceOnly: false,
+      postOnly: true,
+      halted: false,
+      venueHalted: false,
+    });
+    const postL3 = await app.inject({ method: 'GET', url: `/markets/${OTHER}/depth/l3?limit=50` });
+    expect(postL3.statusCode).toBe(200);
+    expect(postL3.json()).toMatchObject({ marketId: OTHER, reduceOnly: false, postOnly: true });
+
+    const openDepth = await app.inject({ method: 'GET', url: `/markets/${open}/depth?limit=50` });
+    expect(openDepth.statusCode).toBe(200);
+    expect(openDepth.json()).toMatchObject({
+      marketId: open,
+      reduceOnly: false,
+      postOnly: false,
+    });
+    const openL3 = await app.inject({ method: 'GET', url: `/markets/${open}/depth/l3?limit=50` });
+    expect(openL3.statusCode).toBe(200);
+    expect(openL3.json()).toMatchObject({ marketId: open, reduceOnly: false, postOnly: false });
+
+    const listed = await app.inject({ method: 'GET', url: '/markets' });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json()).toMatchObject({
+      venueHalted: false,
+      halted: [],
+      prelaunch: [],
+      expired: [],
+      delisted: [],
+      reduceOnly: [MARKET],
+      postOnly: [OTHER],
+    });
+    expect(listed.json().markets).toEqual(expect.arrayContaining([MARKET, OTHER, open]));
+    expect(listed.json().reduceOnly).not.toContain(open);
+    expect(listed.json().postOnly).not.toContain(open);
+    expect(listed.json().reduceOnly).not.toContain(OTHER);
+    expect(listed.json().postOnly).not.toContain(MARKET);
+    await app.close();
+  });
+
   it('missing operator is 400 — no invented caller', async () => {
     const { app, engine } = await mount();
     const res = await post(app, `/markets/${MARKET}/halt`, {});
