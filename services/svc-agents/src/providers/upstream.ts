@@ -210,26 +210,38 @@ export class UpstreamModelProvider implements ModelProvider {
     const response = await this.send(this.completionsPath, body, request.signal, 'text/event-stream');
     if (!response.body) throw new ProviderError('Upstream returned no stream body', this.id, true, response.status);
 
-    // Input and output arrive on different events. message_start carries the
-    // input count (on the event, or under message.usage). message_delta carries
-    // the output count. Hold each side until both are present. A missing output
-    // count is a refusal — do not fill it with 0. Embeddings still pass
-    // partial:true; a completion stream does not.
+    // Start usage includes a provisional output count. Only the input count
+    // belongs to the eventual completion. Output comes from cumulative final
+    // usage, and message_stop confirms completion. EOF is not that confirmation.
     let inputTokens: number | undefined;
     let outputTokens: number | undefined;
+    let completed = false;
     let stopReason: StopReason | undefined;
 
-    const absorbUsage = (raw: unknown): void => {
-      if (!raw || typeof raw !== 'object') return;
+    const absorbUsage = (raw: unknown, final: boolean): void => {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        if (final) throw new ProviderError('Upstream stream reported invalid final usage', this.id, true);
+        return;
+      }
       const usage = raw as UpstreamUsage;
       const input = usage.input_tokens ?? usage.prompt_tokens;
       const output = usage.output_tokens ?? usage.completion_tokens;
       if (input !== undefined) inputTokens = input;
-      if (output !== undefined) outputTokens = output;
+      if (final) {
+        // Validate every final usage frame. A malformed later cumulative count
+        // cannot silently fall back to an earlier, smaller reported count.
+        outputTokens = readUsage({ input_tokens: inputTokens, output_tokens: output }, this.id).outputTokens;
+      }
     };
 
-    for await (const event of readServerSentEvents(response.body)) {
+    for await (const event of readServerSentEvents(response.body, this.id)) {
       const type = typeof event.type === 'string' ? event.type : '';
+
+      if (type === 'error') {
+        // HTTP headers succeeded, but the completion did not. Never echo the
+        // upstream error payload or return provisional usage as a final bill.
+        throw new ProviderError('Upstream stream reported an error', this.id, true);
+      }
 
       if (type === 'content_block_delta') {
         const delta = (event.delta ?? {}) as { text?: string };
@@ -238,22 +250,23 @@ export class UpstreamModelProvider implements ModelProvider {
       }
 
       if (type === 'message_start') {
-        absorbUsage(event.usage);
+        absorbUsage(event.usage, false);
         const message = event.message;
-        if (message && typeof message === 'object') absorbUsage((message as { usage?: unknown }).usage);
+        if (message && typeof message === 'object') absorbUsage((message as { usage?: unknown }).usage, false);
       }
 
       if (type === 'message_delta' || type === 'message_stop') {
-        absorbUsage(event.usage);
+        if (type === 'message_delta' || event.usage !== undefined) absorbUsage(event.usage, true);
         const reason = (event.delta as { stop_reason?: string } | undefined)?.stop_reason;
         if (reason) stopReason = STOP_REASONS[reason] ?? 'end';
+        if (type === 'message_stop') completed = true;
       }
     }
 
     // A stream that never reported both counts cannot be metered. Same rule as
     // the non-streaming path: fail loudly rather than bill zero.
-    if (inputTokens === undefined || outputTokens === undefined) {
-      throw new ProviderError('Upstream stream ended without reporting token usage', this.id, true);
+    if (!completed || inputTokens === undefined || outputTokens === undefined) {
+      throw new ProviderError('Upstream stream ended without confirmed final token usage', this.id, true);
     }
 
     const usage = readUsage({ input_tokens: inputTokens, output_tokens: outputTokens }, this.id);
@@ -382,7 +395,7 @@ export function readUsage(raw: UpstreamUsage | undefined, providerId: string, op
 }
 
 /** Minimal SSE reader: `data:` lines carrying JSON. A blank line terminates an event. */
-async function* readServerSentEvents(body: ReadableStream<Uint8Array>): AsyncIterable<Record<string, unknown>> {
+async function* readServerSentEvents(body: ReadableStream<Uint8Array>, providerId: string): AsyncIterable<Record<string, unknown>> {
   const decoder = new TextDecoder();
   const reader = body.getReader();
   let buffer = '';
@@ -409,11 +422,14 @@ async function* readServerSentEvents(body: ReadableStream<Uint8Array>): AsyncIte
         const payload = line.slice(5).trim();
         if (!payload || payload === '[DONE]') continue;
         try {
-          yield JSON.parse(payload) as Record<string, unknown>;
+          const event: unknown = JSON.parse(payload);
+          if (event === null || typeof event !== 'object' || Array.isArray(event)) throw new Error('invalid event');
+          yield event as Record<string, unknown>;
         } catch {
-          // A malformed frame is skipped rather than killing the stream; the
-          // terminal usage frame is what the caller actually needs, and it is
-          // validated separately.
+          // Skipping an unreadable final usage/error event could turn an older
+          // provisional count into a successful completion. Refuse without
+          // exposing the payload; the missing evidence is not a zero bill.
+          throw new ProviderError('Upstream stream contained an invalid event', providerId, true);
         }
       }
     }
