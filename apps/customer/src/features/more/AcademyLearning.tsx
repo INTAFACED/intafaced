@@ -4,7 +4,7 @@ import { useApi, useSession } from '../session/session';
 import { currentPreferences, usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button, Panel } from '../../shared/ui';
-import { Details, Limit, Read, Select, presentActionFailure, useAction } from './common';
+import { Details, Limit, Read, Select, presentActionFailure, type ActionControls } from './common';
 import { t as copyText, Text } from './copy';
 import { Workbook } from './Workbook';
 import { academyLearningCopy as copy } from './academy-learning-copy';
@@ -116,7 +116,7 @@ export function AcademyLearning({
   initialPath?: string;
   certId: string;
   chooseCertificate: (id: string) => void;
-  action: ReturnType<typeof useAction>;
+  action: ActionControls;
 }) {
   const api = useApi(),
     { userId } = useSession(),

@@ -340,6 +340,30 @@ export function createPersonalPayApi(
     parseAmount(a.fiatAmount) === parseAmount(b.fiatAmount) &&
     parseAmount(a.price) === parseAmount(b.price);
   const sameTerms = (a: s.Trade, b: s.Trade) => sameImmutableTerms(a, b) && a.status === b.status && a.deadlineAt === b.deadlineAt;
+  async function currentOffer(offerId: string, signal?: AbortSignal) {
+    const denied = signedIn();
+    if (denied) return denied;
+    if (!p2pCurrent()) return p2pDeparted();
+    const result = await api.query('p2p', 'offers.get', { offerId }, s.offerSchema, { signal });
+    if (!p2pCurrent()) return p2pDeparted();
+    if (result.ok && result.data.id.toLowerCase() !== offerId.toLowerCase())
+      return payRefusal('p2pOfferProjectionMismatch', { code: 'pay.offer_projection_invalid', reason: 'invalid_response' });
+    return result;
+  }
+  const sameOfferTerms = (a: s.Offer, b: s.Offer) =>
+    a.id.toLowerCase() === b.id.toLowerCase() &&
+    a.makerId === b.makerId &&
+    a.side === b.side &&
+    a.asset === b.asset &&
+    a.fiatCurrency === b.fiatCurrency &&
+    a.priceType === b.priceType &&
+    parseAmount(a.price) === parseAmount(b.price) &&
+    parseAmount(a.minAmount) === parseAmount(b.minAmount) &&
+    parseAmount(a.maxAmount) === parseAmount(b.maxAmount) &&
+    parseAmount(a.remainingAmount) === parseAmount(b.remainingAmount) &&
+    a.status === b.status &&
+    a.terms === b.terms &&
+    JSON.stringify(a.methods) === JSON.stringify(b.methods);
   async function spaces(signal?: AbortSignal) {
     const denied = signedIn();
     if (denied) return denied;
@@ -400,7 +424,7 @@ export function createPersonalPayApi(
     },
     offers: (input: { asset?: string; fiatCurrency?: string; side?: 'buy' | 'sell'; limit: number }, signal?: AbortSignal) =>
       signedIn() ? Promise.resolve(signedIn()!) : api.query('p2p', 'offers.list', input, z.array(s.offerSchema), { signal }),
-    offer: (offerId: string, signal?: AbortSignal) => api.query('p2p', 'offers.get', { offerId }, s.offerSchema, { signal }),
+    offer: currentOffer,
     trades: (limit: number, signal?: AbortSignal) =>
       signedIn() ? Promise.resolve(signedIn()!) : api.query('p2p', 'trades.list', { limit }, z.array(s.tradeSchema), { signal }),
     trade: currentTrade,
@@ -424,8 +448,15 @@ export function createPersonalPayApi(
         return payRefusal('p2pPaymentProjectionMismatch', { code: 'pay.trade_destination_mismatch', reason: 'invalid_response' });
       return result;
     },
-    reputation: (counterparty: string, signal?: AbortSignal) =>
-      api.query('p2p', 'reputation.get', { userId: counterparty }, s.reputationSchema, { signal }),
+    reputation: async (counterparty: string, signal?: AbortSignal) => {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      const result = await api.query('p2p', 'reputation.get', { userId: counterparty }, s.reputationSchema, { signal });
+      // The contract has no returned subject ID: association belongs to this
+      // exact requested UUID and current owner/URL view, never a guessed field.
+      return p2pCurrent() ? result : p2pDeparted();
+    },
     standing: (signal?: AbortSignal) => api.query('p2p', 'merchants.me', undefined, s.p2pStandingSchema.nullable(), { signal }),
     apiAccess: (signal?: AbortSignal) => api.query('p2p', 'merchants.apiAccess', undefined, s.p2pApiAccessSchema, { signal }),
     applyProgramme: () =>
@@ -443,20 +474,44 @@ export function createPersonalPayApi(
         p2pCurrent,
       ),
     dispute: (tradeId: string, signal?: AbortSignal) => api.query('p2p', 'disputes.get', { tradeId }, s.disputeSchema, { signal }),
-    async manageOffer(offerId: string, action: 'pause' | 'resume' | 'close') {
+    async manageOffer(
+      offerId: string,
+      action: 'pause' | 'resume' | 'close',
+      review?: { expected: s.Offer; current: () => boolean; recoveryCurrent?: () => boolean },
+    ) {
       const denied = signedIn();
       if (denied) return denied;
-      const latest = await api.query('p2p', 'offers.get', { offerId }, s.offerSchema);
-      if (!p2pCurrent()) return p2pDeparted();
+      const current = () => p2pCurrent() && (review?.current() ?? true);
+      if (!current()) return p2pDeparted();
+      const latest = await currentOffer(offerId);
+      if (!current()) return p2pDeparted();
       if (!latest.ok) return latest;
-      if (latest.data.id.toLowerCase() !== offerId.toLowerCase())
-        return payRefusal('p2pOfferProjectionMismatch', { code: 'pay.offer_projection_invalid', reason: 'invalid_response' });
       if (latest.data.makerId !== userId) return payRefusal('onlyTheOfferSMakerCanManage', { code: 'pay.offer_not_owned' });
+      if (review && !sameOfferTerms(latest.data, review.expected))
+        return payRefusal('p2pOfferTermsChanged', { code: 'pay.offer_terms_changed', reason: 'invalid_response' });
+      if (
+        latest.data.status === 'closed' ||
+        (action === 'pause' && latest.data.status !== 'active') ||
+        (action === 'resume' && latest.data.status !== 'paused')
+      )
+        return payRefusal('p2pOfferTermsChanged', { code: 'pay.offer_action_invalid', reason: 'invalid_response' });
+      const expectedStatus = action === 'pause' ? 'paused' : action === 'resume' ? 'active' : 'closed';
       return guard.run(
         `${userId}:offer:${offerId}`,
-        () => api.mutate('p2p', `offers.${action}`, { offerId }, s.offerSchema),
+        async () => {
+          const result = await api.mutate('p2p', `offers.${action}`, { offerId }, s.offerSchema);
+          if (
+            result.ok &&
+            (result.data.id.toLowerCase() !== offerId.toLowerCase() ||
+              result.data.makerId !== userId ||
+              result.data.status !== expectedStatus)
+          )
+            return payRefusal('theOriginalOfferActionHasNotBeen', { code: 'pay.offer_original_mismatch', reason: 'uncertain' });
+          return result;
+        },
         action,
-        p2pCurrent,
+        current,
+        () => p2pCurrent() && (review?.recoveryCurrent?.() ?? review?.current() ?? true),
       );
     },
     async manageTrade(
@@ -543,16 +598,18 @@ export function createPersonalPayApi(
         p2pCurrent,
       );
     },
-    async reconcileOffer(offerId: string) {
+    async reconcileOffer(offerId: string, frameCurrent: () => boolean = () => true) {
       const denied = signedIn();
       if (denied) return denied;
       return guard.checkOriginal(
         `${userId}:offer:${offerId}`,
         async (original) => {
           const action = original.reference;
-          const latest = await api.query('p2p', 'offers.get', { offerId }, s.offerSchema);
+          const latest = await currentOffer(offerId);
+          if (!latest.ok && latest.code === 'pay.offer_projection_invalid')
+            return payRefusal('theOriginalOfferActionHasNotBeen', { code: 'pay.offer_original_mismatch', reason: 'invalid_response' });
           if (!latest.ok) return latest;
-          if (latest.data.id !== offerId)
+          if (latest.data.id.toLowerCase() !== offerId.toLowerCase())
             return payRefusal('theOriginalOfferActionHasNotBeen', { code: 'pay.offer_original_mismatch', reason: 'invalid_response' });
           if (latest.data.makerId !== userId) return payRefusal('onlyTheOfferSMakerCanManage', { code: 'pay.offer_not_owned' });
           const expected = action === 'pause' ? 'paused' : action === 'resume' ? 'active' : action === 'close' ? 'closed' : null;
@@ -560,7 +617,7 @@ export function createPersonalPayApi(
             ? latest
             : payRefusal('theOriginalOfferActionHasNotBeen', { code: 'pay.operation_unresolved', reason: 'uncertain' });
         },
-        p2pCurrent,
+        () => p2pCurrent() && frameCurrent(),
       );
     },
     openDispute: (tradeId: string, reason: string) =>

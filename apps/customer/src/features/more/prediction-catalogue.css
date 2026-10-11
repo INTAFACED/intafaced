@@ -1,0 +1,139 @@
+.prediction-room {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 48px;
+  align-items: start;
+}
+.prediction-room-reading,
+.prediction-room-review,
+.prediction-catalogue {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+.prediction-room h2,
+.prediction-room h3,
+.prediction-room p,
+.prediction-room dl,
+.prediction-room dd {
+  margin: 0;
+}
+.prediction-room h2 {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+}
+.prediction-room h3 {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+}
+.prediction-room p,
+.prediction-room dd {
+  font-size: 14px;
+  line-height: 22px;
+}
+.prediction-catalogue-status,
+.prediction-room-review-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.prediction-catalogue-refresh {
+  width: 100%;
+  max-width: 240px;
+}
+.prediction-catalogue-records {
+  display: flex;
+  flex-direction: column;
+}
+.prediction-catalogue-records article {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 0;
+  border-top: 1px solid var(--color-divider);
+}
+.prediction-catalogue-records article button {
+  align-self: start;
+  margin-top: 8px;
+}
+.prediction-room-review-copy {
+  padding-top: 16px;
+  border-top: 1px solid var(--color-divider);
+}
+.prediction-room-link {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+.prediction-room-details,
+.prediction-room-planning {
+  border-top: 1px solid var(--color-divider);
+}
+.prediction-room summary {
+  min-height: 44px;
+  padding: 12px 0;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+.prediction-room summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+.prediction-room-requirements > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 0;
+  border-top: 1px solid var(--color-divider);
+}
+.prediction-room-requirements dt {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+}
+.prediction-room-requirements dt > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.prediction-room-state {
+  width: 88px;
+  flex: 0 0 88px;
+  text-align: end;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 400;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+.prediction-room-requirements dd {
+  color: var(--color-muted);
+}
+.prediction-room-planning .field {
+  margin-block: 16px;
+}
+@media (max-width: 1100px) {
+  .prediction-room {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+  .prediction-catalogue-refresh {
+    max-width: 100%;
+  }
+}
+@media (max-width: 800px) {
+  .prediction-room a,
+  .prediction-room button,
+  .prediction-room summary,
+  .prediction-room input {
+    scroll-margin-block: 88px;
+    scroll-margin-block-end: calc(88px + env(safe-area-inset-bottom));
+  }
+}

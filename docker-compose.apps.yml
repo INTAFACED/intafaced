@@ -1694,15 +1694,12 @@ services:
 
   # ── Apps ───────────────────────────────────────────────
   #
-  # The legacy trading surface is `vendor-shell` below, on :8090. The public
+  # The customer surface is `vendor-shell` below, on :8090. The public
   # questionnaire uses the independent React/Vite app at apps/invitation;
   # current UI replacement is allowed by the 2026-10-02 redesign ADR.
   #
-  # no-deploy: customer — the independent React/Vite successor in
-  # `apps/customer` has local `dev`/`preview` scripts and same-origin `/api`
-  # and `/ws` routing contracts, but no selected deployment target or fleet
-  # service. Keep it in preparation/preview until its host and routing are
-  # configured; this comment does not claim a live deployment.
+  # no-deploy: 05_Web_Front — retained legacy Vue source, replaced by
+  # apps/customer in the existing vendor-shell slot. Not served.
   #
   # no-deploy: invitation — the separate Vercel join project is configured to
   # build apps/invitation and serve its Vite dist. App-owned vercel.json supplies SPA rewrites;
@@ -1734,22 +1731,16 @@ services:
   # a browser that loads before a service is up sees the panel say so and
   # recovers on the next render, which is the behaviour we want anyway.
 
-  # The vendored trading shell — the app the product direction has always said
-  # we ARE, and which until now could not be run at all.
-  #
-  # 74 Vue screens with no `dist`, no Dockerfile and no compose entry. Every
-  # document pointing readers at `:8090` was pointing at a port nothing served,
-  # while `web` above quietly became the de-facto product. That is how a stated
-  # direction and a running system drift apart without anyone deciding to.
-  #
-  # It does NOT use *app: this tree is Vue 2.5 / webpack 3 with its own npm
-  # lockfile, deliberately outside the pnpm workspace so a 2017 dependency graph
-  # cannot reach our services. Its own Dockerfile builds it and nginx serves it.
+  # Sole customer site: React replaces the retained Vue source in the existing
+  # :8090 slot. Invitation remains an independent public questionnaire app.
+  # Same-origin API/WS routing and the separate admin desk are preserved.
   vendor-shell:
     build:
-      context: ./vendor/upstream-exchange/05_Web_Front
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/customer/Dockerfile
       target: runtime
+      args:
+        VITE_TEAM_URL: ${VITE_TEAM_URL:-}
     image: intafaced/vendor-shell:dev
     container_name: intafaced-vendor-shell
     restart: unless-stopped

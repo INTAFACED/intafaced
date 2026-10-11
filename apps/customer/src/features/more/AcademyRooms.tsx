@@ -5,7 +5,7 @@ import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema } from '../../shared/money';
 import { Button, Field, Panel } from '../../shared/ui';
-import { Details, Limit, Read, Select, useAction } from './common';
+import { Details, Limit, Read, Select, type ActionControls } from './common';
 import { SessionMedia } from './SessionMedia';
 const uuid = z.string().uuid(),
   room = z.object({
@@ -30,7 +30,7 @@ const session = z.object({
   scene: z.record(z.unknown()),
   sceneFingerprint: z.string().min(1),
 });
-export function AcademyRooms({ action }: { action: ReturnType<typeof useAction> }) {
+export function AcademyRooms({ action }: { action: ActionControls }) {
   const api = useApi(),
     { userId } = useSession();
   const [selected, setSelected] = useState(''),
@@ -439,7 +439,7 @@ const vec = z.object({ x: z.number().finite(), y: z.number().finite() }),
         .optional(),
     })
     .strict();
-function Scene({ id, action }: { id: string; action: ReturnType<typeof useAction> }) {
+function Scene({ id, action }: { id: string; action: ActionControls }) {
   const api = useApi(),
     { userId } = useSession();
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);

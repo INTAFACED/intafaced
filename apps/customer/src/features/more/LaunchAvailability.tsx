@@ -1,0 +1,93 @@
+import { launchCopy } from './launch-copy';
+import './launch-availability.css';
+
+/** No customer launch/participation contract is mounted. Keep each required
+ * capability explicit; Market access listings do not fulfill asset listing. */
+export function Launch({ orders = false }: { orders?: boolean }) {
+  const { Copy, t, languageFor, directionFor } = launchCopy.useCopy();
+  return (
+    <div className="launch-room" lang={languageFor('launchUnavailable')} dir={directionFor('launchUnavailable')}>
+      <nav className="launch-room-tabs" aria-label={t('nav')}>
+        <a href="/launch" aria-current={orders ? undefined : 'page'}>
+          <Copy k="overview" />
+        </a>
+        <a href="/uc/innovation/myorders" aria-current={orders ? 'page' : undefined}>
+          <Copy k="participation" />
+        </a>
+      </nav>
+      <div className="launch-room-workspace">
+        <section className="launch-room-primary">
+          <div className="launch-room-status">
+            <h2>
+              <Copy k={orders ? 'ordersUnavailable' : 'launchUnavailable'} />
+            </h2>
+            <p className="muted">
+              <Copy k={orders ? 'ordersBody' : 'launchBody'} />
+            </p>
+          </div>
+          <a className="button button--primary launch-room-support" href="/support">
+            <Copy k="support" />
+          </a>
+          <section>
+            <h3 className="launch-room-required">
+              <Copy k="required" />
+            </h3>
+            <dl className="launch-room-requirements">
+              {(['issuance', 'listing', 'sale'] as const).map((key) => (
+                <div key={key}>
+                  <dt>
+                    <span>
+                      <Copy k={key} />
+                    </span>
+                    <span className="launch-room-state">
+                      <Copy k="unavailable" />
+                    </span>
+                  </dt>
+                  <dd>
+                    <Copy k={key === 'issuance' ? 'issuanceBody' : key === 'listing' ? 'listingBody' : 'saleBody'} />
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        </section>
+        <aside className="launch-room-aside">
+          <section>
+            <div className="launch-room-side-copy">
+              <h3>
+                <Copy k={orders ? 'returnTitle' : 'history'} />
+              </h3>
+              <p className="muted">
+                <Copy k={orders ? 'returnBody' : 'historyBody'} />
+              </p>
+            </div>
+            <a className="text-link launch-room-link" href={orders ? '/launch' : '/uc/innovation/myorders'}>
+              <Copy k={orders ? 'returnLink' : 'historyLink'} />
+            </a>
+          </section>
+          <section className="launch-room-market">
+            <div className="launch-room-side-copy">
+              <h3>
+                <Copy k="market" />
+              </h3>
+              <p className="muted">
+                <Copy k="marketBody" />
+              </p>
+            </div>
+            <a className="text-link launch-room-link" href="/market/mine">
+              <Copy k="marketLink" />
+            </a>
+          </section>
+          <details className="launch-room-details">
+            <summary>
+              <Copy k="details" />
+            </summary>
+            <p className="muted">
+              <Copy k="detailsBody" />
+            </p>
+          </details>
+        </aside>
+      </div>
+    </div>
+  );
+}

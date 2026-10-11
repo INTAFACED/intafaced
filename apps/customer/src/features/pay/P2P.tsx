@@ -17,10 +17,13 @@ import {
   MutationResult,
   PayTime,
 } from './components';
-import { id, type Offer, type Trade } from './schemas';
+import { id, type Trade } from './schemas';
 import { useP2PView, type P2PView } from './p2p-view';
+import { P2POffers } from './P2POffers';
 import { P2POrder } from './P2POrder';
 import { orderCopy } from './p2p-order-copy';
+import { P2PCounterparty } from './P2PCounterparty';
+import { p2pReturn } from './p2p-return';
 
 export function P2P({ path }: { path: string }) {
   const view = useP2PView();
@@ -43,6 +46,8 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
   const showAccess = params.get('view') === 'access';
   const publish = current === '/uc/ad/create' || current === '/uc/ad/update' || current === '/p2p/offers/new';
   const counterparty = params.get('userId') ?? params.get('userid') ?? (current === '/checkuser' ? params.get('id') : null);
+  const inspectionReturn = p2pReturn(params.get('returnTo'));
+  const inspectionMine = current === '/checkuser' && inspectionReturn.href.split(/[?#]/)[0] === '/uc/ad';
   return (
     <Page
       eyebrow={payCopy.t('personalPay')}
@@ -55,7 +60,11 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
               ? payCopy.t('createAnOffer')
               : payCopy.t('personToPerson')
       }
-      description={tradeId || current === '/chat' ? undefined : payCopy.t('externalPaymentLedgerEscrowAndARecorded')}
+      description={
+        tradeId || current === '/chat' || (!showOrders && !showMethods && !showAccess && !publish)
+          ? undefined
+          : payCopy.t('externalPaymentLedgerEscrowAndARecorded')
+      }
     >
       <nav
         className={`pay-room-tabs${tradeId || current === '/chat' ? ' pay-order-tabs' : ''}`}
@@ -64,13 +73,37 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
           if (event.target instanceof HTMLAnchorElement) event.target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         }}
       >
-        <a href="/p2p" aria-current={!showOrders && !showMine && !showMethods && !showAccess && !publish && !tradeId ? 'page' : undefined}>
+        <a
+          href="/p2p"
+          aria-current={
+            !showOrders &&
+            !showMine &&
+            !showMethods &&
+            !showAccess &&
+            !publish &&
+            !tradeId &&
+            !inspectionMine &&
+            (current !== '/checkuser' || inspectionReturn.kind === 'offer' || inspectionReturn.kind === 'offers')
+              ? 'page'
+              : undefined
+          }
+        >
           <PayCopy k="offers" />
         </a>
-        <a href="/uc/order" aria-current={showOrders || tradeId || current === '/chat' ? 'page' : undefined}>
+        <a
+          href="/uc/order"
+          aria-current={
+            showOrders ||
+            tradeId ||
+            current === '/chat' ||
+            (current === '/checkuser' && ['order', 'orders'].includes(inspectionReturn.kind))
+              ? 'page'
+              : undefined
+          }
+        >
           <PayCopy k="yourOrders" />
         </a>
-        <a href="/uc/ad" aria-current={showMine ? 'page' : undefined}>
+        <a href="/uc/ad" aria-current={showMine || inspectionMine ? 'page' : undefined}>
           <PayCopy k="yourOffers" />
         </a>
         <a href="/p2p?view=methods" aria-current={showMethods ? 'page' : undefined}>
@@ -84,7 +117,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
         <OrderDetail pay={pay} tradeId={tradeId ?? ''} userId={userId} />
       ) : current === '/checkuser' ? (
         counterparty && id.safeParse(counterparty).success ? (
-          <Counterparty pay={pay} userId={counterparty} />
+          <P2PCounterparty pay={pay} userId={counterparty} returnTo={params.get('returnTo')} />
         ) : (
           <PayNotice title={payCopy.t('chooseACounterparty')}>
             <PayCopy k="openACounterpartyFromAnOfferTo" />
@@ -99,238 +132,9 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
       ) : showMethods ? (
         <PaymentMethods pay={pay} userId={userId} />
       ) : (
-        <OfferBoard pay={pay} userId={userId} mine={showMine} />
+        <P2POffers pay={pay} userId={userId} mine={showMine} />
       )}
     </Page>
-  );
-}
-function OfferBoard({ pay, userId, mine }: { pay: PersonalPayApi; userId: string | null; mine: boolean }) {
-  const [limit, setLimit] = useState(50);
-  const [asset, setAsset] = useState('');
-  const [fiat, setFiat] = useState('');
-  const [side, setSide] = useState('');
-  const [filter, setFilter] = useState<{ asset?: string; fiatCurrency?: string; side?: 'buy' | 'sell' }>({});
-  const [error, setError] = useState<'fiatCurrencyMustUseItsThreeLetter' | null>(null);
-  const [opened, setOpened] = useState<Offer | null>(null);
-  const list = useResource((signal) => pay.offers({ ...filter, limit }, signal), `pay:offers:${userId}:${JSON.stringify(filter)}:${limit}`);
-  const currencies = useResource((signal) => pay.fiat(signal), 'pay:fiat');
-  return (
-    <div className="stack">
-      <PaySection
-        title={mine ? payCopy.t('yourOffers') : payCopy.t('offerBoard')}
-        description={mine ? payCopy.t('yourOffersInsideTheLoadedMarketWindow') : payCopy.t('pricesAndRemainingQuantitiesComeFromThe')}
-        action={
-          <a className="text-link" href="/uc/ad/create">
-            <PayCopy k="createOffer" />
-          </a>
-        }
-      >
-        <form
-          className="pay-filters"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (fiat && fiat.length !== 3) {
-              setError('fiatCurrencyMustUseItsThreeLetter');
-              return;
-            }
-            setError(null);
-            setFilter({
-              ...(asset.trim() ? { asset: asset.trim() } : {}),
-              ...(fiat ? { fiatCurrency: fiat } : {}),
-              ...(side ? { side: side as 'buy' | 'sell' } : {}),
-            });
-            setOpened(null);
-          }}
-        >
-          <Field label={payCopy.t('asset')} value={asset} onChange={(event) => setAsset(event.target.value.toUpperCase())} maxLength={16} />
-          <label className="field">
-            <PayCopy k="fiatCurrency" />
-            <select value={fiat} onChange={(event) => setFiat(event.target.value)}>
-              <option value="">{payCopy.t('allReturnedCurrencies')}</option>
-              {currencies.resource.status === 'ready' &&
-                currencies.resource.data.map((currency) => (
-                  <option key={currency.code} value={currency.code}>
-                    {currency.code} · {currency.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label className="field">
-            <PayCopy k="makerSide" />
-            <select value={side} onChange={(event) => setSide(event.target.value)}>
-              <option value="">{payCopy.t('buyAndSell')}</option>
-              <option value="sell">{payCopy.t('sellingAsset')}</option>
-              <option value="buy">{payCopy.t('buyingAsset')}</option>
-            </select>
-          </label>
-          <Button type="submit" variant="secondary">
-            <PayCopy k="applyFilters" />
-          </Button>
-        </form>
-        {error && (
-          <p role="alert" className="error-text">
-            {payCopy.t(error)}
-          </p>
-        )}
-        <PayState resource={list.resource} retry={list.reload} empty={payCopy.t('noOffersReturnedForTheseFilters')}>
-          {(rows) => {
-            const visible = mine ? rows.filter((offer) => offer.makerId === userId) : rows;
-            return (
-              <>
-                {visible.length ? (
-                  <DataTable
-                    label={payCopy.t('p2pOffers')}
-                    headers={[payCopy.t('makerAsset'), payCopy.t('price'), payCopy.t('assetLimits'), payCopy.t('status'), '']}
-                  >
-                    {visible.map((offer) => (
-                      <tr key={offer.id}>
-                        <td>
-                          <strong>
-                            {offer.side === 'sell' ? payCopy.t('selling') : payCopy.t('buying')} {offer.asset}
-                          </strong>
-                          <small className="pay-cell-note">{offer.makerId}</small>
-                        </td>
-                        <td className="numeric">
-                          {displayAmount(offer.price)} {offer.fiatCurrency}
-                          <small className="pay-cell-note">
-                            {offer.priceType === 'float' ? payCopy.t('floatingPriceParameter') : payCopy.t('per', { asset: offer.asset })}
-                          </small>
-                        </td>
-                        <td className="numeric">
-                          {displayAmount(offer.minAmount)} – {displayAmount(offer.maxAmount)} {offer.asset}
-                          <small className="pay-cell-note">
-                            {displayAmount(offer.remainingAmount)} <PayCopy k="remaining" />
-                          </small>
-                        </td>
-                        <td>
-                          <Status value={offer.status} />
-                        </td>
-                        <td>
-                          <Button variant="ghost" onClick={() => setOpened(offer)}>
-                            <PayCopy k="details" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </DataTable>
-                ) : (
-                  <PayNotice title={payCopy.t('noOwnOffersInThisWindow')}>
-                    <PayCopy k="increaseTheWindowOrChooseFiltersTo" />
-                  </PayNotice>
-                )}
-                <PayPagination count={rows.length} limit={limit} setLimit={setLimit} />
-              </>
-            );
-          }}
-        </PayState>
-      </PaySection>
-      {opened && (
-        <OfferDetail
-          key={opened.id}
-          pay={pay}
-          offer={opened}
-          userId={userId}
-          onChanged={() => {
-            setOpened(null);
-            list.reload();
-          }}
-        />
-      )}
-    </div>
-  );
-}
-function OfferDetail({
-  pay,
-  offer,
-  userId,
-  onChanged,
-}: {
-  pay: PersonalPayApi;
-  offer: Offer;
-  userId: string | null;
-  onChanged: () => void;
-}) {
-  const own = offer.makerId === userId;
-  const [reconciled, setReconciled] = useState<ApiResult<Offer> | null>(null);
-  const methodIds = offer.methods.flatMap((method) =>
-    typeof method === 'string'
-      ? [method]
-      : method && typeof method === 'object' && 'id' in method && typeof method.id === 'string'
-        ? [method.id]
-        : [],
-  );
-  return (
-    <PaySection title={`${offer.side === 'sell' ? payCopy.t('sell') : payCopy.t('buy')} ${offer.asset}`}>
-      <PayDetails
-        values={[
-          [payCopy.t('offer'), <span lang="zxx">{offer.id}</span>],
-          [payCopy.t('remainingQuantity'), `${displayAmount(offer.remainingAmount)} ${offer.asset}`],
-          [
-            payCopy.t('agreedPaymentMethods'),
-            methodIds.length ? <span lang="zxx">{methodIds.join(', ')}</span> : payCopy.t('noUsableMethodsDeclared'),
-          ],
-          [payCopy.t('terms'), offer.terms ? <span lang="und">{offer.terms}</span> : payCopy.t('noTermsSupplied')],
-        ]}
-      />
-      {own && pay.guard.status(`${userId}:offer:${offer.id}`) && (
-        <div className="stack">
-          <PayNotice title={payCopy.t('originalOfferActionIsUnresolved')}>
-            <PayCopy k="readThisOfferAgainToVerifyThe" />
-          </PayNotice>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              void pay.reconcileOffer(offer.id).then((result) => {
-                setReconciled(result);
-                if (result.ok) onChanged();
-              });
-            }}
-          >
-            <PayCopy k="checkOriginalOfferAction" />
-          </Button>
-          <MutationResult result={reconciled} />
-        </div>
-      )}
-      {own ? (
-        <div className="actions">
-          {offer.status !== 'closed' && (
-            <>
-              <ReviewedAction
-                title={offer.status === 'active' ? payCopy.t('pauseOffer') : payCopy.t('resumeOffer')}
-                description={payCopy.t('theServiceChecksThatYouOwnThis')}
-                review={
-                  <PayDetails
-                    values={[
-                      [payCopy.t('offer'), offer.id],
-                      [payCopy.t('currentState'), offer.status],
-                    ]}
-                  />
-                }
-                perform={() => pay.manageOffer(offer.id, offer.status === 'active' ? 'pause' : 'resume')}
-                onConfirmed={onChanged}
-                disabled={Boolean(pay.guard.status(`${userId}:offer:${offer.id}`))}
-              />
-              <ReviewedAction
-                title={payCopy.t('closeOffer')}
-                description={payCopy.t('closeThisOfferToNewOrdersExisting')}
-                perform={() => pay.manageOffer(offer.id, 'close')}
-                onConfirmed={onChanged}
-                disabled={Boolean(pay.guard.status(`${userId}:offer:${offer.id}`))}
-              />
-            </>
-          )}
-        </div>
-      ) : (
-        <>
-          <a className="text-link" href={`/checkuser?userId=${encodeURIComponent(offer.makerId)}`}>
-            <PayCopy k="reviewCounterparty" />
-          </a>
-          <PayNotice title={payCopy.t('newOrderReviewIsUnavailable')}>
-            <PayCopy k="anAuthoritativeFeeAndReservationPreviewIs" />
-          </PayNotice>
-        </>
-      )}
-    </PaySection>
   );
 }
 function PublishAvailability({ pay }: { pay: PersonalPayApi }) {
@@ -755,35 +559,6 @@ function PaymentMethods({ pay, userId }: { pay: PersonalPayApi; userId: string |
         </PayState>
       </PaySection>
     </div>
-  );
-}
-function Counterparty({ pay, userId }: { pay: PersonalPayApi; userId: string }) {
-  const reputation = useResource((signal) => pay.reputation(userId, signal), `pay:reputation:${userId}`);
-  return (
-    <PaySection title={payCopy.t('counterpartyRecord')}>
-      <p className="pay-account-id">{userId}</p>
-      <PayState resource={reputation.resource} retry={reputation.reload}>
-        {(data) => (
-          <PayDetails
-            values={[
-              [payCopy.t('tradesRecorded'), String(data.tradesTotal)],
-              [payCopy.t('completed'), String(data.completed)],
-              [payCopy.t('cancelled'), String(data.cancelled)],
-              [payCopy.t('disputed'), String(data.disputed)],
-              [
-                payCopy.t('programmeStanding'),
-                data.merchant === null
-                  ? payCopy.t('programmeUnavailable')
-                  : data.merchant
-                    ? payCopy.t('approvedP2pMerchant')
-                    : payCopy.t('notApproved'),
-              ],
-              [payCopy.t('badges'), data.badges.join(', ') || payCopy.t('noneReturned')],
-            ]}
-          />
-        )}
-      </PayState>
-    </PaySection>
   );
 }
 function TradingProgramme({ pay, userId }: { pay: PersonalPayApi; userId: string | null }) {

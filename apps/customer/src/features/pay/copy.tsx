@@ -829,6 +829,7 @@ const messages = {
   p2pViewChanged: 'This order review is no longer current. Open the current order and review again.',
   p2pProjectionMismatch: 'The response does not identify this order. Its facts are hidden; try a current read.',
   p2pOfferProjectionMismatch: 'The response does not identify this offer. Refresh its current record before reviewing an action.',
+  p2pOfferTermsChanged: 'The offer changed after review. Refresh its current terms and review again.',
   p2pTermsChanged: 'The order changed after review. Refresh its current terms and review again.',
   p2pPaymentProjectionMismatch: 'The payment details do not match this order and its agreed method and currency.',
 } as const;
@@ -1675,6 +1676,7 @@ const es = {
   p2pViewChanged: 'Esta revisión del pedido ya no está vigente. Abre el pedido actual y revísalo de nuevo.',
   p2pProjectionMismatch: 'La respuesta no identifica este pedido. Sus datos se ocultan; intenta una lectura actual.',
   p2pOfferProjectionMismatch: 'La respuesta no identifica esta oferta. Actualiza su registro antes de revisar una acción.',
+  p2pOfferTermsChanged: 'La oferta cambió después de la revisión. Actualiza sus condiciones y revísala de nuevo.',
   p2pTermsChanged: 'El pedido cambió después de la revisión. Actualiza sus condiciones y revísalo de nuevo.',
   p2pPaymentProjectionMismatch: 'Los datos de pago no corresponden a este pedido, su método y su moneda acordados.',
 } satisfies Record<keyof typeof messages, string>;
@@ -2521,6 +2523,7 @@ const fr = {
   p2pViewChanged: 'Cette vérification de la commande n’est plus actuelle. Ouvrez la commande actuelle et vérifiez-la à nouveau.',
   p2pProjectionMismatch: 'La réponse n’identifie pas cette commande. Ses données sont masquées ; réessayez une lecture actuelle.',
   p2pOfferProjectionMismatch: 'La réponse n’identifie pas cette offre. Actualisez son enregistrement avant de vérifier une action.',
+  p2pOfferTermsChanged: 'L’offre a changé après vérification. Actualisez ses conditions et vérifiez-la à nouveau.',
   p2pTermsChanged: 'La commande a changé après vérification. Actualisez ses conditions et vérifiez-la à nouveau.',
   p2pPaymentProjectionMismatch: 'Les coordonnées de paiement ne correspondent pas à cette commande, à sa méthode et à sa devise convenues.',
 } satisfies Record<keyof typeof messages, string>;

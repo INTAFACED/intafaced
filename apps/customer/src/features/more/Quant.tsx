@@ -1,5 +1,5 @@
 import { t as copyText, Text } from './copy';
-import { useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useApi } from '../session/session';
 import { useResource } from '../../shared/resource';
@@ -7,6 +7,17 @@ import { decimalSchema, signedDecimalSchema, displayAmount, parseAmount } from '
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, Select, TextArea, useAction } from './common';
 import { preservePaperHref } from './trade-context';
+import { authoredRefusal, type ApiResult } from '../../shared/api';
+import {
+  historicalResultSchema,
+  matchesHistoricalRequest,
+  utcInput,
+  type HistoricalRequest,
+  type HistoricalSnapshot,
+} from './quant-analysis';
+import { QuantHistoricalRecord } from './QuantHistoricalRecord';
+import { analysisCopy } from './quant-analysis-copy';
+import './quant-analysis.css';
 const stamp = z.object({
   environment: z.enum(['paper', 'backtest', 'shadow']),
   kind: z.enum(['paper', 'simulated']),
@@ -37,16 +48,6 @@ const runSchema = stamp.extend({
   venue: z.literal('internal'),
   venueVault: z.enum(['unset', 'set']),
 });
-const backtestSchema = stamp.extend({
-  ok: z.literal(true),
-  runId: z.string(),
-  strategyId: z.string(),
-  walkForward: z.object({ inSampleFrom: z.string(), inSampleTo: z.string(), outOfSampleFrom: z.string(), outOfSampleTo: z.string() }),
-  inSample: z.object({ fillCount: z.number().int(), notional: decimalSchema }),
-  outOfSample: z.object({ fillCount: z.number().int(), notional: decimalSchema }),
-  claimLabel: z.literal('Historical simulation — not a forecast'),
-  outOfSampleLabel: z.string(),
-});
 export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'backtest'; paper?: boolean }) {
   const api = useApi(),
     action = useAction(`quant-${mode}`);
@@ -60,7 +61,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     [kill, setKill] = useState(''),
     [limit, setLimit] = useState(50),
     [result, setResult] = useState<z.infer<typeof runSchema> | null>(null),
-    [bt, setBt] = useState<z.infer<typeof backtestSchema> | null>(null),
+    [bt, setBt] = useState<HistoricalSnapshot | null>(null),
     [strategyId, setStrategyId] = useState(''),
     [symbol, setSymbol] = useState(''),
     [isFrom, setIsFrom] = useState(''),
@@ -71,6 +72,30 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     [variants, setVariants] = useState(''),
     [evidence, setEvidence] = useState({ fees: '', slippage: '', latency: '' }),
     [models, setModels] = useState({ fees: 'venue-schedule', slippage: 'order-book-replay', latency: 'measured-distribution' });
+  const { Copy, t, languageFor, directionFor } = analysisCopy.useCopy();
+  const draft = useRef<HTMLDivElement>(null);
+  const [invalid, setInvalid] = useState(false);
+  const [lastAttempt, setLastAttempt] = useState<{ request: HistoricalRequest; view: object; result: ApiResult<unknown> } | null>(null);
+  const windows = [isFrom, isTo, oosFrom, oosTo].map(utcInput);
+  const validAnalysis = Boolean(
+    strategyId.trim() &&
+    symbol.trim() &&
+    symbol.trim().length <= 32 &&
+    windows.every(Boolean) &&
+    windows[0]! < windows[1]! &&
+    windows[1]! <= windows[2]! &&
+    windows[2]! < windows[3]! &&
+    /^[1-9]\d*$/.test(variants) &&
+    Number.isSafeInteger(Number(variants)) &&
+    Object.values(evidence).every((value) => value.trim()),
+  );
+  const latestFailure =
+    lastAttempt?.view === action.viewIdentity &&
+    lastAttempt.result === action.result &&
+    !lastAttempt.result.ok &&
+    lastAttempt.result.reason !== 'uncertain'
+      ? lastAttempt
+      : null;
   const capabilities = useResource(
     (signal) =>
       api.query(
@@ -382,175 +407,240 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
           />
         </div>
       ) : (
-        <div className="more-columns">
-          <div>
-            <Panel title={copyText('quant.walk.forward.backtest')}>
-              <p className="muted">
-                <Text k="quant.the.service.reads.historical.fills.from.its" />
+        <div lang={languageFor('draft')} dir={directionFor('draft')}>
+          {latestFailure && (
+            <div className="quant-latest-failure">
+              <h3>
+                <Copy k="latestFailed" />
+              </h3>
+              <p lang="zxx">
+                {latestFailure.request.strategyId} · {latestFailure.request.symbol}
               </p>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const requestedWindow = {
-                    inSampleFrom: new Date(isFrom).toISOString(),
-                    inSampleTo: new Date(isTo).toISOString(),
-                    outOfSampleFrom: new Date(oosFrom).toISOString(),
-                    outOfSampleTo: new Date(oosTo).toISOString(),
-                  };
-                  action.stage({
-                    title: () => copyText('quant.review.historical.simulation'),
-                    confirm: () => copyText('quant.run.backtest'),
-                    success: () => copyText('quant.historical.simulation.received'),
-                    content: () => (
-                      <Details
-                        items={[
-                          [copyText('quant.strategy'), <span lang="zxx">{strategyId}</span>],
-                          [copyText('quant.symbol'), <span lang="zxx">{symbol}</span>],
-                          [copyText('quant.in.sample'), <span lang="zxx">{`${isFrom} → ${isTo}`}</span>],
-                          [copyText('quant.out.of.sample'), <span lang="zxx">{`${oosFrom} → ${oosTo}`}</span>],
-                          [copyText('quant.evidence.verdict'), <span lang="zxx">{verdict}</span>],
-                          [copyText('quant.variants.tested'), variants],
-                        ]}
-                      />
-                    ),
-                    run: async () => {
-                      const res = await api.mutate(
-                        'quant',
-                        'backtest.run',
-                        {
-                          strategyId,
-                          symbol,
-                          walkForward: requestedWindow,
-                          outOfSampleStatus: verdict,
-                          costModel: {
-                            fees: { kind: models.fees, source: evidence.fees },
-                            slippage: { kind: models.slippage, source: evidence.slippage },
-                            latency: { kind: models.latency, source: evidence.latency },
-                          },
-                          strategyVariantCount: Number(variants),
-                          environment: 'backtest',
-                          presentedAs: 'simulated',
-                        },
-                        backtestSchema.refine(
-                          (data) =>
-                            data.environment === 'backtest' &&
-                            data.kind === 'simulated' &&
-                            data.strategyId === strategyId &&
-                            Object.entries(requestedWindow).every(
-                              ([field, value]) => data.walkForward[field as keyof typeof requestedWindow] === value,
-                            ),
-                          'The historical result does not match the reviewed strategy and walk-forward windows',
-                        ),
-                      );
-                      if (res.ok && action.isCurrent()) setBt(res.data);
-                      return res;
-                    },
-                  });
+              {bt?.view === action.viewIdentity && (
+                <p>
+                  <Copy k="previous" />
+                </p>
+              )}
+            </div>
+          )}
+          {action.feedback}
+          {action.unresolvedId && (
+            <div className="quant-original-context">
+              <p>
+                <Copy k="originalAttempt" />
+              </p>
+              <code lang="zxx">{action.unresolvedId}</code>
+              <p className="muted">
+                <Copy k="unknownBody" />
+              </p>
+              <div className="actions">
+                <a className="button button--secondary" href="/support">
+                  <Copy k="contact" />
+                </a>
+                <a className="button button--secondary" href={preservePaperHref('/quant/studio', paper)}>
+                  <Text k="quant.studio" />
+                </a>
+              </div>
+            </div>
+          )}
+          <div className="quant-workbench">
+            <div>
+              <QuantHistoricalRecord snapshot={bt} view={action.viewIdentity} />
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  draft.current?.scrollIntoView({ block: 'start' });
+                  draft.current?.querySelector('input')?.focus({ preventScroll: true });
                 }}
               >
-                <Field label={copyText('quant.strategy.id')} value={strategyId} onChange={(e) => setStrategyId(e.target.value)} />
-                <Field label={copyText('quant.historical.symbol')} value={symbol} onChange={(e) => setSymbol(e.target.value)} />
-                {[
-                  ['inSampleFrom', copyText('quant.in.sample.start'), isFrom, setIsFrom],
-                  ['inSampleTo', copyText('quant.in.sample.end'), isTo, setIsTo],
-                  ['outOfSampleFrom', copyText('quant.out.of.sample.start'), oosFrom, setOosFrom],
-                  ['outOfSampleTo', copyText('quant.out.of.sample.end'), oosTo, setOosTo],
-                ].map(([field, label, value, set]) => (
-                  <Field
-                    key={field as string}
-                    label={label as string}
-                    type="datetime-local"
-                    value={value as string}
-                    onChange={(e) => (set as (s: string) => void)(e.target.value)}
-                  />
-                ))}
-                <Select
-                  label={copyText('quant.evidence.based.out.of.sample.verdict')}
-                  value={verdict}
-                  onChange={setVerdict}
-                  options={['passed', 'failed', 'inconclusive']}
-                />
-                <Field
-                  label={copyText('quant.number.of.strategy.variants.tested')}
-                  value={variants}
-                  onChange={(e) => setVariants(e.target.value)}
-                  inputMode="numeric"
-                />
-                {(['fees', 'slippage', 'latency'] as const).map((key) => (
-                  <fieldset key={key}>
-                    <legend>
-                      {key}
-                      <Text k="quant.evidence" />
-                    </legend>
-                    <Select
-                      label={copyText('quant.model', { value1: key })}
-                      value={models[key]}
-                      onChange={(value) => setModels((v) => ({ ...v, [key]: value }))}
-                      options={
-                        key === 'fees'
-                          ? ['venue-schedule', 'tiered-venue-schedule']
-                          : key === 'slippage'
-                            ? ['order-book-replay', 'measured-impact']
-                            : ['measured-distribution', 'event-replay']
-                      }
-                    />
-                    <Field
-                      label={copyText('quant.evidence.source', { value1: key })}
-                      value={evidence[key]}
-                      onChange={(e) => setEvidence((v) => ({ ...v, [key]: e.target.value }))}
-                    />
-                  </fieldset>
-                ))}
-                <Button
-                  type="submit"
-                  disabled={
-                    action.disabled ||
-                    !strategyId ||
-                    !symbol ||
-                    ![isFrom, isTo, oosFrom, oosTo].every(Boolean) ||
-                    !(
-                      Date.parse(isFrom) < Date.parse(isTo) &&
-                      Date.parse(isTo) <= Date.parse(oosFrom) &&
-                      Date.parse(oosFrom) < Date.parse(oosTo)
-                    ) ||
-                    !/^[1-9]\d*$/.test(variants) ||
-                    !Number.isSafeInteger(Number(variants)) ||
-                    !Object.values(evidence).every((v) => v.trim())
-                  }
+                <Copy k="configure" />
+              </Button>
+            </div>
+            <div className="quant-analysis-draft" ref={draft}>
+              <Panel title={t('draft')}>
+                <p className="muted">
+                  <Copy k="draftBody" />
+                </p>
+                <p className="muted">
+                  <Copy k="fullStrategy" />
+                </p>
+                <details className="quant-catalogue">
+                  <summary>
+                    <Copy k="catalogue" />
+                  </summary>
+                  <Saved resource={saved} limit={limit} setLimit={setLimit} onPick={(s) => setStrategyId(s.id)} />
+                </details>
+                <p className="muted">
+                  <Copy k="utc" />
+                </p>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!validAnalysis || action.disabled) {
+                      setInvalid(true);
+                      return;
+                    }
+                    setInvalid(false);
+                    const request: HistoricalRequest = {
+                      strategyId: strategyId.trim(),
+                      symbol: symbol.trim(),
+                      walkForward: {
+                        inSampleFrom: windows[0]!,
+                        inSampleTo: windows[1]!,
+                        outOfSampleFrom: windows[2]!,
+                        outOfSampleTo: windows[3]!,
+                      },
+                      outOfSampleStatus: verdict as HistoricalRequest['outOfSampleStatus'],
+                      strategyVariantCount: Number(variants),
+                      costModel: {
+                        fees: { kind: models.fees, source: evidence.fees.trim() },
+                        slippage: { kind: models.slippage, source: evidence.slippage.trim() },
+                        latency: { kind: models.latency, source: evidence.latency.trim() },
+                      },
+                      environment: 'backtest',
+                      presentedAs: 'simulated',
+                    };
+                    const view = action.viewIdentity;
+                    action.stage({
+                      title: () => copyText('quant.review.historical.simulation'),
+                      confirm: () => copyText('quant.run.backtest'),
+                      success: () => copyText('quant.historical.simulation.received'),
+                      content: () => (
+                        <>
+                          <p>
+                            <Copy k="utc" />
+                          </p>
+                          <Details
+                            items={[
+                              [copyText('quant.strategy'), <span lang="zxx">{request.strategyId}</span>],
+                              [copyText('quant.symbol'), <span lang="zxx">{request.symbol}</span>],
+                              [
+                                copyText('quant.in.sample'),
+                                <span lang="zxx">{request.walkForward.inSampleFrom + ' → ' + request.walkForward.inSampleTo}</span>,
+                              ],
+                              [
+                                copyText('quant.out.of.sample'),
+                                <span lang="zxx">{request.walkForward.outOfSampleFrom + ' → ' + request.walkForward.outOfSampleTo}</span>,
+                              ],
+                              [copyText('quant.evidence.verdict'), <span lang="zxx">{request.outOfSampleStatus}</span>],
+                              [analysisCopy.t('variants'), String(request.strategyVariantCount)],
+                              ...(['fees', 'slippage', 'latency'] as const).map(
+                                (key) =>
+                                  [
+                                    analysisCopy.t(key),
+                                    <span lang="und">
+                                      {request.costModel[key].kind} · {request.costModel[key].source}
+                                    </span>,
+                                  ] as [string, ReactNode],
+                              ),
+                            ]}
+                          />
+                          <p className="muted">
+                            <Copy k="fullStrategy" />
+                          </p>
+                        </>
+                      ),
+                      run: async (canDispatch) => {
+                        if (!canDispatch()) return authoredRefusal('aborted', { key: 'beforeDispatch' });
+                        const response = await api.mutate(
+                          'quant',
+                          'backtest.run',
+                          request,
+                          historicalResultSchema.refine(
+                            (data) => matchesHistoricalRequest(data, request),
+                            'The historical result does not match the reviewed strategy, windows and declared verdict',
+                          ),
+                        );
+                        if (action.isCurrent()) {
+                          setLastAttempt({ request, view, result: response });
+                          if (response.ok) setBt({ data: response.data, request, view });
+                        }
+                        return response;
+                      },
+                    });
+                  }}
                 >
-                  <Text k="quant.review.backtest" />
-                </Button>
-              </form>
-            </Panel>
-            <Saved resource={saved} limit={limit} setLimit={setLimit} onPick={(s) => setStrategyId(s.id)} />
+                  <Field
+                    label={copyText('quant.strategy.id')}
+                    value={strategyId}
+                    onChange={(e) => setStrategyId(e.target.value)}
+                    required
+                  />
+                  <Field
+                    label={copyText('quant.historical.symbol')}
+                    value={symbol}
+                    onChange={(e) => setSymbol(e.target.value)}
+                    maxLength={32}
+                    required
+                  />
+                  <div className="quant-date-fields">
+                    {[
+                      ['inSampleFrom', copyText('quant.in.sample.start'), isFrom, setIsFrom],
+                      ['inSampleTo', copyText('quant.in.sample.end'), isTo, setIsTo],
+                      ['outOfSampleFrom', copyText('quant.out.of.sample.start'), oosFrom, setOosFrom],
+                      ['outOfSampleTo', copyText('quant.out.of.sample.end'), oosTo, setOosTo],
+                    ].map(([field, label, value, set]) => (
+                      <Field
+                        key={field as string}
+                        label={label as string}
+                        type="datetime-local"
+                        value={value as string}
+                        onChange={(e) => (set as (value: string) => void)(e.target.value)}
+                        required
+                      />
+                    ))}
+                  </div>
+                  <Select
+                    label={copyText('quant.evidence.based.out.of.sample.verdict')}
+                    value={verdict}
+                    onChange={setVerdict}
+                    options={['passed', 'failed', 'inconclusive']}
+                  />
+                  <Field
+                    label={copyText('quant.number.of.strategy.variants.tested')}
+                    value={variants}
+                    onChange={(e) => setVariants(e.target.value)}
+                    inputMode="numeric"
+                    required
+                  />
+                  {(['fees', 'slippage', 'latency'] as const).map((key) => (
+                    <fieldset key={key} className="quant-cost-fields">
+                      <legend>{t(key)}</legend>
+                      <Select
+                        label={copyText('quant.model', { value1: key })}
+                        value={models[key]}
+                        onChange={(value) => setModels((v) => ({ ...v, [key]: value }))}
+                        options={
+                          key === 'fees'
+                            ? ['venue-schedule', 'tiered-venue-schedule']
+                            : key === 'slippage'
+                              ? ['order-book-replay', 'measured-impact']
+                              : ['measured-distribution', 'event-replay']
+                        }
+                      />
+                      <Field
+                        label={copyText('quant.evidence.source', { value1: key })}
+                        value={evidence[key]}
+                        onChange={(e) => setEvidence((v) => ({ ...v, [key]: e.target.value }))}
+                        required
+                      />
+                    </fieldset>
+                  ))}
+                  {invalid && (
+                    <p role="alert">
+                      <Copy k="invalid" />
+                    </p>
+                  )}
+                  <Button type="submit" disabled={action.disabled || !validAnalysis}>
+                    <Copy k="review" />
+                  </Button>
+                </form>
+              </Panel>
+            </div>
           </div>
-          <Panel title={copyText('quant.historical.result')}>
-            {bt ? (
-              <>
-                <p lang="und">{bt.claimLabel}</p>
-                <p lang="und">{bt.outOfSampleLabel}</p>
-                <Details
-                  items={[
-                    [copyText('quant.run'), <span lang="zxx">{bt.runId}</span>],
-                    [copyText('quant.in.sample.fills'), bt.inSample.fillCount],
-                    [copyText('quant.in.sample.notional'), copyText('quant.historical.quote.units', { amount: bt.inSample.notional })],
-                    [copyText('quant.out.of.sample.fills'), bt.outOfSample.fillCount],
-                    [
-                      copyText('quant.out.of.sample.notional'),
-                      copyText('quant.historical.quote.units', { amount: bt.outOfSample.notional }),
-                    ],
-                  ]}
-                />
-              </>
-            ) : (
-              <p className="muted">
-                <Text k="quant.a.connected.data.lake.and.valid.evidence" />
-              </p>
-            )}
-          </Panel>
         </div>
       )}
-      {action.feedback}
+      {mode !== 'backtest' && action.feedback}
       {action.dialog}
     </div>
   );

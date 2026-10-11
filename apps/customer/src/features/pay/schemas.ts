@@ -131,17 +131,19 @@ export const disputeOpenedSchema = z.object({
   moderationConfigured: z.boolean(),
   moderation: moderationSchema,
 });
-export const reputationSchema = z.object({
-  tradesTotal: z.number().int(),
-  completed: z.number().int(),
-  cancelled: z.number().int(),
-  disputed: z.number().int(),
-  disputesLost: z.number().int(),
-  completionRate: z.number(),
-  avgReleaseSecs: z.number().int(),
-  badges: z.array(z.string()),
-  merchant: z.boolean().nullable(),
-});
+export const reputationSchema = z
+  .object({
+    tradesTotal: z.number().int().nonnegative().max(2147483647),
+    completed: z.number().int().nonnegative().max(2147483647),
+    cancelled: z.number().int().nonnegative().max(2147483647),
+    disputed: z.number().int().nonnegative().max(2147483647),
+    disputesLost: z.number().int().nonnegative().max(2147483647),
+    completionRate: z.number().finite().min(0).max(1),
+    avgReleaseSecs: z.number().int().nonnegative().max(2147483647),
+    badges: z.array(z.string()),
+    merchant: z.boolean().nullable(),
+  })
+  .refine((record) => record.completed + record.cancelled <= record.tradesTotal && record.disputesLost <= record.disputed);
 export const p2pStandingSchema = z.object({
   userId: z.string(),
   status: z.enum(['applied', 'approved', 'rejected', 'suspended', 'withdrawn']),
