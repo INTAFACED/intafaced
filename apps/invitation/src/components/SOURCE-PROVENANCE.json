@@ -94,5 +94,13 @@
       "Allocation or shader initialization failure selects the existing original MetalFx fallback branch; per-instance failure ref prevents further initialization effects"
     ],
     "originalRuntimeSha256": "4d904d0a17e8139f655a98bb6fb3a8e38f394d293bb847eb460ccb32618bf495"
+  },
+  {
+    "component": "noise-texture",
+    "registry": "https://magicui.design/r/noise-texture.json",
+    "originalSha256": "90cad110cf368c95bd40edcdfe64d52c6aacb0656996e20867562787f4ca4c1c",
+    "localChanges": [
+      "Exact original React/SVG construction; relative cn import and repository formatting only. Selected graphite field uses existing props frequency0.4/octaves2/slope0.13/noiseOpacity0.13; custom static CSS reflection is app composition, not another registry component."
+    ]
   }
 ]

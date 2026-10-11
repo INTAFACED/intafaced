@@ -10,6 +10,7 @@ import { HaloProgress } from './components/halo-progress';
 import { PrimaryMetal } from './components/primary-metal';
 import { TextAnimate } from './components/text-animate';
 import { BlurFade } from './components/blur-fade';
+import { NoiseTexture } from './components/noise-texture';
 import logo from '../../../vendor/upstream-exchange/05_Web_Front/src/assets/images/logo.svg';
 import './outreach.css';
 
@@ -64,15 +65,55 @@ function App() {
     const timer = window.setTimeout(() => setCompletionReveal(null), 1000);
     return () => window.clearTimeout(timer);
   }, [completionReveal]);
-  const welcomePlayed = useRef(false);
-  const [entryReveal, setEntryReveal] = useState(true);
+  const welcomePlayed = useRef(!!vm.resumeAvailable || document.hidden || window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const [entryReveal, setEntryReveal] = useState(!welcomePlayed.current);
+  const settleEntry = () => {
+    welcomePlayed.current = true;
+    setEntryReveal(false);
+  };
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      welcomePlayed.current = true;
-      setEntryReveal(false);
-    }, 700);
+    let mounted = true;
+    // Decoration does not hold up the real storage check or Begin. A slow
+    // check settles forward before the text's 220ms entrance, never rewinding.
+    const grace = window.setTimeout(() => {
+      if (!vm.storageReady) settleEntry();
+    }, 100);
+    void vm.ready.then(
+      () => {
+        if (!mounted) return;
+        if (
+          welcomePlayed.current ||
+          vm.resumeAvailable ||
+          vm.screen !== 'welcome' ||
+          document.hidden ||
+          window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        )
+          settleEntry();
+      },
+      () => {
+        if (mounted) settleEntry();
+      },
+    );
+    const hidden = () => {
+      if (document.hidden) settleEntry();
+    };
+    document.addEventListener('visibilitychange', hidden);
+    return () => {
+      mounted = false;
+      window.clearTimeout(grace);
+      document.removeEventListener('visibilitychange', hidden);
+    };
+  }, [vm]);
+  useEffect(() => {
+    if (reduceMotion) settleEntry();
+  }, [reduceMotion]);
+  useEffect(() => {
+    if (!entryReveal) return;
+    // Actual final action-emphasis animationend settles normal entry at ~1460ms.
+    // This later cleanup only handles an interrupted animation/event delivery.
+    const timer = window.setTimeout(settleEntry, 2200);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [entryReveal]);
   vm.onCompletionConfirmed = () => {
     if (!freshCompletionIntent.current || !vm.complete || vm.error) return;
     const receiptKey = `${vm.draft.submissionId}:${vm.draft.revision}`;
@@ -88,8 +129,7 @@ function App() {
     // A second native click can arrive before React paints the disabled state.
     // Keep the first confirmed submission's presentation intent intact.
     if (key === 'saveAnswers' && vm.busy) return;
-    welcomePlayed.current = true;
-    setEntryReveal(false);
+    settleEntry();
     const wasComplete = !!vm.complete;
     freshCompletionIntent.current = key === 'saveAnswers' && !wasComplete && !vm.busy && !vm.state.local?.answer;
     if (key !== 'saveAnswers') setCompletionReveal(null);
@@ -414,6 +454,19 @@ function App() {
       </div>
     </form>
   );
+  // Only intentional real view navigation can renew the finite light arrival.
+  const sceneView =
+    vm.screen === 'welcome'
+      ? 'welcome'
+      : vm.interestChangeRequested
+        ? 'recovery'
+        : vm.interestsOpen
+          ? 'interests'
+          : vm.complete
+            ? 'receipt'
+            : vm.currentAudience
+              ? `${vm.currentAudience}:${vm.group}`
+              : 'contact';
   return (
     <div
       className={`outreach-page invitation-theme dark ${vm.screen === 'welcome' ? 'is-welcome' : ''} ${entryReveal ? 'entry-reveal' : ''}`}
@@ -425,6 +478,10 @@ function App() {
       <picture className="invitation-scene" aria-hidden="true">
         <img src={vm.heroDesktop} alt="" width={1672} height={941} decoding="async" fetchPriority="high" />
       </picture>
+      <div className="question-scene" aria-hidden="true">
+        <div className="graphite-field" key={sceneView} data-scene-view={sceneView} />
+        <NoiseTexture className="graphite-grain" frequency={0.4} octaves={2} slope={0.13} noiseOpacity={0.13} style={{ opacity: 0.3 }} />
+      </div>
       <header className="invitation-header">
         <a href="/join" aria-label="INTAFACED">
           <img src={logo} alt="INTAFACED" width={150} height={35} />
@@ -468,18 +525,23 @@ function App() {
                 accessible
                 once
                 startOnView={false}
-                delay={0.09}
-                duration={0.16}
+                delay={0.22}
+                duration={0.34}
                 variants={{
-                  hidden: { opacity: 0, y: 6, filter: 'blur(4px)' },
-                  show: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.22, ease: 'easeOut' } },
+                  hidden: { opacity: 0, y: 6, filter: 'blur(5px)' },
+                  show: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.64, ease: [0.2, 0.65, 0.3, 1] } },
                 }}
               >
                 {'A conversation\nabout INTAFACED.'}
               </TextAnimate>
             )}
             <p className="welcome-description">Tell us how you’d like to take part.</p>
-            <div className="welcome-action">
+            <div
+              className="welcome-action"
+              onAnimationEnd={(event) => {
+                if (event.animationName === 'invitation-action-emphasis') settleEntry();
+              }}
+            >
               <PrimaryMetal
                 className="welcome-cta"
                 type="button"
@@ -526,6 +588,11 @@ function App() {
             >
               {vm.stepTitle}
             </h1>
+            {!vm.storageReady && (
+              <p className="outreach-small" role="status">
+                Checking saved progress in this browser. You can enter your details while this finishes.
+              </p>
+            )}
             {vm.error && (
               <p
                 className="outreach-notice"
