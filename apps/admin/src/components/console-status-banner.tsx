@@ -1,68 +1,50 @@
 import { Chip } from '@/components/chip';
-import { consoleCopy } from '@/lib/console-copy';
-import { AUTHORITY_REACH, type ConsoleStatus } from '@/lib/console-status';
-
-/**
- * "THIS CONSOLE CANNOT HALT ANYTHING" — said on every page, or not at all.
- *
- * ── Why it is in the layout and not on the board ────────────────────────────
- *
- * The kill-switch board already rendered an honest `Control plane: not
- * configured` panel, and it was not enough. An operator lands on `/ledger`
- * during an incident because that is the screen with the word "freeze" on it;
- * they never see a panel that only exists on `/`. Worse, the console 404'd on
- * its own `/api/kill-switch` in the deployed build, so the one page carrying the
- * warning was also the page nobody had a reason to open first.
- *
- * A safety control's inability to act is a property of the whole console, so it
- * is stated in the frame around every screen.
- *
- * ── It renders nothing when fullyConfigured ─────────────────────────────────
- *
- * Deliberately. A banner that is always present is furniture, and furniture is
- * not read. The absence of this strip is the only "all green" signal, and it
- * fires only when EDGE_URL plus both operator and treasury tokens are set.
- * Missing either token or the edge address keeps the strip up.
- *
- * Never renders a credential — `ConsoleStatus` carries booleans and variable
- * NAMES only, which is the property `console-status.ts` maintains.
- *
- * Operator-visible sentences resolve through `@intafaced/i18n`. A missing key
- * renders the key name — never invented English.
- */
-
+import { consoleCopy, type ConsoleLocale } from '@/lib/console-copy';
+import type { ConsoleStatus } from '@/lib/console-status';
+import './module-state-inspector.css';
 export interface ConsoleStatusBannerProps {
   status: ConsoleStatus;
+  locale?: ConsoleLocale;
 }
-
-export function ConsoleStatusBanner({ status }: ConsoleStatusBannerProps) {
-  if (status.fullyConfigured) return null;
-
-  const blocked = [status.module, status.treasury].filter((a) => !a.configured);
-
+/** Transport presence never hides the unavailable-module boundary or grants human authority. */
+export function ConsoleStatusBanner({ status, locale = 'en' }: ConsoleStatusBannerProps) {
+  const copy = (key: string) => consoleCopy(key, {}, locale);
+  const hasTransport = status.module.configured || status.treasury.configured;
   return (
-    <div className="adm-alertstrip" data-severity={status.canHaltAnything ? 'partial' : 'none'} role="status">
-      <Chip tone="danger" dot>
-        {status.canHaltAnything ? consoleCopy('admin.console.banner.chip.partial') : consoleCopy('admin.console.banner.chip.none')}
-      </Chip>
-      <span className="adm-alertstrip__body">
-        <strong>
-          {status.canHaltAnything ? consoleCopy('admin.console.banner.title.partial') : consoleCopy('admin.console.banner.title.none')}
-        </strong>{' '}
-        {blocked.map((authority) => (
-          <span key={authority.authority} className="adm-alertstrip__item">
-            {consoleCopy('admin.console.banner.item.lead', { reach: AUTHORITY_REACH[authority.authority] })}{' '}
-            {authority.missing.map((name, i) => (
-              <span key={name}>
-                {i > 0 && ' + '}
-                <code>{name}</code>
-              </span>
+    <div className="adm-alertstrip mi-console-boundary" data-severity={hasTransport ? 'partial' : 'none'} role="status">
+      <Chip tone="dark">{copy('admin.console.transport.title')}</Chip>
+      <div className="mi-boundary-body">
+        <p className="mi-boundary-summary">{copy('admin.console.transport.compact.guards')}</p>
+        <details className="mi-deployment">
+          <summary>{copy('admin.console.transport.details')}</summary>
+          <div className="mi-deployment-facts">
+            <p>{copy('admin.console.transport.facts')}</p>
+            {[status.module, status.treasury].map((authority) => (
+              <p key={authority.authority}>
+                {copy(`admin.console.transport.${authority.authority}`)}:{' '}
+                {authority.configured ? (
+                  copy('admin.console.transport.configured')
+                ) : (
+                  <>
+                    {copy('admin.console.transport.missing')}{' '}
+                    {authority.missing.map((name, i) => (
+                      <span key={name}>
+                        {i > 0 && ' + '}
+                        <code>{name}</code>
+                      </span>
+                    ))}
+                  </>
+                )}
+                .
+              </p>
             ))}
-            .{' '}
-          </span>
-        ))}{' '}
-        {consoleCopy('admin.console.banner.disclaimer')}
-      </span>
+            <p>{copy('admin.console.transport.founder.guard')}</p>
+            <p>{copy('admin.console.transport.module.guards')}</p>
+            <p>{copy('admin.console.transport.treasury.guards')}</p>
+            <p>{copy('admin.console.transport.disclaimer')}</p>
+          </div>
+        </details>
+      </div>
     </div>
   );
 }

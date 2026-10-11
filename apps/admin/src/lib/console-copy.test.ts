@@ -18,3 +18,15 @@ describe('consoleCopy — catalog keys, never invented English', () => {
     expect(rendered).not.toMatch(/cannot halt|unconfigured|please set|control plane/i);
   });
 });
+
+describe('Admin-local transport copy preserves the shared fallback', () => {
+  it.each([
+    ['en', 'Module writes unavailable'],
+    ['es', 'Cambios de módulos no disponibles'],
+    ['fr', 'Modification des modules indisponible'],
+  ] as const)('has distinct%s action refusal', (locale, expected) => {
+    expect(consoleCopy('admin.console.transport.title', {}, locale)).toBe(expected);
+    expect(consoleCopy('admin.console.transport.credential.fact', {}, locale)).not.toContain('can freeze');
+    expect(consoleCopy('admin.console.nonexistent', {}, locale)).toBe('admin.console.nonexistent');
+  });
+});

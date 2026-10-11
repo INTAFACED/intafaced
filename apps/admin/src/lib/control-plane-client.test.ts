@@ -160,8 +160,9 @@ describe('the authority split is enforced by which token is present', () => {
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe(`${EDGE}/admin/ledger/unfreeze`);
     expect(JSON.parse(init!.body as string)).toEqual({});
-    expect(result.ok).toBe(true);
-    expect(result.state?.frozen).toBe(false);
+    expect(result.ok).toBe(false);
+    expect(result.uncertain).toBe(true);
+    expect(result.returnedState?.frozen).toBe(false);
   });
 });
 
@@ -203,7 +204,8 @@ describe('a failure is never reported as a success', () => {
     expect(result.ok).toBe(false);
     expect(result.status).toBe(502);
     expect(result.state).toBeNull();
-    expect(result.detail).toContain('ECONNREFUSED');
+    expect(result.detail).toContain('original ledger command outcome');
+    expect(result.uncertain).toBe(true);
   });
 
   it('a non-JSON error page does not become an empty snapshot reported as ok', async () => {
@@ -260,5 +262,80 @@ describe('a failure is never reported as a success', () => {
     expect(state.snapshot.disabledModules).toEqual(['trade', 'pay']);
     expect(state.snapshot.audit).toHaveLength(1);
     expect(state.detail).toBeNull();
+  });
+});
+
+describe('module response integrity and original intent', () => {
+  beforeEach(() => {
+    process.env.EDGE_URL = EDGE;
+    process.env.ADMIN_OPERATOR_TOKEN = OPERATOR;
+  });
+  it('malformed HTTP200 never becomes a reachable empty platform', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ audit: [], reasons: {} })),
+    );
+    expect(await readKillSwitches()).toMatchObject({ status: 'invalid_response', code: 'admin.kill_invalid_response' });
+  });
+  it('auth refusal preserves the authoritative status and code', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ error: 'Isolated scope refusal', code: 'scope.insufficient' }, 403)),
+    );
+    expect(await readKillSwitches()).toMatchObject({ status: 'refused', httpStatus: 403, code: 'scope.insufficient' });
+  });
+  it('timeout retains original module intent without claiming a definite non-application', async () => {
+    const fetchMock = spyFetch(async () => {
+      throw new Error('Isolated timeout');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const intent = { module: 'pay' as const, disabled: true, reason: 'Original isolated incident' };
+    expect(await setKillSwitch(intent)).toMatchObject({ ok: false, uncertain: true, intent });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it('unreadable success cannot establish a module outcome', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('unreadable', { status: 200 })),
+    );
+    expect(await setKillSwitch({ module: 'pay', disabled: true, reason: 'Original isolated incident' })).toMatchObject({
+      ok: false,
+      uncertain: true,
+      code: 'admin.kill_invalid_command_response',
+    });
+  });
+});
+
+describe('strict money-plane reads and original response bounds', () => {
+  beforeEach(() => {
+    process.env.EDGE_URL = EDGE;
+    process.env.ADMIN_TREASURY_TOKEN = TREASURY;
+  });
+  it('missing frozen on HTTP200 never defaults to accepting', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ reason: null, actor: null, changedAt: '2026-10-09T16:00:00.000Z' })),
+    );
+    expect(await readFreeze()).toMatchObject({ ok: false, kind: 'invalid_response', state: null, upstreamStatus: 200 });
+  });
+  it('missing command frozen never substitutes the requested value', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ reason: 'Original incident', actor: 'reconciliation', changedAt: '2026-10-09T16:00:00.000Z' })),
+    );
+    expect(await setFreeze(true, 'Original incident')).toMatchObject({
+      uncertain: true,
+      state: null,
+      intent: { frozen: true, reason: 'Original incident' },
+    });
+  });
+  it('exact action_approval.missing400 is refusal, consume_failed400 is unresolved', async () => {
+    for (const code of ['action_approval.missing', 'action_approval.consume_failed']) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse({ code, message: 'Isolated refusal' }, 400)),
+      );
+      expect((await setFreeze(false)).uncertain).toBe(code !== 'action_approval.missing');
+    }
   });
 });
