@@ -479,6 +479,12 @@ export class EarnService {
     return out;
   }
 
+  /**
+   * One position. An active row is returned only when its principal column
+   * matches that row's earn stake pot. Drift throws
+   * `bank.earn_principal_mismatch` and the column is not returned.
+   * Pending and closed stay on the column: they are not the open set.
+   */
   async position(positionId: string): Promise<PositionRecord> {
     const rows = await this.sql<PositionRow[]>`
       SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status
@@ -486,9 +492,15 @@ export class EarnService {
     `;
     const row = rows[0];
     if (!row) throw new BankError(`Position ${positionId} not found`, 'bank.position_not_found');
+    if (row.status === 'active') {
+      const recorded = parseAmount(row.principal);
+      const book = (await this.ledger.balance(earnStakeAccount(row.user_id, row.asset_id, row.id))).amount;
+      stakePrincipalForAccrual(row.id, recorded, book);
+    }
     return toPosition(row);
   }
 
+  /** Active rows. Each principal column is checked against that row's earn stake pot before it is returned. */
   async positionsOf(userId: string, limit?: number): Promise<PositionRecord[]> {
     const page = assertEarnPositionsListLimit(limit);
     const rows = await this.sql<PositionRow[]>`
@@ -496,6 +508,11 @@ export class EarnService {
         FROM bank.earn_positions WHERE user_id = ${userId} AND status = 'active' ORDER BY opened_at DESC
        LIMIT ${page}
     `;
+    for (const row of rows) {
+      const recorded = parseAmount(row.principal);
+      const book = (await this.ledger.balance(earnStakeAccount(row.user_id, row.asset_id, row.id))).amount;
+      stakePrincipalForAccrual(row.id, recorded, book);
+    }
     return rows.map(toPosition);
   }
 
