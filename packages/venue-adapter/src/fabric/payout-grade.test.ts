@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseAmount } from '@intafaced/ledger-client/money';
+import { MoneyError, parseAmount } from '@intafaced/ledger-client/money';
 import { VenueUnavailableError, type VenueBookSnapshot } from '@intafaced/venue-contracts';
 import {
   DEFAULT_MIN_BEST_LEVEL_NOTIONAL,
@@ -40,8 +40,10 @@ describe('DEFAULT_MIN_BEST_LEVEL_NOTIONAL — one number with mark-from-depth', 
     expect(minBestLevelNotional()).toBe(parseAmount('100'));
   });
 
-  it('falls back to the default when the policy string is unreadable', () => {
-    expect(minBestLevelNotional({ minBestLevelNotional: 'not-a-decimal' })).toBe(parseAmount('100'));
+  it('refuses a missing or unreadable floor instead of substituting 100', () => {
+    expect(() => minBestLevelNotional({})).toThrow(MoneyError);
+    expect(() => minBestLevelNotional({ minBestLevelNotional: 'not-a-decimal' })).toThrow(MoneyError);
+    expect(minBestLevelNotional({ minBestLevelNotional: '250' })).toBe(parseAmount('250'));
   });
 });
 
