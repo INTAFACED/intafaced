@@ -175,7 +175,8 @@ export type P2pErrorCode =
   // refuse-closed until OWNER KMS envelope encryption is wired — a key
   // improvised here is the appearance of protection without the substance.
   | 'p2p.instrument_kms_required'
-  | 'p2p.escrow_terms_unproven';
+  | 'p2p.escrow_terms_unproven'
+  | 'p2p.escrow_lock_uncertain';
 
 /**
  * A lowercase canonical UUID — the natural-person identifier space, and the ONE
@@ -1330,6 +1331,9 @@ export class P2pService {
    * it, and calling it on an already-escrowed trade is a no-op read.
    */
   private async ensureEscrowed(tradeId: string): Promise<TradeRecord> {
+    // Commit the possible remote attempt BEFORE dispatch. HTTP abort cannot
+    // cancel a request already accepted by the ledger, nor prove it had no effect.
+    const ordinal = await this.claimEscrowLockAttempt(tradeId);
     // Serialize the post and its outcome on the existing trade row. A delayed
     // definitive failure must not void a different attempt whose lock posted.
     const outcome = await transaction(
@@ -1355,8 +1359,15 @@ export class P2pService {
             // immutable claim remains, so a sweep can replay the same recipe.
             throw err;
           }
-          // Idempotency is checked before funds. Under this row lock the
-          // definitive failure belongs to the only outstanding attempt.
+          const [history] = await tx<{ attempts: string | null }[]>`
+            SELECT escrow_lock_attempts::text AS attempts FROM p2p.p2p_trades WHERE id = ${trade.id}
+          `;
+          if (ordinal !== '1' || history?.attempts !== '1') {
+            // This refusal describes only this invocation. Earlier accepted
+            // handlers may still post even after our await timed out or died.
+            throw new P2pError('Escrow lock outcome is uncertain; prior attempts may still post', 'p2p.escrow_lock_uncertain');
+          }
+          // A complete first-attempt funds refusal has no earlier remote intent.
           await this.writeDecision(tx, {
             trade,
             to: 'cancelled',
@@ -1368,7 +1379,8 @@ export class P2pService {
         }
         return { trade: await this.advanceToEscrowed(tx, trade), newlyLocked: true, failure: null };
       },
-      { isolation: 'read committed', maxAttempts: 5 },
+      // Every new remote invocation requires another independently committed claim.
+      { isolation: 'read committed', maxAttempts: 1 },
     );
 
     // Settlement and announcements use the pool only after releasing the row
@@ -1396,6 +1408,24 @@ export class P2pService {
       );
     }
     return updated;
+  }
+
+  private async claimEscrowLockAttempt(tradeId: string): Promise<string | null> {
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const trade = await this.lockTrade(tx, tradeId);
+        if (trade.status !== 'created') return null;
+        await this.requireOriginalTermsClaim(trade.id, tx);
+        const [row] = await tx<{ attempts: string | null }[]>`
+        UPDATE p2p.p2p_trades SET escrow_lock_attempts = escrow_lock_attempts + 1
+         WHERE id = ${trade.id} RETURNING escrow_lock_attempts::text AS attempts
+      `;
+        // NULL remains unknown; upgrading must never bless untracked history.
+        return row?.attempts ?? null;
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
   }
 
   /** Stamp an acknowledged lock while the caller still holds the trade row. */

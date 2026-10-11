@@ -91,16 +91,29 @@ export function createLedgerClient(baseUrl: string, internalSecret: string, opti
         })),
       };
 
-      const result = await call<{ txId: string; hash: string; postedAt: string }>('/trpc/post', wire);
+      const acknowledgement = await call<unknown>('/trpc/post', wire);
+      if (!acknowledgement || typeof acknowledgement !== 'object' || Array.isArray(acknowledgement)) {
+        throw new Error('svc-ledger invalid post acknowledgement; outcome unknown');
+      }
+      const { txId, hash, postedAt } = acknowledgement as Record<string, unknown>;
+      if (typeof txId !== 'string' || !txId.trim() || typeof hash !== 'string' || !hash.trim() || typeof postedAt !== 'string') {
+        throw new Error('svc-ledger invalid post acknowledgement; outcome unknown');
+      }
+      // handleS2sPost publishes Date.toISOString(). Reject normalized impossible
+      // dates and arbitrary Date.parse strings, without inventing ID/hash formats.
+      const serverTimestamp = new Date(postedAt);
+      if (!Number.isFinite(serverTimestamp.getTime()) || serverTimestamp.toISOString() !== postedAt) {
+        throw new Error('svc-ledger invalid post acknowledgement; outcome unknown');
+      }
 
       return {
-        id: result.txId,
+        id: txId,
         idempotencyKey: request.idempotencyKey,
         module: request.module,
         reason: request.reason,
         meta: request.meta ?? {},
-        postedAt: new Date(result.postedAt),
-        hash: result.hash,
+        postedAt: serverTimestamp,
+        hash,
         previousHash: null,
         entries: [],
       };

@@ -2131,8 +2131,14 @@ describe('svc-p2p escrow', () => {
       await fund(MAKER, '1000');
       const offer = await sellOffer();
       const tradeId = crypto.randomUUID();
+      let lockAttempts = 0;
+      const originalPost = ledger.post.bind(ledger);
+      ledger.post = async (request) => {
+        if (request.idempotencyKey === `p2p.escrow.lock:${tradeId}`) lockAttempts++;
+        return originalPost(request);
+      };
       await sql.unsafe(
-        `CREATE FUNCTION p2p.fixture_reject_escrow_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status = 'escrowed' THEN RAISE EXCEPTION 'fixture escrow SQL commit failed' USING ERRCODE = 'check_violation'; END IF; RETURN NEW; END $$`,
+        `CREATE FUNCTION p2p.fixture_reject_escrow_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status = 'escrowed' THEN RAISE EXCEPTION 'fixture escrow SQL commit failed' USING ERRCODE = 'serialization_failure'; END IF; RETURN NEW; END $$`,
       );
       await sql.unsafe(
         `CREATE CONSTRAINT TRIGGER fixture_reject_escrow_commit AFTER UPDATE ON p2p.p2p_trades DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION p2p.fixture_reject_escrow_commit()`,
@@ -2145,6 +2151,8 @@ describe('svc-p2p escrow', () => {
         expect((await p2p.getTrade(tradeId)).escrowedAt).toBeNull();
         expect(await escrowOf(MAKER)).toBe('100');
         expect(bus.emitted('p2pEscrowLocked')).toHaveLength(0);
+        expect(lockAttempts).toBe(1);
+        expect((await sql`SELECT escrow_lock_attempts::text AS attempts FROM p2p.p2p_trades WHERE id = ${tradeId}`)[0]?.attempts).toBe('1');
         expect(formatAmount((await p2p.getOffer(offer.id)).remainingAmt)).toBe('400');
       } finally {
         await sql.unsafe('DROP TRIGGER IF EXISTS fixture_reject_escrow_commit ON p2p.p2p_trades');

@@ -83,6 +83,7 @@ const migrations = [
   '0011_p2p_payto_snapshot.sql',
   '0012_p2p_dispute_resolution_match.sql',
   '0013_p2p_dispute_ruling_frozen.sql',
+  '0014_p2p_escrow_lock_attempts.sql',
 ].map((file) => readFileSync(join(here, '..', 'drizzle', file), 'utf8'));
 
 const H8A_IMAGE = 'postgres:16-alpine';

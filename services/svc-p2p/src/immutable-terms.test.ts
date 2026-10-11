@@ -359,6 +359,469 @@ describe('native P2P original terms and decisions', () => {
     },
   );
 
+  it.each([
+    null,
+    [],
+    {},
+    'ack',
+    1,
+    true,
+    { txId: '', hash: '', postedAt: 'not-a-date' },
+    { txId: 'fixture', hash: 'fixture' },
+    { txId: null, hash: 'fixture', postedAt: '2026-10-11T00:00:00.000Z' },
+    { txId: 1, hash: 'fixture', postedAt: '2026-10-11T00:00:00.000Z' },
+    { txId: 'fixture', hash: [], postedAt: '2026-10-11T00:00:00.000Z' },
+    { txId: 'fixture', hash: ' ', postedAt: '2026-10-11T00:00:00.000Z' },
+    { txId: 'fixture', hash: 'fixture', postedAt: null },
+    { txId: 'fixture', hash: 'fixture', postedAt: '1' },
+    { txId: 'fixture', hash: 'fixture', postedAt: '2026-02-31T00:00:00.000Z' },
+  ])('treats real HTTP200 acknowledgement %j as unknown and re-drives only the original intent', async (badAck) => {
+    await db.sql`TRUNCATE p2p.payment_instruments, p2p.p2p_trades, p2p.offers CASCADE`;
+    await seed(db.sql, 'created');
+    const ledger = new MemoryLedger();
+    await ledger.post(
+      recipes.deposit({
+        userId: SELLER,
+        assetId: 'USDT',
+        amount: parseAmount('1000'),
+        rail: 'test-fixture',
+        railRef: 'invalid-ack-control',
+      }),
+    );
+    const keys: string[] = [];
+    const server = createServer(async (request, response) => {
+      try {
+        let body = '';
+        for await (const chunk of request) body += chunk;
+        const wire = JSON.parse(body) as Omit<PostRequest, 'entries'> & {
+          entries: Array<Omit<PostRequest['entries'][number], 'amount'> & { amount: string }>;
+        };
+        keys.push(wire.idempotencyKey);
+        if (keys.length === 1) {
+          response.end(JSON.stringify(badAck));
+          return;
+        }
+        const receipt = await ledger.post({
+          ...wire,
+          entries: wire.entries.map((entry) => ({ ...entry, amount: parseAmount(entry.amount) })),
+        });
+        response.end(JSON.stringify({ txId: receipt.id, hash: receipt.hash, postedAt: receipt.postedAt.toISOString() }));
+      } catch (error) {
+        response.statusCode = 500;
+        response.end(String(error));
+      }
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('owned HTTP fixture unavailable');
+    const bus = new MemoryEventBus('svc-p2p');
+    const publish = vi.spyOn(bus, 'publish');
+    const service = new P2pService(
+      db.sql,
+      createLedgerClient(`http://127.0.0.1:${address.port}`, 'synthetic-p2p-fixture-internal-secret'),
+      bus,
+      {
+        instruments: new InstrumentService(db.sql),
+        feeBps: 100,
+        deadlines: {
+          escrowSeconds: 120,
+          paymentSeconds: 900,
+          releaseSeconds: 1800,
+          disputeSeconds: 604800,
+          escalationRecheckSeconds: 3600,
+        },
+      },
+    );
+    try {
+      await expect(service.cancelTrade(TRADE, SELLER)).rejects.toThrow(/invalid post acknowledgement/);
+      expect((await service.getTrade(TRADE)).status).toBe('created');
+      expect((await service.getTrade(TRADE)).escrowedAt).toBeNull();
+      expect((await service.getTrade(TRADE)).settledAt).toBeNull();
+      expect(publish).not.toHaveBeenCalled();
+      expect(formatAmount((await ledger.balance(tradeEscrowAccount(SELLER, 'USDT', TRADE))).amount)).toBe('0');
+      expect((await db.sql`SELECT remaining_amt::text AS remaining FROM p2p.offers WHERE id=${OFFER}`)[0]?.remaining).toBe(
+        '400.000000000000000000',
+      );
+      await expect(new InstrumentService(db.sql).revealForTrade({ tradeId: TRADE, viewerId: BUYER })).rejects.toBeInstanceOf(Error);
+      expect(await db.sql`SELECT id FROM p2p.instrument_access_log WHERE outcome='revealed'`).toHaveLength(0);
+      await db.sql`UPDATE p2p.p2p_trades SET deadline_at=now()-interval '1 hour' WHERE id=${TRADE}`;
+      expect((await service.sweepDeadlines(undefined, 100)).failed).toBe(0);
+      expect((await service.getTrade(TRADE)).resolution).toBe('refunded');
+      expect(keys).toEqual([`p2p.escrow.lock:${TRADE}`, `p2p.escrow.lock:${TRADE}`, `p2p.escrow.refund:${TRADE}`]);
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey === `p2p.escrow.lock:${TRADE}`)).toHaveLength(1);
+      expect(formatAmount((await ledger.balance(userAvailable(SELLER, 'USDT'))).amount)).toBe('1000');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
+  it.each(['released', 'refunded'] as const)(
+    'does not stamp or announce %s from a malformed settlement acknowledgement',
+    async (resolution) => {
+      const ledger = new MemoryLedger();
+      await ledger.post(
+        recipes.deposit({ userId: SELLER, assetId: 'USDT', amount: parseAmount('1000'), rail: 'test-fixture', railRef: 'settlement-ack' }),
+      );
+      await ledger.post(
+        recipes.escrowLock({ tradeId: TRADE, sellerId: SELLER, buyerId: BUYER, assetId: 'USDT', amount: parseAmount('100') }),
+      );
+      // This fixture starts with acknowledged escrow, including its truthful reputation count.
+      await db.sql`INSERT INTO p2p.p2p_reputation(user_id,trades_total) VALUES (${SELLER},1),(${BUYER},1) ON CONFLICT(user_id) DO UPDATE SET trades_total=p2p.p2p_reputation.trades_total+1`;
+      const keys: string[] = [];
+      const server = createServer(async (request, response) => {
+        try {
+          let body = '';
+          for await (const chunk of request) body += chunk;
+          const wire = JSON.parse(body) as Omit<PostRequest, 'entries'> & {
+            entries: Array<Omit<PostRequest['entries'][number], 'amount'> & { amount: string }>;
+          };
+          keys.push(wire.idempotencyKey);
+          if (keys.length === 1) {
+            response.end('{}');
+            return;
+          }
+          const receipt = await ledger.post({
+            ...wire,
+            entries: wire.entries.map((entry) => ({ ...entry, amount: parseAmount(entry.amount) })),
+          });
+          response.end(JSON.stringify({ txId: receipt.id, hash: receipt.hash, postedAt: receipt.postedAt.toISOString() }));
+        } catch (error) {
+          response.statusCode = 500;
+          response.end(String(error));
+        }
+      });
+      await new Promise<void>((resolve) => {
+        server.listen(0, '127.0.0.1', resolve);
+      });
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('owned HTTP fixture unavailable');
+      const bus = new MemoryEventBus('svc-p2p');
+      const publish = vi.spyOn(bus, 'publish');
+      const service = new P2pService(
+        db.sql,
+        createLedgerClient(`http://127.0.0.1:${address.port}`, 'synthetic-p2p-fixture-internal-secret'),
+        bus,
+        { instruments: new InstrumentService(db.sql), feeBps: 100 },
+      );
+      try {
+        const settling = resolution === 'released' ? service.confirmFiatReceived(TRADE, SELLER) : service.cancelTrade(TRADE, SELLER);
+        await expect(settling).rejects.toThrow(/invalid post acknowledgement/);
+        expect((await service.getTrade(TRADE)).resolution).toBe(resolution);
+        expect((await service.getTrade(TRADE)).settledAt).toBeNull();
+        expect(publish).not.toHaveBeenCalled();
+        expect(formatAmount((await ledger.balance(tradeEscrowAccount(SELLER, 'USDT', TRADE))).amount)).toBe('100');
+        expect((await service.sweepSettlements(100)).settled).toBe(1);
+        const key = `p2p.escrow.${resolution === 'released' ? 'release' : 'refund'}:${TRADE}`;
+        expect(keys).toEqual([key, key]);
+        expect(ledger.journal().filter((tx) => tx.idempotencyKey === key)).toHaveLength(1);
+        expect((await service.getTrade(TRADE)).settledAt).not.toBeNull();
+        expect(formatAmount((await ledger.balance(tradeEscrowAccount(SELLER, 'USDT', TRADE))).amount)).toBe('0');
+        expect(ledger.reconcile()).toEqual({ ok: true });
+        expect(ledger.verifyChain()).toEqual({ ok: true });
+      } finally {
+        server.closeAllConnections();
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
+    },
+  );
+
+  it('keeps a delayed remote handler unresolved after timeout and a later funds refusal, then converges exactly', async () => {
+    await db.sql`TRUNCATE p2p.payment_instruments, p2p.p2p_trades, p2p.offers CASCADE`;
+    await seed(db.sql, 'created');
+    const ledger = new MemoryLedger();
+    let release!: () => void;
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const remoteDone = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const keys: string[] = [];
+    const server = createServer(async (request, response) => {
+      let body = '';
+      for await (const chunk of request) body += chunk;
+      const wire = JSON.parse(body) as Omit<PostRequest, 'entries'> & {
+        entries: Array<Omit<PostRequest['entries'][number], 'amount'> & { amount: string }>;
+      };
+      keys.push(wire.idempotencyKey);
+      const first = keys.length === 1;
+      if (first) await gate;
+      try {
+        const receipt = await ledger.post({
+          ...wire,
+          entries: wire.entries.map((entry) => ({ ...entry, amount: parseAmount(entry.amount) })),
+        });
+        response.end(JSON.stringify({ txId: receipt.id, hash: receipt.hash, postedAt: receipt.postedAt.toISOString() }));
+      } catch (error) {
+        const failure = error as {
+          code: string;
+          message: string;
+          accountId: string;
+          assetId: string;
+          requested: string;
+          availableBalance: string;
+        };
+        response.statusCode = 400;
+        response.end(
+          JSON.stringify({
+            code: failure.code,
+            message: failure.message,
+            accountId: failure.accountId,
+            assetId: failure.assetId,
+            requested: failure.requested,
+            availableBalance: failure.availableBalance,
+          }),
+        );
+      } finally {
+        if (first) finish();
+      }
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('owned HTTP fixture unavailable');
+    const bus = new MemoryEventBus('svc-p2p');
+    const publish = vi.spyOn(bus, 'publish');
+    const service = new P2pService(
+      db.sql,
+      createLedgerClient(`http://127.0.0.1:${address.port}`, 'synthetic-p2p-fixture-internal-secret', { timeoutMs: 100 }),
+      bus,
+      {
+        instruments: new InstrumentService(db.sql),
+        feeBps: 100,
+        deadlines: {
+          escrowSeconds: 120,
+          paymentSeconds: 900,
+          releaseSeconds: 1800,
+          disputeSeconds: 604800,
+          escalationRecheckSeconds: 3600,
+        },
+      },
+    );
+    try {
+      await expect(service.cancelTrade(TRADE, SELLER)).rejects.toBeInstanceOf(Error);
+      expect((await db.sql`SELECT escrow_lock_attempts::text AS attempts FROM p2p.p2p_trades WHERE id=${TRADE}`)[0]?.attempts).toBe('1');
+      await expect(service.cancelTrade(TRADE, SELLER)).rejects.toMatchObject({ code: 'p2p.escrow_lock_uncertain' });
+      expect((await service.getTrade(TRADE)).resolution).toBeNull();
+      expect(publish).not.toHaveBeenCalled();
+      expect((await db.sql`SELECT remaining_amt::text AS remaining FROM p2p.offers WHERE id=${OFFER}`)[0]?.remaining).toBe(
+        '400.000000000000000000',
+      );
+      await expect(
+        db.sql`UPDATE p2p.p2p_trades SET status='cancelled',resolution='voided',resolved_at=now(),deadline_at=null WHERE id=${TRADE}`,
+      ).rejects.toThrow(/unresolved escrow lock attempts/);
+      // Our abort did not cancel the first accepted remote handler.
+      await ledger.post(
+        recipes.deposit({
+          userId: SELLER,
+          assetId: 'USDT',
+          amount: parseAmount('100'),
+          rail: 'test-fixture',
+          railRef: 'fund-after-uncertain-refusal',
+        }),
+      );
+      release();
+      await remoteDone;
+      expect(formatAmount((await ledger.balance(tradeEscrowAccount(SELLER, 'USDT', TRADE))).amount)).toBe('100');
+      expect((await service.getTrade(TRADE)).status).toBe('created');
+      await db.sql`UPDATE p2p.p2p_trades SET deadline_at=now()-interval '1 hour' WHERE id=${TRADE}`;
+      expect((await service.sweepDeadlines(undefined, 100)).failed).toBe(0);
+      expect((await service.getTrade(TRADE)).resolution).toBe('refunded');
+      expect(keys).toEqual([
+        `p2p.escrow.lock:${TRADE}`,
+        `p2p.escrow.lock:${TRADE}`,
+        `p2p.escrow.lock:${TRADE}`,
+        `p2p.escrow.refund:${TRADE}`,
+      ]);
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey === `p2p.escrow.lock:${TRADE}`)).toHaveLength(1);
+      expect(formatAmount((await ledger.balance(userAvailable(SELLER, 'USDT'))).amount)).toBe('100');
+      expect(formatAmount((await ledger.balance(tradeEscrowAccount(SELLER, 'USDT', TRADE))).amount)).toBe('0');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+      expect(ledger.verifyChain()).toEqual({ ok: true });
+    } finally {
+      release();
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
+  it('persists a committed claim even when its SQL acknowledgement is lost, before any remote effect', async () => {
+    await db.sql`TRUNCATE p2p.payment_instruments, p2p.p2p_trades, p2p.offers CASCADE`;
+    await seed(db.sql, 'created');
+    const ledger = new MemoryLedger();
+    const posted = vi.spyOn(ledger, 'post');
+    let loseClaimAck = true;
+    const faultSql = new Proxy(db.sql, {
+      get(target, key, receiver) {
+        if (key === 'begin')
+          return async (...args: unknown[]) => {
+            const result = await Reflect.apply(target.begin, target, args);
+            if (loseClaimAck) {
+              loseClaimAck = false;
+              throw new Error('fixture committed claim SQL acknowledgement lost');
+            }
+            return result;
+          };
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    const service = new P2pService(faultSql, ledger, new MemoryEventBus('svc-p2p'), {
+      instruments: new InstrumentService(faultSql),
+      feeBps: 100,
+    });
+    await expect(service.cancelTrade(TRADE, SELLER)).rejects.toThrow(/committed claim SQL acknowledgement lost/);
+    expect(posted).not.toHaveBeenCalled();
+    expect((await db.sql`SELECT escrow_lock_attempts::text AS attempts FROM p2p.p2p_trades WHERE id=${TRADE}`)[0]?.attempts).toBe('1');
+    // New process/service cannot mistake the committed pre-dispatch claim for a first attempt.
+    const restarted = new P2pService(db.sql, ledger, new MemoryEventBus('svc-p2p'), {
+      instruments: new InstrumentService(db.sql),
+      feeBps: 100,
+    });
+    await expect(restarted.cancelTrade(TRADE, SELLER)).rejects.toMatchObject({ code: 'p2p.escrow_lock_uncertain' });
+    expect(posted).toHaveBeenCalledTimes(1);
+    expect((await restarted.getTrade(TRADE)).resolution).toBeNull();
+    expect((await db.sql`SELECT escrow_lock_attempts::text AS attempts FROM p2p.p2p_trades WHERE id=${TRADE}`)[0]?.attempts).toBe('2');
+    expect((await db.sql`SELECT remaining_amt::text AS remaining FROM p2p.offers WHERE id=${OFFER}`)[0]?.remaining).toBe(
+      '400.000000000000000000',
+    );
+  });
+
+  it('cannot treat ordinal one as first after another durable claim enters the claim/post gap', async () => {
+    await db.sql`TRUNCATE p2p.payment_instruments, p2p.p2p_trades, p2p.offers CASCADE`;
+    await seed(db.sql, 'created');
+    let signal!: () => void;
+    let release!: () => void;
+    const claimed = new Promise<void>((resolve) => {
+      signal = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let holdFirstCommit = true;
+    const faultSql = new Proxy(db.sql, {
+      get(target, key, receiver) {
+        if (key === 'begin')
+          return async (...args: unknown[]) => {
+            const result = await Reflect.apply(target.begin, target, args);
+            if (holdFirstCommit) {
+              holdFirstCommit = false;
+              signal();
+              await gate;
+            }
+            return result;
+          };
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    const ledger = new MemoryLedger();
+    const posted = vi.spyOn(ledger, 'post');
+    const firstService = new P2pService(faultSql, ledger, new MemoryEventBus('svc-p2p'), {
+      instruments: new InstrumentService(faultSql),
+      feeBps: 100,
+    });
+    const secondService = new P2pService(db.sql, ledger, new MemoryEventBus('svc-p2p'), {
+      instruments: new InstrumentService(db.sql),
+      feeBps: 100,
+    });
+    const first = firstService.cancelTrade(TRADE, SELLER).catch((error) => error);
+    try {
+      await claimed;
+      await expect(secondService.cancelTrade(TRADE, SELLER)).rejects.toMatchObject({ code: 'p2p.escrow_lock_uncertain' });
+      expect((await db.sql`SELECT escrow_lock_attempts::text AS attempts FROM p2p.p2p_trades WHERE id=${TRADE}`)[0]?.attempts).toBe('2');
+    } finally {
+      release();
+      expect(await first).toMatchObject({ code: 'p2p.escrow_lock_uncertain' });
+    }
+    expect(posted).toHaveBeenCalledTimes(2);
+    expect((await secondService.getTrade(TRADE)).resolution).toBeNull();
+    expect((await db.sql`SELECT remaining_amt::text AS remaining FROM p2p.offers WHERE id=${OFFER}`)[0]?.remaining).toBe(
+      '400.000000000000000000',
+    );
+  });
+
+  it('allows safe zero-attempt down, but re-upgrade keeps surviving claims NULL rather than inventing fresh history', async () => {
+    const fresh = await createTestDatabase({ service: 'p2p', url: process.env.TEST_DATABASE_URL, migrations });
+    try {
+      await seed(fresh.sql, 'created');
+      await fresh.sql.begin(async (tx) => {
+        await tx.unsafe(read('0014_p2p_escrow_lock_attempts.down.sql'));
+      });
+      await fresh.sql.begin(async (tx) => {
+        await tx.unsafe(read('0014_p2p_escrow_lock_attempts.sql'));
+      });
+      expect((await fresh.sql`SELECT escrow_lock_attempts FROM p2p.p2p_trades WHERE id=${TRADE}`)[0]?.escrow_lock_attempts).toBeNull();
+      await expect(
+        fresh.sql.begin(async (tx) => {
+          await tx.unsafe(read('0014_p2p_escrow_lock_attempts.down.sql'));
+        }),
+      ).rejects.toThrow(/refusing to remove unresolved/);
+    } finally {
+      await fresh.drop();
+    }
+  });
+
+  it('preserves monotonic history and refuses down on unresolved claimed intent', async () => {
+    await db.sql`TRUNCATE p2p.payment_instruments, p2p.p2p_trades, p2p.offers CASCADE`;
+    await seed(db.sql, 'created');
+    expect((await db.sql`SELECT escrow_lock_attempts::text AS attempts FROM p2p.p2p_trades WHERE id=${TRADE}`)[0]?.attempts).toBe('0');
+    await db.sql`UPDATE p2p.p2p_trades SET escrow_lock_attempts=escrow_lock_attempts+1 WHERE id=${TRADE}`;
+    for (const value of ['0', '-1', '3', null])
+      await expect(db.sql`UPDATE p2p.p2p_trades SET escrow_lock_attempts=${value}::bigint WHERE id=${TRADE}`).rejects.toThrow();
+    await expect(
+      db.sql.begin(async (tx) => {
+        await tx.unsafe(read('0014_p2p_escrow_lock_attempts.down.sql'));
+      }),
+    ).rejects.toThrow(/refusing to remove unresolved/);
+    expect((await db.sql`SELECT escrow_lock_attempts::text AS attempts FROM p2p.p2p_trades WHERE id=${TRADE}`)[0]?.attempts).toBe('1');
+  });
+
+  it('preserves populated pre-counter claims as NULL unknown history on upgrade and refuses counter down', async () => {
+    const legacy = await createTestDatabase({
+      service: 'p2p',
+      url: process.env.TEST_DATABASE_URL,
+      migrations: files.filter((name) => Number(name.slice(0, 4)) < 14).map(read),
+    });
+    try {
+      await seed(legacy.sql, 'created');
+      const before = (await legacy.sql`SELECT to_jsonb(t) AS terms FROM p2p.p2p_trades t`)[0]?.terms;
+      await legacy.sql.begin(async (tx) => {
+        await tx.unsafe(read('0014_p2p_escrow_lock_attempts.sql'));
+      });
+      await legacy.sql.begin(async (tx) => {
+        await tx.unsafe(read('0014_p2p_escrow_lock_attempts.sql'));
+      });
+      expect((await legacy.sql`SELECT to_jsonb(t)-'escrow_lock_attempts' AS terms FROM p2p.p2p_trades t`)[0]?.terms).toEqual(before);
+      expect((await legacy.sql`SELECT escrow_lock_attempts FROM p2p.p2p_trades WHERE id=${TRADE}`)[0]?.escrow_lock_attempts).toBeNull();
+      await expect(legacy.sql`UPDATE p2p.p2p_trades SET escrow_lock_attempts=0 WHERE id=${TRADE}`).rejects.toThrow(/unknown history/);
+      const ledger = new MemoryLedger();
+      const service = new P2pService(legacy.sql, ledger, new MemoryEventBus('svc-p2p'), {
+        instruments: new InstrumentService(legacy.sql),
+        feeBps: 100,
+      });
+      await expect(service.cancelTrade(TRADE, SELLER)).rejects.toMatchObject({ code: 'p2p.escrow_lock_uncertain' });
+      expect((await service.getTrade(TRADE)).status).toBe('created');
+      await expect(
+        legacy.sql.begin(async (tx) => {
+          await tx.unsafe(read('0014_p2p_escrow_lock_attempts.down.sql'));
+        }),
+      ).rejects.toThrow(/refusing to remove unresolved/);
+    } finally {
+      await legacy.drop();
+    }
+  });
+
   it('refuses a legacy opposite ruling during upgrade without rewriting populated terms', async () => {
     const legacy = await createTestDatabase({
       service: 'p2p',
@@ -380,7 +843,9 @@ describe('native P2P original terms and decisions', () => {
           await tx.unsafe(read('0013_p2p_dispute_ruling_frozen.sql'));
         }),
       ).rejects.toThrow(/opposite party/);
-      expect(await legacy.sql`SELECT to_jsonb(t) - 'original_terms_claimed_at' AS terms FROM p2p.p2p_trades t`).toEqual(before);
+      expect(
+        await legacy.sql`SELECT to_jsonb(t) - 'original_terms_claimed_at' - 'escrow_lock_attempts' AS terms FROM p2p.p2p_trades t`,
+      ).toEqual(before);
       expect(await legacy.sql`SELECT to_jsonb(d) AS terms FROM p2p.p2p_disputes d`).toEqual(ruling);
     } finally {
       await legacy.drop();
@@ -404,9 +869,10 @@ describe('native P2P original terms and decisions', () => {
           await legacy.sql.begin(async (tx) => {
             await tx.unsafe(read(file));
           });
-        expect((await legacy.sql`SELECT to_jsonb(t) - 'original_terms_claimed_at' AS terms FROM p2p.p2p_trades t`)[0]?.terms).toEqual(
-          original,
-        );
+        expect(
+          (await legacy.sql`SELECT to_jsonb(t) - 'original_terms_claimed_at' - 'escrow_lock_attempts' AS terms FROM p2p.p2p_trades t`)[0]
+            ?.terms,
+        ).toEqual(original);
         const row = (await legacy.sql`SELECT amount::text AS amount, original_terms_claimed_at FROM p2p.p2p_trades`)[0];
         expect(row).toEqual({ amount: '100.000000000000000000', original_terms_claimed_at: null });
         await expect(legacy.sql`UPDATE p2p.p2p_trades SET original_terms_claimed_at = now() WHERE id = ${TRADE}`).rejects.toThrow();

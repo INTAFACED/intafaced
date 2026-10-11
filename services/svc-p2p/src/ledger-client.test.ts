@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { InsufficientFundsError } from '@intafaced/ledger-client';
+import { describe, expect, it, vi } from 'vitest';
+import { InsufficientFundsError, recipes, parseAmount } from '@intafaced/ledger-client';
 import { rehydrateLedgerHttpError } from '@intafaced/ledger-client';
 import { createLedgerClient } from './ledger-client.js';
 
@@ -51,4 +51,31 @@ describe('P2P ledger transport budget', () => {
       );
     },
   );
+});
+
+it('accepts the actual published ACK fields without inventing transaction-ID or hash formats', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ txId: 'opaque-server-id', hash: 'opaque-server-hash', postedAt: '2026-10-11T00:00:00.000Z' })),
+    ),
+  );
+  try {
+    const ledger = createLedgerClient('http://fixture.invalid', 'synthetic-p2p-fixture-internal-secret');
+    const request = recipes.escrowLock({
+      tradeId: '00000000-0000-4000-8000-0000000000a6',
+      sellerId: '11111111-1111-4111-8111-111111111111',
+      buyerId: '22222222-2222-4222-8222-222222222222',
+      assetId: 'USDT',
+      amount: parseAmount('100'),
+    });
+    await expect(ledger.post(request)).resolves.toMatchObject({
+      id: 'opaque-server-id',
+      hash: 'opaque-server-hash',
+      postedAt: new Date('2026-10-11T00:00:00.000Z'),
+    });
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

@@ -307,6 +307,7 @@ function toTrpcError(err: unknown): TRPCError {
       // on the code, not on a generic BAD_REQUEST that looks like a typo.
       case 'p2p.instrument_kms_required':
       case 'p2p.escrow_terms_unproven':
+      case 'p2p.escrow_lock_uncertain':
       case 'p2p.fee_bps_unset':
       case 'p2p.offer_list_limit_unset':
       case 'p2p.dispute_list_limit_unset':
