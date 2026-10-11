@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { scheduleKeySchema } from '@intafaced/contracts';
+import { scheduleKeySchema } from '@intafaced/contracts/instruments';
 
 /**
  * CCXT-SHAPED PUBLIC EXCHANGE API.
