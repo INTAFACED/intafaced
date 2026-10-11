@@ -268,6 +268,15 @@ export async function planRoute(
       rejected.push({ venueId: source.id, reason: 'stale', detail: 'quote expired' });
       continue;
     }
+    // Exact strings. BTC-USDT is not BTC/USDT, and the other side is not this order.
+    if (quote.symbol !== request.symbol || quote.side !== request.side) {
+      rejected.push({
+        venueId: source.id,
+        reason: 'no_quote',
+        detail: `quote symbol ${quote.symbol} side ${quote.side} does not match the request`,
+      });
+      continue;
+    }
 
     const feeOnly = effectivePrice(quote.price, quote.feeBps, request.side);
     let allIn = feeOnly;
