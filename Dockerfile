@@ -58,6 +58,7 @@ FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 
 COPY apps/admin/package.json                 apps/admin/
+COPY apps/invitation/package.json            apps/invitation/
 COPY apps/mobile/package.json                apps/mobile/
 
 COPY packages/academy-ambassadors-pay/package.json packages/academy-ambassadors-pay/
