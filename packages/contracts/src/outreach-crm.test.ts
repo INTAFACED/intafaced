@@ -146,7 +146,7 @@ describe('outreach and CRM boundary contracts', () => {
     expect(crmOpportunityPageSchema.safeParse({ ...page, items: [] }).success).toBe(false);
     expect(crmOpportunityPageSchema.safeParse({ ...page, submissions: [] }).success).toBe(false);
     expect(crmOpportunityPageSchema.safeParse({ ...page, submissions: [summary, summary] }).success).toBe(false);
-    expect(crmOpportunityPageSchema.safeParse({ ...page, submissions: [{ ...summary, submissionId: randomUUID() }] }).success).toBe(false);
+    expect(crmOpportunityPageSchema.safeParse({ ...page, submissions: [{ ...summary, submissionId: REQUEST_ID }] }).success).toBe(false);
     expect(crmOpportunityPageSchema.safeParse({ ...page, submissions: [{ ...summary, completedAt: 'invalid' }] }).success).toBe(false);
     expect(crmOpportunityPageSchema.safeParse({ ...page, submissions: [{ ...summary, email: 'private@example.test' }] }).success).toBe(
       false,
