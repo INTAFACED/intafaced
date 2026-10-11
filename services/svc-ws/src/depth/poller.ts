@@ -73,14 +73,19 @@ export class DepthPoller {
   start(): void {
     if (this.#timer) return;
     this.#timer = setInterval(() => void this.tick(), this.#options.intervalMs);
-    this.#marketsTimer = setInterval(() => {
-      void this.#hub.refreshMarkets().catch((err: unknown) => {
-        this.#log.warn({ err: String(err) }, 'ws: market list refresh failed — serving the last known list');
-      });
-    }, this.#options.marketsRefreshMs);
     // Neither timer should hold the process open on its own.
     this.#timer.unref?.();
-    this.#marketsTimer.unref?.();
+    // `marketsRefreshMs: 0` is the hub's do-not-cache window: every miss
+    // refetches. Node turns a delay below 1 into 1, so passing 0 here would
+    // call refreshMarkets every turn. Leave the markets timer unset.
+    if (this.#options.marketsRefreshMs > 0) {
+      this.#marketsTimer = setInterval(() => {
+        void this.#hub.refreshMarkets().catch((err: unknown) => {
+          this.#log.warn({ err: String(err) }, 'ws: market list refresh failed — serving the last known list');
+        });
+      }, this.#options.marketsRefreshMs);
+      this.#marketsTimer.unref?.();
+    }
   }
 
   stop(): void {
@@ -141,8 +146,15 @@ export class DepthPoller {
       const ids = await this.#source.markets();
       probe.markUp();
       if (probe.markTrading) {
-        probe.markTrading('*', this.#source.venueHalted?.() ? DEPTH_VENUE_HALTED : null);
-        for (const id of ids) probe.markTrading(id, this.#source.trading?.(id) ?? null);
+        const venueHalted = this.#source.venueHalted?.() === true;
+        // One edge. The orders frame for venue halt carries no market id, so
+        // repeating DEPTH_VENUE_HALTED per listed market is a second copy.
+        probe.markTrading('*', venueHalted ? DEPTH_VENUE_HALTED : null);
+        for (const id of ids) {
+          const code = this.#source.trading?.(id) ?? null;
+          if (code === DEPTH_VENUE_HALTED) continue;
+          probe.markTrading(id, code);
+        }
       }
     } catch (err) {
       probe.markDown();

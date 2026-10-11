@@ -35,6 +35,27 @@ const update = (userId: string, orderId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
   ts: '2026-07-30T00:00:00.000Z',
 });
 
+const position = (userId: string, positionId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'): PrivatePositionUpdate => ({
+  positionId,
+  userId,
+  marketId: 'btc-usdt-perp',
+  symbol: 'BTC/USDT:USDT',
+  status: 'open',
+  side: 'long',
+  contracts: '2',
+  entryPrice: '60000',
+  markPrice: '60100',
+  notional: '120200',
+  leverage: '10',
+  collateral: '12020',
+  unrealizedPnl: '200',
+  realizedPnl: '0',
+  liquidationPrice: '54000',
+  marginMode: 'cross',
+  fundingPaid: '0',
+  ts: '2026-07-31T00:00:00.000Z',
+});
+
 describe('PrivateOrderHub', () => {
   it('fans an update only to the owning user', () => {
     const hub = new PrivateOrderHub({ highWaterBytes: 1_000_000, maxLagTicks: 5, maxConnections: 10, maxConnectionsPerUser: 10 });
@@ -383,5 +404,144 @@ describe('PrivateOrderHub', () => {
     expect(alice.sent).toHaveLength(0);
     hub.releaseSnapshot(alice);
     expect(JSON.parse(alice.sent[0]!)).toMatchObject({ type: 'status', code: ORDERS_ENGINE_UNAVAILABLE });
+  });
+
+  it('does not apply an older order seed row after a live publish during the seed await', async () => {
+    let release!: (rows: readonly PrivateOrderUpdate[]) => void;
+    const pending = new Promise<readonly PrivateOrderUpdate[]>((resolve) => {
+      release = resolve;
+    });
+    const hub = new PrivateOrderHub({
+      highWaterBytes: 1_000_000,
+      maxLagTicks: 5,
+      maxConnections: 10,
+      maxConnectionsPerUser: 10,
+      seedOrders: () => pending,
+    });
+    const alice = sink();
+    hub.attach('user-a', alice);
+
+    const live = { ...update('user-a'), status: 'filled', filledQty: '1' };
+    hub.publish(live);
+
+    const otherId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    release([update('user-a'), update('user-a', otherId)]);
+    await pending;
+
+    const frames = alice.sent.map((raw) => JSON.parse(raw) as { orderId: string; status: string; filledQty: string });
+    expect(frames.filter((frame) => frame.orderId === live.orderId)).toEqual([
+      expect.objectContaining({ orderId: live.orderId, status: 'filled', filledQty: '1' }),
+    ]);
+    expect(frames).toContainEqual(expect.objectContaining({ orderId: otherId, status: 'open', filledQty: '0' }));
+  });
+
+  it('does not apply an older position seed row after a live publish during the seed await', async () => {
+    let release!: (rows: readonly PrivatePositionUpdate[]) => void;
+    const pending = new Promise<readonly PrivatePositionUpdate[]>((resolve) => {
+      release = resolve;
+    });
+    const hub = new PrivateOrderHub({
+      highWaterBytes: 1_000_000,
+      maxLagTicks: 5,
+      maxConnections: 10,
+      maxConnectionsPerUser: 10,
+      seedPositions: () => pending,
+    });
+    const alice = sink();
+    hub.attach('user-a', alice);
+
+    const live = { ...position('user-a'), status: 'closed' as const, contracts: '0' };
+    hub.publishPosition(live);
+
+    const otherId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    release([position('user-a'), position('user-a', otherId)]);
+    await pending;
+
+    const frames = alice.sent.map((raw) => JSON.parse(raw) as { positionId: string; status: string; contracts: string });
+    expect(frames.filter((frame) => frame.positionId === live.positionId)).toEqual([
+      expect.objectContaining({ positionId: live.positionId, status: 'closed', contracts: '0' }),
+    ]);
+    expect(frames).toContainEqual(expect.objectContaining({ positionId: otherId, status: 'open', contracts: '2' }));
+  });
+
+  it('still writes the cold order seed when the live row is held until snapshot', async () => {
+    let release!: (rows: readonly PrivateOrderUpdate[]) => void;
+    const pending = new Promise<readonly PrivateOrderUpdate[]>((resolve) => {
+      release = resolve;
+    });
+    const hub = new PrivateOrderHub({
+      highWaterBytes: 1_000_000,
+      maxLagTicks: 5,
+      maxConnections: 10,
+      maxConnectionsPerUser: 10,
+      seedOrders: () => pending,
+    });
+    const alice = sink();
+    hub.attach('user-a', alice, 'orders', { holdUntilSnapshot: true });
+
+    const live = { ...update('user-a'), status: 'filled', filledQty: '1' };
+    hub.publish(live);
+    expect(alice.sent).toEqual([]);
+
+    release([update('user-a')]);
+    await pending;
+
+    expect(alice.sent.map((raw) => JSON.parse(raw))).toEqual([
+      expect.objectContaining({ orderId: live.orderId, status: 'open', filledQty: '0' }),
+    ]);
+    hub.releaseSnapshot(alice);
+    expect(alice.sent.map((raw) => JSON.parse(raw))).toEqual([
+      expect.objectContaining({ orderId: live.orderId, status: 'open', filledQty: '0' }),
+      expect.objectContaining({ orderId: live.orderId, status: 'filled', filledQty: '1' }),
+    ]);
+  });
+
+  it('applies the high-water lag check to live frames queued before hydration', () => {
+    const hub = new PrivateOrderHub({ highWaterBytes: 10, maxLagTicks: 2, maxConnections: 10, maxConnectionsPerUser: 10 });
+    const lagging = {
+      sent: [] as string[],
+      get bufferedBytes() {
+        return 100;
+      },
+      send(frame: string) {
+        this.sent.push(frame);
+      },
+      closed: null as { code: number; reason: string } | null,
+      close(code: number, reason: string) {
+        this.closed = { code, reason };
+      },
+    };
+    const healthy = sink();
+    hub.attach('user-a', lagging, 'orders', { holdUntilSnapshot: true });
+    hub.attach('user-a', healthy, 'orders');
+
+    hub.publish(update('user-a'));
+    hub.publish(update('user-a', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'));
+
+    expect(lagging.closed?.code).toBe(1013);
+    expect(lagging.closed?.reason).toMatch(/slow consumer/i);
+    hub.releaseSnapshot(lagging);
+    expect(lagging.sent).toHaveLength(0);
+    expect(hub.connections).toBe(1);
+    expect(healthy.sent).toHaveLength(2);
+  });
+
+  it('does not leave a stuck open-orders read blocked on an unbounded pending queue', () => {
+    const hub = new PrivateOrderHub({ highWaterBytes: 10, maxLagTicks: 2, maxConnections: 10, maxConnectionsPerUser: 10 });
+    const alice = sink();
+    hub.attach('user-a', alice, 'orders', { holdUntilSnapshot: true });
+
+    hub.publish(update('user-a'));
+    expect(alice.closed).toBeNull();
+    expect(alice.sent).toHaveLength(0);
+
+    hub.sweepLag();
+    expect(alice.closed).toBeNull();
+    hub.sweepLag();
+
+    expect(alice.closed?.code).toBe(1013);
+    expect(hub.connections).toBe(0);
+    hub.releaseSnapshot(alice);
+    expect(alice.sent).toHaveLength(0);
   });
 });

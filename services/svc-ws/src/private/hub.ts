@@ -5,8 +5,11 @@ import { isPublishedConnectionCeiling } from '../max-connections.js';
 import { isPublishedMaxLagTicks } from '../max-lag-ticks.js';
 import { ORDERS_ENGINE_UNAVAILABLE } from '../gateway-policy.js';
 import {
+  ORDERS_MARKET_HALTED,
+  ORDERS_VENUE_HALTED,
   ordersCodeForDepth,
   ordersMatchingTradingFrame,
+  ordersSubmitsResumedFrame,
   type DepthMatchingTradingCode,
   type OrdersMatchingTradingCode,
 } from '../matching-trading.js';
@@ -89,7 +92,7 @@ export interface PrivatePositionUpdate {
   readonly realizedPnl: string | null;
   readonly liquidationPrice: string | null;
   readonly marginMode: 'cross' | 'isolated' | null;
-  readonly fundingPaid: string;
+  readonly fundingPaid: string | null;
   readonly closingReason?: string | null;
   readonly ts: string;
 }
@@ -175,6 +178,8 @@ interface Subscription {
   closed: boolean;
   hydrated: boolean;
   pending: string[];
+  /** Ids already sent live while this seat's cold seed is still in flight. */
+  liveDuringSeed: { orders: Set<string>; positions: Set<string> } | null;
 }
 
 const NO_LOG: HubLogger = { info: () => undefined, warn: () => undefined };
@@ -297,6 +302,7 @@ export class PrivateOrderHub {
       closed: false,
       hydrated: options.holdUntilSnapshot !== true,
       pending: [],
+      liveDuringSeed: null,
     };
     this.#subscriptions.add(sub);
     if (this.#engineUnavailable) this.#queueOrWriteUnavailable(sub);
@@ -343,56 +349,77 @@ export class PrivateOrderHub {
    * `{ orders: [] }` or `{ positions: [] }`. Fills are never seeded.
    */
   async #seed(sub: Subscription): Promise<void> {
-    if (this.#options.seedOrders) {
-      try {
-        const orders = await this.#options.seedOrders(sub.userId);
-        if (orders.length === 0) {
-          this.#log.warn(
-            { userId: sub.userId },
-            'ws-private: order seed empty — no blotter on the wire; live orders publish when they exist',
-          );
-        } else {
-          for (const order of orders) {
-            if (sub.closed) return;
-            this.#write(sub, encodePrivateOrderFrame(order));
+    // A live row that leaves during an await is newer than this cold fetch.
+    const live = { orders: new Set<string>(), positions: new Set<string>() };
+    sub.liveDuringSeed = live;
+    try {
+      if (this.#options.seedOrders) {
+        try {
+          const orders = await this.#options.seedOrders(sub.userId);
+          if (orders.length === 0) {
+            this.#log.warn(
+              { userId: sub.userId },
+              'ws-private: order seed empty — no blotter on the wire; live orders publish when they exist',
+            );
+          } else {
+            for (const order of orders) {
+              if (sub.closed) return;
+              if (live.orders.has(order.orderId)) {
+                this.#log.warn(
+                  { userId: sub.userId, orderId: order.orderId },
+                  'ws-private: order seed older than a live publish during the seed await — skipped',
+                );
+                continue;
+              }
+              this.#write(sub, encodePrivateOrderFrame(order));
+            }
+          }
+        } catch (err) {
+          if (err instanceof PrivateNoBlotterError) {
+            this.#log.warn(
+              { userId: sub.userId, err: err.message },
+              'ws-private: order seed — matching holds no blotter (absence, not engine-down)',
+            );
+          } else {
+            this.markEngineUnavailable();
+            this.#log.warn(
+              { userId: sub.userId, err: err instanceof Error ? err.message : String(err) },
+              'ws-private: order seed failed — disclosing orders.engine_unavailable; matching 404 is absence not { orders: [] }',
+            );
           }
         }
-      } catch (err) {
-        if (err instanceof PrivateNoBlotterError) {
-          this.#log.warn(
-            { userId: sub.userId, err: err.message },
-            'ws-private: order seed — matching holds no blotter (absence, not engine-down)',
-          );
-        } else {
-          this.markEngineUnavailable();
+      }
+      if (sub.closed) return;
+      if (this.#options.seedPositions) {
+        try {
+          const positions = await this.#options.seedPositions(sub.userId);
+          if (positions.length === 0) {
+            this.#log.warn(
+              { userId: sub.userId },
+              'ws-private: position seed empty — no blotter on the wire; live positions publish when they exist',
+            );
+          } else {
+            for (const position of positions) {
+              if (sub.closed) return;
+              if (live.positions.has(position.positionId)) {
+                this.#log.warn(
+                  { userId: sub.userId, positionId: position.positionId },
+                  'ws-private: position seed older than a live publish during the seed await — skipped',
+                );
+                continue;
+              }
+              this.#write(sub, encodePrivatePositionFrame(position));
+            }
+          }
+        } catch (err) {
           this.#log.warn(
             { userId: sub.userId, err: err instanceof Error ? err.message : String(err) },
-            'ws-private: order seed failed — disclosing orders.engine_unavailable; matching 404 is absence not { orders: [] }',
+            'ws-private: position seed failed — no blotter on the wire; matching 404 is absence not { positions: [] }',
           );
         }
       }
-    }
-    if (sub.closed) return;
-    if (this.#options.seedPositions) {
-      try {
-        const positions = await this.#options.seedPositions(sub.userId);
-        if (positions.length === 0) {
-          this.#log.warn(
-            { userId: sub.userId },
-            'ws-private: position seed empty — no blotter on the wire; live positions publish when they exist',
-          );
-        } else {
-          for (const position of positions) {
-            if (sub.closed) return;
-            this.#write(sub, encodePrivatePositionFrame(position));
-          }
-        }
-      } catch (err) {
-        this.#log.warn(
-          { userId: sub.userId, err: err instanceof Error ? err.message : String(err) },
-          'ws-private: position seed failed — no blotter on the wire; matching 404 is absence not { positions: [] }',
-        );
-      }
+    } finally {
+      if (sub.liveDuringSeed === live) sub.liveDuringSeed = null;
     }
   }
 
@@ -435,13 +462,24 @@ export class PrivateOrderHub {
   /**
    * Matching is up and this market (or the venue) is not taking submits.
    * Named so a blotter cannot be read as tradable. Cancels still flow.
-   * `marketId` `*` is venue halt-all.
+   * `marketId` `*` is venue halt-all. Null clears that name. A cleared market
+   * or venue halt tells seats that already have it that submits resumed.
+   * Not a price and not an invented OPEN. Prelaunch, expire, and delist are
+   * not that door.
    */
   noteMatchingTrading(marketId: string, depthCode: DepthMatchingTradingCode | null): void {
     const key = marketId;
     if (depthCode === null) {
-      if (!this.#trading.has(key)) return;
+      const prev = this.#trading.get(key);
+      if (prev === undefined) return;
       this.#trading.delete(key);
+      if (prev === ORDERS_MARKET_HALTED || prev === ORDERS_VENUE_HALTED) {
+        const resumedMarketId = prev === ORDERS_VENUE_HALTED || key === '*' ? undefined : key;
+        for (const sub of this.#subscriptions) {
+          if (sub.closed) continue;
+          this.#queueOrWriteSubmitsResumed(sub, resumedMarketId);
+        }
+      }
       return;
     }
     const code = ordersCodeForDepth(depthCode);
@@ -470,6 +508,17 @@ export class PrivateOrderHub {
     this.#write(sub, frame);
   }
 
+  #queueOrWriteSubmitsResumed(sub: Subscription, marketId: string | undefined): void {
+    if (sub.channel === 'positions') return;
+    const channel = sub.channel === 'fills' ? 'fills' : 'orders';
+    const frame = ordersSubmitsResumedFrame(sub.userId, channel, marketId);
+    if (!sub.hydrated) {
+      sub.pending.push(frame);
+      return;
+    }
+    this.#write(sub, frame);
+  }
+
   #engineUnavailableFrame(sub: Subscription): string | null {
     if (sub.channel === 'positions') return null;
     const channel = sub.channel === 'fills' ? 'fills' : 'orders';
@@ -487,11 +536,11 @@ export class PrivateOrderHub {
   }
 
   publish(update: PrivateOrderUpdate): void {
-    this.#fanout(update.userId, 'orders', encodePrivateOrderFrame(update));
+    this.#fanout(update.userId, 'orders', encodePrivateOrderFrame(update), update.orderId);
   }
 
   publishFill(update: PrivateFillUpdate): void {
-    this.#fanout(update.userId, 'fills', encodePrivateFillFrame(update));
+    this.#fanout(update.userId, 'fills', encodePrivateFillFrame(update), null);
   }
 
   publishPosition(update: PrivatePositionUpdate): void {
@@ -499,41 +548,62 @@ export class PrivateOrderHub {
     // Refuse the live-zero blotter on the update, before encode, or honesty
     // tests and tip Tests(full) see a real-looking position frame.
     if (isLiveZeroBlotterPayload(update)) return;
-    this.#fanout(update.userId, 'positions', encodePrivatePositionFrame(update));
+    this.#fanout(update.userId, 'positions', encodePrivatePositionFrame(update), update.positionId);
   }
 
-  #fanout(userId: string, channel: PrivateStreamChannel, frame: string): void {
+  /**
+   * Socket bytes plus frames still held for hydration. A stuck open-orders
+   * read never hands those frames to the kernel, so the socket mark alone
+   * would let `pending` grow without the lag check.
+   */
+  #overHighWater(sub: Subscription): boolean {
+    const limit = this.#options.highWaterBytes;
+    if (!isPublishedHighWaterBytes(limit)) return false;
+    let bytes = sub.sink.bufferedBytes;
+    for (const frame of sub.pending) bytes += Buffer.byteLength(frame);
+    return bytes > limit;
+  }
+
+  #fanout(userId: string, channel: PrivateStreamChannel, frame: string, liveId: string | null): void {
     this.#updates++;
 
     for (const sub of this.#subscriptions) {
       if (sub.closed || sub.userId !== userId) continue;
       if (sub.channel !== null && sub.channel !== channel) continue;
-      if (!sub.hydrated) {
-        sub.pending.push(frame);
-        continue;
-      }
-
-      if (isPublishedHighWaterBytes(this.#options.highWaterBytes) && sub.sink.bufferedBytes > this.#options.highWaterBytes) {
+      if (this.#overHighWater(sub)) {
         this.#noteLag(sub);
         continue;
       }
 
       sub.lagTicks = 0;
-      this.#write(sub, frame);
+      if (!sub.hydrated) {
+        sub.pending.push(frame);
+        continue;
+      }
+      if (this.#write(sub, frame)) this.#noteLiveDuringSeed(sub, channel, liveId);
     }
   }
 
-  #write(sub: Subscription, frame: string): void {
-    if (sub.closed) return;
+  #noteLiveDuringSeed(sub: Subscription, channel: PrivateStreamChannel, liveId: string | null): void {
+    const live = sub.liveDuringSeed;
+    if (live === null || liveId === null) return;
+    if (channel === 'orders') live.orders.add(liveId);
+    else if (channel === 'positions') live.positions.add(liveId);
+  }
+
+  #write(sub: Subscription, frame: string): boolean {
+    if (sub.closed) return false;
     if (isLiveZeroBlotterFrame(frame)) {
       this.#log.warn({ userId: sub.userId }, 'ws-private: refused live-zero blotter frame');
-      return;
+      return false;
     }
     try {
       sub.sink.send(frame);
+      return true;
     } catch {
       sub.closed = true;
       this.#subscriptions.delete(sub);
+      return false;
     }
   }
 
@@ -546,11 +616,8 @@ export class PrivateOrderHub {
   sweepLag(): void {
     for (const sub of [...this.#subscriptions]) {
       if (sub.closed) continue;
-      if (isPublishedHighWaterBytes(this.#options.highWaterBytes) && sub.sink.bufferedBytes > this.#options.highWaterBytes) {
-        this.#noteLag(sub);
-      } else {
-        sub.lagTicks = 0;
-      }
+      if (this.#overHighWater(sub)) this.#noteLag(sub);
+      else sub.lagTicks = 0;
     }
   }
 

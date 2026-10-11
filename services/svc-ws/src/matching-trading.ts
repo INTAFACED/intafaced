@@ -17,6 +17,8 @@ export const ORDERS_VENUE_HALTED = 'orders.venue_halted' as const;
 export const ORDERS_MARKET_PRELAUNCH = 'orders.market_prelaunch' as const;
 export const ORDERS_MARKET_EXPIRED = 'orders.market_expired' as const;
 export const ORDERS_MARKET_DELISTED = 'orders.market_delisted' as const;
+/** A halt this seat already heard is gone. Not OPEN, not a price, not a depth code. */
+export const ORDERS_SUBMITS_RESUMED = 'orders.submits_resumed' as const;
 
 export type DepthMatchingTradingCode =
   | typeof DEPTH_MARKET_HALTED
@@ -142,6 +144,23 @@ export function ordersMatchingTradingFrame(
     marketId === undefined || code === ORDERS_VENUE_HALTED
       ? { type: 'status', code, channel, userId }
       : { type: 'status', code, channel, userId, marketId };
+  return JSON.stringify(frame);
+}
+
+export interface OrdersSubmitsResumedFrame {
+  readonly type: 'status';
+  readonly code: typeof ORDERS_SUBMITS_RESUMED;
+  readonly channel: 'orders' | 'fills';
+  readonly userId: string;
+  readonly marketId?: string;
+}
+
+/** Venue resume omits marketId, matching the venue halt frame this seat already has. */
+export function ordersSubmitsResumedFrame(userId: string, channel: 'orders' | 'fills', marketId?: string): string {
+  const frame: OrdersSubmitsResumedFrame =
+    marketId === undefined
+      ? { type: 'status', code: ORDERS_SUBMITS_RESUMED, channel, userId }
+      : { type: 'status', code: ORDERS_SUBMITS_RESUMED, channel, userId, marketId };
   return JSON.stringify(frame);
 }
 

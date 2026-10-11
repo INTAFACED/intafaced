@@ -36,6 +36,19 @@ export interface NativeL3UnavailableFrame {
   readonly marketId: string;
 }
 
+/**
+ * A successful queue with nothing resting. Engine and L3 are up.
+ * Not `depth.l3_unavailable`, not `depth.engine_unavailable`, and not a
+ * snapshot — a snapshot with empty bids and asks would be a live zero book.
+ */
+export const DEPTH_L3_NO_RESTING = 'depth.l3_no_resting' as const;
+
+export interface NativeL3NoRestingFrame {
+  readonly type: 'status';
+  readonly code: typeof DEPTH_L3_NO_RESTING;
+  readonly marketId: string;
+}
+
 export function nativeL3Frame(queue: NativeL3Queue): string {
   const frame: NativeL3Frame = { ...queue, type: 'snapshot', transport: DEPTH_TRANSPORT_POLL };
   return JSON.stringify(frame);
@@ -43,6 +56,11 @@ export function nativeL3Frame(queue: NativeL3Queue): string {
 
 export function nativeL3UnavailableFrame(marketId: string): string {
   const frame: NativeL3UnavailableFrame = { type: 'status', code: DEPTH_L3_UNAVAILABLE, marketId };
+  return JSON.stringify(frame);
+}
+
+export function nativeL3NoRestingFrame(marketId: string): string {
+  const frame: NativeL3NoRestingFrame = { type: 'status', code: DEPTH_L3_NO_RESTING, marketId };
   return JSON.stringify(frame);
 }
 
@@ -61,7 +79,11 @@ interface Subscription {
   readonly marketId: string;
   readonly sink: NativeL3Sink;
   lagTicks: number;
+  /** A high-water drop. An identical queue still has to try this client. */
+  lagging: boolean;
   closed: boolean;
+  /** Set once #open is past the cache check, so a later arrival does not refetch an absent book. */
+  opened: boolean;
 }
 
 const NO_LOG: HubLogger = { info: () => undefined, warn: () => undefined };
@@ -74,6 +96,8 @@ export class NativeL3Hub {
   readonly #last = new Map<string, string>();
   readonly #l3Down = new Set<string>();
   readonly #engineDown = new Set<string>();
+  /** Bumped only when #forgetIdle actually drops the market. A poll captures this before it awaits. */
+  readonly #idleGeneration = new Map<string, number>();
 
   constructor(source: DepthSource, options: NativeL3HubOptions, log: HubLogger = NO_LOG) {
     this.#source = source;
@@ -108,7 +132,15 @@ export class NativeL3Hub {
    */
   async probe(marketId: string): Promise<NativeL3Probe> {
     if (typeof this.#source.l3Queue !== 'function') return 'unavailable';
-    if (!(await this.#options.ensureKnownMarket(marketId))) return 'unknown';
+    try {
+      // A registry throw is not "unknown" and not a missing L3 hitch. L2
+      // catches that throw and closes 1013. Rejecting this classification
+      // skips the upgrade, so the socket never gets that close.
+      if (!(await this.#options.ensureKnownMarket(marketId))) return 'unknown';
+    } catch (err) {
+      this.#log.warn({ marketId, err: String(err) }, 'ws: native L3 probe failed');
+      return 'engine';
+    }
     try {
       const limit = this.#options.depthLimit;
       if (!isPublishedDepthLimit(limit)) {
@@ -169,7 +201,7 @@ export class NativeL3Hub {
       sink.close(CLOSE_TRY_LATER, resolveWsCopy(WS_COPY.atCapacity));
       return null;
     }
-    const sub: Subscription = { marketId, sink, lagTicks: 0, closed: false };
+    const sub: Subscription = { marketId, sink, lagTicks: 0, lagging: false, closed: false, opened: false };
     this.#subscriptions.add(sub);
     void this.#open(sub);
     return () => {
@@ -184,15 +216,26 @@ export class NativeL3Hub {
     const windowed = this.#windowed(queue);
     if (windowed === 'unpublished') return;
     if (windowed === 'empty') {
+      // A live subscriber who was shown a resting snapshot still needs to hear
+      // that the book drained. Forget it afterwards so a new subscriber sees absence.
+      const hadResting = this.#hasLive(queue.marketId) && this.#last.has(queue.marketId);
       this.noteNoBook(queue.marketId);
+      if (hadResting) this.#fanout(queue.marketId, nativeL3NoRestingFrame(queue.marketId));
       return;
     }
-    this.#engineDown.delete(windowed.marketId);
+    const recovering = this.#engineDown.delete(windowed.marketId);
     this.#l3Down.delete(windowed.marketId);
     const frame = nativeL3Frame(windowed);
-    if (this.#last.get(windowed.marketId) === frame) return;
+    // No live subscriber. Leave #last unset so the next #open refetches l3Queue.
+    if (!this.#hasLive(windowed.marketId)) return;
+    // markEngineUnavailable keeps #last. An unchanged queue still has to
+    // replace the down frame the live subscriber is holding.
+    // #last is written before #fanout. A high-water drop is not delivery:
+    // an identical queue still reaches a client who missed that frame.
+    const unchanged = !recovering && this.#last.get(windowed.marketId) === frame;
+    if (unchanged && !this.#hasLagging(windowed.marketId)) return;
     this.#last.set(windowed.marketId, frame);
-    this.#fanout(windowed.marketId, frame);
+    this.#fanout(windowed.marketId, frame, unchanged);
   }
 
   markL3Unavailable(marketId: string): void {
@@ -227,10 +270,28 @@ export class NativeL3Hub {
     if (!isPublishedDepthLimit(limit)) return;
     await Promise.all(
       markets.map(async (marketId) => {
+        const generation = this.#idleGeneration.get(marketId) ?? 0;
         try {
           const queue = await this.#source.l3Queue!(marketId, limit);
+          // Resolved and rejected polls share the generation captured before
+          // the await. #forgetIdle bumps it when the last watcher leaves.
+          // Ingesting this queue would fan a captured book out to someone
+          // still inside ensureKnownMarket — #open would then keep that #last
+          // frame and skip l3Queue — or noteNoBook / replace the snapshot a
+          // newer subscriber already refetched. A market that stayed watched
+          // keeps the generation, so a current empty queue still reaches ingest.
+          if ((this.#idleGeneration.get(marketId) ?? 0) !== generation) return;
           this.ingest(queue);
         } catch (err) {
+          // The last watcher can leave during this await. #forgetIdle bumps
+          // the generation when it drops the market. A newer subscriber can
+          // already be in the set — attach runs before #open reads the flags —
+          // so an empty-set check is not enough. Applying this rejection would
+          // mark them down or wipe the book they just refetched. A market that
+          // stayed watched keeps its generation, and that live subscriber
+          // still hears the rejection.
+          if ((this.#idleGeneration.get(marketId) ?? 0) !== generation) return;
+          if (!this.#hasLive(marketId)) return;
           if (err instanceof DepthL3UnavailableError) this.markL3Unavailable(marketId);
           else if (err instanceof DepthNoBookError) this.noteNoBook(marketId);
           else this.markEngineUnavailable(marketId);
@@ -249,14 +310,31 @@ export class NativeL3Hub {
       if (sub.closed) return;
       if (this.#l3Down.has(sub.marketId)) {
         this.#write(sub, nativeL3UnavailableFrame(sub.marketId));
+        sub.opened = true;
         return;
       }
       if (this.#engineDown.has(sub.marketId)) {
         this.#write(sub, depthEngineUnavailableFrame(sub.marketId));
+        sub.opened = true;
         return;
       }
       const cached = this.#last.get(sub.marketId);
-      if (cached) this.#write(sub, cached);
+      if (cached) {
+        this.#write(sub, cached);
+        sub.opened = true;
+        return;
+      }
+      // No cached frame. A subscriber who already entered #open is the authority
+      // for this visit: #last stays unset when the book is absent, and a refetch
+      // would paint a queue ingest already cleared. Nobody has entered yet when
+      // two subscribers attach in one turn on an idle market — the first refetches
+      // and fan-out delivers that frame to the other.
+      if (this.#hasOpen(sub.marketId)) {
+        sub.opened = true;
+        return;
+      }
+      sub.opened = true;
+      await this.#refetch(sub.marketId);
     } catch (err) {
       this.#evict(sub, CLOSE_TRY_LATER, err instanceof DepthSourceError ? err.message : 'l3 unavailable');
     }
@@ -274,14 +352,68 @@ export class NativeL3Hub {
     this.#last.set(queue.marketId, nativeL3Frame(queue));
   }
 
+  #hasLive(marketId: string): boolean {
+    for (const sub of this.#subscriptions) if (!sub.closed && sub.marketId === marketId) return true;
+    return false;
+  }
+
+  #hasLagging(marketId: string): boolean {
+    for (const sub of this.#subscriptions) {
+      if (!sub.closed && sub.lagging && sub.marketId === marketId) return true;
+    }
+    return false;
+  }
+
+  #hasOpen(marketId: string): boolean {
+    for (const sub of this.#subscriptions) if (!sub.closed && sub.opened && sub.marketId === marketId) return true;
+    return false;
+  }
+
+  async #refetch(marketId: string): Promise<void> {
+    if (typeof this.#source.l3Queue !== 'function') {
+      if (this.#hasLive(marketId)) this.markL3Unavailable(marketId);
+      return;
+    }
+    const limit = this.#options.depthLimit;
+    if (!isPublishedDepthLimit(limit)) return;
+    const generation = this.#idleGeneration.get(marketId) ?? 0;
+    try {
+      const queue = await this.#source.l3Queue(marketId, limit);
+      // Same generation rule as tick(). This await is the opener's refetch.
+      // A resolved queue must not ingest, noteNoBook, or replace a newer
+      // snapshot after #forgetIdle. A market that stayed watched keeps the
+      // generation and still hears a current empty book.
+      if ((this.#idleGeneration.get(marketId) ?? 0) !== generation) return;
+      if (!this.#hasLive(marketId)) return;
+      this.ingest(queue);
+    } catch (err) {
+      // Same generation rule as tick(). This await is the opener's refetch,
+      // not a later poll. #forgetIdle bumps the generation when that watcher
+      // leaves. attach() has already added the next subscriber, so #hasLive is
+      // true and is not enough: applying this rejection marks them down, or
+      // noteNoBook wipes the queue they already refetched. A market that stayed
+      // watched keeps its generation, and that live subscriber still hears it.
+      if ((this.#idleGeneration.get(marketId) ?? 0) !== generation) return;
+      if (!this.#hasLive(marketId)) return;
+      if (err instanceof DepthL3UnavailableError) this.markL3Unavailable(marketId);
+      else if (err instanceof DepthNoBookError) this.noteNoBook(marketId);
+      else this.markEngineUnavailable(marketId);
+      this.#log.warn({ marketId, err: String(err) }, 'ws: native L3 poll failed');
+    }
+  }
+
   #forgetIdle(marketId: string): void {
     for (const sub of this.#subscriptions) if (sub.marketId === marketId && !sub.closed) return;
     this.#last.delete(marketId);
+    this.#l3Down.delete(marketId);
+    this.#engineDown.delete(marketId);
+    this.#idleGeneration.set(marketId, (this.#idleGeneration.get(marketId) ?? 0) + 1);
   }
 
-  #fanout(marketId: string, frame: string): void {
+  #fanout(marketId: string, frame: string, onlyLagging = false): void {
     for (const sub of this.#subscriptions) {
       if (sub.closed || sub.marketId !== marketId) continue;
+      if (onlyLagging && !sub.lagging) continue;
       this.#write(sub, frame);
     }
   }
@@ -289,6 +421,7 @@ export class NativeL3Hub {
   #write(sub: Subscription, frame: string): void {
     if (sub.closed) return;
     if (isPublishedHighWaterBytes(this.#options.highWaterBytes) && sub.sink.bufferedBytes > this.#options.highWaterBytes) {
+      sub.lagging = true;
       sub.lagTicks += 1;
       if (isPublishedMaxLagTicks(this.#options.maxLagTicks) && sub.lagTicks >= this.#options.maxLagTicks) {
         this.#evict(sub, CLOSE_TRY_LATER, resolveWsCopy(WS_COPY.atCapacity));
@@ -296,6 +429,7 @@ export class NativeL3Hub {
       return;
     }
     sub.lagTicks = 0;
+    sub.lagging = false;
     try {
       sub.sink.send(frame);
     } catch {

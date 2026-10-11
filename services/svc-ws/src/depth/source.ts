@@ -263,7 +263,25 @@ export class HttpDepthSource implements DepthSource {
     }
     if (response.status === 404) return null;
     if (!response.ok) throw new DepthSourceError(`svc-matching answered ${response.status} for ${path}`, response.status);
-    return response.json();
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch (err) {
+      // A 200 that will not parse is not a book. SyntaxError would look like a
+      // bug in this process, and a stand-in ladder, price, or sequence would
+      // invent one matching never sent.
+      throw new DepthSourceError(
+        `svc-matching returned a body that is not JSON for ${path}: ${err instanceof Error ? err.message : String(err)}`,
+        null,
+      );
+    }
+    // JSON `null` parses without throwing. It is not the 404 signal: callers
+    // treat a null return as matching holding no book. A 200 null is a
+    // malformed success, same family as a body that is not JSON.
+    if (body === null) {
+      throw new DepthSourceError(`svc-matching returned a null JSON body for ${path}`, null);
+    }
+    return body;
   }
 
   async markets(): Promise<readonly string[]> {
@@ -296,17 +314,21 @@ export class HttpDepthSource implements DepthSource {
     if (typeof raw.sequence !== 'number' || !Number.isInteger(raw.sequence)) {
       throw new DepthSourceError(`${marketId}: depth response carries no integer sequence`, null);
     }
+    // The engine's sequence is the only thing that makes a delta stream safe.
+    // If we cannot read it, we must not invent one. Both sides of the ladder
+    // parse before the trading flag is stored: a refused book must not leave
+    // this body's halt in trading(), and must not invent OPEN.
+    const bids = parseLevels(raw.bids, 'bids', marketId);
+    const asks = parseLevels(raw.asks, 'asks', marketId);
     // Matching trading flags ride on the same public read. Omitted flags stay
     // unknown — never invented OPEN, never invented halt from an empty ladder.
     this.#depthTrading.set(marketId, parseMatchingTrading(body));
-    // The engine's sequence is the only thing that makes a delta stream safe.
-    // If we cannot read it, we must not invent one.
     return {
       type: 'snapshot',
       marketId,
       sequence: raw.sequence,
-      bids: parseLevels(raw.bids, 'bids', marketId),
-      asks: parseLevels(raw.asks, 'asks', marketId),
+      bids,
+      asks,
     };
   }
 

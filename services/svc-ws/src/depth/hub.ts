@@ -378,6 +378,14 @@ export class DepthHub {
         return;
       }
 
+      // Engine-down wins over a halt name. A halt frame must not be the door
+      // that later flushes the cached ladder, and the subscriber is told
+      // matching is down even when the market is also halted.
+      if (this.isEngineUnavailable(sub.marketId)) {
+        this.#write(sub, depthEngineUnavailableFrame(sub.marketId));
+        return;
+      }
+
       if (this.isMatchingNotTradable(sub.marketId)) {
         this.#write(sub, depthMatchingTradingFrame(sub.marketId, this.#trading.get(sub.marketId)!));
         return;
@@ -499,11 +507,16 @@ export class DepthHub {
 
   /** Nothing is watching this market any more, so its book stops being truth. */
   #forgetIdleBook(marketId: string): void {
-    for (const sub of this.#subscriptions) if (!sub.closed && sub.marketId === marketId) return;
+    if (this.#hasLiveSubscriber(marketId)) return;
     // Kept only while someone is watching. A book left behind goes stale, and a
     // stale book handed to the next connection as a "snapshot" is a lie with a
     // sequence number on it.
     this.#books.delete(marketId);
+  }
+
+  #hasLiveSubscriber(marketId: string): boolean {
+    for (const sub of this.#subscriptions) if (!sub.closed && sub.marketId === marketId) return true;
+    return false;
   }
 
   // ── The tick ──────────────────────────────────────────────────────────────
@@ -517,6 +530,12 @@ export class DepthHub {
    */
   ingest(snapshot: DepthSnapshot): DepthDelta | null {
     this.#noteEngineUp(snapshot.marketId);
+    // A poll samples activeMarkets, then the last watcher can leave and
+    // #forgetIdleBook deletes the book before this snapshot arrives. Storing
+    // it would make the next #open skip #seed and flush that leftover ladder.
+    // Both stores below — the not-tradable keep and the normal book — wait
+    // until someone is still watching.
+    if (!this.#hasLiveSubscriber(snapshot.marketId)) return null;
     const previous = this.#books.get(snapshot.marketId);
     const next = bookFromSnapshot(snapshot);
     if (this.isMatchingNotTradable(snapshot.marketId)) {
@@ -573,6 +592,10 @@ export class DepthHub {
   }
 
   #fanOut(book: DepthBook, delta: DepthDelta | null, forceRepair = false): void {
+    // A resume that clears a halt before ingest must not broadcast the cached
+    // ladder while matching is still down. ingest clears the flag first, then
+    // fans out the new book.
+    if (this.isEngineUnavailable(book.marketId)) return;
     if (this.isMatchingNotTradable(book.marketId)) return;
     let snapshotFrame: string | null = null;
     const snapshot = (): string => (snapshotFrame ??= JSON.stringify(toSnapshot(book)));
@@ -634,6 +657,9 @@ export class DepthHub {
   /** Send the snapshot, then whatever the stream sent while we were producing it. */
   #flush(sub: Subscription): void {
     if (sub.closed || sub.pending === null) return;
+    // Leave pending in place. A later ingest, after the outage clears, still
+    // flushes the new snapshot. Sending the cached ladder here would look live.
+    if (this.isEngineUnavailable(sub.marketId)) return;
     if (this.isMatchingNotTradable(sub.marketId)) return;
     const book = this.#books.get(sub.marketId);
     if (!book || !bookHasRestingDepth(book)) {

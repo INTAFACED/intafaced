@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { DepthSnapshot } from '@intafaced/market-data';
+import { applyDelta, bookFromSnapshot, type DepthBook, type DepthDelta, type DepthSnapshot } from '@intafaced/market-data';
 import { ORDERS_ENGINE_UNAVAILABLE, PrivateOrderHub } from '../private/hub.js';
-import { DepthHub, type DepthSink } from './hub.js';
+import { DepthHub, snapshotHasRestingDepth, toSnapshot, type DepthSink } from './hub.js';
 import { DepthPoller } from './poller.js';
 import { NativeL3Hub } from './l3-hub.js';
 import type { DepthSource, NativeL3Queue } from './source.js';
@@ -128,24 +128,56 @@ describe('DepthPoller', () => {
     const sink = new RecordingSink();
     hub.attach(MARKET, sink);
     await settle();
-    const before = sink.frames.length;
+
+    const lastGood = JSON.parse(sink.frames.at(-1)!) as DepthSnapshot;
+    expect(lastGood.type).toBe('snapshot');
+    expect(snapshotHasRestingDepth(lastGood)).toBe(true);
+    const proven = bookFromSnapshot(lastGood);
 
     source.failNext = true;
+    const beforeFail = sink.frames.length;
     await poller.tick();
 
-    // Socket stays up; last proven book is not replaced with seq-0 empty.
-    // Engine-down is named once on the control frame.
+    // Socket stays up. Engine-down is named once. That frame is not a book,
+    // and the failed read does not replace the proven ladder with an empty one.
     expect(hub.connections).toBe(1);
     expect(hub.matchingAvailable).toBe(false);
-    expect(JSON.parse(sink.frames.at(-1)!)).toMatchObject({
-      type: 'status',
-      code: 'depth.engine_unavailable',
-      marketId: MARKET,
-    });
     expect(log.warn).toHaveBeenCalled();
+    const failFrames = sink.frames.slice(beforeFail).map((frame) => JSON.parse(frame) as { type?: string });
+    expect(failFrames).toEqual([{ type: 'status', code: 'depth.engine_unavailable', marketId: MARKET }]);
+    const held = hub.bookFor(MARKET);
+    expect(held).toBeDefined();
+    expect(snapshotHasRestingDepth(toSnapshot(held!))).toBe(true);
+    expect(toSnapshot(held!)).toEqual(toSnapshot(proven));
 
+    const beforeRecovery = sink.frames.length;
     await poller.tick();
-    expect(sink.frames.length).toBeGreaterThan(before);
+
+    // A longer list from depth.engine_unavailable alone does not prove the
+    // recovery tick served the last good book.
+    const served = sink.frames
+      .slice(beforeRecovery)
+      .map((frame) => JSON.parse(frame) as DepthSnapshot | DepthDelta)
+      .filter((frame): frame is DepthSnapshot | DepthDelta => frame.type === 'snapshot' || frame.type === 'delta');
+    expect(served).toHaveLength(1);
+    const frame = served[0]!;
+    let next: DepthBook;
+    if (frame.type === 'snapshot') {
+      next = bookFromSnapshot(frame);
+    } else {
+      const applied = applyDelta(proven, frame);
+      expect(applied.ok).toBe(true);
+      if (!applied.ok) throw new Error(`recovery delta refused: ${applied.reason}`);
+      next = applied.book;
+    }
+    const nextWire = toSnapshot(next);
+    const provenWire = toSnapshot(proven);
+    expect(snapshotHasRestingDepth(nextWire)).toBe(true);
+    expect(nextWire.bids).toEqual(provenWire.bids);
+    expect(nextWire.asks).toEqual(provenWire.asks);
+    const after = hub.bookFor(MARKET);
+    expect(after).toBeDefined();
+    expect(toSnapshot(after!)).toEqual(nextWire);
   });
 
   it('does not stack overlapping sweeps when the upstream is slow', async () => {
@@ -227,5 +259,53 @@ describe('DepthPoller', () => {
     await probing.tick();
     expect(source.marketCalls).toBe(0);
     expect(privateHub.matchingAvailable).toBe(true);
+  });
+
+  it('does not turn a refresh window of 0 into a timer that calls refreshMarkets', async () => {
+    vi.useFakeTimers();
+    const intervals = vi.spyOn(globalThis, 'setInterval');
+    const source = new CountingSource();
+    const hub = new DepthHub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 5,
+      maxConnections: 10,
+      marketsRefreshMs: 0,
+    });
+    const poller = new DepthPoller(source, hub, { intervalMs: 60_000, depthLimit: 50, marketsRefreshMs: 0 }, log);
+    try {
+      poller.start();
+      expect(intervals.mock.calls.map((call) => call[1])).toEqual([60_000]);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(source.marketCalls).toBe(0);
+    } finally {
+      poller.stop();
+      intervals.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('schedules refreshMarkets when the refresh window is positive', async () => {
+    vi.useFakeTimers();
+    const intervals = vi.spyOn(globalThis, 'setInterval');
+    const source = new CountingSource();
+    const hub = new DepthHub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 5,
+      maxConnections: 10,
+      marketsRefreshMs: 1_000,
+    });
+    const poller = new DepthPoller(source, hub, { intervalMs: 60_000, depthLimit: 50, marketsRefreshMs: 1_000 }, log);
+    try {
+      poller.start();
+      expect(intervals.mock.calls.map((call) => call[1])).toEqual([60_000, 1_000]);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(source.marketCalls).toBe(1);
+    } finally {
+      poller.stop();
+      intervals.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });

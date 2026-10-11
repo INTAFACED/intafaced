@@ -6,7 +6,7 @@
 import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 import type { DepthSnapshot } from '@intafaced/market-data';
-import { DepthHub } from './depth/hub.js';
+import { DEPTH_ENGINE_UNAVAILABLE, DepthHub } from './depth/hub.js';
 import { DepthNoBookError, type DepthSource, type NativeL3Queue } from './depth/source.js';
 import { WS_DEPTH_LIMIT_UNSET } from './depth-limit.js';
 import { PrivateOrderHub } from './private/hub.js';
@@ -45,8 +45,9 @@ class FakeSource implements DepthSource {
   }
 }
 
-async function appFor(opts: { depthLimit: number | undefined; queue?: NativeL3Queue | 'nobook' }) {
-  const source = new FakeSource([MARKET]);
+async function appFor(opts: { depthLimit: number | undefined; queue?: NativeL3Queue | 'nobook'; listing?: 'known' | 'down' }) {
+  const listing = opts.listing ?? 'known';
+  const source = new FakeSource(listing === 'known' ? [MARKET] : []);
   if (opts.queue === 'nobook') {
     source.l3Queue = vi.fn(async (marketId: string, _limit: number) => {
       throw new DepthNoBookError(marketId);
@@ -60,9 +61,16 @@ async function appFor(opts: { depthLimit: number | undefined; queue?: NativeL3Qu
     maxLagTicks: 3,
     maxConnections: 100,
     marketsRefreshMs: 0,
-    registry: { markets: async () => [MARKET] },
+    registry:
+      listing === 'down'
+        ? {
+            markets: async () => {
+              throw new Error('listing unreachable');
+            },
+          }
+        : { markets: async () => [MARKET] },
   });
-  await hub.refreshMarkets();
+  if (listing === 'known') await hub.refreshMarkets();
   const tradeHub = new TradeHub({
     highWaterBytes: 1_000,
     maxLagTicks: 3,
@@ -148,6 +156,17 @@ describe('GET /markets/:id/depth/l3 native window', () => {
     expect(res.statusCode).toBe(404);
     expect(res.json()).toMatchObject({ code: 'NoBook' });
     expect(res.json()).not.toMatchObject({ type: 'snapshot' });
+    expect(source.snapshot).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('a rejected market lookup is 502 depth.engine_unavailable, not a generic 500', async () => {
+    const { app, source } = await appFor({ depthLimit: 2, listing: 'down' });
+    const res = await app.inject({ method: 'GET', url: `/markets/${MARKET}/depth/l3` });
+    expect(res.statusCode).toBe(502);
+    expect(res.json()).toMatchObject({ code: DEPTH_ENGINE_UNAVAILABLE });
+    expect(res.json()).not.toMatchObject({ type: 'snapshot', level: 'L3' });
+    expect(source.l3Queue).not.toHaveBeenCalled();
     expect(source.snapshot).not.toHaveBeenCalled();
     await app.close();
   });

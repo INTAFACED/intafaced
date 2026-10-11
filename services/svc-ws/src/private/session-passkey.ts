@@ -123,8 +123,9 @@ export async function assertIdentitySessionPasskey(options: LoadSessionPasskeyOp
   } catch {
     unavailable();
   }
-  if (body && typeof body === 'object' && 'userId' in body) {
-    const rec = body as Record<string, unknown>;
+  const account = identityAccountBody(body);
+  if (account && typeof account === 'object' && 'userId' in account) {
+    const rec = account as Record<string, unknown>;
     if (rec.userId !== id) unavailable();
   }
   assertSessionPasskey(body);

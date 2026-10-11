@@ -3,6 +3,7 @@ import { JetStreamEventBus, type Subscription } from '@intafaced/events';
 import { JAVA_ENV, sbeCodec } from '@intafaced/sbe-codec';
 import { env } from './env.js';
 import { createBusLifecycle } from './bus-lifecycle.js';
+import { attachBusHalf, closeBusSession } from './bus-session-close.js';
 import { DepthHub } from './depth/hub.js';
 import { NativeL3Hub } from './depth/l3-hub.js';
 import { DepthPoller } from './depth/poller.js';
@@ -16,6 +17,7 @@ import { tryAttachPrivate, type PrivateAttachments } from './private/source.js';
 import { DropCopyHub } from './drop-copy/hub.js';
 import { tryAttachDropCopy, type DropCopyAttachments } from './drop-copy/source.js';
 import { WS_COPY } from './copy.js';
+import { registerSignalShutdown } from './signal-shutdown.js';
 import { createPrivateWebSocketGateway, redactAccessTokenQuery } from './private/gateway.js';
 import { createIdentityAuthorityClient } from './private/authority.js';
 import { createDropCopyWebSocketGateway } from './drop-copy/gateway.js';
@@ -218,6 +220,37 @@ const busLifecycle = createBusLifecycle({
     let tradeSub: Subscription | null = null;
     let privateHalf: PrivateAttachments | null = null;
     let dropHalf: DropCopyAttachments | null = null;
+    let sessionClosed = false;
+    const attachPrivate = () =>
+      attachBusHalf({
+        attach: () =>
+          tryAttachPrivate({
+            bus: connected,
+            hub: privateOrderHub,
+            durable: env.WS_PRIVATE_ORDERS_DURABLE,
+            log: app.log,
+          }),
+        isClosed: () => sessionClosed,
+        unsubscribe: async (half) => {
+          await half.orders.unsubscribe().catch(() => undefined);
+          await half.fills.unsubscribe().catch(() => undefined);
+          await half.positions.unsubscribe().catch(() => undefined);
+        },
+        announce: () => privateOrderHub.announceBus(true),
+      });
+    const attachDropCopy = () =>
+      attachBusHalf({
+        attach: () =>
+          tryAttachDropCopy({
+            bus: connected,
+            hub: dropCopyHub,
+            durable: env.WS_DROP_COPY_DURABLE,
+            log: app.log,
+          }),
+        isClosed: () => sessionClosed,
+        unsubscribe: (half) => half.fills.unsubscribe(),
+        announce: () => dropCopyHub.announceBus(true),
+      });
     try {
       // Public tape first and independently. A private-half failure must not
       // tear the trade consumer — empty private is privateBus:false, not a dead tape.
@@ -233,25 +266,8 @@ const busLifecycle = createBusLifecycle({
     }
 
     if (privateTokens) {
-      privateHalf = await tryAttachPrivate({
-        bus: connected,
-        hub: privateOrderHub,
-        durable: env.WS_PRIVATE_ORDERS_DURABLE,
-        log: app.log,
-      });
-      if (privateHalf) {
-        privateOrderHub.announceBus(true);
-      }
-
-      dropHalf = await tryAttachDropCopy({
-        bus: connected,
-        hub: dropCopyHub,
-        durable: env.WS_DROP_COPY_DURABLE,
-        log: app.log,
-      });
-      if (dropHalf) {
-        dropCopyHub.announceBus(true);
-      }
+      privateHalf = await attachPrivate();
+      dropHalf = await attachDropCopy();
     }
 
     return {
@@ -261,42 +277,44 @@ const busLifecycle = createBusLifecycle({
       sessionLost: connected.whenClosed(),
       retryPrivate: privateTokens
         ? async () => {
-            privateHalf = await tryAttachPrivate({
-              bus: connected,
-              hub: privateOrderHub,
-              durable: env.WS_PRIVATE_ORDERS_DURABLE,
-              log: app.log,
-            });
-            if (privateHalf) {
-              privateOrderHub.announceBus(true);
-              return true;
-            }
-            return false;
+            const attached = await attachPrivate();
+            if (sessionClosed) return false;
+            privateHalf = attached;
+            return attached !== null;
           }
         : undefined,
       retryDropCopy: privateTokens
         ? async () => {
-            dropHalf = await tryAttachDropCopy({
-              bus: connected,
-              hub: dropCopyHub,
-              durable: env.WS_DROP_COPY_DURABLE,
-              log: app.log,
-            });
-            if (dropHalf) {
-              dropCopyHub.announceBus(true);
-              return true;
-            }
-            return false;
+            const attached = await attachDropCopy();
+            if (sessionClosed) return false;
+            dropHalf = attached;
+            return attached !== null;
           }
         : undefined,
       close: async () => {
-        dropCopyHub.announceBus(false);
-        await tradeSub?.unsubscribe().catch(() => undefined);
-        await privateHalf?.orders.unsubscribe().catch(() => undefined);
-        await privateHalf?.fills.unsubscribe().catch(() => undefined);
-        await privateHalf?.positions.unsubscribe().catch(() => undefined);
-        await dropHalf?.fills.unsubscribe().catch(() => undefined);
-        await connected.close().catch(() => undefined);
+        sessionClosed = true;
+        await closeBusSession({
+          privateHub: privateOrderHub,
+          dropCopyHub,
+          unsubscribe: [
+            async () => {
+              await tradeSub?.unsubscribe();
+            },
+            async () => {
+              await privateHalf?.orders.unsubscribe();
+            },
+            async () => {
+              await privateHalf?.fills.unsubscribe();
+            },
+            async () => {
+              await privateHalf?.positions.unsubscribe();
+            },
+            async () => {
+              await dropHalf?.fills.unsubscribe();
+            },
+          ],
+          disconnect: () => connected.close(),
+        });
       },
     };
   },
@@ -421,19 +439,37 @@ app.log.info(
   'svc-ws ready — depth + trade tape + private orders/fills/positions + drop-copy',
 );
 
-for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-  process.once(signal, () => {
-    void (async () => {
-      // Stop producing before closing sockets, so nothing is written to a
-      // socket that is mid-close, and tell every client why it is going.
+registerSignalShutdown(
+  {
+    on(signal, listener) {
+      process.on(signal, listener);
+    },
+  },
+  {
+    disable() {
       enabled = false;
+    },
+    stopPoller() {
       poller.stop();
-      await busLifecycle.stop();
-      await gateway.close(WS_COPY.shuttingDown);
-      await privateGateway.close(WS_COPY.shuttingDown);
-      await dropCopyGateway.close(WS_COPY.shuttingDown);
-      await app.close();
-      process.exit(0);
-    })();
-  });
-}
+    },
+    stopBus() {
+      return busLifecycle.stop();
+    },
+    closeGateway(reason) {
+      return gateway.close(reason);
+    },
+    closePrivateGateway(reason) {
+      return privateGateway.close(reason);
+    },
+    closeDropCopyGateway(reason) {
+      return dropCopyGateway.close(reason);
+    },
+    closeApp() {
+      return app.close();
+    },
+  },
+  (code) => {
+    process.exit(code);
+  },
+  WS_COPY.shuttingDown,
+);
