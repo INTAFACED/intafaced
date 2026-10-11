@@ -117,6 +117,36 @@ describe('assessBacktestSurface — D26-P1-X6', () => {
     expect(result.surface.costs.map((cost) => cost.component)).toEqual(['fees', 'slippage', 'latency']);
     expect(result.surface.costs.every((cost) => cost.modelled && cost.source.length > 0)).toBe(true);
   });
+
+  it('drops extra enumerable fields from the out-of-sample surface', () => {
+    const verdict = {
+      status: 'passed' as const,
+      evaluatedFrom: '2026-04-01T00:00:00.000Z',
+      evaluatedTo: '2026-06-30T23:59:59.999Z',
+      sampleCount: 2_184,
+      return: '999',
+      price: '1',
+      live: true,
+    };
+    const result = assessBacktestSurface(honestCandidate({ outOfSampleVerdict: verdict }));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.surface.outOfSample).toEqual({
+      status: verdict.status,
+      evaluatedFrom: verdict.evaluatedFrom,
+      evaluatedTo: verdict.evaluatedTo,
+      sampleCount: verdict.sampleCount,
+      label: `Out-of-sample: ${verdict.status}`,
+    });
+    expect(result.surface.outOfSample).not.toHaveProperty('return');
+    expect(result.surface.outOfSample).not.toHaveProperty('price');
+    expect(result.surface.outOfSample).not.toHaveProperty('live');
+
+    const clean = assessBacktestSurface(honestCandidate());
+    expect(clean.ok).toBe(true);
+  });
 });
 
 describe('strategy comparison ordering — no curve-fit leaderboard', () => {
@@ -180,6 +210,71 @@ describe('assessSimulatedNotLive — paper/backtest/shadow never live', () => {
       ok: false,
       refusal: { code: 'simulated_as_live' },
     });
+  });
+
+  it('refuses live fill, live trading, and live order in any case with surrounding spaces', () => {
+    expect(assessSimulatedNotLive({ environment: 'paper', presentedAs: 'live fill' })).toMatchObject({
+      ok: false,
+      refusal: { code: 'simulated_as_live' },
+    });
+    expect(assessSimulatedNotLive({ environment: 'backtest', presentedAs: 'live trading' })).toMatchObject({
+      ok: false,
+      refusal: { code: 'simulated_as_live' },
+    });
+    expect(assessSimulatedNotLive({ environment: 'shadow', presentedAs: 'live order' })).toMatchObject({
+      ok: false,
+      refusal: { code: 'simulated_as_live' },
+    });
+    expect(assessSimulatedNotLive({ environment: 'paper', presentedAs: '  LIVE FILL  ' })).toMatchObject({
+      ok: false,
+      refusal: { code: 'simulated_as_live' },
+    });
+    expect(assessSimulatedNotLive({ environment: 'backtest', presentedAs: '  Live Trading  ' })).toMatchObject({
+      ok: false,
+      refusal: { code: 'simulated_as_live' },
+    });
+    expect(assessSimulatedNotLive({ environment: 'shadow', presentedAs: '  LiVe OrDeR  ' })).toMatchObject({
+      ok: false,
+      refusal: { code: 'simulated_as_live' },
+    });
+  });
+
+  it('keeps a presented label that does not claim the result is live', () => {
+    expect(assessSimulatedNotLive({ environment: 'paper', presentedAs: 'not live' })).toEqual({
+      ok: true,
+      stamp: {
+        environment: 'paper',
+        kind: 'paper',
+        claimLabel: 'Paper — not live performance',
+        live: false,
+        simulated: true,
+      },
+    });
+    expect(assessSimulatedNotLive({ environment: 'backtest', presentedAs: 'not live' })).toEqual({
+      ok: true,
+      stamp: {
+        environment: 'backtest',
+        kind: 'simulated',
+        claimLabel: 'Historical simulation — not a forecast',
+        live: false,
+        simulated: true,
+      },
+    });
+    expect(assessSimulatedNotLive({ environment: 'shadow', presentedAs: 'not live' })).toEqual({
+      ok: true,
+      stamp: {
+        environment: 'shadow',
+        kind: 'simulated',
+        claimLabel: 'Shadow — not live performance',
+        live: false,
+        simulated: true,
+      },
+    });
+    expect(assessSimulatedNotLive({ environment: 'paper', presentedAs: 'Paper — not live performance' }).ok).toBe(true);
+    expect(assessSimulatedNotLive({ environment: 'shadow', presentedAs: 'Shadow — not live performance' }).ok).toBe(true);
+    expect(assessSimulatedNotLive({ environment: 'backtest', presentedAs: 'delivery' }).ok).toBe(true);
+    expect(assessSimulatedNotLive({ environment: 'paper', presentedAs: 'lively' }).ok).toBe(true);
+    expect(assessSimulatedNotLive({ environment: 'shadow', presentedAs: 'olives' }).ok).toBe(true);
   });
 
   it('stamps paper, backtest, and shadow as not live', () => {
