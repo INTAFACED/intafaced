@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
@@ -66,9 +69,9 @@ interface Harness {
 
 let harness: Harness | null = null;
 
-async function edge(ledger: LedgerOperatorCall | null = null): Promise<Harness> {
+async function edge(ledger: LedgerOperatorCall | null = null, statePath?: string): Promise<Harness> {
   const app = Fastify({ logger: false });
-  const state = new KillSwitchState();
+  const state = new KillSwitchState({ statePath });
   const reached: string[] = [];
 
   // THE SAME TWO CALLS `index.ts` MAKES, in the same order.
@@ -1406,3 +1409,47 @@ describe('money modules — same kill surface (D26-P2-10)', () => {
     expect(res.json().error).toContain('/admin/ledger/freeze');
   });
 });
+
+// Exercise the actual operator route and request guard, not a parallel persistence path.
+it('a failed durable resume returns an error and keeps new commitments halted', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'edge-durable-http-'));
+  const statePath = join(directory, 'state.json');
+  try {
+    writeFileSync(statePath, JSON.stringify({ killed: [] }));
+    const h = await edge(null, statePath);
+    expect((await flip(h, 'trade', true, 'incident requires durable halt')).statusCode).toBe(200);
+    const auditBefore = h.state.auditTrail();
+    unlinkSync(statePath);
+    mkdirSync(statePath);
+    const refused = await flip(h, 'trade', false, 'attempt durable incident resume');
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json()).toMatchObject({ code: 'edge.invalid_kill_switch' });
+    expect(refused.json()).not.toHaveProperty('changed');
+    expect(h.state.isKilled('trade')).toBe(true);
+    expect(h.state.auditTrail()).toEqual(auditBefore);
+    expect((await h.app.inject({ method: 'POST', url: '/api/v1/orders' })).statusCode).toBe(503);
+    expect((await h.app.inject({ method: 'GET', url: '/api/v1/orders' })).statusCode).toBe(200);
+    expect((await h.app.inject({ method: 'DELETE', url: '/api/v1/orders/id' })).statusCode).toBe(200);
+    expect(new KillSwitchState({ statePath }).isKilled('trade')).toBe(true);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it.each([undefined, '{corrupt'])(
+  'untrusted file-backed startup blocks commitments but permits reads and cancellation (%s)',
+  async (body) => {
+    const directory = mkdtempSync(join(tmpdir(), 'edge-boot-http-'));
+    const statePath = join(directory, 'state.json');
+    try {
+      if (body !== undefined) writeFileSync(statePath, body);
+      const h = await edge(null, statePath);
+      expect(h.state.isKilled('trade')).toBe(true);
+      expect((await h.app.inject({ method: 'POST', url: '/api/v1/orders' })).statusCode).toBe(503);
+      expect((await h.app.inject({ method: 'GET', url: '/api/v1/orders' })).statusCode).toBe(200);
+      expect((await h.app.inject({ method: 'DELETE', url: '/api/v1/orders/id' })).statusCode).toBe(200);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);

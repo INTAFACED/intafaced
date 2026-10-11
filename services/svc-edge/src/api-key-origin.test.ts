@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   apiKeyOriginAllowed,
   assertApiKeyOrigin,
+  normalizeOriginHost,
   optionalOriginAllowlist,
   optionalOriginAllowlistFromExchange,
   KeyOriginError,
@@ -51,6 +52,25 @@ describe('apiKeyOriginAllowed', () => {
     expect(apiKeyOriginAllowed(list, 'https://partner.example')).toBe(true);
     expect(apiKeyOriginAllowed(list, 'https://evil.example')).toBe(false);
   });
+
+  it('keeps a bare IPv6 allowlist entry as that address', () => {
+    expect(normalizeOriginHost('2001:db8::1')).toBe('2001:db8::1');
+    expect(apiKeyOriginAllowed(['2001:db8::1'], 'https://2001')).toBe(false);
+    expect(apiKeyOriginAllowed(['2001:db8::1'], 'https://shop.2001')).toBe(false);
+    expect(apiKeyOriginAllowed(['2001:db8::1'], 'https://[2001:db8::1]')).toBe(true);
+    expect(apiKeyOriginAllowed(['app.example.com'], 'https://app.example.com')).toBe(true);
+    expect(apiKeyOriginAllowed(['app.example.com:443'], 'https://app.example.com')).toBe(true);
+  });
+});
+
+it('canonicalizes equivalent IPv6 addresses and rejects malformed literals', () => {
+  expect(apiKeyOriginAllowed(['2001:0DB8:0:0:0:0:0:1'], 'https://[2001:db8::1]:8443')).toBe(true);
+  expect(apiKeyOriginAllowed(['[2001:db8::1]:443'], 'https://[2001:db8::1]')).toBe(true);
+  expect(apiKeyOriginAllowed(['2001:db8::1'], 'https://[2001:db8::2]')).toBe(false);
+  for (const malformed of ['[2001:db8::1]junk', '[2001:db8::1]:bad', '[2001:db8::1', '2001:bad::invalid']) {
+    expect(normalizeOriginHost(malformed)).toBeNull();
+    expect(apiKeyOriginAllowed([malformed], 'https://[2001:db8::1]')).toBe(false);
+  }
 });
 
 describe('assertApiKeyOrigin', () => {
