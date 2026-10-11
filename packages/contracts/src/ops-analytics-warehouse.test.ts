@@ -547,3 +547,50 @@ describe('assertAnalyticsReplicaRole — a marker is not a bypass', () => {
     }
   });
 });
+
+/**
+ * The role check has to see the username postgres.js will connect as.
+ *
+ * WHATWG URL.username stays percent-encoded, and postgres.js decodeURIComponent's
+ * it before auth. Query keys that are not driver defaults are copied onto
+ * options.connection and overwrite the URL user in the startup message.
+ */
+describe('assertAnalyticsReplicaRole — connected user, not the raw URL user', () => {
+  it('refuses a percent-encoded writer that decodes to a never-readonly fragment', () => {
+    const result = assertAnalyticsReplicaRole('postgres://%61dmin_ro:x@h/db', 'readonly');
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toContain('admin_ro');
+  });
+
+  it('refuses the query user when it overrides the URL user', () => {
+    const result = assertAnalyticsReplicaRole('postgres://analytics_ro:x@host/db?user=postgres', 'readonly');
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toContain('postgres');
+  });
+
+  it('accepts a query user that is a genuine read-only role', () => {
+    expect(assertAnalyticsReplicaRole('postgres://admin:x@host/db?user=analytics_ro', 'readonly')).toEqual({
+      ok: true,
+      username: 'analytics_ro',
+    });
+  });
+
+  it('still accepts a genuine analytics_ro URL with no override', () => {
+    expect(assertAnalyticsReplicaRole('postgres://analytics_ro:x@host/db', 'readonly')).toEqual({
+      ok: true,
+      username: 'analytics_ro',
+    });
+  });
+
+  it('refuses a comma host that postgres.js rewrites into the username', () => {
+    // parseUrl does url.replace(decodedHost, decodedHost.split(',')[0]) before
+    // decodeURIComponent(username). The first "post,XX" sits in the userinfo,
+    // so this URL authenticates as postgres_ro.
+    const result = assertAnalyticsReplicaRole('postgres://post,XXgres_ro:pw@post,XX/db', 'readonly');
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toContain('postgres_ro');
+  });
+});

@@ -40,6 +40,13 @@ import type { ServiceRawBody } from './service-auth.js';
  * be matching on either. A silent change from 400 to 500 on the money path
  * because a parser was swapped would be a poor trade for a security fix.
  *
+ * The default parser is secure-json-parse with proto and constructor poisoning
+ * set to `error`. A body that contains `__proto__` or `constructor.prototype`
+ * throws, and Fastify catches that throw as the same invalid-JSON 400. The
+ * walk below is that check: `JSON.parse` keeps those keys as own properties,
+ * and handing the object to the route lets `Object.assign` and similar copies
+ * pollute `Object.prototype`.
+ *
  * ── Why a WeakMap and not `req.rawBody` ──────────────────────────────────────
  *
  * The common recipe assigns the bytes onto the request object. That works, and
@@ -82,6 +89,41 @@ function httpError(message: string, code: string): Error {
   return Object.assign(new Error(message), { statusCode: 400, code });
 }
 
+const PROTO_KEY = '__proto__';
+
+function hasOwn(value: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+/**
+ * secure-json-parse with `protoAction: 'error'` and `constructorAction: 'error'`.
+ * Throws the same `SyntaxError` that parser throws; the caller maps it onto
+ * Fastify's invalid-JSON 400 and does not pass the object through.
+ */
+function assertNoPrototypePoison(value: unknown): void {
+  if (value === null || typeof value !== 'object') return;
+
+  const next: object[] = [value];
+  while (next.length > 0) {
+    const node = next.pop();
+    if (node === undefined) continue;
+
+    if (hasOwn(node, PROTO_KEY)) {
+      throw new SyntaxError('Object contains forbidden prototype property');
+    }
+
+    const ctor = hasOwn(node, 'constructor') ? (node as { constructor?: unknown }).constructor : undefined;
+    if (ctor !== null && typeof ctor === 'object' && hasOwn(ctor, 'prototype')) {
+      throw new SyntaxError('Object contains forbidden prototype property');
+    }
+
+    for (const key in node) {
+      const child = (node as Record<string, unknown>)[key];
+      if (child !== null && typeof child === 'object') next.push(child);
+    }
+  }
+}
+
 /**
  * Keep the exact bytes of every JSON request on `app`, so an S2S verifier can
  * check them against a signed digest.
@@ -115,7 +157,9 @@ export function retainRawBody(app: RawBodyHost, contentTypes: readonly string[] 
       }
 
       try {
-        done(null, JSON.parse(body.toString('utf8')));
+        const parsed: unknown = JSON.parse(body.toString('utf8'));
+        assertNoPrototypePoison(parsed);
+        done(null, parsed);
       } catch {
         done(httpError(`Body is not valid JSON but content-type is set to '${contentType}'`, 'FST_ERR_CTP_INVALID_JSON_BODY'));
       }

@@ -1,0 +1,139 @@
+.rank-perks {
+  display: grid;
+  grid-template-columns: minmax(0, 352px) minmax(0, 1fr);
+  align-items: start;
+  gap: 48px;
+  padding-bottom: 32px;
+  margin-bottom: 32px;
+  border-bottom: 1px solid var(--color-divider);
+  font-family: var(--font-sans);
+  min-width: 0;
+}
+.rank-perks__rank,
+.rank-perks__perks {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+.rank-perks__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.rank-perks__heading h2 {
+  min-width: 0;
+}
+.rank-perks__heading .button {
+  flex-shrink: 0;
+  min-height: 44px;
+  white-space: normal;
+}
+.rank-perks__number {
+  font-size: 40px;
+  line-height: 48px;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.rank-perks__counts {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  margin: 0;
+}
+.rank-perks__counts > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.rank-perks dt,
+.rank-perks__updated,
+.rank-perks__boundary {
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--color-muted);
+}
+.rank-perks dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.rank-perks__counts dd {
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 600;
+}
+.rank-perks__rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+.rank-perks__rows > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 0;
+  min-height: 48px;
+  border-top: 1px solid var(--color-divider);
+}
+.rank-perks__rows dt,
+.rank-perks__rows dd {
+  font-size: 16px;
+  line-height: 24px;
+  color: var(--color-text);
+}
+.rank-perks__rows dd {
+  text-align: right;
+  font-weight: 600;
+}
+.rank-perks__failure {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+.rank-perks__failure h3 {
+  font-size: 16px;
+  line-height: 24px;
+}
+.rank-perks__failure p {
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--color-muted);
+}
+.rank-perks__failure .button {
+  align-self: flex-start;
+  min-height: 44px;
+  white-space: normal;
+}
+@media (max-width: 899px) {
+  .rank-perks {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+  .rank-perks__heading {
+    flex-wrap: wrap;
+  }
+  .rank-perks__heading h2 {
+    flex: 1;
+  }
+  .rank-perks__heading .button {
+    max-width: 100%;
+  }
+  .rank-perks__counts dd {
+    font-size: 20px;
+    line-height: 28px;
+  }
+  .rank-perks__rows > div {
+    grid-template-columns: minmax(0, 1fr) 80px;
+    gap: 12px;
+  }
+}

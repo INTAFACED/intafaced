@@ -13,6 +13,8 @@ import {
   type DepthBook,
   type DepthDelta,
   type DepthSnapshot,
+  type InvalidQtyRefusal,
+  type SnapshotBookResult,
   type WireLevel,
 } from './depth.js';
 
@@ -25,6 +27,107 @@ function snapshot(sequence: number, bids: WireLevel[], asks: WireLevel[]): Depth
 function book(sequence: number, bids: WireLevel[], asks: WireLevel[]): DepthBook {
   return bookFromSnapshot(snapshot(sequence, bids, asks));
 }
+
+/** Hub reads `.bids` / `.asks` on the result with no refusal check. */
+function callerResting(s: DepthSnapshot): boolean {
+  const book = bookFromSnapshot(s);
+  return book.bids.size > 0 || book.asks.size > 0;
+}
+
+/** Sequenced-book `#bookFrom` returns the snapshot straight into a `DepthBook`. */
+function callerBookFrom(sequence: number, bids: readonly WireLevel[], asks: readonly WireLevel[]): DepthBook {
+  return bookFromSnapshot({
+    type: 'snapshot',
+    marketId: MARKET,
+    sequence,
+    bids: bids.map(([price, qty]) => [price, qty] as WireLevel),
+    asks: asks.map(([price, qty]) => [price, qty] as WireLevel),
+  });
+}
+
+type Same<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+
+type NegSnap = {
+  readonly type: 'snapshot';
+  readonly marketId: string;
+  readonly sequence: number;
+  readonly bids: readonly [readonly ['100', '-1']];
+  readonly asks: readonly [];
+};
+type ValidSnap = {
+  readonly type: 'snapshot';
+  readonly marketId: string;
+  readonly sequence: number;
+  readonly bids: readonly [readonly ['100', '1']];
+  readonly asks: readonly [];
+};
+
+function negCall() {
+  return bookFromSnapshot({
+    type: 'snapshot',
+    marketId: MARKET,
+    sequence: 1,
+    bids: [['100', '-1']],
+    asks: [],
+  } as const);
+}
+function validCall() {
+  return bookFromSnapshot({
+    type: 'snapshot',
+    marketId: MARKET,
+    sequence: 1,
+    bids: [['100', '1']],
+    asks: [],
+  } as const);
+}
+function negativeZeroCall() {
+  return bookFromSnapshot({
+    type: 'snapshot',
+    marketId: MARKET,
+    sequence: 1,
+    bids: [['100', '-0']],
+    asks: [],
+  } as const);
+}
+function negativeFractionalZeroCall() {
+  return bookFromSnapshot({
+    type: 'snapshot',
+    marketId: MARKET,
+    sequence: 1,
+    bids: [['100', '-0.000']],
+    asks: [],
+  } as const);
+}
+function negativeFullPrecisionZeroCall() {
+  return bookFromSnapshot({
+    type: 'snapshot',
+    marketId: MARKET,
+    sequence: 1,
+    bids: [['100', '-0.000000000000000000']],
+    asks: [],
+  } as const);
+}
+function wideCall(snapshot: DepthSnapshot) {
+  return bookFromSnapshot(snapshot);
+}
+
+function caught(s: DepthSnapshot): unknown {
+  try {
+    return bookFromSnapshot(s);
+  } catch (err) {
+    return err;
+  }
+}
+
+const _callerIsBook: Same<ReturnType<typeof wideCall>, DepthBook> = true;
+const _validIsBook: Same<ReturnType<typeof validCall>, DepthBook> = true;
+const _negIsRefusal: Same<ReturnType<typeof negCall>, InvalidQtyRefusal> = true;
+const _negNotBook: ReturnType<typeof negCall> extends DepthBook ? never : true = true;
+const _negativeZeroIsBook: Same<ReturnType<typeof negativeZeroCall>, DepthBook> = true;
+const _negativeFractionalZeroIsBook: Same<ReturnType<typeof negativeFractionalZeroCall>, DepthBook> = true;
+const _negativeFullPrecisionZeroIsBook: Same<ReturnType<typeof negativeFullPrecisionZeroCall>, DepthBook> = true;
+const _aliasNeg: Same<SnapshotBookResult<NegSnap>, InvalidQtyRefusal> = true;
+const _aliasValid: Same<SnapshotBookResult<ValidSnap>, DepthBook> = true;
 
 const sideOf = (b: DepthBook, side: 'bids' | 'asks') => Object.fromEntries([...b[side].entries()].map(([p, q]) => [p, formatAmount(q)]));
 
@@ -72,7 +175,7 @@ describe('snapshot is a full replace — prior book is discarded', () => {
     );
     expect(prior.bids.has('100')).toBe(true);
 
-    const next = bookFromSnapshot(snapshot(2, [['99', '2']], []));
+    const next = book(2, [['99', '2']], []);
     expect(next.bids.has('100')).toBe(false);
     expect(formatAmount(next.bids.get('99')!)).toBe('2');
   });
@@ -81,7 +184,7 @@ describe('snapshot is a full replace — prior book is discarded', () => {
     const prior = book(1, [['100', '1']], []);
     expect(prior.bids.has('100')).toBe(true);
 
-    const next = bookFromSnapshot(snapshot(2, [['100', '0']], []));
+    const next = book(2, [['100', '0']], []);
     expect(next.bids.has('100')).toBe(false);
     expect(next.bids.size).toBe(0);
   });
@@ -104,6 +207,57 @@ describe('snapshot last-write at the same canonical price', () => {
 });
 
 describe('negative quantity must not rest', () => {
+  it.each(['-0', '-0.000', '-0.000000000000000000'] as const)('treats qty "%s" as a valid zero delete', (qty) => {
+    const result = bookFromSnapshot(snapshot(1, [['100', qty]], []));
+    expect(result).toMatchObject({ marketId: MARKET, sequence: 1 });
+    expect(result.bids.size).toBe(0);
+  });
+
+  it('callers that take a DepthBook do not receive one for qty "-1"', () => {
+    expect(callerResting(snapshot(1, [['100', '1']], [['101', '2']]))).toBe(true);
+    const good = callerBookFrom(1, [['100', '1']], [['101', '2']]);
+    expect(good.sequence).toBe(1);
+    expect(good.bids.size).toBe(1);
+    expect(good.asks.size).toBe(1);
+
+    let thrown: unknown;
+    try {
+      callerBookFrom(1, [['100', '-1']], []);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toEqual({ ok: false, reason: 'invalid-qty', expected: 1, got: 1 });
+    expect(thrown).not.toHaveProperty('bids');
+    expect(thrown).not.toHaveProperty('asks');
+    expect(thrown).not.toHaveProperty('book');
+
+    expect(() => callerResting(snapshot(1, [['100', '-1']], []))).toThrow();
+  });
+
+  it('refuses a snapshot qty "-1" with invalid-qty instead of a quiet book', () => {
+    const refused = caught(snapshot(1, [['100', '-1']], []));
+    expect(refused).toEqual({ ok: false, reason: 'invalid-qty', expected: 1, got: 1 });
+    expect(refused).not.toHaveProperty('bids');
+    expect(refused).not.toHaveProperty('asks');
+    expect(refused).not.toHaveProperty('book');
+
+    const partial = caught(
+      snapshot(
+        1,
+        [
+          ['100', '5'],
+          ['99', '-1'],
+        ],
+        [],
+      ),
+    );
+    expect(partial).toEqual({ ok: false, reason: 'invalid-qty', expected: 1, got: 1 });
+    expect(partial).not.toHaveProperty('bids');
+
+    const ask = caught(snapshot(1, [], [['100', '-1']]));
+    expect(ask).toEqual({ ok: false, reason: 'invalid-qty', expected: 1, got: 1 });
+  });
+
   it('refuses a delta qty "-1" and does not advance sequence', () => {
     const start = book(1, [['100', '1']], []);
     const result = applyDelta(start, {
@@ -296,7 +450,7 @@ describe('the sequence check — what stops a book drifting', () => {
   });
 
   it('accepts the first delta after a snapshot', () => {
-    const fresh = bookFromSnapshot(snapshot(42, [['100', '1']], []));
+    const fresh = book(42, [['100', '1']], []);
     const result = applyDelta(fresh, { type: 'delta', marketId: MARKET, fromSequence: 42, sequence: 43, bids: [['100', '2']], asks: [] });
 
     expect(result.ok).toBe(true);
@@ -542,6 +696,17 @@ describe('ingestVenueDepthSnapshot — absent vs measured', () => {
     });
     expect(result.book).toBeNull();
     expect(result.book).not.toEqual(emptyBook(MARKET));
+  });
+
+  it('does not publish a book when a connected snapshot qty is negative', () => {
+    const lake = new CaptureLog({ now: () => new Date('2026-08-16T13:00:04.000Z') });
+    const result = ingestVenueDepthSnapshot(lake, {
+      venueId: 'binance-spot',
+      marketId: MARKET,
+      connection: 'connected',
+      snapshot: snapshot(4, [['100', '-1']], [['101', '2']]),
+    });
+    expect(result.book).toBeNull();
   });
 
   it('builds a measured empty DepthBook only when the adapter said connected', () => {

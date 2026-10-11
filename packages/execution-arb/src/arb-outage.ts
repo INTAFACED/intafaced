@@ -3,7 +3,7 @@
  * a successful arb and never invent a fill. Duplicate recovery is idempotent.
  */
 import { compare, formatAmount, isNegative, isZero, parseAmount } from '@intafaced/ledger-client';
-import { reduceArbLegGroup, type ArbLegGroupResult, type ArbLegResult } from './arb-legs.js';
+import { ARB_LEGS_ATOMIC, reduceArbLegGroup, type ArbLegGroupResult, type ArbLegResult } from './arb-legs.js';
 
 export const ARB_UNKNOWN_VENUE_SIGNALS = ['outage', 'timeout', 'missing_fill_report', 'degraded'] as const;
 export type ArbUnknownVenueSignalKind = (typeof ARB_UNKNOWN_VENUE_SIGNALS)[number];
@@ -122,14 +122,33 @@ export function recoverArbFills(journal: readonly ArbFillFact[], incoming: reado
 /**
  * Record venue observations into the arb group and fill journal.
  * A dead/degraded venue cannot become group success or an invented fill.
+ * A non-empty amount conflict is not group success either. The first amount
+ * stays on the journal and the conflict row stays; neither amount wins.
  */
 export function recordArbVenueLegs(input: RecordArbVenueLegsInput): RecordArbVenueLegsResult {
   const observed = input.observations.map(observeArbLeg);
   const legs = observed.map((row) => row.leg);
   const incoming = observed.flatMap((row) => (row.fill ? [row.fill] : []));
   const recovered = recoverArbFills(input.journal ?? [], incoming);
+  const grouped = reduceArbLegGroup({ expectedLegCount: input.expectedLegCount, legs });
+  if (recovered.conflicts.length > 0 && grouped.ok) {
+    return {
+      group: {
+        ok: false,
+        atomic: ARB_LEGS_ATOMIC,
+        outcome: 'OUTCOME_UNKNOWN',
+        reason: 'amount_conflict',
+        detail: 'same fillId disagrees on amount — kept journal amount stands; group success not invented',
+        applied: grouped.applied,
+        refused: grouped.refused,
+        unknown: grouped.unknown,
+      },
+      legs,
+      ...recovered,
+    };
+  }
   return {
-    group: reduceArbLegGroup({ expectedLegCount: input.expectedLegCount, legs }),
+    group: grouped,
     legs,
     ...recovered,
   };

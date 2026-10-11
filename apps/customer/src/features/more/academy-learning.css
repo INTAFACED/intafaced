@@ -1,0 +1,190 @@
+.academy-learning-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.academy-learning-reader {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
+.academy-learning-path {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+}
+.academy-learning-layout .if-panel {
+  min-width: 0;
+}
+.academy-learning-stack {
+  display: grid;
+  gap: 24px;
+}
+.academy-learning-stack h2,
+.academy-learning-stack h3,
+.academy-learning-stack p {
+  margin-top: 0;
+}
+.academy-learning-stack h2 {
+  font-size: 24px;
+  line-height: 1.25;
+}
+.academy-learning-stack .more-body {
+  font-size: 16px;
+  line-height: 26px;
+}
+.academy-learning-stack .more-body p:empty {
+  display: none;
+}
+.academy-learning-lessons {
+  list-style: none;
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+}
+.academy-learning-lessons li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+.academy-learning-lessons li[aria-current='step'] {
+  border-left: 2px solid var(--color-accent);
+  padding-left: 12px;
+}
+.academy-learning-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid var(--color-divider);
+  border-radius: 8px;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--color-text);
+}
+.academy-learning-link:hover {
+  border-color: var(--color-accent);
+}
+.academy-learning-link:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+.academy-learning-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.academy-learning-receipt,
+.academy-learning-unknown {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--color-divider);
+  border-radius: 10px;
+  background: var(--color-surface-raised);
+}
+.academy-learning-receipt {
+  border-left: 2px solid var(--color-accent);
+}
+.academy-learning-ref {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.academy-learning-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+@media (max-width: 800px) {
+  .academy-learning-layout {
+    display: flex;
+    flex-direction: column;
+  }
+  .academy-learning-reader,
+  .academy-learning-path {
+    width: 100%;
+  }
+}
+@media (max-width: 420px) {
+  .academy-learning-layout {
+    gap: 16px;
+  }
+  .academy-learning-stack {
+    gap: 20px;
+  }
+  .academy-learning-receipt,
+  .academy-learning-unknown {
+    padding: 16px;
+  }
+  .academy-learning-actions > * {
+    width: 100%;
+    justify-content: center;
+  }
+  .academy-learning-lessons li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.academy-learning-stack .more-body pre {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.academy-learning-stack .more-body p,
+.academy-learning-stack .more-body li {
+  overflow-wrap: anywhere;
+}
+
+.academy-learning-stack .more-body h3 {
+  font-size: 20px;
+  line-height: 28px;
+}
+.academy-learning-stack .more-body ol,
+.academy-learning-stack .more-body ul {
+  padding-left: 32px;
+}
+.academy-learning-stack .more-body li {
+  padding-left: 0;
+  margin-bottom: 16px;
+}
+
+.academy-learning-lessons li {
+  padding: 16px 0;
+  border-top: 1px solid var(--color-divider);
+}
+.academy-learning-lessons strong {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+}
+.academy-learning-lessons li[aria-current='step'] strong {
+  font-weight: 600;
+}
+.academy-learning-lessons small {
+  display: block;
+  margin-top: 8px;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+.academy-learning-lessons small code {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+}
+.academy-learning-lessons .academy-learning-link {
+  width: 112px;
+  flex-shrink: 0;
+  justify-content: center;
+}
+@media (max-width: 420px) {
+  .academy-learning-lessons .academy-learning-link {
+    width: 100%;
+  }
+}
