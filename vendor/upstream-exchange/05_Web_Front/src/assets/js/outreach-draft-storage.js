@@ -6,12 +6,28 @@ const STORE = 'protected-drafts';
 const RECORD = 'current';
 function requestResult(request) {
   return new Promise(function (resolve, reject) {
+    let settled = false;
+    let timer = setTimeout(unavailable, 3000);
+    function unavailable(error) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error || new Error('draft_storage_unavailable'));
+    }
     request.onsuccess = function () {
+      if (settled) {
+        // This request owns the late connection, not the active fallback.
+        // Never read/delete old drafts or revive a controller after rejection.
+        request.result.close();
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
       resolve(request.result);
     };
-    request.onerror = function () {
-      reject(request.error || new Error('draft_storage_unavailable'));
-    };
+    request.onerror = function () { unavailable(request.error); };
+    // Reading request.error while an open is pending throws InvalidStateError.
+    request.onblocked = function () { unavailable(); };
   });
 }
 async function openDatabase(indexedDB) {
