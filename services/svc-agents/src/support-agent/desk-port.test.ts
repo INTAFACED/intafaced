@@ -112,4 +112,71 @@ describe('createHttpSupportDeskPort', () => {
       account: { userId, status: 'frozen', kycTier: 'basic' },
     });
   });
+
+  it('readTicket returns missing when the parsed ticket id is not the requested ticketId', async () => {
+    const requestedTicketId = '11111111-1111-4111-8111-111111111111';
+    const otherTicketId = '22222222-2222-4222-8222-222222222222';
+    const fetchImpl = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          result: {
+            data: {
+              id: otherTicketId,
+              userId: '33333333-3333-4333-8333-333333333333',
+              category: 'account',
+              subject: 'Cannot sign in',
+              body: 'Locked out after reset.',
+              status: 'open',
+              assigneeId: null,
+              createdAt: '2026-10-09T00:00:00.000Z',
+              updatedAt: '2026-10-09T00:00:00.000Z',
+            },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }) as unknown as typeof fetch;
+
+    const desk = createHttpSupportDeskPort({
+      supportUrl: 'http://support.test',
+      internalSecret: 'a'.repeat(32),
+      fetchImpl,
+    });
+    expect(await desk.readTicket(requestedTicketId)).toEqual({ status: 'missing' });
+  });
+
+  it('readTicket returns the ticket when the parsed id is the requested ticketId', async () => {
+    const ticketId = '11111111-1111-4111-8111-111111111111';
+    const userId = '33333333-3333-4333-8333-333333333333';
+    const fetchImpl = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          result: {
+            data: {
+              id: ticketId,
+              userId,
+              category: 'account',
+              subject: 'Cannot sign in',
+              body: 'Locked out after reset.',
+              status: 'open',
+              assigneeId: null,
+              createdAt: '2026-10-09T00:00:00.000Z',
+              updatedAt: '2026-10-09T00:00:00.000Z',
+            },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }) as unknown as typeof fetch;
+
+    const desk = createHttpSupportDeskPort({
+      supportUrl: 'http://support.test',
+      internalSecret: 'a'.repeat(32),
+      fetchImpl,
+    });
+    expect(await desk.readTicket(ticketId)).toEqual({
+      status: 'ok',
+      ticket: { ticketId, ownerUserId: userId, status: 'open', category: 'account' },
+    });
+  });
 });

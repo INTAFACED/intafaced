@@ -202,14 +202,31 @@ export class UpstreamModelProvider implements ModelProvider {
       ...(request.system ? { system: request.system } : {}),
       messages: request.messages.map((m) => ({ role: m.role, content: m.content })),
       max_tokens: request.maxOutputTokens,
+      ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
+      ...(request.stopSequences?.length ? { stop_sequences: [...request.stopSequences] } : {}),
       stream: true,
     };
 
     const response = await this.send(this.completionsPath, body, request.signal, 'text/event-stream');
     if (!response.body) throw new ProviderError('Upstream returned no stream body', this.id, true, response.status);
 
-    let usage: TokenUsage | undefined;
+    // Input and output arrive on different events. message_start carries the
+    // input count (on the event, or under message.usage). message_delta carries
+    // the output count. Hold each side until both are present. A missing output
+    // count is a refusal — do not fill it with 0. Embeddings still pass
+    // partial:true; a completion stream does not.
+    let inputTokens: number | undefined;
+    let outputTokens: number | undefined;
     let stopReason: StopReason | undefined;
+
+    const absorbUsage = (raw: unknown): void => {
+      if (!raw || typeof raw !== 'object') return;
+      const usage = raw as UpstreamUsage;
+      const input = usage.input_tokens ?? usage.prompt_tokens;
+      const output = usage.output_tokens ?? usage.completion_tokens;
+      if (input !== undefined) inputTokens = input;
+      if (output !== undefined) outputTokens = output;
+    };
 
     for await (const event of readServerSentEvents(response.body)) {
       const type = typeof event.type === 'string' ? event.type : '';
@@ -220,17 +237,26 @@ export class UpstreamModelProvider implements ModelProvider {
         continue;
       }
 
+      if (type === 'message_start') {
+        absorbUsage(event.usage);
+        const message = event.message;
+        if (message && typeof message === 'object') absorbUsage((message as { usage?: unknown }).usage);
+      }
+
       if (type === 'message_delta' || type === 'message_stop') {
-        const raw = event.usage as UpstreamUsage | undefined;
-        if (raw) usage = readUsage(raw, this.id, { partial: true });
+        absorbUsage(event.usage);
         const reason = (event.delta as { stop_reason?: string } | undefined)?.stop_reason;
         if (reason) stopReason = STOP_REASONS[reason] ?? 'end';
       }
     }
 
-    // A stream that never reported usage cannot be metered. Same rule as the
-    // non-streaming path: fail loudly rather than bill zero.
-    if (!usage) throw new ProviderError('Upstream stream ended without reporting token usage', this.id, true);
+    // A stream that never reported both counts cannot be metered. Same rule as
+    // the non-streaming path: fail loudly rather than bill zero.
+    if (inputTokens === undefined || outputTokens === undefined) {
+      throw new ProviderError('Upstream stream ended without reporting token usage', this.id, true);
+    }
+
+    const usage = readUsage({ input_tokens: inputTokens, output_tokens: outputTokens }, this.id);
 
     yield { delta: '', done: true, usage, ...(stopReason ? { stopReason } : {}) };
   }
@@ -265,8 +291,18 @@ export class UpstreamModelProvider implements ModelProvider {
   }
 
   private async send(path: string, body: unknown, signal: AbortSignal | undefined, accept: string): Promise<Response> {
+    // A caller who has already cancelled must not hit upstream. That cancellation
+    // is not an upstream timeout and must not count toward the outage threshold.
+    if (signal?.aborted) {
+      throw new ProviderError('Upstream call cancelled', this.id, false);
+    }
+
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, this.timeoutMs);
     const onAbort = () => controller.abort();
     signal?.addEventListener('abort', onAbort, { once: true });
 
@@ -304,8 +340,13 @@ export class UpstreamModelProvider implements ModelProvider {
       return response;
     } catch (err) {
       if (err instanceof ProviderError) throw err;
+      // The caller aborted while the call was in flight. That is a cancellation
+      // even if the timer also fired, and it does not count as a failure.
+      if (signal?.aborted) {
+        throw new ProviderError('Upstream call cancelled', this.id, false);
+      }
       this.lastLatencyMs = Date.now() - started;
-      const aborted = controller.signal.aborted;
+      const aborted = timedOut || controller.signal.aborted;
       this.recordFailure(aborted ? 'upstream timed out' : 'upstream transport error');
       throw new ProviderError(aborted ? 'Upstream call timed out' : 'Upstream call failed in transport', this.id, true);
     } finally {
@@ -340,37 +381,54 @@ export function readUsage(raw: UpstreamUsage | undefined, providerId: string, op
   return { inputTokens: input as number, outputTokens: output as number };
 }
 
-/** Minimal SSE reader: `data:` lines carrying JSON, blank line terminates an event. */
+/** Minimal SSE reader: `data:` lines carrying JSON. A blank line terminates an event. */
 async function* readServerSentEvents(body: ReadableStream<Uint8Array>): AsyncIterable<Record<string, unknown>> {
   const decoder = new TextDecoder();
   const reader = body.getReader();
   let buffer = '';
 
+  // CRLF and bare CR are the same line ending as LF. A trailing CR is held so
+  // a CRLF pair split across reads is not treated as a finished line.
+  const pullEvents = function* (eof: boolean): Generator<Record<string, unknown>> {
+    let pending = buffer;
+    let held = '';
+    if (!eof && pending.endsWith('\r')) {
+      held = '\r';
+      pending = pending.slice(0, -1);
+    }
+    const normalized = pending.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const parts = normalized.split('\n\n');
+    // Mid-stream, the last part may be an unfinished event. At EOF that same
+    // part is a final frame that arrived without a trailing blank line.
+    buffer = eof ? '' : (parts.pop() ?? '') + held;
+
+    for (const block of parts) {
+      if (block.length === 0) continue;
+      for (const line of block.split('\n')) {
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+        try {
+          yield JSON.parse(payload) as Record<string, unknown>;
+        } catch {
+          // A malformed frame is skipped rather than killing the stream; the
+          // terminal usage frame is what the caller actually needs, and it is
+          // validated separately.
+        }
+      }
+    }
+  };
+
   try {
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      let boundary = buffer.indexOf('\n\n');
-      while (boundary !== -1) {
-        const block = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
-        boundary = buffer.indexOf('\n\n');
-
-        for (const line of block.split('\n')) {
-          if (!line.startsWith('data:')) continue;
-          const payload = line.slice(5).trim();
-          if (!payload || payload === '[DONE]') continue;
-          try {
-            yield JSON.parse(payload) as Record<string, unknown>;
-          } catch {
-            // A malformed frame is skipped rather than killing the stream; the
-            // terminal usage frame is what the caller actually needs, and it is
-            // validated separately.
-          }
-        }
+      if (done) {
+        buffer += decoder.decode();
+        yield* pullEvents(true);
+        break;
       }
+      buffer += decoder.decode(value, { stream: true });
+      yield* pullEvents(false);
     }
   } finally {
     reader.releaseLock();

@@ -191,27 +191,38 @@ export class ModelGateway {
       );
     }
 
-    yield* provider.stream(buildRequest(route, request));
+    try {
+      yield* provider.stream(buildRequest(route, request));
+    } catch (err) {
+      rethrowAsAgentError(provider, err);
+    }
   }
 
   private async invoke<T>(provider: ModelProvider, call: () => Promise<T>): Promise<T> {
     try {
       return await call();
     } catch (err) {
-      if (err instanceof AgentError) throw err;
-      if (err instanceof ProviderError) {
-        // Re-shaped at the gateway boundary so nothing above this line handles
-        // a provider's own error type — and so the user-facing key is decided
-        // once, here, rather than by whatever catches it.
-        throw new AgentError(
-          `Provider "${provider.id}" failed: ${err.message}`,
-          err.retryable ? 'agents.provider_unavailable' : 'agents.provider_failed',
-          'agents.error.engine_unavailable',
-        );
-      }
-      throw new AgentError(`Provider "${provider.id}" failed unexpectedly`, 'agents.provider_failed', 'agents.error.engine_unavailable');
+      rethrowAsAgentError(provider, err);
     }
   }
+}
+
+/**
+ * Re-shaped at the gateway boundary so nothing above this line handles a
+ * provider's own error type — and so the user-facing key is decided once,
+ * here, rather than by whatever catches it. Complete, embed, and stream share
+ * this: a stream must not let ProviderError or an unexpected throw escape.
+ */
+function rethrowAsAgentError(provider: ModelProvider, err: unknown): never {
+  if (err instanceof AgentError) throw err;
+  if (err instanceof ProviderError) {
+    throw new AgentError(
+      `Provider "${provider.id}" failed: ${err.message}`,
+      err.retryable ? 'agents.provider_unavailable' : 'agents.provider_failed',
+      'agents.error.engine_unavailable',
+    );
+  }
+  throw new AgentError(`Provider "${provider.id}" failed unexpectedly`, 'agents.provider_failed', 'agents.error.engine_unavailable');
 }
 
 /**

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SUPPORT_MONEY_TOOLS } from './guardrail.js';
 import {
+  accountProjectionHasInventMoney,
   invokeSupportDataTool,
   isSupportDataToolOk,
   supportAnswerOrEscalate,
@@ -173,6 +174,34 @@ describe('support Stage-2 ticket.read — ownership at the door', () => {
       }),
     ).toMatchObject({ reason: 'incomplete_ticket' });
   });
+
+  it('refuses a port ticket whose id trims to blank', async () => {
+    const blankId = createFixtureSupportDesk({ tickets: [ticket] });
+    blankId.readTicket = async () => ({
+      status: 'ok',
+      ticket: { ticketId: '   ', ownerUserId: USER, status: 'open', category: 'withdrawals' },
+    });
+    expect(await read({ desk: blankId })).toEqual({
+      status: 'refuse',
+      tool: 'support.ticket.read',
+      reason: 'incomplete_ticket',
+      userMessageKey: 'agents.support.unavailable',
+    });
+  });
+
+  it('refuses a port ticket whose id is not the one requested', async () => {
+    const otherId = createFixtureSupportDesk({ tickets: [ticket] });
+    otherId.readTicket = async () => ({
+      status: 'ok',
+      ticket: { ticketId: 'tkt-other', ownerUserId: USER, status: 'open', category: 'withdrawals' },
+    });
+    expect(await read({ desk: otherId })).toEqual({
+      status: 'refuse',
+      tool: 'support.ticket.read',
+      reason: 'missing_fixture',
+      userMessageKey: 'agents.support.unavailable',
+    });
+  });
 });
 
 describe('support Stage-2 account.read — status only, never a balance', () => {
@@ -206,6 +235,32 @@ describe('support Stage-2 account.read — status only, never a balance', () => 
     expect(await read({ desk: createFixtureSupportDesk({ accounts: [{ ...account, kycTier: '' }] }) })).toMatchObject({
       reason: 'incomplete_account',
     });
+  });
+
+  it('refuses a projection that carries camelCase money keys — that payload is not returned as ok', async () => {
+    for (const key of ['creditLimit', 'fundsAvailable', 'equityValue', 'unrealizedPnl'] as const) {
+      const smuggled = { ...account, [key]: '1.00' };
+      expect(accountProjectionHasInventMoney(smuggled), key).toBe(true);
+      expect(await read({ desk: createFixtureSupportDesk({ accounts: [smuggled as AccountProjectionFixture] }) }), key).toEqual({
+        status: 'refuse',
+        tool: 'identity.account.read',
+        reason: 'balance_field_forbidden',
+        userMessageKey: 'agents.support.unavailable',
+      });
+    }
+  });
+
+  it('userId and kycTier are not invent-money, and snake_case money keys still are', async () => {
+    expect(accountProjectionHasInventMoney({ userId: USER, kycTier: 'tier-2' })).toBe(false);
+    expect(await read()).toEqual({ status: 'ok', tool: 'identity.account.read', account });
+    for (const key of ['balance', 'available_balance'] as const) {
+      const smuggled = { ...account, [key]: '1.00' };
+      expect(accountProjectionHasInventMoney(smuggled), key).toBe(true);
+      expect(await read({ desk: createFixtureSupportDesk({ accounts: [smuggled as AccountProjectionFixture] }) }), key).toMatchObject({
+        status: 'refuse',
+        reason: 'balance_field_forbidden',
+      });
+    }
   });
 });
 

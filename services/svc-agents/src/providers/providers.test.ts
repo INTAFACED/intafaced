@@ -20,6 +20,7 @@ import {
   supports,
   totalTokens,
   type CompletionRequest,
+  type StreamChunk,
   tokenUsageBoardCard,
   tokenUsageStatusLine,
   parseTokenUsageStatusLine,
@@ -59,6 +60,33 @@ function stubFetch(handler: (url: string, init: RequestInit) => Response | Promi
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+/** Reject the way `fetch` does once the request signal aborts. */
+function abortedFetch(signal: AbortSignal | null | undefined): Promise<Response> {
+  return new Promise<Response>((_resolve, reject) => {
+    const fail = () => reject(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }));
+    if (!signal || signal.aborted) {
+      fail();
+      return;
+    }
+    signal.addEventListener('abort', fail, { once: true });
+  });
+}
+
+const sse = (events: readonly unknown[]) =>
+  new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''), {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+  });
+
+/** Exact event-stream bytes, so a test can omit the trailing blank line or use CRLF. */
+const sseRaw = (body: string) =>
+  new Response(body, {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+  });
+
+const dataFrame = (event: unknown) => `data: ${JSON.stringify(event)}`;
 
 const upstream = (over: Partial<ConstructorParameters<typeof UpstreamModelProvider>[0]> = {}) =>
   new UpstreamModelProvider({
@@ -244,9 +272,282 @@ describe('UpstreamModelProvider — the real adapter', () => {
     expect(provider.health().healthy).toBe(true);
   });
 
+  it('does not call upstream when the caller has already aborted, and does not record that as a timeout', async () => {
+    const fetchSpy = stubFetch(() => json({ content: [{ text: 'hi' }], usage: { input_tokens: 1, output_tokens: 1 } }));
+    const provider = upstream();
+
+    const error = (await provider.complete(request({ signal: AbortSignal.abort() })).catch((err: unknown) => err)) as ProviderError;
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(error.message).toBe('Upstream call cancelled');
+    expect(error.retryable).toBe(false);
+    // Never attempted, so the cancellation cannot be the first consecutive failure.
+    expect(provider.health()).toMatchObject({ healthy: false, reason: PROVIDER_UNPROBED_REASON });
+  });
+
+  it('does not let already-aborted callers push a live provider over the outage threshold', async () => {
+    stubFetch(() => json({ content: [{ text: 'hi' }], usage: { input_tokens: 1, output_tokens: 1 } }));
+    const provider = upstream();
+    await provider.complete(request());
+    expect(provider.health().healthy).toBe(true);
+
+    const signal = AbortSignal.abort();
+    for (let i = 0; i < 3; i++) {
+      const error = (await provider.complete(request({ signal })).catch((err: unknown) => err)) as ProviderError;
+      expect(error.message).toBe('Upstream call cancelled');
+      expect(error.retryable).toBe(false);
+    }
+
+    expect(provider.health().healthy).toBe(true);
+    expect(provider.health().reason).toBeUndefined();
+  });
+
+  it('treats an in-flight caller abort as a cancellation, not an upstream timeout', async () => {
+    stubFetch(() => json({ content: [{ text: 'hi' }], usage: { input_tokens: 1, output_tokens: 1 } }));
+    const provider = upstream({ timeoutMs: 60_000 });
+    await provider.complete(request());
+
+    let caller: AbortController | undefined;
+    stubFetch((_url, init) => {
+      caller?.abort();
+      return abortedFetch(init.signal);
+    });
+
+    for (let i = 0; i < 3; i++) {
+      caller = new AbortController();
+      const error = (await provider.complete(request({ signal: caller.signal })).catch((err: unknown) => err)) as ProviderError;
+      expect(caller.signal.aborted).toBe(true);
+      expect(error).toBeInstanceOf(ProviderError);
+      expect(error.message).toBe('Upstream call cancelled');
+      expect(error.retryable).toBe(false);
+    }
+
+    expect(provider.health().healthy).toBe(true);
+    expect(provider.health().reason).toBeUndefined();
+  });
+
+  it('records a timer timeout as a retryable upstream failure while the caller signal is still live', async () => {
+    const caller = new AbortController();
+    stubFetch((_url, init) => abortedFetch(init.signal));
+    const provider = upstream({ timeoutMs: 15 });
+
+    const errors: ProviderError[] = [];
+    for (let i = 0; i < 3; i++) {
+      errors.push((await provider.complete(request({ signal: caller.signal })).catch((err: unknown) => err)) as ProviderError);
+    }
+
+    expect(caller.signal.aborted).toBe(false);
+    for (const error of errors) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect(error.message).toBe('Upstream call timed out');
+      expect(error.retryable).toBe(true);
+    }
+    expect(provider.health().healthy).toBe(false);
+    expect(provider.health().reason).toBe('upstream timed out');
+  });
+
+  it('records a 429 and a 5xx as consecutive upstream failures', async () => {
+    const limited = upstream();
+    stubFetch(() => new Response('nope', { status: 429 }));
+    for (let i = 0; i < 2; i++) {
+      const error = (await limited.complete(request()).catch((err: unknown) => err)) as ProviderError;
+      expect(error.retryable).toBe(true);
+      expect(error.status).toBe(429);
+      expect(limited.health().healthy).toBe(true);
+    }
+    await limited.complete(request()).catch(() => undefined);
+    expect(limited.health().healthy).toBe(false);
+    expect(limited.health().reason).toBe('upstream status 429');
+
+    const broken = upstream();
+    stubFetch(() => new Response('nope', { status: 503 }));
+    for (let i = 0; i < 2; i++) {
+      const error = (await broken.complete(request()).catch((err: unknown) => err)) as ProviderError;
+      expect(error.retryable).toBe(true);
+      expect(error.status).toBe(503);
+      expect(broken.health().healthy).toBe(true);
+    }
+    await broken.complete(request()).catch(() => undefined);
+    expect(broken.health().healthy).toBe(false);
+    expect(broken.health().reason).toBe('upstream status 503');
+  });
+
   it('declares embed only when an embeddings endpoint is configured', () => {
     expect(supports(upstream(), 'embed')).toBe(false);
     expect(supports(upstream({ embeddingsPath: '/v1/embeddings' }), 'embed')).toBe(true);
+  });
+
+  it('bills input tokens from message_start and output tokens from message_delta', async () => {
+    stubFetch(() =>
+      sse([
+        { type: 'message_start', usage: { input_tokens: 25 } },
+        { type: 'content_block_delta', delta: { text: 'Hello' } },
+        { type: 'content_block_delta', delta: { text: ' there' } },
+        { type: 'message_delta', usage: { output_tokens: 4 }, delta: { stop_reason: 'end_turn' } },
+        { type: 'message_stop' },
+      ]),
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of upstream().stream(request())) chunks.push(chunk);
+
+    expect(
+      chunks
+        .filter((chunk) => !chunk.done)
+        .map((chunk) => chunk.delta)
+        .join(''),
+    ).toBe('Hello there');
+    expect(chunks.filter((chunk) => chunk.done)).toEqual([
+      { delta: '', done: true, usage: { inputTokens: 25, outputTokens: 4 }, stopReason: 'end' },
+    ]);
+  });
+
+  it('bills input tokens nested under message.usage when message_delta reports only output', async () => {
+    stubFetch(() =>
+      sse([
+        { type: 'message_start', message: { usage: { input_tokens: 25 } } },
+        { type: 'content_block_delta', delta: { text: 'Hello there' } },
+        { type: 'message_delta', usage: { output_tokens: 4 }, delta: { stop_reason: 'end_turn' } },
+      ]),
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of upstream().stream(request())) chunks.push(chunk);
+
+    expect(
+      chunks
+        .filter((chunk) => !chunk.done)
+        .map((chunk) => chunk.delta)
+        .join(''),
+    ).toBe('Hello there');
+    expect(chunks.filter((chunk) => chunk.done)).toEqual([
+      { delta: '', done: true, usage: { inputTokens: 25, outputTokens: 4 }, stopReason: 'end' },
+    ]);
+  });
+
+  it('refuses an input-only usage object instead of billing zero output tokens', async () => {
+    stubFetch(() =>
+      sse([
+        { type: 'content_block_delta', delta: { text: 'Hello' } },
+        { type: 'message_delta', usage: { input_tokens: 25 }, delta: { stop_reason: 'end_turn' } },
+      ]),
+    );
+
+    const chunks: StreamChunk[] = [];
+    await expect(async () => {
+      for await (const chunk of upstream().stream(request())) chunks.push(chunk);
+    }).rejects.toBeInstanceOf(ProviderError);
+    expect(chunks.map((chunk) => chunk.delta).join('')).toBe('Hello');
+    expect(chunks.some((chunk) => chunk.done)).toBe(false);
+    expect(chunks.some((chunk) => chunk.usage?.outputTokens === 0)).toBe(false);
+  });
+
+  it('sends temperature and stop sequences on a stream, and omits both when the request leaves them unset', async () => {
+    const fetchSpy = stubFetch(() =>
+      sse([
+        { type: 'message_start', usage: { input_tokens: 3 } },
+        { type: 'content_block_delta', delta: { text: 'ok' } },
+        { type: 'message_delta', usage: { output_tokens: 1 }, delta: { stop_reason: 'end_turn' } },
+      ]),
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of upstream().stream(request({ temperature: 0.2, stopSequences: ['END', 'STOP'] }))) {
+      chunks.push(chunk);
+    }
+
+    const controlled = JSON.parse(String((fetchSpy.mock.calls[0]![1] as RequestInit).body));
+    expect(controlled.temperature).toBe(0.2);
+    expect(controlled.stop_sequences).toEqual(['END', 'STOP']);
+    expect(controlled.stream).toBe(true);
+    expect(controlled.model).toBe('internal-model-7');
+    expect(chunks.filter((chunk) => chunk.done)).toEqual([
+      { delta: '', done: true, usage: { inputTokens: 3, outputTokens: 1 }, stopReason: 'end' },
+    ]);
+
+    const bareChunks: StreamChunk[] = [];
+    for await (const chunk of upstream().stream(request())) bareChunks.push(chunk);
+    const bare = JSON.parse(String((fetchSpy.mock.calls[1]![1] as RequestInit).body));
+    expect(bare.temperature).toBeUndefined();
+    expect(bare.stop_sequences).toBeUndefined();
+    expect(bare.stream).toBe(true);
+    expect(bare.model).toBe('internal-model-7');
+    expect(bare.max_tokens).toBe(128);
+    expect(bareChunks.filter((chunk) => chunk.done)).toEqual([
+      { delta: '', done: true, usage: { inputTokens: 3, outputTokens: 1 }, stopReason: 'end' },
+    ]);
+  });
+
+  it('reads a final usage frame that arrives without a trailing blank line', async () => {
+    const start = dataFrame({ type: 'message_start', usage: { input_tokens: 25 } });
+    const delta = dataFrame({ type: 'content_block_delta', delta: { text: 'Hello' } });
+    const usage = dataFrame({
+      type: 'message_delta',
+      usage: { output_tokens: 4 },
+      delta: { stop_reason: 'end_turn' },
+    });
+    stubFetch(() => sseRaw(`${start}\n\n${delta}\n\n${usage}`));
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of upstream().stream(request())) chunks.push(chunk);
+
+    expect(
+      chunks
+        .filter((chunk) => !chunk.done)
+        .map((chunk) => chunk.delta)
+        .join(''),
+    ).toBe('Hello');
+    expect(chunks.filter((chunk) => chunk.done)).toEqual([
+      { delta: '', done: true, usage: { inputTokens: 25, outputTokens: 4 }, stopReason: 'end' },
+    ]);
+  });
+
+  it('reads a CRLF-delimited stream, including a final usage frame with no trailing blank line', async () => {
+    const start = dataFrame({ type: 'message_start', usage: { input_tokens: 11 } });
+    const delta = dataFrame({ type: 'content_block_delta', delta: { text: 'CRLF' } });
+    const usage = dataFrame({
+      type: 'message_delta',
+      usage: { output_tokens: 2 },
+      delta: { stop_reason: 'end_turn' },
+    });
+    stubFetch(() => sseRaw(`${start}\r\n\r\n${delta}\r\n\r\n${usage}`));
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of upstream().stream(request())) chunks.push(chunk);
+
+    expect(
+      chunks
+        .filter((chunk) => !chunk.done)
+        .map((chunk) => chunk.delta)
+        .join(''),
+    ).toBe('CRLF');
+    expect(chunks.filter((chunk) => chunk.done)).toEqual([
+      { delta: '', done: true, usage: { inputTokens: 11, outputTokens: 2 }, stopReason: 'end' },
+    ]);
+  });
+
+  it('reads an LF-delimited event that ends with a blank line', async () => {
+    stubFetch(() =>
+      sse([
+        { type: 'message_start', usage: { input_tokens: 8 } },
+        { type: 'content_block_delta', delta: { text: 'LF' } },
+        { type: 'message_delta', usage: { output_tokens: 1 }, delta: { stop_reason: 'end_turn' } },
+      ]),
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of upstream().stream(request())) chunks.push(chunk);
+
+    expect(
+      chunks
+        .filter((chunk) => !chunk.done)
+        .map((chunk) => chunk.delta)
+        .join(''),
+    ).toBe('LF');
+    expect(chunks.filter((chunk) => chunk.done)).toEqual([
+      { delta: '', done: true, usage: { inputTokens: 8, outputTokens: 1 }, stopReason: 'end' },
+    ]);
   });
 });
 

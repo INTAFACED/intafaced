@@ -83,6 +83,19 @@ describe('invokeScannerDataTool (Stage-2)', () => {
     expect(r).toMatchObject({ status: 'refuse', reason: 'incomplete_ticker' });
   });
 
+  it('a ticker last of -1 refuses invalid_decimal and does not return ok', () => {
+    const r = invokeScannerDataTool({
+      tool: 'trade.ticker',
+      plane: 'live',
+      tierLaw: law,
+      userTier: 'free',
+      now: NOW,
+      ticker: ticker({ marketId: 'BTC-USD', last: '-1' }),
+    });
+    expect(r.status).not.toBe('ok');
+    expect(r).toMatchObject({ status: 'refuse', reason: 'invalid_decimal' });
+  });
+
   it('money-write tool refuses', () => {
     const r = invokeScannerDataTool({
       tool: 'trade.order',

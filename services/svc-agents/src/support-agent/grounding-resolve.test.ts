@@ -77,6 +77,17 @@ describe('accountFromGrounding', () => {
       reason: 'balance_field_forbidden',
     });
   });
+
+  it('refuses sanctionsList and an unrecognized money key instead of stripping them', () => {
+    expect(accountFromState({ userId: USER, status: 'active', kycTier: 'basic', sanctionsList: [] } as never, USER)).toEqual({
+      status: 'refuse',
+      reason: 'balance_field_forbidden',
+    });
+    expect(accountFromState({ userId: USER, status: 'active', kycTier: 'basic', notional: '1.00' } as never, USER)).toEqual({
+      status: 'refuse',
+      reason: 'balance_field_forbidden',
+    });
+  });
 });
 
 describe('resolveSupportAskFixtures', () => {
@@ -131,5 +142,83 @@ describe('resolveSupportAskFixtures', () => {
       requesterUserId: USER,
     });
     expect(resolved).toEqual({ status: 'refuse', reason: 'account_plane_dark' });
+  });
+
+  it('projects a raw account of userId, status, and kycTier when it matches the requester', () => {
+    const resolved = resolveSupportAskFixtures({
+      ask: {
+        tool: 'identity.account.read',
+        account: { userId: USER, status: 'active', kycTier: 'basic' },
+      },
+      requesterUserId: USER,
+    });
+    expect(resolved).toEqual({
+      status: 'ok',
+      articles: null,
+      ticket: null,
+      account: { userId: USER, status: 'active', kycTier: 'basic' },
+    });
+  });
+
+  it('refuses a raw account owned by someone else and does not return it', () => {
+    const resolved = resolveSupportAskFixtures({
+      ask: {
+        tool: 'identity.account.read',
+        account: { userId: OTHER, status: 'active', kycTier: 'basic' },
+      },
+      requesterUserId: USER,
+    });
+    expect(resolved).toEqual({ status: 'refuse', reason: 'account_owner_mismatch' });
+  });
+
+  it('refuses a raw account that carries balance or any key other than userId, status, and kycTier', () => {
+    const withBalance = resolveSupportAskFixtures({
+      ask: {
+        tool: 'identity.account.read',
+        account: { userId: USER, status: 'active', kycTier: 'basic', balance: '99.00' } as never,
+      },
+      requesterUserId: USER,
+    });
+    expect(withBalance).toEqual({ status: 'refuse', reason: 'balance_field_forbidden' });
+
+    const withSanctionsList = resolveSupportAskFixtures({
+      ask: {
+        tool: 'identity.account.read',
+        account: { userId: USER, status: 'active', kycTier: 'basic', sanctionsList: [] } as never,
+      },
+      requesterUserId: USER,
+    });
+    expect(withSanctionsList).toEqual({ status: 'refuse', reason: 'balance_field_forbidden' });
+  });
+
+  it('lets accountGrounding win and still refuses unread plane_dark beside a raw account', () => {
+    const grounded = resolveSupportAskFixtures({
+      ask: {
+        tool: 'identity.account.read',
+        account: { userId: OTHER, status: 'frozen', kycTier: 'none' },
+        accountGrounding: {
+          status: 'read',
+          state: { userId: USER, status: 'active', kycTier: 'basic' },
+          readAt: '2026-08-12T00:00:00.000Z',
+        },
+      },
+      requesterUserId: USER,
+    });
+    expect(grounded).toEqual({
+      status: 'ok',
+      articles: null,
+      ticket: null,
+      account: { userId: USER, status: 'active', kycTier: 'basic' },
+    });
+
+    const planeDark = resolveSupportAskFixtures({
+      ask: {
+        tool: 'identity.account.read',
+        account: { userId: USER, status: 'active', kycTier: 'basic' },
+        accountGrounding: { status: 'unread', reason: 'plane_dark' },
+      },
+      requesterUserId: USER,
+    });
+    expect(planeDark).toEqual({ status: 'refuse', reason: 'account_plane_dark' });
   });
 });

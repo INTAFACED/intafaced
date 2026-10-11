@@ -92,6 +92,39 @@ describe('navigator Stage-2 data tools', () => {
     expect(isNavigatorDataToolOk(r)).toBe(true);
   });
 
+  it('refuses a negative trade.quote last and keeps a positive unsigned decimal', () => {
+    const negative = invokeNavigatorDataTool({
+      tool: 'trade.quote',
+      plane: 'live',
+      tierLaw: publishedAll,
+      userTier: 'free',
+      quote: { marketId: 'm1', last: '-1.50', asOf: '2026-08-07T11:59:00.000Z', maxAgeMs: 60_000 },
+      now,
+    });
+    expect(negative).toEqual({
+      status: 'refuse',
+      tool: 'trade.quote',
+      reason: 'invalid_decimal',
+      userMessageKey: 'agents.navigator.unavailable',
+    });
+
+    const positive = invokeNavigatorDataTool({
+      tool: 'trade.quote',
+      plane: 'live',
+      tierLaw: publishedAll,
+      userTier: 'free',
+      quote: { marketId: 'm1', last: '1.50', asOf: '2026-08-07T11:59:00.000Z', maxAgeMs: 60_000 },
+      now,
+    });
+    expect(positive).toEqual({
+      status: 'ok',
+      tool: 'trade.quote',
+      marketId: 'm1',
+      last: '1.50',
+      asOf: '2026-08-07T11:59:00.000Z',
+    });
+  });
+
   it('null last → incomplete_quote (no zero-fill)', () => {
     const r = invokeNavigatorDataTool({
       tool: 'trade.quote',

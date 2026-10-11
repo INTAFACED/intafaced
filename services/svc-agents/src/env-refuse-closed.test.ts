@@ -4,8 +4,9 @@
  * 1. Promise: unset / blank AGENTS_METERING_ENABLED refuses
  *    `agents.metering_enabled_unset` (never invent true, never silent false);
  *    garbage / untrimmed non-boolean metering strings refuse; unset LEDGER_URL
- *    must refuse (no silent localhost); unset AGENTS_FEE_ASSET_ID must refuse
- *    (no invent IFC); unset AGENTS_USAGE_WINDOW_MINUTES must refuse (never 60).
+ *    must refuse (no silent localhost); unset / blank / whitespace-only
+ *    AGENTS_FEE_ASSET_ID must refuse (no invent IFC); a padded owner id boots
+ *    as the trimmed value; unset AGENTS_USAGE_WINDOW_MINUTES must refuse (never 60).
  * 2. Break: bool.default(true) / compose `:-true` / LEDGER_URL localhost / fee
  *    asset default IFC still feeCharge or invent an owner asset when the
  *    operator never set them. A forked Zod slice stays green while production
@@ -72,13 +73,13 @@ describe('svc-agents money env refuse-closed', () => {
     expect(envTs).not.toMatch(/LEDGER_URL:\s*z\.string\(\)\.url\(\)\.default\('http:\/\/localhost:4001'\)/);
     expect(envTs).toMatch(/LEDGER_URL:\s*z\.string\(\)\.url\(\)/);
     expect(envTs).not.toMatch(/AGENTS_FEE_ASSET_ID:\s*z\.string\(\)\.default\('IFC'\)/);
-    expect(envTs).toMatch(/AGENTS_FEE_ASSET_ID:\s*z\.string\(\)\.min\(1\)/);
+    expect(envTs).toMatch(/AGENTS_FEE_ASSET_ID:\s*z\.string\(\)\.trim\(\)\.min\(1\)/);
     expect(envTs).not.toMatch(/AGENTS_METERING_ENABLED:\s*bool\.default\(true\)/);
     expect(envTs).toMatch(/AGENTS_METERING_ENABLED:\s*z\.preprocess\(/);
     expect(envTs).toMatch(/agents\.metering_enabled_unset/);
     expect(envTs).not.toMatch(/return trimmed === '' \? false : trimmed/);
     expect(envTs).not.toMatch(/!\['0', 'false', 'off', 'no'\]\.includes/);
-    expect(envTs).toMatch(/AGENTS_USAGE_WINDOW_MINUTES:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(1440\),/);
+    expect(envTs).toMatch(/AGENTS_USAGE_WINDOW_MINUTES:\s*z\.coerce\s*\.number\(\)\s*\.int\(\)\s*\.min\(1\)\s*\.max\(1440\)/);
     expect(envTs).not.toMatch(/AGENTS_USAGE_WINDOW_MINUTES:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(1440\)\.default\(60\)/);
   });
 
@@ -94,6 +95,16 @@ describe('svc-agents money env refuse-closed', () => {
     await expect(loadWith({ AGENTS_FEE_ASSET_ID: '' })).rejects.toThrow(/AGENTS_FEE_ASSET_ID/);
   });
 
+  it('whitespace AGENTS_FEE_ASSET_ID refuses the same way a blank fee asset does', async () => {
+    await expect(loadWith({ AGENTS_FEE_ASSET_ID: '   ' })).rejects.toThrow(/AGENTS_FEE_ASSET_ID/);
+    await expect(loadWith({ AGENTS_FEE_ASSET_ID: '\t\n' })).rejects.toThrow(/AGENTS_FEE_ASSET_ID/);
+  });
+
+  it('a real fee asset id boots after trim', async () => {
+    const parsed = await loadWith({ AGENTS_FEE_ASSET_ID: '  X  ' });
+    expect(parsed.AGENTS_FEE_ASSET_ID).toBe('X');
+  });
+
   it('unset AGENTS_USAGE_WINDOW_MINUTES refuses (no invent 60)', async () => {
     await expect(loadWith({ AGENTS_USAGE_WINDOW_MINUTES: undefined })).rejects.toThrow(/AGENTS_USAGE_WINDOW_MINUTES/);
   });
@@ -105,6 +116,20 @@ describe('svc-agents money env refuse-closed', () => {
   it('explicit 60 is owner-published (not invented)', async () => {
     const parsed = await loadWith({ AGENTS_USAGE_WINDOW_MINUTES: '60' });
     expect(parsed.AGENTS_USAGE_WINDOW_MINUTES).toBe(60);
+  });
+
+  it('refuses a configured usage window that does not divide 1440', async () => {
+    // 7, 61, and 100 sit inside 1..1440 and do not divide the day.
+    for (const minutes of ['7', '61', '100'] as const) {
+      await expect(loadWith({ AGENTS_USAGE_WINDOW_MINUTES: minutes }), minutes).rejects.toThrow(/must divide 1440/);
+    }
+  });
+
+  it('accepts a configured usage window that divides 1440', async () => {
+    for (const minutes of ['1', '15', '1440'] as const) {
+      const parsed = await loadWith({ AGENTS_USAGE_WINDOW_MINUTES: minutes });
+      expect(parsed.AGENTS_USAGE_WINDOW_MINUTES, minutes).toBe(Number(minutes));
+    }
   });
 
   it('unset AGENTS_METERING_ENABLED refuses agents.metering_enabled_unset', async () => {
