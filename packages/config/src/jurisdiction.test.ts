@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   REGION_FAIL_CLOSED_ENV,
+  SCREENING_FAIL_CLOSED_ENV,
   UNRESOLVED_REGION,
   assertReviewed,
   checkAccess,
@@ -10,6 +11,19 @@ import {
   tierSatisfies,
 } from './jurisdiction.js';
 import { MODULES } from './modules.js';
+
+/**
+ * Unset screening refuses. These tests observe sovereignty and region rules,
+ * so they pin the screening flag explicitly off. They do not supply a list.
+ */
+const screeningFailClosedAtLoad = process.env[SCREENING_FAIL_CLOSED_ENV];
+beforeEach(() => {
+  process.env[SCREENING_FAIL_CLOSED_ENV] = '0';
+});
+afterEach(() => {
+  if (screeningFailClosedAtLoad === undefined) delete process.env[SCREENING_FAIL_CLOSED_ENV];
+  else process.env[SCREENING_FAIL_CLOSED_ENV] = screeningFailClosedAtLoad;
+});
 
 describe('§22 sovereignty law — zero-KYC follows custody', () => {
   it('grants permissionless access to non-custodial protocol modules regardless of tier', () => {

@@ -428,13 +428,12 @@ export const REGION_FAIL_CLOSED_ENV = 'INTAFACED_REGION_FAIL_CLOSED';
 /**
  * Process-wide fail-closed switch when the screening list is `unset`.
  *
- * Default OFF so local/dev and historical call sites keep the honesty-only
- * path (`allowed` + `listConfigured: false`). When ON, `checkAccess` returns
- * `denied.screening_unconfigured` — refuse hosted access rather than look
- * screened-clean with no list. Mechanism seal (D26-P1-O1); does **not** invent
- * sanctions list content (Class X / Nitro counsel).
- *
- * Accepted truthy forms (case-insensitive): `1`, `true`, `yes`, `on`.
+ * Unset or blank refuses. `checkAccess` returns `denied.screening_unconfigured`
+ * rather than `allowed` with `listConfigured: false`. A blank list is not
+ * screened-clean. Explicit `1`, `true`, `yes`, and `on` also fail closed.
+ * Any other explicit value, including `0`, `false`, `no`, and `off`, keeps the
+ * honesty-only path. Mechanism seal (D26-P1-O1); does **not** invent sanctions
+ * list content (Class X / Nitro counsel).
  */
 export const SCREENING_FAIL_CLOSED_ENV = 'INTAFACED_SCREENING_FAIL_CLOSED';
 
@@ -458,6 +457,7 @@ export function regionFailClosedFromEnv(env: Record<string, string | undefined> 
  */
 export function screeningFailClosedFromEnv(env: Record<string, string | undefined> = process.env): boolean {
   const raw = env[SCREENING_FAIL_CLOSED_ENV]?.trim().toLowerCase() ?? '';
+  if (raw === '') return true;
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
 }
 
@@ -501,11 +501,11 @@ export interface AccessQuery {
   /**
    * When true, refuse if the screening list is `unset` (nobody supplied content).
    *
-   * Omitted → `screeningFailClosedFromEnv()`. Default env is OFF so honesty-only
-   * surfaces keep returning `allowed` with `listConfigured: false`. Pass `true`
-   * in tests, or set `INTAFACED_SCREENING_FAIL_CLOSED`, when hosted access must
-   * not proceed without a counsel-supplied list (or attributed `none`).
-   * Does not invent list content — Class X stays outside this mechanism.
+   * Omitted → `screeningFailClosedFromEnv()`. Unset env refuses hosted access.
+   * Pass `false`, or set `INTAFACED_SCREENING_FAIL_CLOSED` to an explicit off
+   * value (`0`, `false`, `no`, `off`), for the honesty-only path (`allowed`
+   * with `listConfigured: false`). Does not invent list content — Class X stays
+   * outside this mechanism.
    */
   readonly screeningFailClosed?: boolean;
 }
@@ -626,10 +626,12 @@ export function unreviewedRegions(): RegionCode[] {
  * with `denied.region_unknown` instead of falling open on defaults.
  *
  * Screening list honesty: every decision carries `screening.listConfigured`.
- * Flip `INTAFACED_SCREENING_FAIL_CLOSED` (or pass `screeningFailClosed: true`)
- * to refuse with `denied.screening_unconfigured` when the list is `unset`,
- * or `denied.screening_fixture` when the list is a placeholder/test fixture.
- * Counsel-grade `reviewed-empty` and `listed` do not refuse here.
+ * Unset `INTAFACED_SCREENING_FAIL_CLOSED` refuses with
+ * `denied.screening_unconfigured` when the list is `unset`, or
+ * `denied.screening_fixture` when the list is a placeholder/test fixture.
+ * Pass `screeningFailClosed: false` (or set the env explicitly off) for the
+ * honesty-only path. Counsel-grade `reviewed-empty` and `listed` do not refuse
+ * here. A blank list is not screened-clean.
  */
 export function checkAccess(q: AccessQuery): AccessDecision {
   const mod = MODULES[q.module];
@@ -651,11 +653,11 @@ export function checkAccess(q: AccessQuery): AccessDecision {
     };
   }
 
-  // Screening-list fail-closed (D26-P1-O1 mechanism seal). Default OFF: call
-  // sites keep honesty-only (`allowed` + listConfigured:false). When ON, refuse
-  // before region/permissionless so "nobody supplied a list" cannot ride as a
-  // clean bill of health. Does not invent Class X list content — operators set
-  // INTAFACED_SANCTIONS_REGIONS (counsel) or attributed `none`.
+  // Screening-list fail-closed (D26-P1-O1 mechanism seal). Unset env refuses
+  // before region/permissionless so a blank list cannot ride as allowed with
+  // listConfigured:false. Explicit off keeps that honesty path. Does not invent
+  // Class X list content — operators set INTAFACED_SANCTIONS_REGIONS (counsel)
+  // or attributed `none`.
   if (screeningFailClosed && provenance.moneyGrade === 'unconfigured') {
     return {
       allowed: false,
