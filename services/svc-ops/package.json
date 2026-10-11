@@ -19,8 +19,8 @@
     "@intafaced/contracts": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
-    "@trpc/server": "^11.0.0-rc.660",
-    "fastify": "^5.11.2",
+    "@trpc/server": "^11.19.0",
+    "fastify": "^5.12.5",
     "zod": "^3.24.1"
   },
   "devDependencies": {
