@@ -116,28 +116,24 @@ body {
   pointer-events: none;
   background: #090a0b;
   overflow: hidden;
+  opacity: 0;
+  transition: opacity 600ms ease-in-out;
+}
+.is-welcome .invitation-scene {
+  opacity: 1;
 }
 .invitation-scene img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 60% center;
-  opacity: 0.2;
-  mask-image: linear-gradient(180deg, transparent, #000 24%, #000 80%, transparent);
-}
-.is-welcome .invitation-scene img {
-  opacity: 0.72;
   object-position: 58% center;
+  opacity: 0.72;
+  mask-image: linear-gradient(180deg, transparent, #000 24%, #000 80%, transparent);
 }
 .invitation-scene::after {
   content: '';
   position: absolute;
   inset: 0;
-  background:
-    linear-gradient(90deg, #090a0b, rgba(9, 10, 11, 0.48) 25%, transparent 58%, rgba(9, 10, 11, 0.24) 86%, #090a0b),
-    linear-gradient(0deg, #090a0b, transparent 35%, transparent 82%, rgba(9, 10, 11, 0.4));
-}
-.is-welcome .invitation-scene::after {
   background:
     radial-gradient(ellipse 420px 280px at 50% 50%, rgba(9, 10, 11, 0.72) 66%, transparent 100%),
     linear-gradient(
@@ -663,17 +659,9 @@ body {
     left: calc(50% - 600px);
     top: 40px;
     object-fit: contain;
-    opacity: 0.14;
-  }
-  .is-welcome .invitation-scene img {
     opacity: 0.64;
   }
   .invitation-scene::after {
-    background:
-      linear-gradient(180deg, #090a0b 3%, transparent 32%, rgba(9, 10, 11, 0.35) 53%, #090a0b 78%),
-      linear-gradient(90deg, rgba(9, 10, 11, 0.62), transparent 70%, rgba(9, 10, 11, 0.2));
-  }
-  .is-welcome .invitation-scene::after {
     background:
       radial-gradient(ellipse 300px 230px at 50% 48%, rgba(9, 10, 11, 0.72) 66%, transparent 100%),
       linear-gradient(180deg, #090a0b 3%, rgba(9, 10, 11, 0.14) 24%, rgba(9, 10, 11, 0.06) 40%, rgba(9, 10, 11, 0.24) 58%, #090a0b 78%),
@@ -710,8 +698,21 @@ body {
     bottom: 0;
     z-index: 2;
     padding: 14px 0 max(14px, env(safe-area-inset-bottom));
-    background: linear-gradient(0deg, #090a0b 86%, transparent);
+    background: transparent;
+    isolation: isolate;
     margin-top: 24px;
+  }
+  .outreach-actions::before {
+    content: '';
+    position: absolute;
+    width: 100vw;
+    left: 50%;
+    transform: translateX(-50%);
+    top: -28px;
+    bottom: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(0deg, rgb(9 10 11 / 96%) 38%, rgb(9 10 11 / 86%) 62%, rgb(9 10 11 / 38%) 83%, transparent);
   }
   .outreach-primary {
     padding: 14px 18px;
@@ -768,14 +769,58 @@ body {
   transform: none;
 }
 
-/* Selected A: finite initial entry; navigation removes entry-reveal without blocking controls. */
-.entry-reveal.is-welcome .invitation-scene {
-  animation: invitation-art-entry 450ms ease-out both;
+/* Selected A: original static material; scene retirement never gates the form. */
+.question-scene {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  background: #090a0b;
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity 600ms ease-in-out,
+    visibility 0ms;
 }
-.entry-reveal .welcome-description,
-.entry-reveal .welcome-action,
+.is-welcome .question-scene {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 600ms ease-in-out,
+    visibility 0ms 600ms;
+}
+.graphite-field {
+  position: absolute;
+  inset: -12px;
+  animation: graphite-light-arrival 240ms ease-out both;
+  background:
+    radial-gradient(ellipse 42% 65% at 87% 12%, rgba(160, 195, 95, 0.16), transparent 74%),
+    radial-gradient(ellipse 40% 55% at 0% 85%, rgba(125, 145, 135, 0.08), transparent 70%),
+    linear-gradient(125deg, #101315 0%, #090a0b 52%, #0b100d 100%);
+}
+.graphite-grain {
+  width: 100%;
+  height: 100%;
+}
+@media (max-width: 680px) {
+  .graphite-field {
+    background:
+      radial-gradient(ellipse 75% 35% at 90% 0%, rgba(160, 195, 95, 0.18), transparent 75%), linear-gradient(125deg, #101315, #090a0b 70%);
+  }
+}
+/* Begin is readable and usable throughout the later finite emphasis. */
+.entry-reveal.is-welcome .invitation-scene {
+  animation: invitation-art-entry 650ms ease-out both;
+}
+.entry-reveal .welcome-description {
+  animation: invitation-copy-entry 480ms 800ms ease-out both;
+}
+.entry-reveal .welcome-action {
+  animation: invitation-action-emphasis 520ms 940ms ease-out both;
+}
 .entry-reveal .welcome-content > .outreach-small {
-  animation: invitation-copy-entry 450ms 250ms ease-out both;
+  animation: invitation-copy-entry 450ms 940ms ease-out both;
 }
 @keyframes invitation-art-entry {
   from {
@@ -788,10 +833,46 @@ body {
 @keyframes invitation-copy-entry {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(3px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+@keyframes invitation-action-emphasis {
+  from {
+    opacity: 0.72;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .invitation-scene,
+  .question-scene {
+    transition: none;
+  }
+  .entry-reveal .invitation-scene,
+  .entry-reveal .welcome-description,
+  .entry-reveal .welcome-action,
+  .entry-reveal .welcome-content > .outreach-small {
+    animation: none;
+  }
+}
+
+@keyframes graphite-light-arrival {
+  from {
+    transform: translateX(-8px);
+    opacity: 0.84;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .graphite-field {
+    animation: none;
   }
 }
