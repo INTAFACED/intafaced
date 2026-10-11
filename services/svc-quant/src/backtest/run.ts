@@ -60,9 +60,13 @@ function completeWalkForward(raw: Partial<WalkForwardWindow> | null | undefined)
   return { inSampleFrom, inSampleTo, outOfSampleFrom, outOfSampleTo };
 }
 
+// Date.parse reads a zone-less date-time as local time. Require Z or a numeric offset.
+const EXPLICIT_OFFSET = /(?:Z|[+-]\d{2}:\d{2}|[+-]\d{4})$/i;
+
 function epoch(value: string): number | null {
-  if (value.trim().length === 0) return null;
-  const n = Date.parse(value);
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || !EXPLICIT_OFFSET.test(trimmed)) return null;
+  const n = Date.parse(trimmed);
   return Number.isFinite(n) ? n : null;
 }
 
@@ -76,11 +80,19 @@ function assertWalkForward(window: WalkForwardWindow): void {
   }
 }
 
-function inRange(ts: string, from: string, to: string): boolean {
+function fillEpoch(ts: string): number {
   const t = epoch(ts);
+  if (t === null) {
+    throw new QuantError('quant.params_invalid', 'a fill timestamp is refused — candles are not invented');
+  }
+  return t;
+}
+
+function inRange(ts: string, from: string, to: string): boolean {
+  const t = fillEpoch(ts);
   const a = epoch(from);
   const b = epoch(to);
-  if (t === null || a === null || b === null) return false;
+  if (a === null || b === null) return false;
   return t >= a && t < b;
 }
 
