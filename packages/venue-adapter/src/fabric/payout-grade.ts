@@ -28,9 +28,9 @@ import { VenueUnavailableError, midFromSnapshot, type PriceLevel, type VenueBook
  * `DEFAULT_MIN_BEST_LEVEL_NOTIONAL` is the SAME decimal string as
  * `mark-from-depth.ts` (`'100'` quote units). It is DIRECTION §8 item 8's
  * absolute floor — a placeholder awaiting the owner, not a considered risk
- * limit. A second default here would be a second unruled number. When the
- * owner rules, both call sites move together; until then the fabric and the
- * mark path refuse the same dust.
+ * limit. The fabric does not apply it when the caller omits a floor: that
+ * omission is refused. A caller that means this magnitude passes the string.
+ * A second hardcoded floor would be a second unruled number.
  *
  * Position-relative size (`DEFAULT_MIN_BEST_LEVEL_BPS_OF_NOTIONAL`) stays in
  * svc-trade: adapters do not know which position a mid would authorise.
@@ -43,9 +43,8 @@ const SCALE = 10n ** 18n;
 
 export interface PayoutGradePolicy {
   /**
-   * Decimal string, quote-asset units. Omitting the policy applies
-   * `DEFAULT_MIN_BEST_LEVEL_NOTIONAL`. A missing or unreadable floor is
-   * refused — that default is not a stand-in for either case.
+   * Decimal string, quote-asset units. An omitted policy, a nullish value,
+   * or an unreadable string is refused. The exported default is not a stand-in.
    */
   readonly minBestLevelNotional?: string | null;
 }
@@ -60,8 +59,7 @@ export function levelNotional(price: Amount, quantity: Amount): Amount {
 }
 
 export function minBestLevelNotional(policy?: PayoutGradePolicy): Amount {
-  if (policy === undefined) return parseAmount(DEFAULT_MIN_BEST_LEVEL_NOTIONAL);
-  const raw = policy.minBestLevelNotional;
+  const raw = policy?.minBestLevelNotional;
   if (raw == null) throw new MoneyError('payout floor is missing');
   return parseAmount(raw);
 }
