@@ -173,6 +173,21 @@ export class BinanceSpotTrade implements TradeAdapter {
     if (http === undefined) {
       throw new VenueUnavailableError(VENUE.id, 'not_ready', 'placeOrder: HTTP port is not wired');
     }
+    if (request.type === 'limit') {
+      const price = request.price;
+      if (price === undefined || price === null) {
+        throw new VenueUnavailableError(VENUE.id, 'malformed', 'limit order requires price');
+      }
+      if (price <= 0n) {
+        throw new VenueUnavailableError(VENUE.id, 'malformed', 'limit order price must be positive');
+      }
+    }
+    if (request.type === 'market' && request.price !== undefined) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', 'market order must not carry price');
+    }
+    if (request.amount <= 0n) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', 'amount must be positive');
+    }
     await assertTradeBookPayoutGradeBeforePlace(VENUE.id, request.symbol, {
       http,
       clock: this.#clock,
@@ -180,12 +195,6 @@ export class BinanceSpotTrade implements TradeAdapter {
     });
     if (request.reduceOnly) {
       throw new VenueUnavailableError(VENUE.id, 'not_ready', 'spot has no reduceOnly');
-    }
-    if (request.type === 'limit' && (request.price === undefined || request.price === null)) {
-      throw new VenueUnavailableError(VENUE.id, 'malformed', 'limit order requires price');
-    }
-    if (request.type === 'market' && request.price !== undefined) {
-      throw new VenueUnavailableError(VENUE.id, 'malformed', 'market order must not carry price');
     }
     if (request.type === 'market' && request.postOnly) {
       throw new VenueUnavailableError(VENUE.id, 'malformed', 'market order must not set postOnly');
