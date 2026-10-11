@@ -1,3 +1,5 @@
+import { isIP } from 'node:net';
+
 /**
  * Identity origin allowlist at the edge session door (#3323).
  * Non-empty list refuses a foreign / missing Origin. Empty list stays open.
@@ -48,11 +50,22 @@ export function normalizeOriginHost(value: string | null | undefined): string | 
   const trimmed = value.trim().toLowerCase();
   if (!trimmed) return null;
   try {
+    let host: string;
     if (trimmed.includes('://')) {
-      return new URL(trimmed).hostname || null;
+      host = new URL(trimmed).hostname;
+    } else {
+      const hostPart = trimmed.split('/')[0] ?? '';
+      if (hostPart.startsWith('[')) {
+        host = new URL(`http://${hostPart}`).hostname;
+      } else if (hostPart.indexOf(':') !== hostPart.lastIndexOf(':')) {
+        // Bare IPv6. One colon is host:port; the first colon is not the host.
+        if (isIP(hostPart) !== 6) return null;
+        host = new URL(`http://[${hostPart}]`).hostname;
+      } else {
+        host = hostPart.split(':')[0] ?? '';
+      }
     }
-    const hostPart = trimmed.split('/')[0] ?? '';
-    const host = hostPart.split(':')[0] ?? '';
+    if (host.startsWith('[') && host.endsWith(']') && host.length > 2) host = host.slice(1, -1);
     return host.length > 0 ? host : null;
   } catch {
     return null;

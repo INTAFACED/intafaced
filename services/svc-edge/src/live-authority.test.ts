@@ -88,6 +88,21 @@ describe('HTTP perimeter current identity authority', () => {
     expect(anonymous.rejected).toBeNull();
     expect(anonymous.headers['x-intafaced-client-ip']).toBe('127.0.0.1');
   });
+  it('refuses session and key JWTs before any identity read when the ownership secret is blank', async () => {
+    for (const key of [undefined, keyId]) {
+      const { token } = await bearer(key);
+      for (const blank of [undefined, '', ' ', ' '.repeat(32), '\t\n'.repeat(32)]) {
+        const fetcher = vi.fn<typeof fetch>(async () => Response.json({ result: { data: eligible() } }));
+        const result = await exchangePrincipal(
+          { authorization: `Bearer ${token}` },
+          { ...base, identityOwnershipSecret: blank, fetch: fetcher },
+        );
+        expect(result.principal).toBeNull();
+        expect(result.rejected).toBe('invalid');
+        expect(fetcher).not.toHaveBeenCalled();
+      }
+    }
+  });
   it('rejects revoked, stale, wrapped, foreign-subject or malformed proofs without positive caching', async () => {
     const { principal } = await bearer();
     for (const proof of [
