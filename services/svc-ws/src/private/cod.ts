@@ -404,8 +404,8 @@ export class CodController {
   readonly #seats = new Map<object, Seat>();
   readonly #lastFire = new Map<string, string>();
   readonly #listeners = new Map<string, Set<(frame: string) => void>>();
-  /** Latest arm or fire for a user. A stale #fire must not publish after cancelAll. */
-  readonly #fireGeneration = new Map<string, number>();
+  /** Latest issued fire activation. Arming never erases an already-issued cancel outcome. */
+  readonly #fireOwners = new Map<string, object>();
 
   constructor(options: CodControllerOptions) {
     this.#options = options;
@@ -510,7 +510,6 @@ export class CodController {
       ctx.send(refusedFrame(command.commandId, decided.code));
       return;
     }
-    this.#advanceGeneration(ctx.userId);
     this.drop(conn);
     const lease: CodLease = {
       ...decided.lease,
@@ -555,10 +554,11 @@ export class CodController {
     ctx.send(disarmedFrame(commandId, leaseCommandId));
   }
 
-  #advanceGeneration(userId: string): number {
-    const next = (this.#fireGeneration.get(userId) ?? 0) + 1;
-    this.#fireGeneration.set(userId, next);
-    return next;
+  #beginFire(userId: string): object {
+    const owner = {};
+    this.#fireOwners.set(userId, owner);
+    this.#lastFire.delete(userId);
+    return owner;
   }
 
   #armTimer(conn: object, lease: CodLease): () => void {
@@ -578,7 +578,7 @@ export class CodController {
     seat.cancelTimer();
     const lease = seat.lease;
     this.#seats.delete(conn);
-    const generation = this.#advanceGeneration(lease.userId);
+    const owner = this.#beginFire(lease.userId);
 
     let result: TradeCancelResult | null = null;
     if (lease.cancelExecutable && this.#options.cancel && (lease.scope === 'account' || lease.scope === 'market')) {
@@ -600,8 +600,12 @@ export class CodController {
       complete: mapped.complete,
       targets: mapped.targets,
     });
-    if (this.#fireGeneration.get(lease.userId) !== generation) return;
-    this.#lastFire.set(lease.userId, frame);
+    // Every issued operation reports its immutable command/scope outcome.
+    // Only the latest fire activation owns the one-frame reconnect slot.
+    if (this.#fireOwners.get(lease.userId) === owner) {
+      this.#lastFire.set(lease.userId, frame);
+      this.#fireOwners.delete(lease.userId);
+    }
     try {
       seat.send(frame);
     } catch {

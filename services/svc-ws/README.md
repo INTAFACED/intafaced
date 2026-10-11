@@ -451,3 +451,15 @@ last seat leaves; it provides no durable recovery guarantee.
 provide exactly-once execution evidence. Private hydration and supplemental
 credential-check queues count pending UTF-8 bytes in the published socket high
 water check; no new unpublished limit is supplied.
+
+A prior matching halt remains named when later responses omit flags. Only
+explicit non-halted or OPEN evidence for the affected market/venue clears it;
+`orders.submits_resumed` is never inferred from a null parser result.
+
+Completed COD cancellation results retain the original command ID and scope,
+even if another lease is armed or a later cancellation finishes first. The
+existing single reconnect receipt slot belongs to the latest issued fire
+activation. Issuing that fire clears the older slot while pending; older
+operations still report to their original seat and listeners but cannot replace
+that slot. Arming a newer lease does not erase an already-issued operation's
+receipt. This remains replica-local last-fire replay, not full operation history.

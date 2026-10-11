@@ -145,8 +145,8 @@ const hub = new DepthHub(
       if (available) privateOrderHub.noteEngineUp();
       else privateOrderHub.markEngineUnavailable();
     },
-    onMatchingTradingChange: (marketId, code) => {
-      privateOrderHub.noteMatchingTrading(marketId, code);
+    onMatchingTradingChange: (marketId, code, confirmedOpen) => {
+      privateOrderHub.noteMatchingTrading(marketId, code, confirmedOpen);
     },
   },
   app.log,
@@ -331,7 +331,7 @@ const poller = new DepthPoller(
       connections: () => privateOrderHub.connections,
       markDown: () => privateOrderHub.markEngineUnavailable(),
       markUp: () => privateOrderHub.noteEngineUp(),
-      markTrading: (marketId, code) => privateOrderHub.noteMatchingTrading(marketId, code),
+      markTrading: (marketId, code, confirmedOpen) => privateOrderHub.noteMatchingTrading(marketId, code, confirmedOpen),
     },
     l3Hub,
   },

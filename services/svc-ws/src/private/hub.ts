@@ -5,6 +5,8 @@ import { isPublishedConnectionCeiling } from '../max-connections.js';
 import { isPublishedMaxLagTicks } from '../max-lag-ticks.js';
 import { ORDERS_ENGINE_UNAVAILABLE } from '../gateway-policy.js';
 import {
+  confirmsTradingResume,
+  type MatchingTradingResumeEvidence,
   ORDERS_MARKET_HALTED,
   ORDERS_VENUE_HALTED,
   ordersCodeForDepth,
@@ -462,16 +464,20 @@ export class PrivateOrderHub {
   /**
    * Matching is up and this market (or the venue) is not taking submits.
    * Named so a blotter cannot be read as tradable. Cancels still flow.
-   * `marketId` `*` is venue halt-all. Null clears that name. A cleared market
+   * `marketId` `*` is venue halt-all. Only a confirmed OPEN clears that name; omitted flags stay unknown. A cleared market
    * or venue halt tells seats that already have it that submits resumed.
    * Not a price and not an invented OPEN. Prelaunch, expire, and delist are
    * not that door.
    */
-  noteMatchingTrading(marketId: string, depthCode: DepthMatchingTradingCode | null): void {
+  noteMatchingTrading(
+    marketId: string,
+    depthCode: DepthMatchingTradingCode | null,
+    confirmedOpen: MatchingTradingResumeEvidence = false,
+  ): void {
     const key = marketId;
     if (depthCode === null) {
       const prev = this.#trading.get(key);
-      if (prev === undefined) return;
+      if (prev === undefined || !confirmsTradingResume(confirmedOpen, prev === ORDERS_VENUE_HALTED || key === '*')) return;
       this.#trading.delete(key);
       if (prev === ORDERS_MARKET_HALTED || prev === ORDERS_VENUE_HALTED) {
         const resumedMarketId = prev === ORDERS_VENUE_HALTED || key === '*' ? undefined : key;

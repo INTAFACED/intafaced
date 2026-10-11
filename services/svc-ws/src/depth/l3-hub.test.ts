@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { DepthSnapshot } from '@intafaced/market-data';
 import { DEPTH_ENGINE_UNAVAILABLE, DEPTH_L3_UNAVAILABLE } from '../gateway-policy.js';
 import { NativeL3Hub } from './l3-hub.js';
@@ -1599,5 +1599,78 @@ describe('NativeL3Hub', () => {
     expect(JSON.parse(sink.frames[0]!).asks[0]).toMatchObject({ price: '100', orders: [{ remaining: '1' }] });
     expect(JSON.stringify(sink.frames)).not.toContain('"price":"97"');
     expect(hub.connections).toBe(0);
+  });
+});
+
+describe('L3 empty delivery and visit retention', () => {
+  it('repairs a skipped empty-book disclosure when the socket drains', async () => {
+    const source = new Source();
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1000,
+      maxLagTicks: 3,
+      maxConnections: 4,
+      ensureKnownMarket: async () => true,
+    });
+    const sink = new RecordingSink();
+    hub.attach(MARKET, sink);
+    await new Promise((r) => setImmediate(r));
+    expect(JSON.parse(sink.frames[0]!).type).toBe('snapshot');
+    sink.bufferedBytes = 1001;
+    source.queue = { level: 'L3', marketId: MARKET, bids: [], asks: [] };
+    await hub.tick();
+    sink.bufferedBytes = 0;
+    await hub.tick();
+    await hub.tick();
+    expect(sink.frames.map((frame) => JSON.parse(frame).code).filter(Boolean)).toEqual(['depth.l3_no_resting']);
+    expect(sink.closed).toBeNull();
+    hub.closeAll(1001, 'done');
+  });
+
+  it('evicts a seat whose empty-book disclosure remains over high water', async () => {
+    const source = new Source();
+    const hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1000,
+      maxLagTicks: 2,
+      maxConnections: 4,
+      ensureKnownMarket: async () => true,
+    });
+    const sink = new RecordingSink();
+    hub.attach(MARKET, sink);
+    await new Promise((r) => setImmediate(r));
+    sink.bufferedBytes = 1001;
+    source.queue = { level: 'L3', marketId: MARKET, bids: [], asks: [] };
+    await hub.tick();
+    await hub.tick();
+    expect(sink.closed?.code).toBe(CLOSE_TRY_LATER);
+    expect(hub.connections).toBe(0);
+  });
+
+  it('retains no map entries after anonymous unknown-market visits close', async () => {
+    const maps: Map<unknown, unknown>[] = [];
+    class RecordedMap extends Map<unknown, unknown> {
+      constructor() {
+        super();
+        maps.push(this);
+      }
+    }
+    let hub: NativeL3Hub;
+    vi.stubGlobal('Map', RecordedMap);
+    try {
+      hub = new NativeL3Hub(new Source(), {
+        depthLimit: 50,
+        highWaterBytes: 1000,
+        maxLagTicks: 2,
+        maxConnections: 100,
+        ensureKnownMarket: async () => false,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    for (let i = 0; i < 20; i++) hub.attach(`unknown-${i}`, new RecordingSink());
+    await new Promise((r) => setImmediate(r));
+    expect(hub.connections).toBe(0);
+    expect(maps.map((map) => map.size)).toEqual(maps.map(() => 0));
   });
 });

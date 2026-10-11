@@ -140,7 +140,7 @@ describe('matching not-tradable — public depth', () => {
     hub.ingest(liveSnapshot(8));
 
     source.tradingByMarket.delete(MARKET);
-    hub.noteMatchingTrading(MARKET, null);
+    hub.noteMatchingTrading(MARKET, null, true);
 
     const types = sink.frames.map((f) => (JSON.parse(f) as { type: string }).type);
     expect(types).toContain('status');
@@ -231,7 +231,7 @@ describe('matching not-tradable — private stream', () => {
     hub.attach('user-a', fills, 'fills');
     hub.attach('user-a', positions, 'positions');
     hub.noteMatchingTrading(MARKET, DEPTH_MARKET_HALTED);
-    hub.noteMatchingTrading(MARKET, null);
+    hub.noteMatchingTrading(MARKET, null, true);
 
     const resumed = { type: 'status', code: ORDERS_SUBMITS_RESUMED, userId: 'user-a', marketId: MARKET };
     expect(orders.frames.map((f) => JSON.parse(f))).toEqual([
@@ -243,7 +243,7 @@ describe('matching not-tradable — private stream', () => {
       { ...resumed, channel: 'fills' },
     ]);
     expect(positions.frames).toEqual([]);
-    hub.noteMatchingTrading(MARKET, null);
+    hub.noteMatchingTrading(MARKET, null, true);
     expect(orders.frames).toHaveLength(2);
   });
 
@@ -252,7 +252,7 @@ describe('matching not-tradable — private stream', () => {
     const sink = new FakeSink();
     hub.attach('user-a', sink);
     hub.noteMatchingTrading('*', DEPTH_VENUE_HALTED);
-    hub.noteMatchingTrading('*', null);
+    hub.noteMatchingTrading('*', null, true);
 
     expect(sink.frames.map((f) => JSON.parse(f))).toEqual([
       { type: 'status', code: ORDERS_VENUE_HALTED, channel: 'orders', userId: 'user-a' },
@@ -267,8 +267,8 @@ describe('matching not-tradable — private stream', () => {
     const hub = new PrivateOrderHub({ highWaterBytes: 1_000, maxLagTicks: 3, maxConnections: 10, maxConnectionsPerUser: 10 });
     const sink = new FakeSink();
     hub.attach('user-a', sink);
-    hub.noteMatchingTrading(MARKET, null);
-    hub.noteMatchingTrading('*', null);
+    hub.noteMatchingTrading(MARKET, null, true);
+    hub.noteMatchingTrading('*', null, true);
     expect(sink.frames).toEqual([]);
   });
 
@@ -277,7 +277,7 @@ describe('matching not-tradable — private stream', () => {
     const early = new FakeSink();
     hub.attach('user-a', early);
     hub.noteMatchingTrading(MARKET, DEPTH_MARKET_HALTED);
-    hub.noteMatchingTrading(MARKET, null);
+    hub.noteMatchingTrading(MARKET, null, true);
     const late = new FakeSink();
     hub.attach('user-b', late);
     expect(late.frames).toEqual([]);
@@ -288,7 +288,7 @@ describe('matching not-tradable — private stream', () => {
     const sink = new FakeSink();
     hub.attach('user-a', sink, 'orders', { holdUntilSnapshot: true });
     hub.noteMatchingTrading(MARKET, DEPTH_MARKET_HALTED);
-    hub.noteMatchingTrading(MARKET, null);
+    hub.noteMatchingTrading(MARKET, null, true);
     expect(sink.frames).toEqual([]);
     hub.releaseSnapshot(sink);
     expect(sink.frames.map((f) => JSON.parse(f))).toEqual([
@@ -303,7 +303,7 @@ describe('matching not-tradable — private stream', () => {
     hub.attach('user-a', sink);
     hub.noteMatchingTrading('*', DEPTH_VENUE_HALTED);
     hub.noteMatchingTrading(MARKET, DEPTH_MARKET_HALTED);
-    hub.noteMatchingTrading('*', null);
+    hub.noteMatchingTrading('*', null, true);
 
     expect(sink.frames.map((f) => JSON.parse(f))).toEqual([
       { type: 'status', code: ORDERS_VENUE_HALTED, channel: 'orders', userId: 'user-a' },
@@ -322,7 +322,7 @@ describe('matching not-tradable — private stream', () => {
     const sink = new FakeSink();
     hub.attach('user-a', sink);
     hub.noteMatchingTrading(MARKET, DEPTH_MARKET_PRELAUNCH);
-    hub.noteMatchingTrading(MARKET, null);
+    hub.noteMatchingTrading(MARKET, null, true);
     expect(sink.frames.map((f) => JSON.parse(f))).toEqual([
       { type: 'status', code: 'orders.market_prelaunch', channel: 'orders', userId: 'user-a', marketId: MARKET },
     ]);
@@ -416,5 +416,133 @@ describe('HttpDepthSource matching flags', () => {
 
   it('does not treat engine-down as a matching halt name', () => {
     expect(DEPTH_ENGINE_UNAVAILABLE).not.toBe(DEPTH_MARKET_HALTED);
+  });
+});
+
+describe('matching omitted flags are unknown after a halt', () => {
+  it('does not claim private submits resumed when a subsequent valid depth response omits flags', async () => {
+    let flags: Record<string, unknown> = { halted: true };
+    const source = new HttpDepthSource({
+      baseUrl: 'http://fixture.invalid',
+      fetch: async () =>
+        new Response(JSON.stringify({ marketId: MARKET, sequence: 1, bids: [['100', '1']], asks: [], ...flags }), { status: 200 }),
+    });
+    const hub = new PrivateOrderHub({ highWaterBytes: 1000, maxLagTicks: 3, maxConnections: 4, maxConnectionsPerUser: 4 });
+    const sink = new FakeSink();
+    hub.attach('user-a', sink);
+    await source.snapshot(MARKET, 50);
+    hub.noteMatchingTrading(MARKET, source.trading(MARKET));
+    flags = {};
+    await source.snapshot(MARKET, 50);
+    hub.noteMatchingTrading(MARKET, source.trading(MARKET));
+    expect(sink.frames.map((frame) => JSON.parse(frame).code).filter(Boolean)).toEqual([ORDERS_MARKET_HALTED]);
+  });
+});
+
+describe('confirmed matching resume through the actual polling seam', () => {
+  for (const openFlags of [{ halted: false }, { status: 'OPEN' }]) {
+    it(`preserves an unknown halt then resumes only for ${JSON.stringify(openFlags)}`, async () => {
+      let flags: Record<string, unknown> = { halted: true };
+      let sequence = 1;
+      const source = new HttpDepthSource({
+        baseUrl: 'http://fixture.invalid',
+        fetch: async (input) =>
+          new Response(
+            JSON.stringify(
+              String(input).endsWith('/markets')
+                ? { markets: [MARKET] }
+                : { marketId: MARKET, sequence: sequence++, bids: [['100', '1']], asks: [], ...flags },
+            ),
+            { status: 200 },
+          ),
+      });
+      const options = {
+        depthLimit: 50,
+        highWaterBytes: 1000,
+        maxLagTicks: 3,
+        maxConnections: 4,
+        maxConnectionsPerUser: 4,
+        marketsRefreshMs: 0,
+      };
+      const privateHub = new PrivateOrderHub(options);
+      const privateSink = new FakeSink();
+      privateHub.attach('user-a', privateSink);
+      const depth = new DepthHub(source, {
+        ...options,
+        onMatchingTradingChange: (id, code, evidence) => privateHub.noteMatchingTrading(id, code, evidence),
+      });
+      const sink = new FakeSink();
+      depth.attach(MARKET, sink);
+      await settle();
+      const poller = new DepthPoller(source, depth, { intervalMs: 250, depthLimit: 50, marketsRefreshMs: 0 }, { info() {}, warn() {} });
+      flags = {};
+      await poller.tick();
+      expect(privateSink.frames.map((frame) => JSON.parse(frame).code).filter(Boolean)).toEqual([ORDERS_MARKET_HALTED]);
+      expectNoTradableBook(sink.frames);
+      flags = openFlags;
+      await poller.tick();
+      expect(privateSink.frames.map((frame) => JSON.parse(frame).code).filter(Boolean)).toEqual([
+        ORDERS_MARKET_HALTED,
+        ORDERS_SUBMITS_RESUMED,
+      ]);
+      expect(sink.frames.some((frame) => JSON.parse(frame).type === 'snapshot')).toBe(true);
+      depth.closeAll(1001, 'done');
+    });
+  }
+
+  it('does not clear a venue halt using evidence about a different market scope', async () => {
+    const hub = new PrivateOrderHub({ highWaterBytes: 1000, maxLagTicks: 3, maxConnections: 4, maxConnectionsPerUser: 4 });
+    const sink = new FakeSink();
+    hub.attach('user-a', sink);
+    hub.noteMatchingTrading('*', DEPTH_VENUE_HALTED);
+    hub.noteMatchingTrading('*', null, { market: true, venue: false });
+    expect(sink.frames.map((frame) => JSON.parse(frame).code).filter(Boolean)).toEqual([ORDERS_VENUE_HALTED]);
+    hub.noteMatchingTrading('*', null, { market: false, venue: true });
+    expect(sink.frames.map((frame) => JSON.parse(frame).code).filter(Boolean)).toEqual([ORDERS_VENUE_HALTED, ORDERS_SUBMITS_RESUMED]);
+  });
+});
+
+describe('private-only matching board resume evidence', () => {
+  it('keeps a venue halt through omitted board flags and clears it only for explicit venue false', async () => {
+    let flags: Record<string, unknown> = { venueHalted: true };
+    const source = new HttpDepthSource({
+      baseUrl: 'http://fixture.invalid',
+      fetch: async () => new Response(JSON.stringify({ markets: [MARKET], ...flags }), { status: 200 }),
+    });
+    const options = {
+      depthLimit: 50,
+      highWaterBytes: 1000,
+      maxLagTicks: 3,
+      maxConnections: 4,
+      maxConnectionsPerUser: 4,
+      marketsRefreshMs: 0,
+    };
+    const privateHub = new PrivateOrderHub(options);
+    const sink = new FakeSink();
+    privateHub.attach('user-a', sink);
+    const depth = new DepthHub(source, options);
+    const poller = new DepthPoller(
+      source,
+      depth,
+      {
+        intervalMs: 250,
+        depthLimit: 50,
+        marketsRefreshMs: 0,
+        probePrivate: {
+          connections: () => privateHub.connections,
+          markDown: () => privateHub.markEngineUnavailable(),
+          markUp: () => privateHub.noteEngineUp(),
+          markTrading: (id, code, evidence) => privateHub.noteMatchingTrading(id, code, evidence),
+        },
+      },
+      { info() {}, warn() {} },
+    );
+    await poller.tick();
+    flags = {};
+    await poller.tick();
+    expect(sink.frames.map((frame) => JSON.parse(frame).code).filter(Boolean)).toEqual([ORDERS_VENUE_HALTED]);
+    flags = { venueHalted: false };
+    await poller.tick();
+    expect(sink.frames.map((frame) => JSON.parse(frame).code).filter(Boolean)).toEqual([ORDERS_VENUE_HALTED, ORDERS_SUBMITS_RESUMED]);
   });
 });

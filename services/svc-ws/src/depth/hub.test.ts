@@ -968,7 +968,7 @@ describe('DepthHub — the listing decides, not the engine', () => {
     await settle();
 
     const framesBeforeResume = late.frames.length;
-    hub.noteMatchingTrading(MARKET, null);
+    hub.noteMatchingTrading(MARKET, null, true);
 
     expect(hub.isEngineUnavailable(MARKET)).toBe(true);
     expect(hub.bookFor(MARKET)?.sequence).toBe(10);

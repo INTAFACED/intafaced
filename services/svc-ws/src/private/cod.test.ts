@@ -381,7 +381,7 @@ describe('CodController', () => {
     expect(held.calls).toHaveLength(1);
   });
 
-  it('does not publish a stale cod.fired after a newer arm during cancelAll', async () => {
+  it('reports the original completed cancel after a newer arm without touching its lease', async () => {
     const held = holdCancelAll();
     const controller = codController(held.cancel);
     const oldSeat: string[] = [];
@@ -415,12 +415,17 @@ describe('CodController', () => {
     held.release(0, appliedCancel('stale-order'));
     await firing;
 
-    expect(firedFrames(oldSeat)).toEqual([]);
+    const originalReceipt = expect.objectContaining({
+      commandId: 'old-lease',
+      complete: true,
+      targets: [{ selector: 'stale-order', outcome: 'APPLIED' }],
+    });
+    expect(firedFrames(oldSeat)).toEqual([originalReceipt]);
     expect(firedFrames(newSeat)).toEqual([]);
-    expect(firedFrames(heard)).toEqual([]);
+    expect(firedFrames(heard)).toEqual([originalReceipt]);
     const replayed: string[] = [];
     controller.replayLastFire('user-a', (frame) => replayed.push(frame));
-    expect(replayed).toEqual([]);
+    expect(firedFrames(replayed)).toEqual([originalReceipt]);
     expect(controller.armedCount).toBe(1);
     expect(held.calls).toEqual([{ accessToken: 'tok-old' }]);
   });
@@ -469,11 +474,102 @@ describe('CodController', () => {
     held.release(0, appliedCancel('stale-order'));
     await older;
 
-    expect(firedFrames(oldSeat)).toEqual([]);
-    expect(firedFrames(heard)).toEqual([expect.objectContaining(newerFired)]);
+    const olderReceipt = expect.objectContaining({
+      commandId: 'old-lease',
+      complete: true,
+      targets: [{ selector: 'stale-order', outcome: 'APPLIED' }],
+    });
+    expect(firedFrames(oldSeat)).toEqual([olderReceipt]);
+    expect(firedFrames(heard)).toEqual([expect.objectContaining(newerFired), olderReceipt]);
     const replayed: string[] = [];
     controller.replayLastFire('user-a', (frame) => replayed.push(frame));
     expect(firedFrames(replayed)).toEqual([expect.objectContaining(newerFired)]);
     expect(held.calls).toHaveLength(2);
+  });
+});
+
+describe('completed COD operation scope', () => {
+  it('reports a completed BTC cancel after a separate ETH lease is armed', async () => {
+    const held = holdCancelAll();
+    const controller = codController(held.cancel);
+    const oldConn = {},
+      newConn = {};
+    const original: string[] = [],
+      newer: string[] = [],
+      heard: string[] = [];
+    controller.listen('user-a', (frame) => heard.push(frame));
+    const marketArm = (commandId: string, marketId: string) =>
+      JSON.stringify({ type: 'cod.arm', commandId, ttlMs: 5000, scope: 'market', marketId });
+    controller.handleText(oldConn, marketArm('btc-lease', 'BTC-USDT'), {
+      userId: 'user-a',
+      accessToken: 'old-token',
+      hasWrite: true,
+      send: (frame) => original.push(frame),
+    });
+    const firing = controller.disconnect(oldConn);
+    controller.handleText(newConn, marketArm('eth-lease', 'ETH-USDT'), {
+      userId: 'user-a',
+      accessToken: 'new-token',
+      hasWrite: true,
+      send: (frame) => newer.push(frame),
+    });
+    held.release(0, appliedCancel('btc-cancelled'));
+    await firing;
+    const receipt = expect.objectContaining({
+      commandId: 'btc-lease',
+      scope: 'market',
+      marketId: 'BTC-USDT',
+      complete: true,
+      targets: [{ selector: 'btc-cancelled', outcome: 'APPLIED' }],
+    });
+    expect(firedFrames(original)).toEqual([receipt]);
+    expect(firedFrames(heard)).toEqual([receipt]);
+    const replay: string[] = [];
+    controller.replayLastFire('user-a', (frame) => replay.push(frame));
+    expect(firedFrames(replay)).toEqual([receipt]);
+    expect(controller.armedCount).toBe(1);
+    expect(firedFrames(newer)).toEqual([]);
+    expect(held.calls).toEqual([{ accessToken: 'old-token', marketId: 'BTC-USDT' }]);
+    controller.dispose();
+  });
+});
+
+describe('COD latest-issued fire replay slot', () => {
+  it('emits an older receipt while a newer fire is pending without assigning it the newer replay slot', async () => {
+    const held = holdCancelAll();
+    const controller = codController(held.cancel);
+    const a = {},
+      b = {};
+    const original: string[] = [],
+      newer: string[] = [],
+      heard: string[] = [];
+    controller.listen('user-a', (frame) => heard.push(frame));
+    controller.handleText(a, armAccount('old-fire'), {
+      userId: 'user-a',
+      accessToken: 'old',
+      hasWrite: true,
+      send: (frame) => original.push(frame),
+    });
+    const older = controller.disconnect(a);
+    controller.handleText(b, armAccount('new-fire'), {
+      userId: 'user-a',
+      accessToken: 'new',
+      hasWrite: true,
+      send: (frame) => newer.push(frame),
+    });
+    const pending = controller.disconnect(b);
+    held.release(0, appliedCancel('old-order'));
+    await older;
+    expect(firedFrames(original)).toEqual([expect.objectContaining({ commandId: 'old-fire', complete: true })]);
+    expect(firedFrames(heard)).toEqual([expect.objectContaining({ commandId: 'old-fire' })]);
+    const replay: string[] = [];
+    controller.replayLastFire('user-a', (frame) => replay.push(frame));
+    expect(replay).toEqual([]);
+    held.release(1, appliedCancel('new-order'));
+    await pending;
+    controller.replayLastFire('user-a', (frame) => replay.push(frame));
+    expect(firedFrames(replay)).toEqual([expect.objectContaining({ commandId: 'new-fire', complete: true })]);
+    expect(firedFrames(heard).map((frame) => frame.commandId)).toEqual(['old-fire', 'new-fire']);
+    controller.dispose();
   });
 });

@@ -13,7 +13,13 @@ import { isPublishedDepthLimit } from '../depth-limit.js';
 import { isPublishedHighWaterBytes } from '../high-water-bytes.js';
 import { isPublishedConnectionCeiling } from '../max-connections.js';
 import { isPublishedMaxLagTicks } from '../max-lag-ticks.js';
-import { depthMatchingTradingFrame, type DepthMatchingTradingCode } from '../matching-trading.js';
+import {
+  confirmsTradingResume,
+  DEPTH_VENUE_HALTED,
+  depthMatchingTradingFrame,
+  type MatchingTradingResumeEvidence,
+  type DepthMatchingTradingCode,
+} from '../matching-trading.js';
 import type { MarketRegistry } from './registry.js';
 import { DepthNoBookError, type DepthSource } from './source.js';
 
@@ -155,7 +161,11 @@ export interface DepthHubOptions {
    * Fires when matching trading status for one market flips (tradable ↔ named
    * halt/prelaunch/expire/delist). Private seats get the orders.* name.
    */
-  readonly onMatchingTradingChange?: (marketId: string, code: DepthMatchingTradingCode | null) => void;
+  readonly onMatchingTradingChange?: (
+    marketId: string,
+    code: DepthMatchingTradingCode | null,
+    confirmedOpen?: MatchingTradingResumeEvidence,
+  ) => void;
 }
 
 export interface HubLogger {
@@ -198,7 +208,11 @@ export class DepthHub {
   readonly #registry: MarketRegistry;
   readonly #options: Required<Omit<DepthHubOptions, 'registry' | 'onMatchingAvailabilityChange' | 'onMatchingTradingChange'>>;
   readonly #onMatchingAvailabilityChange?: (available: boolean) => void;
-  readonly #onMatchingTradingChange?: (marketId: string, code: DepthMatchingTradingCode | null) => void;
+  readonly #onMatchingTradingChange?: (
+    marketId: string,
+    code: DepthMatchingTradingCode | null,
+    confirmedOpen?: MatchingTradingResumeEvidence,
+  ) => void;
   readonly #log: HubLogger;
 
   readonly #subscriptions = new Set<Subscription>();
@@ -483,7 +497,7 @@ export class DepthHub {
           return;
         }
         const trading = this.#source.trading?.(marketId) ?? null;
-        this.#setTrading(marketId, trading);
+        this.#setTrading(marketId, trading, this.#source.tradingOpenEvidence?.(marketId) ?? false);
         this.ingest(snapshot);
       } catch (err) {
         // Listed, but matching has no book or is down. Do not invent
@@ -743,11 +757,11 @@ export class DepthHub {
 
   /**
    * Matching is up and this market is not taking submits. Named once per edge.
-   * `null` is matching OPEN again — the next resting book is a snapshot, never
+   * `null` with explicit confirmedOpen is matching OPEN again — the next resting book is a snapshot, never
    * invented prices.
    */
-  noteMatchingTrading(marketId: string, code: DepthMatchingTradingCode | null): void {
-    const changed = this.#setTrading(marketId, code);
+  noteMatchingTrading(marketId: string, code: DepthMatchingTradingCode | null, confirmedOpen: MatchingTradingResumeEvidence = false): void {
+    const changed = this.#setTrading(marketId, code, confirmedOpen);
     if (!changed) return;
     if (code === null) {
       const book = this.#books.get(marketId);
@@ -762,12 +776,13 @@ export class DepthHub {
   }
 
   /** Update matching trading map. Returns whether the named status changed. */
-  #setTrading(marketId: string, code: DepthMatchingTradingCode | null): boolean {
+  #setTrading(marketId: string, code: DepthMatchingTradingCode | null, confirmedOpen: MatchingTradingResumeEvidence = false): boolean {
     const prev = this.#trading.get(marketId) ?? null;
+    if (code === null && !confirmsTradingResume(confirmedOpen, prev === DEPTH_VENUE_HALTED)) return false;
     if (code === null) {
       if (prev === null) return false;
       this.#trading.delete(marketId);
-      this.#onMatchingTradingChange?.(marketId, null);
+      this.#onMatchingTradingChange?.(marketId, null, true);
       return true;
     }
     if (prev === code) return false;

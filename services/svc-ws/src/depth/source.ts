@@ -3,6 +3,8 @@ import {
   DEPTH_VENUE_HALTED,
   parseMatchingBoard,
   parseMatchingTrading,
+  matchingTradingOpenEvidence,
+  type MatchingTradingOpenEvidence,
   tradingFromBoard,
   type DepthMatchingTradingCode,
   type MatchingTradingBoard,
@@ -67,6 +69,9 @@ export interface DepthSource {
    * matching has not published flags (do not invent halt from silence).
    */
   trading?(marketId: string): DepthMatchingTradingCode | null;
+
+  /** Explicit non-halted/OPEN evidence; null trading by itself remains unknown. */
+  tradingOpenEvidence?(marketId: string): MatchingTradingOpenEvidence;
 
   /** Venue-wide matching halt-all, from `GET /markets` when matching publishes it. */
   venueHalted?(): boolean;
@@ -232,8 +237,8 @@ export class HttpDepthSource implements DepthSource {
   readonly #baseUrl: string;
   readonly #timeoutMs: number;
   readonly #fetch: typeof globalThis.fetch;
-  /** Depth poll flags (null = matching said tradable / omitted). */
-  readonly #depthTrading = new Map<string, DepthMatchingTradingCode | null>();
+  /** Keep explicit OPEN evidence distinct from omitted/unknown flags. */
+  readonly #depthTrading = new Map<string, { code: DepthMatchingTradingCode | null; openEvidence: MatchingTradingOpenEvidence }>();
   #board: MatchingTradingBoard | null = null;
 
   constructor(options: HttpDepthSourceOptions) {
@@ -243,13 +248,19 @@ export class HttpDepthSource implements DepthSource {
   }
 
   trading(marketId: string): DepthMatchingTradingCode | null {
-    if (this.#depthTrading.has(marketId)) return this.#depthTrading.get(marketId) ?? null;
+    if (this.#depthTrading.has(marketId)) return this.#depthTrading.get(marketId)?.code ?? null;
     return tradingFromBoard(this.#board, marketId);
+  }
+
+  tradingOpenEvidence(marketId: string): MatchingTradingOpenEvidence {
+    const depth = this.#depthTrading.get(marketId);
+    if (depth) return depth.openEvidence;
+    return { market: this.#board?.openMarkets.has(marketId) === true, venue: this.#board?.venueConfirmedOpen === true };
   }
 
   venueHalted(): boolean {
     if (this.#board?.venueHalted === true) return true;
-    for (const code of this.#depthTrading.values()) if (code === DEPTH_VENUE_HALTED) return true;
+    for (const status of this.#depthTrading.values()) if (status.code === DEPTH_VENUE_HALTED) return true;
     return false;
   }
 
@@ -322,7 +333,7 @@ export class HttpDepthSource implements DepthSource {
     const asks = parseLevels(raw.asks, 'asks', marketId);
     // Matching trading flags ride on the same public read. Omitted flags stay
     // unknown — never invented OPEN, never invented halt from an empty ladder.
-    this.#depthTrading.set(marketId, parseMatchingTrading(body));
+    this.#depthTrading.set(marketId, { code: parseMatchingTrading(body), openEvidence: matchingTradingOpenEvidence(body) });
     return {
       type: 'snapshot',
       marketId,

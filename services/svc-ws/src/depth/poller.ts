@@ -1,5 +1,5 @@
 import { isPublishedDepthLimit } from '../depth-limit.js';
-import { DEPTH_VENUE_HALTED, type DepthMatchingTradingCode } from '../matching-trading.js';
+import { DEPTH_VENUE_HALTED, type MatchingTradingResumeEvidence, type DepthMatchingTradingCode } from '../matching-trading.js';
 import { withWsSpan } from '../tracing.js';
 import type { DepthHub, HubLogger } from './hub.js';
 import type { NativeL3Hub } from './l3-hub.js';
@@ -39,7 +39,7 @@ export interface PrivateMatchingProbe {
   readonly markDown: () => void;
   readonly markUp: () => void;
   /** Venue / board trading status from GET /markets — private-only seats have no depth poll. */
-  readonly markTrading?: (marketId: string, code: DepthMatchingTradingCode | null) => void;
+  readonly markTrading?: (marketId: string, code: DepthMatchingTradingCode | null, confirmedOpen?: MatchingTradingResumeEvidence) => void;
 }
 
 export interface DepthPollerOptions {
@@ -111,7 +111,11 @@ export class DepthPoller {
             try {
               await withWsSpan('ws.depth.poll', { marketId, connections: this.#hub.connections }, async () => {
                 const snapshot = await this.#source.snapshot(marketId, limit);
-                this.#hub.noteMatchingTrading(marketId, this.#source.trading?.(marketId) ?? null);
+                this.#hub.noteMatchingTrading(
+                  marketId,
+                  this.#source.trading?.(marketId) ?? null,
+                  this.#source.tradingOpenEvidence?.(marketId) ?? false,
+                );
                 this.#hub.ingest(snapshot);
               });
             } catch (err) {
@@ -149,11 +153,11 @@ export class DepthPoller {
         const venueHalted = this.#source.venueHalted?.() === true;
         // One edge. The orders frame for venue halt carries no market id, so
         // repeating DEPTH_VENUE_HALTED per listed market is a second copy.
-        probe.markTrading('*', venueHalted ? DEPTH_VENUE_HALTED : null);
+        probe.markTrading('*', venueHalted ? DEPTH_VENUE_HALTED : null, this.#source.tradingOpenEvidence?.('*') ?? false);
         for (const id of ids) {
           const code = this.#source.trading?.(id) ?? null;
           if (code === DEPTH_VENUE_HALTED) continue;
-          probe.markTrading(id, code);
+          probe.markTrading(id, code, this.#source.tradingOpenEvidence?.(id) ?? false);
         }
       }
     } catch (err) {
