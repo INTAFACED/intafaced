@@ -18,6 +18,7 @@ import {
 import { z } from 'zod';
 import { OutreachError, outreachConfigSchema } from './config.js';
 import { OutreachNotificationError, type OutreachNotificationPort } from './notification-client.js';
+import { createArchiveClient, prepareArchive, confirmArchive, type ArchivePublisher } from './archive-publication.js';
 import { outreachInactivityDeadline } from './retention-calendar.js';
 
 type ClusterSelection = {
@@ -77,7 +78,16 @@ export class OutreachPrivacy {
     private readonly configuration: unknown,
     private readonly notify: OutreachNotificationPort,
     private readonly now: () => Date = () => new Date(),
-  ) {}
+    private readonly archivePublisher?: ArchivePublisher,
+  ) {
+    if (!archivePublisher && ['prod', 'staging'].includes(process.env.APP_ENV ?? ''))
+      this.archivePublisher = createArchiveClient({
+        environment: process.env.APP_ENV!,
+        url: process.env.OPS_ERASURE_ARCHIVE_URL,
+        secret: process.env.OPS_ERASURE_ARCHIVE_SECRET,
+        fleetSecrets: [process.env.INTERNAL_SERVICE_SECRET, process.env.EDGE_PRINCIPAL_SECRET, process.env.OPS_NOTIFY_SERVICE_SECRET],
+      });
+  }
   private async controlled<T>(actor: string | null, fn: (tx: Sql) => Promise<T>): Promise<T> {
     if (!this.sql) throw new OutreachError('ops.crm.storage_unconfigured');
     const config = outreachConfigSchema.safeParse(this.configuration);
@@ -340,17 +350,19 @@ export class OutreachPrivacy {
   }
   async advance(raw: z.input<typeof crmErasureAdvanceInputSchema>, actor: string) {
     const input = crmErasureAdvanceInputSchema.parse(raw);
-    return this.controlled(actor, async (tx) => {
+    await this.controlled(actor, async (tx) => {
       const replay = await this.request(tx, input, actor, 'advance');
       let status = await this.readStatus(tx, input.intentId);
       if (!replay && status.revision !== input.expectedRevision) throw new OutreachError('ops.crm.revision_conflict');
       if (!replay) await this.remember(tx, input, actor, 'advance', input.intentId);
-      return this.advanceIntent(tx, input.intentId);
+      if (this.archivePublisher) await prepareArchive(tx, input.intentId);
     });
+    return this.controlled(actor, (tx) => this.advanceIntent(tx, input.intentId));
   }
   private async advanceIntent(tx: Sql, intentId: string) {
     let status = await this.readStatus(tx, intentId);
     if (status.status === 'complete') return status;
+    if (this.archivePublisher) await confirmArchive(tx, intentId, this.archivePublisher);
     let code: string | null = null;
     const lease = await tx`SELECT 1 FROM ops.crm_outbox o JOIN ops.crm_erasure_notifications n ON n.submission_id=o.submission_id
         WHERE n.intent_id=${intentId} AND o.lease_until>clock_timestamp() LIMIT 1`;
@@ -403,8 +415,8 @@ export class OutreachPrivacy {
         ORDER BY COALESCE(last_retention_attempt_at,requested_at),id LIMIT 1`;
       if (pending && scheduler?.process_pending) {
         await tx`UPDATE ops.crm_erasure_intents SET last_retention_attempt_at=${at} WHERE id=${pending.id}`;
-        await this.advanceIntent(tx, String(pending.id));
-        return true;
+        if (this.archivePublisher) await prepareArchive(tx, String(pending.id));
+        return { pending: String(pending.id) };
       }
       const candidates = await tx`SELECT c.id FROM ops.crm_contacts c
         WHERE (${scheduler?.scan_cursor ?? null}::uuid IS NULL OR c.id>${scheduler?.scan_cursor ?? null}::uuid)
@@ -415,8 +427,8 @@ export class OutreachPrivacy {
         await tx`UPDATE ops.crm_retention_scheduler SET scan_cursor=NULL WHERE singleton`;
         if (pending) {
           await tx`UPDATE ops.crm_erasure_intents SET last_retention_attempt_at=${at} WHERE id=${pending.id}`;
-          await this.advanceIntent(tx, String(pending.id));
-          return true;
+          if (this.archivePublisher) await prepareArchive(tx, String(pending.id));
+          return { pending: String(pending.id) };
         }
       }
       let processed = 0;
@@ -439,7 +451,11 @@ export class OutreachPrivacy {
       return candidates.length > 0;
     });
     // Keep the advanced cursor durable while surfacing a cluster that needs owner recovery.
-    if (typeof outcome !== 'boolean') throw new OutreachError(outcome.refused);
+    if (typeof outcome !== 'boolean') {
+      if (outcome.refused) throw new OutreachError(outcome.refused);
+      await this.controlled(null, (tx) => this.advanceIntent(tx, outcome.pending!));
+      return true;
+    }
     return outcome;
   }
 }

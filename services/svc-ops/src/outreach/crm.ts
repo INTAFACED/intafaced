@@ -41,6 +41,7 @@ import {
   assertSubmissionWritable,
   assertRequestNotErased,
 } from './privacy.js';
+import type { ArchivePublisher } from './archive-publication.js';
 import { createOutreachNotificationClient, type OutreachNotificationPort } from './notification-client.js';
 
 function canonical(value: unknown): string {
@@ -98,8 +99,9 @@ export class OutreachCrm {
     private readonly configuration: unknown,
     private readonly now: () => Date = () => new Date(),
     notify: OutreachNotificationPort = createOutreachNotificationClient({}),
+    archivePublisher?: ArchivePublisher,
   ) {
-    this.privacy = new OutreachPrivacy(sql, configuration, notify, now);
+    this.privacy = new OutreachPrivacy(sql, configuration, notify, now, archivePublisher);
   }
   private configured(): { sql: Sql; config: OutreachConfig } {
     if (!this.sql) throw new OutreachError('ops.crm.storage_unconfigured');

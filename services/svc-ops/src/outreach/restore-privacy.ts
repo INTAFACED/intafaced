@@ -142,25 +142,48 @@ export async function exportErasureArchive(sql: Sql) {
     { isolation: 'read committed' },
   );
 }
-export async function reapplyCompletedErasures(sql: Sql): Promise<void> {
+export async function reapplyCompletedErasures(sql: Sql, publisher?: import('./archive-publication.js').ArchivePublisher): Promise<void> {
   await transaction(
     sql,
     async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext('ops.crm.privacy'))`;
       const rows = await tx`SELECT id FROM ops.crm_erasure_intents WHERE status='complete' ORDER BY id`;
-      for (const row of rows) await tx`SELECT ops.crm_apply_erasure(${row.id}::uuid)`;
+      for (const row of rows) {
+        if (publisher) {
+          const { confirmArchive } = await import('./archive-publication.js');
+          await confirmArchive(tx, String(row.id), publisher);
+        }
+        await tx`SELECT ops.crm_apply_erasure(${row.id}::uuid)`;
+      }
     },
     { isolation: 'read committed' },
   );
 }
 
 /** Never expose the restored database until the independently retained, current archive is applied. */
-export async function applyErasureArchive(sql: Sql, raw: unknown): Promise<void> {
+export async function applyErasureArchive(
+  sql: Sql,
+  raw: unknown,
+  preparedPackets?: Array<{ body: string; receipt: { intentId: string; digest: string } }>,
+): Promise<void> {
   const archive = erasureArchiveSchema.parse(raw);
   await transaction(
     sql,
     async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext('ops.crm.privacy'))`;
+      if (preparedPackets) {
+        const { archiveDigest } = await import('./archive-publication.js');
+        for (const packet of preparedPackets) {
+          const parsed = erasureArchiveSchema.parse(JSON.parse(packet.body));
+          if (
+            parsed.intents.length !== 1 ||
+            parsed.intents[0]!.id !== packet.receipt.intentId ||
+            archiveDigest(packet.body) !== packet.receipt.digest ||
+            !archive.intents.some((e) => isDeepStrictEqual(e, parsed.intents[0]))
+          )
+            throw new Error('ops.crm.restore_tombstone_conflict');
+        }
+      }
       for (const e of archive.intents) {
         const previous =
           await tx`SELECT * FROM ops.crm_erasure_intents WHERE id=${e.id} OR canonical_contact_id=${e.canonicalContactId} OR request_id=${e.requestId}`;
@@ -172,8 +195,8 @@ export async function applyErasureArchive(sql: Sql, raw: unknown): Promise<void>
               p.actor_kind !== e.actorKind ||
               p.request_id !== e.requestId ||
               p.canonical_contact_id !== e.canonicalContactId ||
-              p.revision > e.revision ||
-              (p.status === 'complete' && e.status !== 'complete') ||
+              (!preparedPackets && p.revision > e.revision) ||
+              (!preparedPackets && p.status === 'complete' && e.status !== 'complete') ||
               p.snapshot !== e.snapshot ||
               JSON.stringify(p.contact_ids) !== JSON.stringify(e.contactIds) ||
               JSON.stringify(p.submission_ids) !== JSON.stringify(e.submissionIds) ||
@@ -181,6 +204,13 @@ export async function applyErasureArchive(sql: Sql, raw: unknown): Promise<void>
           )
         )
           throw new Error('ops.crm.restore_tombstone_conflict');
+        if (preparedPackets && previous[0] && previous[0].revision >= e.revision) {
+          const p = previous[0];
+          e.revision = p.revision;
+          e.status = p.status;
+          e.completedAt = p.completed_at ? new Date(p.completed_at).toISOString() : null;
+          e.errorCode = p.error_code;
+        }
         await tx`INSERT INTO ops.crm_erasure_intents(id,canonical_contact_id,actor_user_id,actor_kind,request_id,reason,revision,status,requested_at,completed_at,error_code,contact_ids,submission_ids,opportunity_ids,snapshot)
     VALUES (${e.id},${e.canonicalContactId},${e.actorUserId},${e.actorKind},${e.requestId},${e.reason},${e.revision},${e.status},${e.requestedAt},${e.completedAt},${e.errorCode},
       ${tx.array(e.contactIds)}::uuid[],${tx.array(e.submissionIds)}::uuid[],${tx.array(e.opportunityIds)}::uuid[],${e.snapshot})
@@ -188,12 +218,20 @@ export async function applyErasureArchive(sql: Sql, raw: unknown): Promise<void>
         for (const n of e.notifications) {
           const previous =
             await tx`SELECT request_id,receipt FROM ops.crm_erasure_notifications WHERE intent_id=${e.id} AND submission_id=${n.submissionId}`;
+          if (preparedPackets && previous[0]?.receipt && n.receipt === null) n.receipt = previous[0].receipt;
           if (previous.some((p) => p.request_id !== n.requestId || (p.receipt !== null && !isDeepStrictEqual(p.receipt, n.receipt))))
             throw new Error('ops.crm.restore_tombstone_conflict');
           await tx`INSERT INTO ops.crm_erasure_notifications(intent_id,submission_id,request_id,receipt) VALUES (${e.id},${n.submissionId},${n.requestId},${n.receipt ? tx.json(n.receipt) : null})
       ON CONFLICT(intent_id,submission_id) DO UPDATE SET receipt=EXCLUDED.receipt WHERE ops.crm_erasure_notifications.request_id=EXCLUDED.request_id`;
         }
       }
+      if (preparedPackets)
+        for (const packet of preparedPackets) {
+          const [existing] = await tx`SELECT digest,body FROM ops.crm_erasure_publications WHERE intent_id=${packet.receipt.intentId}`;
+          if (existing && (existing.digest !== packet.receipt.digest || existing.body !== packet.body))
+            throw new Error('ops.crm.restore_tombstone_conflict');
+          await tx`INSERT INTO ops.crm_erasure_publications(intent_id,body,digest,receipt) VALUES (${packet.receipt.intentId},${packet.body},${packet.receipt.digest},${tx.json(packet.receipt)}) ON CONFLICT DO NOTHING`;
+        }
       for (const r of archive.requests) {
         const previous = await tx`SELECT * FROM ops.crm_privacy_requests WHERE request_id=${r.requestId}`;
         if (
@@ -211,7 +249,11 @@ export async function applyErasureArchive(sql: Sql, raw: unknown): Promise<void>
       for (const requestId of archive.erasedRequestIds)
         await tx`INSERT INTO ops.crm_erased_requests(request_id) VALUES (${requestId}) ON CONFLICT DO NOTHING`;
       const completed = await tx`SELECT id FROM ops.crm_erasure_intents WHERE status='complete' ORDER BY id`;
-      for (const e of completed) await tx`SELECT ops.crm_apply_erasure(${e.id}::uuid)`;
+      for (const e of completed) {
+        if (preparedPackets && !preparedPackets.some((packet) => packet.receipt.intentId === e.id))
+          throw new Error('ops.crm.restore_current_archive_required');
+        await tx`SELECT ops.crm_apply_erasure(${e.id}::uuid)`;
+      }
       await tx`DELETE FROM ops.crm_requests WHERE request_id IN (SELECT request_id FROM ops.crm_erased_requests)`;
     },
     { isolation: 'read committed' },
@@ -220,15 +262,34 @@ export async function applyErasureArchive(sql: Sql, raw: unknown): Promise<void>
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [operation, path] = process.argv.slice(2);
-  if (!process.env.DATABASE_URL || !path || !['export', 'apply'].includes(operation ?? ''))
+  if (
+    !process.env.DATABASE_URL ||
+    (operation !== 'apply-current' && !path) ||
+    !['export', 'apply', 'apply-current'].includes(operation ?? '')
+  )
     throw new Error('ops.crm.restore_configuration_required');
   const sql = postgres(process.env.DATABASE_URL, { max: 1, onnotice: () => undefined });
   try {
-    if (operation === 'export') await writeFile(path, JSON.stringify(await exportErasureArchive(sql)), { mode: 0o600, flag: 'wx' });
+    if (operation === 'export') await writeFile(path!, JSON.stringify(await exportErasureArchive(sql)), { mode: 0o600, flag: 'wx' });
     else {
       if (process.env.OPS_OUTREACH_RESTORE_QUARANTINED !== '1') throw new Error('ops.crm.restore_quarantine_required');
-      if (((await stat(path)).mode & 0o077) !== 0) throw new Error('ops.crm.restore_archive_permissions');
-      await applyErasureArchive(sql, JSON.parse(await readFile(path, 'utf8')));
+      if (operation === 'apply-current') {
+        const { createArchiveClient } = await import('./archive-publication.js');
+        const client = createArchiveClient({
+          environment: process.env.APP_ENV ?? 'prod',
+          url: process.env.OPS_ERASURE_ARCHIVE_URL,
+          secret: process.env.OPS_ERASURE_ARCHIVE_SECRET,
+          fleetSecrets: [process.env.INTERNAL_SERVICE_SECRET, process.env.EDGE_PRINCIPAL_SECRET, process.env.OPS_NOTIFY_SERVICE_SECRET],
+        });
+        const minimum = process.env.OPS_ERASURE_ARCHIVE_MIN_GENERATION;
+        if (minimum === undefined || !/^\d+$/.test(minimum)) throw new Error('ops.crm.restore_current_generation_required');
+        const current = await client.current(Number(minimum));
+        await applyErasureArchive(sql, current.archive, current.packets);
+      } else {
+        if (['prod', 'staging'].includes(process.env.APP_ENV ?? '')) throw new Error('ops.crm.restore_current_archive_required');
+        if (((await stat(path!)).mode & 0o077) !== 0) throw new Error('ops.crm.restore_archive_permissions');
+        await applyErasureArchive(sql, JSON.parse(await readFile(path!, 'utf8')));
+      }
     }
   } finally {
     await sql.end();

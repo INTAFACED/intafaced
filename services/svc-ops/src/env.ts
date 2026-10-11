@@ -25,6 +25,8 @@ const schema = baseEnvSchema
       /** Dedicated ops-to-guest ingress key; match NOTIFY_OPS_SERVICE_SECRET. */
       OPS_NOTIFY_SERVICE_SECRET: blankAsAbsent(z.string().min(32).optional()),
       /** Blank → custody wrap/execute refuse ops.custody_wrap_unset. Never invent a wrap key. */
+      OPS_ERASURE_ARCHIVE_URL: blankAsAbsent(z.string().url().optional()),
+      OPS_ERASURE_ARCHIVE_SECRET: blankAsAbsent(z.string().min(32).optional()),
       OPS_CUSTODY_WRAP: blankAsAbsent(z.string().optional()),
       /**
        * Owner freeze policy. Blank / unknown → execute and createApproval refuse
