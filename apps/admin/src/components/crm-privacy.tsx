@@ -629,7 +629,13 @@ export function CrmPrivacy({
               </p>
             )}
             <button type="button" disabled={reviewBusy} onClick={() => void saveRetentionReview()}>
-              {reviewBusy ? 'Saving…' : reviewPending.current ? 'Retry same review' : retentionReview ? 'Record a new discussion review' : 'Record discussion review'}
+              {reviewBusy
+                ? 'Saving…'
+                : reviewPending.current
+                  ? 'Retry same review'
+                  : retentionReview
+                    ? 'Record a new discussion review'
+                    : 'Record discussion review'}
             </button>
           </div>
         )}
