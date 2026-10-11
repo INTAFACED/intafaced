@@ -246,6 +246,53 @@ describe('BinanceSpotMarketData — public data, no credentials', () => {
     }
   });
 
+  it('refuses a null exchangeInfo symbol or filter instead of throwing TypeError', async () => {
+    const trading = (): Record<string, unknown> => ({
+      symbol: 'BTCUSDT',
+      status: 'TRADING',
+      baseAsset: 'BTC',
+      quoteAsset: 'USDT',
+      filters: [
+        { filterType: 'PRICE_FILTER', tickSize: '0.01' },
+        { filterType: 'LOT_SIZE', stepSize: '0.00001', minQty: '0.00001', maxQty: '9000' },
+        { filterType: 'NOTIONAL', minNotional: '5' },
+      ],
+    });
+
+    const nullSymbol = new FakeHttp().queue({ symbols: [null] });
+    try {
+      await adapter(nullSymbol, new FakeStream()).markets();
+      expect.unreachable('a null symbols entry must be refused');
+    } catch (error) {
+      expect(error).toBeInstanceOf(VenueUnavailableError);
+      expect(error).not.toBeInstanceOf(TypeError);
+      expect((error as VenueUnavailableError).reason).toBe('malformed');
+      expect((error as VenueUnavailableError).message).toContain('symbol is missing');
+    }
+
+    const nullFilter = new FakeHttp().queue({
+      symbols: [{ ...trading(), filters: [null] }],
+    });
+    try {
+      await adapter(nullFilter, new FakeStream()).markets();
+      expect.unreachable('a null filters entry must be refused');
+    } catch (error) {
+      expect(error).toBeInstanceOf(VenueUnavailableError);
+      expect(error).not.toBeInstanceOf(TypeError);
+      expect((error as VenueUnavailableError).reason).toBe('malformed');
+      expect((error as VenueUnavailableError).message).toContain('PRICE_FILTER');
+      expect((error as VenueUnavailableError).message).toContain('LOT_SIZE');
+      expect((error as VenueUnavailableError).message).toContain('NOTIONAL');
+    }
+
+    const mixed = new FakeHttp().queue({ symbols: [null, trading()] });
+    const markets = await adapter(mixed, new FakeStream()).markets();
+    expect(markets).toHaveLength(1);
+    expect(markets[0]!.symbol).toBe('BTC/USDT');
+    expect(markets[0]!.active).toBe(true);
+    expect(formatAmount(markets[0]!.precision.price)).toBe('0.01');
+  });
+
   it('reads a snapshot with our clock, not the venue’s', async () => {
     const http = new FakeHttp().queue(depthSnapshot(4_242));
     const snapshot = await adapter(http, new FakeStream(), () => 1_700_000_000_000).snapshotBook('BTC/USDT', 100);

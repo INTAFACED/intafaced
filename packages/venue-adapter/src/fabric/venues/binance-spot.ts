@@ -406,11 +406,23 @@ export class BinanceSpotMarketData implements MarketDataAdapter {
     return response.body;
   }
 
-  #market(raw: Record<string, unknown>, observedAt: Date): VenueMarket {
+  #market(entry: unknown, observedAt: Date): VenueMarket {
+    // markets() only skips VenueUnavailableError. Reading baseAsset on null throws TypeError and escapes the loop.
+    if (entry === null || typeof entry !== 'object') {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', 'exchangeInfo symbol is missing');
+    }
+    const raw = entry as Record<string, unknown>;
     const base = String(raw.baseAsset ?? '');
     const quote = String(raw.quoteAsset ?? '');
-    const filters = Array.isArray(raw.filters) ? (raw.filters as Record<string, unknown>[]) : [];
-    const filterOf = (type: string) => filters.find((f) => f.filterType === type);
+    const filters: readonly unknown[] = Array.isArray(raw.filters) ? raw.filters : [];
+    const filterOf = (type: string): Record<string, unknown> | undefined => {
+      for (const item of filters) {
+        if (item === null || typeof item !== 'object') continue;
+        const filter = item as Record<string, unknown>;
+        if (filter.filterType === type) return filter;
+      }
+      return undefined;
+    };
 
     const priceFilter = filterOf('PRICE_FILTER');
     const lotSize = filterOf('LOT_SIZE');
