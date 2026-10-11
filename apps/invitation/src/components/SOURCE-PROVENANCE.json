@@ -87,7 +87,8 @@
     "license": "MIT",
     "localChanges": [
       "Published original ESM/type surface copied into src/vendor/metal-fx; lost/restored handlers mutate shared renderer only when the event canvas is the current renderer canvas",
-      "Native dark surface remains visible independently of decorative first-copy readiness"
+      "Native dark surface remains visible independently of decorative first-copy readiness",
+      "Allocation or shader initialization failure selects the existing original MetalFx fallback branch; per-instance failure ref prevents further initialization effects"
     ],
     "originalRuntimeSha256": "4d904d0a17e8139f655a98bb6fb3a8e38f394d293bb847eb460ccb32618bf495"
   }

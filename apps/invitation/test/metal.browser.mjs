@@ -113,7 +113,7 @@ if (profile) {
 }
 const reports = [];
 try {
-  for (const width of [390, 1280]) {
+  for (const width of process.env.METAL_REPRESENTATIVE_ONLY === '1' ? [390] : [390, 1280]) {
     const context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 850 } });
     await context.addInitScript(() => {
       window.__metalContexts = [];
@@ -196,6 +196,53 @@ try {
     assert.equal(captures.length - count, 1);
     assert.deepEqual(errors, []);
     reports.push({ width, realSequentialTypingVisible: true, guard, loss, before, during, singleCapture: true, errors });
+    await context.close();
+  }
+  for (const failure of ['offscreen-allocation', 'shader-initialization']) {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await context.addInitScript((failure) => {
+      if (failure === 'offscreen-allocation') {
+        const get = OffscreenCanvas.prototype.getContext;
+        OffscreenCanvas.prototype.getContext = function (type, ...args) {
+          return type === 'webgl2' ? null : get.call(this, type, ...args);
+        };
+      } else {
+        WebGL2RenderingContext.prototype.createShader = function () {
+          return null;
+        };
+      }
+    }, failure);
+    const page = await context.newPage(),
+      errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.goto(origin + '/invest');
+    const begin = page.getByRole('button', { name: 'Begin', exact: true });
+    await expect(page.locator('.metal-fx-fallback')).toBeVisible();
+    await expect(begin).toBeVisible();
+    await expect(begin).toBeEnabled();
+    await begin.focus();
+    await expect(begin).toBeFocused();
+    await begin.press('Enter');
+    await page.getByLabel('Your name', { exact: true }).fill('Fallback regression visitor');
+    await page.getByLabel('Email', { exact: true }).fill(failure + '@example.invalid');
+    const save = page.getByRole('button', { name: 'Save details & continue', exact: true });
+    await expect(page.locator('.metal-fx-fallback')).toBeVisible();
+    await expect(save).toHaveAttribute('type', 'submit');
+    const native = await save.evaluate((button) => ({
+      tag: button.tagName,
+      hasForm: Boolean(button.form),
+      visibility: getComputedStyle(button).visibility,
+    }));
+    assert.deepEqual(native, { tag: 'BUTTON', hasForm: true, visibility: 'visible' });
+    await save.focus();
+    await expect(save).toBeFocused();
+    const count = captures.length;
+    await save.press('Enter');
+    await expect(page.getByRole('heading', { name: 'How would you like to take part?' })).toBeVisible();
+    assert.equal(captures.length - count, 1);
+    assert.deepEqual(errors, []);
+    reports.push({ failure, originalFallbackRendered: true, keyboardNativeFormCapture: true, singleCapture: true, errors });
+    await page.screenshot({ path: `${out}/fallback-${failure}.png`, fullPage: true });
     await context.close();
   }
   await writeFile(
