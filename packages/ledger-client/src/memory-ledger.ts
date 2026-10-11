@@ -24,6 +24,7 @@ import { assetIds, crossShardAnchor, hashAssetTx } from './sharding.js';
  *   3. Locks funded from the owner's own available balance.
  *   4. Idempotency: the same key returns the original transaction, never a second one.
  *   5. Hash chain: hash = SHA-256(previousHash ‖ canonical(tx)).
+ *      Asset-chain fields join that body only when the row stores them.
  *
  * The invariant suite in ledger.test.ts runs against this. When svc-ledger
  * lands, the same suite runs against both — that is the Phase 1 exit gate.
@@ -67,18 +68,24 @@ export class MemoryLedger implements LedgerClient {
 
     assertValidPost(request);
 
-    // Stage every mutation, validate, then commit — nothing half-applied.
+    // Stage every mutation off the live maps, then commit. A refusal must not
+    // insert an account or a zero balance: those rows would survive the throw,
+    // and the error would name a staged balance the book does not hold.
     const staged = new Map<string, Amount>();
+    const pendingAccounts = new Map<string, Account>();
     const postedEntries: PostedEntry[] = [];
     const txId = crypto.randomUUID();
 
     for (const entry of request.entries) {
-      const account = this.ensureAccount(entry.account);
-      const current = staged.get(account.id) ?? this.balancesByAccountId.get(account.id) ?? 0n;
+      const key = accountKey(entry.account);
+      const live = this.accounts.get(key);
+      const account = this.stageAccount(entry.account, pendingAccounts);
+      const held = live ? (this.balancesByAccountId.get(live.id) ?? 0n) : 0n;
+      const current = staged.get(account.id) ?? held;
       const next = current + signedDelta(entry);
 
       if (next < 0n && !this.canGoNegative(entry.account)) {
-        throw new InsufficientFundsError(account.id, entry.account.assetId, formatAmount(entry.amount), formatAmount(current));
+        throw new InsufficientFundsError(live?.id ?? '', entry.account.assetId, formatAmount(entry.amount), formatAmount(held));
       }
 
       staged.set(account.id, next);
@@ -107,6 +114,7 @@ export class MemoryLedger implements LedgerClient {
       );
     }
     for (const [assetId, hash] of Object.entries(assetHashes)) this.assetTips.set(assetId, hash);
+    const anchor = crossShardAnchor(assetHashes);
     const tx: LedgerTx = {
       id: txId,
       idempotencyKey: request.idempotencyKey,
@@ -115,14 +123,27 @@ export class MemoryLedger implements LedgerClient {
       meta: request.meta ?? {},
       postedAt,
       previousHash,
-      hash: hashTx({ id: txId, module: request.module, reason: request.reason, postedAt, entries: postedEntries }, previousHash),
+      hash: hashTx(
+        {
+          id: txId,
+          module: request.module,
+          reason: request.reason,
+          postedAt,
+          entries: postedEntries,
+          assetHashes,
+          previousAssetHashes,
+          crossShardAnchor: anchor,
+        },
+        previousHash,
+      ),
       entries: postedEntries,
       assetHashes,
       previousAssetHashes,
-      crossShardAnchor: crossShardAnchor(assetHashes),
+      crossShardAnchor: anchor,
     };
 
-    // Commit.
+    // Commit. New accounts land with the resulting balance, not a placeholder zero.
+    for (const [key, account] of pendingAccounts) this.accounts.set(key, account);
     for (const [accountId, balance] of staged) this.balancesByAccountId.set(accountId, balance);
     this.txs.set(tx.id, tx);
     this.txByKey.set(tx.idempotencyKey, tx.id);
@@ -205,13 +226,34 @@ export class MemoryLedger implements LedgerClient {
   /** Verify the hash chain end to end — tamper evidence. */
   verifyChain(): { ok: true } | { ok: false; brokenAt: string } {
     let previous: string | null = null;
+    const priorAssetTip = new Map<string, string>();
     for (const tx of this.journal()) {
-      const expected = hashTx({ id: tx.id, module: tx.module, reason: tx.reason, postedAt: tx.postedAt, entries: tx.entries }, previous);
+      const expected = hashTx(
+        {
+          id: tx.id,
+          module: tx.module,
+          reason: tx.reason,
+          postedAt: tx.postedAt,
+          entries: tx.entries,
+          assetHashes: tx.assetHashes,
+          previousAssetHashes: tx.previousAssetHashes,
+          crossShardAnchor: tx.crossShardAnchor,
+        },
+        previous,
+      );
       if (tx.previousHash !== previous || tx.hash !== expected) return { ok: false, brokenAt: tx.id };
-      if (tx.assetHashes && tx.previousAssetHashes) {
-        for (const assetId of Object.keys(tx.assetHashes)) {
-          const expectedAsset = hashAssetTx(tx, assetId, tx.previousAssetHashes[assetId] ?? null);
-          if (tx.assetHashes[assetId] !== expectedAsset) return { ok: false, brokenAt: tx.id };
+      if (tx.assetHashes !== undefined || tx.previousAssetHashes !== undefined || tx.crossShardAnchor !== undefined) {
+        if (tx.assetHashes === undefined || tx.previousAssetHashes === undefined) return { ok: false, brokenAt: tx.id };
+        const linked = new Set<string>([...assetIds(tx), ...Object.keys(tx.assetHashes), ...Object.keys(tx.previousAssetHashes)]);
+        for (const assetId of linked) {
+          // Parent is the prior journal tip for this asset, or null until that asset appears.
+          const priorTip = priorAssetTip.get(assetId) ?? null;
+          const claimedParent = tx.previousAssetHashes[assetId] ?? null;
+          if (claimedParent !== priorTip) return { ok: false, brokenAt: tx.id };
+          const storedAsset = tx.assetHashes[assetId];
+          const expectedAsset = hashAssetTx(tx, assetId, priorTip);
+          if (storedAsset !== expectedAsset) return { ok: false, brokenAt: tx.id };
+          priorAssetTip.set(assetId, storedAsset);
         }
         if (tx.crossShardAnchor !== crossShardAnchor(tx.assetHashes)) return { ok: false, brokenAt: tx.id };
       }
@@ -239,14 +281,20 @@ export class MemoryLedger implements LedgerClient {
     return MemoryLedger.NEGATIVE_ALLOWED.has(ref.ownerType);
   }
 
-  private ensureAccount(ref: AccountRef): Account {
+  /**
+   * An account this post needs that the book does not have yet.
+   *
+   * Minted into `pending` only. The live maps are written after every entry
+   * has passed the funds check, so a refusal cannot leave the account — or a
+   * zero balance — behind.
+   */
+  private stageAccount(ref: AccountRef, pending: Map<string, Account>): Account {
     const key = accountKey(ref);
-    const existing = this.accounts.get(key);
+    const existing = this.accounts.get(key) ?? pending.get(key);
     if (existing) return existing;
 
     const account: Account = { ...ref, id: crypto.randomUUID(), createdAt: new Date() };
-    this.accounts.set(key, account);
-    this.balancesByAccountId.set(account.id, 0n);
+    pending.set(key, account);
     return account;
   }
 }
@@ -257,15 +305,31 @@ interface HashableTx {
   reason: string;
   postedAt: Date;
   entries: readonly PostedEntry[];
+  assetHashes?: Readonly<Record<string, string>>;
+  previousAssetHashes?: Readonly<Record<string, string | null>>;
+  crossShardAnchor?: string;
 }
 
 /**
  * Canonical transaction hash. Field order is fixed and amounts are canonical
  * decimal strings, so the same transaction hashes identically in TypeScript,
  * in Postgres, and in any future Rust port.
+ *
+ * `assetHashes`, `previousAssetHashes`, and `crossShardAnchor` are covered
+ * only when the row stores them. A transaction that omits all three keeps the
+ * digest from before those fields existed.
  */
 export function hashTx(tx: HashableTx, previousHash: string | null): string {
-  const canonical = JSON.stringify({
+  const body: {
+    id: string;
+    module: string;
+    reason: string;
+    postedAt: string;
+    entries: Array<{ accountId: string; assetId: string; direction: PostedEntry['direction']; amount: string }>;
+    assetHashes?: Readonly<Record<string, string>>;
+    previousAssetHashes?: Readonly<Record<string, string | null>>;
+    crossShardAnchor?: string;
+  } = {
     id: tx.id,
     module: tx.module,
     reason: tx.reason,
@@ -276,7 +340,12 @@ export function hashTx(tx: HashableTx, previousHash: string | null): string {
       direction: e.direction,
       amount: formatAmount(e.amount),
     })),
-  });
+  };
+  if (tx.assetHashes !== undefined) body.assetHashes = tx.assetHashes;
+  if (tx.previousAssetHashes !== undefined) body.previousAssetHashes = tx.previousAssetHashes;
+  if (tx.crossShardAnchor !== undefined) body.crossShardAnchor = tx.crossShardAnchor;
+
+  const canonical = JSON.stringify(body);
 
   return (
     createHash('sha256')

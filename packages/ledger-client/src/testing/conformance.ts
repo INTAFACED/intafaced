@@ -1,7 +1,7 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterAll } from 'vitest';
 import { formatAmount, parseAmount as amt } from '../money.js';
-import { houseFees, railBoundary, userAvailable, userEscrow, userHold, userStake } from '../accounts.js';
-import { InsufficientFundsError, InvalidEntryError, type LedgerTx } from '../types.js';
+import { houseFees, railBoundary, userAvailable, userCollateral, userEscrow, userHold, userStake } from '../accounts.js';
+import { InsufficientFundsError, InvalidEntryError, type AccountKind, type LedgerTx } from '../types.js';
 import { recipes } from '../recipes/index.js';
 import type { LedgerClient } from '../client.js';
 
@@ -36,13 +36,19 @@ const USER_B = '22222222-2222-4222-8222-222222222222';
 
 export function runLedgerConformance(name: string, createHarness: () => Promise<LedgerHarness>): void {
   describe(`ledger conformance — ${name}`, () => {
-    let harness: LedgerHarness;
+    let harness: LedgerHarness | undefined;
     let ledger: LedgerClient;
 
     beforeEach(async () => {
       harness ??= await createHarness();
       await harness.reset();
       ledger = harness.ledger;
+    });
+
+    // Once, when this suite finishes. reset stays in beforeEach.
+    // A harness that omits teardown is left alone.
+    afterAll(async () => {
+      await harness?.teardown?.();
     });
 
     const fund = (userId: string, assetId: string, amount: string) =>
@@ -56,22 +62,23 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
         }),
       );
 
-    // `purpose` is required for `hold` (P0-3) — there is no such thing as "the"
-    // hold balance any more, only the balance held for a named reason.
-    const balanceOf = async (
-      userId: string,
-      assetId: string,
-      kind: 'available' | 'hold' | 'escrow' | 'stake' = 'available',
-      purpose = 'test',
-    ) => {
-      const ref =
-        kind === 'available'
-          ? userAvailable(userId, assetId)
-          : kind === 'hold'
-            ? userHold(userId, assetId, purpose)
-            : kind === 'escrow'
-              ? userEscrow(userId, assetId, purpose)
-              : userStake(userId, assetId, purpose);
+    // `purpose` is required for a lock pot (P0-3) — there is no such thing as "the"
+    // hold or collateral balance, only the balance held for a named reason.
+    const balanceOf = async (userId: string, assetId: string, kind: AccountKind = 'available', purpose = 'test') => {
+      const ref = (() => {
+        switch (kind) {
+          case 'available':
+            return userAvailable(userId, assetId);
+          case 'hold':
+            return userHold(userId, assetId, purpose);
+          case 'escrow':
+            return userEscrow(userId, assetId, purpose);
+          case 'stake':
+            return userStake(userId, assetId, purpose);
+          case 'collateral':
+            return userCollateral(userId, assetId, purpose);
+        }
+      })();
       return formatAmount((await ledger.balance(ref)).amount);
     };
 
@@ -180,18 +187,24 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
 
     describe('locks are funded from the owner’s own available balance', () => {
       it('refuses collateral conjured from elsewhere', async () => {
-        await fund(USER_A, 'BTC', '1');
+        // USER_B can pay. The credit is theirs; the collateral pot is USER_A's.
+        // An engine that accepts the post funds that pot, and the read is then '1'.
+        await fund(USER_B, 'BTC', '1');
+        const pot = userCollateral(USER_A, 'BTC', 'loan:elsewhere');
         await expect(
           ledger.post({
             idempotencyKey: 'unfunded-lock-test',
             module: 'test',
             reason: 'test',
             entries: [
-              { account: houseFees('bank', 'BTC'), direction: 'credit', amount: amt('1') },
-              { account: userHold(USER_A, 'BTC', 'order:unfunded'), direction: 'debit', amount: amt('1') },
+              { account: userAvailable(USER_B, 'BTC'), direction: 'credit', amount: amt('1') },
+              { account: pot, direction: 'debit', amount: amt('1') },
             ],
           }),
         ).rejects.toThrow(InvalidEntryError);
+        expect(await balanceOf(USER_A, 'BTC', 'collateral', 'loan:elsewhere')).toBe('0');
+        expect(formatAmount((await ledger.balance(pot)).amount)).toBe('0');
+        expect(await balanceOf(USER_B, 'BTC')).toBe('1');
       });
 
       /**
@@ -613,7 +626,7 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
 
     describe('journal and hash chain', () => {
       it('chains every transaction to its predecessor', async () => {
-        if (!harness.journal || !harness.verifyChain) return;
+        if (!harness || !harness.journal || !harness.verifyChain) return;
 
         await fund(USER_A, 'USDT', '100');
         await fund(USER_B, 'USDT', '200');
@@ -627,7 +640,7 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
 
     describe('reconciliation', () => {
       it('agrees with a full replay after a mixed run', async () => {
-        if (!harness.reconcile) return;
+        if (!harness || !harness.reconcile) return;
 
         await fund(USER_A, 'USDT', '10000');
         for (let i = 0; i < 25; i++) {
@@ -640,7 +653,7 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
       }, 30_000);
 
       it('closes the books — every asset nets to zero', async () => {
-        if (!harness.totalsByAsset) return;
+        if (!harness || !harness.totalsByAsset) return;
 
         await fund(USER_A, 'USDT', '1000');
         await fund(USER_B, 'BTC', '2');

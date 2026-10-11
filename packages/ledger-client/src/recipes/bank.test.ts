@@ -9,8 +9,9 @@ import { recipes } from './index.js';
  * BANK RECIPES (transfer + earn) — package-level.
  *
  * Earn interest is not minted: it debits a funded pool reserve. Transfer refuses
- * cross-asset and lock-kind targets. Occurrence is part of the transfer key so
- * scheduled re-runs cannot silently no-op.
+ * cross-asset and lock-kind targets. Pool funding refuses a supplied source on
+ * a different asset. Occurrence is part of the transfer key so scheduled
+ * re-runs cannot silently no-op.
  */
 
 const USER = '22222222-2222-4222-8222-222222222222';
@@ -277,6 +278,74 @@ describe('earn — stake stays user-owned; interest is not minted', () => {
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
+  it('funds one asset: house fees when from is omitted, the source when it matches, and no post when it does not', async () => {
+    const amount = amt('40');
+    const omitted = recipes.earnPoolFund({
+      poolId: POOL,
+      fundingId: 'house-seed',
+      assetId: 'USDT',
+      amount,
+    });
+    expect(omitted.entries).toEqual([
+      { account: houseFees('bank', 'USDT'), direction: 'credit', amount },
+      { account: earnPoolReserve(POOL, 'USDT'), direction: 'debit', amount },
+    ]);
+
+    const from = userAvailable(USER, 'USDT');
+    const matched = recipes.earnPoolFund({
+      poolId: POOL,
+      fundingId: 'user-seed',
+      assetId: 'USDT',
+      amount,
+      from,
+    });
+    expect(matched.entries).toEqual([
+      { account: from, direction: 'credit', amount },
+      { account: earnPoolReserve(POOL, 'USDT'), direction: 'debit', amount },
+    ]);
+
+    const fundingId = 'cross-asset';
+    expect(() =>
+      recipes.earnPoolFund({
+        poolId: POOL,
+        fundingId,
+        assetId: 'USDT',
+        amount,
+        from: userAvailable(USER, 'BTC'),
+      }),
+    ).toThrow(InvalidEntryError);
+    expect(() =>
+      recipes.earnPoolFund({
+        poolId: POOL,
+        fundingId,
+        assetId: 'USDT',
+        amount,
+        from: userAvailable(USER, 'BTC'),
+      }),
+    ).toThrow(/cannot change asset/);
+    expect(await ledger.getTxByKey(`bank.earn.fund:${POOL}:${fundingId}`)).toBeNull();
+
+    await deposit(USER, '80', 'fund-both');
+    await ledger.post(
+      recipes.feeCharge({
+        chargeId: 'fund-house-fee',
+        userId: USER,
+        module: 'bank',
+        mode: 'asset',
+        assetId: 'USDT',
+        amount: amt('40'),
+      }),
+    );
+    await ledger.post(omitted);
+    expect(formatAmount((await ledger.balance(houseFees('bank', 'USDT'))).amount)).toBe('0');
+    expect(formatAmount((await ledger.balance(earnPoolReserve(POOL, 'USDT'))).amount)).toBe('40');
+
+    await ledger.post(matched);
+    expect(formatAmount((await ledger.balance(from)).amount)).toBe('0');
+    expect(formatAmount((await ledger.balance(earnPoolReserve(POOL, 'USDT'))).amount)).toBe('80');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
   it('refuses empty accrual and bad date shape', () => {
     expect(() => recipes.earnInterest({ poolId: POOL, date: '2026-08-09', assetId: 'USDT', payouts: [] })).toThrow(InvalidEntryError);
     expect(() =>
@@ -287,5 +356,19 @@ describe('earn — stake stays user-owned; interest is not minted', () => {
         payouts: [{ userId: USER, amount: amt('1') }],
       }),
     ).toThrow(/YYYY-MM-DD/);
+  });
+
+  it('refuses a nonsense accrual day and keeps a real calendar day in the written key', async () => {
+    const payouts = [{ userId: USER, amount: amt('1') }];
+    for (const date of ['2026-02-31', '2026-13-40', '2026-02-29']) {
+      expect(() => recipes.earnInterest({ poolId: POOL, date, assetId: 'USDT', payouts })).toThrow(InvalidEntryError);
+      expect(await ledger.getTxByKey(`bank.interest:${POOL}:${date}`)).toBeNull();
+    }
+
+    for (const date of ['2026-07-27', '0001-01-01', '2024-02-29']) {
+      const request = recipes.earnInterest({ poolId: POOL, date, assetId: 'USDT', payouts });
+      expect(request.idempotencyKey).toBe(`bank.interest:${POOL}:${date}`);
+      expect(request.entries.every((entry) => typeof entry.amount === 'bigint')).toBe(true);
+    }
   });
 });

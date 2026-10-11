@@ -90,7 +90,11 @@ export function marketPurchase(input: MarketPurchaseInput): PostRequest {
     throw new InvalidEntryError(`market commissionBps must be an integer in 0..9999, got ${input.commissionBps}`);
   }
   requireId('purchaseId', input.purchaseId);
-  if (input.buyerId === input.vendorUserId) {
+  const buyerId = requireId('buyerId', input.buyerId);
+  const vendorUserId = requireId('vendorUserId', input.vendorUserId);
+  const assetId = requireId('assetId', input.assetId);
+  const listingId = requireId('listingId', input.listingId);
+  if (buyerId === vendorUserId) {
     throw new InvalidEntryError('buyer and vendor must be different users');
   }
 
@@ -103,9 +107,9 @@ export function marketPurchase(input: MarketPurchaseInput): PostRequest {
   }
 
   const entries: EntryInput[] = [
-    credit(userAvailable(input.buyerId, input.assetId), input.price),
-    debit(userAvailable(input.vendorUserId, input.assetId), vendorNet),
-    ...(commission > 0n ? [debit(houseFees('market', input.assetId), commission)] : []),
+    credit(userAvailable(buyerId, assetId), input.price),
+    debit(userAvailable(vendorUserId, assetId), vendorNet),
+    ...(commission > 0n ? [debit(houseFees('market', assetId), commission)] : []),
   ];
 
   return {
@@ -114,7 +118,7 @@ export function marketPurchase(input: MarketPurchaseInput): PostRequest {
     reason: 'market.purchase',
     meta: {
       purchaseId: input.purchaseId.trim(),
-      listingId: input.listingId,
+      listingId,
       commissionBps: input.commissionBps,
       commission: commission.toString(),
       vendorNet: vendorNet.toString(),

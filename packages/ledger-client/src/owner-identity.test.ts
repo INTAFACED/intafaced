@@ -16,6 +16,7 @@ import {
 import {
   OwnerIdentitySpaceError,
   accountRefSchema,
+  entryInputSchema,
   isValidOwnerId,
   ownerIdSpace,
   postRequestSchema,
@@ -237,5 +238,29 @@ describe('owner identifier space — the wire edge refuses it too', () => {
       ],
     });
     expect(result.success).toBe(true);
+  });
+});
+
+describe('entry amount — integer digit string length on the wire', () => {
+  const account = { ownerType: 'user' as const, ownerId: USER_UUID, assetId: 'USDT', kind: 'available' as const };
+
+  function parsed(amount: string) {
+    return entryInputSchema.safeParse({ account, direction: 'debit', amount });
+  }
+
+  it('parses an ordinary amount and one with 18 fractional digits', () => {
+    expect(parsed('1000').success).toBe(true);
+    expect(parsed('1000.000000000000000001').success).toBe(true);
+    expect(parsed(`${'9'.repeat(20)}.${'9'.repeat(18)}`).success).toBe(true);
+    expect(parsed(`1.${'1'.repeat(18)}`).success).toBe(true);
+  });
+
+  it('refuses an integer digit string past that width, including a multi-megabyte one', () => {
+    expect(parsed('9'.repeat(21)).success).toBe(false);
+    expect(parsed('1'.repeat(2 * 1024 * 1024)).success).toBe(false);
+  });
+
+  it('refuses more than 18 fractional digits', () => {
+    expect(parsed(`1.${'1'.repeat(19)}`).success).toBe(false);
   });
 });

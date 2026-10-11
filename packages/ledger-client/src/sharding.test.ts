@@ -18,16 +18,29 @@ describe('ledger sharding socket', () => {
   });
 
   it('uses independent previous links for each asset', () => {
-    const tx = {
+    const txWith = (usdtAmount: bigint, usdtBalanceAfter: bigint) => ({
       id: 'tx-1',
       module: 'test',
       reason: 'test',
       postedAt: new Date('2026-01-01T00:00:00.000Z'),
       entries: [
-        { id: '1', txId: 'tx-1', accountId: 'a', assetId: 'USDT', direction: 'debit' as const, amount: 1n, balanceAfter: 1n },
+        {
+          id: '1',
+          txId: 'tx-1',
+          accountId: 'a',
+          assetId: 'USDT',
+          direction: 'debit' as const,
+          amount: usdtAmount,
+          balanceAfter: usdtBalanceAfter,
+        },
         { id: '2', txId: 'tx-1', accountId: 'b', assetId: 'BTC', direction: 'credit' as const, amount: 1n, balanceAfter: 1n },
       ],
-    };
-    expect(hashAssetTx(tx, 'USDT', null)).not.toBe(hashAssetTx(tx, 'BTC', null));
+    });
+    const tx = txWith(1n, 1n);
+    const usdt = hashAssetTx(tx, 'USDT', null);
+    expect(usdt).not.toBe(hashAssetTx(tx, 'BTC', null));
+    expect(usdt).not.toBe(hashAssetTx(tx, 'USDT', 'b'.repeat(64)));
+    expect(usdt).not.toBe(hashAssetTx(txWith(2n, 1n), 'USDT', null));
+    expect(usdt).not.toBe(hashAssetTx(txWith(1n, 2n), 'USDT', null));
   });
 });

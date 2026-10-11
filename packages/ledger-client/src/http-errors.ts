@@ -41,12 +41,16 @@ function wireAmount(value: unknown): AmountString | null {
  * So: any structured `code` now rebuilds a `LedgerError` carrying it.
  *
  * `LedgerError` and not the specific subclass, on purpose. `InsufficientFundsError`
- * is rebuilt only when `requested` and `availableBalance` are actually on the
- * wire (fields or the message regex). Missing amounts are not `'0'`: empty is
- * not failed is not zero. `UnbalancedTransactionError` carries `perAsset`,
- * which is NOT on the wire, and `OwnerIdentitySpaceError` carries the owner
- * type and id, which are not either. Constructing those with invented or empty
- * fields would hand a caller a typed error whose data is fabricated — worse
+ * is rebuilt only when the code is `ledger.insufficient_funds`, or when no
+ * structured code was sent and the text matches the funds sentence, and both
+ * `requested` and `availableBalance` are actually on the wire (fields or the
+ * message regex). A different structured code is kept as that code: the funds
+ * sentence in the body must not drop what svc-ledger sent. Missing amounts are
+ * not `'0'`: empty is not failed is not zero. `UnbalancedTransactionError`
+ * carries `perAsset`, which is NOT on the wire, and `OwnerIdentitySpaceError`
+ * carries the owner type and id, which are not either. Constructing those
+ * with invented or empty fields would hand a caller a typed error whose data
+ * is fabricated — worse
  * than an honest base class, because it looks trustworthy. Callers branch on
  * `instanceof LedgerError` and on `.code`, and both of those are now true and
  * correct.
@@ -62,7 +66,13 @@ export function rehydrateLedgerHttpError(path: string, status: number, detail: s
   const message = typeof parsed?.message === 'string' ? parsed.message : detail;
   const blob = `${code ?? ''} ${message} ${detail}`;
 
-  if (status === 400 && (code === 'ledger.insufficient_funds' || /insufficient_funds|Insufficient \w+:/.test(blob))) {
+  // `blob` includes the structured code. The funds regex applies only when
+  // that code is absent; otherwise a 400 that merely reads
+  // "Insufficient <asset>: requested …, available …" would be rebuilt as
+  // InsufficientFundsError and the code svc-ledger sent would be dropped.
+  const fundsText = /insufficient_funds|Insufficient \w+:/;
+  const unnamedFunds = code === null && fundsText.test(blob);
+  if (status === 400 && (code === 'ledger.insufficient_funds' || unnamedFunds)) {
     const fromMsg = message.match(/Insufficient (\S+): requested (\S+), available (\S+)/);
     const requested = wireAmount(fromMsg?.[2]) ?? wireAmount(parsed?.requested);
     const availableBalance = wireAmount(fromMsg?.[3]) ?? wireAmount(parsed?.availableBalance);
