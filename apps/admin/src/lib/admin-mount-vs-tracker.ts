@@ -13,10 +13,10 @@ import { adminBffSecretComposeWired } from './admin-compose-wiring.js';
 export const OPS_ADMIN_TRACKER_ID = 'ops.admin' as const;
 
 export const ADMIN_CONSOLE_PAGES = [
-  'app/tools/page.tsx',
-  'app/ledger/page.tsx',
-  'app/launch/page.tsx',
-  'app/jurisdiction/page.tsx',
+  'app/(console)/tools/page.tsx',
+  'app/(console)/ledger/page.tsx',
+  'app/(console)/launch/page.tsx',
+  'app/(console)/jurisdiction/page.tsx',
 ] as const;
 
 export const ADMIN_API_ROUTES = [
@@ -46,7 +46,7 @@ export function adminApiRoutesPresent(): readonly string[] {
 
 export function adminBffGatePresent(): boolean {
   const src = readFileSync(join(ADMIN_SRC, 'lib/admin-bff-gate.ts'), 'utf8');
-  return /adminBffGate/.test(src) && /ADMIN_BFF_SHARED_SECRET/.test(src);
+  return /adminBffGate/.test(src) && /authorizeAdminRequest/.test(src);
 }
 
 export function operatorToolsCatalogPresent(): boolean {

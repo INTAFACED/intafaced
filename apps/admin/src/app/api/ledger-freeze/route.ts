@@ -18,14 +18,14 @@ import { readFreeze, setFreeze } from '@/lib/control-plane-client';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  const gate = adminBffGate(request);
+  const gate = await adminBffGate(request);
   if (gate) return gate;
   const result = await readFreeze();
   return Response.json(result, { status: result.ok ? 200 : result.status });
 }
 
 export async function POST(request: Request) {
-  const gate = adminBffGate(request);
+  const gate = await adminBffGate(request);
   if (gate) return gate;
 
   let body: unknown;

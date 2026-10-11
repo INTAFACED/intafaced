@@ -23,14 +23,14 @@ import { readKillSwitches, setKillSwitch } from '@/lib/control-plane-client';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  const gate = adminBffGate(request);
+  const gate = await adminBffGate(request);
   if (gate) return gate;
   const state = await readKillSwitches();
   return Response.json(state, { status: state.status === 'reachable' ? 200 : 503 });
 }
 
 export async function POST(request: Request) {
-  const gate = adminBffGate(request);
+  const gate = await adminBffGate(request);
   if (gate) return gate;
 
   let body: unknown;

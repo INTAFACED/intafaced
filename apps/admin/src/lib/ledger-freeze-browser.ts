@@ -19,6 +19,8 @@
  * There is now one path.
  */
 
+import { founderMutationHeaders } from './founder-browser';
+
 export interface FreezeState {
   readonly frozen: boolean;
   readonly reason: string | null;
@@ -80,7 +82,7 @@ export async function postFreeze(input: { frozen: boolean; reason?: string }): P
   try {
     const res = await fetch('/api/ledger-freeze', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: await founderMutationHeaders(),
       body: JSON.stringify(input.frozen ? { frozen: true, reason: input.reason } : { frozen: false }),
       cache: 'no-store',
     });

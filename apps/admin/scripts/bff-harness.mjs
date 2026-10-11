@@ -3,8 +3,9 @@
  * Real-HTTP BFF unconfigured harness (CLASS: TRUTH).
  *
  * Boots this worktree's Next listener on a unique port with
- * ADMIN_BFF_SHARED_SECRET unset, GET /api/kill-switch, asserts 503
- * `admin.bff_gate_unconfigured`, then kills only the pid it spawned.
+ * founder-session configuration unset, GET /api/kill-switch (including with
+ * the former shared proxy header), asserts 503 `admin.session_unconfigured`,
+ * then kills only the pid it spawned.
  * Never defaults to :3100. Never calls adminBffGate() in-process.
  */
 import { spawn, execFileSync } from 'node:child_process';
@@ -127,6 +128,9 @@ function stopSpawned(child) {
 function childEnv() {
   const env = { ...process.env, NEXT_TELEMETRY_DISABLED: '1' };
   delete env.ADMIN_BFF_SHARED_SECRET;
+  delete env.ADMIN_ORIGIN;
+  delete env.EDGE_URL;
+  delete env.ADMIN_SESSION_SECRET;
   delete env.ADMIN_BFF_HARNESS_URL;
   return env;
 }
@@ -227,7 +231,7 @@ async function main() {
 
   const base = `http://${HOST}:${port}`;
   try {
-    console.log(`[bff-harness] spawned pid ${child.pid} on ${base} (secret unset)`);
+    console.log(`[bff-harness] spawned pid ${child.pid} on ${base} (founder session unconfigured)`);
     await waitForOurListener(port, child, logs);
     await waitForHttp(`${base}/api/kill-switch`, child, logs);
     const result = await assertBffUnconfigured(base);

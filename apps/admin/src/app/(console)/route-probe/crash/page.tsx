@@ -1,3 +1,4 @@
+import { requireFounderPage } from '@/lib/founder-page';
 import { notFound } from 'next/navigation';
 
 /**
@@ -6,7 +7,8 @@ import { notFound } from 'next/navigation';
  * Unset `ADMIN_ROUTE_PROBE` (every real compose) → not-found. The harness is
  * the only process that sets it, so this path never mounts a queue.
  */
-export default function RouteProbeCrashPage(): never {
+export default async function RouteProbeCrashPage(): Promise<never> {
+  await requireFounderPage();
   if (process.env.ADMIN_ROUTE_PROBE !== '1') {
     notFound();
   }

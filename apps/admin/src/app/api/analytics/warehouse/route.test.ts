@@ -1,5 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GET, POST, setWarehouseLagProbeForTests } from './route.js';
+
+vi.mock('@/lib/admin-bff-gate', () => ({ adminBffGate: vi.fn(async () => null) }));
 
 /**
  * Admin warehouse surface — honest empty/lag, no invent volume.
@@ -7,16 +9,10 @@ import { GET, POST, setWarehouseLagProbeForTests } from './route.js';
  */
 
 const originalEnv = { ...process.env };
-const TEST_SECRET = 'warehouse-test-secret';
-const AUTH_HEADERS = { 'x-intafaced-admin-bff': TEST_SECRET };
-
-beforeEach(() => {
-  process.env.ADMIN_BFF_SHARED_SECRET = TEST_SECRET;
-});
+const AUTH_HEADERS = {};
 
 afterEach(() => {
   process.env = { ...originalEnv };
-  delete process.env.ADMIN_BFF_SHARED_SECRET;
   delete process.env.ANALYTICS_REPLICA_CONFIGURED;
   delete process.env.ANALYTICS_REPLICA_LAG_SECONDS;
   delete process.env.ANALYTICS_REPLICA_LEDGER_URL;

@@ -1,7 +1,8 @@
 import { adminBffGate } from '@/lib/admin-bff-gate';
 import { invokeOperatorTool, listToolWireStates } from '@/lib/operator-edge-client';
-import { OPERATOR_TOOLS, toolById } from '@/lib/operator-tools-catalog';
+import { OPERATOR_TOOLS, toolById, usesAccountConsole } from '@/lib/operator-tools-catalog';
 import { readConsoleStatus } from '@/lib/console-status';
+import { adminSessionConfig, openFounderSession } from '@/lib/founder-session';
 
 /**
  * Operator tools BFF — list wired procedures and invoke them via edge tRPC.
@@ -16,12 +17,13 @@ import { readConsoleStatus } from '@/lib/console-status';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  const gate = adminBffGate(request);
+  const gate = await adminBffGate(request);
   if (gate) return gate;
 
   const status = readConsoleStatus();
+  const session = openFounderSession(request.headers.get('cookie'), adminSessionConfig());
   const tools = OPERATOR_TOOLS.map((tool) => {
-    const wire = listToolWireStates([tool])[0]!;
+    const wire = listToolWireStates([tool], session.accessToken)[0]!;
     return {
       id: tool.id,
       group: tool.group,
@@ -47,13 +49,13 @@ export async function GET(request: Request) {
     tools,
     residual: {
       reconcile: 'simulated — svc-edge has no reconcile route; see /ledger',
-      sso: 'Class X — console has no operator SSO; required fail-closed BFF gate is the interim deployment boundary',
+      sso: 'Current interactive founder identity is required for every request',
     },
   });
 }
 
 export async function POST(request: Request) {
-  const gate = adminBffGate(request);
+  const gate = await adminBffGate(request);
   if (gate) return gate;
 
   let body: unknown;
@@ -72,11 +74,18 @@ export async function POST(request: Request) {
   if (!tool) {
     return Response.json({ error: `unknown toolId "${input.toolId}"`, code: 'admin.operator_tools.unknown' }, { status: 404 });
   }
+  if (usesAccountConsole(tool.id)) {
+    return Response.json(
+      { error: 'Inspect this account in Account controls.', code: 'admin.account_console_required', href: '/accounts' },
+      { status: 409 },
+    );
+  }
 
   const rawInput =
     input.input != null && typeof input.input === 'object' && !Array.isArray(input.input) ? (input.input as Record<string, unknown>) : {};
 
-  const result = await invokeOperatorTool(tool.id, rawInput);
+  const session = openFounderSession(request.headers.get('cookie'), adminSessionConfig());
+  const result = await invokeOperatorTool(tool.id, rawInput, session.accessToken);
   // Pass through the real status. A not-wired console is 503; a scope refuse
   // from the service is whatever the edge returned — never forced to 200.
   return Response.json(result, { status: result.ok ? 200 : result.status });

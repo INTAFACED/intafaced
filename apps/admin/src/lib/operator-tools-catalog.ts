@@ -29,6 +29,11 @@
 
 export type ToolAuthority = 'module' | 'treasury';
 
+/** These legacy forms are replaced by versioned inspection in the account console. */
+export function usesAccountConsole(toolId: string): boolean {
+  return ['identity.compliance.freezeIdentity', 'identity.compliance.unfreezeIdentity', 'pay.merchantState.set'].includes(toolId);
+}
+
 export type ToolKind = 'query' | 'mutation';
 
 /** Edge module prefix under `/api/<module>/trpc/...`. */

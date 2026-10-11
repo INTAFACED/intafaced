@@ -18,8 +18,7 @@ pnpm --filter @intafaced/admin typecheck
 - **No duplicated truth.** Flags come from `FLAG_REGISTRY`, resolution from `resolveAll()` / `isEnabled()`,
   geo rules from `JURISDICTION_MATRIX`, decisions from `checkAccess()`. The console cannot drift from what the
   services enforce, because it holds no copy of what they enforce.
-- **No hardcoded colour.** Every value is an `--if-*` custom property from `@intafaced/ui/tokens.css`. Tints
-  are `color-mix()` against those tokens. There is not one hex literal in `src/app/globals.css`.
+- **App-local approved design tokens.** The selected graphite/lime palette is defined as `--if-*` custom properties in `src/app/globals.css`, recorded in `.21st/design.json`. Components use those tokens and `color-mix()` tints; shared trading and danger semantics retain their meanings.
 - **Nothing cached.** `export const dynamic = 'force-dynamic'` in the root layout. A stale kill-switch board is
   worse than no board.
 
@@ -27,6 +26,9 @@ pnpm --filter @intafaced/admin typecheck
 
 | Route           | What it does                                                                                                                                                                               |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/login`        | Individual founder sign-in using password plus TOTP/recovery or WebAuthn.                                                                                                                  |
+| `/crm`          | Investor-first relationship pipeline, preserved questionnaires, owner assignment, next actions and history.                                                                                |
+| `/accounts`     | Inspect identity, trading or merchant control state; submit a versioned action with reason and confirmation; read audit history.                                                           |
 | `/`             | Kill-switches. Every flag grouped by module, resolved at the current `LAUNCH_DROP`, with the reason it resolved that way. `ledger.posting` gets its own alarm panel.                       |
 | `/launch`       | The §11 drop table, plus "what would be live at drop N" resolved against a chosen drop.                                                                                                    |
 | `/jurisdiction` | Counsel-review status per matrix entry, the effective module × region rule grid, and a live `checkAccess()` readout.                                                                       |
@@ -46,11 +48,11 @@ pnpm --filter @intafaced/admin typecheck
 
 **Module kill-switches** reach svc-edge through this console (#186 + A-P5-OPS):
 
-| Console route                  | Edge                              | Env                                                            |
-| ------------------------------ | --------------------------------- | -------------------------------------------------------------- |
-| `GET/POST /api/kill-switch`    | `/admin/kill-switches`            | `EDGE_URL` + `ADMIN_OPERATOR_TOKEN` (`admin:write` + MFA)      |
-| `GET/POST /api/ledger-freeze`  | `/admin/ledger/freeze` · unfreeze | `EDGE_URL` + `ADMIN_TREASURY_TOKEN` (`admin:treasury`)         |
-| `GET/POST /api/operator-tools` | `/api/{module}/trpc/{procedure}`  | module tools → operator token; treasury tools → treasury token |
+| Console route                  | Edge                              | Env                                                         |
+| ------------------------------ | --------------------------------- | ----------------------------------------------------------- |
+| `GET/POST /api/kill-switch`    | `/admin/kill-switches`            | `EDGE_URL` + `ADMIN_OPERATOR_TOKEN` (`admin:write` + MFA)   |
+| `GET/POST /api/ledger-freeze`  | `/admin/ledger/freeze` · unfreeze | `EDGE_URL` + `ADMIN_TREASURY_TOKEN` (`admin:treasury`)      |
+| `GET/POST /api/operator-tools` | `/api/{module}/trpc/{procedure}`  | current individual founder session; services enforce scopes |
 
 The `/` board **loads live disabled modules** and **posts module kill/enable** with a required reason when the
 control plane status is `reachable`. Per-flag rows remain session-staged (flag store §13).
@@ -63,14 +65,46 @@ Operator runbook: [`docs/OPS-KILL-SWITCH-RUNBOOK.md`](../../docs/OPS-KILL-SWITCH
 for freeze/unfreeze UI — prefer `/api/ledger-freeze` when wiring that screen). Every simulated result says so
 on its face; no invented money number.
 
-There is no first-class operator identity session in this app yet. Tokens stay server-side; the console
-must sit behind operator SSO before it is deployed anywhere reachable (§13).
+## Founder sessions and deployment
 
-**Required fail-closed BFF gate (until first-class SSO):** set `ADMIN_BFF_SHARED_SECRET` and inject header
-`x-intafaced-admin-bff: <secret>` from the authenticated reverse proxy. Blank or missing configuration
-returns typed `503 admin.bff_gate_unconfigured`; it never falls back to a network ACL. Browser mutations
-are additionally refused when Fetch Metadata or `Origin` identifies a cross-site request. See
-`docs/OPS-KILL-SWITCH-RUNBOOK.md`.
+Set `ADMIN_ORIGIN` to the exact HTTPS origin (planned `https://admin.intafaced.com`),
+`EDGE_URL` to the internal edge base URL, and `ADMIN_SESSION_SECRET` to a canonical
+base64url encoding of 32 random bytes. Generate that secret in the deployment
+secret store; never commit it. Local HTTP is allowed only for localhost or
+127.0.0.1 with explicit `APP_ENV=dev` or `test`.
+
+The trusted ingress must preserve the public `Host` (including a configured
+nondefault port), overwrite `X-Forwarded-Proto` with exactly one `https` value
+(`http` only for explicitly configured local HTTP), and prevent direct external
+access to the Next listener. Next may construct route request URLs with its
+internal hostname and port; BFF authority therefore uses the preserved `Host`
+and validated protocol instead. `X-Forwarded-Host` is ignored and cannot repair
+a wrong `Host`. Empty, malformed, multiple or wrong protocol values refuse.
+This header contract does not prove TLS; ingress configuration provides it.
+Mutations still require the exact configured browser `Origin`, session CSRF
+nonce and current live founder authority.
+
+Sign-in uses the existing identity service. Every protected page and BFF request
+requires the actual user's current enabled founder entitlement, active session
+and live MFA. The sealed host-only Secure/HttpOnly/SameSite=Strict cookie holds
+credentials until access-token expiry; credentials never enter browser storage
+or JSON responses. Mutations also require the exact origin and session CSRF nonce.
+There is no positive authority cache. Revoked founders can still sign out.
+The former shared proxy-secret header does not authorize the console.
+
+CRM and account BFFs forward the caller's Bearer token. Legacy account mutation
+forms direct operators to `/accounts`, where inspection supplies the current
+version. Trade and merchant controls report unavailable until their owned service
+implementations are deployed; a UI receipt alone is not runtime enforcement.
+The separate legacy platform kill/ledger/warehouse adapters still require their
+existing server-side service credentials in addition to the founder gate. This
+change does not grant new treasury or platform administrator scopes.
+
+Deploy identity founder controls and ops CRM with their migrations and explicit
+configuration before testing the complete workflow. Configure the exact host and
+HTTPS ingress, keep cookie/key values out of logs, and verify revocation and
+restart behavior against the deployed services. Notification delivery, provider
+analytics, retention and backup restoration require their own launch evidence.
 
 **Edge kill restart durability (not multi-replica):** svc-edge may set `EDGE_KILL_STATE_PATH`
 (default `.data/edge-kill-state.json`) so a single-host bounce keeps incident kills. Multi-edge
@@ -99,3 +133,19 @@ Recorded here because the console had to work around each of them.
 6. **Two modules have no flag at all** — `market` and `indexer`. `tooling/ci/dod-gate.mjs` fails a service
    whose module id never appears in `flags.ts`, so both are a blocked Definition of Done the day their service
    lands. The console lists them under "Modules with no kill-switch".
+
+## Protected founder CRM workflows
+
+`/crm` includes enquiry review, a global reporting summary, a bounded due-task queue, campaign/source configuration, controlled duplicate review and original-submission exports. The protected `/api/crm/workflows` BFF forwards each founder's actual Bearer token after current entitlement/MFA and CSRF checks. It validates shared schemas and result targets; mutation receipts without actor fields are checked against the immutable protected workflow audit for the matching request, founder, subject and action. An old replay outside the most recent 100 audit records refuses confirmation rather than inventing attribution.
+
+Global summaries query the owned metrics port; table counts are explicitly page-local. Audience, stage and owner filters scope totals and exports; text search only scopes the enquiry table. Unknown source evidence stays unknown. Papermark Free reports `api_access_unavailable`, never zero imported analytics or a verified recipient.
+
+Enquiry detail fetches protected original-contact provenance and binds the original submission/contact to the requested opportunity's canonical contact. A merge changes canonical linkage while preserving original contacts, answers and verification evidence. Manual merges require explicit source/target choices, current contact revisions, a reason and confirmation. Staff see both records before acting.
+
+Task transitions bind both opportunity and task revisions. Finishing the primary next-action task for an open enquiry requires a replacement. Call invitation, booking and follow-up evidence is labelled **manually recorded**: these forms do not dispatch email or pretend a message was sent. The separate enquiry-message form queues transactional messages through the owned ops outbox. It discloses the original submission recipient even after a canonical merge, binds the queue receipt to the founder/opportunity/submission, and distinguishes durable queue acknowledgement from gateway acceptance, arrival and unresolved dispatch. It exposes no resend button for unknown acceptance. Real gateway configuration and delivery evidence remain deployment requirements.
+
+Exports are explicit authenticated mutations, bounded to 1–200 original submissions per page, audited and downloaded only when requested. Each JSON page includes initial consent, preserved answers, original/canonical contact linkage and capture attribution. Browser code retains the request UUID after ambiguous writes and acknowledges saved receipts independently from a failed refresh.
+
+Deploy the matching reviewed svc-ops service and its outreach migrations before using these panels. Desktop/mobile browser recordings use clearly labelled synthetic identity/ops fixtures; they prove UI and transport behavior, not production service readiness.
+
+Contact privacy previews the canonical contact and every merged alias before explicit whole-cluster confirmation. Starting saves an intent and pauses that cluster; one explicit advancement performs one bounded notification-erasure step. Unknown receipts remain pending with originals retained. Either current founder can recover an existing intent from the selected contact after reloading, without a reference lookup or automatically issuing destructive commands. Completion clears the old selected view only after its bound receipt. Accepted external email and independently downloaded exports cannot be recalled here. Automatic retention stays disabled until the outreach policy is configured; operational backup/restore handling belongs to svc-ops.

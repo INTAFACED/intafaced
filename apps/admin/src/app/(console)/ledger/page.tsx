@@ -1,3 +1,4 @@
+import { requireFounderPage } from '@/lib/founder-page';
 import { LedgerOps } from '@/components/ledger-ops';
 import { readConsoleStatus } from '@/lib/console-status';
 import { readFreeze } from '@/lib/control-plane-client';
@@ -17,6 +18,7 @@ import { readFreeze } from '@/lib/control-plane-client';
  * UNKNOWN.
  */
 export default async function LedgerOpsPage() {
+  await requireFounderPage();
   const status = readConsoleStatus();
   const initialFreeze = await readFreeze();
   return <LedgerOps treasury={status.treasury} initialFreeze={initialFreeze} />;

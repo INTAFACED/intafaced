@@ -42,7 +42,16 @@ function authorityOf(tool: OperatorTool): Authority {
   return tool.authority === 'treasury' ? 'treasury' : 'module';
 }
 
-function configFor(tool: OperatorTool): { edgeUrl: string; token: string } | { reason: string; missing: readonly string[] } {
+function configFor(
+  tool: OperatorTool,
+  interactiveToken?: string,
+): { edgeUrl: string; token: string } | { reason: string; missing: readonly string[] } {
+  if (interactiveToken !== undefined) {
+    const edgeUrl = process.env.EDGE_URL?.trim().replace(/\/$/, '');
+    return edgeUrl && interactiveToken
+      ? { edgeUrl, token: interactiveToken }
+      : { reason: 'EDGE_URL or individual session is unavailable', missing: ['EDGE_URL'] };
+  }
   const status = readConsoleStatus();
   const auth = authorityOf(tool);
   const state = status[auth];
@@ -52,8 +61,8 @@ function configFor(tool: OperatorTool): { edgeUrl: string; token: string } | { r
   return { edgeUrl: status.edgeUrl, token: (process.env[state.tokenVar] ?? '').trim() };
 }
 
-export function wireStateFor(tool: OperatorTool): ToolWireState {
-  const cfg = configFor(tool);
+export function wireStateFor(tool: OperatorTool, interactiveToken?: string): ToolWireState {
+  const cfg = configFor(tool, interactiveToken);
   if ('reason' in cfg) {
     return {
       toolId: tool.id,
@@ -76,8 +85,8 @@ export function wireStateFor(tool: OperatorTool): ToolWireState {
   };
 }
 
-export function listToolWireStates(tools: readonly OperatorTool[]): readonly ToolWireState[] {
-  return tools.map(wireStateFor);
+export function listToolWireStates(tools: readonly OperatorTool[], interactiveToken?: string): readonly ToolWireState[] {
+  return tools.map((tool) => wireStateFor(tool, interactiveToken));
 }
 
 /**
@@ -177,7 +186,11 @@ function unwrapTrpc(body: unknown): { data: unknown; error: string | null } {
   return { data: body, error: null };
 }
 
-export async function invokeOperatorTool(toolId: string, rawInput: Record<string, unknown>): Promise<InvokeResult> {
+export async function invokeOperatorTool(
+  toolId: string,
+  rawInput: Record<string, unknown>,
+  interactiveToken?: string,
+): Promise<InvokeResult> {
   const tool = toolById(toolId);
   if (!tool) {
     return {
@@ -192,7 +205,7 @@ export async function invokeOperatorTool(toolId: string, rawInput: Record<string
     };
   }
 
-  const cfg = configFor(tool);
+  const cfg = configFor(tool, interactiveToken);
   if ('reason' in cfg) {
     return {
       ok: false,

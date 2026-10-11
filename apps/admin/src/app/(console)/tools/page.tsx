@@ -1,3 +1,4 @@
+import { requireFounderPage } from '@/lib/founder-page';
 import { OperatorToolsBoard } from '@/components/operator-tools-board';
 import { listToolWireStates } from '@/lib/operator-edge-client';
 import { OPERATOR_TOOLS } from '@/lib/operator-tools-catalog';
@@ -8,9 +9,10 @@ import type { ToolListResponse } from '@/lib/operator-tools-browser';
  * Operator tools — UI for procedures already reachable via edge `/api/*` tRPC
  * with an admin-scoped token. No new service work; not-wired when env missing.
  */
-export default function OperatorToolsPage() {
+export default async function OperatorToolsPage() {
+  const { session } = await requireFounderPage();
   const status = readConsoleStatus();
-  const wires = listToolWireStates(OPERATOR_TOOLS);
+  const wires = listToolWireStates(OPERATOR_TOOLS, session.accessToken);
 
   const initial: ToolListResponse = {
     edgeUrl: status.edgeUrl,
@@ -37,7 +39,7 @@ export default function OperatorToolsPage() {
     }),
     residual: {
       reconcile: 'simulated — svc-edge has no reconcile route; see /ledger',
-      sso: 'Class X — console has no operator SSO; required fail-closed BFF gate is the interim deployment boundary',
+      sso: 'Current interactive founder identity is required for every request',
     },
   };
 
