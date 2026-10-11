@@ -4,9 +4,9 @@ import { baseEnvSchema, httpEnvSchema, loadEnv, natsEnvSchema, otelEnvSchema } f
 /**
  * Credentials this process must never take. Pin-tested in `env.isolation.test.ts`.
  *
- * Public depth/tape need no S2S secret, principal secret, or database. The only
- * optional secret is `JWT_ACCESS_SECRET` for `/private/stream` and
- * `/drop-copy/stream` — not listed here because it is deliberate and scoped.
+ * Public depth/tape require no identity credentials. Private reads use optional
+ * JWT verification and dedicated IDENTITY_OWNERSHIP_SECRET read authentication, never
+ * a principal-signing key or identity database connection.
  */
 export const FORBIDDEN_SERVICE_CREDENTIALS = ['INTERNAL_SERVICE_SECRET', 'EDGE_PRINCIPAL_SECRET', 'DATABASE_URL'] as const;
 
@@ -16,12 +16,9 @@ export const FORBIDDEN_SERVICE_CREDENTIALS = ['INTERNAL_SERVICE_SECRET', 'EDGE_P
  * READ THE OMISSIONS FIRST — they are the security argument for this service
  * existing at all:
  *
- *   · **no `INTERNAL_SERVICE_SECRET`.** This is the one internet-facing socket
- *     in the fleet besides svc-edge, and public market data is unauthenticated
- *     by design (§9). A process that accepts anonymous connections must not
- *     also hold the credential that opens `ledger.post` and `matching.submit`.
- *     svc-matching's depth read needs no credential, so there is nothing here
- *     to take on the public path.
+ *   · **no `INTERNAL_SERVICE_SECRET` env field.** Dedicated identity read
+ *     authentication is configured through IDENTITY_OWNERSHIP_SECRET. Public
+ *     matching/listing requests never receive this credential.
  *   · **no `EDGE_PRINCIPAL_SECRET`.** The public port is not principal-scoped.
  *     Optional `JWT_ACCESS_SECRET` is ONLY for `/private/stream` and
  *     `/drop-copy/stream` (same secret as identity/edge). Public `/stream` never reads it.
@@ -43,6 +40,9 @@ const schema = baseEnvSchema
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('svc-ws'),
+      /** Optional private-read authority; missing disables private upgrades only. */
+      IDENTITY_URL: z.preprocess((v) => (typeof v === 'string' && !v.trim() ? undefined : v), z.string().optional()),
+      IDENTITY_OWNERSHIP_SECRET: z.preprocess((v) => (typeof v === 'string' && !v.trim() ? undefined : v), z.string().optional()),
       /** 4014: every port from 4000 to 4013 is taken by another service. */
       HTTP_PORT: z.coerce.number().int().default(4014),
 
@@ -266,6 +266,8 @@ const schema = baseEnvSchema
 /** Keys this service's own schema layer declares (excludes shared base/nats/otel). */
 export const SVC_WS_OWN_ENV_KEYS = [
   'SERVICE_NAME',
+  'IDENTITY_URL',
+  'IDENTITY_OWNERSHIP_SECRET',
   'HTTP_PORT',
   'MATCHING_URL',
   'TRADE_URL',

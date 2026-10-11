@@ -164,6 +164,7 @@ if (!available) {
     it('GET /internal/api-keys/:keyId returns the snapshot on the wire', async () => {
       const session = await register();
       const secret = 'an-identity-test-internal-secret-long-enough-for-hmac';
+      const wsSecret = 'an-identity-private-read-secret-long-enough-for-hmac';
       const created = await auth.createApiKey({
         userId: session.userId,
         name: 'wire',
@@ -174,12 +175,12 @@ if (!available) {
       await bindApiKeyIpAllowlist(db.sql, session.userId, created.id, ['2001:db8::1']);
       await bindApiKeyProductScope(db.sql, session.userId, created.id, ['trade'], ['trade:read']);
       const app = Fastify({ logger: false });
-      registerApiKeyOwnershipRoute(app, { door, internalSecret: secret });
+      registerApiKeyOwnershipRoute(app, { door, internalSecret: secret, privateAuthoritySecret: wsSecret });
       await app.ready();
       const res = await app.inject({
         method: 'GET',
         url: `${API_KEY_OWNERSHIP_PATH}/${created.id}`,
-        headers: serviceAuthHeadersForBody('svc-ws', secret, ''),
+        headers: serviceAuthHeadersForBody('svc-ws', wsSecret, ''),
       });
       expect(res.statusCode).toBe(200);
       const body = res.json() as Record<string, unknown>;
@@ -198,7 +199,7 @@ if (!available) {
       const missing = await app.inject({
         method: 'GET',
         url: `${API_KEY_OWNERSHIP_PATH}/00000000-0000-4000-8000-000000000099`,
-        headers: serviceAuthHeadersForBody('svc-ws', secret, ''),
+        headers: serviceAuthHeadersForBody('svc-ws', wsSecret, ''),
       });
       expect(missing.statusCode).toBe(404);
       await app.close();
@@ -249,11 +250,15 @@ if (!available) {
       });
       await expect(store.readSession(session.sessionId)).resolves.toMatchObject({ status: 'open' });
       await auth.logout(session.refreshToken);
-      await store.publishSession({
-        sessionId: session.sessionId,
-        userId: session.userId,
-        status: 'open',
-      });
+      await expect(
+        store.publishSession({
+          sessionId: session.sessionId,
+          userId: session.userId,
+          status: 'open',
+        }),
+      ).rejects.toMatchObject({ code: 'session_authority_denied' });
+      // Inject a legacy stale projection; the production publisher refuses it.
+      await db.sql`UPDATE navigator_session_projections SET status = 'open' WHERE session_id = ${session.sessionId}`;
       await expect(store.readSession(session.sessionId)).resolves.toMatchObject({
         sessionId: session.sessionId,
         userId: session.userId,

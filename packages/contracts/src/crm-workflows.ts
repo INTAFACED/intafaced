@@ -394,6 +394,7 @@ export const crmWorkflowAuditSchema = z
       'task_created',
       'task_transitioned',
       'interaction_recorded',
+      'message_queued',
       'export_generated',
     ]),
     reason,

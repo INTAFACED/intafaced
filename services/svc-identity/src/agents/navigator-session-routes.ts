@@ -7,7 +7,7 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { rawBodyOf, retainRawBody, verifyServiceHeaders, type ServiceBodyBindMode } from '@intafaced/contracts';
-import type { NavigatorSessionStore } from './navigator-session-store.js';
+import { NavigatorSessionPublishError, type NavigatorSessionStore } from './navigator-session-store.js';
 
 export const NAVIGATOR_SESSION_PATH = '/internal/agents/navigator-session' as const;
 export const NAVIGATOR_SESSION_PUBLISH_PATH = '/internal/agents/navigator-session/publish' as const;
@@ -20,7 +20,7 @@ export type NavigatorSessionRefuse = {
 
 export type NavigatorSessionPublishRefuse = {
   readonly ok: false;
-  readonly reason: 'no_session_store' | 'invalid_publish_body';
+  readonly reason: 'no_session_store' | 'invalid_publish_body' | 'session_authority_denied';
 };
 
 export type NavigatorSessionPublishOk = {
@@ -109,7 +109,13 @@ export function registerNavigatorSessionRoutes(app: FastifyInstance, deps: Navig
       const body: NavigatorSessionPublishRefuse = { ok: false, reason: 'invalid_publish_body' };
       return reply.code(400).send(body);
     }
-    await deps.store.publishSession(session);
+    try {
+      await deps.store.publishSession(session);
+    } catch (error) {
+      if (!(error instanceof NavigatorSessionPublishError)) throw error;
+      const body: NavigatorSessionPublishRefuse = { ok: false, reason: error.code };
+      return reply.code(409).send(body);
+    }
     const body: NavigatorSessionPublishOk = { ok: true };
     return reply.send(body);
   });

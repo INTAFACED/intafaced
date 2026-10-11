@@ -3,9 +3,8 @@
 **The live public market-data stream (§5.2 `ws.gateway`).** Depth (snapshot + sequenced deltas) and a public trade
 tape, to any browser that asks.
 
-**What this service is not:** it has no users, no balances, no database, and **no S2S / principal / DB credential**.
-Public depth and the trade tape hold nothing to steal. Optional `JWT_ACCESS_SECRET` exists **only** for the
-authenticated `/private/stream` lifecycle fan-out; public `/stream` never reads it. Depth reads a public endpoint
+This service owns no users, balances or database. Optional `JWT_ACCESS_SECRET` and
+`IDENTITY_OWNERSHIP_SECRET` support authenticated private reads; public `/stream` never uses them. Depth reads a public endpoint
 on svc-matching and diffs it with `@intafaced/market-data`. Trades subscribe to the existing `orderFilled` bus
 event and re-broadcast a stripped public print.
 
@@ -29,7 +28,12 @@ as this service does, while holding `INTERNAL_SERVICE_SECRET` for both the ledge
 `ledger.hold` on the money path. Attaching an unauthenticated public socket to that process trades the entire
 custodial blast radius for one saved container.
 
-So: a process that holds no S2S secret, no principal key, and no database — optional JWT only for private stream.
+The process holds no principal-signing key or database connection. Private reads
+use the dedicated identity read credential, configured through
+`IDENTITY_OWNERSHIP_SECRET` and matching identity's `IDENTITY_WS_AUTHORITY_SECRET`.
+Identity accepts it only for current authority and API-key policy reads. It must
+be distinct from generic and admission keys. Public matching/listing reads never
+receive that credential.
 
 | Holds                                        | svc-edge | svc-trade | svc-matching | **svc-ws**   |
 | -------------------------------------------- | -------- | --------- | ------------ | ------------ |
@@ -301,15 +305,18 @@ After a consumer is attached, **nats.js owns TCP reconnect** for that connection
 | `WS_TRADES_DURABLE`                   | `ws-trade-tape`         | JetStream durable; unique per replica for multi-instance                                                                         |
 | `WS_GATEWAY_ENABLED`                  | `true`                  | kill-switch (env / restart / SIGTERM — not edge admin)                                                                           |
 | `JWT_ACCESS_SECRET`                   | _(unset)_               | optional; only `/private/stream` — public path ignores it                                                                        |
+| `IDENTITY_URL`                        | _(unset)_               | identity authority base; missing/invalid disables private upgrades only                                                          |
+| `IDENTITY_OWNERSHIP_SECRET`           | _(unset)_               | dedicated identity private-read key matching `IDENTITY_WS_AUTHORITY_SECRET`; at least 32 characters; no default                  |
 
 ### Isolation (what this process holds)
 
-| Credential / secret       | Present? | Why                                           |
-| ------------------------- | -------- | --------------------------------------------- |
-| `INTERNAL_SERVICE_SECRET` | **no**   | no S2S writes; depth/listing reads are public |
-| `EDGE_PRINCIPAL_SECRET`   | **no**   | public port is not principal-scoped           |
-| `DATABASE_URL`            | **no**   | nothing stored here                           |
-| `JWT_ACCESS_SECRET`       | optional | private order/fill/position stream only       |
+| Credential / secret         | Present? | Why                                           |
+| --------------------------- | -------- | --------------------------------------------- |
+| `INTERNAL_SERVICE_SECRET`   | **no**   | no S2S writes; depth/listing reads are public |
+| `EDGE_PRINCIPAL_SECRET`     | **no**   | public port is not principal-scoped           |
+| `DATABASE_URL`              | **no**   | nothing stored here                           |
+| `JWT_ACCESS_SECRET`         | optional | private order/fill/position stream only       |
+| `IDENTITY_OWNERSHIP_SECRET` | optional | body-signed identity private authority reads  |
 
 Pin: `src/env.isolation.test.ts` + `FORBIDDEN_SERVICE_CREDENTIALS` in `env.ts`.
 
@@ -322,7 +329,33 @@ Direct `NEXT_PUBLIC_WS_URL` / `apps/web` wiring is not the compose path for the 
 ## Private stream (`/private/stream`)
 
 JWT-authenticated, push-only. Query `?access_token=` (or `Authorization: Bearer`). Requires `trade:read` or
-`trade:write`. Disabled (403) when `JWT_ACCESS_SECRET` is unset — public depth/tape are unaffected.
+`trade:write`. Disabled (403) when `JWT_ACCESS_SECRET` is unset; missing/invalid identity
+configuration refuses private upgrades with 503. Public depth/tape are unaffected.
+
+Both `/private/stream` and `/drop-copy/stream` require identity POST
+`/trpc/accountControls.currentAuthority`, exact plain JSON and body-bound v2 service
+authentication. The response must match the verified JWT's user, session/API key
+and optional subaccount. API-key IP, origin, product, expiry and account restrictions
+remain checked against identity-owned key metadata.
+
+Private authority expires no later than five seconds after request start, and
+sooner for remote expiry or JWT expiry. Local elapsed time uses a monotonic clock;
+future-skew, stale, mismatched, malformed or unavailable eligibility refuses.
+Healthy seats renew halfway through their remaining lease; each identity request
+has a one-second timeout. An independent timer closes and terminates expired seats
+even while renewal hangs, no private events arrive, or invalidation is missed.
+An expired/closed seat cannot revive when a delayed response arrives. Dispatch and
+subscription check the lease as well. Ping/pong heartbeat remains transport health;
+its 30-second default does not govern authority expiry. Timer deadlines assume the
+Node event loop is running; a stalled process cannot provide a real-time bound.
+
+Ordinary production sessions use active identity plus owned live session and
+verified JWT scopes. The prior optional passkey adapter expected fields absent
+from identity account-state responses; production no longer wires it. Callers
+that explicitly supply that supplemental adapter retain its checks. Founder
+mutation MFA is checked separately by identity. Read snapshots never authorize
+trading admission or new money actions. `/health` and `/ready` report
+`privateAuthorityConfigured` as configuration, not a remote availability probe.
 
 On connect the server sends three ready frames, then live updates:
 

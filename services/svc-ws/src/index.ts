@@ -16,9 +16,8 @@ import { tryAttachPrivate, type PrivateAttachments } from './private/source.js';
 import { DropCopyHub } from './drop-copy/hub.js';
 import { tryAttachDropCopy, type DropCopyAttachments } from './drop-copy/source.js';
 import { WS_COPY } from './copy.js';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 import { createPrivateWebSocketGateway, redactAccessTokenQuery } from './private/gateway.js';
-import { createIdentityOwnershipClient } from './private/live-credential.js';
+import { createIdentityAuthorityClient } from './private/authority.js';
 import { createDropCopyWebSocketGateway } from './drop-copy/gateway.js';
 import { HttpPrivateBookPort } from './private/book.js';
 import { leaseRangeFromEnv } from './private/cod.js';
@@ -63,9 +62,9 @@ registerProcessHooks(
  * to that process trades the entire custodial blast radius for one saved
  * container.
  *
- * So: a process that holds nothing. No database, no ledger client, no service
- * secret, no principal key. Depth is a public GET re-broadcast; trades are a
- * public strip of `orderFilled` off the bus. See README.md.
+ * No database or principal-signing key. Public depth/tape stay anonymous.
+ * Private reads use identity service authentication to obtain bounded live
+ * credential snapshots; this process posts no ledger transactions.
  */
 
 const source = new HttpDepthSource({ baseUrl: env.MATCHING_URL });
@@ -184,26 +183,17 @@ const privateTokens =
         accessTtlSeconds: 900,
       };
 
-const identityUrl = process.env.IDENTITY_URL;
-const identityOwnershipSecret = process.env.IDENTITY_OWNERSHIP_SECRET;
-const liveCredential =
-  identityUrl && identityOwnershipSecret
-    ? (() => {
-        const identityOwnership = createIdentityOwnershipClient({
-          baseUrl: identityUrl,
-          headers: serviceAuthHeadersForBody('svc-ws', identityOwnershipSecret, ''),
-        });
-        return {
-          getSession: (sessionId: string) => identityOwnership.getSession(sessionId),
-          getApiKey: (keyId: string) => identityOwnership.getApiKey(keyId),
-          getAccount: (userId: string) => identityOwnership.getAccount(userId),
-          sessionPasskey: {
-            identityUrl,
-            identityOwnershipSecret,
-          },
-        };
-      })()
-    : null;
+// Private authority is mandatory; missing configuration leaves public feeds live.
+const identityUrl = env.IDENTITY_URL;
+const identityOwnershipSecret = env.IDENTITY_OWNERSHIP_SECRET;
+const authority = (() => {
+  if (!identityUrl || !identityOwnershipSecret) return null;
+  try {
+    return createIdentityAuthorityClient({ baseUrl: identityUrl, secret: identityOwnershipSecret });
+  } catch {
+    return null;
+  }
+})();
 
 let enabled = env.WS_GATEWAY_ENABLED;
 const isEnabled = () => enabled;
@@ -344,6 +334,7 @@ registerRoutes(app, {
   // Mutable getters: lifecycle flips these when reconnect lands.
   tradesBus: busLifecycle.tradesBus,
   privateBus: busLifecycle.privateBus,
+  privateAuthorityConfigured: () => authority !== null,
   dropCopyBus: busLifecycle.dropCopyBus,
   pollMs: env.WS_POLL_INTERVAL_MS,
 });
@@ -396,7 +387,7 @@ const privateGateway = createPrivateWebSocketGateway({
   book: new HttpPrivateBookPort({ baseUrl: env.TRADE_URL }),
   codRange: leaseRangeFromEnv(env.WS_COD_MIN_LEASE_MS, env.WS_COD_MAX_LEASE_MS),
   tradeCancel: new HttpTradeCancelPort({ baseUrl: env.TRADE_URL }),
-  liveCredential,
+  authority,
 });
 
 const dropCopyGateway = createDropCopyWebSocketGateway({
@@ -406,7 +397,7 @@ const dropCopyGateway = createDropCopyWebSocketGateway({
   log: app.log,
   enabled: isEnabled,
   tokens: privateTokens,
-  liveCredential,
+  authority,
 });
 
 poller.start();
@@ -420,9 +411,9 @@ app.log.info(
     depthLimit: env.WS_DEPTH_LIMIT,
     pollMs: env.WS_POLL_INTERVAL_MS,
     trades: busLifecycle.tradesBus(),
-    privateOrders: busLifecycle.privateBus() && privateTokens !== null,
-    privatePositions: busLifecycle.privateBus() && privateTokens !== null,
-    dropCopy: busLifecycle.dropCopyBus() && privateTokens !== null,
+    privateOrders: busLifecycle.privateBus() && privateTokens !== null && authority !== null,
+    privatePositions: busLifecycle.privateBus() && privateTokens !== null && authority !== null,
+    dropCopy: busLifecycle.dropCopyBus() && privateTokens !== null && authority !== null,
     enabled,
     sbeLinked: sbeCodec.linked,
     sbeJava: process.env[JAVA_ENV] ?? null,

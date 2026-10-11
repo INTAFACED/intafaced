@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { EDGE_PRINCIPAL_HEADER } from '@intafaced/contracts';
 import { exchangePrincipal } from './principal-exchange.js';
+import { currentAuthorityTestReply } from './test-current-authority.js';
 
 const tokens: TokenConfig = {
   secret: 'edge-test-jwt-signing-secret-32-chars',
@@ -23,6 +24,7 @@ const options = {
   edgeSecret: EDGE_SECRET,
   region: 'GB',
   identityUrl: 'https://identity.test',
+  identityOwnershipSecret: OWNERSHIP_SECRET,
 };
 
 async function accessToken(apiKeyId?: string): Promise<string> {
@@ -34,7 +36,9 @@ async function accessToken(apiKeyId?: string): Promise<string> {
 }
 
 function fetchWith(ipAllowlist?: string[]): typeof fetch {
-  return async () => {
+  return async (input, init) => {
+    const authority = currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: SESSION });
+    if (authority) return authority;
     const token = await accessToken();
     const json: Record<string, unknown> = { accessToken: token };
     if (ipAllowlist !== undefined) json.ipAllowlist = ipAllowlist;
@@ -172,8 +176,15 @@ describe('API key IP allowlist at the session door', () => {
         ...options,
         clientIp: LISTED,
         identityOwnershipSecret: OWNERSHIP_SECRET,
-        fetch: async (input) => {
+        fetch: async (input, init) => {
           const url = String(input);
+          const authority = currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: KEY });
+          if (authority) return authority;
+          if (url.includes('/internal/api-keys/'))
+            return new Response(JSON.stringify({ id: KEY, userId: USER, revoked: false, ipAllowlist: [LISTED] }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            });
           if (url.includes('/internal/account/')) {
             return new Response(JSON.stringify({ userId: USER, status: 'active', kycTier: 'none' }), {
               status: 200,
@@ -197,8 +208,15 @@ describe('API key IP allowlist at the session door', () => {
         ...options,
         clientIp: FOREIGN,
         identityOwnershipSecret: OWNERSHIP_SECRET,
-        fetch: async (input) => {
+        fetch: async (input, init) => {
           const url = String(input);
+          const authority = currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: KEY });
+          if (authority) return authority;
+          if (url.includes('/internal/api-keys/'))
+            return new Response(JSON.stringify({ id: KEY, userId: USER, revoked: false, ipAllowlist: [LISTED] }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            });
           if (url.includes('/internal/account/')) {
             return new Response(JSON.stringify({ userId: USER, status: 'active', kycTier: 'none' }), {
               status: 200,

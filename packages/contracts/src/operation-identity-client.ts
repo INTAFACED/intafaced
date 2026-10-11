@@ -32,7 +32,7 @@ export function canonicalIdentityOperationIntent(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalIdentityOperationIntent).join(',')}]`;
   if (value && typeof value === 'object')
     return `{${Object.entries(value)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .sort(([a], [b]) => (a < b ? -1 : Number(a > b)))
       .map(([key, child]) => `${JSON.stringify(key)}:${canonicalIdentityOperationIntent(child)}`)
       .join(',')}}`;
   return JSON.stringify(value);

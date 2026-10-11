@@ -56,8 +56,19 @@
 //    /checkuser, /identbusiness, the whole OTC desk) simply rendered blank.
 //    A route that needs a session says so HERE, once.
 
+var intakeRoutes = require('../assets/js/outreach-intake.js');
+function publicJourney(resolve, fallback) {
+    if (typeof window !== 'undefined' && intakeRoutes.isJoinHost(window.location.hostname)) require(["../pages/intafaced/Outreach"], resolve);
+    else fallback(resolve);
+}
+
 export default [
-    { path: '/', component: resolve=>(require(["../pages/index/Index"],resolve)) },
+    { path: '/join', component: resolve=>(require(["../pages/intafaced/Outreach"],resolve)) },
+    { path: '/join/:journey(invest|trade|merchant|academy|partner)', component: resolve=>(require(["../pages/intafaced/Outreach"],resolve)) },
+    { path: '/invest', component: resolve=>(require(["../pages/intafaced/Outreach"],resolve)) },
+    { path: '/trade', component: resolve=>(require(["../pages/intafaced/Outreach"],resolve)) },
+    { path: '/merchant', component: resolve=>(require(["../pages/intafaced/Outreach"],resolve)) },
+    { path: '/', component: resolve=>publicJourney(resolve, r=>require(["../pages/index/Index"],r)) },
     { path: '/index', component: resolve=>(require(["../pages/index/Index"],resolve)) },
     { path: '/login', component: resolve=>(require(["../pages/uc/Login"],resolve)) },
     { path: '/login/returnUrl/:returnUrl', component: resolve=>(require(["../pages/uc/Login"],resolve)) },
@@ -81,7 +92,7 @@ export default [
     { path: '/ctc', redirect: '/p2p' },
     { path: '/lab/detail/:id', component: resolve=>(require(["../pages/activity/ActivityDetail"],resolve)) },
     { path: '/announcement/:id', component: resolve=>(require(["../pages/cms/NoticeItem"],resolve)), name: "NoticeDetail" },
-    { path: '/partner', component: resolve=>(require(["../pages/activity/Partner"],resolve)) },
+    { path: '/partner', component: resolve=>publicJourney(resolve, r=>require(["../pages/activity/Partner"],r)) },
     { path: '/bzb', component: resolve=>(require(["../pages/activity/Bzb"],resolve)) },
     // `/whitepaper` is deliberately absent. It rendered `<embed>` of
     // /static/INTAFACEDWhitePaperVer 1.0.pdf and linked a raw.githubusercontent
@@ -146,7 +157,7 @@ export default [
     { path: '/chain', component: resolve=>(require(["../pages/intafaced/Chain"],resolve)) },
     // Two modules with no service behind them at all. Same component, told
     // which one it is — see pages/intafaced/NotBuilt.vue.
-    { path: '/academy', component: resolve=>(require(["../pages/intafaced/Academy"],resolve)) },
+    { path: '/academy', component: resolve=>publicJourney(resolve, r=>require(["../pages/intafaced/Academy"],r)) },
     { path: '/launch', component: resolve=>(require(["../pages/intafaced/Launch"],resolve)) },
 
     // `/envelope/:eno` (gift-claim links) was here and is DELETED, not socketed.

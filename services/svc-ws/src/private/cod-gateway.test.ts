@@ -1,3 +1,4 @@
+import { TEST_AUTHORITY } from '../test-support/authority.js';
 import { createServer, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
@@ -102,6 +103,7 @@ describe('private COD gateway', () => {
     baseUrl = `ws://127.0.0.1:${addr.port}`;
     const log: HubLogger = { info: () => undefined, warn: () => undefined };
     gateway = createPrivateWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server,
       hub,
       heartbeatMs: 30_000,

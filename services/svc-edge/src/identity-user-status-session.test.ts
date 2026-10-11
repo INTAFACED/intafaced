@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { EDGE_PRINCIPAL_HEADER } from '@intafaced/contracts';
 import { exchangePrincipal } from './principal-exchange.js';
+import { currentAuthorityTestReply } from './test-current-authority.js';
 
 const tokens: TokenConfig = {
   secret: 'edge-test-jwt-signing-secret-32-chars',
@@ -37,7 +38,19 @@ function json(body: unknown, status = 200): Response {
 }
 
 function fetchIdentity(opts: { sessionRevoked?: boolean; keyRevoked?: boolean; status?: string; accountHttp?: number }): typeof fetch {
-  return async (input) => {
+  return async (input, init) => {
+    const body = JSON.parse(String(init?.body ?? '{}')) as { credential?: { kind?: string } };
+    const isKey = body.credential?.kind === 'api_key';
+    if (opts.accountHttp && opts.accountHttp !== 200 && String(input).endsWith('/trpc/accountControls.currentAuthority')) {
+      return new Response(null, { status: opts.accountHttp });
+    }
+    const authority = currentAuthorityTestReply(input, init, {
+      expectedUserId: USER,
+      expectedCredentialId: isKey ? KEY : SESSION,
+      accountStatus: opts.status,
+      credentialRevoked: isKey ? opts.keyRevoked : opts.sessionRevoked,
+    });
+    if (authority) return authority;
     const url = String(input);
     if (url.includes('/internal/account/')) {
       expect(url).toContain(`/internal/account/${USER}`);
@@ -98,14 +111,14 @@ describe('disabled / panic-revoked user at the HTTP session door', () => {
     expect(result.headers[EDGE_PRINCIPAL_HEADER]).toBeUndefined();
   });
 
-  it('missing ownership secret stays on JWT (no invented live-check)', async () => {
+  it('missing dedicated authority key refuses authenticated forwarding', async () => {
     const token = await accessToken();
     const result = await exchangePrincipal(
       { authorization: `Bearer ${token}` },
       { tokens, edgeSecret: EDGE_SECRET, region: 'GB', identityUrl: 'http://identity.test' },
     );
-    expect(result.rejected).toBeNull();
-    expect(result.principal?.userId).toBe(USER);
+    expect(result.rejected).toBe('invalid');
+    expect(result.principal).toBeNull();
   });
 
   it('a key-minted JWT also consumes identity status', async () => {
