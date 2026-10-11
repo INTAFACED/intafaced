@@ -91,7 +91,9 @@ describe('Guest notification durable boundary (isolated PostgreSQL)', () => {
     ]);
     expect(await new GuestNotificationService(db.sql, wire.email).send(input)).toEqual(accepted);
     expect(wire.messages).toHaveLength(1);
-    expect(wire.keys).toEqual([`${accepted.notificationId}:email`]);
+    expect(wire.keys).toEqual([expect.stringMatching(/^guest-email-v1:[a-f0-9]{64}$/)]);
+    expect(wire.keys[0]).not.toContain(accepted.notificationId);
+    expect(wire.keys[0]).not.toContain(input.businessKey);
     expect(accepted).not.toHaveProperty('deliveredAt');
   });
   it('erases prospect payload durably and blocks future enqueue, while replaying the original erase receipt', async () => {

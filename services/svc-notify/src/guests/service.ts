@@ -67,7 +67,9 @@ function message(row: Row): OutboundMessage {
     href: null,
     locale: 'en',
     address: input.recipientEmail,
-    idempotencyKey: `${row.id}:email`,
+    // Business identity survives restoration of an older notify database;
+    // the generated row ID does not. Keep the transport key opaque.
+    idempotencyKey: `guest-email-v1:${createHash('sha256').update(row.business_key).digest('hex')}`,
   };
 }
 
