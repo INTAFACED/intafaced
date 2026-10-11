@@ -23,6 +23,7 @@ import { assertZeroPiiSurface } from './attestations/zero-pii.js';
 import { mayViewCard } from './visibility.js';
 import type { CardRenderer } from './card/card-renderer.js';
 import { EngineProtocolError, EngineUnavailableError, type BlueprintRequest, type NeuralEngineClient } from './engine/neural-engine.js';
+import { deterministicUuid } from './deterministic.js';
 import { chooseCrew, crewName, newCrewId, rankCrews, type CrewCandidate, type MatchableProfile } from './matching/crew-matching.js';
 import { shortlistMentors, type MentorCandidate, type MentorProfile } from './matching/mentor-matching.js';
 import { setBlueprintSpanAttribute, withBlueprintSpan } from './tracing.js';
@@ -112,6 +113,19 @@ export function publishedSeason(value: number | undefined): number {
     throw new BlueprintError('BLUEPRINT_SEASON is unset — owner must publish a crew season (never invent 1)', 'blueprint.season_unset');
   }
   return value;
+}
+
+/**
+ * Derived crew id at one step of a start-fresh placement.
+ *
+ * Step 0 is `newCrewId`. Step 1 is the historical `start-fresh` salt. From
+ * step 2 the salt is `start-fresh:2`, `start-fresh:3`, and so on. The walk
+ * does not stop at `start-fresh:7`.
+ */
+function startFreshCrewId(season: number, userId: string, step: number): string {
+  if (step === 0) return newCrewId(season, userId);
+  const salt = step === 1 ? 'start-fresh' : `start-fresh:${step}`;
+  return deterministicUuid(`crew:s${season}:${salt}`, userId);
 }
 
 export interface BlueprintServiceOptions {
@@ -330,28 +344,36 @@ export class BlueprintService implements BlueprintContract {
     // No crew is open, or none is better than starting fresh — form one. The id is derived
     // from the season and this user, so a retry of this exact placement forms
     // the same crew rather than stranding an empty one.
-    const crewId = newCrewId(season, userId);
-    const crew = await this.formCrew(tx, crewId, season);
-    await this.insertMembership(tx, crewId, userId, profile.crewRole);
-    const matchRunId = await this.recordMatchRun(tx, userId, candidateSummary, scores, crewId);
+    //
+    // formCrew returns the existing row for whatever id it is given. An id that
+    // already has other members is not a fresh start: joining it reopens a crew
+    // chooseCrew rejected. Walk newCrewId, then start-fresh, start-fresh:2,
+    // start-fresh:3, and onward. Each step reads membershipCount and stops at
+    // the first zero. An empty derived crew is still reused. A member without
+    // a blueprint still counts. This path does not raise blueprint.crew_full.
+    const crew = await this.formStartFreshCrew(tx, season, userId);
+    await this.insertMembership(tx, crew.id, userId, profile.crewRole);
+    const matchRunId = await this.recordMatchRun(tx, userId, candidateSummary, scores, crew.id);
 
     return { crewId: crew.id, crewName: crew.name, score: 0, matchRunId, crewFormed: true };
   }
 
   /**
-   * Every open crew in the current season, with its members' matchable axes.
+   * Every crew in the current season, with its members' matchable axes.
    *
-   * The join to `blueprints` is an INNER join in effect (`b.profile IS NOT
-   * NULL` on the aggregate filter) and the count comes from the same join, so
-   * `members.length` is always the number of members we can actually score.
-   * `ORDER BY c.id` makes the row order itself stable, which matters less than
-   * the tie-break in `rankCrews` but costs nothing and removes a variable.
+   * `members` keeps only people we can score (`b.profile IS NOT NULL`).
+   * `occupied` counts every `crew_members` row, the same set
+   * `insertMembership` enforces capacity against, so a member without a
+   * blueprint still occupies a seat. `ORDER BY c.id` makes the row order
+   * itself stable, which matters less than the tie-break in `rankCrews`
+   * but costs nothing and removes a variable.
    */
   private async loadCandidates(tx: Sql, season: number): Promise<CrewCandidate[]> {
-    const rows = await tx<Array<{ crew_id: string; capacity: number; members: MatchableProfile[] }>>`
+    const rows = await tx<Array<{ crew_id: string; capacity: number; occupied: number; members: MatchableProfile[] }>>`
       SELECT
         c.id AS crew_id,
         c.capacity,
+        COUNT(m.user_id)::int AS occupied,
         COALESCE(
           jsonb_agg(
             jsonb_build_object(
@@ -373,7 +395,42 @@ export class BlueprintService implements BlueprintContract {
       ORDER BY c.id
     `;
 
-    return rows.map((row) => ({ crewId: row.crew_id, capacity: row.capacity, members: row.members }));
+    return rows.map((row) => ({
+      crewId: row.crew_id,
+      capacity: row.capacity,
+      occupied: row.occupied,
+      members: row.members,
+    }));
+  }
+
+  /**
+   * Membership rows for this id, including a member who has no blueprint.
+   *
+   * Zero when the crew does not exist yet. This is the same set
+   * `insertMembership` enforces capacity against, so a seat with no profile
+   * still makes the derived crew occupied.
+   */
+  private async membershipCount(tx: Sql, crewId: string): Promise<number> {
+    const counted = await tx<Array<{ count: number }>>`
+      SELECT COUNT(*)::int AS count FROM blueprint.crew_members WHERE crew_id = ${crewId}
+    `;
+    return counted[0]?.count ?? 0;
+  }
+
+  /**
+   * Form the first derived start-fresh crew whose membership count is zero.
+   *
+   * Step 0 is the founder id. Later steps are `start-fresh`, `start-fresh:2`,
+   * `start-fresh:3`, and so on. Each step reads `membershipCount` before
+   * forming, and the first zero wins. An empty row is reused. A crew that
+   * already has members, including a member with no blueprint, is left alone.
+   */
+  private async formStartFreshCrew(tx: Sql, season: number, userId: string): Promise<{ id: string; name: string }> {
+    for (let step = 0; ; step += 1) {
+      const crewId = startFreshCrewId(season, userId, step);
+      if ((await this.membershipCount(tx, crewId)) > 0) continue;
+      return this.formCrew(tx, crewId, season);
+    }
   }
 
   /**
@@ -884,11 +941,14 @@ export class BlueprintService implements BlueprintContract {
         await this.bus.publish(
           'blueprintDeleted',
           { blueprintId: outcome.blueprintId, userId: input.userId, erasedAt },
-          // Keyed on the user, not the blueprint: a consumer that sees this
-          // twice must clear `profiles.blueprint_id` once, and the second
-          // delivery must be a no-op rather than a second clear of a field the
-          // user has since legitimately repopulated by onboarding again.
-          { idempotencyKey: `blueprint.erase:${input.userId}` },
+          // The key names the blueprint that was just erased. A second hard
+          // delete after the user onboards again is a different fact; a key of
+          // only the user id is deduped, and consumers never clear the new
+          // blueprint id. A redelivery of this same erase still shares the key.
+          // svc-identity clears `profiles.blueprint_id` only when it still
+          // matches the payload blueprintId, so a late duplicate of an earlier
+          // erase cannot clear a blueprint the user has since created.
+          { idempotencyKey: `blueprint.erase:${input.userId}:${outcome.blueprintId}` },
         );
       }
 
@@ -964,10 +1024,14 @@ export class BlueprintService implements BlueprintContract {
         crewSize: row.count,
         matchRunId: placement.matchRunId,
       },
-      // Keyed on the membership, not the run: re-running onboarding produces a
+      // The key names the blueprint that owns this membership. newCrewId is
+      // stable per season and user, so after erase a later join of that same
+      // crew reuses crew id and user id. A key of only those two is deduped,
+      // and consumers never observe the new membership. A redelivery of this
+      // same blueprint still shares the key: re-running onboarding produces a
       // new match run but the same membership, and a consumer opening a crew
       // channel must not open a second one.
-      { idempotencyKey: `blueprint.placed:${placement.crewId}:${userId}` },
+      { idempotencyKey: `blueprint.placed:${placement.crewId}:${userId}:${blueprint.id}` },
     );
   }
 }

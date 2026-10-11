@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SESSION_SCOPES, issueAccessToken, verifyAccessToken, type Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createBlueprintRouter } from './router.js';
@@ -28,6 +28,16 @@ const USER = '11111111-1111-4111-8111-111111111111';
 const VICTIM = '99999999-9999-4999-8999-999999999999';
 
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-blueprint' });
+
+beforeEach(() => {
+  // Exercise signature, ownership and scope with the explicit legacy test posture.
+  // Production keeps its strict blank-list refusal; the control below verifies it.
+  vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'off');
+  vi.stubEnv('INTAFACED_SANCTIONS_REGIONS', undefined);
+  vi.stubEnv('INTAFACED_SANCTIONS_LIST_SOURCE', undefined);
+});
+
+afterEach(() => vi.unstubAllEnvs());
 
 function principal(overrides: Partial<Principal> = {}): Principal {
   return {
@@ -72,6 +82,17 @@ function stubBlueprint(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 describe('svc-blueprint mount — authorisation', () => {
+  it('refuses a signed caller before reading with blank sanctions and the default strict screening posture', async () => {
+    vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', undefined);
+    const get = vi.fn(async () => null);
+
+    await expect(createBlueprintRouter(stubBlueprint({ get })).createCaller(signed()).me()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      cause: { code: 'denied.screening_unconfigured' },
+    });
+    expect(get).not.toHaveBeenCalled();
+  });
+
   it('refuses an anonymous caller on a scoped procedure, and reads nothing', async () => {
     let read = false;
     const blueprint = stubBlueprint({

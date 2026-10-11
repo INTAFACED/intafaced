@@ -105,8 +105,16 @@ const FORBIDDEN_NORMALIZED: Readonly<Record<string, PiiCategory>> = {
   publickey: 'cross_plane_address',
 };
 
+/** Camel-case forms whose stripped spelling is not the denylist key. */
+const CAMEL_CASE_PII_FOLDS: Readonly<Record<string, string>> = {
+  phonenumber: 'phone',
+  emailaddress: 'email',
+  dateofbirth: 'birthdate',
+};
+
 export function normalizeSurfaceKey(key: string): string {
-  return key.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  const flat = key.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  return CAMEL_CASE_PII_FOLDS[flat] ?? flat;
 }
 
 export function piiCategoryForKey(key: string): PiiCategory | null {
