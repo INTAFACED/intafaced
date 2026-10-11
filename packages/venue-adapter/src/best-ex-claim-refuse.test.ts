@@ -69,7 +69,28 @@ describe('refuseBestExClaim — Q/R named refuse', () => {
       ok: true,
       claimed: false,
     });
+    expect(copyClaimsBestEx('not a best-execution claim')).toBe(false);
     expect(copyClaimsBestEx(UNSET_DETAIL)).toBe(false);
+  });
+
+  it('best-ex and best ex are claims, and negation stays in its own sentence', () => {
+    expect(copyClaimsBestEx('This route is best-ex.')).toBe(true);
+    expect(copyClaimsBestEx('This route is best ex.')).toBe(true);
+    expectRefused(refuseBestExClaim({ copy: 'best-ex' }));
+    expectRefused(refuseBestExClaim({ copy: 'best ex' }));
+
+    expect(copyClaimsBestEx('No. We found the best price.')).toBe(true);
+    expectRefused(refuseBestExClaim({ copy: 'No. We found the best price.' }));
+    expect(copyClaimsBestEx('This is unproven. We found the best price.')).toBe(true);
+    expectRefused(refuseBestExClaim({ copy: 'This is unproven. We found the best price.' }));
+
+    expect(copyClaimsBestEx('We found the best price, but it is unproven.')).toBe(false);
+    expect(refuseBestExClaim({ copy: 'We found the best price, but it is unproven.' })).toEqual({
+      ok: true,
+      claimed: false,
+    });
+    expect(copyClaimsBestEx('No we found the best price')).toBe(false);
+    expect(refuseBestExClaim({ copy: 'No we found the best price' })).toEqual({ ok: true, claimed: false });
   });
 });
 

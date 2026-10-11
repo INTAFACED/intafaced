@@ -52,8 +52,8 @@ function setText(raw: string | boolean | null | undefined): string | null {
   return text.length === 0 ? null : text;
 }
 
-function isHonestNegation(copy: string): boolean {
-  const l = copy.toLowerCase();
+function isHonestNegation(sentence: string): boolean {
+  const l = sentence.toLowerCase();
   if (/\b(?:not|never|no)\b.{0,48}\b(?:best[- ]?execution|best[- ]?ex|smart[- ]?route|best price)\b/.test(l)) {
     return true;
   }
@@ -61,17 +61,19 @@ function isHonestNegation(copy: string): boolean {
   return false;
 }
 
+/** "best-ex" / "best ex" only. Trailing \b keeps this off "best execution". */
+const BEST_EX_PHRASE = /\bbest[- ]ex\b/;
+
+const AFFIRMATIVE_CLAIM =
+  /\bbest[- ]?execution\b|\bwe found the best price\b|\bfound the best price\b|\bsmart[- ]?route\b|\bsmart order router\b/;
+
 /** Affirmative user-facing best-ex / smart-route / best-price copy. */
 export function copyClaimsBestEx(copy: string): boolean {
-  if (isHonestNegation(copy)) return false;
-  const l = copy.toLowerCase();
-  return (
-    /\bbest[- ]?execution\b/.test(l) ||
-    /\bwe found the best price\b/.test(l) ||
-    /\bfound the best price\b/.test(l) ||
-    /\bsmart[- ]?route\b/.test(l) ||
-    /\bsmart order router\b/.test(l)
-  );
+  return copy.split(/[.!?\n]+/).some((sentence) => {
+    if (isHonestNegation(sentence)) return false;
+    const l = sentence.toLowerCase();
+    return BEST_EX_PHRASE.test(l) || AFFIRMATIVE_CLAIM.test(l);
+  });
 }
 
 function refuseUnset(): BestExClaimRefusal {
