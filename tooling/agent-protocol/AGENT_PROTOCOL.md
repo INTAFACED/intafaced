@@ -61,10 +61,12 @@ These are not style preferences. A PR that does any of them is rejected without 
 
 ---
 
-## 3 · Every PR must pass
+## 3 · Verify the change
+
+Agents own technical review and verification. Run checks that exercise the changed behavior, including affected tests, relevant typecheck/build, and money invariants where applicable. Fix failures introduced by the change. Report unrelated baseline failures and checks that could not run; do not claim unverified behavior works. Full-suite CI and `pnpm verify` are informational. Required branch-protection checks still apply.
 
 ```bash
-pnpm verify           # everything below, in this order — run this one
+pnpm verify           # broad informational check; use affected checks for the change
 ```
 
 `pnpm verify` is:
@@ -85,9 +87,9 @@ pnpm gate             # the full §14 Definition of Done, per service
 
 **CI runs the same gate list from the same file** — `tooling/ci/gates.mjs`. That is deliberate: verify and CI used to keep separate lists and drifted, so two gates ran in CI and nowhere local. The file fails if `.github/workflows/ci.yml` stops calling `pnpm gates`, and fails if a scan lands in `tooling/ci/` that neither the list nor its documented exclusions claim.
 
-A red gate is not a discussion.
+A failure affecting the change must be resolved before that work is called done. Never weaken a correctness gate. Unrelated full-suite failures do not freeze independent work or verified merges.
 
-**Run the local equivalents green before the push that opens/updates a code PR** — local is seconds, a CI round trip is minutes. Standard GitHub-hosted runner minutes are free on this public repo; service limits and acceptable-use rules still apply. Parallel pull requests stay, and agents still merge when done. Never weaken a gate. The old Actions spend throttle stays deleted. See [`docs/GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](../../docs/GITHUB-CI-SPEND-CONTROL-2026-07-31.md).
+Run the local checks when you can, with the scope and evidence above. Standard GitHub-hosted runner minutes are free on this public repo; service limits and acceptable-use rules still apply. Parallel pull requests stay, and agents still merge when done. Never weaken a gate. The old Actions spend throttle stays deleted. See [`docs/GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](../../docs/GITHUB-CI-SPEND-CONTROL-2026-07-31.md).
 
 A 403 or 429 from GitHub means stop GitHub requests and report the response, without a retry loop or a change of account or token. Share the refusal with other active agents; independent local work can continue. Resume a rate-limited request only after `Retry-After` or the exhausted limit's `X-RateLimit-Reset` time; if neither is supplied, wait at least 60 seconds before explicitly resuming. Resolve an account or permission restriction before resuming. Keep code work parallel, pace GitHub API requests, and avoid repeated status polling. See [GitHub's API best practices](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api).
 
@@ -161,6 +163,8 @@ If you find yourself writing a KYC check on the Protocol Plane, stop. Either the
 ---
 
 ## 8 · Definition of Done
+
+Product launch readiness is separate from merging a PR. Agents may merge their own verified changes and prepare previews; Nitro decides live launches. A merge does not authorize production deployment, live credentials, or real funds. The product readiness requirements below remain intact.
 
 A module ships when `pnpm gate <service>` is green **and** the manual checklist it prints is signed. Not before.
 
