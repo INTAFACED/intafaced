@@ -25,8 +25,8 @@
     "@intafaced/portfolio-view": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
-    "drizzle-orm": "^0.45.2",
-    "fastify": "^5.11.2",
+    "drizzle-orm": "^0.45.3",
+    "fastify": "^5.12.5",
     "postgres": "^3.4.5",
     "zod": "^3.24.1"
   },

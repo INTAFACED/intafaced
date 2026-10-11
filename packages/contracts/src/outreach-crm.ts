@@ -389,10 +389,14 @@ export const crmListInputSchema = z
 export type CrmListInput = z.infer<typeof crmListInputSchema>;
 
 /** Private list companions avoid one authenticated detail request per visible row. */
+export const crmSubmissionSummarySchema = z
+  .object({ submissionId: id, completedAt: timestamp.nullable(), organisationName: shortText.nullable() })
+  .strict();
 export const crmOpportunityPageSchema = z
   .object({
     items: z.array(crmOpportunitySchema).max(200),
     contacts: z.array(crmContactSchema).max(200),
+    submissions: z.array(crmSubmissionSummarySchema).max(200),
     nextCursor: z.string().min(1).max(256).nullable(),
   })
   .strict()
@@ -405,6 +409,17 @@ export const crmOpportunityPageSchema = z
     ) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['contacts'], message: 'List contacts must match the visible opportunities' });
     }
+    const submissionIds = page.submissions.map((submission) => submission.submissionId);
+    if (
+      new Set(submissionIds).size !== submissionIds.length ||
+      page.items.some((item) => !submissionIds.includes(item.submissionId)) ||
+      submissionIds.some((submissionId) => !page.items.some((item) => item.submissionId === submissionId))
+    )
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['submissions'],
+        message: 'List submissions must match the visible opportunities',
+      });
   });
 export type CrmOpportunityPage = z.infer<typeof crmOpportunityPageSchema>;
 

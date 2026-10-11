@@ -24,10 +24,10 @@
     "@intafaced/ledger-client": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
-    "@trpc/server": "^11.0.0-rc.660",
-    "fastify": "^5.11.2",
+    "@trpc/server": "^11.19.0",
+    "fastify": "^5.12.5",
     "postgres": "^3.4.5",
-    "viem": "^2.55.10",
+    "viem": "^2.57.3",
     "zod": "^3.24.1"
   },
   "devDependencies": {
