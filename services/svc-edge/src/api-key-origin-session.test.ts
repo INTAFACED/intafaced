@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { EDGE_PRINCIPAL_HEADER } from '@intafaced/contracts';
 import { exchangePrincipal } from './principal-exchange.js';
+import { currentAuthorityTestReply } from './test-current-authority.js';
 
 const tokens: TokenConfig = {
   secret: 'edge-test-jwt-signing-secret-32-chars',
@@ -16,7 +17,13 @@ const SESSION = '22222222-2222-4222-8222-222222222222';
 const LISTED = 'https://app.example.com';
 const FOREIGN = 'https://evil.example';
 
-const options = { tokens, edgeSecret: EDGE_SECRET, region: 'GB', identityUrl: 'http://identity.test' };
+const options = {
+  tokens,
+  edgeSecret: EDGE_SECRET,
+  region: 'GB',
+  identityUrl: 'http://identity.test',
+  identityOwnershipSecret: 'edge-test-identity-authority-secret-32',
+};
 
 async function accessToken(): Promise<string> {
   const issued = await issueAccessToken({ userId: USER, sessionId: SESSION, scopes: ['trade:read'], tier: 'basic', mfa: false }, tokens);
@@ -24,7 +31,9 @@ async function accessToken(): Promise<string> {
 }
 
 function fetchWith(originAllowlist?: string[]): typeof fetch {
-  return async () => {
+  return async (input, init) => {
+    const authority = currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: SESSION });
+    if (authority) return authority;
     const token = await accessToken();
     const json: Record<string, unknown> = { accessToken: token };
     if (originAllowlist !== undefined) json.originAllowlist = originAllowlist;

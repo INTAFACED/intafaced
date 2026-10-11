@@ -25,9 +25,9 @@
     "@intafaced/ledger-client": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
-    "@trpc/server": "^11.0.0-rc.660",
-    "drizzle-orm": "^0.45.2",
-    "fastify": "^5.11.2",
+    "@trpc/server": "^11.19.0",
+    "drizzle-orm": "^0.45.3",
+    "fastify": "^5.12.5",
     "postgres": "^3.4.5",
     "zod": "^3.24.1"
   },

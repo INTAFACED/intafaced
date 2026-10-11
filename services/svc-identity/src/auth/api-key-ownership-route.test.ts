@@ -5,13 +5,14 @@ import { API_KEY_OWNERSHIP_PATH, registerApiKeyOwnershipRoute } from './api-key-
 import type { ApiKeyOwnershipSnapshot } from './place-door.js';
 
 const SECRET = 'an-identity-test-internal-secret-long-enough-for-hmac';
+const EDGE = 'an-identity-test-http-read-secret-long-enough-for-hmac';
 const KEY = '00000000-0000-4000-8000-000000000001';
 const USER = '00000000-0000-4000-8000-000000000002';
 const ACC = '00000000-0000-4000-8000-000000000003';
 const EXPIRES = new Date('2099-01-01T00:00:00.000Z');
 
 function serviceHeaders(): Record<string, string> {
-  return serviceAuthHeadersForBody('svc-ws', SECRET, '');
+  return serviceAuthHeadersForBody('svc-edge', EDGE, '');
 }
 
 function doorWith(row: ApiKeyOwnershipSnapshot | null) {
@@ -25,7 +26,7 @@ function doorWith(row: ApiKeyOwnershipSnapshot | null) {
 describe('GET /internal/api-keys/:keyId', () => {
   it('401s without service credentials', async () => {
     const app = Fastify({ logger: false });
-    registerApiKeyOwnershipRoute(app, { door: doorWith(null), internalSecret: SECRET });
+    registerApiKeyOwnershipRoute(app, { door: doorWith(null), internalSecret: SECRET, edgeAuthoritySecret: EDGE });
     await app.ready();
     const res = await app.inject({ method: 'GET', url: `${API_KEY_OWNERSHIP_PATH}/${KEY}` });
     expect(res.statusCode).toBe(401);
@@ -34,7 +35,7 @@ describe('GET /internal/api-keys/:keyId', () => {
 
   it('404s unknown id', async () => {
     const app = Fastify({ logger: false });
-    registerApiKeyOwnershipRoute(app, { door: doorWith(null), internalSecret: SECRET });
+    registerApiKeyOwnershipRoute(app, { door: doorWith(null), internalSecret: SECRET, edgeAuthoritySecret: EDGE });
     await app.ready();
     const res = await app.inject({
       method: 'GET',
@@ -59,7 +60,7 @@ describe('GET /internal/api-keys/:keyId', () => {
       expiresAt: EXPIRES,
     };
     const app = Fastify({ logger: false });
-    registerApiKeyOwnershipRoute(app, { door: doorWith(bound), internalSecret: SECRET });
+    registerApiKeyOwnershipRoute(app, { door: doorWith(bound), internalSecret: SECRET, edgeAuthoritySecret: EDGE });
     await app.ready();
     const res = await app.inject({
       method: 'GET',
@@ -94,7 +95,7 @@ describe('GET /internal/api-keys/:keyId', () => {
       ipAllowlist: [],
     };
     const app = Fastify({ logger: false });
-    registerApiKeyOwnershipRoute(app, { door: doorWith(open), internalSecret: SECRET });
+    registerApiKeyOwnershipRoute(app, { door: doorWith(open), internalSecret: SECRET, edgeAuthoritySecret: EDGE });
     await app.ready();
     const res = await app.inject({
       method: 'GET',

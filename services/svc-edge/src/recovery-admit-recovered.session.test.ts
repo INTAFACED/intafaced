@@ -3,6 +3,7 @@ import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { EDGE_PRINCIPAL_HEADER } from '@intafaced/contracts';
 import { exchangePrincipal } from './principal-exchange.js';
 import { recoveryCodeAdmitsRecoveredSession } from './recovery-admit-recovered.js';
+import { currentAuthorityTestReply } from './test-current-authority.js';
 
 const tokens: TokenConfig = {
   secret: 'edge-test-jwt-signing-secret-32-chars',
@@ -35,7 +36,9 @@ function json(body: unknown, status = 200): Response {
 }
 
 function recoveredFetch(): typeof fetch {
-  return async (input) => {
+  return async (input, init) => {
+    const authority = currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: KEEP });
+    if (authority) return authority;
     const url = String(input);
     if (url.includes('/internal/account/')) {
       return json({ userId: USER, status: 'active', kycTier: 'none', lastVerifiedAt: '2026-08-25T00:00:00.000Z' });
