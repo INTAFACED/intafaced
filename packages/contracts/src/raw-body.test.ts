@@ -143,4 +143,63 @@ describe('raw body retention — the parser it replaces', () => {
 
     expect(rawBodyOf(req).retained && rawBodyOf(req).bytes.toString('utf8')).toBe('{not json');
   });
+
+  /**
+   * Fastify's default parser is secure-json-parse with proto and constructor
+   * poisoning set to error. That throw is caught and answered as invalid JSON:
+   * 400, `FST_ERR_CTP_INVALID_JSON_BODY`, and the route is not called.
+   */
+  it.each([
+    '{ "__proto__": { "a": 42 } }',
+    '{ "nested": { "__proto__": { "a": 1 } } }',
+    '[{ "__proto__": { "a": 1 } }]',
+    '{ "a": 5, "b": 6, "\\u005f_proto__": { "x": 7 } }',
+  ])('answers 400 and does not pass a body that contains __proto__ (%s)', (body) => {
+    const { host, request } = fakeHost();
+    retainRawBody(host);
+
+    const { req, error, parsed } = request(body);
+
+    expect(parsed).toBeUndefined();
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toMatchObject({
+      statusCode: 400,
+      code: 'FST_ERR_CTP_INVALID_JSON_BODY',
+      message: "Body is not valid JSON but content-type is set to 'application/json'",
+    });
+    const raw = rawBodyOf(req);
+    expect(raw.retained && raw.bytes.toString('utf8')).toBe(body);
+  });
+
+  it.each([
+    '{ "constructor": { "prototype": { "foo": "bar" } } }',
+    '{ "b": { "constructor": { "prototype": { "x": 1 } } } }',
+    '{ "a": 5, "b": 6, "\\u0063\\u006fnstructor": {"prototype":{"bar":"baz"}} }',
+  ])('answers 400 and does not pass a body that contains constructor.prototype (%s)', (body) => {
+    const { host, request } = fakeHost();
+    retainRawBody(host);
+
+    const { req, error, parsed } = request(body);
+
+    expect(parsed).toBeUndefined();
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toMatchObject({
+      statusCode: 400,
+      code: 'FST_ERR_CTP_INVALID_JSON_BODY',
+      message: "Body is not valid JSON but content-type is set to 'application/json'",
+    });
+    const raw = rawBodyOf(req);
+    expect(raw.retained && raw.bytes.toString('utf8')).toBe(body);
+  });
+
+  it('still parses a normal object whose constructor key is not constructor.prototype', () => {
+    const { host, request } = fakeHost();
+    retainRawBody(host);
+
+    const body = '{"constructor":{"bar":"baz"},"b":"__proto__","n":null}';
+    const { error, parsed } = request(body);
+
+    expect(error).toBeNull();
+    expect(parsed).toEqual({ constructor: { bar: 'baz' }, b: '__proto__', n: null });
+  });
 });

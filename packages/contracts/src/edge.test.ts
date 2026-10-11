@@ -158,6 +158,16 @@ describe('createEdgeContext', () => {
     expect(() => createEdgeContext({ secret: '', serviceName: 'svc-ledger' })).toThrow(/svc-ledger/);
   });
 
+  // A present service-to-service secret shorter than 32 characters is the same
+  // offline-guessable HMAC as a short principal secret. Boot must refuse it,
+  // including svc-ledger, so the context never mounts and the short secret is
+  // never handed to verifyServiceHeaders. Omitting the secret stays optional.
+  it('refuses a present internal secret shorter than 32 characters and does not mount, including svc-ledger', () => {
+    expect(() => createEdgeContext({ secret: SECRET, serviceName: 'svc-ledger', internalSecret: 'short' })).toThrow(EdgeTrustError);
+    expect(() => createEdgeContext({ secret: SECRET, serviceName: 'svc-ledger', internalSecret: 'short' })).toThrow(/svc-ledger/);
+    expect(() => createEdgeContext({ secret: SECRET, serviceName: 'svc-ledger', internalSecret: 'c'.repeat(31) })).toThrow(/at least 32/);
+  });
+
   it('puts a verified principal on the context', () => {
     const ctx = createEdgeContext({ secret: SECRET, serviceName: 'svc-test' });
     const { raw, sig } = forward(principal(), SECRET, 'GB');

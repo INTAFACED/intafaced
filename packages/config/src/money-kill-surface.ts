@@ -555,8 +555,10 @@ export function assertMoneyRoutesHaveKillMapping(upstreams: readonly MoneyEdgeUp
   const moneyModules = new Set<string>(moneyRouteKillModules());
 
   for (const upstream of upstreams) {
-    if (!moneyModules.has(upstream.module)) continue;
-    const control = isModuleId(upstream.module) ? moneyKillControlFor(upstream.module) : undefined;
+    // Skip only a registered non-money module. An unregistered name fails closed below.
+    const knownModule = isModuleId(upstream.module);
+    if (knownModule && !moneyModules.has(upstream.module)) continue;
+    const control = knownModule ? moneyKillControlFor(upstream.module) : undefined;
     if (!control) {
       failures.push(`money route prefix "${upstream.prefix}" names unknown module "${upstream.module}" — no kill mapping`);
       continue;

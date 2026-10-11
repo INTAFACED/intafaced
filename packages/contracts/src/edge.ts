@@ -192,6 +192,16 @@ export function createEdgeContext(options: EdgeContextOptions): (req: EdgeReques
     );
   }
 
+  // A present service-to-service secret is the same HMAC. Shorter than
+  // MIN_SECRET_LENGTH is offline-guessable signing theatre, including the
+  // svc-ledger path. Absence stays optional and reports service: null.
+  if (options.internalSecret !== undefined && options.internalSecret.length < MIN_SECRET_LENGTH) {
+    throw new EdgeTrustError(
+      `${options.serviceName}: INTERNAL_SERVICE_SECRET must be at least ${MIN_SECRET_LENGTH} characters to mount /trpc. ` +
+        'Shorter than this and the HMAC is guessable offline, at which point signing is theatre.',
+    );
+  }
+
   return (req) => {
     const header = (name: string): string | undefined => {
       const value = req.headers[name];
