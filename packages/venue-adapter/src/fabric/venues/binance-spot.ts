@@ -128,6 +128,8 @@ export interface BinanceSpotOptions {
   readonly restBase?: string;
   readonly wsBase?: string;
   readonly clock?: () => number;
+  /** Caller floor. Used only when `snapshotBook` is called without a policy argument. */
+  readonly payoutPolicy?: PayoutGradePolicy | null;
 }
 
 export class BinanceSpotMarketData implements MarketDataAdapter {
@@ -141,12 +143,14 @@ export class BinanceSpotMarketData implements MarketDataAdapter {
   readonly #restBase: string;
   readonly #wsBase: string;
   readonly #clock: () => number;
+  readonly #payoutPolicy: PayoutGradePolicy | null | undefined;
 
   constructor(options: BinanceSpotOptions = {}) {
     this.#http = options.http ?? fetchHttpPort();
     this.#restBase = options.restBase ?? REST_BASE;
     this.#wsBase = options.wsBase ?? WS_BASE;
     this.#clock = options.clock ?? Date.now;
+    this.#payoutPolicy = options.payoutPolicy;
     this.governor = options.governor ?? new RateLimitGovernor(BINANCE_SPOT_RATE_LIMIT, this.#clock());
     this.grader = options.grader ?? new VenueLatencyGrader(VENUE.id);
     if (this.grader.measurement !== REST_MEASUREMENT) {
@@ -218,9 +222,11 @@ export class BinanceSpotMarketData implements MarketDataAdapter {
    * cap (an over-limit request is rejected AFTER the weight has been spent),
    * not a default. The owner may pass 1000 explicitly.
    *
-   * `policy` is the caller's floor and is passed through unchanged. Omitted,
-   * null, or a nullish `minBestLevelNotional` is not filled in here. A
-   * two-sided book then refuses. Empty and one-sided books still return.
+   * `policy`, when the caller passes one, is that floor — including null or a
+   * nullish `minBestLevelNotional` — and is passed through unchanged. An
+   * omitted argument uses the constructor `payoutPolicy`. Neither is filled
+   * with a production floor. A two-sided book with no readable floor refuses.
+   * Empty and one-sided books still return.
    */
   async snapshotBook(
     symbol: string,
@@ -242,7 +248,10 @@ export class BinanceSpotMarketData implements MarketDataAdapter {
 
     // D26-P1-T8: a two-sided dust book is refused here, not only in svc-trade's
     // mark gate. Empty / one-sided still pass through as honest absence.
-    // No floor is applied in this method. The caller passes one, or the gate refuses.
+    // No production floor is applied here. A passed argument wins, including null.
+    if (policy === undefined) {
+      policy = this.#payoutPolicy;
+    }
     return assertPayoutGradeBook(
       {
         venueId: VENUE.id,

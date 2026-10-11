@@ -18,7 +18,7 @@ import {
 import { AsyncFrameQueue, fetchHttpPort, webSocketStreamPort, type HttpPort, type StreamHandle, type StreamPort } from '../transport.js';
 import { RateLimitGovernor, type RateLimitPolicy } from '../rate-limit.js';
 import { observeStreamRoundTrip, REST_MEASUREMENT, VenueLatencyGrader, WS_MEASUREMENT } from '../latency.js';
-import { assertPayoutGradeBook } from '../payout-grade.js';
+import { assertPayoutGradeBook, type PayoutGradePolicy } from '../payout-grade.js';
 import type { RestLatencyGrade, WsLatencyGrade } from '@intafaced/venue-contracts';
 
 /**
@@ -218,6 +218,8 @@ export interface BybitSpotOptions {
   readonly wsDepth?: 50 | 200 | 1_000;
   /** Ping cadence in ms. `0` disables it — for tests only; a live socket needs it. */
   readonly heartbeatMs?: number;
+  /** Caller floor. Used only when `snapshotBook` is called without a policy argument. */
+  readonly payoutPolicy?: PayoutGradePolicy | null;
 }
 
 export class BybitSpotMarketData implements MarketDataAdapter {
@@ -233,6 +235,7 @@ export class BybitSpotMarketData implements MarketDataAdapter {
   readonly #clock: () => number;
   readonly #wsDepth: number;
   readonly #heartbeatMs: number;
+  readonly #payoutPolicy: PayoutGradePolicy | null | undefined;
 
   constructor(options: BybitSpotOptions = {}) {
     this.#http = options.http ?? fetchHttpPort();
@@ -241,6 +244,7 @@ export class BybitSpotMarketData implements MarketDataAdapter {
     this.#clock = options.clock ?? Date.now;
     this.#wsDepth = options.wsDepth ?? DEFAULT_WS_DEPTH;
     this.#heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+    this.#payoutPolicy = options.payoutPolicy;
     this.governor = options.governor ?? new RateLimitGovernor(BYBIT_SPOT_RATE_LIMIT, this.#clock());
     this.grader = options.grader ?? new VenueLatencyGrader(VENUE.id);
     if (this.grader.measurement !== REST_MEASUREMENT) {
@@ -315,8 +319,17 @@ export class BybitSpotMarketData implements MarketDataAdapter {
    * `limit` is required — omitted depth never becomes 200. Venue max 1000 is a
    * cap (an over-limit request is rejected AFTER the slot has been spent), not
    * a default. The owner may pass 200 explicitly.
+   *
+   * `policy`, when the caller passes one, is that floor and is passed through
+   * unchanged. An omitted argument uses the constructor `payoutPolicy`. Neither
+   * is filled with a production floor. A two-sided book with no readable floor
+   * refuses. Empty and one-sided books still return.
    */
-  async snapshotBook(symbol: string, limit?: number | null): Promise<VenueBookSnapshot> {
+  async snapshotBook(
+    symbol: string,
+    limit?: number | null,
+    policy?: PayoutGradePolicy | null,
+  ): Promise<VenueBookSnapshot> {
     const published = publishedSnapshotLimit(limit);
     if (published === undefined) {
       throw new SnapshotBookLimitUnsetError(
@@ -332,21 +345,28 @@ export class BybitSpotMarketData implements MarketDataAdapter {
 
     // D26-P1-T8: a two-sided dust book is refused here, not only in svc-trade's
     // mark gate. Empty / one-sided still pass through as honest absence.
-    return assertPayoutGradeBook({
-      venueId: VENUE.id,
-      symbol,
-      bids: readLevels(result.b, 'bids', VENUE.id),
-      asks: readLevels(result.a, 'asks', VENUE.id),
-      // REST `u` matches the 1000-level websocket update id. This book is
-      // `orderbook.50`, whose `u` is a different sequence. Cross-depth
-      // continuity is `seq`.
-      sequence: readInteger(result.seq, VENUE.id, 'orderbook.seq'),
-      sequenced: true,
-      // Our clock at the moment the read finished. `ts` and `cts` are the venue's
-      // own, and a venue that has silently stopped updating still returns a
-      // plausible timestamp of its own.
-      observedAt: new Date(this.#clock()),
-    });
+    // No production floor is applied here. A passed argument wins, including null.
+    if (policy === undefined) {
+      policy = this.#payoutPolicy;
+    }
+    return assertPayoutGradeBook(
+      {
+        venueId: VENUE.id,
+        symbol,
+        bids: readLevels(result.b, 'bids', VENUE.id),
+        asks: readLevels(result.a, 'asks', VENUE.id),
+        // REST `u` matches the 1000-level websocket update id. This book is
+        // `orderbook.50`, whose `u` is a different sequence. Cross-depth
+        // continuity is `seq`.
+        sequence: readInteger(result.seq, VENUE.id, 'orderbook.seq'),
+        sequenced: true,
+        // Our clock at the moment the read finished. `ts` and `cts` are the venue's
+        // own, and a venue that has silently stopped updating still returns a
+        // plausible timestamp of its own.
+        observedAt: new Date(this.#clock()),
+      },
+      policy,
+    );
   }
 
   /**

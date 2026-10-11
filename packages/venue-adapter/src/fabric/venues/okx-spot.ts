@@ -18,7 +18,7 @@ import {
 import { AsyncFrameQueue, fetchHttpPort, webSocketStreamPort, type HttpPort, type StreamHandle, type StreamPort } from '../transport.js';
 import { RateLimitGovernor, type RateLimitPolicy } from '../rate-limit.js';
 import { observeStreamRoundTrip, REST_MEASUREMENT, VenueLatencyGrader, WS_MEASUREMENT } from '../latency.js';
-import { assertPayoutGradeBook } from '../payout-grade.js';
+import { assertPayoutGradeBook, type PayoutGradePolicy } from '../payout-grade.js';
 import type { RestLatencyGrade, WsLatencyGrade } from '@intafaced/venue-contracts';
 
 /**
@@ -109,6 +109,8 @@ export interface OkxSpotOptions {
   readonly clock?: () => number;
   /** Ping cadence in ms. `0` disables it — for tests only; a live socket needs it. */
   readonly heartbeatMs?: number;
+  /** Caller floor. Used only when `snapshotBook` is called without a policy argument. */
+  readonly payoutPolicy?: PayoutGradePolicy | null;
 }
 
 export class OkxSpotMarketData implements MarketDataAdapter {
@@ -123,6 +125,7 @@ export class OkxSpotMarketData implements MarketDataAdapter {
   readonly #wsBase: string;
   readonly #clock: () => number;
   readonly #heartbeatMs: number;
+  readonly #payoutPolicy: PayoutGradePolicy | null | undefined;
 
   constructor(options: OkxSpotOptions = {}) {
     this.#http = options.http ?? fetchHttpPort();
@@ -130,6 +133,7 @@ export class OkxSpotMarketData implements MarketDataAdapter {
     this.#wsBase = options.wsBase ?? WS_BASE;
     this.#clock = options.clock ?? Date.now;
     this.#heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+    this.#payoutPolicy = options.payoutPolicy;
     this.governor = options.governor ?? new RateLimitGovernor(OKX_SPOT_RATE_LIMIT, this.#clock());
     this.grader = options.grader ?? new VenueLatencyGrader(VENUE.id);
     if (this.grader.measurement !== REST_MEASUREMENT) {
@@ -187,8 +191,17 @@ export class OkxSpotMarketData implements MarketDataAdapter {
    * `limit` is required — omitted depth never becomes 100. Venue max 400 is a
    * cap (snapped onto the published sz set), not a default. The owner may pass
    * 100 explicitly.
+   *
+   * `policy`, when the caller passes one, is that floor and is passed through
+   * unchanged. An omitted argument uses the constructor `payoutPolicy`. Neither
+   * is filled with a production floor. A two-sided book with no readable floor
+   * refuses. Empty and one-sided books still return.
    */
-  async snapshotBook(symbol: string, limit?: number | null): Promise<VenueBookSnapshot> {
+  async snapshotBook(
+    symbol: string,
+    limit?: number | null,
+    policy?: PayoutGradePolicy | null,
+  ): Promise<VenueBookSnapshot> {
     const published = publishedSnapshotLimit(limit);
     if (published === undefined) {
       throw new SnapshotBookLimitUnsetError(
@@ -207,15 +220,22 @@ export class OkxSpotMarketData implements MarketDataAdapter {
       );
     }
     const book = data[0] as Record<string, unknown>;
-    return assertPayoutGradeBook({
-      venueId: VENUE.id,
-      symbol,
-      bids: readLevels(book.bids, 'bids', VENUE.id),
-      asks: readLevels(book.asks, 'asks', VENUE.id),
-      sequence: readInteger(book.seqId, VENUE.id, 'books.seqId'),
-      sequenced: true,
-      observedAt: new Date(this.#clock()),
-    });
+    // No production floor is applied here. A passed argument wins, including null.
+    if (policy === undefined) {
+      policy = this.#payoutPolicy;
+    }
+    return assertPayoutGradeBook(
+      {
+        venueId: VENUE.id,
+        symbol,
+        bids: readLevels(book.bids, 'bids', VENUE.id),
+        asks: readLevels(book.asks, 'asks', VENUE.id),
+        sequence: readInteger(book.seqId, VENUE.id, 'books.seqId'),
+        sequenced: true,
+        observedAt: new Date(this.#clock()),
+      },
+      policy,
+    );
   }
 
   async streamBook(symbol: string): Promise<BookSubscription> {

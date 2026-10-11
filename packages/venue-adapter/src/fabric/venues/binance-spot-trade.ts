@@ -14,6 +14,7 @@ import {
 import { fetchHttpPort, type HttpPort } from '../transport.js';
 import { RateLimitGovernor } from '../rate-limit.js';
 import { assertFillReportMatchesStatus, assertKnownOrderStatus, throwVenueTransportFailure } from './order-outcome-honesty.js';
+import type { PayoutGradePolicy } from '../payout-grade.js';
 import { assertTradeBookPayoutGradeBeforePlace } from '../trade-payout-gate.js';
 
 const REST_BASE = 'https://api.binance.com';
@@ -144,6 +145,8 @@ export interface BinanceSpotTradeOptions {
   readonly governor?: RateLimitGovernor;
   /** Depth for the payout-grade snapshot. Unset refuses — never invent 1000. */
   readonly snapshotLimit?: number;
+  /** Caller floor forwarded to the payout gate. Omitted is not filled in. */
+  readonly payoutPolicy?: PayoutGradePolicy | null;
 }
 
 export class BinanceSpotTrade implements TradeAdapter {
@@ -156,6 +159,7 @@ export class BinanceSpotTrade implements TradeAdapter {
   readonly #clock: () => number;
   readonly #governor: RateLimitGovernor;
   readonly #snapshotLimit: number | undefined;
+  readonly #payoutPolicy: PayoutGradePolicy | null | undefined;
 
   constructor(credentials: VenueCredentials | null = null, options: BinanceSpotTradeOptions = {}) {
     if (credentials) requireCredentials(VENUE.id, 'construct', credentials);
@@ -166,6 +170,7 @@ export class BinanceSpotTrade implements TradeAdapter {
     this.#clock = options.clock ?? Date.now;
     this.#governor = options.governor ?? new RateLimitGovernor(RATE_LIMIT, this.#clock());
     this.#snapshotLimit = options.snapshotLimit;
+    this.#payoutPolicy = options.payoutPolicy;
   }
 
   async placeOrder(request: PlaceOrderRequest): Promise<VenueOrder> {
@@ -193,6 +198,7 @@ export class BinanceSpotTrade implements TradeAdapter {
       http,
       clock: this.#clock,
       limit: this.#snapshotLimit,
+      payoutPolicy: this.#payoutPolicy,
     });
     if (request.reduceOnly) {
       throw new VenueUnavailableError(VENUE.id, 'not_ready', 'spot has no reduceOnly');
