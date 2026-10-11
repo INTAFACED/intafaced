@@ -380,9 +380,11 @@ export class AcademyService {
         const started = rows[0];
         if (!started) {
           // This call lost the conditional update, so it did not start the session.
-          // Close a room opened for the attempt only when it is not the one stored.
+          // Keep a same-name room only while its stored session is still live.
           const current = await this.session(session.id);
-          if (streamRoom && streamRoom !== current.streamRoom) await this.stream.closeRoom(streamRoom);
+          if (streamRoom && (current.status !== 'live' || streamRoom !== current.streamRoom)) {
+            await this.stream.closeRoom(streamRoom);
+          }
           throw new AcademyError(`A ${current.status} session cannot be started`, 'academy.session_not_live');
         }
         return toSession(started);

@@ -3,7 +3,12 @@
  * That call must not come back as success, and a stream room opened for the
  * attempt must not stay open.
  */
-import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { BASE_PERKS } from '@intafaced/contracts';
+import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { AcademyService } from './academy-service.js';
 import { AcademyError } from './errors.js';
@@ -14,6 +19,9 @@ import type { StreamProvider } from './stream/provider.js';
 const SESSION_ID = '11111111-1111-4111-8111-111111111111';
 const HOST_ID = '22222222-2222-4222-8222-222222222222';
 const ROOM_ID = '33333333-3333-4333-8333-333333333333';
+const TEST_URL = process.env.TEST_DATABASE_URL ?? 'postgres://Nitro@127.0.0.1:5432/intafaced_test';
+const here = dirname(fileURLToPath(import.meta.url));
+const migrations = [readFileSync(join(here, '..', 'drizzle', '0000_academy_init.sql'), 'utf8')];
 
 const stakes: StakeSource = { stakeOf: async () => 0n };
 const hostRights: HostRightsSource = {
@@ -21,6 +29,17 @@ const hostRights: HostRightsSource = {
     throw new Error('start does not consult host rights');
   },
 };
+const hostCanOpen: HostRightsSource = {
+  perksOf: async () => ({ ...BASE_PERKS, lobbyHostRights: true }),
+};
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 function sessionRow(status: 'scheduled' | 'live', streamRoom: string | null) {
   return {
@@ -146,5 +165,128 @@ describe('startSession when the conditional update matches', () => {
     expect(started.streamProvider).toBe('livekit');
     expect(opened).toEqual(['attempt-room']);
     expect(closed).toEqual([]);
+  });
+});
+
+describe('startSession room lifetime with PostgreSQL', () => {
+  let db: TestDatabase;
+
+  beforeAll(async () => {
+    db = await createTestDatabase({ service: 'academy', url: TEST_URL, migrations });
+  }, 30_000);
+
+  afterAll(async () => {
+    await db?.drop();
+  });
+
+  async function scheduledSession(slug: string, stream: StreamProvider) {
+    const academy = new AcademyService(db.sql, stakes, hostCanOpen, stream, {});
+    const rooms = await db.sql<Array<{ id: string }>>`
+      INSERT INTO academy.rooms (slug, name, kind, access, min_stake, capacity, host_id)
+      VALUES (${slug}, 'Session race', 'general', 'free', 0, 10, ${HOST_ID})
+      RETURNING id
+    `;
+    const session = await academy.scheduleSession({
+      roomId: rooms[0]!.id,
+      hostId: HOST_ID,
+      title: 'Session race',
+      startsAt: new Date('2026-10-11T00:00:00.000Z'),
+    });
+    return { academy, session };
+  }
+
+  it('closes a room opened after the session ended while openRoom was delayed', async () => {
+    const bothOpenCallsStarted = deferred<void>();
+    const roomCreated = deferred<void>();
+    const allowRoomOpen = deferred<string>();
+    const activeRooms = new Set<string>();
+    const closed: string[] = [];
+    let openCalls = 0;
+    const stream: StreamProvider = {
+      id: 'livekit',
+      openRoom: async () => {
+        openCalls += 1;
+        if (openCalls === 2) bothOpenCallsStarted.resolve();
+        if (openCalls === 1) {
+          await bothOpenCallsStarted.promise;
+          activeRooms.add('same-session-room');
+          return 'same-session-room';
+        }
+        roomCreated.resolve();
+        const room = await allowRoomOpen.promise;
+        activeRooms.add(room);
+        return room;
+      },
+      closeRoom: async (room) => {
+        closed.push(room);
+        activeRooms.delete(room);
+      },
+      credential: async () => ({
+        url: 'wss://stream.example',
+        token: 't',
+        expiresAt: new Date('2026-10-07T01:00:00.000Z'),
+      }),
+    };
+    const { academy, session } = await scheduledSession('delayed-start-end-race', stream);
+
+    const starting = [
+      academy.startSession({ sessionId: session.id, hostId: HOST_ID }),
+      academy.startSession({ sessionId: session.id, hostId: HOST_ID }),
+    ];
+    await bothOpenCallsStarted.promise;
+    await roomCreated.promise;
+    await Promise.any(starting);
+    const ended = await academy.endSession({ sessionId: session.id, hostId: HOST_ID });
+    expect(ended.status).toBe('ended');
+
+    allowRoomOpen.resolve('same-session-room');
+    const results = await Promise.allSettled(starting);
+
+    expect(results.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+    expect((await academy.session(session.id)).status).toBe('ended');
+    expect(closed).toEqual(['same-session-room', 'same-session-room']);
+    expect(activeRooms.size).toBe(0);
+  });
+
+  it('keeps the shared provider room open for the start that won the live update', async () => {
+    const twoOpensStarted = deferred<void>();
+    const allowRoomOpen = deferred<string>();
+    const activeRooms = new Set<string>();
+    const closed: string[] = [];
+    let openCalls = 0;
+    const stream: StreamProvider = {
+      id: 'livekit',
+      openRoom: async () => {
+        openCalls += 1;
+        if (openCalls === 2) twoOpensStarted.resolve();
+        const room = await allowRoomOpen.promise;
+        activeRooms.add(room);
+        return room;
+      },
+      closeRoom: async (room) => {
+        closed.push(room);
+        activeRooms.delete(room);
+      },
+      credential: async () => ({
+        url: 'wss://stream.example',
+        token: 't',
+        expiresAt: new Date('2026-10-07T01:00:00.000Z'),
+      }),
+    };
+    const { academy, session } = await scheduledSession('shared-room-start-race', stream);
+
+    const starts = [
+      academy.startSession({ sessionId: session.id, hostId: HOST_ID }),
+      academy.startSession({ sessionId: session.id, hostId: HOST_ID }),
+    ];
+    await twoOpensStarted.promise;
+    allowRoomOpen.resolve('shared-session-room');
+    const results = await Promise.allSettled(starts);
+
+    expect(results.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+    expect((await academy.session(session.id)).status).toBe('live');
+    expect((await academy.session(session.id)).streamRoom).toBe('shared-session-room');
+    expect(closed).toEqual([]);
+    expect(activeRooms).toEqual(new Set(['shared-session-room']));
   });
 });
