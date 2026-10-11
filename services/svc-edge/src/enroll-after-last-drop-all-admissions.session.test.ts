@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { EDGE_PRINCIPAL_HEADER } from '@intafaced/contracts';
 import { exchangePrincipal } from './principal-exchange.js';
+import { currentAuthorityTestReply } from './test-current-authority.js';
 
 const tokens: TokenConfig = {
   secret: 'edge-test-jwt-signing-secret-32-chars',
@@ -34,7 +35,9 @@ function json(body: unknown, status = 200): Response {
 }
 
 function fetchIdentity(account: Record<string, unknown>): typeof fetch {
-  return async (input) => {
+  return async (input, init) => {
+    const authority = currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: SESSION });
+    if (authority) return authority;
     const url = String(input);
     if (url.includes('/internal/account/')) {
       return json({ userId: USER, status: 'active', kycTier: 'none', ...account });
@@ -44,7 +47,7 @@ function fetchIdentity(account: Record<string, unknown>): typeof fetch {
   };
 }
 
-describe('newly enrolled passkey after last-unenroll drops every HTTP session door if none remain', () => {
+describe('current identity authority at the HTTP session door', () => {
   it('newly enrolled verified cred keeps every admission on the existing session', async () => {
     const token = await accessToken();
     const fetch = fetchIdentity({
@@ -60,7 +63,7 @@ describe('newly enrolled passkey after last-unenroll drops every HTTP session do
     expect(second.headers[EDGE_PRINCIPAL_HEADER]).toBeDefined();
   });
 
-  it('every admission stays, then all drop when none remain after last-unenroll', async () => {
+  it('generic session forwarding does not depend on passkey enrollment state', async () => {
     const token = await accessToken();
     const enrolledFetch = fetchIdentity({
       webauthnCreds: [{ credentialId: 'cred-3', lastVerifiedAt: VERIFIED_AT }],
@@ -73,24 +76,24 @@ describe('newly enrolled passkey after last-unenroll drops every HTTP session do
     const emptyFetch = fetchIdentity({ webauthnCreds: [] });
     const dropA = await exchangePrincipal({ authorization: `Bearer ${token}` }, { ...options, fetch: emptyFetch });
     const dropB = await exchangePrincipal({ authorization: `Bearer ${token}` }, { ...options, fetch: emptyFetch });
-    expect(dropA.rejected).toBe('invalid');
-    expect(dropA.principal).toBeNull();
-    expect(dropA.headers[EDGE_PRINCIPAL_HEADER]).toBeUndefined();
-    expect(dropB.rejected).toBe('invalid');
-    expect(dropB.principal).toBeNull();
-    expect(dropB.headers[EDGE_PRINCIPAL_HEADER]).toBeUndefined();
+    expect(dropA.rejected).toBeNull();
+    expect(dropA.principal).toMatchObject({ userId: USER });
+    expect(dropA.headers[EDGE_PRINCIPAL_HEADER]).toBeDefined();
+    expect(dropB.rejected).toBeNull();
+    expect(dropB.principal).toMatchObject({ userId: USER });
+    expect(dropB.headers[EDGE_PRINCIPAL_HEADER]).toBeDefined();
   });
 
-  it('newly enrolled cred without lastVerifiedAt drops every admission', async () => {
+  it('generic session forwarding does not depend on lastVerifiedAt', async () => {
     const token = await accessToken();
     const fetch = fetchIdentity({ webauthnCreds: [{ credentialId: 'cred-3' }] });
     const deadA = await exchangePrincipal({ authorization: `Bearer ${token}` }, { ...options, fetch });
     const deadB = await exchangePrincipal({ authorization: `Bearer ${token}` }, { ...options, fetch });
-    expect(deadA.rejected).toBe('invalid');
-    expect(deadA.principal).toBeNull();
-    expect(deadA.headers[EDGE_PRINCIPAL_HEADER]).toBeUndefined();
-    expect(deadB.rejected).toBe('invalid');
-    expect(deadB.principal).toBeNull();
-    expect(deadB.headers[EDGE_PRINCIPAL_HEADER]).toBeUndefined();
+    expect(deadA.rejected).toBeNull();
+    expect(deadA.principal).toMatchObject({ userId: USER });
+    expect(deadA.headers[EDGE_PRINCIPAL_HEADER]).toBeDefined();
+    expect(deadB.rejected).toBeNull();
+    expect(deadB.principal).toMatchObject({ userId: USER });
+    expect(deadB.headers[EDGE_PRINCIPAL_HEADER]).toBeDefined();
   });
 });

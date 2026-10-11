@@ -7,7 +7,7 @@ import {
   NAVIGATOR_SESSION_REFRESH_PATH,
   registerNavigatorSessionRoutes,
 } from './navigator-session-routes.js';
-import type { NavigatorSessionStore } from './navigator-session-store.js';
+import { NavigatorSessionPublishError, type NavigatorSessionStore } from './navigator-session-store.js';
 
 const SECRET = 'a-navigator-session-internal-secret-long-enough-for-hmac';
 
@@ -34,6 +34,27 @@ function memoryStore(authRows: { sessionId: string; userId: string; status: 'ope
 }
 
 describe('navigator session internal route', () => {
+  it('reports an explicit durable-session authority refusal instead of publish success', async () => {
+    const app = Fastify();
+    const store = memoryStore();
+    store.publishSession = async () => {
+      throw new NavigatorSessionPublishError();
+    };
+    registerNavigatorSessionRoutes(app, { internalSecret: SECRET, store, bodyBind: 'require' });
+    const body = JSON.stringify({ sessionId: 'sess-1', userId: 'user-1', status: 'open' });
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: NAVIGATOR_SESSION_PUBLISH_PATH,
+        headers: { ...serviceHeaders(body), 'content-type': 'application/json' },
+        payload: body,
+      });
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toEqual({ ok: false, reason: 'session_authority_denied' });
+    } finally {
+      await app.close();
+    }
+  });
   it('refuses no_live_session_store with service auth when store absent', async () => {
     const app = Fastify();
     registerNavigatorSessionRoutes(app, { internalSecret: SECRET });

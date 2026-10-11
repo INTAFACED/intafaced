@@ -182,3 +182,92 @@ Unit + integration tests. TOTP is verified against **RFC 4226 Appendix D and RFC
 - a verified user passing the jurisdiction matrix that an unverified one fails
 
 Skips cleanly when Postgres is unreachable.
+
+## Founder identity controls
+
+Apply `drizzle/0025_founder_controls.sql` before enabling controls. Set
+`IDENTITY_FOUNDER_NITRO_USER_ID` and `IDENTITY_FOUNDER_PHANTOM_USER_ID` to two distinct
+existing active platform user UUIDs with verified TOTP or registered WebAuthn
+credentials. Missing/malformed IDs, missing migrations or unverified users leave
+controls unconfigured. `/ready` reports `founderControls.configured`. The first
+verified pair is pinned in Postgres; changing environment IDs cannot replace it,
+and restarting cannot restore revoked operator entitlement.
+
+`accountControls.change`, `compliance.freezeIdentity`, `compliance.unfreezeIdentity`
+and `disableUser` require the shared strict identity command: `requestId`,
+`target: {area: "identity", userId}`, `action`, `reason`, `expectedVersion`. The
+legacy routes require their corresponding restrict/restore action. Old `{userId}`
+bodies refuse. Either founder independently acts through their own active MFA
+interactive session; generic admin scopes, API keys and service identities cannot
+change accounts. The transaction rechecks current user, session and entitlement
+before every action or replay. Identity status, version, credential revocation and
+immutable audit commit together. Restore cannot reopen closed accounts or revive
+sessions, keys or subaccounts. Concurrent credential minting rechecks active
+status under the same user lock.
+
+Protected queries `accountControls.operatorStatus({})`,
+`accountControls.getState({target})` and `accountControls.history({target, limit})`
+serve the admin UI. State/history accept only identity targets; history requires
+an explicit limit from 1 to 200. Live founder authorization precedes target reads.
+`accountControls.changeOperatorEntitlement` accepts `requestId`, `userId`,
+`action: "revoke" | "restore"`, `reason` and `expectedVersion` for the original pair
+only, with the same live checks and attributed immutable audit. Ordinary admins
+cannot grant this role.
+
+Delegated POST `/trpc/accountControls.operatorEntitlement` uses plain JSON
+`{"userId":"..."}` and returns the raw tRPC `result.data` entitlement. Require an
+original edge-signed user principal whose subject matches the input, plus a v2
+service signature over the exact JSON body bytes. The query checks active user,
+token expiry/MFA, current live DB session/MFA and revocable founder entitlement.
+Its result describes authority at query time; it grants no account-change or
+future admission authority. Callers must reject invalid/unavailable/timed-out
+responses and must not cache enabled results.
+
+Service-only POST `accountControls.currentAuthority` checks credential and optional
+subaccount ownership against current identity state. Eligible snapshots expire no
+later than five seconds after the database check, or sooner with the credential.
+Consumers must enforce the returned expiry. This slice does not serialize
+trade/payment admission; bounded private-read leases belong to svc-ws.
+
+Configure separate `IDENTITY_WS_AUTHORITY_SECRET` and
+`IDENTITY_EDGE_AUTHORITY_SECRET` keys, distinct from generic and admission keys
+and each other. Each public process supplies its own key as
+`IDENTITY_OWNERSHIP_SECRET`. Each authenticates only
+`accountControls.currentAuthority` and GET `/internal/api-keys/:keyId`;
+mixed batches, mutations and aliased keys refuse. Neither public process needs a
+generic money credential. Other existing service readers keep their current
+authentication. `/ready.operationAdmission` reports these read-key configuration
+flags separately from the owner admission keys; configuration is not a live probe.
+
+Apply `drizzle/0026_operation_identity_decisions.sql` for owner operation decisions.
+Set independent `IDENTITY_TRADE_ADMISSION_SECRET` and
+`IDENTITY_PAY_ADMISSION_SECRET` keys, each at least 32 characters and distinct from
+the generic service-signing key and each other. The generic identity read key
+cannot authorize `operationAdmission.decide`. `/ready.operationAdmission` reports
+key configuration only. Missing keys refuse admission; database failures return
+typed `authority.unavailable`.
+
+Owner-only POST `/trpc/operationAdmission.decide` uses strict plain JSON,
+body-bound v2 service authentication and no mixed procedure batch. The owning
+service stores the original immutable business payload and pending identity
+request before calling. Decisions bind the service, operation kind, business ID,
+payload hash, actual user and credential or parent delegation. Fresh grants check
+current active identity and actual credential ownership, revocation, expiry and
+subaccount under the same guard as identity restrictions. Account-bound API keys
+require the matching actual subaccount. Delegated children
+recheck the original strategy credential. Merchant policy authority is vouched
+for by svc-pay and still checks the actual active identity. PayFac authority
+preserves svc-pay's explicit grant or root relationship and the original parent
+credential. Identity checks both the child owner's active identity and the
+parent's active identity, actual credential ownership, expiry and subaccount.
+Resolving an existing grant recovers only its original payload after either
+identity is restricted; it never grants a fresh delegated operation.
+
+Every decision is immutable. `resolve_or_cancel` returns the prior decision or
+records a cancellation tombstone that prevents a delayed first grant. The owning
+service must hold its own restriction guard while finalizing admission and drain
+all pending requests before committing a local restriction. An uncertain network
+outcome retains the pending marker and cannot be reported as a completed local
+restriction. An existing grant resolves only its original payload after freeze;
+it grants no fresh child or changed business operation and proves no completed
+ledger effect. Trading/payment enforcement belongs to their service consumers.
