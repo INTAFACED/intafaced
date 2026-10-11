@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { EDGE_PRINCIPAL_HEADER } from '@intafaced/contracts';
 import { exchangePrincipal } from './principal-exchange.js';
+import { currentAuthorityTestReply } from './test-current-authority.js';
 
 const tokens: TokenConfig = {
   secret: 'edge-test-jwt-signing-secret-32-chars',
@@ -16,7 +17,13 @@ const SESSION = '22222222-2222-4222-8222-222222222222';
 const ACC = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OTHER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
-const options = { tokens, edgeSecret: EDGE_SECRET, region: 'GB', identityUrl: 'http://identity.test' };
+const options = {
+  tokens,
+  edgeSecret: EDGE_SECRET,
+  region: 'GB',
+  identityUrl: 'http://identity.test',
+  identityOwnershipSecret: 'edge-test-identity-authority-secret-32',
+};
 
 async function accessToken(): Promise<string> {
   const issued = await issueAccessToken({ userId: USER, sessionId: SESSION, scopes: ['trade:read'], tier: 'basic', mfa: false }, tokens);
@@ -25,6 +32,8 @@ async function accessToken(): Promise<string> {
 
 function fetchOk(opts: { accountId?: string; expectPath?: string; expectAccount?: string }): typeof fetch {
   return async (input, init) => {
+    const authority = currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: SESSION });
+    if (authority) return authority;
     if (opts.expectPath) expect(String(input)).toContain(opts.expectPath);
     const body = JSON.parse(String(init?.body)) as { json?: { key?: string; accountId?: string } };
     if (opts.expectAccount !== undefined) expect(body.json?.accountId).toBe(opts.expectAccount);

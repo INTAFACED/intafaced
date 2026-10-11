@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import { AuthError } from '@intafaced/auth';
 import { assertScreeningConfigured } from '@intafaced/config';
 import { createAdminApi, httpLedgerOperator } from './admin-api.js';
-import { assertIdentitySessionLive, SessionRevokedError } from './session-revoked.js';
+import { readEdgeAuthority } from './live-authority.js';
 import { createHttpEdgeApprovalConsumer } from './action-approval-consume.js';
 import { registerAdminRoutes, registerGeoBlockGuard, registerKillSwitchGuard, registerNetworkAccessGuard } from './control-plane.js';
 import { resolveRequestRegion } from './geo-region.js';
@@ -172,23 +172,15 @@ const killSwitches = new KillSwitchState({ statePath: env.EDGE_KILL_STATE_PATH }
 const admin = createAdminApi(killSwitches, {
   tokens: tokenConfig,
   sessionLive: async (principal) => {
-    const secret = env.IDENTITY_OWNERSHIP_SECRET;
-    if (!secret) {
-      throw new AuthError('Operator session is not live', 'token.invalid');
-    }
-    try {
-      await assertIdentitySessionLive({
+    if (
+      principal.kid ||
+      principal.sub_account ||
+      !(await readEdgeAuthority(principal, {
         identityUrl: env.IDENTITY_URL,
-        sessionId: principal.sid,
-        userId: principal.userId,
-        identityOwnershipSecret: secret,
-      });
-    } catch (err) {
-      if (err instanceof SessionRevokedError) {
-        throw new AuthError('Operator session is not live', 'token.invalid');
-      }
-      throw err;
-    }
+        identityOwnershipSecret: env.IDENTITY_OWNERSHIP_SECRET,
+      }))
+    )
+      throw new AuthError('Operator session is not live', 'token.invalid');
   },
   // Null when unset, and the console is told. `LEDGER_URL` is a URL, not a
   // secret — `env.ts` withholds `DATABASE_URL`, `NATS_URL` and
@@ -367,11 +359,12 @@ await app.register(async (api) => {
       region: regionRes.region,
       // Direct to identity for `ifc_…` API keys — never via this edge (loop).
       identityUrl: env.IDENTITY_URL,
-      // Live session + API-key JWT revoke + user status (#3343/#3346/M17). Unset skips. Never INTERNAL_SERVICE_SECRET.
+      // Dedicated current identity read. Missing key refuses authenticated forwarding.
       identityOwnershipSecret: env.IDENTITY_OWNERSHIP_SECRET,
       // Server-resolved hop (trust-proxy / socket). Never a client-supplied
       // x-forwarded-for — principal-exchange strips those and writes this.
       clientIp: req.ip,
+      resolvedProduct: target.upstream.module,
     });
 
     // A refused token is logged and the request continues as ANONYMOUS. The
@@ -428,12 +421,15 @@ await app.register(async (api) => {
       async () => {
         let response: Response;
         try {
-          response = await fetch(`${resolved.base}${target.path}${url.search}`, {
+          const request = {
             method: req.method,
             headers: exchanged.headers,
+            redirect: 'error' as const,
+            cache: 'no-store',
             ...(body === undefined ? {} : { body }),
             signal: AbortSignal.timeout(env.UPSTREAM_TIMEOUT_MS),
-          });
+          };
+          response = await fetch(`${resolved.base}${target.path}${url.search}`, request);
         } catch (err) {
           // 502, not 500: the edge is fine, the upstream is not, and a caller
           // needs to tell those apart before deciding whether to retry.

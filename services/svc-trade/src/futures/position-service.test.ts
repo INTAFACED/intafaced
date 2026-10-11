@@ -1,3 +1,4 @@
+import { PositionService } from '../controls/test-admission.js';
 /**
  * Position open/close against real trade schema + MemoryLedger.
  * H8a PG-hard: never skip-green when Postgres is down.
@@ -20,7 +21,7 @@ import {
   userAvailable,
 } from '@intafaced/ledger-client';
 import { MemoryEventBus } from '@intafaced/events';
-import { FuturesError, PositionService } from './position-service.js';
+import { FuturesError } from './position-service.js';
 import { memoryMarkBook } from './mark-source.js';
 import { markSourceFromDepth } from './mark-from-depth.js';
 import { runLiquidationTick, memoryLiquidationAttemptStore } from './liquidation-tick.js';

@@ -30,6 +30,9 @@
  * learns instead of getting different behaviour than they asked for.
  */
 import type { Sql, TransactionSql } from 'postgres';
+import type { Principal } from '@intafaced/auth';
+import { TradingControlError, canonicalPayload, type TradingAdmissionPort } from '../controls/trading-controls.js';
+import { businessPayload } from '../controls/business-payload.js';
 import { positionIdFor } from './ids.js';
 import { formatAmount, parseAmount, recipes, userAvailable, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import type { Position } from '@intafaced/exchange-contract';
@@ -190,6 +193,7 @@ export function publishedListClosedLimit(value: number | undefined | null): numb
 }
 
 export interface PositionServiceDeps {
+  accountAdmission?: TradingAdmissionPort;
   /**
    * Where prices come from. Required, and required to be a port the caller
    * cannot reach: making this optional would put the old defect one missing
@@ -621,7 +625,7 @@ export class PositionService {
     return presentPosition(row);
   }
 
-  async open(input: OpenPositionInput): Promise<Position> {
+  async open(input: OpenPositionInput, principal?: Principal): Promise<Position> {
     /**
      * NO POT, NO NEW POSITIONS.
      *
@@ -677,6 +681,19 @@ export class PositionService {
     `;
     const m = market[0];
     if (!m) throw new FuturesError(`unknown market ${input.symbol}`, 'trade.market_not_found', 404);
+    const positionId = positionIdFor(input.userId, m.id, clientOpenId);
+    const businessId = `position:${positionId}`;
+    const original = await this.deps.accountAdmission?.original(input.userId, businessId);
+    if (original) {
+      const evidence = original.payload as Record<string, unknown>;
+      if (canonicalPayload(evidence.request) !== canonicalPayload(businessPayload(input)))
+        throw new TradingControlError('operation.conflict');
+      if (!principal || principal.userId !== input.userId || !this.deps.accountAdmission)
+        throw new TradingControlError('auth.credential_denied');
+      await this.deps.accountAdmission.admit(principal, 'order.place', businessId, evidence);
+      return this.executeAdmittedPosition(input, evidence);
+    }
+
     if (m.kind !== 'futures') {
       throw new FuturesError(`market ${input.symbol} is ${m.kind}, not futures`, 'trade.not_futures_market', 400);
     }
@@ -765,8 +782,33 @@ export class PositionService {
       entryPrice,
       leverage,
     });
-    const positionId = positionIdFor(input.userId, m.id, clientOpenId);
+    if (!principal || principal.userId !== input.userId) throw new TradingControlError('auth.credential_denied');
+    if (!this.deps.accountAdmission) throw new TradingControlError('authority.unavailable');
+    const evidence = businessPayload({
+      request: input,
+      market: { id: m.id, symbol: m.symbol, quote_asset: m.quote_asset },
+      positionId,
+      entryPrice,
+      leverage,
+      marginMode,
+      margin,
+      at,
+    });
+    await this.deps.accountAdmission.admit(principal, 'order.place', businessId, evidence);
+    return this.executeAdmittedPosition(input, evidence);
+  }
 
+  private async executeAdmittedPosition(input: OpenPositionInput, evidence: Record<string, unknown>): Promise<Position> {
+    const m = evidence.market as { id: string; symbol: string; quote_asset: string };
+    const positionId = String(evidence.positionId);
+    const entryPrice = parseAmount(String(evidence.entryPrice));
+    const leverage = parseAmount(String(evidence.leverage));
+    const marginMode = String(evidence.marginMode);
+    const margin = parseAmount(String(evidence.margin));
+    const at = new Date(String(evidence.at));
+    const [existing] = await this.sql<PositionRow[]>`SELECT p.*, m.symbol FROM trade.positions p
+      JOIN trade.markets m ON m.id = p.market_id WHERE p.id = ${positionId} AND p.user_id = ${input.userId}`;
+    if (existing) return presentPosition(existing);
     // Money first — never a position row without a ledger claim.
     await this.ledger.post(
       recipes.futuresMarginLock({
@@ -857,6 +899,22 @@ export class PositionService {
     return presentPosition(row!);
   }
 
+  /** Owned recovery hook, independent of live credentials; no public receipt is accepted. */
+  async recoverAdmittedPosition(userId: string, positionId: string): Promise<Position | null> {
+    if (!this.deps.accountAdmission) throw new TradingControlError('authority.unavailable');
+    const original = await this.deps.accountAdmission.resolve(userId, `position:${positionId}`);
+    if (!original) return null;
+    const evidence = original.payload as Record<string, unknown>;
+    const wire = evidence.request as Record<string, unknown>;
+    if (wire.userId !== userId || evidence.positionId !== positionId) throw new TradingControlError('operation.conflict');
+    const input = {
+      ...wire,
+      size: parseAmount(String(wire.size)),
+      leverage: parseAmount(String(wire.leverage)),
+    } as unknown as OpenPositionInput;
+    return this.executeAdmittedPosition(input, evidence);
+  }
+
   /**
    * Live isolated re-leverage within the explicit owner/listing cap.
    *
@@ -868,7 +926,7 @@ export class PositionService {
    * current mark (D3 maintenance unset — equity only) or when the extra lock
    * cannot be funded. Does not invent funding, a liq-price, or a profit source.
    */
-  async setLeverage(input: SetLeverageInput): Promise<Position> {
+  async setLeverage(input: SetLeverageInput, principal?: Principal): Promise<Position> {
     const leverageCheck = checkLeverage(input.leverage, this.requireLeverageCap());
     if (!leverageCheck.ok) {
       throw new FuturesError(leverageCheck.reason ?? 'leverage refused', leverageCheck.code ?? 'trade.leverage_invalid', 400);
@@ -965,6 +1023,26 @@ export class PositionService {
             `refusing leverage ${formatAmount(input.leverage)}x — new isolated margin would already be in liquidation at the current mark`,
             LEVERAGE_WOULD_LIQUIDATE,
             400,
+          );
+        }
+
+        if (input.leverage > currentLeverage) {
+          if (!principal || principal.userId !== input.userId) throw new TradingControlError('auth.credential_denied');
+          if (!this.deps.accountAdmission) throw new TradingControlError('authority.unavailable');
+          await this.deps.accountAdmission.admit(
+            principal,
+            'order.increase',
+            `position.leverage:${row.id}:${adjustmentId}`,
+            businessPayload({
+              positionId: row.id,
+              adjustmentId,
+              size,
+              entryPrice,
+              currentMargin,
+              target,
+              leverage: input.leverage,
+              assetId: row.margin_asset,
+            }),
           );
         }
 

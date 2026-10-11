@@ -1,3 +1,4 @@
+import { TEST_AUTHORITY } from '../test-support/authority.js';
 import { createServer, request as httpRequest, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
@@ -60,6 +61,7 @@ describe('drop-copy stream opens on the recovered session after a recovery redee
     if (!addr || typeof addr === 'string') throw new Error('no port');
     const log = { info: () => undefined, warn: () => undefined };
     gateway = createDropCopyWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server,
       hub,
       heartbeatMs: 30_000,

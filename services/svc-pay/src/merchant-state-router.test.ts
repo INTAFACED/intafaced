@@ -1,160 +1,72 @@
-import { describe, expect, it } from 'vitest';
-import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
-import type { Context } from '@intafaced/contracts';
+import { randomUUID } from 'node:crypto';
+import { describe, it, expect, vi } from 'vitest';
+import type { Context, AccountControlInput } from '@intafaced/contracts';
 import { createMerchantStateRouter } from './merchant-state-router.js';
-import { stubApprovalConsumer } from './action-approval-consume.js';
-import type { MerchantStateService, MerchantStatus, MerchantStatusChange, MerchantStatusEventRecord } from './merchant-state-service.js';
-
-const authConfig = {
-  secret: 'a-test-signing-secret-that-is-long-enough',
-  issuer: 'intafaced',
-  audience: 'intafaced.api',
-  accessTtlSeconds: 900,
+import type { MerchantStateService } from './merchant-state-service.js';
+import type { MerchantAccountControls } from './merchant-account-controls.js';
+const userId = randomUUID(),
+  merchantId = randomUUID();
+const ctx: Context = {
+  principal: {
+    userId,
+    sub: userId,
+    sid: randomUUID(),
+    scopes: ['admin:read', 'admin:write'],
+    mfa: true,
+    tier: 'full',
+    expiresAt: new Date(Date.now() + 60000),
+  },
+  service: null,
+  region: 'ID',
+  requestId: randomUUID(),
 };
-
-const OPERATOR = '66666666-6666-4666-8666-666666666666';
-const CONFIRM = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-const APPROVED = { approvalId: 'appr-1', operationId: 'op-1' };
-const MERCHANT = '55555555-5555-4555-8555-555555555555';
-
-async function ctx(scopes: string[], opts: { mfa?: boolean; userId?: string } = {}): Promise<Context> {
-  const { token } = await issueAccessToken(
-    {
-      userId: opts.userId ?? OPERATOR,
-      sessionId: '77777777-7777-4777-8777-777777777777',
-      scopes,
-      tier: 'full',
-      mfa: opts.mfa ?? true,
-    },
-    authConfig,
-  );
-  return {
-    principal: await verifyAccessToken(token, authConfig),
-    region: 'DE',
-    requestId: 'req-1',
-    service: null,
-  };
-}
-
-function eventFor(to: MerchantStatus): MerchantStatusEventRecord {
-  return {
-    id: '11111111-1111-4111-8111-111111111111',
-    seq: '1',
-    merchantId: MERCHANT,
-    fromStatus: 'active',
-    toStatus: to,
-    reason: 'fraud review',
-    actorId: OPERATOR,
-    actorScope: 'admin:write',
-    createdAt: new Date('2026-09-05T12:00:00.000Z'),
-  };
-}
-
-function stubState(calls: MerchantStatusChange[] = []): MerchantStateService {
-  return {
-    setStatus: async (change: MerchantStatusChange) => {
-      calls.push(change);
-      return { changed: true, event: eventFor(change.to) };
-    },
-    currentStatus: async () => 'suspended' as MerchantStatus,
-    history: async () => [eventFor('suspended')],
-  } as unknown as MerchantStateService;
-}
-
-describe('merchantState.set identity approval consume', () => {
-  it('refuses without a second factor, even with admin:write — does not write', async () => {
-    const calls: MerchantStatusChange[] = [];
-    const caller = createMerchantStateRouter(stubState(calls), stubApprovalConsumer(CONFIRM)).createCaller(
-      await ctx(['admin:write'], { mfa: false }),
-    );
-    await expect(
-      caller.merchantState.set({
-        merchantId: MERCHANT,
-        to: 'suspended',
-        reason: 'fraud review',
-        confirmOperatorId: CONFIRM,
-        ...APPROVED,
-      }),
-    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
-    expect(calls).toEqual([]);
+const input: AccountControlInput = {
+  requestId: randomUUID(),
+  target: { area: 'merchant', merchantId },
+  action: 'restrict',
+  reason: 'Review merchant activity',
+  expectedVersion: '0',
+};
+const state = {} as MerchantStateService;
+describe('legacy merchant writer shares founder controls', () => {
+  it('legacy and new writer delegate the same strict command and original context', async () => {
+    const change = vi.fn(async () => ({}));
+    const controls = { change } as unknown as MerchantAccountControls;
+    const caller = createMerchantStateRouter(state, controls).createCaller(ctx);
+    await expect(caller.merchantState.set(input)).rejects.toHaveProperty('code');
+    await expect(caller.accountControls.change(input)).rejects.toHaveProperty('code');
+    expect(change).toHaveBeenCalledTimes(2);
+    expect(change).toHaveBeenNthCalledWith(1, ctx, input);
+    expect(change).toHaveBeenNthCalledWith(2, ctx, input);
   });
-
-  it('refuses missing approval ids — a typed-in name is not approval', async () => {
-    const calls: MerchantStatusChange[] = [];
-    const caller = createMerchantStateRouter(stubState(calls), stubApprovalConsumer(CONFIRM)).createCaller(await ctx(['admin:write']));
+  it('old shared-operator approval shape cannot reach either writer', async () => {
+    const change = vi.fn();
+    const caller = createMerchantStateRouter(state, { change } as unknown as MerchantAccountControls).createCaller(ctx);
     await expect(
-      caller.merchantState.set({ merchantId: MERCHANT, to: 'suspended', reason: 'fraud review', confirmOperatorId: CONFIRM }),
-    ).rejects.toMatchObject({
-      code: 'PRECONDITION_FAILED',
+      caller.merchantState.set({ merchantId, to: 'active', reason: 'Restore', confirmOperatorId: userId, approvalId: 'old' } as never),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(caller.accountControls.change({ ...input, actorUserId: userId } as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    expect(change).not.toHaveBeenCalled();
+  });
+  it('service credentials without a founder principal cannot write', async () => {
+    const change = vi.fn();
+    const caller = createMerchantStateRouter(state, { change } as unknown as MerchantAccountControls).createCaller({
+      ...ctx,
+      principal: null,
+      service: 'svc-admin',
     });
-    await expect(
-      caller.merchantState.set({
-        merchantId: MERCHANT,
-        to: 'closed',
-        reason: 'fraud review',
-        confirmOperatorId: OPERATOR,
-        approvalId: 'appr-1',
-      }),
-    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
-    expect(calls).toEqual([]);
+    await expect(caller.merchantState.set(input)).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    expect(change).not.toHaveBeenCalled();
   });
-
-  it('sets suspended and closed with MFA plus a consumed approval', async () => {
-    const calls: MerchantStatusChange[] = [];
-    const caller = createMerchantStateRouter(stubState(calls), stubApprovalConsumer(CONFIRM)).createCaller(await ctx(['admin:write']));
-    await expect(
-      caller.merchantState.set({
-        merchantId: MERCHANT,
-        to: 'suspended',
-        reason: 'fraud review',
-        confirmOperatorId: CONFIRM,
-        ...APPROVED,
-      }),
-    ).resolves.toMatchObject({
-      changed: true,
-      status: 'suspended',
-      confirmOperatorId: CONFIRM,
-      event: { toStatus: 'suspended', actorId: OPERATOR },
-    });
-    await expect(
-      caller.merchantState.set({
-        merchantId: MERCHANT,
-        to: 'closed',
-        reason: 'licence revoked',
-        confirmOperatorId: CONFIRM,
-        ...APPROVED,
-      }),
-    ).resolves.toMatchObject({
-      changed: true,
-      confirmOperatorId: CONFIRM,
-      event: { toStatus: 'closed' },
-    });
-    expect(calls.map((c) => c.to)).toEqual(['suspended', 'closed']);
-    expect(calls.every((c) => c.actorId === OPERATOR && c.actorScope === 'admin:write')).toBe(true);
+  it('history requires an explicit bounded page size before calling the service', async () => {
+    const history = vi.fn();
+    const caller = createMerchantStateRouter(state, { history } as unknown as MerchantAccountControls).createCaller(ctx);
+    await expect(caller.accountControls.history({ target: input.target } as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(caller.merchantState.history({ target: input.target, limit: 201 })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    expect(history).not.toHaveBeenCalled();
   });
-
-  it('pay:write cannot set merchant state', async () => {
-    const calls: MerchantStatusChange[] = [];
-    const caller = createMerchantStateRouter(stubState(calls), stubApprovalConsumer(CONFIRM)).createCaller(await ctx(['pay:write']));
-    await expect(
-      caller.merchantState.set({
-        merchantId: MERCHANT,
-        to: 'suspended',
-        reason: 'fraud review',
-        confirmOperatorId: CONFIRM,
-        ...APPROVED,
-      }),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    expect(calls).toEqual([]);
-  });
-
-  it('history stays single-operator admin:read — no confirmer, no MFA', async () => {
-    const caller = createMerchantStateRouter(stubState()).createCaller(await ctx(['admin:read'], { mfa: false }));
-    await expect(caller.merchantState.history({ merchantId: MERCHANT, limit: 50 })).resolves.toEqual([
-      {
-        ...eventFor('suspended'),
-        createdAt: '2026-09-05T12:00:00.000Z',
-      },
-    ]);
+  it('missing live control integration fails closed', async () => {
+    const caller = createMerchantStateRouter(state).createCaller(ctx);
+    await expect(caller.merchantState.set(input)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
   });
 });

@@ -1,3 +1,4 @@
+import { OtcDeskService } from '../controls/test-admission.js';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -19,7 +20,7 @@ import {
 } from '@intafaced/ledger-client';
 import { createTradeRouter } from '../router.js';
 import type { TradeService } from '../spot/trade-service.js';
-import { OtcDeskService } from './otc-service.js';
+
 import { describeOtcPolicy } from './otc-policy.js';
 import { FixedOtcStake } from './stake-source.js';
 import { UNPUBLISHED_OTC_DESK_LAW, type OtcDeskLaw } from './desk-law.js';

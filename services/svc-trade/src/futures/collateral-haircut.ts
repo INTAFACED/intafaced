@@ -1,3 +1,4 @@
+import type { Principal } from '@intafaced/auth';
 /**
  * Collateral haircuts (CARD F8 / PTX-M08-R03 PTX-M08-R11 / PX-S06).
  *
@@ -11,11 +12,7 @@
  */
 import { parseOwnerIntegerEnv } from '../owner-int-env.js';
 import { FuturesError, PositionService, type OpenPositionInput } from './position-service.js';
-import {
-  UNSUPPORTED_COLLATERAL_CLASS,
-  checkCollateralClassForMargin,
-  type MarginModeRefuseCode,
-} from './margin-mode.js';
+import { UNSUPPORTED_COLLATERAL_CLASS, checkCollateralClassForMargin, type MarginModeRefuseCode } from './margin-mode.js';
 
 export const HAIRCUT_UNSET = 'trade.haircut_unset' as const;
 export const MARGIN_IS_NOT_A_LOAN = 'trade.margin_is_not_a_loan' as const;
@@ -99,13 +96,13 @@ const OPEN_FLAG = Symbol.for('intafaced.trade.collateralHaircutOpen');
 
 export function installCollateralHaircutOpen(ctor: typeof PositionService): void {
   const proto = ctor.prototype as unknown as {
-    open: (input: OpenPositionInput) => Promise<unknown>;
+    open: (input: OpenPositionInput, principal?: Principal) => Promise<unknown>;
     [OPEN_FLAG]?: true;
   };
   if (proto[OPEN_FLAG]) return;
   proto[OPEN_FLAG] = true;
   const origOpen = proto.open;
-  proto.open = async function (this: PositionService, input: OpenPositionInput) {
+  proto.open = async function (this: PositionService, input: OpenPositionInput, principal?: Principal) {
     const tagged = input as OpenWithCollateral;
     const check = checkPostedMarginCollateral({
       collateralClass: tagged.collateralClass,
@@ -113,7 +110,7 @@ export function installCollateralHaircutOpen(ctor: typeof PositionService): void
       asLoan: tagged.asLoan,
     });
     if (!check.ok) refuseOpen(check);
-    return origOpen.call(this, input);
+    return origOpen.call(this, input, principal);
   };
 }
 

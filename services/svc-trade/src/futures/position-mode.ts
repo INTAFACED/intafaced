@@ -27,10 +27,7 @@ export const POSITION_MODE_MIGRATION_BLOCKED = 'trade.position_mode_migration_bl
 export const POSITION_SIDE_UNSUPPORTED = 'trade.position_side_unsupported' as const;
 
 export type PositionModeRefuseCode =
-  | typeof POSITION_MODE_UNSET
-  | typeof POSITION_MODE_UNSUPPORTED
-  | typeof POSITION_MODE_MIGRATION_BLOCKED
-  | typeof POSITION_SIDE_UNSUPPORTED;
+  typeof POSITION_MODE_UNSET | typeof POSITION_MODE_UNSUPPORTED | typeof POSITION_MODE_MIGRATION_BLOCKED | typeof POSITION_SIDE_UNSUPPORTED;
 
 export type PositionModeCheck =
   | { readonly ok: true; readonly mode: NamedPositionMode }
@@ -199,13 +196,13 @@ const PLACE_FLAG = Symbol.for('intafaced.trade.positionModePlace');
 
 export function installPositionModeOpen(ctor: typeof PositionService): void {
   const proto = ctor.prototype as unknown as {
-    open: (input: OpenPositionInput) => Promise<unknown>;
+    open: (input: OpenPositionInput, principal?: Principal) => Promise<unknown>;
     [OPEN_FLAG]?: true;
   };
   if (proto[OPEN_FLAG]) return;
   proto[OPEN_FLAG] = true;
   const origOpen = proto.open;
-  proto.open = async function (this: PositionService, input: OpenPositionInput) {
+  proto.open = async function (this: PositionService, input: OpenPositionInput, principal?: Principal) {
     const tagged = input as OpenWithMode;
     const mode = parsePositionMode(tagged.positionMode);
     if (!mode.ok) refuseOpen(mode);
@@ -215,7 +212,7 @@ export function installPositionModeOpen(ctor: typeof PositionService): void {
       positionSide: tagged.positionSide,
     });
     if (!side.ok) refuseOpen(side);
-    return origOpen.call(this, input);
+    return origOpen.call(this, input, principal);
   };
 }
 

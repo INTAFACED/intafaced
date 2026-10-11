@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
+import { pendingPayfacPermissionIntentCount } from './payfac-authority.js';
 
 /**
  * THE SUB-MERCHANT TREE, AND WHO MAY ACT INSIDE IT (§6.1 PayFac mode).
@@ -345,9 +346,47 @@ export interface PermissionChangeInput {
   actorId: string;
   actorScope: string;
 }
+export type PermissionAuthorityEvidence = {
+  actorMerchantId: string;
+  subjectMerchantId: string;
+  area: PermissionArea;
+  proof:
+    | { kind: 'root_relation'; rootMerchantId: string; ancestry: string[] }
+    | { kind: 'permission_event'; grantEventId: string; grantSequence: string };
+};
+export type PermissionIntentDrain = (tx: Sql, current: PermissionEventRecord) => Promise<void>;
 
 export class SubMerchantService {
-  constructor(private readonly sql: Sql) {}
+  constructor(
+    private readonly sql: Sql,
+    private readonly drainPermissionIntents?: PermissionIntentDrain,
+  ) {}
+
+  /** Caller owns the subject's SHARE guard; evidence is server-derived from the live tree. */
+  async permissionAuthorityEvidence(
+    actorUserId: string,
+    subjectMerchantId: string,
+    area: PermissionArea,
+    tx: Sql,
+  ): Promise<PermissionAuthorityEvidence> {
+    const [actor] = await tx`SELECT id FROM pay.merchants WHERE user_id=${actorUserId}`;
+    if (!actor) throw new SubMerchantError('Actor has no merchant node', 'pay.submerchant_not_onboarded');
+    const actorMerchantId = String(actor.id);
+    const ancestry = await this.assertWithinSubtree(actorMerchantId, subjectMerchantId, tx);
+    if (actorMerchantId === subjectMerchantId)
+      throw new SubMerchantError('Own-node authority needs no PayFac proof', 'pay.submerchant_grant_self');
+    const rootMerchantId = ancestry[ancestry.length - 1]!;
+    if (rootMerchantId === actorMerchantId)
+      return { actorMerchantId, subjectMerchantId, area, proof: { kind: 'root_relation', rootMerchantId, ancestry } };
+    const event = await this.latestEvent(actorMerchantId, subjectMerchantId, area, tx);
+    if (!event || event.action !== 'grant') throw new SubMerchantError('Actor holds no current grant', 'pay.submerchant_permission_denied');
+    return {
+      actorMerchantId,
+      subjectMerchantId,
+      area,
+      proof: { kind: 'permission_event', grantEventId: event.id, grantSequence: event.seq },
+    };
+  }
 
   /**
    * The chain from a node up to the root of its tree — `[self, parent, …, root]`.
@@ -720,6 +759,9 @@ export class SubMerchantService {
     return transaction(
       this.sql,
       async (tx) => {
+        // Money owner prepares/grants under SHARE on this same subject row.
+        // Permission changes must serialize with that guard, not a read snapshot.
+        await tx`SELECT id FROM pay.merchants WHERE id=${input.subjectMerchantId} FOR UPDATE`;
         await this.assertMayDelegate(input, tx);
 
         const current = await this.latestEvent(input.granteeMerchantId, input.subjectMerchantId, input.area, tx);
@@ -734,6 +776,16 @@ export class SubMerchantService {
               : `Merchant ${input.granteeMerchantId} does not hold "${input.area}" over ${input.subjectMerchantId}`,
             action === 'grant' ? 'pay.submerchant_grant_redundant' : 'pay.submerchant_revoke_redundant',
           );
+        }
+        if (action === 'revoke' && current && (await pendingPayfacPermissionIntentCount(tx, current))) {
+          if (!this.drainPermissionIntents)
+            throw new SubMerchantError('Identity admission drain is unavailable', 'pay.identity_admission_unavailable');
+          try {
+            await this.drainPermissionIntents(tx, current);
+            if (await pendingPayfacPermissionIntentCount(tx, current)) throw new Error('Incomplete identity admission drain');
+          } catch {
+            throw new SubMerchantError('Pending identity decisions prevent permission cutoff', 'pay.identity_admission_unavailable');
+          }
         }
 
         const rows = await tx<PermissionEventRow[]>`

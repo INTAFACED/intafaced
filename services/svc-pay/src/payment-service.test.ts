@@ -19,13 +19,17 @@ import {
 import { PayService, PayError, type PaymentView } from './payment-service.js';
 import { defaultDisputeCaseStore } from './fraud/dispute-case.js';
 import { REFERENCE_RAIL_ROUTING_PROFILES, type RailRoutingProfile } from './routing/decide.js';
-import { memoryPayoutDestinations } from './merchant-payout-destination.js';
+import { memoryPayoutDestinations, MerchantPayoutDestinationStore } from './merchant-payout-destination.js';
 import { RailRegistry } from './rails/registry.js';
 import { CardSandboxAdapter, SANDBOX_DECLINE_TOKEN } from './rails/card-sandbox.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
 import { BankPayoutAbsentAdapter } from './rails/bank-payout.js';
 import { MemoryChain } from './rails/chain-port.js';
 import { signPayload } from './rails/webhook-signature.js';
+import { createIdentityOperationDecisionClient, type IdentityOperationDecisionPort, type Context } from '@intafaced/contracts';
+import { randomUUID } from 'node:crypto';
+import { MerchantAccountControls } from './merchant-account-controls.js';
+import { drainPendingPaymentIdentityIntents } from './payment-admission.js';
 
 /**
  * svc-pay money paths.
@@ -63,9 +67,15 @@ const here = dirname(fileURLToPath(import.meta.url));
  * Isolation is now a per-run DATABASE (`createTestDatabase`), so a parallel
  * file on the same tables no longer shares rows with this suite.
  */
-const migrations = ['0000_pay_init.sql', '0002_pay_payment_links.sql', '0003_pay_checkout_sessions.sql', '0005_pay_merchant_kyb.sql'].map(
-  (f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'),
-);
+const migrations = [
+  '0000_pay_init.sql',
+  '0002_pay_payment_links.sql',
+  '0003_pay_checkout_sessions.sql',
+  '0005_pay_merchant_kyb.sql',
+  '0006_pay_merchant_status_history.sql',
+  '0014_pay_merchant_payout_destinations.sql',
+  '0018_pay_founder_controls_admission.sql',
+].map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
 
 const SECRET = 'svc-pay-test-secret-at-least-32-characters';
 const MERCHANT_USER = '11111111-1111-4111-8111-111111111111';
@@ -1546,7 +1556,401 @@ describe('svc-pay money PG-hard', () => {
 
   // ── Payout ────────────────────────────────────────────────────────────────
 
+  describe('identity-owned fresh payment admission', () => {
+    it('legacy creation replay validates original parameters before requesting identity or attaching an intent', async () => {
+      const m = await merchant(0),
+        request = {
+          requestId: randomUUID(),
+          merchantId: m.id,
+          amount: amt('8'),
+          assetId: 'USDT',
+          method: 'card',
+          railAdapter: 'card-sandbox',
+          instrument: { kind: 'card', token: 'tok_ok' },
+        };
+      await pay.createPayment(request);
+      let decisions = 0;
+      const owner = admittedService({
+        decide: async ({ intent }) => {
+          decisions++;
+          return { status: 'granted', intent, grantId: randomUUID(), identityVersion: '0', decidedAt: new Date().toISOString() };
+        },
+      });
+      await expect(owner.createPayment({ ...request, amount: amt('9') })).rejects.toMatchObject({
+        code: 'pay.identity_admission_conflict',
+      });
+      expect(decisions).toBe(0);
+      expect(await sql`SELECT business_id FROM pay.payment_admissions`).toHaveLength(0);
+      expect((await owner.createPayment(request)).id).toBe(request.requestId);
+      expect(decisions).toBe(1);
+    });
+    function admittedService(identity: IdentityOperationDecisionPort) {
+      return new PayService(sql, ledger, rails, {
+        payoutDestinations: dests,
+        identityOperationAdmission: identity,
+        checkoutRiskBand: 'low',
+        routingProfiles: TEST_CHECKOUT_PROFILES,
+        linkDefaultTtlDays: 30,
+        linkMaxTtlDays: 365,
+        checkoutSessionTtlSeconds: 900,
+        maxOpenSessionsPerLink: 25,
+      });
+    }
+    const paymentInput = (merchantId: string) => ({
+      requestId: randomUUID(),
+      merchantId,
+      amount: amt('8'),
+      assetId: 'USDT',
+      method: 'card',
+      railAdapter: 'card-sandbox',
+      instrument: { kind: 'card', token: 'tok_ok' },
+    });
+    it('public checkout admits server-derived creation and authorization separately before handing out instructions', async () => {
+      const kinds: string[] = [];
+      const owner = admittedService({
+        decide: async ({ intent }) => {
+          kinds.push(intent.operation.kind);
+          expect(intent.authority).toEqual({
+            kind: 'merchant_policy',
+            merchantId: intent.operation.service === 'svc-pay' ? intent.operation.merchantId : '',
+          });
+          return { status: 'granted', intent, grantId: randomUUID(), identityVersion: '0', decidedAt: new Date().toISOString() };
+        },
+      });
+      const m = await merchant(0),
+        link = await owner.createPaymentLink({ merchantId: m.id, label: 'Identity checkout', amount: amt('8'), currency: 'USDT' });
+      const opened = await owner.openCheckoutSession({ linkToken: link.token, geoCountry: 'ID', method: 'crypto' });
+      expect(opened.sessionToken).toBeTruthy();
+      expect(opened.session.instruction?.reference).toBeTruthy();
+      expect(kinds).toEqual(['payment.create', 'payment.authorize']);
+    });
+    it('cancelled public creation never exposes an instruction or admits authorization on retry', async () => {
+      const kinds: string[] = [];
+      const owner = admittedService({
+        decide: async ({ intent }) => {
+          kinds.push(intent.operation.kind);
+          return { status: 'cancelled', intent, code: 'auth.account_frozen', decidedAt: new Date().toISOString() };
+        },
+      });
+      const m = await merchant(0),
+        link = await owner.createPaymentLink({ merchantId: m.id, label: 'Frozen checkout', amount: amt('8'), currency: 'USDT' });
+      await expect(owner.openCheckoutSession({ linkToken: link.token, geoCountry: 'ID', method: 'crypto' })).rejects.toMatchObject({
+        code: 'pay.identity_admission_denied',
+      });
+      const rows = await sql`SELECT payment_id,status,instruction FROM pay.checkout_sessions`;
+      expect(rows[0]).toMatchObject({ status: 'cancelled', instruction: {} });
+      await expect(owner.authorize(String(rows[0]!.payment_id))).rejects.toMatchObject({ code: 'pay.identity_admission_denied' });
+      expect(kinds).toEqual(['payment.create']);
+      expect(ledger.journal()).toHaveLength(0);
+    });
+    it('create, authorize, capture and payout require separate committed original intents before grants', async () => {
+      const kinds: string[] = [];
+      const owner = admittedService({
+        decide: async ({ intent }) => {
+          kinds.push(intent.operation.kind);
+          if (intent.operation.kind === 'payout') {
+            expect(await sql`SELECT id FROM pay.payout_admissions WHERE business_id=${intent.businessId}`).toHaveLength(1);
+            expect(
+              await sql`SELECT kind FROM pay.payout_outcomes o JOIN pay.payout_admissions a ON a.id=o.admission_id WHERE a.business_id=${intent.businessId} AND o.kind='identity_requested'`,
+            ).toHaveLength(1);
+          } else {
+            expect(await sql`SELECT payload FROM pay.payment_admissions WHERE business_id=${intent.businessId}`).toHaveLength(1);
+            expect(
+              await sql`SELECT kind FROM pay.payment_admission_outcomes WHERE business_id=${intent.businessId} AND kind='identity_requested'`,
+            ).toHaveLength(1);
+          }
+          return { status: 'granted', intent, grantId: randomUUID(), identityVersion: '0', decidedAt: new Date().toISOString() };
+        },
+      });
+      const m = await merchant(0),
+        request = paymentInput(m.id);
+      const p = await owner.createPayment(request);
+      expect((await owner.createPayment(request)).id).toBe(p.id);
+      await owner.authorize(p.id);
+      await owner.capture(p.id);
+      const settlement = await settle(m.id, 'identity-all-fresh');
+      await owner.payoutSettlement({
+        settlementId: settlement.id,
+        railId: 'card-sandbox',
+        destination: { kind: 'bank', ref: 'DE89370400440532013000' },
+      });
+      expect(kinds).toEqual(['payment.create', 'payment.authorize', 'payment.capture', 'payout']);
+      await expect(sql`UPDATE pay.payment_admissions SET payload=payload`).rejects.toThrow('pay.control_record_immutable');
+      await expect(sql`DELETE FROM pay.payment_admission_outcomes`).rejects.toThrow('pay.control_record_immutable');
+      await expect(
+        sql`INSERT INTO pay.payment_admission_outcomes(business_id,kind,payload) VALUES(${`payment.create:${p.id}`},'identity_cancelled','{}')`,
+      ).rejects.toThrow('pay_payment_identity_terminal');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+    it.each(['payment.authorize', 'payment.capture'] as const)(
+      'identity freeze refuses fresh %s without rail or ledger effects',
+      async (kind) => {
+        let frozen = false;
+        const kinds: string[] = [];
+        const owner = admittedService({
+          decide: async ({ intent }) => {
+            kinds.push(intent.operation.kind);
+            return frozen
+              ? { status: 'cancelled', intent, code: 'auth.account_frozen', decidedAt: new Date().toISOString() }
+              : { status: 'granted', intent, grantId: randomUUID(), identityVersion: '0', decidedAt: new Date().toISOString() };
+          },
+        });
+        const m = await merchant(0),
+          p = await owner.createPayment(paymentInput(m.id));
+        if (kind === 'payment.capture') await owner.authorize(p.id);
+        frozen = true;
+        const before = ledger.journal().length;
+        await expect(kind === 'payment.capture' ? owner.capture(p.id) : owner.authorize(p.id)).rejects.toMatchObject({
+          code: 'pay.identity_admission_denied',
+        });
+        expect((await owner.getPayment(p.id)).status).toBe(kind === 'payment.capture' ? 'authorized' : 'created');
+        expect(ledger.journal()).toHaveLength(before);
+        expect(kinds.at(-1)).toBe(kind);
+      },
+    );
+    it('missing owner transport refuses fresh creation and preserves unresolved original intent without payment effects', async () => {
+      const owner = admittedService(createIdentityOperationDecisionClient({ owner: 'svc-pay' })),
+        m = await merchant(0);
+      await expect(owner.createPayment(paymentInput(m.id))).rejects.toMatchObject({ code: 'pay.identity_admission_unavailable' });
+      expect(await sql`SELECT id FROM pay.payments`).toHaveLength(0);
+      expect(await sql`SELECT business_id FROM pay.payment_admissions`).toHaveLength(1);
+      expect(await sql`SELECT kind FROM pay.payment_admission_outcomes WHERE kind='identity_requested'`).toHaveLength(1);
+      expect(ledger.journal()).toHaveLength(0);
+    });
+    it('merchant cutoff cancels pending original creation and prevents late grant retry or changed payload', async () => {
+      const identity: IdentityOperationDecisionPort = {
+        decide: async ({ mode, intent }) =>
+          mode === 'grant'
+            ? { status: 'unavailable', code: 'authority.unavailable' }
+            : { status: 'cancelled', intent, code: 'admission.cancelled', decidedAt: new Date().toISOString() },
+      };
+      const owner = admittedService(identity),
+        m = await merchant(0),
+        request = paymentInput(m.id);
+      await expect(owner.createPayment(request)).rejects.toMatchObject({ code: 'pay.identity_admission_unavailable' });
+      const founder = randomUUID(),
+        ctx: Context = {
+          principal: {
+            userId: founder,
+            sub: founder,
+            sid: randomUUID(),
+            scopes: ['admin:write'],
+            mfa: true,
+            tier: 'full',
+            expiresAt: new Date(Date.now() + 60000),
+          },
+          service: null,
+          region: 'ID',
+          requestId: randomUUID(),
+        };
+      const controls = new MerchantAccountControls(
+        sql,
+        async () => founder,
+        (tx, id) => drainPendingPaymentIdentityIntents(tx, id, identity),
+      );
+      const cutoff = await controls.change(ctx, {
+        requestId: randomUUID(),
+        target: { area: 'merchant', merchantId: m.id },
+        action: 'restrict',
+        reason: 'Review merchant policy',
+        expectedVersion: '0',
+      });
+      expect(cutoff.outcome).toBe('changed');
+      await expect(owner.createPayment(request)).rejects.toMatchObject({ code: 'pay.identity_admission_denied' });
+      await expect(owner.createPayment({ ...request, amount: amt('9') })).rejects.toMatchObject({
+        code: 'pay.identity_admission_conflict',
+      });
+      expect(await sql`SELECT id FROM pay.payments`).toHaveLength(0);
+    });
+    it('original capture grant recovers ledger success before SQL crash after identity freeze and merchant suspension', async () => {
+      let frozen = false,
+        decisions = 0;
+      const owner = admittedService({
+        decide: async ({ intent }) => {
+          decisions++;
+          return frozen
+            ? { status: 'cancelled', intent, code: 'auth.account_frozen', decidedAt: new Date().toISOString() }
+            : { status: 'granted', intent, grantId: randomUUID(), identityVersion: '0', decidedAt: new Date().toISOString() };
+        },
+      });
+      const m = await merchant(0),
+        p = await owner.createPayment(paymentInput(m.id));
+      await owner.authorize(p.id);
+      await sql.unsafe(
+        `CREATE FUNCTION pay.test_capture_projection_crash() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status='captured' THEN RAISE EXCEPTION 'test.capture_projection_crash'; END IF; RETURN NEW; END; $$; CREATE TRIGGER test_capture_projection_crash BEFORE UPDATE ON pay.payments FOR EACH ROW EXECUTE FUNCTION pay.test_capture_projection_crash();`,
+      );
+      try {
+        await expect(owner.capture(p.id)).rejects.toThrow('test.capture_projection_crash');
+      } finally {
+        await sql.unsafe('DROP TRIGGER test_capture_projection_crash ON pay.payments;DROP FUNCTION pay.test_capture_projection_crash();');
+      }
+      expect(decisions).toBe(3);
+      frozen = true;
+      await sql`UPDATE pay.merchants SET status='suspended' WHERE id=${m.id}`;
+      expect((await owner.capture(p.id)).status).toBe('captured');
+      expect(decisions).toBe(3);
+      expect(ledger.journal().filter((row) => row.reason === 'payment.captured')).toHaveLength(1);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+  });
+
   describe('payout', () => {
+    it('an old ledger hold without an owner record refuses recovery without guessing a destination', async () => {
+      const m = await merchant(0),
+        payment = await cryptoPayment(m.id, '5');
+      await pay.capture(payment.id);
+      const settlement = await settle(m.id, 'legacy-unowned-hold');
+      await ledger.post(
+        recipes.withdrawHold({
+          userId: MERCHANT_USER,
+          assetId: 'USDT',
+          amount: settlement.net,
+          rail: 'crypto-native',
+          withdrawalId: `${settlement.id}:0`,
+        }),
+      );
+      await expect(
+        pay.payoutSettlement({
+          settlementId: settlement.id,
+          railId: 'crypto-native',
+          destination: { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f01' },
+        }),
+      ).rejects.toMatchObject({ code: 'pay.payout_admission_missing' });
+      expect(await sql`SELECT id FROM pay.payout_admissions`).toHaveLength(0);
+      expect(chain.outboundTransfers()).toHaveLength(0);
+      expect(await heldTotalOf(MERCHANT_USER)).toBe('5');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+    it('fresh payout waits behind merchant restriction and refuses without admission or hold', async () => {
+      const m = await merchant(0),
+        payment = await cryptoPayment(m.id, '7');
+      await pay.capture(payment.id);
+      const settlement = await settle(m.id, 'payout-cutoff-race');
+      const destinations = new MerchantPayoutDestinationStore(sql);
+      const originalDestination = { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f02' };
+      await destinations.persist({ merchantId: m.id, railId: 'crypto-native', ...originalDestination });
+      const guardedPay = new PayService(sql, ledger, rails, { payoutDestinations: destinations });
+      const cutoff = await beginMerchantCutoff(m.id, 'suspended');
+      const payout = guardedPay.payoutSettlement({
+        settlementId: settlement.id,
+        railId: 'crypto-native',
+        destination: { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f01' },
+      });
+      const result = expect(payout).rejects.toMatchObject({ code: 'pay.merchant_inactive' });
+      try {
+        await expectEligibilityReadWaiting();
+      } finally {
+        await cutoff.commit();
+      }
+      await result;
+      expect(await sql`SELECT id FROM pay.payout_admissions`).toHaveLength(0);
+      expect(chain.outboundTransfers()).toHaveLength(0);
+      expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
+      expect(await availableOf(MERCHANT_USER)).toBe('7');
+      expect(await destinations.require({ merchantId: m.id, railId: 'crypto-native' })).toEqual(originalDestination);
+    });
+    it('recovers original durable admission after a crash before hold and later suspension', async () => {
+      const m = await merchant(0),
+        payment = await cryptoPayment(m.id, '6');
+      await pay.capture(payment.id);
+      const settlement = await settle(m.id, 'admission-before-hold-crash');
+      const crashing = new PayService(sql, ledger, rails, {
+        payoutDestinations: dests,
+        afterPayoutAdmission: () => {
+          throw new Error('test.admission_crash');
+        },
+      });
+      const request = {
+        settlementId: settlement.id,
+        railId: 'crypto-native',
+        destination: { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f01' },
+      };
+      await expect(crashing.payoutSettlement(request)).rejects.toThrow('test.admission_crash');
+      expect(await sql`SELECT id FROM pay.payout_admissions`).toHaveLength(1);
+      expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
+      await sql`UPDATE pay.merchants SET status='suspended' WHERE id=${m.id}`;
+      expect((await pay.payoutSettlement(request)).status).toBe('paid_out');
+      expect(chain.outboundTransfers()).toHaveLength(1);
+      await expect(sql`DELETE FROM pay.payout_outcomes`).rejects.toThrow('pay.control_record_immutable');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+    it('concurrent payout retries create one immutable admission and one rail transfer', async () => {
+      const m = await merchant(0),
+        payment = await cryptoPayment(m.id, '11');
+      await pay.capture(payment.id);
+      const settlement = await settle(m.id, 'parallel-payout');
+      const request = {
+        settlementId: settlement.id,
+        railId: 'crypto-native',
+        destination: { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f01' },
+      };
+      const results = await Promise.all([pay.payoutSettlement(request), pay.payoutSettlement(request)]);
+      expect(results.every((r) => r.status === 'paid_out')).toBe(true);
+      expect(chain.outboundTransfers()).toHaveLength(1);
+      expect(await sql`SELECT id FROM pay.payout_admissions`).toHaveLength(1);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+    it('recovery binds the original rail/destination before any mutable destination store writes', async () => {
+      const m = await merchant(0),
+        payment = await cryptoPayment(m.id, '9');
+      await pay.capture(payment.id);
+      const settlement = await settle(m.id, 'recover-original');
+      const originalPost = ledger.post.bind(ledger);
+      let crash = true;
+      ledger.post = async (request) => {
+        const result = await originalPost(request);
+        if (crash && request.reason === 'withdraw.held') {
+          crash = false;
+          throw new Error('test.hold_crash');
+        }
+        return result;
+      };
+      const request = {
+        settlementId: settlement.id,
+        railId: 'crypto-native',
+        destination: { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f01' },
+      };
+      await expect(pay.payoutSettlement(request)).rejects.toThrow('test.hold_crash');
+      await sql`UPDATE pay.merchants SET status='suspended' WHERE id=${m.id}`;
+      await expect(
+        pay.payoutSettlement({ ...request, destination: { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f02' } }),
+      ).rejects.toMatchObject({ code: 'pay.payout_recovery_conflict' });
+      await expect(pay.payoutSettlement({ ...request, railId: 'card-sandbox' })).rejects.toMatchObject({
+        code: 'pay.payout_recovery_conflict',
+      });
+      expect((await dests.require({ merchantId: m.id, railId: 'crypto-native' })).ref).toBe(request.destination.ref);
+      await dests.persist({ merchantId: m.id, railId: 'crypto-native', kind: 'crypto', ref: '0x0000000000000000000000000000000000000f03' });
+      const recovered = await pay.payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native' });
+      expect(recovered.status).toBe('paid_out');
+      expect(chain.outboundTransfers()[0]?.to).toBe(request.destination.ref);
+      await expect(sql`UPDATE pay.payout_admissions SET destination_ref='another'`).rejects.toThrow('pay.control_record_immutable');
+    });
+    it('recovers rail and ledger success before SQL projection after suspension', async () => {
+      const m = await merchant(0);
+      const payment = await cryptoPayment(m.id, '15');
+      await pay.capture(payment.id);
+      const settlement = await settle(m.id, 'repro-success-before-projection');
+      const request = {
+        settlementId: settlement.id,
+        railId: 'crypto-native',
+        destination: { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f01' },
+      };
+      await sql.unsafe(`CREATE FUNCTION pay.test_fail_payout_projection() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status = 'paid_out' THEN RAISE EXCEPTION 'test.crash_after_ledger_settle'; END IF; RETURN NEW; END; $$;
+        CREATE TRIGGER test_fail_payout_projection BEFORE UPDATE ON pay.settlements FOR EACH ROW EXECUTE FUNCTION pay.test_fail_payout_projection();`);
+      try {
+        await expect(pay.payoutSettlement(request)).rejects.toThrow('test.crash_after_ledger_settle');
+      } finally {
+        await sql.unsafe('DROP TRIGGER test_fail_payout_projection ON pay.settlements; DROP FUNCTION pay.test_fail_payout_projection();');
+      }
+      expect(chain.outboundTransfers()).toHaveLength(1);
+      expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
+      expect((await pay.getSettlement(settlement.id)).status).toBe('posted');
+      await sql`UPDATE pay.merchants SET status='suspended' WHERE id=${m.id}`;
+      expect((await pay.payoutSettlement(request)).status).toBe('paid_out');
+      expect(chain.outboundTransfers()).toHaveLength(1);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
     it('moves a settled window out of the book to a chain address', async () => {
       const m = await merchant(0);
       const payment = await cryptoPayment(m.id, '10');
@@ -1600,6 +2004,29 @@ describe('svc-pay money PG-hard', () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
+    it('recovers reversal before SQL projection under suspension without asking the rail again', async () => {
+      const m = await merchant(0),
+        payment = await cardPayment(m.id, '12');
+      await pay.capture(payment.id);
+      const settlement = await settle(m.id, 'reverse-before-sql');
+      const request = { settlementId: settlement.id, railId: 'card-sandbox', destination: { kind: 'bank', ref: 'DE89370400440532013000' } };
+      card.failNext('bank.rejected', 'Beneficiary closed');
+      await sql.unsafe(
+        `CREATE FUNCTION pay.test_fail_reverse_projection() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status='failed' THEN RAISE EXCEPTION 'test.reverse_projection_crash'; END IF;RETURN NEW;END;$$; CREATE TRIGGER test_fail_reverse_projection BEFORE UPDATE ON pay.settlements FOR EACH ROW EXECUTE FUNCTION pay.test_fail_reverse_projection();`,
+      );
+      try {
+        await expect(pay.payoutSettlement(request)).rejects.toThrow('test.reverse_projection_crash');
+      } finally {
+        await sql.unsafe('DROP TRIGGER test_fail_reverse_projection ON pay.settlements;DROP FUNCTION pay.test_fail_reverse_projection();');
+      }
+      expect(await availableOf(MERCHANT_USER)).toBe('12');
+      expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
+      await sql`UPDATE pay.merchants SET status='suspended' WHERE id=${m.id}`;
+      await expect(pay.payoutSettlement(request)).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      expect(await pay.getSettlement(settlement.id)).toMatchObject({ status: 'failed', payoutAttempts: 1 });
+      expect(await sql`SELECT kind FROM pay.payout_outcomes WHERE kind='rail_accepted'`).toHaveLength(0);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
     it('returns the funds to the merchant when the payout rail refuses', async () => {
       const m = await merchant(0);
       const payment = await cardPayment(m.id, '50');
@@ -1742,16 +2169,24 @@ describe('svc-pay money PG-hard', () => {
       expect(settlement.status).toBe('posted');
       expect(await availableOf(MERCHANT_USER)).toBe('15');
 
-      // Simulate crash after hold: only the ledger half ran.
-      await ledger.post(
-        recipes.withdrawHold({
-          userId: MERCHANT_USER,
-          assetId: 'USDT',
-          amount: settlement.net,
-          rail: 'crypto-native',
-          withdrawalId: `${settlement.id}:0`,
+      // Drive the actual admission + hold path, then crash before the rail.
+      const originalPost = ledger.post.bind(ledger);
+      let crash = true;
+      ledger.post = async (request) => {
+        const result = await originalPost(request);
+        if (crash && request.reason === 'withdraw.held') {
+          crash = false;
+          throw new Error('test.crash_after_hold');
+        }
+        return result;
+      };
+      await expect(
+        pay.payoutSettlement({
+          settlementId: settlement.id,
+          railId: 'crypto-native',
+          destination: { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f01' },
         }),
-      );
+      ).rejects.toThrow('test.crash_after_hold');
       expect(await heldTotalOf(MERCHANT_USER)).toBe('15');
       expect(await availableOf(MERCHANT_USER)).toBe('0');
 

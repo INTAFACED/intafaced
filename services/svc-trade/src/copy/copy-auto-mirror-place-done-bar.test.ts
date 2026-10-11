@@ -16,13 +16,8 @@ import { describe, expect, it } from 'vitest';
 import { createTradeRouter } from '../router.js';
 import type { TradeService } from '../spot/trade-service.js';
 import type { PlaceFollowerOrderPort } from './auto-mirror-place.js';
-import {
-  COPY_AUTO_MIRROR_PLACE_SOCKET,
-  COPY_PLACE_DISABLED_RESIDUAL,
-  CopyService,
-  copyLimitPriceFromPlan,
-  copyMirrorClientOrderId,
-} from './index.js';
+import { CopyService } from '../controls/test-admission.js';
+import { COPY_AUTO_MIRROR_PLACE_SOCKET, COPY_PLACE_DISABLED_RESIDUAL, copyLimitPriceFromPlan, copyMirrorClientOrderId } from './index.js';
 
 const SECRET = 'copy-auto-mirror-place-done-bar-secret-32b';
 const FOLLOWER = '11111111-1111-4111-8111-111111111111';

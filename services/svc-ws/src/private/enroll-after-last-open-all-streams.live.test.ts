@@ -1,3 +1,4 @@
+import { TEST_AUTHORITY } from '../test-support/authority.js';
 import { createServer, request as httpRequest, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
@@ -62,6 +63,7 @@ describe('every private stream opens only after the newly enrolled passkey verif
     if (!addr || typeof addr === 'string') throw new Error('no port');
     const log: HubLogger = { info: () => undefined, warn: () => undefined };
     gateway = createPrivateWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server,
       hub,
       heartbeatMs: 30_000,

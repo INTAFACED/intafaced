@@ -200,6 +200,8 @@ const schema = serviceEnvSchema
        * Blank → noop port (settlement still posts). Never invent rates.
        */
       IDENTITY_URL: z.string().url().optional(),
+      /** Owner-specific exact-body admission key. Missing configuration refuses fresh operations. */
+      IDENTITY_ADMISSION_SECRET: z.string().min(32).optional(),
 
       /**
        * The prefix a BROWSER sees the hosted checkout under.

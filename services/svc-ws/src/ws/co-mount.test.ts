@@ -1,3 +1,4 @@
+import { TEST_AUTHORITY } from '../test-support/authority.js';
 /**
  * Public + private gateways co-mounted on one HTTP server — production boot shape.
  * Proves public demux does not 404 /private/stream before private auth runs.
@@ -107,6 +108,35 @@ describe('public + private WS co-mount (production shape)', () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
+  it('public depth delivers a real snapshot while both private doors lack authority configuration', async () => {
+    server = createServer();
+    const { depthHub, tradeHub, privateHub, dropCopyHub } = mountHubs(log);
+    const common = { server, heartbeatMs: 30000, log, enabled: () => true };
+    const publicGateway = createWebSocketGateway({ ...common, hub: depthHub, tradeHub });
+    const privateGateway = createPrivateWebSocketGateway({ ...common, hub: privateHub, tokens, authority: null });
+    const dropGateway = createDropCopyWebSocketGateway({ ...common, hub: dropCopyHub, tokens, authority: null });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const addr = server.address();
+    if (!addr || typeof addr === 'string') throw new Error('No test port');
+    const base = `ws://127.0.0.1:${addr.port}`;
+    const { token } = await issueAccessToken({ userId: USER, sessionId: SESSION, scopes: ['trade:read'] }, tokens);
+    try {
+      expect(await upgradeStatus(`${base}${PRIVATE_STREAM_PATH}?access_token=${token}`)).toBe(503);
+      expect(await upgradeStatus(`${base}${DROP_COPY_STREAM_PATH}?access_token=${token}`)).toBe(503);
+      const client = new WebSocket(`${base}${STREAM_PATH}?market=${MARKET}`);
+      const snapshot = await new Promise<Record<string, unknown>>((resolve, reject) => {
+        client.on('message', (data) => resolve(JSON.parse(String(data))));
+        client.once('error', reject);
+      });
+      expect(snapshot).toMatchObject({ type: 'snapshot', marketId: MARKET, bids: [['100', '1']], asks: [['101', '1']] });
+      client.terminate();
+    } finally {
+      await privateGateway.close('test done');
+      await dropGateway.close('test done');
+      await publicGateway.close('test done');
+    }
+  });
+
   it('private stream reaches auth (401 without token); public stream still works', async () => {
     server = createServer();
     const { depthHub, tradeHub, privateHub, dropCopyHub } = mountHubs(log);
@@ -120,6 +150,7 @@ describe('public + private WS co-mount (production shape)', () => {
       enabled: () => true,
     });
     createPrivateWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server,
       hub: privateHub,
       heartbeatMs: 30_000,
@@ -128,6 +159,7 @@ describe('public + private WS co-mount (production shape)', () => {
       tokens,
     });
     createDropCopyWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server,
       hub: dropCopyHub,
       heartbeatMs: 30_000,
@@ -170,6 +202,7 @@ describe('public + private WS co-mount (production shape)', () => {
       enabled: () => true,
     });
     createPrivateWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server,
       hub: privateHub,
       heartbeatMs: 30_000,
@@ -201,6 +234,7 @@ describe('public + private WS co-mount (production shape)', () => {
       enabled: () => enabled,
     });
     createPrivateWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server,
       hub: privateHub,
       heartbeatMs: 30_000,
@@ -233,6 +267,7 @@ describe('public + private WS co-mount (production shape)', () => {
       enabled: () => true,
     });
     createPrivateWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server,
       hub: privateHub,
       heartbeatMs: 30_000,
@@ -290,6 +325,7 @@ describe('public + private WS co-mount (production shape)', () => {
       enabled: () => true,
     });
     createPrivateWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server,
       hub: privateHub,
       heartbeatMs: 30_000,
@@ -345,6 +381,7 @@ describe('public + private WS co-mount (production shape)', () => {
       enabled: () => true,
     });
     createPrivateWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server,
       hub: privateHub,
       heartbeatMs: 30_000,
@@ -414,6 +451,7 @@ describe('public + private WS co-mount (production shape)', () => {
       enabled: () => true,
     });
     createPrivateWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server,
       hub: privateHub,
       heartbeatMs: 30_000,

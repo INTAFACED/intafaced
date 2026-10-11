@@ -1,3 +1,4 @@
+import { OtcDeskService } from '../controls/test-admission.js';
 /**
  * Done bar — SOCKET §13 `socket.otc-maker-routing`.
  *
@@ -8,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { MemoryLedger, parseAmount } from '@intafaced/ledger-client';
-import { OtcDeskService } from './otc-service.js';
+
 import { FixedOtcStake } from './stake-source.js';
 import { planOtcSettle } from './settle.js';
 import { acceptOtcQuote, buildOtcQuote } from './rfq.js';

@@ -2,6 +2,9 @@ import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { verifyAccessToken, type TokenConfig } from '@intafaced/auth';
+import type { CurrentAuthorityInput } from '@intafaced/contracts';
+import type { CurrentAuthorityPort } from './authority.js';
+import { PrivateAuthorityLease } from './authority-lease.js';
 import { resolveWsCopy, WS_COPY } from '../copy.js';
 import { CLOSE_GOING_AWAY, type DepthSink, type HubLogger } from '../depth/hub.js';
 import { marketDataFeedRefuse, writeMarketDataFeedRefuse } from '../gateway-policy.js';
@@ -94,10 +97,12 @@ export interface PrivateWebSocketGatewayOptions {
   readonly now?: () => number;
   readonly scheduleCod?: (fn: () => void, delayMs: number) => () => void;
   /**
-   * Injected live session/key check. Omitted/null = JWT `exp` only.
-   * Production does not wire this — svc-ws must not hold INTERNAL_SERVICE_SECRET.
+   * Explicit supplemental adapter, primarily for existing policy tests. It
+   * cannot substitute for the mandatory identity authority lease.
    */
   readonly liveCredential?: LiveCredentialPort | null;
+  /** Mandatory positive authority for every private seat; missing refuses upgrades. */
+  readonly authority?: CurrentAuthorityPort | null;
 }
 
 export interface PrivateWebSocketGateway {
@@ -127,6 +132,7 @@ function closeUnauthorized(socket: WebSocket): void {
 }
 
 type PrivateSeat = {
+  lease: PrivateAuthorityLease;
   token: string;
   expiresAtMs: number;
   userId: string;
@@ -155,7 +161,7 @@ function sinkFor(socket: WebSocket, seat: PrivateSeat, live?: { assert: () => Pr
       return socket.bufferedAmount;
     },
     send(frame: string) {
-      if (Date.now() >= seat.expiresAtMs) {
+      if (!seat.lease.isCurrent()) {
         closeUnauthorized(socket);
         return;
       }
@@ -165,7 +171,7 @@ function sinkFor(socket: WebSocket, seat: PrivateSeat, live?: { assert: () => Pr
       }
       void live.assert().then(
         () => {
-          if (socket.readyState === socket.OPEN && Date.now() < seat.expiresAtMs) {
+          if (socket.readyState === socket.OPEN && seat.lease.isCurrent()) {
             socket.send(frame);
           }
         },
@@ -262,6 +268,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
     now = () => Date.now(),
     scheduleCod = defaultCodSchedule,
     liveCredential = null,
+    authority = null,
   } = options;
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1_024, perMessageDeflate: false });
   const cod = new CodController({ range: codRange ?? null, now, schedule: scheduleCod, cancel: tradeCancel ?? null });
@@ -335,6 +342,11 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
           return;
         }
 
+        if (!authority) {
+          reject(socket, 503, 'Service Unavailable');
+          return;
+        }
+
         const raw = tokenFrom(url, req.headers);
         if (!raw) {
           reject(socket, 401, 'Unauthorized');
@@ -346,6 +358,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
         let hasWrite: boolean;
         let sessionId: string;
         let apiKeyId: string | undefined;
+        let subject: CurrentAuthorityInput;
         try {
           const principal = await verifyAccessToken(raw, tokens);
           if (!principal.userId) {
@@ -361,6 +374,11 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
           hasWrite = principal.scopes.includes('trade:write');
           sessionId = principal.sid;
           apiKeyId = principal.kid;
+          subject = {
+            userId,
+            credential: apiKeyId ? { kind: 'api_key', apiKeyId } : { kind: 'session', sessionId },
+            ...(principal.sub_account ? { subAccountId: principal.sub_account } : {}),
+          };
         } catch {
           reject(socket, 401, 'Unauthorized');
           return;
@@ -369,17 +387,29 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
         const callerIp = callerIpFromUpgrade(req);
         const requestOrigin = requestOriginFromUpgrade(req);
         const accountId = requestAccountIdFromUpgrade(req);
-        if (liveCredential) {
-          try {
-            await assertLiveCredential(liveCredential, { userId, sessionId, apiKeyId, callerIp, requestOrigin, accountId });
-          } catch {
-            reject(socket, 401, 'Unauthorized');
-            return;
-          }
+        const policy = { userId, sessionId, apiKeyId, callerIp, requestOrigin, accountId };
+        let lease: PrivateAuthorityLease;
+        try {
+          lease = await PrivateAuthorityLease.acquire({
+            port: authority,
+            subject,
+            jwtExpiresAtMs: expiresAtMs,
+            policy,
+            additional: liveCredential ? () => assertLiveCredential(liveCredential, policy) : undefined,
+          });
+        } catch {
+          reject(socket, 401, 'Unauthorized');
+          return;
+        }
+        if (!lease.isCurrent() || draining || !enabled() || socket.destroyed) {
+          lease.dispose();
+          if (!socket.destroyed) reject(socket, 401, 'Unauthorized');
+          return;
         }
 
         const channelSel = parsePrivateChannel(url.searchParams.get('channel'));
         if (channelSel === null) {
+          lease.dispose();
           reject(socket, 400, 'Bad Request');
           return;
         }
@@ -387,6 +417,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
         wss.handleUpgrade(req, socket, head, (ws) => {
           const attachChannel = channelSel === 'all' ? null : channelSel;
           const seat: PrivateSeat = {
+            lease,
             token: raw,
             expiresAtMs,
             userId,
@@ -401,6 +432,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
             ? {
                 assert: () => assertLiveCredential(liveCredential, liveCredentialInput(seat)).then(() => undefined),
                 onDead: () => {
+                  lease.revoke();
                   cod.drop(ws);
                 },
               }
@@ -410,6 +442,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
           // Capacity refuse closes the sink inside attach — never announce ready
           // for a subscription the hub did not take (fail-closed, no false start).
           if (!detach) {
+            lease.dispose();
             // sink.close may race the client open; terminate so the client always
             // sees a hard end and does not sit half-open with zero ready frames.
             try {
@@ -440,6 +473,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
             const text = messageText(data);
             if (text === null) return;
             void (async () => {
+              if (!lease.isCurrent()) return;
               let hasWrite = seat.hasWrite;
               try {
                 const principal = await verifyAccessToken(seat.token, tokens);
@@ -454,11 +488,13 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
                 try {
                   await assertLiveCredential(liveCredential, liveCredentialInput(seat));
                 } catch {
+                  lease.revoke();
                   cod.drop(ws);
                   closeUnauthorized(ws);
                   return;
                 }
               }
+              if (!lease.isCurrent() || ws.readyState !== ws.OPEN) return;
               cod.handleText(ws, text, {
                 userId: seat.userId,
                 accessToken: seat.token,
@@ -474,8 +510,16 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
             expiryTimers.delete(expiryTimer);
             unlisten();
             detach();
-            if (draining) cod.drop(ws);
+            const current = lease.isCurrent();
+            lease.dispose();
+            if (draining || !current) cod.drop(ws);
             else void cod.disconnect(ws);
+          });
+
+          lease.start(() => {
+            cod.drop(ws);
+            closeUnauthorized(ws);
+            ws.terminate();
           });
 
           try {
@@ -524,7 +568,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
     hub.sweepLag();
     for (const ws of wss.clients) {
       const seat = seats.get(ws);
-      if (seat && Date.now() >= seat.expiresAtMs) {
+      if (seat && !seat.lease.isCurrent()) {
         closeUnauthorized(ws);
         continue;
       }
@@ -533,6 +577,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
           () => undefined,
           () => {
             if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
+              seat.lease.revoke();
               cod.drop(ws);
               closeUnauthorized(ws);
             }
@@ -576,6 +621,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
             },
             () => {
               if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
+                seat.lease.revoke();
                 cod.drop(ws);
                 closeUnauthorized(ws);
               }
@@ -614,6 +660,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
       const copy = resolveWsCopy(reason);
       await hub.close(copy);
       for (const client of wss.clients) {
+        seats.get(client)?.lease.dispose();
         try {
           client.close(CLOSE_GOING_AWAY, closeReason(copy));
         } catch {

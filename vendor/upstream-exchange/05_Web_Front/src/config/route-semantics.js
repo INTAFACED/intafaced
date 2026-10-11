@@ -11,6 +11,11 @@
  */
 var ROUTE_SEMANTICS = [
   ['/', 'Home'],
+  ['/join', 'Join INTAFACED'],
+  ['/join/:journey', 'Join INTAFACED'],
+  ['/invest', 'Investor enquiry'],
+  ['/trade', 'Trader enquiry'],
+  ['/merchant', 'Merchant enquiry'],
   ['/index', 'Home'],
   ['/login', 'Sign in'],
   ['/login/returnUrl/:returnUrl', 'Sign in'],

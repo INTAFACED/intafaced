@@ -1,3 +1,4 @@
+import { TradeService } from '../controls/test-admission.js';
 /**
  * Unit card — openOrders limit unset refuse (no invented 100)
  *
@@ -23,7 +24,6 @@ import {
   OpenOrdersLimitUnsetError,
   publishedOpenOrdersLimit,
   TRADE_OPEN_ORDERS_LIMIT_UNSET,
-  TradeService,
 } from './trade-service.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));

@@ -1,3 +1,4 @@
+import { PositionService } from '../controls/test-admission.js';
 /**
  * CONCURRENT AND REPLAYED CLOSES PAY REALISED PROFIT EXACTLY ONCE.
  *
@@ -60,7 +61,7 @@ import {
   userAvailable,
 } from '@intafaced/ledger-client';
 import type { LedgerClient, PostRequest } from '@intafaced/ledger-client';
-import { PositionService } from './position-service.js';
+
 import { memoryMarkBook } from './mark-source.js';
 import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } from './profit-source.js';
 import { TEST_MAX_LEVERAGE_AMOUNT } from './initial-margin.test-harness.js';

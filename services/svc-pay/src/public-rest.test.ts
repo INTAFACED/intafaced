@@ -590,7 +590,10 @@ describe('step 2 — mutating paths + Idempotency-Key (ADR §2.2)', () => {
     });
     expect(capture.statusCode).toBe(200);
     const capArgs = pay.calls.find((c) => c.method === 'capture')!.args;
-    expect(capArgs[1]).toEqual({ amount: parseAmount('0.50') });
+    expect(capArgs[1]).toMatchObject({
+      amount: parseAmount('0.50'),
+      identityAuthority: { kind: 'credential', subject: { userId: '11111111-1111-4111-8111-111111111111' } },
+    });
 
     const refund = await app.inject({
       method: 'POST',
