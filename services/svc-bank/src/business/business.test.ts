@@ -261,8 +261,7 @@ describe('maker/checker dual control with ledger holds', () => {
     const other = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Other' });
     await fund(MAKER, 'USDT', '5000');
 
-    // Opening lookup already missed. The row appears while the hold posts, so
-    // the insert loses ON CONFLICT and has to judge the row that won. An
+    // Existing durable instructions control retries before any post. An
     // approved over-threshold winner names a checker who is not the maker (0029).
     async function proposeAgainst(input: {
       clientId: string;
@@ -277,11 +276,7 @@ describe('maker/checker dual control with ledger holds', () => {
         holdLedgerTxId?: string;
       };
     }) {
-      const orig = ledger.post.bind(ledger);
-      ledger.post = (async (req: Parameters<MemoryLedger['post']>[0]) => {
-        const posted = await orig(req);
-        if (req.idempotencyKey === `bank.business.hold:${input.clientId}`) {
-          await sql`
+      await sql`
             INSERT INTO bank.business_approvals
               (id, account_id, maker_user_id, checker_user_id, from_space_id, to_space_id, asset_id, amount, status,
                transfer_id, hold_ledger_tx_id, ledger_tx_id, decided_at)
@@ -296,21 +291,14 @@ describe('maker/checker dual control with ledger holds', () => {
               ${input.existing.status === 'pending' ? null : new Date()}
             )
           `;
-        }
-        return posted;
-      }) as MemoryLedger['post'];
-      try {
-        return await bank.business.proposeTransfer({
-          clientId: input.clientId,
-          accountId: account.id,
-          makerUserId: MAKER,
-          fromSpaceId: primary.id,
-          toSpaceId: input.toSpaceId,
-          amount: input.amount,
-        });
-      } finally {
-        ledger.post = orig;
-      }
+      return bank.business.proposeTransfer({
+        clientId: input.clientId,
+        accountId: account.id,
+        makerUserId: MAKER,
+        fromSpaceId: primary.id,
+        toSpaceId: input.toSpaceId,
+        amount: input.amount,
+      });
     }
 
     await expect(
@@ -480,7 +468,7 @@ describe('maker/checker dual control with ledger holds', () => {
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
-  it('claims the original proposal terms before posting when a concurrent caller changes the destination and amount', async () => {
+  it.each(['20', '250'])('claims immediate terms before a concurrent changed proposal of %s', async (conflictingAmount) => {
     const { account, primary, pot } = await approvalFixture();
     const other = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Conflicting destination' });
     const clientId = randomUUID();
@@ -507,7 +495,7 @@ describe('maker/checker dual control with ledger holds', () => {
     const first = bank.business.proposeTransfer(input);
     await atPost;
     try {
-      await expect(bank.business.proposeTransfer({ ...input, toSpaceId: other.id, amount: amt('20') })).rejects.toMatchObject({
+      await expect(bank.business.proposeTransfer({ ...input, toSpaceId: other.id, amount: amt(conflictingAmount) })).rejects.toMatchObject({
         code: 'bank.business_request_conflict',
       });
     } finally {
@@ -526,6 +514,58 @@ describe('maker/checker dual control with ledger holds', () => {
     expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('10');
     expect(formatAmount(await bank.spaces.balanceOf(other))).toBe('0');
     expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer:${clientId}:0`)).toHaveLength(1);
+  });
+
+  it.each(['400', '20'])('claims over-threshold terms before a concurrent changed proposal of %s', async (conflictingAmount) => {
+    const { account, primary, pot } = await approvalFixture();
+    const other = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Conflicting destination' });
+    const clientId = randomUUID();
+    const input = { clientId, accountId: account.id, makerUserId: MAKER, fromSpaceId: primary.id, toSpaceId: pot.id, amount: amt('250') };
+    const originalPost = ledger.post.bind(ledger);
+    let arrived!: () => void;
+    const atPost = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
+    let resume!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    let pause = true;
+    ledger.post = async (request) => {
+      const posted = await originalPost(request);
+      if (pause && request.idempotencyKey === `bank.business.hold:${clientId}`) {
+        pause = false;
+        arrived();
+        await gate;
+      }
+      return posted;
+    };
+    const first = bank.business.proposeTransfer(input);
+    await atPost;
+    try {
+      await expect(bank.business.proposeTransfer({ ...input, toSpaceId: other.id, amount: amt(conflictingAmount) })).rejects.toMatchObject({
+        code: 'bank.business_request_conflict',
+      });
+    } finally {
+      resume();
+      await first.catch(() => undefined);
+    }
+    const result = await first;
+    expect(result.kind).toBe('pending');
+    const rows = await sql<Array<{ amount: string; to_space_id: string; hold_ledger_tx_id: string }>>`
+      SELECT amount::text AS amount, to_space_id, hold_ledger_tx_id FROM bank.business_approvals WHERE id = ${clientId}
+    `;
+    expect(rows).toEqual([
+      {
+        amount: '250.000000000000000000',
+        to_space_id: pot.id,
+        hold_ledger_tx_id: result.kind === 'pending' ? result.approval.holdLedgerTxId : '',
+      },
+    ]);
+    expect(await availableOf(MAKER, 'USDT')).toBe('750');
+    expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('0');
+    expect(formatAmount(await bank.spaces.balanceOf(other))).toBe('0');
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.business.hold:${clientId}`)).toHaveLength(1);
   });
 
   it.each([
@@ -639,6 +679,82 @@ describe('maker/checker dual control with ledger holds', () => {
     expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer:${input.clientId}:0`)).toHaveLength(1);
   });
 
+  it.each([false, true])('identical approval proposals recover an unknown hold outcome: committed=%s', async (committed) => {
+    const { account, primary, pot } = await approvalFixture();
+    const input = {
+      clientId: randomUUID(),
+      accountId: account.id,
+      makerUserId: MAKER,
+      fromSpaceId: primary.id,
+      toSpaceId: pot.id,
+      amount: amt('250'),
+    };
+    const originalPost = ledger.post.bind(ledger);
+    ledger.post = async (request) => {
+      const posted = committed ? await originalPost(request) : null;
+      if (request.idempotencyKey === `bank.business.hold:${input.clientId}`)
+        throw new LedgerError('hold acknowledgement lost', 'ledger.unavailable');
+      return posted ?? originalPost(request);
+    };
+    await expect(bank.business.proposeTransfer(input)).rejects.toMatchObject({ code: 'ledger.unavailable' });
+    await expect(bank.business.proposeTransfer({ ...input, amount: amt('20') })).rejects.toMatchObject({
+      code: 'bank.business_request_conflict',
+    });
+    await expect(bank.business.approve({ approvalId: input.clientId, checkerUserId: CHECKER })).rejects.toMatchObject({
+      code: 'bank.business_approval_inactive',
+    });
+    ledger.post = originalPost;
+    const results = await Promise.all([bank.business.proposeTransfer(input), bank.business.proposeTransfer(input)]);
+    expect(results[0]).toEqual(results[1]);
+    expect(await bank.business.proposeTransfer(input)).toEqual(results[0]);
+    expect(await availableOf(MAKER, 'USDT')).toBe('750');
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.business.hold:${input.clientId}`)).toHaveLength(1);
+    await bank.business.cancel({ approvalId: input.clientId, actorUserId: MAKER });
+    expect(await availableOf(MAKER, 'USDT')).toBe('1000');
+  });
+
+  it.each([false, true])('cancellation releases a hold arriving after its original intent: committed=%s', async (committed) => {
+    const { account, primary, pot } = await approvalFixture();
+    const input = {
+      clientId: randomUUID(),
+      accountId: account.id,
+      makerUserId: MAKER,
+      fromSpaceId: primary.id,
+      toSpaceId: pot.id,
+      amount: amt('250'),
+    };
+    const originalPost = ledger.post.bind(ledger);
+    let arrived!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
+    let resume!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    ledger.post = async (request) => {
+      if (request.idempotencyKey !== `bank.business.hold:${input.clientId}`) return originalPost(request);
+      const posted = committed ? await originalPost(request) : null;
+      arrived();
+      await gate;
+      return posted ?? originalPost(request);
+    };
+    const proposing = bank.business.proposeTransfer(input);
+    await waiting;
+    try {
+      await bank.business.cancel({ approvalId: input.clientId, actorUserId: MAKER });
+    } finally {
+      resume();
+      await proposing.catch(() => undefined);
+    }
+    await expect(proposing).rejects.toMatchObject({ code: 'bank.business_approval_inactive' });
+    await bank.business.cancel({ approvalId: input.clientId, actorUserId: MAKER });
+    expect(await availableOf(MAKER, 'USDT')).toBe('1000');
+    expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('0');
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.business.hold:${input.clientId}`)).toHaveLength(1);
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.business.release:${input.clientId}`)).toHaveLength(1);
+  });
+
   it('an immediate proposal with a lost acknowledgement retains its original terms and recovers the same transfer', async () => {
     const { account, primary, pot } = await approvalFixture();
     const input = {
@@ -668,6 +784,33 @@ describe('maker/checker dual control with ledger holds', () => {
     expect(await bank.business.proposeTransfer(input)).toEqual(recovered);
     expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('10');
     expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer:${input.clientId}:0`)).toHaveLength(1);
+  });
+
+  it('a legacy approval hold without a row refuses changed terms and recovers one reserved amount', async () => {
+    const { account, primary, pot } = await approvalFixture();
+    const input = {
+      clientId: randomUUID(),
+      accountId: account.id,
+      makerUserId: MAKER,
+      fromSpaceId: primary.id,
+      toSpaceId: pot.id,
+      amount: amt('250'),
+    };
+    const original = await ledger.post(
+      recipes.businessApprovalHold({ approvalId: input.clientId, from: userAvailable(MAKER, 'USDT'), amount: input.amount }),
+    );
+    await expect(bank.business.proposeTransfer({ ...input, amount: amt('20') })).rejects.toMatchObject({
+      code: 'bank.business_request_conflict',
+    });
+    expect(await sql`SELECT id FROM bank.business_approvals WHERE id = ${input.clientId}`).toHaveLength(0);
+    const recovered = await bank.business.proposeTransfer(input);
+    expect(recovered.kind).toBe('pending');
+    if (recovered.kind !== 'pending') throw new Error('expected pending');
+    expect(recovered.approval.holdLedgerTxId).toBe(original.id);
+    expect(await availableOf(MAKER, 'USDT')).toBe('750');
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.business.hold:${input.clientId}`)).toHaveLength(1);
+    await bank.business.cancel({ approvalId: input.clientId, actorUserId: MAKER });
+    expect(await availableOf(MAKER, 'USDT')).toBe('1000');
   });
 
   it('a legacy immediate transfer without an approval row refuses changed terms and recovers its original receipt', async () => {

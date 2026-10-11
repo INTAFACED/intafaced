@@ -1,15 +1,6 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import {
-  InsufficientFundsError,
-  LedgerError,
-  formatAmount,
-  parseAmount,
-  recipes,
-  type Amount,
-  type LedgerClient,
-  type LedgerTx,
-} from '@intafaced/ledger-client';
+import { LedgerError, formatAmount, parseAmount, recipes, type Amount, type LedgerClient, type LedgerTx } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { assertBusinessListLimit, assertBusinessPendingListLimit } from '../owner-list-limit.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
@@ -311,85 +302,44 @@ export class BusinessService {
     `;
     if (existingRows[0]) return this.resumeProposal(toApproval(existingRows[0]), input);
 
-    if (input.amount < account.spendThreshold) {
-      // Older immediate transfers may have reached the ledger before their
-      // approval row existed. Refuse different economic terms before claiming
-      // such a key; the original instruction can still recover its receipt.
-      const previous = await this.ledger.getTxByKey(`bank.transfer:${clientId}:0`);
-      if (
-        previous &&
-        !(await this.postedPayrollMatches(previous, accountForSpace(from), [{ amount: input.amount, acct: accountForSpace(to) }]))
-      ) {
-        throw new BankError('The ledger transfer differs from the original proposal', 'bank.business_request_conflict');
-      }
-      // Commit the original instruction before money moves. A concurrent call
-      // with this id must match this row, even while the post is in flight or
-      // its acknowledgement is lost. Approved here is the maker's permission;
-      // ledger_tx_id remains blank until the original transfer is verified.
-      const claimed = await this.sql<ApprovalRow[]>`
-        INSERT INTO bank.business_approvals
-          (id, account_id, maker_user_id, from_space_id, to_space_id, asset_id, amount, status, transfer_id, decided_at)
-        VALUES (
-          ${clientId}::uuid, ${input.accountId}::uuid, ${input.makerUserId},
-          ${input.fromSpaceId}::uuid, ${input.toSpaceId}::uuid,
-          ${account.assetId}, ${formatAmount(input.amount)}::numeric, 'approved', ${clientId}, now()
-        )
-        ON CONFLICT (id) DO NOTHING
-        RETURNING id, account_id, maker_user_id, checker_user_id, from_space_id, to_space_id,
-                  asset_id, amount, status, transfer_id, hold_ledger_tx_id, ledger_tx_id,
-                  rejection_code, created_at, decided_at
-      `;
-      return this.resumeProposal(claimed[0] ? toApproval(claimed[0]) : await this.approval(clientId), input);
-    }
-
-    // Over threshold: hold funds first so concurrent spend cannot empty the pot,
-    // then record the pending approval. Hold key is approval id (idempotent).
-    const approvalId = clientId;
+    // Recover pre-claim legacy receipts before choosing a mode. Neither ledger
+    // key may be rebound to different economic terms or a second money path.
+    const [previousTransfer, previousHold] = await Promise.all([
+      this.ledger.getTxByKey(`bank.transfer:${clientId}:0`),
+      this.ledger.getTxByKey(`bank.business.hold:${clientId}`),
+    ]);
     const fromAcct = accountForSpace(from);
-
-    return withMoneySpan(
-      'bank.business.proposeHold',
-      { operation: 'business-propose-hold', userId: input.makerUserId, amount: formatAmount(input.amount) },
-      async () => {
-        let holdTxId: string;
-        try {
-          const held = await this.ledger.post(
-            recipes.businessApprovalHold({
-              approvalId,
-              from: fromAcct,
-              amount: input.amount,
-            }),
-          );
-          holdTxId = held.id;
-        } catch (err) {
-          // Router maps InsufficientFundsError to ledger.insufficient_funds.
-          if (err instanceof InsufficientFundsError) throw err;
-          throw err;
-        }
-
-        const rows = await this.sql<ApprovalRow[]>`
-          INSERT INTO bank.business_approvals
-            (id, account_id, maker_user_id, from_space_id, to_space_id, asset_id, amount, status, hold_ledger_tx_id)
-          VALUES (
-            ${approvalId}::uuid, ${input.accountId}::uuid, ${input.makerUserId},
-            ${input.fromSpaceId}::uuid, ${input.toSpaceId}::uuid,
-            ${account.assetId}, ${formatAmount(input.amount)}::numeric, 'pending', ${holdTxId}
-          )
-          ON CONFLICT (id) DO NOTHING
-          RETURNING id, account_id, maker_user_id, checker_user_id, from_space_id, to_space_id,
-                    asset_id, amount, status, transfer_id, hold_ledger_tx_id, ledger_tx_id,
-                    rejection_code, created_at, decided_at
-        `;
-        if (rows[0]) return { kind: 'pending' as const, approval: toApproval(rows[0]) };
-        const raced = await this.sql<ApprovalRow[]>`
-          SELECT id, account_id, maker_user_id, checker_user_id, from_space_id, to_space_id,
-                 asset_id, amount, status, transfer_id, hold_ledger_tx_id, ledger_tx_id,
-                 rejection_code, created_at, decided_at
-            FROM bank.business_approvals WHERE id = ${approvalId}::uuid
-        `;
-        return decideExistingProposal(toApproval(raced[0]!), input);
-      },
-    );
+    const holdRequest = recipes.businessApprovalHold({ approvalId: clientId, from: fromAcct, amount: input.amount });
+    const holdDest = holdRequest.entries.find((entry) => entry.direction === 'debit')!;
+    if (
+      (previousTransfer &&
+        !(await this.postedPayrollMatches(previousTransfer, fromAcct, [{ amount: input.amount, acct: accountForSpace(to) }]))) ||
+      (previousHold && !(await this.postedPayrollMatches(previousHold, fromAcct, [{ amount: input.amount, acct: holdDest.account }]))) ||
+      (previousTransfer && previousHold)
+    ) {
+      throw new BankError('The ledger instruction differs from the original proposal', 'bank.business_request_conflict');
+    }
+    const immediate = !previousHold && input.amount < account.spendThreshold;
+    if (previousTransfer && !immediate) {
+      throw new BankError('The original transfer cannot become an approval hold', 'bank.business_request_conflict');
+    }
+    // The immutable instruction wins before either ledger key can post. A
+    // pending/null hold or approved/null transfer remains recoverable by its maker.
+    const claimed = await this.sql<ApprovalRow[]>`
+      INSERT INTO bank.business_approvals
+        (id, account_id, maker_user_id, from_space_id, to_space_id, asset_id, amount, status, transfer_id, decided_at)
+      VALUES (
+        ${clientId}::uuid, ${input.accountId}::uuid, ${input.makerUserId},
+        ${input.fromSpaceId}::uuid, ${input.toSpaceId}::uuid,
+        ${account.assetId}, ${formatAmount(input.amount)}::numeric,
+        ${immediate ? 'approved' : 'pending'}, ${immediate ? clientId : null}, ${immediate ? now : null}
+      )
+      ON CONFLICT (id) DO NOTHING
+      RETURNING id, account_id, maker_user_id, checker_user_id, from_space_id, to_space_id,
+                asset_id, amount, status, transfer_id, hold_ledger_tx_id, ledger_tx_id,
+                rejection_code, created_at, decided_at
+    `;
+    return this.resumeProposal(claimed[0] ? toApproval(claimed[0]) : await this.approval(clientId), input);
   }
 
   async approve(input: { approvalId: string; checkerUserId: string }): Promise<{ transferId: string; ledgerTxId: string }> {
@@ -415,6 +365,9 @@ export class BusinessService {
       if (approval.status !== 'pending') {
         throw new BankError(`Approval ${approval.id} is ${approval.status}`, 'bank.business_approval_inactive');
       }
+      if (!approval.holdLedgerTxId) {
+        throw new BankError('Retry the original proposal to complete its hold', 'bank.business_approval_inactive');
+      }
       if (approval.makerUserId === input.checkerUserId) {
         throw new BankError('Maker cannot approve their own transfer', 'bank.business_self_approve');
       }
@@ -427,7 +380,7 @@ export class BusinessService {
                  checker_user_id = ${input.checkerUserId},
                  transfer_id = ${approval.id},
                  decided_at = now()
-           WHERE id = ${approval.id}::uuid AND status = 'pending'
+           WHERE id = ${approval.id}::uuid AND status = 'pending' AND hold_ledger_tx_id IS NOT NULL
           RETURNING id, account_id, maker_user_id, checker_user_id, from_space_id, to_space_id,
                     asset_id, amount, status, transfer_id, hold_ledger_tx_id, ledger_tx_id,
                     rejection_code, created_at, decided_at
@@ -796,12 +749,14 @@ export class BusinessService {
     await this.releaseHold(approval);
   }
 
-  /** Finish a durable immediate-transfer claim without changing its instruction. */
+  /** Finish a durable claim without changing its instruction or ledger key. */
   private async resumeProposal(
     approval: BusinessApproval,
     input: Parameters<BusinessService['proposeTransfer']>[0],
   ): Promise<{ kind: 'posted'; transferId: string; ledgerTxId: string } | { kind: 'pending'; approval: BusinessApproval }> {
     assertSameProposalTerms(approval, input);
+    if (approval.status === 'pending' && !approval.holdLedgerTxId) return this.resumeHold(approval, input);
+    if (approval.status === 'cancelled' || approval.status === 'rejected') await this.releaseHold(approval);
     if (approval.status !== 'approved' || approval.ledgerTxId || approval.holdLedgerTxId) {
       return decideExistingProposal(approval, input);
     }
@@ -829,6 +784,46 @@ export class BusinessService {
     `;
     if (!recorded[0]) throw new BankError('The proposal no longer names this transfer', 'bank.business_request_conflict');
     return { kind: 'posted', transferId: approval.id, ledgerTxId: posted.ledgerTxId };
+  }
+
+  private async resumeHold(
+    approval: BusinessApproval,
+    input: Parameters<BusinessService['proposeTransfer']>[0],
+  ): Promise<{ kind: 'posted'; transferId: string; ledgerTxId: string } | { kind: 'pending'; approval: BusinessApproval }> {
+    return withMoneySpan(
+      'bank.business.proposeHold',
+      { operation: 'business-propose-hold', userId: approval.makerUserId, amount: formatAmount(approval.amount) },
+      async () => {
+        const from = await this.spaces.get(approval.fromSpaceId);
+        const request = recipes.businessApprovalHold({ approvalId: approval.id, from: accountForSpace(from), amount: approval.amount });
+        // Lost acknowledgements leave the claimed instruction intact. The maker
+        // retries this key; checker settlement waits for a recorded receipt.
+        const held = await this.ledger.post(request);
+        const destination = request.entries.find((entry) => entry.direction === 'debit')!;
+        if (
+          held.idempotencyKey !== request.idempotencyKey ||
+          !(await this.postedPayrollMatches(held, accountForSpace(from), [{ amount: approval.amount, acct: destination.account }]))
+        ) {
+          throw new BankError('The ledger hold differs from the original proposal', 'bank.business_request_conflict');
+        }
+        const recorded = await this.sql<Array<{ id: string }>>`
+          UPDATE bank.business_approvals SET hold_ledger_tx_id = ${held.id}
+           WHERE id = ${approval.id}::uuid AND status = 'pending'
+             AND (hold_ledger_tx_id IS NULL OR hold_ledger_tx_id = ${held.id})
+          RETURNING id
+        `;
+        const current = await this.approval(approval.id);
+        if (!recorded[0]) {
+          // Cancellation may win while the hold is in flight. Compensate with
+          // the original release key, including after a lost hold acknowledgement.
+          if (current.status === 'cancelled' || current.status === 'rejected') await this.releaseHold(current);
+          if (current.status !== 'pending') {
+            throw new BankError(`Approval ${approval.id} is ${current.status}`, 'bank.business_approval_inactive');
+          }
+        }
+        return decideExistingProposal(current, input);
+      },
+    );
   }
 
   /** Reconcile the original settle key; an unknown outcome never releases its hold. */
@@ -879,6 +874,9 @@ export class BusinessService {
 
   /** Release key is the approval id. A second call does not pay the hold twice. */
   private async releaseHold(approval: BusinessApproval): Promise<void> {
+    // An intent can be cancelled before any hold posts. If a late post is still
+    // in flight, resumeHold compensates after observing the terminal row.
+    if (!approval.holdLedgerTxId && !(await this.ledger.getTxByKey(`bank.business.hold:${approval.id}`))) return;
     const from = await this.spaces.get(approval.fromSpaceId);
     await this.ledger.post(
       recipes.businessApprovalRelease({
