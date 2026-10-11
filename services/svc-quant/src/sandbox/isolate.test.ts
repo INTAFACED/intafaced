@@ -138,6 +138,48 @@ console.log(book.cash())`,
     expect(elseBuys.logs).toEqual(['9500']);
   });
 
+  it('does not evaluate expressions in inactive else-if or python if bodies', () => {
+    const elseIf = runIsolate(
+      'javascript',
+      `if (true) { console.log("ok") } else if (market.last("BTC-USD") > 0) { oms.buy("BTC-USD", "0.01") }
+console.log("after")`,
+      book(),
+      limits,
+      true,
+    );
+    expect(elseIf.logs).toEqual(['ok', 'after']);
+    expect(elseIf.fills).toEqual([]);
+    expect(elseIf.cash).toBe('10000');
+
+    const python = runIsolate(
+      'python',
+      `if 0:
+oms.buy("BTC-USD", market.last("BTC-USD") / 5000000)
+print("after")`,
+      book(),
+      limits,
+      true,
+    );
+    expect(python.logs).toEqual(['after']);
+    expect(python.fills).toEqual([]);
+    expect(python.cash).toBe('10000');
+  });
+
+  it('requires a closing brace before an else branch', () => {
+    for (const condition of ['true', 'false']) {
+      expect(() =>
+        runIsolate(
+          'javascript',
+          `if (${condition}) { console.log("ok") else { oms.buy("BTC-USD", "0.01") }
+console.log("after")`,
+          book(),
+          limits,
+          true,
+        ),
+      ).toThrow(QUANT_SANDBOX_SYNTAX);
+    }
+  });
+
   it('compares amount strings by scaled value and keeps stringify for other text', () => {
     const ran = runIsolate(
       'javascript',

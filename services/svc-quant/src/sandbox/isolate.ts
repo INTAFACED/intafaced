@@ -200,6 +200,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
   let ops = 0;
   let live = true;
   let exited = false;
+  const shouldEvaluate = (): boolean => live && !exited;
   const bump = () => {
     ops += 1;
     if (ops > maxOps) throw new QuantError(QUANT_SANDBOX_TIMEOUT, `exceeded ${maxOps} operations`);
@@ -207,7 +208,13 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
 
   const callHost = (host: Host, method: string, args: Val[]): Val => {
     bump();
-    if (!live || exited) return null;
+    const knownMethod =
+      (host.$host === 'market' && ['last', 'bid', 'ask'].includes(method)) ||
+      (host.$host === 'oms' && ['buy', 'sell', 'venueBuy', 'venueSell'].includes(method)) ||
+      (host.$host === 'book' && ['cash', 'pnl', 'position', 'fills'].includes(method)) ||
+      (host.$host === 'console' && method === 'log');
+    if (!knownMethod) throw new QuantError(QUANT_SANDBOX_ESCAPE, `unknown ${host.$host} method ${method}`);
+    if (!shouldEvaluate()) return null;
     const a0 = () => {
       const v = args[0];
       if (typeof v !== 'string') throw new QuantError(QUANT_SANDBOX_SYNTAX, `${host.$host}.${method} needs a string`);
@@ -302,6 +309,9 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
     let depth = 1;
     while (peek().k !== 'eof' && depth > 0) {
       const x = peek();
+      if (depth === 1 && x.k === 'id' && x.v === 'else') {
+        throw new QuantError(QUANT_SANDBOX_SYNTAX, 'expected } before else');
+      }
       if (x.k === 'op' && x.v === '{') depth++;
       else if (x.k === 'op' && x.v === '}') depth--;
       p++;
@@ -383,6 +393,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
     }
     if (tryOp('-')) {
       const v = parseUnary();
+      if (!shouldEvaluate()) return '0';
       if (!isAmountString(v)) throw new QuantError(QUANT_SANDBOX_SYNTAX, 'unary minus needs a decimal');
       return formatAmount(sub(parseAmount('0'), parseAmount(v)));
     }
@@ -390,12 +401,14 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
   };
 
   const binMul = (op: string, a: Val, b: Val): Val => {
+    if (!shouldEvaluate()) return '0';
     if (!isAmountString(a) || !isAmountString(b)) throw new QuantError(QUANT_SANDBOX_SYNTAX, 'arithmetic needs decimal strings');
     if (op === '*') return formatAmount(mul(parseAmount(a), parseAmount(b), 'half-up'));
     return formatAmount(div(parseAmount(a), parseAmount(b), 'half-up'));
   };
 
   const binAdd = (op: string, a: Val, b: Val): Val => {
+    if (!shouldEvaluate()) return '0';
     if (typeof a === 'string' && typeof b === 'string' && !(isAmountString(a) && isAmountString(b))) return a + b;
     if (!isAmountString(a) || !isAmountString(b)) throw new QuantError(QUANT_SANDBOX_SYNTAX, 'arithmetic needs decimal strings');
     if (op === '+') return formatAmount(add(parseAmount(a), parseAmount(b)));
@@ -430,6 +443,10 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
       p++;
       const r = parseAdd();
       bump();
+      if (!shouldEvaluate()) {
+        v = false;
+        continue;
+      }
       if (t.v === '==' || t.v === '===') v = valuesEqual(v, r);
       else if (t.v === '!=' || t.v === '!==') v = !valuesEqual(v, r);
       else {
@@ -494,7 +511,8 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
     if (t.k === 'id' && t.v === 'if') {
       p++;
       if (!python) eatOp('(');
-      const pass = isTruthy(parseExpr());
+      const condition = parseExpr();
+      const pass = shouldEvaluate() && isTruthy(condition);
       if (!python) eatOp(')');
       if (python) eatOp(':');
       else eatOp('{');
@@ -512,14 +530,15 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
         return;
       }
       // else is an identifier. The tokenizer never emits an operator named else.
-      const trueBranchStops = (): boolean => peek().k === 'eof' || isOp('}') || isId('else');
+      const trueBranchStops = (): boolean => peek().k === 'eof' || isOp('}');
       if (pass) {
         while (!trueBranchStops()) {
+          if (isId('else')) throw new QuantError(QUANT_SANDBOX_SYNTAX, 'expected } before else');
           parseStmt();
           skipNl();
         }
         if (peek().k === 'eof') throw new QuantError(QUANT_SANDBOX_SYNTAX, 'expected }');
-        if (isOp('}')) p++;
+        eatOp('}');
       } else {
         skipBraceBody();
       }
