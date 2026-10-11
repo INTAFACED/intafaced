@@ -55,6 +55,7 @@ const BINANCE_ORDER_STATUS: Record<string, VenueOrder['status']> = {
   PENDING_CANCEL: 'open',
   REJECTED: 'rejected',
   EXPIRED: 'expired',
+  EXPIRED_IN_MATCH: 'expired',
 };
 
 export function mapBinanceSpotOrder(body: Record<string, unknown>, unified: string, now: Date): VenueOrder {

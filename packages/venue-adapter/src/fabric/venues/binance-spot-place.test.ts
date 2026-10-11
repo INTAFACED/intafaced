@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BinanceSpotTrade } from './binance-spot.js';
+import { BinanceSpotTrade, mapBinanceSpotOrder } from './binance-spot.js';
 import type { HttpPort, HttpResponse } from '../transport.js';
 
 class FakeHttp implements HttpPort {
@@ -91,5 +91,27 @@ describe('BinanceSpotTrade placeOrder', () => {
       expect(http.requests.some((url) => url.includes('signature='))).toBe(false);
       expect(http.requests.some((url) => url.includes('quantity='))).toBe(false);
     }
+  });
+});
+
+describe('Binance spot EXPIRED_IN_MATCH', () => {
+  it('maps EXPIRED_IN_MATCH to the existing expired status', () => {
+    const order = mapBinanceSpotOrder(
+      {
+        orderId: 42,
+        clientOrderId: 'exp-match',
+        transactTime: 1_700_000_000_000,
+        price: '100',
+        origQty: '1',
+        executedQty: '0',
+        cummulativeQuoteQty: '0',
+        status: 'EXPIRED_IN_MATCH',
+        type: 'LIMIT',
+        side: 'BUY',
+      },
+      'BTC/USDT',
+      new Date(1_700_000_000_000),
+    );
+    expect(order.status).toBe('expired');
   });
 });
