@@ -608,7 +608,7 @@ export class LoanService {
       };
     }
 
-    return this.completePending(loan, input.collateralAmount, openingLtv, now);
+    return this.completePending(loan, input.collateralAmount, openingLtv, now, collateralMark.price);
   }
 
   /**
@@ -623,6 +623,7 @@ export class LoanService {
     collateralAmount: Amount,
     openingLtv: number,
     now: Date,
+    openingMarkPrice: Amount,
   ): Promise<{ loan: LoanRecord; ltvBps: number; collateralLedgerTxId: string; drawLedgerTxId: string }> {
     return withMoneySpan('bank.loan.open', { operation: 'loan-open', loanId: loan.id }, async (span) => {
       // ── STEP 1: COLLATERAL ────────────────────────────────────────────────
@@ -677,11 +678,13 @@ export class LoanService {
       }
 
       // Status and tx id commit together, so there is no window in which the
-      // principal has moved and the row does not know.
+      // principal has moved and the row does not know. The opening collateral
+      // mark is the deviation baseline; null would let the first sweep seize
+      // on a print the breaker was built to refuse.
       const updated = await this.sql<Array<Record<string, unknown>>>`
         UPDATE bank.loans
            SET status = 'active', draw_ledger_tx_id = ${drawTxId}, drawn_at = ${now},
-               last_mark_price = ${null}, updated_at = now()
+               last_mark_price = ${formatAmount(openingMarkPrice)}::numeric, updated_at = now()
          WHERE id = ${loan.id} AND status = 'pending'
          RETURNING *
       `;
@@ -718,6 +721,7 @@ export class LoanService {
 
     for (const row of rows) {
       const loan = toLoan(row);
+      const now = new Date();
       try {
         const locked = await this.collateralEvent(loan.id, 0);
         if (!locked) {
@@ -727,7 +731,12 @@ export class LoanService {
           out.push({ loanId: loan.id, outcome: 'failed', reason: 'no collateral event to resume from' });
           continue;
         }
-        await this.completePending(loan, parseAmount(locked.amount), 0, new Date());
+        // A pending row has no stored opening mark. A marking-acceptable
+        // collateral mark is the baseline. If marksFor throws, this loan is
+        // failed and the row stays pending.
+        const marks = await this.marksFor(loan.collateralAssetId, loan.debtAssetId, loan.quoteAssetId, now);
+        const collateralMark = marks.get(loan.collateralAssetId)!;
+        await this.completePending(loan, parseAmount(locked.amount), 0, now, collateralMark.price);
         out.push({ loanId: loan.id, outcome: 'completed' });
       } catch (err) {
         out.push({ loanId: loan.id, outcome: 'failed', reason: err instanceof Error ? err.message : String(err) });
