@@ -215,8 +215,8 @@ export class TradeHub {
         return;
       }
       this.#flush(sub);
-    } catch (err) {
-      this.#evict(sub, CLOSE_TRY_LATER, err instanceof Error ? err.message : 'trades unavailable');
+    } catch {
+      this.#evict(sub, CLOSE_TRY_LATER, resolveWsCopy(WS_COPY.tradesUnavailable));
     }
   }
 
@@ -226,25 +226,32 @@ export class TradeHub {
     const seedRecent = this.#options.seedRecent;
     if (!seedRecent) return;
 
-    const run = (async () => {
-      try {
-        const prints = await seedRecent(marketId);
-        if (prints.length === 0) {
-          // Matching 404 / never printed: absence. Do not `#recent.set([],)`.
-          this.#log.warn({ marketId }, 'ws: trade seed empty — no tape on the wire; live prints publish when they exist');
-          return;
-        }
-        for (const print of prints) this.#acceptPrint(print);
-      } catch (err) {
-        this.#log.warn(
-          { marketId, err: err instanceof Error ? err.message : String(err) },
-          'ws: trade seed failed — no tape on the wire; matching 404 is absence not { trades: [] }',
-        );
-      } finally {
-        this.#seeding.delete(marketId);
-      }
-    })();
+    // Register before seedRecent. A synchronous throw runs the finally before
+    // a trailing set, and that set would keep the finished promise so the
+    // next subscriber never retries.
+    let finish!: () => void;
+    const run = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
     this.#seeding.set(marketId, run);
+
+    try {
+      const prints = await seedRecent(marketId);
+      if (prints.length === 0) {
+        // Matching 404 / never printed: absence. Do not `#recent.set([],)`.
+        this.#log.warn({ marketId }, 'ws: trade seed empty — no tape on the wire; live prints publish when they exist');
+        return;
+      }
+      for (const print of prints) this.#acceptPrint(print);
+    } catch (err) {
+      this.#log.warn(
+        { marketId, err: err instanceof Error ? err.message : String(err) },
+        'ws: trade seed failed — no tape on the wire; matching 404 is absence not { trades: [] }',
+      );
+    } finally {
+      this.#seeding.delete(marketId);
+      finish();
+    }
     return run;
   }
 
@@ -294,12 +301,15 @@ export class TradeHub {
 
     const seen = this.#seen.get(print.marketId) ?? new Set<number>();
     if (seen.has(print.sequence)) return null;
+
+    // Zero replay retains no sequence history. Wait for a live watcher so
+    // opening seats do not consume prints they cannot receive.
+    if (limit === 0 && !this.#hasLiveWatcher(print.marketId)) return null;
     seen.add(print.sequence);
     this.#seen.set(print.marketId, seen);
 
-    // Bound the dedupe set to the ring. Sequences older than the ring can
-    // re-arrive only after a full JetStream replay, which is a process restart
-    // and a fresh hub.
+    // Dedupe covers the replay ring only. Older redeliveries can arrive in
+    // this same process; do not claim durable or exactly-once delivery.
     const ring = this.#recent.get(print.marketId) ?? [];
     ring.push(print);
     while (ring.length > limit) {
@@ -307,8 +317,8 @@ export class TradeHub {
       if (dropped) seen.delete(dropped.sequence);
     }
     this.#recent.set(print.marketId, ring);
-    this.#prints += 1;
 
+    this.#prints += 1;
     this.#fanOut(print);
     return print;
   }
@@ -316,6 +326,14 @@ export class TradeHub {
   #hasWatcher(marketId: string): boolean {
     for (const s of this.#subscriptions) {
       if (!s.closed && s.marketId === marketId) return true;
+    }
+    return false;
+  }
+
+  /** Past connect flush. A pending subscriber is still waiting on replay. */
+  #hasLiveWatcher(marketId: string): boolean {
+    for (const s of this.#subscriptions) {
+      if (!s.closed && !s.pending && s.marketId === marketId) return true;
     }
     return false;
   }

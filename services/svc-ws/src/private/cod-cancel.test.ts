@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { HttpTradeCancelPort } from './cod-cancel.js';
+import { targetsFromCancel } from './cod.js';
 
 describe('HttpTradeCancelPort', () => {
   it('maps 200 order list to reached ids', async () => {
@@ -42,6 +43,35 @@ describe('HttpTradeCancelPort', () => {
       reached: true,
       status: 503,
       orders: [],
+    });
+  });
+
+  it('a 200 array of junk objects is not a completed cancel, and an order id still returns', async () => {
+    const junk = new HttpTradeCancelPort({
+      baseUrl: 'http://trade.test',
+      fetch: async () => new Response(JSON.stringify([{ nope: 1 }, { id: 2 }, null, 'x']), { status: 200 }),
+    });
+    const junkResult = await junk.cancelAll({ accessToken: 'tok' });
+    expect(junkResult).toEqual({ reached: true, status: 200, orders: [] });
+    const mapped = targetsFromCancel({ scope: 'account', result: junkResult });
+    expect(mapped.tradeReached).toBe(true);
+    expect(mapped.complete).toBe(false);
+    expect(mapped.targets.filter((target) => target.outcome === 'APPLIED')).toEqual([]);
+
+    const named = new HttpTradeCancelPort({
+      baseUrl: 'http://trade.test',
+      fetch: async () => new Response(JSON.stringify([{ orderId: 'ord-9' }]), { status: 200 }),
+    });
+    const namedResult = await named.cancelAll({ accessToken: 'tok' });
+    expect(namedResult).toEqual({
+      reached: true,
+      status: 200,
+      orders: [{ orderId: 'ord-9' }],
+    });
+    expect(targetsFromCancel({ scope: 'account', result: namedResult })).toEqual({
+      tradeReached: true,
+      complete: true,
+      targets: [{ selector: 'ord-9', outcome: 'APPLIED' }],
     });
   });
 });

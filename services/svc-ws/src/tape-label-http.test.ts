@@ -19,7 +19,8 @@ describe('refuseUnlabelledTapeClaim', () => {
   it('refuses a completeness claim without aggressor/auction/liq/block', () => {
     expect(refuseUnlabelledTapeClaim({ complete: true })).toMatchObject({ ok: false, reason: 'tape_label_unset' });
     expect(refuseUnlabelledTapeClaim({ complete: true, kind: 'unknown' })).toMatchObject({
-      ok: false, reason: 'tape_label_unset',
+      ok: false,
+      reason: 'tape_label_unset',
     });
   });
   it('accepts a named aggressor/auction/liq/block label', () => {
@@ -35,7 +36,8 @@ describe('refuseUnsetTapeOrigin', () => {
   it('distinguishes synthetic/implied from native — never infers native', () => {
     expect(refuseUnsetTapeOrigin({ native: true })).toMatchObject({ ok: false, reason: 'origin_unset' });
     expect(refuseUnsetTapeOrigin({ origin: 'native', synthetic: true })).toMatchObject({
-      ok: false, reason: 'origin_unset',
+      ok: false,
+      reason: 'origin_unset',
     });
     expect(refuseUnsetTapeOrigin({ implied: true })).toMatchObject({ ok: false, reason: 'origin_unset' });
     expect(refuseUnsetTapeOrigin({ origin: 'implied' })).toBeNull();
@@ -47,7 +49,20 @@ describe('refuseGlobalConnectedLie', () => {
   it('refuses a global connected without per-source truth', () => {
     expect(refuseGlobalConnectedLie({ connected: true })).toMatchObject({ ok: false, reason: 'connected_lie' });
     expect(refuseGlobalConnectedLie({ connected: true, depth: true, tradesBus: false, privateBus: true })).toMatchObject({
-      ok: false, reason: 'connected_lie',
+      ok: false,
+      reason: 'connected_lie',
+    });
+    expect(refuseGlobalConnectedLie({ connected: true, tradesBus: true, privateBus: true })).toMatchObject({
+      ok: false,
+      reason: 'connected_lie',
+    });
+    expect(refuseGlobalConnectedLie({ connected: true, depth: true, privateBus: true })).toMatchObject({
+      ok: false,
+      reason: 'connected_lie',
+    });
+    expect(refuseGlobalConnectedLie({ connected: true, depth: true, tradesBus: true })).toMatchObject({
+      ok: false,
+      reason: 'connected_lie',
     });
     expect(refuseGlobalConnectedLie({ connected: true, depth: true, tradesBus: true, privateBus: true })).toBeNull();
     expect(refuseGlobalConnectedLie({})).toBeNull();
@@ -58,7 +73,8 @@ describe('refuseInstrumentRemap', () => {
   it('refuses an adapter that reinterprets a listed instrument', () => {
     expect(refuseInstrumentRemap({ remap: true })).toMatchObject({ ok: false, reason: 'instrument_remap' });
     expect(refuseInstrumentRemap({ listedMarketId: 'BTC-USDT', adapterMarketId: 'XBTUSD' })).toMatchObject({
-      ok: false, reason: 'instrument_remap',
+      ok: false,
+      reason: 'instrument_remap',
     });
     expect(refuseInstrumentRemap({ listedMarketId: 'BTC-USDT', adapterMarketId: 'BTC-USDT' })).toBeNull();
   });
@@ -96,7 +112,8 @@ describe('POST /ws/tape/*', () => {
   it('instrument remap refuses', async () => {
     const f = await app();
     const res = await f.inject({
-      method: 'POST', url: '/ws/tape/instrument-map',
+      method: 'POST',
+      url: '/ws/tape/instrument-map',
       payload: { listedMarketId: 'BTC-USDT', adapterMarketId: 'XBTUSD' },
     });
     expect(res.statusCode).toBe(200);
@@ -116,7 +133,10 @@ describe('C4 L2 tape stays L2', () => {
       encode: () => ({ ok: true as const, payload: new Uint8Array([1]) }),
     };
     const encoded = encodeL2Snapshot(codec as never, {
-      marketId: 'BTC-USDT', sequence: 1, bids: [['100', '1']], asks: [['101', '1']],
+      marketId: 'BTC-USDT',
+      sequence: 1,
+      bids: [['100', '1']],
+      asks: [['101', '1']],
     });
     expect(encoded).toMatchObject({ ok: true, book: 'L2' });
     expect(JSON.stringify(encoded)).not.toMatch(/L3/);

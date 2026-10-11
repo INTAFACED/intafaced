@@ -33,6 +33,12 @@ import { requestAccountIdFromUpgrade } from './key-account.js';
 
 export const PRIVATE_STREAM_PATH = '/private/stream';
 
+/**
+ * Open-positions hydrate threw. Not a snapshot, so a client cannot read it as
+ * `{ positions: [] }` — that frame is reserved for a read that succeeded empty.
+ */
+export const POSITIONS_SNAPSHOT_UNAVAILABLE = 'positions.snapshot_unavailable' as const;
+
 /** Application close: access token `exp` elapsed (HTTP 401 is upgrade-only). */
 export const CLOSE_UNAUTHORIZED = 4003;
 
@@ -155,10 +161,74 @@ function liveCredentialInput(seat: PrivateSeat) {
   };
 }
 
-function sinkFor(socket: WebSocket, seat: PrivateSeat, live?: { assert: () => Promise<void>; onDead: () => void }): DepthSink {
+/**
+ * One live-credential check at a time. The next frame's assert starts only
+ * after the previous assert settles, so a later failure cannot close the
+ * socket and then let an earlier frame out. A rejection latches the sink:
+ * `onDead` once, close, and no `socket.send` for a frame still waiting.
+ */
+export function sinkFor(
+  socket: WebSocket,
+  seat: { readonly expiresAtMs: number; readonly lease: Pick<PrivateAuthorityLease, 'isCurrent'> },
+  live?: { assert: () => Promise<void>; onDead: () => void },
+): DepthSink {
+  const pending: string[] = [];
+  let pumping = false;
+  let dead = false;
+  let pendingBytes = 0;
+
+  const discard = (): void => {
+    dead = true;
+    pending.length = 0;
+    pendingBytes = 0;
+    pumping = false;
+  };
+
+  const latch = (): void => {
+    if (dead || !live) return;
+    discard();
+    live.onDead();
+    closeUnauthorized(socket);
+  };
+
+  const step = (): void => {
+    if (!seat.lease.isCurrent() || socket.readyState !== socket.OPEN) {
+      discard();
+      return;
+    }
+    if (dead || !live || pending.length === 0) {
+      pumping = false;
+      return;
+    }
+    const frame = pending.shift();
+    if (frame === undefined) {
+      pumping = false;
+      return;
+    }
+    let asserted: Promise<void>;
+    try {
+      asserted = live.assert();
+    } catch {
+      latch();
+      return;
+    }
+    void Promise.resolve(asserted).then(
+      () => {
+        if (!dead && socket.readyState === socket.OPEN && seat.lease.isCurrent()) {
+          pendingBytes -= Buffer.byteLength(frame);
+          socket.send(frame);
+        }
+        step();
+      },
+      () => {
+        latch();
+      },
+    );
+  };
+
   return {
     get bufferedBytes() {
-      return socket.bufferedAmount;
+      return socket.bufferedAmount + pendingBytes;
     },
     send(frame: string) {
       if (!seat.lease.isCurrent()) {
@@ -169,19 +239,15 @@ function sinkFor(socket: WebSocket, seat: PrivateSeat, live?: { assert: () => Pr
         socket.send(frame);
         return;
       }
-      void live.assert().then(
-        () => {
-          if (socket.readyState === socket.OPEN && seat.lease.isCurrent()) {
-            socket.send(frame);
-          }
-        },
-        () => {
-          live.onDead();
-          closeUnauthorized(socket);
-        },
-      );
+      if (dead) return;
+      pending.push(frame);
+      pendingBytes += Buffer.byteLength(frame);
+      if (pumping) return;
+      pumping = true;
+      step();
     },
     close(code: number, reason: string) {
+      discard();
       socket.close(code, closeReason(reason));
     },
   };
@@ -216,25 +282,41 @@ async function hydratePrivateBook(input: {
   try {
     if (wantOrders) {
       let orders: Awaited<ReturnType<PrivateBookPort['listOpenOrders']>> = [];
+      let ordersReadFailed = false;
       try {
         orders = await book.listOpenOrders({ accessToken, userId });
       } catch (err) {
-        log.warn({ userId, err: String(err) }, 'ws-private: open-orders snapshot read failed — empty list');
+        ordersReadFailed = true;
+        log.warn({ userId, err: String(err) }, 'ws-private: open-orders snapshot read failed');
+        // Same disclosure as a matching-down seed: name it, do not publish [].
+        hub.markEngineUnavailable();
       }
       // Matching-down is named on the hub. An empty reconnect snapshot next to
-      // that still looks like a blank blotter — skip the empty one.
-      if (orders.length > 0 || !hub.isEngineUnavailable) {
+      // that — or in place of a thrown read — looks like a book that is empty.
+      if (!ordersReadFailed && (orders.length > 0 || !hub.isEngineUnavailable)) {
         hub.sendOrdersSnapshot(sink, userId, orders);
       }
     }
     if (wantPositions) {
       let positions: Awaited<ReturnType<PrivateBookPort['listOpenPositions']>> = [];
+      let positionsReadFailed = false;
       try {
         positions = await book.listOpenPositions({ accessToken, userId });
       } catch (err) {
-        log.warn({ userId, err: String(err) }, 'ws-private: open-positions snapshot read failed — empty list');
+        positionsReadFailed = true;
+        log.warn({ userId, err: String(err) }, 'ws-private: open-positions snapshot read failed');
+        sink.send(
+          JSON.stringify({
+            channel: 'positions',
+            type: 'status',
+            code: POSITIONS_SNAPSHOT_UNAVAILABLE,
+            userId,
+          }),
+        );
       }
-      hub.sendPositionsSnapshot(sink, userId, positions);
+      if (!positionsReadFailed) {
+        hub.sendPositionsSnapshot(sink, userId, positions);
+      }
     }
   } finally {
     hub.releaseSnapshot(sink);
@@ -469,43 +551,53 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
             awaitingPong.delete(ws);
           });
           // Inbound: COD arm/renew/disarm only. Anything else stays ignored.
+          // L1073: one chain per socket so verification awaits cannot reorder
+          // COD commands; each step runs after the previous settles.
+          let inbound: Promise<void> = Promise.resolve();
+          let inboundClosed = false;
           ws.on('message', (data) => {
             const text = messageText(data);
             if (text === null) return;
-            void (async () => {
-              if (!lease.isCurrent()) return;
-              let hasWrite = seat.hasWrite;
-              try {
-                const principal = await verifyAccessToken(seat.token, tokens);
-                hasWrite = principal.scopes.includes('trade:write');
-                seat.hasWrite = hasWrite;
-                seat.expiresAtMs = principal.expiresAt.getTime();
-              } catch {
-                closeUnauthorized(ws);
-                return;
-              }
-              if (liveCredential) {
+            inbound = inbound
+              .then(async () => {
+                if (inboundClosed || !lease.isCurrent()) return;
+                let hasWrite = seat.hasWrite;
                 try {
-                  await assertLiveCredential(liveCredential, liveCredentialInput(seat));
+                  const principal = await verifyAccessToken(seat.token, tokens);
+                  hasWrite = principal.scopes.includes('trade:write');
+                  seat.hasWrite = hasWrite;
+                  seat.expiresAtMs = principal.expiresAt.getTime();
                 } catch {
-                  lease.revoke();
-                  cod.drop(ws);
+                  // Break F1: graceful close() fires 'close' later; stop queued frames now.
+                  inboundClosed = true;
                   closeUnauthorized(ws);
                   return;
                 }
-              }
-              if (!lease.isCurrent() || ws.readyState !== ws.OPEN) return;
-              cod.handleText(ws, text, {
-                userId: seat.userId,
-                accessToken: seat.token,
-                hasWrite,
-                send: sendCod,
-              });
-            })();
+                if (liveCredential) {
+                  try {
+                    await assertLiveCredential(liveCredential, liveCredentialInput(seat));
+                  } catch {
+                    lease.revoke();
+                    inboundClosed = true;
+                    cod.drop(ws);
+                    closeUnauthorized(ws);
+                    return;
+                  }
+                }
+                if (inboundClosed || !lease.isCurrent() || ws.readyState !== ws.OPEN) return;
+                cod.handleText(ws, text, {
+                  userId: seat.userId,
+                  accessToken: seat.token,
+                  hasWrite,
+                  send: sendCod,
+                });
+              })
+              .catch(() => undefined);
           });
           ws.on('error', () => ws.terminate());
           // terminate() still emits close — free the hub seat and the exp timer.
           ws.on('close', () => {
+            inboundClosed = true;
             clearTimeout(expiryTimer);
             expiryTimers.delete(expiryTimer);
             unlisten();

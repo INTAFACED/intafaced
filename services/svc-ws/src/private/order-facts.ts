@@ -21,7 +21,7 @@ const FROM_STATUS = {
 } as const satisfies Record<string, PrivateOrderFact>;
 
 export function factFromOrderStatus(status: string): PrivateOrderFact {
-  if (status in FROM_STATUS) return FROM_STATUS[status as keyof typeof FROM_STATUS];
+  if (Object.hasOwn(FROM_STATUS, status)) return FROM_STATUS[status as keyof typeof FROM_STATUS];
   return 'unknown';
 }
 
