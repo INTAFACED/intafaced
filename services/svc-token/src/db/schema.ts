@@ -54,25 +54,25 @@ export const voteChoiceEnum = token.enum('vote_choice', ['for', 'against', 'abst
 export const tokenParams = token.table('token_params', {
   /** Always `true`. The CHECK in the migration is what makes this a singleton. */
   id: boolean('id').primaryKey().default(true),
-  /** Hard cap. The emission scheduler refuses to mint past the sum of it. */
-  totalSupply: amount('total_supply').notNull(),
+  /** Hard cap once an owner writes it. NULL is undecided — the mint refuses. */
+  totalSupply: amount('total_supply'),
   /**
    * Emission schedule as data (§4.3). jsonb because the curve shape itself is
    * governable — a column per parameter would mean a migration per curve.
+   * NULL until that write. An empty object is not a curve.
    */
-  emissionCurve: jsonb('emission_curve').notNull().default({}),
-  /** Epochs between reward halvings. Read by the epoch scheduler, not per-post. */
-  halvingInterval: integer('halving_interval').notNull(),
+  emissionCurve: jsonb('emission_curve'),
+  /** Epochs between reward halvings. NULL until an owner writes the interval. */
+  halvingInterval: integer('halving_interval'),
   /**
    * The published fee-decay schedule (§4.3): IFC balance/stake thresholds mapped
-   * to discount bps. `feeCharge`'s discount branch reads this, so it is versioned
-   * data rather than code for the same reason as the curve.
+   * to discount bps. NULL until published. `feeCharge` refuses a blank schedule.
    */
-  feeDiscountSchedule: jsonb('fee_discount_schedule').notNull().default({}),
-  /** Share of platform revenue per window routed into the buyback (§4.3). */
-  buybackBps: bps('buyback_bps').notNull(),
-  /** Of the tokens bought back, the share burned; the remainder funds rewards. */
-  burnSplitBps: bps('burn_split_bps').notNull(),
+  feeDiscountSchedule: jsonb('fee_discount_schedule'),
+  /** Share of platform revenue per window routed into the buyback (§4.3). NULL until written. */
+  buybackBps: bps('buyback_bps'),
+  /** Of the tokens bought back, the share burned; the remainder funds rewards. NULL until written. */
+  burnSplitBps: bps('burn_split_bps'),
   updatedAt: updatedAt(),
 });
 
@@ -102,7 +102,12 @@ export const stakes = token.table(
     startedAt: tstz('started_at').notNull().defaultNow(),
     /** NULL only for `flex`, which has no lock. Enforced by CHECK in the migration. */
     unlocksAt: tstz('unlocks_at'),
-    status: stakeStatusEnum('status').notNull().default('active'),
+    /**
+     * Pending until the ledger post activates the row. An insert that omits
+     * status is not yield-eligible. 0005 sets the same default on a book that
+     * already applied 0000.
+     */
+    status: stakeStatusEnum('status').notNull().default('pending'),
     createdAt: createdAt(),
   },
   (t) => [
@@ -238,6 +243,14 @@ export const governanceVotes = token.table(
      * a ballot already on the record.
      */
     weight: amount('weight').notNull(),
+    /**
+     * Eligible stake from the same read as `weight` — the sum of active
+     * `tokenStakeAccount` pots when the ballot was cast. Close uses the
+     * greatest of these. A later unstake must not shrink the quorum bar, and
+     * a stake opened after the window must not raise it. NULL only on ballots
+     * from before this column; close refuses those rather than reading live pots.
+     */
+    eligibleStake: amount('eligible_stake'),
     choice: voteChoiceEnum('choice').notNull(),
     castAt: tstz('cast_at').notNull().defaultNow(),
   },
@@ -283,7 +296,8 @@ export const yieldPayouts = token.table(
   'yield_payouts',
   {
     windowId: text('window_id').notNull(),
-    userId: uuid('user_id').notNull(),
+    /** Same text as stakes.user_id (0007). 0003 declared this uuid. */
+    userId: text('user_id').notNull(),
     /** The share owed. Written once — a column that changed would be a running total. */
     amount: amount('amount').notNull(),
     /** Null until the reward post for this row has returned. */

@@ -3,7 +3,7 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
 import { ACCESS_TIERS } from './economics/staking.js';
-import { stubApprovalConsumer } from './action-approval-consume.js';
+import { ActionApprovalConsumeError, stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { createTokenRouter } from './router.js';
 import { TokenError, assertProposalListLimit, assertStakesListLimit, type StakeRecord, type TokenService } from './token-service.js';
 import { userCopy } from './user-copy.js';
@@ -167,6 +167,42 @@ describe('svc-token mount — authorisation', () => {
         stakeId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       }),
     );
+  });
+
+  it('refuses a signed stake before service effects when screening is explicitly strict and unconfigured', async () => {
+    const prior = {
+      failClosed: process.env.INTAFACED_SCREENING_FAIL_CLOSED,
+      regions: process.env.INTAFACED_SANCTIONS_REGIONS,
+      source: process.env.INTAFACED_SANCTIONS_LIST_SOURCE,
+    };
+    const token = stubToken();
+    try {
+      process.env.INTAFACED_SCREENING_FAIL_CLOSED = 'on';
+      delete process.env.INTAFACED_SANCTIONS_REGIONS;
+      delete process.env.INTAFACED_SANCTIONS_LIST_SOURCE;
+
+      let caught: unknown;
+      try {
+        await createTokenRouter(token)
+          .createCaller(signed())
+          .stake({ amount: '50', tier: 'm12', stakeId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' });
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toMatchObject({
+        code: 'FORBIDDEN',
+        cause: { code: 'denied.screening_unconfigured' },
+      });
+      expect(token.stake).not.toHaveBeenCalled();
+    } finally {
+      if (prior.failClosed === undefined) delete process.env.INTAFACED_SCREENING_FAIL_CLOSED;
+      else process.env.INTAFACED_SCREENING_FAIL_CLOSED = prior.failClosed;
+      if (prior.regions === undefined) delete process.env.INTAFACED_SANCTIONS_REGIONS;
+      else process.env.INTAFACED_SANCTIONS_REGIONS = prior.regions;
+      if (prior.source === undefined) delete process.env.INTAFACED_SANCTIONS_LIST_SOURCE;
+      else process.env.INTAFACED_SANCTIONS_LIST_SOURCE = prior.source;
+    }
   });
 
   it('refuses stake when KYC tier is none (jurisdiction matrix on token)', async () => {
@@ -453,6 +489,60 @@ describe('svc-token mount — yield + buyback', () => {
       windowId: 'w1',
       sources: [{ module: 'trade', amount: amt('100') }],
     });
+  });
+
+  it('refuses to spend a source-list approval on a comma-joined lookalike before the ledger move', async () => {
+    const shown = [
+      { module: 'cards', amount: '100' },
+      { module: 'swap', amount: '1' },
+    ];
+    const lookalike = [{ module: 'cards:100,swap', amount: '1' }];
+    const admin = signed(principal({ scopes: ['admin:treasury'], mfa: true }));
+
+    let shownHash = '';
+    const capture: ActionApprovalConsumer = {
+      async consume(input) {
+        shownHash = input.payloadHash;
+        return stubApprovalConsumer(CONFIRM).consume(input);
+      },
+    };
+
+    const shownToken = stubToken();
+    const shownResult = await createTokenRouter(shownToken, { approvals: capture })
+      .createCaller(admin)
+      .distributeRevenue({ windowId: 'w1', sources: shown, ...APPROVAL });
+    expect(shownResult.confirmOperatorId).toBe(CONFIRM);
+    expect(shownToken.distributeRevenue).toHaveBeenCalledWith({
+      windowId: 'w1',
+      sources: [
+        { module: 'cards', amount: amt('100') },
+        { module: 'swap', amount: amt('1') },
+      ],
+    });
+
+    let presentedHash = '';
+    const locked: ActionApprovalConsumer = {
+      async consume(input) {
+        presentedHash = input.payloadHash;
+        if (input.payloadHash !== shownHash) {
+          throw new ActionApprovalConsumeError('payload hash does not match the approved action', 'action_approval.consume_failed');
+        }
+        return stubApprovalConsumer(CONFIRM).consume(input);
+      },
+    };
+
+    const otherToken = stubToken();
+    await expect(
+      createTokenRouter(otherToken, { approvals: locked })
+        .createCaller(admin)
+        .distributeRevenue({ windowId: 'w1', sources: lookalike, ...APPROVAL }),
+    ).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      cause: { code: 'action_approval.consume_failed' },
+    });
+    expect(presentedHash).not.toBe('');
+    expect(presentedHash).not.toBe(shownHash);
+    expect(otherToken.distributeRevenue).not.toHaveBeenCalled();
   });
 
   it('refuses distributeRevenue missing approval ids — typed-in confirm is not authority', async () => {

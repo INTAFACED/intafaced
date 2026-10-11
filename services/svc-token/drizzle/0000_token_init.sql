@@ -36,12 +36,14 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE TABLE IF NOT EXISTS "token"."token_params" (
   "id"                    boolean PRIMARY KEY DEFAULT true,
-  "total_supply"          numeric(38, 18) NOT NULL,
-  "emission_curve"        jsonb NOT NULL DEFAULT '{}'::jsonb,
-  "halving_interval"      integer NOT NULL,
-  "fee_discount_schedule" jsonb NOT NULL DEFAULT '{}'::jsonb,
-  "buyback_bps"           numeric(8, 0) NOT NULL,
-  "burn_split_bps"        numeric(8, 0) NOT NULL,
+  -- NULL until an owner writes them. A migration must not invent a supply,
+  -- an emission amount, a buyback split, or a fee ladder.
+  "total_supply"          numeric(38, 18),
+  "emission_curve"        jsonb,
+  "halving_interval"      integer,
+  "fee_discount_schedule" jsonb,
+  "buyback_bps"           numeric(8, 0),
+  "burn_split_bps"        numeric(8, 0),
   "updated_at"            timestamptz NOT NULL DEFAULT now(),
   -- Exactly one row, ever. A second params row would mean two economies, and
   -- whichever one a given job happened to SELECT would silently win.
@@ -61,7 +63,8 @@ ALTER TABLE "token"."token_params" ADD CONSTRAINT "token_params_burn_split_bps_c
   CHECK ("burn_split_bps" >= 0 AND "burn_split_bps" <= 10000);
 
 -- A zero or negative cap would make every emission-schedule comparison vacuous
--- and remove the only ceiling on minting.
+-- and remove the only ceiling on minting. NULL stays NULL: an undecided cap is
+-- not zero, and the check does not fill one in.
 ALTER TABLE "token"."token_params" DROP CONSTRAINT IF EXISTS "token_params_supply_positive_ck";
 ALTER TABLE "token"."token_params" ADD CONSTRAINT "token_params_supply_positive_ck"
   CHECK ("total_supply" > 0);
@@ -71,6 +74,18 @@ ALTER TABLE "token"."token_params" ADD CONSTRAINT "token_params_supply_positive_
 ALTER TABLE "token"."token_params" DROP CONSTRAINT IF EXISTS "token_params_halving_positive_ck";
 ALTER TABLE "token"."token_params" ADD CONSTRAINT "token_params_halving_positive_ck"
   CHECK ("halving_interval" > 0);
+
+-- Re-runnable: a table created by an older copy of this file still has NOT NULL
+-- and '{}' defaults. Dropping those is what lets a blank stay blank. It does
+-- not write a supply, an emission amount, or a fee ladder.
+ALTER TABLE "token"."token_params" ALTER COLUMN "total_supply" DROP NOT NULL;
+ALTER TABLE "token"."token_params" ALTER COLUMN "emission_curve" DROP NOT NULL;
+ALTER TABLE "token"."token_params" ALTER COLUMN "emission_curve" DROP DEFAULT;
+ALTER TABLE "token"."token_params" ALTER COLUMN "halving_interval" DROP NOT NULL;
+ALTER TABLE "token"."token_params" ALTER COLUMN "fee_discount_schedule" DROP NOT NULL;
+ALTER TABLE "token"."token_params" ALTER COLUMN "fee_discount_schedule" DROP DEFAULT;
+ALTER TABLE "token"."token_params" ALTER COLUMN "buyback_bps" DROP NOT NULL;
+ALTER TABLE "token"."token_params" ALTER COLUMN "burn_split_bps" DROP NOT NULL;
 
 -- ── stakes ───────────────────────────────────────────────────────────────────
 -- The terms of each staked position (§4.3). Principal lives in the ledger.
@@ -84,7 +99,10 @@ CREATE TABLE IF NOT EXISTS "token"."stakes" (
   "multiplier_bps" numeric(8, 0) NOT NULL,
   "started_at"     timestamptz NOT NULL DEFAULT now(),
   "unlocks_at"     timestamptz,
-  "status"         "token"."stake_status" NOT NULL DEFAULT 'active',
+  -- Pending until the ledger post activates the row. An insert that omits
+  -- status must not be yield-eligible. CREATE TABLE IF NOT EXISTS will not
+  -- change this on a book that already applied 0000; 0005 sets the same default.
+  "status"         "token"."stake_status" NOT NULL DEFAULT 'pending',
   "created_at"     timestamptz NOT NULL DEFAULT now()
 );
 
@@ -242,34 +260,12 @@ ALTER TABLE "token"."governance_votes" DROP CONSTRAINT IF EXISTS "governance_vot
 ALTER TABLE "token"."governance_votes" ADD CONSTRAINT "governance_votes_weight_non_negative_ck"
   CHECK ("weight" >= 0);
 
--- ── Seed ─────────────────────────────────────────────────────────────────────
--- The launch parameters of the IFC economy. These are defaults, not decisions:
--- §4.3 hands them to governance, so changing one after launch is a proposal of
--- kind 'fee_param', never another migration.
---
---   total_supply         1,000,000,000 IFC, fixed cap
---   emission_curve       daily epochs, halving reward, seeded at 2500 IFC/epoch
---   halving_interval     1460 epochs ≈ 4 years of daily epochs
---   fee_discount_schedule staked-IFC thresholds → fee discount in bps (§4.3
---                        "published decay schedule" read by the feeCharge branch)
---   buyback_bps          2000 = 20% of platform revenue per window
---   burn_split_bps       5000 = half of bought tokens burned, half to rewards
+-- ── Singleton ────────────────────────────────────────────────────────────────
+-- The row exists so an owner can write a decision later. Supply, the emission
+-- amount, buyback, and the fee schedule stay null. ON CONFLICT DO NOTHING only
+-- keeps a row that is already there; it does not fill those columns, so an
+-- undecided number cannot freeze.
 
-INSERT INTO "token"."token_params" (
-  "id",
-  "total_supply",
-  "emission_curve",
-  "halving_interval",
-  "fee_discount_schedule",
-  "buyback_bps",
-  "burn_split_bps"
-) VALUES (
-  true,
-  1000000000,
-  '{"kind":"halving","epochSeconds":86400,"initialEpochReward":"2500"}'::jsonb,
-  1460,
-  '{"basis":"staked","tiers":[{"minStake":"0","discountBps":0},{"minStake":"1000","discountBps":1000},{"minStake":"10000","discountBps":2000},{"minStake":"100000","discountBps":3500},{"minStake":"1000000","discountBps":5000}]}'::jsonb,
-  2000,
-  5000
-)
+INSERT INTO "token"."token_params" ("id")
+VALUES (true)
 ON CONFLICT ("id") DO NOTHING;

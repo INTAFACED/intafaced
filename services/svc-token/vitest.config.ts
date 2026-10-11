@@ -8,5 +8,10 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     fileParallelism: false,
+    // Unit/API fixtures exercise service behavior without owner screening
+    // configuration. Strict screening remains covered explicitly below.
+    env: {
+      INTAFACED_SCREENING_FAIL_CLOSED: 'off',
+    },
   },
 });

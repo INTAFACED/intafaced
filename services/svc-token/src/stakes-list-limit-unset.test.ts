@@ -61,6 +61,6 @@ describe('listStakes limit unset refuse', () => {
 
   it('yield job active-stake work set stays unbounded (not this mill)', () => {
     const src = readFileSync(join(ROOT, 'services/svc-token/src/token-service.ts'), 'utf8');
-    expect(src).toMatch(/SELECT user_id, amount, tier, multiplier_bps FROM token\.stakes WHERE status = 'active' ORDER BY id ASC/);
+    expect(src).toMatch(/SELECT id, user_id, amount, tier, multiplier_bps FROM token\.stakes WHERE status = 'active' ORDER BY id ASC/);
   });
 });

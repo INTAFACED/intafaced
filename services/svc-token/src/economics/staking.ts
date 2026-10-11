@@ -14,8 +14,8 @@
  * `feeCharge` recipe checks the "published decay schedule" (`feeDiscountBps`).
  *
  * The access ladder is code; the fee-discount ladder is NOT. §4.3 puts the latter in
- * `token_params.fee_discount_schedule` and hands parameter control to governance, so this
- * file only seeds and validates it — see `DEFAULT_FEE_DISCOUNT_SCHEDULE`.
+ * `token_params.fee_discount_schedule`. The migration leaves that column blank.
+ * `DEFAULT_FEE_DISCOUNT_SCHEDULE` is a pure-test fixture, not a live fee.
  */
 
 import { type Amount, ZERO, mulBps, parseAmount } from '@intafaced/ledger-client';
@@ -172,18 +172,13 @@ export interface FeeDiscountSchedule {
  * §4.3: "`feeCharge` recipe checks payer's IFC balance + published decay schedule → discount
  * applied". Published means `token_params.fee_discount_schedule` — a governed row
  * (`proposal_kind = 'fee_param'`), which is the entire reason §4.3 makes it a jsonb column
- * and not a constant. **THIS TABLE IS THE SEED FOR THAT COLUMN AND NOTHING ELSE.**
+ * and not a constant.
  *
  * It is not the authority and must not be read as one. A constant cannot be changed by
  * governance without a redeploy, so a service that answered from here would charge a discount
  * the database does not hold. `feeDiscountBps` therefore takes the schedule as a REQUIRED
  * argument — there is no default, because a default is how a request path ends up reading this
- * array by accident, which is the bug being closed.
- *
- * These numbers are the ones in `drizzle/0000_token_init.sql`, and `economics.test.ts` fails
- * if the two ever drift apart again. They had: every non-zero step disagreed with the seeded
- * row, and no test could see it because the tests read their expectations back out of this
- * array.
+ * array by accident. The migration does not insert this table. A blank column refuses.
  */
 export const DEFAULT_FEE_DISCOUNT_SCHEDULE: FeeDiscountSchedule = {
   basis: 'staked',
