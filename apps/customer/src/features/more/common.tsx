@@ -1,5 +1,5 @@
 import { copy as legacyCopy, t as copyText, Text } from './copy';
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { createMoreActionJournal, morePendingKey, type MoreKnown } from './more-action-journal';
 import { moreActionCopy } from './more-action-copy';
@@ -149,6 +149,7 @@ type Stage = {
   success: Presented<string>;
 };
 type Review = Stage & { journalTitle: string; epoch: number };
+export type ActionControls = Pick<ReturnType<typeof useAction>, 'stage' | 'disabled' | 'isCurrent' | 'result'>;
 export function useAction(room: string, recovery?: { recover: (reference: string) => Promise<ApiResult<unknown>>; done?: () => void }) {
   const { userId, api, session } = useSession();
   const { language } = usePreferences();
@@ -163,6 +164,9 @@ export function useAction(room: string, recovery?: { recover: (reference: string
   )
     owner.current = { userId, api, session, key, href: location.href, epoch: owner.current.epoch + 1 };
   const context = owner.current;
+  // Opaque RAM identity for private projections. Consumers never receive the
+  // owner/session context or use this identity as original settlement proof.
+  const viewIdentity = useMemo(() => ({}), [context]);
   const lifetime = useRef({ context, mounted: true });
   lifetime.current.context = context;
   const model = useRef<{ key: string; api: typeof api; value: ReturnType<typeof createMoreActionJournal> } | null>(null);
@@ -416,6 +420,8 @@ export function useAction(room: string, recovery?: { recover: (reference: string
     feedback,
     dialog,
     isCurrent: live,
+    viewIdentity,
+    unresolvedId: saved.status === 'present' && !snapshot.known && !operation.current ? saved.value.id : null,
     result: shown.result,
     disabled: Boolean(operation.current || saved.status !== 'empty' || snapshot.known || !live()),
   };

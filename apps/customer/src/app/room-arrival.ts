@@ -7,6 +7,14 @@ export function useCustomerRoomArrival(pathname: string, customerShell: boolean,
   const frame = useRef(0);
 
   useLayoutEffect(() => {
+    function focused(event: FocusEvent) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || target === document.body || target === document.documentElement) return;
+      // Preserve an observed interaction even if Tab subsequently leaves the
+      // document before the queued arrival callback runs.
+      cancelAnimationFrame(frame.current);
+      frame.current = 0;
+    }
     function departed(event: Event) {
       // Native hash events can arrive after a departure-and-return has batched.
       const href = event instanceof HashChangeEvent && event.newURL ? event.newURL : location.href;
@@ -17,10 +25,12 @@ export function useCustomerRoomArrival(pathname: string, customerShell: boolean,
     }
     window.addEventListener('popstate', departed, true);
     window.addEventListener('hashchange', departed, true);
+    window.addEventListener('focusin', focused, true);
     return () => {
       cancelAnimationFrame(frame.current);
       window.removeEventListener('popstate', departed, true);
       window.removeEventListener('hashchange', departed, true);
+      window.removeEventListener('focusin', focused, true);
     };
   }, []);
 

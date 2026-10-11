@@ -12,6 +12,9 @@ import { Quant } from './Quant';
 import { Support } from './Support';
 import { Token } from './Token';
 import { MoreDiscovery } from './MoreDiscovery';
+import { launchCopy } from './launch-copy';
+import { miningCopy } from './mining-copy';
+import { predictionCatalogueCopy } from './prediction-catalogue-copy';
 import { discoveryCopy } from './discovery-copy';
 import type { ReactNode } from 'react';
 import './more.css';
@@ -56,7 +59,7 @@ function MoreRooms({ path }: { path: string }) {
     content = <Campaigns />;
   } else if (p === '/launch' || p === '/uc/innovation/myorders') {
     title = p === '/launch' ? copyText('moreroutes.launch') : copyText('moreroutes.my.launch.orders');
-    description = copyText('moreroutes.issuance.and.sale.participation.require.their.owned');
+    description = <launchCopy.Copy k="scope" />;
     content = <Launch orders={p !== '/launch'} />;
   } else if (p === '/market' || p === '/market/mine' || p === '/market/strategy') {
     title =
@@ -69,11 +72,11 @@ function MoreRooms({ path }: { path: string }) {
     content = <Market key={p} mine={p === '/market/mine'} strategy={p === '/market/strategy'} />;
   } else if (p === '/predict') {
     title = copyText('moreroutes.prediction');
-    description = copyText('moreroutes.listed.questions.result.sources.and.fully.collateralized');
+    description = <predictionCatalogueCopy.Copy k="scope" />;
     content = <Prediction />;
   } else if (p === '/mining') {
     title = copyText('moreroutes.mining');
-    description = copyText('moreroutes.pool.status.without.invented.miners.or.rewards');
+    description = <miningCopy.Copy k="scope" />;
     content = <Mining />;
   } else if (p === '/token') {
     title = copyText('moreroutes.token');
