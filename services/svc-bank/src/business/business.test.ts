@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import {
   MemoryLedger,
+  LedgerError,
   formatAmount,
   parseAmount,
   recipes,
@@ -434,6 +435,269 @@ describe('maker/checker dual control with ledger holds', () => {
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
+  async function approvalFixture() {
+    const account = await bank.business.createAccount({
+      name: 'Recovery Co',
+      assetId: 'USDT',
+      spendThreshold: amt('100'),
+      creatorUserId: MAKER,
+    });
+    await bank.business.addMember({ accountId: account.id, actorUserId: MAKER, userId: CHECKER, role: 'checker' });
+    const primary = await bank.spaces.ensurePrimary(MAKER, 'USDT');
+    const pot = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Recovery destination' });
+    await fund(MAKER, 'USDT', '1000');
+    return { account, primary, pot };
+  }
+
+  it('reconciles a committed settle after its acknowledgement is lost without releasing the hold', async () => {
+    const { account, primary, pot } = await approvalFixture();
+    const proposed = await bank.business.proposeTransfer({
+      clientId: randomUUID(),
+      accountId: account.id,
+      makerUserId: MAKER,
+      fromSpaceId: primary.id,
+      toSpaceId: pot.id,
+      amount: amt('250'),
+    });
+    if (proposed.kind !== 'pending') throw new Error('expected pending');
+    const originalPost = ledger.post.bind(ledger);
+    ledger.post = async (request) => {
+      const posted = await originalPost(request);
+      if (request.idempotencyKey.startsWith('bank.business.settle:'))
+        throw new LedgerError('settle acknowledgement lost', 'ledger.unavailable');
+      return posted;
+    };
+    const settled = await bank.business.approve({ approvalId: proposed.approval.id, checkerUserId: CHECKER });
+    expect(await bank.business.approve({ approvalId: proposed.approval.id, checkerUserId: CHECKER })).toEqual(settled);
+    const rows = await sql<Array<{ status: string; ledger_tx_id: string | null; rejection_code: string | null }>>`
+      SELECT status, ledger_tx_id, rejection_code FROM bank.business_approvals WHERE id = ${proposed.approval.id}
+    `;
+    expect(rows).toEqual([{ status: 'approved', ledger_tx_id: settled.ledgerTxId, rejection_code: null }]);
+    expect(await availableOf(MAKER, 'USDT')).toBe('750');
+    expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('250');
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.business.settle:${proposed.approval.id}`)).toHaveLength(1);
+    expect(ledger.journal().some((tx) => tx.idempotencyKey.startsWith('bank.business.release:'))).toBe(false);
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('claims the original proposal terms before posting when a concurrent caller changes the destination and amount', async () => {
+    const { account, primary, pot } = await approvalFixture();
+    const other = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Conflicting destination' });
+    const clientId = randomUUID();
+    const input = { clientId, accountId: account.id, makerUserId: MAKER, fromSpaceId: primary.id, toSpaceId: pot.id, amount: amt('10') };
+    const originalPost = ledger.post.bind(ledger);
+    let arrived!: () => void;
+    const atPost = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
+    let resume!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    let pause = true;
+    ledger.post = async (request) => {
+      const posted = await originalPost(request);
+      if (pause && request.idempotencyKey === `bank.transfer:${clientId}:0`) {
+        pause = false;
+        arrived();
+        await gate;
+      }
+      return posted;
+    };
+    const first = bank.business.proposeTransfer(input);
+    await atPost;
+    try {
+      await expect(bank.business.proposeTransfer({ ...input, toSpaceId: other.id, amount: amt('20') })).rejects.toMatchObject({
+        code: 'bank.business_request_conflict',
+      });
+    } finally {
+      resume();
+      await first.catch(() => undefined);
+    }
+    const result = await first;
+    expect(result.kind).toBe('posted');
+    const rows = await sql<Array<{ amount: string; to_space_id: string; ledger_tx_id: string }>>`
+      SELECT amount::text AS amount, to_space_id, ledger_tx_id FROM bank.business_approvals WHERE id = ${clientId}
+    `;
+    expect(rows).toEqual([
+      { amount: '10.000000000000000000', to_space_id: pot.id, ledger_tx_id: result.kind === 'posted' ? result.ledgerTxId : '' },
+    ]);
+    expect(await availableOf(MAKER, 'USDT')).toBe('990');
+    expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('10');
+    expect(formatAmount(await bank.spaces.balanceOf(other))).toBe('0');
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer:${clientId}:0`)).toHaveLength(1);
+  });
+
+  it.each([
+    { committed: true, lookupUnavailable: true },
+    { committed: false, lookupUnavailable: false },
+  ])('keeps an unknown settlement recoverable without releasing its hold: %j', async ({ committed, lookupUnavailable }) => {
+    const { account, primary, pot } = await approvalFixture();
+    const proposed = await bank.business.proposeTransfer({
+      clientId: randomUUID(),
+      accountId: account.id,
+      makerUserId: MAKER,
+      fromSpaceId: primary.id,
+      toSpaceId: pot.id,
+      amount: amt('250'),
+    });
+    if (proposed.kind !== 'pending') throw new Error('expected pending');
+    const originalPost = ledger.post.bind(ledger);
+    const originalLookup = ledger.getTxByKey.bind(ledger);
+    ledger.post = async (request) => {
+      if (request.idempotencyKey.startsWith('bank.business.settle:')) {
+        if (committed) await originalPost(request);
+        throw new LedgerError('unknown settlement outcome', 'ledger.unavailable');
+      }
+      return originalPost(request);
+    };
+    ledger.getTxByKey = async (key) => {
+      if (lookupUnavailable) throw new LedgerError('receipt lookup unavailable', 'ledger.unavailable');
+      return originalLookup(key);
+    };
+    await expect(bank.business.approve({ approvalId: proposed.approval.id, checkerUserId: CHECKER })).rejects.toMatchObject({
+      code: 'ledger.unavailable',
+    });
+    const rows = await sql<Array<{ status: string; ledger_tx_id: string | null; rejection_code: string | null }>>`
+        SELECT status, ledger_tx_id, rejection_code FROM bank.business_approvals WHERE id = ${proposed.approval.id}
+      `;
+    expect(rows).toEqual([{ status: 'approved', ledger_tx_id: null, rejection_code: null }]);
+    expect(await availableOf(MAKER, 'USDT')).toBe('750');
+    expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe(committed ? '250' : '0');
+    expect(ledger.journal().some((tx) => tx.idempotencyKey.startsWith('bank.business.release:'))).toBe(false);
+    ledger.post = originalPost;
+    ledger.getTxByKey = originalLookup;
+    const recovered = await bank.business.approve({ approvalId: proposed.approval.id, checkerUserId: CHECKER });
+    expect(await bank.business.approve({ approvalId: proposed.approval.id, checkerUserId: CHECKER })).toEqual(recovered);
+    expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('250');
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.business.settle:${proposed.approval.id}`)).toHaveLength(1);
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('a stale definitive rejection cannot release a settlement another retry already recorded', async () => {
+    const { account, primary, pot } = await approvalFixture();
+    const proposed = await bank.business.proposeTransfer({
+      clientId: randomUUID(),
+      accountId: account.id,
+      makerUserId: MAKER,
+      fromSpaceId: primary.id,
+      toSpaceId: pot.id,
+      amount: amt('250'),
+    });
+    if (proposed.kind !== 'pending') throw new Error('expected pending');
+    const originalPost = ledger.post.bind(ledger);
+    const originalLookup = ledger.getTxByKey.bind(ledger);
+    let fail = true;
+    let arrived!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
+    let resume!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    ledger.post = async (request) => {
+      if (fail && request.idempotencyKey.startsWith('bank.business.settle:')) {
+        fail = false;
+        throw new LedgerError('settle refused', 'ledger.insufficient_funds');
+      }
+      return originalPost(request);
+    };
+    ledger.getTxByKey = async (key) => {
+      if (key === `bank.business.settle:${proposed.approval.id}`) {
+        arrived();
+        await gate;
+        return null; // The failed contender's receipt read began before the winning retry.
+      }
+      return originalLookup(key);
+    };
+    const first = bank.business.approve({ approvalId: proposed.approval.id, checkerUserId: CHECKER });
+    await waiting;
+    const second = await bank.business.approve({ approvalId: proposed.approval.id, checkerUserId: CHECKER });
+    resume();
+    expect(await first).toEqual(second);
+    expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('250');
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.business.settle:${proposed.approval.id}`)).toHaveLength(1);
+    expect(ledger.journal().some((tx) => tx.idempotencyKey.startsWith('bank.business.release:'))).toBe(false);
+  });
+
+  it('identical concurrent immediate proposals return one verified transfer', async () => {
+    const { account, primary, pot } = await approvalFixture();
+    const input = {
+      clientId: randomUUID(),
+      accountId: account.id,
+      makerUserId: MAKER,
+      fromSpaceId: primary.id,
+      toSpaceId: pot.id,
+      amount: amt('10'),
+    };
+    const results = await Promise.all([bank.business.proposeTransfer(input), bank.business.proposeTransfer(input)]);
+    expect(results[0]).toEqual(results[1]);
+    expect(await bank.business.proposeTransfer(input)).toEqual(results[0]);
+    expect(await availableOf(MAKER, 'USDT')).toBe('990');
+    expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('10');
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer:${input.clientId}:0`)).toHaveLength(1);
+  });
+
+  it('an immediate proposal with a lost acknowledgement retains its original terms and recovers the same transfer', async () => {
+    const { account, primary, pot } = await approvalFixture();
+    const input = {
+      clientId: randomUUID(),
+      accountId: account.id,
+      makerUserId: MAKER,
+      fromSpaceId: primary.id,
+      toSpaceId: pot.id,
+      amount: amt('10'),
+    };
+    const originalPost = ledger.post.bind(ledger);
+    ledger.post = async (request) => {
+      const posted = await originalPost(request);
+      if (request.idempotencyKey === `bank.transfer:${input.clientId}:0`)
+        throw new LedgerError('transfer acknowledgement lost', 'ledger.unavailable');
+      return posted;
+    };
+    await expect(bank.business.proposeTransfer(input)).rejects.toMatchObject({ code: 'ledger.unavailable' });
+    await expect(bank.business.proposeTransfer({ ...input, amount: amt('20') })).rejects.toMatchObject({
+      code: 'bank.business_request_conflict',
+    });
+    await expect(bank.business.approve({ approvalId: input.clientId, checkerUserId: CHECKER })).rejects.toMatchObject({
+      code: 'bank.business_approval_inactive',
+    });
+    ledger.post = originalPost;
+    const recovered = await bank.business.proposeTransfer(input);
+    expect(await bank.business.proposeTransfer(input)).toEqual(recovered);
+    expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('10');
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer:${input.clientId}:0`)).toHaveLength(1);
+  });
+
+  it('a legacy immediate transfer without an approval row refuses changed terms and recovers its original receipt', async () => {
+    const { account, primary, pot } = await approvalFixture();
+    const input = {
+      clientId: randomUUID(),
+      accountId: account.id,
+      makerUserId: MAKER,
+      fromSpaceId: primary.id,
+      toSpaceId: pot.id,
+      amount: amt('10'),
+    };
+    const original = await bank.transfers.transfer({
+      transferId: input.clientId,
+      fromSpaceId: primary.id,
+      toSpaceId: pot.id,
+      amount: input.amount,
+    });
+    await expect(bank.business.proposeTransfer({ ...input, amount: amt('20') })).rejects.toMatchObject({
+      code: 'bank.business_request_conflict',
+    });
+    expect(await sql`SELECT id FROM bank.business_approvals WHERE id = ${input.clientId}`).toHaveLength(0);
+    expect(await bank.business.proposeTransfer(input)).toEqual({
+      kind: 'posted',
+      transferId: input.clientId,
+      ledgerTxId: original.ledgerTxId,
+    });
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer:${input.clientId}:0`)).toHaveLength(1);
+  });
+
   it('a failing settle posts the release once and a second approve does not settle', async () => {
     const account = await bank.business.createAccount({
       name: 'Ops Co',
@@ -466,7 +730,7 @@ describe('maker/checker dual control with ledger holds', () => {
     ledger.post = (async (req: Parameters<MemoryLedger['post']>[0]) => {
       if (req.idempotencyKey.startsWith('bank.business.settle:')) {
         settlePosts += 1;
-        throw new Error('settle down');
+        throw new LedgerError('settle refused', 'ledger.insufficient_funds');
       }
       if (req.idempotencyKey.startsWith('bank.business.release:')) releasePosts += 1;
       return orig(req);
@@ -533,7 +797,7 @@ describe('maker/checker dual control with ledger holds', () => {
     ledger.post = (async (req: Parameters<MemoryLedger['post']>[0]) => {
       if (req.idempotencyKey.startsWith('bank.business.settle:')) {
         settlePosts += 1;
-        throw new Error('settle down');
+        throw new LedgerError('settle refused', 'ledger.insufficient_funds');
       }
       if (req.idempotencyKey.startsWith('bank.business.release:')) {
         releasePosts += 1;

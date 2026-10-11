@@ -2,6 +2,7 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import {
   InsufficientFundsError,
+  LedgerError,
   formatAmount,
   parseAmount,
   recipes,
@@ -165,12 +166,9 @@ function toApproval(row: ApprovalRow): BusinessApproval {
 }
 
 /**
- * One decision for a client id that already has a row: the opening lookup and
- * the insert that loses ON CONFLICT DO NOTHING. Different terms conflict.
- * Pending retries. An approved row with a ledger tx is the original post.
- * Anything else is inactive.
+ * A client id keeps the original account, maker, spaces, and amount.
  */
-function decideExistingProposal(
+function assertSameProposalTerms(
   existing: BusinessApproval,
   input: {
     clientId: string;
@@ -180,7 +178,7 @@ function decideExistingProposal(
     toSpaceId: string;
     amount: Amount;
   },
-): { kind: 'posted'; transferId: string; ledgerTxId: string } | { kind: 'pending'; approval: BusinessApproval } {
+): void {
   if (
     existing.accountId !== input.accountId ||
     existing.makerUserId !== input.makerUserId ||
@@ -193,6 +191,20 @@ function decideExistingProposal(
       'bank.business_request_conflict',
     );
   }
+}
+
+function decideExistingProposal(
+  existing: BusinessApproval,
+  input: {
+    clientId: string;
+    accountId: string;
+    makerUserId: string;
+    fromSpaceId: string;
+    toSpaceId: string;
+    amount: Amount;
+  },
+): { kind: 'posted'; transferId: string; ledgerTxId: string } | { kind: 'pending'; approval: BusinessApproval } {
+  assertSameProposalTerms(existing, input);
   if (existing.status === 'pending') return { kind: 'pending', approval: existing };
   if (existing.status === 'approved' && existing.ledgerTxId) {
     return { kind: 'posted', transferId: existing.transferId ?? existing.id, ledgerTxId: existing.ledgerTxId };
@@ -297,30 +309,37 @@ export class BusinessService {
              rejection_code, created_at, decided_at
         FROM bank.business_approvals WHERE id = ${clientId}::uuid
     `;
-    if (existingRows[0]) return decideExistingProposal(toApproval(existingRows[0]), input);
+    if (existingRows[0]) return this.resumeProposal(toApproval(existingRows[0]), input);
 
     if (input.amount < account.spendThreshold) {
-      const posted = await this.transfers.transfer({
-        transferId: clientId,
-        fromSpaceId: input.fromSpaceId,
-        toSpaceId: input.toSpaceId,
-        amount: input.amount,
-      });
-      // Record the client id on the same row the lookup above already reads.
-      // Status is approved and ledger_tx_id is the transfer that just posted, so
-      // a later call sees the instruction: different terms conflict, the same
-      // terms return this post, and a checker cannot settle a second time.
-      await this.sql`
+      // Older immediate transfers may have reached the ledger before their
+      // approval row existed. Refuse different economic terms before claiming
+      // such a key; the original instruction can still recover its receipt.
+      const previous = await this.ledger.getTxByKey(`bank.transfer:${clientId}:0`);
+      if (
+        previous &&
+        !(await this.postedPayrollMatches(previous, accountForSpace(from), [{ amount: input.amount, acct: accountForSpace(to) }]))
+      ) {
+        throw new BankError('The ledger transfer differs from the original proposal', 'bank.business_request_conflict');
+      }
+      // Commit the original instruction before money moves. A concurrent call
+      // with this id must match this row, even while the post is in flight or
+      // its acknowledgement is lost. Approved here is the maker's permission;
+      // ledger_tx_id remains blank until the original transfer is verified.
+      const claimed = await this.sql<ApprovalRow[]>`
         INSERT INTO bank.business_approvals
-          (id, account_id, maker_user_id, from_space_id, to_space_id, asset_id, amount, status, transfer_id, ledger_tx_id, decided_at)
+          (id, account_id, maker_user_id, from_space_id, to_space_id, asset_id, amount, status, transfer_id, decided_at)
         VALUES (
           ${clientId}::uuid, ${input.accountId}::uuid, ${input.makerUserId},
           ${input.fromSpaceId}::uuid, ${input.toSpaceId}::uuid,
-          ${account.assetId}, ${formatAmount(input.amount)}::numeric, 'approved',
-          ${posted.transferId}, ${posted.ledgerTxId}, now()
+          ${account.assetId}, ${formatAmount(input.amount)}::numeric, 'approved', ${clientId}, now()
         )
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id, account_id, maker_user_id, checker_user_id, from_space_id, to_space_id,
+                  asset_id, amount, status, transfer_id, hold_ledger_tx_id, ledger_tx_id,
+                  rejection_code, created_at, decided_at
       `;
-      return { kind: 'posted', transferId: posted.transferId, ledgerTxId: posted.ledgerTxId };
+      return this.resumeProposal(claimed[0] ? toApproval(claimed[0]) : await this.approval(clientId), input);
     }
 
     // Over threshold: hold funds first so concurrent spend cannot empty the pot,
@@ -381,8 +400,12 @@ export class BusinessService {
         return { transferId: approval.transferId ?? approval.id, ledgerTxId: approval.ledgerTxId };
       }
       if (approval.status === 'approved') {
-        // No ledger tx id yet. A settle that already posted is stored here
-        // and not released. A settle post that threw is rejected in finishSettle.
+        // An immediate transfer has no purposed hold. Its original proposer
+        // retries the claimed instruction; checker settlement must not invent one.
+        if (!approval.holdLedgerTxId) {
+          throw new BankError('Retry the original proposal to complete this transfer', 'bank.business_approval_inactive');
+        }
+        // Unknown settlement outcomes stay recoverable on the same ledger key.
         if (approval.makerUserId === input.checkerUserId) {
           throw new BankError('Maker cannot approve their own transfer', 'bank.business_self_approve');
         }
@@ -773,37 +796,78 @@ export class BusinessService {
     await this.releaseHold(approval);
   }
 
-  /**
-   * Settle key is the approval id. A posted settle is stored and not released.
-   * A thrown settle writes rejected before the release post. A throw from
-   * that post cannot leave the row approved with a null ledger tx id, so a
-   * later approve does not settle. A later reject may post the same release.
-   */
+  /** Finish a durable immediate-transfer claim without changing its instruction. */
+  private async resumeProposal(
+    approval: BusinessApproval,
+    input: Parameters<BusinessService['proposeTransfer']>[0],
+  ): Promise<{ kind: 'posted'; transferId: string; ledgerTxId: string } | { kind: 'pending'; approval: BusinessApproval }> {
+    assertSameProposalTerms(approval, input);
+    if (approval.status !== 'approved' || approval.ledgerTxId || approval.holdLedgerTxId) {
+      return decideExistingProposal(approval, input);
+    }
+    const posted = await this.transfers.transfer({
+      transferId: approval.id,
+      fromSpaceId: approval.fromSpaceId,
+      toSpaceId: approval.toSpaceId,
+      amount: approval.amount,
+    });
+    const receipt = await this.ledger.getTx(posted.ledgerTxId);
+    if (!receipt) throw new LedgerError('Business transfer receipt is unavailable', 'ledger.unavailable');
+    const from = await this.spaces.get(approval.fromSpaceId);
+    const to = await this.spaces.get(approval.toSpaceId);
+    if (
+      receipt.idempotencyKey !== `bank.transfer:${approval.id}:0` ||
+      !(await this.postedPayrollMatches(receipt, accountForSpace(from), [{ amount: approval.amount, acct: accountForSpace(to) }]))
+    ) {
+      throw new BankError('The ledger transfer differs from the original proposal', 'bank.business_request_conflict');
+    }
+    const recorded = await this.sql<Array<{ id: string }>>`
+      UPDATE bank.business_approvals SET ledger_tx_id = ${posted.ledgerTxId}
+       WHERE id = ${approval.id}::uuid AND status = 'approved' AND hold_ledger_tx_id IS NULL
+         AND (ledger_tx_id IS NULL OR ledger_tx_id = ${posted.ledgerTxId})
+      RETURNING id
+    `;
+    if (!recorded[0]) throw new BankError('The proposal no longer names this transfer', 'bank.business_request_conflict');
+    return { kind: 'posted', transferId: approval.id, ledgerTxId: posted.ledgerTxId };
+  }
+
+  /** Reconcile the original settle key; an unknown outcome never releases its hold. */
   private async finishSettle(approval: BusinessApproval): Promise<{ transferId: string; ledgerTxId: string }> {
     const from = await this.spaces.get(approval.fromSpaceId);
     const to = await this.spaces.resolveForCredit(approval.toSpaceId);
+    const request = recipes.businessApprovalSettle({
+      approvalId: approval.id,
+      from: accountForSpace(from),
+      to: accountForSpace(to),
+      amount: approval.amount,
+    });
     let settled: LedgerTx;
     try {
-      settled = await this.ledger.post(
-        recipes.businessApprovalSettle({
-          approvalId: approval.id,
-          from: accountForSpace(from),
-          to: accountForSpace(to),
-          amount: approval.amount,
-        }),
-      );
-    } catch {
-      await this.sql`
-        UPDATE bank.business_approvals
-           SET status = 'rejected',
-               rejection_code = ${'bank.business_settle_unposted'},
-               decided_at = now()
-         WHERE id = ${approval.id}::uuid
-           AND status = 'approved'
-           AND ledger_tx_id IS NULL
-      `;
-      await this.releaseHold(approval);
-      throw new BankError('The settle did not post and the hold was released', 'bank.business_rejected');
+      settled = await this.ledger.post(request);
+    } catch (error) {
+      // A lost acknowledgement is not proof of a missing post. A failed lookup
+      // or transport error leaves approved/null recoverable on this same key.
+      const committed = await this.ledger.getTxByKey(request.idempotencyKey);
+      if (committed) {
+        settled = committed;
+      } else {
+        if (!(error instanceof LedgerError) || error.code !== 'ledger.insufficient_funds') throw error;
+        const rejected = await this.sql<Array<{ id: string }>>`
+          UPDATE bank.business_approvals
+             SET status = 'rejected', rejection_code = ${'bank.business_settle_unposted'}, decided_at = now()
+           WHERE id = ${approval.id}::uuid AND status = 'approved' AND ledger_tx_id IS NULL
+          RETURNING id
+        `;
+        if (!rejected[0]) {
+          const current = await this.approval(approval.id);
+          if (current.status === 'approved' && current.ledgerTxId) {
+            return { transferId: current.transferId ?? current.id, ledgerTxId: current.ledgerTxId };
+          }
+          throw error;
+        }
+        await this.releaseHold(approval);
+        throw new BankError('The settle did not post and the hold was released', 'bank.business_rejected');
+      }
     }
     await this.sql`
         UPDATE bank.business_approvals
