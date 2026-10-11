@@ -56,10 +56,18 @@ function readNonBlank(raw: string | null | undefined): string | null {
   return trimmed.length === 0 ? null : trimmed;
 }
 
+function evidenceRefCounts(ref: unknown): boolean {
+  return typeof ref === 'string' && readNonBlank(ref) !== null;
+}
+
 export function hasEvidence(cmd: EmergencyCmd): boolean {
   if (readNonBlank(cmd.evidence) !== null) return true;
   const refs = cmd.evidenceRefs;
-  return Array.isArray(refs) && refs.length > 0;
+  if (!Array.isArray(refs)) return false;
+  for (const ref of refs) {
+    if (evidenceRefCounts(ref)) return true;
+  }
+  return false;
 }
 
 export function evidenceRefuse(cmd: EmergencyCmd): { readonly code: typeof MISSING_EVIDENCE; readonly message: string } | null {

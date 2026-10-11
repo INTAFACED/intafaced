@@ -99,6 +99,71 @@ describe('rulebook refuse — emergency evidence, delist policy, permissionless 
     expect(engine.hasMarket(MARKET)).toBe(false);
   });
 
+  it('blank evidence refs are not evidence and do not change the halt', async () => {
+    const { journal, engine } = build();
+    const blankRefs = ['', '   ', '\t', '\n', null, undefined];
+    const haltBlankCmd = { operatorId: 'ops-1', confirmOperatorId: 'ops-2', evidence: '   ', evidenceRefs: blankRefs };
+    const haltAllBlankCmd = { operatorId: 'ops-1', evidenceRefs: blankRefs };
+    const expireBlankCmd = { operatorId: 'ops-1', confirmOperatorId: 'ops-2', evidenceRefs: blankRefs };
+
+    const haltBlank = await engine.halt(MARKET, haltBlankCmd);
+    expect(haltBlank.accepted).toBe(false);
+    expect(haltBlank.rejected?.code).toBe(MISSING_EVIDENCE);
+    expect(engine.isHalted(MARKET)).toBe(false);
+
+    const haltAllBlank = await engine.haltAll(haltAllBlankCmd);
+    expect(haltAllBlank.accepted).toBe(false);
+    expect(haltAllBlank.rejected?.code).toBe(MISSING_EVIDENCE);
+    expect(engine.isVenueHalted).toBe(false);
+
+    const expireBlank = await engine.expire(MARKET, expireBlankCmd);
+    expect(expireBlank.accepted).toBe(false);
+    expect(expireBlank.rejected?.code).toBe(MISSING_EVIDENCE);
+    expect(engine.isExpired(MARKET)).toBe(false);
+    expect(engine.isHalted(MARKET)).toBe(false);
+    expect(journal.length).toBe(0);
+
+    const haltCmd = { operatorId: 'ops-1', confirmOperatorId: 'ops-2', evidence: 'incident-42' };
+    const halt = await engine.halt(MARKET, haltCmd);
+    expect(halt.accepted).toBe(true);
+    expect(engine.isHalted(MARKET)).toBe(true);
+    const haltedLength = journal.length;
+
+    const resumeBlankCmd = { operatorId: 'ops-2', confirmOperatorId: 'ops-3', evidenceRefs: blankRefs };
+    const resumeBlank = await engine.resume(MARKET, resumeBlankCmd);
+    expect(resumeBlank.accepted).toBe(false);
+    expect(resumeBlank.rejected?.code).toBe(MISSING_EVIDENCE);
+    expect(resumeBlank.halted).toBe(true);
+    expect(engine.isHalted(MARKET)).toBe(true);
+    expect(journal.length).toBe(haltedLength);
+
+    const haltAllCmd = { operatorId: 'ops-1', evidenceRefs: ['', '  venue-ticket  ', null] };
+    const haltAll = await engine.haltAll(haltAllCmd);
+    expect(haltAll.accepted).toBe(true);
+    expect(engine.isVenueHalted).toBe(true);
+    expect(engine.isHalted(MARKET)).toBe(true);
+
+    const resumeAllBlankCmd = { operatorId: 'ops-2', evidenceRefs: blankRefs };
+    const resumeAllBlank = await engine.resumeAll(resumeAllBlankCmd);
+    expect(resumeAllBlank.accepted).toBe(false);
+    expect(resumeAllBlank.rejected?.code).toBe(MISSING_EVIDENCE);
+    expect(engine.isVenueHalted).toBe(true);
+    expect(engine.isHalted(MARKET)).toBe(true);
+
+    const expireWhileHaltedCmd = { operatorId: 'ops-1', confirmOperatorId: 'ops-2', evidence: '  ', evidenceRefs: ['', null] };
+    const expireWhileHalted = await engine.expire(MARKET, expireWhileHaltedCmd);
+    expect(expireWhileHalted.accepted).toBe(false);
+    expect(expireWhileHalted.rejected?.code).toBe(MISSING_EVIDENCE);
+    expect(engine.isExpired(MARKET)).toBe(false);
+    expect(engine.isHalted(MARKET)).toBe(true);
+
+    const resumeCmd = { operatorId: 'ops-2', confirmOperatorId: 'ops-3', evidenceRefs: ['', '  ref-1  ', null, undefined] };
+    const resume = await engine.resume(MARKET, resumeCmd);
+    expect(resume.accepted).toBe(true);
+    expect(engine.isHalted(MARKET)).toBe(false);
+    expect(engine.isVenueHalted).toBe(true);
+  });
+
   it('missing operator still missing_operator', async () => {
     const { engine } = build();
     const haltCmd = { evidence: 'incident-42' } as unknown as { operatorId?: string; confirmOperatorId?: string };

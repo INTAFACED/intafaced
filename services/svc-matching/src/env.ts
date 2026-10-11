@@ -54,11 +54,19 @@ const schema = baseEnvSchema
        * engine refuses submissions **before** journalling them — the journal
        * means "processed, in this order", and an input that was never processed
        * does not belong in it.
+       *
+       * Trim first. After trim, `0` / `false` / `off` / `no`, blank, and
+       * whitespace disable. Unset stays enabled. `true` / `yes` / `on` / `1`
+       * enable. A boolean is used as-is.
        */
       MATCHING_ENGINE_ENABLED: z
         .union([z.boolean(), z.string()])
         .default(true)
-        .transform((v) => (typeof v === 'boolean' ? v : !['0', 'false', 'off', 'no'].includes(v.toLowerCase()))),
+        .transform((v) => {
+          if (typeof v === 'boolean') return v;
+          const token = v.trim().toLowerCase();
+          return !['', '0', 'false', 'off', 'no'].includes(token);
+        }),
 
       /**
        * Public rulebook version (M00). Blank is unpublished: GET /rulebook
@@ -76,5 +84,6 @@ const schema = baseEnvSchema
     }),
   );
 
+export const matchingEnvSchema = schema;
 export const env = loadEnv(schema);
 export type Env = typeof env;

@@ -5,6 +5,7 @@
  * Qty is ledger Amount. Margin is quoted qty only — no sidecar hold.
  * Hitch: imported from index.ts so MatchingEngine is wrapped without recutting engine.ts.
  */
+import type { MarketLifecycleAdmissionProof } from '@intafaced/exchange-contract';
 import { MatchingEngine } from './engine.js';
 import type { CancelResult, EngineOrder, MarketId, OrderId, SubmitResult } from './types.js';
 
@@ -33,6 +34,8 @@ export type QuoteSet = {
   readonly oneSided?: boolean;
   readonly bid?: EngineOrder | null;
   readonly ask?: EngineOrder | null;
+  /** Admission object the order routes already forward into submit. */
+  readonly lifecycleProof?: MarketLifecycleAdmissionProof;
 };
 
 export type MassQuoteCommand = QuoteSet;
@@ -52,7 +55,7 @@ export type MassQuoteResult = {
 };
 
 type Host = MatchingEngine & {
-  submit: (marketId: MarketId, order: EngineOrder, proof?: unknown) => Promise<SubmitResult>;
+  submit: (marketId: MarketId, order: EngineOrder, lifecycleProof?: MarketLifecycleAdmissionProof) => Promise<SubmitResult>;
   cancel: (marketId: MarketId, orderId: OrderId) => Promise<CancelResult>;
 };
 
@@ -82,6 +85,10 @@ function isLive(engine: MatchingEngine, marketId: MarketId, orderId: OrderId): b
   return engine.restingOrders(marketId).some((row) => row.orderId === orderId);
 }
 
+function acceptedTerminal(engine: MatchingEngine, marketId: MarketId, orderId: OrderId): boolean {
+  return engine.existingBook(marketId)?.toState().acceptedOrderIds?.includes(orderId) === true;
+}
+
 function refusedSide(side: QuoteSide, reason: MillRejectReason, orderId?: OrderId): QuoteSideResult {
   return orderId === undefined ? { side, status: 'REFUSED', rejected: reason } : { side, status: 'REFUSED', orderId, rejected: reason };
 }
@@ -90,29 +97,58 @@ function appliedSide(side: QuoteSide, orderId: OrderId): QuoteSideResult {
   return { side, status: 'APPLIED', orderId };
 }
 
-async function submitSide(engine: Host, marketId: MarketId, side: QuoteSide, order: EngineOrder): Promise<QuoteSideResult> {
+async function submitSide(
+  engine: Host,
+  marketId: MarketId,
+  side: QuoteSide,
+  order: EngineOrder,
+  lifecycleProof?: MarketLifecycleAdmissionProof,
+  filled?: Set<OrderId>,
+): Promise<QuoteSideResult> {
   const orderId = order.orderId;
   try {
-    const result = await engine.submit(marketId, order);
+    const result = await engine.submit(marketId, order, lifecycleProof);
+    if (result.fills.length > 0 || result.triggered.some((row) => row.fills.length > 0)) filled?.add(orderId);
     if (result.accepted) return appliedSide(side, orderId);
     if (result.rejected) return refusedSide(side, result.rejected, orderId);
     return refusedSide(side, pairRejectedRefuse(), orderId);
   } catch {
+    if (acceptedTerminal(engine, marketId, orderId)) {
+      filled?.add(orderId);
+      return appliedSide(side, orderId);
+    }
+    if (isLive(engine, marketId, orderId)) return appliedSide(side, orderId);
     return refusedSide(side, pairRejectedRefuse(), orderId);
   }
 }
 
-async function unwindSide(engine: Host, marketId: MarketId, current: QuoteSideResult): Promise<QuoteSideResult> {
+async function unwindSide(
+  engine: Host,
+  marketId: MarketId,
+  current: QuoteSideResult,
+  filled: ReadonlySet<OrderId>,
+): Promise<QuoteSideResult> {
   if (current.status !== 'APPLIED' || current.orderId === undefined) return current;
   const orderId = current.orderId;
-  const refused = refusedSide(current.side, pairRejectedRefuse(), orderId);
-  try {
-    await engine.cancel(marketId, orderId);
-  } catch {
-    // cancel threw; still refuse the pair so success cannot hide a one-sided book
+  // Cancel releases a remainder; it cannot reverse a fill already printed.
+  if (filled.has(orderId)) {
+    try {
+      await engine.cancel(marketId, orderId);
+    } catch {
+      /* Retain the applied outcome. */
+    }
+    return current;
   }
-  if (isLive(engine, marketId, orderId)) return refused;
-  return refused;
+  const unwound = refusedSide(current.side, pairRejectedRefuse(), orderId);
+  try {
+    const cancelled = await engine.cancel(marketId, orderId);
+    if (isLive(engine, marketId, orderId)) return current;
+    if (cancelled.cancelled || !isLive(engine, marketId, orderId)) return unwound;
+    return current;
+  } catch {
+    if (isLive(engine, marketId, orderId)) return current;
+    return unwound;
+  }
 }
 
 async function processQuote(engine: Host, cmd: MassQuoteCommand): Promise<MassQuoteResult> {
@@ -144,13 +180,18 @@ async function processQuote(engine: Host, cmd: MassQuoteCommand): Promise<MassQu
 
   // One market, the sides that were given. Never invent a second market or the missing side.
   const results: QuoteSideResult[] = [];
-  if (bid !== null) results.push(await submitSide(engine, marketId, 'bid', bid));
-  if (ask !== null) results.push(await submitSide(engine, marketId, 'ask', ask));
+  const filled = new Set<OrderId>();
+  if (bid !== null) results.push(await submitSide(engine, marketId, 'bid', bid, cmd.lifecycleProof, filled));
+  if (ask !== null) results.push(await submitSide(engine, marketId, 'ask', ask, cmd.lifecycleProof, filled));
 
   if (!oneSided && results.some((row) => row.status !== 'APPLIED')) {
     for (let index = 0; index < results.length; index += 1) {
-      results[index] = await unwindSide(engine, marketId, results[index]!);
+      results[index] = await unwindSide(engine, marketId, results[index]!, filled);
     }
+    const stillResting = results.some(
+      (row) => row.status === 'APPLIED' && row.orderId !== undefined && isLive(engine, marketId, row.orderId),
+    );
+    if (stillResting) return { setId, oneSided, results };
     return { setId, oneSided, results, rejected: pairRejectedRefuse() };
   }
 

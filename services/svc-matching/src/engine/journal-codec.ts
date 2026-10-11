@@ -228,6 +228,8 @@ export function encode(record: JournalRecord): string {
         ...(o.ocoSiblingId ? { ocoSiblingId: o.ocoSiblingId } : {}),
         ...(o.expireAt ? { expireAt: o.expireAt } : {}),
         ...(o.sessionId ? { sessionId: o.sessionId } : {}),
+        ...(o.clientOrderId ? { clientOrderId: o.clientOrderId } : {}),
+        ...(o.environment ? { environment: o.environment } : {}),
         ...(o.reduceOnly ? { reduceOnly: true } : {}),
         ...(persistIceberg(o) ? { iceberg: true, displayQty: o.displayQty == null ? null : o.displayQty } : {}),
         ...(persistTrail(o) ? { trail: o.trail == null ? null : o.trail, ...(o.mark !== undefined ? { mark: o.mark } : {}) } : {}),

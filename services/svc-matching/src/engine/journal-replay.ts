@@ -122,7 +122,7 @@ export function replayJournal(records: readonly JournalRecord[]): {
     const existing = books.get(record.marketId);
     if (!existing) continue;
     if (record.kind === 'amend') {
-      const result = existing.amend(fromWireAmend(record.orderId, record.expectedVersion, record.patch));
+      const result = existing.amend(fromWireAmend(record.orderId, record.expectedVersion, record.patch), journalClock(record.at));
       collectFills(record.marketId, record.at, result, fills);
       if (existing.isNeverPrintedEmpty) books.delete(record.marketId);
       continue;
@@ -149,7 +149,13 @@ export function replay(records: readonly JournalRecord[]): Map<MarketId, OrderBo
 export function replayFrom(snapshot: EngineSnapshot, records: readonly JournalRecord[]): Map<MarketId, OrderBook> {
   const books = restoreAll(snapshot);
   const tail = records.filter((r) => r.seq > snapshot.journalSeq);
+  // A session_dead at or before journalSeq is not in the tail. Seed it so a
+  // later submit is skipped the same way a full replay skips it. A session_dead
+  // in the tail still joins this set and kills submits after it.
   const deadSessions = new Set<string>();
+  for (const sessionId of snapshot.deadSessions ?? []) {
+    if (sessionId.length > 0) deadSessions.add(sessionId);
+  }
 
   for (const record of tail) {
     if (record.kind === 'session_dead') {
@@ -191,7 +197,7 @@ export function replayFrom(snapshot: EngineSnapshot, records: readonly JournalRe
     const existing = books.get(record.marketId);
     if (!existing) continue;
     if (record.kind === 'amend') {
-      existing.amend(fromWireAmend(record.orderId, record.expectedVersion, record.patch));
+      existing.amend(fromWireAmend(record.orderId, record.expectedVersion, record.patch), journalClock(record.at));
       if (existing.isNeverPrintedEmpty) books.delete(record.marketId);
       continue;
     }
@@ -212,6 +218,8 @@ export interface EngineSnapshot {
   /** Journal position this snapshot is consistent with — replay resumes at `seq > journalSeq`. */
   readonly journalSeq: number;
   readonly books: readonly BookState[];
+  /** Session ids already dead at `journalSeq`. Tail replay starts from this set. */
+  readonly deadSessions?: readonly string[];
 }
 
 export function snapshot(book: OrderBook): BookState {
@@ -223,9 +231,14 @@ export function restore(state: BookState): OrderBook {
 }
 
 /** Market ids are sorted so the snapshot of a given state is one string, not one per Map insertion order. */
-export function snapshotAll(books: ReadonlyMap<MarketId, OrderBook>, journalSeq: number): EngineSnapshot {
+export function snapshotAll(
+  books: ReadonlyMap<MarketId, OrderBook>,
+  journalSeq: number,
+  deadSessionIds: ReadonlySet<string> | readonly string[] = [],
+): EngineSnapshot {
   const ids = [...books.keys()].sort();
-  return { journalSeq, books: ids.map((id) => (books.get(id) as OrderBook).toState()) };
+  const deadSessions = [...new Set(deadSessionIds)].filter((id) => id.length > 0).sort();
+  return { journalSeq, books: ids.map((id) => (books.get(id) as OrderBook).toState()), deadSessions };
 }
 
 export function restoreAll(snap: EngineSnapshot): Map<MarketId, OrderBook> {

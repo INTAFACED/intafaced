@@ -96,19 +96,28 @@ function unionCases(store: Map<string, EngineSurveillanceCase>, bookCases: reado
   });
 }
 
+/** Journal failure after accept stays here. The SubmitResult already belongs to the caller. */
+function persistSnapshotCase(engine: MatchingEngine, opened: EngineSurveillanceCase): void {
+  try {
+    persistToJournal(engine, opened);
+  } catch {
+    // Read or append failed. Do not roll back the match, cancel it, or hide the accepted result.
+  }
+}
+
 function snapshotBook(engine: MatchingEngine, marketId: MarketId, extra?: readonly EngineSurveillanceCase[]): void {
   const store = storeOf(engine);
   const book = (engine as Host).existingBook(marketId);
   if (book) {
     for (const opened of book.openSurveillanceCases()) {
       putCase(store, opened);
-      persistToJournal(engine, opened);
+      persistSnapshotCase(engine, opened);
     }
   }
   if (extra) {
     for (const opened of extra) {
       putCase(store, opened);
-      persistToJournal(engine, opened);
+      persistSnapshotCase(engine, opened);
     }
   }
 }

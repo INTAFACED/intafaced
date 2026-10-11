@@ -2,10 +2,12 @@
  * Rest a linked OCO with take-profit and stop-loss.
  * First fill cancels the sibling (existing ocoSiblingId path).
  * Refuse if either sibling trigger is missing. The engine does not invent a trigger.
+ * A linked cancel is not a new place: resolve the pair already on the book.
  */
-import { ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { ZERO, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import { OrderBook } from './book.js';
-import type { EngineOrder, SubmitResult } from './types.js';
+import { ocoCancelResult, wantsOcoCancel } from './oco-cancel.js';
+import type { EngineOrder, RestingRef, SubmitResult } from './types.js';
 
 export const TAKE_PROFIT_MISSING = 'missing_stop_price' as const;
 export const STOP_LOSS_MISSING = 'missing_stop_price' as const;
@@ -82,19 +84,73 @@ function baseOrder(extra: OcoOrder): EngineOrder {
   return base;
 }
 
+/** Live rest for an order id already on the book. Null when that id is gone. Amounts stay scaled bigint. */
+function liveResting(book: OrderBook, orderId: string): RestingRef | null {
+  const state = book.toState();
+  for (const level of state.bids) {
+    const row = level.orders.find((o) => o.orderId === orderId);
+    if (!row) continue;
+    return {
+      kind: 'book',
+      orderId: row.orderId,
+      accountId: row.accountId,
+      side: 'buy',
+      price: parseAmount(level.price),
+      remaining: parseAmount(row.remaining),
+      sequence: row.sequence,
+      version: row.version ?? 1,
+    };
+  }
+  for (const level of state.asks) {
+    const row = level.orders.find((o) => o.orderId === orderId);
+    if (!row) continue;
+    return {
+      kind: 'book',
+      orderId: row.orderId,
+      accountId: row.accountId,
+      side: 'sell',
+      price: parseAmount(level.price),
+      remaining: parseAmount(row.remaining),
+      sequence: row.sequence,
+      version: row.version ?? 1,
+    };
+  }
+  const stop = state.stops.find((s) => s.orderId === orderId);
+  if (!stop) return null;
+  return {
+    kind: 'stop',
+    orderId: stop.orderId,
+    accountId: stop.accountId,
+    side: stop.side,
+    price: parseAmount(stop.stopPrice),
+    remaining: parseAmount(stop.qty),
+    sequence: stop.sequence,
+    version: stop.version ?? 1,
+  };
+}
+
 export function installOcoLink(ctor: typeof OrderBook): void {
   if (!ctor) return;
   const proto = ctor.prototype as {
     submit: (order: EngineOrder, now?: Date | null) => SubmitResult;
-    cancel: (orderId: string) => { cancellation: { orderId: string } | null };
+    cancel: OrderBook['cancel'];
     [FLAG]?: boolean;
   };
   if (proto[FLAG]) return;
   proto[FLAG] = true;
 
   const orig = proto.submit;
+  const origCancel = proto.cancel;
   proto.submit = function (this: OrderBook, order: EngineOrder, now?: Date | null) {
     const extra = order as OcoOrder;
+    const cancelOrder = order as Parameters<typeof wantsOcoCancel>[0];
+    // Cancel before readTakeProfit. A linked cancel omits the take-profit amount;
+    // refusing it leaves both siblings on the book. Pair ids come from readOcoPair.
+    if (wantsOcoCancel(cancelOrder)) {
+      const cancelled = ocoCancelResult(this, cancelOrder, origCancel);
+      if (cancelled) return cancelled;
+      return orig.call(this, order, now);
+    }
     if (!wantsOco(extra)) return orig.call(this, order, now);
 
     const takeProfit = readTakeProfit(extra);
@@ -139,15 +195,25 @@ export function installOcoLink(ctor: typeof OrderBook): void {
       now,
     );
     if (!tp.accepted) {
-      proto.cancel.call(this, slId);
-      return tp;
+      const pulled = proto.cancel.call(this, slId);
+      // A missed cancel leaves the stop on the book. Resting null would claim that book is clean.
+      const resting = pulled.cancellation ? null : liveResting(this, slId);
+      return {
+        accepted: false,
+        sequence: sl.sequence ?? pulled.sequence ?? tp.sequence,
+        fills: [...sl.fills, ...tp.fills],
+        resting,
+        rejected: tp.rejected,
+        cancellations: [...sl.cancellations, ...(pulled.cancellation ? [pulled.cancellation] : []), ...tp.cancellations],
+        triggered: [...sl.triggered, ...tp.triggered],
+      };
     }
 
     return {
       accepted: true,
       sequence: tp.sequence ?? sl.sequence,
       fills: [...sl.fills, ...tp.fills],
-      resting: tp.resting ?? sl.resting,
+      resting: tp.resting,
       cancellations: [...sl.cancellations, ...tp.cancellations],
       triggered: [...sl.triggered, ...tp.triggered],
     };

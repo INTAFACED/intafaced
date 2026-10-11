@@ -37,6 +37,16 @@ export interface WireOrder {
   readonly expireAt?: string;
   /** Caller session for cancel-on-disconnect. Absent when untagged. Never invented. */
   readonly sessionId?: string;
+  /**
+   * Caller client order id. Absent when the caller did not supply one.
+   * Recover reads this off the journaled submit. Never invented.
+   */
+  readonly clientOrderId?: string;
+  /**
+   * Caller environment for the client-id domain. Absent when not supplied.
+   * Missing stays empty in the domain key — never a silent 'live' stamp.
+   */
+  readonly environment?: string;
   readonly reduceOnly?: boolean;
   readonly displayQty?: string | null;
   readonly iceberg?: boolean;
@@ -132,6 +142,8 @@ export function toWire(order: EngineOrder, lifecycleProof?: MarketLifecycleAdmis
     ...(order.ocoSiblingId ? { ocoSiblingId: order.ocoSiblingId } : {}),
     ...(order.expireAt ? { expireAt: order.expireAt } : {}),
     ...(order.sessionId ? { sessionId: order.sessionId } : {}),
+    ...(order.clientOrderId ? { clientOrderId: order.clientOrderId } : {}),
+    ...(order.environment ? { environment: order.environment } : {}),
     ...(order.reduceOnly ? { reduceOnly: true } : {}),
     ...(persistIceberg(order) ? { iceberg: true, displayQty: order.displayQty == null ? null : formatAmount(order.displayQty) } : {}),
     ...(persistTrail(order)
@@ -175,6 +187,8 @@ export function fromWire(order: WireOrder): EngineOrder {
     ...(order.ocoSiblingId ? { ocoSiblingId: order.ocoSiblingId } : {}),
     ...(order.expireAt ? { expireAt: order.expireAt } : {}),
     ...(order.sessionId ? { sessionId: order.sessionId } : {}),
+    ...(order.clientOrderId ? { clientOrderId: order.clientOrderId } : {}),
+    ...(order.environment ? { environment: order.environment } : {}),
     ...(order.reduceOnly ? { reduceOnly: true } : {}),
     ...(persistIceberg(order) ? { iceberg: true, displayQty: order.displayQty == null ? null : parseAmount(order.displayQty) } : {}),
     ...(persistTrail(order)

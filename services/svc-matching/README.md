@@ -206,6 +206,13 @@ resumes at `seq > journalSeq` and lands on exactly the state a full replay reach
 
 ---
 
+A failed write or an ambiguous fsync prevents further admissions on that writer until it closes and recovery reads
+the durable prefix. Clean recovery writes and fsyncs a replacement before renaming it over the journal; it also
+fsyncs the parent directory. Dead writer recovery serializes through a `.lock.recover` directory. A leftover
+recovery directory refuses with `journal_locked`: automatic reclamation cannot safely distinguish an observed
+stale directory from a concurrent replacement. A recovery agent or operator can remove it after verifying that no
+recovery process owns it, under the existing cleanup authorization.
+
 ## Reconciliation — the engine and the money have separate lifecycles
 
 The journal is durable and the database is separate, so **the two can disagree and nothing used to notice.** The
@@ -229,11 +236,12 @@ forgotten, no cancel path will ever fire for it, and the funds are simply unreac
 | `engine_only`                         | live        | unknown           | **REFUSE** | The engine can fill against a hold that does not exist — but the caller's view may be partial. |
 | `quantity_disagreement`               | live, qty N | open, qty M       | **REFUSE** | One side mis-tracked a partial fill; the hold no longer matches the exposure.                  |
 | `counterpart_terminal_engine_live`    | live        | terminal          | **REFUSE** | Free book risk: a fill would settle against a released hold.                                   |
+| `counterpart_pending_engine_live`     | live, qty N | pending, qty N    | **REFUSE** | Intent recorded, not yet opened. Same market and remaining are not agreement.                  |
 | `market_disagreement`                 | live in A   | open in B         | **REFUSE** | A cancel sent to either market is aimed at the wrong book.                                     |
 | `unreadable_amount`                   | —           | malformed decimal | **REFUSE** | Refuse rather than coerce a number out of it.                                                  |
 | `duplicate_counterpart_id`            | any         | same id twice     | **REFUSE** | The caller's view contradicts itself, so no verdict computed from it is trustworthy.           |
 
-**One case auto-resolves. Eight refuse.** That ratio is the design.
+**One case auto-resolves. Nine refuse.** That ratio is the design.
 
 ### Why the answer is a report and not a repair
 
