@@ -2,7 +2,7 @@
  * Public export doors. A blank tax map is not an export.
  * Slot stays empty. No figure. No balance on this service.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { formatAmount, MemoryLedger, parseAmount, recipes, type LedgerClient } from '@intafaced/ledger-client';
@@ -89,6 +89,49 @@ function refusalText(err: unknown): string {
 }
 
 describe('public tax export while the tax map is blank', () => {
+  it('strict screening refuses the signed route before tax or ledger work', async () => {
+    vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'on');
+    vi.stubEnv('INTAFACED_SANCTIONS_REGIONS', '');
+    vi.stubEnv('INTAFACED_SANCTIONS_LIST_SOURCE', '');
+
+    try {
+      const ledger = new MemoryLedger();
+      let posts = 0;
+      const post = ledger.post.bind(ledger);
+      ledger.post = async (request) => {
+        posts += 1;
+        return post(request);
+      };
+
+      const tax = taxOn(ledger);
+      const exportPack = vi.spyOn(tax, 'exportPack');
+      const exportPreview = vi.spyOn(tax, 'exportPreview');
+      const api = createTaxRouter(tax).createCaller(await signed());
+      const screeningRefusal = {
+        code: 'FORBIDDEN',
+        cause: {
+          code: 'denied.screening_unconfigured',
+          decision: {
+            screening: {
+              listConfigured: false,
+              moneyGrade: 'unconfigured',
+              source: 'unconfigured',
+            },
+          },
+        },
+      };
+
+      await expect(api.exportPack({ lotMethod: 'FIFO' })).rejects.toMatchObject(screeningRefusal);
+      await expect(api.exportPreview({ lotMethod: 'FIFO' })).rejects.toMatchObject(screeningRefusal);
+      expect(exportPack).not.toHaveBeenCalled();
+      expect(exportPreview).not.toHaveBeenCalled();
+      expect(posts).toBe(0);
+      expect(await ledger.balances('module', 'svc-tax')).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('returns tax.jurisdiction_unmapped and an empty slot', async () => {
     const api = createTaxRouter(taxOn(new MemoryLedger())).createCaller(await signed());
 
