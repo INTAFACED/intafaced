@@ -7,6 +7,8 @@ import { uiCopy, uiMessage, type UiMessage } from '../../shared/ui-copy';
 // Authored presentation only. Native symbols, IDs, statuses and monetary values
 // enter through explicit parameters and never become translated wire values.
 const en = {
+  savedRequestPrivacyBlocked:
+    'The saved original remains blocked. Its private fields could not be removed from device storage. Restore writable storage and close other trading tabs, then reload to retry.',
   holdingUseClose: 'Use close in Trade',
   holdingSelectedClose: 'Selected close · {quote} per {base}',
   holdingDraftOnly: 'Edit a limit-price draft in {symbol}. No order is sent.',
@@ -798,6 +800,8 @@ const en = {
 } as const;
 type TradeCopy = ReturnType<typeof defineCopy<typeof en>>;
 const es = {
+  savedRequestPrivacyBlocked:
+    'La solicitud original guardada sigue bloqueada. No se pudieron eliminar sus datos privados del almacenamiento del dispositivo. Restablece el almacenamiento con escritura y cierra otras pestañas de trading; después recarga para reintentar.',
   holdingUseClose: 'Usar el cierre en Trade',
   holdingSelectedClose: 'Cierre seleccionado · {quote} por {base}',
   holdingDraftOnly: 'Edita un borrador con precio límite en {symbol}. No se envía ninguna orden.',
@@ -1614,6 +1618,8 @@ const es = {
   replacementOrderStatus: 'Reemplazo {status}.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
+  savedRequestPrivacyBlocked:
+    'La demande originale enregistrée reste bloquée. Ses données privées n’ont pas pu être supprimées du stockage de l’appareil. Rétablissez un stockage accessible en écriture et fermez les autres onglets de trading, puis rechargez pour réessayer.',
   holdingUseClose: 'Utiliser la clôture dans Trade',
   holdingSelectedClose: 'Clôture sélectionnée · {quote} par {base}',
   holdingDraftOnly: 'Modifiez un brouillon à cours limité sur {symbol}. Aucun ordre n’est envoyé.',

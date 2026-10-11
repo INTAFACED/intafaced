@@ -503,10 +503,12 @@ const pendingSchema = z.object({
   id: z.string(),
   orderId: z.string().optional(),
   startedAt: z.number(),
-  expectedAmount: decimalSchema.optional(),
-  originalAmount: decimalSchema.optional(),
 });
-type Pending = z.infer<typeof pendingSchema>;
+// Private review terms belong to this live view, never the durable marker.
+type Pending = z.infer<typeof pendingSchema> & { expectedAmount?: string; originalAmount?: string };
+function samePending(a: Pending, b: Pending) {
+  return a.id === b.id && a.kind === b.kind && a.symbol === b.symbol && a.startedAt === b.startedAt && a.orderId === b.orderId;
+}
 function pendingKey(userId: string) {
   return `trade-pending:${userId}`;
 }
@@ -517,6 +519,13 @@ function readPending(userId: string): Pending | null {
   } catch {
     return null;
   }
+}
+function SavedRequestPrivacy() {
+  return (
+    <p role="status" data-trade-privacy-blocked>
+      <CopyText k="savedRequestPrivacyBlocked" />
+    </p>
+  );
 }
 function CancelReplaceNotice({ original, replacement }: { original: ApiResult<Order>; replacement: ApiResult<Order> }) {
   const { t, languageFor } = copy.useCopy();
@@ -555,18 +564,87 @@ function CancelReplaceNotice({ original, replacement }: { original: ApiResult<Or
   );
 }
 function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void, accountWide = false) {
+  const privatePending = useRef<{ api: TradeApi; owner: string; value: Pending } | null>(null);
   const [pending, setPending] = useState<Pending | null>(() => readPending(accountKey)),
     [status, setStatus] = useState<ReactNode>(''),
-    [checking, setChecking] = useState(false);
+    [checking, setChecking] = useState(false),
+    [privacyBlocked, setPrivacyBlocked] = useState(false);
   useEffect(() => {
-    const update = () => setPending(readPending(accountKey));
-    window.addEventListener('storage', update);
-    window.addEventListener('trade-pending-change', update);
-    return () => {
-      window.removeEventListener('storage', update);
-      window.removeEventListener('trade-pending-change', update);
+    let retired = false;
+    const update = () => {
+      const saved = readPending(accountKey),
+        privateValue = privatePending.current;
+      setPending(
+        saved && privateValue?.api === api && privateValue.owner === accountKey && samePending(saved, privateValue.value)
+          ? privateValue.value
+          : saved,
+      );
+      if (privateValue && (privateValue.api !== api || privateValue.owner !== accountKey)) privatePending.current = null;
     };
-  }, [accountKey]);
+    // Old releases persisted these fields. Coordinate their removal with the
+    // existing owner dispatch lock; never overwrite a different or unreadable
+    // original. Do not hydrate old private terms into the new live view.
+    const scrubLegacy = async () => {
+      let legacy = false;
+      try {
+        const raw = localStorage.getItem(pendingKey(accountKey));
+        if (!raw) {
+          if (!retired) setPrivacyBlocked(false);
+          return;
+        }
+        const decoded: unknown = JSON.parse(raw);
+        if (
+          !decoded ||
+          typeof decoded !== 'object' ||
+          Array.isArray(decoded) ||
+          (!Object.hasOwn(decoded, 'expectedAmount') && !Object.hasOwn(decoded, 'originalAmount'))
+        ) {
+          if (!retired) setPrivacyBlocked(false);
+          return;
+        }
+        legacy = true;
+        if (!navigator.locks) {
+          if (!retired) setPrivacyBlocked(true);
+          return;
+        }
+        await navigator.locks.request(`trade-account:${accountKey}`, { ifAvailable: true }, (lock) => {
+          if (retired) return;
+          if (!lock) {
+            setPrivacyBlocked(true);
+            return;
+          }
+          const currentRaw = localStorage.getItem(pendingKey(accountKey));
+          if (currentRaw !== raw) return;
+          // Remove only the two known private fields. Preserve opaque legacy
+          // reference fields and even malformed metadata: its blocker remains.
+          const referenceFields = { ...decoded } as Record<string, unknown>;
+          delete referenceFields.expectedAmount;
+          delete referenceFields.originalAmount;
+          localStorage.setItem(pendingKey(accountKey), JSON.stringify(referenceFields));
+          setPrivacyBlocked(false);
+          window.dispatchEvent(new Event('trade-pending-change'));
+        });
+      } catch {
+        if (!retired) {
+          if (legacy) setPrivacyBlocked(true);
+          else setStatus(<CopyText k="theSavedTradingRequestCannotBeReadPreserveDeviceStorageAnd" />);
+        }
+      }
+    };
+    const observe = () => {
+      update();
+      void scrubLegacy();
+    };
+    update();
+    void scrubLegacy();
+    window.addEventListener('storage', observe);
+    window.addEventListener('trade-pending-change', observe);
+    return () => {
+      retired = true;
+      window.removeEventListener('storage', observe);
+      window.removeEventListener('trade-pending-change', observe);
+    };
+  }, [accountKey, api]);
   const releaseLock = useRef<(() => void) | null>(null);
   useEffect(
     () => () => {
@@ -577,7 +655,7 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
   const setIntent = (value: Pending | null, expected?: Pending) => {
     if (value) {
       try {
-        localStorage.setItem(pendingKey(accountKey), JSON.stringify(value));
+        localStorage.setItem(pendingKey(accountKey), JSON.stringify(pendingSchema.parse(value)));
       } catch {
         setStatus(<CopyText k={'browserStorageCannotPreserveThisRequestIdentityEnableDeviceStorageBefore'} />);
         return false;
@@ -585,15 +663,7 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
     } else {
       try {
         const stored = readPending(accountKey);
-        if (
-          localStorage.getItem(pendingKey(accountKey)) &&
-          (!stored ||
-            !expected ||
-            stored.id !== expected.id ||
-            stored.kind !== expected.kind ||
-            stored.startedAt !== expected.startedAt ||
-            stored.orderId !== expected.orderId)
-        ) {
+        if (localStorage.getItem(pendingKey(accountKey)) && (!stored || !expected || !samePending(stored, expected))) {
           setPending(stored);
           setStatus(<CopyText k={'theActiveTradingRequestChangedThisOlderResultCannotClearIts'} />);
           return false;
@@ -604,6 +674,7 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
         return false;
       }
     }
+    privatePending.current = value ? { api, owner: accountKey, value } : null;
     window.dispatchEvent(new Event('trade-pending-change'));
     setPending(value);
     if (!value) {
@@ -707,14 +778,10 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
         result.data.symbol === pending.symbol &&
         (pending.kind === 'place' ||
           (pending.kind === 'cancel' && isTerminalOrder(result.data)) ||
-          (pending.kind === 'amend' &&
-            (isTerminalOrder(result.data) ||
-              Boolean(
-                pending.expectedAmount &&
-                pending.originalAmount &&
-                parseAmount(result.data.amount) < parseAmount(pending.originalAmount) &&
-                parseAmount(result.data.remaining) <= parseAmount(pending.expectedAmount),
-              ))));
+          // A changed open quantity is not a receipt for this amendment.
+          // Terminal original-order evidence resolves the working-order risk;
+          // it does not assert that the uncertain reduction was accepted.
+          (pending.kind === 'amend' && isTerminalOrder(result.data)));
       if (resolved) {
         setIntent(null, pending);
         setStatus(
@@ -742,7 +809,7 @@ function useTradeRequests(api: TradeApi, accountKey: string, refresh: () => void
     refresh();
     setChecking(false);
   }
-  return { pending, status, checking, setIntent, reserveIntent, reconcile, setStatus };
+  return { pending, status, checking, privacyBlocked, setIntent, reserveIntent, reconcile, setStatus };
 }
 function SpotDesk({
   api,
@@ -781,7 +848,11 @@ function SpotDesk({
   // after a busy review. A gesture refused while busy is never queued.
   const stagePrice = useCallback((price: string) => setStaged({ price }), []);
   const [ordersInspection, setOrdersInspection] = useState(0);
-  const { pending, status, checking, setIntent, reserveIntent, reconcile, setStatus } = useTradeRequests(api, accountKey, refresh);
+  const { pending, status, checking, privacyBlocked, setIntent, reserveIntent, reconcile, setStatus } = useTradeRequests(
+    api,
+    accountKey,
+    refresh,
+  );
   function refresh() {
     balances.reload();
     open.reload();
@@ -789,6 +860,11 @@ function SpotDesk({
   const orders = open.resource.status === 'ready' ? open.resource.data : [];
   return (
     <>
+      {!pending && privacyBlocked && (
+        <div className="trade-uncertain" role="alert">
+          <SavedRequestPrivacy />
+        </div>
+      )}
       {pending && (
         <div className="trade-uncertain" role="alert">
           <strong>
@@ -800,6 +876,7 @@ function SpotDesk({
             {pending.id}
             <CopyText k="newOrdersRemainLockedWhileThisRequestIsUnresolvedNoFunds" />
           </p>
+          {privacyBlocked && <SavedRequestPrivacy />}
           <Button variant="secondary" disabled={checking} onClick={reconcile}>
             {checking ? <CopyText k={'checkingStatus'} /> : <CopyText k={'checkOriginalRequestStatus'} />}
           </Button>
@@ -947,7 +1024,7 @@ function AccountOrders({ api, initialTab, simulation }: { api: TradeApi; initial
     10,
   );
   const [manage, setManage] = useState<Order | null>(null);
-  const { pending, status, checking, reserveIntent, setIntent, reconcile, setStatus } = useTradeRequests(
+  const { pending, status, checking, privacyBlocked, reserveIntent, setIntent, reconcile, setStatus } = useTradeRequests(
     api,
     accountKey,
     open.reload,
@@ -955,6 +1032,31 @@ function AccountOrders({ api, initialTab, simulation }: { api: TradeApi; initial
   );
   return (
     <section aria-label={copy.t('accountOrderManagement')}>
+      {!pending && privacyBlocked && (
+        <div className="trade-uncertain" role="alert">
+          <SavedRequestPrivacy />
+        </div>
+      )}
+      {pending && (
+        <div className="trade-uncertain" role="alert">
+          <strong>
+            <CopyText k="outcomeNotConfirmed" />
+            {pending.kind}
+          </strong>
+          <p>
+            {pending.symbol} <CopyText k="request" />
+            {pending.id}
+            <CopyText k="resolveThisOriginalRequestBeforeAnotherTradingActionNoFundsHave" />
+          </p>
+          {privacyBlocked && <SavedRequestPrivacy />}
+          <Button variant="secondary" disabled={checking} onClick={reconcile}>
+            {checking ? <CopyText k={'checkingStatus'} /> : <CopyText k={'checkOriginalRequestStatus'} />}
+          </Button>
+          <a className="text-link" href="/support">
+            <CopyText k="contactSupport" />
+          </a>
+        </div>
+      )}
       <OrderBlotter
         api={api}
         initialTab={initialTab}
@@ -968,25 +1070,6 @@ function AccountOrders({ api, initialTab, simulation }: { api: TradeApi; initial
           if (kind === 'cancel') setManage(order);
         }}
       />
-      {pending && (
-        <div className="trade-uncertain" role="alert">
-          <strong>
-            <CopyText k="outcomeNotConfirmed" />
-            {pending.kind}
-          </strong>
-          <p>
-            {pending.symbol} <CopyText k="request" />
-            {pending.id}
-            <CopyText k="resolveThisOriginalRequestBeforeAnotherTradingActionNoFundsHave" />
-          </p>
-          <Button variant="secondary" disabled={checking} onClick={reconcile}>
-            {checking ? <CopyText k={'checkingStatus'} /> : <CopyText k={'checkOriginalRequestStatus'} />}
-          </Button>
-          <a className="text-link" href="/support">
-            <CopyText k="contactSupport" />
-          </a>
-        </div>
-      )}
       {status && (
         <p className="trade-status" role="status" lang="und">
           {status}
