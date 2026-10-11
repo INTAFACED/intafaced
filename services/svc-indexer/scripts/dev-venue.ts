@@ -164,6 +164,8 @@ export function devChainClients(rpcUrl = devRpcUrl(), chainId = DEV_CHAIN_ID, ac
 
 export interface DevVenueArtifact {
   readonly contractName: string;
+  /** Compiler version recorded on `contracts/out/DevVenue.json`. */
+  readonly solcVersion: string;
   readonly sourceHash: Hex;
   readonly abi: Abi;
   readonly bytecode: Hex;

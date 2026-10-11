@@ -9,16 +9,63 @@ import { describe, expect, it } from 'vitest';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
 
+/** Next service key, or the real end of the string. A literal Z must not end the block. */
+function indexerBlock(source: string): string {
+  return source.match(/^  svc-indexer:\n(?:.*\n)*?(?=^  [a-z]|(?![\s\S]))/m)?.[0] ?? '';
+}
+
+function expectNoInventedSecrets(block: string): void {
+  expect(block).not.toMatch(/INDEXER_RPC_URL:.*evm:8545/);
+  expect(block).not.toMatch(/INDEXER_VENUE_ADDRESS:.*0x0116/);
+  expect(block).not.toMatch(/PRIVATE_KEY|SIGNING_KEY|LEDGER_URL/);
+}
+
 describe('socket.clob-contracts Anvil wire golden', () => {
   it('keeps the compose seam explicit and non-custodial', () => {
     const source = readFileSync(COMPOSE, 'utf8');
-    const block = source.match(/^  svc-indexer:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m)?.[0] ?? '';
+    const block = indexerBlock(source);
     expect(block).toContain('INDEXER_RPC_URL: ${INDEXER_RPC_URL:-}');
     expect(block).not.toMatch(/INDEXER_RPC_URL:.*evm:8545/);
     expect(block).toContain('INDEXER_VENUE_ADDRESS: ${INDEXER_VENUE_ADDRESS:-}');
     expect(block).not.toMatch(/INDEXER_VENUE_ADDRESS:.*0x0116/);
     expect(block).toContain('indexer.venue_unset');
     expect(block).not.toMatch(/PRIVATE_KEY|SIGNING_KEY|LEDGER_URL/);
+  });
+
+  it('returns the last svc-indexer block and checks lines after a line that contains Z', () => {
+    const blockText = [
+      '  svc-indexer:',
+      '    environment:',
+      'Z',
+      '      INDEXER_RPC_URL: ${INDEXER_RPC_URL:-}',
+      '      INDEXER_VENUE_ADDRESS: ${INDEXER_VENUE_ADDRESS:-}',
+      '      # indexer.venue_unset',
+      '',
+    ].join('\n');
+    const source = `services:\n${blockText}`;
+    const block = indexerBlock(source);
+    expect(block).toBe(blockText);
+    const afterZ = block.slice(block.indexOf('\nZ\n') + '\nZ\n'.length);
+    expect(afterZ).toContain('INDEXER_RPC_URL: ${INDEXER_RPC_URL:-}');
+    expect(afterZ).toContain('INDEXER_VENUE_ADDRESS: ${INDEXER_VENUE_ADDRESS:-}');
+    expect(afterZ).toContain('indexer.venue_unset');
+    expectNoInventedSecrets(afterZ);
+  });
+
+  it('excludes a later service from the svc-indexer block', () => {
+    const blockText = [
+      '  svc-indexer:',
+      '    environment:',
+      '      INDEXER_RPC_URL: ${INDEXER_RPC_URL:-}',
+      '      # indexer.venue_unset',
+      '',
+    ].join('\n');
+    const source = `services:\n${blockText}  svc-later:\n    ONLY_LATER: 1\n`;
+    const block = indexerBlock(source);
+    expect(block).toBe(blockText);
+    expect(block).not.toContain('svc-later');
+    expect(block).not.toContain('ONLY_LATER');
+    expectNoInventedSecrets(block);
   });
 
   it('pins the disposable deployment and production zero sentinel', () => {
