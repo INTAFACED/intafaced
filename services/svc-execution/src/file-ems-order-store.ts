@@ -37,7 +37,8 @@ type StoredLine = {
     readonly venueId: string;
     readonly venueOrderId: string;
     readonly filledAmount: string;
-    readonly averagePrice: string;
+    readonly remainingAmount?: string;
+    readonly averagePrice: string | null;
     readonly feeAmount: string;
     readonly feeAsset: string;
     readonly status: 'filled' | 'partial' | 'rejected';
@@ -68,7 +69,8 @@ function toStoredLine(ack: EmsOrderEvidence): StoredLine {
           venueId: ack.execution.venueId,
           venueOrderId: ack.execution.venueOrderId,
           filledAmount: formatAmount(ack.execution.filledAmount),
-          averagePrice: formatAmount(ack.execution.averagePrice),
+          ...(ack.execution.remainingAmount !== undefined ? { remainingAmount: formatAmount(ack.execution.remainingAmount) } : {}),
+          averagePrice: ack.execution.averagePrice === null ? null : formatAmount(ack.execution.averagePrice),
           feeAmount: formatAmount(ack.execution.feeAmount),
           feeAsset: ack.execution.feeAsset,
           status: ack.execution.status,
@@ -101,7 +103,8 @@ function fromStoredLine(line: StoredLine): EmsOrderEvidence {
           venueId: line.execution.venueId,
           venueOrderId: line.execution.venueOrderId,
           filledAmount: parseAmount(line.execution.filledAmount),
-          averagePrice: parseAmount(line.execution.averagePrice),
+          ...(line.execution.remainingAmount !== undefined ? { remainingAmount: parseAmount(line.execution.remainingAmount) } : {}),
+          averagePrice: line.execution.averagePrice === null ? null : parseAmount(line.execution.averagePrice),
           feeAmount: parseAmount(line.execution.feeAmount),
           feeAsset: line.execution.feeAsset,
           status: line.execution.status,

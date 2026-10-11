@@ -4,7 +4,7 @@
  * Records venue acks from the execute path only. Does not invent fills or
  * statuses. Missing entry is an honest miss, not a synthetic ack.
  */
-import type { VenueExecution } from '@intafaced/venue-adapter';
+import type { OmsVenueExecution as VenueExecution } from './oms-trade-submit.js';
 import type { ExecutionCommandOutcome } from '@intafaced/exchange-contract';
 import type { Amount } from '@intafaced/ledger-client';
 

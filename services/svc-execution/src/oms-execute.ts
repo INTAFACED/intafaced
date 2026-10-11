@@ -10,7 +10,8 @@ import { createHash } from 'node:crypto';
 import { executionCommandOutcomeSchema, type ExecutionCommandOutcome } from '@intafaced/exchange-contract';
 import { parseAmount } from '@intafaced/ledger-client';
 import type { SealedHouseTenantRegistry } from '@intafaced/execution-house-tenant';
-import type { ExecutionReport, LiquiditySource, VenueExecution } from '@intafaced/venue-adapter';
+import type { ExecutionReport } from '@intafaced/venue-adapter';
+import type { OmsSubmitFn, OmsVenueExecution as VenueExecution } from './oms-trade-submit.js';
 import type { EmsOrderEvidence, EmsOrderState, EmsOrderStore } from './oms-ems-store.js';
 import type { AlgoPauseStore } from './oms-pause.js';
 import { planOmsRoute, type OmsPlanInput, type OmsPlanRefuse, type OmsPlanVenue } from './oms-plan.js';
@@ -25,7 +26,7 @@ import { refuseUnsetTcaClaim } from './oms-tca-refuse.js';
 import { refuseLiveOmsPaper } from './oms-paper-refuse.js';
 import { refuseLiveOmsMultivenue } from './oms-multivenue-refuse.js';
 
-export type OmsSubmitFn = LiquiditySource['submit'];
+export type { OmsSubmitFn } from './oms-trade-submit.js';
 export type OmsExecuteVenue = OmsPlanVenue & { readonly submit?: OmsSubmitFn };
 
 export type OmsExecuteInput = Omit<OmsPlanInput, 'venues'> & {

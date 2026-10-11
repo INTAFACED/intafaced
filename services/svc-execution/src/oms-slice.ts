@@ -10,7 +10,7 @@
  * submitted qty and never invents leftover.
  */
 import { add, formatAmount, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client';
-import type { VenueExecution } from '@intafaced/venue-adapter';
+import type { OmsVenueExecution as VenueExecution } from './oms-trade-submit.js';
 import { childIds } from './oms-execute.js';
 import type { AlgoPauseStore } from './oms-pause.js';
 import type { EmsOrderStore } from './oms-ems-store.js';
@@ -284,7 +284,25 @@ export async function sliceLiveAlgoParent(input: {
     throw err;
   }
 
-  emsStore.record({ ...intent, execution, state: execution.status === 'rejected' ? 'REJECTED' : 'ACKNOWLEDGED', reconciliationKey: null });
+  const current = emsStore.get(ids.clientOrderId);
+  if (!current || current.requestFingerprint !== intent.requestFingerprint) {
+    throw new Error('original slice intent is not retained after submit');
+  }
+  if (current.state === 'SUBMIT_UNKNOWN' && current.execution === null) {
+    emsStore.record({
+      ...current,
+      execution,
+      state: execution.status === 'rejected' ? 'REJECTED' : 'ACKNOWLEDGED',
+      ...(execution.status === 'rejected' && execution.remainingAmount !== undefined
+        ? { drainedRemaining: execution.remainingAmount }
+        : {}),
+      reconciliationKey: null,
+    });
+  } else if (current.execution !== null) {
+    // A bound lookup/cancel may have resolved the child while submit awaited its
+    // ACK. That observed outcome owns the row; a later ACK cannot replace it.
+    execution = current.execution;
+  }
 
   let remaining = consumed.remaining;
   if (execution.status === 'rejected') {

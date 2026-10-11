@@ -2,6 +2,15 @@ import { parseAmount } from '@intafaced/ledger-client';
 import type { VenueOrder } from '@intafaced/venue-contracts';
 import type { EmsOrderEvidence } from './oms-ems-store.js';
 
+export function hasRetainedSliceIntent(evidence: EmsOrderEvidence): boolean {
+  try {
+    const terms: unknown = JSON.parse(evidence.requestFingerprint ?? '');
+    return !!terms && typeof terms === 'object' && 'kind' in terms && terms.kind === 'slice';
+  } catch {
+    return false;
+  }
+}
+
 /** Bind new slice observations to their retained terms. Older fingerprint contracts are unchanged. */
 export function matchesRetainedSliceIntent(evidence: EmsOrderEvidence, order: VenueOrder): boolean {
   let terms: unknown;
@@ -26,7 +35,10 @@ export function matchesRetainedSliceIntent(evidence: EmsOrderEvidence, order: Ve
       order.amount === amount &&
       order.price === parseAmount(original.limitPrice) &&
       order.filled >= 0n &&
-      order.filled <= amount
+      order.filled <= amount &&
+      order.remaining >= 0n &&
+      order.remaining <= amount &&
+      (order.filled === 0n || order.averagePrice !== null)
     );
   } catch {
     return false;

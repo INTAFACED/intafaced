@@ -185,19 +185,13 @@ export async function scheduleSliceLiveAlgoParent(input: {
   });
   if (!sliced.ok) return sliced;
 
-  emsStore.record({
-    clientOrderId: sliced.child.clientOrderId,
-    parentClientOrderId: sliced.parent.parentClientOrderId,
-    executionGroupId: sliced.parent.parentClientOrderId,
-    childOrderId: sliced.child.childOrderId,
-    venueId: sliced.child.venueId,
-    symbol: input.symbol!.trim(),
-    side: input.side!,
-    execution: sliced.execution,
-    state: 'ACKNOWLEDGED',
-    reconciliationKey: null,
-    recordedAtMs: now.getTime(),
-  });
+  const evidence = emsStore.get(sliced.child.clientOrderId);
+  if (!evidence) {
+    return refuse('child_not_retained', `child ${sliced.child.clientOrderId} has no retained evidence after submit`);
+  }
+  // The slice owns its immutable intent and observed outcome. Scheduling only
+  // records the injected clock; rebuilding an ACK would discard that evidence.
+  if (evidence.recordedAtMs !== now.getTime()) emsStore.record({ ...evidence, recordedAtMs: now.getTime() });
   const retained = emsStore.list({ parentClientOrderId });
   const kept = retained.some((child) => child.clientOrderId === sliced.child.clientOrderId);
   if (!kept) {

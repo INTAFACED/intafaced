@@ -7,7 +7,7 @@
  */
 import { type ExecutionCommandOutcome } from '@intafaced/exchange-contract';
 import { parseAmount } from '@intafaced/ledger-client';
-import type { VenueExecution } from '@intafaced/venue-adapter';
+import type { OmsVenueExecution as VenueExecution } from './oms-trade-submit.js';
 import { childFromAck, childIds, commandOutcome, type OmsChildExecution, type OmsExecutionLineage } from './oms-execute.js';
 import { planOmsArbAtomicLegs, type OmsArbPlanLegsInput, type OmsArbPlanLegsResult } from './oms-arb-plan-legs.js';
 import type { EmsOrderStore } from './oms-ems-store.js';

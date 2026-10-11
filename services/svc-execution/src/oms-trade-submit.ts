@@ -14,11 +14,13 @@ import { ZERO, type Amount } from '@intafaced/ledger-client';
 import type { TradeAdapter, VenueOrder } from '@intafaced/venue-contracts';
 import type { SubmitRequest, VenueExecution } from '@intafaced/venue-adapter';
 
-export type OmsSubmitFn = (request: SubmitRequest) => Promise<VenueExecution>;
+export type OmsSubmitFn = (request: SubmitRequest) => Promise<OmsVenueExecution>;
 
 /** venue-adapter VenueExecution.averagePrice is Amount; unfilled stays null here. */
 export type OmsVenueExecution = Omit<VenueExecution, 'averagePrice'> & {
   readonly averagePrice: Amount | null;
+  /** Actual venue response quantity, absent from older submit ports. */
+  readonly remainingAmount?: Amount;
 };
 
 function hasFill(filled: Amount): boolean {
@@ -60,6 +62,7 @@ export function venueOrderToExecution(order: VenueOrder, _request: SubmitRequest
     venueId: order.venueId,
     venueOrderId: order.venueOrderId,
     filledAmount: order.filled,
+    remainingAmount: order.remaining,
     averagePrice: order.averagePrice,
     feeAmount: order.feePaid ?? ZERO,
     feeAsset: order.feeAsset ?? '',
@@ -78,6 +81,6 @@ export function tradeAdapterSubmit(adapter: TradeAdapter): OmsSubmitFn {
       price: request.limitPrice,
       clientOrderId: request.clientOrderId,
     });
-    return venueOrderToExecution(order, request) as VenueExecution;
+    return venueOrderToExecution(order, request);
   };
 }

@@ -279,7 +279,7 @@ export function buildExecutionVenueTradeMapsWithOperatorSupplement(
         price: request.limitPrice,
         clientOrderId: request.clientOrderId,
       });
-      return venueOrderToExecution(order, request) as import('@intafaced/venue-adapter').VenueExecution;
+      return venueOrderToExecution(order, request);
     };
     cancelByVenue[venueId] = cancel;
     fetchByVenue[venueId] = fetch;

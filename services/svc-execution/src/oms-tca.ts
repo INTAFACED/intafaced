@@ -373,6 +373,9 @@ function toFill(row: EmsOrderEvidence): TcaFill | TcaGap {
   if (row.execution.status !== 'filled' && row.execution.status !== 'partial') {
     return { code: 'no_fill_evidence', detail: `EMS child ${row.clientOrderId} status is not a fill` };
   }
+  if (row.execution.averagePrice === null) {
+    return { code: 'no_fill_evidence', detail: `EMS child ${row.clientOrderId} has no observed fill price` };
+  }
   return {
     clientOrderId: row.clientOrderId,
     childOrderId: row.childOrderId ?? null,

@@ -121,6 +121,7 @@ export function fillFacts(row: EmsOrderEvidence): ChildFillFacts | null {
   if (!execution) return null;
   if (execution.status !== 'filled' && execution.status !== 'partial') return null;
   if (isZero(execution.filledAmount) || isNegative(execution.filledAmount)) return null;
+  if (execution.averagePrice === null) return null;
   if (isZero(execution.averagePrice) || isNegative(execution.averagePrice)) return null;
   return {
     clientOrderId: row.clientOrderId,
