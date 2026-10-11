@@ -1,3 +1,4 @@
+import { createArchiveClient } from './outreach/archive-publication.js';
 import Fastify from 'fastify';
 import { createHash } from 'node:crypto';
 import postgres from 'postgres';
@@ -47,6 +48,12 @@ const ops = new OpsService({
   identityTeamSource: async () => ({ status: 'absent', code: OPS_IDENTITY_UNWIRED, rows: [] }),
 });
 
+const archivePublisher = createArchiveClient({
+  environment: env.APP_ENV,
+  url: env.OPS_ERASURE_ARCHIVE_URL,
+  secret: env.OPS_ERASURE_ARCHIVE_SECRET,
+  fleetSecrets: [env.INTERNAL_SERVICE_SECRET, env.EDGE_PRINCIPAL_SECRET, env.OPS_NOTIFY_SERVICE_SECRET],
+});
 let crmSql: ReturnType<typeof postgres> | null = null;
 const poolMax = Number(process.env.OPS_DATABASE_POOL_MAX);
 if (process.env.DATABASE_URL && Number.isInteger(poolMax) && poolMax > 0) {
@@ -57,7 +64,7 @@ if (process.env.DATABASE_URL && Number.isInteger(poolMax) && poolMax > 0) {
   });
   try {
     await migrateOutreach(candidate);
-    await reapplyCompletedErasures(candidate);
+    await reapplyCompletedErasures(candidate, archivePublisher);
     crmSql = candidate;
   } catch {
     await candidate.end({ timeout: 1 });
@@ -70,7 +77,8 @@ try {
   /* Invalid configuration refuses intake. */
 }
 const notificationPort = createOutreachNotificationClient({ notifyUrl: env.NOTIFY_URL, secret: env.OPS_NOTIFY_SERVICE_SECRET });
-const crm = new OutreachCrm(crmSql, outreachConfiguration, undefined, notificationPort);
+
+const crm = new OutreachCrm(crmSql, outreachConfiguration, undefined, notificationPort, archivePublisher);
 const notificationWorker = crmSql ? new OutreachNotificationWorker(crmSql, notificationPort) : null;
 const appRouter = createOpsRouter(ops, {
   crm,
