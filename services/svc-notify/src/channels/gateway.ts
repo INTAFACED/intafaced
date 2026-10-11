@@ -141,7 +141,9 @@ export abstract class GatewayChannel implements NotificationChannel {
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      throw new ChannelDeliveryError(this.channel, `gateway responded ${response.status}: ${truncate(redact(body, to), 300)}`, {
+      // Email is the mailbox. A handset or device token is not folded by letter case.
+      const detail = truncate(redact(body, to, this.channel === 'email'), 300);
+      throw new ChannelDeliveryError(this.channel, `gateway responded ${response.status}: ${detail}`, {
         retryable: isRetryableStatus(response.status),
         status: response.status,
       });
@@ -202,6 +204,22 @@ export class InAppChannel implements NotificationChannel {
   }
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** `%HH` with either hex case. Every other character in the encoding stays exact. */
+function percentHexPattern(encoded: string): string {
+  return escapeRegExp(encoded).replace(/%[0-9A-Fa-f]{2}/g, (token) => {
+    const fold = (ch: string) => {
+      const upper = ch.toUpperCase();
+      const lower = ch.toLowerCase();
+      return upper === lower ? upper : `${upper}${lower}`;
+    };
+    return `%[${fold(token.charAt(1))}][${fold(token.charAt(2))}]`;
+  });
+}
+
 /**
  * Take the recipient back out of whatever the gateway said about them.
  *
@@ -221,15 +239,21 @@ export class InAppChannel implements NotificationChannel {
  * — the row is already keyed to the user.
  *
  * Substring, not a parse: the address may be JSON-quoted, percent-encoded in a
- * URL the gateway echoes, or repeated. Every literal occurrence goes.
+ * URL the gateway echoes, or repeated. Every occurrence goes. Percent-encoding
+ * hex is case-insensitive, so `%2B` and `%2b` are the same octet. A mailbox
+ * echo that differs only by case is the same recipient, including one the
+ * gateway lowercased before encoding. A device token is not folded: another
+ * case can be a different token.
  */
-function redact(body: string, address: string): string {
+function redact(body: string, address: string, mailbox: boolean): string {
   if (address.length === 0) return body;
-  let out = body.split(address).join('[address redacted]');
-  // The same value as a gateway may have re-encoded it before quoting it back.
+  const gone = '[address redacted]';
+  let out = body.split(address).join(gone);
+  if (mailbox) out = out.replace(new RegExp(escapeRegExp(address), 'gi'), gone);
   const encoded = encodeURIComponent(address);
-  if (encoded !== address) out = out.split(encoded).join('[address redacted]');
-  return out;
+  if (encoded === address) return out;
+  const pattern = mailbox ? escapeRegExp(encoded) : percentHexPattern(encoded);
+  return out.replace(new RegExp(pattern, mailbox ? 'gi' : 'g'), gone);
 }
 
 /** Cut to `max` INCLUDING the ellipsis, so a budget is a budget. */

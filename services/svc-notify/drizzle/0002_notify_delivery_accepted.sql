@@ -28,14 +28,22 @@
 --
 -- Not destructive: no data is lost, the column and its values are renamed in
 -- place, and the reversal renames them back.
+--
+-- The 0001 checks are still in force until they are dropped. deliveries_status_ck
+-- does not allow 'accepted', and deliveries_delivered_ck still requires status
+-- 'delivered' whenever the timestamp is set. Updating a delivered row first is
+-- rejected, so both checks come off before any row is rewritten. The replacement
+-- checks go on after the rewrite: they allow 'accepted', and accepted_at is set
+-- if and only if status is 'accepted'. Adding that biconditional before the
+-- UPDATE would reject the same delivered rows, which still say 'delivered'.
+
+ALTER TABLE "notify"."deliveries" DROP CONSTRAINT IF EXISTS "deliveries_status_ck";
+ALTER TABLE "notify"."deliveries" DROP CONSTRAINT IF EXISTS "deliveries_delivered_ck";
 
 ALTER TABLE "notify"."deliveries" RENAME COLUMN "delivered_at" TO "accepted_at";
 
--- The status literal moves with the column, or the CHECK below rejects rows the
--- service is about to write.
 UPDATE "notify"."deliveries" SET "status" = 'accepted' WHERE "status" = 'delivered';
 
-ALTER TABLE "notify"."deliveries" DROP CONSTRAINT IF EXISTS "deliveries_status_ck";
 ALTER TABLE "notify"."deliveries" ADD CONSTRAINT "deliveries_status_ck"
   CHECK ("status" IN ('pending', 'accepted', 'refused', 'failed', 'abandoned'));
 
@@ -44,7 +52,6 @@ ALTER TABLE "notify"."deliveries" ADD CONSTRAINT "deliveries_status_ck"
 -- A bug that wrote accepted_at on a failure would make an undelivered margin
 -- call indistinguishable from one a transport took, which is the exact failure
 -- this table exists to prevent. So the database refuses the row.
-ALTER TABLE "notify"."deliveries" DROP CONSTRAINT IF EXISTS "deliveries_delivered_ck";
 ALTER TABLE "notify"."deliveries" DROP CONSTRAINT IF EXISTS "deliveries_accepted_ck";
 ALTER TABLE "notify"."deliveries" ADD CONSTRAINT "deliveries_accepted_ck"
   CHECK (("status" = 'accepted') = ("accepted_at" IS NOT NULL));

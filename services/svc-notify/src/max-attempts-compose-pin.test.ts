@@ -27,7 +27,8 @@ const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml')
 const ROOT = resolve(import.meta.dirname, '../../..');
 
 function notifyServiceBlock(source: string): string {
-  const match = source.match(/^  svc-notify:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m);
+  // (?![\s\S]) is the end of the string. In JavaScript \Z is a literal Z.
+  const match = source.match(/^  svc-notify:\n(?:.*(?:\n|$))*?(?=^  [a-z]|(?![\s\S]))/m);
   if (!match) throw new Error('svc-notify service block missing from docker-compose.apps.yml');
   return match[0];
 }
@@ -66,5 +67,35 @@ describe('compose NOTIFY_MAX_DELIVERY_ATTEMPTS for svc-notify', () => {
     expect(block.match(FANOUT)).toHaveLength(1);
     expect(helperTs).toMatch(/notify\.max_delivery_attempts_unset/);
     expect(helperTs).not.toMatch(/DEFAULT_MAX_DELIVERY_ATTEMPTS/);
+  });
+});
+
+describe('notifyServiceBlock fixtures', () => {
+  const attemptsLine = '    NOTIFY_MAX_DELIVERY_ATTEMPTS: ${NOTIFY_MAX_DELIVERY_ATTEMPTS:-}';
+
+  it('matches a svc-notify block that runs to EOF', () => {
+    const withNewline = `  svc-notify:\n${attemptsLine}\n`;
+    const withoutNewline = `  svc-notify:\n${attemptsLine}`;
+    for (const source of [withNewline, withoutNewline]) {
+      const block = notifyServiceBlock(source);
+      expect(block).toBe(source);
+      expect(block.match(LINE)).toHaveLength(1);
+    }
+  });
+
+  it('does not end the block on a line whose first character is Z', () => {
+    const source = [
+      '  svc-notify:',
+      '    SERVICE_NAME: svc-notify',
+      'Z_STILL_IN_BLOCK: kept',
+      attemptsLine,
+      '  svc-support:',
+      '    SERVICE_NAME: svc-support',
+      '',
+    ].join('\n');
+    const block = notifyServiceBlock(source);
+    expect(block).toContain('Z_STILL_IN_BLOCK: kept');
+    expect(block.match(LINE)).toHaveLength(1);
+    expect(block).not.toContain('svc-support');
   });
 });

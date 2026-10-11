@@ -62,7 +62,11 @@ describe('registerTarget verify TTL refuse', () => {
 
   it('owner-explicit 15 still registers (channel may refuse not_configured)', async () => {
     const { store, ...channelDeps } = deps();
-    const notify = new NotifyService(store, { fanoutEnabled: true, verifyTtlMinutes: 15 }, channelDeps);
+    const notify = new NotifyService(
+      store,
+      { fanoutEnabled: true, verifyTtlMinutes: 15, verifyCodePepper: 'test-verify-pepper' },
+      channelDeps,
+    );
     const outcome = await notify.registerTarget({
       userId: 'u1',
       channel: 'email',

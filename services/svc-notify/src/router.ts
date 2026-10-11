@@ -3,17 +3,25 @@ import { guestNotificationsRouter } from './guests/router.js';
 import type { GuestNotificationService } from './guests/service.js';
 import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import {
+  NotifyAnnouncementUnsetError,
   NotifyListLimitUnsetError,
   NotifyOperatorDeliveriesLimitUnsetError,
   NotifyVerifyTtlUnsetError,
+  NotifyVerifyCodePepperUnsetError,
   assertNotifyListLimit,
+  readPublicAnnouncement,
   type NotifyService,
 } from './notify-service.js';
 import type { DeliveryRecord } from './channel-store.js';
 import type { Notification } from './store.js';
 import { CHANNEL_IDS, OUT_OF_APP_CHANNELS } from './channels/channel.js';
 import { renderInboxCopy } from './channels/render.js';
-import { assertNotifyAlertsListLimit, NotifyAlertsListLimitUnsetError, type AlertService } from './alerts/service.js';
+import {
+  assertNotifyAlertsListLimit,
+  NotifyAlertsListLimitUnsetError,
+  NotifyPriceUnsetError,
+  type AlertService,
+} from './alerts/service.js';
 import {
   AlertKindUnpublishedError,
   AlertPortfolioUnpublishedError,
@@ -348,6 +356,28 @@ export function createNotifyRouter(
       alertsPolicy: publicProcedure.query(() => describeAlertsPolicy()),
 
       /**
+       * Public announcement. Real content is not published here.
+       * Caller text is ignored. The slot stays empty.
+       */
+      announcement: publicProcedure
+        .input(z.object({ text: z.string().max(2000).optional() }).optional())
+        .output(z.null())
+        .query(() => {
+          try {
+            return readPublicAnnouncement();
+          } catch (err) {
+            if (err instanceof NotifyAnnouncementUnsetError) {
+              throw new TRPCError({
+                code: 'PRECONDITION_FAILED',
+                message: err.message,
+                cause: err,
+              });
+            }
+            throw err;
+          }
+        }),
+
+      /**
        * Which channels are configured vs unprobed, and what is missing.
        *
        * `requires` names environment variables — an operator instruction in a
@@ -433,7 +463,7 @@ export function createNotifyRouter(
               expiresAt: outcome.expiresAt.toISOString(),
             };
           } catch (err) {
-            if (err instanceof NotifyVerifyTtlUnsetError) {
+            if (err instanceof NotifyVerifyTtlUnsetError || err instanceof NotifyVerifyCodePepperUnsetError) {
               throw new TRPCError({
                 code: 'PRECONDITION_FAILED',
                 message: err.message,
@@ -459,10 +489,17 @@ export function createNotifyRouter(
           }),
         )
         .mutation(async ({ ctx, input }) => {
-          const outcome = await notify.verifyTarget(ctx.principal.userId, input.channel, input.code);
-          if (outcome.status === 'verified') return { verified: true, code: null };
-          if (outcome.status === 'refused') return { verified: false, code: outcome.code };
-          return { verified: false, code: null };
+          try {
+            const outcome = await notify.verifyTarget(ctx.principal.userId, input.channel, input.code);
+            if (outcome.status === 'verified') return { verified: true, code: null };
+            if (outcome.status === 'refused') return { verified: false, code: outcome.code };
+            return { verified: false, code: null };
+          } catch (err) {
+            if (err instanceof NotifyVerifyCodePepperUnsetError) {
+              throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+            }
+            throw err;
+          }
         }),
 
       removeTarget: scopedProcedure('notify:write', { module: 'notify' })
@@ -583,6 +620,17 @@ export function createNotifyRouter(
         .input(
           z.union([
             z.object({
+              kind: z.literal('price').optional(),
+              marketId: z.string().min(1).max(64),
+              direction: z.enum(['above', 'below']),
+              /**
+               * Decimal string. Optional so a blank price reaches
+               * `notify.price_unset` instead of a Zod "Required".
+               * Blank is not a number.
+               */
+              targetPrice: z.string().max(64).optional(),
+            }),
+            z.object({
               kind: z.enum(SOURCED_ALERT_KINDS).optional(),
               marketId: z.string().min(1).max(64),
               direction: z.enum(['above', 'below']),
@@ -639,30 +687,56 @@ export function createNotifyRouter(
               throw err;
             }
           }
-          if (!('marketId' in input) || input.marketId === undefined || input.direction === undefined || input.targetPrice === undefined) {
+          const priceAlert =
+            (input.kind === undefined || input.kind === 'price') &&
+            'marketId' in input &&
+            input.marketId !== undefined &&
+            'direction' in input &&
+            input.direction !== undefined;
+          const refuseUnpublishedPortfolio: () => never = () => {
             throw new TRPCError({
               code: 'PRECONDITION_FAILED',
               message: 'alert.portfolio_view_unpublished: ledger portfolio view unpublished — notify holds no balance',
             });
+          };
+          if (
+            !priceAlert &&
+            (!('marketId' in input) || input.marketId === undefined || input.direction === undefined || input.targetPrice === undefined)
+          ) {
+            refuseUnpublishedPortfolio();
           }
-          const kind = input.kind ?? 'price';
+          if (!('marketId' in input) || input.marketId === undefined || input.direction === undefined) {
+            refuseUnpublishedPortfolio();
+          }
+          const kind = priceAlert ? 'price' : input.kind;
           if (!isSourcedAlertKind(kind)) {
             throw new TRPCError({
               code: 'PRECONDITION_FAILED',
               message: `alert.kind_unpublished: ${String(kind)} has no sourced series`,
             });
           }
-          const row = await alerts.create({
-            userId: ctx.principal.userId,
-            marketId: input.marketId,
-            kind,
-            direction: input.direction,
-            targetPrice: input.targetPrice,
-          });
-          return {
-            alert: priceAlertToWire(row),
-            evaluation: kind === 'whale' ? alerts.whaleEvaluationStatus() : alerts.evaluationStatus(),
-          };
+          try {
+            const row = await alerts.create({
+              userId: ctx.principal.userId,
+              marketId: input.marketId,
+              kind,
+              direction: input.direction,
+              targetPrice: 'targetPrice' in input ? input.targetPrice : undefined,
+            });
+            return {
+              alert: priceAlertToWire(row),
+              evaluation: kind === 'whale' ? alerts.whaleEvaluationStatus() : alerts.evaluationStatus(),
+            };
+          } catch (err) {
+            if (err instanceof NotifyPriceUnsetError) {
+              throw new TRPCError({
+                code: 'PRECONDITION_FAILED',
+                message: err.message,
+                cause: err,
+              });
+            }
+            throw err;
+          }
         }),
 
       cancelAlert: scopedProcedure('notify:write', { module: 'notify' })
