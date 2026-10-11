@@ -468,7 +468,7 @@ export const ledgerTxOutbox = ledger.table(
     foreignKey({ columns: [t.txId], foreignColumns: [ledgerTx.id], name: 'ledger_tx_outbox_tx_id_fkey' }),
     check(
       'ledger_tx_outbox_amount_string_ck',
-      sql`jsonb_typeof(payload) = 'object' AND jsonb_exists(payload, 'entries') AND jsonb_typeof(payload -> 'entries') = 'array' AND jsonb_array_length(jsonb_path_query_array(payload, '$.entries[*] ? (!(@.type() == "object" && exists(@.amount) && @.amount.type() == "string" && @.amount like_regex "^-?[0-9]+([.][0-9]+)?$"))')) = 0`,
+      sql`CASE WHEN jsonb_typeof(payload) = 'object' AND jsonb_typeof(payload -> 'entries') = 'array' THEN jsonb_array_length(jsonb_path_query_array(payload, 'strict $.entries[*] ? (@.type() == "object" && exists(@.amount) && @.amount.type() == "string" && @.amount like_regex "^-?[0-9]+([.][0-9]+)?$")', '{}'::jsonb, true)) = jsonb_array_length(payload -> 'entries') ELSE false END`,
     ),
   ],
 );
@@ -484,6 +484,7 @@ export const ledgerTxOutbox = ledger.table(
 export const ledgerFreezeOutbox = ledger.table(
   'ledger_freeze_outbox',
   {
+    switchSeq: bigserial('switch_seq', { mode: 'bigint' }).notNull(),
     id: uuid('id').primaryKey().defaultRandom(),
     idempotencyKey: text('idempotency_key').notNull(),
     payload: jsonb('payload').notNull(),
@@ -491,9 +492,10 @@ export const ledgerFreezeOutbox = ledger.table(
     publishedAt: timestamp('published_at', { withTimezone: true, mode: 'date' }),
   },
   (t) => [
+    uniqueIndex('ledger_freeze_outbox_switch_idx').on(t.switchSeq),
     uniqueIndex('ledger_freeze_outbox_key_idx').on(t.idempotencyKey),
     index('ledger_freeze_outbox_unpublished_idx')
-      .on(t.createdAt)
+      .on(t.switchSeq)
       .where(sql`published_at IS NULL`),
     check(
       'ledger_freeze_outbox_payload_ck',

@@ -103,4 +103,31 @@ describe('ledger_tx_outbox_amount_string_ck — entries present, amount a decima
     `;
     expect(Number(rows[0]!.n)).toBe(1);
   });
+  it('checks each direct entry without lax JSONPath unwrapping', async () => {
+    if (!db) throw new Error('native test database not opened');
+    const [tx] =
+      await db.sql`INSERT INTO ledger_tx (idempotency_key, module, reason, hash) VALUES ('structural-outbox', 'test', 'direct entries', 'fixture-hash') RETURNING id`;
+    for (const entry of [
+      [],
+      [[]],
+      {},
+      null,
+      1,
+      '1',
+      { amount: [] },
+      { amount: {} },
+      { amount: null },
+      { amount: 1 },
+      { amount: 'NaN' },
+      { amount: '1e3' },
+    ]) {
+      await expect(
+        db.sql`INSERT INTO ledger_tx_outbox(tx_id, payload, correlation_id) VALUES (${tx!.id}, ${db.sql.json({ entries: [entry] })}, 'structural')`,
+      ).rejects.toMatchObject({ code: '23514' });
+    }
+    for (const amount of ['1', '0.000000000000000001', '-123.456', '9007199254740993.123456789012345678']) {
+      await db.sql`INSERT INTO ledger_tx_outbox(tx_id, payload, correlation_id) VALUES (${tx!.id}, ${db.sql.json({ entries: [{ amount }] })}, 'decimal')`;
+      await db.sql`DELETE FROM ledger_tx_outbox WHERE tx_id = ${tx!.id}`;
+    }
+  });
 });

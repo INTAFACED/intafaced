@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { describe, expect, it } from 'vitest';
 import { InvalidEntryError, parseAmount as amt, userAvailable } from '@intafaced/ledger-client';
 import { assertScaledBigintAmounts, parseStoredAmount } from './live-money.js';
@@ -17,6 +17,7 @@ function sqlThatLocksTip(onLock: () => void): Sql {
     onLock();
     return Promise.resolve([{ hash: 'tip-hash', seq: '4', frozen: false, reason: null }]);
   }) as unknown as Sql;
+  Object.assign(tx, { savepoint: (fn: (held: TransactionSql) => Promise<unknown>) => fn(tx as unknown as TransactionSql) });
   return {
     begin: (_isolation: string, fn: (tx: Sql) => Promise<unknown>) => fn(tx),
   } as unknown as Sql;
@@ -89,7 +90,13 @@ describe('live money — refuse Number/parseFloat, refuse a broken snapshot', ()
       sqlThatLocksTip(() => {
         locked = true;
       }),
-      { reconcile: async () => failedReport() },
+      {
+        reconcileInTransaction: async () => failedReport(),
+        haltReconciliationInTransaction: async () => {
+          throw new Error('unexpected proof throw');
+        },
+        publishReconciliationResult: async () => {},
+      },
       async () => {
         snapshotted += 1;
         return 1;
@@ -109,7 +116,11 @@ describe('live money — refuse Number/parseFloat, refuse a broken snapshot', ()
         locked = true;
       }),
       {
-        reconcile: async () => {
+        haltReconciliationInTransaction: async () => {
+          throw new Error('unexpected proof throw');
+        },
+        publishReconciliationResult: async () => {},
+        reconcileInTransaction: async () => {
           expect(locked).toBe(true);
           return greenReport();
         },

@@ -89,29 +89,11 @@ export class PostgresLedger implements LedgerClient {
         // READ COMMITTED is sufficient here (see the isolation note below) and
         // why the hash chain can be a chain at all.
         //
-        // THE FREEZE IS READ IN THIS QUERY, and that placement is the point.
-        //
-        // Cost first, because it is the easy half: joining the singleton
-        // `posting_freeze` row here costs no extra round trip, so consulting
-        // durable state instead of a process field is free on the hot path.
-        //
-        // Correctness second, because it is the half that matters. Read
-        // anywhere earlier — in the service layer, before the transaction — and
-        // there is a window between "not frozen" and COMMIT in which an
-        // operator freeze can land while this post sails through it. A freeze a
-        // post in flight can outrun is not a freeze. Inside the lock, freeze
-        // and post are ordered against each other by the same mechanism that
-        // orders posts against each other, so every post either sees the freeze
-        // or committed strictly before it.
-        //
-        // `FOR UPDATE OF t` locks only the tip: `posting_freeze` is read, never
-        // written here, and taking a row lock on the kill-switch would make the
-        // operator's freeze queue behind every post it is trying to stop.
-        const tipRows = await tx<Array<{ hash: string | null; seq: string; frozen: boolean; reason: string | null }>>`
-          SELECT t.hash, t.seq, f.frozen, f.reason
-            FROM chain_tip t, posting_freeze f
-           WHERE t.id = true AND f.id = true
-             FOR UPDATE OF t
+        // A statement waiting on the tip lock can retain a pre-wait snapshot
+        // of any joined freeze row. Lock first; the separate freeze read below
+        // starts a fresh statement snapshot after that wait has completed.
+        const tipRows = await tx<Array<{ hash: string | null; seq: string }>>`
+          SELECT hash, seq FROM chain_tip WHERE id = true FOR UPDATE
         `;
 
         const tip = tipRows[0];
@@ -130,7 +112,12 @@ export class PostgresLedger implements LedgerClient {
         const inTx = await this.loadTxByKey(tx, request.idempotencyKey);
         if (inTx) return inTx;
 
-        if (tip.frozen) throw new LedgerError(frozenMessage(tip.reason), 'ledger.frozen');
+        const freezeRows = await tx<Array<{ frozen: boolean; reason: string | null }>>`
+          SELECT frozen, reason FROM posting_freeze WHERE id = true
+        `;
+        const freeze = freezeRows[0];
+        if (!freeze) throw new LedgerError('posting_freeze row is missing — the ledger is not initialised', 'ledger.uninitialised');
+        if (freeze.frozen) throw new LedgerError(frozenMessage(freeze.reason), 'ledger.frozen');
 
         // Inside the lock: a body that does not sum to zero never writes. The
         // shared `assertValidPost` already ran; this is the engine's own refuse

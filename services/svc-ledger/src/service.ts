@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { LedgerError, type AccountRef, type Balance, type LedgerClient, type LedgerTx, type PostRequest } from '@intafaced/ledger-client';
 import type { EventBus, Payload } from '@intafaced/events';
 import { PostgresLedger, type LedgerTxOutboxRow } from './ledger/postgres-ledger.js';
@@ -7,6 +7,7 @@ import {
   readFreeze,
   unpublishedFreezeOutbox,
   writeFreeze,
+  writeFreezeInTransaction,
   type FreezeOutboxRow,
   type FreezeState,
 } from './ledger/freeze.js';
@@ -272,21 +273,48 @@ export class LedgerService implements LedgerClient {
           if (!(err instanceof LedgerError && err.code === 'ledger.freeze_attributed')) throw err;
         }
 
-        const firstDrift = report.balances.ok ? null : report.balances.drift[0];
-        // No balance drift: do not fill the nil account, drift "0", or UNKNOWN.
-        if (firstDrift) {
-          await this.bus.publish('ledgerReconciliationFailed', {
-            accountId: firstDrift.accountId,
-            assetId: firstDrift.assetId,
-            snapshotBalance: firstDrift.cached,
-            replayBalance: firstDrift.replayed,
-            drift: firstDrift.difference,
-            module: 'ledger',
-          });
-        }
+        await this.publishReconciliationDrift(report);
       }
 
       return report;
+    });
+  }
+
+  /** Scheduled proof owns this existing transaction; no pool query or BEGIN. */
+  async reconcileInTransaction(tx: TransactionSql): Promise<ReconciliationReport> {
+    return withSpan('ledger.reconcile', async () => {
+      const report = await runReconciliation(tx);
+      if (!report.ok) await this.haltReconciliationInTransaction(tx);
+      return report;
+    });
+  }
+
+  /** Both the switch and its intent commit before the posting lock is released. */
+  async haltReconciliationInTransaction(tx: TransactionSql): Promise<void> {
+    try {
+      await writeFreezeInTransaction(tx, { frozen: true, reason: 'reconciliation mismatch', actor: 'reconciliation' });
+    } catch (error) {
+      if (!(error instanceof LedgerError && error.code === 'ledger.freeze_attributed')) throw error;
+    }
+  }
+
+  /** Called only after the scheduled transaction committed, including proof throws. */
+  async publishReconciliationResult(report?: ReconciliationReport): Promise<void> {
+    if (report?.ok) return;
+    await this.publishUnpublishedFreezeOutbox();
+    if (report) await this.publishReconciliationDrift(report);
+  }
+
+  private async publishReconciliationDrift(report: ReconciliationReport): Promise<void> {
+    const firstDrift = report.balances.ok ? null : report.balances.drift[0];
+    if (!firstDrift) return;
+    await this.bus.publish('ledgerReconciliationFailed', {
+      accountId: firstDrift.accountId,
+      assetId: firstDrift.assetId,
+      snapshotBalance: firstDrift.cached,
+      replayBalance: firstDrift.replayed,
+      drift: firstDrift.difference,
+      module: 'ledger',
     });
   }
 }

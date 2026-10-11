@@ -1,4 +1,6 @@
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
+
+type ReconciliationDb = Sql | TransactionSql;
 import { transaction } from '@intafaced/db';
 import { formatAmount, LedgerError } from '@intafaced/ledger-client';
 import { parseStoredAmount } from './live-money.js';
@@ -33,7 +35,7 @@ export interface Drift {
 
 export type ReconcileResult = { ok: true; accountsChecked: number } | { ok: false; drift: Drift[]; accountsChecked: number };
 
-export async function reconcileBalances(sql: Sql): Promise<ReconcileResult> {
+export async function reconcileBalances(sql: ReconciliationDb): Promise<ReconcileResult> {
   // One pass, in the database: replaying millions of entries in Node would be
   // both slower and a memory problem.
   const rows = await sql<Array<{ account_id: string; asset_id: string; cached: string; replayed: string }>>`
@@ -78,7 +80,7 @@ interface ChainEntryRow {
   balance_after: string;
 }
 
-export async function verifyChain(sql: Sql, batchSize = 1000): Promise<ChainResult> {
+export async function verifyChain(sql: ReconciliationDb, batchSize = 1000): Promise<ChainResult> {
   let previous: string | null = null;
   let lastId: string | null = null;
   let afterSeq = '0';
@@ -177,7 +179,7 @@ export async function verifyChain(sql: Sql, batchSize = 1000): Promise<ChainResu
 }
 
 /** Every asset must sum to exactly zero across every account. */
-export async function totalsByAsset(sql: Sql): Promise<Record<string, string>> {
+export async function totalsByAsset(sql: ReconciliationDb): Promise<Record<string, string>> {
   const rows = await sql<Array<{ asset_id: string; total: string }>>`
     SELECT asset_id, COALESCE(SUM(balance), 0) AS total FROM accounts GROUP BY asset_id
   `;
@@ -191,11 +193,11 @@ interface LockedChainTip {
 }
 
 /**
- * Same lock shape as `PostgresLedger.post`: the singleton tip, joined to the
- * freeze row so the kill-switch is not itself locked, `FOR UPDATE OF t`.
+ * The singleton tip lock matches `PostgresLedger.post`. This join checks only
+ * initialization; post admission reads freeze state in a fresh statement.
  * Seq comes back as text so a JS number never becomes the anchor.
  */
-async function lockChainTip(tx: Sql): Promise<LockedChainTip> {
+async function lockChainTip(tx: ReconciliationDb): Promise<LockedChainTip> {
   const tipRows = await tx<Array<{ hash: string | null; seq: string; frozen: boolean; reason: string | null }>>`
     SELECT t.hash, t.seq::text AS seq, f.frozen, f.reason
       FROM chain_tip t, posting_freeze f
@@ -221,7 +223,7 @@ async function lockChainTip(tx: Sql): Promise<LockedChainTip> {
  * transaction start, before that lock. A Date defaulted at the call is the
  * same class of early stamp.
  */
-async function insertAnchoredSnapshots(tx: Sql, tip: LockedChainTip): Promise<number> {
+async function insertAnchoredSnapshots(tx: ReconciliationDb, tip: LockedChainTip): Promise<number> {
   const result = await tx`
     INSERT INTO balance_snapshots (account_id, as_of, balance, chain_tip_seq, chain_tip_hash)
     SELECT id, statement_timestamp(), balance, ${tip.seq}::bigint, ${tip.hash}
@@ -259,7 +261,7 @@ export interface ReconciliationReport {
  * The full run. Scheduled hourly; also runnable on demand from apps/admin when
  * an operator wants to prove the book is intact before, say, a treasury move.
  */
-export async function runReconciliation(sql: Sql): Promise<ReconciliationReport> {
+export async function runReconciliation(sql: ReconciliationDb): Promise<ReconciliationReport> {
   const [balances, chain, totals] = await Promise.all([reconcileBalances(sql), verifyChain(sql), totalsByAsset(sql)]);
   const unbalancedAssets = Object.entries(totals)
     .filter(([, total]) => total !== '0')
@@ -284,22 +286,46 @@ export async function runReconciliation(sql: Sql): Promise<ReconciliationReport>
  * transaction ends. On success that is after the snapshot insert commits, so
  * a post — which needs the same row — cannot land in the gap and be recorded
  * as the anchor. On failure the insert is skipped and the lock drops with
- * the transaction.
+ * the transaction after the halt and durable intent commit. Proof/snapshot
+ * SQL errors roll back to a held savepoint before that halt, then rethrow only
+ * after post-commit publication.
  */
 export async function runScheduledReconciliation(
   sql: Sql,
-  ledger: { reconcile(): Promise<ReconciliationReport> },
-  snapshot: (tx: Sql, tip: LockedChainTip) => Promise<number> = insertAnchoredSnapshots,
+  ledger: {
+    reconcileInTransaction(tx: TransactionSql): Promise<ReconciliationReport>;
+    haltReconciliationInTransaction(tx: TransactionSql): Promise<void>;
+    publishReconciliationResult(report?: ReconciliationReport): Promise<void>;
+  },
+  snapshot: (tx: ReconciliationDb, tip: LockedChainTip) => Promise<number> = insertAnchoredSnapshots,
 ): Promise<{ report: ReconciliationReport; snapshotted: boolean }> {
-  return transaction(
+  const result = await transaction(
     sql,
     async (tx) => {
-      const tip = await lockChainTip(tx);
-      const report = await ledger.reconcile();
-      if (!report.ok) return { report, snapshotted: false };
-      await snapshot(tx, tip);
-      return { report, snapshotted: true };
+      // @intafaced/db supplies the real transaction handle under its Sql type.
+      const held = tx as unknown as TransactionSql;
+      const tip = await lockChainTip(held);
+      try {
+        // SAVEPOINT keeps a proof or snapshot SQL error from aborting the halt.
+        // It uses the same connection and does not release the posting lock.
+        return await held.savepoint(async (proof) => {
+          const report = await ledger.reconcileInTransaction(proof);
+          if (!report.ok) return { kind: 'proved' as const, report, snapshotted: false };
+          await snapshot(proof, tip);
+          return { kind: 'proved' as const, report, snapshotted: true };
+        });
+      } catch (error) {
+        await ledger.haltReconciliationInTransaction(held);
+        return { kind: 'proof_threw' as const, error };
+      }
     },
     { isolation: 'read committed' },
   );
+  // No bus callback or new pool acquisition runs while the business lock is held.
+  if (result.kind === 'proof_threw') {
+    await ledger.publishReconciliationResult();
+    throw result.error;
+  }
+  await ledger.publishReconciliationResult(result.report);
+  return { report: result.report, snapshotted: result.snapshotted };
 }

@@ -1,7 +1,7 @@
 -- svc-ledger · the posted claim remembers the hash and meta
 -- Reversal: 0018_posted_claim_bind.down.sql
 --
--- 0014 refuses UPDATE of ledger_tx.idempotency_key and meta. 0015 keeps the
+-- 0016 refuses UPDATE of ledger_tx.idempotency_key and meta. 0017 keeps the
 -- original key claimed after that trigger is disabled. verifyChain still
 -- accepts the legacy short digest (the hash of a row whose key was not
 -- covered) for every row. A role that disables only ledger_tx_key_immutable
@@ -38,7 +38,7 @@ BEGIN
    WHERE "posted_hash" IS NULL OR "posted_meta" IS NULL;
   IF n > 0 THEN
     RAISE EXCEPTION
-      'Cannot apply 0016: % posted-key claim(s) have no journal hash and meta to copy',
+      'Cannot apply 0018: % posted-key claim(s) have no journal hash and meta to copy',
       n;
   END IF;
 END $$;

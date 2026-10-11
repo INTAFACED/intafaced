@@ -140,7 +140,11 @@ describe('balance snapshot names the chain tip it locked', () => {
     let balancesUnderLock: Array<{ id: string; balance: string }> = [];
 
     const scheduled = runScheduledReconciliation(db!.sql, {
-      async reconcile() {
+      async haltReconciliationInTransaction() {
+        throw new Error('unexpected proof throw');
+      },
+      async publishReconciliationResult() {},
+      async reconcileInTransaction() {
         await expect(db!.sql`SELECT seq FROM chain_tip WHERE id = true FOR UPDATE NOWAIT`).rejects.toMatchObject({
           code: '55P03',
         });
@@ -230,7 +234,11 @@ describe('balance snapshot names the chain tip it locked', () => {
 
     let locked = false;
     const result = await runScheduledReconciliation(db!.sql, {
-      async reconcile() {
+      async haltReconciliationInTransaction() {
+        throw new Error('unexpected proof throw');
+      },
+      async publishReconciliationResult() {},
+      async reconcileInTransaction() {
         await expect(db!.sql`SELECT seq FROM chain_tip WHERE id = true FOR UPDATE NOWAIT`).rejects.toMatchObject({
           code: '55P03',
         });

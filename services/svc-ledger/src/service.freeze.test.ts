@@ -401,7 +401,7 @@ describe('svc-ledger freeze', () => {
       `;
       expect(pending).toHaveLength(1);
       expect(pending[0]?.published_at).toBeNull();
-      expect(pending[0]?.idempotency_key).toBe(`ledger.freeze:${frozen.changedAtPrecise}`);
+      expect(pending[0]?.idempotency_key).toMatch(/^ledger\.freeze:seq:[1-9][0-9]*$/);
 
       failPublish = false;
       const again = await ledger.freeze('drift', OPERATOR);
@@ -417,7 +417,7 @@ describe('svc-ledger freeze', () => {
         actor: OPERATOR,
         changedAt: frozen.changedAt.toISOString(),
       });
-      expect(emitted[0]?.idempotencyKey).toBe(`ledger.freeze:${frozen.changedAtPrecise}`);
+      expect(emitted[0]?.idempotencyKey).toBe(pending[0]?.idempotency_key);
 
       const third = await ledger.freeze('drift', OPERATOR);
       expect(third.changedAtPrecise).toBe(frozen.changedAtPrecise);
@@ -452,7 +452,9 @@ describe('svc-ledger freeze', () => {
       const emitted = inner.emitted('ledgerFreezeUpdated');
       expect(emitted).toHaveLength(1);
       expect(emitted[0]?.payload).toMatchObject({ frozen: false, reason: null, actor: OPERATOR });
-      expect(emitted[0]?.idempotencyKey).toBe(`ledger.freeze:${thawed.changedAtPrecise}`);
+      expect(emitted[0]?.idempotencyKey).toBe(
+        (await requireDb().sql`SELECT idempotency_key FROM ledger_freeze_outbox ORDER BY switch_seq DESC LIMIT 1`)[0]?.idempotency_key,
+      );
 
       await ledger.unfreeze(OPERATOR);
       expect(inner.emitted('ledgerFreezeUpdated')).toHaveLength(1);
@@ -475,7 +477,9 @@ describe('svc-ledger freeze', () => {
       failPublish = false;
       expect(await ledger.recoverUnpublishedOutbox()).toBe(1);
       expect(inner.emitted('ledgerFreezeUpdated')).toHaveLength(1);
-      expect(inner.emitted('ledgerFreezeUpdated')[0]?.idempotencyKey).toBe(`ledger.freeze:${frozen.changedAtPrecise}`);
+      expect(inner.emitted('ledgerFreezeUpdated')[0]?.idempotencyKey).toBe(
+        (await requireDb().sql`SELECT idempotency_key FROM ledger_freeze_outbox ORDER BY switch_seq DESC LIMIT 1`)[0]?.idempotency_key,
+      );
 
       const after = await ledger.freezeState();
       expect(after.changedAtPrecise).toBe(frozen.changedAtPrecise);
@@ -486,18 +490,18 @@ describe('svc-ledger freeze', () => {
       expect(inner.emitted('ledgerFreezeUpdated')).toHaveLength(1);
     });
 
-    it('keys the envelope on the column precision, so a same-millisecond thaw survives', async () => {
+    it('keys the envelope on the durable switch sequence, so a same-millisecond thaw survives', async () => {
       // STOP §4.2b #7. `freeze-event-key.test.ts` proves the arithmetic without a
-      // database; this proves the value actually reaching the bus is the one the
-      // DATABASE produced, not a Date round-trip that has already dropped the
-      // microseconds. Those are two different claims and both have to hold.
+      // database; durable native events instead use the stored sequence allocated
+      // under the singleton lock. No Date round-trip creates their identity.
       await a.freeze('drift', OPERATOR);
-      const [row] = await requireDb().sql<Array<{ precise: string }>>`
-        SELECT changed_at::text AS precise FROM posting_freeze WHERE id = true
+      const [row] = await requireDb().sql<Array<{ key: string; seq: string }>>`
+        SELECT idempotency_key AS key, switch_seq::text AS seq FROM ledger_freeze_outbox ORDER BY switch_seq DESC LIMIT 1
       `;
 
       const [emitted] = busA.emitted('ledgerFreezeUpdated');
-      expect(emitted!.idempotencyKey).toBe(`ledger.freeze:${row!.precise}`);
+      expect(emitted!.idempotencyKey).toBe(row!.key);
+      expect(emitted!.idempotencyKey).toBe(`ledger.freeze:seq:${row!.seq}`);
 
       // And the freeze/thaw pair never share an identity, however fast it is.
       await a.unfreeze(OPERATOR);

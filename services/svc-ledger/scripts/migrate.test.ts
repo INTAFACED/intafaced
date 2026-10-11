@@ -156,6 +156,37 @@ describe('actual ledger migration runner on native PostgreSQL', () => {
       expect(await sql`SELECT * FROM ledger.ledger_freeze_outbox`).toHaveLength(1);
     }));
 
+  it('refuses a populated old0013 nested-array outbox upgrade without marking0019 or rewriting evidence', async () =>
+    fixture(async (sql, dir) => {
+      await realFiles(dir, (name) => Number(name.slice(0, 4)) <= 13);
+      await migrate(sql, dir);
+      // A legacy raw database row deliberately exercises only outbox structure;
+      // its fixture hash is not claimed as a verified posting or original provenance.
+      const [tx] =
+        await sql`INSERT INTO ledger.ledger_tx(idempotency_key, module, reason, hash) VALUES ('legacy-nested-array', 'test', 'upgrade shape', 'fixture-hash') RETURNING id`;
+      const payload = {
+        txId: String(tx!.id),
+        module: 'test',
+        reason: 'upgrade shape',
+        hash: 'fixture-hash',
+        previousHash: null,
+        postedAt: new Date().toISOString(),
+        entries: [[]],
+      };
+      await sql`INSERT INTO ledger.ledger_tx_outbox(tx_id, payload, correlation_id) VALUES (${tx!.id}, ${sql.json(payload)}, 'legacy-structure')`;
+      const [before] =
+        await sql`SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid = 'ledger.ledger_tx_outbox'::regclass AND conname = 'ledger_tx_outbox_amount_string_ck'`;
+      await realFiles(dir);
+      await expect(migrate(sql, dir)).rejects.toThrow('Cannot apply 0019');
+      expect(await sql`SELECT name FROM ledger.__migrations WHERE name = '0019_outbox_amount_string.sql'`).toHaveLength(0);
+      expect((await sql`SELECT payload FROM ledger.ledger_tx_outbox WHERE tx_id = ${tx!.id}`)[0]?.payload).toEqual(payload);
+      expect(
+        (
+          await sql`SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid = 'ledger.ledger_tx_outbox'::regclass AND conname = 'ledger_tx_outbox_amount_string_ck'`
+        )[0]?.definition,
+      ).toBe(before?.definition);
+    }));
+
   it('refuses the historical 0007 invented-purpose backfill before writing any purpose', async () =>
     fixture(async (sql, dir) => {
       await realFiles(dir, (name) => name < '0007');

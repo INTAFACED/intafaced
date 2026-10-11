@@ -16,7 +16,8 @@
 -- Amounts are decimal strings: optional minus, digits, optional fraction.
 -- No magnitude cap is stated here. An empty entries array has no amount to be
 -- a number and passes. A JSON number, a non-decimal string, or a missing
--- entries key fails.
+-- entries key fails. Strict JSONPath counts only valid direct elements,
+-- so nested arrays cannot disappear through lax implicit unwrapping.
 --
 -- STEP 1 · REFUSE. There is no honest rewrite of a stored amount. A JSON
 -- number is not a decimal string, and deleting the row would drop publish
@@ -32,12 +33,12 @@ BEGIN
     INTO n, offenders
     FROM "ledger"."ledger_tx_outbox"
    WHERE NOT (
-     jsonb_typeof(payload) = 'object' AND jsonb_exists(payload, 'entries') AND jsonb_typeof(payload -> 'entries') = 'array' AND jsonb_array_length(jsonb_path_query_array(payload, '$.entries[*] ? (!(@.type() == "object" && exists(@.amount) && @.amount.type() == "string" && @.amount like_regex "^-?[0-9]+([.][0-9]+)?$"))')) = 0
+     CASE WHEN jsonb_typeof(payload) = 'object' AND jsonb_typeof(payload -> 'entries') = 'array' THEN jsonb_array_length(jsonb_path_query_array(payload, 'strict $.entries[*] ? (@.type() == "object" && exists(@.amount) && @.amount.type() == "string" && @.amount like_regex "^-?[0-9]+([.][0-9]+)?$")', '{}'::jsonb, true)) = jsonb_array_length(payload -> 'entries') ELSE false END
    );
 
   IF n > 0 THEN
     RAISE EXCEPTION
-      E'Cannot apply 0017: % ledger_tx_outbox row(s) store a payload with no entries array or an amount that is not a decimal string.\n  %\n\n'
+      E'Cannot apply 0019: % ledger_tx_outbox row(s) store a payload with no entries array or an amount that is not a decimal string.\n  %\n\n'
       'A JSON number is not money. This migration will not rewrite or delete those rows — that would either forge an amount or drop the publish intent for a movement already in the journal. Repair each payload by hand, then re-run.',
       n, offenders;
   END IF;
@@ -46,4 +47,4 @@ END $$;
 -- STEP 2 · The named constraint checks amounts.
 ALTER TABLE "ledger"."ledger_tx_outbox" DROP CONSTRAINT IF EXISTS "ledger_tx_outbox_amount_string_ck";
 ALTER TABLE "ledger"."ledger_tx_outbox" ADD CONSTRAINT "ledger_tx_outbox_amount_string_ck"
-  CHECK (jsonb_typeof(payload) = 'object' AND jsonb_exists(payload, 'entries') AND jsonb_typeof(payload -> 'entries') = 'array' AND jsonb_array_length(jsonb_path_query_array(payload, '$.entries[*] ? (!(@.type() == "object" && exists(@.amount) && @.amount.type() == "string" && @.amount like_regex "^-?[0-9]+([.][0-9]+)?$"))')) = 0);
+  CHECK (CASE WHEN jsonb_typeof(payload) = 'object' AND jsonb_typeof(payload -> 'entries') = 'array' THEN jsonb_array_length(jsonb_path_query_array(payload, 'strict $.entries[*] ? (@.type() == "object" && exists(@.amount) && @.amount.type() == "string" && @.amount like_regex "^-?[0-9]+([.][0-9]+)?$")', '{}'::jsonb, true)) = jsonb_array_length(payload -> 'entries') ELSE false END);

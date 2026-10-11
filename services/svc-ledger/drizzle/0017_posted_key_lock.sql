@@ -1,7 +1,7 @@
 -- svc-ledger · the posted idempotency key stays claimed
 -- Reversal: 0017_posted_key_lock.down.sql
 --
--- 0014 refuses UPDATE of ledger_tx.idempotency_key. A role that can disable
+-- 0016 refuses UPDATE of ledger_tx.idempotency_key. A role that can disable
 -- that trigger can still retarget the column. verifyChain then goes red, but
 -- the unique index no longer holds the original key, so a later post of that
 -- key inserts a second movement before anyone reads the broken chain.
