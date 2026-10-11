@@ -1,4 +1,4 @@
-import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
+import { formatAmount } from '@intafaced/ledger-client/money';
 import {
   readDecimal,
   readInteger,
@@ -205,6 +205,11 @@ const DEFAULT_WS_DEPTH = 50;
 /** The venue closes a connection it has not heard from. Its docs say every 20s. */
 const DEFAULT_HEARTBEAT_MS = 20_000;
 
+/** Missing, null, or whitespace. A blank lot filter is not a decimal the venue published. */
+function blankInstrumentField(value: unknown): boolean {
+  return value === undefined || value === null || (typeof value === 'string' && value.trim() === '');
+}
+
 export interface BybitSpotOptions {
   readonly http?: HttpPort;
   readonly stream?: StreamPort;
@@ -310,7 +315,25 @@ export class BybitSpotMarketData implements MarketDataAdapter {
     }
 
     const observedAt = new Date(this.#clock());
-    return list.map((raw) => this.#market(raw as Record<string, unknown>, observedAt));
+    const published: VenueMarket[] = [];
+    let refused: VenueUnavailableError | undefined;
+    for (const raw of list) {
+      try {
+        published.push(this.#market(raw as Record<string, unknown>, observedAt));
+      } catch (error) {
+        // A blank tick, lot, or minimum is refused for that symbol. Leaving it
+        // out keeps the instruments that published real decimals. Throw only
+        // when nothing left is publishable — an empty list would look like the
+        // venue listed nothing.
+        if (error instanceof VenueUnavailableError) {
+          refused = error;
+          continue;
+        }
+        throw error;
+      }
+    }
+    if (published.length === 0 && refused) throw refused;
+    return published;
   }
 
   /**
@@ -675,13 +698,27 @@ export class BybitSpotMarketData implements MarketDataAdapter {
   #market(raw: Record<string, unknown>, observedAt: Date): VenueMarket {
     const base = String(raw.baseCoin ?? '');
     const quote = String(raw.quoteCoin ?? '');
+    const venueSymbol = String(raw.symbol ?? '');
     const lot = (raw.lotSizeFilter ?? {}) as Record<string, unknown>;
     const price = (raw.priceFilter ?? {}) as Record<string, unknown>;
+    const missing = [
+      blankInstrumentField(price.tickSize) ? 'tickSize' : null,
+      blankInstrumentField(lot.basePrecision) ? 'basePrecision' : null,
+      blankInstrumentField(lot.minOrderQty) ? 'minOrderQty' : null,
+      blankInstrumentField(lot.minOrderAmt) ? 'minOrderAmt' : null,
+    ].filter((name): name is string => name !== null);
+    if (missing.length > 0) {
+      throw new VenueUnavailableError(
+        VENUE.id,
+        'malformed',
+        `${venueSymbol || 'symbol'} is missing ${missing.join(', ')} (status ${String(raw.status ?? '')}). Refusing the symbol rather than inventing a tick, a lot, or a zero minimum.`,
+      );
+    }
 
     return {
       venueId: VENUE.id,
       symbol: unifiedSymbol(base, quote),
-      venueSymbol: String(raw.symbol ?? ''),
+      venueSymbol,
       type: 'spot',
       base: base.toUpperCase(),
       quote: quote.toUpperCase(),
@@ -694,14 +731,12 @@ export class BybitSpotMarketData implements MarketDataAdapter {
       expiry: null,
       precision: {
         // A TICK and a LOT STEP, both published as decimal strings — see
-        // `market.ts` for why a decimal count cannot express either. The 1e-8
-        // fallback matches the first venue's rather than inventing a second
-        // convention; it only applies to an instrument that published neither.
-        price: readOptionalDecimal(price.tickSize, VENUE.id, 'priceFilter.tickSize') ?? parseAmount('0.00000001'),
-        amount: readOptionalDecimal(lot.basePrecision, VENUE.id, 'lotSizeFilter.basePrecision') ?? parseAmount('0.00000001'),
+        // `market.ts` for why a decimal count cannot express either.
+        price: readDecimal(price.tickSize, VENUE.id, 'priceFilter.tickSize'),
+        amount: readDecimal(lot.basePrecision, VENUE.id, 'lotSizeFilter.basePrecision'),
       },
       limits: {
-        minAmount: readOptionalDecimal(lot.minOrderQty, VENUE.id, 'lotSizeFilter.minOrderQty') ?? 0n,
+        minAmount: readDecimal(lot.minOrderQty, VENUE.id, 'lotSizeFilter.minOrderQty'),
         // `maxLimitOrderQty` first: the venue marks `maxOrderQty` deprecated, and
         // reading the deprecated field alone would silently stop resolving the
         // day it is removed. `null` rather than zero where neither exists —
@@ -710,7 +745,7 @@ export class BybitSpotMarketData implements MarketDataAdapter {
           readOptionalDecimal(lot.maxLimitOrderQty, VENUE.id, 'lotSizeFilter.maxLimitOrderQty') ??
           readOptionalDecimal(lot.maxOrderQty, VENUE.id, 'lotSizeFilter.maxOrderQty'),
         // The limit that actually bites on spot — a notional floor, in quote units.
-        minCost: readOptionalDecimal(lot.minOrderAmt, VENUE.id, 'lotSizeFilter.minOrderAmt') ?? 0n,
+        minCost: readDecimal(lot.minOrderAmt, VENUE.id, 'lotSizeFilter.minOrderAmt'),
         maxLeverageBps: null,
       },
       fees: { makerBps: DEFAULT_FEE_BPS.maker, takerBps: DEFAULT_FEE_BPS.taker, indicative: true },
