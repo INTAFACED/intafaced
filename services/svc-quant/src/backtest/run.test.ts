@@ -6,6 +6,7 @@ import {
   QUANT_BACKTEST_WALK_FORWARD_REQUIRED,
   QUANT_ENVIRONMENT_REQUIRED,
   QUANT_SIMULATED_AS_LIVE,
+  QuantError,
 } from '../errors.js';
 import type { BacktestLake, LakeFill } from './lake.js';
 import { runBacktest } from './run.js';
@@ -100,5 +101,28 @@ describe('backtest.run — event-level, walk-forward, lake fills', () => {
     expect(ran.live).toBe(false);
     expect(ran.simulated).toBe(true);
     expect(ran.kind).toBe('simulated');
+  });
+
+  it('refuses a negative qty or price and does not count that fill', () => {
+    const refuse = (rows: readonly LakeFill[]) => {
+      expect(() => runBacktest({ ...honest, walkForward, outOfSampleStatus: 'passed' }, lakeWith(rows))).toThrow(QuantError);
+      try {
+        runBacktest({ ...honest, walkForward, outOfSampleStatus: 'passed' }, lakeWith(rows));
+        expect.fail('runBacktest returned ok');
+      } catch (err) {
+        expect(err).toBeInstanceOf(QuantError);
+        expect((err as QuantError).code).toBe('quant.params_invalid');
+        expect((err as Error).message).toMatch(/negative fill/);
+        expect((err as Error).message).toMatch(/not invented/);
+      }
+    };
+
+    refuse([{ ts: '2026-02-01T00:00:00.000Z', symbol: 'BTC-USD', qty: '-0.01', price: '50000' }]);
+    refuse([{ ts: '2026-05-01T00:00:00.000Z', symbol: 'BTC-USD', qty: '0.02', price: '-51000' }]);
+    refuse([{ ts: '2026-05-01T00:00:00.000Z', symbol: 'BTC-USD', qty: '-0.02', price: '-51000' }]);
+    refuse([
+      { ts: '2026-02-01T00:00:00.000Z', symbol: 'BTC-USD', qty: '0.01', price: '50000' },
+      { ts: '2026-05-01T00:00:00.000Z', symbol: 'BTC-USD', qty: '-0.02', price: '51000' },
+    ]);
   });
 });
