@@ -2,6 +2,7 @@ import { readDecimal, requireCredentials, VenueUnavailableError } from '@intafac
 import type { AccountAdapter, VenueBalance, VenueCredentials, VenueDescriptor } from '@intafaced/venue-contracts';
 import { fetchHttpPort, type HttpPort } from '../transport.js';
 import { RateLimitGovernor } from '../rate-limit.js';
+import { assertCredentialVenue } from './credential-guard.js';
 import { signBybitV5 } from './bybit-spot-trade.js';
 
 const REST_BASE = 'https://api.bybit.com';
@@ -50,9 +51,19 @@ export function mapBybitSpotCoins(coin: unknown, now: Date): VenueBalance[] {
       freeRaw === undefined || freeRaw === null || String(freeRaw) === ''
         ? total - used
         : readDecimal(freeRaw, VENUE.id, 'availableToWithdraw');
+    const asset = String(rec.coin ?? '')
+      .trim()
+      .toUpperCase();
+    if (!asset) throw new VenueUnavailableError(VENUE.id, 'malformed', `coin[${i}].coin is missing`);
+    if (total < 0n || used < 0n || free < 0n) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', `coin[${i}] contains a negative balance`);
+    }
+    if (free > total || used > total) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', `coin[${i}] free/used exceeds walletBalance`);
+    }
     return {
       venueId: VENUE.id,
-      asset: String(rec.coin ?? ''),
+      asset,
       free,
       used,
       total,
@@ -70,7 +81,10 @@ export class BybitSpotAccount implements AccountAdapter {
   readonly #governor: RateLimitGovernor;
 
   constructor(credentials: VenueCredentials | null = null, options: BybitSpotAccountOptions = {}) {
-    if (credentials) requireCredentials(VENUE.id, 'construct', credentials);
+    if (credentials) {
+      assertCredentialVenue(VENUE.id, credentials);
+      requireCredentials(VENUE.id, 'construct', credentials);
+    }
     this.#credentials = credentials;
     this.#http = options.http ?? fetchHttpPort();
     this.#restBase = options.restBase ?? REST_BASE;

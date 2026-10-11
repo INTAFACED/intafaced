@@ -3,6 +3,7 @@ import { formatAmount } from '@intafaced/ledger-client/money';
 import {
   readDecimal,
   readInteger,
+  parseUnifiedSymbol,
   requireCredentials,
   VenueUnavailableError,
   type PlaceOrderRequest,
@@ -13,6 +14,7 @@ import {
 } from '@intafaced/venue-contracts';
 import { fetchHttpPort, type HttpPort } from '../transport.js';
 import { RateLimitGovernor } from '../rate-limit.js';
+import { assertCredentialVenue } from './credential-guard.js';
 import { assertFillReportMatchesStatus, assertKnownOrderStatus, throwVenueTransportFailure } from './order-outcome-honesty.js';
 import { assertTradeBookPayoutGradeBeforePlace } from '../trade-payout-gate.js';
 
@@ -31,6 +33,9 @@ const VENUE: VenueDescriptor = {
 };
 
 function venueSymbolOf(unified: string): string {
+  if (parseUnifiedSymbol(unified) === null) {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', `symbol ${unified || '(empty)'} is not unified BASE/QUOTE spot`);
+  }
   return unified.replace(/[/:]/g, '').toUpperCase();
 }
 
@@ -64,30 +69,48 @@ export function mapBybitSpotOrder(row: Record<string, unknown>, unified: string,
   assertKnownOrderStatus(VENUE.id, status, statusRaw, 'order status');
   const orig = readDecimal(row.qty, VENUE.id, 'qty');
   const executed = readDecimal(row.cumExecQty ?? '0', VENUE.id, 'cumExecQty');
+  if (orig <= 0n) throw new VenueUnavailableError(VENUE.id, 'malformed', 'qty must be positive');
+  if (executed < 0n) throw new VenueUnavailableError(VENUE.id, 'malformed', 'cumExecQty must not be negative');
   const remaining = orig - executed;
   if (remaining < 0n) {
     throw new VenueUnavailableError(VENUE.id, 'malformed', 'cumExecQty exceeds qty');
   }
   const avgRaw = row.avgPrice;
   let averagePrice: VenueOrder['averagePrice'] = null;
-  if (executed > 0n && avgRaw !== undefined && avgRaw !== null && String(avgRaw) !== '0' && String(avgRaw) !== '0.00') {
+  if (executed > 0n) {
     averagePrice = readDecimal(avgRaw, VENUE.id, 'avgPrice');
+    if (averagePrice <= 0n)
+      throw new VenueUnavailableError(VENUE.id, 'malformed', 'avgPrice must be positive after a fill — outcome unknown, not a fill');
   }
   const typeRaw = String(row.orderType ?? '').toLowerCase();
-  const type: VenueOrder['type'] = typeRaw === 'market' ? 'market' : 'limit';
+  if (typeRaw !== 'market' && typeRaw !== 'limit') {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', `orderType ${typeRaw || '(empty)'} is not a known Bybit spot type`);
+  }
+  const type: VenueOrder['type'] = typeRaw;
   const price =
     type === 'market' || row.price === undefined || row.price === null || String(row.price) === '0'
       ? null
       : readDecimal(row.price, VENUE.id, 'price');
+  if (type === 'limit' && (price === null || price <= 0n)) {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', 'limit order price must be positive');
+  }
   const createdRaw = row.createdTime ?? row.updatedTime;
   const createdAt = createdRaw === undefined || createdRaw === null ? now : new Date(readInteger(createdRaw, VENUE.id, 'createdTime'));
+  const sideRaw = String(row.side ?? '').toLowerCase();
+  if (sideRaw !== 'buy' && sideRaw !== 'sell') {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', `side ${sideRaw || '(empty)'} is not a known Bybit side`);
+  }
+  const venueOrderId = String(row.orderId ?? '').trim();
+  const clientOrderId = String(row.orderLinkId ?? '').trim();
+  if (!venueOrderId) throw new VenueUnavailableError(VENUE.id, 'malformed', 'orderId is missing');
+  if (!clientOrderId) throw new VenueUnavailableError(VENUE.id, 'malformed', 'orderLinkId is missing');
   assertFillReportMatchesStatus(VENUE.id, status, executed, averagePrice);
   return {
     venueId: VENUE.id,
-    venueOrderId: row.orderId === undefined || row.orderId === null ? null : String(row.orderId),
-    clientOrderId: String(row.orderLinkId ?? ''),
+    venueOrderId,
+    clientOrderId,
     symbol: unified,
-    side: String(row.side).toLowerCase() === 'sell' ? 'sell' : 'buy',
+    side: sideRaw,
     type,
     price,
     amount: orig,
@@ -121,7 +144,10 @@ export class BybitSpotTrade implements TradeAdapter {
   readonly #snapshotLimit: number | undefined;
 
   constructor(credentials: VenueCredentials | null = null, options: BybitSpotTradeOptions = {}) {
-    if (credentials) requireCredentials(VENUE.id, 'construct', credentials);
+    if (credentials) {
+      assertCredentialVenue(VENUE.id, credentials);
+      requireCredentials(VENUE.id, 'construct', credentials);
+    }
     this.#credentials = credentials;
     this.#http = options.http ?? fetchHttpPort();
     this.#restBase = options.restBase ?? REST_BASE;
@@ -132,6 +158,12 @@ export class BybitSpotTrade implements TradeAdapter {
 
   async placeOrder(request: PlaceOrderRequest): Promise<VenueOrder> {
     const keys = requireCredentials(VENUE.id, 'placeOrder', this.#credentials);
+    if (request.amount <= 0n) throw new VenueUnavailableError(VENUE.id, 'malformed', 'order amount must be positive');
+    if (!request.clientOrderId.trim()) throw new VenueUnavailableError(VENUE.id, 'malformed', 'clientOrderId is required');
+    if (request.type === 'limit' && request.price !== undefined && request.price !== null && request.price <= 0n) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', 'limit order price must be positive');
+    }
+    venueSymbolOf(request.symbol);
     await assertTradeBookPayoutGradeBeforePlace(VENUE.id, request.symbol, {
       http: this.#http,
       clock: this.#clock,

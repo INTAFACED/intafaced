@@ -2,6 +2,7 @@ import { readDecimal, requireCredentials, VenueUnavailableError } from '@intafac
 import type { AccountAdapter, VenueBalance, VenueCredentials, VenueDescriptor } from '@intafaced/venue-contracts';
 import { fetchHttpPort, type HttpPort } from '../transport.js';
 import { RateLimitGovernor } from '../rate-limit.js';
+import { assertCredentialVenue } from './credential-guard.js';
 import { signOkxRequest } from './okx-spot-trade.js';
 
 const REST_BASE = 'https://www.okx.com';
@@ -45,9 +46,16 @@ export function mapOkxSpotDetails(details: unknown, now: Date): VenueBalance[] {
     const free = readDecimal(rec.availBal, VENUE.id, 'availBal');
     const used = readDecimal(rec.frozenBal ?? '0', VENUE.id, 'frozenBal');
     const total = rec.eq === undefined || rec.eq === null || String(rec.eq) === '' ? free + used : readDecimal(rec.eq, VENUE.id, 'eq');
+    const asset = String(rec.ccy ?? '')
+      .trim()
+      .toUpperCase();
+    if (!asset) throw new VenueUnavailableError(VENUE.id, 'malformed', `details[${i}].ccy is missing`);
+    if (free < 0n || used < 0n || total < 0n) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', `details[${i}] contains a negative balance`);
+    }
     return {
       venueId: VENUE.id,
-      asset: String(rec.ccy ?? ''),
+      asset,
       free,
       used,
       total,
@@ -65,7 +73,10 @@ export class OkxSpotAccount implements AccountAdapter {
   readonly #governor: RateLimitGovernor;
 
   constructor(credentials: VenueCredentials | null = null, options: OkxSpotAccountOptions = {}) {
-    if (credentials) requireCredentials(VENUE.id, 'construct', credentials);
+    if (credentials) {
+      assertCredentialVenue(VENUE.id, credentials);
+      requireCredentials(VENUE.id, 'construct', credentials);
+    }
     this.#credentials = credentials;
     this.#http = options.http ?? fetchHttpPort();
     this.#restBase = options.restBase ?? REST_BASE;

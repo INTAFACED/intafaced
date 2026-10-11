@@ -588,7 +588,9 @@ describe('okx-spot — signed trade (FakeHttp, no live network)', () => {
     expect(formatAmount(filled.remaining)).toBe('0');
     expect(formatAmount(filled.averagePrice!)).toBe('30000');
 
-    const partial = new FakeHttp(() => json(200, { code: '0', msg: '', data: [okxOrder('partially_filled', { accFillSz: '0.4' })] }));
+    const partial = new FakeHttp(() =>
+      json(200, { code: '0', msg: '', data: [okxOrder('partially_filled', { accFillSz: '0.4', avgPx: '30000' })] }),
+    );
     expect((await new OkxSpotTrade(KEYS, { http: partial, clock: CLOCK }).fetchOrder('BTC/USDT', 'abc')).status).toBe('partially_filled');
 
     const canceled = new FakeHttp((_url, method) => {

@@ -13,6 +13,7 @@ import {
 } from '@intafaced/venue-contracts';
 import { fetchHttpPort, type HttpPort } from '../transport.js';
 import { RateLimitGovernor } from '../rate-limit.js';
+import { assertCredentialVenue } from './credential-guard.js';
 import { assertFillReportMatchesStatus, assertKnownOrderStatus, throwVenueTransportFailure } from './order-outcome-honesty.js';
 import { assertTradeBookPayoutGradeBeforePlace } from '../trade-payout-gate.js';
 
@@ -155,7 +156,10 @@ export class BinanceSpotTrade implements TradeAdapter {
   readonly #snapshotLimit: number | undefined;
 
   constructor(credentials: VenueCredentials | null = null, options: BinanceSpotTradeOptions = {}) {
-    if (credentials) requireCredentials(VENUE.id, 'construct', credentials);
+    if (credentials) {
+      assertCredentialVenue(VENUE.id, credentials);
+      requireCredentials(VENUE.id, 'construct', credentials);
+    }
     this.#credentials = credentials;
     this.#http = options.http ?? fetchHttpPort();
     this.#restBase = options.restBase ?? REST_BASE;
