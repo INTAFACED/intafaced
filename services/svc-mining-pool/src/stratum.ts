@@ -18,16 +18,12 @@ export function parseRequest(input: string): StratumRequest {
   return { id: v.id, method: v.method, params: v.params };
 }
 
-/** A share is valid when its canonical hex hash is at or below the job target. */
+/**
+ * No stratum job store exists in this service. A share is job_not_found until
+ * a real job is supplied by one. Caller shareHash and target are not the difficulty check.
+ */
 export function acceptShare(share: Share): ShareResult {
   if (!share.minerId || !share.worker || !share.jobId) return { accepted: false, reason: 'job_not_found' };
-  if (!/^[0-9a-f]+$/i.test(share.nonce) || !/^[0-9a-f]+$/i.test(share.shareHash) || !/^[0-9a-f]+$/i.test(share.target)) {
-    return { accepted: false, reason: 'invalid_nonce' };
-  }
-  try {
-    if (BigInt(`0x${share.shareHash}`) > BigInt(`0x${share.target}`)) return { accepted: false, reason: 'low_difficulty' };
-  } catch {
-    return { accepted: false, reason: 'invalid_nonce' };
-  }
-  return { accepted: true };
+  if (!/^[0-9a-f]+$/i.test(share.nonce)) return { accepted: false, reason: 'invalid_nonce' };
+  return { accepted: false, reason: 'job_not_found' };
 }
