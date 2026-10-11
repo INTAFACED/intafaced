@@ -10,7 +10,6 @@ import {
   houseFees,
   tokenStakeAccount,
   InsufficientFundsError,
-  LedgerError,
   type Amount,
   type LedgerClient,
 } from '@intafaced/ledger-client';
@@ -153,20 +152,6 @@ export class TokenError extends Error {
     super(message);
     this.name = 'TokenError';
   }
-}
-
-/** Only these ledger refusals are proven to happen before a post can commit. */
-const LEDGER_NO_COMMIT_CODES = new Set([
-  'ledger.insufficient_funds',
-  'ledger.invalid_entry',
-  'ledger.unbalanced',
-  'ledger.owner_identity_space',
-  'ledger.unauthenticated',
-  'ledger.frozen',
-]);
-
-function isConfirmedLedgerNoCommit(err: unknown): err is LedgerError {
-  return err instanceof LedgerError && LEDGER_NO_COMMIT_CODES.has(err.code);
 }
 
 /** Owner-published listProposals page size. Blank / non-finite / <1 refuses. Never invent 50. */
@@ -609,12 +594,16 @@ export class TokenService {
           throw new TokenError(`Stake is locked until ${row.unlocks_at?.toISOString() ?? 'unlock'} (${row.tier})`, 'token.stake_locked');
         }
 
-        // Claim index only. Move the pot when it equals the table amount.
-        // Refuse before `unstaking`, so a drift cannot close the row or post
-        // a partial amount. The difference is not swept.
+        // An ACTIVE row may only be claimed when its pot matches. Once the
+        // immutable intent is UNSTAKING, a prior post may already have moved
+        // the pot and lost its acknowledgement. Re-submit the same recipe
+        // from the persisted row terms; the ledger idempotency key returns the
+        // original post, while a genuinely absent post must still pass its
+        // balance check before the row can close.
         const recorded = parseAmount(row.amount);
         const book = (await this.ledger.balance(tokenStakeAccount(row.user_id, this.assetId, row.id))).amount;
-        if (book !== recorded) {
+        const retryingCommittedUnstake = row.status === 'unstaking' && book === 0n;
+        if (book !== recorded && !retryingCommittedUnstake) {
           throw new TokenError(
             `Stake ${row.id} table amount ${formatAmount(recorded)} disagrees with ledger ${formatAmount(book)}`,
             'token.stake_ledger_mismatch',
@@ -1723,22 +1712,12 @@ export class TokenService {
     // on process death after the post, under-booking the ceiling again.
     const claimed = await this.claimEmissionEpoch(epoch);
 
-    try {
-      await this.ledger.post(recipes.mintEmission({ epoch, assetId: this.assetId, amount: claimed.reward, destination }));
-    } catch (err) {
-      // Only the listed ledger codes are confirmed pre-effect refusals. Other
-      // structured server errors, timeouts, and transport failures may hide a
-      // committed post under
-      // `token.emission:<asset>:<epoch>`. Keep that row. Deleting it drops
-      // the mint out of the mined sum, and a later epoch can then mint past
-      // maxSupply.
-      if (isConfirmedLedgerNoCommit(err)) {
-        await this.sql`
-          DELETE FROM token.emission_epochs WHERE epoch = ${epoch} AND closed = false
-        `;
-      }
-      throw err;
-    }
+    // Keep the claim on every rejection. Even a typed auth/validation refusal
+    // on a retry cannot prove that an earlier request with this key did not
+    // commit. Releasing it would remove reserved supply and permit a later
+    // epoch to exceed maxSupply. A later retry uses this snapshotted reward
+    // and the same idempotency key.
+    await this.ledger.post(recipes.mintEmission({ epoch, assetId: this.assetId, amount: claimed.reward, destination }));
 
     await this.sql`
       UPDATE token.emission_epochs

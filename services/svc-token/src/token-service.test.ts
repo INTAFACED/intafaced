@@ -599,6 +599,77 @@ describe('svc-token money PG-hard', () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
+    it('recovers an unstake whose ledger post committed but its acknowledgement was lost', async () => {
+      await fund(USER_A, '1000');
+      const stake = await token.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
+      const realPost = ledger.post.bind(ledger);
+      let loseAck = true;
+      ledger.post = async (request) => {
+        const result = await realPost(request);
+        if (request.reason === 'token.unstake' && loseAck) {
+          loseAck = false;
+          throw new Error('simulated socket close after unstake commit');
+        }
+        return result;
+      };
+
+      await expect(token.unstake(stake.id)).rejects.toThrow(/socket close after unstake commit/);
+      expect(await sql`SELECT status FROM token.stakes WHERE id = ${stake.id}`).toMatchObject([{ status: 'unstaking' }]);
+      expect(await balanceOf(USER_A)).toBe('1000');
+      expect(await stakedOf(USER_A)).toBe('0');
+
+      ledger.post = realPost;
+      const recovered = await token.unstake(stake.id);
+      expect(recovered.status).toBe('closed');
+      expect(await balanceOf(USER_A)).toBe('1000');
+      expect(await stakedOf(USER_A)).toBe('0');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('recovers an unstake after the ledger reply and before the close write', async () => {
+      await fund(USER_A, '1000');
+      const stake = await token.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
+      let failClose = true;
+      const closeFailingSql = new Proxy(sql, {
+        apply(target, thisArg, args) {
+          const template = args[0];
+          const statement = Array.isArray(template) ? template.join(' ') : '';
+          if (failClose && statement.includes('UPDATE token.stakes') && statement.includes("SET status = 'closed'")) {
+            failClose = false;
+            throw new Error('simulated process failure before stake close');
+          }
+          return Reflect.apply(target, thisArg, args);
+        },
+        get(target, property) {
+          const value = Reflect.get(target, property, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+      const recoveringToken = new TokenService(closeFailingSql, ledger, bus, options);
+
+      await expect(recoveringToken.unstake(stake.id)).rejects.toThrow(/process failure before stake close/);
+      expect(await sql`SELECT status FROM token.stakes WHERE id = ${stake.id}`).toMatchObject([{ status: 'unstaking' }]);
+      expect(await balanceOf(USER_A)).toBe('1000');
+      expect(await stakedOf(USER_A)).toBe('0');
+
+      const recovered = await recoveringToken.unstake(stake.id);
+      expect(recovered.status).toBe('closed');
+      expect(await balanceOf(USER_A)).toBe('1000');
+      expect(await stakedOf(USER_A)).toBe('0');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('refuses an active stake whose ledger pot differs before claiming unstaking', async () => {
+      await fund(USER_A, '1000');
+      const stake = await token.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
+      await sql`UPDATE token.stakes SET amount = ${'2000'}::numeric WHERE id = ${stake.id}`;
+
+      await expect(token.unstake(stake.id)).rejects.toMatchObject({ code: 'token.stake_ledger_mismatch' });
+      expect(await sql`SELECT status FROM token.stakes WHERE id = ${stake.id}`).toMatchObject([{ status: 'active' }]);
+      expect(await balanceOf(USER_A)).toBe('0');
+      expect(await stakedOf(USER_A)).toBe('1000');
+    });
+
     it('rejects an unknown stake', async () => {
       await expect(token.unstake('44444444-4444-4444-8444-444444444444')).rejects.toMatchObject({
         code: 'token.stake_not_found',
@@ -2114,7 +2185,7 @@ describe('svc-token money PG-hard', () => {
       expect(await sql`SELECT epoch FROM token.emission_epochs WHERE epoch = 0 AND closed = true`).toHaveLength(1);
     });
 
-    it('releases a mint claim for a known pre-effect ledger validation refusal', async () => {
+    it('keeps a mint claim after a typed pre-effect validation refusal', async () => {
       const tight = new TokenService(sql, ledger, bus, {
         ...options,
         emission: { initialEpochReward: amt('100'), halvingIntervalEpochs: 1000, maxSupply: amt('100') },
@@ -2125,7 +2196,7 @@ describe('svc-token money PG-hard', () => {
       };
 
       await expect(tight.mintEpoch(0)).rejects.toMatchObject({ code: 'ledger.invalid_entry' });
-      expect(await sql`SELECT epoch FROM token.emission_epochs WHERE epoch = 0`).toHaveLength(0);
+      expect(await sql`SELECT epoch FROM token.emission_epochs WHERE epoch = 0 AND closed = false`).toHaveLength(1);
 
       ledger.post = realPost;
       const retry = await tight.mintEpoch(0);
@@ -2175,6 +2246,67 @@ describe('svc-token money PG-hard', () => {
         expect(recovered.minted).toBe(cap);
         expect(await sql`SELECT epoch FROM token.emission_epochs WHERE epoch = 0 AND closed = true`).toHaveLength(1);
         expect(await ledger.balance(rewardsEngine('IFC'))).toMatchObject({ amount: cap });
+      } finally {
+        globalThis.fetch = nativeFetch;
+      }
+    });
+
+    it('keeps committed emission reserved when a later retry is rejected before ledger idempotency lookup', async () => {
+      const cap = amt('100');
+      const tight = new TokenService(sql, createLedgerClient('http://ledger.test', 'fixture-secret-for-token-recovery-test'), bus, {
+        ...options,
+        emission: { initialEpochReward: cap, halvingIntervalEpochs: 1000, maxSupply: cap },
+      });
+      const nativeFetch = globalThis.fetch;
+      let requestCount = 0;
+      let unauthenticatedRetry = true;
+      globalThis.fetch = async (_input, init) => {
+        requestCount += 1;
+        if (unauthenticatedRetry && requestCount === 2) {
+          return new Response(JSON.stringify({ message: 'missing service identity', code: 'ledger.unauthenticated' }), {
+            status: 401,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+
+        const body = JSON.parse(String(init?.body)) as {
+          idempotencyKey: string;
+          module: string;
+          reason: string;
+          meta: Record<string, unknown>;
+          entries: Array<{ account: PostRequest['entries'][number]['account']; direction: 'debit' | 'credit'; amount: string }>;
+        };
+        const tx = await ledger.post({
+          idempotencyKey: body.idempotencyKey,
+          module: body.module,
+          reason: body.reason,
+          meta: body.meta,
+          entries: body.entries.map((entry) => ({ ...entry, amount: amt(entry.amount) })),
+        });
+        if (requestCount === 1) throw new TypeError('simulated socket close after commit');
+        return new Response(JSON.stringify({ txId: tx.id, hash: tx.hash, postedAt: tx.postedAt.toISOString() }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      };
+
+      try {
+        await expect(tight.mintEpoch(0)).rejects.toThrow(/socket close after commit/);
+        await expect(tight.mintEpoch(0)).rejects.toMatchObject({ code: 'ledger.unauthenticated' });
+        expect(await sql`SELECT epoch FROM token.emission_epochs WHERE epoch = 0 AND closed = false`).toHaveLength(1);
+        expect(formatAmount((await ledger.balance(rewardsEngine('IFC'))).amount)).toBe('100');
+
+        await expect(tight.mintEpoch(1)).rejects.toMatchObject({ code: 'token.supply_exhausted' });
+        expect(requestCount).toBe(2);
+
+        unauthenticatedRetry = false;
+        const recovered = await tight.mintEpoch(0);
+        expect(recovered.minted).toBe(cap);
+        expect(await sql`SELECT epoch FROM token.emission_epochs WHERE epoch = 0 AND closed = true`).toHaveLength(1);
+        await expect(tight.mintEpoch(1)).rejects.toMatchObject({ code: 'token.supply_exhausted' });
+        expect(requestCount).toBe(3);
+        expect(formatAmount((await ledger.balance(rewardsEngine('IFC'))).amount)).toBe('100');
+        expect(ledger.reconcile()).toEqual({ ok: true });
       } finally {
         globalThis.fetch = nativeFetch;
       }
