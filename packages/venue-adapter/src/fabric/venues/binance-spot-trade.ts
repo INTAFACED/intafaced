@@ -148,6 +148,8 @@ export interface BinanceSpotTradeOptions {
 export class BinanceSpotTrade implements TradeAdapter {
   readonly venue = VENUE;
   readonly #credentials: VenueCredentials | null;
+  /** Caller-supplied port only. Absence is not a live fetch. */
+  readonly #callerHttp: HttpPort | undefined;
   readonly #http: HttpPort;
   readonly #restBase: string;
   readonly #clock: () => number;
@@ -157,6 +159,7 @@ export class BinanceSpotTrade implements TradeAdapter {
   constructor(credentials: VenueCredentials | null = null, options: BinanceSpotTradeOptions = {}) {
     if (credentials) requireCredentials(VENUE.id, 'construct', credentials);
     this.#credentials = credentials;
+    this.#callerHttp = options.http;
     this.#http = options.http ?? fetchHttpPort();
     this.#restBase = options.restBase ?? REST_BASE;
     this.#clock = options.clock ?? Date.now;
@@ -166,8 +169,12 @@ export class BinanceSpotTrade implements TradeAdapter {
 
   async placeOrder(request: PlaceOrderRequest): Promise<VenueOrder> {
     const keys = requireCredentials(VENUE.id, 'placeOrder', this.#credentials);
+    const http = this.#callerHttp;
+    if (http === undefined) {
+      throw new VenueUnavailableError(VENUE.id, 'not_ready', 'placeOrder: HTTP port is not wired');
+    }
     await assertTradeBookPayoutGradeBeforePlace(VENUE.id, request.symbol, {
-      http: this.#http,
+      http,
       clock: this.#clock,
       limit: this.#snapshotLimit,
     });

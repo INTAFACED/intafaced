@@ -121,6 +121,8 @@ export interface BybitSpotTradeOptions {
 export class BybitSpotTrade implements TradeAdapter {
   readonly venue = VENUE;
   readonly #credentials: VenueCredentials | null;
+  /** Caller-supplied port only. Absence is not a live fetch. */
+  readonly #callerHttp: HttpPort | undefined;
   readonly #http: HttpPort;
   readonly #restBase: string;
   readonly #clock: () => number;
@@ -130,6 +132,7 @@ export class BybitSpotTrade implements TradeAdapter {
   constructor(credentials: VenueCredentials | null = null, options: BybitSpotTradeOptions = {}) {
     if (credentials) requireCredentials(VENUE.id, 'construct', credentials);
     this.#credentials = credentials;
+    this.#callerHttp = options.http;
     this.#http = options.http ?? fetchHttpPort();
     this.#restBase = options.restBase ?? REST_BASE;
     this.#clock = options.clock ?? Date.now;
@@ -142,8 +145,12 @@ export class BybitSpotTrade implements TradeAdapter {
     if (request.type === 'market' && request.postOnly) {
       throw new VenueUnavailableError(VENUE.id, 'malformed', 'market order must not set postOnly');
     }
+    const http = this.#callerHttp;
+    if (http === undefined) {
+      throw new VenueUnavailableError(VENUE.id, 'not_ready', 'placeOrder: HTTP port is not wired');
+    }
     await assertTradeBookPayoutGradeBeforePlace(VENUE.id, request.symbol, {
-      http: this.#http,
+      http,
       clock: this.#clock,
       limit: this.#snapshotLimit,
     });
