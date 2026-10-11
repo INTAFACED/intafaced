@@ -1,8 +1,12 @@
 //! C2 `socket.rust-matching` stage 1.
 //!
 //! This crate is deliberately a socket, not a replacement: the TypeScript
-//! engine remains the default. Stage 1 proves that its append-only journal can
-//! be read by Rust and replayed into a canonical, deterministic book state.
+//! engine remains the default. Stage 1 reads only simple limit submit/cancel
+//! records into its legacy deterministic state shape, not the full current TS
+//! journal or snapshot contract. Advanced fields refuse rather than silently
+//! becoming plain limits. Reachable self-crosses refuse as unsupported replay.
+//! Stops, expiry, STP policy, accepted terminal IDs, positions,
+//! amend and session/control records remain outside this socket.
 //! Amounts stay decimal strings on the wire and are never represented as
 //! floating point values.
 
@@ -10,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Order {
     pub orderId: String,
     pub accountId: String,
@@ -63,17 +68,22 @@ struct Live { order: Order, remaining: u128, sequence: u64 }
 struct Book { market: String, sequence: u64, last: Option<u128>, bids: Vec<Live>, asks: Vec<Live> }
 
 const SCALE: u32 = 18;
+const NUMERIC_38_18_MAX: u128 = 10u128.pow(38) - 1;
 
 fn parse_amount(s: &str) -> Result<u128, String> {
     let (whole, frac) = s.split_once('.').unwrap_or((s, ""));
-    if whole.is_empty() || frac.len() > SCALE as usize || !whole.chars().all(|c| c.is_ascii_digit()) || !frac.chars().all(|c| c.is_ascii_digit()) {
+    if s.ends_with('.') || whole.is_empty() || frac.len() > SCALE as usize || !whole.chars().all(|c| c.is_ascii_digit()) || !frac.chars().all(|c| c.is_ascii_digit()) {
         return Err(format!("invalid decimal amount: {s}"));
     }
     let mut digits = frac.to_owned();
     digits.extend(std::iter::repeat('0').take(SCALE as usize - digits.len()));
     let w = whole.parse::<u128>().map_err(|_| format!("amount overflow: {s}"))?;
     let f = if digits.is_empty() { 0 } else { digits.parse::<u128>().map_err(|_| format!("amount overflow: {s}"))? };
-    w.checked_mul(10u128.pow(SCALE)).and_then(|x| x.checked_add(f)).ok_or_else(|| format!("amount overflow: {s}"))
+    let scaled = w.checked_mul(10u128.pow(SCALE)).and_then(|x| x.checked_add(f)).ok_or_else(|| format!("amount overflow: {s}"))?;
+    if scaled > NUMERIC_38_18_MAX {
+        return Err(format!("amount overflow: {s}"));
+    }
+    Ok(scaled)
 }
 
 fn format_amount(v: u128) -> String {
@@ -85,11 +95,38 @@ fn format_amount(v: u128) -> String {
 
 impl Book {
     fn submit(&mut self, order: Order) -> Result<(), String> {
+        if order.accountId.trim().is_empty() {
+            return Err("self_trade: STP identity missing; the engine does not invent a group".into());
+        }
+        if order.kind != "limit" {
+            return Err(format!(
+                "unsupported_order_type: stage 1 accepts limit orders only, got {}",
+                order.kind
+            ));
+        }
+        if order.stopPrice.is_some() {
+            return Err("unexpected_stop_price: a limit order must not carry a stopPrice".into());
+        }
+        if !matches!(order.tif.as_str(), "GTC" | "IOC" | "FOK" | "PO") {
+            return Err("unsupported_tif: stage 1 accepts GTC, IOC, FOK or PO only".into());
+        }
+        if self.bids.iter().chain(self.asks.iter()).any(|live| live.order.orderId == order.orderId) {
+            return Err("duplicate_order_id: orderId is already live".into());
+        }
         let qty = parse_amount(&order.qty)?;
+        if qty == 0 {
+            return Err("invalid_qty: quantity must be strictly positive".into());
+        }
         let price = order.price.as_deref().ok_or_else(|| "stage 1 accepts limit orders only".to_string()).and_then(parse_amount)?;
+        if price == 0 {
+            return Err("invalid_price: price must be strictly positive".into());
+        }
         let side = order.side.clone();
         let opposite = if side == "buy" { &mut self.asks } else if side == "sell" { &mut self.bids } else { return Err(format!("invalid side: {side}")); };
         let crossing = |p: u128| if side == "buy" { price >= p } else { price <= p };
+        if order.tif == "PO" && opposite.first().is_some_and(|maker| crossing(parse_amount(maker.order.price.as_ref().unwrap()).unwrap())) {
+            return Err("post_only_would_cross: post-only order would take liquidity".into());
+        }
         let mut remaining = qty;
         // A fill-or-kill that cannot finish must not take a slice. The walk
         // below mutates makers as it goes, so the size is checked first.
@@ -104,6 +141,20 @@ impl Book {
             if cover < qty {
                 return Ok(());
             }
+        }
+        // The TS engine expires the self maker and continues. This socket does
+        // not implement that policy, so refuse this replay before any fill.
+        // A deeper maker beyond the completed take cannot affect this input.
+        let mut planned_remaining = qty;
+        for maker in opposite.iter() {
+            let maker_price = parse_amount(maker.order.price.as_ref().unwrap()).unwrap();
+            if planned_remaining == 0 || !crossing(maker_price) {
+                break;
+            }
+            if maker.order.accountId == order.accountId {
+                return Err("unsupported_replay: self-trade prevention requires the TypeScript engine".into());
+            }
+            planned_remaining -= planned_remaining.min(maker.remaining);
         }
         while remaining > 0 && !opposite.is_empty() && crossing(parse_amount(opposite[0].order.price.as_ref().unwrap()).unwrap()) {
             let maker_price = parse_amount(opposite[0].order.price.as_ref().unwrap()).unwrap();
@@ -145,7 +196,7 @@ pub fn replay(records: &[Record]) -> Result<String, String> {
     for record in records {
         match record.kind.as_str() {
             "submit" => { let order = record.order.clone().ok_or_else(|| "submit without order".to_string())?; let book = books.entry(record.marketId.clone()).or_insert_with(|| Book { market: record.marketId.clone(), ..Default::default() }); book.submit(order)?; }
-            "cancel" => { if let Some(book) = books.get_mut(&record.marketId) { if let Some(id) = &record.orderId { book.cancel(id); } } }
+            "cancel" => { let id = record.orderId.as_deref().ok_or_else(|| "cancel_without_order_id: cancel requires orderId".to_string())?; if let Some(book) = books.get_mut(&record.marketId) { book.cancel(id); } }
             other => return Err(format!("unknown journal command: {other}")),
         }
     }
@@ -179,7 +230,7 @@ mod tests {
     fn limit(id: &str, side: &str, qty: &str, tif: &str) -> Order {
         Order {
             orderId: id.into(),
-            accountId: "desk".into(),
+            accountId: if side == "buy" { "desk".into() } else { "mm".into() },
             kind: "limit".into(),
             side: side.into(),
             qty: qty.into(),
@@ -212,4 +263,125 @@ mod tests {
         assert!(state.bids.is_empty());
         assert_eq!(state.lastTradePrice.as_deref(), Some("100"));
     }
+
+    fn book_bytes(book: &Book) -> String {
+        serde_json::to_string(&book.state()).unwrap()
+    }
+
+    #[test]
+    fn duplicate_live_ids_refuse_without_changing_either_side() {
+        let mut book = Book { market: "BTC/USDT".into(), ..Book::default() };
+        book.submit(limit("live", "sell", "2", "GTC")).unwrap();
+        let before = book_bytes(&book);
+        for side in ["buy", "sell"] {
+            let err = book.submit(limit("live", side, "1", "GTC")).unwrap_err();
+            assert!(err.starts_with("duplicate_order_id:"), "{err}");
+            assert_eq!(book_bytes(&book), before);
+        }
+    }
+
+    #[test]
+    fn invalid_structure_and_amounts_refuse_before_matching() {
+        let mut book = Book { market: "BTC/USDT".into(), ..Book::default() };
+        book.submit(limit("ask", "sell", "2", "GTC")).unwrap();
+        let before = book_bytes(&book);
+        let mut invalid = Vec::new();
+        for qty in ["0", "0.0", "-1", "1.", "1e2", "1.0000000000000000001", "100000000000000000000"] {
+            invalid.push(limit("bad", "buy", qty, "GTC"));
+        }
+        for price in [None, Some(""), Some("0"), Some("-1"), Some("1."), Some("100000000000000000000")] {
+            let mut order = limit("bad", "buy", "1", "GTC");
+            order.price = price.map(str::to_owned);
+            invalid.push(order);
+        }
+        for tif in ["", "DAY", "gtc", "GTD", "GTT"] { invalid.push(limit("bad", "buy", "1", tif)); }
+        invalid.push(limit("bad", "unknown", "1", "GTC"));
+        for account in ["", "   "] {
+            let mut order = limit("bad", "buy", "1", "GTC");
+            order.accountId = account.into();
+            invalid.push(order);
+        }
+        let mut stop = limit("bad", "buy", "1", "GTC");
+        stop.kind = "stop_limit".into(); invalid.push(stop);
+        let mut extra = limit("bad", "buy", "1", "GTC");
+        extra.stopPrice = Some("90".into()); invalid.push(extra);
+        for order in invalid {
+            assert!(book.submit(order.clone()).is_err(), "accepted {order:?}");
+            assert_eq!(book_bytes(&book), before, "mutated for {order:?}");
+        }
+    }
+
+    #[test]
+    fn post_only_cross_refuses_and_non_cross_rests() {
+        let mut book = Book { market: "BTC/USDT".into(), ..Book::default() };
+        book.submit(limit("ask", "sell", "2", "GTC")).unwrap();
+        let before = book_bytes(&book);
+        let err = book.submit(limit("cross", "buy", "1", "PO")).unwrap_err();
+        assert!(err.starts_with("post_only_would_cross:"), "{err}");
+        assert_eq!(book_bytes(&book), before);
+        let mut behind = limit("behind", "buy", "1", "PO"); behind.price = Some("99".into());
+        book.submit(behind).unwrap();
+        assert_eq!(book.state().bids[0].orders[0].orderId, "behind");
+        assert_eq!(book.state().lastTradePrice, None);
+    }
+
+    #[test]
+    fn decimal_boundary_is_exact_and_never_wraps() {
+        let raw = "99999999999999999999.999999999999999999";
+        let scaled = parse_amount(raw).unwrap();
+        assert_eq!(scaled, 10u128.pow(38) - 1);
+        assert_eq!(format_amount(scaled), raw);
+        assert!(parse_amount("100000000000000000000").is_err());
+        assert!(parse_amount("340282366920938463463374607431768211456").is_err());
+    }
+
+    #[test]
+    fn advanced_wire_inputs_refuse_instead_of_becoming_plain_limits() {
+        let original: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
+        for field in ["aon", "iceberg", "displayQty", "minQty", "reduceOnly", "ocoSiblingId", "expireAt", "peg", "midpoint", "auction", "exercise", "sessionId", "trail", "relative", "collar", "minNotional", "combo", "lifecycleProof"] {
+            let mut records = original.clone();
+            records[0]["order"][field] = serde_json::json!(true);
+            let err = replay_json(&records.to_string()).unwrap_err();
+            assert!(err.contains("unknown field"), "{field}: {err}");
+        }
+        let mut records = original;
+        records[2]["orderId"] = serde_json::Value::Null;
+        assert!(replay_json(&records.to_string()).unwrap_err().starts_with("cancel_without_order_id:"));
+    }
+
+    #[test]
+    fn reachable_self_cross_is_unsupported_before_any_fill() {
+        let mut book = Book { market: "BTC/USDT".into(), ..Book::default() };
+        book.submit(limit("external", "sell", "1", "GTC")).unwrap();
+        let mut own = limit("own", "sell", "1", "GTC");
+        own.accountId = "desk".into();
+        book.submit(own).unwrap();
+        let before = book_bytes(&book);
+        let err = book.submit(limit("cross", "buy", "2", "GTC")).unwrap_err();
+        assert!(err.starts_with("unsupported_replay:"), "{err}");
+        assert_eq!(book_bytes(&book), before);
+        // This order fills completely before reaching its own deeper maker.
+        book.submit(limit("external-only", "buy", "1", "GTC")).unwrap();
+        assert_eq!(book.state().asks[0].orders[0].orderId, "own");
+        assert!(book.state().bids.is_empty());
+        assert_eq!(book.state().lastTradePrice.as_deref(), Some("100"));
+    }
+
+    #[test]
+    fn self_cross_refusal_preserves_fok_and_post_only_preflight() {
+        let mut book = Book { market: "BTC/USDT".into(), ..Book::default() };
+        let mut own = limit("own", "sell", "1", "GTC");
+        own.accountId = "desk".into();
+        book.submit(own).unwrap();
+        let before = book_bytes(&book);
+        book.submit(limit("too-large", "buy", "2", "FOK")).unwrap();
+        assert_eq!(book_bytes(&book), before);
+        let err = book.submit(limit("po", "buy", "1", "PO")).unwrap_err();
+        assert!(err.starts_with("post_only_would_cross:"), "{err}");
+        assert_eq!(book_bytes(&book), before);
+        let err = book.submit(limit("fok-self", "buy", "1", "FOK")).unwrap_err();
+        assert!(err.starts_with("unsupported_replay:"), "{err}");
+        assert_eq!(book_bytes(&book), before);
+    }
+
 }
