@@ -8,13 +8,14 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BASE_PERKS } from '@intafaced/contracts';
+import { parseAmount } from '@intafaced/ledger-client/money';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { AcademyService } from './academy-service.js';
 import { AcademyError } from './errors.js';
 import type { HostRightsSource } from './host-rights.js';
 import type { StakeSource } from './stake-source.js';
-import { LiveKitStreamProvider, type StreamProvider } from './stream/provider.js';
+import { LiveKitStreamProvider, NullStreamProvider, type StreamProvider } from './stream/provider.js';
 
 const SESSION_ID = '11111111-1111-4111-8111-111111111111';
 const HOST_ID = '22222222-2222-4222-8222-222222222222';
@@ -259,6 +260,41 @@ describe('startSession room lifetime with PostgreSQL', () => {
     expect(closed).toEqual(['same-session-room', 'same-session-room']);
     expect(activeRooms.size).toBe(0);
   });
+
+  it.each(['ended', 'cancelled', 'missing'] as const)(
+    'refuses a paused join after its locked session becomes %s',
+    async (terminalStatus) => {
+      const guestId = '44444444-4444-4444-8444-444444444444';
+      const stakeStarted = deferred<void>();
+      const finishStake = deferred<bigint>();
+      const delayedStakes: StakeSource = {
+        stakeOf: async () => {
+          stakeStarted.resolve();
+          return finishStake.promise;
+        },
+      };
+      const stream = new NullStreamProvider();
+      const scheduled = await scheduledSession(`paused-join-${terminalStatus}`, stream);
+      const academy = new AcademyService(db.sql, delayedStakes, hostCanOpen, stream, {});
+      await db.sql`UPDATE academy.rooms SET access = 'staked', min_stake = 1 WHERE id = ${scheduled.session.roomId}`;
+      await academy.startSession({ sessionId: scheduled.session.id, hostId: HOST_ID });
+      await db.sql`INSERT INTO academy.session_attendees (session_id, user_id) VALUES (${scheduled.session.id}, ${guestId})`;
+      const joining = academy.join({ sessionId: scheduled.session.id, userId: guestId });
+      await stakeStarted.promise;
+      try {
+        if (terminalStatus === 'ended') await academy.endSession({ sessionId: scheduled.session.id, hostId: HOST_ID });
+        else if (terminalStatus === 'cancelled') {
+          await db.sql`UPDATE academy.sessions SET status = 'cancelled' WHERE id = ${scheduled.session.id}`;
+          await db.sql`UPDATE academy.session_attendees SET left_at = now() WHERE session_id = ${scheduled.session.id}`;
+        } else await db.sql`DELETE FROM academy.sessions WHERE id = ${scheduled.session.id}`;
+      } finally {
+        finishStake.resolve(parseAmount('1'));
+      }
+      await expect(joining).rejects.toMatchObject({ code: 'academy.session_not_live' });
+      expect(await academy.occupancy(scheduled.session.id)).toBe(0);
+      if (terminalStatus !== 'missing') expect((await academy.session(scheduled.session.id)).status).toBe(terminalStatus);
+    },
+  );
 
   it.each([
     { deleted: false, retryAcknowledged: true },

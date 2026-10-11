@@ -473,7 +473,14 @@ export class AcademyService {
         const decision = await transaction(
           this.sql,
           async (tx) => {
-            await tx`SELECT id FROM academy.sessions WHERE id = ${session.id} FOR UPDATE`;
+            const locked = await tx<Array<{ status: SessionRecord['status'] }>>`
+              SELECT status FROM academy.sessions WHERE id = ${session.id} FOR UPDATE
+            `;
+            // The external gate may finish after end/cancel removed this seat.
+            // Recheck under the existing lock before occupancy or attendee writes.
+            if (locked[0]?.status !== 'live') {
+              throw new AcademyError('That session is not live', 'academy.session_not_live');
+            }
             const occupancy = await this.occupancy(session.id, tx);
 
             const seat = decideSeat(
