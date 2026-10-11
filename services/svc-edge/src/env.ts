@@ -91,10 +91,10 @@ const schema = baseEnvSchema
       MATCHING_URL: z.string().url().optional(),
 
       /**
-       * HMAC for identity GET `/internal/sessions/:id`, `/internal/api-keys/:id`,
-       * and `/internal/account/:userId` (live revoke + user status).
-       * Unset → JWT `exp` only. Never `INTERNAL_SERVICE_SECRET` (that opens
-       * `ledger.post`). Same name WS uses for the ownership snapshot.
+       * Dedicated read key matching IDENTITY_EDGE_AUTHORITY_SECRET in identity.
+       * Only currentAuthority POST and key metadata GET are authorized.
+       * Missing key refuses authenticated forwarding; anonymous intake stays usable.
+       * Never `INTERNAL_SERVICE_SECRET` or a trade/payment admission key.
        */
       IDENTITY_OWNERSHIP_SECRET: z.string().min(32).optional(),
 

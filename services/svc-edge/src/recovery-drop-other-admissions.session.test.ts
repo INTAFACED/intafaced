@@ -3,6 +3,8 @@ import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { EDGE_PRINCIPAL_HEADER } from '@intafaced/contracts';
 import { exchangePrincipal } from './principal-exchange.js';
 import { recoveryCodeDropsOtherAdmissions } from './recovery-drop-other-admissions.js';
+import { currentAuthorityInputSchema } from '@intafaced/contracts';
+import { currentAuthorityTestReply } from './test-current-authority.js';
 
 const tokens: TokenConfig = {
   secret: 'edge-test-jwt-signing-secret-32-chars',
@@ -41,7 +43,18 @@ function twoSeatFetch(): { fetch: typeof fetch; dropOthers: () => void } {
     dropOthers() {
       revoked.add(OTHER);
     },
-    fetch: async (input) => {
+    fetch: async (input, init) => {
+      if (String(input).endsWith('/trpc/accountControls.currentAuthority')) {
+        const subject = currentAuthorityInputSchema.parse(JSON.parse(String(init?.body)) as unknown);
+        const credentialId = subject.credential.kind === 'session' ? subject.credential.sessionId : subject.credential.apiKeyId;
+        const expectedCredentialId = credentialId === KEEP ? KEEP : credentialId === OTHER ? OTHER : 'unrecognized-test-credential';
+        const authority = currentAuthorityTestReply(input, init, {
+          expectedUserId: USER,
+          expectedCredentialId,
+          credentialRevoked: revoked.has(expectedCredentialId),
+        });
+        if (authority) return authority;
+      }
       const url = String(input);
       if (url.includes('/internal/account/')) {
         return json({ userId: USER, status: 'active', kycTier: 'none', lastVerifiedAt: '2026-08-25T00:00:00.000Z' });
