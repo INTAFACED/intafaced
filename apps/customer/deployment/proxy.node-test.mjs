@@ -110,6 +110,17 @@ test('customer proxy serves React deep links, refuses bare API paths, caches ass
     const descriptor = await fetch(origin + '/customer-deployment.json');
     assert.equal(descriptor.headers.get('cache-control'), 'no-store');
     assert.equal((await descriptor.json()).product, 'intafaced-customer');
+    for (const [feature, library] of [
+      ['trade', 'lightweight-charts'],
+      ['more', 'livekit-client'],
+    ]) {
+      for (const kind of ['LICENSE', 'NOTICE']) {
+        const filename = `${kind}.${library}`;
+        const response = await fetch(origin + `/licenses/${filename}`);
+        assert.equal(response.status, 200, filename);
+        assert.equal(await response.text(), readFileSync(join(customer, 'src/features', feature, 'vendor', filename), 'utf8'));
+      }
+    }
     const edge = await fetch(origin + '/api/bank/transfers?limit=20', {
       method: 'POST',
       headers: { cookie: 'session=opaque', authorization: 'Bearer opaque', origin, 'content-type': 'application/json' },
