@@ -1,5 +1,7 @@
 # Local git + Graphify — permanent criteria
 
+> Graphify retired on 2026-10-11 at Nitro's request. The Graphify-specific requirements below are historical and no longer apply. Local Git and worktrees remain the working process; current instructions live in `AGENTS.md`.
+
 **As of:** 2026-08-16 (re-derived). **Tip now:** `e4845854` (#2078, on top of #2079).  
 **Home folder:** `~/projects/Sovereign` is local `main` = `origin/main`. Map present. Peace GREEN.  
 **This file:** what “done properly” means. Agents re-derive the Now column; they do not quote it as live.  
