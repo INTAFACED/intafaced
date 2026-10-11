@@ -75,63 +75,81 @@ export function CrmMetrics({ filters, onTasks }: { filters: Record<string, unkno
   if (value) observation = `observed ${date(value.observedAt)}`;
   return (
     <section className="adm-crm-overview" aria-label="CRM totals">
-      <p className="adm-subtle">All matching records · {observation}</p>
-      <Message error={error} />
-      <div className="adm-metric-grid">
-        {[
-          ['Enquiries', value?.totals.opportunities, 'Audience opportunities'],
-          ['Incomplete', value?.totals.incompleteSubmissions, 'Saved details, questions unfinished'],
-          ['Overdue', value?.totals.overdueTasks, 'Pending tasks past their due time'],
-          ['Call invitations', value?.totals.manualCallInvitations, 'Manually recorded evidence'],
-        ].map(([name, count, help]) => (
-          <div className="adm-metric" key={String(name)}>
-            <span>{name}</span>
-            <strong>{typeof count === 'number' ? count.toLocaleString() : '—'}</strong>
-            <small>{help}</small>
-          </div>
-        ))}
+      <div className="adm-crm-summary-strip" aria-live="polite">
+        <strong>
+          {loading
+            ? 'Loading totals…'
+            : `${value?.totals.opportunities.toLocaleString() ?? '—'} ${value?.totals.opportunities === 1 ? 'enquiry' : 'enquiries'}`}
+        </strong>
+        <span>{value?.totals.incompleteSubmissions.toLocaleString() ?? '—'} incomplete</span>
+        <span>{value?.totals.overdueTasks.toLocaleString() ?? '—'} overdue</span>
+        <span>{value?.totals.manualCallInvitations.toLocaleString() ?? '—'} invitations</span>
+        <small>Global totals · audience, stage and owner filtered · search applies to list only</small>
       </div>
-      {value && (
-        <div className="adm-report-breakdown">
-          {value.byStage.map((item) => (
-            <span key={`${item.audience}:${item.stage}`}>
-              {label(item.audience)} / {label(item.stage)} <strong>{item.count}</strong>
-            </span>
-          ))}
-          <button type="button" onClick={onTasks}>
-            Review due tasks
-          </button>
-        </div>
-      )}
-      <p className="adm-subtle">
-        Audience, stage and owner filters apply to totals. Name search affects the enquiry table only. Indicative amounts are not received
-        funds.
-      </p>
-      {value && (
-        <>
+      <Message error={error} />
+      <details className="adm-crm-report-details">
+        <summary aria-label="Open reports, attribution and plan status">Reports</summary>
+        <div className="adm-crm-report-popover">
+          <h2>Reports and attribution</h2>
+          <p className="adm-subtle">Totals {observation}.</p>
           <p className="adm-subtle">
-            {value.totals.submissions} submissions · {value.totals.canonicalContacts} canonical contacts · {value.totals.manualCallBookings}{' '}
-            manually recorded call bookings
+            Audience, stage and owner filters apply to global totals. Name search affects the enquiry list only. Indicative amounts are not
+            received funds.
           </p>
-          <details className="adm-audit">
-            <summary>Captured opportunities by source</summary>
-            <ul className="adm-history">
-              {value.bySource.map((source, index) => (
-                <li key={index}>
-                  <strong>
-                    {sourceLabel(source)} · {source.count}
-                  </strong>
-                  {source.sourceKey && <code className="adm-source-key">{source.sourceKey}</code>}
-                  <small>Recipient identity remains unknown.</small>
-                </li>
-              ))}
-            </ul>
-            {value.sourceGroupsTruncated && (
-              <p className="adm-subtle">This report contains the first 200 source groups; more groups exist.</p>
-            )}
-          </details>
-        </>
-      )}
+          {value && (
+            <>
+              <div className="adm-metric-grid">
+                {[
+                  ['Enquiries', value.totals.opportunities, 'Audience opportunities'],
+                  ['Incomplete', value.totals.incompleteSubmissions, 'Saved details, questions unfinished'],
+                  ['Overdue', value.totals.overdueTasks, 'Pending tasks past their due time'],
+                  ['Call invitations', value.totals.manualCallInvitations, 'Manually recorded evidence'],
+                ].map(([name, count, help]) => (
+                  <div className="adm-metric" key={String(name)}>
+                    <span>{name}</span>
+                    <strong>{typeof count === 'number' ? count.toLocaleString() : '—'}</strong>
+                    <small>{help}</small>
+                  </div>
+                ))}
+              </div>
+              <p className="adm-subtle">
+                {value.totals.submissions} submissions · {value.totals.canonicalContacts} canonical contacts ·{' '}
+                {value.totals.manualCallBookings} manually recorded call bookings
+              </p>
+              <div className="adm-report-breakdown">
+                {value.byStage.map((item) => (
+                  <span key={`${item.audience}:${item.stage}`}>
+                    {label(item.audience)} / {label(item.stage)} <strong>{item.count}</strong>
+                  </span>
+                ))}
+                <button type="button" onClick={onTasks}>
+                  Review due tasks
+                </button>
+              </div>
+              <details className="adm-audit">
+                <summary>Captured opportunities by source</summary>
+                <ul className="adm-history">
+                  {value.bySource.map((source, index) => (
+                    <li key={index}>
+                      <strong>
+                        {sourceLabel(source)} · {source.count}
+                      </strong>
+                      {source.sourceKey && <code className="adm-source-key">{source.sourceKey}</code>}
+                      <small>Recipient identity remains unknown.</small>
+                    </li>
+                  ))}
+                </ul>
+                {value.sourceGroupsTruncated && (
+                  <p className="adm-subtle">This report contains the first 200 source groups; more groups exist.</p>
+                )}
+              </details>
+            </>
+          )}
+          <p className="adm-provider-status">
+            Papermark Free · API access unavailable. Deck views cannot be imported on this plan; a source link does not verify a reader.
+          </p>
+        </div>
+      </details>
     </section>
   );
 }

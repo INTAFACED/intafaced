@@ -19,12 +19,14 @@ export function CrmMessages({
   originalRecipient,
   owners,
   onSaved,
+  onDraftChange,
 }: {
   csrf: string;
   opportunity: CrmOpportunity;
   originalRecipient: { name: string; email: string };
   owners: FounderOwner[];
   onSaved: () => Promise<boolean>;
+  onDraftChange: (dirty: boolean) => void;
 }) {
   const [page, setPage] = useState<Page | null>(null),
     [cursor, setCursor] = useState<string>(),
@@ -74,6 +76,7 @@ export function CrmMessages({
       setStaffText('');
       setReason('');
       setConfirmed(false);
+      onDraftChange(false);
       const recordFresh = await onSaved(),
         messagesFresh = await refresh();
       setNotice(
@@ -173,7 +176,10 @@ export function CrmMessages({
               required
               maxLength={2000}
               value={staffText}
-              onChange={(event) => setStaffText(event.target.value)}
+              onChange={(event) => {
+                setStaffText(event.target.value);
+                onDraftChange(Boolean(event.target.value || reason || confirmed));
+              }}
             />
           </label>
           <label>
@@ -183,11 +189,22 @@ export function CrmMessages({
               required
               maxLength={500}
               value={reason}
-              onChange={(event) => setReason(event.target.value)}
+              onChange={(event) => {
+                setReason(event.target.value);
+                onDraftChange(Boolean(staffText || event.target.value || confirmed));
+              }}
             />
           </label>
           <label className="adm-check">
-            <input required type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
+            <input
+              required
+              type="checkbox"
+              checked={confirmed}
+              onChange={(event) => {
+                setConfirmed(event.target.checked);
+                onDraftChange(Boolean(staffText || reason || event.target.checked));
+              }}
+            />
             Queue this transactional message for the original enquiry address shown above.
           </label>
           <p className="adm-subtle">

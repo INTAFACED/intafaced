@@ -32,6 +32,7 @@ function parsedStatus(value: unknown): Status {
       'canonicalContactId',
       'revision',
       'status',
+      'actorKind',
       'requestedBy',
       'requestedAt',
       'completedAt',
@@ -40,7 +41,8 @@ function parsedStatus(value: unknown): Status {
     ]) ||
     !isId(value.intentId) ||
     !isId(value.canonicalContactId) ||
-    !isId(value.requestedBy) ||
+    (value.actorKind !== 'founder' && value.actorKind !== 'system') ||
+    (value.actorKind === 'founder' ? !isId(value.requestedBy) : value.requestedBy !== null) ||
     !isCount(value.revision) ||
     value.revision < 1 ||
     !isTime(value.requestedAt) ||
@@ -285,6 +287,7 @@ export function CrmPrivacy({
       if (
         result.intentId !== intent.intentId ||
         result.canonicalContactId !== canonicalContact.id ||
+        result.actorKind !== intent.actorKind ||
         result.requestedBy !== intent.requestedBy ||
         result.requestedAt !== intent.requestedAt ||
         result.revision < intent.revision
@@ -443,7 +446,12 @@ export function CrmPrivacy({
             </details>
             <p className="adm-save-notice" role="status">
               <strong>{intent.status === 'complete' ? 'Linked contact records deleted' : 'Deletion pending'}</strong> · started by{' '}
-              {founderName(owners, intent.requestedBy)} on {crmDate(intent.requestedAt)}.
+              {intent.actorKind === 'system'
+                ? 'System retention sweep'
+                : intent.requestedBy
+                  ? founderName(owners, intent.requestedBy)
+                  : 'Founder'}{' '}
+              on {crmDate(intent.requestedAt)}.
             </p>
             {intent.status === 'pending_notify' ? (
               <>

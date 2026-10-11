@@ -31,6 +31,7 @@ const pending = {
   canonicalContactId,
   revision: 1,
   status: 'pending_notify',
+  actorKind: 'founder',
   requestedBy: userId,
   requestedAt: now,
   completedAt: null,
