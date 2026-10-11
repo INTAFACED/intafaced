@@ -357,7 +357,12 @@ export const accountRefSchema = z
 export const entryInputSchema = z.object({
   account: accountRefSchema,
   direction: z.enum(['debit', 'credit']),
-  amount: z.string().regex(/^\d+(\.\d{1,18})?$/, 'entry amounts are unsigned decimal strings'),
+  /**
+   * Twenty digits is the whole-part width `numeric(38,18)` already stores.
+   * Applied here as a string length, so a longer digit run — a multi-megabyte
+   * one included — is refused by this schema before `parseAmount` builds a bigint.
+   */
+  amount: z.string().regex(/^\d{1,20}(\.\d{1,18})?$/, 'entry amounts are unsigned decimal strings'),
 });
 
 export const postRequestSchema = z.object({

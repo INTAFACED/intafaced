@@ -33,6 +33,7 @@ export function hashAssetTx(tx: AssetHashInput, assetId: string, previousHash: s
       assetId: entry.assetId,
       direction: entry.direction,
       amount: formatAmount(entry.amount as Amount),
+      balanceAfter: formatAmount(entry.balanceAfter as Amount),
     }));
   const canonical = JSON.stringify({
     assetId,

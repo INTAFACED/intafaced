@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it, beforeEach } from 'vitest';
-import { MemoryLedger } from './memory-ledger.js';
+import { MemoryLedger, hashTx } from './memory-ledger.js';
+import { crossShardAnchor, hashAssetTx } from './sharding.js';
 import { runLedgerConformance } from './testing/conformance.js';
 
 /**
@@ -396,6 +398,104 @@ describe('INVARIANT 2 — available never goes negative', () => {
     expect(await balanceOf(USER_A, 'USDT')).toBe('10');
   });
 
+  it('a refused post does not leave an account or a staged balance on the book', async () => {
+    const opened = '33333333-3333-4333-8333-333333333333';
+    const refused = '44444444-4444-4444-8444-444444444444';
+    await fund(USER_A, 'USDT', '10');
+
+    // First entry would open `opened`. The later credit on `refused` is what
+    // fails: the in-request debit has staged 3, and the book still holds nothing.
+    const request = {
+      idempotencyKey: 'refuse-does-not-stage-account',
+      module: 'test',
+      reason: 'test',
+      entries: [
+        { account: userAvailable(opened, 'USDT'), direction: 'debit' as const, amount: amt('7') },
+        { account: userAvailable(USER_A, 'USDT'), direction: 'debit' as const, amount: amt('4') },
+        { account: userAvailable(refused, 'USDT'), direction: 'debit' as const, amount: amt('3') },
+        { account: userAvailable(refused, 'USDT'), direction: 'credit' as const, amount: amt('8') },
+        { account: railBoundary('test', 'USDT'), direction: 'credit' as const, amount: amt('6') },
+      ],
+    };
+
+    let thrown: unknown;
+    try {
+      await ledger.post(request);
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(InsufficientFundsError);
+    const funds = thrown as InsufficientFundsError;
+    expect(funds.requested).toBe('8');
+    expect(funds.availableBalance).toBe('0');
+    expect(funds.accountId).toBe('');
+
+    expect(await ledger.getTxByKey(request.idempotencyKey)).toBeNull();
+    expect(ledger.journal()).toHaveLength(1);
+    expect(await balanceOf(USER_A, 'USDT')).toBe('10');
+    expect(formatAmount((await ledger.balance(railBoundary('test', 'USDT'))).amount)).toBe('-10');
+
+    for (const ownerId of [opened, refused]) {
+      expect(await ledger.balances('user', ownerId)).toEqual([]);
+      const read = await ledger.balance(userAvailable(ownerId, 'USDT'));
+      expect(read.accountId).toBe('');
+      expect(read.amount).toBe(0n);
+    }
+
+    const book = ledger as unknown as {
+      accounts: Map<string, { id: string; ownerId: string }>;
+      balancesByAccountId: Map<string, bigint>;
+    };
+    const liveIds = new Set<string>();
+    for (const account of book.accounts.values()) {
+      expect(account.ownerId).not.toBe(opened);
+      expect(account.ownerId).not.toBe(refused);
+      liveIds.add(account.id);
+    }
+    for (const [id, amount] of book.balancesByAccountId) {
+      expect(liveIds.has(id)).toBe(true);
+      expect(amount).not.toBe(0n);
+    }
+
+    await expect(ledger.post(request)).rejects.toBeInstanceOf(InsufficientFundsError);
+    expect(await ledger.getTxByKey(request.idempotencyKey)).toBeNull();
+
+    // An account the book already holds keeps that balance. The error names it,
+    // not the in-request amount (10 + 5) this throw discards.
+    const overdraw = {
+      idempotencyKey: 'refuse-reports-held-balance',
+      module: 'test',
+      reason: 'test',
+      entries: [
+        { account: userAvailable(USER_A, 'USDT'), direction: 'debit' as const, amount: amt('5') },
+        { account: userAvailable(USER_A, 'USDT'), direction: 'credit' as const, amount: amt('20') },
+        { account: railBoundary('test', 'USDT'), direction: 'debit' as const, amount: amt('15') },
+      ],
+    };
+    const held = await ledger.balance(userAvailable(USER_A, 'USDT'));
+    let overdrawn: unknown;
+    try {
+      await ledger.post(overdraw);
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      overdrawn = err;
+    }
+    expect(overdrawn).toBeInstanceOf(InsufficientFundsError);
+    const heldFunds = overdrawn as InsufficientFundsError;
+    expect(heldFunds.accountId).toBe(held.accountId);
+    expect(heldFunds.availableBalance).toBe('10');
+    expect(heldFunds.requested).toBe('20');
+    expect(await balanceOf(USER_A, 'USDT')).toBe('10');
+    expect(await ledger.getTxByKey(overdraw.idempotencyKey)).toBeNull();
+
+    await ledger.post(recipes.deposit({ userId: opened, assetId: 'USDT', amount: amt('2'), rail: 'test', railRef: 'opened-after-refuse' }));
+    const created = await ledger.balance(userAvailable(opened, 'USDT'));
+    expect(created.accountId).not.toBe('');
+    expect(created.amount).toBe(amt('2'));
+    expect(await ledger.balances('user', refused)).toEqual([]);
+  });
+
   it('lets only the treasury boundary run negative — that is the custody obligation', async () => {
     await fund(USER_A, 'USDT', '100');
     const boundary = await ledger.balance(railBoundary('test', 'USDT'));
@@ -448,6 +548,28 @@ describe('INVARIANT 3 — locks are funded from the owner’s own available bala
         { account: userAvailable(USER_B, 'BTC'), direction: 'debit', amount: amt('1') },
       ]),
     ).not.toThrow();
+  });
+
+  it('refuses a credit on an unknown kind as funding for a lock', () => {
+    const unknown = {
+      ...userAvailable(USER_A, 'BTC'),
+      kind: 'receivable' as unknown as ReturnType<typeof userAvailable>['kind'],
+    };
+    const locks = [
+      userHold(USER_A, 'BTC', 'order:test'),
+      userEscrow(USER_A, 'BTC', 'trade:test'),
+      userStake(USER_A, 'BTC', 'token:stake:test'),
+      positionCollateralAccount(USER_A, 'BTC', 'test'),
+    ];
+    for (const lock of locks) {
+      const wash = () =>
+        assertPairedLocks([
+          { account: unknown, direction: 'credit', amount: amt('1') },
+          { account: lock, direction: 'debit', amount: amt('1') },
+        ]);
+      expect(wash).toThrow(InvalidEntryError);
+      expect(wash).toThrow(/receivable/);
+    }
   });
 
   /**
@@ -543,6 +665,100 @@ describe('INVARIANT 5 — hash chain', () => {
     const result = ledger.verifyChain();
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.brokenAt).toBe(target.id);
+  });
+
+  it('breaks when an asset hash names a forged parent instead of the prior tip', async () => {
+    await fund(USER_A, 'USDT', '10');
+    await fund(USER_A, 'USDT', '20');
+    expect(ledger.verifyChain()).toEqual({ ok: true });
+
+    const second = ledger.journal()[1]!;
+    const assetId = second.entries[0]!.assetId;
+    const forgedParent = 'f'.repeat(64);
+    expect(second.previousAssetHashes?.[assetId]).not.toBe(forgedParent);
+
+    const previousAssetHashes = { ...second.previousAssetHashes, [assetId]: forgedParent };
+    const assetHashes = {
+      ...second.assetHashes,
+      [assetId]: hashAssetTx(second, assetId, forgedParent),
+    };
+    Object.assign(second, {
+      previousAssetHashes,
+      assetHashes,
+      crossShardAnchor: crossShardAnchor(assetHashes),
+    });
+
+    expect(ledger.verifyChain()).toEqual({ ok: false, brokenAt: second.id });
+
+    Object.assign(second, {
+      hash: hashTx(
+        {
+          id: second.id,
+          module: second.module,
+          reason: second.reason,
+          postedAt: second.postedAt,
+          entries: second.entries,
+          assetHashes: second.assetHashes,
+          previousAssetHashes: second.previousAssetHashes,
+          crossShardAnchor: second.crossShardAnchor,
+        },
+        second.previousHash,
+      ),
+    });
+    expect(ledger.verifyChain()).toEqual({ ok: false, brokenAt: second.id });
+  });
+
+  it("keeps today's digest when a transaction omits the asset-chain fields", () => {
+    const postedAt = new Date('2026-01-02T00:00:00.000Z');
+    const tx = {
+      id: 'tx-old',
+      module: 'ledger',
+      reason: 'deposit.credited',
+      postedAt,
+      entries: [
+        {
+          id: 'e1',
+          txId: 'tx-old',
+          accountId: 'acct',
+          assetId: 'USDT',
+          direction: 'debit' as const,
+          amount: amt('1'),
+          balanceAfter: amt('1'),
+        },
+      ],
+    };
+    const canonical = JSON.stringify({
+      id: 'tx-old',
+      module: 'ledger',
+      reason: 'deposit.credited',
+      postedAt: '2026-01-02T00:00:00.000Z',
+      entries: [{ accountId: 'acct', assetId: 'USDT', direction: 'debit', amount: '1' }],
+    });
+    const digest = createHash('sha256').update('').update(' ').update(canonical).digest('hex');
+    expect(hashTx(tx, null)).toBe(digest);
+
+    const coveredCanonical = JSON.stringify({
+      id: 'tx-old',
+      module: 'ledger',
+      reason: 'deposit.credited',
+      postedAt: '2026-01-02T00:00:00.000Z',
+      entries: [{ accountId: 'acct', assetId: 'USDT', direction: 'debit', amount: '1' }],
+      assetHashes: { USDT: 'aa' },
+      previousAssetHashes: { USDT: null },
+      crossShardAnchor: 'bb',
+    });
+    const covered = createHash('sha256').update('').update(' ').update(coveredCanonical).digest('hex');
+    expect(
+      hashTx(
+        {
+          ...tx,
+          assetHashes: { USDT: 'aa' },
+          previousAssetHashes: { USDT: null },
+          crossShardAnchor: 'bb',
+        },
+        null,
+      ),
+    ).toBe(covered);
   });
 });
 

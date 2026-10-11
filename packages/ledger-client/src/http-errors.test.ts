@@ -134,6 +134,34 @@ describe('rehydrateLedgerHttpError', () => {
   });
 
   /**
+   * The funds sentence is not a code. On 400 the regex used to run against
+   * `blob`, which also holds the structured code, the message, and the raw
+   * detail. A body that reads "Insufficient <asset>: requested …, available …"
+   * came back as InsufficientFundsError, and the code svc-ledger sent was gone.
+   * Amounts on the wire do not make that reclassification legitimate.
+   */
+  it('keeps a different structured code when the body matches the insufficient-funds sentence', () => {
+    const err = rehydrateLedgerHttpError(
+      '/trpc/post',
+      400,
+      JSON.stringify({
+        message: 'Insufficient USDT: requested 10, available 3',
+        code: 'ledger.owner_identity_space',
+        accountId: 'acct-1',
+        assetId: 'USDT',
+        requested: '10',
+        availableBalance: '3',
+      }),
+    );
+    expect(err).toBeInstanceOf(LedgerError);
+    expect(err).not.toBeInstanceOf(InsufficientFundsError);
+    expect((err as LedgerError).code).toBe('ledger.owner_identity_space');
+    expect(err.message).toBe('Insufficient USDT: requested 10, available 3');
+    expect(err).not.toHaveProperty('requested');
+    expect(err).not.toHaveProperty('availableBalance');
+  });
+
+  /**
    * Missing amounts are not zero. A typed InsufficientFundsError with
    * requested/available `'0'` reads as a real empty book; callers then treat
    * "we don't know" as "the account is empty."

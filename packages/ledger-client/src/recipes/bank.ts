@@ -163,9 +163,19 @@ export interface EarnPoolFundInput {
  * Interest is not minted. `earnInterest` debits users out of this reserve, so
  * an under-funded pool fails to accrue rather than paying out of thin air —
  * which is the correct failure, loudly, on the day the yield stops being real.
+ *
+ * A supplied source must already be the pool asset. Cross-asset funding is
+ * rejected outright rather than silently priced — converting between assets is
+ * a trade, and a trade has an execution price this function has no business
+ * inventing.
  */
 export function earnPoolFund(input: EarnPoolFundInput): PostRequest {
   requirePositive('pool funding amount', input.amount);
+  if (input.from !== undefined && input.from.assetId !== input.assetId) {
+    throw new InvalidEntryError(
+      `A transfer cannot change asset (${input.from.assetId} → ${input.assetId}); route it through a conversion instead`,
+    );
+  }
   return {
     idempotencyKey: `bank.earn.fund:${input.poolId}:${input.fundingId}`,
     module: 'bank',
@@ -180,7 +190,7 @@ export function earnPoolFund(input: EarnPoolFundInput): PostRequest {
 
 export interface EarnInterestInput {
   poolId: string;
-  /** The accrual day, `YYYY-MM-DD`. One accrual per pool per day, forever. */
+  /** A real Gregorian day, written `YYYY-MM-DD`. One accrual per pool per day, forever. */
   date: string;
   assetId: string;
   /** One entry per user. Zero-amount payouts must be filtered out by the caller. */
@@ -189,12 +199,68 @@ export interface EarnInterestInput {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** Gregorian leap year from the written year. Year 1 stays year 1. */
+function gregorianLeapYear(year: number): boolean {
+  return year % 400 === 0 || (year % 4 === 0 && year % 100 !== 0);
+}
+
+/**
+ * Calendar index from the written digits. Year, month, and day are indexes,
+ * not amounts, so they stay a small integer built from character codes.
+ */
+function writtenCalendarIndex(date: string, start: number, end: number): number {
+  let index = 0;
+  for (let i = start; i < end; i += 1) {
+    index = index * 10 + (date.charCodeAt(i) - 48);
+  }
+  return index;
+}
+
+/**
+ * A real calendar day, read from the written year, month, and day.
+ * The original string is what the idempotency key keeps.
+ */
+function accrualCalendarDay(date: string): boolean {
+  if (!ISO_DATE.test(date)) return false;
+  const year = writtenCalendarIndex(date, 0, 4);
+  const month = writtenCalendarIndex(date, 5, 7);
+  const day = writtenCalendarIndex(date, 8, 10);
+  if (day < 1) return false;
+  const length = daysInGregorianMonth(year, month);
+  return length !== undefined && day <= length;
+}
+
+function daysInGregorianMonth(year: number, month: number): number | undefined {
+  switch (month) {
+    case 1:
+    case 3:
+    case 5:
+    case 7:
+    case 8:
+    case 10:
+    case 12:
+      return 31;
+    case 4:
+    case 6:
+    case 9:
+    case 11:
+      return 30;
+    case 2:
+      return gregorianLeapYear(year) ? 29 : 28;
+    default:
+      return undefined;
+  }
+}
+
 /**
  * One day's interest for one pool, as a single atomic transaction.
  *
  * The key is `bank.interest:<poolId>:<date>` — a business key, per §5 of the
  * agent protocol. A scheduler that fires twice at midnight produces the same
- * key twice and the second post returns the first one's transaction.
+ * key twice and the second post returns the first one's transaction. The date
+ * in that key is the written calendar day. A string that is not one, such as
+ * 2026-02-31, is refused, so it cannot sit beside a later correction as a
+ * second accrual.
  *
  * One transaction for the whole pool rather than one per user is a deliberate
  * trade: it makes "did this pool accrue on the 3rd" a single unambiguous fact,
@@ -208,7 +274,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  * property per chunk. The shape is chosen so that change is additive.
  */
 export function earnInterest(input: EarnInterestInput): PostRequest {
-  if (!ISO_DATE.test(input.date)) {
+  if (!accrualCalendarDay(input.date)) {
     throw new InvalidEntryError(`Accrual date must be YYYY-MM-DD, got "${input.date}"`);
   }
   if (input.payouts.length === 0) {
