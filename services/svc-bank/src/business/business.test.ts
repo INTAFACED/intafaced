@@ -721,7 +721,7 @@ describe('maker/checker dual control with ledger holds', () => {
     const account = await bank.business.createAccount({
       name: 'Ops Co',
       assetId: 'USDT',
-      spendThreshold: amt('10'),
+      spendThreshold: amt('100'),
       creatorUserId: MAKER,
     });
     const primary = await bank.spaces.ensurePrimary(MAKER, 'USDT');
@@ -781,13 +781,13 @@ describe('maker/checker dual control with ledger holds', () => {
     const account = await bank.business.createAccount({
       name: 'Ops Co',
       assetId: 'USDT',
-      spendThreshold: amt('10'),
+      spendThreshold: amt('100'),
       creatorUserId: MAKER,
     });
     const otherAccount = await bank.business.createAccount({
       name: 'Other Co',
       assetId: 'USDT',
-      spendThreshold: amt('10'),
+      spendThreshold: amt('100'),
       creatorUserId: MAKER,
     });
     const primary = await bank.spaces.ensurePrimary(MAKER, 'USDT');
@@ -1023,7 +1023,7 @@ describe('maker/checker dual control with ledger holds', () => {
     const account = await bankStub.business.createAccount({
       name: 'Ops Co',
       assetId: 'USDT',
-      spendThreshold: amt('10'),
+      spendThreshold: amt('100'),
       creatorUserId: MAKER,
     });
     const primary = await bankStub.spaces.ensurePrimary(MAKER, 'USDT');
@@ -1213,7 +1213,7 @@ describe('maker/checker dual control with ledger holds', () => {
     const account = await bank.business.createAccount({
       name: 'Ops Co',
       assetId: 'USDT',
-      spendThreshold: amt('10'),
+      spendThreshold: amt('100'),
       creatorUserId: MAKER,
     });
     const primary = await bank.spaces.ensurePrimary(MAKER, 'USDT');
@@ -1286,6 +1286,92 @@ describe('maker/checker dual control with ledger holds', () => {
     ).rejects.toMatchObject({ code: 'bank.business_payroll_rate_unset' });
     expect(await availableOf(MAKER, 'USDT')).toBe('100');
     expect(formatAmount(await bank.spaces.balanceOf(eur))).toBe('0');
+  });
+
+  it('refuses an over-threshold payroll from one admin or maker and still posts under it', async () => {
+    const account = await bank.business.createAccount({
+      name: 'Ops Co',
+      assetId: 'USDT',
+      spendThreshold: amt('100'),
+      creatorUserId: MAKER,
+    });
+    await bank.business.addMember({
+      accountId: account.id,
+      actorUserId: MAKER,
+      userId: CHECKER,
+      role: 'maker',
+    });
+    const adminFrom = await bank.spaces.ensurePrimary(MAKER, 'USDT');
+    const makerFrom = await bank.spaces.ensurePrimary(CHECKER, 'USDT');
+    const alice = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Alice' });
+    const bob = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Bob' });
+    await fund(MAKER, 'USDT', '500');
+    await fund(CHECKER, 'USDT', '500');
+    const payrollOrHold = () =>
+      ledger
+        .journal()
+        .filter(
+          (tx) =>
+            tx.idempotencyKey.startsWith('bank.business.payroll:') || tx.idempotencyKey.startsWith('bank.business.hold:'),
+        );
+
+    await expect(
+      bank.business.runPayroll({
+        payrollId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        accountId: account.id,
+        actorUserId: MAKER,
+        fromSpaceId: adminFrom.id,
+        recipients: [
+          { toSpaceId: alice.id, amount: amt('60') },
+          { toSpaceId: bob.id, amount: amt('40') },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: 'bank.business_self_approve',
+      message: expect.stringMatching(/dual control is required/i),
+    });
+
+    await expect(
+      bank.business.runPayroll({
+        payrollId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        accountId: account.id,
+        actorUserId: CHECKER,
+        fromSpaceId: makerFrom.id,
+        recipients: [{ toSpaceId: alice.id, amount: amt('100') }],
+      }),
+    ).rejects.toMatchObject({
+      code: 'bank.business_self_approve',
+      message: expect.stringMatching(/dual control is required/i),
+    });
+
+    expect(await availableOf(MAKER, 'USDT')).toBe('500');
+    expect(await availableOf(CHECKER, 'USDT')).toBe('500');
+    expect(formatAmount(await bank.spaces.balanceOf(alice))).toBe('0');
+    expect(formatAmount(await bank.spaces.balanceOf(bob))).toBe('0');
+    expect(payrollOrHold()).toHaveLength(0);
+    const approvals = await sql<{ id: string }[]>`SELECT id FROM bank.business_approvals`;
+    const runs = await sql<{ id: string }[]>`SELECT id FROM bank.business_payroll_runs`;
+    expect(approvals).toHaveLength(0);
+    expect(runs).toHaveLength(0);
+
+    const under = await bank.business.runPayroll({
+      payrollId: 'abababab-abab-4bab-8bab-abababababab',
+      accountId: account.id,
+      actorUserId: MAKER,
+      fromSpaceId: adminFrom.id,
+      recipients: [
+        { toSpaceId: alice.id, amount: amt('40') },
+        { toSpaceId: bob.id, amount: amt('25') },
+      ],
+    });
+    expect(under.ledgerTxId).toBeTruthy();
+    expect(await availableOf(MAKER, 'USDT')).toBe('435');
+    expect(await availableOf(CHECKER, 'USDT')).toBe('500');
+    expect(formatAmount(await bank.spaces.balanceOf(alice))).toBe('40');
+    expect(formatAmount(await bank.spaces.balanceOf(bob))).toBe('25');
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.business.payroll:'))).toHaveLength(1);
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.business.hold:'))).toHaveLength(0);
+    expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
   it('refuses an empty payroll', async () => {

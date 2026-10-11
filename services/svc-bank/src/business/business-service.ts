@@ -492,6 +492,11 @@ export class BusinessService {
    * Same-asset only. A mix would invent an FX/withholding rate — refused as
    * `bank.business_payroll_rate_unset`. Amounts are caller-supplied instruction
    * strings (parsed upstream); this door never computes a salary table.
+   *
+   * A total at or above the account spend threshold does not post. The approval
+   * hold settles one destination for one amount, so it cannot carry these
+   * recipients without a new recipe or a new amount. One admin or maker is not
+   * a different checker.
    */
   async runPayroll(input: {
     payrollId: string;
@@ -537,10 +542,19 @@ export class BusinessService {
       resolved.push({ toSpaceId: line.toSpaceId, amount: line.amount, acct: accountForSpace(to) });
     }
 
+    let total: Amount = 0n;
+    for (const line of resolved) total += line.amount;
+    if (total >= account.spendThreshold) {
+      throw new BankError(
+        'Dual control is required for a payroll at or above the spend threshold. An admin or maker alone is not a different checker.',
+        'bank.business_self_approve',
+      );
+    }
+
     const fromAcct = accountForSpace(from);
     return withMoneySpan(
       'bank.business.payroll',
-      { operation: 'business-payroll', userId: input.actorUserId, amount: formatAmount(resolved.reduce((acc, l) => acc + l.amount, 0n)) },
+      { operation: 'business-payroll', userId: input.actorUserId, amount: formatAmount(total) },
       async () => {
         const posted = await this.ledger.post(
           recipes.businessPayroll({
