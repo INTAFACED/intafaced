@@ -103,6 +103,28 @@ describe('createTradeHttpMarkSource', () => {
     if (q.kind === 'unavailable') expect(q.reason).toBe('stale');
   });
 
+  it('a 200 JSON null ticker returns the unavailable refusal and does not throw', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (isMarketsList(u)) {
+        return new Response(JSON.stringify([{ id: MARKET_ID, symbol: SYMBOL }]), { status: 200 });
+      }
+      return new Response(JSON.stringify(null), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const marks = createTradeHttpMarkSource({
+      baseUrl: 'http://trade.test',
+      fetchImpl,
+      marketsLimit: MARKETS_LIMIT,
+    });
+    const q = await marks.quote(MARKET_ID);
+    expect(q).toEqual({
+      kind: 'unavailable',
+      reason: 'stale',
+      detail: 'trade ticker has no usable bid/ask/last',
+    });
+  });
+
   it('resolves marketId → symbol → mid and never invents on HTTP failure', async () => {
     const now = new Date('2026-08-14T00:00:00Z');
     const fetchImpl = vi.fn(async (url: string) => {

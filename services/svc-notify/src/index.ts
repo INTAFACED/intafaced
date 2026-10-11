@@ -145,6 +145,7 @@ const notify = new NotifyService(
   {
     fanoutEnabled: env.NOTIFY_FANOUT_ENABLED,
     verifyTtlMinutes: env.NOTIFY_VERIFY_TTL_MINUTES,
+    verifyCodePepper: env.NOTIFY_VERIFY_CODE_PEPPER,
     targetRateLimiter,
   },
   { targets, deliveries, channels, dispatcher, muteStore },

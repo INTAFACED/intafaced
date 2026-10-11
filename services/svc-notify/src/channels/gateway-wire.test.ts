@@ -313,6 +313,50 @@ describe('what the adapter does when the gateway misbehaves', () => {
     expect(err.message).toContain('[address redacted]');
   });
 
+  it('redacts a mailbox echo and a percent-encoded address when only the case differs', async () => {
+    // `encodeURIComponent` emits `%2B`. Percent-encoding hex is case-insensitive,
+    // so a gateway that writes `%2b` for the same plus still names the recipient.
+    // A mailbox quoted in another case is the same box. `detail` is this message,
+    // and it is the copy that remains after `channel_targets` is removed.
+    const address = 'Borrower+Tag@Example.COM';
+    const encoded = encodeURIComponent(address);
+    const lowerHex = encoded.replace(/%[0-9A-F]{2}/g, (token) => token.toLowerCase());
+    const lowerEncoded = encodeURIComponent(address.toLowerCase()).replace(/%[0-9A-F]{2}/g, (token) => token.toLowerCase());
+    expect(lowerHex).not.toBe(encoded);
+    expect(lowerHex).toContain('%2b');
+    expect(address.toLowerCase()).not.toBe(address);
+
+    const g = await gateway(() => ({
+      status: 400,
+      body: `rejected ${address.toLowerCase()} via ${lowerHex} and ${lowerEncoded}`,
+    }));
+    const err = await failure(new EmailChannel({ url: g.url, token: TOKEN, timeoutMs: 2_000 }).deliver(message({ address })));
+    const detail = err.message;
+
+    expect(detail.toLowerCase()).not.toContain(address.toLowerCase());
+    expect(detail.toLowerCase()).not.toContain('%2b');
+    expect(detail.toLowerCase()).not.toContain('example.com');
+    expect(detail).toContain('[address redacted]');
+    expect(detail).toContain('400');
+    expect(detail).toContain('rejected');
+
+    // A handset plus is the same hex miss, and it is not a mailbox.
+    const handset = '+447700900000';
+    const handsetHex = encodeURIComponent(handset).replace(/%[0-9A-F]{2}/g, (token) => token.toLowerCase());
+    expect(handsetHex).toBe('%2b447700900000');
+    const sms = await gateway(() => ({ status: 422, body: `The To number ${handsetHex} is not valid` }));
+    const smsErr = await failure(
+      new SmsChannel({ url: sms.url, token: TOKEN, timeoutMs: 2_000, maxChars: 480 }).deliver(
+        message({ channel: 'sms', address: handset }),
+      ),
+    );
+    expect(smsErr.message).not.toContain(handset);
+    expect(smsErr.message).not.toContain('447700900000');
+    expect(smsErr.message.toLowerCase()).not.toContain('%2b');
+    expect(smsErr.message).toContain('[address redacted]');
+    expect(smsErr.message).toContain('is not valid');
+  });
+
   it('treats a 2xx with no body as acceptance, with an honest null reference', async () => {
     const g = await gateway(() => ({ status: 204 }));
     const receipt = await new EmailChannel({ url: g.url, token: TOKEN, timeoutMs: 2_000 }).deliver(message());

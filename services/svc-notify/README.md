@@ -508,6 +508,11 @@ phones without also blinding them. It may **not** be combined with a non-empty
 sending off is a contradiction, and it is the shape a bad rollback takes. The env
 schema refuses it.
 
+`NOTIFY_FANOUT_ENABLED=false` is the same contradiction when
+`NOTIFY_REQUIRED_CHANNELS` names a channel: consumers ack, insert no inbox rows,
+and send nothing, even with out-of-app on and gateway credentials set. The env
+schema refuses that boot. `none` may still turn fan-out off.
+
 `NOTIFY_OUT_OF_APP_ENABLED=false` also counts as incident-silence for the venue
 claim: health/ready must not read as allFine. Flipping sending back on is not an
 all-clear unless `NOTIFY_INCIDENT_ALL_CLEAR` is set and matching `GET /markets`
@@ -524,6 +529,7 @@ is actually open.
 | `NOTIFY_MAX_DELIVERY_ATTEMPTS`          | —       | 1–5, at or below the bus `maxDeliver`. Blank refuses `notify.max_delivery_attempts_unset` — never invent 3. Owner may set 3 explicitly. |
 | `NOTIFY_SMS_MAX_CHARS`                  | `480`   | Three GSM segments.                                                                                                                     |
 | `NOTIFY_VERIFY_TTL_MINUTES`             | —       | 1–120. Blank refuses `notify.verify_ttl_unset` — never invent 15. Owner may set 15 explicitly.                                          |
+| `NOTIFY_VERIFY_CODE_PEPPER`             | —       | Required. Blank refuses `notify.verify_code_pepper_unset` — no default. HMAC key for confirmation codes.                                |
 | `TRADE_URL`                             | —       | Unset ⇒ alert marks stay dark. Set ⇒ public ticker mark source (live wiring).                                                           |
 | `MATCHING_URL`                          | —       | Unset ⇒ venue halt unwired (not allFine, not invented halt). Set ⇒ consume GET /markets. Never POST /halt-all.                          |
 | `NOTIFY_INCIDENT_SILENCE`               | `false` | Latch: matching-open is not allFine until `NOTIFY_INCIDENT_ALL_CLEAR`.                                                                  |

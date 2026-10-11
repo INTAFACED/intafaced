@@ -71,7 +71,7 @@ const SMS_CREDS = {
  * the suite would pass or fail on the developer's machine rather than on the
  * code. Only `PATH` and `SystemRoot` are carried, because node needs them.
  */
-function boot(over: Record<string, string>): Promise<{ code: number | null; stderr: string }> {
+function boot(over: Record<string, string>): Promise<{ code: number | null; signal: NodeJS.Signals | null; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['--import', 'tsx', ENTRYPOINT], {
       cwd: PKG,
@@ -95,19 +95,30 @@ function boot(over: Record<string, string>): Promise<{ code: number | null; stde
       stderr += chunk;
     });
 
-    const timer = setTimeout(() => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const finish = (code: number | null, signal: NodeJS.Signals | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ code, signal, stderr });
+    };
+
+    // A timer kill reports code null. null !== 0, so callers must not treat it as an exit.
+    timer = setTimeout(() => {
       child.kill('SIGKILL');
-      resolve({ code: null, stderr });
+      finish(null, 'SIGKILL');
     }, BOOT_TIMEOUT_MS);
 
     child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       reject(err);
     });
 
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      resolve({ code, stderr });
+    child.on('close', (code, signal) => {
+      finish(code, signal);
     });
   });
 }
@@ -120,19 +131,27 @@ function boot(over: Record<string, string>): Promise<{ code: number | null; stde
  *
  * Raised deliberately rather than by making the tests cheaper: the thing worth
  * asserting is that the real process refuses to start, and a test that stopped
- * spawning it would pass without proving that. The spawn itself already caps at
- * BOOT_TIMEOUT_MS, so a genuinely hung boot still fails rather than hanging the
- * suite.
+ * spawning it would pass without proving that. The spawn caps at
+ * BOOT_TIMEOUT_MS and then SIGKILLs. That path reports code null, which
+ * `!== 0` accepts, so the cases below require a numeric non-zero status and
+ * no signal — the entrypoint ended itself.
  */
 const BOOT_TIMEOUT_MS = 30_000;
+
+/** Node sets code to null when a signal kills the child, including this timer. */
+function assertExitedByItself(code: number | null, signal: NodeJS.Signals | null): void {
+  expect(signal).toBeNull();
+  expect(code).not.toBeNull();
+  expect(code).not.toBe(0);
+}
 
 describe('svc-notify does not start when a channel it depends on has no credentials', () => {
   it(
     'refuses to boot, names both missing variables, and never reaches the database',
     async () => {
-      const { code, stderr } = await boot({ APP_ENV: 'prod', NOTIFY_REQUIRED_CHANNELS: 'sms' });
+      const { code, signal, stderr } = await boot({ APP_ENV: 'prod', NOTIFY_REQUIRED_CHANNELS: 'sms' });
 
-      expect(code).not.toBe(0);
+      assertExitedByItself(code, signal);
       expect(stderr).toContain(REFUSED_AT_THE_GATE);
       // The message is an ops instruction, so it must name the variables verbatim.
       expect(stderr).toContain('NOTIFY_SMS_GATEWAY_URL');
@@ -148,13 +167,13 @@ describe('svc-notify does not start when a channel it depends on has no credenti
   it(
     'gets past the gate once the credentials are set — proving the gate is what stopped it',
     async () => {
-      const { code, stderr } = await boot({
+      const { code, signal, stderr } = await boot({
         APP_ENV: 'prod',
         NOTIFY_REQUIRED_CHANNELS: 'sms',
         ...SMS_CREDS,
       });
 
-      expect(code).not.toBe(0); // the dead database port, deliberately
+      assertExitedByItself(code, signal); // the dead database port, deliberately
       expect(stderr).not.toContain(REFUSED_AT_THE_GATE);
       expect(stderr).toContain(PAST_THE_GATE);
     },
@@ -164,8 +183,9 @@ describe('svc-notify does not start when a channel it depends on has no credenti
   it(
     'refuses in prod when nothing is declared at all',
     async () => {
-      const { stderr } = await boot({ APP_ENV: 'prod' });
+      const { code, signal, stderr } = await boot({ APP_ENV: 'prod' });
 
+      assertExitedByItself(code, signal);
       expect(stderr).toContain(REFUSED_AT_THE_GATE);
       expect(stderr).toContain('must state which out-of-app channels');
       expect(stderr).not.toContain(PAST_THE_GATE);
@@ -179,8 +199,9 @@ describe('svc-notify does not start when a channel it depends on has no credenti
       // `blankAsAbsent` catches `""`. `","` is typed, so without the guard in
       // `parseRequiredChannels` it satisfies "you must declare something" while
       // declaring nothing, and prod boots depending on no channel.
-      const { stderr } = await boot({ APP_ENV: 'prod', NOTIFY_REQUIRED_CHANNELS: ',' });
+      const { code, signal, stderr } = await boot({ APP_ENV: 'prod', NOTIFY_REQUIRED_CHANNELS: ',' });
 
+      assertExitedByItself(code, signal);
       expect(stderr).toContain(REFUSED_AT_THE_GATE);
       expect(stderr).toContain('NOTIFY_REQUIRED_CHANNELS');
       expect(stderr).not.toContain(PAST_THE_GATE);
@@ -191,8 +212,9 @@ describe('svc-notify does not start when a channel it depends on has no credenti
   it(
     'boots past the gate on an explicit `none` — a decision is allowed to be recorded',
     async () => {
-      const { stderr } = await boot({ APP_ENV: 'prod', NOTIFY_REQUIRED_CHANNELS: 'none' });
+      const { code, signal, stderr } = await boot({ APP_ENV: 'prod', NOTIFY_REQUIRED_CHANNELS: 'none' });
 
+      assertExitedByItself(code, signal);
       expect(stderr).not.toContain(REFUSED_AT_THE_GATE);
       expect(stderr).toContain(PAST_THE_GATE);
     },
@@ -202,13 +224,18 @@ describe('svc-notify does not start when a channel it depends on has no credenti
   it(
     'leaves dev frictionless — no gateway credentials are needed to run the stack',
     async () => {
-      const { stderr } = await boot({ APP_ENV: 'dev' });
+      const { code, signal, stderr } = await boot({ APP_ENV: 'dev' });
 
+      assertExitedByItself(code, signal);
       expect(stderr).not.toContain(REFUSED_AT_THE_GATE);
       expect(stderr).toContain(PAST_THE_GATE);
     },
     BOOT_TIMEOUT_MS,
   );
+
+  it('does not pass when the only exit is the boot timer SIGKILL', () => {
+    expect(() => assertExitedByItself(null, 'SIGKILL')).toThrow();
+  });
 });
 
 describe('exactly one function decides whether svc-notify may start', () => {

@@ -4,20 +4,23 @@
  * §31: "Rides §9 notification fan-out" — we call NotifyService.create, which
  * already owns inbox insert + channel dispatch. No second delivery path.
  *
- * Idempotency key is `<alertId>:<markPrice>` so a redelivery of the same cross
- * does not double-notify, and a later cross at a different mark is a new fact
- * only if the alert were re-activated (MVP: one-shot fire).
+ * Idempotency key is `<alertId>:<canonical mark>` so a redelivery of the same
+ * cross does not double-notify. The mark half is the spelling
+ * `compareDecimalStrings` treats as equal (`100.50` and `100.5`), not the raw
+ * feed text. A later cross at a different mark is a new fact only if the alert
+ * were re-activated (MVP: one-shot fire).
  */
 
 import type { CreateResult, NotifyService } from '../notify-service.js';
 import { acceptAlertMark, outOfAppRequiredRefusal } from './accepted-mark.js';
+import { canonicalDecimalString } from './decimal.js';
 import {
   evaluatePortfolioAlert,
   evaluatePriceAlert,
   evaluateUnpublishedKind as unpublishedKindOutcome,
   evaluateWhaleAlert,
 } from './evaluate.js';
-import type { AlertStore } from './store.js';
+import { AlertValidationError, type AlertStore } from './store.js';
 import { createDarkWhaleMarkSource } from './whale-mark.js';
 import {
   AlertKindUnpublishedError,
@@ -34,11 +37,36 @@ import {
   type UnpublishedAlertKind,
 } from './types.js';
 
+export const NOTIFY_PRICE_UNSET = 'notify.price_unset' as const;
+
+/** Price alert target unpublished. Blank is not a number. */
+export class NotifyPriceUnsetError extends Error {
+  readonly code = NOTIFY_PRICE_UNSET;
+  readonly missingPiece = 'price' as const;
+  readonly slot = null;
+
+  constructor() {
+    super('A price alert is refused. The missing piece is price.');
+    this.name = 'NotifyPriceUnsetError';
+  }
+}
+
+/** Caller-supplied target. Blank stays blank — never invent a price. */
+export function assertRealAlertPrice(targetPrice: string | null | undefined): string {
+  if (typeof targetPrice !== 'string' || targetPrice.trim() === '') {
+    throw new NotifyPriceUnsetError();
+  }
+  return targetPrice;
+}
+
 export const NOTIFY_ALERTS_LIST_LIMIT_UNSET = 'notify.alerts_list_limit_unset' as const;
 
 /** `notify.alerts` page size unpublished. Blank is not 20. */
 export class NotifyAlertsListLimitUnsetError extends Error {
   readonly code = NOTIFY_ALERTS_LIST_LIMIT_UNSET;
+  readonly missingPiece = 'limit' as const;
+  readonly slot = null;
+
   constructor() {
     super(NOTIFY_ALERTS_LIST_LIMIT_UNSET);
     this.name = 'NotifyAlertsListLimitUnsetError';
@@ -161,8 +189,15 @@ export class AlertService {
     private readonly whaleMarks: MarkSource = createDarkWhaleMarkSource(),
   ) {}
 
-  create(input: CreatePriceAlertInput): Promise<PriceAlert> {
-    return this.store.create(input);
+  create(input: Omit<CreatePriceAlertInput, 'targetPrice'> & { readonly targetPrice?: string | null }): Promise<PriceAlert> {
+    const kind = input.kind ?? 'price';
+    if (kind === 'price') {
+      return this.store.create({ ...input, kind, targetPrice: assertRealAlertPrice(input.targetPrice) });
+    }
+    if (typeof input.targetPrice !== 'string') {
+      throw new AlertValidationError('alert.invalid_price', 'targetPrice required');
+    }
+    return this.store.create({ ...input, kind, targetPrice: input.targetPrice });
   }
 
   /**
@@ -315,11 +350,11 @@ export class AlertService {
    * already refuses (`fanout-off-pin`): a kill must write nothing, not invent a
    * finished delivery.
    *
-   * Notify first. `sourceIdempotencyKey` is `<alertId>:<markPrice>`, so a
-   * redelivery after insert-before-mark reuses the same inbox row (and the
-   * delivery claim stops a second channel send). Only when create produced or
-   * recovered a row do we retire the watch. Fan-out off leaves the watch active
-   * for a later pass.
+   * Notify first. `sourceIdempotencyKey` is `<alertId>:<canonical mark>`, so a
+   * redelivery after insert-before-mark reuses the same inbox row when the feed
+   * reprints `100.50` as `100.5`. The delivery claim stops a second channel
+   * send. Only when create produced or recovered a row do we retire the watch.
+   * Fan-out off leaves the watch active for a later pass.
    */
   async evaluateMarket(marketId: string, at: Date = new Date()): Promise<EvaluateMarketReport> {
     const quote = await this.sourcedQuote(marketId, at);
@@ -422,7 +457,7 @@ export class AlertService {
       href: `/markets/${alert.marketId}`,
       severity: 'action',
       sourceSubject: copy.sourceSubject,
-      sourceIdempotencyKey: `${alert.id}:${markPrice}`,
+      sourceIdempotencyKey: `${alert.id}:${canonicalDecimalString(markPrice)}`,
     });
   }
 

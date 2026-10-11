@@ -108,6 +108,29 @@ describe('createTradeHttpWhaleMarkSource', () => {
     }
   });
 
+  it('a 200 JSON null whale ticker returns the unavailable refusal and does not throw', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (isMarketsList(u)) {
+        return new Response(JSON.stringify([{ id: MARKET_ID, symbol: SYMBOL }]), { status: 200 });
+      }
+      return new Response(JSON.stringify(null), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const marks = createTradeHttpWhaleMarkSource({
+      baseUrl: 'http://trade.test',
+      allowlist: [MARKET_ID],
+      fetchImpl,
+      marketsLimit: MARKETS_LIMIT,
+    });
+    const q = await marks.quote(MARKET_ID);
+    expect(q).toEqual({
+      kind: 'unavailable',
+      reason: 'stale',
+      detail: 'trade ticker has no usable quoteVolume/baseVolume',
+    });
+  });
+
   it('omit marketsLimit refuses notify.markets_list_limit_unset — never invent 50 or fetch', async () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error('must not fetch');
