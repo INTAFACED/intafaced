@@ -81,6 +81,26 @@ describe('RateLimitGovernor — a refusal, never a silent wait', () => {
       const governor = new RateLimitGovernor(policy({ capacity: 101, reservedHeadroomBps: 5_000 }), T0);
       expect(governor.usableCapacity).toBe(50);
     });
+
+    it('keeps a positive floor — capacity 2 with the default headroom is 1', () => {
+      const governor = new RateLimitGovernor({ venueId: 'v', capacity: 2, windowMs: 60_000 }, T0);
+      expect(governor.usableCapacity).toBe(1);
+      expect(governor.tryAcquire(1, T0).admitted).toBe(true);
+    });
+
+    it('refuses capacity 1 with the default headroom — a zero floor is not invented as 1', () => {
+      // floor(1 * 8000 / 10000) = 0. The old clamp admitted a full window.
+      expect(
+        () => new RateLimitGovernor({ venueId: 'binance-spot', capacity: 1, windowMs: 60_000 }, T0),
+      ).toThrow(/binance-spot: usable weight is zero and is not invented/);
+    });
+
+    it('refuses a burst that floors to 0 while usable capacity stays positive', () => {
+      // Headroom 0 leaves usable capacity 1000. floor(1000 * 9 / 10000) = 0.
+      expect(
+        () => new RateLimitGovernor(policy({ venueId: 'okx-spot', capacity: 1_000, burstBps: 9 }), T0),
+      ).toThrow(/okx-spot: burst usable weight is zero and is not invented/);
+    });
   });
 
   describe("the venue's own verdict outranks our arithmetic", () => {

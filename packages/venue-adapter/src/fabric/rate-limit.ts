@@ -113,11 +113,20 @@ export class RateLimitGovernor {
     if (headroomBps < 0 || headroomBps >= 10_000) {
       throw new Error(`${policy.venueId}: reservedHeadroomBps must be in [0, 10000)`);
     }
-    // Usable sustained rate after headroom. `Math.floor` rather than round: a
-    // governor that rounds UP has spent the headroom it exists to protect.
-    this.#capacity = Math.max(1, Math.floor((policy.capacity * (10_000 - headroomBps)) / 10_000));
+    // Usable sustained rate after headroom. Floor, never round up: rounding up
+    // spends the headroom this governor exists to protect. A floor of 0 is a
+    // refusal — substituting 1 would invent a weight that headroom withheld.
+    const usable = Math.floor((policy.capacity * (10_000 - headroomBps)) / 10_000);
+    if (usable === 0) {
+      throw new Error(`${policy.venueId}: usable weight is zero and is not invented`);
+    }
+    this.#capacity = usable;
     this.#refillPerMs = this.#capacity / policy.windowMs;
-    this.#burstCapacity = Math.max(1, Math.floor((this.#capacity * (policy.burstBps ?? DEFAULT_BURST_BPS)) / 10_000));
+    const burst = Math.floor((this.#capacity * (policy.burstBps ?? DEFAULT_BURST_BPS)) / 10_000);
+    if (burst === 0) {
+      throw new Error(`${policy.venueId}: burst usable weight is zero and is not invented`);
+    }
+    this.#burstCapacity = burst;
     this.#tokens = this.#burstCapacity;
     this.#lastRefillAt = now;
   }
