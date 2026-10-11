@@ -989,7 +989,8 @@ describe('svc-bank money PG-hard', () => {
     });
 
     it('does not retry an occurrence that was rejected — a missed March is not made up in April', async () => {
-      const { rent, schedule } = await standingOrder('100', 'monthly');
+      // Midnight anchor: occurrence 1 is due at 2026-02-01T00:00:00Z, not 09:00.
+      const { rent, schedule } = await standingOrder('100', 'monthly', new Date('2026-01-01T00:00:00Z'));
 
       await bank.transfers.runDueTransfers({ now: new Date('2026-01-01T10:00:00Z'), limit: 200 });
       // Money arrives afterwards; the January occurrence must stay rejected.
@@ -997,9 +998,20 @@ describe('svc-bank money PG-hard', () => {
       await bank.transfers.runDueTransfers({ now: new Date('2026-01-15T10:00:00Z'), limit: 200 });
 
       expect(formatAmount(await bank.spaces.balanceOf(rent))).toBe('0');
+      const january = await bank.transfers.executions(schedule.id, 50);
+      expect(january).toHaveLength(1);
+      expect(january[0]).toMatchObject({ occurrence: 0, status: 'rejected', amount: '100' });
+
+      const february = await bank.transfers.runDueTransfers({ now: new Date('2026-02-01T00:00:00Z'), limit: 200 });
+
+      // February pays its own occurrence once. Rejected January is not repaid.
+      expect(february.settled).toBe(1);
+      expect(february.rejected).toBe(0);
+      expect(formatAmount(await bank.spaces.balanceOf(rent))).toBe('100');
       const executions = await bank.transfers.executions(schedule.id, 50);
-      expect(executions).toHaveLength(1);
-      expect(executions[0]?.status).toBe('rejected');
+      expect(executions).toHaveLength(2);
+      expect(executions[0]).toMatchObject({ occurrence: 0, status: 'rejected', amount: '100' });
+      expect(executions[1]).toMatchObject({ occurrence: 1, status: 'settled', amount: '100' });
     });
 
     it('fires every occurrence exactly once across a catch-up run', async () => {
