@@ -16,8 +16,8 @@ function level(price: string, qty: string): readonly [bigint, bigint] {
 
 function snapshot(over: Partial<VenueBookSnapshot> = {}): VenueBookSnapshot {
   return {
-    venueId: VENUE.id,
-    symbol: 'BTC/USDT',
+    venueId: over.venueId ?? VENUE.id,
+    symbol: over.symbol ?? 'BTC/USDT',
     bids: over.bids ?? [level('30000', '1')],
     asks: over.asks ?? [level('30002', '1')],
     sequence: over.sequence ?? 7,

@@ -33,7 +33,8 @@ import {
  * first makes a backtest read silence as "no liquidity that day", which is
  * exactly how §29 would invent a past. So:
  *
- *   · Connected adapter returns a real snapshot (including empty) → `book`.
+ *   · Connected adapter returns a snapshot of the requested instrument (including empty) → `book`.
+ *   · Snapshot names a different venue or symbol → `hole` (`not_connected`), not stored.
  *   · No adapter / unavailable / unknown failure → `hole` with a typed reason.
  *   · Readers that want a book get `null` for a hole — never a synthetic empty.
  */
@@ -158,9 +159,11 @@ export class CaptureLake {
    * Capture one book from an adapter.
    *
    * `adapter === null` → hole `not_connected` (venue absent, never empty book).
+   * Snapshot venue id or symbol ≠ the trimmed request → hole `not_connected`.
+   * That foreign snapshot is not stored as a book.
    * `VenueUnavailableError` → hole with the venue reason (incl. `no_depth`).
    * Other throw → hole `capture_failed`.
-   * Success → book record, empty or not.
+   * Matching snapshot → book record, empty or not.
    */
   async captureBook(
     adapter: Pick<MarketDataAdapter, 'venue' | 'snapshotBook'> | null,
@@ -183,6 +186,14 @@ export class CaptureLake {
     }
     try {
       const snapshot = await adapter.snapshotBook(sym, limit);
+      if (snapshot.venueId !== id || snapshot.symbol !== sym) {
+        return this.recordHole(
+          id,
+          sym,
+          'not_connected',
+          `${id} ${sym}: snapshot is ${snapshot.venueId} ${snapshot.symbol} — requested instrument was not stored as a book`,
+        );
+      }
       return this.recordBook(snapshot);
     } catch (error) {
       if (error instanceof VenueUnavailableError) {
