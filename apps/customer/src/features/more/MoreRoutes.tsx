@@ -14,6 +14,7 @@ import { Token } from './Token';
 import { MoreDiscovery } from './MoreDiscovery';
 import { launchCopy } from './launch-copy';
 import { miningCopy } from './mining-copy';
+import { predictionCatalogueCopy } from './prediction-catalogue-copy';
 import { discoveryCopy } from './discovery-copy';
 import type { ReactNode } from 'react';
 import './more.css';
@@ -71,7 +72,7 @@ function MoreRooms({ path }: { path: string }) {
     content = <Market key={p} mine={p === '/market/mine'} strategy={p === '/market/strategy'} />;
   } else if (p === '/predict') {
     title = copyText('moreroutes.prediction');
-    description = copyText('moreroutes.listed.questions.result.sources.and.fully.collateralized');
+    description = <predictionCatalogueCopy.Copy k="scope" />;
     content = <Prediction />;
   } else if (p === '/mining') {
     title = copyText('moreroutes.mining');

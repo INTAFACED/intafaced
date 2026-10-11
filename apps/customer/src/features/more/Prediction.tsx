@@ -4,36 +4,26 @@ import { z } from 'zod';
 import { orderBookSchema, tradeSchema } from '@intafaced/exchange-contract/schemas';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
-import { decimalSchema, displayAmount } from '../../shared/money';
-import { Button, DataTable, Field, Panel, Tabs } from '../../shared/ui';
+import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
+import { DataTable, Field, Panel, Tabs } from '../../shared/ui';
 import { Details, Read } from './common';
-const catalogue = z.array(
-  z
-    .object({
-      id: z.string().min(1),
-      kind: z.literal('outcome'),
-      question: z.string().min(1),
-      closeAt: z.string().datetime({ offset: true }),
-      settlementAssetId: z.string().min(1),
-      settlementSource: z.string().min(1),
-      collateralization: z.literal('full'),
-      instruments: z.array(z.object({ outcome: z.enum(['yes', 'no']), symbol: z.string().min(1) })).length(2),
-    })
-    .superRefine((row, ctx) => {
-      if (row.instruments[0]?.symbol === row.instruments[1]?.symbol || new Set(row.instruments.map((i) => i.outcome)).size !== 2)
-        ctx.addIssue({ code: 'custom', message: copyText('prediction.outcome.catalogue.must.publish.two.distinct.yes') });
-    }),
-);
+import { predictionCatalogueSchema } from './prediction-catalogue';
+import { PredictionCatalogue } from './PredictionCatalogue';
+import { predictionCatalogueCopy } from './prediction-catalogue-copy';
+import './prediction-catalogue.css';
 export function Prediction() {
   const api = useApi(),
     { userId } = useSession();
   const [selected, setSelected] = useState(''),
     [outcome, setOutcome] = useState('Yes'),
-    [price, setPrice] = useState(''),
-    [amount, setAmount] = useState('');
-  const markets = useResource((signal) => api.rest('/outcomes/markets', catalogue, { signal }), 'outcome-markets');
+    [quantityDraft, setQuantityDraft] = useState<{ terms: string; symbol: string; amount: string } | null>(null);
+  const markets = useResource((signal) => api.rest('/outcomes/markets', predictionCatalogueSchema, { signal }), 'outcome-markets');
   const market = markets.resource.status === 'ready' ? markets.resource.data.find((m) => m.id === selected) : undefined,
     instrument = market?.instruments.find((i) => i.outcome === outcome.toLowerCase());
+  const terms = market ? JSON.stringify(market) : '';
+  const amount = quantityDraft?.terms === terms && quantityDraft.symbol === instrument?.symbol ? quantityDraft.amount : '';
+  const validQuantity = decimalSchema.safeParse(amount).success && parseAmount(amount) > 0n;
+  const { Copy, t, languageFor, directionFor } = predictionCatalogueCopy.useCopy();
   const sequence = useRef<{ symbol: string; nonce: number | null }>({ symbol: '', nonce: null });
   const book = useResource<z.infer<typeof orderBookSchema> | null>(async (signal) => {
     if (!instrument) return { ok: true as const, data: null };
@@ -88,8 +78,8 @@ export function Prediction() {
       `outcome-fills:${userId}:${instrument?.symbol}`,
     );
   useEffect(() => {
-    setPrice('');
-    setAmount('');
+    setQuantityDraft(null);
+    if (!instrument) return;
     const timer = setInterval(() => {
       if (document.visibilityState === 'visible') {
         book.reload();
@@ -97,40 +87,19 @@ export function Prediction() {
       }
     }, 5000);
     return () => clearInterval(timer);
-  }, [instrument?.symbol]);
+  }, [instrument?.symbol, terms]);
   return (
-    <div className="more-columns">
-      <div>
-        <Panel title={copyText('prediction.prediction.markets')}>
-          <Read resource={markets.resource} retry={markets.reload} empty={copyText('prediction.no.prediction.events.are.listed')}>
-            {(rows) => (
-              <div className="more-grid">
-                {rows.map((m) => (
-                  <article key={m.id}>
-                    <h3>{m.question}</h3>
-                    <small>
-                      <Text k="prediction.closes" />
-                      {m.closeAt} · {m.settlementSource}
-                    </small>
-                    <Button
-                      variant="secondary"
-                      aria-label={copyText('prediction.open', { value1: m.question })}
-                      onClick={() => {
-                        setSelected(m.id);
-                        setOutcome('Yes');
-                      }}
-                    >
-                      <Text k="prediction.open.event" />
-                    </Button>
-                  </article>
-                ))}
-              </div>
-            )}
-          </Read>
-          <p className="muted">
-            <Text k="prediction.the.current.service.boot.publishes.an.empty" />
-          </p>
-        </Panel>
+    <div className="prediction-room">
+      <div className="prediction-room-reading">
+        <PredictionCatalogue
+          resource={markets.resource}
+          refresh={markets.reload}
+          select={(id) => {
+            setSelected(id);
+            setOutcome('Yes');
+            setQuantityDraft(null);
+          }}
+        />
         {market && (
           <>
             <Panel title={market.question}>
@@ -146,7 +115,10 @@ export function Prediction() {
                 items={['Yes', 'No']}
                 labels={{ Yes: copyText('prediction.yes'), No: copyText('prediction.no') }}
                 value={outcome}
-                onChange={setOutcome}
+                onChange={(value) => {
+                  setOutcome(value);
+                  setQuantityDraft(null);
+                }}
                 label={copyText('prediction.outcome.selection')}
               />
               <strong>{instrument?.symbol}</strong>
@@ -235,28 +207,61 @@ export function Prediction() {
           </>
         )}
       </div>
-      <Panel title={copyText('prediction.outcome.order.review')}>
-        <p role="status">
-          <Text k="prediction.outcome.order.preview.is.not.published.no" />
-        </p>
-        <p className="muted">
-          <Text k="prediction.the.post.contract.names.a.fully.collateralized" />
-        </p>
+      <section className="prediction-room-review" lang={languageFor('review')} dir={directionFor('review')}>
+        <div className="prediction-room-review-copy">
+          <h2>
+            <Copy k="review" />
+          </h2>
+          <p className="muted">
+            <Copy k="reviewBody" />
+          </p>
+        </div>
+        <a className="text-link prediction-room-link" href="/support">
+          <Copy k="support" />
+        </a>
+        <details className="prediction-room-details">
+          <summary>
+            <Copy k="requirements" />
+          </summary>
+          <dl className="prediction-room-requirements">
+            {(['admission', 'pricing', 'placement'] as const).map((key) => (
+              <div key={key}>
+                <dt>
+                  <span>
+                    <Copy k={key} />
+                  </span>
+                  <span className="prediction-room-state">
+                    <Copy k="unavailable" />
+                  </span>
+                </dt>
+                <dd>
+                  <Copy k={key === 'admission' ? 'admissionBody' : key === 'pricing' ? 'pricingBody' : 'placementBody'} />
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <p className="muted">
+            <Copy k="reviewBoundary" />
+          </p>
+        </details>
         {market && (
-          <>
+          <details className="prediction-room-planning">
+            <summary>
+              <Copy k="planning" />
+            </summary>
+            <p className="muted">
+              <Copy k="planningBody" />
+            </p>
             <Field
               label={copyText('prediction.outcome.contract.quantity')}
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={(e) => {
+                if (instrument) setQuantityDraft({ terms, symbol: instrument.symbol, amount: e.target.value });
+              }}
               inputMode="decimal"
+              error={amount !== '' && !validQuantity ? t('quantityError') : undefined}
             />
-            <Field
-              label={copyText('prediction.limit.price.in.per.contract', { value1: market.settlementAssetId })}
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              inputMode="decimal"
-            />
-            {decimalSchema.safeParse(amount).success && (
+            {validQuantity && (
               <Details
                 items={[
                   [copyText('prediction.instrument'), instrument?.symbol ?? copyText('common.unavailable')],
@@ -269,9 +274,12 @@ export function Prediction() {
             <p className="muted">
               <Text k="prediction.closing.or.settling.an.event.is.not" />
             </p>
-          </>
+          </details>
         )}
-      </Panel>
+        <a className="text-link prediction-room-link" href="/more">
+          <Copy k="more" />
+        </a>
+      </section>
     </div>
   );
 }
