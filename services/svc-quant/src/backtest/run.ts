@@ -60,9 +60,13 @@ function completeWalkForward(raw: Partial<WalkForwardWindow> | null | undefined)
   return { inSampleFrom, inSampleTo, outOfSampleFrom, outOfSampleTo };
 }
 
+// Date.parse reads a zone-less date-time as local time. Require Z or a numeric offset.
+const EXPLICIT_OFFSET = /(?:Z|[+-]\d{2}:\d{2}|[+-]\d{4})$/i;
+
 function epoch(value: string): number | null {
-  if (value.trim().length === 0) return null;
-  const n = Date.parse(value);
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || !EXPLICIT_OFFSET.test(trimmed)) return null;
+  const n = Date.parse(trimmed);
   return Number.isFinite(n) ? n : null;
 }
 
@@ -76,24 +80,42 @@ function assertWalkForward(window: WalkForwardWindow): void {
   }
 }
 
-function inRange(ts: string, from: string, to: string): boolean {
+function fillEpoch(ts: string): number {
   const t = epoch(ts);
+  if (t === null) {
+    throw new QuantError('quant.params_invalid', 'a fill timestamp is refused — candles are not invented');
+  }
+  return t;
+}
+
+function inRange(ts: string, from: string, to: string): boolean {
+  const t = fillEpoch(ts);
   const a = epoch(from);
   const b = epoch(to);
-  if (t === null || a === null || b === null) return false;
+  if (a === null || b === null) return false;
   return t >= a && t < b;
 }
 
 function metricsFromFills(fills: readonly LakeFill[]): FillWindowMetrics {
   let notional = 0n;
+  let fillCount = 0;
   for (const fill of fills) {
+    let qty = 0n;
+    let price = 0n;
     try {
-      notional = add(notional, mul(parseAmount(fill.qty), parseAmount(fill.price), 'half-up'));
+      qty = parseAmount(fill.qty);
+      price = parseAmount(fill.price);
     } catch {
       throw new QuantError('quant.params_invalid', 'fill qty and price must be decimal strings — candles are not invented');
     }
+    // parseAmount allows a leading minus. A negative leg must not count.
+    if (qty < 0n || price < 0n) {
+      throw new QuantError('quant.params_invalid', 'a negative fill qty or price is refused — candles are not invented');
+    }
+    notional = add(notional, mul(qty, price, 'half-up'));
+    fillCount += 1;
   }
-  return { fillCount: fills.length, notional: formatAmount(notional) };
+  return { fillCount, notional: formatAmount(notional) };
 }
 
 export function runBacktest(input: BacktestRunInput, lake: BacktestLake): BacktestRunResult {

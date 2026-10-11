@@ -6,6 +6,7 @@ import {
   QUANT_BACKTEST_WALK_FORWARD_REQUIRED,
   QUANT_ENVIRONMENT_REQUIRED,
   QUANT_SIMULATED_AS_LIVE,
+  QuantError,
 } from '../errors.js';
 import type { BacktestLake, LakeFill } from './lake.js';
 import { runBacktest } from './run.js';
@@ -100,5 +101,107 @@ describe('backtest.run — event-level, walk-forward, lake fills', () => {
     expect(ran.live).toBe(false);
     expect(ran.simulated).toBe(true);
     expect(ran.kind).toBe('simulated');
+  });
+
+  it('refuses a negative qty or price and does not count that fill', () => {
+    const refuse = (rows: readonly LakeFill[]) => {
+      expect(() => runBacktest({ ...honest, walkForward, outOfSampleStatus: 'passed' }, lakeWith(rows))).toThrow(QuantError);
+      try {
+        runBacktest({ ...honest, walkForward, outOfSampleStatus: 'passed' }, lakeWith(rows));
+        expect.fail('runBacktest returned ok');
+      } catch (err) {
+        expect(err).toBeInstanceOf(QuantError);
+        expect((err as QuantError).code).toBe('quant.params_invalid');
+        expect((err as Error).message).toMatch(/negative fill/);
+        expect((err as Error).message).toMatch(/not invented/);
+      }
+    };
+
+    refuse([{ ts: '2026-02-01T00:00:00.000Z', symbol: 'BTC-USD', qty: '-0.01', price: '50000' }]);
+    refuse([{ ts: '2026-05-01T00:00:00.000Z', symbol: 'BTC-USD', qty: '0.02', price: '-51000' }]);
+    refuse([{ ts: '2026-05-01T00:00:00.000Z', symbol: 'BTC-USD', qty: '-0.02', price: '-51000' }]);
+    refuse([
+      { ts: '2026-02-01T00:00:00.000Z', symbol: 'BTC-USD', qty: '0.01', price: '50000' },
+      { ts: '2026-05-01T00:00:00.000Z', symbol: 'BTC-USD', qty: '-0.02', price: '51000' },
+    ]);
+  });
+
+  it('refuses a blank fill timestamp instead of dropping it', () => {
+    const refuse = (ts: string) => {
+      const rows: LakeFill[] = [
+        { ts, symbol: 'BTC-USD', qty: '0.01', price: '50000' },
+        { ts: '2026-05-01T00:00:00.000Z', symbol: 'BTC-USD', qty: '0.02', price: '51000' },
+      ];
+      try {
+        runBacktest({ ...honest, walkForward, outOfSampleStatus: 'passed' }, lakeWith(rows));
+        expect.fail('runBacktest returned ok');
+      } catch (err) {
+        expect(err).toBeInstanceOf(QuantError);
+        expect((err as QuantError).code).toBe('quant.params_invalid');
+        expect((err as Error).message).toMatch(/fill timestamp is refused/);
+        expect((err as Error).message).toMatch(/not invented/);
+      }
+    };
+
+    refuse('');
+    refuse('   ');
+    refuse('not-a-date');
+    refuse('2026-13-01T00:00:00.000Z');
+  });
+
+  it('refuses a zone-less fill timestamp and does not follow a local-time reading', () => {
+    const insideLocal = '2026-02-15T12:00:00';
+    const asUtcDate = '2026-02-15';
+    const outsideLocal = '1990-01-01T00:00:00';
+    const local = Date.parse(insideLocal);
+    expect(Number.isFinite(local)).toBe(true);
+    expect(local).toBeGreaterThanOrEqual(Date.parse(walkForward.inSampleFrom));
+    expect(local).toBeLessThan(Date.parse(walkForward.inSampleTo));
+    expect(Date.parse(asUtcDate)).toBe(Date.parse('2026-02-15T00:00:00.000Z'));
+
+    for (const ts of [insideLocal, asUtcDate, outsideLocal]) {
+      const rows: LakeFill[] = [
+        { ts, symbol: 'BTC-USD', qty: '0.01', price: '50000' },
+        { ts: '2026-05-01T00:00:00.000Z', symbol: 'BTC-USD', qty: '0.02', price: '51000' },
+      ];
+      try {
+        runBacktest({ ...honest, walkForward, outOfSampleStatus: 'passed' }, lakeWith(rows));
+        expect.fail('runBacktest returned ok');
+      } catch (err) {
+        expect(err).toBeInstanceOf(QuantError);
+        expect((err as QuantError).code).toBe('quant.params_invalid');
+        expect((err as Error).message).toMatch(/fill timestamp is refused/);
+        expect((err as Error).message).toMatch(/not invented/);
+      }
+    }
+  });
+
+  it('counts a fill with Z or an explicit offset', () => {
+    const rows: LakeFill[] = [
+      { ts: '2026-02-01T05:00:00+05:00', symbol: 'BTC-USD', qty: '0.01', price: '50000' },
+      { ts: '2026-03-01T00:00:00+0000', symbol: 'BTC-USD', qty: '0.01', price: '10000' },
+      { ts: '2026-05-01T00:00:00.000Z', symbol: 'BTC-USD', qty: '0.02', price: '51000' },
+    ];
+    const ran = runBacktest({ ...honest, walkForward, outOfSampleStatus: 'passed' }, lakeWith(rows));
+    expect(ran.ok).toBe(true);
+    expect(ran.inSample.fillCount).toBe(2);
+    expect(ran.inSample.notional).toBe('600');
+    expect(ran.outOfSample.fillCount).toBe(1);
+    expect(ran.outOfSample.notional).toBe('1020');
+  });
+
+  it('refuses a zone-less walk-forward bound instead of reading local time', () => {
+    const zoneLessFrom = '2026-01-01T00:00:00';
+    expect(Number.isFinite(Date.parse(zoneLessFrom))).toBe(true);
+    expect(() =>
+      runBacktest(
+        {
+          ...honest,
+          walkForward: { ...walkForward, inSampleFrom: zoneLessFrom },
+          outOfSampleStatus: 'passed',
+        },
+        lakeWith(fills),
+      ),
+    ).toThrow(QUANT_BACKTEST_WALK_FORWARD_REQUIRED);
   });
 });
