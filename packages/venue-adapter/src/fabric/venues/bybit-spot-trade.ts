@@ -80,7 +80,7 @@ export function mapBybitSpotOrder(row: Record<string, unknown>, unified: string,
   }
   const type: VenueOrder['type'] = typeRaw;
   const price =
-    type === 'market' || row.price === undefined || row.price === null || String(row.price) === '0'
+    type === 'market' || row.price === undefined || row.price === null || String(row.price) === '0' || String(row.price) === '0.00'
       ? null
       : readDecimal(row.price, VENUE.id, 'price');
   const createdRaw = row.createdTime ?? row.updatedTime;
