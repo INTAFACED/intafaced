@@ -345,10 +345,10 @@ export class LoanService {
     minPrincipal?: Amount;
     policy: LiquidationPolicy;
   }): Promise<LoanProductRecord> {
-    // Checked here as well as by the database CHECK, so the operator gets a
-    // sentence about which threshold is wrong rather than a constraint name.
-    assertPolicyCoherent(input.policy, input.maxLtvBps);
-
+    if (input.minPrincipal === undefined) {
+      throw new BankError(`Loan product "${input.name}" has no minimum principal. A blank limit is not zero.`, 'bank.below_minimum');
+    }
+    assertPolicyCoherent(input.policy, input.maxLtvBps); // database CHECK too, so a wrong threshold is a sentence, not a constraint name
     if (input.debtAssetId === input.collateralAssetId) {
       throw new BankError(
         `A collateralised loan borrows one asset against another; both are ${input.debtAssetId}`,
@@ -366,7 +366,7 @@ export class LoanService {
         ${input.aprBps}, ${input.maxLtvBps}, ${input.policy.marginCallLtvBps}, ${input.policy.liquidationLtvBps},
         ${input.policy.insolvencyLtvBps}, ${input.policy.targetLtvBps}, ${input.policy.penaltyBps},
         ${input.policy.maxTrancheBps}, ${input.policy.graceSeconds},
-        ${formatAmount(input.minPrincipal ?? 0n)}::numeric
+        ${formatAmount(input.minPrincipal)}::numeric
       )
       RETURNING *
     `;
