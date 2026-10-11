@@ -30,7 +30,12 @@ export interface ActionApprovalConsumer {
 }
 
 export function bankActionPayloadHash(actionType: string, fields: Record<string, string>): string {
-  const payload = JSON.stringify({ actionType, ...fields });
+  const sortedCopy: Record<string, string> = {};
+  for (const key of Object.keys(fields).sort()) {
+    const value = fields[key];
+    if (value !== undefined) sortedCopy[key] = value;
+  }
+  const payload = JSON.stringify({ actionType, fields: sortedCopy });
   return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
 }
 
@@ -87,7 +92,22 @@ export function createIdentityApprovalClient(baseUrl: string, internalSecret: st
         const detail = await res.text().catch(() => '');
         throw new ActionApprovalConsumeError(`identity refused consume (${res.status}) ${detail}`.trim(), 'action_approval.consume_failed');
       }
-      return actionApprovalSchema.parse(unwrapTrpcJson(await res.json()));
+      const approval = actionApprovalSchema.parse(unwrapTrpcJson(await res.json()));
+      if (
+        approval.status !== 'CONSUMED' ||
+        approval.approvalId !== parsed.approvalId ||
+        approval.operationId !== parsed.operationId ||
+        approval.payloadHash !== parsed.payloadHash ||
+        approval.targetService !== parsed.targetService ||
+        approval.targetId !== parsed.targetId ||
+        approval.expectedVersion !== parsed.expectedVersion
+      ) {
+        throw new ActionApprovalConsumeError(
+          'identity consume result does not match the request or is not CONSUMED',
+          'action_approval.consume_failed',
+        );
+      }
+      return approval;
     },
   };
 }

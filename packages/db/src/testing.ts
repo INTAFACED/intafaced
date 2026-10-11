@@ -1,5 +1,5 @@
 import postgres from 'postgres';
-import { describeError, recordInfraProbe } from './infra-journal.js';
+import { describeError, recordInfraProbe, redactUrl } from './infra-journal.js';
 
 // `@intafaced/db/testing` is an entry point in its own right; anything reaching
 // for the harness should get the journal that reports on it from the same import.
@@ -78,53 +78,70 @@ export async function createTestDb(options: TestDbOptions): Promise<TestDb> {
   }
 
   const admin = postgres(url, { max: 1, onnotice: () => undefined });
+  let client: postgres.Sql | undefined;
+  let schemaCreated = false;
 
-  /**
-   * Guard before the first DDL. `createTestDb` gives each run its own *schema*,
-   * which isolates suites from each other — but it says nothing about which
-   * *database* those schemas are created and dropped in. Pointed at the shared
-   * `intafaced`, it happily creates and drops schemas inside the database the
-   * running fleet uses. Schema isolation and database isolation are different
-   * properties and only one of them was ever enforced here.
-   */
-  await assertTestDatabase(admin, `createTestDb(${options.service})`);
+  try {
+    /**
+     * Guard before the first DDL. `createTestDb` gives each run its own *schema*,
+     * which isolates suites from each other — but it says nothing about which
+     * *database* those schemas are created and dropped in. Pointed at the shared
+     * `intafaced`, it happily creates and drops schemas inside the database the
+     * running fleet uses. Schema isolation and database isolation are different
+     * properties and only one of them was ever enforced here.
+     */
+    await assertTestDatabase(admin, `createTestDb(${options.service})`);
 
-  await sweepStaleTestSchemas(admin);
+    await sweepStaleTestSchemas(admin);
 
-  await admin.unsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
-  await admin.unsafe(`CREATE SCHEMA "${schema}"`);
-  // Dates the schema so an abandoned one can be swept. See sweepStaleTestSchemas.
-  await admin.unsafe(`COMMENT ON SCHEMA "${schema}" IS '${stampFor()}'`);
+    await admin.unsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+    await admin.unsafe(`CREATE SCHEMA "${schema}"`);
+    // CREATE SCHEMA and COMMENT each autocommit. A failure after CREATE must
+    // drop the schema, or an unstamped one is left where the sweeper will not look.
+    schemaCreated = true;
+    // Dates the schema so an abandoned one can be swept. See sweepStaleTestSchemas.
+    await admin.unsafe(`COMMENT ON SCHEMA "${schema}" IS '${stampFor()}'`);
 
-  const sql = postgres(url, {
-    max: 4,
-    connection: { search_path: `${schema},public`, application_name: schema },
-    onnotice: () => undefined,
-  });
+    client = postgres(url, {
+      max: 4,
+      connection: { search_path: `${schema},public`, application_name: schema },
+      onnotice: () => undefined,
+    });
+    const sql = client;
 
-  for (const migration of options.migrations ?? []) {
-    const body = typeof migration === 'function' ? migration(schema) : migration;
-    await sql.unsafe(body);
+    for (const migration of options.migrations ?? []) {
+      const body = typeof migration === 'function' ? migration(schema) : migration;
+      await sql.unsafe(body);
+    }
+
+    return {
+      url,
+      schema,
+      sql,
+      truncateAll: async () => {
+        const tables = await sql<Array<{ tablename: string }>>`
+          SELECT tablename FROM pg_tables WHERE schemaname = ${schema}
+        `;
+        if (tables.length === 0) return;
+        const list = tables.map((t) => `"${schema}"."${t.tablename}"`).join(', ');
+        await sql.unsafe(`TRUNCATE ${list} RESTART IDENTITY CASCADE`);
+      },
+      drop: async () => {
+        await sql.end({ timeout: 5 });
+        await admin.unsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+        await admin.end({ timeout: 5 });
+      },
+    };
+  } catch (err) {
+    // The caller does not get drop(). End every pool this attempt opened, and
+    // remove a schema CREATE already committed, then rethrow the original error.
+    await client?.end({ timeout: 5 }).catch(() => undefined);
+    if (schemaCreated) {
+      await admin.unsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`).catch(() => undefined);
+    }
+    await admin.end({ timeout: 5 }).catch(() => undefined);
+    throw err;
   }
-
-  return {
-    url,
-    schema,
-    sql,
-    truncateAll: async () => {
-      const tables = await sql<Array<{ tablename: string }>>`
-        SELECT tablename FROM pg_tables WHERE schemaname = ${schema}
-      `;
-      if (tables.length === 0) return;
-      const list = tables.map((t) => `"${schema}"."${t.tablename}"`).join(', ');
-      await sql.unsafe(`TRUNCATE ${list} RESTART IDENTITY CASCADE`);
-    },
-    drop: async () => {
-      await sql.end({ timeout: 5 });
-      await admin.unsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
-      await admin.end({ timeout: 5 });
-    },
-  };
 }
 
 /**
@@ -263,51 +280,58 @@ export async function createTestDatabase(options: TestDatabaseOptions): Promise<
   }
 
   const admin = postgres(adminUrl, { max: 1, onnotice: () => undefined });
-
-  /**
-   * The admin connection must itself own a test database before it is allowed
-   * to create more. Pointed at the shared `intafaced` this would still only
-   * CREATE (never drop anything pre-existing), but a suite that is willing to
-   * talk to the live database at all is one URL typo away from truncating it.
-   */
-  await assertTestDatabase(admin, `createTestDatabase(${schema})`);
-
-  await sweepStaleTestDatabases(admin);
+  let databaseCreated = false;
+  let client: postgres.Sql | undefined;
 
   try {
-    await admin.unsafe(`CREATE DATABASE "${database}"`);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (!/permission denied to create database/i.test(msg)) throw err;
     /**
-     * The single most likely failure on a machine whose Postgres volume predates
-     * this harness: the init script only runs on a FRESH volume, so an existing
-     * `intafaced_ops` never picked up CREATEDB. Say the fix rather than leaving
-     * 85 worktrees to each rediscover it.
+     * The admin connection must itself own a test database before it is allowed
+     * to create more. Pointed at the shared `intafaced` this would still only
+     * CREATE (never drop anything pre-existing), but a suite that is willing to
+     * talk to the live database at all is one URL typo away from truncating it.
      */
-    await admin.end({ timeout: 5 }).catch(() => undefined);
-    throw new Error(
-      `createTestDatabase(${schema}) cannot create a database: ${msg}\n\n` +
-        `This suite isolates itself with a per-run database, which needs the CREATEDB\n` +
-        `role attribute. tooling/infra/postgres-init/02-intafaced-test-db.sh grants it,\n` +
-        `but postgres-init scripts run ONLY when the data volume is first created — so an\n` +
-        `existing local Postgres will not have it.\n\n` +
-        `Fix, either one:\n` +
-        `  docker compose exec postgres psql -U intafaced -c "ALTER ROLE intafaced_ops WITH CREATEDB"\n` +
-        `  docker compose down -v && docker compose up -d    (destroys local dev data)`,
-    );
-  }
-  // Dates the database so an abandoned one can be swept. See sweepStaleTestDatabases.
-  await admin.unsafe(`COMMENT ON DATABASE "${database}" IS '${stampFor()}'`);
+    await assertTestDatabase(admin, `createTestDatabase(${schema})`);
 
-  const url = withDatabase(adminUrl, database);
-  const sql = postgres(url, {
-    max: 8,
-    connection: { search_path: options.searchPath ?? `${schema},public`, application_name: database },
-    onnotice: () => undefined,
-  });
+    await sweepStaleTestDatabases(admin);
 
-  try {
+    try {
+      await admin.unsafe(`CREATE DATABASE "${database}"`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/permission denied to create database/i.test(msg)) throw err;
+      /**
+       * The single most likely failure on a machine whose Postgres volume predates
+       * this harness: the init script only runs on a FRESH volume, so an existing
+       * `intafaced_ops` never picked up CREATEDB. Say the fix rather than leaving
+       * 85 worktrees to each rediscover it.
+       *
+       * This branch did not create a database. The outer catch ends the admin pool.
+       */
+      throw new Error(
+        `createTestDatabase(${schema}) cannot create a database: ${msg}\n\n` +
+          `This suite isolates itself with a per-run database, which needs the CREATEDB\n` +
+          `role attribute. tooling/infra/postgres-init/02-intafaced-test-db.sh grants it,\n` +
+          `but postgres-init scripts run ONLY when the data volume is first created — so an\n` +
+          `existing local Postgres will not have it.\n\n` +
+          `Fix, either one:\n` +
+          `  docker compose exec postgres psql -U intafaced -c "ALTER ROLE intafaced_ops WITH CREATEDB"\n` +
+          `  docker compose down -v && docker compose up -d    (destroys local dev data)`,
+      );
+    }
+    // CREATE DATABASE and COMMENT each autocommit. A failure after CREATE must
+    // drop the database, or an unstamped one is left where the sweeper will not look.
+    databaseCreated = true;
+    // Dates the database so an abandoned one can be swept. See sweepStaleTestDatabases.
+    await admin.unsafe(`COMMENT ON DATABASE "${database}" IS '${stampFor()}'`);
+
+    const url = withDatabase(adminUrl, database);
+    client = postgres(url, {
+      max: 8,
+      connection: { search_path: options.searchPath ?? `${schema},public`, application_name: database },
+      onnotice: () => undefined,
+    });
+    const sql = client;
+
     // Second guard, on the database the destructive statements will actually hit.
     await assertTestDatabase(sql, `createTestDatabase(${schema}) → ${database}`);
 
@@ -331,67 +355,71 @@ export async function createTestDatabase(options: TestDatabaseOptions): Promise<
     for (const migration of options.migrations ?? []) {
       await sql.unsafe(migration);
     }
+
+    return {
+      url,
+      database,
+      schema,
+      sql,
+      truncateAll: async () => {
+        const tables = await sql<Array<{ tablename: string }>>`
+        SELECT tablename FROM pg_tables WHERE schemaname = ${schema}
+      `;
+        if (tables.length === 0) return;
+        const list = tables.map((t) => `"${schema}"."${t.tablename}"`).join(', ');
+        await sql.unsafe(`TRUNCATE ${list} RESTART IDENTITY CASCADE`);
+      },
+      drop: async () => {
+        /**
+         * `timeout: 0` closes the pool immediately instead of waiting up to five
+         * seconds for a graceful drain. There is nothing to drain gracefully into
+         * — the next statement destroys the database these connections point at,
+         * and FORCE would terminate them anyway. Those five seconds were most of
+         * a vitest `afterAll` budget spent waiting to throw work away.
+         */
+        await sql.end({ timeout: 0 }).catch(() => undefined);
+
+        /**
+         * BOUNDED WAIT — see DROP_WAIT_MS for the measurements behind it.
+         *
+         * The drop is still issued, and is still the normal way a database goes
+         * away. What changed is that the suite stops WAITING for it after two
+         * seconds instead of holding the `afterAll` budget open for up to thirty.
+         *
+         * The connection is deliberately NOT closed on the timeout path. Ending
+         * the pool would cancel the in-flight `DROP DATABASE` server-side and
+         * turn a slow drop into a guaranteed leak — so the pool closes when the
+         * drop settles, whenever that is, and this function returns before it.
+         *
+         * FORCE terminates leftover backends; without it one straggler connection
+         * fails the drop and the database leaks until the sweeper catches it.
+         */
+        const dropped = admin
+          .unsafe(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`)
+          .catch(() => undefined)
+          .then(() => admin.end({ timeout: 0 }).catch(() => undefined));
+
+        // `unref` so a slow drop can never be the reason a vitest worker stays
+        // alive — the whole point is that nothing waits on this.
+        await Promise.race([
+          dropped,
+          new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, DROP_WAIT_MS);
+            timer.unref?.();
+          }),
+        ]);
+      },
+    };
   } catch (err) {
-    await sql.end({ timeout: 5 }).catch(() => undefined);
-    await admin.unsafe(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`).catch(() => undefined);
+    // The caller does not get drop(). End every pool this attempt opened, and
+    // remove a database CREATE already committed, then rethrow the original error.
+    await client?.end({ timeout: 5 }).catch(() => undefined);
+    if (databaseCreated) {
+      await admin.unsafe(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`).catch(() => undefined);
+    }
     await admin.end({ timeout: 5 }).catch(() => undefined);
     throw err;
   }
-
-  return {
-    url,
-    database,
-    schema,
-    sql,
-    truncateAll: async () => {
-      const tables = await sql<Array<{ tablename: string }>>`
-        SELECT tablename FROM pg_tables WHERE schemaname = ${schema}
-      `;
-      if (tables.length === 0) return;
-      const list = tables.map((t) => `"${schema}"."${t.tablename}"`).join(', ');
-      await sql.unsafe(`TRUNCATE ${list} RESTART IDENTITY CASCADE`);
-    },
-    drop: async () => {
-      /**
-       * `timeout: 0` closes the pool immediately instead of waiting up to five
-       * seconds for a graceful drain. There is nothing to drain gracefully into
-       * — the next statement destroys the database these connections point at,
-       * and FORCE would terminate them anyway. Those five seconds were most of
-       * a vitest `afterAll` budget spent waiting to throw work away.
-       */
-      await sql.end({ timeout: 0 }).catch(() => undefined);
-
-      /**
-       * BOUNDED WAIT — see DROP_WAIT_MS for the measurements behind it.
-       *
-       * The drop is still issued, and is still the normal way a database goes
-       * away. What changed is that the suite stops WAITING for it after two
-       * seconds instead of holding the `afterAll` budget open for up to thirty.
-       *
-       * The connection is deliberately NOT closed on the timeout path. Ending
-       * the pool would cancel the in-flight `DROP DATABASE` server-side and
-       * turn a slow drop into a guaranteed leak — so the pool closes when the
-       * drop settles, whenever that is, and this function returns before it.
-       *
-       * FORCE terminates leftover backends; without it one straggler connection
-       * fails the drop and the database leaks until the sweeper catches it.
-       */
-      const dropped = admin
-        .unsafe(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`)
-        .catch(() => undefined)
-        .then(() => admin.end({ timeout: 0 }).catch(() => undefined));
-
-      // `unref` so a slow drop can never be the reason a vitest worker stays
-      // alive — the whole point is that nothing waits on this.
-      await Promise.race([
-        dropped,
-        new Promise<void>((resolve) => {
-          const timer = setTimeout(resolve, DROP_WAIT_MS);
-          timer.unref?.();
-        }),
-      ]);
-    },
-  };
 }
 
 /**
@@ -593,11 +621,11 @@ export async function postgresAvailable(url?: string): Promise<boolean> {
     recordInfraProbe({ dependency: 'postgres', outcome: 'ran', target });
     return true;
   } catch (err) {
-    const msg = describeError(err);
+    const msg = redactUrl(describeError(err));
     if (postgresRequired()) {
       recordInfraProbe({ dependency: 'postgres', outcome: 'required-failed', target, reason: msg });
       throw new Error(
-        `Postgres required in CI (residual #9) but unreachable at ${target}: ${msg}. ` +
+        `Postgres required in CI (residual #9) but unreachable at ${redactUrl(target)}: ${msg}. ` +
           `Bootstrap service roles and set TEST_DATABASE_URL_* (see .github/workflows/ci.yml).`,
       );
     }

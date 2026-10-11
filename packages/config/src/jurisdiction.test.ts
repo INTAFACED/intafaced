@@ -1,15 +1,35 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  DEFAULT_MODULE_RULES,
   REGION_FAIL_CLOSED_ENV,
+  SCREENING_FAIL_CLOSED_ENV,
   UNRESOLVED_REGION,
   assertReviewed,
+  businessBlockFor,
+  businessBlocksFrom,
   checkAccess,
+  isRegionBlocked,
   isRegionResolved,
   regionFailClosedFromEnv,
+  ruleFor,
   UnreviewedJurisdictionError,
   tierSatisfies,
 } from './jurisdiction.js';
 import { MODULES } from './modules.js';
+import type { ScreeningList } from './screening.js';
+
+/**
+ * Unset screening refuses. These tests observe sovereignty and region rules,
+ * so they pin the screening flag explicitly off. They do not supply a list.
+ */
+const screeningFailClosedAtLoad = process.env[SCREENING_FAIL_CLOSED_ENV];
+beforeEach(() => {
+  process.env[SCREENING_FAIL_CLOSED_ENV] = '0';
+});
+afterEach(() => {
+  if (screeningFailClosedAtLoad === undefined) delete process.env[SCREENING_FAIL_CLOSED_ENV];
+  else process.env[SCREENING_FAIL_CLOSED_ENV] = screeningFailClosedAtLoad;
+});
 
 describe('§22 sovereignty law — zero-KYC follows custody', () => {
   it('grants permissionless access to non-custodial protocol modules regardless of tier', () => {
@@ -89,6 +109,60 @@ describe('unresolved region is distinguishable — and can fail closed', () => {
     expect(isRegionResolved('xx')).toBe(false);
     expect(isRegionResolved('GB')).toBe(true);
     expect(isRegionResolved('DE')).toBe(true);
+  });
+
+  it('treats empty, whitespace, and padded XX as unresolved and refuses them fail-closed', () => {
+    const blanks = ['', ' ', '   ', '\t', ' xx ', ' XX ', 'Xx', ' xX '];
+    const whitespaceList: ScreeningList = {
+      configured: true,
+      declaration: 'listed',
+      source: 'test-fixture-not-a-real-list',
+      regions: [
+        {
+          region: '   ',
+          reason: 'blank is not a region code',
+          source: 'test-fixture-not-a-real-list',
+          authority: 'screening',
+        },
+        {
+          region: ' XX ',
+          reason: 'padded sentinel is not a region code',
+          source: 'test-fixture-not-a-real-list',
+          authority: 'screening',
+        },
+      ],
+    };
+    const whitespaceBlocks = businessBlocksFrom([
+      { region: '   ', blocked: true, reason: 'blank is not a region code' },
+      { region: ' XX ', blocked: true, reason: 'padded sentinel is not a region code' },
+    ]);
+
+    for (const region of blanks) {
+      expect(isRegionResolved(region), JSON.stringify(region)).toBe(false);
+      const refused = checkAccess({
+        module: 'bank',
+        plane: 'fiat',
+        region,
+        kycTier: 'full',
+        regionFailClosed: true,
+        screeningFailClosed: false,
+        screening: whitespaceList,
+        business: whitespaceBlocks,
+      });
+      expect(refused.allowed, JSON.stringify(region)).toBe(false);
+      expect(refused.code, JSON.stringify(region)).toBe('denied.region_unknown');
+      expect(refused.regionResolved, JSON.stringify(region)).toBe(false);
+      expect(ruleFor('bank', region), JSON.stringify(region)).not.toEqual(DEFAULT_MODULE_RULES.bank);
+      expect(ruleFor('dex', region).status, JSON.stringify(region)).not.toBe('open');
+      expect(businessBlockFor(region, whitespaceBlocks), JSON.stringify(region)).toBeUndefined();
+      expect(isRegionBlocked(region, whitespaceList, whitespaceBlocks), JSON.stringify(region)).toBe(false);
+    }
+
+    expect(isRegionResolved('GB')).toBe(true);
+    expect(isRegionResolved('DE')).toBe(true);
+    expect(isRegionResolved('US')).toBe(true);
+    expect(ruleFor('trade', 'GB').status).toBe('restricted');
+    expect(ruleFor('launch', 'US').status).toBe('blocked');
   });
 
   it('marks regionResolved false on an ALLOWED decision for XX (default fail-open)', () => {

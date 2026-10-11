@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { amountSchema, EVENT_CATALOG } from './catalog.js';
+import { amountSchema, signedAmountSchema, EVENT_CATALOG } from './catalog.js';
 import { EventValidationError, validatePayload } from './bus.js';
 import type { PayloadOf } from './catalog.js';
 
@@ -40,7 +40,8 @@ export const POSITION_UPDATED_OPTIONAL_KEYS = ['closingReason'] as const;
 
 /**
  * Decimal-string money / size / price fields. `null` is legal where the
- * catalog wraps `amountSchema.nullable()`; a JSON number is never legal.
+ * catalog wraps the field in `.nullable()`; a JSON number is never legal.
+ * Pnl and funding use `signedAmountSchema`. The rest stay on `amountSchema`.
  */
 export const POSITION_UPDATED_MONEY_FIELDS = [
   'contracts',
@@ -108,13 +109,14 @@ describe('D26-P4-05 positionUpdated payload freeze', () => {
     }
   });
 
-  it('keeps every money field on amountSchema (string, never JSON number)', () => {
+  it('keeps unsigned money on amountSchema and signed pnl and funding on signedAmountSchema', () => {
+    const signed = new Set<string>(['unrealizedPnl', 'realizedPnl', 'fundingPaid']);
     for (const field of POSITION_UPDATED_MONEY_FIELDS) {
       let inner: z.ZodTypeAny = payloadShape().shape[field]!;
       while (inner instanceof z.ZodOptional || inner instanceof z.ZodNullable) {
         inner = inner.unwrap();
       }
-      expect(inner).toBe(amountSchema);
+      expect(inner).toBe(signed.has(field) ? signedAmountSchema : amountSchema);
     }
   });
 

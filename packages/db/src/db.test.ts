@@ -2,7 +2,15 @@ import { describe, expect, it } from 'vitest';
 import postgres from 'postgres';
 import { drizzleConfig, MIGRATION_CONVENTION } from './migrate.js';
 import { isSerializationFailure } from './connection.js';
-import { assertTestDatabase, createTestDatabase, postgresAvailable, rewriteSchemaSql, sweepStaleTestSchemas } from './testing.js';
+import {
+  assertTestDatabase,
+  createTestDatabase,
+  createTestDb,
+  postgresAvailable,
+  rewriteSchemaSql,
+  sweepStaleTestSchemas,
+  type TestDatabase,
+} from './testing.js';
 
 describe('drizzleConfig', () => {
   it('confines a service to its own Postgres schema', () => {
@@ -60,6 +68,20 @@ describe('rewriteSchemaSql', () => {
 const ADMIN = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
 /** Resolved once, at module scope: `describe` callbacks are synchronous. */
 const live = await postgresAvailable(ADMIN);
+// Most CI service roles have CREATEDB but deliberately are not superusers.
+// Catalog locks, event triggers, and role creation are failure-injection tools
+// available only in a dedicated superuser test fixture.
+const superuserFixture =
+  live &&
+  (await (async () => {
+    const probe = postgres(ADMIN, { max: 1, onnotice: () => undefined });
+    try {
+      const [role] = await probe<{ rolsuper: boolean }[]>`SELECT rolsuper FROM pg_roles WHERE rolname = current_user`;
+      return role?.rolsuper === true;
+    } finally {
+      await probe.end({ timeout: 5 });
+    }
+  })());
 
 describe('createTestDatabase', () => {
   it('refuses a service name that is not a safe identifier', async () => {
@@ -129,6 +151,554 @@ describe('createTestDatabase', () => {
     } finally {
       await admin.unsafe(`DROP SCHEMA IF EXISTS "${unstamped}" CASCADE`).catch(() => undefined);
       await admin.end({ timeout: 5 });
+    }
+  });
+});
+
+/**
+ * Local Postgres this desk uses. A failed createTestDb must not leave this
+ * worker holding the schema.
+ */
+const L1280_URL = ADMIN;
+
+describe.skipIf(!live)('createTestDb setup failure cleanup', () => {
+  it('drops the schema and ends both pools when a migration throws', async () => {
+    const service = 'l1280mig';
+    const prefix = `test_${service}_${process.pid}_`;
+    const sentinel = 'L1280-migration-failed';
+    const probe = postgres(L1280_URL, { max: 1, onnotice: () => undefined });
+
+    try {
+      let thrown: unknown;
+      try {
+        await createTestDb({
+          service,
+          url: L1280_URL,
+          migrations: [`SELECT '${sentinel}'::int`],
+        });
+        thrown = undefined;
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect(thrown).toMatchObject({
+        code: '22P02',
+        message: expect.stringContaining(sentinel),
+      });
+
+      const schemas = await probe<{ nspname: string }[]>`
+        SELECT nspname FROM pg_namespace WHERE strpos(nspname, ${prefix}) = 1
+      `;
+      expect(schemas).toEqual([]);
+
+      const leaked = await probe<{ application_name: string; query: string }[]>`
+        SELECT application_name, query
+          FROM pg_stat_activity
+         WHERE pid <> pg_backend_pid()
+           AND datname = current_database()
+           AND (
+             strpos(application_name, ${prefix}) = 1
+             OR strpos(query, ${prefix}) > 0
+           )
+      `;
+      expect(leaked).toEqual([]);
+    } finally {
+      const leftovers = await probe<{ nspname: string }[]>`
+        SELECT nspname FROM pg_namespace WHERE strpos(nspname, ${prefix}) = 1
+      `;
+      for (const row of leftovers) {
+        if (/^[a-z][a-z0-9_]*$/i.test(row.nspname)) {
+          await probe.unsafe(`DROP SCHEMA IF EXISTS "${row.nspname}" CASCADE`);
+        }
+      }
+      const stuck = await probe<{ pid: number }[]>`
+        SELECT pid
+          FROM pg_stat_activity
+         WHERE pid <> pg_backend_pid()
+           AND datname = current_database()
+           AND (
+             strpos(application_name, ${prefix}) = 1
+             OR strpos(query, ${prefix}) > 0
+           )
+      `;
+      for (const row of stuck) {
+        await probe`SELECT pg_terminate_backend(${row.pid})`;
+      }
+      await probe.end({ timeout: 5 });
+    }
+  });
+
+  it('returns a handle whose drop removes the schema and the client', async () => {
+    const service = 'l1280ok';
+    const prefix = `test_${service}_${process.pid}_`;
+    const db = await createTestDb({
+      service,
+      url: L1280_URL,
+      migrations: ['CREATE TABLE kept (id int primary key)'],
+    });
+    const probe = postgres(L1280_URL, { max: 1, onnotice: () => undefined });
+    let dropped = false;
+
+    try {
+      expect(db.url).toBe(L1280_URL);
+      expect(db.schema).toMatch(new RegExp(`^test_${service}_${process.pid}_\\d+$`));
+      expect(typeof db.truncateAll).toBe('function');
+      expect(typeof db.drop).toBe('function');
+
+      await db.sql`INSERT INTO kept (id) VALUES (1)`;
+      await db.truncateAll();
+      expect(await db.sql`SELECT id FROM kept`).toEqual([]);
+
+      await db.drop();
+      dropped = true;
+
+      const schemas = await probe<{ nspname: string }[]>`
+        SELECT nspname FROM pg_namespace WHERE strpos(nspname, ${prefix}) = 1
+      `;
+      expect(schemas).toEqual([]);
+
+      const leaked = await probe<{ application_name: string; query: string }[]>`
+        SELECT application_name, query
+          FROM pg_stat_activity
+         WHERE pid <> pg_backend_pid()
+           AND datname = current_database()
+           AND (
+             strpos(application_name, ${prefix}) = 1
+             OR strpos(query, ${prefix}) > 0
+           )
+      `;
+      expect(leaked).toEqual([]);
+    } finally {
+      if (!dropped) await db.drop().catch(() => undefined);
+      const leftovers = await probe<{ nspname: string }[]>`
+        SELECT nspname FROM pg_namespace WHERE strpos(nspname, ${prefix}) = 1
+      `;
+      for (const row of leftovers) {
+        if (/^[a-z][a-z0-9_]*$/i.test(row.nspname)) {
+          await probe.unsafe(`DROP SCHEMA IF EXISTS "${row.nspname}" CASCADE`);
+        }
+      }
+      await probe.end({ timeout: 5 });
+    }
+  });
+
+  it.runIf(superuserFixture)('drops the schema when COMMENT fails after CREATE SCHEMA', async () => {
+    const service = 'l1280comment';
+    const prefix = `test_${service}_${process.pid}_`;
+    const sentinel = 'L1280 comment failed';
+    const fn = `l1280_reject_comment_${process.pid}`;
+    const probe = postgres(L1280_URL, { max: 1, onnotice: () => undefined });
+
+    try {
+      await probe.unsafe(`
+        CREATE OR REPLACE FUNCTION ${fn}()
+        RETURNS event_trigger
+        LANGUAGE plpgsql
+        AS $l1280$
+        DECLARE
+          obj record;
+        BEGIN
+          FOR obj IN SELECT object_identity FROM pg_event_trigger_ddl_commands()
+          LOOP
+            IF obj.object_identity LIKE '%l1280comment%' THEN
+              RAISE EXCEPTION '${sentinel}';
+            END IF;
+          END LOOP;
+        END;
+        $l1280$;
+      `);
+      await probe.unsafe(`DROP EVENT TRIGGER IF EXISTS ${fn}`);
+      await probe.unsafe(`
+        CREATE EVENT TRIGGER ${fn}
+          ON ddl_command_end
+          WHEN TAG IN ('COMMENT')
+          EXECUTE FUNCTION ${fn}()
+      `);
+
+      let thrown: unknown;
+      try {
+        await createTestDb({ service, url: L1280_URL });
+        thrown = undefined;
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect(thrown).toMatchObject({
+        message: expect.stringContaining(sentinel),
+      });
+
+      const schemas = await probe<{ nspname: string; comment: string | null }[]>`
+        SELECT nspname, obj_description(oid, 'pg_namespace') AS comment
+          FROM pg_namespace
+         WHERE strpos(nspname, ${prefix}) = 1
+      `;
+      expect(schemas).toEqual([]);
+
+      const leaked = await probe<{ application_name: string; query: string }[]>`
+        SELECT application_name, query
+          FROM pg_stat_activity
+         WHERE pid <> pg_backend_pid()
+           AND datname = current_database()
+           AND (
+             strpos(application_name, ${prefix}) = 1
+             OR strpos(query, ${prefix}) > 0
+           )
+      `;
+      expect(leaked).toEqual([]);
+    } finally {
+      await probe.unsafe(`DROP EVENT TRIGGER IF EXISTS ${fn}`).catch(() => undefined);
+      await probe.unsafe(`DROP FUNCTION IF EXISTS ${fn}()`).catch(() => undefined);
+      const leftovers = await probe<{ nspname: string }[]>`
+        SELECT nspname FROM pg_namespace WHERE strpos(nspname, ${prefix}) = 1
+      `;
+      for (const row of leftovers) {
+        if (/^[a-z][a-z0-9_]*$/i.test(row.nspname)) {
+          await probe.unsafe(`DROP SCHEMA IF EXISTS "${row.nspname}" CASCADE`);
+        }
+      }
+      const stuck = await probe<{ pid: number }[]>`
+        SELECT pid
+          FROM pg_stat_activity
+         WHERE pid <> pg_backend_pid()
+           AND datname = current_database()
+           AND (
+             strpos(application_name, ${prefix}) = 1
+             OR strpos(query, ${prefix}) > 0
+           )
+      `;
+      for (const row of stuck) {
+        await probe`SELECT pg_terminate_backend(${row.pid})`;
+      }
+      await probe.end({ timeout: 5 });
+    }
+  });
+});
+
+/**
+ * Local Postgres this desk uses. A failed createTestDatabase must end every
+ * pool it opened, and a database CREATE already committed must be dropped:
+ * PostgreSQL cannot wrap CREATE DATABASE in a transaction, and the sweeper
+ * skips a database that never received its stamp.
+ */
+const L1281_URL = ADMIN;
+
+function l1281Url(applicationName: string, params: Record<string, string> = {}): string {
+  const url = new URL(L1281_URL);
+  url.searchParams.set('application_name', applicationName);
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+  return url.toString();
+}
+
+async function l1281Databases(probe: postgres.Sql, prefix: string): Promise<{ datname: string }[]> {
+  return probe<{ datname: string }[]>`
+    SELECT datname FROM pg_database WHERE strpos(datname, ${prefix}) = 1
+  `;
+}
+
+async function l1281Activity(
+  probe: postgres.Sql,
+  applicationName: string,
+  prefix: string,
+): Promise<{ application_name: string; query: string }[]> {
+  return probe<{ application_name: string; query: string }[]>`
+    SELECT application_name, query
+      FROM pg_stat_activity
+     WHERE pid <> pg_backend_pid()
+       AND (
+         application_name = ${applicationName}
+         OR strpos(query, ${prefix}) > 0
+       )
+  `;
+}
+
+async function l1281Reclaim(probe: postgres.Sql, prefix: string, applicationName: string): Promise<void> {
+  const leftovers = await l1281Databases(probe, prefix);
+  for (const row of leftovers) {
+    if (/^[a-z][a-z0-9_]*$/i.test(row.datname)) {
+      await probe.unsafe(`DROP DATABASE IF EXISTS "${row.datname}" WITH (FORCE)`);
+    }
+  }
+  const stuck = await probe<{ pid: number }[]>`
+    SELECT pid
+      FROM pg_stat_activity
+     WHERE pid <> pg_backend_pid()
+       AND application_name = ${applicationName}
+  `;
+  for (const row of stuck) {
+    await probe`SELECT pg_terminate_backend(${row.pid})`;
+  }
+}
+
+describe.skipIf(!live)('createTestDatabase setup failure cleanup', () => {
+  it('ends the admin pool when assertTestDatabase refuses before CREATE DATABASE', async () => {
+    const service = 'l1281assert';
+    const prefix = `itf_run_${service}_${process.pid}_`;
+    const app = 'l1281_assert_pool';
+    const host = `l1281_assert_host_${process.pid}`;
+    const probe = postgres(L1281_URL, { max: 1, onnotice: () => undefined });
+    const hostUrl = new URL(L1281_URL);
+    hostUrl.pathname = `/${host}`;
+    hostUrl.searchParams.set('application_name', app);
+
+    try {
+      await probe.unsafe(`DROP DATABASE IF EXISTS "${host}" WITH (FORCE)`);
+      await probe.unsafe(`CREATE DATABASE "${host}"`);
+
+      let thrown: unknown;
+      try {
+        await createTestDatabase({ service, url: hostUrl.toString() });
+        thrown = undefined;
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect(thrown).toMatchObject({
+        message: expect.stringContaining('REFUSING TO RUN'),
+      });
+
+      expect(await l1281Databases(probe, prefix)).toEqual([]);
+      expect(await l1281Activity(probe, app, prefix)).toEqual([]);
+    } finally {
+      const stuck = await probe<{ pid: number }[]>`
+        SELECT pid
+          FROM pg_stat_activity
+         WHERE pid <> pg_backend_pid()
+           AND (datname = ${host} OR application_name = ${app})
+      `;
+      for (const row of stuck) {
+        await probe`SELECT pg_terminate_backend(${row.pid})`;
+      }
+      await probe.unsafe(`DROP DATABASE IF EXISTS "${host}" WITH (FORCE)`);
+      await l1281Reclaim(probe, prefix, app);
+      await probe.end({ timeout: 5 });
+    }
+  });
+
+  it('ends the admin pool when CREATE DATABASE fails without permission denied', async () => {
+    const service = 'l1281ro';
+    const prefix = `itf_run_${service}_${process.pid}_`;
+    const app = 'l1281_ro_pool';
+    const probe = postgres(L1281_URL, { max: 1, onnotice: () => undefined });
+    let opened: TestDatabase | undefined;
+
+    try {
+      let thrown: unknown;
+      try {
+        opened = await createTestDatabase({
+          service,
+          url: l1281Url(app, { options: '-c default_transaction_read_only=on' }),
+        });
+        thrown = undefined;
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect(thrown).toMatchObject({
+        code: '25006',
+        message: expect.stringContaining('read-only transaction'),
+      });
+      expect(await l1281Databases(probe, prefix)).toEqual([]);
+      expect(await l1281Activity(probe, app, prefix)).toEqual([]);
+    } finally {
+      if (opened) await opened.drop().catch(() => undefined);
+      await l1281Reclaim(probe, prefix, app);
+      await probe.end({ timeout: 5 });
+    }
+  });
+
+  it.runIf(superuserFixture)('ends the admin pool and throws the CREATEDB message when permission is denied', async () => {
+    const service = 'l1281denied';
+    const prefix = `itf_run_${service}_${process.pid}_`;
+    const app = 'l1281_denied_pool';
+    const role = `l1281_nocreatedb_${process.pid}`;
+    const probe = postgres(L1281_URL, { max: 1, onnotice: () => undefined });
+    const url = new URL(L1281_URL);
+    url.username = role;
+    url.searchParams.set('application_name', app);
+
+    try {
+      await probe.unsafe(`DROP ROLE IF EXISTS "${role}"`);
+      await probe.unsafe(`CREATE ROLE "${role}" LOGIN NOCREATEDB NOSUPERUSER NOCREATEROLE`);
+
+      let thrown: unknown;
+      try {
+        await createTestDatabase({ service, url: url.toString() });
+        thrown = undefined;
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).toContain(
+        `createTestDatabase(${service}) cannot create a database: permission denied to create database`,
+      );
+      expect((thrown as Error).message).toContain('CREATEDB');
+      expect(await l1281Databases(probe, prefix)).toEqual([]);
+      expect(await l1281Activity(probe, app, prefix)).toEqual([]);
+    } finally {
+      const stuck = await probe<{ pid: number }[]>`
+        SELECT pid FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND usename = ${role}
+      `;
+      for (const row of stuck) {
+        await probe`SELECT pg_terminate_backend(${row.pid})`;
+      }
+      await probe.unsafe(`DROP ROLE IF EXISTS "${role}"`);
+      await l1281Reclaim(probe, prefix, app);
+      await probe.end({ timeout: 5 });
+    }
+  });
+
+  it('drops the database and ends the pools when a migration throws', async () => {
+    const service = 'l1281mig';
+    const prefix = `itf_run_${service}_${process.pid}_`;
+    const app = 'l1281_mig_pool';
+    const sentinel = 'L1281-migration-failed';
+    const probe = postgres(L1281_URL, { max: 1, onnotice: () => undefined });
+
+    try {
+      let thrown: unknown;
+      try {
+        await createTestDatabase({
+          service,
+          url: l1281Url(app),
+          migrations: [`SELECT '${sentinel}'::int`],
+        });
+        thrown = undefined;
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect(thrown).toMatchObject({
+        code: '22P02',
+        message: expect.stringContaining(sentinel),
+      });
+      expect(await l1281Databases(probe, prefix)).toEqual([]);
+      expect(await l1281Activity(probe, app, prefix)).toEqual([]);
+    } finally {
+      await l1281Reclaim(probe, prefix, app);
+      await probe.end({ timeout: 5 });
+    }
+  });
+
+  /**
+   * COMMENT ON DATABASE does not fire ddl_command_end, so an event trigger
+   * cannot fail it. A SHARE lock on pg_shdescription blocks that comment and
+   * still lets the preceding catalog read and CREATE DATABASE through.
+   * Cancelling the wait is the failure.
+   */
+  it.runIf(superuserFixture)(
+    'drops the database and ends the pools when COMMENT ON DATABASE fails',
+    async () => {
+      const service = 'l1281comment';
+      const prefix = `itf_run_${service}_${process.pid}_`;
+      const app = 'l1281_comment_pool';
+      const probe = postgres(L1281_URL, { max: 1, onnotice: () => undefined });
+      const locker = postgres(L1281_URL, { max: 1, onnotice: () => undefined });
+      let opened: TestDatabase | undefined;
+      let thrown: unknown;
+
+      try {
+        let pending = Promise.resolve();
+        await locker.begin(async (tx) => {
+          await tx.unsafe('LOCK TABLE pg_shdescription IN SHARE MODE');
+          pending = createTestDatabase({ service, url: l1281Url(app) }).then(
+            (db) => {
+              opened = db;
+            },
+            (err: unknown) => {
+              thrown = err;
+            },
+          );
+
+          const deadline = Date.now() + 4_000;
+          let cancelled = false;
+          while (Date.now() < deadline && !opened && thrown === undefined) {
+            const waiting = await probe<{ pid: number }[]>`
+            SELECT pid
+              FROM pg_stat_activity
+             WHERE application_name = ${app}
+               AND pid <> pg_backend_pid()
+               AND strpos(query, 'COMMENT ON DATABASE') > 0
+          `;
+            if (waiting[0]) {
+              await probe`SELECT pg_cancel_backend(${waiting[0].pid})`;
+              cancelled = true;
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          }
+
+          if (cancelled) {
+            const quiet = Date.now() + 2_000;
+            while (Date.now() < quiet) {
+              const still = await probe<{ pid: number }[]>`
+              SELECT pid
+                FROM pg_stat_activity
+               WHERE application_name = ${app}
+                 AND pid <> pg_backend_pid()
+                 AND strpos(query, 'COMMENT ON DATABASE') > 0
+            `;
+              if (still.length === 0) break;
+              await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+          }
+        });
+        await pending;
+
+        expect(thrown).toMatchObject({ code: '57014' });
+        expect(await l1281Databases(probe, prefix)).toEqual([]);
+        expect(await l1281Activity(probe, app, prefix)).toEqual([]);
+      } finally {
+        if (opened) await opened.drop().catch(() => undefined);
+        await l1281Reclaim(probe, prefix, app);
+        await probe.end({ timeout: 5 });
+        await locker.end({ timeout: 5 });
+      }
+    },
+    15_000,
+  );
+
+  it('returns a handle whose drop removes the database and the client', async () => {
+    const service = 'l1281ok';
+    const prefix = `itf_run_${service}_${process.pid}_`;
+    const db = await createTestDatabase({
+      service,
+      url: L1281_URL,
+      migrations: ['CREATE TABLE l1281ok.kept (id int primary key)'],
+    });
+    const probe = postgres(L1281_URL, { max: 1, onnotice: () => undefined });
+    let dropped = false;
+
+    try {
+      expect(db.schema).toBe('l1281ok');
+      expect(db.database).toMatch(new RegExp(`^itf_run_${service}_${process.pid}_\\d+_[a-z0-9]+_test$`));
+      expect(db.database.endsWith('_test')).toBe(true);
+      expect(db.url).toContain(`/${db.database}`);
+      expect(typeof db.truncateAll).toBe('function');
+      expect(typeof db.drop).toBe('function');
+
+      await db.sql`INSERT INTO l1281ok.kept (id) VALUES (1)`;
+      await db.truncateAll();
+      expect(await db.sql`SELECT id FROM l1281ok.kept`).toEqual([]);
+
+      await db.drop();
+      dropped = true;
+
+      expect(await l1281Databases(probe, prefix)).toEqual([]);
+      const leaked = await probe<{ application_name: string; query: string }[]>`
+        SELECT application_name, query
+          FROM pg_stat_activity
+         WHERE pid <> pg_backend_pid()
+           AND (
+             application_name = ${db.database}
+             OR strpos(query, ${prefix}) > 0
+           )
+      `;
+      expect(leaked).toEqual([]);
+    } finally {
+      if (!dropped) await db.drop().catch(() => undefined);
+      await l1281Reclaim(probe, prefix, db.database);
+      await probe.end({ timeout: 5 });
     }
   });
 });

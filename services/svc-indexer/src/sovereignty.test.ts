@@ -2,7 +2,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { checkAccess, KYC_TIERS, MODULES, regionsWithEntries } from '@intafaced/config';
+import { checkAccess, KYC_TIERS, MODULES, regionsWithEntries, UNSET_SCREENING_LIST } from '@intafaced/config';
 
 /**
  * §22 AND §16.10, ASSERTED FROM INSIDE THE SERVICE.
@@ -56,7 +56,14 @@ describe('svc-indexer · §22 — permissionless by architecture', () => {
     const regions = [...regionsWithEntries(), 'DE', 'XX', 'JP', 'NG'];
     for (const region of regions) {
       for (const kycTier of KYC_TIERS) {
-        const decision = checkAccess({ module: 'indexer', plane: 'protocol', region, kycTier });
+        const decision = checkAccess({
+          module: 'indexer',
+          plane: 'protocol',
+          region,
+          kycTier,
+          regionFailClosed: false,
+          screeningFailClosed: false,
+        });
         expect(decision.code, `${region}/${kycTier}`).toBe('allowed.permissionless');
         expect(decision.allowed).toBe(true);
       }
@@ -64,7 +71,25 @@ describe('svc-indexer · §22 — permissionless by architecture', () => {
   });
 
   it('does not operate on the fiat plane at all', () => {
-    expect(checkAccess({ module: 'indexer', plane: 'fiat', region: 'DE', kycTier: 'full' }).code).toBe('denied.plane_unsupported');
+    expect(
+      checkAccess({ module: 'indexer', plane: 'fiat', region: 'DE', kycTier: 'full', regionFailClosed: false, screeningFailClosed: false })
+        .code,
+    ).toBe('denied.plane_unsupported');
+  });
+
+  it('structural permissionlessness does not clear an unconfigured request', () => {
+    const query = { module: 'indexer', plane: 'protocol', region: 'XX', kycTier: 'none', screening: UNSET_SCREENING_LIST } as const;
+    const structural = checkAccess({ ...query, regionFailClosed: false, screeningFailClosed: false });
+    expect(structural.allowed).toBe(true);
+    expect(structural.code).toBe('allowed.permissionless');
+    expect(structural.regionResolved).toBe(false);
+    expect(structural.screening).toMatchObject({ listConfigured: false, declaration: 'unset', moneyGrade: 'unconfigured' });
+
+    const request = checkAccess({ ...query, regionFailClosed: true, screeningFailClosed: true });
+    expect(request.allowed).toBe(false);
+    expect(request.code).toBe('denied.screening_unconfigured');
+    expect(request.regionResolved).toBe(false);
+    expect(request.screening).toMatchObject({ listConfigured: false, declaration: 'unset', moneyGrade: 'unconfigured' });
   });
 
   /**
@@ -72,7 +97,10 @@ describe('svc-indexer · §22 — permissionless by architecture', () => {
    * everything, the assertions above would pass and mean nothing.
    */
   it('still gates a custodial module — the assertions above are not vacuous', () => {
-    expect(checkAccess({ module: 'bank', plane: 'fiat', region: 'DE', kycTier: 'none' }).code).toBe('denied.kyc_required');
+    expect(
+      checkAccess({ module: 'bank', plane: 'fiat', region: 'DE', kycTier: 'none', regionFailClosed: false, screeningFailClosed: false })
+        .code,
+    ).toBe('denied.kyc_required');
   });
 });
 

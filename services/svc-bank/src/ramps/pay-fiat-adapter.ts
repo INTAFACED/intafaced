@@ -1,17 +1,18 @@
 import { BankError } from '../errors.js';
 
 /**
- * FIAT RAMP VIA PAY ADAPTERS (D26-P1-B4) — mediation port, not a second book.
+ * Pay fiat rail names — mediation port, not a stored fiat ramp and not a ledger post.
  *
  * Tracker title: "Fiat on/off ramp reusing svc-pay adapters".
- * ADR split: fiat remains `socket.psp-partners` commercially; the *code path*
- * that will host a partner rail is svc-pay's `RailAdapter` plane — never a
- * bank-local PSP client, never an invented APY/BIN, never a second money book.
+ * ADR split: fiat remains `socket.psp-partners` commercially. Kind fiat refuses
+ * `bank.fiat_ramp_socket` before any row or ledger post — never a bank-local
+ * PSP client, never an invented APY/BIN, never a second money book.
  *
  * svc-bank deliberately does **not** import `@intafaced/svc-pay`. Boot (or a
  * future contracts edge) may inject a port that asks pay's registry. Silence /
- * empty list = honest refuse. A `live` rail with the matching capability is the
- * only shape that may proceed to ledger-client deposit/withdraw recipes.
+ * empty list = honest refuse. Kind fiat refuses `bank.fiat_ramp_socket` before
+ * any row or ledger post. A live rail on this port is not a stored fiat ramp
+ * and does not proceed to a ledger-client deposit or withdraw.
  *
  * Sandbox pay rails succeed on the pay side and must NOT launder into a bank
  * fiat ramp — that would invent a PSP. Today's registered pay offramp rail

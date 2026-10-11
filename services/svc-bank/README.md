@@ -19,7 +19,7 @@ In svc-ledger. Nowhere else. Concretely:
 | How much is in my "Rent" space?      | `ledger.balance(subAccountAvailable(spaceId, asset))`                                                 |
 | How much is in my main account?      | `ledger.balance(userAvailable(userId, asset))`                                                        |
 | How much have I got earning?         | a sum of `ledger.balance(earnStakeAccount(userId, asset, positionId))` over the user's open positions |
-| How big is a pool?                   | `SUM(principal)` over open positions — a derived aggregate query                                      |
+| How big is a pool?                   | a sum of `ledger.balance(earnStakeAccount(userId, asset, positionId))` over the pool's open positions |
 | What can a pool still afford to pay? | `ledger.balance(earnPoolReserve(poolId, asset))`                                                      |
 | What did I spend last month?         | a fold over ledger entries in the window                                                              |
 
@@ -48,6 +48,17 @@ Point 3 is the one that matters most, because it fails for a change nobody has m
 ## API
 
 tRPC, `packages/contracts`. All money crosses the wire as **decimal strings**.
+
+Unconfigured product surfaces refuse without posting: `cards.rewards` names
+`bank.rewards_issuer_unset`, `ramps.live` names `bank.live_ramp_unset`, and
+`directDeposit` names `bank.no_paycheck_rail`. Loan health refuses
+`bank.loan_health_price_unset` when a required price is missing. A simulated
+programme never claims live fiat settlement; kind `fiat` refuses
+`bank.fiat_ramp_socket` before any row or ledger post.
+
+`spaces.unarchive` restores an archived space without moving value. Funded
+archived spaces remain visible. `loans.releaseExcess` requires a caller-supplied
+`eventId` so overlapping or repeated requests cannot release collateral twice.
 
 ### `spaces`
 
@@ -149,16 +160,16 @@ KYB / payroll / invoicing / expense cards remain residual or §13 — not invent
 
 Honest residual: KYB (Lane B), expense cards, invoicing (`pay.gateway`), multi-recipient payroll atomicity, dedicated org principal — not invented here.
 
-### `ramps` — **crypto ledger half. Fiat via pay adapters (socket until live).**
+### `ramps` — **crypto ledger half. Kind fiat refuses before any row or ledger post.**
 
-| Procedure         | Scope        | Purpose                                                                |
-| ----------------- | ------------ | ---------------------------------------------------------------------- |
-| `ramps.programme` | `bank:read`  | What this deployment's ramp is — including that it is a ledger sandbox |
-| `ramps.onramps`   | `bank:read`  | The user's on-ramp credits. Every row carries `simulated`              |
-| `ramps.offramps`  | `bank:read`  | The user's off-ramps. Every row carries `simulated`                    |
-| `ramps.offramp`   | `bank:write` | Hold then settle to `bank-crypto-ledger`. Does **not** broadcast       |
+| Procedure         | Scope        | Purpose                                                                                                                   |
+| ----------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `ramps.programme` | `bank:read`  | What this deployment's ramp is — including that it is a ledger sandbox                                                    |
+| `ramps.onramps`   | `bank:read`  | The user's on-ramp credits. Every row carries `simulated`                                                                 |
+| `ramps.offramps`  | `bank:read`  | The user's off-ramps. Every row carries `simulated`                                                                       |
+| `ramps.offramp`   | `bank:write` | Crypto: hold then settle to `bank-crypto-ledger`. Kind fiat refuses before any row or ledger post. Does **not** broadcast |
 
-`ops.creditOnramp` (admin:treasury) is the inbound credit for the ledger half — same reason deposit.credit lives under ops in svc-pay: a user who credits themselves does not need a ramp. Fiat resolves a live svc-pay RailAdapter via `PayFiatRampPort` (D26-P1-B4) or refuses `bank.fiat_ramp_socket` → `socket.psp-partners`. Empty/sandbox/absent pay rails never launder into a bank fiat ramp. No second book — value still moves only through ledger-client deposit/withdraw recipes.
+`ops.creditOnramp` (admin:treasury) is the inbound credit for the crypto ledger half — same reason deposit.credit lives under ops in svc-pay: a user who credits themselves does not need a ramp. Kind fiat refuses `bank.fiat_ramp_socket` before any row or ledger post. These tables do not store a fiat onramp or offramp, and kind fiat does not post.
 
 ```bash
 BANK_RAMP_MODE=none            # default — every ramp money path refuses bank.no_ramp_rail
@@ -510,18 +521,25 @@ BANK_CARD_ISSUER=card-sim  # the SIMULATOR — see immediately above
 
 `simulated` is `true` in **both**, and there is no value of this variable that makes it false. That is not an oversight — a live rail cannot be selected here at all, because it is `socket.live-issuer`: a card-scheme sponsor and an issuing BIN, which is a licence and a contract. The same fact appears in four places on purpose (`/ready`, the boot log line, `cards.programme`, and `simulated` on every card), so an operator, a user and an auditor each meet it without having to go looking.
 
-What `card-sim` **does** get you is the ledger half, end to end, over real postings: issue a card, authorise against a real balance, be declined by name when the money is not there, capture, get the remainder back, and be paid cashback out of a pot that was really funded. What it does not get you is a card.
+What `card-sim` **does** get you is the ledger half, end to end, over real postings: issue a card, authorise against a real balance, be declined by name when the money is not there, capture, and get the remainder back. Simulated cards refuse cashback with `bank.rewards_issuer_unset`, even when the rewards pot is funded, and create no cashback row. What it does not get you is a card.
 
 `cards.reachable.test.ts` is the suite that holds this: it enters through `createBankRouter(...).createCaller` over a context built by the real `createEdgeContext` from a **signed** principal — the composition root and the router, never a `CardService` — so if the wiring, the mounting or the scopes regress, it fails rather than the module quietly going unreachable again.
 
 **Cashback has a named source.** It is paid from `rewardsEngine(asset)`, funded by `ops.fundCashbackPot` sweeping `houseFees('bank', asset)` — fees the platform really charged. An empty pot refuses by name (`bank.cashback_pot_unfunded`) on a row, and the capture still stands: undoing a purchase the merchant already has, because a marketing promise could not be kept, would be the worse failure.
+
+A new reward also requires a connected, non-simulated issuer matching the card.
+Recovery keeps an unknown reward pending and retries its original idempotency
+key. Without that issuer, recovery can reconcile a transaction already present
+in the ledger; it cannot post a new reward for a simulated card. Migration 0024
+continues to refuse new or updated cards claiming `simulated: false`; preserved
+legacy rows are not rewritten.
 
 ---
 
 ## Sockets (§13)
 
 - **`socket.live-issuer`** — a card programme needs a **card-scheme sponsor and an issuing BIN**. That is a licence and a commercial relationship, not code: no amount of engineering time produces one, which is precisely the §13 test. `CardIssuerAdapter` is written against the shape a live issuer would implement, and the only implementation in the tree is `cardSim()`, which says on every surface that it is a simulator. Pointing working code at real money is additionally Class X.
-- **`socket.psp-partners`** — fiat on/off ramp needs a **bank/PSP partner and money-transmission permission**. Same §13 test. Code path is `PayFiatRampPort` (svc-pay `RailAdapter` plane): empty/sandbox/absent refuse `bank.fiat_ramp_socket` before any row; a live injected rail books only via ledger-client recipes against that pay rail id (no second book). Commercial partner + Class X remain the socket.
+- **`socket.psp-partners`** — fiat on/off ramp needs a **bank/PSP partner and money-transmission permission**. Same §13 test. Kind fiat refuses `bank.fiat_ramp_socket` before any row or ledger post. A live injected pay rail is not a stored fiat row and is not a ledger post from this service. Commercial partner + Class X remain the socket.
 - **`ledger.history`** — spend analytics needs a transaction-history read that svc-ledger does not expose yet. Declaring it is a `packages/contracts` + svc-ledger PR that must land first (§1). `createLedgerHistory()` is written against the shape and **fails loudly** rather than returning an empty answer: a spend view that silently reports zero is worse than one that is unavailable, because the user cannot tell "you spent nothing" from "we could not ask".
 - **Chunked interest keys** — one accrual is one ledger transaction per (pool, day). When a pool outgrows a single transaction the key gains a deterministic chunk index, `bank.interest:<poolId>:<date>:<chunk>`, which keeps the same property per chunk. The shape was chosen so that change is additive.
 
@@ -536,11 +554,11 @@ Code for loans, cards (ledger half), ramps (crypto half), and standing-order pau
 
 `bank.sovereign-card` **custodial JIT half** is on main (#1174) and sealed at the mounted door (D26-P1-B3 / `sovereign-card-product.test.ts`): refuse invent FX (`bank.mark_missing`), freeze rate at auth, ledger-only funding asset. The **on-chain / smart-account funding half** remains Shehzad (`protocol.smart-accounts`); the live card rail remains `socket.live-issuer`.
 
-## Ramps: crypto ledger half vs fiat via pay adapters
+## Ramps: crypto ledger half vs fiat socket
 
-| Half       | Missing in the WORLD                                    | Verdict                                                              |
-| ---------- | ------------------------------------------------------- | -------------------------------------------------------------------- |
-| **Crypto** | Nothing for the ledger half. Chain confirm/send is pay. | **Built** as ledger sandbox (`bank-crypto-ledger`)                   |
-| **Fiat**   | A bank/PSP partner and money-transmission permission    | **Code path Done (D26-P1-B4)** via `PayFiatRampPort`; partner is §13 |
+| Half       | Missing in the WORLD                                    | Verdict                                                                                              |
+| ---------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Crypto** | Nothing for the ledger half. Chain confirm/send is pay. | **Built** as ledger sandbox (`bank-crypto-ledger`)                                                   |
+| **Fiat**   | A bank/PSP partner and money-transmission permission    | **Refused.** Kind fiat refuses `bank.fiat_ramp_socket` before any row or ledger post. Partner is §13 |
 
-`BANK_RAMP_MODE=crypto-ledger` books deposits/withdrawals against rail `bank-crypto-ledger` — deliberately distinct from svc-pay's `crypto-native` boundary so an operator credit here cannot desync pay's chain reconciliation. `simulated: true` is never omitted. Fiat on/off with a live pay adapter uses the same ledger-client recipes against the pay rail id; `ramps-fiat-product.test.ts` enters through the mounted router. Live broadcast and inbound confirmation stay in svc-pay; Class X is pointing working code at real money.
+`BANK_RAMP_MODE=crypto-ledger` books crypto deposits and withdrawals against rail `bank-crypto-ledger` — deliberately distinct from svc-pay's `crypto-native` boundary so an operator credit here cannot desync pay's chain reconciliation. `simulated: true` is never omitted. Kind fiat refuses `bank.fiat_ramp_socket` before any row or ledger post. Live broadcast and inbound confirmation stay in svc-pay; Class X is pointing working code at real money.

@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { checkAccess, MODULES, KYC_TIERS, regionsWithEntries } from '@intafaced/config';
+import { checkAccess, MODULES, KYC_TIERS, regionsWithEntries, SCREENING_FAIL_CLOSED_ENV, UNSET_SCREENING_LIST } from '@intafaced/config';
 import { SCOPES } from '@intafaced/auth';
 
 /**
@@ -22,9 +22,19 @@ const serviceRoot = join(here, '..');
 
 const REGIONS = ['*', 'GB', 'US', 'DE', 'NG', 'IN', 'BR', 'JP', 'AE', 'ZA', 'ZZ', 'gb', 'us', ...regionsWithEntries()];
 
+// Structural custody/plane queries isolate §22 from deployment screening and
+// region policy. Ordinary requests keep the defaults; the control below proves
+// that an unconfigured request still refuses.
 describe('§22 — zero KYC on the Protocol Plane, by architecture', () => {
   it.each(REGIONS)('allows an unverified user from %s, permissionlessly', (region) => {
-    const decision = checkAccess({ module: 'protocol', plane: 'protocol', kycTier: 'none', region });
+    const decision = checkAccess({
+      module: 'protocol',
+      plane: 'protocol',
+      kycTier: 'none',
+      region,
+      regionFailClosed: false,
+      screeningFailClosed: false,
+    });
 
     expect(decision.allowed).toBe(true);
     // Not merely "allowed" — allowed for the RIGHT reason. `allowed` with a
@@ -35,12 +45,26 @@ describe('§22 — zero KYC on the Protocol Plane, by architecture', () => {
   });
 
   it.each([...KYC_TIERS])('is indifferent to verification tier "%s"', (tier) => {
-    const decision = checkAccess({ module: 'protocol', plane: 'protocol', kycTier: tier, region: 'GB' });
+    const decision = checkAccess({
+      module: 'protocol',
+      plane: 'protocol',
+      kycTier: tier,
+      region: 'GB',
+      regionFailClosed: false,
+      screeningFailClosed: false,
+    });
     expect(decision.code).toBe('allowed.permissionless');
   });
 
   it('gives the same answer for a region nobody has ever configured', () => {
-    const decision = checkAccess({ module: 'protocol', plane: 'protocol', kycTier: 'none', region: 'QQ' });
+    const decision = checkAccess({
+      module: 'protocol',
+      plane: 'protocol',
+      kycTier: 'none',
+      region: 'QQ',
+      regionFailClosed: false,
+      screeningFailClosed: false,
+    });
     expect(decision.code).toBe('allowed.permissionless');
   });
 
@@ -53,7 +77,14 @@ describe('§22 — zero KYC on the Protocol Plane, by architecture', () => {
   });
 
   it('refuses to serve this module on the fiat plane at all', () => {
-    const decision = checkAccess({ module: 'protocol', plane: 'fiat', kycTier: 'full', region: 'GB' });
+    const decision = checkAccess({
+      module: 'protocol',
+      plane: 'fiat',
+      kycTier: 'full',
+      region: 'GB',
+      regionFailClosed: false,
+      screeningFailClosed: false,
+    });
     expect(decision.allowed).toBe(false);
     expect(decision.code).toBe('denied.plane_unsupported');
   });
@@ -61,9 +92,41 @@ describe('§22 — zero KYC on the Protocol Plane, by architecture', () => {
   it('still gates a custodial module, so the permissionless branch is not universal', () => {
     // A control. If this passed too, `checkAccess` would be allowing everything
     // and the test above would prove nothing.
-    const decision = checkAccess({ module: 'bank', plane: 'fiat', kycTier: 'none', region: 'GB' });
+    const decision = checkAccess({
+      module: 'bank',
+      plane: 'fiat',
+      kycTier: 'none',
+      region: 'GB',
+      regionFailClosed: false,
+      screeningFailClosed: false,
+    });
     expect(decision.allowed).toBe(false);
     expect(decision.code).toBe('denied.kyc_required');
+  });
+
+  it('isolates the structural probe without clearing an ordinary unconfigured request', () => {
+    const previous = process.env[SCREENING_FAIL_CLOSED_ENV];
+    delete process.env[SCREENING_FAIL_CLOSED_ENV];
+    try {
+      const query = { module: 'protocol', plane: 'protocol', region: 'XX', kycTier: 'none', screening: UNSET_SCREENING_LIST } as const;
+      const structural = checkAccess({ ...query, regionFailClosed: false, screeningFailClosed: false });
+      expect(structural.code).toBe('allowed.permissionless');
+      expect(structural.regionResolved).toBe(false);
+      expect(structural.screening).toMatchObject({
+        declaration: 'unset',
+        listConfigured: false,
+        moneyGrade: 'unconfigured',
+        readsAsScreenedClean: false,
+      });
+      const request = checkAccess(query);
+      expect(request.allowed).toBe(false);
+      expect(request.code).toBe('denied.screening_unconfigured');
+      expect(request.regionResolved).toBe(false);
+      expect(request.screening).toEqual(structural.screening);
+    } finally {
+      if (previous === undefined) delete process.env[SCREENING_FAIL_CLOSED_ENV];
+      else process.env[SCREENING_FAIL_CLOSED_ENV] = previous;
+    }
   });
 });
 

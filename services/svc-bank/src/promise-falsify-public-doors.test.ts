@@ -12,8 +12,7 @@
  *   · cards.issue + ops.cardAuthorize with settlement ≠ funding and no rates →
  *     PRECONDITION_FAILED / bank.mark_missing; no authorization row; no hold.
  *   · ramps.offramp / ops.creditOnramp with programme none → PRECONDITION_FAILED /
- *     bank.no_ramp_rail; fiat kind → bank.fiat_ramp_socket /
- *     bank.fiat_ramp_no_pay_adapter before any row.
+ *     bank.no_ramp_rail; fiat kind → bank.fiat_ramp_socket before any row.
  * Class: N (honesty) / M surface (no invent yields or §8 rates). Leverage:
  *   createBankRouter + Fastify TRPC mount + MemoryLedger (Phase A IN).
  *
@@ -34,6 +33,7 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
+import { SANCTIONS_REGIONS_ENV, SANCTIONS_SOURCE_ENV, SCREENING_FAIL_CLOSED_ENV } from '@intafaced/config';
 import {
   createEdgeContext,
   encodePrincipal,
@@ -96,7 +96,7 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
 
 type WireBody = {
   result?: { data?: unknown };
-  error?: { message?: string; data?: { code?: string; httpStatus?: number } };
+  error?: { message?: string; data?: { code?: string; httpStatus?: number; intafacedCode?: string } };
 };
 
 describe('promise-falsify-public-doors (source)', () => {
@@ -280,7 +280,8 @@ describe('D26-P2-01e public doors (PG-hard)', () => {
       await fund(ledger, HOLDER, 'USDT', '1000');
       // Seed position with a past opened_at so the accrual day is interest-eligible.
       // The refuse under test is the ops.accrueInterest public door, not deposit.
-      await bank.earn.deposit({ positionId: randomUUID(),
+      await bank.earn.deposit({
+        positionId: randomUUID(),
         poolId: pool.id,
         userId: HOLDER,
         amount: amt('1000'),
@@ -308,7 +309,8 @@ describe('D26-P2-01e public doors (PG-hard)', () => {
         aprBps: 5000,
       });
       await fund(ledger, HOLDER, 'USDT', '1000');
-      await bank.earn.deposit({ positionId: randomUUID(),
+      await bank.earn.deposit({
+        positionId: randomUUID(),
         poolId: empty.id,
         userId: HOLDER,
         amount: amt('1000'),
@@ -333,7 +335,8 @@ describe('D26-P2-01e public doors (PG-hard)', () => {
         aprBps: 3650,
       });
       await fund(ledger, HOLDER, 'USDT', '1000');
-      await bank.earn.deposit({ positionId: randomUUID(),
+      await bank.earn.deposit({
+        positionId: randomUUID(),
         poolId: pool.id,
         userId: HOLDER,
         amount: amt('1000'),
@@ -415,6 +418,37 @@ describe('D26-P2-01e public doors (PG-hard)', () => {
         code: 'PRECONDITION_FAILED',
         cause: { code: 'bank.no_card_issuer' },
       });
+    });
+
+    it('HTTP cards.issue refuses an unconfigured screening list before creating a card', async () => {
+      const envKeys = [SCREENING_FAIL_CLOSED_ENV, SANCTIONS_REGIONS_ENV, SANCTIONS_SOURCE_ENV] as const;
+      const prior = new Map(envKeys.map((key) => [key, process.env[key]]));
+      const app = await mountDoors(bank);
+
+      try {
+        process.env[SCREENING_FAIL_CLOSED_ENV] = 'on';
+        delete process.env[SANCTIONS_REGIONS_ENV];
+        delete process.env[SANCTIONS_SOURCE_ENV];
+
+        const refused = await post(app, 'cards.issue', {
+          cardId: randomUUID(),
+          assetId: 'USDT',
+          perAuthorizationLimit: '250',
+        });
+
+        expect(refused.statusCode).toBe(403);
+        expect(refused.body.error?.data?.code).toBe('FORBIDDEN');
+        expect(refused.body.error?.data?.intafacedCode).toBe('denied.screening_unconfigured');
+        expect(await sql`SELECT id FROM bank.cards`).toHaveLength(0);
+        expect(ledger.journal()).toHaveLength(0);
+      } finally {
+        for (const key of envKeys) {
+          const value = prior.get(key);
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+        await app.close();
+      }
     });
 
     it('HTTP /trpc/ops.cardAuthorize JIT with settlement≠funding and no mark writes no hold', async () => {
@@ -503,7 +537,7 @@ describe('D26-P2-01e public doors (PG-hard)', () => {
         }),
       ).rejects.toMatchObject({
         code: 'PRECONDITION_FAILED',
-        cause: { code: 'bank.fiat_ramp_no_pay_adapter' },
+        cause: { code: 'bank.fiat_ramp_socket' },
       });
       const rows = await sql`SELECT count(*)::text AS c FROM bank.ramp_onramps`;
       expect(rows[0]?.c).toBe('0');
@@ -591,7 +625,7 @@ describe('D26-P2-01e public doors (PG-hard)', () => {
         signedHeaders(treasury()),
       );
       expect(fiatSocket.statusCode).toBe(412);
-      expectNamedRefuse(fiatSocket.body, 'bank.fiat_ramp_no_pay_adapter');
+      expectNamedRefuse(fiatSocket.body, 'bank.fiat_ramp_socket');
       await cryptoApp.close();
 
       expect((await sql`SELECT count(*)::text AS c FROM bank.ramp_offramps`)[0]?.c).toBe('0');
