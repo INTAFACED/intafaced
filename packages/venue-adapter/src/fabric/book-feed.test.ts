@@ -182,7 +182,7 @@ describe('MaintainedBook.run — a failed seed completes on a quiet stream', () 
     expect(status).toEqual({ kind: 'stopped', reason: `${VENUE_ID}:${SYMBOL} stream ended` });
   });
 
-  it('stays live after a seed until close() is called', async () => {
+  it('reports stopped after a seed when close() is called', async () => {
     const { subscription } = quietStream('end');
     const book = new MaintainedBook(fakeAdapter(async () => absentSnapshot(4), subscription), SYMBOL);
 
@@ -199,7 +199,8 @@ describe('MaintainedBook.run — a failed seed completes on a quiet stream', () 
     await book.close();
     const status = await running;
     expect(settled).toBe(true);
-    expect(status).toEqual({ kind: 'live', sequence: 4 });
+    expect(status).toEqual({ kind: 'stopped', reason: `${VENUE_ID}:${SYMBOL} subscription closed` });
+    expect(book.status).toEqual(status);
     expect(book.servable).toBe(false);
   });
 });

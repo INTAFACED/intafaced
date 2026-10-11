@@ -165,11 +165,18 @@ export class MaintainedBook {
       return this.#stop(`${this.venueId}:${this.symbol} stream failed: ${String(error)}`);
     }
 
-    return this.#stopped ? this.#status : this.#stop(`${this.venueId}:${this.symbol} stream ended`);
+    // Already stopped: the first reason stands, including a snapshot fetch failure.
+    // Closed but not yet stopped: do not return the previous starting, resyncing, or live status.
+    if (this.#status.kind === 'stopped') return this.#status;
+    if (this.#stopped) return this.#stop(this.#subscriptionClosedReason());
+    return this.#stop(`${this.venueId}:${this.symbol} stream ended`);
   }
 
   async close(): Promise<void> {
-    this.#stopped = true;
+    // Status moves here, so a caller that awaits close() cannot still observe
+    // starting, resyncing, or live. An earlier stop keeps its reason. #stop
+    // already closes the subscription; closing again must stay safe.
+    if (this.#status.kind !== 'stopped') this.#stop(this.#subscriptionClosedReason());
     await this.#subscription?.close();
   }
 
@@ -221,6 +228,10 @@ export class MaintainedBook {
       `${this.venueId}:${this.symbol} could not join the stream after ${this.#options.maxSnapshotAttempts} snapshots — ` +
         'the REST endpoint is lagging its own websocket',
     );
+  }
+
+  #subscriptionClosedReason(): string {
+    return `${this.venueId}:${this.symbol} subscription closed`;
   }
 
   #stop(reason: string): BookFeedStatus {
