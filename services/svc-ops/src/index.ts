@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import postgres from 'postgres';
 import { migrateOutreach } from './db/migrate.js';
 import { OutreachCrm } from './outreach/crm.js';
+import { OutreachError } from './outreach/config.js';
 import { createFounderAuthority } from './outreach/authority.js';
 import { createClientIpResolver } from './outreach/client-ip.js';
 import { createOutreachNotificationClient } from './outreach/notification-client.js';
@@ -127,12 +128,31 @@ const notificationTimer = setInterval(() => {
 }, 1000);
 notificationTimer.unref();
 
+// Explicit approved config enables this owned bounded scheduler; absent config does no work.
+let retentionRun: Promise<void> | null = null;
+const retentionTimer = setInterval(() => {
+  if (!crmSql || retentionRun) return;
+  retentionRun = (async () => {
+    for (let count = 0; count < 5; count++) if (!(await crm.privacy.runRetentionOnce())) break;
+  })()
+    .catch((error: unknown) => {
+      const code = error instanceof OutreachError ? error.code : 'ops.crm.retention_worker_unavailable';
+      app.log.warn({ code }, 'Outreach erasure remains pending; inspect owner recovery status');
+    })
+    .finally(() => {
+      retentionRun = null;
+    });
+}, 60000);
+retentionTimer.unref();
+
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       clearInterval(notificationTimer);
+      clearInterval(retentionTimer);
       await app.close();
       await notificationRun;
+      await retentionRun;
       await crmSql?.end({ timeout: 5 });
       process.exit(0);
     })();

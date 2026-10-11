@@ -4,7 +4,7 @@ import postgres, { type Sql } from 'postgres';
 
 /** Ops-owned migration journal; one transaction and advisory lock per deployment. */
 export async function migrateOutreach(sql: Sql, direction: 'up' | 'down' = 'up'): Promise<void> {
-  const names = ['0000_outreach_crm', '0001_crm_workflows', '0002_crm_notifications', '0003_crm_privacy'];
+  const names = ['0000_outreach_crm', '0001_crm_workflows', '0002_crm_notifications', '0003_crm_privacy', '0004_crm_retention'];
   const migrations = await Promise.all(
     (direction === 'down' ? [...names].reverse() : names).map(async (name) => ({
       name,

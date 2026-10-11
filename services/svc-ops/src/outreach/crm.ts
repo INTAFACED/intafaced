@@ -383,7 +383,10 @@ export class OutreachCrm {
           throw new OutreachError('ops.crm.cursor_invalid');
         }
       }
-      const rows = await tx`SELECT o.record FROM ops.crm_opportunities o JOIN ops.crm_contacts c ON c.id=o.contact_id
+      const rows = await tx`SELECT o.record,s.id AS submission_id,s.record->>'completedAt' AS completed_at,
+        s.original_contact->>'organisationName' AS organisation_name
+        FROM ops.crm_opportunities o JOIN ops.crm_contacts c ON c.id=o.contact_id
+        JOIN ops.crm_submissions s ON s.id=o.submission_id
         WHERE (${input.audience ?? null}::text IS NULL OR o.audience=${input.audience ?? null})
         AND (${input.stage ?? null}::text IS NULL OR o.stage=${input.stage ?? null})
         AND (${input.ownerUserId ?? null}::uuid IS NULL OR o.owner_user_id=${input.ownerUserId ?? null}::uuid)
@@ -398,6 +401,18 @@ export class OutreachCrm {
         : [];
       return crmOpportunityPageSchema.parse({
         contacts: contactRows.map((row) => crmContactSchema.parse(row.record)),
+        submissions: [
+          ...new Map(
+            rows.slice(0, input.limit).map((row) => [
+              row.submission_id,
+              {
+                submissionId: row.submission_id,
+                completedAt: row.completed_at,
+                organisationName: row.organisation_name,
+              },
+            ]),
+          ).values(),
+        ],
         items,
         nextCursor:
           rows.length > input.limit && last ? Buffer.from(JSON.stringify({ at: last.createdAt, id: last.id })).toString('base64url') : null,

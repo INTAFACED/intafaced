@@ -18,7 +18,8 @@ const intent = z
   .object({
     id,
     canonicalContactId: id,
-    actorUserId: id,
+    actorUserId: id.nullable(),
+    actorKind: z.enum(['founder', 'system']).default('founder'),
     requestId: id,
     reason: z.enum(['confirmed_privacy_request', 'approved_retention_policy']),
     revision: z.number().int().positive().safe(),
@@ -38,6 +39,11 @@ const intent = z
   })
   .strict()
   .superRefine((v, ctx) => {
+    if (
+      (v.actorKind === 'founder' && v.actorUserId === null) ||
+      (v.actorKind === 'system' && (v.actorUserId !== null || v.reason !== 'approved_retention_policy'))
+    )
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Erasure actor must match authority kind' });
     if (!v.contactIds.includes(v.canonicalContactId))
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Canonical contact must be selected' });
     if (
@@ -58,7 +64,7 @@ const intent = z
   });
 export const erasureArchiveSchema = z
   .object({
-    version: z.literal(1),
+    version: z.union([z.literal(1), z.literal(2)]),
     generatedAt: timestamp,
     intents: z.array(intent).max(10000),
     erasedRequestIds: ids(100000),
@@ -78,6 +84,8 @@ export const erasureArchiveSchema = z
   })
   .strict()
   .superRefine((v, ctx) => {
+    if (v.version === 1 && v.intents.some((i) => i.actorKind !== 'founder'))
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Legacy archives cannot represent system authority' });
     const selected = new Set(v.intents.map((i) => i.id));
     if (
       selected.size !== v.intents.length ||
@@ -99,12 +107,13 @@ export async function exportErasureArchive(sql: Sql) {
       const requests = await tx`SELECT * FROM ops.crm_privacy_requests ORDER BY request_id LIMIT 100001`;
       const erased = await tx`SELECT request_id FROM ops.crm_erased_requests ORDER BY request_id LIMIT 100001`;
       return erasureArchiveSchema.parse({
-        version: 1,
+        version: 2,
         generatedAt: new Date().toISOString(),
         intents: rows.map((e) => ({
           id: e.id,
           canonicalContactId: e.canonical_contact_id,
           actorUserId: e.actor_user_id,
+          actorKind: e.actor_kind,
           requestId: e.request_id,
           reason: e.reason,
           revision: e.revision,
@@ -160,6 +169,7 @@ export async function applyErasureArchive(sql: Sql, raw: unknown): Promise<void>
             (p) =>
               p.id !== e.id ||
               p.actor_user_id !== e.actorUserId ||
+              p.actor_kind !== e.actorKind ||
               p.request_id !== e.requestId ||
               p.canonical_contact_id !== e.canonicalContactId ||
               p.revision > e.revision ||
@@ -171,8 +181,8 @@ export async function applyErasureArchive(sql: Sql, raw: unknown): Promise<void>
           )
         )
           throw new Error('ops.crm.restore_tombstone_conflict');
-        await tx`INSERT INTO ops.crm_erasure_intents(id,canonical_contact_id,actor_user_id,request_id,reason,revision,status,requested_at,completed_at,error_code,contact_ids,submission_ids,opportunity_ids,snapshot)
-    VALUES (${e.id},${e.canonicalContactId},${e.actorUserId},${e.requestId},${e.reason},${e.revision},${e.status},${e.requestedAt},${e.completedAt},${e.errorCode},
+        await tx`INSERT INTO ops.crm_erasure_intents(id,canonical_contact_id,actor_user_id,actor_kind,request_id,reason,revision,status,requested_at,completed_at,error_code,contact_ids,submission_ids,opportunity_ids,snapshot)
+    VALUES (${e.id},${e.canonicalContactId},${e.actorUserId},${e.actorKind},${e.requestId},${e.reason},${e.revision},${e.status},${e.requestedAt},${e.completedAt},${e.errorCode},
       ${tx.array(e.contactIds)}::uuid[],${tx.array(e.submissionIds)}::uuid[],${tx.array(e.opportunityIds)}::uuid[],${e.snapshot})
     ON CONFLICT(id) DO UPDATE SET revision=EXCLUDED.revision,status=EXCLUDED.status,completed_at=EXCLUDED.completed_at,error_code=EXCLUDED.error_code`;
         for (const n of e.notifications) {

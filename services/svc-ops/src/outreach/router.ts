@@ -78,7 +78,15 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
       .query(({ input, ctx }) => mapped(() => crm.privacy.status(input, ctx.principal!.userId))),
     privacyRetentionStatus: staffRead
       .output(workflow.crmRetentionStatusSchema)
-      .query(() => ({ status: 'disabled' as const, reason: 'published_policy_unconfigured' as const })),
+      .query(({ ctx }) => mapped(() => crm.privacy.retentionStatus(ctx.principal!.userId))),
+    privacyRetentionReviewStatus: staffRead
+      .input(workflow.crmRetentionReviewStatusInputSchema)
+      .output(workflow.crmRetentionReviewSchema.nullable())
+      .query(({ input, ctx }) => mapped(() => crm.privacy.retentionReviewStatus(input, ctx.principal!.userId))),
+    privacyRetentionReview: staffWrite
+      .input(workflow.crmRetentionReviewInputSchema)
+      .output(workflow.crmRetentionReviewSchema)
+      .mutation(({ input, ctx }) => mapped(() => crm.privacy.retentionReview(input, ctx.principal!.userId))),
     capture: publicProcedure
       .input(outreachCaptureInputSchema)
       .output(outreachCaptureReceiptSchema)

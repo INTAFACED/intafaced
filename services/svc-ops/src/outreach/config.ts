@@ -37,6 +37,10 @@ export const outreachConfigSchema = z
       .refine((x) => new Set(x).size === x.length),
     reviewHour: z.number().int().min(0).max(23),
     reviewMinute: z.number().int().min(0).max(59),
+    retention: z
+      .object({ publishedPolicy: z.literal('six_calendar_months_v1'), automationEnabled: z.boolean() })
+      .strict()
+      .optional(),
   })
   .refine((x) => x.founders.includes(x.initialOwnerUserId));
 export type OutreachConfig = z.infer<typeof outreachConfigSchema>;

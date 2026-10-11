@@ -234,6 +234,11 @@ describe.runIf(enabled)('durable outreach PostgreSQL boundary', () => {
     expect(three.nextCursor).toBeNull();
     expect(one.contacts.map((c) => c.id).sort()).toEqual(one.items.map((o) => o.contactId).sort());
     expect(three.contacts).toHaveLength(1);
+    for (const page of [one, two, three]) {
+      expect(page.submissions.map((s) => s.submissionId).sort()).toEqual([...new Set(page.items.map((o) => o.submissionId))].sort());
+      expect(page.submissions.every((s) => s.completedAt === null && s.organisationName === 'Prospect organisation')).toBe(true);
+    }
+    expect((await crm.listOpportunities({ limit: 10, query: 'no match' })).submissions).toEqual([]);
     expect((await crm.listOpportunities({ limit: 10, query: 'no match' })).contacts).toEqual([]);
     expect((await crm.listOpportunities({ limit: 10, query: '%' })).items).toHaveLength(0);
     expect((await crm.listOpportunities({ limit: 10, query: 'Prospect 3' })).items).toHaveLength(1);
@@ -291,7 +296,10 @@ describe.runIf(enabled)('durable outreach PostgreSQL boundary', () => {
     }
     const opportunities = (await crm.listOpportunities({ limit: 10 })).items;
     expect(opportunities).toHaveLength(5);
-    expect((await crm.listOpportunities({ limit: 10 })).contacts).toHaveLength(1);
+    const completedPage = await crm.listOpportunities({ limit: 10 });
+    expect(completedPage.contacts).toHaveLength(1);
+    expect(completedPage.submissions).toHaveLength(1);
+    expect(completedPage.submissions[0]).toMatchObject({ submissionId: receipt.submissionId, completedAt: now.toISOString() });
     for (const opportunity of opportunities)
       expect((await crm.getOpportunity({ opportunityId: opportunity.id }))?.submission.questionnaires).toHaveLength(5);
   });

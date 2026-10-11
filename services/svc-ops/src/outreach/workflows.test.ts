@@ -163,8 +163,11 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('founder CRM workflows on
   });
 
   it('serializes opposing duplicate merges while retaining every original submission and amount', async () => {
-    const aInput = captureInput(),
-      bInput = { ...captureInput(), contact: { ...captureInput().contact, name: 'Second claimant' } };
+    const aInput = { ...captureInput(), contact: { ...captureInput().contact, organisationName: 'Original A organisation' } },
+      bInput = {
+        ...captureInput(),
+        contact: { ...captureInput().contact, name: 'Second claimant', organisationName: 'Original B organisation' },
+      };
     const a = await crm.capture(aInput, 'merge-a'),
       b = await crm.capture(bInput, 'merge-b');
     await crm.answer(
@@ -226,6 +229,14 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('founder CRM workflows on
     const winner = results.find((r) => r.status === 'fulfilled')!;
     if (winner.status !== 'fulfilled') throw new Error('Expected merge receipt');
     expect((await crm.listDuplicates({ limit: 10 })).items).toHaveLength(0);
+    const mergedPage = await crm.listOpportunities({ limit: 10 });
+    expect(mergedPage.contacts).toHaveLength(1);
+    expect(mergedPage.submissions).toEqual(
+      expect.arrayContaining([
+        { submissionId: a.submissionId, completedAt: now.toISOString(), organisationName: 'Original A organisation' },
+        { submissionId: b.submissionId, completedAt: null, organisationName: 'Original B organisation' },
+      ]),
+    );
     const exported = await crm.exportSubmissions({ requestId: randomUUID(), limit: 10 }, founders[0]);
     expect(exported.items).toHaveLength(2);
     expect(new Set(exported.items.map((r) => r.originalContact.id)).size).toBe(2);
@@ -524,7 +535,10 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('founder CRM workflows on
     await crm.capture(captureInput(), 'legacy-upgrade');
     const previous = (await crm.listTasks({ limit: 10 })).items[0]!;
     const down = await readFile(new URL('../../drizzle/0001_crm_workflows.down.sql', import.meta.url), 'utf8');
+    const retentionDown = await readFile(new URL('../../drizzle/0004_crm_retention.down.sql', import.meta.url), 'utf8');
     await db.sql.begin(async (tx) => {
+      await tx.unsafe(retentionDown);
+      await tx`DELETE FROM ops.crm_migrations WHERE name='0004_crm_retention'`;
       await tx.unsafe(down);
       await tx`DELETE FROM ops.crm_migrations WHERE name='0001_crm_workflows'`;
     });
