@@ -49,6 +49,21 @@ describe('planArbLegs — non-atomic inventory plan', () => {
       }),
     ).toMatchObject({ ok: false, atomic: false, reason: 'inventory_missing' });
   });
+
+  it('refuses a blank, whitespace, zero, or non-decimal size instead of accepting a plan', () => {
+    const inventory = { prePositionedByVenue: { binance: true, bybit: true } };
+    for (const amount of ['', '   ', '0', '0.00', '-1', 'not-money', '1e-2']) {
+      const planned = planArbLegs({
+        symbol: 'BTC/USDT',
+        amount,
+        buyVenueId: 'binance',
+        sellVenueId: 'bybit',
+        inventory,
+      });
+      expect(planned, amount).toMatchObject({ ok: false, atomic: false, reason: 'size_refused' });
+      expect(planned).not.toHaveProperty('legs');
+    }
+  });
 });
 
 describe('reduceArbLegGroup — failed/unknown is not group success', () => {

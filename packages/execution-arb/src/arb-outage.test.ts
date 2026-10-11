@@ -213,4 +213,49 @@ describe('recordArbVenueLegs — degraded/outage is not a successful arb', () =>
     expect(result.group.outcome).toBe('OUTCOME_UNKNOWN');
     expect(result.journal).toEqual([]);
   });
+
+  it('two APPLIED observations that share a fillId and disagree on amount are not group success', () => {
+    const result = recordArbVenueLegs({
+      expectedLegCount: 2,
+      observations: [
+        obs({
+          side: 'buy',
+          venueId: 'binance',
+          signal: { kind: 'fill_report', fillId: 'fill-1', clientOrderId: 'clid-1', amount: '1' },
+        }),
+        obs({
+          side: 'sell',
+          venueId: 'bybit',
+          signal: { kind: 'fill_report', fillId: 'fill-1', clientOrderId: 'clid-1', amount: '2' },
+        }),
+      ],
+    });
+    expect(result.group.ok).toBe(false);
+    expect(result.conflicts.map((row) => row.fillId)).toEqual(['fill-1']);
+    expect(result.journal).toEqual([{ fillId: 'fill-1', clientOrderId: 'clid-1', venueId: 'binance', amount: '1' }]);
+    expect(result.conflicts[0]?.kept.amount).toBe('1');
+    expect(result.conflicts[0]?.ignored.amount).toBe('2');
+  });
+
+  it('equal amounts on the same fillId ignore the duplicate and the group can still be ok', () => {
+    const result = recordArbVenueLegs({
+      expectedLegCount: 2,
+      observations: [
+        obs({
+          side: 'buy',
+          venueId: 'binance',
+          signal: { kind: 'fill_report', fillId: 'fill-1', clientOrderId: 'clid-1', amount: '1' },
+        }),
+        obs({
+          side: 'sell',
+          venueId: 'bybit',
+          signal: { kind: 'fill_report', fillId: 'fill-1', clientOrderId: 'clid-1', amount: '1.00' },
+        }),
+      ],
+    });
+    expect(result.duplicatesIgnored).toHaveLength(1);
+    expect(result.conflicts).toEqual([]);
+    expect(result.journal).toEqual([{ fillId: 'fill-1', clientOrderId: 'clid-1', venueId: 'binance', amount: '1' }]);
+    expect(result.group.ok).toBe(true);
+  });
 });
