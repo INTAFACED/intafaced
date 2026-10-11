@@ -248,7 +248,7 @@ function restExits(
     now,
   );
   if (!sl.accepted) {
-    book.cancel(rec.tpId);
+    const rollback = book.cancel(rec.tpId);
     // The take-profit may already have traded. Dropping those fills hides
     // the entry they completed, so the refusal still carries them.
     return {
@@ -257,7 +257,7 @@ function restExits(
       fills: [...tp.fills, ...sl.fills],
       resting: null,
       rejected: sl.rejected,
-      cancellations: [...tp.cancellations, ...sl.cancellations],
+      cancellations: [...tp.cancellations, ...sl.cancellations, ...(rollback.cancellation ? [rollback.cancellation] : [])],
       triggered: [...tp.triggered, ...sl.triggered],
     };
   }

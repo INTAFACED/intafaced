@@ -4,6 +4,7 @@ import type { EventBus, PayloadOf } from '@intafaced/events';
 import { publishedEngineL2Limit } from '../l2-limit.js';
 import { withEngineSpan, withSpan } from '../tracing.js';
 import { OrderBook } from './book.js';
+import { unsupportedAmendField } from './amend-priority.js';
 import './trailing-stop.js';
 import './option.js';
 import { flattenCloseOrder, netPositionOf, positionFlatResult, type ClosePositionCommand } from './close-position.js';
@@ -620,6 +621,10 @@ export class MatchingEngine {
       async (): Promise<AmendResult & { fillCount: number; rejectCode?: string }> => {
         const blocked = this.amendRefusal(marketId, cmd);
         if (blocked) return { ...blocked, fillCount: 0, rejectCode: blocked.rejected?.code };
+        const unsupported = unsupportedAmendField(cmd);
+        if (unsupported) {
+          return { ...disabledAmend(cmd.orderId), rejected: unsupported, fillCount: 0, rejectCode: unsupported.code };
+        }
 
         const existing = this.existingBook(marketId);
         if (!existing) {
@@ -1080,7 +1085,6 @@ export class MatchingEngine {
   private eventsForAmend(marketId: MarketId, result: AmendResult, at: string): PendingEvent[] {
     const events: PendingEvent[] = [];
     for (const cancellation of result.cancellations) events.push(cancelledEvent(marketId, cancellation));
-    if (!result.accepted) return events.sort((a, b) => a.sequence - b.sequence);
     for (const fill of result.fills) events.push(filledEvent(marketId, fill, at));
     for (const triggered of result.triggered as readonly TriggerOutcome[]) {
       for (const fill of triggered.fills) events.push(filledEvent(marketId, fill, at));

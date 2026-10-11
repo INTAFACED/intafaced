@@ -213,6 +213,13 @@ recovery directory refuses with `journal_locked`: automatic reclamation cannot s
 stale directory from a concurrent replacement. A recovery agent or operator can remove it after verifying that no
 recovery process owns it, under the existing cleanup authorization.
 
+Native amendments journal the caller's expiry deadline and option identity confirmations alongside the price/quantity
+patch. Bracket inputs retain their supplied exit terms and IDs. A refused grouped amendment can still have real fills
+or rollback cancellations; those facts publish independently of the group's acceptance. An uncertain mass-quote submit
+propagates its original failure when the live book cannot prove acceptance, so callers reconcile the original order/client
+IDs rather than treating the error as proof that nothing happened. Historical omitted fields cannot be reconstructed from
+journal records that never contained them.
+
 ## Reconciliation — the engine and the money have separate lifecycles
 
 The journal is durable and the database is separate, so **the two can disagree and nothing used to notice.** The

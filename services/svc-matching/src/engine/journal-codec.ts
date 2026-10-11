@@ -226,6 +226,11 @@ export function encode(record: JournalRecord): string {
         stopPrice: o.stopPrice,
         tif: o.tif,
         ...(o.ocoSiblingId ? { ocoSiblingId: o.ocoSiblingId } : {}),
+        ...(o.bracket !== undefined ? { bracket: o.bracket } : {}),
+        ...(o.takeProfit !== undefined ? { takeProfit: o.takeProfit } : {}),
+        ...(o.stopLoss !== undefined ? { stopLoss: o.stopLoss } : {}),
+        ...(o.takeProfitOrderId !== undefined ? { takeProfitOrderId: o.takeProfitOrderId } : {}),
+        ...(o.stopLossOrderId !== undefined ? { stopLossOrderId: o.stopLossOrderId } : {}),
         ...(o.expireAt ? { expireAt: o.expireAt } : {}),
         ...(o.sessionId ? { sessionId: o.sessionId } : {}),
         ...(o.clientOrderId ? { clientOrderId: o.clientOrderId } : {}),
@@ -261,6 +266,9 @@ export function encode(record: JournalRecord): string {
       ...(p.price !== undefined ? { price: p.price } : {}),
       ...(p.stopPrice !== undefined ? { stopPrice: p.stopPrice } : {}),
       ...(p.tif !== undefined ? { tif: p.tif } : {}),
+      ...(p.expireAt !== undefined ? { expireAt: p.expireAt } : {}),
+      ...(p.strike !== undefined ? { strike: p.strike } : {}),
+      ...(p.expiry !== undefined ? { expiry: p.expiry } : {}),
     };
     return JSON.stringify({
       seq: record.seq,

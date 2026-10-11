@@ -112,13 +112,16 @@ async function submitSide(
     if (result.accepted) return appliedSide(side, orderId);
     if (result.rejected) return refusedSide(side, result.rejected, orderId);
     return refusedSide(side, pairRejectedRefuse(), orderId);
-  } catch {
+  } catch (err) {
     if (acceptedTerminal(engine, marketId, orderId)) {
       filled?.add(orderId);
       return appliedSide(side, orderId);
     }
     if (isLive(engine, marketId, orderId)) return appliedSide(side, orderId);
-    return refusedSide(side, pairRejectedRefuse(), orderId);
+    // A durable input may precede a failed fsync acknowledgement and an empty
+    // live book. No observed rest is not proof that the submission did nothing.
+    // Keep the original uncertain outcome and IDs for the caller to reconcile.
+    throw err;
   }
 }
 

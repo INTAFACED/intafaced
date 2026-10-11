@@ -34,6 +34,11 @@ export interface WireOrder {
   readonly stopPrice: string | null;
   readonly tif: TimeInForce;
   readonly ocoSiblingId?: string;
+  readonly bracket?: boolean;
+  readonly takeProfit?: string | null;
+  readonly stopLoss?: string | null;
+  readonly takeProfitOrderId?: string | null;
+  readonly stopLossOrderId?: string | null;
   readonly expireAt?: string;
   /** Caller session for cancel-on-disconnect. Absent when untagged. Never invented. */
   readonly sessionId?: string;
@@ -107,6 +112,9 @@ export interface WireAmendPatch {
   readonly price?: string;
   readonly stopPrice?: string;
   readonly tif?: TimeInForce;
+  readonly expireAt?: string;
+  readonly strike?: string | null;
+  readonly expiry?: string | null;
 }
 
 function toWireLegs(legs: readonly ComboLeg[] | null | undefined): readonly WireComboLeg[] | null {
@@ -140,6 +148,11 @@ export function toWire(order: EngineOrder, lifecycleProof?: MarketLifecycleAdmis
     stopPrice: order.stopPrice === null ? null : formatAmount(order.stopPrice),
     tif: order.tif,
     ...(order.ocoSiblingId ? { ocoSiblingId: order.ocoSiblingId } : {}),
+    ...(order.bracket !== undefined ? { bracket: order.bracket } : {}),
+    ...(order.takeProfit !== undefined ? { takeProfit: order.takeProfit === null ? null : formatAmount(order.takeProfit) } : {}),
+    ...(order.stopLoss !== undefined ? { stopLoss: order.stopLoss === null ? null : formatAmount(order.stopLoss) } : {}),
+    ...(order.takeProfitOrderId !== undefined ? { takeProfitOrderId: order.takeProfitOrderId } : {}),
+    ...(order.stopLossOrderId !== undefined ? { stopLossOrderId: order.stopLossOrderId } : {}),
     ...(order.expireAt ? { expireAt: order.expireAt } : {}),
     ...(order.sessionId ? { sessionId: order.sessionId } : {}),
     ...(order.clientOrderId ? { clientOrderId: order.clientOrderId } : {}),
@@ -185,6 +198,11 @@ export function fromWire(order: WireOrder): EngineOrder {
     stopPrice: order.stopPrice === null ? null : parseAmount(order.stopPrice),
     tif: order.tif,
     ...(order.ocoSiblingId ? { ocoSiblingId: order.ocoSiblingId } : {}),
+    ...(order.bracket !== undefined ? { bracket: order.bracket } : {}),
+    ...(order.takeProfit !== undefined ? { takeProfit: order.takeProfit === null ? null : parseAmount(order.takeProfit) } : {}),
+    ...(order.stopLoss !== undefined ? { stopLoss: order.stopLoss === null ? null : parseAmount(order.stopLoss) } : {}),
+    ...(order.takeProfitOrderId !== undefined ? { takeProfitOrderId: order.takeProfitOrderId } : {}),
+    ...(order.stopLossOrderId !== undefined ? { stopLossOrderId: order.stopLossOrderId } : {}),
     ...(order.expireAt ? { expireAt: order.expireAt } : {}),
     ...(order.sessionId ? { sessionId: order.sessionId } : {}),
     ...(order.clientOrderId ? { clientOrderId: order.clientOrderId } : {}),
@@ -224,6 +242,9 @@ export function toWireAmend(cmd: EngineAmend): WireAmendPatch {
     ...(cmd.price !== undefined ? { price: formatAmount(cmd.price) } : {}),
     ...(cmd.stopPrice !== undefined ? { stopPrice: formatAmount(cmd.stopPrice) } : {}),
     ...(cmd.tif !== undefined ? { tif: cmd.tif } : {}),
+    ...(cmd.expireAt !== undefined ? { expireAt: cmd.expireAt } : {}),
+    ...(cmd.strike !== undefined ? { strike: cmd.strike === null ? null : formatAmount(cmd.strike) } : {}),
+    ...(cmd.expiry !== undefined ? { expiry: cmd.expiry } : {}),
   };
 }
 
@@ -235,5 +256,8 @@ export function fromWireAmend(orderId: OrderId, expectedVersion: number, patch: 
     ...(patch.price !== undefined ? { price: parseAmount(patch.price) } : {}),
     ...(patch.stopPrice !== undefined ? { stopPrice: parseAmount(patch.stopPrice) } : {}),
     ...(patch.tif !== undefined ? { tif: patch.tif } : {}),
+    ...(patch.expireAt !== undefined ? { expireAt: patch.expireAt } : {}),
+    ...(patch.strike !== undefined ? { strike: patch.strike === null ? null : parseAmount(patch.strike) } : {}),
+    ...(patch.expiry !== undefined ? { expiry: patch.expiry } : {}),
   };
 }
