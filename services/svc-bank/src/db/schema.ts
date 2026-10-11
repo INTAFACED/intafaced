@@ -860,6 +860,8 @@ export const cardSettlements = bank.table(
  * VISIBLE as an unpaid reward rather than as an absence. The rewards pot is
  * funded from bank revenue and can be empty; when it is, the capture still
  * stands and this row says `rejected` with `bank.cashback_pot_unfunded` on it.
+ * Any other ledger error leaves the row `pending`: the reward was not refused,
+ * and `resumeSettlements` retries the same idempotent reward id.
  *
  * A design that swallowed the failure would leave a user quietly unpaid and an
  * operator with nothing to look at. A design that failed the capture would undo

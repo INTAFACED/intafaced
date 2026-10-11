@@ -108,6 +108,15 @@ import { cardProgrammeOutput, cashbackOn, noCardIssuer, type CardIssuerAdapter }
  *   already spent. Paying late is honest; taking money back is not a thing this
  *   service can do.
  *
+ *   An empty pot is a named refusal: the row is `rejected` with
+ *   `bank.cashback_pot_unfunded`, and the capture stays. Any other ledger error
+ *   leaves the row `pending`. `rewardPay` keys the post on
+ *   `reward:bank.card.cashback:<authorisation>`, and a repeat of that key
+ *   returns the original transaction, so `resumeSettlements` can retry it
+ *   without paying a second reward. Marking the row rejected would make that
+ *   retry look like the pot was empty. Throwing would report a failed purchase
+ *   after the merchant had already been paid.
+ *
  * ═════════════════════════════════════════════════════════════════════════════
  * WHAT IS NOT HERE
  * ═════════════════════════════════════════════════════════════════════════════
@@ -247,7 +256,9 @@ export interface CaptureResult {
  * `refused` is a first-class outcome with a code on it. A capture whose reward
  * could not be paid is not a failed capture, and it is not a silent success
  * either — an operator seeing `bank.cashback_pot_unfunded` has learned that the
- * advertised rate is currently unfunded, on the day it became true.
+ * advertised rate is currently unfunded, on the day it became true. Any other
+ * ledger error is the same outcome with the row left `pending`, so the same
+ * authorisation can be retried.
  */
 export type CashbackOutcome =
   | { readonly status: 'none'; readonly amount: Amount }
@@ -845,7 +856,7 @@ export class CardService {
    *
    * The other half of the crash story, and the card equivalent of
    * `resumePendingLoans` — which exists for exactly this reason on the loan side.
-   * Two shapes of stuck money end up here, and neither is reachable by calling
+   * Three shapes of stuck money end up here, and none is reachable by calling
    * `capture` again:
    *
    *   · A capture whose post failed. Sequence 0 is `rejected` or `pending`, and
@@ -853,6 +864,11 @@ export class CardService {
    *   · A partial capture whose REVERSAL post failed. Sequence 0 is settled — so
    *     the authorisation is correctly closed to new decisions — and the user's
    *     unspent remainder is stuck in that account with nothing left to move it.
+   *   · A cashback row still `pending` after a ledger error that was not an empty
+   *     pot. The capture has already settled, so `capture` again is refused. The
+   *     row is re-driven for the amount it was claimed with, on the same reward
+   *     id. A `settled` row is not paid again. A `rejected` row — the pot was
+   *     empty — is not retried.
    *
    * Safe to run at any time and any number of times, for the same reason
    * `resumePending` is: every post is idempotent on the authorisation, and each
@@ -931,6 +947,12 @@ export class CardService {
       }
     }
 
+    // Pending cashback only. A settled reward is already paid. A rejected one
+    // is the empty pot, and paying it here would undo that named refusal.
+    // This does not insert a capture: the settlement loop above only re-drives
+    // rows that already exist.
+    await this.retryPendingCashback(card, authorization.id);
+
     return {
       authorizationId: authorization.id,
       resumed,
@@ -979,27 +1001,73 @@ export class CardService {
     // and posting a zero-value transaction to say so would be noise in the book.
     if (amount <= 0n) return { status: 'none', amount: 0n };
 
-    const claimed = await this.sql<Array<{ id: string; status: string; ledger_tx_id: string | null }>>`
+    const claimed = await this.sql<
+      Array<{ id: string; status: string; ledger_tx_id: string | null; amount: string; rejection_code: string | null }>
+    >`
       INSERT INTO bank.card_cashback (authorization_id, rate_bps, amount)
       VALUES (${authorization.id}, ${card.cashbackBps}, ${formatAmount(amount)}::numeric)
       ON CONFLICT (authorization_id) DO NOTHING
-      RETURNING id, status, ledger_tx_id
+      RETURNING id, status, ledger_tx_id, amount::text AS amount, rejection_code
     `;
 
     const row =
       claimed[0] ??
       (
-        await this.sql<Array<{ id: string; status: string; ledger_tx_id: string | null }>>`
-          SELECT id, status, ledger_tx_id FROM bank.card_cashback WHERE authorization_id = ${authorization.id}
+        await this.sql<
+          Array<{ id: string; status: string; ledger_tx_id: string | null; amount: string; rejection_code: string | null }>
+        >`
+          SELECT id, status, ledger_tx_id, amount::text AS amount, rejection_code
+            FROM bank.card_cashback WHERE authorization_id = ${authorization.id}
         `
       )[0]!;
 
-    if (row.status === 'settled' && row.ledger_tx_id) return { status: 'paid', amount, ledgerTxId: row.ledger_tx_id };
+    // The row's amount, not a re-rate. A later change to the card's bps must
+    // not post a different reward than the one this authorisation claimed.
+    const payable = parseAmount(row.amount);
+    if (row.status === 'settled' && row.ledger_tx_id) return { status: 'paid', amount: payable, ledgerTxId: row.ledger_tx_id };
+    if (row.status === 'rejected') {
+      return { status: 'refused', amount: payable, reason: row.rejection_code ?? 'bank.cashback_pot_unfunded' };
+    }
+    return this.postCashbackReward(card, authorization.id, row.id, payable);
+  }
 
+  /**
+   * Re-drive a cashback row that is still `pending`.
+   *
+   * Does not insert a settlement and does not select `settled` or `rejected`.
+   * The amount is the one stored on the row.
+   */
+  private async retryPendingCashback(card: CardRecord, authorizationId: string): Promise<void> {
+    const rows = await this.sql<Array<{ id: string; amount: string }>>`
+      SELECT id, amount::text AS amount
+        FROM bank.card_cashback
+       WHERE authorization_id = ${authorizationId}
+         AND status = 'pending'
+    `;
+    for (const row of rows) {
+      await this.postCashbackReward(card, authorizationId, row.id, parseAmount(row.amount));
+    }
+  }
+
+  /**
+   * Post one cashback reward, or record why it did not pay.
+   *
+   * `rewardPay` is idempotent on `reward:bank.card.cashback:<authorisation>`.
+   * A repeat returns the original transaction when the first post committed,
+   * and posts once when it did not. Insufficient funds is the only error that
+   * rejects the row. Any other ledger error leaves it `pending` and does not
+   * throw: the capture has already landed, and throwing would strand the retry.
+   */
+  private async postCashbackReward(
+    card: CardRecord,
+    authorizationId: string,
+    rowId: string,
+    amount: Amount,
+  ): Promise<CashbackOutcome> {
     try {
       const posted = await this.ledger.post(
         recipes.rewardPay({
-          rewardId: `bank.card.cashback:${authorization.id}`,
+          rewardId: `bank.card.cashback:${authorizationId}`,
           userId: card.userId,
           assetId: card.assetId,
           amount,
@@ -1007,24 +1075,30 @@ export class CardService {
         }),
       );
       await this.sql`
-        UPDATE bank.card_cashback SET status = 'settled', ledger_tx_id = ${posted.id}, settled_at = now() WHERE id = ${row.id}
+        UPDATE bank.card_cashback
+           SET status = 'settled', ledger_tx_id = ${posted.id}, settled_at = now(), rejection_code = NULL
+         WHERE id = ${rowId}
+           AND status <> 'settled'
       `;
       return { status: 'paid', amount, ledgerTxId: posted.id };
     } catch (err) {
       if (err instanceof InsufficientFundsError || (err instanceof LedgerError && err.code === 'ledger.insufficient_funds')) {
         await this.sql`
-          UPDATE bank.card_cashback SET status = 'rejected', rejection_code = 'bank.cashback_pot_unfunded' WHERE id = ${row.id}
+          UPDATE bank.card_cashback
+             SET status = 'rejected', rejection_code = 'bank.cashback_pot_unfunded'
+           WHERE id = ${rowId}
+             AND status = 'pending'
         `;
         // Surfaced, not thrown. Reversing a capture the merchant already has,
         // because a reward could not be paid, would undo a purchase that
         // happened. The row and this outcome are how an operator finds it.
         return { status: 'refused', amount, reason: 'bank.cashback_pot_unfunded' };
       }
-      await this.sql`
-        UPDATE bank.card_cashback SET status = 'rejected', rejection_code = ${err instanceof LedgerError ? err.code : 'bank.post_failed'}
-         WHERE id = ${row.id}
-      `;
-      throw err;
+      return {
+        status: 'refused',
+        amount,
+        reason: err instanceof LedgerError ? err.code : 'bank.post_failed',
+      };
     }
   }
 

@@ -6,6 +6,7 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
 import {
+  LedgerError,
   MemoryLedger,
   formatAmount,
   parseAmount as amt,
@@ -1338,6 +1339,126 @@ describe('svc-bank cards PG-hard', () => {
       // And the unpaid reward is a row somebody can look at, not an absence.
       const record = await cards.cashbackFor(result.authorizationId);
       expect(record).toMatchObject({ status: 'rejected', rejectionCode: 'bank.cashback_pot_unfunded' });
+      expect(ledger.totalsByAsset().USDT).toBe('0');
+
+      // A rejected empty pot is not a retry. Resume must not pay it and must
+      // not open another capture.
+      const posts = ledger.journal().length;
+      const resumed = await cards.resumeSettlements({ cardId: card.id, authorizationRef: 'auth-1' });
+      expect(resumed.resumed).toEqual([]);
+      expect(await cards.cashbackFor(result.authorizationId)).toMatchObject({
+        status: 'rejected',
+        rejectionCode: 'bank.cashback_pot_unfunded',
+      });
+      expect(ledger.journal()).toHaveLength(posts);
+      expect(ledger.journal().filter((tx) => tx.reason === 'bank.card.cashback')).toHaveLength(0);
+    });
+
+    /**
+     * The capture and the remainder reversal have already landed. An unknown
+     * cashback post must not reject the row and must not throw: a later capture
+     * is closed, and the only retry is `resumeSettlements` on the same reward
+     * id. That id is idempotent, so a post that did land is not paid twice, and
+     * a post that did not land is paid once.
+     */
+    it('leaves an unknown cashback post unsettled and retries it without a second reward', async () => {
+      await fund(HOLDER, 'USDT', '500');
+      await fundCashbackPot('USDT', '10');
+      const card = await issueCard({ cashbackBps: 100 });
+
+      const landed = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-landed', amount: amt('200') });
+      const missed = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-missed', amount: amt('200') });
+      const rewardKey = (authorizationId: string) => `reward:bank.card.cashback:${authorizationId}`;
+      const rewardTxs = (authorizationId: string) => ledger.journal().filter((tx) => tx.idempotencyKey === rewardKey(authorizationId));
+
+      const broken = new CardService(
+        sql,
+        {
+          ...ledger,
+          balance: ledger.balance.bind(ledger),
+          getTx: ledger.getTx.bind(ledger),
+          getTxByKey: ledger.getTxByKey.bind(ledger),
+          post: async (tx: Parameters<MemoryLedger['post']>[0]) => {
+            if (tx.idempotencyKey === rewardKey(landed.id)) {
+              await ledger.post(tx);
+              throw new LedgerError('reward ack lost', 'ledger.unavailable');
+            }
+            if (tx.idempotencyKey === rewardKey(missed.id)) throw new Error('svc-ledger unreachable');
+            return ledger.post(tx);
+          },
+        } as unknown as MemoryLedger,
+        { issuer: cardSim() },
+      );
+
+      const landedCapture = await broken.capture({ cardId: card.id, authorizationRef: 'auth-landed', amount: amt('80') });
+      expect(landedCapture.cashback).toMatchObject({ status: 'refused', reason: 'ledger.unavailable' });
+      expect(formatAmount(landedCapture.cashback.amount)).toBe('0.8');
+      expect(rewardTxs(landed.id)).toHaveLength(1);
+
+      const missedCapture = await broken.capture({ cardId: card.id, authorizationRef: 'auth-missed', amount: amt('80') });
+      expect(missedCapture.cashback).toMatchObject({ status: 'refused', reason: 'bank.post_failed' });
+      expect(formatAmount(missedCapture.cashback.amount)).toBe('0.8');
+      expect(rewardTxs(missed.id)).toHaveLength(0);
+
+      for (const [authorization, ref] of [
+        [landed, 'auth-landed'],
+        [missed, 'auth-missed'],
+      ] as const) {
+        const row = await cards.cashbackFor(authorization.id);
+        expect(row).toMatchObject({ status: 'pending', rejectionCode: null });
+        expect(formatAmount(row!.amount)).toBe('0.8');
+        const settlements = await sql<Array<{ kind: string; status: string }>>`
+          SELECT kind, status FROM bank.card_settlements
+           WHERE authorization_id = ${authorization.id}
+           ORDER BY sequence
+        `;
+        expect(settlements).toEqual([
+          { kind: 'capture', status: 'settled' },
+          { kind: 'reversal', status: 'settled' },
+        ]);
+        await expect(cards.capture({ cardId: card.id, authorizationRef: ref, amount: amt('80') })).rejects.toMatchObject({
+          code: 'bank.card_authorization_closed',
+        });
+      }
+
+      // 500 − 160 captured + the one reward that already landed.
+      expect(await availableOf(HOLDER, 'USDT')).toBe('340.8');
+      expect(await heldOn(landed.id)).toBe('0');
+      expect(await heldOn(missed.id)).toBe('0');
+
+      const landedTxId = rewardTxs(landed.id)[0]!.id;
+      const resumedLanded = await cards.resumeSettlements({ cardId: card.id, authorizationRef: 'auth-landed' });
+      expect(resumedLanded.resumed).toEqual([]);
+      expect(rewardTxs(landed.id)).toHaveLength(1);
+      const landedRow = await sql<Array<{ status: string; ledger_tx_id: string | null; rejection_code: string | null }>>`
+        SELECT status, ledger_tx_id, rejection_code FROM bank.card_cashback WHERE authorization_id = ${landed.id}
+      `;
+      expect(landedRow).toEqual([{ status: 'settled', ledger_tx_id: landedTxId, rejection_code: null }]);
+
+      const resumedMissed = await cards.resumeSettlements({ cardId: card.id, authorizationRef: 'auth-missed' });
+      expect(resumedMissed.resumed).toEqual([]);
+      expect(rewardTxs(missed.id)).toHaveLength(1);
+      const missedTxId = rewardTxs(missed.id)[0]!.id;
+      const missedRow = await sql<Array<{ status: string; ledger_tx_id: string | null; rejection_code: string | null; amount: string }>>`
+        SELECT status, ledger_tx_id, rejection_code, amount::text AS amount
+          FROM bank.card_cashback WHERE authorization_id = ${missed.id}
+      `;
+      expect(missedRow[0]!.status).toBe('settled');
+      expect(missedRow[0]!.ledger_tx_id).toBe(missedTxId);
+      expect(missedRow[0]!.rejection_code).toBeNull();
+      expect(formatAmount(amt(missedRow[0]!.amount))).toBe('0.8');
+
+      await cards.resumeSettlements({ cardId: card.id, authorizationRef: 'auth-landed' });
+      await cards.resumeSettlements({ cardId: card.id, authorizationRef: 'auth-missed' });
+      expect(rewardTxs(landed.id)).toHaveLength(1);
+      expect(rewardTxs(missed.id)).toHaveLength(1);
+      const settlementCount = await sql<Array<{ count: string }>>`
+        SELECT count(*)::text AS count FROM bank.card_settlements
+         WHERE authorization_id = ${landed.id} OR authorization_id = ${missed.id}
+      `;
+      expect(settlementCount[0]!.count).toBe('4');
+      expect(await availableOf(HOLDER, 'USDT')).toBe('341.6');
+      expect(formatAmount((await ledger.balance(rewardsEngine('USDT'))).amount)).toBe('8.4');
       expect(ledger.totalsByAsset().USDT).toBe('0');
     });
 
