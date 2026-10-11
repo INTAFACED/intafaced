@@ -1,3 +1,5 @@
+import { MoneyError, parseAmount } from '@intafaced/ledger-client';
+import { z } from 'zod';
 import { MarketError } from './vendor-service.js';
 
 /**
@@ -11,6 +13,7 @@ import { MarketError } from './vendor-service.js';
 export const MARKET_L3_UNAVAILABLE = 'market.l3_unavailable' as const;
 export const MARKET_NOT_NATIVE_EXECUTABLE = 'market.not_native_executable' as const;
 export const MARKET_REFERENCE_NOT_BOOK = 'market.reference_not_book' as const;
+export const MARKET_QUOTE_PRICE_INVALID = 'market.quote_price_invalid' as const;
 
 export const MARKET_DATA_CEILING = ['L1', 'L2', 'index'] as const;
 
@@ -81,7 +84,48 @@ export type QuoteView = {
   readonly mark: string | null;
 };
 
+/**
+ * Positive decimal string, same parser as listing price (`parseAmount`).
+ * Blank, whitespace, non-decimal, zero, and negative refuse. Not a JS number.
+ * The caller's spelling is kept — no new magnitude.
+ */
+export function requirePositiveQuotePrice(price: string): string {
+  if (price.length === 0 || /\s/u.test(price)) {
+    throw new MarketError('Quote price must be a positive decimal string', MARKET_QUOTE_PRICE_INVALID);
+  }
+  let amount: bigint;
+  try {
+    amount = parseAmount(price);
+  } catch (err) {
+    if (err instanceof MoneyError) {
+      throw new MarketError('Quote price must be a positive decimal string', MARKET_QUOTE_PRICE_INVALID);
+    }
+    throw err;
+  }
+  if (amount <= 0n) {
+    throw new MarketError('Quote price must be a positive decimal string', MARKET_QUOTE_PRICE_INVALID);
+  }
+  return price;
+}
+
+/** Public `marketData.quote` price. Same refuse as `requirePositiveQuotePrice`. */
+export const quotePriceSchema = z
+  .string()
+  .max(64)
+  .superRefine((price, ctx) => {
+    try {
+      requirePositiveQuotePrice(price);
+    } catch (err) {
+      if (err instanceof MarketError && err.code === MARKET_QUOTE_PRICE_INVALID) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: MARKET_QUOTE_PRICE_INVALID });
+        return;
+      }
+      throw err;
+    }
+  });
+
 export function presentQuote(input: { kind: QuoteKind; price: string; asNativeExecutable?: boolean; asBidAsk?: boolean }): QuoteView {
+  const price = requirePositiveQuotePrice(input.price);
   if (input.kind === 'native_executable' || input.asNativeExecutable === true) {
     throw new MarketError(
       'implied/synthetic/indicative (and this service) are not native executable liquidity',
@@ -100,10 +144,10 @@ export function presentQuote(input: { kind: QuoteKind; price: string; asNativeEx
   return {
     kind: input.kind,
     executableNative: false,
-    price: input.price,
+    price,
     bid: null,
     ask: null,
-    index: input.kind === 'index' ? input.price : null,
-    mark: input.kind === 'mark' ? input.price : null,
+    index: input.kind === 'index' ? price : null,
+    mark: input.kind === 'mark' ? price : null,
   };
 }

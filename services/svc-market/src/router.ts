@@ -21,6 +21,7 @@ import {
   MARKET_REFERENCE_NOT_BOOK,
   describeMarketDataHonesty,
   presentQuote,
+  quotePriceSchema,
   requestBook,
 } from './market-data-honesty.js';
 import { MARKET_LISTING_PIN_IEEE, MARKET_LISTING_PIN_UNSET, MARKET_LISTING_SET_UNSET, listLiveMarkets } from './live-markets.js';
@@ -190,7 +191,12 @@ function mapError(err: unknown): never {
     if (err.code === 'market.listing_not_found') {
       throw new TRPCError({ code: 'NOT_FOUND', message, cause: err });
     }
-    if (err.code === 'market.purchase_conflict' || err.code === 'market.purchase_self' || err.code === 'market.listing_not_owned') {
+    if (
+      err.code === 'market.purchase_conflict' ||
+      err.code === 'market.purchase_receipt_mismatch' ||
+      err.code === 'market.purchase_self' ||
+      err.code === 'market.listing_not_owned'
+    ) {
       throw new TRPCError({ code: 'CONFLICT', message, cause: err });
     }
     if (err.code === 'market.insufficient_funds') {
@@ -230,6 +236,7 @@ const purchaseOut = z.object({
   createdAt: z.string().datetime(),
   settledAt: z.string().datetime().nullable(),
   accessUntil: z.string().datetime().nullable(),
+  periodSeconds: z.number().int().positive().nullable(),
 });
 
 export function createMarketRouter(
@@ -638,7 +645,7 @@ export function createMarketRouter(
         .input(
           z.object({
             kind: z.enum(['native_executable', 'implied', 'synthetic', 'indicative', 'index', 'mark']),
-            price: z.string().min(1).max(64),
+            price: quotePriceSchema,
             asNativeExecutable: z.boolean().optional(),
             asBidAsk: z.boolean().optional(),
           }),

@@ -303,7 +303,7 @@ otherwise.
 
 - **Idempotency:** `market.purchase:<purchaseId>` (client-supplied).
 - **Commission:** `MARKET_HOUSE_COMMISSION_BPS` — **no in-code default**. Unset
-  refuses `market.commission_not_configured` on **createListing** and **purchase**
+  refuses `market.commission_not_configured` on **createListing** and fresh **purchase**
   before any row, slot claim, or post; **public catalogue returns []** so the
   shopfront never advertises unsellable stock. Owner published **`0`** in
   `.env.example` (2026-08-13 explicit free-cut). Compose pass-through only
@@ -315,12 +315,20 @@ otherwise.
   approved + `claimSlot` (see seam above). Purchase re-checks again immediately
   before the ledger post (stake/suspend TOCTOU close).
 - **Crash re-drive:** a pending purchase settles from the **claim snapshot**
-  (price + commission_bps on the row), not a later env rate. Settle updates only
-  while `status = 'pending'`.
+  (buyer, payee, asset, price, commission and period on the row), not a later
+  listing or env rate. A matching rich ledger receipt can finish a committed
+  purchase after fresh selling gates close. The deployed HTTP ledger port has
+  no receipt lookup: without that proof, current fresh gates still apply.
+  Post errors retain the pending claim, including a later insufficient-funds
+  response after an uncertain earlier attempt. Settle updates only while
+  `status = 'pending'`; terminal status and original claim terms are protected
+  by the database.
 - **Subscriptions:** `createListing(subscription)` requires `periodSeconds` (whole
   seconds, no default month). Unset period refuses `market.subscription_period_unset`
   before insert or slot claim. Purchase of a perioded subscription posts the same
-  `marketPurchase` recipe as one-time; access is `settled_at + period`. Cancel
+  `marketPurchase` recipe as one-time; the period is snapshotted at claim.
+  Access starts at the later of settlement or the previous paid window's end;
+  concurrent renewals serialize that calculation. Cancel
   (`cancelSubscription`) stops new access and does **not** reverse the ledger.
   After the window, access refuses `market.subscription_past_due` (or
   `market.subscription_cancelled` if cancelled). Leftover rows without a period
@@ -329,3 +337,10 @@ otherwise.
 
 No balance column exists on `market.listings` or `market.purchases`. Price and
 commission_bps are intent records; the only balances live in svc-ledger.
+
+Safeguard upgrades preserve existing paid rows and leave unknown legacy periods
+NULL. Contradictory status, payee, or access data refuses validation instead of
+being rewritten. Native migration tests require an explicit `TEST_DATABASE_URL`
+and create their own databases. Test-only policy fixtures configure screening
+off; the signed mount control restores the strict default and refuses blank
+screening before service work.
