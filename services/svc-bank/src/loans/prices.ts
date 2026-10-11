@@ -277,7 +277,10 @@ export function tickerPriceSource(options: { baseUrl: string; fetchImpl?: typeof
             if (!res.ok) return;
 
             const body = (await res.json()) as TickerResponse;
-            const asOf = typeof body.timestamp === 'number' ? new Date(body.timestamp) : new Date();
+            // A non-numeric timestamp is not now. Omit the mark; wall-clock
+            // would look fresh and pass the staleness gate.
+            if (typeof body.timestamp !== 'number') return;
+            const asOf = new Date(body.timestamp);
 
             if (body.bid && body.ask) {
               const bid = parseAmount(body.bid);
