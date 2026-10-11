@@ -121,6 +121,12 @@ export function crossCheckMids(symbol: string, observations: readonly VenueMid[]
       continue;
     }
     const age = now.getTime() - observation.observedAt.getTime();
+    // NaN fails both comparisons below, so a broken timestamp would look fresh
+    // and could set consensusMid. An invalid `now` makes every age non-finite.
+    if (!Number.isFinite(age)) {
+      excluded.push({ venueId: observation.venueId, reason: 'clock_skew' });
+      continue;
+    }
     // A mid dated in the FUTURE is a broken clock, not freshness. Reading a
     // negative age as "very fresh" is the one condition under which the
     // staleness ceiling silently stops working.
