@@ -112,8 +112,21 @@ export interface HttpRequestLabels {
 export const MODULE_LOCAL = '_local';
 /** A path that matched no upstream — a 404 from the front door. */
 export const MODULE_UNROUTED = '_unrouted';
-/** Everything past the series cap collapses here. See `observe`. */
+/** Module label on the one overflow series. Past the cap, see `observe`. */
 export const MODULE_OVERFLOW = '_overflow';
+
+/**
+ * The only series a full map may insert or update for a new key.
+ * Every field is constant. Keeping the caller's service, method, status, or
+ * outcome would open another series per combination.
+ */
+const OVERFLOW_LABELS: HttpRequestLabels = {
+  service: MODULE_OVERFLOW,
+  module: MODULE_OVERFLOW,
+  method: MODULE_OVERFLOW,
+  status: MODULE_OVERFLOW,
+  outcome: MODULE_OVERFLOW,
+};
 
 interface Series {
   readonly labels: HttpRequestLabels;
@@ -195,7 +208,8 @@ export class Metrics {
   private readonly series = new Map<string, Series>();
 
   /**
-   * @param maxSeries Hard cap on distinct label combinations. 2000 is far above
+   * @param maxSeries Hard cap on distinct caller label combinations. One constant
+   *   overflow series may sit past it. 2000 is far above
    *   what the bounded label set can legitimately produce (19 services × ~20
    *   modules × 7 methods × 4 classes is the theoretical ceiling for the whole
    *   fleet, and one process sees one service's slice of it), so hitting it
@@ -206,18 +220,20 @@ export class Metrics {
   /** Record one finished request. `durationSeconds`, not milliseconds. */
   observe(labels: HttpRequestLabels, durationSeconds: number): void {
     let key = labelKey(labels);
+    let stored = labels;
 
-    // The second line of defence behind the bounded label set above. If a future
-    // caller ever passes something unbounded, the dashboard degrades to an
-    // `_overflow` bucket — the metrics store does not fill up.
+    // At the cap, a new key folds into one constant series. Insert that series
+    // once if it is missing, then update it. Dropping the sample would
+    // understate the request count. Size stays at most maxSeries + 1. A key
+    // that is already stored still updates, under the cap or not.
     if (!this.series.has(key) && this.series.size >= this.maxSeries) {
-      labels = { ...labels, module: MODULE_OVERFLOW };
-      key = labelKey(labels);
+      stored = OVERFLOW_LABELS;
+      key = labelKey(stored);
     }
 
     let s = this.series.get(key);
     if (!s) {
-      s = { labels, count: 0, sum: 0, buckets: new Array<number>(DURATION_BUCKETS.length).fill(0) };
+      s = { labels: stored, count: 0, sum: 0, buckets: new Array<number>(DURATION_BUCKETS.length).fill(0) };
       this.series.set(key, s);
     }
 

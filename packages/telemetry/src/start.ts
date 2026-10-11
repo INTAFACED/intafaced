@@ -135,20 +135,26 @@ export function startTelemetry(options: TelemetryOptions): TelemetryHandle {
 
   provider.register();
 
-  let stopped = false;
+  // One shared flush. A later caller, including one that arrives while
+  // provider.shutdown() is still in flight, awaits that same promise. A
+  // boolean set before the await lets the second caller return while the
+  // export is still running.
+  let shutdownPromise: Promise<void> | undefined;
   return {
     enabled: true,
-    async shutdown() {
-      if (stopped) return;
-      stopped = true;
+    shutdown() {
+      if (shutdownPromise) return shutdownPromise;
       // Never let a failing flush change the process's exit path. The service
       // is already on its way down; a collector that will not answer is not a
       // reason to turn a clean shutdown into a crash.
-      try {
-        await provider.shutdown();
-      } catch (err) {
-        diag.warn('telemetry shutdown failed', err);
-      }
+      shutdownPromise = (async () => {
+        try {
+          await provider.shutdown();
+        } catch (err) {
+          diag.warn('telemetry shutdown failed', err);
+        }
+      })();
+      return shutdownPromise;
     },
   };
 }
