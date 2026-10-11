@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { ServiceAuthError, verifyServiceHeaders } from '@intafaced/contracts';
 import { planPplns, type PplnsInput, type PplnsPlan, type PplnsShare } from './pplns.js';
-import { persistWindowShares, PG_UNAVAILABLE } from './window-store.js';
+import { persistBlankRewardShares, persistWindowShares, readStoredEpoch, PG_UNAVAILABLE } from './window-store.js';
 
 export const MINING_UNAUTHENTICATED = 'mining.unauthenticated' as const;
 
@@ -70,12 +70,40 @@ export async function handleSubmitSharePost(input: {
     } catch {
       throw new Error('mining.share_malformed');
     }
+    const body = objectBody(parsed);
+    if (body.reward === undefined || body.reward === null || (typeof body.reward === 'string' && !body.reward.trim())) {
+      const windowId = requiredId(body.windowId, 'window_unconfigured');
+      const assetId = requiredId(body.assetId, 'window_unconfigured');
+      const epoch = parseEpoch(body.epoch) ?? null;
+      if (body.feeBps !== undefined && body.feeBps !== null) throw new Error('fee_unconfigured');
+      if (!Array.isArray(body.shares) || body.shares.length === 0) throw new Error('shares_empty');
+      const shares = body.shares.map((item) => {
+        const share = objectBody(item);
+        return {
+          shareId: requiredId(share.shareId, 'mining.share_malformed'),
+          minerId: requiredId(share.minerId, 'mining.share_malformed'),
+          weight: share.weight === undefined || share.weight === null ? null : parseWeight(share.weight),
+        };
+      });
+      await persistBlankRewardShares(input.sql, { windowId, assetId, epoch, shares });
+      return {
+        status: 200,
+        body: {
+          accepted: true,
+          settled: false,
+          epoch: await readStoredEpoch(input.sql, windowId),
+          amount: null,
+          shares: shares.map(({ shareId, minerId }) => ({ shareId, minerId })),
+        },
+      };
+    }
     const pplns = parsePplnsBody(parsed);
     if (pplns.shares.length === 0) throw new Error('shares_empty');
-    const plan = await submitShare(input.sql, pplns);
+    await submitShare(input.sql, pplns);
+    const epoch = await readStoredEpoch(input.sql, pplns.windowId);
     return {
       status: 200,
-      body: { accepted: true, settled: false, epoch: plan.windowId, payouts: plan.payouts, net: plan.net },
+      body: { accepted: true, settled: false, epoch },
     };
   } catch (error) {
     const code = error instanceof Error ? error.message : 'mining.submitShare_failed';
@@ -83,32 +111,42 @@ export async function handleSubmitSharePost(input: {
   }
 }
 
-export function parsePplnsBody(raw: unknown): PplnsInput {
+function objectBody(raw: unknown): Record<string, unknown> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('mining.share_malformed');
-  const v = raw as Record<string, unknown>;
-  if (typeof v.windowId !== 'string' || !v.windowId) throw new Error('window_unconfigured');
-  if (typeof v.assetId !== 'string' || !v.assetId) throw new Error('window_unconfigured');
+  return raw as Record<string, unknown>;
+}
+function requiredId(value: unknown, code: string): string {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(code);
+  return value;
+}
+function parseEpoch(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 2_147_483_647) throw new Error('mining.epoch_unset');
+  return value;
+}
+function parseWeight(value: unknown): bigint {
+  if (typeof value === 'bigint' && value > 0n && value < 10n ** 38n) return value;
+  if (typeof value === 'string' && /^[1-9]\d{0,37}$/.test(value)) return BigInt(value);
+  throw new Error('mining.weight_not_integer');
+}
+export function parsePplnsBody(raw: unknown): PplnsInput {
+  const v = objectBody(raw);
+  const windowId = requiredId(v.windowId, 'window_unconfigured');
+  const assetId = requiredId(v.assetId, 'window_unconfigured');
   if (typeof v.reward === 'number') throw new Error('mining.amount_not_decimal');
   if (typeof v.reward !== 'string') throw new Error('reward_unconfigured');
   if (typeof v.feeBps !== 'number' || !Number.isInteger(v.feeBps)) throw new Error('fee_unconfigured');
-  let epoch: number | undefined;
-  if (v.epoch !== undefined && v.epoch !== null) {
-    if (typeof v.epoch !== 'number' || !Number.isInteger(v.epoch) || v.epoch < 0) throw new Error('mining.epoch_unset');
-    epoch = v.epoch;
-  }
+  const epoch = parseEpoch(v.epoch);
   if (!Array.isArray(v.shares)) throw new Error('shares_empty');
   const shares: PplnsShare[] = v.shares.map((item) => {
-    if (!item || typeof item !== 'object') throw new Error('mining.share_malformed');
-    const sh = item as Record<string, unknown>;
-    if (typeof sh.shareId !== 'string' || typeof sh.minerId !== 'string') throw new Error('mining.share_malformed');
-    if (typeof sh.weight === 'number') throw new Error('mining.weight_not_integer');
-    if (typeof sh.weight === 'bigint') return { shareId: sh.shareId, minerId: sh.minerId, weight: sh.weight };
-    if (typeof sh.weight === 'string' && /^(0|[1-9]\d*)$/.test(sh.weight)) {
-      return { shareId: sh.shareId, minerId: sh.minerId, weight: BigInt(sh.weight) };
-    }
-    throw new Error('mining.weight_not_integer');
+    const sh = objectBody(item);
+    return {
+      shareId: requiredId(sh.shareId, 'mining.share_malformed'),
+      minerId: requiredId(sh.minerId, 'mining.share_malformed'),
+      weight: parseWeight(sh.weight),
+    };
   });
-  return { windowId: v.windowId, epoch, assetId: v.assetId, reward: v.reward, feeBps: v.feeBps, shares };
+  return { windowId, epoch, assetId, reward: v.reward, feeBps: v.feeBps, shares };
 }
 
 /** Persist the share. Mint/rewardPay happens on the JobHost tick, not this door. */
