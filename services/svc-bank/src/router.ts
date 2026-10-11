@@ -1856,10 +1856,11 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       )
       .mutation(async ({ input }) =>
         guard(async () => {
-          const confirmOperatorId = await consumeOpsApproval(input, 'bank.seize_loan', { loanId: input.loanId });
+          // Same stop as runRiskSweep, before the one-time approval is spent.
           if (!loanRiskSweepEnabled) {
             throw new BankError('loan risk sweep is disabled', 'bank.loan_risk_sweep_disabled');
           }
+          const confirmOperatorId = await consumeOpsApproval(input, 'bank.seize_loan', { loanId: input.loanId });
           const result = await bank.loans.seize({ loanId: input.loanId });
           return {
             ledgerTxId: result.ledgerTxId,
