@@ -180,6 +180,32 @@ console.log("after")`,
     }
   });
 
+  it('parses nested else branches inside an inactive brace body without running them', () => {
+    const innerTrue = runIsolate(
+      'javascript',
+      `if (false) { if (true) { const x = market.last("BTC-USD"); if (x > 0) { console.log("inner"); oms.buy("BTC-USD", "0.01") } } else { console.log("inner-else"); oms.sell("BTC-USD", "0.01") } }
+console.log("after")`,
+      book(),
+      limits,
+      true,
+    );
+    expect(innerTrue.logs).toEqual(['after']);
+    expect(innerTrue.fills).toEqual([]);
+    expect(innerTrue.cash).toBe('10000');
+
+    const innerFalseWithOuterElse = runIsolate(
+      'javascript',
+      `if (false) { if (false) { console.log("inner"); oms.buy("BTC-USD", "0.01") } else { console.log("inner-else"); oms.sell("BTC-USD", "0.01") } } else { console.log("outer-else") }
+console.log("after")`,
+      book(),
+      limits,
+      true,
+    );
+    expect(innerFalseWithOuterElse.logs).toEqual(['outer-else', 'after']);
+    expect(innerFalseWithOuterElse.fills).toEqual([]);
+    expect(innerFalseWithOuterElse.cash).toBe('10000');
+  });
+
   it('compares amount strings by scaled value and keeps stringify for other text', () => {
     const ran = runIsolate(
       'javascript',

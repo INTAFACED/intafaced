@@ -304,21 +304,6 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
     const t = peek();
     return t.k === 'op' && t.v === name;
   };
-  // Opening brace is already consumed. A missing close is a syntax error, not a successful run that dropped the rest.
-  const skipBraceBody = (): void => {
-    let depth = 1;
-    while (peek().k !== 'eof' && depth > 0) {
-      const x = peek();
-      if (depth === 1 && x.k === 'id' && x.v === 'else') {
-        throw new QuantError(QUANT_SANDBOX_SYNTAX, 'expected } before else');
-      }
-      if (x.k === 'op' && x.v === '{') depth++;
-      else if (x.k === 'op' && x.v === '}') depth--;
-      p++;
-    }
-    if (depth !== 0) throw new QuantError(QUANT_SANDBOX_SYNTAX, 'expected }');
-  };
-
   const parseArgs = (): Val[] => {
     eatOp('(');
     const args: Val[] = [];
@@ -465,7 +450,30 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
     return parseCmp();
   }
 
-  const parseStmt = (): void => {
+  // Parse a brace body recursively. `execute` controls effects while the normal
+  // statement parser still validates nested if/else ownership and delimiters.
+  function parseBraceBody(execute: boolean): void {
+    const previousLive = live;
+    const previousEnv = execute ? null : new Map(env);
+    live = previousLive && execute;
+    try {
+      while (peek().k !== 'eof' && !isOp('}')) {
+        if (isId('else')) throw new QuantError(QUANT_SANDBOX_SYNTAX, 'expected } before else');
+        parseStmt();
+        skipNl();
+      }
+      if (peek().k === 'eof') throw new QuantError(QUANT_SANDBOX_SYNTAX, 'expected }');
+      eatOp('}');
+    } finally {
+      live = previousLive;
+      if (previousEnv) {
+        env.clear();
+        for (const [name, value] of previousEnv) env.set(name, value);
+      }
+    }
+  }
+
+  function parseStmt(): void {
     skipNl();
     const t = peek();
     if (t.k === 'eof') return;
@@ -480,7 +488,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
       }
       eatOp('=');
       const val = parseExpr();
-      if (live && !exited) env.set(name.v, val);
+      env.set(name.v, val);
       tryOp(';');
       return;
     }
@@ -495,7 +503,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
       p++;
       eatOp('=');
       const val = parseExpr();
-      if (live && !exited) env.set(t.v, val);
+      env.set(t.v, val);
       tryOp(';');
       return;
     }
@@ -519,29 +527,23 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
       // Indentation is discarded, so a python if body is the next statement, not a brace block.
       if (python) {
         while (peek().k === 'nl') p++;
+        const previousLive = live;
+        const previousEnv = pass ? null : new Map(env);
         if (!pass) {
-          const prev = live;
           live = false;
+        }
+        try {
           parseStmt();
-          live = prev;
-        } else {
-          parseStmt();
+        } finally {
+          live = previousLive;
+          if (previousEnv) {
+            env.clear();
+            for (const [name, value] of previousEnv) env.set(name, value);
+          }
         }
         return;
       }
-      // else is an identifier. The tokenizer never emits an operator named else.
-      const trueBranchStops = (): boolean => peek().k === 'eof' || isOp('}');
-      if (pass) {
-        while (!trueBranchStops()) {
-          if (isId('else')) throw new QuantError(QUANT_SANDBOX_SYNTAX, 'expected } before else');
-          parseStmt();
-          skipNl();
-        }
-        if (peek().k === 'eof') throw new QuantError(QUANT_SANDBOX_SYNTAX, 'expected }');
-        eatOp('}');
-      } else {
-        skipBraceBody();
-      }
+      parseBraceBody(pass);
       skipNl();
       if (isId('else')) {
         p++;
@@ -554,23 +556,14 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
           if (!exited) live = prev;
         } else {
           eatOp('{');
-          if (!pass && live && !exited) {
-            while (peek().k !== 'eof' && !isOp('}')) {
-              parseStmt();
-              skipNl();
-            }
-            if (peek().k === 'eof') throw new QuantError(QUANT_SANDBOX_SYNTAX, 'expected }');
-            eatOp('}');
-          } else {
-            skipBraceBody();
-          }
+          parseBraceBody(!pass && live && !exited);
         }
       }
       return;
     }
     parseExpr();
     tryOp(';');
-  };
+  }
 
   skipNl();
   while (peek().k !== 'eof') {
