@@ -157,6 +157,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'token.yield_job_unset':
       case 'token.buyback_job_unset':
       case 'token.governance_quorum_unset':
+      case 'token.governance_snapshot_missing':
       case 'token.governance_execute_unwired':
       case 'token.proposal_list_limit_unset':
       case 'token.stakes_list_limit_unset':
@@ -223,11 +224,16 @@ function proposalToWire(p: {
   };
 }
 
+/** `<utf8ByteLength>:<value>\n` — field text cannot be read as the next pair. */
+function frameField(value: string): string {
+  return `${Buffer.byteLength(value, 'utf8')}:${value}\n`;
+}
+
 function stableJoined(pairs: ReadonlyArray<readonly [string, string]>): string {
   return [...pairs]
-    .map(([k, v]) => `${k}:${v}`)
+    .map(([key, value]) => `${frameField(key)}${frameField(value)}`)
     .sort()
-    .join(',');
+    .join('');
 }
 
 export function createTokenRouter(token: TokenService, options: TokenRouterOptions = {}) {

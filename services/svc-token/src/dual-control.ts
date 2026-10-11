@@ -25,19 +25,20 @@ export function dualControlRefuse(
   confirmOperatorId: string | null,
 ): { readonly code: typeof MISSING_OPERATOR; readonly message: string } | null {
   const actor = operatorId?.trim() ? operatorId.trim() : null;
+  const confirm = confirmOperatorId?.trim() ? confirmOperatorId.trim() : null;
   if (actor === null) {
     return {
       code: MISSING_OPERATOR,
       message: 'operator identity is required; the token service does not invent a caller',
     };
   }
-  if (confirmOperatorId === null) {
+  if (confirm === null) {
     return {
       code: MISSING_OPERATOR,
       message: 'confirming operator identity is required; the token service does not invent a second caller',
     };
   }
-  if (confirmOperatorId === actor) {
+  if (confirm === actor) {
     return {
       code: MISSING_OPERATOR,
       message: 'confirming operator must be a distinct identity; the token service does not invent a second caller',
@@ -49,5 +50,5 @@ export function dualControlRefuse(
 export function requireDualControl(operatorId: string | null, confirmOperatorId: string | null): string {
   const refuse = dualControlRefuse(operatorId, confirmOperatorId);
   if (refuse) throw new DualControlError(refuse.message);
-  return confirmOperatorId as string;
+  return (confirmOperatorId as string).trim();
 }

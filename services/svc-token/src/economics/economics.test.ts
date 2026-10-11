@@ -8,11 +8,8 @@
  * float implementation too.
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { type Amount, ZERO, formatAmount, parseAmount as amt, sum } from '@intafaced/ledger-client';
+import { type Amount, MAX_AMOUNT, MoneyError, ZERO, formatAmount, parseAmount as amt, sum } from '@intafaced/ledger-client';
 import {
   DEFAULT_EMISSION_PARAMS,
   type EmissionParams,
@@ -174,19 +171,8 @@ describe('emission — cumulative', () => {
   });
 
   /**
-   * SCOPE: this describes the SEED constants, not the economy.
-   *
-   * `svc-token` boots with `loadParamsFromDb: true`, so `DEFAULT_EMISSION_PARAMS` is a fallback
-   * a live deployment never reaches, and the pinned 397,120,000 below is a property of numbers
-   * that do not run. The live seeded row converges on 7,300,000 against a 1,000,000,000 cap
-   * instead — same shape, three orders of magnitude apart.
-   *
-   * The pin is KEPT rather than deleted or re-pointed at the live figure. Deleted, `emission.ts`
-   * could be re-tuned with nothing objecting. Re-pointed, it would be an expectation derived
-   * from the migration, and the agreement test below is already the honest place to compare the
-   * two copies. What it is worth as written: it is a hand-written number, so the seed cannot be
-   * changed without a human editing an expectation here — the same friction as
-   * `PUBLISHED_FEE_DISCOUNTS`. What it is NOT worth: any belief about what the platform emits.
+   * SCOPE: this describes `DEFAULT_EMISSION_PARAMS`, a test shape. The migration
+   * does not publish a supply or an emission amount. A blank row refuses.
    */
   it('converges below the SEED cap — a property of constants that never run, not of the economy', () => {
     const terminal = cumulativeEmission(1_000_000, D);
@@ -453,7 +439,7 @@ describe('staking — access tiers (§4.3 gates)', () => {
  * Hardcoded on purpose. The previous version of these tests asserted
  * `feeDiscountBps(step.minStake) === step.discountBps` by reading the expectation back out of
  * the same array it was testing, so it passed for ANY set of numbers — and it did, while the
- * TS table and the seeded row disagreed on every non-zero step. An expectation that is
+ * TS table used to be copied out of itself, so any numbers passed. An expectation that is
  * derived from the thing under test cannot fail, and a test that cannot fail is not a test.
  *
  * Change a number in `staking.ts` and this table must be changed to match, deliberately, by
@@ -534,319 +520,19 @@ describe('staking — fee discount schedule', () => {
   });
 
   it('caps an absurd stake at the policy ceiling', () => {
-    expect(feeDiscountBps(amt('100000000000000000000'), SEED)).toBeLessThanOrEqual(MAX_FEE_DISCOUNT_BPS);
+    // The largest stake numeric(38,18) can store. 10^20 whole tokens is one digit past that column.
+    const stake = amt(formatAmount(MAX_AMOUNT));
+    expect(feeDiscountBps(stake, SEED)).toBeLessThan(10_000);
+    expect(feeDiscountBps(stake, SEED)).toBeLessThanOrEqual(MAX_FEE_DISCOUNT_BPS);
+  });
+
+  it('refuses a stake that does not fit the amount column', () => {
+    expect(() => amt('100000000000000000000')).toThrow(MoneyError);
+    expect(() => amt('100000000000000000000')).toThrow(/numeric\(38,18\)/);
   });
 
   it('rejects a negative stake', () => {
     expect(() => feeDiscountBps(-WEI, SEED)).toThrow(RangeError);
-  });
-});
-
-/**
- * THE TEST WHOSE ABSENCE ALLOWED THE BUG.
- *
- * `staking.ts` seeds `token_params.fee_discount_schedule` and the migration writes it; two
- * copies of one economic parameter, in two languages, with nothing comparing them. They drifted
- * — every non-zero step disagreed — and the service shipped for as long as it took someone to
- * read both files side by side.
- *
- * This lives in the pure suite rather than in `token-service.test.ts` on purpose: that file
- * skips itself when Postgres is unreachable, and an agreement check that silently does not run
- * is the same as no agreement check. Reading the migration off disk needs no database.
- */
-const migrationSql = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'drizzle', '0000_token_init.sql'), 'utf8');
-
-describe('fee discount schedule — code and migration seed agree (§4.3)', () => {
-  /** The seeded jsonb literal, straight out of the INSERT. */
-  function seededScheduleJson(): string {
-    const match = /'(\{"basis":.*?\})'::jsonb/s.exec(migrationSql);
-    // A miss means the seed was reshaped or removed — which is exactly the change that must
-    // not pass unnoticed, so failing to FIND it fails the test rather than skipping it.
-    expect(match, 'no fee_discount_schedule jsonb literal found in 0000_token_init.sql').not.toBeNull();
-    return match![1]!;
-  }
-
-  it('seeds the migration with the schedule the code publishes', () => {
-    const seeded = parseFeeDiscountSchedule(JSON.parse(seededScheduleJson()));
-
-    expect(seeded.basis).toBe(DEFAULT_FEE_DISCOUNT_SCHEDULE.basis);
-    expect(seeded.tiers.map((s) => [formatAmount(s.minStake), s.discountBps])).toEqual(
-      DEFAULT_FEE_DISCOUNT_SCHEDULE.tiers.map((s) => [formatAmount(s.minStake), s.discountBps]),
-    );
-  });
-
-  it('seeds the migration with the numbers written out at the top of this file', () => {
-    // Closes the triangle. The assertion above compares SQL against the TS constant, so a
-    // change to BOTH would pass it; this one compares SQL against the hand-written table, so
-    // the SQL cannot be re-tuned without a human editing an expectation in this file too.
-    const seeded = parseFeeDiscountSchedule(JSON.parse(seededScheduleJson()));
-    expect(seeded.tiers.map((s) => [formatAmount(s.minStake), s.discountBps])).toEqual(
-      PUBLISHED_FEE_DISCOUNTS.map(([minStake, bps]) => [minStake, bps]),
-    );
-  });
-
-  it('gives the same discount from the seeded row as from the default, at every threshold', () => {
-    const seeded = parseFeeDiscountSchedule(JSON.parse(seededScheduleJson()));
-    for (const [minStake] of PUBLISHED_FEE_DISCOUNTS) {
-      const stake = amt(minStake);
-      expect(feeDiscountBps(stake, seeded)).toBe(feeDiscountBps(stake, DEFAULT_FEE_DISCOUNT_SCHEDULE));
-      expect(feeDiscountBps(stake - WEI < ZERO ? ZERO : stake - WEI, seeded)).toBe(
-        feeDiscountBps(stake - WEI < ZERO ? ZERO : stake - WEI, DEFAULT_FEE_DISCOUNT_SCHEDULE),
-      );
-    }
-  });
-
-  it('seeds thresholds as decimal STRINGS — a JSON number cannot hold 1e21 exactly', () => {
-    // 1_000_000 IFC scaled by 10^18 is past Number.MAX_SAFE_INTEGER. If the seed ever grows a
-    // threshold written as a bare JSON number, the parser must reject it rather than round it.
-    expect(seededScheduleJson()).toMatch(/"minStake":\s*"/);
-    expect(seededScheduleJson()).not.toMatch(/"minStake":\s*\d/);
-  });
-});
-
-/**
- * THE SAME TEST, FOR THE TWO FAMILIES THAT NEVER GOT IT.
- *
- * The fee ladder above got an agreement test only after it had already drifted on every
- * non-zero step and shipped that way. Emission and buyback are the same two-copies-of-one-number
- * arrangement — `economics/*.ts` seeds them, `0000_token_init.sql` writes them, `svc-token` boots
- * with `loadParamsFromDb: true` and reads only the second — and until now nothing compared them.
- * They have been in disagreement on every value the whole time.
- *
- * THIS SUITE IS GREEN, AND THAT IS NOT THE SAME AS SAYING THE NUMBERS ARE FINE.
- *
- * ADR `docs/adr/2026-08-04-token-economics-outcomes.md` (Accepted 2026-08-04) enumerates these
- * five as owner-only numbers and authorises exactly this test under "what agents may implement
- * without asking again", because forcing the two copies to agree decides no number — it only
- * makes disagreement impossible to ship.
- *
- * The ADR's refuse table says "Code constant disagrees with the live row → Fail the build."
- * That reads on a NEW disagreement. Pointed at the pre-existing one it would hold main red until
- * four numbers that have been undecided for weeks are decided, blocking every unrelated merge in
- * the repo — and a gate that must be ignored to get work done is a gate that gets deleted. So
- * the four known-undecided rows are PINNED rather than failed: recorded, printed on every run,
- * and locked so they cannot change or grow without this file failing.
- *
- * What is still a hard failure, with no soft path:
- *   · either copy of ANY parameter changing value          → the inventory test
- *   · a fifth parameter joining the disagreement           → the pinned-drift test
- *   · one of the four being "resolved" by an engineer      → both of them
- *
- * DO NOT RESOLVE A ROW BY EDITING A NUMBER. Editing either copy to match the other IS the
- * decision, silently made by whoever ran the test last. That is the failure mode the ADR exists
- * to stop, and it is why the two tables below are written out by hand: any edit to either side
- * lands on a hand-written expectation, so no change can pass unread.
- */
-describe('emission and buyback params — code and migration seed agree (§4.3)', () => {
-  /**
-   * Splits a SQL tuple on its top-level commas. A doubled '' inside a literal toggles the flag
-   * off and straight back on, which nets out correctly for splitting even though it is not a
-   * general SQL unescape — we only need the boundaries, never the unquoted content.
-   */
-  function splitTopLevel(tuple: string): string[] {
-    const parts: string[] = [];
-    let current = '';
-    let depth = 0;
-    let quoted = false;
-
-    for (const ch of tuple) {
-      if (ch === "'") quoted = !quoted;
-      else if (!quoted && ch === '(') depth++;
-      else if (!quoted && ch === ')') depth--;
-      else if (!quoted && depth === 0 && ch === ',') {
-        parts.push(current);
-        current = '';
-        continue;
-      }
-      current += ch;
-    }
-    parts.push(current);
-    return parts.map((p) => p.trim());
-  }
-
-  /**
-   * The seeded row as `column -> raw SQL literal`, paired positionally out of the INSERT.
-   *
-   * Pairing by name rather than by position in the file means a column reordered in the
-   * migration still reads correctly, and a column added to one list but not the other fails the
-   * arity check below rather than silently shifting every value by one.
-   */
-  function seededRow(): Readonly<Record<string, string>> {
-    const insert = /INSERT INTO "token"\."token_params"\s*\(([\s\S]*?)\)\s*VALUES\s*\(([\s\S]*?)\)\s*ON CONFLICT/.exec(migrationSql);
-    // A miss means the seed INSERT was reshaped or removed — the exact change that must not pass
-    // unnoticed, so failing to FIND it fails the test rather than skipping it.
-    expect(insert, 'no token_params seed INSERT found in 0000_token_init.sql').not.toBeNull();
-
-    const columns = splitTopLevel(insert![1]!).map((c) => c.replace(/"/g, ''));
-    const values = splitTopLevel(insert![2]!);
-    expect(values.length, 'token_params seed INSERT has a different number of columns and values').toBe(columns.length);
-
-    return Object.fromEntries(columns.map((column, i) => [column, values[i]!]));
-  }
-
-  /** `'{...}'::jsonb` → the parsed object. */
-  function seededJsonb(literal: string): Record<string, unknown> {
-    const match = /^'([\s\S]*)'::jsonb$/.exec(literal);
-    expect(match, `expected a jsonb literal, got: ${literal}`).not.toBeNull();
-    return JSON.parse(match![1]!) as Record<string, unknown>;
-  }
-
-  /** The five parameters, as the live row states them. Strings throughout — see the note below. */
-  function seededEconomics(): Readonly<Record<string, string>> {
-    const row = seededRow();
-    const curve = seededJsonb(row.emission_curve!);
-    return {
-      initialEpochReward: String(curve.initialEpochReward),
-      maxSupply: row.total_supply!,
-      halvingIntervalEpochs: row.halving_interval!,
-      buybackBps: row.buyback_bps!,
-      burnSplitBps: row.burn_split_bps!,
-    };
-  }
-
-  /** The same five, as the source constants state them. */
-  function constantEconomics(): Readonly<Record<string, string>> {
-    return {
-      initialEpochReward: formatAmount(DEFAULT_EMISSION_PARAMS.initialEpochReward),
-      maxSupply: formatAmount(DEFAULT_EMISSION_PARAMS.maxSupply),
-      halvingIntervalEpochs: String(DEFAULT_EMISSION_PARAMS.halvingIntervalEpochs),
-      buybackBps: String(DEFAULT_BUYBACK_PARAMS.buybackBps),
-      burnSplitBps: String(DEFAULT_BUYBACK_PARAMS.burnSplitBps),
-    };
-  }
-
-  /**
-   * THE DISAGREEMENT, WRITTEN OUT — the same hand-written friction as `PUBLISHED_FEE_DISCOUNTS`,
-   * pointed at a drift instead of an agreement.
-   *
-   * The drift report below is DERIVED, so it would go green the moment anyone edited either copy
-   * to match the other — which is precisely the silent decision that must not be possible. This
-   * table is derived from nothing. Change a number in `emission.ts`, `buyback.ts`, or the
-   * migration and a human has to come here and edit an expectation by hand, in a file whose
-   * comments say these are the owner's numbers. That friction is the feature.
-   *
-   * When the owner decides: set both copies, update this table so both columns read the decided
-   * value, and every test in this describe goes green together.
-   */
-  const TOKEN_PARAM_INVENTORY: ReadonlyArray<readonly [parameter: string, sourceSeed: string, seededRow: string, where: string]> = [
-    ['initialEpochReward', '136000', '2500', 'economics/emission.ts ↔ token_params.emission_curve.initialEpochReward'],
-    ['maxSupply', '400000000', '1000000000', 'economics/emission.ts ↔ token_params.total_supply'],
-    ['halvingIntervalEpochs', '1460', '1460', 'economics/emission.ts ↔ token_params.halving_interval'],
-    ['buybackBps', '5000', '2000', 'economics/buyback.ts ↔ token_params.buyback_bps'],
-    ['burnSplitBps', '6000', '5000', 'economics/buyback.ts ↔ token_params.burn_split_bps'],
-  ];
-
-  it('parses the seeded row into the five parameters the service reads', () => {
-    // Proves the reader works before anything is concluded from what it read. A parser that
-    // silently returned undefined for every column would otherwise make the drift report below
-    // an essay about nothing.
-    const seeded = seededEconomics();
-    for (const [parameter] of TOKEN_PARAM_INVENTORY) {
-      expect(seeded[parameter], `token_params seed carries no ${parameter}`).toMatch(/^\d+(\.\d+)?$/);
-    }
-  });
-
-  it('states both copies of every parameter exactly as this file records them', () => {
-    const seeded = seededEconomics();
-    const constants = constantEconomics();
-    for (const [parameter, sourceSeed, row] of TOKEN_PARAM_INVENTORY) {
-      expect(constants[parameter], `${parameter}: source constant changed — this is an owner number`).toBe(sourceSeed);
-      expect(seeded[parameter], `${parameter}: seeded migration row changed — this is an owner number`).toBe(row);
-    }
-  });
-
-  it('seeds the supply and reward as exact integers — a float literal cannot hold 1e27 wei', () => {
-    // total_supply scaled by 10^18 is past Number.MAX_SAFE_INTEGER, and initialEpochReward is a
-    // JSON string for the same reason the fee thresholds are. Neither may become a float.
-    const row = seededRow();
-    expect(row.total_supply).toMatch(/^\d+$/);
-    expect(row.emission_curve).toMatch(/"initialEpochReward":\s*"/);
-    expect(row.emission_curve).not.toMatch(/"initialEpochReward":\s*\d/);
-  });
-
-  /**
-   * THE FOUR THAT HAVE TWO VALUES, WRITTEN OUT.
-   *
-   * The drift set is DERIVED from comparing the two copies; this list is not. Pinning it by hand
-   * is what makes the known disagreement safe to leave green: the four rows below are tolerated
-   * because they are declared, and nothing else is. A fifth parameter falling out of agreement,
-   * or one of these four quietly being brought into line, changes the derived set and fails
-   * against this list.
-   *
-   * Order matters — it is asserted — so a row cannot be swapped for another and still match.
-   *
-   * When the owner decides a number: set both copies to it, drop its name from this list, and
-   * update its row in `TOKEN_PARAM_INVENTORY`. Three deliberate hand edits, in a file that says
-   * on every screen that these are the owner's numbers.
-   */
-  const UNDECIDED_UNTIL_AN_OWNER_DECIDES: readonly string[] = ['initialEpochReward', 'maxSupply', 'buybackBps', 'burnSplitBps'];
-
-  /** The report. Printed on every run whether or not anything is red — it is the deliverable. */
-  function renderDriftReport(
-    drift: typeof TOKEN_PARAM_INVENTORY,
-    constants: Readonly<Record<string, string>>,
-    seeded: Readonly<Record<string, string>>,
-  ): string {
-    const width = Math.max(...drift.map(([parameter]) => parameter.length));
-    return [
-      `${drift.length} of ${TOKEN_PARAM_INVENTORY.length} token economics parameters have two values, and no one has chosen.`,
-      '',
-      'This report is the deliverable. svc-token boots with loadParamsFromDb: true, so the',
-      'seeded row is what runs and the source constant is what every reader of the code believes.',
-      '',
-      `  ${'parameter'.padEnd(width)}   source seed        live seeded row`,
-      `  ${'-'.repeat(width)}   -----------------  -----------------`,
-      ...drift.map(
-        ([parameter, , , where]) =>
-          `  ${parameter.padEnd(width)}   ${constants[parameter]!.padEnd(17)}  ${seeded[parameter]}\n` +
-          `  ${' '.repeat(width)}   ${where}`,
-      ),
-      '',
-      'AN OWNER MUST DECIDE EACH ROW. An engineer must not.',
-      'ADR docs/adr/2026-08-04-token-economics-outcomes.md — Accepted 2026-08-04 — enumerates',
-      'these as owner-only. File the decisions in docs/BOARD-CLEAR-HUMAN-BLOCKERS.md, which',
-      'currently holds zero token rows.',
-      '',
-      'DO NOT resolve this by editing either number. Copying one value over the other IS the',
-      'decision, made by whoever ran the test last instead of by the person who owns it. The',
-      'inventory test above will fail if you try, on purpose.',
-      '',
-      'To resolve: the owner sets the value, BOTH copies are updated to it, and TOKEN_PARAM_INVENTORY',
-      'in this file is edited by hand to match.',
-      '',
-      // Named rather than counted: this gate is not one that has never been seen green, and
-      // the parameters that already agree are the proof of it.
-      `Already agreeing (${TOKEN_PARAM_INVENTORY.length - drift.length}/${TOKEN_PARAM_INVENTORY.length}): ${
-        TOKEN_PARAM_INVENTORY.filter(([p]) => !drift.some(([d]) => d === p))
-          .map(([p]) => p)
-          .join(', ') || '(none)'
-      }`,
-    ].join('\n');
-  }
-
-  it('pins exactly the parameters that disagree — a fifth joining, or one resolved, fails here', () => {
-    const seeded = seededEconomics();
-    const constants = constantEconomics();
-    const drift = TOKEN_PARAM_INVENTORY.filter(([parameter]) => constants[parameter] !== seeded[parameter]);
-
-    // Printed unconditionally while any row is undecided, so the four are in front of anyone who
-    // runs this suite rather than buried in a file they would have to already know to open.
-    if (drift.length > 0) console.error(`\n${renderDriftReport(drift, constants, seeded)}\n`);
-
-    expect(
-      drift.map(([parameter]) => parameter),
-      'the set of disagreeing token parameters changed — see the report above, and read UNDECIDED_UNTIL_AN_OWNER_DECIDES before touching it',
-    ).toEqual(UNDECIDED_UNTIL_AN_OWNER_DECIDES);
-  });
-
-  it('keeps the two hand-written tables describing the same parameters', () => {
-    // Closes the loop between the pin and the inventory: a name dropped from one but not the
-    // other would otherwise leave a parameter tolerated by the pin and unchecked by the inventory.
-    const known = TOKEN_PARAM_INVENTORY.map(([parameter]) => parameter);
-    for (const parameter of UNDECIDED_UNTIL_AN_OWNER_DECIDES) {
-      expect(known, `${parameter} is pinned as undecided but has no inventory row`).toContain(parameter);
-    }
-    expect(new Set(UNDECIDED_UNTIL_AN_OWNER_DECIDES).size, 'a parameter is pinned twice').toBe(UNDECIDED_UNTIL_AN_OWNER_DECIDES.length);
   });
 });
 

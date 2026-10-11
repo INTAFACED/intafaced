@@ -10,6 +10,7 @@ import {
   houseFees,
   tokenStakeAccount,
   InsufficientFundsError,
+  LedgerError,
   type Amount,
   type LedgerClient,
 } from '@intafaced/ledger-client';
@@ -59,8 +60,9 @@ export class TokenError extends Error {
        */
       | 'token.stake_claim_missing'
       /**
-       * Active row amount ≠ ledger `tokenStakeAccount` balance. Access and
-       * fee discount must not be granted off a table that is not the book.
+       * Active row amount ≠ ledger `tokenStakeAccount` balance. Access, fee
+       * discount, and yield weight must not be granted off a table that is
+       * not the book.
        */
       | 'token.stake_ledger_mismatch'
       | 'token.epoch_closed'
@@ -138,6 +140,12 @@ export class TokenError extends Error {
        */
       | 'token.governance_quorum_unset'
       /**
+       * A ballot has no eligible-stake snapshot from cast time. Close must not
+       * substitute a live pot sum, and must not treat the missing figure as
+       * zero — zero eligible stake makes the quorum comparison vacuously true.
+       */
+      | 'token.governance_snapshot_missing'
+      /**
        * Grant / listing close tallied but did not execute. Value does not move.
        */
       | 'token.governance_execute_unwired',
@@ -145,6 +153,20 @@ export class TokenError extends Error {
     super(message);
     this.name = 'TokenError';
   }
+}
+
+/** Only these ledger refusals are proven to happen before a post can commit. */
+const LEDGER_NO_COMMIT_CODES = new Set([
+  'ledger.insufficient_funds',
+  'ledger.invalid_entry',
+  'ledger.unbalanced',
+  'ledger.owner_identity_space',
+  'ledger.unauthenticated',
+  'ledger.frozen',
+]);
+
+function isConfirmedLedgerNoCommit(err: unknown): err is LedgerError {
+  return err instanceof LedgerError && LEDGER_NO_COMMIT_CODES.has(err.code);
 }
 
 /** Owner-published listProposals page size. Blank / non-finite / <1 refuses. Never invent 50. */
@@ -303,6 +325,14 @@ export interface StakeRecord {
   unlocksAt: Date | null;
   /** `pending` = claim row not yet funded; shown so clients can retry the same stakeId. */
   status: 'pending' | 'active' | 'unstaking' | 'closed';
+}
+
+/** NULL, whitespace, or `{}` — an undecided ladder, not a zero discount. */
+function feeScheduleBlank(raw: unknown): boolean {
+  if (raw == null) return true;
+  if (typeof raw === 'string') return raw.trim() === '';
+  if (typeof raw === 'object' && !Array.isArray(raw)) return Object.keys(raw).length === 0;
+  return false;
 }
 
 export class TokenService {
@@ -548,6 +578,11 @@ export class TokenService {
    * drops the row from stakeOf (active-only) before the ledger moves.
    * Ledger key `token.unstake:${stakeId}` makes crash mid-flight retry-safe.
    * Never hold FOR UPDATE across a remote ledger.post.
+   *
+   * The pot must equal the table amount before the row is claimed `unstaking`.
+   * A mismatch is `token.stake_ledger_mismatch`: nothing is posted and the row
+   * stays active. The table figure is not a partial unstake, and the
+   * difference is not a sweep.
    */
   private async unstakeInner(stakeId: string, now: Date): Promise<StakeRecord> {
     const claimed = await transaction(
@@ -572,6 +607,18 @@ export class TokenService {
 
         if (row.status === 'active' && !isUnlocked(row.tier, row.started_at, now)) {
           throw new TokenError(`Stake is locked until ${row.unlocks_at?.toISOString() ?? 'unlock'} (${row.tier})`, 'token.stake_locked');
+        }
+
+        // Claim index only. Move the pot when it equals the table amount.
+        // Refuse before `unstaking`, so a drift cannot close the row or post
+        // a partial amount. The difference is not swept.
+        const recorded = parseAmount(row.amount);
+        const book = (await this.ledger.balance(tokenStakeAccount(row.user_id, this.assetId, row.id))).amount;
+        if (book !== recorded) {
+          throw new TokenError(
+            `Stake ${row.id} table amount ${formatAmount(recorded)} disagrees with ledger ${formatAmount(book)}`,
+            'token.stake_ledger_mismatch',
+          );
         }
 
         if (row.status === 'active') {
@@ -667,6 +714,39 @@ export class TokenService {
     return total;
   }
 
+  /**
+   * Active stake locked in id order, read from ledger pots.
+   *
+   * One read is the ballot weight and the electorate that weight was a share
+   * of. Both are written on the vote. Close uses the stored electorate, so a
+   * later unstake cannot shrink the quorum bar and a stake opened after the
+   * window cannot raise it.
+   */
+  private async snapshotActiveStake(sql: Sql): Promise<{ total: Amount; byUser: Map<string, Amount> }> {
+    const rows = await sql<Array<{ id: string; user_id: string; amount: string }>>`
+      SELECT id, user_id, amount
+        FROM token.stakes
+       WHERE status = 'active'
+       ORDER BY id
+       FOR UPDATE
+    `;
+    const byUser = new Map<string, Amount>();
+    let total: Amount = 0n;
+    for (const row of rows) {
+      const recorded = parseAmount(row.amount);
+      const book = (await this.ledger.balance(tokenStakeAccount(row.user_id, this.assetId, row.id))).amount;
+      if (book !== recorded) {
+        throw new TokenError(
+          `Stake ${row.id} table amount ${formatAmount(recorded)} disagrees with ledger ${formatAmount(book)}`,
+          'token.stake_ledger_mismatch',
+        );
+      }
+      total += book;
+      byUser.set(row.user_id, (byUser.get(row.user_id) ?? 0n) + book);
+    }
+    return { total, byUser };
+  }
+
   /** One stake by id — used by the router to enforce ownership before unstake. */
   async getStake(stakeId: string): Promise<StakeRecord | null> {
     const rows = await this.sql<
@@ -751,14 +831,8 @@ export class TokenService {
   /**
    * The published fee-decay schedule (§4.3), read from `token_params`.
    *
-   * The row is the authority, not `DEFAULT_FEE_DISCOUNT_SCHEDULE` — §4.3 hands parameter
-   * control to governance (`proposal_kind = 'fee_param'`), and a constant compiled into the
-   * service is a parameter governance cannot reach. The constant is only what seeded this row.
-   *
-   * There is deliberately NO fallback to the constant when the row is unreadable. Falling back
-   * would mean charging a discount the database does not hold and doing it silently, which is
-   * exactly the divergence this method was added to close; a missing params row is a
-   * misconfigured deployment and should say so.
+   * The row is the authority, not `DEFAULT_FEE_DISCOUNT_SCHEDULE`. A blank
+   * schedule refuses with `token.params_invalid`. There is no fallback fee.
    */
   async feeDiscountSchedule(now: number = Date.now()): Promise<FeeDiscountSchedule> {
     const cached = this.feeScheduleCache;
@@ -767,9 +841,13 @@ export class TokenService {
     const rows = await this.sql<Array<{ fee_discount_schedule: unknown }>>`
       SELECT fee_discount_schedule FROM token.token_params WHERE id = true
     `;
-
-    const raw = rows[0]?.fee_discount_schedule;
-    if (raw === undefined) throw new TokenError('token_params singleton row is missing — run migrations', 'token.params_missing');
+    if (rows.length === 0) {
+      throw new TokenError('token_params singleton row is missing — run migrations', 'token.params_missing');
+    }
+    const raw = rows[0]!.fee_discount_schedule;
+    if (feeScheduleBlank(raw)) {
+      throw new TokenError('token_params.fee_discount_schedule is blank', 'token.params_invalid');
+    }
 
     const schedule = parseFeeDiscountSchedule(raw);
     this.feeScheduleCache = { schedule, loadedAt: now };
@@ -777,20 +855,29 @@ export class TokenService {
   }
 
   /**
-   * Buyback split params from `token_params` (T-02). Defaults in source are seed only.
+   * Buyback split params from `token_params` (T-02). A blank bps refuses.
+   * Source defaults are not filled in.
    */
   async buybackParams(now: number = Date.now()): Promise<BuybackParams> {
     if (!this.loadParamsFromDb) return this.options.buyback!;
     const cached = this.buybackParamsCache;
     if (cached && this.feeScheduleTtlMs > 0 && now - cached.loadedAt < this.feeScheduleTtlMs) return cached.params;
 
-    const rows = await this.sql<Array<{ buyback_bps: string; burn_split_bps: string }>>`
+    const rows = await this.sql<Array<{ buyback_bps: string | null; burn_split_bps: string | null }>>`
       SELECT buyback_bps::text, burn_split_bps::text FROM token.token_params WHERE id = true
     `;
     if (rows.length === 0) throw new TokenError('token_params singleton row is missing — run migrations', 'token.params_missing');
+    const buybackRaw = rows[0]!.buyback_bps;
+    const burnRaw = rows[0]!.burn_split_bps;
+    if (buybackRaw == null || buybackRaw.trim() === '') {
+      throw new TokenError('token_params.buyback_bps is blank', 'token.params_invalid');
+    }
+    if (burnRaw == null || burnRaw.trim() === '') {
+      throw new TokenError('token_params.burn_split_bps is blank', 'token.params_invalid');
+    }
     const params: BuybackParams = {
-      buybackBps: Number(rows[0]!.buyback_bps),
-      burnSplitBps: Number(rows[0]!.burn_split_bps),
+      buybackBps: Number(buybackRaw),
+      burnSplitBps: Number(burnRaw),
     };
     if (!Number.isInteger(params.buybackBps) || params.buybackBps < 0 || params.buybackBps > 10_000) {
       throw new TokenError(`token_params.buyback_bps out of range: ${params.buybackBps}`, 'token.params_invalid');
@@ -803,18 +890,25 @@ export class TokenService {
   }
 
   /**
-   * Emission curve from `token_params` (T-02). Code defaults are not live authority.
+   * Emission curve from `token_params` (T-02). A blank supply or reward refuses.
+   * Code defaults are not live authority.
    */
   async emissionParams(now: number = Date.now()): Promise<EmissionParams> {
     if (!this.loadParamsFromDb) return this.options.emission!;
     const cached = this.emissionParamsCache;
     if (cached && this.feeScheduleTtlMs > 0 && now - cached.loadedAt < this.feeScheduleTtlMs) return cached.params;
 
-    const rows = await this.sql<Array<{ total_supply: string; halving_interval: number; emission_curve: unknown }>>`
+    const rows = await this.sql<Array<{ total_supply: string | null; halving_interval: number | null; emission_curve: unknown }>>`
       SELECT total_supply::text, halving_interval, emission_curve FROM token.token_params WHERE id = true
     `;
     if (rows.length === 0) throw new TokenError('token_params singleton row is missing — run migrations', 'token.params_missing');
     const row = rows[0]!;
+    if (row.total_supply == null || row.total_supply.trim() === '') {
+      throw new TokenError('token_params.total_supply is blank', 'token.params_invalid');
+    }
+    if (row.halving_interval == null) {
+      throw new TokenError('token_params.halving_interval is blank', 'token.params_invalid');
+    }
     const curve = row.emission_curve;
     if (curve === null || typeof curve !== 'object' || Array.isArray(curve)) {
       throw new TokenError('token_params.emission_curve is missing or not an object', 'token.params_invalid');
@@ -827,7 +921,7 @@ export class TokenService {
         'token.params_invalid',
       );
     }
-    if (typeof initialRaw !== 'string') {
+    if (typeof initialRaw !== 'string' || initialRaw.trim() === '') {
       throw new TokenError('token_params.emission_curve.initialEpochReward is required', 'token.params_invalid');
     }
     const params: EmissionParams = {
@@ -1065,24 +1159,37 @@ export class TokenService {
           VALUES (${windowId}, ${formatAmount(total)}::numeric)
         `;
 
-        const stakes = await tx<Array<{ user_id: string; amount: string; tier: StakeTier; multiplier_bps: string }>>`
-          SELECT user_id, amount, tier, multiplier_bps FROM token.stakes WHERE status = 'active' ORDER BY id ASC
+        const stakes = await tx<Array<{ id: string; user_id: string; amount: string; tier: StakeTier; multiplier_bps: string }>>`
+          SELECT id, user_id, amount, tier, multiplier_bps FROM token.stakes WHERE status = 'active' ORDER BY id ASC
         `;
         if (stakes.length === 0) return { rows: [], skipped: 0 };
 
-        const shares = distributeYield(
-          total,
-          stakes.map((s) => ({
+        // The row is the claim index. Weight is the pot only when they agree.
+        // A drift refuses — the table figure is not a weight, and the pot is
+        // not a substitute share.
+        const weighed: Array<{ userId: string; amount: Amount; tier: StakeTier; multiplierBps: number }> = [];
+        for (const s of stakes) {
+          const recorded = parseAmount(s.amount);
+          const book = (await this.ledger.balance(tokenStakeAccount(s.user_id, this.assetId, s.id))).amount;
+          if (book !== recorded) {
+            throw new TokenError(
+              `Stake ${s.id} table amount ${formatAmount(recorded)} disagrees with ledger ${formatAmount(book)}`,
+              'token.stake_ledger_mismatch',
+            );
+          }
+          weighed.push({
             userId: s.user_id,
-            amount: parseAmount(s.amount),
+            amount: book,
             tier: s.tier,
             // The multiplier SNAPSHOTTED when the stake opened, not today's
             // table. A staker locked for 12 months bought that multiplier;
             // re-tuning the ladder afterwards must not retroactively change what
             // they earn.
             multiplierBps: Number(s.multiplier_bps),
-          })),
-        );
+          });
+        }
+
+        const shares = distributeYield(total, weighed);
 
         /**
          * Sum shares per user before writing the plan.
@@ -1619,12 +1726,17 @@ export class TokenService {
     try {
       await this.ledger.post(recipes.mintEmission({ epoch, assetId: this.assetId, amount: claimed.reward, destination }));
     } catch (err) {
-      // Nothing moved. Drop the open claim so a later curve retune is not
-      // blocked by a reservation that never funded — same guarantee stake
-      // gives its pending row on insufficient funds.
-      await this.sql`
-        DELETE FROM token.emission_epochs WHERE epoch = ${epoch} AND closed = false
-      `;
+      // Only the listed ledger codes are confirmed pre-effect refusals. Other
+      // structured server errors, timeouts, and transport failures may hide a
+      // committed post under
+      // `token.emission:<asset>:<epoch>`. Keep that row. Deleting it drops
+      // the mint out of the mined sum, and a later epoch can then mint past
+      // maxSupply.
+      if (isConfirmedLedgerNoCommit(err)) {
+        await this.sql`
+          DELETE FROM token.emission_epochs WHERE epoch = ${epoch} AND closed = false
+        `;
+      }
       throw err;
     }
 
@@ -1820,8 +1932,10 @@ export class TokenService {
   }
 
   /**
-   * Cast one ballot. Weight = `stakeOf(userId)` at this instant, stored on the
-   * vote row so later stake/unstake cannot amplify or erase a recorded choice.
+   * Cast one ballot. Weight = that user's active stake at this instant, and
+   * `eligible_stake` = the electorate total from the same read. Both stay on
+   * the row. Later stake or unstake cannot amplify the choice or move the
+   * quorum bar it was cast against.
    *
    * Zero weight is refused (not recorded as a free no-op): IFC-weighted means
    * unstaked accounts do not sit in the electorate.
@@ -1855,10 +1969,12 @@ export class TokenService {
           throw new TokenError('Proposal voting window is not active', 'token.proposal_window');
         }
 
-        // Weight is ledger-backed `stakeOf`, not the table SUM. A drifted
-        // row must not mint voting power the book does not hold.
+        // Weight and electorate are one ledger read. A drifted row must not
+        // mint voting power the book does not hold, and the quorum bar stored
+        // beside the weight is that same total — not a later live sum.
         // Use `tx` — outer `this.sql` while FOR UPDATE is held deadlocks the pool.
-        const weight = await this.stakeOfOn(tx, input.userId);
+        const snap = await this.snapshotActiveStake(tx);
+        const weight = snap.byUser.get(input.userId) ?? 0n;
         if (weight <= 0n) {
           throw new TokenError('No active stake — voting weight is zero', 'token.no_voting_weight');
         }
@@ -1875,10 +1991,13 @@ export class TokenService {
               cast_at: Date;
             }>
           >`
-            INSERT INTO token.governance_votes (id, proposal_id, user_id, weight, choice, cast_at)
+            INSERT INTO token.governance_votes (
+              id, proposal_id, user_id, weight, eligible_stake, choice, cast_at
+            )
             VALUES (
               ${voteId}, ${input.proposalId}, ${input.userId},
-              ${formatAmount(weight)}::numeric, ${input.choice}, ${now}
+              ${formatAmount(weight)}::numeric, ${formatAmount(snap.total)}::numeric,
+              ${input.choice}, ${now}
             )
             RETURNING id, proposal_id, user_id, weight, choice, cast_at
           `;
@@ -1999,12 +2118,16 @@ export class TokenService {
   /**
    * Close an open proposal whose window has ended. Writes `passed` | `rejected`.
    *
-   * Quorum = participating weight vs the sum of ledger `tokenStakeAccount`
-   * pots for every active stake row, in owner bps. The table is the claim
-   * index (who, how much was recorded); a row that disagrees with its pot
-   * refuses `token.stake_ledger_mismatch` — never a drifted SUM as the bar.
-   * Pass = for / (for+against) in owner bps. Blank owner bps refuse
-   * `token.governance_quorum_unset` — never a compiled bar.
+   * Quorum = participating weight vs the eligible stake snapshotted on the
+   * ballots (the greatest electorate any ballot was cast against), in owner
+   * bps. That is the same read `castVote` stored beside the weight. A later
+   * unstake does not shrink it, and a stake opened after the window is not
+   * in it. Active rows are still the claim index: a row that disagrees with
+   * its pot refuses `token.stake_ledger_mismatch` — never a drifted SUM, and
+   * never the live sum, as the bar. A ballot with no snapshot refuses
+   * `token.governance_snapshot_missing` — never zero, which would make quorum
+   * vacuously true. Pass = for / (for+against) in owner bps. Blank owner bps
+   * refuse `token.governance_quorum_unset` — never a compiled bar.
    *
    * Grant / listing: status is written; `execute` is
    * `token.governance_execute_unwired`. No ledger post.
@@ -2064,7 +2187,6 @@ export class TokenService {
            WHERE status = 'active'
            ORDER BY id
         `;
-        let eligibleStake: Amount = 0n;
         for (const stakeRow of stakeRows) {
           const recorded = parseAmount(stakeRow.amount);
           const book = (await this.ledger.balance(tokenStakeAccount(stakeRow.user_id, this.assetId, stakeRow.id))).amount;
@@ -2074,8 +2196,27 @@ export class TokenService {
               'token.stake_ledger_mismatch',
             );
           }
-          eligibleStake += book;
         }
+
+        // Greatest snapshot, not the latest. A later ballot cast after an
+        // unstake must not pull the bar under a weight an earlier ballot kept.
+        // Stake that appears only after the last ballot — including after the
+        // window — is absent from every row, so it cannot inflate the bar.
+        const snap = await tx<Array<{ missing: string; eligible: string | null }>>`
+          SELECT COUNT(*) FILTER (WHERE eligible_stake IS NULL)::text AS missing,
+                 MAX(eligible_stake)::text AS eligible
+            FROM token.governance_votes
+           WHERE proposal_id = ${input.proposalId}
+        `;
+        const missing = BigInt(snap[0]?.missing ?? '0');
+        if (missing !== 0n) {
+          throw new TokenError(
+            'A ballot is missing the eligible-stake snapshot from when it was cast',
+            'token.governance_snapshot_missing',
+          );
+        }
+        const eligibleRaw = snap[0]?.eligible;
+        const eligibleStake = eligibleRaw == null ? 0n : parseAmount(eligibleRaw);
 
         const status = decideProposalOutcome({
           forWeight: folded.forWeight,
