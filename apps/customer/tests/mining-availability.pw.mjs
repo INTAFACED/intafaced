@@ -283,6 +283,63 @@ test('guest return and unreadable original storage do not confer customer submis
     expect(state.healthReads).toBe(1);
   });
 });
+
+// Hold the actual queued arrival callback to exercise the brief interval
+// between focusing the final control and traversing into browser chrome.
+test('a queued room arrival respects observed control focus and still focuses main when no control was focused', async ({ browser }) => {
+  for (const focused of [true, false])
+    await scenario(browser, focused ? 'queued-control-focus' : 'queued-default-focus', 1440, async ({ page, out }) => {
+      await login(page);
+      await room(page).getByRole('link', { name: 'Ask about mining access', exact: true }).click();
+      await expect(page).toHaveURL(/\/support$/);
+      await page.evaluate(async () => {
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        document.activeElement?.blur();
+        const raf = window.requestAnimationFrame.bind(window),
+          cancel = window.cancelAnimationFrame.bind(window);
+        window.heldMiningArrival = new Map();
+        window.pauseMiningArrival = true;
+        window.requestAnimationFrame = (callback) => {
+          let id;
+          id = raf((at) => {
+            if (window.pauseMiningArrival) window.heldMiningArrival.set(id, () => callback(at));
+            else callback(at);
+          });
+          return id;
+        };
+        window.cancelAnimationFrame = (id) => {
+          window.heldMiningArrival.delete(id);
+          cancel(id);
+        };
+      });
+      await page.goBack();
+      await expect(page).toHaveURL(/\/mining$/);
+      const more = room(page).getByRole('link', { name: 'Explore More →', exact: true });
+      await expect(more).toBeVisible();
+      await expect.poll(() => page.evaluate(() => window.heldMiningArrival.size)).toBeGreaterThan(0);
+      if (focused) {
+        await more.focus();
+        await expect(more).toBeFocused();
+        await page.keyboard.press('Tab');
+      }
+      const before = await page.evaluate(() => ({
+        active: document.activeElement.id || document.activeElement.className,
+        held: window.heldMiningArrival.size,
+      }));
+      await page.evaluate(() => {
+        window.pauseMiningArrival = false;
+        for (const fn of window.heldMiningArrival.values()) fn();
+        window.heldMiningArrival.clear();
+      });
+      const after = await page.evaluate(() => ({ active: document.activeElement.id || document.activeElement.className }));
+      await writeFile(join(out, 'FOCUS-PROBE.json'), JSON.stringify({ focused, before, after }, null, 2) + '\n');
+      if (focused) {
+        expect(after.active).not.toBe('main');
+        await page.keyboard.press('Shift+Tab');
+        await expect(more).toBeFocused();
+      } else expect(after.active).toBe('main');
+    });
+});
 test.afterAll(async () => {
   await mkdir(evidence, { recursive: true });
   await writeFile(join(evidence, 'SCENARIOS.json'), JSON.stringify(observations, null, 2) + '\n');
