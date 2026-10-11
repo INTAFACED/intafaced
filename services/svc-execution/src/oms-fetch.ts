@@ -70,6 +70,9 @@ export async function fetchOmsOrder(input: OmsFetchInput): Promise<OmsFetchResul
   }
 
   const evidence = input.emsStore?.get(clientOrderId);
+  if (evidence && !matchesRetainedSliceIntent(evidence, order)) {
+    return { ok: false, reason: 'fetch_failed', detail: 'venue observation does not match the retained slice intent' };
+  }
   if (evidence && (order.status === 'filled' || order.status === 'partially_filled')) {
     try {
       const observed = venueOrderToExecution(order, {
@@ -98,3 +101,4 @@ export async function fetchOmsOrder(input: OmsFetchInput): Promise<OmsFetchResul
 
   return { ok: true, order };
 }
+import { matchesRetainedSliceIntent } from './oms-slice-intent.js';

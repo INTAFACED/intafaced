@@ -240,6 +240,7 @@ export async function sliceLiveAlgoParent(input: {
   // keeps both the intent and its size reservation until the existing lookup reconciles it.
   const intent = {
     requestFingerprint: JSON.stringify({
+      kind: 'slice',
       parentClientOrderId,
       executionOwner: existing.executionOwner,
       venueId,

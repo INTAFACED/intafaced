@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileApprovedAlgoParentStore } from './file-algo-store.js';
 import { FileEmsOrderStore } from './file-ems-order-store.js';
+import { fetchOmsOrder } from './oms-fetch.js';
+import { cancelOmsOrder } from './oms-cancel.js';
+import type { VenueOrder } from '@intafaced/venue-contracts';
 import { formatAmount, parseAmount, sub, ZERO } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
@@ -222,6 +225,7 @@ describe('sliceLiveAlgoParent', () => {
       expect(original.clientOrderId).toBe(accepted[0]!.clientOrderId);
       expect(original.reconciliationKey).toBe(original.clientOrderId);
       expect(JSON.parse(original.requestFingerprint!)).toEqual({
+        kind: 'slice',
         parentClientOrderId: 'parent-twap',
         executionOwner: OP,
         venueId: 'street',
@@ -249,6 +253,66 @@ describe('sliceLiveAlgoParent', () => {
       ).toMatchObject({ ok: false, reason: 'children_unknown' });
       expect(accepted).toHaveLength(1);
       expect(reloadedEms.get(original.clientOrderId)?.requestFingerprint).toBe(original.requestFingerprint);
+      const observed: VenueOrder = {
+        venueId: 'street',
+        venueOrderId: 'actual-fill',
+        clientOrderId: original.clientOrderId,
+        symbol: 'BTC/USDT',
+        side: 'buy',
+        type: 'limit',
+        price: parseAmount('100'),
+        amount: parseAmount('6'),
+        filled: parseAmount('6'),
+        remaining: ZERO,
+        averagePrice: parseAmount('99'),
+        status: 'filled',
+        feePaid: ZERO,
+        feeAsset: 'USDT',
+        createdAt: new Date(),
+        observedAt: new Date(),
+      };
+      for (const changed of [
+        { clientOrderId: 'foreign' },
+        { venueId: 'other' },
+        { symbol: 'ETH/USDT' },
+        { side: 'sell' as const },
+        { amount: parseAmount('3') },
+        { price: parseAmount('200') },
+      ]) {
+        const foreign = { ...observed, ...changed };
+        expect(
+          await fetchOmsOrder({
+            venueId: 'street',
+            symbol: 'BTC/USDT',
+            clientOrderId: original.clientOrderId,
+            emsStore: reloadedEms,
+            fetchByVenue: { street: async () => foreign },
+          }),
+        ).toMatchObject({ ok: false, reason: 'fetch_failed' });
+        expect(
+          await cancelOmsOrder({
+            venueId: 'street',
+            symbol: 'BTC/USDT',
+            clientOrderId: original.clientOrderId,
+            emsStore: reloadedEms,
+            cancelByVenue: { street: async () => foreign },
+          }),
+        ).toMatchObject({ ok: false, reason: 'cancel_failed' });
+        expect(new FileEmsOrderStore(emsPath).get(original.clientOrderId)?.state).toBe('SUBMIT_UNKNOWN');
+      }
+      expect(
+        await fetchOmsOrder({
+          venueId: 'street',
+          symbol: 'BTC/USDT',
+          clientOrderId: original.clientOrderId,
+          emsStore: reloadedEms,
+          fetchByVenue: { street: async () => observed },
+        }),
+      ).toMatchObject({ ok: true });
+      expect(new FileEmsOrderStore(emsPath).get(original.clientOrderId)).toMatchObject({
+        state: 'ACKNOWLEDGED',
+        execution: { filledAmount: parseAmount('6'), averagePrice: parseAmount('99') },
+      });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
