@@ -16,7 +16,7 @@ import {
 import { AsyncFrameQueue, fetchHttpPort, webSocketStreamPort, type HttpPort, type StreamPort } from '../transport.js';
 import { RateLimitGovernor, type RateLimitPolicy } from '../rate-limit.js';
 import { observeStreamRoundTrip, REST_MEASUREMENT, VenueLatencyGrader, WS_MEASUREMENT } from '../latency.js';
-import { assertPayoutGradeBook } from '../payout-grade.js';
+import { assertPayoutGradeBook, type PayoutGradePolicy } from '../payout-grade.js';
 import type { RestLatencyGrade, WsLatencyGrade } from '@intafaced/venue-contracts';
 export { BinanceSpotTrade, mapBinanceSpotOrder, signBinanceQuery } from './binance-spot-trade.js';
 export { BinanceSpotAccount, mapBinanceSpotBalances } from './binance-spot-account.js';
@@ -217,8 +217,16 @@ export class BinanceSpotMarketData implements MarketDataAdapter {
    * `limit` is required — omitted depth never becomes 1000. Venue max 5000 is a
    * cap (an over-limit request is rejected AFTER the weight has been spent),
    * not a default. The owner may pass 1000 explicitly.
+   *
+   * `policy` is the caller's floor and is passed through unchanged. Omitted,
+   * null, or a nullish `minBestLevelNotional` is not filled in here. A
+   * two-sided book then refuses. Empty and one-sided books still return.
    */
-  async snapshotBook(symbol: string, limit?: number | null): Promise<VenueBookSnapshot> {
+  async snapshotBook(
+    symbol: string,
+    limit?: number | null,
+    policy?: PayoutGradePolicy | null,
+  ): Promise<VenueBookSnapshot> {
     const published = publishedSnapshotLimit(limit);
     if (published === undefined) {
       throw new SnapshotBookLimitUnsetError(
@@ -234,17 +242,21 @@ export class BinanceSpotMarketData implements MarketDataAdapter {
 
     // D26-P1-T8: a two-sided dust book is refused here, not only in svc-trade's
     // mark gate. Empty / one-sided still pass through as honest absence.
-    return assertPayoutGradeBook({
-      venueId: VENUE.id,
-      symbol,
-      bids: readLevels(body.bids, 'bids', VENUE.id),
-      asks: readLevels(body.asks, 'asks', VENUE.id),
-      sequence: readInteger(body.lastUpdateId, VENUE.id, 'lastUpdateId'),
-      sequenced: true,
-      // Our clock at the moment the read finished. A venue that has silently
-      // stopped updating still returns a plausible timestamp of its own.
-      observedAt: new Date(this.#clock()),
-    });
+    // No floor is applied in this method. The caller passes one, or the gate refuses.
+    return assertPayoutGradeBook(
+      {
+        venueId: VENUE.id,
+        symbol,
+        bids: readLevels(body.bids, 'bids', VENUE.id),
+        asks: readLevels(body.asks, 'asks', VENUE.id),
+        sequence: readInteger(body.lastUpdateId, VENUE.id, 'lastUpdateId'),
+        sequenced: true,
+        // Our clock at the moment the read finished. A venue that has silently
+        // stopped updating still returns a plausible timestamp of its own.
+        observedAt: new Date(this.#clock()),
+      },
+      policy,
+    );
   }
 
   /**

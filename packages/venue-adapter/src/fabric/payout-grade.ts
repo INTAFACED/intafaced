@@ -58,14 +58,14 @@ export function levelNotional(price: Amount, quantity: Amount): Amount {
   return (price * quantity) / SCALE;
 }
 
-export function minBestLevelNotional(policy?: PayoutGradePolicy): Amount {
+export function minBestLevelNotional(policy?: PayoutGradePolicy | null): Amount {
   const raw = policy?.minBestLevelNotional;
   if (raw == null) throw new MoneyError('payout floor is missing');
   return parseAmount(raw);
 }
 
 /** True when a resting best level clears the absolute payout-grade floor. */
-export function bestLevelMeetsPayoutFloor(level: PriceLevel | undefined, policy?: PayoutGradePolicy): boolean {
+export function bestLevelMeetsPayoutFloor(level: PriceLevel | undefined, policy?: PayoutGradePolicy | null): boolean {
   if (!level) return false;
   const [price, quantity] = level;
   return levelNotional(price, quantity) >= minBestLevelNotional(policy);
@@ -78,7 +78,7 @@ export function bestLevelMeetsPayoutFloor(level: PriceLevel | undefined, policy?
  * best level below the floor → `false`. Both sides present and thick enough →
  * `true`.
  */
-export function isPayoutGradeBook(snapshot: VenueBookSnapshot, policy?: PayoutGradePolicy): boolean {
+export function isPayoutGradeBook(snapshot: VenueBookSnapshot, policy?: PayoutGradePolicy | null): boolean {
   if (midFromSnapshot(snapshot) === null) return false;
   return bestLevelMeetsPayoutFloor(snapshot.bids[0], policy) && bestLevelMeetsPayoutFloor(snapshot.asks[0], policy);
 }
@@ -94,7 +94,7 @@ export function isPayoutGradeBook(snapshot: VenueBookSnapshot, policy?: PayoutGr
  * best level and either fails the floor — the dust-book case that once minted
  * payout-grade mids off femto-cent depth.
  */
-export function assertPayoutGradeBook(snapshot: VenueBookSnapshot, policy?: PayoutGradePolicy): VenueBookSnapshot {
+export function assertPayoutGradeBook(snapshot: VenueBookSnapshot, policy?: PayoutGradePolicy | null): VenueBookSnapshot {
   const bid = snapshot.bids[0];
   const ask = snapshot.asks[0];
   // No two-sided quote to defend. Empty and one-sided stay facts, not errors.
