@@ -1,3 +1,4 @@
+import { CounterpartyLink, p2pReturn } from './p2p-return';
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
@@ -221,9 +222,12 @@ export function P2POrder({
                       [t('counterparty'), <span lang="zxx">{seller ? trade.buyerId : trade.sellerId}</span>],
                     ]}
                   />
-                  <a className="text-link" href={`/checkuser?userId=${encodeURIComponent(seller ? trade.buyerId : trade.sellerId)}`}>
+                  <CounterpartyLink
+                    userId={seller ? trade.buyerId : trade.sellerId}
+                    returnTo={p2pReturn(location.pathname + location.search + location.hash)}
+                  >
                     <Copy k="reputation" />
-                  </a>
+                  </CounterpartyLink>
                 </details>
                 {renderSecondary(trade, query.reload)}
               </div>

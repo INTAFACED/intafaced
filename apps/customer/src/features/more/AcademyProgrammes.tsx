@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
-import { Details, Limit, Read, TextArea, useAction } from './common';
+import { Details, Limit, Read, TextArea, type ActionControls } from './common';
 const uuid = z.string().uuid(),
   residency = z.object({
     id: uuid,
@@ -26,7 +26,7 @@ const uuid = z.string().uuid(),
     startsAt: z.string(),
     endsAt: z.string().nullable(),
   });
-export function AcademyProgrammes({ action }: { action: ReturnType<typeof useAction> }) {
+export function AcademyProgrammes({ action }: { action: ActionControls }) {
   const api = useApi(),
     { userId } = useSession();
   const [cohort, setCohort] = useState(''),

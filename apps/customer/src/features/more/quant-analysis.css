@@ -1,0 +1,202 @@
+.quant-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 48px;
+  align-items: start;
+}
+.quant-history,
+.quant-history-body,
+.quant-analysis-draft {
+  min-width: 0;
+}
+.quant-workbench .if-panel {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.quant-workbench .if-panel__body {
+  padding: 0;
+}
+.quant-workbench .if-panel__header {
+  padding: 0 0 16px;
+  border: 0;
+}
+.quant-history-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.quant-history-body h3,
+.quant-history-body h4,
+.quant-history-body p {
+  margin: 0;
+}
+.quant-history-body h3 {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+}
+.quant-history-body h4 {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+  color: var(--color-muted);
+}
+.quant-history-header,
+.quant-history-identity,
+.quant-history-limits {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.quant-history-reference {
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.quant-history-windows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+}
+.quant-history-windows > section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 1px solid var(--color-divider);
+  padding-top: 12px;
+  min-width: 0;
+}
+.quant-history-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-top: 1px solid var(--color-divider);
+  padding-top: 12px;
+}
+.quant-history-activity > section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.quant-history-amount {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  font-size: 18px;
+  line-height: 26px;
+}
+.quant-history-amount strong {
+  white-space: nowrap;
+  font-weight: 600;
+}
+.quant-original-context {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.quant-original-context p {
+  margin: 0;
+}
+.quant-original-context code {
+  overflow-wrap: anywhere;
+}
+.quant-history-limits {
+  color: var(--color-muted);
+}
+.quant-history-evidence {
+  border-top: 1px solid var(--color-divider);
+}
+.quant-history-evidence summary {
+  min-height: 44px;
+  padding: 12px 0;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+.quant-history-evidence summary:focus-visible,
+.quant-catalogue summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+.quant-history-evidence > section {
+  padding-block: 12px;
+}
+.quant-history-evidence p {
+  overflow-wrap: anywhere;
+}
+.quant-date-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.quant-cost-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr);
+  gap: 16px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.quant-cost-fields legend {
+  margin-bottom: 8px;
+}
+.quant-cost-fields > .field {
+  min-width: 0;
+}
+.quant-analysis-draft .field {
+  margin: 0;
+}
+.quant-analysis-draft form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.quant-catalogue {
+  border-top: 1px solid var(--color-divider);
+  margin-bottom: 16px;
+}
+.quant-catalogue summary {
+  min-height: 44px;
+  padding: 12px 0;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+.quant-latest-failure {
+  border-left: 2px solid var(--color-accent);
+  padding-left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.quant-latest-failure h3,
+.quant-latest-failure p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1100px) {
+  .quant-workbench {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+}
+@media (max-width: 620px) {
+  .quant-history-windows,
+  .quant-date-fields,
+  .quant-cost-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+}
+@media (max-width: 900px) {
+  .quant-workbench button,
+  .quant-workbench summary,
+  .quant-workbench input,
+  .quant-workbench select,
+  .quant-original-context a {
+    scroll-margin-block: 88px;
+    scroll-margin-block-end: calc(88px + env(safe-area-inset-bottom));
+  }
+}
