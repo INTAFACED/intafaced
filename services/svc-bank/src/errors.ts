@@ -17,8 +17,15 @@ export type BankErrorCode =
   | 'bank.schedule_inactive'
   /** Standing-order create omitted a caller-stable schedule id. */
   | 'bank.schedule_id_required'
+  /** One-off transfer omitted a caller-stable transfer id. A blank id is not minted. */
+  | 'bank.transfer_id_required'
   /** Retry reused a schedule id with different user, spaces, amount, cadence, or start. */
   | 'bank.schedule_conflict'
+  /**
+   * A retry reused a one-off transfer id with a different amount or destination.
+   * The ledger key returns the first transaction without comparing the body.
+   */
+  | 'bank.transfer_mismatch'
   | 'bank.pool_not_found'
   | 'bank.pool_closed'
   | 'bank.pool_underfunded'
