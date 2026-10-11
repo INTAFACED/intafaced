@@ -34,6 +34,8 @@ import { ExecutionHistory, StandingFacts, currentInstruction, type StandingInstr
 import { standingCopy } from './standing-copy';
 import { useBankView } from './bank-context';
 import { OwnerCards } from './Cards';
+import { OwnerRailRecords } from './RailRecords';
+import { railCopy } from './rail-copy';
 import { SelectedSpace } from './SelectedSpace';
 import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
@@ -72,9 +74,11 @@ function BankPage({ room, description, children }: { room: string; description: 
       title={room in bankLabels ? copyText(bankLabels[room as keyof typeof bankLabels]) : room}
       description={description}
       actions={
-        <a className="button button--secondary" href="/bank">
-          <Text k="rooms.bank.overview" />
-        </a>
+        room !== 'Ramps' ? (
+          <a className="button button--secondary" href="/bank">
+            <Text k="rooms.bank.overview" />
+          </a>
+        ) : undefined
       }
     >
       <BankNavigation current={room} />
@@ -1208,161 +1212,11 @@ function Cards({ open }: { open: (spec: ActionSpec) => void }) {
     </BankPage>
   );
 }
-function RampRecords({ direction }: { direction: 'in' | 'out' }) {
-  const [limit, setLimit] = usePageLimit();
-  const query = useBankRead(direction === 'in' ? 'ramps.onramps' : 'ramps.offramps', { limit });
-  return (
-    <Section title={direction === 'in' ? copyText('rooms.incoming.rail.records') : copyText('rooms.outgoing.rail.records')}>
-      <ResourceView resource={query.resource} reload={query.reload}>
-        {(rows) => (
-          <>
-            {rows.length ? (
-              rows.map((row) => (
-                <article className="money-record" key={row.id}>
-                  <header>
-                    <div>
-                      <h3>
-                        {row.kind} · {row.status}
-                      </h3>
-                      <p>
-                        {row.rail} · {date(row.createdAt)}
-                        {row.simulated && copyText('rooms.simulated.ledger.rail')}
-                      </p>
-                    </div>
-                    <strong className="numeric">{funds(row.amount, row.assetId)}</strong>
-                  </header>
-                  <dl className="detail-list">
-                    <div>
-                      <dt>
-                        <Text k="rooms.record.reference" />
-                      </dt>
-                      <dd>{row.id}</dd>
-                    </div>
-                    {'destinationRef' in row && (
-                      <div>
-                        <dt>
-                          <Text k="rooms.destination.reference" />
-                        </dt>
-                        <dd>{row.destinationRef}</dd>
-                      </div>
-                    )}
-                    {'clientRef' in row && (
-                      <div>
-                        <dt>
-                          <Text k="rooms.client.reference" />
-                        </dt>
-                        <dd>{row.clientRef}</dd>
-                      </div>
-                    )}
-                    {'ledgerTxId' in row && (
-                      <div>
-                        <dt>
-                          <Text k="rooms.ledger.transaction" />
-                        </dt>
-                        <dd>{row.ledgerTxId ?? copyText('rooms.not.posted')}</dd>
-                      </div>
-                    )}
-                    {'holdLedgerTxId' in row && (
-                      <>
-                        <div>
-                          <dt>
-                            <Text k="rooms.reservation.transaction" />
-                          </dt>
-                          <dd>{row.holdLedgerTxId ?? copyText('rooms.none.supplied')}</dd>
-                        </div>
-                        <div>
-                          <dt>
-                            <Text k="rooms.settlement.transaction" />
-                          </dt>
-                          <dd>{row.settleLedgerTxId ?? copyText('rooms.not.supplied')}</dd>
-                        </div>
-                      </>
-                    )}
-                  </dl>
-                  {row.simulated && (
-                    <p className="notice">
-                      <Text k="rooms.this.record.does.not.confirm.a.live" />
-                    </p>
-                  )}
-                </article>
-              ))
-            ) : (
-              <NoRows title={copyText('rooms.no.rail.records.returned')}>
-                <Text k="rooms.no.completed.deposit.or.withdrawal.is.inferred" />
-              </NoRows>
-            )}
-            <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
-          </>
-        )}
-      </ResourceView>
-    </Section>
-  );
-}
 function Ramps() {
-  const programme = useBankRead('ramps.programme', undefined);
-  const fiat = useBankRead('ramps.fiatSettle', undefined);
+  const { t } = railCopy.useCopy();
   return (
-    <BankPage room="Ramps" description={copyText('rooms.inspect.the.connected.cash.and.crypto.rail')}>
-      <div className="money-two-lanes">
-        <Section title={copyText('rooms.rail.programme')}>
-          <ResourceView resource={programme.resource} reload={programme.reload}>
-            {(info) => (
-              <div className="money-capability">
-                <h3>{info.id === 'none' ? copyText('rooms.ramp.programme.is.not.connected') : info.displayName}</h3>
-                <p>
-                  {info.simulated
-                    ? copyText('rooms.this.programme.is.simulated.ledger.entries.do')
-                    : copyText('rooms.the.service.supplied.this.programme.identity')}
-                </p>
-                <dl className="detail-list">
-                  <div>
-                    <dt>
-                      <Text k="rooms.crypto.rail" />
-                    </dt>
-                    <dd>{info.cryptoRail ?? copyText('rooms.not.connected')}</dd>
-                  </div>
-                  <div>
-                    <dt>
-                      <Text k="rooms.fiat.adapter" />
-                    </dt>
-                    <dd>{info.fiatVia}</dd>
-                  </div>
-                </dl>
-              </div>
-            )}
-          </ResourceView>
-        </Section>
-        <Section title={copyText('rooms.fiat.settlement.capability')}>
-          <ResourceView resource={fiat.resource} reload={fiat.reload}>
-            {(info) => (
-              <>
-                <p className="notice">
-                  <Text k="rooms.the.adapter.can.settle.using" />
-                  {info.onrampRailId}
-                  <Text k="rooms.and" />
-                  {info.offrampRailId}
-                  <Text k="rooms.live.custody.delivery.and.programme.authority.still" />
-                </p>
-              </>
-            )}
-          </ResourceView>
-        </Section>
-      </div>
-      <Section title={copyText('rooms.live.deposit.and.withdrawal')}>
-        <EmptyState title={copyText('rooms.live.custody.is.not.connected')}>
-          <Text k="rooms.no.live.destination.address.funding.instruction.or" />
-        </EmptyState>
-        <div className="actions">
-          <a className="button button--secondary" href="/uc/recharge">
-            <Text k="rooms.deposit.capability" />
-          </a>
-          <a className="button button--secondary" href="/uc/withdraw">
-            <Text k="rooms.withdrawal.capability" />
-          </a>
-        </div>
-      </Section>
-      <RampRecords direction="in" />
-      <RampRecords direction="out" />
+    <BankPage room="Ramps" description={t('description')}>
+      <OwnerRailRecords />
     </BankPage>
   );
 }

@@ -557,6 +557,227 @@
 .money-owner-cards {
   min-width: 0;
 }
+.money-ramp-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.money-ramp-entry .text-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+.money-rail-window > .money-section > header {
+  gap: 12px;
+  flex-wrap: nowrap;
+}
+.money-rail-window > .money-section > header > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.money-rail-window > .money-section > header > .actions {
+  flex: 0 0 auto;
+}
+.money-rail-window > .money-section > header h2 {
+  font-size: 18px;
+  line-height: 24px;
+}
+.money-rail-window > .money-section > header .button {
+  padding-inline: 12px;
+}
+.money-ramp-direction {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.money-ramp-direction .button[aria-pressed='true'],
+.money-selected-ramp > header .button--ghost,
+.money-rail-window > .money-section > header .button--ghost {
+  color: var(--color-accent);
+}
+.money-ramp-direction .button[aria-pressed='true'] {
+  background: var(--color-selected);
+}
+.money-selected-ramp {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 736px;
+  min-width: 0;
+  margin-bottom: 40px;
+}
+.money-selected-ramp > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.money-selected-ramp h2 {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+#money-selected-ramp-heading,
+#money-ramp-list-heading {
+  scroll-margin-block-start: 24px;
+  scroll-margin-block-end: 84px;
+}
+.money-ramp-facts,
+.money-ramp-identity,
+.money-ramp-notes {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 16px;
+  overflow-wrap: anywhere;
+}
+.money-ramp-identity,
+.money-ramp-notes {
+  gap: 8px;
+}
+.money-ramp-facts {
+  gap: 12px;
+}
+.money-ramp-identity h3,
+.money-ramp-missing h3 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+}
+.money-ramp-reference,
+.money-ramp-metadata,
+.money-ramp-references {
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 20px;
+}
+.money-ramp-reference dd,
+.money-ramp-metadata dd,
+.money-ramp-references dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.money-ramp-reference dt,
+.money-ramp-metadata dt,
+.money-ramp-references dt {
+  color: var(--color-muted);
+}
+.money-ramp-quantity {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.money-ramp-quantity .numeric {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.money-ramp-metadata {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.money-ramp-metadata > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.money-ramp-references {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.money-ramp-references > div {
+  border-top: 1px solid var(--color-divider);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.money-ramp-record {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) 112px;
+  align-items: center;
+  min-width: 0;
+  gap: 32px;
+  padding: 20px 0;
+  border-top: 1px solid var(--color-divider);
+}
+.money-ramp-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+.money-ramp-missing {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.money-ramp-connections {
+  margin-top: 32px;
+}
+.money-ramp-connections > summary {
+  font-size: 16px;
+  line-height: 24px;
+  padding: 12px 0;
+  cursor: pointer;
+}
+@media (max-width: 1050px) {
+  .money-ramp-record {
+    grid-template-columns: minmax(0, 1fr) 112px;
+    gap: 16px;
+  }
+  .money-ramp-record > .money-ramp-quantity {
+    grid-column: 1;
+  }
+  .money-ramp-record > .button {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+  }
+}
+@media (max-width: 620px) {
+  .money-ramp-record {
+    grid-template-columns: minmax(0, 1fr) 84px;
+    gap: 12px;
+    padding-block: 16px;
+  }
+  .money-ramp-record > :is(.money-ramp-identity, .money-ramp-quantity) {
+    grid-column: 1 / -1;
+  }
+  .money-ramp-record > .money-ramp-preview {
+    grid-column: 1;
+  }
+  .money-ramp-record .money-ramp-identity h3 {
+    font-size: 14px;
+    line-height: 22px;
+  }
+  .money-ramp-record .money-ramp-reference {
+    font-size: 13px;
+  }
+  .money-ramp-record > .button {
+    grid-column: 2;
+    grid-row: 3;
+    padding-inline: 12px;
+  }
+}
+
 .money-card-programme {
   background: var(--color-surface);
   border-inline-start: 2px solid var(--color-divider);
