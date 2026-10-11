@@ -1,0 +1,118 @@
+.referral-records {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.referral-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.referral-records h2 {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  margin: 0;
+}
+.referral-records h3,
+.referral-records h4 {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+  margin: 0;
+}
+.referral-block,
+.referral-relationship,
+.referral-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.referral-relationship {
+  gap: 8px;
+}
+.referral-records p {
+  margin: 0;
+}
+.referral-caption {
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 20px;
+}
+.referral-description,
+.referral-relationship > p:first-child {
+  font-size: 14px;
+  line-height: 20px;
+}
+.referral-description {
+  color: var(--color-muted);
+}
+.referral-section {
+  border-top: 1px solid var(--color-divider);
+  padding-top: 24px;
+}
+.referral-chain {
+  margin: 0;
+  padding-left: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 14px;
+  line-height: 20px;
+}
+.referral-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--color-divider);
+  min-width: 0;
+}
+.referral-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.referral-amount {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.referral-link {
+  color: var(--color-accent);
+  align-self: flex-start;
+  padding-inline: 0;
+}
+.referral-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.referral-details {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+}
+.referral-details > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.referral-details dt {
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 20px;
+}
+.referral-details dd {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}

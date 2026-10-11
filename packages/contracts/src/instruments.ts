@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PLANES, type Plane } from '@intafaced/config';
+import { PLANES, type Plane } from '@intafaced/config/modules';
 
 /**
  * THE INSTRUMENT MODEL — one shape for crypto, commodities and forex (§5.2).

@@ -17,12 +17,16 @@
     "./academy-cert-perks": {
       "types": "./dist/academy-cert-perks.d.ts",
       "default": "./dist/academy-cert-perks.js"
+    },
+    "./instruments": {
+      "types": "./dist/instruments.d.ts",
+      "default": "./dist/instruments.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
-    "test": "vitest run",
+    "test": "tsc -p tsconfig.json && vitest run",
     "test:watch": "vitest",
     "clean": "rimraf dist .turbo"
   },
