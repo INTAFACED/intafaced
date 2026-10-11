@@ -546,3 +546,53 @@ describe('private-only matching board resume evidence', () => {
     expect(sink.frames.map((frame) => JSON.parse(frame).code).filter(Boolean)).toEqual([ORDERS_VENUE_HALTED, ORDERS_SUBMITS_RESUMED]);
   });
 });
+
+describe('market OPEN does not clear a prior venue halt', () => {
+  it('requires explicit venue false through source, depth poller and private callback', async () => {
+    let flags: Record<string, unknown> = { venueHalted: true };
+    let sequence = 1;
+    const source = new HttpDepthSource({
+      baseUrl: 'http://fixture.invalid',
+      fetch: async (input) =>
+        new Response(
+          JSON.stringify(
+            String(input).endsWith('/markets')
+              ? { markets: [MARKET] }
+              : { marketId: MARKET, sequence: sequence++, bids: [['100', '1']], asks: [], ...flags },
+          ),
+          { status: 200 },
+        ),
+    });
+    const options = {
+      depthLimit: 50,
+      highWaterBytes: 1000,
+      maxLagTicks: 3,
+      maxConnections: 4,
+      maxConnectionsPerUser: 4,
+      marketsRefreshMs: 0,
+    };
+    const privateHub = new PrivateOrderHub(options);
+    const privateSink = new FakeSink();
+    privateHub.attach('user-a', privateSink);
+    const depth = new DepthHub(source, {
+      ...options,
+      onMatchingTradingChange: (id, code, evidence) => privateHub.noteMatchingTrading(id, code, evidence),
+    });
+    const depthSink = new FakeSink();
+    depth.attach(MARKET, depthSink);
+    await settle();
+    const poller = new DepthPoller(source, depth, { intervalMs: 250, depthLimit: 50, marketsRefreshMs: 0 }, { info() {}, warn() {} });
+    flags = { status: 'OPEN' };
+    await poller.tick();
+    expect(privateSink.frames.map((frame) => JSON.parse(frame).code).filter(Boolean)).toEqual([ORDERS_VENUE_HALTED]);
+    expectNoTradableBook(depthSink.frames);
+    flags = { status: 'OPEN', venueHalted: false };
+    await poller.tick();
+    expect(privateSink.frames.map((frame) => JSON.parse(frame).code).filter(Boolean)).toEqual([
+      ORDERS_VENUE_HALTED,
+      ORDERS_SUBMITS_RESUMED,
+    ]);
+    expect(depthSink.frames.some((frame) => JSON.parse(frame).type === 'snapshot')).toBe(true);
+    depth.closeAll(1001, 'done');
+  });
+});

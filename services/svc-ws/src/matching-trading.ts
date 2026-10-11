@@ -80,7 +80,7 @@ export function matchingTradingOpenEvidence(raw: unknown): MatchingTradingOpenEv
   if (raw === null || typeof raw !== 'object' || parseMatchingTrading(raw) !== null) return { market: false, venue: false };
   const rec = raw as Record<string, unknown>;
   const open = typeof rec.status === 'string' && rec.status.toLowerCase() === 'open';
-  return { market: open || rec.halted === false, venue: open || rec.venueHalted === false || rec.venue_halted === false };
+  return { market: open || rec.halted === false, venue: rec.venueHalted === false || rec.venue_halted === false };
 }
 
 export function confirmsTradingResume(evidence: MatchingTradingResumeEvidence, venue: boolean): boolean {

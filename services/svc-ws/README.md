@@ -453,8 +453,9 @@ credential-check queues count pending UTF-8 bytes in the published socket high
 water check; no new unpublished limit is supplied.
 
 A prior matching halt remains named when later responses omit flags. Only
-explicit non-halted or OPEN evidence for the affected market/venue clears it;
-`orders.submits_resumed` is never inferred from a null parser result.
+explicit non-halted or OPEN evidence clears a market halt. A venue halt requires
+`venueHalted: false` or `venue_halted: false`; market OPEN does not confirm venue
+state. `orders.submits_resumed` is never inferred from a null parser result.
 
 Completed COD cancellation results retain the original command ID and scope,
 even if another lease is armed or a later cancellation finishes first. The
