@@ -23,7 +23,13 @@ import { serviceAuthHeadersForBody } from '@intafaced/contracts';
  * That equivalence is why the escrow money paths can be tortured in tests
  * without a network and still mean something.
  */
-export function createLedgerClient(baseUrl: string, internalSecret: string): LedgerClient {
+export function createLedgerClient(baseUrl: string, internalSecret: string, options: { timeoutMs?: number } = {}): LedgerClient {
+  // Transport budget only: neither an escrow deadline nor a ledger outcome.
+  // Node timers overflow above this bound; never silently disable the budget.
+  const timeoutMs = options.timeoutMs === undefined ? 15_000 : options.timeoutMs;
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) {
+    throw new RangeError('P2P ledger HTTP timeoutMs must be a positive integer at most 2147483647');
+  }
   /**
    * Service credentials, per call (§2).
    *
@@ -54,10 +60,12 @@ export function createLedgerClient(baseUrl: string, internalSecret: string): Led
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeaders(payload) },
       body: payload,
+      // The signal remains active while response.text/json reads the body.
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
     if (!response.ok) {
-      const detail = await response.text().catch(() => '');
+      const detail = await response.text();
       // Rehydrate typed funds failure so p2p-service void-on-failed-lock runs
       // in production (MemoryLedger tests already throw InsufficientFundsError).
       throw rehydrateLedgerHttpError(path, response.status, detail);

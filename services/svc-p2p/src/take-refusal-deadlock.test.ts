@@ -73,6 +73,10 @@ const migrations = [
   '0005_p2p_late_settle_error.sql',
   '0006_p2p_dispute_open_origin.sql',
   '0007_p2p_dispute_chat_thread.sql',
+  '0010_p2p_immutable_trade_terms.sql',
+  '0011_p2p_payto_snapshot.sql',
+  '0012_p2p_dispute_resolution_match.sql',
+  '0013_p2p_dispute_ruling_frozen.sql',
 ].map((file) => readFileSync(join(here, '..', 'drizzle', file), 'utf8'));
 
 const SELLER = '11111111-1111-4111-8111-111111111111';

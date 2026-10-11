@@ -28,6 +28,7 @@ export type BlockRfqErrorCode =
   | 'p2p.rfq_not_a_party'
   | 'p2p.rfq_expired'
   | 'p2p.rfq_already_bound'
+  | 'p2p.rfq_terms_conflict'
   | 'p2p.rfq_last_look_forbidden'
   | 'p2p.rfq_unlabeled_capacity'
   | 'p2p.rfq_unnamed_receiving_account'

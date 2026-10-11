@@ -3,7 +3,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
+import { describe, expect, it, beforeAll, beforeEach, afterAll, afterEach, vi } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
@@ -15,6 +15,15 @@ import { createP2pRouter } from './router.js';
 import { P2pErasure } from './erasure.js';
 import { BlockRfqService } from './block-rfq.js';
 import { MemoryBlockQuoteStore } from './block-rfq-store.js';
+
+// Attributed local screening fixture: exercise downstream authorization and storage.
+// Explicit dev mode accepts this fixture; it is never a production sanctions list.
+beforeEach(() => {
+  vi.stubEnv('INTAFACED_SANCTIONS_REGIONS', 'none');
+  vi.stubEnv('INTAFACED_SANCTIONS_LIST_SOURCE', 'test-fixture:p2p-recovery');
+  vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'false');
+});
+afterEach(() => vi.unstubAllEnvs());
 
 /**
  * PAYMENT INSTRUMENTS — disclosure, refusal, and the record of both.
@@ -427,6 +436,39 @@ describe('svc-p2p payment instruments', () => {
       ).rejects.toMatchObject({
         code: 'p2p.take_refused',
       });
+    });
+
+    it('omitting enabled on a label or field replace leaves a disabled method schema disabled', async () => {
+      await instruments.setMethodSchemaEnabled(METHOD, ANY_COUNTRY, false);
+      const disabled = { code: 'p2p.instrument_method_disabled' as const };
+      await expect(sellerInstrument()).rejects.toMatchObject(disabled);
+
+      const relabeled = await registerMethod({ label: 'Renamed test transfer' });
+      expect(relabeled).toMatchObject({ enabled: false, label: 'Renamed test transfer' });
+      await expect(sellerInstrument()).rejects.toMatchObject(disabled);
+
+      const refielded = await registerMethod({
+        label: 'Renamed test transfer',
+        fields: [
+          { key: 'account_reference', label: 'Account reference', required: true },
+          { key: 'holder_name', label: 'Account holder', required: true, maxLength: 80 },
+          { key: 'note', label: 'Payment note', required: false },
+        ],
+      });
+      expect(refielded.enabled).toBe(false);
+      expect(refielded.fields).toEqual(expect.arrayContaining([expect.objectContaining({ key: 'note', label: 'Payment note' })]));
+      await expect(sellerInstrument()).rejects.toMatchObject(disabled);
+
+      const forcedOn = await registerMethod({ enabled: true, label: 'Renamed test transfer' });
+      expect(forcedOn.enabled).toBe(true);
+      await expect(sellerInstrument({ ownerId: BUYER })).resolves.toMatchObject({ methodId: METHOD });
+
+      const forcedOff = await registerMethod({ enabled: false, label: 'Renamed test transfer' });
+      expect(forcedOff.enabled).toBe(false);
+      await expect(sellerInstrument()).rejects.toMatchObject(disabled);
+
+      await instruments.setMethodSchemaEnabled(METHOD, ANY_COUNTRY, true);
+      await expect(sellerInstrument()).resolves.toMatchObject({ methodId: METHOD });
     });
 
     it('rejects a field the operator never declared instead of dropping it', async () => {
@@ -1511,11 +1553,14 @@ describe('svc-p2p payment instruments', () => {
       // open appeal still needs.
       expect(await short.purgeExpiredSnapshots(500)).toEqual({ purged: 0 });
 
-      await sql`UPDATE p2p.p2p_trades SET resolved_at = now() - interval '45 days' WHERE id = ${trade.id}`;
+      // A separate past decision fixture; never rewrite a completed decision.
+      const expiredTrade = (await liveTrade()).trade;
+      await sql`UPDATE p2p.p2p_trades SET status = 'released', resolution = 'released', resolution_reason = 'seller.confirmed', resolved_at = now() - interval '45 days', deadline_at = null WHERE id = ${expiredTrade.id}`;
+      await p2p.settle(expiredTrade.id);
       expect(await short.purgeExpiredSnapshots(500)).toEqual({ purged: 1 });
 
       const rows = await sql<Array<{ details: unknown; fingerprint: string; purged_at: Date | null }>>`
-        SELECT details, fingerprint, purged_at FROM p2p.trade_payment_instruments WHERE trade_id = ${trade.id}
+        SELECT details, fingerprint, purged_at FROM p2p.trade_payment_instruments WHERE trade_id = ${expiredTrade.id}
       `;
       expect(rows[0]!.details).toBeNull();
       expect(rows[0]!.purged_at).toBeInstanceOf(Date);
@@ -1524,7 +1569,9 @@ describe('svc-p2p payment instruments', () => {
       // us holding the account in order to say so.
       expect(rows[0]!.fingerprint).toHaveLength(64);
 
-      expect(await sql`SELECT trade_id FROM p2p.trade_payment_instruments WHERE details::text LIKE ${'%' + CANARY + '%'}`).toHaveLength(0);
+      expect(
+        await sql`SELECT trade_id FROM p2p.trade_payment_instruments WHERE trade_id = ${expiredTrade.id} AND details::text LIKE ${'%' + CANARY + '%'}`,
+      ).toHaveLength(0);
     });
 
     it('never touches a trade that is still live', async () => {

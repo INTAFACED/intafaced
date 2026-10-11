@@ -126,6 +126,8 @@ export const p2pTrades = p2p.table(
     fiatCurrency: text('fiat_currency').notNull(),
     /** Crypto quantity held in escrow. */
     amount: amount('amount').notNull(),
+    /** Initial terms claimed before the first post. Legacy NULL is unproven. */
+    originalTermsClaimedAt: tstz('original_terms_claimed_at'),
     /** Effective price at take — snapshotted so a float offer cannot re-price mid-trade. */
     price: amount('price').notNull(),
     /** What the buyer owes off-platform, already quantised to the currency's minor units. */

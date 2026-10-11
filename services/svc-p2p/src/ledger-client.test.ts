@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { InsufficientFundsError } from '@intafaced/ledger-client';
 import { rehydrateLedgerHttpError } from '@intafaced/ledger-client';
+import { createLedgerClient } from './ledger-client.js';
 
 describe('rehydrateLedgerHttpError (P2P-01)', () => {
   it('rebuilds InsufficientFundsError from structured s2s body', () => {
@@ -39,4 +40,15 @@ describe('rehydrateLedgerHttpError (P2P-01)', () => {
     expect(err).not.toBeInstanceOf(InsufficientFundsError);
     expect(err.message).toMatch(/svc-ledger/);
   });
+});
+
+describe('P2P ledger transport budget', () => {
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, 0.5, 2_147_483_648, null as unknown as number, '15' as unknown as number])(
+    'refuses invalid timeoutMs %s instead of disabling its deadline',
+    (timeoutMs) => {
+      expect(() => createLedgerClient('http://fixture.invalid', 'synthetic-p2p-fixture-internal-secret', { timeoutMs })).toThrow(
+        RangeError,
+      );
+    },
+  );
 });
