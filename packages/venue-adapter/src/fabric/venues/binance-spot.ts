@@ -241,10 +241,10 @@ export class BinanceSpotMarketData implements MarketDataAdapter {
       );
     }
     const capped = Math.min(published, 5_000);
-    const body = (await this.#get(`/api/v3/depth?symbol=${venueSymbolOf(symbol)}&limit=${capped}`, depthWeight(capped))) as Record<
-      string,
-      unknown
-    >;
+    const body = (await this.#get(
+      `/api/v3/depth?symbol=${encodeURIComponent(venueSymbolOf(symbol))}&limit=${capped}`,
+      depthWeight(capped),
+    )) as Record<string, unknown>;
 
     // D26-P1-T8: a two-sided dust book is refused here, not only in svc-trade's
     // mark gate. Empty / one-sided still pass through as honest absence.
@@ -277,8 +277,8 @@ export class BinanceSpotMarketData implements MarketDataAdapter {
    * discontinuity to prove it, which is the one gap a gap detector cannot see.
    */
   async streamBook(symbol: string): Promise<BookSubscription> {
-    const venueSymbol = venueSymbolOf(symbol).toLowerCase();
-    const handle = await this.#stream.open(`${this.#wsBase}/${venueSymbol}@depth@100ms`);
+    const encoded = encodeURIComponent(venueSymbolOf(symbol).toLowerCase());
+    const handle = await this.#stream.open(`${this.#wsBase}/${encoded}@depth@100ms`);
     const queue = new AsyncFrameQueue<VenueBookDelta>();
 
     void (async () => {
@@ -317,8 +317,8 @@ export class BinanceSpotMarketData implements MarketDataAdapter {
   }
 
   async streamTrades(symbol: string): Promise<{ trades: AsyncIterable<VenueTrade>; close(): Promise<void> }> {
-    const venueSymbol = venueSymbolOf(symbol).toLowerCase();
-    const handle = await this.#stream.open(`${this.#wsBase}/${venueSymbol}@trade`);
+    const encoded = encodeURIComponent(venueSymbolOf(symbol).toLowerCase());
+    const handle = await this.#stream.open(`${this.#wsBase}/${encoded}@trade`);
     const queue = new AsyncFrameQueue<VenueTrade>();
 
     void (async () => {

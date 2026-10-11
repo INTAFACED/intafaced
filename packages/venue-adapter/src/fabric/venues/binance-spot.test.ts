@@ -304,6 +304,32 @@ describe('BinanceSpotMarketData — public data, no credentials', () => {
     expect(http.requests[0]).toBe('https://rest.test/api/v3/depth?symbol=BTCUSDT&limit=100');
   });
 
+  it('encodes # in the depth symbol so the limit stays in the query', async () => {
+    const http = new FakeHttp().queue(depthSnapshot(1));
+    await adapter(http, new FakeStream()).snapshotBook('BTC#USDT', 100);
+    const url = http.requests[0] ?? '';
+    expect(url).toContain('symbol=BTC%23USDT');
+    expect(url).toContain('&limit=');
+  });
+
+  it('encodes & in the depth stream symbol and keeps the stream suffix', async () => {
+    const stream = new FakeStream();
+    const subscription = await adapter(new FakeHttp(), stream).streamBook('BTC&USDT');
+    const url = stream.opened[0] ?? '';
+    expect(url).toContain('%26');
+    expect(url.endsWith('@depth@100ms')).toBe(true);
+    await subscription.close();
+  });
+
+  it('encodes ? in the trade stream symbol and keeps the stream suffix', async () => {
+    const stream = new FakeStream();
+    const subscription = await adapter(new FakeHttp(), stream).streamTrades('BTC?USDT');
+    const url = stream.opened[0] ?? '';
+    expect(url).toContain('%3F');
+    expect(url.endsWith('@trade')).toBe(true);
+    await subscription.close();
+  });
+
   it('caps the depth limit rather than spending weight on a request the venue will reject', async () => {
     const http = new FakeHttp().queue(depthSnapshot(1));
     await adapter(http, new FakeStream()).snapshotBook('BTC/USDT', 999_999);
