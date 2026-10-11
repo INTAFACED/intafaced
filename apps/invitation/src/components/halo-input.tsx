@@ -59,29 +59,41 @@ function AnimatedControlShell({ children, className, innerClassName, translucent
           transition={{ duration: reduceMotion ? 0 : 0.25, ease: 'easeOut' }}
         >
           <motion.div
-            animate={{ left: '35%' }}
-            className="-bottom-4 absolute h-14 w-44 blur-xl"
-            style={{
-              background: 'linear-gradient(90deg, #b9f65a, #455039, #bccdd5, #424c50)',
-            }}
+            data-slot="halo-glow-travel-primary"
+            initial={reduceMotion ? false : { x: 0 }}
+            animate={{ x: '35%' }}
+            className="absolute inset-x-0 -bottom-4 h-14"
             transition={{
-              duration: reduceMotion ? 0.01 : 6,
+              duration: reduceMotion ? 0 : 6,
               ease: 'easeInOut',
-              repeat: reduceMotion ? 0 : 0,
+              repeat: 0,
             }}
-          />
+          >
+            <div
+              className="h-full w-44 blur-xl"
+              style={{
+                background: 'linear-gradient(90deg, #b9f65a, #455039, #bccdd5, #424c50)',
+              }}
+            />
+          </motion.div>
           <motion.div
-            animate={{ left: '55%' }}
-            className="-bottom-3 absolute h-11 w-36 blur-lg"
-            style={{
-              background: 'linear-gradient(90deg, #515a44, #b9f65a, #b9f65a)',
-            }}
+            data-slot="halo-glow-travel-secondary"
+            initial={reduceMotion ? false : { x: 0 }}
+            animate={{ x: '55%' }}
+            className="absolute inset-x-0 -bottom-3 h-11"
             transition={{
-              duration: reduceMotion ? 0.01 : 5,
+              duration: reduceMotion ? 0 : 5,
               ease: 'easeInOut',
-              repeat: reduceMotion ? 0 : 0,
+              repeat: 0,
             }}
-          />
+          >
+            <div
+              className="h-full w-36 blur-lg"
+              style={{
+                background: 'linear-gradient(90deg, #515a44, #b9f65a, #b9f65a)',
+              }}
+            />
+          </motion.div>
         </motion.div>
       </div>
 
