@@ -12,9 +12,9 @@ Read once, properly. It takes five minutes and saves a week.
 
 ## 0 · 60-second ship (Denon, Shehzad, Nitro agents)
 
-1. One service per PR. Worktree. Squash-merge your own green PR.
-2. **Denon / Shehzad** merge when CI is green + self-audit. **Nitro agents** merge Class N/P/M when gates pass. Nobody waits for Nitro to Approve.
-3. CI red → the **job name** is the failure (`Doctrine gates`, `Tests (protocol)`, `Tests (full)`, …). Fix that job. Re-push. Do not ask Nitro.
+1. One service per PR. Worktree. Review and verify your change, then squash-merge your own PR when required branch-protection checks pass.
+2. **Merge when done. Do not wait for CI green.** Agents own the technical review and relevant local checks. Full-suite CI and `pnpm verify` are informational; required branch-protection checks still apply. Nobody waits for Nitro to Approve routine code.
+3. Investigate a failed check by its **job name**. Fix failures introduced by your change and report unrelated baseline failures. Do not weaken a gate or ask Nitro to interpret the logs.
 4. `audited:true` stays false until a paid external audit. Leave it. Keep shipping.
 5. Money still through `packages/ledger-client`. No balances in a service. No money in a `number`. No fake books, mids, or vendor names in the UI.
 6. Coordination-only PRs (status, keepalive, board unchanged) are forbidden. Near-duplicate unwired series: warn, then block on the fourth; escape is `Serial-Work: <why>`.
@@ -31,11 +31,7 @@ main ─────●──────●──────●─────
 ```
 
 - `main` is **always deployable**. Green tip is the goal; red tip is a defect, not a mode of work.
-- **If `main` is red** (doctrine gates, typecheck, tests, money paths): **one heal lane**, not a fleet freeze.
-  - First free agent claims `main-heal` in [`docs/LIVE-LANES.md`](docs/LIVE-LANES.md) (or the `blocked-main` label) and opens **one** fix PR.
-  - Do **not** open competing fix PRs for the same red.
-  - Other agents may keep **path-disjoint craft** in existing worktrees (swarm width stays). They **must not merge to `main`** until tip is green again (the heal PR is the merge that clears the tip).
-  - Telegram Nitro only if the heal is blocked on Class X / a human ruling — not for every red.
+- **If `main` is red**, agents diagnose the failure and coordinate a focused fix without competing edits to the same files. Independent, verified changes may still merge when their required checks pass. An unrelated full-suite failure does not freeze the fleet. Failures affecting the change must be resolved before that work is called done.
 - Every change is a **short-lived branch → PR → merge**. No exceptions, including for "tiny" changes.
 - **No long-lived branches.** A branch older than ~2 days is a merge conflict waiting to happen. Split the work instead.
 - **No direct pushes to `main`.**
@@ -55,7 +51,7 @@ The repo is **public**. Branch protection is free. Intended admin settings live 
 
 The hook is installed automatically by `pnpm install` (`core.hooksPath`), and it applies in worktrees too.
 
-Until required CI checks are on: CI still _runs_ and _reports_; nobody is stopped from clicking merge on a red one. So: **don't.** The job **name** is the failure. Fix that job. Re-push. Do not ask Nitro.
+Honor the repository's actual required checks. Full-suite CI still _runs_ and _reports_; agents inspect relevant failures and establish whether their changes caused them. Do not turn every informational check into a merge wait.
 
 Do **not** turn on required approvals or required code-owner reviews. That re-creates the human bottleneck this file exists to kill. Auto-merge is an admin click (Denon) so green PRs queue instead of being polled.
 
@@ -81,7 +77,7 @@ This is the single highest-leverage rule in this file. With multiple people and 
 ```bash
 pnpm wt feat/svc-identity-rank-events   # create worktree + install deps
 pnpm wt:list                            # what exists
-pnpm wt:rm feat/svc-identity-rank-events  # clean up after merge
+git worktree remove --force <worktree-path>  # from home, after preserving the work
 ```
 
 Worktrees live in `../intafaced-worktrees/<branch>` — a sibling of the main checkout, never inside it.
@@ -96,7 +92,7 @@ It has to — the dev server, the TypeScript server, and the test runner all res
 
 Open the agent **in the worktree directory**, not the main checkout. Claude Code, Cursor, whatever — the agent's working directory is the worktree, so it physically cannot touch another branch's files.
 
-Two agents on two worktrees can run at the same time with zero coordination. That is the whole point.
+Agents can run in parallel in separate worktrees. They still coordinate overlapping files, shared test infrastructure, and GitHub API requests.
 
 ---
 
@@ -113,11 +109,11 @@ We are not going to maintain a project board. **Product** coordination (what cha
 
 **Review is asymmetric (on purpose).** Nitro is not a code reviewer; forcing him to Approve anyone’s PRs is theater and slows shipping.
 
-| Who opened the PR                      | Before merge                                                                                                                                              |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Denon**                              | CI green + doctrine/money self-audit. Squash-merge. No Nitro Approve.                                                                                     |
-| **Shehzad** (protocol/INTACHAIN paths) | CI green + self-audit. Squash-merge. No Nitro Approve.                                                                                                    |
-| **Nitro agent**                        | Class N/P/M: CI green + self-audit (Class M = money self-audit + second-pass). Squash-merge. Denon may review asynchronously. Class X: never agent-merge. |
+| Who opened the PR                      | Before merge                                                                                                                                                                                                  |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Denon**                              | Relevant verification + doctrine/money self-audit + required protection checks. Squash-merge. No Nitro Approve.                                                                                               |
+| **Shehzad** (protocol/INTACHAIN paths) | Relevant verification + self-audit + required protection checks. Squash-merge. No Nitro Approve.                                                                                                              |
+| **Nitro agent**                        | Class N/P/M: relevant verification + self-audit + required protection checks (Class M = money self-audit + second-pass). Squash-merge. Denon may review asynchronously. Class X decisions remain human-owned. |
 
 **Optional, not blocking:** Nitro’s agent may post an audit comment on Denon’s PR. That is signal, not a gate.
 
@@ -133,7 +129,7 @@ Approving something you have not read (when you _are_ the technical reviewer) is
 
 **Merge:** squash. One commit per PR on `main`, so history reads as a list of changes rather than a list of keystrokes.
 
-**Delete the branch on merge**, and remove the worktree: `pnpm wt:rm <branch>`.
+After merging, preserve any remaining local work, then remove the worktree from home with `git worktree remove --force <worktree-path>`. Keep the local branch. Never use `pnpm wt:rm`, `orca worktree rm`, or `git branch -D` for agent close-out.
 
 ---
 
@@ -180,7 +176,7 @@ Do **not** file an issue for everything. A tracker nobody reads is worse than no
 
 ## 5 · CI
 
-Every PR runs, and all of it must be green to merge. The **job name** is the diagnosis — open that log, not Telegram.
+**Do not wait for CI green.** Full-suite CI reports useful evidence; only the repository's actual required protection checks block a merge. The **job name** locates a failure for the agent to investigate.
 
 | Check                                                                       | What it protects                                                                       |
 | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
@@ -193,17 +189,19 @@ Every PR runs, and all of it must be green to merge. The **job name** is the dia
 | `Definition of Done`                                                        | the §14 gate per service                                                               |
 | `Gitleaks` / `Dependency audit`                                             | secrets and known CVEs                                                                 |
 
-Run the same thing locally before pushing. It is **required** — not to save anything, but because local is seconds and a CI round trip is minutes:
+Run local checks that exercise the changed behavior: affected tests, relevant typecheck/build, and money invariants where applicable. Fix regressions introduced by the change and report existing failures or unavailable prerequisites honestly. `pnpm verify` is available for a broader, informational check:
 
 ```bash
 pnpm verify    # build · typecheck · test · DoD gate
 ```
 
-**No CI budget, no throttle.** This repo is public and GitHub Actions on standard runners are free and unlimited for it. Open the PR when the unit is done; never sit on finished work to keep a run count down. There is no PR cap and no review gate on how many you open. (Old Actions spend thrift deleted 2026-08-07 — [`docs/GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](docs/GITHUB-CI-SPEND-CONTROL-2026-07-31.md).) Coordination-only PRs stay banned for noise, not cost.
+**No CI spend budget, no spend throttle.** Standard GitHub-hosted runner minutes have a zero bill on this public repo; service limits and acceptable-use rules still apply. Open the PR when the unit is done; parallel pull requests stay. There is no PR cap and no review gate on how many you open. A 403 or 429 from GitHub is a stop: report the response and keep independent local work moving. Follow [`AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md) §3 for cooldowns and access restrictions. Honor required branch-protection checks. The old throttle stays deleted — [`docs/GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](docs/GITHUB-CI-SPEND-CONTROL-2026-07-31.md). Coordination-only PRs stay banned for noise, not cost.
 
-Because merging is not _blocked_ on CI (see §1), reading the checks before you approve is a real responsibility rather than a formality. A green tick you did not look at is the same as no CI at all.
+Agents establish merge readiness from the change, relevant checks, and actual behavior. Honor required protection checks; a green result alone does not establish that the requested behavior works. Do not ask Nitro for routine code review.
 
-**If `main` goes red, healing it is the highest-priority _merge_ work in the repo** — claimed as a single `main-heal` lane (see §1). Not five agents rewriting the same gate. Other path-disjoint craft may continue in worktrees; **no product merges onto a red tip.**
+**If `main` goes red**, coordinate a focused repair without duplicate edits (see §1). Independent work and verified merges continue; failures affecting a change must be fixed before calling it done. Never weaken a correctness gate to obtain a green result.
+
+**Merge and live launch are separate decisions.** Agents may merge their own verified work and prepare previews. Nitro decides live launches; merging a PR does not authorize a production deployment, use of live credentials, or movement of real funds.
 
 ---
 
@@ -252,9 +250,9 @@ Commit messages inside a PR do not need to be perfect — the squash-merge title
 1. Never work in the main checkout — `pnpm wt <branch>`
 2. Never push to `main` — PR, always
 3. Small PRs, real reviews, "Request changes" freely
-4. Green CI before merge, no exceptions
-5. Delete the branch and the worktree when it merges
-6. If `main` is red, drop everything
+4. Verify the change; honor required protection checks; do not wait for full CI green
+5. Preserve local work, remove the worktree, and keep the local branch
+6. Repair red main without freezing independent work
 
 Agents automate process so humans don’t re-learn it: see **Nitro operator mode** and **Denon agent mode** in [`AGENTS.md`](AGENTS.md).
 

@@ -22,15 +22,17 @@
 
 ## Operator guarantees (do not violate)
 
-| Guarantee           | Meaning                                                                              |
-| ------------------- | ------------------------------------------------------------------------------------ |
-| **Speed**           | No PR cap · no serialize-agents · no “wait for CI idle” · no CI throttle at all      |
-| **Quality**         | False `done` still fails `pnpm tracker:check` · doctrine gates unchanged             |
-| **Autonomy**        | Full access — any agent, any row, **merge when done** · CI/verify are not ship gates |
-| **Zero manual ops** | Never wait for audit seal, FREEZE, or chat permission to start code                  |
-| **No every-PR tax** | Craft under an already-`wip` mountain does **not** require a `features.mjs` edit     |
+| Guarantee           | Meaning                                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------------------- |
+| **Speed**           | No PR cap · no serialize-agents · no “wait for CI idle” · no CI spend throttle · a 403 or 429 is a stop |
+| **Quality**         | False `done` still fails `pnpm tracker:check` · doctrine gates unchanged                                |
+| **Autonomy**        | Full access — any agent, any row, **merge when done** · CI/verify are not ship gates                    |
+| **Zero manual ops** | Never wait for audit seal, FREEZE, or chat permission to start code                                     |
+| **No every-PR tax** | Craft under an already-`wip` mountain does **not** require a `features.mjs` edit                        |
 
 If a future change breaks a row above, **reject the change**.
+
+Keep code work parallel. Pace GitHub API requests across agents; a 403 or 429 stops GitHub activity while independent local work continues. Follow the refusal and cooldown handling in [`AGENT_PROTOCOL.md`](../tooling/agent-protocol/AGENT_PROTOCOL.md) §3.
 
 ---
 

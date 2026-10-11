@@ -2,6 +2,10 @@
 
 # Owner GitHub config — the five settings only an admin can change
 
+**Current merge policy (2026-10-11):** follow [`AGENTS.md`](../../AGENTS.md). Agents review and verify their changes, merge when done, and do not wait for full CI green. Honor the actual required protection checks; the current branch summary requires `Gitleaks` and `Dependency audit`. Do not add full-suite checks, required human approvals, or an up-to-date-before-merge rule as part of this transition. Nitro decides live launches. The settings proposals and snapshots below are historical; their broader CI requirements do not override this policy.
+
+**Optional owner setup tool:** agents must not run `tooling/scripts/setup-github.mjs`. Its proposed defaults now match this policy: `Gitleaks` and `Dependency audit`, zero required human approvals, and no up-to-date requirement. These defaults do not establish the live review or strictness settings. The setup, issue-sync, and swarm helpers stop their process on an explicit HTTP 403 or 429 before any permissive fallback can continue making requests. This is not a shared cross-agent request queue. Read current settings through permitted endpoints; do not use a 404 as proof that protection is absent or request extra admin access to avoid a failed check.
+
 **Home for these findings.** They were queued 2026-08-04 inside `docs/BOARD-CLEAR-HUMAN-BLOCKERS.md`, a campaign file that is otherwise dead. They are not campaign artifacts — they are standing repo-security facts, and they outlived the campaign. Moved here 2026-08-07.
 
 **Who can act:** `Phantom-X-007` is the only `admin`. `ZenYoda3` and `shehzad002` have `write`. No agent can change any of this. **Do not** `PUT` protection, `PATCH` the repo, or run `tooling/scripts/setup-github.mjs` from an agent session.

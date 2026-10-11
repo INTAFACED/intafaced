@@ -1,22 +1,24 @@
 #!/usr/bin/env node
 /**
- * One-shot GitHub configuration, so the rules in CONTRIBUTING.md are enforced
- * by the platform rather than by everyone remembering them.
+ * Optional, owner-only GitHub configuration. Agents do not run this tool.
+ * Review the current settings and intended changes before running it.
  *
  *   node tooling/scripts/setup-github.mjs
  *
- * Idempotent — safe to re-run after adding a collaborator or a CI job.
+ * Writes repository settings; it can replace an owner's later configuration.
  * Requires `gh auth login` with admin rights on the repository.
  */
 import { execFileSync } from 'node:child_process';
+import { throwOnGitHubRefusal } from './github-refusal.mjs';
 
-/** Jobs from .github/workflows/ci.yml that must pass before a PR can merge. */
-const REQUIRED_CHECKS = ['Doctrine gates', 'Typecheck & build', 'Tests', 'Definition of Done'];
+/** Status contexts required on main before a PR can merge. */
+const REQUIRED_CHECKS = ['Gitleaks', 'Dependency audit'];
 
 function gh(args, { allowFail = false, input } = {}) {
   try {
     return execFileSync('gh', args, { encoding: 'utf8', ...(input ? { input } : {}) }).trim();
   } catch (err) {
+    throwOnGitHubRefusal(err);
     if (allowFail) return null;
     console.error(`\n✖ gh ${args.join(' ')}\n${err.stdout ?? ''}${err.stderr ?? ''}`);
     process.exit(1);
@@ -28,14 +30,13 @@ console.log(`\nConfiguring ${repo}\n`);
 
 // ── Branch protection on main ───────────────────────────────────────────────
 //
-// Requires: 1 approving review, all CI checks green, branch up to date, and
-// no direct pushes — for everyone, admins included. "Admins can bypass" is how
-// a 2am hotfix becomes a Tuesday incident.
+// Targets the current merge policy, zero human approvals, no up-to-date
+// requirement, and no direct pushes — for everyone, admins included.
 const protection = {
-  required_status_checks: { strict: true, contexts: REQUIRED_CHECKS },
+  required_status_checks: { strict: false, contexts: REQUIRED_CHECKS },
   enforce_admins: true,
   required_pull_request_reviews: {
-    required_approving_review_count: 1,
+    required_approving_review_count: 0,
     dismiss_stale_reviews: true,
     require_code_owner_reviews: false,
   },
@@ -57,12 +58,11 @@ if (result === null) {
   console.log('  ⚠ could not set branch protection automatically.');
   console.log('    Private repos need GitHub Pro/Team for protected branches.');
   console.log('    Set it by hand: Settings → Branches → Add rule → main');
-  console.log('      · Require a pull request before merging (1 approval)');
+  console.log('      · Require a pull request before merging (0 approvals)');
   console.log('      · Require status checks to pass — ' + REQUIRED_CHECKS.join(', '));
-  console.log('      · Require branches to be up to date before merging');
   console.log('      · Do not allow bypassing the above settings');
 } else {
-  console.log('  ✓ 1 approval · status checks · linear history · no force pushes · admins included');
+  console.log('  ✓ 0 approvals · Gitleaks + Dependency audit · no up-to-date requirement · admins included');
 }
 
 // ── Merge behaviour ─────────────────────────────────────────────────────────
@@ -96,7 +96,7 @@ console.log('  ✓ squash-only · auto-delete merged branches · auto-merge enab
 const labels = [
   ['money-path', 'B60205', 'Touches the ledger, orders, or payments — review every line'],
   ['doctrine', '5319E7', 'Changes the rules themselves'],
-  ['blocked-main', 'D93F0B', 'main is red — claim single main-heal lane; no product merges'],
+  ['blocked-main', 'D93F0B', 'Informational main failures; fix affected regressions without freezing unrelated work'],
   ['core', '0E8A16', 'Phase 1 — identity, ledger, token'],
   ['protocol-plane', '1D76DB', 'Non-custodial side — custody-scan applies'],
 ];
