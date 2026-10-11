@@ -24,13 +24,13 @@
     "@intafaced/sbe-codec": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
-    "fastify": "^5.11.2",
-    "ws": "^8.21.1",
+    "fastify": "^5.12.5",
+    "ws": "^8.22.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "@types/ws": "^8.18.1",
+    "@types/ws": "^8.18.2",
     "rimraf": "^6.0.1",
     "tsx": "^4.23.12",
     "typescript": "^5.7.2",
