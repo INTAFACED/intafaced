@@ -80,9 +80,38 @@ export function createIdentityApprovalClient(baseUrl: string, internalSecret: st
         const detail = await res.text().catch(() => '');
         throw new ActionApprovalConsumeError(`identity refused consume (${res.status}) ${detail}`.trim(), 'action_approval.consume_failed');
       }
-      return actionApprovalSchema.parse(unwrapTrpcData(await res.json()));
+      let raw: unknown;
+      try {
+        raw = unwrapTrpcData(await res.json());
+      } catch {
+        throw new ActionApprovalConsumeError(
+          'identity consume body is not a consumed approval for this request',
+          'action_approval.consume_failed',
+        );
+      }
+      const parsedBody = actionApprovalSchema.safeParse(raw);
+      if (!parsedBody.success || !consumedApprovalMatchesRequest(parsedBody.data, parsed)) {
+        throw new ActionApprovalConsumeError(
+          'identity consume body is not a consumed approval for this request',
+          'action_approval.consume_failed',
+        );
+      }
+      return parsedBody.data;
     },
   };
+}
+
+/** HTTP 200 is not consume. Status must be CONSUMED, and the approval, operation, target, and payload hash must be the ones asked for. */
+function consumedApprovalMatchesRequest(row: ActionApproval, request: ActionApprovalConsumeInput): boolean {
+  return (
+    row.status === 'CONSUMED' &&
+    row.approvalId === request.approvalId &&
+    row.operationId === request.operationId &&
+    row.targetService === request.targetService &&
+    row.targetId === request.targetId &&
+    row.expectedVersion === request.expectedVersion &&
+    row.payloadHash === request.payloadHash
+  );
 }
 
 /** tRPC HTTP is `{ result: { data } }`; superjson may wrap `{ json }`. */

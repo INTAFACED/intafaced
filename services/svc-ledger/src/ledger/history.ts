@@ -60,7 +60,7 @@ import { accountRefSchema, LedgerError, type Amount } from '@intafaced/ledger-cl
 /**
  * Entries per (account, window) read.
  *
- * 10 000, matching `PostgresLedger.journal`'s page — the two are the same kind
+ * 10 000, matching `PostgresLedger.journal`'s cap — the two are the same kind
  * of bulk read over the same table, and one number for both is one number to
  * reason about. A month of movements for a busy trading account is order 10^3;
  * this refuses at the point where a caller is asking for a year of one, which is
@@ -135,19 +135,38 @@ export class HistoryPageSocketError extends LedgerError {
   }
 }
 
-/** More entries in the window than one read may answer with. See the header. */
+/**
+ * More rows than one read may answer with. See the header.
+ *
+ * History names the account and the window. Journal names only the limit:
+ * the replay has no account, and a short prefix is not the whole book.
+ */
 export class HistoryTooLargeError extends LedgerError {
-  constructor(
-    readonly accountId: string,
-    readonly range: HistoryRange,
-    readonly limit: number,
-  ) {
+  readonly accountId: string | undefined;
+  readonly range: HistoryRange | undefined;
+  readonly limit: number;
+
+  constructor(accountId: string, range: HistoryRange, limit: number);
+  constructor(limit: number);
+  constructor(accountIdOrLimit: string | number, range?: HistoryRange, limit?: number) {
+    const journal = typeof accountIdOrLimit === 'number';
+    const resolvedLimit = journal ? accountIdOrLimit : limit!;
     super(
-      `History for account ${accountId} between ${range.from.toISOString()} and ${range.to.toISOString()} ` +
-        `exceeds ${limit} entries — request a narrower window; a truncated history would be indistinguishable from a complete one`,
+      journal
+        ? `Journal exceeds ${resolvedLimit} transactions — a truncated journal would be indistinguishable from a complete replay`
+        : `History for account ${accountIdOrLimit} between ${range!.from.toISOString()} and ${range!.to.toISOString()} ` +
+            `exceeds ${resolvedLimit} entries — request a narrower window; a truncated history would be indistinguishable from a complete one`,
       'ledger.history_range_too_large',
     );
     this.name = 'HistoryTooLargeError';
+    this.limit = resolvedLimit;
+    if (journal) {
+      this.accountId = undefined;
+      this.range = undefined;
+    } else {
+      this.accountId = accountIdOrLimit;
+      this.range = range;
+    }
   }
 }
 

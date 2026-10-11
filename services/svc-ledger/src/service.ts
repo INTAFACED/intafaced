@@ -1,8 +1,16 @@
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { LedgerError, type AccountRef, type Balance, type LedgerClient, type LedgerTx, type PostRequest } from '@intafaced/ledger-client';
 import type { EventBus, Payload } from '@intafaced/events';
 import { PostgresLedger, type LedgerTxOutboxRow } from './ledger/postgres-ledger.js';
-import { freezeEventKey, readFreeze, writeFreeze, type FreezeState } from './ledger/freeze.js';
+import {
+  markFreezeOutboxPublished,
+  readFreeze,
+  unpublishedFreezeOutbox,
+  writeFreeze,
+  writeFreezeInTransaction,
+  type FreezeOutboxRow,
+  type FreezeState,
+} from './ledger/freeze.js';
 import type { HistoryEntry, HistoryRange } from './ledger/history.js';
 import { runReconciliation, type ReconciliationReport } from './ledger/reconcile.js';
 import { withMoneySpan, withSpan } from './tracing.js';
@@ -108,23 +116,27 @@ export class LedgerService implements LedgerClient {
    * freeze with neither reason nor actor (`posting_freeze_attributed_ck`) —
    * whoever finds the platform halted must be able to find out why and by whom.
    *
-   * Same-attribution re-freeze is a true no-op (hourly recon: no `changed_at`
-   * bump, no bus re-fire). Different attribution while already frozen **throws**
+   * Same-attribution re-freeze is a true no-op of the switch (hourly recon: no
+   * `changed_at` bump). Different attribution while already frozen **throws**
    * `ledger.freeze_attributed` — the first reason stays, and the caller must not
    * be told their freeze applied (operator HTTP → 409). Recon catches that code
    * so an operator halt is never clobbered and the alarm still pages.
+   *
+   * The `ledgerFreezeUpdated` intent commits with the switch. Publish runs
+   * after that, from the unpublished outbox row. A bus throw leaves the row,
+   * so a later call with the same reason and actor emits it and does not move
+   * the switch again. A true no-op — state unchanged and nothing pending —
+   * publishes nothing.
    */
   async freeze(reason: string, actor: string): Promise<FreezeState> {
-    const { state, switched } = await writeFreeze(this.sql, { frozen: true, reason, actor });
-    // Same-attribution re-freeze is a true no-op (hourly recon). Do not
-    // re-publish — consumers would re-alarm under a stable key or a new one.
-    if (switched) await this.publishFreeze(state);
+    const { state } = await writeFreeze(this.sql, { frozen: true, reason, actor });
+    await this.publishUnpublishedFreezeOutbox();
     return state;
   }
 
   async unfreeze(actor: string): Promise<FreezeState> {
-    const { state, switched } = await writeFreeze(this.sql, { frozen: false, actor });
-    if (switched) await this.publishFreeze(state);
+    const { state } = await writeFreeze(this.sql, { frozen: false, actor });
+    await this.publishUnpublishedFreezeOutbox();
     return state;
   }
 
@@ -182,18 +194,22 @@ export class LedgerService implements LedgerClient {
   }
 
   /**
-   * Publish unpublished `ledgerTxPosted` intents, then mark them sent.
+   * Publish unpublished `ledgerTxPosted` and `ledgerFreezeUpdated` intents,
+   * then mark them sent.
    *
    * Boot and the outbox tick call this. It is NOT part of `applyStartupPolicy`
    * — that path is freeze-only and must not grow identity (or any other)
-   * side effects.
+   * side effects. Freeze publish failure is recovered here too: the switch
+   * commits with its outbox row, and this drain emits that row without
+   * writing `posting_freeze` again.
    */
   async recoverUnpublishedOutbox(): Promise<number> {
     let published = 0;
     for (let i = 0; i < 20; i++) {
       const n = await this.publishUnpublishedOutbox();
-      published += n;
-      if (n === 0) break;
+      const freeze = await this.publishUnpublishedFreezeOutbox();
+      published += n + freeze;
+      if (n === 0 && freeze === 0) break;
     }
     return published;
   }
@@ -210,35 +226,34 @@ export class LedgerService implements LedgerClient {
     return rows.length;
   }
 
-  private async publishFreeze(state: FreezeState): Promise<void> {
-    // After the durable write, like `tx.posted` after commit. If this publish
-    // throws, the switch has still moved — the caller learns the notification
-    // failed, never that the freeze did.
-    await this.bus.publish(
-      'ledgerFreezeUpdated',
-      {
-        frozen: state.frozen,
-        reason: state.reason,
-        actor: state.actor ?? 'unknown',
-        changedAt: state.changedAt.toISOString(),
-      },
-      // STOP §4.2b #7 — see `freezeEventKey`. This used to key off
-      // `changedAt.toISOString()`, which is millisecond-precision, so a freeze
-      // and the thaw right after it inside one millisecond shared a msgID and
-      // JetStream dropped the second: the THAW. Every consumer then believed
-      // the platform was still halted while the database said it was open.
-      { idempotencyKey: freezeEventKey(state) },
-    );
+  /**
+   * Publish unpublished freeze intents, then mark them sent.
+   *
+   * Same order as `ledgerTxPosted`: the row is already committed, the bus
+   * accepts, then `published_at` moves. A throw here leaves the row. The
+   * idempotency key is the one stored with the switch (`freezeEventKey`),
+   * not a key rebuilt from `changedAt`.
+   */
+  private async publishUnpublishedFreezeOutbox(): Promise<number> {
+    const rows = await unpublishedFreezeOutbox(this.sql);
+    for (const row of rows) {
+      const event = ledgerFreezeUpdatedPayload(row);
+      await this.bus.publish('ledgerFreezeUpdated', event.payload, { idempotencyKey: event.idempotencyKey });
+      await markFreezeOutboxPublished(this.sql, row.id);
+    }
+    return rows.length;
   }
 
   /**
-   * Run reconciliation. On failure the ledger freezes itself and emits the
-   * alarm — §4.2: "mismatch = page the operator, freeze the module that
-   * diverged". Freezing is automatic because a book we cannot verify must not
-   * accept more writes while someone decides what to do about it.
+   * Run reconciliation. On failure the ledger freezes itself. A balance drift
+   * also pages — §4.2: "mismatch = page the operator, freeze the module that
+   * diverged". A chain break or an unbalanced asset is not that page: freeze,
+   * and do not describe a zero drift on an account that does not exist.
+   * Freezing is automatic because a book we cannot verify must not accept more
+   * writes while someone decides what to do about it.
    *
-   * The freeze is written BEFORE either publish, and awaited. If the bus is
-   * down, the alarm fails to send and this throws — with the book already
+   * The freeze is written BEFORE the page, and awaited. If the bus is down,
+   * a real drift's alarm fails to send and this throws — with the book already
    * halted. An alarm nobody receives is bad; a book still accepting writes
    * because the alarm failed would be the actual disaster.
    */
@@ -249,27 +264,113 @@ export class LedgerService implements LedgerClient {
       if (!report.ok) {
         // Prefer a freeze under actor `reconciliation`. If an operator already
         // halted the book, writeFreeze refuses the overwrite (STOP §4.2b #3) —
-        // catch that only, leave their reason standing, and still page. Any
-        // other freeze error must surface (raced / uninitialised).
+        // catch that only and leave their reason standing. Any other freeze
+        // error must surface (raced / uninitialised). The freeze is already
+        // durable before a page is attempted.
         try {
           await this.freeze('reconciliation mismatch', 'reconciliation');
         } catch (err) {
           if (!(err instanceof LedgerError && err.code === 'ledger.freeze_attributed')) throw err;
         }
 
-        const firstDrift = report.balances.ok ? null : report.balances.drift[0];
-        await this.bus.publish('ledgerReconciliationFailed', {
-          accountId: firstDrift?.accountId ?? '00000000-0000-4000-8000-000000000000',
-          assetId: firstDrift?.assetId ?? report.unbalancedAssets[0] ?? 'UNKNOWN',
-          snapshotBalance: firstDrift?.cached ?? '0',
-          replayBalance: firstDrift?.replayed ?? '0',
-          drift: firstDrift?.difference ?? '0',
-          module: 'ledger',
-        });
+        await this.publishReconciliationDrift(report);
       }
 
       return report;
     });
+  }
+
+  /** Scheduled proof owns this existing transaction; no pool query or BEGIN. */
+  async reconcileInTransaction(tx: TransactionSql): Promise<ReconciliationReport> {
+    return withSpan('ledger.reconcile', async () => {
+      const report = await runReconciliation(tx);
+      if (!report.ok) await this.haltReconciliationInTransaction(tx);
+      return report;
+    });
+  }
+
+  /** Both the switch and its intent commit before the posting lock is released. */
+  async haltReconciliationInTransaction(tx: TransactionSql): Promise<void> {
+    try {
+      await writeFreezeInTransaction(tx, { frozen: true, reason: 'reconciliation mismatch', actor: 'reconciliation' });
+    } catch (error) {
+      if (!(error instanceof LedgerError && error.code === 'ledger.freeze_attributed')) throw error;
+    }
+  }
+
+  /** Called only after the scheduled transaction committed, including proof throws. */
+  async publishReconciliationResult(report?: ReconciliationReport): Promise<void> {
+    if (report?.ok) return;
+    await this.publishUnpublishedFreezeOutbox();
+    if (report) await this.publishReconciliationDrift(report);
+  }
+
+  private async publishReconciliationDrift(report: ReconciliationReport): Promise<void> {
+    const firstDrift = report.balances.ok ? null : report.balances.drift[0];
+    if (!firstDrift) return;
+    await this.bus.publish('ledgerReconciliationFailed', {
+      accountId: firstDrift.accountId,
+      assetId: firstDrift.assetId,
+      snapshotBalance: firstDrift.cached,
+      replayBalance: firstDrift.replayed,
+      drift: firstDrift.difference,
+      module: 'ledger',
+    });
+  }
+}
+
+function ledgerFreezeUpdatedPayload(row: FreezeOutboxRow): {
+  payload: Payload<'ledgerFreezeUpdated'>;
+  idempotencyKey: string;
+} {
+  const payload = row.payload;
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new LedgerError(`ledger_freeze_outbox ${row.id} payload is not an object`, 'ledger.outbox_payload');
+  }
+  refuseFreezeJsonNumber(payload, row.id);
+  const body = payload as Record<string, unknown>;
+  if (typeof body.frozen !== 'boolean') {
+    throw new LedgerError(`ledger_freeze_outbox ${row.id} frozen must be a boolean`, 'ledger.outbox_payload');
+  }
+  if (typeof body.actor !== 'string' || body.actor.length === 0) {
+    throw new LedgerError(`ledger_freeze_outbox ${row.id} actor must be a non-empty string`, 'ledger.outbox_payload');
+  }
+  if (typeof body.changedAt !== 'string' || body.changedAt.length === 0) {
+    throw new LedgerError(`ledger_freeze_outbox ${row.id} changedAt must be a string`, 'ledger.outbox_payload');
+  }
+  const reason = body.reason;
+  if (body.frozen) {
+    if (typeof reason !== 'string' || reason.length === 0) {
+      throw new LedgerError(`ledger_freeze_outbox ${row.id} freeze reason must be a non-empty string`, 'ledger.outbox_payload');
+    }
+  } else if (reason !== null) {
+    throw new LedgerError(`ledger_freeze_outbox ${row.id} thaw reason must be null`, 'ledger.outbox_payload');
+  }
+  const idempotencyKey = row.idempotency_key;
+  if (!idempotencyKey.startsWith('ledger.freeze:') || idempotencyKey.length <= 'ledger.freeze:'.length) {
+    throw new LedgerError(`ledger_freeze_outbox ${row.id} idempotency key is not a freeze event key`, 'ledger.outbox_payload');
+  }
+  return {
+    payload: {
+      frozen: body.frozen,
+      reason: body.frozen ? reason : null,
+      actor: body.actor,
+      changedAt: body.changedAt,
+    },
+    idempotencyKey,
+  };
+}
+
+function refuseFreezeJsonNumber(value: unknown, id: string): void {
+  if (typeof value === 'number') {
+    throw new LedgerError(`ledger_freeze_outbox ${id} payload contains a JSON number`, 'ledger.outbox_payload');
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) refuseFreezeJsonNumber(item, id);
+    return;
+  }
+  if (value !== null && typeof value === 'object') {
+    for (const item of Object.values(value as Record<string, unknown>)) refuseFreezeJsonNumber(item, id);
   }
 }
 
