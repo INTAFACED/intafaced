@@ -113,6 +113,59 @@ export function mapBybitSpotOrder(row: Record<string, unknown>, unified: string,
   };
 }
 
+/** retCode 0 body. orderId is required; a present orderLinkId must be the client id sent. */
+function ackOrderId(body: Record<string, unknown>, clientOrderId: string, operation: string): string {
+  const result = body.result;
+  if (result === null || typeof result !== 'object') {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', `${operation} ack is malformed`);
+  }
+  const row = result as Record<string, unknown>;
+  const orderId = row.orderId;
+  if (typeof orderId !== 'string' || orderId.length === 0) {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', `${operation} ack is malformed: orderId is missing`);
+  }
+  if (row.orderLinkId !== undefined && row.orderLinkId !== null && row.orderLinkId !== clientOrderId) {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', `${operation} ack orderLinkId does not match the client id`);
+  }
+  return orderId;
+}
+
+/**
+ * First realtime or history row. An empty list is absent, not an outage.
+ * A non-object entry is malformed, same as `fetchOrder`.
+ */
+function firstOrderRow(body: Record<string, unknown>, operation: string): Record<string, unknown> | null {
+  const list = (body.result as { list?: unknown } | null)?.list;
+  if (!Array.isArray(list) || list.length === 0) return null;
+  const row = list[0];
+  if (!row || typeof row !== 'object') {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', `${operation} row is not an object`);
+  }
+  return row as Record<string, unknown>;
+}
+
+/** Accepted place with no row yet. Size is the request. Price is not an execution. */
+function openFromPlaceAck(request: PlaceOrderRequest, venueOrderId: string, now: Date): VenueOrder {
+  return {
+    venueId: VENUE.id,
+    venueOrderId,
+    clientOrderId: request.clientOrderId,
+    symbol: request.symbol,
+    side: request.side,
+    type: request.type,
+    price: request.type === 'market' ? null : request.price!,
+    amount: request.amount,
+    filled: 0n,
+    remaining: request.amount,
+    averagePrice: null,
+    status: 'open',
+    feePaid: null,
+    feeAsset: null,
+    createdAt: now,
+    observedAt: now,
+  };
+}
+
 export interface BybitSpotTradeOptions {
   readonly http?: HttpPort;
   readonly restBase?: string;
@@ -187,20 +240,49 @@ export class BybitSpotTrade implements TradeAdapter {
       // Spot market buy qty is quote notional unless marketUnit is baseCoin.
       payload.marketUnit = 'baseCoin';
     }
-    await this.#signed('POST', '/v5/order/create', payload, keys, 'placeOrder');
-    return this.fetchOrder(request.symbol, request.clientOrderId);
+    const ack = await this.#signed('POST', '/v5/order/create', payload, keys, 'placeOrder');
+    const orderId = ackOrderId(ack, request.clientOrderId, 'placeOrder');
+    const row = await this.#rowAfterAck(request.symbol, request.clientOrderId, keys, 'placeOrder');
+    if (row) return row;
+    // Empty realtime and history after retCode 0 is a live order, not an outage.
+    return openFromPlaceAck(request, orderId, new Date(this.#clock()));
   }
 
   async cancelOrder(symbol: string, clientOrderId: string): Promise<VenueOrder> {
     const keys = requireCredentials(VENUE.id, 'cancelOrder', this.#credentials);
-    await this.#signed(
+    const ack = await this.#signed(
       'POST',
       '/v5/order/cancel',
       { category: 'spot', symbol: venueSymbolOf(symbol), orderLinkId: clientOrderId },
       keys,
       'cancelOrder',
     );
-    return this.fetchOrder(symbol, clientOrderId);
+    const orderId = ackOrderId(ack, clientOrderId, 'cancelOrder');
+    const row = await this.#rowAfterAck(symbol, clientOrderId, keys, 'cancelOrder');
+    if (row) return row;
+    // Cancel carries no qty. An absent row must not become a sized order.
+    throw new VenueUnavailableError(
+      VENUE.id,
+      'malformed',
+      `cancelOrder ack ${orderId}: order row is absent so size is not invented`,
+    );
+  }
+
+  /** Realtime row, else the same order on `/v5/order/history`. Empty stays empty. */
+  async #rowAfterAck(
+    symbol: string,
+    clientOrderId: string,
+    keys: VenueCredentials,
+    operation: string,
+  ): Promise<VenueOrder | null> {
+    const query = { category: 'spot', symbol: venueSymbolOf(symbol), orderLinkId: clientOrderId };
+    const realtime = await this.#signed('GET', '/v5/order/realtime', query, keys, operation);
+    const live = firstOrderRow(realtime, operation);
+    if (live) return mapBybitSpotOrder(live, symbol, new Date(this.#clock()));
+    const history = await this.#signed('GET', '/v5/order/history', query, keys, operation);
+    const past = firstOrderRow(history, operation);
+    if (past) return mapBybitSpotOrder(past, symbol, new Date(this.#clock()));
+    return null;
   }
 
   async fetchOrder(symbol: string, clientOrderId: string): Promise<VenueOrder> {
