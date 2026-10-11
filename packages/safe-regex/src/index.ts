@@ -25,7 +25,7 @@ export type SafeMatchOptions = {
 export type SafeMatchOk = {
   readonly ok: true;
   readonly matched: boolean;
-  readonly groups: readonly string[];
+  readonly groups: readonly (string | null)[];
 };
 
 export type SafeMatchRefuse = {
@@ -70,8 +70,17 @@ export function safeTest(pattern: string | RE2JS, input: string, options: SafeMa
   } catch {
     return { ok: false, reason: 'pattern_invalid' };
   }
-  const matched = re.matches(input);
-  return { ok: true, matched, groups: [] };
+  const matcher = re.matcher(input);
+  const matched = matcher.matches();
+  if (!matched) {
+    return { ok: true, matched, groups: [] };
+  }
+  const groups: (string | null)[] = [];
+  const count = matcher.groupCount();
+  for (let i = 1; i <= count; i += 1) {
+    groups.push(matcher.group(i));
+  }
+  return { ok: true, matched, groups };
 }
 
 /**

@@ -219,8 +219,8 @@ export const earnPools = bank.table(
     aprBps: bps('apr_bps').notNull(),
     /** NULL for flexible pools; the lock length for fixed ones. */
     termDays: integer('term_days'),
-    /** Policy floor on a single deposit. A limit, not a holding. */
-    minDeposit: amount('min_deposit').notNull().default('0'),
+    /** Policy floor on a single deposit. Null is a blank limit; an omitted floor is not zero. */
+    minDeposit: amount('min_deposit'),
     status: poolStatusEnum('status').notNull().default('open'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -253,7 +253,8 @@ export const earnPositions = bank.table(
     openedAt: tstz('opened_at').notNull().defaultNow(),
     /** NULL for flexible. Withdrawal before this is refused on fixed pools. */
     maturesAt: tstz('matures_at'),
-    status: positionStatusEnum('status').notNull().default('active'),
+    /** Claim before the ledger post. An omitted status is not interest-eligible. */
+    status: positionStatusEnum('status').notNull().default('pending'),
     closedAt: tstz('closed_at'),
     createdAt: createdAt(),
   },
@@ -388,8 +389,8 @@ export const loanProducts = bank.table(
     /** Ceiling on one rung of the ladder, as a fraction of remaining collateral. */
     maxTrancheBps: integer('max_tranche_bps').notNull(),
     graceSeconds: integer('grace_seconds').notNull(),
-    /** A POLICY floor on a single draw. A limit, not a holding. */
-    minPrincipal: amount('min_principal').notNull().default('0'),
+    /** Policy floor on a single draw. Null is a blank limit; an omitted floor is not zero. */
+    minPrincipal: amount('min_principal'),
     status: text('status').notNull().default('open'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -859,6 +860,8 @@ export const cardSettlements = bank.table(
  * VISIBLE as an unpaid reward rather than as an absence. The rewards pot is
  * funded from bank revenue and can be empty; when it is, the capture still
  * stands and this row says `rejected` with `bank.cashback_pot_unfunded` on it.
+ * Any other ledger error leaves the row `pending`: the reward was not refused,
+ * and `resumeSettlements` retries the same idempotent reward id.
  *
  * A design that swallowed the failure would leave a user quietly unpaid and an
  * operator with nothing to look at. A design that failed the capture would undo
@@ -941,6 +944,7 @@ export const rampOfframps = bank.table(
     status: loanEventStatusEnum('status').notNull().default('pending'),
     holdLedgerTxId: text('hold_ledger_tx_id'),
     settleLedgerTxId: text('settle_ledger_tx_id'),
+    releaseLedgerTxId: text('release_ledger_tx_id'),
     rejectionCode: text('rejection_code'),
     createdAt: createdAt(),
     settledAt: tstz('settled_at'),

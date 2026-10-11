@@ -108,6 +108,15 @@ import { cardProgrammeOutput, cashbackOn, noCardIssuer, type CardIssuerAdapter }
  *   already spent. Paying late is honest; taking money back is not a thing this
  *   service can do.
  *
+ *   An empty pot is a named refusal: the row is `rejected` with
+ *   `bank.cashback_pot_unfunded`, and the capture stays. Any other ledger error
+ *   leaves the row `pending`. `rewardPay` keys the post on
+ *   `reward:bank.card.cashback:<authorisation>`, and a repeat of that key
+ *   returns the original transaction, so `resumeSettlements` can retry it
+ *   without paying a second reward. Marking the row rejected would make that
+ *   retry look like the pot was empty. Throwing would report a failed purchase
+ *   after the merchant had already been paid.
+ *
  * ═════════════════════════════════════════════════════════════════════════════
  * WHAT IS NOT HERE
  * ═════════════════════════════════════════════════════════════════════════════
@@ -247,7 +256,9 @@ export interface CaptureResult {
  * `refused` is a first-class outcome with a code on it. A capture whose reward
  * could not be paid is not a failed capture, and it is not a silent success
  * either — an operator seeing `bank.cashback_pot_unfunded` has learned that the
- * advertised rate is currently unfunded, on the day it became true.
+ * advertised rate is currently unfunded, on the day it became true. Any other
+ * ledger error is the same outcome with the row left `pending`, so the same
+ * authorisation can be retried.
  */
 export type CashbackOutcome =
   | { readonly status: 'none'; readonly amount: Amount }
@@ -346,6 +357,17 @@ export class CardService {
   /** What this deployment's card programme is, and whether it is real. */
   programme(): CardIssuerAdapter['programme'] {
     return cardProgrammeOutput(this.issuer.programme);
+  }
+
+  /**
+   * Rewards stay refused until a real card issuer is connected.
+   * `cashbackBps` is a rate field, not a balance, and this posts nothing.
+   */
+  rewards(): never {
+    throw new BankError(
+      'Card rewards are refused. The missing piece is an outside company, the card issuer. A cashback field is not a rewards balance.',
+      'bank.rewards_issuer_unset',
+    );
   }
 
   // ── Cards ──────────────────────────────────────────────────────────────────
@@ -465,9 +487,18 @@ export class CardService {
     // Idempotency, before anything else. An issuer redelivering an
     // authorisation must receive the decision it already got, and must not cause
     // a second hold against the same purchase — nor a second QUOTE, which is why
-    // this returns before the rate source is touched.
+    // a finished row returns before the rate source is touched.
+    //
+    // An approved row still pending with no hold is not that decision. The
+    // process died after the insert and before hold_ledger_tx_id was written.
+    // Returning it leaves a hold capture and reverse both refuse, because they
+    // require status settled. Re-drive the stored amount. Do not quote again.
     const already = await this.authorizationByRef(card.id, input.authorizationRef);
-    if (already) return already;
+    if (already) {
+      const strandedHold = already.decision === 'approved' && already.status === 'pending' && already.holdLedgerTxId === null;
+      if (!strandedHold) return already;
+      return this.redriveHold(card, already);
+    }
 
     return withMoneySpan(
       'bank.card.authorize',
@@ -492,59 +523,94 @@ export class CardService {
         }
 
         const claimed = await this.recordDecision({ card, input, fundingAmount, quote, decision: 'approved', declineCode: null });
-
-        try {
-          const posted = await this.ledger.post(
-            recipes.withdrawHold({
-              userId: card.userId,
-              assetId: card.assetId,
-              // THE CLAIMED ROW'S AMOUNT, not this call's quote. A second
-              // delivery that lost the decision insert has its own quote in
-              // hand and must not hold against it — the frozen rate is the one
-              // that won, and `claimed.amount` is what it converted to.
-              amount: claimed.amount,
-              // The rail label IS the programme id, so the boundary account a
-              // capture lands in is greppable back to the card that made it.
-              rail: card.issuer,
-              // OUR uuid, not the issuer's reference: the hold account is keyed
-              // on it, and an id chosen by a counterparty must not name an
-              // account in our book.
-              withdrawalId: claimed.id,
-            }),
-          );
-
-          await this.sql`
-            UPDATE bank.card_authorizations
-               SET status = 'settled', hold_ledger_tx_id = ${posted.id}, settled_at = now()
-             WHERE id = ${claimed.id}
-          `;
-        } catch (err) {
-          // The ledger is the authority and it just said no. The DECISION
-          // becomes a decline — a purchase the user was told about at the till —
-          // rather than an exception that leaves an `approved` row with no hold.
-          if (err instanceof InsufficientFundsError || (err instanceof LedgerError && err.code === 'ledger.insufficient_funds')) {
-            await this.sql`
-              UPDATE bank.card_authorizations
-                 SET decision = 'declined', decline_code = 'ledger.insufficient_funds', status = 'rejected'
-               WHERE id = ${claimed.id}
-            `;
-            const declined = (await this.authorizationByRef(card.id, input.authorizationRef))!;
-            await this.tellIssuer(card, declined, { decision: 'declined', reason: 'ledger.insufficient_funds' });
-            return declined;
-          }
-          // Anything else — svc-ledger unreachable, a frozen module — must NOT
-          // be turned into a decline. A decline is an answer, and answering
-          // "no" on behalf of a ledger that never spoke is a lie the user pays
-          // for at the till. The row stays `pending` and a redelivery re-drives.
-          throw err;
-        }
+        const finished = await this.commitHold(card, claimed, input.amount);
+        if (finished.decision === 'declined') return finished;
 
         span.setAttribute('intafaced.card_decision', 'approved');
-        const approved = (await this.authorizationByRef(card.id, input.authorizationRef))!;
-        await this.tellIssuer(card, approved, { decision: 'approved', amount: input.amount });
-        return approved;
+        return finished;
       },
     );
+  }
+
+  /**
+   * The hold for an approved row that never received one.
+   *
+   * No quote. The amount and the withdrawal id are the ones already stored.
+   * A second post of `withdraw.hold:<authorisation uuid>` finds the original
+   * transaction or makes it once.
+   */
+  private async redriveHold(card: CardRecord, already: AuthorizationRecord): Promise<AuthorizationRecord> {
+    const merchantAmount = already.conversion ? already.conversion.settlementAmount : already.amount;
+    return withMoneySpan(
+      'bank.card.authorize',
+      {
+        operation: 'card-authorize',
+        cardId: card.id,
+        amount: formatAmount(merchantAmount),
+        assetId: card.settlementAssetId,
+      },
+      async (span) => {
+        span.setAttribute('intafaced.card_funding_amount', formatAmount(already.amount));
+        const finished = await this.commitHold(card, already, merchantAmount);
+        span.setAttribute('intafaced.card_decision', finished.decision);
+        return finished;
+      },
+    );
+  }
+
+  /**
+   * Post the hold for a claimed authorisation, then write the row.
+   *
+   * THE CLAIMED ROW'S AMOUNT, not this call's quote. A second delivery that
+   * lost the decision insert has its own quote in hand and must not hold
+   * against it — the frozen rate is the one that won, and `claimed.amount` is
+   * what it converted to. The withdrawal id is OUR uuid, not the issuer's
+   * reference: the hold account is keyed on it, and an id chosen by a
+   * counterparty must not name an account in our book. The rail label is the
+   * programme id, so the boundary account a capture lands in is greppable back
+   * to the card that made it.
+   */
+  private async commitHold(card: CardRecord, claimed: AuthorizationRecord, merchantAmount: Amount): Promise<AuthorizationRecord> {
+    try {
+      const posted = await this.ledger.post(
+        recipes.withdrawHold({
+          userId: card.userId,
+          assetId: card.assetId,
+          amount: claimed.amount,
+          rail: card.issuer,
+          withdrawalId: claimed.id,
+        }),
+      );
+
+      await this.sql`
+        UPDATE bank.card_authorizations
+           SET status = 'settled', hold_ledger_tx_id = ${posted.id}, settled_at = now()
+         WHERE id = ${claimed.id}
+      `;
+    } catch (err) {
+      // The ledger is the authority and it just said no. The DECISION
+      // becomes a decline — a purchase the user was told about at the till —
+      // rather than an exception that leaves an `approved` row with no hold.
+      if (err instanceof InsufficientFundsError || (err instanceof LedgerError && err.code === 'ledger.insufficient_funds')) {
+        await this.sql`
+          UPDATE bank.card_authorizations
+             SET decision = 'declined', decline_code = 'ledger.insufficient_funds', status = 'rejected'
+           WHERE id = ${claimed.id}
+        `;
+        const declined = (await this.authorizationByRef(card.id, claimed.authorizationRef))!;
+        await this.tellIssuer(card, declined, { decision: 'declined', reason: 'ledger.insufficient_funds' });
+        return declined;
+      }
+      // Anything else — svc-ledger unreachable, a frozen module — must NOT
+      // be turned into a decline. A decline is an answer, and answering
+      // "no" on behalf of a ledger that never spoke is a lie the user pays
+      // for at the till. The row stays `pending` and a redelivery re-drives.
+      throw err;
+    }
+
+    const approved = (await this.authorizationByRef(card.id, claimed.authorizationRef))!;
+    await this.tellIssuer(card, approved, { decision: 'approved', amount: merchantAmount });
+    return approved;
   }
 
   /**
@@ -663,7 +729,7 @@ export class CardService {
    */
   async capture(input: { cardId: string; authorizationRef: string; amount: Amount }): Promise<CaptureResult> {
     const card = await this.card(input.cardId);
-    const authorization = await this.requireOpenAuthorization(card, input.authorizationRef);
+    const authorization = await this.requireOpenAuthorization(card, input.authorizationRef, 'capture');
     const conversion = authorization.conversion;
 
     // The ceiling is checked in the MERCHANT'S currency, because the merchant's
@@ -763,7 +829,7 @@ export class CardService {
    */
   async reverse(input: { cardId: string; authorizationRef: string }): Promise<{ returned: Amount; ledgerTxId: string }> {
     const card = await this.card(input.cardId);
-    const authorization = await this.requireOpenAuthorization(card, input.authorizationRef);
+    const authorization = await this.requireOpenAuthorization(card, input.authorizationRef, 'reversal');
 
     return withMoneySpan(
       'bank.card.reverse',
@@ -801,7 +867,7 @@ export class CardService {
    *
    * The other half of the crash story, and the card equivalent of
    * `resumePendingLoans` — which exists for exactly this reason on the loan side.
-   * Two shapes of stuck money end up here, and neither is reachable by calling
+   * Three shapes of stuck money end up here, and none is reachable by calling
    * `capture` again:
    *
    *   · A capture whose post failed. Sequence 0 is `rejected` or `pending`, and
@@ -809,6 +875,11 @@ export class CardService {
    *   · A partial capture whose REVERSAL post failed. Sequence 0 is settled — so
    *     the authorisation is correctly closed to new decisions — and the user's
    *     unspent remainder is stuck in that account with nothing left to move it.
+   *   · A cashback row still `pending` after a ledger error that was not an empty
+   *     pot. The capture has already settled, so `capture` again is refused. The
+   *     row is re-driven for the amount it was claimed with, on the same reward
+   *     id. A `settled` row is not paid again. A `rejected` row — the pot was
+   *     empty — is not retried.
    *
    * Safe to run at any time and any number of times, for the same reason
    * `resumePending` is: every post is idempotent on the authorisation, and each
@@ -887,6 +958,12 @@ export class CardService {
       }
     }
 
+    // Pending cashback only. A settled reward is already paid. A rejected one
+    // is the empty pot, and paying it here would undo that named refusal.
+    // This does not insert a capture: the settlement loop above only re-drives
+    // rows that already exist.
+    await this.retryPendingCashback(card, authorization.id);
+
     return {
       authorizationId: authorization.id,
       resumed,
@@ -928,6 +1005,18 @@ export class CardService {
    * cashback a share of money the platform actually earned rather than a number
    * conjured for a marketing page — and it is also why it can refuse.
    */
+  /**
+   * A real issuer is an outside company. card-sim and an unconfigured programme
+   * are not one. A simulated card must not pay rewards.
+   */
+  private rewardsIssuerConnected(card: CardRecord): boolean {
+    const programme = this.issuer.programme;
+    if (programme.simulated || card.simulated) return false;
+    if (programme.id === 'none' || programme.id === 'card-sim') return false;
+    if (card.issuer === 'none' || card.issuer === 'card-sim') return false;
+    return card.issuer === programme.id;
+  }
+
   private async payCashback(card: CardRecord, authorization: AuthorizationRecord, captured: Amount): Promise<CashbackOutcome> {
     const amount = cashbackOn(captured, card.cashbackBps);
     // Zero is not a refusal and not a payment. A card with no cashback rate, or
@@ -935,52 +1024,109 @@ export class CardService {
     // and posting a zero-value transaction to say so would be noise in the book.
     if (amount <= 0n) return { status: 'none', amount: 0n };
 
-    const claimed = await this.sql<Array<{ id: string; status: string; ledger_tx_id: string | null }>>`
+    // No issuer is connected. Do not call rewardPay and do not write a cashback
+    // row — that row would be a rewards balance. The capture already stands.
+    if (!this.rewardsIssuerConnected(card)) {
+      return { status: 'refused', amount, reason: 'bank.rewards_issuer_unset' };
+    }
+
+    const claimed = await this.sql<
+      Array<{ id: string; status: string; ledger_tx_id: string | null; amount: string; rejection_code: string | null }>
+    >`
       INSERT INTO bank.card_cashback (authorization_id, rate_bps, amount)
       VALUES (${authorization.id}, ${card.cashbackBps}, ${formatAmount(amount)}::numeric)
       ON CONFLICT (authorization_id) DO NOTHING
-      RETURNING id, status, ledger_tx_id
+      RETURNING id, status, ledger_tx_id, amount::text AS amount, rejection_code
     `;
 
     const row =
       claimed[0] ??
       (
-        await this.sql<Array<{ id: string; status: string; ledger_tx_id: string | null }>>`
-          SELECT id, status, ledger_tx_id FROM bank.card_cashback WHERE authorization_id = ${authorization.id}
+        await this.sql<Array<{ id: string; status: string; ledger_tx_id: string | null; amount: string; rejection_code: string | null }>>`
+          SELECT id, status, ledger_tx_id, amount::text AS amount, rejection_code
+            FROM bank.card_cashback WHERE authorization_id = ${authorization.id}
         `
       )[0]!;
 
-    if (row.status === 'settled' && row.ledger_tx_id) return { status: 'paid', amount, ledgerTxId: row.ledger_tx_id };
+    // The row's amount, not a re-rate. A later change to the card's bps must
+    // not post a different reward than the one this authorisation claimed.
+    const payable = parseAmount(row.amount);
+    if (row.status === 'settled' && row.ledger_tx_id) return { status: 'paid', amount: payable, ledgerTxId: row.ledger_tx_id };
+    if (row.status === 'rejected') {
+      return { status: 'refused', amount: payable, reason: row.rejection_code ?? 'bank.cashback_pot_unfunded' };
+    }
+    return this.postCashbackReward(card, authorization.id, row.id, payable);
+  }
 
+  /**
+   * Re-drive a cashback row that is still `pending`.
+   *
+   * Does not insert a settlement and does not select `settled` or `rejected`.
+   * The amount is the one stored on the row.
+   */
+  private async retryPendingCashback(card: CardRecord, authorizationId: string): Promise<void> {
+    const rows = await this.sql<Array<{ id: string; amount: string }>>`
+      SELECT id, amount::text AS amount
+        FROM bank.card_cashback
+       WHERE authorization_id = ${authorizationId}
+         AND status = 'pending'
+    `;
+    for (const row of rows) {
+      await this.postCashbackReward(card, authorizationId, row.id, parseAmount(row.amount));
+    }
+  }
+
+  /**
+   * Post one cashback reward, or record why it did not pay.
+   *
+   * `rewardPay` is idempotent on `reward:bank.card.cashback:<authorisation>`.
+   * A repeat returns the original transaction when the first post committed,
+   * and posts once when it did not. Insufficient funds is the only error that
+   * rejects the row. Any other ledger error leaves it `pending` and does not
+   * throw: the capture has already landed, and throwing would strand the retry.
+   */
+  private async postCashbackReward(card: CardRecord, authorizationId: string, rowId: string, amount: Amount): Promise<CashbackOutcome> {
     try {
-      const posted = await this.ledger.post(
-        recipes.rewardPay({
-          rewardId: `bank.card.cashback:${authorization.id}`,
-          userId: card.userId,
-          assetId: card.assetId,
-          amount,
-          reason: 'bank.card.cashback',
-        }),
-      );
+      const reward = recipes.rewardPay({
+        rewardId: `bank.card.cashback:${authorizationId}`,
+        userId: card.userId,
+        assetId: card.assetId,
+        amount,
+        reason: 'bank.card.cashback',
+      });
+      // A legacy pending row may name a reward whose acknowledgement was lost.
+      // Reconcile that committed transaction without posting again. A missing
+      // issuer must never let recovery create a new simulated-card reward.
+      const committed = await this.ledger.getTxByKey(reward.idempotencyKey);
+      if (!committed && !this.rewardsIssuerConnected(card)) {
+        return { status: 'refused', amount, reason: 'bank.rewards_issuer_unset' };
+      }
+      const posted = committed ?? (await this.ledger.post(reward));
       await this.sql`
-        UPDATE bank.card_cashback SET status = 'settled', ledger_tx_id = ${posted.id}, settled_at = now() WHERE id = ${row.id}
+        UPDATE bank.card_cashback
+           SET status = 'settled', ledger_tx_id = ${posted.id}, settled_at = now(), rejection_code = NULL
+         WHERE id = ${rowId}
+           AND status <> 'settled'
       `;
       return { status: 'paid', amount, ledgerTxId: posted.id };
     } catch (err) {
       if (err instanceof InsufficientFundsError || (err instanceof LedgerError && err.code === 'ledger.insufficient_funds')) {
         await this.sql`
-          UPDATE bank.card_cashback SET status = 'rejected', rejection_code = 'bank.cashback_pot_unfunded' WHERE id = ${row.id}
+          UPDATE bank.card_cashback
+             SET status = 'rejected', rejection_code = 'bank.cashback_pot_unfunded'
+           WHERE id = ${rowId}
+             AND status = 'pending'
         `;
         // Surfaced, not thrown. Reversing a capture the merchant already has,
         // because a reward could not be paid, would undo a purchase that
         // happened. The row and this outcome are how an operator finds it.
         return { status: 'refused', amount, reason: 'bank.cashback_pot_unfunded' };
       }
-      await this.sql`
-        UPDATE bank.card_cashback SET status = 'rejected', rejection_code = ${err instanceof LedgerError ? err.code : 'bank.post_failed'}
-         WHERE id = ${row.id}
-      `;
-      throw err;
+      return {
+        status: 'refused',
+        amount,
+        reason: err instanceof LedgerError ? err.code : 'bank.post_failed',
+      };
     }
   }
 
@@ -1070,31 +1216,51 @@ export class CardService {
   }
 
   /**
-   * An authorisation that is approved, settled, and has nothing against it yet.
+   * An authorisation that is approved, whose hold landed, and that this kind
+   * may still move.
    *
-   * `status = 'settled'` IS THE LOAD-BEARING PART OF THIS QUERY. Counting every
-   * sequence-0 row regardless of status closes the authorisation on the strength
-   * of a settlement that never reached the ledger: a post that threw leaves a
-   * `rejected` row, a process that died between the claim and the post leaves a
-   * `pending` one, and in both cases the user's whole hold is still sitting in an
-   * account only this authorisation can name. Treating either as "already
-   * settled" refuses the retry that would release it — and refuses `reverse()`
-   * too, because it comes through here as well. That is stranded funds with no
-   * way out, produced by one transient ledger error.
+   * `status = 'settled'` IS THE LOAD-BEARING PART OF THE CLOSED CHECK. Counting
+   * every sequence-0 row regardless of status closes the authorisation on the
+   * strength of a settlement that never reached the ledger: a post that threw
+   * leaves a `rejected` row, a process that died between the claim and the post
+   * leaves a `pending` one, and in both cases the user's whole hold is still
+   * sitting in an account only this authorisation can name. Treating either as
+   * "already settled" refuses the retry that would release it. That is stranded
+   * funds with no way out, produced by one transient ledger error.
    *
    * A settlement that DID reach the ledger still closes the authorisation, which
    * is what makes a second capture at a different amount, and a reversal after a
    * capture, impossible rather than merely unlikely. Recovering the remainder of
    * a capture that got that far is `resumeSettlements`, not a re-drive of this.
+   *
+   * A pending row is not settled, and it is not an open door for the other kind.
+   * Capture and reverse both take sequence 0. Letting a reverse through while a
+   * capture claim is pending — or a capture through while a reversal claim is
+   * pending — makes them share that row. The same kind stays open, because that
+   * is the re-drive. A rejected row stays open too, including for the other
+   * kind: the post never landed, and `reverse()` after a failed capture is how
+   * the hold goes back. That call does not settle the rejected row. Sequence 0
+   * is claimed again, as the kind that is actually posting.
    */
-  private async requireOpenAuthorization(card: CardRecord, authorizationRef: string): Promise<AuthorizationRecord> {
+  private async requireOpenAuthorization(
+    card: CardRecord,
+    authorizationRef: string,
+    kind: 'capture' | 'reversal',
+  ): Promise<AuthorizationRecord> {
     const authorization = await this.requireApprovedAuthorization(card, authorizationRef);
-    const settled = await this.sql<Array<{ count: string }>>`
-      SELECT count(*)::text AS count FROM bank.card_settlements
-       WHERE authorization_id = ${authorization.id} AND sequence = 0 AND status = 'settled'
+    const rows = await this.sql<Array<{ status: string; kind: 'capture' | 'reversal' }>>`
+      SELECT status, kind FROM bank.card_settlements
+       WHERE authorization_id = ${authorization.id} AND sequence = 0
     `;
-    if (settled[0]!.count !== '0') {
+    const claim = rows[0];
+    if (claim?.status === 'settled') {
       throw new BankError(`Authorisation ${authorizationRef} has already been settled`, 'bank.card_authorization_closed');
+    }
+    if (claim?.status === 'pending' && claim.kind !== kind) {
+      throw new BankError(
+        `Authorisation ${authorizationRef} has a pending ${claim.kind} on sequence 0, not a ${kind}`,
+        'bank.card_settlement_kind_conflict',
+      );
     }
     return authorization;
   }
@@ -1179,16 +1345,62 @@ export class CardService {
           ON CONFLICT (authorization_id, sequence) DO NOTHING
           RETURNING id, ledger_tx_id
         `;
-        if (rows.length > 0) return { claimed: true as const, id: rows[0]!.id, ledgerTxId: null, amount: input.amount };
-        const existing = await tx<Array<{ id: string; ledger_tx_id: string | null; amount: string }>>`
-          SELECT id, ledger_tx_id, amount::text AS amount FROM bank.card_settlements
+        if (rows.length > 0) {
+          return {
+            claimed: true as const,
+            id: rows[0]!.id,
+            ledgerTxId: null,
+            amount: input.amount,
+            kind: input.kind,
+            status: 'pending' as const,
+          };
+        }
+        const existing = await tx<
+          Array<{ id: string; ledger_tx_id: string | null; amount: string; kind: 'capture' | 'reversal'; status: string }>
+        >`
+          SELECT id, ledger_tx_id, amount::text AS amount, kind, status FROM bank.card_settlements
            WHERE authorization_id = ${input.authorization.id} AND sequence = ${input.sequence}
         `;
+        const prior = existing[0]!;
+        const priorAmount = parseAmount(prior.amount);
+        // A rejected full capture sits on sequence 0 with kind `capture` and
+        // the hold as its amount. The other kind may release that hold, but
+        // not by posting onto this row or by returning its ledger transaction.
+        // Retire the failed claim and insert a new one. A different amount is
+        // left for the conflict check below, which must still see the old row.
+        if (prior.kind !== input.kind && prior.status === 'rejected' && priorAmount === input.amount) {
+          const removed = await tx<Array<{ id: string }>>`
+            DELETE FROM bank.card_settlements
+             WHERE id = ${prior.id} AND status = 'rejected' AND kind = ${prior.kind}
+            RETURNING id
+          `;
+          if (removed.length === 0) {
+            throw new BankError(
+              `Settlement ${input.sequence} on this authorisation was claimed as ${prior.kind}, not ${input.kind}`,
+              'bank.card_settlement_kind_conflict',
+            );
+          }
+          const inserted = await tx<Array<{ id: string }>>`
+            INSERT INTO bank.card_settlements (authorization_id, sequence, kind, amount)
+            VALUES (${input.authorization.id}, ${input.sequence}, ${input.kind}, ${formatAmount(input.amount)}::numeric)
+            RETURNING id
+          `;
+          return {
+            claimed: true as const,
+            id: inserted[0]!.id,
+            ledgerTxId: null,
+            amount: input.amount,
+            kind: input.kind,
+            status: 'pending' as const,
+          };
+        }
         return {
           claimed: false as const,
-          id: existing[0]!.id,
-          ledgerTxId: existing[0]!.ledger_tx_id,
-          amount: parseAmount(existing[0]!.amount),
+          id: prior.id,
+          ledgerTxId: prior.ledger_tx_id,
+          amount: priorAmount,
+          kind: prior.kind,
+          status: prior.status,
         };
       },
       { isolation: 'read committed', maxAttempts: 5 },
@@ -1208,6 +1420,21 @@ export class CardService {
     //
     // The claimed row is the record of what this sequence is for. A caller who
     // disagrees with it is refused by name rather than quietly reconciled.
+    //
+    // Kind is the other half. Capture and reverse both take sequence 0, so the
+    // lost insert is not proof they asked for the same movement. Returning
+    // `ledgerTxId` here would report the capture's transaction as the reversal.
+    // A rejected row is not an exception to that. Nothing was posted, so the
+    // other kind may still release the hold, but the claim above retires the
+    // failed row first. Settling it in place would leave kind `capture` and,
+    // when the reject left a ledger transaction id, hand that capture back as
+    // the reversal.
+    if (!claim.claimed && claim.kind !== input.kind) {
+      throw new BankError(
+        `Settlement ${input.sequence} on this authorisation was claimed as ${claim.kind}, not ${input.kind}`,
+        'bank.card_settlement_kind_conflict',
+      );
+    }
     if (claim.amount !== input.amount) {
       throw new BankError(
         `Settlement ${input.sequence} on this authorisation was claimed for ${formatAmount(claim.amount)}, not ${formatAmount(input.amount)}`,
@@ -1223,7 +1450,9 @@ export class CardService {
     } catch (err) {
       await this.sql`
         UPDATE bank.card_settlements
-           SET status = 'rejected', rejection_code = ${err instanceof LedgerError ? err.code : 'bank.post_failed'}
+           SET status = 'rejected',
+               rejection_code = ${err instanceof LedgerError ? err.code : 'bank.post_failed'},
+               ledger_tx_id = NULL
          WHERE id = ${claim.id}
       `;
       throw err;

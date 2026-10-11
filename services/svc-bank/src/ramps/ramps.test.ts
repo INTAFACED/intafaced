@@ -5,7 +5,15 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
-import { MemoryLedger, formatAmount, parseAmount as amt, railBoundary, userAvailable } from '@intafaced/ledger-client';
+import {
+  MemoryLedger,
+  formatAmount,
+  parseAmount as amt,
+  railBoundary,
+  recipes,
+  userAvailable,
+  type PostRequest,
+} from '@intafaced/ledger-client';
 import { createBankServices, type BankServices } from '../bank-service.js';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { BankError } from '../errors.js';
@@ -25,10 +33,10 @@ import { BANK_OFFRAMP_COOLING_HOURS_ENV } from '../offramp-cooling.js';
 import { assertOnlyWithdrawDestinations, memoryWithdrawDestinations } from '../withdraw-destination.js';
 
 /**
- * bank.ramps — CRYPTO LEDGER half (D-S-09) + FIAT VIA PAY ADAPTERS (D26-P1-B4).
+ * bank.ramps — CRYPTO LEDGER half (D-S-09).
  *
- * Proves money paths, named refusals, and that fiat reuses svc-pay RailAdapter
- * posture (empty/sandbox refuse; live uses ledger-client only — no second book).
+ * Proves the crypto ledger half, and that kind fiat refuses bank.fiat_ramp_socket
+ * before a row or a ledger post. Kind fiat does not store a ramp row and does not post.
  *
  * H8a PG-hard: this file never `describe.skip` / `postgresAvailable`. CI uses
  * TEST_DATABASE_URL (per-run database via `createTestDatabase` so schema-qualified
@@ -139,6 +147,15 @@ describe('ramps (source)', () => {
   });
 });
 
+async function waitFor(pred: () => boolean | Promise<boolean>, ms: number): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (await pred()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return false;
+}
+
 describe('ramps PG-hard', () => {
   let adminStop: () => Promise<void> = async () => undefined;
   let db: TestDatabase | undefined;
@@ -237,7 +254,7 @@ describe('ramps PG-hard', () => {
           railRef: 'ach-1',
           creditedBy: OPERATOR,
         }),
-      ).rejects.toMatchObject({ code: 'bank.fiat_ramp_no_pay_adapter' });
+      ).rejects.toMatchObject({ code: 'bank.fiat_ramp_socket' });
 
       const count = await sql`SELECT count(*)::int AS n FROM bank.ramp_onramps`;
       expect(count[0]!.n).toBe(0);
@@ -252,7 +269,7 @@ describe('ramps PG-hard', () => {
           destinationRef: 'IBAN',
           clientRef: 'fiat-1',
         }),
-      ).rejects.toMatchObject({ code: 'bank.fiat_ramp_no_pay_adapter' });
+      ).rejects.toMatchObject({ code: 'bank.fiat_ramp_socket' });
     });
 
     it('sandbox pay rails still refuse fiat — no PSP laundering into bank', async () => {
@@ -272,67 +289,135 @@ describe('ramps PG-hard', () => {
           railRef: 'sandbox-ach',
           creditedBy: OPERATOR,
         }),
-      ).rejects.toMatchObject({ code: 'bank.no_fiat_rail' });
+      ).rejects.toMatchObject({ code: 'bank.fiat_ramp_socket' });
       const count = await sql`SELECT count(*)::int AS n FROM bank.ramp_onramps`;
       expect(count[0]!.n).toBe(0);
     });
   });
 
-  describe('fiat via live pay adapter — same ledger recipes, no second book', () => {
+  describe('fiat kind refuses the socket before a row or a ledger post', () => {
     const livePay: PayFiatRampPort = {
       listFiatRails: () => [{ railId: 'pay-fiat-ach', mode: 'live', capabilities: ['onramp', 'offramp'] }],
     };
 
-    it('credits fiat on-ramp onto the pay rail id via recipes.deposit', async () => {
+    it('refuses a fiat on-ramp when a live pay rail is injected', async () => {
       const fiatRamps = new RampService(sql, ledger, {
         programme: CRYPTO_LEDGER_PROGRAMME,
         payFiat: livePay,
       });
-      const row = await fiatRamps.creditOnramp({
-        userId: USER,
-        assetId: 'USDT',
-        amount: amt('25'),
-        kind: 'fiat',
-        railRef: 'ach-in-1',
-        creditedBy: OPERATOR,
-      });
-      expect(row.kind).toBe('fiat');
-      expect(row.rail).toBe('pay-fiat-ach');
-      expect(row.simulated).toBe(true);
-      expect(row.status).toBe('settled');
-      expect(formatAmount((await ledger.balance(userAvailable(USER, 'USDT'))).amount)).toBe('25');
-      expect(formatAmount((await ledger.balance(railBoundary('pay-fiat-ach', 'USDT'))).amount)).toBe('-25');
+      await expect(
+        fiatRamps.creditOnramp({
+          userId: USER,
+          assetId: 'USDT',
+          amount: amt('25'),
+          kind: 'fiat',
+          railRef: 'ach-in-1',
+          creditedBy: OPERATOR,
+        }),
+      ).rejects.toMatchObject({ code: 'bank.fiat_ramp_socket' });
+      const count = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM bank.ramp_onramps`;
+      expect(count[0]!.n).toBe(0);
+      expect(ledger.journal()).toHaveLength(0);
       expect(ledger.reconcile().ok).toBe(true);
     });
 
-    it('settles fiat off-ramp through the pay rail without inventing a bank PSP book', async () => {
+    it('refuses the same fiat railRef again when the live rail id would have changed', async () => {
+      let order = ['pay-fiat-first'];
+      const shifting: PayFiatRampPort = {
+        listFiatRails: () => order.map((railId) => ({ railId, mode: 'live' as const, capabilities: ['onramp' as const] })),
+      };
+      const fiatRamps = new RampService(sql, ledger, {
+        programme: CRYPTO_LEDGER_PROGRAMME,
+        payFiat: shifting,
+      });
+      const railRef = 'ach-same-ref-rail-moves';
+      await expect(
+        fiatRamps.creditOnramp({
+          userId: USER,
+          assetId: 'USDT',
+          amount: amt('25'),
+          kind: 'fiat',
+          railRef,
+          creditedBy: OPERATOR,
+        }),
+      ).rejects.toMatchObject({ code: 'bank.fiat_ramp_socket' });
+
+      order = ['pay-fiat-second', 'pay-fiat-first'];
+      await expect(
+        fiatRamps.creditOnramp({
+          userId: USER,
+          assetId: 'USDT',
+          amount: amt('25'),
+          kind: 'fiat',
+          railRef,
+          creditedBy: OPERATOR,
+        }),
+      ).rejects.toMatchObject({ code: 'bank.fiat_ramp_socket' });
+
+      const rows = await sql<Array<{ n: number }>>`
+        SELECT count(*)::int AS n FROM bank.ramp_onramps WHERE rail_ref = ${railRef}
+      `;
+      expect(rows[0]!.n).toBe(0);
+      expect(ledger.journal()).toHaveLength(0);
+      expect(ledger.reconcile().ok).toBe(true);
+    });
+
+    it('refuses a non-positive fiat amount with the socket before a row or a deposit', async () => {
       const fiatRamps = new RampService(sql, ledger, {
         programme: CRYPTO_LEDGER_PROGRAMME,
         payFiat: livePay,
       });
-      await fiatRamps.creditOnramp({
-        userId: USER,
-        assetId: 'USDT',
-        amount: amt('40'),
-        kind: 'fiat',
-        railRef: 'ach-fund',
-        creditedBy: OPERATOR,
+      for (const amount of [0n, -1n]) {
+        await expect(
+          fiatRamps.creditOnramp({
+            userId: USER,
+            assetId: 'USDT',
+            amount,
+            kind: 'fiat',
+            railRef: 'ach-non-positive',
+            creditedBy: OPERATOR,
+          }),
+        ).rejects.toMatchObject({ code: 'bank.fiat_ramp_socket' });
+      }
+      const count = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM bank.ramp_onramps`;
+      expect(count[0]!.n).toBe(0);
+      expect(ledger.journal()).toHaveLength(0);
+    });
+
+    it('refuses a fiat off-ramp when a live pay rail is injected', async () => {
+      const fiatRamps = new RampService(sql, ledger, {
+        programme: CRYPTO_LEDGER_PROGRAMME,
+        payFiat: livePay,
       });
+      await expect(
+        fiatRamps.creditOnramp({
+          userId: USER,
+          assetId: 'USDT',
+          amount: amt('40'),
+          kind: 'fiat',
+          railRef: 'ach-fund',
+          creditedBy: OPERATOR,
+        }),
+      ).rejects.toMatchObject({ code: 'bank.fiat_ramp_socket' });
       const id = randomUUID();
-      const out = await fiatRamps.offramp({
-        offrampId: id,
-        userId: USER,
-        assetId: 'USDT',
-        amount: amt('15'),
-        kind: 'fiat',
-        destinationRef: 'GB82WEST12345698765432',
-        clientRef: 'fiat-out-1',
-      });
-      expect(out.kind).toBe('fiat');
-      expect(out.rail).toBe('pay-fiat-ach');
-      expect(out.simulated).toBe(true);
-      expect(out.status).toBe('settled');
-      expect(formatAmount((await ledger.balance(userAvailable(USER, 'USDT'))).amount)).toBe('25');
+      await expect(
+        fiatRamps.offramp({
+          offrampId: id,
+          userId: USER,
+          assetId: 'USDT',
+          amount: amt('15'),
+          kind: 'fiat',
+          destinationRef: 'GB82WEST12345698765432',
+          clientRef: 'fiat-out-1',
+        }),
+      ).rejects.toMatchObject({ code: 'bank.fiat_ramp_socket' });
+      const counts = await sql<Array<{ n: number }>>`
+        SELECT count(*)::int AS n FROM bank.ramp_onramps
+        UNION ALL
+        SELECT count(*)::int AS n FROM bank.ramp_offramps
+      `;
+      expect(counts.every((row) => row.n === 0)).toBe(true);
+      expect(ledger.journal()).toHaveLength(0);
       expect(ledger.reconcile().ok).toBe(true);
     });
   });
@@ -573,6 +658,76 @@ describe('ramps PG-hard', () => {
       `;
       expect(rows[0]).toMatchObject({ status: 'rejected', rejection_code: 'ledger.insufficient_funds' });
     });
+
+    it('a concurrent caller cannot settle an offramp this caller rejected for insufficient funds', async () => {
+      const dest = '0x000000000000000000000000000000000000dEaD';
+      await ramps.setWithdrawDestination({ userId: USER, kind: 'crypto', ref: dest });
+      const id = randomUUID();
+      const input = {
+        offrampId: id,
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('10'),
+        kind: 'crypto' as const,
+        clientRef: `race-${id}`,
+      };
+
+      // Both callers reach withdrawHold while the balance is empty. The first
+      // hold fails for real and rejects the row. Funding the caller that is
+      // already inside hold is the window: a claim released before the posts
+      // lets that caller settle and report settled against the rejected row.
+      const realPost = ledger.post.bind(ledger);
+      let holdEntrants = 0;
+      ledger.post = async (request: PostRequest) => {
+        if (request.reason !== 'withdraw.held') return realPost(request);
+        const n = ++holdEntrants;
+        if (n === 1) {
+          await waitFor(() => holdEntrants >= 2, 2_000);
+          return realPost(request);
+        }
+        const rejected = await waitFor(async () => {
+          const rows = await sql<Array<{ status: string }>>`
+            SELECT status FROM bank.ramp_offramps WHERE id = ${id}
+          `;
+          return rows[0]?.status === 'rejected';
+        }, 3_000);
+        if (rejected) {
+          await realPost(
+            recipes.deposit({
+              userId: USER,
+              assetId: 'USDT',
+              amount: amt('10'),
+              rail: 'test',
+              railRef: `race-fund-${id}`,
+            }),
+          );
+        }
+        return realPost(request);
+      };
+
+      const results = await Promise.allSettled([ramps.offramp(input), ramps.offramp(input)]);
+
+      const reportedSettled = results.filter((r) => r.status === 'fulfilled' && r.value.status === 'settled');
+      expect(reportedSettled).toHaveLength(0);
+      expect(ledger.journal().some((tx) => tx.reason === 'withdraw.held' || tx.reason === 'withdraw.settled')).toBe(false);
+
+      const rows = await sql<Array<{ status: string; rejection_code: string | null }>>`
+        SELECT status, rejection_code FROM bank.ramp_offramps WHERE id = ${id}
+      `;
+      expect(rows[0]).toMatchObject({ status: 'rejected', rejection_code: 'ledger.insufficient_funds' });
+
+      await expect(ramps.offramp(input)).rejects.toMatchObject({ code: 'bank.ramp_conflict' });
+      await expect(
+        ramps.offramp({
+          offrampId: randomUUID(),
+          userId: USER,
+          assetId: 'USDT',
+          amount: 0n,
+          kind: 'crypto',
+          clientRef: `zero-${id}`,
+        }),
+      ).rejects.toMatchObject({ code: 'bank.ramp_invalid_amount' });
+    }, 20_000);
 
     it('retries on the same clientRef return the same settled offramp', async () => {
       await ramps.creditOnramp({

@@ -118,9 +118,13 @@ function spawnCodec(ready: { java: string; classpath: string }): JavaSbeCodec {
         killSignal: 'SIGKILL',
       });
       const out = `${r.stdout ?? ''}`.trim();
-      if (!out) {
+      const processFailed = r.error != null || r.signal != null || r.status !== 0;
+      if (processFailed || !out) {
         const err = `${r.stderr ?? ''}`.trim();
-        throw new Error(err || (r.error instanceof Error ? r.error.message : 'SBE Java codec produced no output'));
+        const spawned = r.error instanceof Error ? r.error.message : '';
+        const killed = r.signal != null ? `SBE Java codec killed by ${r.signal}` : '';
+        const exited = processFailed ? `SBE Java codec exited ${String(r.status)}` : 'SBE Java codec produced no output';
+        throw new Error(err || spawned || killed || exited);
       }
       const jsonStart = out.indexOf('{');
       return jsonStart >= 0 ? out.slice(jsonStart) : out;

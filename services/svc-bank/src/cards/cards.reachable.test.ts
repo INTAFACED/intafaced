@@ -263,10 +263,10 @@ describe('svc-bank cards reachable (PG-hard)', () => {
       expect(captured.captured).toBe('60');
       // The unspent remainder came back in the same pass, as a string.
       expect(captured.returned).toBe('20');
-      // The pot was never funded, so the reward refuses BY NAME and the capture
+      // No issuer is connected, so the reward refuses by name and the capture
       // still stands. A silent zero here would be the failure this refuses.
       expect(captured.cashback.status).toBe('refused');
-      expect(captured.cashback.reason).toBe('bank.cashback_pot_unfunded');
+      expect(captured.cashback.reason).toBe('bank.rewards_issuer_unset');
 
       // 500 − 60 captured, with the 20 remainder returned. Read off the LEDGER,
       // which is the only thing entitled to answer "how much".
@@ -351,8 +351,8 @@ describe('svc-bank cards reachable (PG-hard)', () => {
       expect((await ledger.balance(userAvailable(HOLDER, 'BTC'))).amount).toBe(amt('1'));
     });
 
-    /** Cashback pays from a pot funded by real bank fees, and it reaches the caller. */
-    it('pays a reward the operator really funded, through the same door', async () => {
+    /** A funded pot is not a rewards balance while the issuer is still card-sim. */
+    it('does not pay a reward the operator funded while the issuer is simulated', async () => {
       await fund(HOLDER, 'USDT', '500');
       await fund(FEE_PAYER, 'USDT', '10');
       await ledger.post(
@@ -389,8 +389,10 @@ describe('svc-bank cards reachable (PG-hard)', () => {
         ...APPROVAL,
       });
 
-      expect(captured.cashback.status).toBe('paid');
+      expect(captured.cashback.status).toBe('refused');
+      expect(captured.cashback.reason).toBe('bank.rewards_issuer_unset');
       expect(captured.cashback.amount).toBe('1');
+      expect((await ledger.balance(userAvailable(HOLDER, 'USDT'))).amount).toBe(amt('400'));
     });
 
     /**

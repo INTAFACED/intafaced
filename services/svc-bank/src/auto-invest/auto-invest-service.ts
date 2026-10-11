@@ -390,19 +390,26 @@ export class AutoInvestService {
           ON CONFLICT (rule_id, client_run_id) DO NOTHING
           RETURNING id
         `;
+        let runId: string;
         if (claimed.length === 0) {
-          const existing = await this.sql<Array<{ status: AutoInvestRunStatus; position_id: string | null }>>`
-            SELECT status, position_id FROM bank.auto_invest_runs
+          const existing = await this.sql<Array<{ id: string; status: AutoInvestRunStatus; position_id: string | null }>>`
+            SELECT id, status, position_id FROM bank.auto_invest_runs
              WHERE rule_id = ${rule.id}::uuid AND client_run_id = ${clientRunId}
           `;
           const prior = existing[0];
           if (prior?.status === 'settled' && prior.position_id) {
             return { status: 'settled', amount: spare, positionId: prior.position_id };
           }
-          return { status: 'skipped', amount: spare, reason: 'bank.auto_invest_run_failed' };
+          // earn.deposit is idempotent on this run id. Retry pending and rejected; do not mint another id.
+          if (prior && (prior.status === 'pending' || prior.status === 'rejected')) {
+            runId = prior.id;
+          } else {
+            return { status: 'skipped', amount: spare, reason: 'bank.auto_invest_run_failed' };
+          }
+        } else {
+          runId = claimed[0]!.id;
         }
 
-        const runId = claimed[0]!.id;
         const now = new Date();
         try {
           const position = await this.earn.deposit({
@@ -416,6 +423,7 @@ export class AutoInvestService {
             UPDATE bank.auto_invest_runs
                SET status = 'settled',
                    position_id = ${position.id},
+                   rejection_code = NULL,
                    settled_at = ${now},
                    amount = ${formatAmount(spare)}::numeric
              WHERE id = ${runId}::uuid
@@ -431,7 +439,7 @@ export class AutoInvestService {
           await this.sql`
             UPDATE bank.auto_invest_runs
                SET status = 'rejected', rejection_code = ${code}, settled_at = ${now}
-             WHERE id = ${runId}::uuid AND status = 'pending'
+             WHERE id = ${runId}::uuid AND status IN ('pending', 'rejected')
           `;
           return { status: 'refused', amount: spare, reason: code };
         }
@@ -556,7 +564,7 @@ export class AutoInvestService {
     return report;
   }
 
-  private async driveRule(rule: AutoInvestRule, now: Date): Promise<'settled' | 'skipped' | 'rejected'> {
+  private async driveRule(rule: AutoInvestRule, now: Date): Promise<'settled' | 'skipped' | 'rejected' | 'pending'> {
     if (rule.kind === 'threshold_sweep') {
       return this.driveThresholdSweep(rule, now);
     }
@@ -566,7 +574,7 @@ export class AutoInvestService {
     throw new BankError('Card round-ups fire on capture, not on the runner', 'bank.auto_invest_run_failed');
   }
 
-  private async driveThresholdSweep(rule: AutoInvestRule, now: Date): Promise<'settled' | 'skipped' | 'rejected'> {
+  private async driveThresholdSweep(rule: AutoInvestRule, now: Date): Promise<'settled' | 'skipped' | 'rejected' | 'pending'> {
     return withMoneySpan(
       'bank.auto_invest.threshold_sweep',
       { operation: 'auto-invest-threshold-sweep', ruleId: rule.id, userId: rule.userId, assetId: rule.assetId },
@@ -595,8 +603,17 @@ export class AutoInvestService {
           RETURNING id
         `;
         if (claimed.length === 0) {
-          // Same client_run_id already finished or in flight — treat as settled.
-          return 'settled';
+          const existing = await this.sql<Array<{ status: AutoInvestRunStatus }>>`
+            SELECT status FROM bank.auto_invest_runs
+             WHERE rule_id = ${rule.id}::uuid AND client_run_id = ${clientRunId}
+          `;
+          const status = existing[0]?.status;
+          // The key is taken. Settled only if that row already settled — a
+          // pending, rejected, or skipped row did not deposit this excess.
+          if (status === 'settled') return 'settled';
+          if (status === 'rejected') return 'rejected';
+          if (status === 'pending') return 'pending';
+          return 'skipped';
         }
         const runId = claimed[0]!.id;
         const positionId = runId; // earn deposit idempotency key = run id
@@ -637,7 +654,7 @@ export class AutoInvestService {
     );
   }
 
-  private async driveDca(rule: AutoInvestRule, now: Date): Promise<'settled' | 'skipped' | 'rejected'> {
+  private async driveDca(rule: AutoInvestRule, now: Date): Promise<'settled' | 'skipped' | 'rejected' | 'pending'> {
     if (!this.convert) {
       // Defence in depth: create already refuses, but a rule from a previous
       // deploy that lost its convert port must not invent a rate on fire.
@@ -660,7 +677,19 @@ export class AutoInvestService {
       ON CONFLICT (rule_id, client_run_id) DO NOTHING
       RETURNING id
     `;
-    if (claimed.length === 0) return 'settled';
+    if (claimed.length === 0) {
+      const existing = await this.sql<Array<{ status: AutoInvestRunStatus }>>`
+        SELECT status FROM bank.auto_invest_runs
+         WHERE rule_id = ${rule.id}::uuid AND client_run_id = ${clientRunId}
+      `;
+      const status = existing[0]?.status;
+      // The key is taken. Settled only if that row already settled — a
+      // pending or rejected row did not convert this buy.
+      if (status === 'settled') return 'settled';
+      if (status === 'rejected') return 'rejected';
+      if (status === 'pending') return 'pending';
+      return 'skipped';
+    }
     const runId = claimed[0]!.id;
 
     try {
@@ -675,7 +704,7 @@ export class AutoInvestService {
         UPDATE bank.auto_invest_runs
            SET status = 'settled',
                ledger_tx_id = ${result.ledgerTxId},
-               amount = ${formatAmount(amount)}::numeric,
+               amount = ${formatAmount(result.toAmount)}::numeric,
                settled_at = ${now}
          WHERE id = ${runId}::uuid
       `;

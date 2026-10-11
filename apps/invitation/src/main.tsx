@@ -1,4 +1,4 @@
-import React, { useReducer, useRef, useState } from 'react';
+import React, { useEffect, useReducer, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createJourney } from './journey';
 import { HaloInput, HaloTextarea } from './components/halo-input';
@@ -6,7 +6,7 @@ import { HaloField, HaloFieldLabel, HaloFieldContent, HaloFieldDescription, Halo
 import { GradientButtonGroup } from './components/gradient-button-group';
 import { HaloToggleGroup } from './components/halo-toggle-group';
 import { HaloProgress } from './components/halo-progress';
-import { ShimmerButton } from './components/shimmer-button';
+import { PrimaryMetal } from './components/primary-metal';
 import { TextAnimate } from './components/text-animate';
 import { BlurFade } from './components/blur-fade';
 import logo from '../../../vendor/upstream-exchange/05_Web_Front/src/assets/images/logo.svg';
@@ -53,11 +53,21 @@ function App() {
   const [, refresh] = useReducer((value) => value + 1, 0);
   const [vm] = useState<any>(() => createJourney(refresh));
   const welcomePlayed = useRef(false);
+  const [entryReveal, setEntryReveal] = useState(true);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      welcomePlayed.current = true;
+      setEntryReveal(false);
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, []);
   const contactValue = (key: string, value: unknown) => {
     vm.contact[key] = value;
     refresh();
   };
   const act = (key: string, ...args: unknown[]) => {
+    welcomePlayed.current = true;
+    setEntryReveal(false);
     void vm.act(key, ...args);
   };
   const begin = () => {
@@ -86,15 +96,13 @@ function App() {
     refresh();
   };
   const primary = (label: string, method?: string, disabled = false) => (
-    <button
+    <PrimaryMetal
       type={method ? 'button' : 'submit'}
-      className="outreach-primary"
-      disabled={vm.busy || disabled}
+      label={label}
+      busy={vm.busy}
+      disabled={disabled}
       onClick={method ? () => act(method) : undefined}
-    >
-      {vm.busy ? 'Saving…' : label}
-      <span aria-hidden="true">→</span>
-    </button>
+    />
   );
   const back = (method?: string, ...args: unknown[]) => (
     <button
@@ -379,7 +387,10 @@ function App() {
     </form>
   );
   return (
-    <div className={`outreach-page invitation-theme dark ${vm.screen === 'welcome' ? 'is-welcome' : ''}`} data-framework="react">
+    <div
+      className={`outreach-page invitation-theme dark ${vm.screen === 'welcome' ? 'is-welcome' : ''} ${entryReveal ? 'entry-reveal' : ''}`}
+      data-framework="react"
+    >
       <a className="skip-link" href={vm.screen === 'welcome' ? '#welcome-title' : '#intake-heading'}>
         Skip to main content
       </a>
@@ -429,7 +440,8 @@ function App() {
                 accessible
                 once
                 startOnView={false}
-                duration={0.18}
+                delay={0.09}
+                duration={0.16}
                 variants={{
                   hidden: { opacity: 0, y: 6, filter: 'blur(4px)' },
                   show: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.22, ease: 'easeOut' } },
@@ -439,18 +451,16 @@ function App() {
               </TextAnimate>
             )}
             <p className="welcome-description">Tell us how you’d like to take part.</p>
-            <ShimmerButton
-              className="welcome-cta"
-              type="button"
-              onClick={begin}
-              shimmerColor="#b9f65a"
-              shimmerDuration="1.8s"
-              borderRadius="12px"
-              background="#151a12"
-            >
-              {vm.resumeAvailable ? 'Continue your enquiry' : 'Begin'}
-              <span aria-hidden="true">↗</span>
-            </ShimmerButton>
+            <div className="welcome-action">
+              <PrimaryMetal
+                className="welcome-cta"
+                type="button"
+                onClick={begin}
+                label={vm.resumeAvailable ? 'Continue your enquiry' : 'Begin'}
+              >
+                ↗
+              </PrimaryMetal>
+            </div>
             <p className="outreach-small">
               {vm.resumeAvailable ? 'A previous enquiry is available in this browser.' : 'No account needed. No investment commitment.'}
             </p>
@@ -525,10 +535,13 @@ function App() {
               {vm.resumeAvailable && (!vm.draft || vm.interestChangeRequested) ? (
                 <div className="outreach-resume">
                   <p>Continue the enquiry saved in this browser. Your answers will be shown after we check your access.</p>
-                  <button type="button" className="outreach-primary" disabled={vm.busy} onClick={() => act('reopen')}>
-                    {vm.busy ? 'Opening…' : 'Reopen saved enquiry'}
-                    <span aria-hidden="true">→</span>
-                  </button>
+                  <PrimaryMetal
+                    type="button"
+                    label="Reopen saved enquiry"
+                    busyLabel="Opening…"
+                    busy={vm.busy}
+                    onClick={() => act('reopen')}
+                  />
                   <button type="button" className="outreach-text-button" disabled={vm.busy} onClick={() => act('startNew')}>
                     Start a new enquiry
                   </button>

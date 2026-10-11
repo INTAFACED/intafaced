@@ -1,13 +1,15 @@
 /**
  * Unit card — proposeTransfer retry is one transfer / one hold (caller clientId)
  *
- * 1. Promise: proposeTransfer requires clientId. Under-threshold retry is one
- *    bankTransfer keyed on that id. Over-threshold retry is one
- *    businessApprovalHold keyed on that id.
+ * 1. Promise: proposeTransfer requires clientId. An identical retry returns the
+ *    original post or the original hold. A clientId reused with different terms,
+ *    including an amount that crosses the account spendThreshold, conflicts and
+ *    does not post or hold a second time.
  * 2. Break: randomUUID transferId/approvalId makes a retry a second movement.
- *    Hashing terms merges two genuine same-amount proposes.
- * 3. Done bar: two proposeTransfer() same clientId → one journal post. HTTP omit
- *    clientId is 400.
+ *    A second shape for the same clientId moves money twice.
+ * 3. Done bar: same clientId and same terms → one post or one hold. Different
+ *    terms throw bank.business_request_conflict and do not post or hold again.
+ *    HTTP omit clientId is 400.
  * 4. Class M
  * 5. Paths: services/svc-bank/src/business/business-service.ts, router.ts
  * 6. RED: two random ids, two posts; source matches randomUUID
@@ -112,11 +114,7 @@ async function mountDoors(bank: ReturnType<typeof createBankServices>): Promise<
   return app;
 }
 
-async function post(
-  app: FastifyInstance,
-  path: string,
-  input: Record<string, unknown>,
-): Promise<{ statusCode: number; body: WireBody }> {
+async function post(app: FastifyInstance, path: string, input: Record<string, unknown>): Promise<{ statusCode: number; body: WireBody }> {
   const res = await app.inject({ method: 'POST', url: `/trpc/${path}`, headers: signedHeaders(), payload: input });
   return { statusCode: res.statusCode, body: res.json() as WireBody };
 }
@@ -139,6 +137,14 @@ async function fund(ledger: MemoryLedger, userId: string, value: string) {
       railRef: `${userId}:USDT:${randomUUID()}`,
     }),
   );
+}
+
+function movementCounts(ledger: MemoryLedger): { posts: number; holds: number } {
+  const journal = ledger.journal();
+  return {
+    posts: journal.filter((tx) => tx.reason === 'bank.transfer.manual').length,
+    holds: journal.filter((tx) => tx.reason === 'bank.business.approval.held').length,
+  };
 }
 
 describe('BusinessService.proposeTransfer — retry with the same clientId is one movement', () => {
@@ -244,6 +250,216 @@ describe('BusinessService.proposeTransfer — retry with the same clientId is on
     `;
     expect(rows).toHaveLength(1);
     expect(rows[0]!.id).toBe(clientId);
+  });
+
+  it('under-threshold clientId with different terms conflicts and does not post again', async () => {
+    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
+    const account = await bank.business.createAccount({
+      name: 'Ops Co',
+      assetId: 'USDT',
+      spendThreshold: amt('500'),
+      creatorUserId: MAKER,
+    });
+    const otherAccount = await bank.business.createAccount({
+      name: 'Other Co',
+      assetId: 'USDT',
+      spendThreshold: account.spendThreshold,
+      creatorUserId: MAKER,
+    });
+    const from = await bank.spaces.ensurePrimary(MAKER, 'USDT');
+    const to = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Vendor' });
+    const other = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Other' });
+    await fund(ledger, MAKER, '5000');
+    const below = amt('100');
+    const stillBelow = below + amt('1');
+    expect(below < account.spendThreshold).toBe(true);
+    expect(stillBelow < account.spendThreshold).toBe(true);
+    const clientId = randomUUID();
+    const original = {
+      accountId: account.id,
+      makerUserId: MAKER,
+      fromSpaceId: from.id,
+      toSpaceId: to.id,
+      amount: below,
+      clientId,
+    };
+
+    const first = await bank.business.proposeTransfer(original);
+    await expect(bank.business.proposeTransfer({ ...original, accountId: otherAccount.id })).rejects.toMatchObject({
+      code: 'bank.business_request_conflict',
+    });
+    await expect(bank.business.proposeTransfer({ ...original, toSpaceId: other.id })).rejects.toMatchObject({
+      code: 'bank.business_request_conflict',
+    });
+    await expect(bank.business.proposeTransfer({ ...original, amount: stillBelow })).rejects.toMatchObject({
+      code: 'bank.business_request_conflict',
+    });
+    const retry = await bank.business.proposeTransfer(original);
+    expect(first.kind).toBe('posted');
+    expect(retry).toEqual(first);
+    expect(movementCounts(ledger)).toEqual({ posts: 1, holds: 0 });
+    const rows = await sql<Array<{ id: string }>>`
+      SELECT id FROM bank.business_approvals WHERE id = ${clientId}::uuid
+    `;
+    expect(rows).toHaveLength(1);
+  });
+
+  it('over-threshold clientId with different terms conflicts and does not hold again', async () => {
+    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
+    const account = await bank.business.createAccount({
+      name: 'Ops Co',
+      assetId: 'USDT',
+      spendThreshold: amt('500'),
+      creatorUserId: MAKER,
+    });
+    const otherAccount = await bank.business.createAccount({
+      name: 'Other Co',
+      assetId: 'USDT',
+      spendThreshold: account.spendThreshold,
+      creatorUserId: MAKER,
+    });
+    const from = await bank.spaces.ensurePrimary(MAKER, 'USDT');
+    const to = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Payroll' });
+    const other = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Other' });
+    await fund(ledger, MAKER, '5000');
+    const atThreshold = account.spendThreshold;
+    const stillOver = account.spendThreshold + amt('1');
+    const clientId = randomUUID();
+    const original = {
+      accountId: account.id,
+      makerUserId: MAKER,
+      fromSpaceId: from.id,
+      toSpaceId: to.id,
+      amount: atThreshold,
+      clientId,
+    };
+
+    const first = await bank.business.proposeTransfer(original);
+    await expect(bank.business.proposeTransfer({ ...original, accountId: otherAccount.id })).rejects.toMatchObject({
+      code: 'bank.business_request_conflict',
+    });
+    await expect(bank.business.proposeTransfer({ ...original, toSpaceId: other.id })).rejects.toMatchObject({
+      code: 'bank.business_request_conflict',
+    });
+    await expect(bank.business.proposeTransfer({ ...original, amount: stillOver })).rejects.toMatchObject({
+      code: 'bank.business_request_conflict',
+    });
+    const retry = await bank.business.proposeTransfer(original);
+    expect(first.kind).toBe('pending');
+    expect(retry).toEqual(first);
+    expect(movementCounts(ledger)).toEqual({ posts: 0, holds: 1 });
+    const rows = await sql<Array<{ id: string }>>`
+      SELECT id FROM bank.business_approvals WHERE id = ${clientId}::uuid
+    `;
+    expect(rows).toHaveLength(1);
+  });
+
+  it('an amount that moves from below spendThreshold to at or above it conflicts and does not hold', async () => {
+    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
+    const account = await bank.business.createAccount({
+      name: 'Ops Co',
+      assetId: 'USDT',
+      spendThreshold: amt('500'),
+      creatorUserId: MAKER,
+    });
+    const from = await bank.spaces.ensurePrimary(MAKER, 'USDT');
+    const to = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Vendor' });
+    await fund(ledger, MAKER, '5000');
+    const below = amt('100');
+    expect(below < account.spendThreshold).toBe(true);
+    const base = {
+      accountId: account.id,
+      makerUserId: MAKER,
+      fromSpaceId: from.id,
+      toSpaceId: to.id,
+    };
+
+    const atClient = randomUUID();
+    const firstAt = await bank.business.proposeTransfer({ ...base, amount: below, clientId: atClient });
+    await expect(bank.business.proposeTransfer({ ...base, amount: account.spendThreshold, clientId: atClient })).rejects.toMatchObject({
+      code: 'bank.business_request_conflict',
+    });
+    const retryAt = await bank.business.proposeTransfer({ ...base, amount: below, clientId: atClient });
+    expect(firstAt.kind).toBe('posted');
+    expect(retryAt).toEqual(firstAt);
+
+    const aboveClient = randomUUID();
+    const firstAbove = await bank.business.proposeTransfer({ ...base, amount: below, clientId: aboveClient });
+    await expect(
+      bank.business.proposeTransfer({
+        ...base,
+        amount: account.spendThreshold + amt('1'),
+        clientId: aboveClient,
+      }),
+    ).rejects.toMatchObject({ code: 'bank.business_request_conflict' });
+    const retryAbove = await bank.business.proposeTransfer({ ...base, amount: below, clientId: aboveClient });
+    expect(firstAbove.kind).toBe('posted');
+    expect(retryAbove).toEqual(firstAbove);
+    expect(movementCounts(ledger)).toEqual({ posts: 2, holds: 0 });
+    const rows = await sql<Array<{ id: string }>>`
+      SELECT id FROM bank.business_approvals WHERE account_id = ${account.id}
+    `;
+    expect(rows).toHaveLength(2);
+  });
+
+  it('an amount that moves from at or above spendThreshold to below it conflicts and does not post', async () => {
+    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
+    const account = await bank.business.createAccount({
+      name: 'Ops Co',
+      assetId: 'USDT',
+      spendThreshold: amt('500'),
+      creatorUserId: MAKER,
+    });
+    const from = await bank.spaces.ensurePrimary(MAKER, 'USDT');
+    const to = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Payroll' });
+    await fund(ledger, MAKER, '5000');
+    const below = amt('100');
+    expect(below < account.spendThreshold).toBe(true);
+    const base = {
+      accountId: account.id,
+      makerUserId: MAKER,
+      fromSpaceId: from.id,
+      toSpaceId: to.id,
+    };
+
+    const atClient = randomUUID();
+    const firstAt = await bank.business.proposeTransfer({
+      ...base,
+      amount: account.spendThreshold,
+      clientId: atClient,
+    });
+    await expect(bank.business.proposeTransfer({ ...base, amount: below, clientId: atClient })).rejects.toMatchObject({
+      code: 'bank.business_request_conflict',
+    });
+    const retryAt = await bank.business.proposeTransfer({
+      ...base,
+      amount: account.spendThreshold,
+      clientId: atClient,
+    });
+    expect(firstAt.kind).toBe('pending');
+    expect(retryAt).toEqual(firstAt);
+
+    const aboveClient = randomUUID();
+    const firstAbove = await bank.business.proposeTransfer({
+      ...base,
+      amount: account.spendThreshold + amt('1'),
+      clientId: aboveClient,
+    });
+    await expect(bank.business.proposeTransfer({ ...base, amount: below, clientId: aboveClient })).rejects.toMatchObject({
+      code: 'bank.business_request_conflict',
+    });
+    const retryAbove = await bank.business.proposeTransfer({
+      ...base,
+      amount: account.spendThreshold + amt('1'),
+      clientId: aboveClient,
+    });
+    expect(firstAbove.kind).toBe('pending');
+    expect(retryAbove).toEqual(firstAbove);
+    expect(movementCounts(ledger)).toEqual({ posts: 0, holds: 2 });
+    const rows = await sql<Array<{ id: string }>>`
+      SELECT id FROM bank.business_approvals WHERE account_id = ${account.id}
+    `;
+    expect(rows).toHaveLength(2);
   });
 });
 
