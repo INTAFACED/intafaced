@@ -1,3 +1,4 @@
+import { TEST_AUTHORITY } from './test-support/authority.js';
 /**
  * M05/M06 honesty: L3/queue must not be faked. Public L2 SBE publishes via
  * sbe-codec (C4). JSON L2 is never served as SBE. Queue-probability from L2
@@ -217,6 +218,7 @@ describe('L3 / binary subscribe honesty', () => {
       sbe,
     });
     privateGateway = createPrivateWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server: app.server,
       hub: privateHub,
       heartbeatMs: 60_000,
