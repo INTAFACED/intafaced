@@ -118,6 +118,42 @@ use the existing svc-notify-owned schema/migration and database connection.
 notification HTTP contract; SMTP or a generic provider API is not automatically
 compatible. Compose configuration does not probe delivery.
 
+The two founder accounts do not exist yet. Bootstrap the real identity and edge
+runtime with guest CRM capture unavailable, then use the existing `/register`
+and `/uc/safe` screens. Each founder completes their own TOTP or WebAuthn
+enrollment. Verify both live active users and bind the exact ordered pair before
+enabling the outreach overlay. The general registration screen is not a founder
+invitation; no fixture IDs or enrolled security credentials belong in production.
+
+The approved outreach policy is six **UTC calendar months** after the latest
+meaningful contact across linked originals. Set the existing configuration member
+`retention` to `{"publishedPolicy":"six_calendar_months_v1","automationEnabled":true}`
+when the live notification-erasure dependency is ready. Internal notes, assignment,
+automatic acknowledgements, page views and token refresh do not renew that clock.
+Active discussions require an evidenced founder review that expires within 30
+days; this review period is separate from the maximum backup lifetime. Inspect
+the actual retention status and aged-record result, not just an environment value.
+The service's last invocation timestamp does not prove a completed sweep.
+
+Configure encrypted **outreach-only** backups, restricted keys and scheduled
+expiration/disposal within 30 days, including any restorable replicas or WAL.
+Do not apply this outreach policy to ledger or statutory records. Preserve the
+latest durable, independently protected deletion archive for as long as a
+restorable copy needs it. Restore while quarantined; apply the current archive,
+reconcile notification deletion and verify that deleted contacts stay deleted
+before allowing HTTP traffic or either background worker. A local PostgreSQL
+restore test does not prove that hosted backup rotation or disposal is operating.
+
+The public build's approved contact is `mailto:privacy@intafaced.com`. After the
+actual policy and backup controls are enabled, its approved notice is:
+“Inactive enquiries become due for deletion six calendar months after our last
+meaningful contact. We review ongoing discussions separately. Outreach backups
+expire within 30 days, and deletion records are applied before restored contacts
+become available.” Verify actual receipt at the owned mailbox separately.
+Create separate questionnaire/admin deployment surfaces; preserve the existing
+`intafaced.com` apex website. Account sign-in and empty deployment projects do
+not establish the domain's DNS authority, backend host, database or email gateway.
+
 ---
 
 ## Ports
