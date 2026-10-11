@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS pay.payment_admission_outcomes;
+DROP TABLE IF EXISTS pay.payment_admissions;
+DROP TABLE IF EXISTS pay.payout_outcomes;
+DROP TABLE IF EXISTS pay.payout_admissions;
+DROP TABLE IF EXISTS pay.account_control_requests;
+DROP TABLE IF EXISTS pay.account_control_audit;
+DROP FUNCTION IF EXISTS pay.founder_control_records_immutable();
+ALTER TABLE pay.merchants DROP COLUMN operations_restore_status;
+ALTER TABLE pay.merchants DROP COLUMN operations_restricted;
+ALTER TABLE pay.merchants DROP COLUMN operations_control_version;

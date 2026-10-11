@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { credentialAuthority, restPaymentCreationId } from './payment-authority.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import swagger from '@fastify/swagger';
 import { requireScope, type Principal, type Scope } from '@intafaced/auth';
@@ -309,9 +310,12 @@ function statusFor(code: string): number {
     case 'pay.submerchant_out_of_scope':
     case 'pay.submerchant_grant_lateral':
     case 'pay.merchant_inactive':
+    case 'pay.identity_admission_denied':
     case 'pay.kyb_operator_required':
       return 403;
     case 'pay.invalid_transition':
+    case 'pay.identity_admission_conflict':
+    case 'pay.payout_recovery_conflict':
     case 'pay.nothing_captured':
     case 'pay.capture_exceeds_authorized':
     case 'pay.refund_exceeds_captured':
@@ -327,6 +331,8 @@ function statusFor(code: string): number {
     case 'pay.submerchant_cycle':
       return 409;
     case 'pay.rail_operation_unsupported':
+    case 'pay.identity_admission_unavailable':
+    case 'pay.payout_admission_missing':
     case 'pay.sandbox_rail_refused':
     case 'pay.sandbox_looks_live':
     case 'pay.rail_mode_undisclosed':
@@ -700,6 +706,8 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
             requestedRail: req.body.railAdapter,
           });
           const payment = await deps.pay.createPayment({
+            requestId: restPaymentCreationId(principal.userId, key),
+            identityAuthority: credentialAuthority(principal),
             merchantId: req.body.merchantId,
             profileId: req.body.profileId ?? null,
             amount: parseAmount(amount),
@@ -751,7 +759,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
           const existing = await deps.pay.getPayment(req.params.id);
           await assertAccess(principal.userId, existing.merchantId, areaForSurface('rest.payments.authorize'));
           assertSandboxKeyDoesNotLookLive(principal.key_env, existing.railAdapter);
-          const payment = await deps.pay.authorize(req.params.id);
+          const payment = await deps.pay.authorize(req.params.id, { identityAuthority: credentialAuthority(principal) });
           return reply.send(toPaymentBody(payment));
         } catch (err) {
           return send(reply, err);
@@ -793,7 +801,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
           await assertAccess(principal.userId, existing.merchantId, areaForSurface('rest.payments.capture'));
           assertSandboxKeyDoesNotLookLive(principal.key_env, existing.railAdapter);
           const opts = req.body?.amount === undefined ? {} : { amount: parseAmount(requireDecimalString(req.body.amount, 'amount')) };
-          const payment = await deps.pay.capture(req.params.id, opts);
+          const payment = await deps.pay.capture(req.params.id, { ...opts, identityAuthority: credentialAuthority(principal) });
           return reply.send(toPaymentBody(payment));
         } catch (err) {
           return send(reply, err);

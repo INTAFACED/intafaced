@@ -1,4 +1,6 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { withPaymentAdmission, preparePaymentAdmission, type PreparedPaymentOperation } from './payment-admission.js';
+import type { OwnerIdentityAuthorityPort } from './payment-authority.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import {
@@ -9,7 +11,6 @@ import {
   parseAmount,
   recipes,
   userAvailable,
-  withdrawalHoldAccount,
   type Amount,
   type LedgerClient,
 } from '@intafaced/ledger-client';
@@ -28,10 +29,21 @@ import { merchantKybMoneyGateRefusal } from './merchant-kyb-money-gate.js';
 import { assertPayoutDestinationKind, DestinationKindError } from './payout-destination.js';
 import {
   assertOnlyPayoutDestinations,
+  assertPersistableDestination,
   PayoutDestinationMissingError,
   type MerchantPayoutDestinations,
 } from './merchant-payout-destination.js';
 import { settlementLedgerPlan } from './settlement-ledger.js';
+import {
+  finalizePayoutIdentity,
+  PayoutAdmissionError,
+  insertPayoutAdmission,
+  loadPayoutAdmission,
+  payoutTransaction,
+  withPayoutLock,
+  stable,
+  type IdentityPayoutAdmissionPort,
+} from './payout-admission.js';
 import { postDisputeOpening } from './chargeback-ledger.js';
 import { withMoneySpan, withRailSpan } from './tracing.js';
 import { defaultDisputeCaseStore, refuseChargebackUncovered, type ChargebackLedgerRefuse } from './fraud/dispute-case.js';
@@ -151,6 +163,11 @@ export type PayErrorCode =
   /** Smart routing ran; no configured rail honestly accepts these dims. */
   | 'pay.routing_no_rail'
   | 'pay.invalid_amount'
+  | 'pay.identity_admission_unavailable'
+  | 'pay.identity_admission_denied'
+  | 'pay.identity_admission_conflict'
+  | 'pay.payout_admission_missing'
+  | 'pay.payout_recovery_conflict'
   | 'pay.invalid_transition'
   | 'pay.capture_exceeds_authorized'
   | 'pay.partial_capture_unsupported'
@@ -737,6 +754,11 @@ export interface PayServiceOptions {
    * stored EVM dest before withdrawHold. Default refuses closed (no invented ref).
    */
   readonly payoutDestinations?: MerchantPayoutDestinations;
+  /** Production always installs this owner-bound port; omission is an isolated test fixture. */
+  readonly identityOperationAdmission?: IdentityPayoutAdmissionPort;
+  readonly identityAuthorityGuard?: OwnerIdentityAuthorityPort;
+  /** Test failpoint after durable payout admission, before money leaves available. */
+  readonly afterPayoutAdmission?: () => void | Promise<void>;
 }
 
 /** One entry in `checkoutRails`: which adapter, and what `payments.method` it writes. */
@@ -893,6 +915,9 @@ export class PayService {
   private readonly affiliateAccrue: AffiliateAccruePort;
   private readonly affiliatePayout: AffiliatePayoutPort;
   private readonly payoutDestinations: MerchantPayoutDestinations;
+  private readonly identityOperationAdmission: IdentityPayoutAdmissionPort | undefined;
+  private readonly identityAuthorityGuard: OwnerIdentityAuthorityPort | undefined;
+  private readonly afterPayoutAdmission: (() => void | Promise<void>) | undefined;
 
   constructor(
     private readonly sql: Sql,
@@ -916,6 +941,9 @@ export class PayService {
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
     this.affiliatePayout = options.affiliatePayout ?? new NoopAffiliatePayout();
     this.payoutDestinations = options.payoutDestinations ?? assertOnlyPayoutDestinations();
+    this.identityOperationAdmission = options.identityOperationAdmission;
+    this.identityAuthorityGuard = options.identityAuthorityGuard;
+    this.afterPayoutAdmission = options.afterPayoutAdmission;
   }
 
   /**
@@ -1017,8 +1045,8 @@ export class PayService {
     return toMerchant(row);
   }
 
-  async getMerchant(merchantId: string): Promise<MerchantRecord> {
-    const rows = await this.sql<MerchantRow[]>`
+  async getMerchant(merchantId: string, connection: Sql = this.sql): Promise<MerchantRecord> {
+    const rows = await connection<MerchantRow[]>`
       SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
         FROM pay.merchants WHERE id = ${merchantId}
     `;
@@ -1560,7 +1588,9 @@ export class PayService {
           throw new PayError('This payment link needs the payer to state a currency', 'pay.checkout_amount_required');
         }
 
-        const payment = await insertPayment(tx, {
+        const paymentId = randomUUID();
+        const creationInput = {
+          requestId: paymentId,
           merchantId: link.merchantId,
           profileId: link.profileId,
           amount,
@@ -1568,7 +1598,20 @@ export class PayService {
           method,
           railAdapter: adapter.id,
           metadata: { source: 'checkout', linkId: link.id },
-        });
+        };
+        if (this.identityOperationAdmission)
+          await preparePaymentAdmission(
+            tx,
+            {
+              paymentId,
+              merchantId: link.merchantId,
+              kind: 'payment.create',
+              payload: paymentCreationPayload(creationInput, paymentId),
+            },
+            async () => this.assertMerchantActive(merchant),
+            this.identityAuthorityGuard,
+          );
+        const payment = await insertPayment(tx, { ...creationInput, id: paymentId });
 
         // SPEC §5 — reason per decision. Taxonomy only (no cost/approval invent).
         // Survives in payment_events so a later dispute can answer "why this rail".
@@ -1592,12 +1635,20 @@ export class PayService {
           RETURNING id, link_id, merchant_id, payment_id, amount, currency, rail_adapter, instruction, status, expires_at
         `;
 
-        return { sessionToken, row: rows[0]!, label: link.label, method };
+        return { sessionToken, row: rows[0]!, label: link.label, method, creationInput };
       },
       { isolation: 'read committed', maxAttempts: 5 },
     );
 
     // Step 2, outside the transaction. Network call to the rail.
+    if (this.identityOperationAdmission) {
+      try {
+        await this.createPayment(opened.creationInput);
+      } catch (error) {
+        await this.sql`UPDATE pay.checkout_sessions SET status='cancelled',updated_at=now() WHERE id=${opened.row.id}`;
+        throw error;
+      }
+    }
     const withInstruction = await this.ensureInstruction(opened.row);
 
     return {
@@ -1723,6 +1774,8 @@ export class PayService {
    * this file changing.
    */
   async createPayment(input: {
+    requestId?: string;
+    identityAuthority?: import('@intafaced/contracts').IdentityOperationIntent['authority'];
     merchantId: string;
     profileId?: string | null;
     amount: Amount;
@@ -1739,15 +1792,67 @@ export class PayService {
     // exists, rather than at authorize time with a buyer watching.
     this.rails.require(input.railAdapter, 'authorize');
 
-    return transaction(
-      this.sql,
-      async (tx) => {
-        this.assertMerchantActive(await this.lockMerchantEligibility(tx, input.merchantId));
-        const row = await insertPayment(tx, input);
+    const paymentId = input.requestId?.toLowerCase() ?? randomUUID();
+    if (input.requestId) await this.existingPaymentCreation(this.sql, input, paymentId);
+    return this.admitPaymentOperation(
+      {
+        paymentId,
+        merchantId: input.merchantId,
+        kind: 'payment.create',
+        authority: input.identityAuthority,
+        payload: paymentCreationPayload(input, paymentId),
+      },
+      async (tx, admitted) => {
+        if (!admitted) this.assertMerchantActive(await this.lockMerchantEligibility(tx, input.merchantId));
+        const existing = await this.existingPaymentCreation(tx, input, paymentId);
+        if (existing) return existing;
+        const row = await insertPayment(tx, { ...input, id: paymentId });
         return { ...toPayment(row), capturedAmount: 0n, refundedAmount: 0n };
       },
-      { isolation: 'read committed', maxAttempts: 5 },
     );
+  }
+
+  private async admitPaymentOperation<T>(input: PreparedPaymentOperation, effect: (tx: Sql, admitted: boolean) => Promise<T>): Promise<T> {
+    try {
+      return await withPaymentAdmission(
+        this.sql,
+        this.identityOperationAdmission,
+        input,
+        async (tx) => this.assertMerchantActive(await this.lockMerchantEligibility(tx, input.merchantId)),
+        effect,
+        this.identityAuthorityGuard,
+      );
+    } catch (error) {
+      if (error instanceof PayoutAdmissionError) throw new PayError(error.message, error.code);
+      throw error;
+    }
+  }
+  private async existingPaymentCreation(
+    tx: Sql,
+    input: Parameters<PayService['createPayment']>[0],
+    paymentId: string,
+  ): Promise<PaymentView | null> {
+    const existing = await tx`SELECT id FROM pay.payments WHERE id=${paymentId}`;
+    if (!existing[0]) return null;
+    const current = await readPayment(tx, paymentId);
+    const [created] = await tx`SELECT payload FROM pay.payment_events WHERE payment_id=${paymentId} AND event='created' LIMIT 1`;
+    const expected = {
+      amount: formatAmount(input.amount),
+      assetId: input.assetId,
+      method: input.method,
+      railAdapter: input.railAdapter,
+      customerRef: input.customerRef ?? null,
+      instrument: input.instrument ?? null,
+      metadata: input.metadata ?? {},
+    };
+    if (
+      current.merchant_id !== input.merchantId.toLowerCase() ||
+      current.profile_id !== (input.profileId?.toLowerCase() ?? null) ||
+      !created ||
+      stable(created.payload) !== stable(expected)
+    )
+      throw new PayError('Creation request differs from the original payment', 'pay.identity_admission_conflict');
+    return this.view(tx, current);
   }
 
   /**
@@ -1758,11 +1863,46 @@ export class PayService {
    * not booked until capture. Either way the ledger is untouched, which is why
    * this method can be retried freely.
    */
-  async authorize(paymentId: string): Promise<PaymentView> {
+  async authorize(
+    paymentId: string,
+    options: { identityAuthority?: import('@intafaced/contracts').IdentityOperationIntent['authority'] } = {},
+  ): Promise<PaymentView> {
     return withMoneySpan('pay.authorize', { operation: 'authorize', paymentId }, async () => {
-      const outcome = await transaction(
-        this.sql,
-        async (tx) => {
+      const original = await readPayment(this.sql, paymentId);
+      if (['authorized', 'captured', 'settled'].includes(original.status)) return this.getPayment(paymentId);
+      // Checkout commits a prepared row with its create marker before asking
+      // identity. A cancelled creation must never become a usable instruction.
+      if (this.identityOperationAdmission) {
+        const prepared = await this
+          .sql`SELECT payload FROM pay.payment_admissions WHERE business_id=${`payment.create:${paymentId.toLowerCase()}`}`;
+        if (prepared[0])
+          await this.admitPaymentOperation(
+            {
+              paymentId,
+              merchantId: original.merchant_id,
+              kind: 'payment.create',
+              payload: prepared[0].payload as Record<string, unknown>,
+            },
+            async (tx) => this.view(tx, await readPayment(tx, paymentId)),
+          );
+      }
+      const outcome = await this.admitPaymentOperation(
+        {
+          paymentId,
+          merchantId: original.merchant_id,
+          kind: 'payment.authorize',
+          authority: options.identityAuthority,
+          payload: {
+            paymentId,
+            merchantId: original.merchant_id,
+            amount: formatAmount(parseAmount(original.amount)),
+            assetId: original.currency,
+            railId: original.rail_adapter,
+            method: original.method,
+            instrument: (await instrumentFor(this.sql, paymentId)) ?? null,
+          },
+        },
+        async (tx, admitted) => {
           const observed = await readPayment(tx, paymentId);
 
           // Idempotent: an authorization that already happened is not an error.
@@ -1773,12 +1913,19 @@ export class PayService {
           // Global money lock order: merchant eligibility, then payment. Settlement
           // freezes use the same order. Re-check the payment after both locks: it
           // may have completed while this operation waited on a cutoff/settlement.
-          this.assertMerchantActive(await this.lockMerchantEligibility(tx, observed.merchant_id));
+          if (!admitted) this.assertMerchantActive(await this.lockMerchantEligibility(tx, observed.merchant_id));
           const row = await lockPayment(tx, paymentId);
           if (row.status === 'authorized' || row.status === 'captured' || row.status === 'settled') {
             return { declined: false as const, view: await this.view(tx, row) };
           }
           assertTransition(row, 'authorized');
+          if (
+            admitted &&
+            (parseAmount(row.amount) !== parseAmount(original.amount) ||
+              row.currency !== original.currency ||
+              row.rail_adapter !== original.rail_adapter)
+          )
+            throw new PayError('Authorization payload changed after admission', 'pay.identity_admission_conflict');
 
           const adapter = this.rails.require(row.rail_adapter, 'authorize');
 
@@ -1841,7 +1988,6 @@ export class PayService {
             }),
           };
         },
-        { isolation: 'read committed', maxAttempts: 5 },
       );
 
       if (outcome.declined) {
@@ -1873,11 +2019,30 @@ export class PayService {
    * the merchant is made whole. That is the entire reason both halves are keyed
    * on the payment rather than on the attempt.
    */
-  async capture(paymentId: string, options: { amount?: Amount } = {}): Promise<PaymentView> {
+  async capture(
+    paymentId: string,
+    options: { amount?: Amount; identityAuthority?: import('@intafaced/contracts').IdentityOperationIntent['authority'] } = {},
+  ): Promise<PaymentView> {
+    const original = await readPayment(this.sql, paymentId);
+    if (['captured', 'settled'].includes(original.status)) return this.getPayment(paymentId);
     return withMoneySpan('pay.capture', { operation: 'capture', paymentId }, async (span) =>
-      transaction(
-        this.sql,
-        async (tx) => {
+      this.admitPaymentOperation(
+        {
+          paymentId,
+          merchantId: original.merchant_id,
+          kind: 'payment.capture',
+          authority: options.identityAuthority,
+          payload: {
+            paymentId,
+            merchantId: original.merchant_id,
+            amount: formatAmount(parseAmount(original.amount)),
+            requestedAmount: options.amount === undefined ? null : formatAmount(options.amount),
+            assetId: original.currency,
+            railId: original.rail_adapter,
+            railRef: original.rail_ref,
+          },
+        },
+        async (tx, admitted) => {
           const observed = await readPayment(tx, paymentId);
 
           if (observed.status === 'captured' || observed.status === 'settled') return this.view(tx, observed);
@@ -1886,10 +2051,18 @@ export class PayService {
           // merchant lock intentionally spans the rail + ledger calls below: if
           // released earlier, a cutoff could commit after this check but before
           // the irreversible capture, recreating the stale-eligibility race.
-          this.assertMerchantActive(await this.lockMerchantEligibility(tx, observed.merchant_id));
+          if (!admitted) this.assertMerchantActive(await this.lockMerchantEligibility(tx, observed.merchant_id));
           const row = await lockPayment(tx, paymentId);
           if (row.status === 'captured' || row.status === 'settled') return this.view(tx, row);
           assertTransition(row, 'captured');
+          if (
+            admitted &&
+            (parseAmount(row.amount) !== parseAmount(original.amount) ||
+              row.currency !== original.currency ||
+              row.rail_adapter !== original.rail_adapter ||
+              row.rail_ref !== original.rail_ref)
+          )
+            throw new PayError('Capture payload changed after admission', 'pay.identity_admission_conflict');
 
           const authorized = parseAmount(row.amount);
 
@@ -1970,7 +2143,6 @@ export class PayService {
           span.setAttribute('intafaced.amount', formatAmount(result.amount));
           return this.view(tx, { ...row, status: 'captured' });
         },
-        { isolation: 'read committed', maxAttempts: 5 },
       ).then((view) => {
         if (view.status === 'captured') this.notifyPaymentEvent('payment.captured', view);
         return view;
@@ -2955,124 +3127,165 @@ export class PayService {
     settlementId: string;
     railId: string;
     destination?: { kind: string; ref: string };
+    identityAuthority?: import('@intafaced/contracts').IdentityOperationIntent['authority'];
   }): Promise<SettlementRecord> {
     return withMoneySpan(
       'pay.payoutSettlement',
       { operation: 'payout', settlementId: input.settlementId, rail: input.railId },
       async () => {
-        const adapter = this.rails.require(input.railId, 'payout');
-
-        // Before the settlement is read and long before `withdrawHold` posts. A
-        // sandbox payout would answer `paid_out` with a reference this process
-        // invented, and the merchant would be told their window was settled out.
-        assertRailMayMoveValue(adapter, 'payout', this.valueMovement);
-
-        const settlement = await this.getSettlement(input.settlementId);
-        if (settlement.status === 'paid_out') return settlement;
-        if (settlement.status !== 'posted' && settlement.status !== 'failed') {
-          throw new PayError(
-            `Settlement ${settlement.id} is ${settlement.status}; only a posted settlement can be paid out`,
-            'pay.invalid_transition',
-          );
-        }
-
-        const merchant = await this.getMerchant(settlement.merchantId);
-
-        // Crypto-native pays the stored EVM dest. Refuse if none stored —
-        // BEFORE withdrawHold. Caller dest is persisted first, then required.
-        // Other rails still take the caller dest. Does not live-wire bank-payout.
-        const destination = await this.resolvePayoutDestination(adapter.id, merchant.id, input.destination);
-
-        // The attempt number is part of the hold's business key. A refused
-        // payout releases the hold, so the next attempt must not reuse the key
-        // — it would find the original hold, move nothing, and then try to
-        // settle out of a hold that is no longer there. It advances only on
-        // refusal, so a crash-and-resume reuses its key and stays idempotent.
-        const ledgerPlan = settlementLedgerPlan({
-          settlementId: settlement.id,
-          payoutAttempt: settlement.payoutAttempts,
-          merchantUserId: merchant.userId,
-          assetId: settlement.assetId,
-          amount: settlement.net,
-          railId: adapter.id,
-          destinationKind: destination.kind,
-        });
-
-        // G4: suspension must not open a NEW drain. But if withdrawHold already
-        // posted (crash between hold and rail/settle), money sits in the purpose
-        // hold — resume must finish via the same idempotent key. Refusing with
-        // merchant_inactive here strands the hold forever.
-        const openHold = (await this.ledger.balance(withdrawalHoldAccount(merchant.userId, settlement.assetId, ledgerPlan.withdrawalId)))
-          .amount;
-        if (openHold <= 0n) {
-          // Money is about to leave available for a bank or a chain. A suspended
-          // merchant keeps their posted settlement (funds stay in available) but
-          // cannot open a new hold while cut off — same code as createPayment.
-          this.assertMerchantActive(merchant);
-        }
-
-        // Ledger first: outbound. The merchant's net leaves `available` and
-        // waits in `hold` while the rail works. Idempotent on withdrawalId when
-        // we are finishing an already-open hold after a crash.
-        await this.ledger.post(ledgerPlan.hold);
-
-        const result = await withRailSpan(adapter.id, 'payout', async () =>
-          adapter.payout({
-            settlementId: settlement.id,
-            merchantId: settlement.merchantId,
-            amount: settlement.net,
-            assetId: settlement.assetId,
-            window: settlement.window,
-            destination,
-          }),
-        );
-
-        if (!result.ok) {
-          await this.ledger.post(ledgerPlan.reverse);
-          await this.sql`
-            UPDATE pay.settlements
-               SET status = 'failed', payout_attempts = payout_attempts + 1, updated_at = now()
-             WHERE id = ${settlement.id}
-          `;
-          throw new PayError(result.failureReason ?? 'Rail refused the payout', 'pay.rail_failed', {
-            failureCode: result.failureCode,
-            settlementId: settlement.id,
+        return withPayoutLock(this.sql, input.settlementId, async (connection) => {
+          const settlement = await this.getSettlement(input.settlementId, connection);
+          let admission = await loadPayoutAdmission(connection, settlement.id, settlement.payoutAttempts);
+          if (admission) {
+            if (
+              admission.rail_id !== input.railId ||
+              (input.destination &&
+                (input.destination.kind.trim() !== admission.destination_kind ||
+                  input.destination.ref.trim() !== admission.destination_ref)) ||
+              parseAmount(admission.net) !== settlement.net ||
+              admission.asset_id !== settlement.assetId ||
+              admission.window !== settlement.window ||
+              admission.merchant_id !== settlement.merchantId
+            ) {
+              throw new PayError('Recovery parameters differ from the admitted payout', 'pay.payout_recovery_conflict');
+            }
+          }
+          if (settlement.status === 'paid_out') return settlement;
+          if (settlement.status !== 'posted' && settlement.status !== 'failed')
+            throw new PayError('Settlement is not payable', 'pay.invalid_transition');
+          const adapter = this.rails.require(admission?.rail_id ?? input.railId, 'payout');
+          assertRailMayMoveValue(adapter, 'payout', this.valueMovement);
+          if (!admission) {
+            if (await this.ledger.getTxByKey(`withdraw.hold:${settlement.id}:${settlement.payoutAttempts}`))
+              throw new PayError('Original payout owner record is missing', 'pay.payout_admission_missing');
+            const merchant = await this.getMerchant(settlement.merchantId, connection);
+            const destination = await this.resolvePayoutDestination(adapter.id, merchant.id, input.destination, connection);
+            admission = await insertPayoutAdmission(
+              connection,
+              {
+                settlement_id: settlement.id,
+                merchant_id: merchant.id,
+                merchant_user_id: merchant.userId,
+                attempt: settlement.payoutAttempts,
+                business_id: settlement.payoutAttempts === 0 ? settlement.id : `${settlement.id}:${settlement.payoutAttempts}`,
+                net: formatAmount(settlement.net),
+                asset_id: settlement.assetId,
+                rail_id: adapter.id,
+                destination_kind: destination.kind,
+                destination_ref: destination.ref,
+                window: settlement.window,
+              },
+              async (tx) => {
+                this.assertMerchantActive(await this.lockMerchantEligibility(tx, merchant.id));
+                if (await this.ledger.getTxByKey(`withdraw.hold:${settlement.id}:${settlement.payoutAttempts}`))
+                  throw new PayError(
+                    'Unrecorded payout requires attributed recovery; hold alone cannot establish original destination',
+                    'pay.payout_admission_missing',
+                  );
+                const locked = await tx`SELECT status,payout_attempts FROM pay.settlements WHERE id=${settlement.id} FOR UPDATE`;
+                if (
+                  !locked[0] ||
+                  !['posted', 'failed'].includes(String(locked[0].status)) ||
+                  Number(locked[0].payout_attempts) !== settlement.payoutAttempts
+                )
+                  throw new PayError('Settlement changed before admission', 'pay.payout_recovery_conflict');
+                if (adapter.id === 'crypto-native' && input.destination) {
+                  await this.payoutDestinations.persist({ merchantId: merchant.id, railId: adapter.id, ...destination, connection: tx });
+                }
+              },
+              this.identityOperationAdmission,
+              input.identityAuthority,
+              this.identityAuthorityGuard,
+            );
+            await this.afterPayoutAdmission?.();
+          }
+          try {
+            await finalizePayoutIdentity(
+              connection,
+              admission,
+              async (tx) => this.assertMerchantActive(await this.lockMerchantEligibility(tx, admission!.merchant_id)),
+              this.identityOperationAdmission,
+              this.identityAuthorityGuard,
+            );
+          } catch (error) {
+            if (error instanceof PayoutAdmissionError) throw new PayError(error.message, error.code);
+            throw error;
+          }
+          const plan = settlementLedgerPlan({
+            settlementId: admission.settlement_id,
+            payoutAttempt: admission.attempt,
+            merchantUserId: admission.merchant_user_id,
+            assetId: admission.asset_id,
+            amount: parseAmount(admission.net),
+            railId: admission.rail_id,
+            destinationKind: admission.destination_kind,
           });
-        }
-
-        await this.ledger.post(ledgerPlan.settle);
-        await this.sql`
-          UPDATE pay.settlements
-             SET status = 'paid_out', payout_method = ${adapter.id}, payout_ref = ${result.railRef}, updated_at = now()
-           WHERE id = ${settlement.id}
-        `;
-
-        return { ...settlement, status: 'paid_out', payoutMethod: adapter.id, payoutRef: result.railRef };
+          const outcomes = await connection`SELECT kind,payload FROM pay.payout_outcomes WHERE admission_id=${admission.id}`;
+          let accepted = outcomes.find((outcome) => outcome.kind === 'rail_accepted')?.payload as { railRef: string } | undefined;
+          let refused = outcomes.find((outcome) => outcome.kind === 'rail_refused')?.payload as
+            { failureReason: string; failureCode: string } | undefined;
+          if (!refused && !accepted) {
+            await this.ledger.post(plan.hold);
+            const result = await withRailSpan(adapter.id, 'payout', () =>
+              adapter.payout({
+                settlementId: admission!.business_id,
+                merchantId: admission!.merchant_id,
+                amount: parseAmount(admission!.net),
+                assetId: admission!.asset_id,
+                window: admission!.window,
+                destination: { kind: admission!.destination_kind, ref: admission!.destination_ref },
+              }),
+            );
+            if (!result.ok) {
+              refused = { failureReason: result.failureReason ?? 'Rail refused', failureCode: result.failureCode ?? 'rail.failed' };
+              await connection`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'rail_refused',${connection.json(refused)})`;
+            } else {
+              if (result.amount !== parseAmount(admission.net) || result.assetId !== admission.asset_id)
+                throw new PayError('Payout rail amount or asset differs', 'pay.rail_amount_mismatch');
+              accepted = { railRef: result.railRef };
+              await connection`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'rail_accepted',${connection.json(accepted)})`;
+            }
+          }
+          if (!accepted) {
+            await this.ledger.post(plan.reverse);
+            await payoutTransaction(connection, async (tx) => {
+              await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission!.id},'reversed','{}') ON CONFLICT DO NOTHING`;
+              await tx`UPDATE pay.settlements SET status='failed',payout_attempts=${admission!.attempt + 1},updated_at=now() WHERE id=${settlement.id}`;
+            });
+            throw new PayError(refused?.failureReason ?? 'Rail refused payout', 'pay.rail_failed', { failureCode: refused?.failureCode });
+          }
+          await this.ledger.post(plan.settle);
+          await payoutTransaction(connection, async (tx) => {
+            await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission!.id},'settled','{}') ON CONFLICT DO NOTHING`;
+            await tx`UPDATE pay.settlements SET status='paid_out',payout_method=${admission!.rail_id},payout_ref=${accepted!.railRef},updated_at=now() WHERE id=${settlement.id}`;
+          });
+          return { ...settlement, status: 'paid_out' as const, payoutMethod: admission.rail_id, payoutRef: accepted.railRef };
+        });
       },
-    );
+    ).catch((error) => {
+      if (error instanceof PayoutAdmissionError) throw new PayError(error.message, error.code);
+      throw error;
+    });
   }
 
   /**
-   * Crypto-native: persist offered dest (if any), then require the stored EVM
-   * dest. Refuse closed if none stored. Other rails: caller dest + kind gate.
+   * Resolve the original destination without writing before the merchant guard.
+   * Crypto-native stores an offered destination inside admission preparation.
+   * Refuse closed if no destination is offered or stored.
    * Does not invent a PSP. Does not live-wire bank-payout.
    */
   private async resolvePayoutDestination(
     railId: string,
     merchantId: string,
     offered?: { kind: string; ref: string },
+    connection?: Sql,
   ): Promise<{ kind: string; ref: string }> {
     if (railId === 'crypto-native') {
       try {
         if (offered) {
-          await this.payoutDestinations.persist({
-            merchantId,
-            railId,
-            kind: offered.kind,
-            ref: offered.ref,
-          });
+          return assertPersistableDestination(railId, offered);
         }
-        const stored = await this.payoutDestinations.require({ merchantId, railId });
+        const stored = await this.payoutDestinations.require({ merchantId, railId, connection });
         assertPayoutDestinationKind(railId, stored);
         return stored;
       } catch (err) {
@@ -3103,8 +3316,8 @@ export class PayService {
     return offered;
   }
 
-  async getSettlement(settlementId: string): Promise<SettlementRecord> {
-    const rows = await this.sql<SettlementRow[]>`
+  async getSettlement(settlementId: string, connection: Sql = this.sql): Promise<SettlementRecord> {
+    const rows = await connection<SettlementRow[]>`
       SELECT id, merchant_id, "window", asset_id, gross, fees, net, payout_method, payout_ref, payout_attempts, status
         FROM pay.settlements WHERE id = ${settlementId}
     `;
@@ -3281,9 +3494,24 @@ export class PayService {
  * two slightly different ways is how one of them ends up missing a field the
  * settlement sweep or a dispute later depends on.
  */
+function paymentCreationPayload(input: Parameters<PayService['createPayment']>[0], paymentId: string): Record<string, unknown> {
+  return {
+    paymentId,
+    merchantId: input.merchantId.toLowerCase(),
+    profileId: input.profileId?.toLowerCase() ?? null,
+    amount: formatAmount(input.amount),
+    assetId: input.assetId,
+    method: input.method,
+    railAdapter: input.railAdapter,
+    instrument: input.instrument ?? null,
+    customerRef: input.customerRef ?? null,
+    metadata: input.metadata ?? {},
+  };
+}
 async function insertPayment(
   tx: Sql,
   input: {
+    id?: string;
     merchantId: string;
     profileId?: string | null;
     amount: Amount;
@@ -3296,9 +3524,9 @@ async function insertPayment(
   },
 ): Promise<PaymentRow> {
   const rows = await tx<PaymentRow[]>`
-    INSERT INTO pay.payments (merchant_id, profile_id, amount, currency, method, rail_adapter, status)
+    INSERT INTO pay.payments (id, merchant_id, profile_id, amount, currency, method, rail_adapter, status)
     VALUES (
-      ${input.merchantId}, ${input.profileId ?? null}, ${formatAmount(input.amount)}::numeric,
+      ${input.id ?? randomUUID()}, ${input.merchantId}, ${input.profileId ?? null}, ${formatAmount(input.amount)}::numeric,
       ${input.assetId}, ${input.method}, ${input.railAdapter}, 'created'
     )
     RETURNING id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at

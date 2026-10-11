@@ -122,6 +122,7 @@ const CALLER_FAULT: Readonly<Record<string, 'FORBIDDEN' | 'BAD_REQUEST' | 'NOT_F
   'pay.submerchant_list_limit_unset': 'PRECONDITION_FAILED',
   'pay.submerchant_permission_list_limit_unset': 'PRECONDITION_FAILED',
   'pay.submerchant_permission_history_limit_unset': 'PRECONDITION_FAILED',
+  'pay.identity_admission_unavailable': 'PRECONDITION_FAILED',
 };
 
 function toTrpcError(err: unknown): unknown {
