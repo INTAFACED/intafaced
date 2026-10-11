@@ -548,6 +548,18 @@ then the in-app inbox carries every notification and the record says why nothing
 else did. The owner's list of what to obtain and where to put it:
 [`docs/OWNER-ACTIONS-NOTIFY-GATEWAYS.md`](../../docs/OWNER-ACTIONS-NOTIFY-GATEWAYS.md).
 
+## Independent mailbox relay
+
+`node services/svc-notify/dist/gateway/index.js` starts the private relay independently of the platform bus, identity, guest database and notification workers. It adapts the existing email gateway envelope to a configured HTTPS mailbox endpoint accepting `{to:[address], displayName, subject, text}` and an empty HTTP204 response. HTTP204 confirms endpoint acceptance; it does not prove recipient arrival or human reading. No provider SDK is installed.
+
+Provision a separate notify-owned receipt database/schema and role before starting. Set `NOTIFY_RELAY_DATABASE_URL`, `NOTIFY_RELAY_TOKEN` (32–4096 printable characters), `NOTIFY_RELAY_SEND_URL` (the full HTTPS send endpoint), `NOTIFY_RELAY_SEND_TOKEN` (a distinct private upstream credential), `NOTIFY_RELAY_TIMEOUT_MS` (100–10000), and `NOTIFY_RELAY_PORT`. `NOTIFY_RELAY_HOST` defaults to `127.0.0.1`; keep the listener private behind verified TLS ingress. Set the main service email gateway URL to that ingress `/send` and its token to the relay bearer; allow its transport budget to outlast the bounded relay attempt. `/ready` is authenticated and checks receipt storage only, returning upstream `unprobed`.
+
+The entrypoint applies only `drizzle/gateway/0000_mailbox_relay.sql`. Normal guest up/down migrations never enumerate this subdirectory. Never include this database in a prospect or guest rollback. An accidentally identical configured guest/relay database URL refuses startup, but URL spelling cannot establish physical independence, restricted access or backup protection. Verify actual host/restore placement before admitting live traffic. Credentials remain in private runtime secrets, never URLs, source, browser assets or logs.
+
+Guest transport keys derive from the immutable business key rather than the generated notification UUID. The relay commits a hashed key and delivery fingerprint before one upstream attempt; no recipient, body, notification ID, credential or response body is retained. Concurrent/crashed/unknown attempts never authorize another send. Exact accepted repeats return the original opaque receipt, including after an old guest-database restore changes its notification UUID. Changed delivery under that key conflicts. The relay follows no redirects. Known upstream401/403/422 refusals are permanent; other statuses/timeouts or failed/late receipt writes remain acceptance-unknown. Keep those distinctions in the CRM.
+
+Actual SQL/HTTP fixtures and pg_dump/restore demonstrate this ordering and stable-key recovery. The separately retained receipt database must survive any guest restoration. These checks do not establish deployed TLS, upstream credential validity, recipient arrival, backup rotation or human mailbox monitoring. An opaque receipt ledger can prevent repeated attempts while retaining minimal restoration authority; it cannot establish whether an unknown upstream response delivered a message.
+
 ## Port
 
 `4015` · schema `notify` · role `svc_notify`

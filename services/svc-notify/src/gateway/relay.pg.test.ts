@@ -90,7 +90,7 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
     restored = await createTestDatabase({ service: 'notify' });
     independent = await createTestDatabase({
       service: 'notify',
-      migrations: [readFileSync(new URL('../../drizzle/0010_mailbox_relay.sql', import.meta.url), 'utf8')],
+      migrations: [readFileSync(new URL('../../drizzle/gateway/0000_mailbox_relay.sql', import.meta.url), 'utf8')],
     });
   }, 30_000);
   beforeEach(async () => {

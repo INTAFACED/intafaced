@@ -13,11 +13,12 @@ try {
     max: 4,
     connect_timeout: 5,
     idle_timeout: 30,
+    onnotice: () => undefined,
     connection: { application_name: 'notify-mailbox-relay', statement_timeout: 10000 },
   });
   // Provision the notify schema and its restricted owner before starting.
   // Only this independently owned, idempotent migration is applied here.
-  await sql.unsafe(await readFile(new URL('../../drizzle/0010_mailbox_relay.sql', import.meta.url), 'utf8'));
+  await sql.unsafe(await readFile(new URL('../../drizzle/gateway/0000_mailbox_relay.sql', import.meta.url), 'utf8'));
   app = buildMailboxRelay({ sql, ...config });
   await app.listen({ host: config.host, port: config.port });
   console.info('notify.relay.listening');
