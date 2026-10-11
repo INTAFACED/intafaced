@@ -1,0 +1,14 @@
+--- a/metal-fx@2.0.11/dist/index.es.js
++++ b/apps/invitation/src/vendor/metal-fx/index.js
+@@ -709,9 +709,9 @@
+   }
+   if (!a) throw new Error("metal-fx: WebGL2 not supported");
+   const { program: i, buffer: r, uniforms: l, dummyTexture: s } = yo(a), c = (d) => {
+-    d.preventDefault(), x && (x.contextLost = !0);
++    d.preventDefault(), x && x.glCanvas === o && (x.contextLost = !0);
+   }, u = () => {
+-    if (!x) return;
++    if (!x || x.glCanvas !== o) return;
+     const d = yo(x.gl);
+     x.program = d.program, x.buffer = d.buffer, x.uniforms = d.uniforms, x.dummyTexture = d.dummyTexture, x.presetDirty = !0, x.contextLost = !1, en == null || en();
+   };

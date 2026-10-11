@@ -126,7 +126,8 @@ body {
   mask-image: linear-gradient(180deg, transparent, #000 24%, #000 80%, transparent);
 }
 .is-welcome .invitation-scene img {
-  opacity: 1;
+  opacity: 0.48;
+  object-position: 58% center;
 }
 .invitation-scene::after {
   content: '';
@@ -157,11 +158,14 @@ body {
 .outreach-welcome {
   display: flex;
   align-items: center;
+  justify-content: center;
   min-height: 100svh;
   padding: 110px max(48px, calc((100vw - 1600px) / 2 + 88px));
 }
 .welcome-content {
-  max-width: 680px;
+  max-width: 760px;
+  width: 100%;
+  text-align: center;
 }
 .welcome-content h1 {
   font-size: clamp(48px, 4.8vw, 72px);
@@ -220,23 +224,56 @@ body {
 .invitation-progress > span[role='presentation'] {
   display: none;
 }
+/* Original Cult surface/edge and MetalFx own the shell; native button stays transparent. */
+.invitation-metal {
+  /* Native actions remain usable even before a decorative shader's first frame. */
+  visibility: visible !important;
+  opacity: 1 !important;
+  --primary: #202426;
+  --primary-foreground: #f2f5ef;
+  background: #202426;
+  border-radius: 10px;
+  color: #f2f5ef;
+  max-width: 100%;
+}
+.invitation-metal:has(button:focus-visible) {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+}
 .outreach-primary {
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
+  height: auto;
   min-height: 52px;
   padding: 14px 26px;
   border-radius: 10px;
-  background: #b9f65a;
-  border: 1px solid #b9f65a;
-  color: #11170a;
+  color: #f2f5ef;
   font-size: 14px !important;
   font-weight: 600;
-  transition: background 0.15s;
+  white-space: normal;
+  line-height: 1.65;
 }
-.outreach-primary:hover:not(:disabled) {
-  background: #d0ff87;
+.outreach-primary:focus-visible {
+  outline: none;
+}
+.primary-caption {
+  display: grid;
+  text-align: center;
+}
+.primary-caption > span {
+  grid-area: 1 / 1;
+}
+.primary-caption-reserve {
+  visibility: hidden;
+  pointer-events: none;
+}
+.invitation-metal:has(button:hover:not(:disabled)) {
+  background: #2a2e30;
+}
+.invitation-metal:has(button:active:not(:disabled)) {
+  background: #171b1d;
 }
 .outreach-text-button {
   border: 0;
@@ -562,7 +599,7 @@ body {
     opacity: 0.14;
   }
   .is-welcome .invitation-scene img {
-    opacity: 0.85;
+    opacity: 0.42;
   }
   .invitation-scene::after {
     background:
@@ -581,9 +618,11 @@ body {
   .welcome-description {
     font-size: 16px;
     max-width: 24ch;
+    margin-inline: auto;
   }
   .welcome-content .outreach-small {
     max-width: 27ch;
+    margin-inline: auto;
     line-height: 1.7;
   }
   .outreach-workspace {
@@ -620,7 +659,7 @@ body {
   }
   .outreach-primary {
     padding-inline: 12px;
-    font-size: 13px !important;
+    font-size: 14px !important;
     gap: 8px;
   }
   .outreach-actions {
@@ -654,4 +693,32 @@ body {
 }
 .skip-link:focus {
   transform: none;
+}
+
+/* Selected A: finite initial entry; navigation removes entry-reveal without blocking controls. */
+.entry-reveal.is-welcome .invitation-scene {
+  animation: invitation-art-entry 450ms ease-out both;
+}
+.entry-reveal .welcome-description,
+.entry-reveal .welcome-action,
+.entry-reveal .welcome-content > .outreach-small {
+  animation: invitation-copy-entry 450ms 250ms ease-out both;
+}
+@keyframes invitation-art-entry {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes invitation-copy-entry {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
