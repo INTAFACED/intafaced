@@ -93,10 +93,50 @@ describe('scopes', () => {
     expect(SCOPES).not.toContain('ledger:write');
   });
 
-  it('expands only the implications that are written down', () => {
-    expect(hasScope(['trade:write'], 'trade:read')).toBe(true);
-    expect(hasScope(['trade:read'], 'trade:write')).toBe(false);
-    expect(hasScope(['admin:write'], 'admin:read')).toBe(true);
+  it('never lets :write grant :read or :read grant :write', () => {
+    for (const scope of SCOPES) {
+      expect(hasScope([scope], scope), `${scope} stays granted`).toBe(true);
+      const [module, action] = scope.split(':');
+      if (action === 'write') {
+        const read = `${module}:read`;
+        if (isScope(read)) expect(hasScope([scope], read)).toBe(false);
+      }
+      if (action === 'read') {
+        const write = `${module}:write`;
+        if (isScope(write)) expect(hasScope([scope], write)).toBe(false);
+      }
+    }
+    expect(hasScope(['admin:write'], 'admin:read')).toBe(false);
+    expect(hasScope(['pay:refund'], 'pay:read')).toBe(false);
+    expect(hasScope(['pay:payout'], 'pay:read')).toBe(false);
+    expect(hasScope(['token:stake'], 'token:read')).toBe(false);
+    expect(expandScopes(['trade:write', 'ledger:read'])).toEqual(new Set(['trade:write', 'ledger:read']));
+    expect(expandScopes(['pay:refund'])).toEqual(new Set(['pay:refund']));
+    expect(expandScopes(['pay:payout'])).toEqual(new Set(['pay:payout']));
+    expect(expandScopes(['token:stake'])).toEqual(new Set(['token:stake']));
+  });
+
+  it('does not let bank:card, market:ops, agents:execute, or support:ops grant an unlisted :read', () => {
+    expect(expandScopes(['bank:card'])).toEqual(new Set(['bank:card']));
+    expect(hasScope(['bank:card'], 'bank:read')).toBe(false);
+    expect(expandScopes(['market:ops'])).toEqual(new Set(['market:ops']));
+    expect(hasScope(['market:ops'], 'market:read')).toBe(false);
+    expect(expandScopes(['agents:execute'])).toEqual(new Set(['agents:execute']));
+    expect(hasScope(['agents:execute'], 'agents:read')).toBe(false);
+    expect(expandScopes(['support:ops'])).toEqual(new Set(['support:ops']));
+    expect(hasScope(['support:ops'], 'support:read')).toBe(false);
+
+    expect(expandScopes(['bank:card', 'bank:read'])).toEqual(new Set(['bank:card', 'bank:read']));
+    expect(hasScope(['bank:card', 'bank:read'], 'bank:read')).toBe(true);
+    expect(expandScopes(['market:ops', 'market:read'])).toEqual(new Set(['market:ops', 'market:read']));
+    expect(hasScope(['market:ops', 'market:read'], 'market:read')).toBe(true);
+    expect(expandScopes(['agents:execute', 'agents:read'])).toEqual(new Set(['agents:execute', 'agents:read']));
+    expect(hasScope(['agents:execute', 'agents:read'], 'agents:read')).toBe(true);
+    expect(expandScopes(['support:ops', 'support:read'])).toEqual(new Set(['support:ops', 'support:read']));
+    expect(hasScope(['support:ops', 'support:read'], 'support:read')).toBe(true);
+
+    expect(expandScopes(['admin:treasury'])).toEqual(new Set(['admin:treasury', 'admin:read']));
+    expect(expandScopes(['admin:compliance'])).toEqual(new Set(['admin:compliance', 'admin:read']));
     expect(hasScope(['trade:write'], 'pay:write')).toBe(false);
   });
 
@@ -149,9 +189,8 @@ describe('what a session is issued', () => {
   });
 
   it('issues no scope that implies one it withholds', () => {
-    // `bank:write` implies `bank:read`, `admin:write` implies `admin:read`.
-    // Issuing a scope whose implication is withheld would grant by the back
-    // door what the table says is withheld — and the audit would read wrong.
+    // A listed implication still expands. Issuing a scope whose implication is
+    // withheld would grant by the back door what the table says is withheld.
     const granted = expandScopes([...SESSION_SCOPES]);
     for (const scope of granted) {
       expect(WITHHELD_FROM_SESSION, `${scope} is reachable by implication but listed as withheld`).not.toHaveProperty(scope);
@@ -173,9 +212,12 @@ describe('delegation — an API key cannot exceed the session that minted it', (
     expect(() => assertDelegatableScopes(['trade:read', 'bank:read'], [...SESSION_SCOPES])).not.toThrow();
   });
 
-  it('honours implication — a session holding :write may delegate :read', () => {
-    expect(() => assertDelegatableScopes(['bank:read'], ['bank:write'])).not.toThrow();
+  it('does not treat :write as permission to delegate the matching :read', () => {
+    expect(() => assertDelegatableScopes(['bank:read'], ['bank:write'])).toThrow(/does not hold/);
     expect(() => assertDelegatableScopes(['bank:write'], ['bank:read'])).toThrow(/does not hold/);
+    expect(() => assertDelegatableScopes(['bank:write'], ['bank:write'])).not.toThrow();
+    expect(() => assertDelegatableScopes(['bank:read'], ['bank:card'])).toThrow(/does not hold/);
+    expect(() => assertDelegatableScopes(['bank:read'], ['bank:card', 'bank:read'])).not.toThrow();
   });
 
   it('still refuses interactive-only scopes, even from a session that holds them', () => {
@@ -195,7 +237,7 @@ describe('guards', () => {
   it('allows a call the principal is scoped for', async () => {
     const p = await principal({ scopes: ['trade:write'] });
     expect(() => requireScope(p, 'trade:write')).not.toThrow();
-    expect(() => requireScope(p, 'trade:read')).not.toThrow();
+    expect(() => requireScope(p, 'trade:read')).toThrow(AuthError);
   });
 
   it('denies a call the principal is not scoped for', async () => {
