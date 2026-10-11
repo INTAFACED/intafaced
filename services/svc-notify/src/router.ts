@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { guestNotificationsRouter } from './guests/router.js';
+import type { GuestNotificationService } from './guests/service.js';
 import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import {
   NotifyListLimitUnsetError,
@@ -242,8 +244,14 @@ function priceAlertToWire(row: PriceAlert) {
  * @param loadVenueIncident Matching halt / incident-silence truth. Default is
  * unwired — `ok` is process liveness, never an invented all-clear.
  */
-export function createNotifyRouter(notify: NotifyService, alerts?: AlertService, loadVenueIncident?: VenueIncidentLoader) {
+export function createNotifyRouter(
+  notify: NotifyService,
+  alerts?: AlertService,
+  loadVenueIncident?: VenueIncidentLoader,
+  guests?: GuestNotificationService,
+) {
   return router({
+    guestNotifications: guestNotificationsRouter(guests),
     health: publicProcedure
       .output(
         z.object({

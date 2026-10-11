@@ -1,5 +1,6 @@
-import { integer, jsonb, pgSchema, primaryKey, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { bigint, integer, jsonb, pgSchema, primaryKey, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { createdAt, pk } from '@intafaced/db';
+import type { GuestNotificationSendInput, GuestNotificationReceipt } from '@intafaced/contracts';
 
 /**
  * svc-notify schema — the inbox, who may be contacted, and what happened.
@@ -11,6 +12,43 @@ import { createdAt, pk } from '@intafaced/db';
  */
 
 export const schema = pgSchema('notify');
+
+/** Prospects remain separate from verified platform channel targets. */
+export const guestNotifications = schema.table('guest_notifications', {
+  id: pk(),
+  businessKey: text('business_key').notNull().unique(),
+  fingerprint: text('fingerprint').notNull(),
+  submissionId: uuid('submission_id').notNull(),
+  payload: jsonb('payload').$type<GuestNotificationSendInput>(),
+  erasedAt: timestamp('erased_at', { withTimezone: true, mode: 'date' }),
+  status: text('status').$type<GuestNotificationReceipt['status']>().notNull(),
+  code: text('code').$type<GuestNotificationReceipt['code']>(),
+  reference: text('reference'),
+  attemptedAt: timestamp('attempted_at', { withTimezone: true, mode: 'date' }),
+  acceptedAt: timestamp('accepted_at', { withTimezone: true, mode: 'date' }),
+  claimToken: uuid('claim_token'),
+  leaseUntil: timestamp('lease_until', { withTimezone: true, mode: 'date' }),
+  createdAt: createdAt(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+});
+export const guestErasedSubmissions = schema.table('guest_erased_submissions', {
+  submissionId: uuid('submission_id').primaryKey(),
+  erasedAt: timestamp('erased_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+});
+export const guestErasureRequests = schema.table('guest_erasure_requests', {
+  requestId: uuid('request_id').primaryKey(),
+  submissionId: uuid('submission_id').notNull(),
+  result: jsonb('result').notNull(),
+});
+export const guestAddressRateWindows = schema.table(
+  'guest_address_rate_windows',
+  {
+    addressHash: text('address_hash').notNull(),
+    windowStart: bigint('window_start', { mode: 'bigint' }).notNull(),
+    attempts: integer('attempts').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.addressHash, table.windowStart] })],
+);
 
 export const notifications = schema.table('notifications', {
   id: pk(),

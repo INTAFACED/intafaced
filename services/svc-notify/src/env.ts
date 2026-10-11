@@ -7,8 +7,8 @@ import { OUT_OF_APP_CHANNELS } from './channels/channel.js';
  * svc-notify environment.
  *
  * Self-mounts /trpc, so it must authenticate the edge principal. No ledger
- * client, no INTERNAL_SERVICE_SECRET — this service never moves value and never
- * calls another service with a service credential.
+ * client. Guest outreach ingress uses a dedicated ops producer secret; it never
+ * makes service-credential calls or moves value.
  *
  * THE CHANNEL CREDENTIALS (§0.4)
  *
@@ -73,6 +73,11 @@ const schema = serviceEnvSchema
     z.object({
       SERVICE_NAME: z.string().default('svc-notify'),
       HTTP_PORT: z.coerce.number().int().default(4015),
+      /** Exact-body authenticated ops ingress; absent leaves it closed. */
+      NOTIFY_OPS_SERVICE_SECRET: blankAsAbsent(z.string().min(32).optional()),
+      /** Per-recipient fixed-window budget, separate from platform verification. */
+      NOTIFY_GUEST_ADDRESS_MAX_PER_WINDOW: z.coerce.number().int().min(1).max(100).default(3),
+      NOTIFY_GUEST_ADDRESS_WINDOW_MS: z.coerce.number().int().min(1000).max(86400000).default(900000),
 
       /**
        * Fan-out kill-switch. When false, event consumers still ack but do not

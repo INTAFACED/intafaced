@@ -1,7 +1,9 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { createEdgeContext } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts';
+import { createGuestIngressContext } from './guests/context.js';
+import { GuestNotificationService } from './guests/service.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { PostgresNotifyStore } from './store.js';
@@ -116,6 +118,19 @@ const deliveries = new PostgresDeliveryStore(sql, {
 let lastReapRetired = 0;
 let lastReapAt: string | null = null;
 const channels = channelsFromEnv(env);
+if (env.NOTIFY_OPS_SERVICE_SECRET) {
+  if (env.NOTIFY_OPS_SERVICE_SECRET === env.EDGE_PRINCIPAL_SECRET || env.NOTIFY_OPS_SERVICE_SECRET === process.env.INTERNAL_SERVICE_SECRET)
+    throw new Error('Guest ops ingress requires a dedicated secret');
+  await sql`SELECT 1 FROM notify.guest_notifications LIMIT 1`.catch(() => {
+    throw new Error('Guest notification schema is missing — apply migration 0009_guest_notifications');
+  });
+}
+const guests = new GuestNotificationService(sql, channels.get('email'), {
+  enabled: env.NOTIFY_FANOUT_ENABLED && env.NOTIFY_OUT_OF_APP_ENABLED,
+  timeoutMs: env.NOTIFY_GATEWAY_TIMEOUT_MS,
+  addressMaxPerWindow: env.NOTIFY_GUEST_ADDRESS_MAX_PER_WINDOW,
+  addressWindowMs: env.NOTIFY_GUEST_ADDRESS_WINDOW_MS,
+});
 const muteStore = new PostgresMuteStore(sql);
 const maxAttempts = publishedMaxDeliveryAttempts(env.NOTIFY_MAX_DELIVERY_ATTEMPTS);
 const dispatcher = new NotificationDispatcher(channels, targets, deliveries, {
@@ -186,12 +201,13 @@ const loadVenueIncident = async () =>
     allClear: env.NOTIFY_INCIDENT_ALL_CLEAR,
   });
 
-export const appRouter = createNotifyRouter(notify, alerts, loadVenueIncident);
+export const appRouter = createNotifyRouter(notify, alerts, loadVenueIncident, guests);
 export type AppRouter = typeof appRouter;
 
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
+const edgeContext = createGuestIngressContext({ edgeSecret: env.EDGE_PRINCIPAL_SECRET, opsSecret: env.NOTIFY_OPS_SERVICE_SECRET });
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+retainRawBody(app);
 
 const { subscriptions, pending } = await subscribeNotificationEvents(bus, notify);
 
@@ -207,6 +223,11 @@ app.get('/ready', async () => ({
   outOfAppEnabled: env.NOTIFY_OUT_OF_APP_ENABLED,
   venueIncident: await loadVenueIncident(),
   channels: channels.status(),
+  guestNotifications: {
+    ingressConfigured: Boolean(env.NOTIFY_OPS_SERVICE_SECRET),
+    gatewayConfigured: channels.get('email').unavailableReason === null,
+    deliveryEvidence: 'gateway_acceptance_only',
+  },
   consumers: subscriptions.length,
   // Each entry carries its `socket` — the recorded reason it cannot attach, or
   // null. Null is the one worth paging on, so it gets its own count rather than
@@ -233,7 +254,7 @@ await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
   trpcOptions: {
     router: appRouter,
-    createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+    createContext: ({ req }) => edgeContext(req),
   } satisfies FastifyTRPCPluginOptions<NotifyRouter>['trpcOptions'],
 });
 
