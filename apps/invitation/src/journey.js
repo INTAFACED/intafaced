@@ -287,7 +287,12 @@ const presentation = {
         let active = document.activeElement;
         // A visitor may begin typing before the scheduled heading focus runs.
         // Preserve a control they have already focused in the current view.
-        if (active && active.closest('form') && active.matches('input, textarea, select, button, [contenteditable="true"]')) return;
+        if (
+          active &&
+          (active.closest('form') || (this.complete && active.closest('.outreach-workspace'))) &&
+          active.matches('input, textarea, select, button, a[href], summary, [contenteditable="true"]')
+        )
+          return;
         if (heading) heading.focus();
       });
     },
@@ -369,7 +374,11 @@ const presentation = {
             this.deleteMap(this.forms, q.audience);
             this.deleteMap(this.groups, q.audience);
           });
-          await this.controller.saveUi({ forms: this.forms, groups: this.groups, remember: this.remember });
+          const uiPersistence = this.controller.saveUi({ forms: this.forms, groups: this.groups, remember: this.remember });
+          // A confirmed completed draft is already authoritative. Local UI cleanup
+          // stays serialized without holding the live receipt or its controls.
+          if (this.complete) Promise.resolve(uiPersistence).then(this.notify, this.notify);
+          else await uiPersistence;
         }
         this.focusHeading();
       } catch (e) {
@@ -395,6 +404,7 @@ const presentation = {
       return this.run(async () => {
         await this.controller.answer(intake.buildQuestionnaire(this.currentAudience, this.answers));
         this.resetAnswers();
+        if (this.complete) this.onCompletionConfirmed?.();
       });
     },
     reopen() {

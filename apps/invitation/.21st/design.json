@@ -27,7 +27,7 @@
     "Original Cult MetalButton + MetalFx silver/dark shared primary actions; native shadcn Button"
   ],
   "provenance": "src/components/SOURCE-PROVENANCE.json and LICENSES.txt",
-  "art": "Original existing graphite-fins-desktop.webp; continuous scene, explicit phone40px offset and top/lateral falloff; decorative, static",
+  "art": "Original graphite-fins-desktop.webp and framing retained; gentler welcome-only central veil restores facets and lime reflection, near-black perimeter; question scene unchanged",
   "states": [
     "native validation",
     "disabled/pending",
@@ -39,5 +39,6 @@
   ],
   "authority": "Canonical existing framework-free intake/storage/transport modules; no extra backend writes per question",
   "evidence": "Local fixtures and compiled browser evidence; visual acceptance and deployed API/HTTPS/mail remain separate",
-  "entrance": "Selected A: art450ms; original TextAnimate90ms start; support/action250\u2013700ms, once on entry, static reduced-motion"
+  "entrance": "Selected A: art450ms; original TextAnimate90ms start; support/action250\u2013700ms, once on entry, static reduced-motion",
+  "completion": "Selected A: fine lime outline resolves into small mark and calm receipt with a700ms CSS sequence after authoritative completed-draft confirmation; pending/unknown/retry/reduced-motion/returned receipts static; no extra write"
 }
