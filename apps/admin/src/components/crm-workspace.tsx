@@ -238,6 +238,10 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
       });
       pending.current.delete(action);
       if (action === 'addNote') setNote('');
+      if (action === 'changeStage') {
+        setReason('');
+        setEvidence('');
+      }
       const refreshed = await open(detail.opportunity.id, false);
       await load();
       setWorkflowVersion((value) => value + 1);

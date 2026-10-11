@@ -318,6 +318,11 @@ export function CrmPrivacy({
     [error, setError] = useState('');
   const [retention, setRetention] = useState<RetentionStatus | 'loading' | 'unavailable'>('loading');
   const [retentionReview, setRetentionReview] = useState<RetentionReview | null>(null);
+  const [reviewDraftBaseline, setReviewDraftBaseline] = useState<{
+    state: 'active' | 'inactive';
+    evidenceRef: string;
+    reason: string;
+  }>({ state: 'active', evidenceRef: '', reason: '' });
   const [retentionLoaded, setRetentionLoaded] = useState(false);
   const [reviewState, setReviewState] = useState<'active' | 'inactive'>('active');
   const [evidenceRef, setEvidenceRef] = useState('');
@@ -349,12 +354,12 @@ export function CrmPrivacy({
     };
   }, []);
   useEffect(() => {
-    const baseline = retentionReview ?? { state: 'active' as const, evidenceRef: '', reason: '' };
+    const baseline = reviewDraftBaseline;
     const dirty =
       retentionLoaded &&
       (reviewState !== baseline.state || evidenceRef.trim() !== baseline.evidenceRef || reviewReason.trim() !== baseline.reason);
     onDraftState(dirty, reviewPending.current !== null);
-  }, [onDraftState, retentionLoaded, retentionReview, reviewState, evidenceRef, reviewReason, reviewBusy, reviewError]);
+  }, [onDraftState, retentionLoaded, reviewDraftBaseline, reviewState, evidenceRef, reviewReason, reviewBusy, reviewError]);
   useEffect(() => () => onDraftState(false, false), [onDraftState]);
   async function loadRetentionReview() {
     setReviewBusy(true);
@@ -377,6 +382,13 @@ export function CrmPrivacy({
         setReviewState(parsedReview.state);
         setEvidenceRef(parsedReview.evidenceRef);
         setReviewReason(parsedReview.reason);
+        setReviewDraftBaseline({ state: parsedReview.state, evidenceRef: parsedReview.evidenceRef, reason: parsedReview.reason });
+      } else {
+        const emptyDraft = { state: 'active' as const, evidenceRef: '', reason: '' };
+        setReviewState(emptyDraft.state);
+        setEvidenceRef(emptyDraft.evidenceRef);
+        setReviewReason(emptyDraft.reason);
+        setReviewDraftBaseline(emptyDraft);
       }
     } catch (failure) {
       setReviewError(failure instanceof Error ? failure.message : 'Retention review unavailable.');
@@ -403,6 +415,11 @@ export function CrmPrivacy({
     try {
       const receipt = await retentionReviewWrite(csrf, reviewPending, fields, canonicalContact.id);
       setRetentionReview(receipt);
+      const nextDraft = { state: 'active' as const, evidenceRef: '', reason: '' };
+      setReviewState(nextDraft.state);
+      setEvidenceRef(nextDraft.evidenceRef);
+      setReviewReason(nextDraft.reason);
+      setReviewDraftBaseline(nextDraft);
     } catch (failure) {
       setReviewError(failure instanceof Error ? failure.message : 'The saved review is unconfirmed. Retry the same request.');
     } finally {
@@ -612,7 +629,7 @@ export function CrmPrivacy({
               </p>
             )}
             <button type="button" disabled={reviewBusy} onClick={() => void saveRetentionReview()}>
-              {reviewBusy ? 'Saving…' : reviewPending.current ? 'Retry same review' : 'Record discussion review'}
+              {reviewBusy ? 'Saving…' : reviewPending.current ? 'Retry same review' : retentionReview ? 'Record a new discussion review' : 'Record discussion review'}
             </button>
           </div>
         )}
