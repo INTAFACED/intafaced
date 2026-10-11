@@ -97,6 +97,14 @@ export type BankErrorCode =
    */
   | 'bank.loan_collateral_mismatch'
   /**
+   * A retry reused a repayment event id but changed the amount.
+   *
+   * The row already holds the first interest-plus-principal split. A later call
+   * with the same id must post that split, not a second one. A different amount
+   * needs a new event id.
+   */
+  | 'bank.loan_repayment_mismatch'
+  /**
    * A retry reused a loan id that belongs to a different borrower, or names a
    * different product.
    *

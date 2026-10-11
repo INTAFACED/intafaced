@@ -1242,6 +1242,8 @@ export class LoanService {
    * ends when the claim commits, which is before the post, so it cannot keep a
    * settle out of the gap between those two reads. The session lock can. A
    * retry of an event that already has a row posts that row, not a second split.
+   * The offered amount must equal the stored interest plus principal. A different
+   * amount throws `bank.loan_repayment_mismatch` and does not post.
    */
   async repay(input: { loanId: string; amount: Amount; eventId: string; now?: Date }): Promise<{
     ledgerTxId: string;
@@ -1266,6 +1268,7 @@ export class LoanService {
           'bank.loan_borrower_mismatch',
         );
       }
+      this.assertRepaymentRetryMatches(loan, eventId, input.amount, prior);
       if (prior.ledger_tx_id) {
         const remaining = await this.outstanding(loan.id);
         // The repayment already settled. Do not post it again. If this retry
@@ -1353,6 +1356,7 @@ export class LoanService {
               'bank.loan_borrower_mismatch',
             );
           }
+          this.assertRepaymentRetryMatches(loan, eventId, input.amount, held);
           interestPaid = parseAmount(held.interest_amount);
           principalPaid = parseAmount(held.principal_amount);
           postSequence = Number(held.sequence);
@@ -1431,6 +1435,7 @@ export class LoanService {
             'bank.loan_borrower_mismatch',
           );
         }
+        this.assertRepaymentRetryMatches(loan, eventId, input.amount, row);
         interestPaid = parseAmount(row.interest_amount);
         principalPaid = parseAmount(row.principal_amount);
         postSequence = Number(row.sequence);
@@ -2566,6 +2571,28 @@ export class LoanService {
     ]);
 
     return posted.id;
+  }
+
+  /**
+   * Same event id means the stored split. Interest plus principal is the amount
+   * a retry must repeat. A different amount is a new event, not a second post.
+   */
+  private assertRepaymentRetryMatches(
+    loan: LoanRecord,
+    eventId: string,
+    amount: Amount,
+    existing: { interest_amount: string; principal_amount: string },
+  ): void {
+    const interest = parseAmount(existing.interest_amount);
+    const principal = parseAmount(existing.principal_amount);
+    const stored = interest + principal;
+    if (amount !== stored) {
+      throw new BankError(
+        `Repayment ${eventId} already exists for ${formatAmount(interest)} interest and ${formatAmount(principal)} principal ` +
+          `(${formatAmount(stored)} ${loan.debtAssetId}), but this request asks for ${formatAmount(amount)} — a retry must carry the same terms. Use a new event id to post a different amount`,
+        'bank.loan_repayment_mismatch',
+      );
+    }
   }
 
   private async repaymentById(eventId: string): Promise<{

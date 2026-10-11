@@ -1710,6 +1710,35 @@ describe('svc-bank loans PG-hard', () => {
         expect(rows[0]!.status).toBe('rejected');
         expect(formatAmount((await loans.outstanding(loan.id)).total)).toBe('5000');
       });
+
+      it('refuses a same eventId retry whose amount differs from the stored split', async () => {
+        const { loan } = await openLoan();
+        const eventId = randomUUID();
+        const first = await loans.repay({ eventId, loanId: loan.id, amount: amt('100') });
+        expect(formatAmount(first.interestPaid)).toBe('0');
+        expect(formatAmount(first.principalPaid)).toBe('100');
+
+        await expect(loans.repay({ eventId, loanId: loan.id, amount: amt('250') })).rejects.toMatchObject({
+          code: 'bank.loan_repayment_mismatch',
+        });
+
+        expect(formatAmount((await loans.outstanding(loan.id)).total)).toBe('4900');
+        const rows = await sql<Array<{ id: string }>>`SELECT id FROM bank.loan_repayments WHERE loan_id = ${loan.id}`;
+        expect(rows).toHaveLength(1);
+        expect(ledger.journal().filter((tx) => tx.reason === 'loan.repaid')).toHaveLength(1);
+      });
+
+      it('returns the same receipt when the retry repeats the stored amount', async () => {
+        const { loan } = await openLoan();
+        const eventId = randomUUID();
+        const first = await loans.repay({ eventId, loanId: loan.id, amount: amt('100') });
+        const again = await loans.repay({ eventId, loanId: loan.id, amount: amt('100') });
+
+        expect(again.ledgerTxId).toBe(first.ledgerTxId);
+        expect(again.principalPaid).toBe(first.principalPaid);
+        const rows = await sql<Array<{ id: string }>>`SELECT id FROM bank.loan_repayments WHERE loan_id = ${loan.id}`;
+        expect(rows).toHaveLength(1);
+      });
     });
 
     // ── The sweep: marking, calling, laddering ───────────────────────────────
