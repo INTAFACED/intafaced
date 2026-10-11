@@ -3,6 +3,7 @@ import { formatAmount } from '@intafaced/ledger-client/money';
 import {
   readDecimal,
   readInteger,
+  parseUnifiedSymbol,
   requireCredentials,
   VenueUnavailableError,
   type PlaceOrderRequest,
@@ -13,6 +14,7 @@ import {
 } from '@intafaced/venue-contracts';
 import { fetchHttpPort, type HttpPort, type HttpRequestInit, type HttpResponse } from '../transport.js';
 import { RateLimitGovernor } from '../rate-limit.js';
+import { assertCredentialVenue } from './credential-guard.js';
 import { assertFillReportMatchesStatus, assertKnownOrderStatus, throwVenueTransportFailure } from './order-outcome-honesty.js';
 import { assertTradeBookPayoutGradeBeforePlace } from '../trade-payout-gate.js';
 
@@ -21,6 +23,9 @@ const RATE_LIMIT_CODES = new Set(['50011']);
 const RATE_LIMIT = { venueId: 'okx-spot', capacity: 10, windowMs: 2_000 } as const;
 
 function okxSymbolOf(unified: string): string {
+  if (parseUnifiedSymbol(unified) === null) {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', `symbol ${unified || '(empty)'} is not unified BASE/QUOTE spot`);
+  }
   return unified.replace(/:/g, '-').replace(/\//g, '-').toUpperCase();
 }
 
@@ -55,31 +60,50 @@ export function mapOkxSpotOrder(row: Record<string, unknown>, unified: string, n
   assertKnownOrderStatus(VENUE.id, status, stateRaw, 'order state');
   const amount = readDecimal(row.sz, VENUE.id, 'sz');
   const filled = readDecimal(row.accFillSz, VENUE.id, 'accFillSz');
+  if (amount <= 0n) throw new VenueUnavailableError(VENUE.id, 'malformed', 'sz must be positive');
+  if (filled < 0n) throw new VenueUnavailableError(VENUE.id, 'malformed', 'accFillSz must not be negative');
   const remaining = amount - filled;
   if (remaining < 0n) {
     throw new VenueUnavailableError(VENUE.id, 'malformed', 'accFillSz exceeds sz');
   }
   const typeRaw = String(row.ordType ?? '');
+  if (typeRaw !== 'market' && typeRaw !== 'limit' && typeRaw !== 'post_only') {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', `ordType ${typeRaw || '(empty)'} is not a known OKX spot type`);
+  }
   const type: VenueOrder['type'] = typeRaw === 'market' ? 'market' : 'limit';
   const px = row.px;
   const price =
     type === 'market' || px === undefined || px === null || String(px) === '' || String(px) === '0'
       ? null
       : readDecimal(px, VENUE.id, 'px');
+  if (type === 'limit' && (price === null || price <= 0n)) {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', 'limit order px must be positive');
+  }
   let averagePrice: VenueOrder['averagePrice'] = null;
   const avgPx = row.avgPx;
   if (filled > 0n && avgPx !== undefined && avgPx !== null && String(avgPx) !== '' && String(avgPx) !== '0') {
     averagePrice = readDecimal(avgPx, VENUE.id, 'avgPx');
   }
+  if (filled > 0n && (averagePrice === null || averagePrice <= 0n)) {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', 'avgPx must be positive after a fill — outcome unknown, not a fill');
+  }
   const createdRaw = row.cTime ?? row.uTime;
   const createdAt = createdRaw === undefined || createdRaw === null ? now : new Date(readInteger(createdRaw, VENUE.id, 'cTime'));
+  const sideRaw = String(row.side ?? '').toLowerCase();
+  if (sideRaw !== 'buy' && sideRaw !== 'sell') {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', `side ${sideRaw || '(empty)'} is not a known OKX side`);
+  }
+  const venueOrderId = String(row.ordId ?? '').trim();
+  const clientOrderId = String(row.clOrdId ?? '').trim();
+  if (!venueOrderId || venueOrderId === '0') throw new VenueUnavailableError(VENUE.id, 'malformed', 'ordId is missing or invalid');
+  if (!clientOrderId) throw new VenueUnavailableError(VENUE.id, 'malformed', 'clOrdId is missing');
   assertFillReportMatchesStatus(VENUE.id, status, filled, averagePrice);
   return {
     venueId: VENUE.id,
-    venueOrderId: row.ordId === undefined || row.ordId === null ? null : String(row.ordId),
-    clientOrderId: String(row.clOrdId ?? ''),
+    venueOrderId,
+    clientOrderId,
     symbol: unified,
-    side: String(row.side).toLowerCase() === 'sell' ? 'sell' : 'buy',
+    side: sideRaw,
     type,
     price,
     amount,
@@ -111,7 +135,7 @@ function firstDataRow(data: unknown, operation: string): Record<string, unknown>
 
 function unifiedFromInstId(instId: string, fallback: string): string {
   const parts = instId.split('-');
-  if (parts.length >= 2 && parts[0] && parts[1]) return `${parts[0]}/${parts[1]}`;
+  if (parts.length === 2 && parts[0] && parts[1]) return `${parts[0]}/${parts[1]}`;
   return fallback;
 }
 
@@ -134,7 +158,10 @@ export class OkxSpotTrade implements TradeAdapter {
   readonly #snapshotLimit: number | undefined;
 
   constructor(credentials: VenueCredentials | null = null, options: OkxSpotTradeOptions = {}) {
-    if (credentials) requireCredentials(VENUE.id, 'construct', credentials);
+    if (credentials) {
+      assertCredentialVenue(VENUE.id, credentials);
+      requireCredentials(VENUE.id, 'construct', credentials);
+    }
     this.#credentials = credentials;
     this.#http = options.http ?? fetchHttpPort();
     this.#restBase = options.restBase ?? REST_BASE;
@@ -145,6 +172,12 @@ export class OkxSpotTrade implements TradeAdapter {
 
   async placeOrder(request: PlaceOrderRequest): Promise<VenueOrder> {
     const keys = requireCredentials(VENUE.id, 'placeOrder', this.#credentials);
+    if (request.amount <= 0n) throw new VenueUnavailableError(VENUE.id, 'malformed', 'order amount must be positive');
+    if (!request.clientOrderId.trim()) throw new VenueUnavailableError(VENUE.id, 'malformed', 'clientOrderId is required');
+    if (request.type === 'limit' && request.price !== undefined && request.price !== null && request.price <= 0n) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', 'limit order price must be positive');
+    }
+    okxSymbolOf(request.symbol);
     requirePassphrase(keys);
     await assertTradeBookPayoutGradeBeforePlace(VENUE.id, request.symbol, {
       http: this.#http,
@@ -211,6 +244,9 @@ export class OkxSpotTrade implements TradeAdapter {
       }
       const rec = row as Record<string, unknown>;
       const unified = symbol ?? unifiedFromInstId(String(rec.instId ?? ''), '');
+      if (parseUnifiedSymbol(unified) === null) {
+        throw new VenueUnavailableError(VENUE.id, 'malformed', 'openOrders row carried an invalid spot instId');
+      }
       return mapOkxSpotOrder(rec, unified, now);
     });
   }

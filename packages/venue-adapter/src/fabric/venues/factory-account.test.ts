@@ -21,7 +21,7 @@ const KEYS = { venueId: 'binance-spot' as const, apiKey: 'k', apiSecret: 's', sc
 describe('createVenueAccountAdapter', () => {
   it('builds all three spot account adapters from their ids', () => {
     expect(createVenueAccountAdapter('binance-spot', KEYS)).toBeInstanceOf(BinanceSpotAccount);
-    expect(createVenueAccountAdapter('bybit-spot', KEYS)).toBeInstanceOf(BybitSpotAccount);
+    expect(createVenueAccountAdapter('bybit-spot', { ...KEYS, venueId: 'bybit-spot' })).toBeInstanceOf(BybitSpotAccount);
     expect(createVenueAccountAdapter('okx-spot', { ...KEYS, venueId: 'okx-spot', passphrase: 'p' })).toBeInstanceOf(OkxSpotAccount);
     expect(createVenueAccountAdapter('  BINANCE-SPOT  ', KEYS)!.venue.id).toBe('binance-spot');
     expect(createVenueAccountAdapter('')).toBeNull();
