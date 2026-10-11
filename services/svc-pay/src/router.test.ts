@@ -599,10 +599,10 @@ describe('authority', () => {
     expect(stub.calls.filter((c) => c.method === 'payoutSettlement')).toHaveLength(0);
   });
 
-  it('lets each write scope read, because seeing what you changed is implied', async () => {
+  it('requires explicit read authority alongside each write scope', async () => {
     for (const scope of ['pay:write', 'pay:refund', 'pay:payout']) {
       const api = await caller([scope]);
-      await expect(api.payment.get({ paymentId: PAYMENT })).resolves.toMatchObject({ id: PAYMENT });
+      await expect(api.payment.get({ paymentId: PAYMENT })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     }
   });
 

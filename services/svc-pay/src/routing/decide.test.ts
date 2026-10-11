@@ -348,6 +348,65 @@ describe('selectSmartCheckoutRail — geo/method/risk product path', () => {
     expect(record).not.toHaveProperty('costBps');
   });
 
+  it('equal declared rates keep the earlier preference entry and do not call the later slot outranked', () => {
+    const profiles: RailRoutingProfile[] = [
+      {
+        railId: 'crypto-native',
+        methods: ['card'],
+        countries: ['*'],
+        riskBands: ['low'],
+        successRate: '0.80',
+      },
+      {
+        railId: 'card-sandbox',
+        methods: ['card'],
+        countries: ['*'],
+        riskBands: ['low'],
+        successRate: '0.80',
+      },
+    ];
+    const decision = selectSmartCheckoutRail({
+      inputs: { geoCountry: 'US', method: 'card', riskBand: 'low' },
+      preference,
+      profiles,
+      rails: registry(),
+      policy: 'allow-sandbox',
+    });
+    expect(decision.chosenRailId).toBe('crypto-native');
+    expect(decision.adapter.id).toBe('crypto-native');
+    expect(decision.considered.find((e) => e.railId === 'crypto-native')).toEqual({
+      railId: 'crypto-native',
+      outcome: 'chosen',
+    });
+    expect(decision.considered.find((e) => e.railId === 'card-sandbox')).toEqual({
+      railId: 'card-sandbox',
+      outcome: 'skipped',
+      reason: 'tied-declared-rate-lost-preference-order',
+    });
+    expect(decision.considered.some((e) => e.reason === 'outranked-success-rate')).toBe(false);
+  });
+
+  it('the same rail id listed twice records one chosen entry', () => {
+    const decision = selectSmartCheckoutRail({
+      inputs: { geoCountry: 'DE', method: 'crypto', riskBand: 'low' },
+      preference: ['crypto-native', 'crypto-native'],
+      profiles: withDeclaredRates(REFERENCE_RAIL_ROUTING_PROFILES, { 'crypto-native': '0.91' }),
+      rails: registry(),
+      policy: 'allow-sandbox',
+    });
+    expect(decision.chosenRailId).toBe('crypto-native');
+    const chosen = decision.considered.filter((e) => e.outcome === 'chosen');
+    expect(chosen).toEqual([{ railId: 'crypto-native', outcome: 'chosen' }]);
+    expect(decision.considered).toEqual([
+      { railId: 'crypto-native', outcome: 'chosen' },
+      {
+        railId: 'crypto-native',
+        outcome: 'skipped',
+        reason: 'tied-declared-rate-lost-preference-order',
+      },
+    ]);
+  });
+
   it('omitted scores stay omitted on the decision — no default approval-rate', () => {
     const decision = selectSmartCheckoutRail({
       inputs: { geoCountry: 'DE', method: 'crypto', riskBand: 'low' },

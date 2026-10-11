@@ -17,6 +17,36 @@ describe('dualControlRefuse', () => {
     expect(dualControlRefuse(OP, readConfirmOperatorId({ confirmOperatorId: '   ' }))?.code).toBe(MISSING_OPERATOR);
   });
 
+  it('blank or whitespace confirm id is missing, not a second operator', () => {
+    expect(dualControlRefuse(OP, '')?.code).toBe(MISSING_OPERATOR);
+    expect(dualControlRefuse(OP, '   ')?.code).toBe(MISSING_OPERATOR);
+    expect(dualControlRefuse(OP, '\t\n')?.code).toBe(MISSING_OPERATOR);
+    expect(() => requireDualControl(OP, '')).toThrow(DualControlError);
+    expect(() => requireDualControl(OP, '   ')).toThrow(DualControlError);
+  });
+
+  it('confirm id that is the actor with surrounding spaces is the same operator', () => {
+    const padded = `  ${OP}  `;
+    expect(dualControlRefuse(OP, padded)?.code).toBe(MISSING_OPERATOR);
+    expect(dualControlRefuse(`  ${OP}`, `${OP}  `)?.code).toBe(MISSING_OPERATOR);
+    expect(() => requireDualControl(OP, padded)).toThrow(DualControlError);
+  });
+
+  it('a distinct non-blank confirm id passes and is returned trimmed', () => {
+    const padded = `  ${CONFIRM}\t`;
+    expect(dualControlRefuse(OP, padded)).toBeNull();
+    expect(requireDualControl(OP, padded)).toBe(CONFIRM);
+    expect(requireDualControl(OP, CONFIRM)).toBe(CONFIRM);
+  });
+
+  it('a missing actor is still refused', () => {
+    expect(dualControlRefuse(null, `  ${CONFIRM}  `)?.code).toBe(MISSING_OPERATOR);
+    expect(dualControlRefuse('', CONFIRM)?.code).toBe(MISSING_OPERATOR);
+    expect(dualControlRefuse('   ', CONFIRM)?.code).toBe(MISSING_OPERATOR);
+    expect(() => requireDualControl(null, CONFIRM)).toThrow(DualControlError);
+    expect(() => requireDualControl('  ', `  ${CONFIRM}  `)).toThrow(DualControlError);
+  });
+
   it('two distinct operators accept', () => {
     expect(dualControlRefuse(OP, CONFIRM)).toBeNull();
     expect(requireDualControl(OP, CONFIRM)).toBe(CONFIRM);

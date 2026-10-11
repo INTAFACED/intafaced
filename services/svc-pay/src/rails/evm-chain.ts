@@ -32,8 +32,10 @@ import type { ChainSendRequest, ConfirmedTransfer, CryptoChainPort } from './cha
  *
  * Acceptance addresses are HD-derived from `PAY_CRYPTO_DEPOSIT_MNEMONIC` at
  * account index `n` (viem `addressIndex`) where `n` is a stable function of
- * (paymentId, assetId). The same payment always gets the same address; two
- * payments that collide on index walk forward until a free slot is found.
+ * (paymentId, assetId). Occupancy remains process-local. Two colliding
+ * payments walk forward until this process has a free address. Historical
+ * assignments require a separately proven durable migration before this can
+ * claim restart-safe allocation.
  *
  * Outbound sends go through a hot wallet (`PAY_CRYPTO_HOT_WALLET_KEY`) and the
  * `BroadcastStore`, so a retried business key never broadcasts twice.
@@ -84,8 +86,29 @@ interface AddressBookEntry {
 }
 
 interface ObservedInbound extends ConfirmedTransfer {
+  readonly address: Address;
   readonly blockNumber: bigint;
   readonly logIndex: number;
+  /** True only after this refresh re-read a receipt that still contains the transfer. */
+  readonly inReceipt: boolean;
+}
+
+/**
+ * The outbound transaction was included, and the receipt is not a success.
+ * The hash may already be in the broadcast journal — it left this process —
+ * but `send` must not hand it back as a completed transfer.
+ */
+export class EvmSendRevertedError extends Error {
+  readonly code = 'pay.evm_send_reverted';
+  readonly txHash: string;
+  readonly status: string;
+
+  constructor(txHash: string, status: string) {
+    super(`Outbound transaction ${txHash} receipt status is ${status} — refusing to report the send as success`);
+    this.name = 'EvmSendRevertedError';
+    this.txHash = txHash;
+    this.status = status;
+  }
 }
 
 export class EvmLiveChain implements CryptoChainPort {
@@ -102,7 +125,9 @@ export class EvmLiveChain implements CryptoChainPort {
 
   private readonly byPayment = new Map<string, AddressBookEntry>();
   private readonly byAddress = new Map<string, AddressBookEntry>();
+  /** One row per address + tx + log. An address holds every inbound. */
   private readonly observed = new Map<string, ObservedInbound>();
+  /** Observation keys already handed to the watcher after webhook 2xx/202. */
   private readonly finalizedEmitted = new Set<string>();
 
   private scanCursor = 0n;
@@ -143,11 +168,11 @@ export class EvmLiveChain implements CryptoChainPort {
 
   async acceptanceAddress(paymentId: string, assetId: string): Promise<string> {
     requireAsset(this.assets, assetId);
-    const key = bookKey(paymentId, assetId);
+    const key = `${paymentId}\0${assetId}`;
     const existing = this.byPayment.get(key);
     if (existing) return existing.address;
 
-    let index = stableIndex(paymentId, assetId);
+    let index = stableDepositIndex(paymentId, assetId);
     for (let guard = 0; guard < 1_000; guard++, index = (index + 1) >>> 0) {
       const address = deriveDepositAddress(this.depositMnemonic, index);
       const taken = this.byAddress.get(address.toLowerCase());
@@ -164,10 +189,13 @@ export class EvmLiveChain implements CryptoChainPort {
   async inboundTransfer(address: string): Promise<ConfirmedTransfer | null> {
     if (!isAddress(address)) return null;
     await this.refresh();
-    const observed = this.observed.get(getAddress(address).toLowerCase());
+    const addr = getAddress(address).toLowerCase();
+    const matches = [...this.observed.values()]
+      .filter((observed) => observed.address.toLowerCase() === addr && observed.inReceipt)
+      .sort(compareObserved);
+    const observed = matches[0];
     if (!observed) return null;
-    const { blockNumber: _b, logIndex: _l, ...transfer } = observed;
-    return transfer;
+    return toTransfer(observed);
   }
 
   async send(request: ChainSendRequest): Promise<{ txHash: string }> {
@@ -212,7 +240,14 @@ export class EvmLiveChain implements CryptoChainPort {
       broadcast: async (signedRaw) => this.public.sendRawTransaction({ serializedTransaction: signedRaw as Hex }),
     });
 
-    await this.public.waitForTransactionReceipt({ hash: stored as Hex });
+    // Owner depth, not viem's one-block default. A non-success receipt is a refusal.
+    const receipt = await this.public.waitForTransactionReceipt({
+      hash: stored as Hex,
+      confirmations: this.minConfirmations,
+    });
+    if (receipt.status !== 'success') {
+      throw new EvmSendRevertedError(stored, receipt.status);
+    }
     return { txHash: stored };
   }
 
@@ -229,21 +264,30 @@ export class EvmLiveChain implements CryptoChainPort {
       this.started = true;
     }
 
-    const watched = [...this.byAddress.keys()];
-    if (watched.length === 0) {
-      this.scanCursor = this.tip + 1n;
-      this.recomputeConfirmations();
+    // An empty watch set must not move the cursor to tip+1. The first refresh
+    // after a restart often runs before open payments are registered again;
+    // jumping the cursor would discard the lookback and skip native deposits
+    // already mined. The cursor stays at the lookback until a later refresh
+    // has addresses and scans those blocks.
+    if (this.byAddress.size === 0) {
+      await this.recomputeConfirmations();
       return;
     }
 
-    const watchedSet = new Set(watched);
+    // ERC-20 logs use the cursor this refresh is about to walk, including the
+    // first-refresh lookback. The loop moves scanCursor to tip+1; reading it
+    // afterward would request an empty range and drop every Transfer in it.
+    const erc20FromBlock = this.scanCursor;
+
     while (this.scanCursor <= this.tip) {
       const block = await this.public.getBlock({ blockNumber: this.scanCursor, includeTransactions: true });
+      // Read the watch set for this block. acceptanceAddress may add an address
+      // during the awaited getBlock; a snapshot taken before the walk would
+      // miss it on every block still ahead while the cursor still advances.
       for (const tx of block.transactions) {
         if (typeof tx === 'string') continue;
         if (!tx.to) continue;
         const to = tx.to.toLowerCase();
-        if (!watchedSet.has(to)) continue;
         const entry = this.byAddress.get(to);
         if (!entry) continue;
         const asset = this.assets.get(entry.assetId);
@@ -263,30 +307,54 @@ export class EvmLiveChain implements CryptoChainPort {
       this.scanCursor += 1n;
     }
 
-    await this.scanErc20(watchedSet);
-    this.recomputeConfirmations();
+    await this.scanErc20(erc20FromBlock);
+    await this.recomputeConfirmations();
   }
 
   /**
    * Transfers that have reached `minConfirmations` and have not yet been
    * successfully delivered by the watcher. **Does not mark** — call
    * `markFinalizedEmitted` only after webhook 2xx/202 so a failed POST retries.
+   *
+   * Tip distance is not enough. An observation is omitted when this refresh
+   * did not re-read a receipt that still contains the transfer.
    */
   drainFinalized(): FinalizedInbound[] {
-    const out: FinalizedInbound[] = [];
-    for (const [address, observed] of this.observed) {
-      if (observed.confirmations < this.minConfirmations) continue;
-      if (this.finalizedEmitted.has(address)) continue;
-      const { blockNumber, logIndex, ...transfer } = observed;
-      out.push({ address: getAddress(address), transfer, blockNumber, logIndex });
-    }
-    return out;
+    const ready = [...this.observed.entries()]
+      .filter(([key, observed]) => {
+        if (!observed.inReceipt) return false;
+        if (observed.confirmations < this.minConfirmations) return false;
+        return !this.finalizedEmitted.has(key);
+      })
+      .sort((a, b) => compareObserved(a[1], b[1]));
+    return ready.map(([, observed]) => ({
+      address: getAddress(observed.address),
+      transfer: toTransfer(observed),
+      blockNumber: observed.blockNumber,
+      logIndex: observed.logIndex,
+    }));
   }
 
-  /** Record successful webhook delivery so the address is not re-drained. */
+  /**
+   * Record successful webhook delivery for one inbound at this address.
+   *
+   * The watcher calls this once per drained item, in cursor order. Each call
+   * marks the earliest unmarked finalized inbound so a later log or a later
+   * transaction to the same address is still drained.
+   */
   markFinalizedEmitted(address: string): void {
-    // Keys in `observed` / `finalizedEmitted` are lowercased (see `record`).
-    this.finalizedEmitted.add(address.toLowerCase());
+    const addr = address.toLowerCase();
+    const pending = [...this.observed.entries()]
+      .filter(([key, observed]) => {
+        if (observed.address.toLowerCase() !== addr) return false;
+        if (this.finalizedEmitted.has(key)) return false;
+        if (!observed.inReceipt) return false;
+        return observed.confirmations >= this.minConfirmations;
+      })
+      .sort((a, b) => compareObserved(a[1], b[1]));
+    const first = pending[0];
+    if (!first) return;
+    this.finalizedEmitted.add(first[0]);
   }
 
   /** Test helper — force the scan cursor (e.g. after anvil restart). */
@@ -306,9 +374,12 @@ export class EvmLiveChain implements CryptoChainPort {
     blockNumber: bigint;
     logIndex: number;
   }): void {
-    const key = input.address.toLowerCase();
+    // Same tx and same log updates that one row. A different log index is a
+    // second inbound — its amount stays. A different txHash is recorded too.
+    const key = observationKey(input.address, input.txHash, input.logIndex);
     const confirmations = Number(this.tip - input.blockNumber + 1n);
     const next: ObservedInbound = {
+      address: getAddress(input.address),
       txHash: input.txHash,
       from: getAddress(input.from),
       assetId: input.assetId,
@@ -316,18 +387,16 @@ export class EvmLiveChain implements CryptoChainPort {
       confirmations: confirmations < 0 ? 0 : confirmations,
       blockNumber: input.blockNumber,
       logIndex: input.logIndex,
+      inReceipt: false,
     };
-    const prev = this.observed.get(key);
-    if (prev && prev.txHash !== next.txHash) return;
     this.observed.set(key, next);
   }
 
-  private async scanErc20(watchedSet: Set<string>): Promise<void> {
+  private async scanErc20(fromBlock: bigint): Promise<void> {
     const erc20 = [...this.assets.values()].filter((a): a is Extract<EvmAsset, { kind: 'erc20' }> => a.kind === 'erc20');
     if (erc20.length === 0) return;
-
-    const window = BigInt(Math.max(this.minConfirmations * 4, 64));
-    const fromBlock = this.tip > window ? this.tip - window : 0n;
+    // Nothing new since the cursor already passed the tip.
+    if (fromBlock > this.tip) return;
 
     for (const asset of erc20) {
       const logs = await this.public.getLogs({
@@ -354,7 +423,6 @@ export class EvmLiveChain implements CryptoChainPort {
         if (log.topics[0]?.toLowerCase() !== ERC20_TRANSFER_TOPIC.toLowerCase()) continue;
 
         const to = getAddress(`0x${toTopic.slice(26)}`);
-        if (!watchedSet.has(to.toLowerCase())) continue;
         const entry = this.byAddress.get(to.toLowerCase());
         if (!entry || entry.assetId !== asset.assetId) continue;
 
@@ -375,22 +443,85 @@ export class EvmLiveChain implements CryptoChainPort {
     }
   }
 
-  private recomputeConfirmations(): void {
-    for (const [key, observed] of this.observed) {
-      const confirmations = Number(this.tip - observed.blockNumber + 1n);
+  private async recomputeConfirmations(): Promise<void> {
+    for (const [key, observed] of [...this.observed.entries()]) {
+      const receipt = await this.receiptFor(observed.txHash as Hex);
+      if (!receipt || !this.transferStillInReceipt(observed, receipt)) {
+        // A dropped or reverted transfer must not age in on tip distance.
+        this.observed.set(key, { ...observed, inReceipt: false, confirmations: 0 });
+        continue;
+      }
+      const blockNumber = typeof receipt.blockNumber === 'bigint' ? receipt.blockNumber : observed.blockNumber;
+      const confirmations = Number(this.tip - blockNumber + 1n);
       this.observed.set(key, {
         ...observed,
+        blockNumber,
+        inReceipt: true,
         confirmations: confirmations < 0 ? 0 : confirmations,
       });
     }
   }
+
+  private async receiptFor(txHash: Hex): Promise<Awaited<ReturnType<PublicClient['getTransactionReceipt']>> | null> {
+    try {
+      return (await this.public.getTransactionReceipt({ hash: txHash })) ?? null;
+    } catch {
+      // Missing receipt, or the node did not answer. This refresh has not
+      // seen the transfer, so it must not count as confirmed.
+      return null;
+    }
+  }
+
+  private transferStillInReceipt(observed: ObservedInbound, receipt: Awaited<ReturnType<PublicClient['getTransactionReceipt']>>): boolean {
+    if (receipt.status !== 'success') return false;
+    if (receipt.transactionHash.toLowerCase() !== observed.txHash.toLowerCase()) return false;
+    const asset = this.assets.get(observed.assetId);
+    if (!asset) return false;
+    if (asset.kind === 'native') {
+      if (receipt.to && getAddress(receipt.to).toLowerCase() !== observed.address.toLowerCase()) return false;
+      return true;
+    }
+    for (const log of receipt.logs) {
+      if (log.logIndex !== observed.logIndex) continue;
+      if (!log.transactionHash || log.transactionHash.toLowerCase() !== observed.txHash.toLowerCase()) continue;
+      if (log.topics[0]?.toLowerCase() !== ERC20_TRANSFER_TOPIC.toLowerCase()) continue;
+      const toTopic = log.topics[2];
+      if (!toTopic) continue;
+      const to = getAddress(`0x${toTopic.slice(26)}`);
+      if (to.toLowerCase() !== observed.address.toLowerCase()) continue;
+      const value = log.data && log.data !== '0x' ? BigInt(log.data) : 0n;
+      if (fromChainUnits(value, asset.decimals) !== observed.amount) continue;
+      return true;
+    }
+    return false;
+  }
 }
 
-function bookKey(paymentId: string, assetId: string): string {
-  return `${paymentId}\0${assetId}`;
+function observationKey(address: string, txHash: string, logIndex: number): string {
+  return `${address.toLowerCase()}:${txHash.toLowerCase()}:${logIndex}`;
 }
 
-function stableIndex(paymentId: string, assetId: string): number {
+/** Same order as the watcher cursor: block, log index, tx hash. */
+function compareObserved(a: ObservedInbound, b: ObservedInbound): number {
+  if (a.blockNumber < b.blockNumber) return -1;
+  if (a.blockNumber > b.blockNumber) return 1;
+  if (a.logIndex !== b.logIndex) return a.logIndex < b.logIndex ? -1 : 1;
+  if (a.txHash.toLowerCase() === b.txHash.toLowerCase()) return 0;
+  return a.txHash.toLowerCase() < b.txHash.toLowerCase() ? -1 : 1;
+}
+
+function toTransfer(observed: ObservedInbound): ConfirmedTransfer {
+  return {
+    txHash: observed.txHash,
+    from: observed.from,
+    assetId: observed.assetId,
+    amount: observed.amount,
+    confirmations: observed.confirmations,
+  };
+}
+
+/** Stable HD slot for a payment and asset. Process occupancy is tracked separately. */
+export function stableDepositIndex(paymentId: string, assetId: string): number {
   const digest = keccak256(toBytes(`${paymentId}:${assetId}`));
   return Number(BigInt(digest) & 0x7fff_ffffn);
 }
@@ -399,15 +530,22 @@ function deriveDepositAddress(mnemonic: string, index: number): Address {
   return mnemonicToAccount(mnemonic, { addressIndex: index }).address;
 }
 
+/**
+ * Host stays so an operator can see which endpoint failed.
+ * Userinfo, every path segment, and the query are blank: providers put the
+ * key in the last segment (`/v2/<key>`), in a single segment (`/<key>`),
+ * or in the query (`?apikey=`). This string is what `description` publishes.
+ */
 function redactRpc(url: string): string {
   try {
     const u = new URL(url);
     if (u.password) u.password = '***';
     if (u.username) u.username = '***';
-    const parts = u.pathname.split('/').filter(Boolean);
-    if (parts.length > 1) {
-      u.pathname = `/***/${parts[parts.length - 1]}`;
+    if (u.pathname.split('/').filter(Boolean).length > 0) {
+      u.pathname = '/***';
     }
+    u.search = '';
+    u.hash = '';
     return u.toString();
   } catch {
     return '(rpc)';

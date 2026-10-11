@@ -1,3 +1,4 @@
+import postgres from 'postgres';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -6,6 +7,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
 import {
   MemoryLedger,
+  LedgerError,
   formatAmount,
   parseAmount as amt,
   railBoundary,
@@ -174,6 +176,120 @@ describe('svc-pay user money PG-hard', () => {
     await db?.drop();
     await adminStop();
   }, 30_000);
+
+  it('withdrawal completes using the same reserved connection when the pool has one slot', async () => {
+    await deposit();
+    if (!db) throw new Error('Native fixture absent');
+    const single = postgres(db.url, { max: 1, onnotice: () => undefined });
+    try {
+      const service = new UserMoneyService(single, ledger, rails, { operatorCreditRails: ['card-sandbox'] });
+      const sent = await service.withdraw({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('40'),
+        rail: 'card-sandbox',
+        destination: { kind: 'bank', ref: 'DE89370400440532013000' },
+        clientRef: 'single-slot',
+      });
+      expect(sent.status).toBe('sent');
+      expect(await availableOf()).toBe('60');
+    } finally {
+      await single.end({ timeout: 1 });
+    }
+  }, 5_000);
+
+  it('lost ledger ACK then a later funds refusal preserves the original pending claim and key', async () => {
+    await deposit();
+    const realPost = ledger.post.bind(ledger);
+    const seen: string[] = [];
+    let state = 0;
+    ledger.post = async (request) => {
+      if (request.reason === 'withdraw.held') {
+        seen.push(request.idempotencyKey);
+        if (state++ === 0) {
+          await realPost(request);
+          throw new Error('ACK lost after remote commit');
+        }
+        if (state === 2) throw new LedgerError('later policy refusal', 'ledger.insufficient_funds');
+      }
+      return realPost(request);
+    };
+    await expect(withdraw()).rejects.toThrow('ACK lost');
+    await expect(withdraw()).rejects.toThrow('later policy');
+    const [pending] = await money.listWithdrawals(USER, 50);
+    expect(pending).toMatchObject({ status: 'pending', attempts: 0, failureCode: null });
+    expect(await holdOf(pending!.id, 0)).toBe('40');
+    expect(await availableOf()).toBe('60');
+    expect((await withdraw()).status).toBe('sent');
+    expect(new Set(seen).size).toBe(1);
+    expect(await availableOf()).toBe('60');
+  });
+
+  it('lost provider ACK then a later refusal retains the held intent and original provider key', async () => {
+    await deposit();
+    let calls = 0;
+    const keys: string[] = [];
+    const payout = card.payout.bind(card);
+    card.payout = async (request) => {
+      keys.push(request.settlementId);
+      if (++calls === 1) {
+        await payout(request);
+        throw new Error('provider ACK lost');
+      }
+      if (calls === 2) {
+        card.failNext('auth.refused', 'credentials changed');
+      }
+      return payout(request);
+    };
+    await expect(withdraw()).rejects.toThrow('provider ACK lost');
+    await expect(withdraw()).rejects.toMatchObject({ code: 'pay.rail_outcome_unknown' });
+    const [held] = await money.listWithdrawals(USER, 50);
+    expect(held).toMatchObject({ status: 'held', attempts: 0, failureCode: null });
+    expect(await holdOf(held!.id, 0)).toBe('40');
+    expect(await availableOf()).toBe('60');
+    expect((await withdraw()).status).toBe('sent');
+    expect(new Set(keys).size).toBe(1);
+    expect(await availableOf()).toBe('60');
+  });
+
+  it('accepted provider receipt resumes settlement after lost ledger ACK without asking the provider again', async () => {
+    await deposit();
+    let railCalls = 0;
+    const payout = card.payout.bind(card);
+    card.payout = async (request) => {
+      railCalls++;
+      return payout(request);
+    };
+    const realPost = ledger.post.bind(ledger);
+    let lost = false;
+    ledger.post = async (request) => {
+      const receipt = await realPost(request);
+      if (request.reason === 'withdraw.settled' && !lost) {
+        lost = true;
+        throw new Error('settle ACK lost');
+      }
+      return receipt;
+    };
+    await expect(withdraw()).rejects.toThrow('settle ACK lost');
+    expect((await withdraw()).status).toBe('sent');
+    expect(railCalls).toBe(1);
+  });
+
+  it('native populated downgrade preserves dispatch history and original immutable terms', async () => {
+    await deposit();
+    const sent = await withdraw();
+    await expect(sql`UPDATE pay.withdrawals SET amount='41' WHERE id=${sent.id}`).rejects.toMatchObject({ code: '23514' });
+    const down = readFileSync(join(here, '..', 'drizzle', '0037_pay_withdrawal_rail_attempts.down.sql'), 'utf8');
+    await expect(
+      sql.begin(async (tx) => {
+        await tx.unsafe(down);
+      }),
+    ).rejects.toThrow('history prevents downgrade');
+    expect(await sql`SELECT outcome FROM pay.withdrawal_rail_attempts WHERE withdrawal_id=${sent.id}`).toMatchObject([
+      { outcome: 'accepted' },
+    ]);
+    expect((await money.getWithdrawal(sent.id)).amount).toBe(amt('40'));
+  });
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -400,7 +516,7 @@ describe('svc-pay user money PG-hard', () => {
       // Nothing moved, and the row records why.
       expect(await availableOf()).toBe('100');
       const rows = await sql<Array<{ status: string; failure_code: string }>>`SELECT status, failure_code FROM pay.withdrawals`;
-      expect(rows[0]).toMatchObject({ status: 'failed', failure_code: 'ledger.insufficient_funds' });
+      expect(rows[0]).toMatchObject({ status: 'pending', failure_code: null });
     });
 
     it('REVERSES THE HOLD when the rail refuses — the user gets their money back in the same call', async () => {
@@ -444,6 +560,7 @@ describe('svc-pay user money PG-hard', () => {
       await sql`
         UPDATE pay.withdrawals SET failure_code = 'bank.rejected', updated_at = now() WHERE id = ${id}
       `;
+      await sql`INSERT INTO pay.withdrawal_rail_attempts(withdrawal_id, attempt, outcome) VALUES (${id}, 0, 'refused')`;
       expect(await holdOf(id, 0)).toBe('40');
       expect(await availableOf()).toBe('60');
 
@@ -715,8 +832,8 @@ describe('svc-pay user money PG-hard', () => {
       expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
       // 100 − 80. Never negative, and never 100 − 160.
       expect(await availableOf()).toBe('20');
-      const failed = (await money.listWithdrawals(USER, 50)).find((w) => w.status === 'failed');
-      expect(failed?.failureCode).toBe('ledger.insufficient_funds');
+      const failed = (await money.listWithdrawals(USER, 50)).find((w) => w.status === 'pending');
+      expect(failed?.failureCode).toBeNull();
     });
 
     /**

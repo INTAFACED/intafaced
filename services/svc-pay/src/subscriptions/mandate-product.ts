@@ -226,8 +226,7 @@ export async function recordPreChargeNotifyAttempt(input: {
     );
     // A callback that merely ran is not delivery. Only explicit proof from the
     // in-app insert may set notified; out-of-app receipts are irrelevant here.
-    const inAppDeliveryRowExists =
-      delivery === true || (typeof delivery === 'object' && delivery !== null && delivery.inAppDeliveryRowExists === true);
+    const inAppDeliveryRowExists = typeof delivery === 'object' && delivery !== null && delivery.inAppDeliveryRowExists === true;
     return { ...base, notified: inAppDeliveryRowExists, inAppDeliveryRowExists, notifyStatus: 'attempted', code: null };
   } catch {
     return { ...base, notifyStatus: 'failed', code: SUBSCRIPTION_NOTIFY_FAILED };

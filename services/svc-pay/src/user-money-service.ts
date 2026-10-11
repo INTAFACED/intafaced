@@ -1,4 +1,6 @@
+import { postPayLedger } from './ledger-receipt.js';
 import type { Sql } from 'postgres';
+import { withPayoutLock, payoutTransaction } from './payout-admission.js';
 import { transaction } from '@intafaced/db';
 import {
   formatAmount,
@@ -212,7 +214,8 @@ export class UserMoneyService {
         // Keyed `deposit:<rail>:<railRef>` — the same key the unique index above
         // enforces, so svc-pay and the ledger cannot disagree about what
         // "already credited" means.
-        await this.ledger.post(
+        await postPayLedger(
+          this.ledger,
           recipes.deposit({
             userId: claimed.userId,
             assetId: claimed.assetId,
@@ -344,136 +347,179 @@ export class UserMoneyService {
       throw err;
     }
 
-    return withMoneySpan('pay.withdraw', { operation: 'withdraw', rail: input.rail, amount: formatAmount(input.amount) }, async (span) => {
-      let claimed = await this.claimWithdrawal(input);
+    return withMoneySpan('pay.withdraw', { operation: 'withdraw', rail: input.rail, amount: formatAmount(input.amount) }, async (span) =>
+      withPayoutLock(this.sql, `withdraw:${JSON.stringify([input.userId, input.clientRef])}`, async (connection) => {
+        let claimed = await this.claimWithdrawal(input, connection);
 
-      // Already finished. Returning it is the only correct answer to a retry:
-      // the money is gone and asking the rail again would send it twice.
-      if (claimed.status === 'sent') return claimed;
+        // Already finished. Returning it is the only correct answer to a retry:
+        // the money is gone and asking the rail again would send it twice.
+        if (claimed.status === 'sent') return claimed;
 
-      // L3-1 recovery: reverse began (failure_code stamped while still `held`)
-      // but the process died before status became `failed`. Finish the reverse
-      // — never re-ask the rail. Caller may open a *new* clientRef (or the same
-      // clientRef after status is `failed` and attempts advanced) for another try.
-      if (claimed.status === 'held' && claimed.failureCode) {
-        await this.finalizeRailRefusal(claimed, claimed.failureCode);
-        throw new PayError('Rail refused the withdrawal', 'pay.rail_failed', {
-          failureCode: claimed.failureCode,
-          withdrawalId: claimed.id,
-        });
-      }
+        // L3-1 recovery: reverse began (failure_code stamped while still `held`)
+        // but the process died before status became `failed`. Finish the reverse
+        // — never re-ask the rail. Caller may open a *new* clientRef (or the same
+        // clientRef after status is `failed` and attempts advanced) for another try.
+        if (claimed.status === 'held' && claimed.failureCode) {
+          const [refusal] = await connection`
+          SELECT outcome FROM pay.withdrawal_rail_attempts
+           WHERE withdrawal_id = ${claimed.id} AND attempt = ${claimed.attempts}
+        `;
+          if (refusal?.outcome !== 'refused')
+            throw new PayError('Original rail refusal is unproven; withdrawal remains held', 'pay.rail_outcome_unknown');
+          await this.finalizeRailRefusal(claimed, claimed.failureCode, connection);
+          throw new PayError('Rail refused the withdrawal', 'pay.rail_failed', {
+            withdrawalId: claimed.id,
+            failureCode: claimed.failureCode,
+          });
+        }
 
-      // Residual #8: a terminal `failed` row is "this attempt is done", not
-      // "this clientRef is dead forever". `attempts` advanced on finalize; the
-      // next call with the same clientRef (same money + destination) opens the
-      // next attempt key `withdraw:<id>:<attempts>` so it cannot reuse a
-      // released hold. Different money/destination still conflicts above.
-      if (claimed.status === 'failed') {
-        await this.sql`
+        // Residual #8: a terminal `failed` row is "this attempt is done", not
+        // "this clientRef is dead forever". `attempts` advanced on finalize; the
+        // next call with the same clientRef (same money + destination) opens the
+        // next attempt key `withdraw:<id>:<attempts>` so it cannot reuse a
+        // released hold. Different money/destination still conflicts above.
+        if (claimed.status === 'failed') {
+          await connection`
             UPDATE pay.withdrawals
                SET status = 'pending', failure_code = NULL, updated_at = now()
              WHERE id = ${claimed.id} AND status = 'failed'
           `;
-        claimed = { ...claimed, status: 'pending', failureCode: null };
-      }
+          claimed = { ...claimed, status: 'pending', failureCode: null };
+        }
 
-      const attempt = claimed.attempts;
-      const ledgerInput = {
-        userId: claimed.userId,
-        assetId: claimed.assetId,
-        amount: claimed.amount,
-        rail: claimed.rail,
-        withdrawalId: `${claimed.id}:${attempt}`,
-      };
+        const attempt = claimed.attempts;
+        const ledgerInput = {
+          userId: claimed.userId,
+          assetId: claimed.assetId,
+          amount: claimed.amount,
+          rail: claimed.rail,
+          withdrawalId: `${claimed.id}:${attempt}`,
+        };
 
-      // ── Phase 1: the ledger. Funds leave `available` for a hold that names
-      // this withdrawal and this attempt.
-      //
-      // IF THIS THROWS (insufficient funds), NOTHING HAS MOVED. The user's
-      // balance is untouched, the row is marked failed, and the caller is told
-      // why. That is the correct place for a withdrawal the user cannot afford
-      // to fail — before a rail has been asked to send anything.
-      try {
-        await this.ledger.post(recipes.withdrawHold(ledgerInput));
-      } catch (err) {
-        await this.sql`
-            UPDATE pay.withdrawals
-               SET status = 'failed', failure_code = 'ledger.insufficient_funds', updated_at = now()
-             WHERE id = ${claimed.id} AND status <> 'sent'
-          `;
-        throw err;
-      }
-
-      await this.sql`
+        // ── Phase 1: the ledger. Funds leave `available` for a hold that names
+        // this withdrawal and this attempt.
+        //
+        // A ledger throw can follow a remote commit. Preserve the original
+        // pending claim and key; a retry posts only those same immutable terms.
+        // A held row already has an acknowledged hold and does not post again.
+        if (claimed.status !== 'held') {
+          // A missing ACK never proves that a remote post did not commit. Keep
+          // the original pending claim and business key on every ledger throw.
+          try {
+            await postPayLedger(this.ledger, recipes.withdrawHold(ledgerInput));
+          } catch (error) {
+            throw new PayError(
+              `Withdrawal ledger outcome is unknown; original claim remains pending: ${error instanceof Error ? error.message : 'ledger error'}`,
+              'pay.ledger_outcome_unknown',
+              { withdrawalId: claimed.id },
+            );
+          }
+          await connection`
           UPDATE pay.withdrawals SET status = 'held', failure_code = NULL, updated_at = now()
            WHERE id = ${claimed.id} AND status = 'pending'
         `;
+        }
 
-      // ── Phase 2: the rail.
-      //
-      // IF THIS CRASHES BETWEEN THE HOLD AND THE RAIL CALL, the user's funds
-      // are in `withdraw:<id>:<attempt>` — out of `available`, not yet sent.
-      // Theirs, and immobilised. This is the ONE branch where value is stuck,
-      // which is why `held` is a real status with its own index: re-running
-      // with the same `clientRef` re-posts the hold (idempotent on the same
-      // key, so a no-op), asks the rail again with the same key, and finishes.
-      // Nothing is lost; it is recoverable by repeating the call.
-      const result = await withRailSpan(adapter.id, 'payout', async () =>
-        adapter.payout({
-          // §6.1's `SettlementInstruction` is merchant-shaped — it is the only
-          // payout shape the interface has. `settlementId` is used by every
-          // adapter purely as the payout idempotency key, and `merchantId` is
-          // read by none of them. Generalising it to a `PayoutInstruction` is
-          // a change to a reviewed interface plus its conformance kit, so it
-          // is its own PR (§15.2) rather than a drive-by widening here.
-          settlementId: ledgerInput.withdrawalId,
-          merchantId: claimed.userId,
-          amount: claimed.amount,
-          assetId: claimed.assetId,
-          window: 'user-withdrawal',
-          destination: claimed.destination,
-        }),
-      );
+        // ── Phase 2: the rail.
+        //
+        // IF THIS CRASHES BETWEEN THE HOLD AND THE RAIL CALL, the user's funds
+        // are in `withdraw:<id>:<attempt>` — out of `available`, not yet sent.
+        // The dispatch journal commits before the call. A repeat reuses the
+        // same provider key; a saved acceptance skips that call entirely.
+        // An unknown earlier dispatch cannot be reversed on a later refusal.
+        const prior = await connection<Array<{ outcome: string; rail_ref: string | null }>>`
+        SELECT outcome, rail_ref FROM pay.withdrawal_rail_attempts
+         WHERE withdrawal_id = ${claimed.id} AND attempt = ${attempt}
+      `;
+        // Legacy held rows have unknown dispatch history. Never interpret their
+        // next refusal as proof that no earlier send committed.
+        const firstDispatch = prior.length === 0 && claimed.status !== 'held';
+        await connection`
+        INSERT INTO pay.withdrawal_rail_attempts(withdrawal_id, attempt, outcome)
+        VALUES (${claimed.id}, ${attempt}, 'requested') ON CONFLICT DO NOTHING
+      `;
+        const accepted = prior[0]?.outcome === 'accepted' && prior[0].rail_ref;
+        const result = accepted
+          ? { ok: true, railRef: accepted }
+          : await withRailSpan(adapter.id, 'payout', async () =>
+              adapter.payout({
+                settlementId: ledgerInput.withdrawalId,
+                merchantId: claimed.userId,
+                amount: claimed.amount,
+                assetId: claimed.assetId,
+                window: 'user-withdrawal',
+                destination: claimed.destination,
+              }),
+            );
+        if (!accepted && (!('amount' in result) || result.amount !== claimed.amount || result.assetId !== claimed.assetId))
+          throw new PayError('Rail result does not identify the original withdrawal', 'pay.rail_outcome_unknown');
+        if (result.ok && !accepted) {
+          if (!('amount' in result) || result.amount !== claimed.amount || result.assetId !== claimed.assetId || !result.railRef.trim())
+            throw new PayError('Rail payout receipt differs from the original withdrawal', 'pay.rail_amount_mismatch');
+          await connection`
+          UPDATE pay.withdrawal_rail_attempts SET outcome = 'accepted', rail_ref = ${result.railRef}
+           WHERE withdrawal_id = ${claimed.id} AND attempt = ${attempt} AND outcome = 'requested'
+        `;
+        }
 
-      // ── Phase 3a: the rail refused. Put the money back, durably.
-      //
-      // L3-1: stamp failure_code WHILE still `held` before reverse, so a crash
-      // between reverse and the final status update is recoverable: retry
-      // re-enters finalizeRailRefusal (idempotent reverse) and marks failed.
-      // `attempts` advances only on finalization.
-      if (!result.ok) {
-        const code = result.failureCode ?? 'rail.failed';
-        await this.sql`
+        // ── Phase 3a: the rail refused. Put the money back, durably.
+        //
+        // L3-1: stamp failure_code WHILE still `held` before reverse, so a crash
+        // between reverse and the final status update is recoverable: retry
+        // re-enters finalizeRailRefusal (idempotent reverse) and marks failed.
+        // `attempts` advances only on finalization.
+        if (!result.ok) {
+          if (!firstDispatch)
+            throw new PayError('Earlier rail result is unknown; original withdrawal remains held', 'pay.rail_outcome_unknown');
+          const code = 'failureCode' in result ? (result.failureCode ?? 'rail.failed') : 'rail.failed';
+          await connection`
+          UPDATE pay.withdrawal_rail_attempts SET outcome = 'refused'
+           WHERE withdrawal_id = ${claimed.id} AND attempt = ${attempt} AND outcome = 'requested'
+        `;
+          await connection`
             UPDATE pay.withdrawals
                SET failure_code = ${code}, updated_at = now()
              WHERE id = ${claimed.id} AND status = 'held'
           `;
-        await this.finalizeRailRefusal({ ...claimed, failureCode: code }, code);
-        throw new PayError(result.failureReason ?? 'Rail refused the withdrawal', 'pay.rail_failed', {
-          failureCode: code,
-          withdrawalId: claimed.id,
-        });
-      }
+          await this.finalizeRailRefusal({ ...claimed, failureCode: code }, code, connection);
+          throw new PayError(
+            ('failureReason' in result ? result.failureReason : undefined) ?? 'Rail refused the withdrawal',
+            'pay.rail_failed',
+            {
+              failureCode: code,
+              withdrawalId: claimed.id,
+            },
+          );
+        }
 
-      // ── Phase 3b: the rail sent it. Value leaves the book.
-      //
-      // IF THIS CRASHES BETWEEN THE RAIL AND THE SETTLE, the funds are still
-      // in the hold and the rail has already sent them — the platform is short
-      // by this amount until the settle runs. Nobody's money is lost: the
-      // settle is keyed on the same attempt, so repeating the call posts it
-      // once and squares the book. The rail is not asked again, because its
-      // own idempotency key is the same string.
-      await this.ledger.post(recipes.withdrawSettle(ledgerInput));
+        // ── Phase 3b: the rail sent it. Value leaves the book.
+        //
+        // IF THIS CRASHES BETWEEN THE RAIL AND THE SETTLE, the funds are still
+        // in the hold and the rail has already sent them — the platform is short
+        // by this amount until the settle runs. Nobody's money is lost: the
+        // settle is keyed on the same attempt, so repeating the call posts it
+        // once and squares the book. The rail is not asked again, because its
+        // own idempotency key is the same string.
+        try {
+          await postPayLedger(this.ledger, recipes.withdrawSettle(ledgerInput));
+        } catch (error) {
+          throw new PayError(
+            `Withdrawal ledger outcome is unknown; accepted rail receipt remains held: ${error instanceof Error ? error.message : 'ledger error'}`,
+            'pay.ledger_outcome_unknown',
+            { withdrawalId: claimed.id },
+          );
+        }
 
-      await this.sql`
+        await connection`
           UPDATE pay.withdrawals
              SET status = 'sent', rail_ref = ${result.railRef}, failure_code = NULL, updated_at = now()
            WHERE id = ${claimed.id}
         `;
 
-      span.setAttribute('intafaced.amount', formatAmount(claimed.amount));
-      return { ...claimed, status: 'sent' as const, railRef: result.railRef };
-    });
+        span.setAttribute('intafaced.amount', formatAmount(claimed.amount));
+        return { ...claimed, status: 'sent' as const, railRef: result.railRef };
+      }),
+    );
   }
 
   /**
@@ -484,18 +530,19 @@ export class UserMoneyService {
    * client bug, and resuming it against the ORIGINAL numbers would send money
    * somewhere the caller did not just ask for.
    */
-  private async claimWithdrawal(input: {
-    userId: string;
-    assetId: string;
-    amount: Amount;
-    rail: string;
-    destination: { kind: string; ref: string };
-    clientRef: string;
-  }): Promise<WithdrawalRecord> {
-    return transaction(
-      this.sql,
-      async (tx) => {
-        const inserted = await tx<WithdrawalRow[]>`
+  private async claimWithdrawal(
+    input: {
+      userId: string;
+      assetId: string;
+      amount: Amount;
+      rail: string;
+      destination: { kind: string; ref: string };
+      clientRef: string;
+    },
+    connection: Sql,
+  ): Promise<WithdrawalRecord> {
+    return payoutTransaction(connection, async (tx) => {
+      const inserted = await tx<WithdrawalRow[]>`
           INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status)
           VALUES (
             ${input.userId}, ${input.assetId}, ${formatAmount(input.amount)}::numeric, ${input.rail},
@@ -504,33 +551,31 @@ export class UserMoneyService {
           ON CONFLICT ("user_id", "client_ref") DO NOTHING
           RETURNING id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
         `;
-        if (inserted[0]) return toWithdrawal(inserted[0]);
+      if (inserted[0]) return toWithdrawal(inserted[0]);
 
-        const rows = await tx<WithdrawalRow[]>`
+      const rows = await tx<WithdrawalRow[]>`
           SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
             FROM pay.withdrawals WHERE user_id = ${input.userId} AND client_ref = ${input.clientRef} FOR UPDATE
         `;
-        const existing = toWithdrawal(rows[0]!);
+      const existing = toWithdrawal(rows[0]!);
 
-        const mismatch =
-          existing.assetId !== input.assetId ||
-          existing.amount !== input.amount ||
-          existing.rail !== input.rail ||
-          existing.destination.kind !== input.destination.kind ||
-          existing.destination.ref !== input.destination.ref;
-        if (mismatch) {
-          throw new PayError(
-            `Client reference "${input.clientRef}" already names a withdrawal of ` +
-              `${formatAmount(existing.amount)} ${existing.assetId} to ${existing.destination.kind}`,
-            'pay.withdrawal_conflict',
-            { withdrawalId: existing.id },
-          );
-        }
+      const mismatch =
+        existing.assetId !== input.assetId ||
+        existing.amount !== input.amount ||
+        existing.rail !== input.rail ||
+        existing.destination.kind !== input.destination.kind ||
+        existing.destination.ref !== input.destination.ref;
+      if (mismatch) {
+        throw new PayError(
+          `Client reference "${input.clientRef}" already names a withdrawal of ` +
+            `${formatAmount(existing.amount)} ${existing.assetId} to ${existing.destination.kind}`,
+          'pay.withdrawal_conflict',
+          { withdrawalId: existing.id },
+        );
+      }
 
-        return existing;
-      },
-      { isolation: 'read committed', maxAttempts: 5 },
-    );
+      return existing;
+    });
   }
 
   /**
@@ -541,7 +586,7 @@ export class UserMoneyService {
    * re-run after a crash; reverse is ledger-idempotent and the final UPDATE
    * is guarded on `status = 'held'`.
    */
-  private async finalizeRailRefusal(claimed: WithdrawalRecord, failureCode: string): Promise<void> {
+  private async finalizeRailRefusal(claimed: WithdrawalRecord, failureCode: string, connection: Sql): Promise<void> {
     const attempt = claimed.attempts;
     const ledgerInput = {
       userId: claimed.userId,
@@ -550,8 +595,8 @@ export class UserMoneyService {
       rail: claimed.rail,
       withdrawalId: `${claimed.id}:${attempt}`,
     };
-    await this.ledger.post(recipes.withdrawReverse(ledgerInput));
-    await this.sql`
+    await postPayLedger(this.ledger, recipes.withdrawReverse(ledgerInput));
+    await connection`
         UPDATE pay.withdrawals
            SET status = 'failed', attempts = attempts + 1,
                failure_code = ${failureCode}, updated_at = now()

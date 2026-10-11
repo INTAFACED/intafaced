@@ -11,6 +11,7 @@ import {
   type CheckoutPay,
   type CheckoutSessionPageView,
 } from './checkout-page.js';
+import { PAYER_COPY_KEYS, resolvePayerCopy } from './payer-copy.js';
 
 /**
  * THE PUBLIC CHECKOUT SURFACE.
@@ -172,7 +173,12 @@ describe('checkout page rendering', () => {
   });
 
   it('renders honest empty and error states', () => {
-    expect(renderCheckoutPage({ kind: 'missing_token' }).status).toBe(400);
+    const missing = renderCheckoutPage({ kind: 'missing_token' });
+    const required = resolvePayerCopy(PAYER_COPY_KEYS.required);
+    const notFound = resolvePayerCopy(PAYER_COPY_KEYS.notFound);
+    expect(missing.status).toBe(400);
+    expect(missing.html).toContain(required);
+    expect(missing.html).not.toContain(notFound);
     expect(renderCheckoutPage({ kind: 'not_found' }).html).toContain('We could not find that.');
     expect(renderCheckoutPage({ kind: 'expired' }).status).toBe(410);
     expect(renderCheckoutPage({ kind: 'expired' }).html).toContain('expired');

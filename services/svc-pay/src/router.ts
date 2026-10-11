@@ -1741,6 +1741,8 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.routing_input_missing':
         return 'BAD_REQUEST' as const;
       case 'pay.routing_no_rail':
+      case 'pay.rail_outcome_unknown':
+      case 'pay.ledger_outcome_unknown':
       case 'pay.identity_admission_unavailable':
       case 'pay.payout_destination_missing':
       case 'pay.payout_admission_missing':
