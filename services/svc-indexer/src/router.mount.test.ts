@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { MemoryProjectionStore } from './projection/memory-store.js';
@@ -110,6 +110,31 @@ async function seeded() {
 }
 
 describe('svc-indexer mount — §22 permissionless reads', () => {
+  it('refuses a signed request with unconfigured screening before reading the projection', async () => {
+    const store = new MemoryProjectionStore(CHAIN_ID);
+    const read = vi.spyOn(store, 'book');
+    const indexer = new Indexer({ source: new NullChainSource(CHAIN_ID), store, finalityDepth: 64, ingestEnabled: () => false });
+    const router = createIndexerRouter({
+      store,
+      indexer,
+      chainId: CHAIN_ID,
+      finalityDepth: 64,
+      ingestEnabled: () => false,
+      chainSource: 'memory',
+    });
+    vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', undefined);
+    vi.stubEnv('INTAFACED_REGION_FAIL_CLOSED', undefined);
+    try {
+      await expect(router.createCaller(signed()).book({ market: 'IFC-USD', depth: 10 })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        cause: { decision: { code: 'denied.screening_unconfigured' } },
+      });
+      expect(read).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('serves the book to a caller with no credentials at all', async () => {
     const router = await seeded();
     const view = await router.createCaller(anonymous()).book({ market: 'IFC-USD', depth: 10 });

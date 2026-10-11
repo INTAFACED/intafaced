@@ -76,12 +76,9 @@ export class PostgresProjectionStore implements ProjectionStore {
   /**
    * One transaction for the block record and every event it carries.
    *
-   * Read-committed (the default) rather than serializable: this store has a
-   * single writer by construction — one ingest loop, advancing a cursor it owns
-   * — so there is no read/write skew for serializable to detect, and the retry
-   * machinery in `@intafaced/db` exists for contended money paths that this is
-   * not. Atomicity is what is needed here, and atomicity is what a plain
-   * transaction gives.
+   * Read-committed plus a transaction-scoped lock for this schema and chain.
+   * The normal ingest loop is one writer; the lock also serializes competing
+   * writers and reorg repairs so identity checks see the preceding commit.
    */
   async applyBlock(block: ChainBlock): Promise<ApplyOutcome> {
     assertValidBlock(block);
@@ -91,10 +88,28 @@ export class PostgresProjectionStore implements ProjectionStore {
     }
 
     return this.sql.begin(async (tx) => {
-      const [prior] = await tx<Array<{ status: string }>>`
-        SELECT status FROM blocks WHERE chain_id = ${this.chainId} AND hash = ${block.hash}
+      // Serialize identity checks and writes with other applies/reorg repairs.
+      // A concurrent first insert of this hash must become visible before we
+      // decide that it has no recorded height or parent.
+      await tx`SELECT pg_advisory_xact_lock(hashtext(current_schema() || ':indexer.projection:' || ${String(this.chainId)})::bigint)`;
+      const [prior] = await tx<Array<{ status: string; height: string; parent_hash: string }>>`
+        SELECT status, height, parent_hash FROM blocks WHERE chain_id = ${this.chainId} AND hash = ${block.hash}
       `;
       const duplicate = prior?.status === 'canonical';
+
+      // A hash already stored is that block. ON CONFLICT (chain_id, hash)
+      // updates status and event_count and leaves height and parent_hash
+      // where they were, so the partial unique index on canonical height
+      // never sees a second row. The event writes below would still land at
+      // the caller-supplied height — including at the current head, and at
+      // head+1 when parentHash is the head — and book() / the tape would
+      // serve them. Replay at the stored height and parent stays on the
+      // idempotent path below.
+      if (prior && (Number(prior.height) !== block.height || prior.parent_hash !== block.parentHash)) {
+        throw new Error(
+          `indexer.block_hash_relocated: hash ${block.hash} is stored at height ${Number(prior.height)} parent ${prior.parent_hash} and cannot be applied at height ${block.height} parent ${block.parentHash}`,
+        );
+      }
 
       const blockTime = new Date(block.timestamp * 1000);
 
@@ -227,6 +242,7 @@ export class PostgresProjectionStore implements ProjectionStore {
 
   async unwindTo(height: number): Promise<UnwindOutcome> {
     return this.sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(current_schema() || ':indexer.projection:' || ${String(this.chainId)})::bigint)`;
       const orphaned = await tx`
         UPDATE blocks SET status = 'orphaned'
         WHERE chain_id = ${this.chainId} AND height >= ${height} AND status = 'canonical'
@@ -246,6 +262,7 @@ export class PostgresProjectionStore implements ProjectionStore {
 
   async prune(throughHeight: number): Promise<number> {
     return this.sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(current_schema() || ':indexer.projection:' || ${String(this.chainId)})::bigint)`;
       // "Delete a version that a newer version at or below the horizon already
       // supersedes." The `<= throughHeight` on the inner query matters: without
       // it, a level written above the horizon would let this delete the last
