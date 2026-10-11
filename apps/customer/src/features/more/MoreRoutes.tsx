@@ -12,6 +12,7 @@ import { Quant } from './Quant';
 import { Support } from './Support';
 import { Token } from './Token';
 import { MoreDiscovery } from './MoreDiscovery';
+import { launchCopy } from './launch-copy';
 import { discoveryCopy } from './discovery-copy';
 import type { ReactNode } from 'react';
 import './more.css';
@@ -56,7 +57,7 @@ function MoreRooms({ path }: { path: string }) {
     content = <Campaigns />;
   } else if (p === '/launch' || p === '/uc/innovation/myorders') {
     title = p === '/launch' ? copyText('moreroutes.launch') : copyText('moreroutes.my.launch.orders');
-    description = copyText('moreroutes.issuance.and.sale.participation.require.their.owned');
+    description = <launchCopy.Copy k="scope" />;
     content = <Launch orders={p !== '/launch'} />;
   } else if (p === '/market' || p === '/market/mine' || p === '/market/strategy') {
     title =
