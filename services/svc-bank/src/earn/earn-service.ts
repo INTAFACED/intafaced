@@ -109,6 +109,21 @@ function toPosition(row: PositionRow): PositionRecord {
   };
 }
 
+/**
+ * Withdraw raises bank.position_locked only while matures_at is still in the
+ * future. A blank, zero, negative, or non-finite term is not an open-ended
+ * lock, and it is not a default number of days.
+ */
+function assertFixedTerm(termDays: number | null | undefined): number {
+  if (typeof termDays !== 'number' || !Number.isFinite(termDays) || termDays <= 0) {
+    throw new BankError(
+      'A fixed earn pool needs a positive term in days; a blank term is not an open-ended lock.',
+      'bank.term_required',
+    );
+  }
+  return termDays;
+}
+
 export interface EarnServiceOptions {
   /** The asset svc-token owns. Refused here. */
   nativeAssetId: string;
@@ -155,12 +170,13 @@ export class EarnService {
     minDeposit?: Amount;
   }): Promise<PoolRecord> {
     this.assertEarnable(input.assetId);
+    const termDays = input.kind === 'fixed' ? assertFixedTerm(input.termDays) : null;
 
     const rows = await this.sql<PoolRow[]>`
       INSERT INTO bank.earn_pools (asset_id, kind, name, apr_bps, term_days, min_deposit)
       VALUES (
         ${input.assetId}, ${input.kind}, ${input.name}, ${input.aprBps},
-        ${input.kind === 'fixed' ? (input.termDays ?? null) : null},
+        ${termDays},
         ${formatAmount(input.minDeposit ?? 0n)}::numeric
       )
       RETURNING id, asset_id, kind, name, apr_bps, term_days, min_deposit, status
@@ -306,6 +322,7 @@ export class EarnService {
             'bank.below_minimum',
           );
         }
+        if (pool.kind === 'fixed') assertFixedTerm(pool.termDays);
 
         const maturesAt =
           pool.kind === 'fixed' && pool.termDays !== null ? new Date(now.getTime() + pool.termDays * 24 * 60 * 60 * 1000) : null;

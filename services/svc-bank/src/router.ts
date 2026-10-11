@@ -235,6 +235,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.business_request_id_required':
       case 'bank.event_id_required':
       case 'bank.below_minimum':
+      case 'bank.term_required':
       case 'bank.native_asset_not_earnable':
       case 'bank.ltv_exceeded':
       /** Borrower short of collateral at open — same class as ltv_exceeded. */

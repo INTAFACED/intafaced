@@ -29,6 +29,13 @@ export type BankErrorCode =
    */
   | 'bank.earn_rate_unset'
   | 'bank.below_minimum'
+  /**
+   * Fixed earn pool with no positive term. Null, zero, negative, or a
+   * non-finite term leaves matures_at unset or already due, and withdraw only
+   * locks while matures_at is still in the future. A blank term is not an
+   * open-ended lock, and it is not a default number of days.
+   */
+  | 'bank.term_required'
   /** Collateral lock or excess release omitted a caller-stable event id. MAX+1 on omit made a retry a second post. */
   | 'bank.event_id_required'
   | 'bank.native_asset_not_earnable'
