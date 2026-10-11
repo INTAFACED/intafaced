@@ -534,11 +534,10 @@ describe('promise-falsify public doors — D26-P2-12 spine reprove (unset / malf
     expect((await serviceBalance(userAvailable(USER, 'USDT'))).json()).toMatchObject({ amount: '100', purpose: '' });
   });
 
-  it('refuses loan draw at the public post door when loanId is blank', async () => {
-    expect((await servicePost(deposit('loan-draw-blank-id-seed'))).statusCode).toBe(200);
-    const response = await servicePost(recipes.loanDraw({ loanId: '', userId: USER, debtAssetId: 'USDT', principal: amt('1') }));
-    expect(response.statusCode).toBeGreaterThanOrEqual(400);
-    expect(response.statusCode).toBeLessThan(500);
+  it('refuses construction of a loan draw with a blank loanId before the HTTP door', async () => {
+    expect(() => recipes.loanDraw({ loanId: '', userId: USER, debtAssetId: 'USDT', principal: amt('1') })).toThrow(
+      'loanId must be a non-blank id',
+    );
     expect((await serviceBalance(loanReserve('USDT'))).json()).toMatchObject({ amount: '0' });
   });
 

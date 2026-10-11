@@ -14,12 +14,16 @@ export const ADAPTER_IS_NOT_BOOK = 'ledger.custody.adapter_is_not_book' as const
 export const BREAK_AUTO_CLEAR_REFUSED = 'ledger.custody.break_auto_clear_refused' as const;
 export const OFF_EXCHANGE_OWNER_UNSET = 'ledger.custody.off_exchange_owner_unset' as const;
 export const CUSTODY_AMOUNTS_MISSING = 'ledger.custody.amounts_missing' as const;
+export const CUSTODY_AGE_MISSING = 'ledger.custody.age_missing' as const;
+export const CUSTODY_BREAK_ID_MISSING = 'ledger.custody.break_id_missing' as const;
 
 export type CustodyRefuseReason =
   | typeof ADAPTER_IS_NOT_BOOK
   | typeof BREAK_AUTO_CLEAR_REFUSED
   | typeof OFF_EXCHANGE_OWNER_UNSET
-  | typeof CUSTODY_AMOUNTS_MISSING;
+  | typeof CUSTODY_AMOUNTS_MISSING
+  | typeof CUSTODY_AGE_MISSING
+  | typeof CUSTODY_BREAK_ID_MISSING;
 
 export type CustodyRefusal = {
   readonly ok: false;
@@ -82,11 +86,19 @@ function refuse(
   return { ok: false, reason, kind, role: 'adapter', detail, ...extra };
 }
 
-function ageMsOf(firstSeenAt: string | undefined, now: string | undefined): number {
-  const start = firstSeenAt ? Date.parse(firstSeenAt) : Number.NaN;
-  const end = now ? Date.parse(now) : Date.now();
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return 0;
-  return end - start;
+function namedBreakId(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function ageMsOf(firstSeenAt: string | undefined): { readonly ok: true; readonly ageMs: number } | { readonly ok: false } {
+  if (!firstSeenAt) return { ok: false };
+  const start = Date.parse(firstSeenAt);
+  if (!Number.isFinite(start)) return { ok: false };
+  const ageMs = Date.now() - start;
+  if (ageMs < 0) return { ok: false };
+  return { ok: true, ageMs };
 }
 
 function differenceOrMissing(
@@ -101,11 +113,7 @@ function differenceOrMissing(
 
 export function refuseCustodyProduct(input: z.infer<typeof custodyInputSchema>): CustodyResult {
   if (input.kind === 'off_exchange' && input.ownerAuthorized !== true) {
-    return refuse(
-      'off_exchange',
-      OFF_EXCHANGE_OWNER_UNSET,
-      'off-exchange custody is OWNER — product refuses until authorized',
-    );
+    return refuse('off_exchange', OFF_EXCHANGE_OWNER_UNSET, 'off-exchange custody is OWNER — product refuses until authorized');
   }
 
   if (input.kind === 'chain' || input.kind === 'fiat') {
@@ -127,14 +135,21 @@ export function refuseCustodyProduct(input: z.infer<typeof custodyInputSchema>):
     return { ok: true, kind: 'off_exchange', role: 'adapter', ownerAuthorized: true };
   }
 
-  const ageMs = ageMsOf(input.firstSeenAt, input.now);
-  const breakId = input.breakId && input.breakId.trim().length > 0 ? input.breakId.trim() : 'unset';
+  const aged = ageMsOf(input.firstSeenAt);
+  const breakId = namedBreakId(input.breakId);
+  if (!aged.ok) {
+    return refuse('break', CUSTODY_AGE_MISSING, 'break age is missing, not reported as new', breakId !== undefined ? { breakId } : {});
+  }
+  const ageMs = aged.ageMs;
   const compared = differenceOrMissing(input.adapterAmount, input.bookAmount);
   if (!compared.ok) {
     return refuse('break', CUSTODY_AMOUNTS_MISSING, 'break amounts are missing, not healed to 0', {
       ageMs,
-      breakId,
+      ...(breakId !== undefined ? { breakId } : {}),
     });
+  }
+  if (breakId === undefined) {
+    return refuse('break', CUSTODY_BREAK_ID_MISSING, 'break id is missing, not invented');
   }
 
   if (input.autoClear === true || input.resolve === 'auto') {

@@ -145,30 +145,79 @@ describe('CARD G-reporting NAV/SFTP/regulator export completeness', () => {
     expect(sftp.ok).toBe(true);
     expect(regulator.ok).toBe(true);
     if (!regulator.ok) return;
-    expect(regulator.included).toEqual([
-      'ownerId',
-      'legalEntityId',
-      'regulatorId',
-      'reportingPeriod',
-      'lotIds',
-    ]);
+    expect(regulator.included).toEqual(['ownerId', 'legalEntityId', 'regulatorId', 'reportingPeriod', 'lotIds']);
     expect(nav).not.toHaveProperty('realized');
     expect(nav).not.toHaveProperty('unrealized');
     expect(nav).not.toHaveProperty('amount');
     expect(asJson(nav)).not.toMatch(/"0"/);
   });
 
-  it('lists included IDs on a partial export and still invents no money', () => {
+  it('lists included IDs on a partial NAV export and still invents no money', () => {
     const out = handleReportExport({
-      kind: 'regulator',
+      kind: 'nav',
       ownerId: 'owner-1',
     });
     expect(out).toEqual({
       ok: true,
-      kind: 'regulator',
+      kind: 'nav',
       complete: false,
       included: ['ownerId'],
     });
     expect(asJson(out)).not.toMatch(/"0"/);
+  });
+
+  it('refuses a regulator export missing owner, entity, regulator, period, or lots when complete is not exactly true', () => {
+    const present = {
+      ownerId: 'owner-1',
+      legalEntityId: 'le-1',
+      regulatorId: 'sec',
+      reportingPeriod: '2026-Q3',
+      lotIds: ['lot-1'],
+    };
+
+    const omitted = handleReportExport({ kind: 'regulator', ownerId: 'owner-1' });
+    expect(omitted.ok).toBe(false);
+    if (!omitted.ok) {
+      expect(omitted.reason).toBe('completeness_ids_missing');
+      expect(omitted.complete).toBe(false);
+      expect(omitted.missing).toEqual(['legalEntityId', 'regulatorId', 'reportingPeriod']);
+      expect(omitted.included).toEqual(['ownerId']);
+      expect(asJson(omitted)).not.toMatch(/"0"/);
+    }
+
+    for (const key of ['ownerId', 'legalEntityId', 'regulatorId', 'reportingPeriod', 'lotIds'] as const) {
+      const body: Record<string, unknown> = { kind: 'regulator', complete: false, ...present };
+      delete body[key];
+      const out = handleReportExport(body);
+      expect(out.ok).toBe(false);
+      if (out.ok) continue;
+      expect(out.kind).toBe('regulator');
+      expect(out.complete).toBe(false);
+      expect(out.missing).toEqual([key]);
+      expect(out.included).not.toContain(key);
+      expect(out).not.toHaveProperty('costBasis');
+      expect(out).not.toHaveProperty('amount');
+      expect(asJson(out)).not.toMatch(/"0"/);
+      if (key === 'lotIds') {
+        expect(out.reason).toBe(STATEMENT_LOTS_MISSING);
+      } else {
+        expect(out.reason).toBe('completeness_ids_missing');
+      }
+    }
+
+    const blanks = handleReportExport({
+      kind: 'regulator',
+      complete: false,
+      ownerId: ' ',
+      legalEntityId: '',
+      regulatorId: 'sec',
+      reportingPeriod: '2026-Q3',
+      lotIds: [''],
+    });
+    expect(blanks.ok).toBe(false);
+    if (!blanks.ok) {
+      expect(blanks.reason).toBe('completeness_ids_missing');
+      expect(blanks.missing).toEqual(['ownerId', 'legalEntityId']);
+    }
   });
 });

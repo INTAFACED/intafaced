@@ -6,6 +6,7 @@ import { ledgerPostgresOptions } from './db/connection-options.js';
 import { LedgerService } from './service.js';
 import { createLedgerRouter } from './router.js';
 import { runScheduledReconciliation } from './ledger/reconcile.js';
+import { runScheduledReconciliationTick } from './ledger/scheduled-reconcile-tick.js';
 import { registerS2sHttp } from './s2s-http.js';
 import { registerMetrics } from './metrics.js';
 import { registerOperatorHttp } from './operator-http.js';
@@ -103,8 +104,8 @@ registerOperatorHttp(
 );
 
 // Outbox recover is NOT inside applyStartupPolicy. That path is freeze-only
-// (must not call identity). Crash-after-commit `ledgerTxPosted` intents drain
-// here, then again on the tick below.
+// (must not call identity). Crash-after-commit `ledgerTxPosted` and
+// `ledgerFreezeUpdated` intents drain here, then again on the tick below.
 try {
   await ledger.recoverUnpublishedOutbox();
 } catch (err) {
@@ -112,16 +113,9 @@ try {
 }
 
 const reconcileTimer = setInterval(() => {
-  void (async () => {
-    try {
-      const { report, snapshotted } = await runScheduledReconciliation(sql, ledger);
-      if (!report.ok) {
-        app.log.fatal({ report, snapshotted }, 'LEDGER RECONCILIATION FAILED — posting frozen, operator paged');
-      }
-    } catch (err) {
-      app.log.error({ err }, 'reconciliation run failed');
-    }
-  })();
+  void runScheduledReconciliationTick(() => runScheduledReconciliation(sql, ledger), ledger, app.log).catch((err) => {
+    app.log.fatal({ err }, 'LEDGER RECONCILIATION FAILED — freeze did not land');
+  });
 }, env.RECONCILE_CRON_MINUTES * 60_000);
 reconcileTimer.unref();
 

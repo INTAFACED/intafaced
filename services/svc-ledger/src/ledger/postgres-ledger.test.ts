@@ -15,6 +15,7 @@ import {
   InsufficientFundsError,
 } from '@intafaced/ledger-client';
 import { PostgresLedger } from './postgres-ledger.js';
+import { HistoryTooLargeError } from './history.js';
 import { reconcileBalances, verifyChain, totalsByAsset, runReconciliation } from './reconcile.js';
 
 /**
@@ -258,6 +259,23 @@ describe('PostgresLedger', () => {
       expect(result.ok).toBe(false);
     });
 
+    it('a posted chain is not ok when the tip hash is not the last transaction hash', async () => {
+      await reset();
+      await engine.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('100'), rail: 'test', railRef: 'tip-1' }));
+      await engine.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('40'), rail: 'test', railRef: 'tip-2' }));
+
+      expect(await verifyChain(db!.sql)).toMatchObject({ ok: true });
+
+      const rows = await db!.sql<Array<{ hash: string }>>`SELECT hash FROM ledger_tx ORDER BY seq ASC`;
+      const earlier = rows[0]!.hash;
+      const last = rows.at(-1)!.hash;
+      expect(earlier).not.toBe(last);
+
+      await db!.sql`UPDATE chain_tip SET hash = ${earlier} WHERE id = true`;
+
+      expect((await verifyChain(db!.sql)).ok).toBe(false);
+    });
+
     it('reconciliation catches a balance that no longer matches its entries', async () => {
       await reset();
       await engine.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('100'), rail: 'test', railRef: 'recon-1' }));
@@ -320,5 +338,33 @@ describe('PostgresLedger', () => {
       // The chain must still be intact: concurrency must not fork it.
       expect(await verifyChain(db!.sql)).toMatchObject({ ok: true });
     }, 60_000);
+
+    /**
+     * journal() is the replay source: every transaction, in commit order.
+     * One row past the requested limit must refuse, the same way history()
+     * refuses rather than handing back a prefix that looks complete.
+     * Limit 2 stands in for the default 10_000 — it is the same parameter.
+     */
+    it('REFUSES a journal larger than the requested limit rather than returning a short prefix', async () => {
+      await reset();
+      const keys = ['deposit:test:journal-cap-1', 'deposit:test:journal-cap-2', 'deposit:test:journal-cap-3'] as const;
+
+      await engine.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('1'), rail: 'test', railRef: 'journal-cap-1' }));
+      await engine.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('1'), rail: 'test', railRef: 'journal-cap-2' }));
+
+      const fitted = await engine.journal(2);
+      expect(fitted.map((tx) => tx.idempotencyKey)).toEqual([keys[0], keys[1]]);
+
+      await engine.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('1'), rail: 'test', railRef: 'journal-cap-3' }));
+
+      await expect(engine.journal(2)).rejects.toThrow(HistoryTooLargeError);
+      await expect(engine.journal(2)).rejects.toMatchObject({
+        code: 'ledger.history_range_too_large',
+        limit: 2,
+      });
+
+      const complete = await engine.journal(3);
+      expect(complete.map((tx) => tx.idempotencyKey)).toEqual([...keys]);
+    });
   });
 });

@@ -1,5 +1,8 @@
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { LedgerError } from '@intafaced/ledger-client';
+
+/** Pool handle, or the client `sql.begin` passes. Both run the freeze SQL. */
+type FreezeDb = Sql | TransactionSql;
 
 /**
  * THE KILL-SWITCH, in the database.
@@ -69,7 +72,7 @@ function toState(row: FreezeRow): FreezeState {
  * that already holds the chain-tip lock (see postgres-ledger.ts). This is for
  * health, readiness, and the operator surface, where a lock would buy nothing.
  */
-export async function readFreeze(sql: Sql): Promise<FreezeState> {
+export async function readFreeze(sql: FreezeDb): Promise<FreezeState> {
   const rows = await sql<FreezeRow[]>`
     SELECT frozen, reason, actor, changed_at, changed_at::text AS changed_at_precise
       FROM posting_freeze WHERE id = true
@@ -92,12 +95,29 @@ export async function readFreeze(sql: Sql): Promise<FreezeState> {
  *
  * STOP §4.2b #3: a second freeze MUST NOT silently overwrite a prior freeze's
  * reason/actor (recon hourly used to clobber an operator freeze). Same
- * attribution is a **true** no-op (no `changed_at` bump, no bus re-fire);
+ * attribution is a **true** no-op (no `changed_at` bump, no second outbox row);
  * different attribution is refused. Unfreeze of an already-open book is also a
  * true no-op — a double thaw must not rewrite actor/`changed_at` or re-emit.
+ *
+ * When the switch does move, the `ledgerFreezeUpdated` intent is inserted in
+ * the same transaction. Publish happens after commit. A crash or a bus throw
+ * leaves the row unpublished for the same-attribution retry and for the
+ * outbox recover path. The retry does not take this UPDATE, so it does not
+ * insert a second row and does not move `changed_at` again.
  */
 export async function writeFreeze(
   sql: Sql,
+  next: { frozen: true; reason: string; actor: string } | { frozen: false; actor: string },
+): Promise<{ state: FreezeState; switched: boolean }> {
+  return sql.begin(async (tx) => {
+    const result = await applyFreeze(tx, next);
+    if (result.switched) await insertFreezeOutbox(tx, result.state);
+    return result;
+  });
+}
+
+async function applyFreeze(
+  sql: FreezeDb,
   next: { frozen: true; reason: string; actor: string } | { frozen: false; actor: string },
 ): Promise<{ state: FreezeState; switched: boolean }> {
   if (next.frozen) {
@@ -162,6 +182,60 @@ export function freezeEventKey(state: Pick<FreezeState, 'changedAtPrecise'>): st
   return `ledger.freeze:${state.changedAtPrecise}`;
 }
 
+export interface FreezeOutboxRow {
+  id: string;
+  idempotency_key: string;
+  payload: unknown;
+}
+
+/**
+ * The bus payload for one switch, written beside the `posting_freeze` update.
+ *
+ * `changedAt` is the JS instant the column already returned. The idempotency
+ * key is `freezeEventKey` — the column's own text — and is stored separately
+ * so a later publish does not rebuild it from a millisecond `Date`.
+ * Nothing here is money.
+ */
+function freezeOutboxPayload(state: FreezeState): {
+  frozen: boolean;
+  reason: string | null;
+  actor: string;
+  changedAt: string;
+} {
+  return {
+    frozen: state.frozen,
+    reason: state.reason,
+    actor: state.actor ?? 'unknown',
+    changedAt: state.changedAt.toISOString(),
+  };
+}
+
+async function insertFreezeOutbox(sql: FreezeDb, state: FreezeState): Promise<void> {
+  await sql`
+    INSERT INTO ledger_freeze_outbox (idempotency_key, payload)
+    VALUES (${freezeEventKey(state)}, ${sql.json(freezeOutboxPayload(state))})
+  `;
+}
+
+/** Unpublished `ledgerFreezeUpdated` intents, oldest first. */
+export async function unpublishedFreezeOutbox(sql: Sql, limit = 100): Promise<FreezeOutboxRow[]> {
+  return sql<FreezeOutboxRow[]>`
+    SELECT id, idempotency_key, payload
+      FROM ledger_freeze_outbox
+     WHERE published_at IS NULL
+     ORDER BY created_at ASC
+     LIMIT ${limit}
+  `;
+}
+
+export async function markFreezeOutboxPublished(sql: Sql, id: string): Promise<void> {
+  await sql`
+    UPDATE ledger_freeze_outbox
+       SET published_at = now()
+     WHERE id = ${id} AND published_at IS NULL
+  `;
+}
+
 /** The message `post()` refuses with. One phrasing, so callers can match on it. */
 export function frozenMessage(reason: string | null): string {
   return `Ledger posting is frozen${reason ? `: ${reason}` : ''}`;
@@ -192,9 +266,19 @@ export function resolveAttributedFreeze(
   throw attributedOverwriteError(current, next);
 }
 
+/** Process-local tie. `Date` cannot name two switches inside one millisecond. */
+let memoryChangedAtTie = 0;
+
 function snapshotNow(frozen: boolean, reason: string | null, actor: string | null): FreezeState {
   const changedAt = new Date();
-  return { frozen, reason, actor, changedAt, changedAtPrecise: changedAt.toISOString() };
+  memoryChangedAtTie += 1;
+  // freezeEventKey is this text alone. `toISOString()` is milliseconds, so a
+  // thaw in that same millisecond used to reuse the freeze msgID and a
+  // duplicate-detecting bus dropped it. The tie is minted into the text here;
+  // parsing `changedAt` cannot rebuild it. A no-op does not call this.
+  const ms = changedAt.toISOString();
+  const changedAtPrecise = `${ms.slice(0, -1)}${memoryChangedAtTie.toString(10).padStart(6, '0')}Z`;
+  return { frozen, reason, actor, changedAt, changedAtPrecise };
 }
 
 /**

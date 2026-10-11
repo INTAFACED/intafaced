@@ -199,3 +199,15 @@ Beyond conformance it proves what only a real database can: CHECK constraints re
 `service.freeze.test.ts` builds **two `LedgerService` instances over separate connection pools** against one database and asserts that a freeze on one refuses a post on the other, survives a third instance starting cold, and is attributed to `reconciliation` when the reconciliation job sets it. A test that only asserted `freeze()` set a field would pass against the bug it exists to catch.
 
 Freeze is a `LedgerService` method and deliberately **not** on the `LedgerClient` interface, so it is not in the conformance suite. `LedgerClient` is what every calling service codes against — widening it would hand svc-trade a method to halt the platform, and promise the in-memory reference a durability guarantee it cannot honour.
+
+## Durable recovery and upgrades
+
+Forward migrations `0014`–`0020` widen purpose trim checks, record nullable historical snapshot anchors, preserve immutable posted key/hash/metadata claims, enforce decimal-string outbox amounts, and add durable freeze event intents. Existing `0000`–`0013` up files retain their published bytes. The runner refuses unnamed lock claims before historical `0007` can stamp a synthetic purpose.
+
+Run the complete upgrade while posting processes are stopped before starting this version. Each forward file and its tracking row commit together under the migration lock. Claims copy the actual stored journal key/hash/metadata; that upgrade baseline cannot prove whether an earlier administrator changed them. Historical digests remain unchanged. Receipt reads and idempotent retries refuse a journal row that contradicts its append-only claim.
+
+Scheduled reconciliation holds the posting lock through proof and snapshot insertion. New anchors record the locked sequence/hash and use the database statement timestamp. Old snapshots retain NULL anchors. A thrown proof freezes posting; a chain-only failure logs the actual failure without inventing a balance drift account.
+
+Freeze/thaw intents commit with the switch and drain after commit through the existing bus. Failed sends remain pending, and same-attribution retries drain them without changing the switch again. The full down runner reverses only applied files in one transaction, refuses any posted book, and rolls back tracking deletion with DDL. Direct downs also refuse known snapshot/claim/freeze-event history before removing it.
+
+Posting configuration keeps the current default. Explicit strings enable only after trim/case normalization to `true`, `yes`, `on`, or `1`; malformed, blank, or explicit disable strings freeze durably at boot. This recovery adds no HTTP transaction-receipt route or bearer authority to the internal service door.

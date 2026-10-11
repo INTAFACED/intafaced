@@ -7,11 +7,18 @@ import {
   LedgerError,
   UnbalancedTransactionError,
   formatAmount,
+  houseFees,
+  moduleAccount,
   parseAmount as amt,
+  railBoundary,
+  recipes,
+  subAccountAvailable,
   userAvailable,
+  type PostRequest,
 } from '@intafaced/ledger-client';
 import { createLedgerRouter } from './router.js';
 import { stubApprovalConsumer } from './ledger/action-approval-consume.js';
+import { RECIPE_REQUIRED_CODE } from './recipe-gate.js';
 import type { LedgerService } from './service.js';
 import { userCopy } from './user-copy.js';
 
@@ -37,6 +44,7 @@ const authConfig = {
 
 const USER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OTHER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const SUB = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const APPROVED = { approvalId: 'appr-1', operationId: 'op-1' };
 
 function withApproval(service: LedgerService) {
@@ -49,10 +57,17 @@ function withApproval(service: LedgerService) {
  * operator tests below pass `mfa: true`. Discovered by writing this file: the
  * first draft omitted it and the freeze tests failed, correctly.
  */
-async function ctx(scopes: string[], mfa = false, service: string | null = 'svc-trade'): Promise<Context> {
+async function ctx(scopes: string[], mfa = false, service: string | null = 'svc-trade', subAccountId?: string): Promise<Context> {
   if (scopes.length === 0) return { principal: null, service, region: 'DE', requestId: 'req-1' };
   const { token } = await issueAccessToken(
-    { userId: USER, sessionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', scopes, tier: 'basic', mfa },
+    {
+      userId: USER,
+      sessionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      scopes,
+      tier: 'basic',
+      mfa,
+      ...(subAccountId ? { subAccountId } : {}),
+    },
     authConfig,
   );
   return { principal: await verifyAccessToken(token, authConfig), service, region: 'DE', requestId: 'req-1' };
@@ -85,16 +100,33 @@ function stubService(overrides: Partial<Record<string, unknown>> = {}) {
   } as unknown as LedgerService;
 }
 
-const validPost = {
-  idempotencyKey: 'router-test-key-1',
-  module: 'trade',
-  reason: 'trade.fill',
+function toWire(req: PostRequest) {
+  return {
+    idempotencyKey: req.idempotencyKey,
+    module: req.module,
+    reason: req.reason,
+    ...(req.meta ? { meta: req.meta } : {}),
+    entries: req.entries.map((e) => ({
+      account: e.account,
+      direction: e.direction,
+      amount: formatAmount(e.amount),
+    })),
+  };
+}
+
+/** A registry recipe. The old two-leg `trade.fill` fixture is not one. */
+const validPost = toWire(recipes.orderHold({ orderId: 'order-test', userId: USER, assetId: 'USDT', amount: amt('10') }));
+
+const assembledSecondBook = {
+  idempotencyKey: 'second-book-not-a-recipe',
+  module: 'evil',
+  reason: 'second.book',
   entries: [
-    { account: userAvailable(USER, 'USDT'), direction: 'debit' as const, amount: '100' },
+    { account: userAvailable(USER, 'USDT'), direction: 'credit' as const, amount: '10' },
     {
-      account: { ownerType: 'treasury' as const, ownerId: 'rail:test', assetId: 'USDT', kind: 'available' as const },
-      direction: 'credit' as const,
-      amount: '100',
+      account: userAvailable(OTHER, 'USDT'),
+      direction: 'debit' as const,
+      amount: '10',
     },
   ],
 };
@@ -140,6 +172,27 @@ describe('post — who may call it at all', () => {
   it('accepts an authenticated service caller', async () => {
     const caller = createLedgerRouter(stubService()).createCaller(await ctx([], false, 'svc-trade'));
     await expect(caller.post(validPost)).resolves.toMatchObject({ txId: 'tx-1', hash: 'abc' });
+  });
+
+  it('refuses assembled entries that are not a known recipe, and never posts', async () => {
+    let posted = false;
+    const service = stubService({
+      post: async () => {
+        posted = true;
+        return { id: 'tx-1', hash: 'abc', postedAt: new Date() };
+      },
+    });
+
+    await expect(
+      createLedgerRouter(service)
+        .createCaller(await ctx([]))
+        .post(assembledSecondBook),
+    ).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: "POST /trpc/post only accepts ledger-client recipes; 'evil/second.book' is not a known recipe",
+      cause: expect.objectContaining({ code: RECIPE_REQUIRED_CODE }),
+    });
+    expect(posted).toBe(false);
   });
 });
 
@@ -246,6 +299,67 @@ describe('balances — authorisation', () => {
     const caller = createLedgerRouter(stubService()).createCaller(await ctx(['ledger:read']));
     await expect(caller.balances({ ownerType: 'user', ownerId: OTHER })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(caller.balances({ ownerType: 'user', ownerId: USER })).resolves.toHaveLength(1);
+  });
+
+  it('refuses a ledger:read principal reading an owner it does not hold', async () => {
+    let asked = false;
+    const service = stubService({
+      balance: async () => {
+        asked = true;
+        return { account: userAvailable(USER, 'USDT'), accountId: 'acct-1', amount: amt('100') };
+      },
+      balances: async () => {
+        asked = true;
+        return [{ account: userAvailable(USER, 'USDT'), accountId: 'acct-1', amount: amt('100') }];
+      },
+    });
+    const caller = createLedgerRouter(service).createCaller(await ctx(['ledger:read']));
+    const unheld = [
+      userAvailable(OTHER, 'USDT'),
+      subAccountAvailable(SUB, 'USDT'),
+      moduleAccount('pay', 'clearing', 'USDT'),
+      houseFees('trade', 'USDT'),
+      railBoundary('crypto-native', 'USDT'),
+    ];
+
+    for (const account of unheld) {
+      const owner = { ownerType: account.ownerType, ownerId: account.ownerId };
+      await expect(caller.balance(account)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(caller.balances(owner)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(caller.portfolio(owner)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(caller.statementPnl({ ...owner, reportingAssetId: 'USDT' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    }
+    expect(asked).toBe(false);
+  });
+
+  it('serves the sub-account a principal holds, and still refuses the ones it does not', async () => {
+    const caller = createLedgerRouter(stubService()).createCaller(await ctx(['ledger:read'], false, 'svc-trade', SUB));
+
+    await expect(caller.balance(subAccountAvailable(SUB, 'USDT'))).resolves.toMatchObject({ amount: '100' });
+    await expect(caller.balances({ ownerType: 'subaccount', ownerId: SUB })).resolves.toEqual([
+      expect.objectContaining({ amount: '100', assetId: 'USDT' }),
+    ]);
+    await expect(caller.portfolio({ ownerType: 'subaccount', ownerId: SUB })).resolves.toMatchObject({
+      ownerType: 'subaccount',
+      ownerId: SUB,
+      custodial: [{ amount: '100', assetId: 'USDT' }],
+    });
+    await expect(caller.statementPnl({ ownerType: 'subaccount', ownerId: SUB, reportingAssetId: 'USDT' })).resolves.toMatchObject({
+      status: 'refused',
+      realized: null,
+      unrealized: null,
+      nav: null,
+    });
+
+    await expect(caller.balance(userAvailable(USER, 'USDT'))).resolves.toMatchObject({ amount: '100' });
+    await expect(caller.balance(userAvailable(OTHER, 'USDT'))).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller.balance(subAccountAvailable(OTHER, 'USDT'))).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller.balances({ ownerType: 'module', ownerId: 'pay:clearing' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller.balances({ ownerType: 'house', ownerId: 'fees:trade' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller.portfolio({ ownerType: 'treasury', ownerId: 'mint' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller.statementPnl({ ownerType: 'house', ownerId: 'fees:trade', reportingAssetId: 'USDT' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
   });
 
   it('serves a portfolio view of own balances with indexer named absent when chain account is missing', async () => {

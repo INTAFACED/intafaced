@@ -1,10 +1,26 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Sql } from 'postgres';
 import { describe, expect, it } from 'vitest';
 import { InvalidEntryError, parseAmount as amt, userAvailable } from '@intafaced/ledger-client';
 import { assertScaledBigintAmounts, parseStoredAmount } from './live-money.js';
 import { runScheduledReconciliation, type ReconciliationReport } from './reconcile.js';
+
+/** Enough of a client for the tip lock. The insert itself is not this stub's job. */
+function sqlThatLocksTip(onLock: () => void): Sql {
+  const tx = ((strings: TemplateStringsArray) => {
+    const text = strings.join(' ');
+    if (!text.includes('FOR UPDATE')) {
+      return Promise.reject(new Error(`scheduled reconciliation ran SQL before the snapshot decision: ${text}`));
+    }
+    onLock();
+    return Promise.resolve([{ hash: 'tip-hash', seq: '4', frozen: false, reason: null }]);
+  }) as unknown as Sql;
+  return {
+    begin: (_isolation: string, fn: (tx: Sql) => Promise<unknown>) => fn(tx),
+  } as unknown as Sql;
+}
 
 const here = dirname(fileURLToPath(import.meta.url));
 const srcRoot = join(here, '..');
@@ -68,21 +84,42 @@ describe('live money — refuse Number/parseFloat, refuse a broken snapshot', ()
 
   it('does not snapshot a book that failed reconciliation — that would heal the break as success', async () => {
     let snapshotted = 0;
-    const result = await runScheduledReconciliation({} as never, { reconcile: async () => failedReport() }, async () => {
-      snapshotted += 1;
-      return 1;
-    });
+    let locked = false;
+    const result = await runScheduledReconciliation(
+      sqlThatLocksTip(() => {
+        locked = true;
+      }),
+      { reconcile: async () => failedReport() },
+      async () => {
+        snapshotted += 1;
+        return 1;
+      },
+    );
+    expect(locked).toBe(true);
     expect(result.snapshotted).toBe(false);
     expect(result.report.ok).toBe(false);
     expect(snapshotted).toBe(0);
   });
 
-  it('snapshots only after the book proves green', async () => {
+  it('snapshots only after the book proves green, and only while the tip lock is already held', async () => {
     let snapshotted = 0;
-    const result = await runScheduledReconciliation({} as never, { reconcile: async () => greenReport() }, async () => {
-      snapshotted += 1;
-      return 4;
-    });
+    let locked = false;
+    const result = await runScheduledReconciliation(
+      sqlThatLocksTip(() => {
+        locked = true;
+      }),
+      {
+        reconcile: async () => {
+          expect(locked).toBe(true);
+          return greenReport();
+        },
+      },
+      async () => {
+        expect(locked).toBe(true);
+        snapshotted += 1;
+        return 4;
+      },
+    );
     expect(result.snapshotted).toBe(true);
     expect(snapshotted).toBe(1);
   });

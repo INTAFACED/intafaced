@@ -27,6 +27,10 @@ const ONE_BOOK_TABLES = new Set([
   '__migrations',
   // Emit log for ledgerTxPosted (same tx as the book). Not a second balance store.
   'ledger_tx_outbox',
+  // Emit log for ledgerFreezeUpdated (same transaction as posting_freeze). Not a second balance store.
+  'ledger_freeze_outbox',
+  // Append-only idempotency claim (idempotency_key, tx_id). Not a second balance store.
+  'ledger_posted_keys',
 ]);
 
 const JAVA_WALLET_IDS: readonly { readonly id: string; readonly re: RegExp; readonly why: string }[] = [
@@ -42,7 +46,17 @@ const JAVA_WALLET_IDS: readonly { readonly id: string; readonly re: RegExp; read
 ];
 
 const CREATE_TABLE =
-  /CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+(?:(?:"([^"]+)"|([A-Za-z_][\w]*))\s*\.\s*)?(?:"([^"]+)"|([A-Za-z_][\w]*))/gi;
+  /CREATE\s+(?:(?:(?:GLOBAL|LOCAL)\s+)?(?:TEMPORARY|TEMP)\s+|UNLOGGED\s+)?TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+(?:(?:"([^"]+)"|([A-Za-z_][\w]*))\s*\.\s*)?(?:"([^"]+)"|([A-Za-z_][\w]*))/gi;
+
+/**
+ * Postgres: CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE.
+ * LOCAL and GLOBAL apply to temp only. UNLOGGED is a real table, never scratch.
+ */
+const SESSION_TEMP = /^CREATE\s+(?:(?:GLOBAL|LOCAL)\s+)?(?:TEMPORARY|TEMP)\s+TABLE\b/i;
+const BALANCE_BOOK_NAME = /(?:^|_)(?:balances?|wallets?)(?:_|$)/i;
+/** balance, balances, balance_after, cash_balance, and the same prefix/suffix shape. */
+const BALANCE_COLUMN_NAME = /^(?:[A-Za-z_][\w]*_)?balances?(?:_[A-Za-z_][\w]*)?$/i;
+const RELATION_NAME = /(?:(?:"[^"]+"|[A-Za-z_][\w]*)\s*\.\s*)?(?:"([^"]+)"|([A-Za-z_][\w]*))/;
 
 const DRIZZLE_TABLE = /\.table\(\s*['"]([^'"]+)['"]/g;
 const PG_TABLE = /\bpgTable\(\s*['"]([^'"]+)['"]/g;
@@ -69,6 +83,96 @@ function stripTsCommentsKeepStrings(source: string): string {
   return decommented.replace(/"\u0000(\d+)\u0000"/g, (_, i) => literals[Number(i)] ?? '');
 }
 
+/** A semicolon inside quotes does not end the statement. */
+function statementUntilSemicolon(afterName: string): string {
+  let i = 0;
+  let quote: "'" | '"' | null = null;
+  while (i < afterName.length) {
+    const c = afterName[i]!;
+    if (quote) {
+      if (c === quote) {
+        if (afterName[i + 1] === quote) {
+          i += 2;
+          continue;
+        }
+        quote = null;
+      }
+      i += 1;
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      quote = c;
+      i += 1;
+      continue;
+    }
+    if (c === ';') break;
+    i += 1;
+  }
+  return afterName.slice(0, i);
+}
+
+function stripSingleQuoted(source: string): string {
+  let out = '';
+  let i = 0;
+  while (i < source.length) {
+    if (source[i] !== "'") {
+      out += source[i];
+      i += 1;
+      continue;
+    }
+    i += 1;
+    while (i < source.length) {
+      if (source[i] === "'") {
+        if (source[i + 1] === "'") {
+          i += 2;
+          continue;
+        }
+        i += 1;
+        break;
+      }
+      i += 1;
+    }
+    out += ' ';
+  }
+  return out;
+}
+
+function isBalanceColumnName(name: string): boolean {
+  return BALANCE_COLUMN_NAME.test(name);
+}
+
+function namesBalanceWalletOrOneBook(name: string | undefined): boolean {
+  return name != null && (ONE_BOOK_TABLES.has(name) || BALANCE_BOOK_NAME.test(name));
+}
+
+function relationKeywordHitsBook(stmt: string, keyword: 'LIKE' | 'FROM' | 'JOIN'): boolean {
+  const re = new RegExp(`\\b${keyword}\\s+(?:ONLY\\s+)?${RELATION_NAME.source}`, 'gi');
+  for (const m of stmt.matchAll(re)) {
+    if (namesBalanceWalletOrOneBook(m[1] ?? m[2])) return true;
+  }
+  return false;
+}
+
+/**
+ * Ledger session temp is scratch only when the name is not a balance, wallet,
+ * or one-book table, the column list has no balance column, and the statement
+ * is not LIKE or AS SELECT of a balance, wallet, or one-book table.
+ * A temp table in any other schema is never scratch.
+ */
+function isLedgerScratchTemp(table: string, afterName: string): boolean {
+  if (ONE_BOOK_TABLES.has(table) || BALANCE_BOOK_NAME.test(table)) return false;
+  const stmt = stripSingleQuoted(statementUntilSemicolon(afterName));
+  const ident = /[A-Za-z_][\w]*/g;
+  for (const m of stmt.matchAll(ident)) {
+    if (isBalanceColumnName(m[0])) return false;
+  }
+  if (relationKeywordHitsBook(stmt, 'LIKE')) return false;
+  if (/\bAS\s+(?:\(\s*)?SELECT\b/i.test(stmt) && (relationKeywordHitsBook(stmt, 'FROM') || relationKeywordHitsBook(stmt, 'JOIN'))) {
+    return false;
+  }
+  return true;
+}
+
 function excerptAt(text: string, index: number): string {
   return text
     .slice(Math.max(0, index - 24), Math.min(text.length, index + 48))
@@ -92,6 +196,8 @@ export function scanDualBookText(text: string, kind: 'sql' | 'ts'): DualBookHit[
     const schema = m[1] ?? m[2] ?? 'ledger';
     const table = m[3] ?? m[4];
     if (!table) continue;
+    const sessionTemp = SESSION_TEMP.test(m[0]);
+    if (sessionTemp && schema === 'ledger' && isLedgerScratchTemp(table, body.slice(m.index + m[0].length))) continue;
     if (schema !== 'ledger') {
       hits.push({
         id: `schema:${schema}.${table}`,
@@ -99,10 +205,10 @@ export function scanDualBookText(text: string, kind: 'sql' | 'ts'): DualBookHit[
         excerpt: excerptAt(body, m.index),
       });
     }
-    if (!ONE_BOOK_TABLES.has(table)) {
+    if (!ONE_BOOK_TABLES.has(table) || sessionTemp) {
       hits.push({
         id: `table:${table}`,
-        why: 'CREATE TABLE is not the one book',
+        why: sessionTemp && ONE_BOOK_TABLES.has(table) ? 'temp table shadows the one book' : 'CREATE TABLE is not the one book',
         excerpt: excerptAt(body, m.index),
       });
     }
@@ -208,6 +314,49 @@ describe('H8 dual-book scan — one book in svc-ledger', () => {
   it('scanner refuses a planted extra ledger table', () => {
     const hits = scanDualBookText('CREATE TABLE "ledger"."user_wallets" (balance numeric);', 'sql');
     expect(hits.some((h) => h.id === 'table:user_wallets')).toBe(true);
+  });
+
+  it('scanner sees a second balance table written unlogged, temp, or temporary', () => {
+    const hits = scanDualBookText(
+      [
+        'CREATE UNLOGGED TABLE "ledger"."shadow_balances" (balance numeric);',
+        'CREATE TEMP TABLE session_wallet (balance numeric);',
+        'CREATE TEMPORARY TABLE IF NOT EXISTS pay.held_balances (owner text, amount numeric);',
+        'CREATE TEMP TABLE import_batch (row_no int, payload text);',
+      ].join('\n'),
+      'sql',
+    );
+    expect(hits.some((h) => h.id === 'table:shadow_balances')).toBe(true);
+    expect(hits.some((h) => h.id === 'table:session_wallet')).toBe(true);
+    expect(hits.some((h) => h.id === 'table:held_balances')).toBe(true);
+    expect(hits.some((h) => h.id === 'table:import_batch')).toBe(false);
+  });
+
+  it('scanner sees temp balance forms that still create a second relation', () => {
+    const mustHit = [
+      'CREATE LOCAL TEMP TABLE user_wallets (balance numeric);',
+      'CREATE GLOBAL TEMPORARY TABLE IF NOT EXISTS pay.held_balances (owner text, amount numeric);',
+      'CREATE TEMP TABLE accounts (id int, balance numeric);',
+      'CREATE TEMP TABLE balance_snapshots (account_id int, balance numeric);',
+      'CREATE TEMPORARY TABLE ledger_entries (id int, balance_after numeric);',
+      'CREATE TEMP TABLE pay.accounts (id int, amount numeric);',
+      'CREATE TEMP TABLE pots (cash_balance numeric);',
+      'CREATE TEMP TABLE pots2 (balances numeric);',
+      'CREATE TEMP TABLE cash (LIKE user_wallets);',
+      'CREATE TEMP TABLE cash2 AS SELECT * FROM user_wallets;',
+      "CREATE TEMP TABLE session_cash (note text DEFAULT 'x;y', balance numeric);",
+    ];
+    const missed = mustHit.filter((sql) => {
+      const hits = scanDualBookText(sql, 'sql');
+      return !hits.some((h) => h.id.startsWith('table:') || h.id.startsWith('schema:'));
+    });
+    expect(missed).toEqual([]);
+    for (const sql of [
+      'CREATE TEMP TABLE import_batch (row_no int, payload text);',
+      'CREATE TEMP TABLE notes (imbalance int, payload text);',
+    ]) {
+      expect(scanDualBookText(sql, 'sql'), sql).toEqual([]);
+    }
   });
 
   it('scanner refuses a planted public-schema book and wallet mutator', () => {
