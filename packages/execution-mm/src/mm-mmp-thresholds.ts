@@ -170,6 +170,13 @@ export function evaluateMmMmpTrigger(
       detail: 'openQuotes must be a non-negative integer — not invented',
     };
   }
+  if (observation.filledQuantity < 0n) {
+    return {
+      ok: false,
+      reason: 'mmp_observation_incomplete',
+      detail: 'filledQuantity must be a non-negative amount — not invented',
+    };
+  }
 
   const reasons: MmMmpTriggerReason[] = [];
   const details: string[] = [];

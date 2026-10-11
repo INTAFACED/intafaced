@@ -1,3 +1,5 @@
+import { isNegative, isZero, parseAmount } from '@intafaced/ledger-client';
+
 /**
  * §28 / M22 / M25 — arb legs are non-atomic.
  *
@@ -20,7 +22,7 @@ export type PlanArbLegsInput = {
   readonly inventory: { readonly prePositionedByVenue: Readonly<Record<string, boolean>> };
 };
 
-export type PlanArbLegsRefuseReason = 'same_venue' | 'inventory_missing';
+export type PlanArbLegsRefuseReason = 'same_venue' | 'inventory_missing' | 'size_refused';
 
 export type ArbPlannedLeg = {
   readonly side: 'buy' | 'sell';
@@ -59,7 +61,7 @@ export type ReduceArbLegGroupInput = {
   readonly legs: readonly ArbLegResult[];
 };
 
-export type ArbLegGroupRefuseReason = 'empty_legs' | 'incomplete_legs' | 'failed_leg' | 'partial_legs' | 'unknown_leg';
+export type ArbLegGroupRefuseReason = 'empty_legs' | 'incomplete_legs' | 'failed_leg' | 'partial_legs' | 'unknown_leg' | 'amount_conflict';
 
 type ArbLegGroupBuckets = {
   readonly applied: readonly ArbLegResult[];
@@ -100,9 +102,19 @@ function failure(
   return { ok: false, atomic: ARB_LEGS_ATOMIC, outcome, reason, detail, ...split };
 }
 
+function sizeRefused(): PlanArbLegsRefusal {
+  return {
+    ok: false,
+    atomic: ARB_LEGS_ATOMIC,
+    reason: 'size_refused',
+    detail: 'size must be a positive decimal string — blank, zero, and non-decimal sizes are refused',
+  };
+}
+
 /**
  * Plan buy+sell legs. Planning both does not make submission atomic.
  * Missing inventory is refused — never sized on a bridge completing in-spread.
+ * A blank, zero, or non-decimal size is refused. No default size is substituted.
  */
 export function planArbLegs(input: PlanArbLegsInput): PlanArbLegsResult {
   if (input.buyVenueId === input.sellVenueId) {
@@ -123,6 +135,13 @@ export function planArbLegs(input: PlanArbLegsInput): PlanArbLegsResult {
       reason: 'inventory_missing',
       detail: 'both venues must be pre-positioned for cross-venue arb legs — refuse bridge fantasy',
     };
+  }
+
+  try {
+    const size = parseAmount(input.amount);
+    if (isZero(size) || isNegative(size)) return sizeRefused();
+  } catch {
+    return sizeRefused();
   }
 
   return {
