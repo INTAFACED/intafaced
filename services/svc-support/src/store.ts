@@ -12,8 +12,9 @@ import type {
   SupportTicketStatus,
 } from '@intafaced/contracts';
 import { assertKbArticle, KbCatalogError, PLATFORM_KB_SPINE, kbVersionOf, toPublicKb } from './kb-catalog.js';
-import { checkTransition } from './lifecycle.js';
+import { checkTransition, isTerminal } from './lifecycle.js';
 import { claimTicket, type ClaimResult } from './operator-queue.js';
+import { checkSupportSettlement } from './settlement-refuse.js';
 
 /**
  * Ticket persistence — interface + memory + postgres.
@@ -36,7 +37,8 @@ import { claimTicket, type ClaimResult } from './operator-queue.js';
  * `putCaseFileWithEscalated` (same transaction). A path that wrote the case
  * file and then died before the trail row would leave the desk able to open a
  * file with no record that an escalation happened — which is the gap the trail
- * exists to close.
+ * exists to close. That transaction locks the ticket first. A missing ticket
+ * and a closed ticket write neither row. `resolved` is not terminal.
  */
 
 export type CreateTicketRow = {
@@ -87,10 +89,19 @@ export type AppendEventInput = {
  * `SupportTicket | null`, because the old signature had exactly one failure
  * shape for three different failures — no such ticket, illegal transition, and
  * "it is already that status" — and the caller could only report the first.
+ * `settle` means the move would imply a payout. The row stays put and no
+ * trail row is written. There is no amount and no ledger entry.
  */
 export type SetStatusResult =
   | { readonly status: 'ok'; readonly ticket: SupportTicket }
-  | { readonly status: 'refuse'; readonly reason: 'not_found' | 'illegal_transition' | 'same_status' };
+  | { readonly status: 'refuse'; readonly reason: 'not_found' | 'illegal_transition' | 'same_status' | 'settle' };
+
+/**
+ * Case file + escalated trail, or a refusal that wrote neither.
+ * `terminal` is `closed` (`isTerminal`). `resolved` is not terminal.
+ */
+export type PutCaseFileWithEscalatedResult =
+  { readonly status: 'ok'; readonly caseFile: SupportCaseFile } | { readonly status: 'refuse'; readonly reason: 'not_found' | 'terminal' };
 
 export type SetStatusInput = {
   ticketId: string;
@@ -109,7 +120,12 @@ export interface SupportStore {
   addComment(input: AddCommentInput): Promise<AddCommentResult>;
   /** Oldest first. Omit `limit` for the full thread (escalation citations / tests). */
   listComments(ticketId: string, options?: { limit?: number }): Promise<SupportComment[]>;
-  /** Lifecycle move + its audit row, atomically. Refuses illegal transitions. */
+  /**
+   * Lifecycle move + its audit row, atomically. Refuses illegal transitions.
+   * Also refuses a settle, from the ticket category, the note, and every
+   * case-file reason, before the status write. Postgres does that read after
+   * `FOR UPDATE`. No ledger entry.
+   */
   setStatus(input: SetStatusInput): Promise<SetStatusResult>;
   /**
    * Exclusive operator claim — must be multi-replica safe.
@@ -130,8 +146,9 @@ export interface SupportStore {
   /**
    * Case file + `escalated` trail row in ONE transaction. Either both land or
    * neither does — a case file without its trail row is an incomplete desk.
+   * Locks the ticket first. Missing and terminal (`closed`) refuse.
    */
-  putCaseFileWithEscalated(input: { caseFile: SupportCaseFile; actorId: string; note: string }): Promise<SupportCaseFile>;
+  putCaseFileWithEscalated(input: { caseFile: SupportCaseFile; actorId: string; note: string }): Promise<PutCaseFileWithEscalatedResult>;
   /** The most recent case file for a ticket, or null if never escalated. */
   latestCaseFile(ticketId: string): Promise<SupportCaseFile | null>;
   /** Published articles only, never drafts. Omit `limit` for the full catalog (search / tests). */
@@ -141,8 +158,9 @@ export interface SupportStore {
   /** Every stored version for an id (including after unpublish). Empty when the id never existed. */
   listKbVersions(id: string): Promise<SupportKbArticle[]>;
   /**
-   * Insert (baseRevision 0) or update a row. Publish bumps revision.
-   * Unpublish hides the same revision. Stale baseRevision refuses.
+   * Insert (baseRevision 0) or update a row. Publish and unpublish both
+   * bump revision. Unpublish keeps the stored title and body and stays
+   * unpublished. Stale baseRevision refuses.
    */
   putKbRevision(input: PutKbRevisionInput): Promise<PutKbRevisionResult>;
 }
@@ -168,6 +186,29 @@ export type PutKbRevisionResult =
 function toIso(d: Date | string): string {
   if (typeof d === 'string') return d;
   return d.toISOString();
+}
+
+/**
+ * Settlement before the status write. Callers pass every case-file reason,
+ * not the newest one. `money_request` anywhere in that list refuses
+ * `resolved` and `closed`. A payout note refuses. `deposit_withdraw` to
+ * `resolved` refuses from the category. `closed` on `deposit_withdraw` with
+ * no payout claim does not. No amount is invented.
+ */
+function settlementRefusal(input: {
+  toStatus: SupportTicketStatus;
+  category: SupportTicket['category'];
+  note?: string | null;
+  reasons: readonly SupportCaseFile['reason'][];
+}): SetStatusResult | null {
+  const settle = checkSupportSettlement({
+    toStatus: input.toStatus,
+    category: input.category,
+    note: input.note ?? null,
+    escalationReasons: input.reasons,
+  });
+  if (settle.status === 'refuse') return { status: 'refuse', reason: 'settle' };
+  return null;
 }
 
 type PgTicket = {
@@ -500,6 +541,15 @@ export class MemorySupportStore implements SupportStore {
     const ticket = this.tickets.get(input.ticketId);
     if (!ticket) return { status: 'refuse', reason: 'not_found' };
 
+    const reasons = (this.cases.get(input.ticketId) ?? []).map((file) => file.reason);
+    const settle = settlementRefusal({
+      toStatus: input.status,
+      category: ticket.category,
+      note: input.note,
+      reasons,
+    });
+    if (settle) return settle;
+
     const check = checkTransition(ticket.status, input.status);
     if (check.status === 'refuse') {
       return { status: 'refuse', reason: check.reason === 'same_status' ? 'same_status' : 'illegal_transition' };
@@ -581,11 +631,16 @@ export class MemorySupportStore implements SupportStore {
     return caseFile;
   }
 
-  async putCaseFileWithEscalated(input: { caseFile: SupportCaseFile; actorId: string; note: string }): Promise<SupportCaseFile> {
+  async putCaseFileWithEscalated(input: {
+    caseFile: SupportCaseFile;
+    actorId: string;
+    note: string;
+  }): Promise<PutCaseFileWithEscalatedResult> {
     // Single-process memory: both writes or neither — match the PG transaction.
-    if (!this.tickets.has(input.caseFile.ticketId)) {
-      throw new Error('ticket not found for escalation');
-    }
+    // No row lock to take; the status check still sits before either write.
+    const ticket = this.tickets.get(input.caseFile.ticketId);
+    if (!ticket) return { status: 'refuse', reason: 'not_found' };
+    if (isTerminal(ticket.status)) return { status: 'refuse', reason: 'terminal' };
     await this.putCaseFile(input.caseFile);
     try {
       this.record({
@@ -601,7 +656,7 @@ export class MemorySupportStore implements SupportStore {
       this.cases.set(input.caseFile.ticketId, list);
       throw err;
     }
-    return input.caseFile;
+    return { status: 'ok', caseFile: input.caseFile };
   }
 
   async latestCaseFile(ticketId: string): Promise<SupportCaseFile | null> {
@@ -665,8 +720,18 @@ export class MemorySupportStore implements SupportStore {
 
     if (!current) return { status: 'refuse', reason: 'invalid' };
     if (current.revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
-    const hidden: SupportKbArticle = { ...current, published: false };
+    // Same CAS as Postgres: hiding bumps revision so the old baseRevision cannot republish.
+    const nextRevision = (current.revision ?? kbVersionOf(current)) + 1;
+    const hidden = toPublicKb({
+      id: current.id,
+      titleKey: current.titleKey,
+      bodyKey: current.bodyKey,
+      version: nextRevision,
+      revision: nextRevision,
+      published: false,
+    });
     this.kb.set(input.id, hidden);
+    this.rememberVersion(hidden);
     return { status: 'ok', article: { ...hidden } };
   }
 }
@@ -823,14 +888,33 @@ export class PostgresSupportStore implements SupportStore {
    * first moves out of one state. The row lock makes the second wait and then
    * see what the first actually did — so it either refuses (`closed` is
    * terminal) or records `resolved → closed` truthfully.
+   *
+   * Settlement is the same lock. After `FOR UPDATE`, re-read the ticket and
+   * every case-file reason and run `checkSupportSettlement` before the status
+   * update. A pre-read of `latestCaseFile` is not the authority: a later
+   * `technical` file must not hide an earlier `money_request`, and a
+   * `money_request` that commits while this transaction waits must be visible
+   * once the lock is held. No ledger write and no amount.
    */
   async setStatus(input: SetStatusInput): Promise<SetStatusResult> {
     return this.sql.begin(async (tx): Promise<SetStatusResult> => {
-      const current = await tx<{ status: SupportTicketStatus }[]>`
-        SELECT status FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE
+      const current = await tx<{ status: SupportTicketStatus; category: SupportTicket['category'] }[]>`
+        SELECT status, category FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE
       `;
       const from = current[0]?.status;
-      if (!from) return { status: 'refuse', reason: 'not_found' };
+      const category = current[0]?.category;
+      if (!from || !category) return { status: 'refuse', reason: 'not_found' };
+
+      const reasonRows = await tx<{ reason: SupportCaseFile['reason'] }[]>`
+        SELECT reason FROM support.case_files WHERE ticket_id = ${input.ticketId}
+      `;
+      const settle = settlementRefusal({
+        toStatus: input.status,
+        category,
+        note: input.note,
+        reasons: reasonRows.map((row) => row.reason),
+      });
+      if (settle) return settle;
 
       const check = checkTransition(from, input.status);
       if (check.status === 'refuse') {
@@ -978,8 +1062,26 @@ export class PostgresSupportStore implements SupportStore {
     return caseFileFromPg(rows[0]!);
   }
 
-  async putCaseFileWithEscalated(input: { caseFile: SupportCaseFile; actorId: string; note: string }): Promise<SupportCaseFile> {
-    return this.sql.begin(async (tx) => {
+  /**
+   * Case file + escalated trail row, or neither. `SELECT … FOR UPDATE` before
+   * the insert, same as `setStatus`. escalate's `isTerminal` check is a
+   * pre-read: identity and KB work sit between it and this write, so a
+   * concurrent close can commit first. The locked status is the one that
+   * decides. `closed` refuses. `resolved` does not.
+   */
+  async putCaseFileWithEscalated(input: {
+    caseFile: SupportCaseFile;
+    actorId: string;
+    note: string;
+  }): Promise<PutCaseFileWithEscalatedResult> {
+    return this.sql.begin(async (tx): Promise<PutCaseFileWithEscalatedResult> => {
+      const current = await tx<{ status: SupportTicketStatus }[]>`
+        SELECT status FROM support.tickets WHERE id = ${input.caseFile.ticketId} FOR UPDATE
+      `;
+      const from = current[0]?.status;
+      if (!from) return { status: 'refuse', reason: 'not_found' };
+      if (isTerminal(from)) return { status: 'refuse', reason: 'terminal' };
+
       const rows = await tx<PgCaseFile[]>`
         INSERT INTO support.case_files (ticket_id, escalated_by, reason, citations, grounding, summary)
         VALUES (
@@ -999,7 +1101,7 @@ export class PostgresSupportStore implements SupportStore {
         actorRole: 'operator',
         note: input.note,
       });
-      return caseFileFromPg(rows[0]!);
+      return { status: 'ok', caseFile: caseFileFromPg(rows[0]!) };
     });
   }
 
@@ -1103,12 +1205,21 @@ export class PostgresSupportStore implements SupportStore {
       if (current.revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
       const rows = await tx<PgKb[]>`
         UPDATE support.kb_articles
-        SET published = false, updated_at = now()
+        SET revision = revision + 1,
+            published = false,
+            updated_at = now()
         WHERE id = ${input.id} AND revision = ${input.baseRevision}
         RETURNING id, title_key, body_key, revision, published, updated_at
       `;
       if (!rows[0]) return { status: 'refuse', reason: 'revision_stale' };
-      return { status: 'ok', article: kbFromPg(rows[0]) };
+      const hidden = kbFromPg(rows[0]);
+      // 0008 refuses a revision change that has no matching version row.
+      // Copy the stored keys; do not write a new title or body.
+      await tx`
+        INSERT INTO support.kb_article_versions (id, version, title_key, body_key)
+        VALUES (${input.id}, ${kbVersionOf(hidden)}, ${hidden.titleKey}, ${hidden.bodyKey})
+      `;
+      return { status: 'ok', article: hidden };
     });
   }
 }

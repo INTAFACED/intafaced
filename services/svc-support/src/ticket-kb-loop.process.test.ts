@@ -25,6 +25,7 @@ const MIGRATION_0001 = readFileSync(join(here, '..', 'drizzle', '0001_support_au
 const MIGRATION_0002 = readFileSync(join(here, '..', 'drizzle', '0002_support_lifecycle_full.sql'), 'utf8');
 const MIGRATION_0003 = readFileSync(join(here, '..', 'drizzle', '0003_kb_articles.sql'), 'utf8');
 const MIGRATION_0004 = readFileSync(join(here, '..', 'drizzle', '0004_kb_article_versions.sql'), 'utf8');
+const MIGRATION_0005 = readFileSync(join(here, '..', 'drizzle', '0005_support_audit_delete_refused.sql'), 'utf8');
 
 const SECRET = 'a-support-ticket-kb-process-edge-secret-long';
 const IDENTITY_SECRET = 'a-support-ticket-kb-process-identity-secret';
@@ -41,6 +42,7 @@ if (available && sql) {
   await sql.unsafe(MIGRATION_0002);
   await sql.unsafe(MIGRATION_0003);
   await sql.unsafe(MIGRATION_0004);
+  await sql.unsafe(MIGRATION_0005);
 }
 
 afterAll(async () => {
@@ -95,8 +97,10 @@ async function mountProcess() {
 
 describe.skipIf(!available)('mounted Fastify/tRPC ticket+KB loop (process compose)', () => {
   beforeEach(async () => {
-    await sql!`DELETE FROM support.comments`;
-    await sql!`DELETE FROM support.tickets`;
+    // Ticket removal no longer clears the audit, so this suite resets its own tables.
+    await sql!.unsafe(
+      'TRUNCATE TABLE support.comments, support.ticket_events, support.case_files, support.tickets RESTART IDENTITY CASCADE',
+    );
   });
 
   it('/ready reports zeros until this process succeeds ticket create + KB search/get', async () => {

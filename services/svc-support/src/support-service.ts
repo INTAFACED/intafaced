@@ -264,8 +264,10 @@ export class SupportService implements SupportContract {
    *
    *   · `support.not_found` — no such ticket. Unchanged.
    *   · `support.settle.refused` — resolve/close that implies a payout, or a
-   *     note claiming the money moved / the freeze lifted. The desk cites;
-   *     it does not settle.
+   *     note claiming the money moved / the freeze lifted. Decided inside
+   *     `store.setStatus` after the ticket row lock, from the category, the
+   *     note, and every case-file reason. `latestCaseFile` is not the
+   *     authority. The desk cites; it does not settle. No ledger entry.
    *   · `support.transition_illegal` — `closed` is terminal, so a finished
    *     complaint cannot be silently re-opened. `resolved → open` IS legal;
    *     that is the reopen path and it is recorded like anything else.
@@ -275,19 +277,9 @@ export class SupportService implements SupportContract {
    */
   async setStatus(input: { operatorId: string; ticketId: string; status: SupportTicketStatus; note?: string }): Promise<SupportTicket> {
     return withSupportSpan('support.setStatus', { op: 'setStatus', ticketId: input.ticketId }, async (span) => {
-      const ticket = await this.store.findById(input.ticketId);
-      if (!ticket) throw ticketNotFound();
-      const caseFile = await this.store.latestCaseFile(input.ticketId);
-      const settle = checkSupportSettlement({
-        toStatus: input.status,
-        category: ticket.category,
-        note: input.note,
-        escalationReason: caseFile?.reason ?? null,
-      });
-      if (settle.status === 'refuse') {
-        throw new SupportError('support cannot settle', settle.code);
-      }
-
+      // The store re-reads the ticket and every case-file reason under its
+      // row lock. A latestCaseFile read here would miss a money_request that
+      // a later file hides, or one that commits before the lock.
       const result = await this.store.setStatus({
         ticketId: input.ticketId,
         status: input.status,
@@ -296,6 +288,7 @@ export class SupportService implements SupportContract {
       });
       if (result.status === 'refuse') {
         if (result.reason === 'not_found') throw ticketNotFound();
+        if (result.reason === 'settle') throw new SupportError('support cannot settle', SUPPORT_SETTLE_REFUSE);
         throw new SupportError(
           `status change refused: ${result.reason}`,
           `support.transition_${result.reason === 'same_status' ? 'same_status' : 'illegal'}`,
@@ -449,17 +442,23 @@ export class SupportService implements SupportContract {
 
       // Case file + escalated trail row commit together. A crash between the
       // two writes used to leave a case file with no trail — desk incomplete.
+      // The pre-read above is not the lock. This call locks the ticket and
+      // refuses a close that landed during identity and KB work.
       const stored = await this.store.putCaseFileWithEscalated({
         caseFile: built.caseFile,
         actorId: input.operatorId,
         note: `reason:${input.reason} citations:${built.caseFile.citations.length}`,
       });
+      if (stored.status === 'refuse') {
+        if (stored.reason === 'not_found') throw ticketNotFound();
+        throw new SupportError('escalation refused: ticket is terminal', 'support.escalation.terminal');
+      }
 
       span.setAttribute('intafaced.support.ticket_id', ticket.id);
       span.setAttribute('intafaced.support.escalation_reason', input.reason);
-      span.setAttribute('intafaced.support.citation_count', stored.citations.length);
+      span.setAttribute('intafaced.support.citation_count', stored.caseFile.citations.length);
 
-      return stored;
+      return stored.caseFile;
     });
   }
 
