@@ -355,22 +355,25 @@ export class UserMoneyService {
         // the money is gone and asking the rail again would send it twice.
         if (claimed.status === 'sent') return claimed;
 
-        // L3-1 recovery: reverse began (failure_code stamped while still `held`)
-        // but the process died before status became `failed`. Finish the reverse
-        // — never re-ask the rail. Caller may open a *new* clientRef (or the same
+        // A durable first-dispatch refusal proves no rail effect even if the
+        // process died before recording its failure code. Finish the original
+        // reverse — never re-ask the rail. Caller may open a *new* clientRef (or the same
         // clientRef after status is `failed` and attempts advanced) for another try.
-        if (claimed.status === 'held' && claimed.failureCode) {
+        if (claimed.status === 'held') {
           const [refusal] = await connection`
           SELECT outcome FROM pay.withdrawal_rail_attempts
            WHERE withdrawal_id = ${claimed.id} AND attempt = ${claimed.attempts}
         `;
-          if (refusal?.outcome !== 'refused')
+          if (refusal?.outcome === 'refused') {
+            const code = claimed.failureCode ?? 'rail.failed';
+            await this.finalizeRailRefusal(claimed, code, connection);
+            throw new PayError('Rail refused the withdrawal', 'pay.rail_failed', {
+              withdrawalId: claimed.id,
+              failureCode: code,
+            });
+          }
+          if (claimed.failureCode)
             throw new PayError('Original rail refusal is unproven; withdrawal remains held', 'pay.rail_outcome_unknown');
-          await this.finalizeRailRefusal(claimed, claimed.failureCode, connection);
-          throw new PayError('Rail refused the withdrawal', 'pay.rail_failed', {
-            withdrawalId: claimed.id,
-            failureCode: claimed.failureCode,
-          });
         }
 
         // Residual #8: a terminal `failed` row is "this attempt is done", not
@@ -581,7 +584,8 @@ export class UserMoneyService {
   /**
    * Complete a rail-refusal reverse. Idempotent on the attempt key.
    *
-   * Preconditions: row is `held` with `failure_code` set (intent to reverse).
+   * Preconditions: row is `held` with a durable first-dispatch refusal receipt.
+   * A missing recorded provider code remains the generic rail failure.
    * Steps: reverse hold → status `failed` + attempts++. Either step may be
    * re-run after a crash; reverse is ledger-idempotent and the final UPDATE
    * is guarded on `status = 'held'`.

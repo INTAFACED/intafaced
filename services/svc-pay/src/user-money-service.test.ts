@@ -533,6 +533,75 @@ describe('svc-pay user money PG-hard', () => {
       expect(await holdOf(record.id, 0)).toBe('0');
     });
 
+    it('durable refusal before failure-code interruption resumes original reversal without another rail call', async () => {
+      let railCalls = 0;
+      const payout = card.payout.bind(card);
+      card.payout = async (request) => {
+        railCalls++;
+        return payout(request);
+      };
+      await sql.unsafe(`
+        CREATE FUNCTION pay.interrupt_refusal_code() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NEW.status = 'held' AND NEW.failure_code IS NOT NULL THEN
+            RAISE EXCEPTION 'failure-code write interrupted';
+          END IF;
+          RETURN NEW;
+        END $$;
+        CREATE TRIGGER interrupt_refusal_code BEFORE UPDATE ON pay.withdrawals
+          FOR EACH ROW EXECUTE FUNCTION pay.interrupt_refusal_code();
+      `);
+      card.failNext('bank.rejected', 'Beneficiary account closed');
+      try {
+        await expect(withdraw()).rejects.toThrow('failure-code write interrupted');
+      } finally {
+        await sql.unsafe('DROP TRIGGER interrupt_refusal_code ON pay.withdrawals; DROP FUNCTION pay.interrupt_refusal_code()');
+      }
+      const [original] = await money.listWithdrawals(USER, 50);
+      expect(original).toMatchObject({ status: 'held', attempts: 0, failureCode: null });
+      expect(await sql`SELECT outcome FROM pay.withdrawal_rail_attempts WHERE withdrawal_id=${original!.id}`).toMatchObject([
+        { outcome: 'refused' },
+      ]);
+      expect(await holdOf(original!.id, 0)).toBe('40');
+      expect(await availableOf()).toBe('60');
+
+      const realPost = ledger.post.bind(ledger);
+      const reversalKeys: string[] = [];
+      let loseAck = true;
+      ledger.post = async (request) => {
+        const receipt = await realPost(request);
+        if (request.reason === 'withdraw.reversed') {
+          reversalKeys.push(request.idempotencyKey);
+          if (loseAck) {
+            loseAck = false;
+            throw new Error('reverse ACK lost');
+          }
+        }
+        return receipt;
+      };
+      await expect(withdraw()).rejects.toThrow('reverse ACK lost');
+      expect((await money.listWithdrawals(USER, 50))[0]).toMatchObject({
+        id: original!.id,
+        status: 'held',
+        attempts: 0,
+        amount: original!.amount,
+        failureCode: null,
+      });
+      await expect(withdraw()).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      expect((await money.listWithdrawals(USER, 50))[0]).toMatchObject({
+        id: original!.id,
+        status: 'failed',
+        attempts: 1,
+        failureCode: 'rail.failed',
+      });
+      expect(railCalls).toBe(1);
+      expect(reversalKeys).toHaveLength(2);
+      expect(new Set(reversalKeys).size).toBe(1);
+      expect(reversalKeys[0]).toBe(`withdraw.reverse:${original!.id}:0`);
+      expect(await holdOf(original!.id, 0)).toBe('0');
+      expect(await availableOf()).toBe('100');
+    });
+
     it('L3-1 recovers when failure_code is stamped on held before reverse finishes', async () => {
       // Simulate: hold posted, rail refused intent stamped on the row, process
       // died before finalizeRailRefusal ran. Money still in the hold.
