@@ -124,7 +124,7 @@ describe('deviationInBps', () => {
     expect(deviationInBps(parseAmount('30000'), parseAmount('30000'))).toBe(0);
   });
 
-  it('does not divide by zero', () => {
-    expect(deviationInBps(parseAmount('1'), 0n)).toBe(0);
+  it('refuses a zero reference rather than reporting agreement', () => {
+    expect(() => deviationInBps(parseAmount('1'), 0n)).toThrow(/a zero reference is not a price/);
   });
 });

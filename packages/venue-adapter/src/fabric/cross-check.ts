@@ -202,9 +202,14 @@ export function median(values: readonly Amount[]): Amount {
   return ((sorted[middle - 1] as Amount) + (sorted[middle] as Amount)) / 2n;
 }
 
-/** Absolute distance from `reference`, in bps. Integer arithmetic throughout. */
+/** Absolute distance from `reference`, in bps. Integer arithmetic throughout.
+ *  A return of 0 is exact agreement of two real prices. A zero reference is not
+ *  a price, so this throws instead of reporting that agreement. */
 export function deviationInBps(value: Amount, reference: Amount): number {
-  if (reference === ZERO) return 0;
+  // Callers treat 0 as exact agreement (`deviationBps > tolerance` is false).
+  if (reference === ZERO) {
+    throw new Error('a zero reference is not a price');
+  }
   const gap = abs(sub(value, reference));
   // Scale up before dividing so the bps figure keeps its precision, then reduce.
   const scaled = div(mul(gap, 10_000n * 10n ** 18n), abs(reference));
