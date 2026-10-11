@@ -11,12 +11,12 @@ type WindowRow = {
   window_id: string;
   epoch: number | null;
   asset_id: string;
-  reward: string;
-  fee_bps: number;
+  reward: string | null;
+  fee_bps: number | null;
   status: string;
 };
 
-type ShareRow = { share_id: string; miner_id: string; weight: string };
+type ShareRow = { share_id: string; miner_id: string; weight: string | null };
 
 export interface MiningJobsDeps {
   sql: Sql;
@@ -41,6 +41,7 @@ export async function payWindow(sql: Sql, ledger: Pick<LedgerClient, 'post'>, wi
       FOR UPDATE
     `;
     if (!window) return;
+    if (window.reward === null || window.fee_bps === null) throw new Error(EMISSION_UNPUBLISHED);
     const epoch = typeof window.epoch === 'number' ? window.epoch : window.epoch == null ? null : Number.parseInt(String(window.epoch), 10);
     if (epoch == null || !Number.isInteger(epoch) || epoch < 0) {
       throw new Error(EPOCH_UNSET);
@@ -50,13 +51,17 @@ export async function payWindow(sql: Sql, ledger: Pick<LedgerClient, 'post'>, wi
     const shares = await tx<ShareRow[]>`
       SELECT share_id, miner_id, weight FROM mining_pool.shares WHERE window_id = ${window.window_id}
     `;
+    if (shares.some((s) => s.weight === null)) throw new Error(EMISSION_UNPUBLISHED);
     await postPayouts(ledger, {
       windowId: window.window_id,
       epoch,
       assetId: window.asset_id,
       reward: window.reward,
       feeBps,
-      shares: shares.map((s) => ({ shareId: s.share_id, minerId: s.miner_id, weight: BigInt(s.weight) })),
+      shares: shares.map((s) => {
+        if (s.weight === null) throw new Error(EMISSION_UNPUBLISHED);
+        return { shareId: s.share_id, minerId: s.miner_id, weight: BigInt(s.weight) };
+      }),
     });
     await tx`UPDATE mining_pool.windows SET status = 'paid' WHERE window_id = ${window.window_id}`;
   });
