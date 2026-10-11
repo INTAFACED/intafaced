@@ -16,6 +16,10 @@ assert.equal(isGitHubRefusal({ response: { status: 429 } }), true);
 assert.equal(isGitHubRefusal({ stderr: 'HTTP/2 403 Forbidden' }), true);
 assert.equal(isGitHubRefusal({ stderr: '429 Too Many Requests' }), true);
 assert.equal(isGitHubRefusal({ stderr: 'HTTP 503: service unavailable' }), false);
+assert.equal(
+  isGitHubRefusal({ stderr: 'HTTP 503: service unavailable', message: 'Command failed: gh issue create --title "HTTP 403 guide"' }),
+  false,
+);
 assert.equal(isGitHubRefusal({ message: 'Could not inspect pull request #403' }), false);
 assert.equal(isGitHubRefusal({ stderr: 'Invalid path /repos/org/repo/issues/429' }), false);
 
@@ -109,4 +113,4 @@ for (const [mode, expectedCalls, status] of [
   assert.match(t.result.stderr, new RegExp(status));
 }
 
-console.log('5 refusal-stop paths, stubbed setup policy, and 9 classifier cases passed; PATH contained only temporary gh/git stubs.');
+console.log('5 refusal-stop paths, stubbed setup policy, and 10 classifier cases passed; PATH contained only temporary gh/git stubs.');

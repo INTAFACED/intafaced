@@ -2,7 +2,9 @@
 export function isGitHubRefusal(error) {
   const status = error?.statusCode ?? error?.httpStatus ?? error?.response?.status;
   if (status === 403 || status === 429) return true;
-  const text = [error?.stderr, error?.stdout, error?.message].filter(Boolean).join('\n');
+  // execFileSync's message includes command arguments, which can mention HTTP statuses.
+  const stderr = error?.stderr?.toString().trim();
+  const text = stderr || [error?.stdout, error?.message].filter(Boolean).join('\n');
   return /\bHTTP(?:\/\d(?:\.\d)?)?\s+(?:403|429)\b|\b403\s+Forbidden\b|\b429\s+Too Many Requests\b/i.test(text);
 }
 
