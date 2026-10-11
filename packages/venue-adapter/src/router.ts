@@ -351,20 +351,41 @@ export async function planRoute(
   }
 
   // ── Rank ──────────────────────────────────────────────────────────────────
-  candidates.sort((a, b) => {
+  // Read health once, outside the comparator. A throw drops this venue.
+  const ranked: Array<Candidate & { readonly latencyMs: number }> = [];
+  for (const candidate of candidates) {
+    let latencyMs: number;
+    try {
+      latencyMs = candidate.source.health().latencyMs;
+    } catch {
+      rejected.push({
+        venueId: candidate.source.id,
+        reason: 'unhealthy',
+        detail: 'health threw during rank',
+      });
+      continue;
+    }
+    ranked.push({ ...candidate, latencyMs });
+  }
+
+  if (ranked.length === 0) {
+    return emptyPlan(request, rejected);
+  }
+
+  ranked.sort((a, b) => {
     if (a.ranking !== b.ranking) return a.ranking < b.ranking ? -1 : 1;
     // Equal price: prefer the internal book, then the faster venue.
     const aInternal = a.source.kind === 'internal' ? 0 : 1;
     const bInternal = b.source.kind === 'internal' ? 0 : 1;
     if (aInternal !== bInternal) return aInternal - bInternal;
-    return a.source.health().latencyMs - b.source.health().latencyMs;
+    return a.latencyMs - b.latencyMs;
   });
 
   // Slippage guard uses all-in when the complete model is on, else fee-only —
   // same figure the ranker used, never the preference-adjusted one.
   // A quote the fill loop will refuse is not a price. Choosing the benchmark
   // before the notional check let a zero-average quote reject a real sell.
-  const benchmark = candidates.find((candidate) => {
+  const benchmark = ranked.find((candidate) => {
     const take = min(request.amount, candidate.quote.amount);
     return !sellNotionalRoundsToZero(request.side, candidate.effective, take);
   });
@@ -374,7 +395,7 @@ export async function planRoute(
   const legs: RouteLeg[] = [];
   let remaining = request.amount;
 
-  for (const candidate of candidates) {
+  for (const candidate of ranked) {
     if (remaining <= 0n) {
       rejected.push({ venueId: candidate.source.id, reason: 'filled' });
       continue;
