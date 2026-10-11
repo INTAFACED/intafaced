@@ -391,6 +391,9 @@ describe('svc-bank cards reachable (PG-hard)', () => {
 
       expect(captured.cashback.status).toBe('paid');
       expect(captured.cashback.amount).toBe('1');
+      // 500 − 100 captured + the 1 reward. A paid echo that never credited
+      // available fails here: the wire is not the book.
+      expect((await ledger.balance(userAvailable(HOLDER, 'USDT'))).amount).toBe(amt('401'));
     });
 
     /**
