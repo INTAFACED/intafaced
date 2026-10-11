@@ -30,7 +30,7 @@
     "@asteasolutions/zod-to-openapi": "7.3.4",
     "@intafaced/auth": "workspace:*",
     "@intafaced/config": "workspace:*",
-    "@trpc/server": "^11.0.0-rc.660",
+    "@trpc/server": "^11.19.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
