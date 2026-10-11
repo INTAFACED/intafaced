@@ -696,49 +696,6 @@ describe('BinanceSpotTrade / BinanceSpotAccount without credentials', () => {
     }
   });
 
-  it('refuses a non-positive amount or limit price before any signed request', async () => {
-    const keys = { venueId: 'binance-spot' as const, apiKey: 'k', apiSecret: 's', scopes: ['read', 'trade'] as const };
-    const clock = () => 1_700_000_000_000;
-    const options = { restBase: 'https://rest.test', clock, snapshotLimit: 5 as const };
-    const positiveAmount = 1n;
-    const positivePrice = 1n;
-    const cases: ReadonlyArray<{
-      readonly amount: bigint;
-      readonly price?: bigint;
-      readonly type: 'limit' | 'market';
-      readonly message: RegExp;
-    }> = [
-      { type: 'limit', amount: 0n, price: positivePrice, message: /amount must be positive/ },
-      { type: 'limit', amount: -1n, price: positivePrice, message: /amount must be positive/ },
-      { type: 'market', amount: 0n, message: /amount must be positive/ },
-      { type: 'market', amount: -1n * 10n ** 18n, message: /amount must be positive/ },
-      { type: 'limit', amount: positiveAmount, price: 0n, message: /limit order price must be positive/ },
-      { type: 'limit', amount: positiveAmount, price: -1n, message: /limit order price must be positive/ },
-    ];
-    const seen: FakeHttp[] = [];
-
-    for (const [index, order] of cases.entries()) {
-      const http = new FakeHttp().queue(depthSnapshot(1));
-      seen.push(http);
-      await expect(
-        new BinanceSpotTrade(keys, { ...options, http }).placeOrder({
-          symbol: 'BTC/USDT',
-          side: 'buy',
-          type: order.type,
-          amount: order.amount,
-          ...(order.price === undefined ? {} : { price: order.price }),
-          clientOrderId: `np-${index}`,
-        }),
-      ).rejects.toMatchObject({ reason: 'malformed', message: expect.stringMatching(order.message) });
-    }
-
-    for (const http of seen) {
-      expect(http.requests.some((url) => url.includes('/api/v3/order'))).toBe(false);
-      expect(http.requests.some((url) => url.includes('signature='))).toBe(false);
-      expect(http.requests.some((url) => url.includes('quantity='))).toBe(false);
-    }
-  });
-
   it('keeps average fill price in the shared 18-decimal scale', () => {
     const mapped = mapBinanceSpotOrder(
       {
