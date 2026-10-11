@@ -273,4 +273,267 @@ if (page.indexOf('openOrders = []') !== -1 && /codView[\s\S]{0,200}openOrders = 
   if (lang.indexOf(key + ':') === -1) fail('en.js missing ' + key);
 });
 
-console.log('ix-cod golden: PASS');
+var regressionFailures = [];
+function regression(name, run) {
+  try {
+    run();
+    console.log('COD regression PASS: ' + name);
+  } catch (err) {
+    regressionFailures.push(name + ': ' + err.message);
+    console.error('COD regression FAIL: ' + name + ': ' + err.message);
+  }
+}
+
+function marketLease(overrides) {
+  return Object.assign(
+    {
+      channel: 'cod',
+      type: 'cod.armed',
+      commandId: 'eth-lease',
+      leaseCommandId: 'eth-lease',
+      receivedAt: '2026-10-11T10:00:00.000Z',
+      expiresAt: '2026-10-11T10:00:05.000Z',
+      ttlMs: 5000,
+      scope: 'market',
+      marketId: 'ETH-USDT',
+      cancelExecutable: true,
+      recoveryPolicy: 'cod.replica_local',
+    },
+    overrides,
+  );
+}
+
+function completedCancel(overrides) {
+  return Object.assign(
+    {
+      channel: 'cod',
+      type: 'cod.fired',
+      commandId: 'btc-lease',
+      receivedAt: '2026-10-11T09:00:00.000Z',
+      expiresAt: '2026-10-11T09:00:05.000Z',
+      scope: 'market',
+      marketId: 'BTC-USDT',
+      activation: 'disconnect',
+      complete: true,
+      tradeReached: true,
+      targets: [{ selector: 'btc-cancelled', outcome: 'APPLIED' }],
+      recoveryPolicy: 'cod.replica_local',
+    },
+    overrides,
+  );
+}
+
+function activeLease(view) {
+  return [
+    view.armed,
+    view.commandId,
+    view.leaseCommandId,
+    view.receivedAt,
+    view.expiresAt,
+    view.ttlMs,
+    view.scope,
+    view.marketId,
+    view.cancelExecutable,
+  ];
+}
+
+regression('foreign completion retains the active lease and attributes its own result', function () {
+  var current = cod.applyFrame(cod.emptyView(), marketLease());
+  var result = cod.applyFrame(current, completedCancel());
+  assert.deepStrictEqual(activeLease(result), activeLease(current));
+  assert.strictEqual(result.lastCompletion, 'APPLIED');
+  assert.strictEqual(result.lastCompletionCommandId, 'btc-lease');
+  assert.strictEqual(result.lastCompletionReceivedAt, '2026-10-11T09:00:00.000Z');
+  assert.strictEqual(result.lastCompletionExpiresAt, '2026-10-11T09:00:05.000Z');
+  assert.strictEqual(result.lastCompletionScope, 'market');
+  assert.strictEqual(result.lastCompletionMarketId, 'BTC-USDT');
+  assert.deepStrictEqual(result.lastTargets, [{ selector: 'btc-cancelled', outcome: 'APPLIED' }]);
+});
+
+regression('renewed lease matches its original lease command rather than the renew command', function () {
+  var current = cod.applyFrame(
+    cod.emptyView(),
+    marketLease({
+      type: 'cod.renewed',
+      commandId: 'renew-2',
+      receivedAt: '2026-10-11T10:00:02.000Z',
+      expiresAt: '2026-10-11T10:00:07.000Z',
+    }),
+  );
+  var result = cod.applyFrame(
+    current,
+    completedCancel({
+      commandId: 'eth-lease',
+      receivedAt: current.receivedAt,
+      expiresAt: current.expiresAt,
+      scope: 'market',
+      marketId: 'ETH-USDT',
+    }),
+  );
+  assert.strictEqual(result.armed, false);
+  assert.strictEqual(result.lastCompletionCommandId, 'eth-lease');
+});
+
+regression('foreign completion after renewal cannot change its lease fields', function () {
+  var current = cod.applyFrame(cod.emptyView(), marketLease({ type: 'cod.renewed', commandId: 'renew-2' }));
+  assert.deepStrictEqual(activeLease(cod.applyFrame(current, completedCancel())), activeLease(current));
+});
+
+regression('reused command ids require the same server receipt identity', function () {
+  var current = cod.applyFrame(cod.emptyView(), marketLease());
+  var result = cod.applyFrame(current, completedCancel({ commandId: 'eth-lease', expiresAt: current.expiresAt, marketId: 'ETH-USDT' }));
+  assert.deepStrictEqual(activeLease(result), activeLease(current));
+});
+
+regression('matching command and receipt still require the same market scope', function () {
+  var current = cod.applyFrame(cod.emptyView(), marketLease());
+  var result = cod.applyFrame(
+    current,
+    completedCancel({ commandId: 'eth-lease', receivedAt: current.receivedAt, expiresAt: current.expiresAt }),
+  );
+  assert.deepStrictEqual(activeLease(result), activeLease(current));
+});
+
+regression('matching command receipt and market still require the same scope', function () {
+  var current = cod.applyFrame(cod.emptyView(), marketLease());
+  var result = cod.applyFrame(
+    current,
+    completedCancel({
+      commandId: 'eth-lease',
+      receivedAt: current.receivedAt,
+      expiresAt: current.expiresAt,
+      marketId: current.marketId,
+      scope: 'account',
+    }),
+  );
+  assert.deepStrictEqual(activeLease(result), activeLease(current));
+});
+
+regression('an expired-looking matching receipt disarms without using client clocks', function () {
+  var current = cod.applyFrame(cod.emptyView(), marketLease({ expiresAt: '1999-01-01T00:00:00.000Z' }));
+  assert.strictEqual(current.armed, true);
+  var result = cod.applyFrame(
+    current,
+    completedCancel({
+      commandId: current.leaseCommandId,
+      receivedAt: current.receivedAt,
+      expiresAt: current.expiresAt,
+      marketId: current.marketId,
+    }),
+  );
+  assert.strictEqual(result.armed, false);
+  assert.strictEqual(result.lastCompletion, 'APPLIED');
+});
+
+regression('matching command receipt and scope still require the same server expiry metadata', function () {
+  var current = cod.applyFrame(cod.emptyView(), marketLease());
+  var result = cod.applyFrame(
+    current,
+    completedCancel({
+      commandId: current.leaseCommandId,
+      receivedAt: current.receivedAt,
+      marketId: current.marketId,
+    }),
+  );
+  assert.deepStrictEqual(activeLease(result), activeLease(current));
+});
+
+regression('disconnect after a foreign result discloses the active lease outcome as unknown', function () {
+  var current = cod.applyFrame(cod.emptyView(), marketLease());
+  var result = cod.applyDisconnect(cod.applyFrame(current, completedCancel()));
+  assert.strictEqual(result.armed, false);
+  assert.strictEqual(result.lastCompletion, 'OUTCOME_UNKNOWN');
+  assert.strictEqual(result.lastCompletionReason, 'cod.disconnect_unconfirmed');
+  assert.strictEqual(result.lastCompletionCommandId, 'eth-lease');
+  assert.strictEqual(result.lastCompletionMarketId, 'ETH-USDT');
+  assert.strictEqual(result.complete, false);
+  assert.deepStrictEqual(result.lastTargets, []);
+});
+
+regression('disconnect preserves a confirmed matching lease outcome', function () {
+  var current = cod.applyFrame(cod.emptyView(), marketLease());
+  var result = cod.applyFrame(
+    current,
+    completedCancel({
+      commandId: current.leaseCommandId,
+      receivedAt: current.receivedAt,
+      expiresAt: current.expiresAt,
+      marketId: current.marketId,
+    }),
+  );
+  assert.strictEqual(cod.applyDisconnect(result).lastCompletion, 'APPLIED');
+});
+
+regression('invented mass success remains unknown without changing the active lease', function () {
+  var current = cod.applyFrame(cod.emptyView(), marketLease());
+  var result = cod.applyFrame(
+    current,
+    completedCancel({
+      tradeReached: false,
+      commandId: current.leaseCommandId,
+      receivedAt: current.receivedAt,
+      expiresAt: current.expiresAt,
+      marketId: current.marketId,
+    }),
+  );
+  assert.strictEqual(result.lastCompletion, 'OUTCOME_UNKNOWN');
+  assert.strictEqual(result.complete, false);
+  assert.strictEqual(result.lastCode, 'cod.invented_mass_success');
+  assert.deepStrictEqual(activeLease(result), activeLease(current));
+});
+
+regression('a missing result identity cannot disarm an active lease', function () {
+  var current = cod.applyFrame(cod.emptyView(), marketLease());
+  assert.deepStrictEqual(
+    activeLease(
+      cod.applyFrame(
+        current,
+        completedCancel({
+          commandId: current.leaseCommandId,
+          receivedAt: null,
+          expiresAt: current.expiresAt,
+          marketId: current.marketId,
+        }),
+      ),
+    ),
+    activeLease(current),
+  );
+});
+
+regression('actual stream keeps the ETH heartbeat after receiving a historical BTC result', function () {
+  var scheduled = [];
+  var stream = cod.createPrivateCodStream({
+    accessToken: 'fixture-token',
+    WebSocketImpl: MockWS,
+    schedule: function (fn, ms) {
+      var timer = { fn: fn, ms: ms, cancelled: false };
+      scheduled.push(timer);
+      return function () {
+        timer.cancelled = true;
+      };
+    },
+  });
+  try {
+    var socket = MockWS.last;
+    socket.readyState = 1;
+    socket.onopen();
+    socket.onmessage({ data: JSON.stringify(marketLease()) });
+    var timer = scheduled[0];
+    socket.onmessage({ data: JSON.stringify(completedCancel()) });
+    assert.strictEqual(timer.cancelled, false);
+    assert.strictEqual(stream._view().armed, true);
+    assert.strictEqual(stream._view().marketId, 'ETH-USDT');
+    timer.fn();
+    assert.strictEqual(JSON.parse(socket.sent[socket.sent.length - 1]).type, 'cod.heartbeat');
+  } finally {
+    stream.stop();
+  }
+});
+
+regression('mounted completion copy carries operation attribution', function () {
+  assert.ok(page.indexOf('codView.lastCompletionCommandId') !== -1);
+  assert.ok(page.indexOf('codView.lastCompletionMarketId') !== -1);
+});
+
+if (regressionFailures.length) fail(regressionFailures.join('\n'));
+console.log('ix-cod golden: PASS (14 scoped receipt regressions)');

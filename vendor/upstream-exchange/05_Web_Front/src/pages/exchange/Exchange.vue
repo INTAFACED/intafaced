@@ -1615,7 +1615,10 @@
             </div>
             <p class="ix-order-note" v-if="codView.lastCode === 'cod.lease_range_unconfigured'">{{ $t('exchange.hlplus.codUnconfigured') }}</p>
             <p class="ix-order-note" v-else-if="codView.lastCompletionReason === 'cod.disconnect_unconfirmed'">{{ $t('exchange.hlplus.codDisconnectUnknown') }}</p>
-            <p class="ix-order-note" v-else-if="codView.lastCompletion">{{ codView.lastCompletion }}</p>
+            <p class="ix-order-note" v-else-if="codView.lastCompletion">
+              {{ codView.lastCompletion }} · {{ codView.lastCompletionCommandId }} · {{ codView.lastCompletionScope
+              }}<span v-if="codView.lastCompletionMarketId"> · {{ codView.lastCompletionMarketId }}</span>
+            </p>
           </section>
 
           <div class="ix-meta" v-if="twapParent">
