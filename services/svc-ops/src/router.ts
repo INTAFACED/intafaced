@@ -21,6 +21,9 @@ import {
 } from './codes.js';
 import { assertOpsListLimit, OPS_LIST_LIMIT_CAP } from './list-limit.js';
 import type { OpsService } from './ops-service.js';
+import type { OutreachCrm } from './outreach/crm.js';
+import type { FounderAuthority } from './outreach/authority.js';
+import { createOutreachRouter } from './outreach/router.js';
 
 /**
  * Page size. Optional so omit reaches the named refuse
@@ -122,8 +125,9 @@ function mapError(err: unknown): never {
 
 const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
 
-export function createOpsRouter(ops: OpsService) {
+export function createOpsRouter(ops: OpsService, outreach?: { crm: OutreachCrm; authority: FounderAuthority }) {
   return router({
+    ...(outreach ? { outreach: createOutreachRouter(outreach.crm, outreach.authority) } : {}),
     health: publicProcedure
       .output(z.object({ ok: z.literal(true), service: z.literal('svc-ops') }))
       .query(() => ({ ok: true as const, service: 'svc-ops' as const })),

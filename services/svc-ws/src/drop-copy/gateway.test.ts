@@ -1,3 +1,4 @@
+import { TEST_AUTHORITY } from '../test-support/authority.js';
 import { createServer, request as httpRequest, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
@@ -94,6 +95,7 @@ describe('drop-copy WebSocket gateway', () => {
     httpPort = addr.port;
     baseUrl = `ws://127.0.0.1:${addr.port}`;
     gateway = createDropCopyWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server: http,
       hub,
       heartbeatMs: 30_000,

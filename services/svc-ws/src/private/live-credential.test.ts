@@ -198,20 +198,19 @@ describe('createIdentityOwnershipClient', () => {
   });
 });
 
-describe('production index wires the identity ownership client', () => {
+describe('production index wires mandatory identity authority', () => {
   it('constructs the client from IDENTITY_URL + IDENTITY_OWNERSHIP_SECRET, never INTERNAL_SERVICE_SECRET', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const src = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(src).toMatch(/createIdentityOwnershipClient/);
+    expect(src).toMatch(/createIdentityAuthorityClient/);
     expect(src).toMatch(/IDENTITY_URL/);
     expect(src).toMatch(/IDENTITY_OWNERSHIP_SECRET/);
-    expect(src).toMatch(/getAccount/);
-    expect(src).toMatch(/serviceAuthHeadersForBody\('svc-ws', identityOwnershipSecret, ''\)/);
+    expect(src).not.toMatch(/sessionPasskey:/);
     expect(src).not.toMatch(/serviceAuthHeaders\(/);
     const call = src.slice(src.indexOf('const privateGateway = createPrivateWebSocketGateway('));
-    expect(call.slice(0, 900)).toMatch(/liveCredential/);
+    expect(call.slice(0, 900)).toMatch(/authority/);
     const drop = src.slice(src.indexOf('const dropCopyGateway = createDropCopyWebSocketGateway('));
-    expect(drop.slice(0, 500)).toMatch(/liveCredential/);
+    expect(drop.slice(0, 500)).toMatch(/authority/);
     expect(src).not.toMatch(/process\.env\.INTERNAL_SERVICE_SECRET/);
     expect(src).not.toMatch(/env\.INTERNAL_SERVICE_SECRET/);
   });

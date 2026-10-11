@@ -3,6 +3,8 @@ import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { EDGE_PRINCIPAL_HEADER } from '@intafaced/contracts';
 import { exchangePrincipal } from './principal-exchange.js';
 import { recoveredMintKeyRevokeRefusesSession } from './recovery-mint-key-revoke-session.js';
+import { currentAuthorityInputSchema } from '@intafaced/contracts';
+import { currentAuthorityTestReply } from './test-current-authority.js';
 
 const tokens: TokenConfig = {
   secret: 'edge-test-jwt-signing-secret-32-chars',
@@ -50,7 +52,17 @@ function recoveredMintFetch(): { fetch: typeof fetch; revokeKey: () => void } {
     revokeKey() {
       state.keyRevoked = true;
     },
-    fetch: async (input) => {
+    fetch: async (input, init) => {
+      if (String(input).endsWith('/trpc/accountControls.currentAuthority')) {
+        const subject = currentAuthorityInputSchema.parse(JSON.parse(String(init?.body)) as unknown);
+        const expectedCredentialId = subject.credential.kind === 'session' ? KEEP : KEY;
+        const authority = currentAuthorityTestReply(input, init, {
+          expectedUserId: USER,
+          expectedCredentialId,
+          credentialRevoked: subject.credential.kind === 'api_key' && state.keyRevoked,
+        });
+        if (authority) return authority;
+      }
       const url = String(input);
       if (url.includes('/internal/account/')) {
         return json({ userId: USER, status: 'active', kycTier: 'none', lastVerifiedAt: '2026-08-25T00:00:00.000Z' });
