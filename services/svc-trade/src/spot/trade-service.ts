@@ -58,14 +58,16 @@ import {
   type DropCopyIngestPort,
 } from './drop-copy-ingest.js';
 import { NoSubAccounts, assertSubAccountOwned, type SubAccountOwnershipSource } from './sub-account-ownership.js';
-import type {
-  EngineAmendResult,
-  EngineCancellation,
-  EngineFill,
-  EngineSubmitRequest,
-  EngineSubmitResult,
-  MatchingClient,
+import {
+  MatchingNoBookError,
+  type EngineAmendResult,
+  type EngineCancellation,
+  type EngineFill,
+  type EngineSubmitRequest,
+  type EngineSubmitResult,
+  type MatchingClient,
 } from './matching-client.js';
+import { judgeEngineSequence } from './sequence-guard.js';
 import {
   acceptConvertQuote,
   buildFirmConvertQuote,
@@ -1407,6 +1409,35 @@ export class TradeService {
     return this.executeAdmittedOrder(evidence);
   }
 
+  private async refuseRestartedEngineSequence(market: Market): Promise<void> {
+    const rows = await this.sql<Array<{ max_sequence: string | null }>>`
+      SELECT MAX(sequence)::text AS max_sequence
+        FROM trade.fills
+       WHERE market_id = ${market.id}
+    `;
+    const raw = rows[0]?.max_sequence;
+    const recordedSequence = raw == null ? undefined : Number(raw);
+    if (recordedSequence === undefined) return;
+
+    let engineSequence: number | null;
+    try {
+      engineSequence = (await this.matching.depth(market.id, 1)).sequence;
+    } catch (err) {
+      if (!(err instanceof MatchingNoBookError)) throw err;
+      engineSequence = null;
+    }
+    if (judgeEngineSequence(recordedSequence, engineSequence) !== 'regression') return;
+
+    const where =
+      engineSequence === null
+        ? `the engine book is missing after fills through sequence ${recordedSequence}`
+        : `the engine sequence ${engineSequence} is behind settled sequence ${recordedSequence}`;
+    throw new TradeError(
+      `${market.symbol}: ${where}. Refusing the submit so the sequence counter does not start again and reissue a sequence stored on trade.fills.`,
+      'trade.engine_sequence_regressed',
+    );
+  }
+
   /** Only called with the owner's immutable prepared payload, never public receipts. */
   private async executeAdmittedOrder(evidence: Record<string, unknown>): Promise<OrderRecord> {
     const rawInput = evidence.request as Record<string, unknown>;
@@ -1432,6 +1463,7 @@ export class TradeService {
     const attribution = evidence.attribution as AuthAttribution;
     const lifecycleProof = evidence.lifecycleProof as LifecycleAdmissionProof;
     const engineRequest = evidence.engineRequest as EngineSubmitRequest;
+    if (!(await this.findOrder(orderId))) await this.refuseRestartedEngineSequence(market);
     // ── 2b · THE INTENT ROW ─────────────────────────────────────────────────
     //
     // If this crashes exactly here, whose funds are stranded? Nobody's. A

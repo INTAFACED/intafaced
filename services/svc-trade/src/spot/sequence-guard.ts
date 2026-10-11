@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { MatchingUnavailableError } from './matching-client.js';
 
 /**
  * HAS THE ENGINE FORGOTTEN WHAT WE ALREADY SETTLED?
@@ -28,9 +29,9 @@ import type { Sql } from 'postgres';
  * gets the refusal, and the operator learns from that, which is the wrong way
  * round: the replica was already unfit to serve when it finished booting.
  *
- * So this is not a second guard on the money path — it is the same fact,
- * observed earlier, where a load balancer can act on it. `/ready` answering 503
- * keeps the replica out of rotation; a refused order does not.
+ * `/ready` observes this before a load balancer routes new traffic. The same
+ * comparison also runs before a new admitted order inserts its intent or posts
+ * its hold. Existing order retries retain their original row.
  *
  * ── The invariant ───────────────────────────────────────────────────────
  *
@@ -42,20 +43,45 @@ import type { Sql } from 'postgres';
  * ahead. Behind is not a close call or a race; it means the counter restarted.
  *
  * A market with no recorded fills cannot be judged and is skipped rather than
- * guessed at.
+ * guessed at. A market that already has fills, whose book is missing, is not
+ * that case: the next submit would start the counter again. That absence is a
+ * regression. Do not invent a sequence to stand in for the missing book.
  */
+
+/**
+ * No recorded fill: unjudged. Recorded fills with no book, or a live counter
+ * behind that max: regression. Otherwise the engine is ahead or equal, which
+ * is healthy.
+ */
+export function judgeEngineSequence(
+  recordedSequence: number | undefined,
+  engineSequence: number | null,
+): 'unjudged' | 'healthy' | 'regression' {
+  if (recordedSequence === undefined) return 'unjudged';
+  if (!Number.isSafeInteger(recordedSequence) || recordedSequence < 0) {
+    throw new MatchingUnavailableError('stored fill sequence cannot be compared safely');
+  }
+  if (engineSequence !== null && (!Number.isSafeInteger(engineSequence) || engineSequence < 0)) {
+    throw new MatchingUnavailableError('matching depth did not report a valid sequence counter');
+  }
+  if (engineSequence === null || engineSequence < recordedSequence) return 'regression';
+  return 'healthy';
+}
 
 export interface SequenceRegression {
   readonly marketId: string;
   readonly symbol: string;
-  /** Where the live book's counter is now. */
-  readonly engineSequence: number;
+  /**
+   * Where the live book's counter is now. Null means the engine holds no book.
+   * That is not a stand-in number: a missing book is not sequence 0.
+   */
+  readonly engineSequence: number | null;
   /** The highest sequence we have already settled and recorded. */
   readonly recordedSequence: number;
 }
 
 export interface SequenceGuardResult {
-  /** Markets checked — those with at least one recorded fill and a reachable book. */
+  /** Markets judged — recorded fills, including a missing book after those fills. */
   readonly checked: number;
   /**
    * Markets whose engine counter is behind what we have settled. Empty is the
@@ -63,10 +89,9 @@ export interface SequenceGuardResult {
    */
   readonly regressions: readonly SequenceRegression[];
   /**
-   * Markets that could not be judged: no fills yet, or the engine had no book
-   * to report. NOT counted as healthy and NOT counted as failing — the same
-   * distinction `/ready` draws elsewhere between "checked and fine" and "could
-   * not tell".
+   * Markets with no recorded fill. A missing book there is not a regression:
+   * the first submit may open the counter. Not counted as healthy and not
+   * counted as failing.
    */
   readonly unjudged: number;
 }
@@ -104,23 +129,17 @@ export async function checkEngineSequences(deps: SequenceGuardDeps): Promise<Seq
 
   for (const market of markets) {
     const recordedSequence = recorded.get(market.id);
-    // Never traded: there is nothing to be behind of.
-    if (recordedSequence === undefined || !Number.isFinite(recordedSequence)) {
+    // Never traded: there is nothing to be behind of, and no book is honest.
+    if (recordedSequence === undefined) {
       unjudged += 1;
       continue;
     }
 
-    // A book the engine does not hold cannot be compared. Deliberately not
-    // treated as a regression: an unlisted or idle market legitimately has no
-    // book, and reporting that as corruption would make this alarm noise.
+    // Fills exist. A missing book is the counter about to start again, which
+    // is the same regression as a live counter sitting below the recorded max.
     const engineSequence = await deps.engineSequence(market.id);
-    if (engineSequence === null) {
-      unjudged += 1;
-      continue;
-    }
-
     checked += 1;
-    if (engineSequence < recordedSequence) {
+    if (judgeEngineSequence(recordedSequence, engineSequence) === 'regression') {
       regressions.push({ marketId: market.id, symbol: market.symbol, engineSequence, recordedSequence });
     }
   }
@@ -130,7 +149,13 @@ export async function checkEngineSequences(deps: SequenceGuardDeps): Promise<Seq
 
 /** One line an operator can act on, naming the market and both numbers. */
 export function describeRegressions(regressions: readonly SequenceRegression[]): string {
-  const detail = regressions.map((r) => `${r.symbol} (engine ${r.engineSequence} < settled ${r.recordedSequence})`).join(', ');
+  const detail = regressions
+    .map((r) =>
+      r.engineSequence === null
+        ? `${r.symbol} (engine book missing, settled ${r.recordedSequence})`
+        : `${r.symbol} (engine ${r.engineSequence} < settled ${r.recordedSequence})`,
+    )
+    .join(', ');
   return (
     `the matching engine's sequence counter is BEHIND what this service has already settled: ${detail}. ` +
     `Its journal has been lost or replaced while trade.fills was kept, so it will re-issue sequences that already ` +

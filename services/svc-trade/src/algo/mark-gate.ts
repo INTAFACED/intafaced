@@ -42,6 +42,14 @@ export function acceptableForAlgo(mark: AlgoQuotedMark, now: Date, policy: AlgoM
   }
 
   const ageSeconds = (now.getTime() - mark.asOf.getTime()) / 1_000;
+  // An Invalid Date makes age NaN, and NaN fails both comparisons below.
+  if (Number.isNaN(ageSeconds)) {
+    return {
+      ok: false,
+      code: ALGO_MARK_UNUSABLE,
+      reason: `${mark.marketId}: mark asOf is not a valid date`,
+    };
+  }
   if (ageSeconds > policy.maxAgeSeconds) {
     return {
       ok: false,

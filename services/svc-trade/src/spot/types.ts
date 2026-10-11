@@ -495,6 +495,7 @@ export type TradeErrorCode =
    * `settleFill`.
    */
   | 'trade.fill_sequence_conflict'
+  | 'trade.engine_sequence_regressed'
   /** GTD/GTT placed without expireAt — the engine does not invent one. */
   | 'trade.missing_expire_at'
   /** Matching refused: its engine clock was not injected. */

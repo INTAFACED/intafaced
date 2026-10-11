@@ -71,10 +71,13 @@ export const NO_OTC_MIDS: OtcMidSource = () => null;
 /**
  * Ops-published map: `BASE/QUOTE:mid,BASE/QUOTE:mid`.
  *
- * A malformed entry is dropped, including one whose price is not a positive
- * ledger decimal — a pair with no usable mid must reach the desk as ABSENT, so
- * it refuses `trade.otc_no_reference_price` at boot-time cost rather than
- * surfacing an ops typo to a customer as `trade.otc_invalid_price`.
+ * A malformed entry is dropped, including a pair side that is not exactly
+ * `BASE/QUOTE` and a price that is not a positive ledger decimal. `otcPairKey`
+ * reads only the first two assets, so spreading `BTC/USDT/X` would store the
+ * mid under `BTC/USDT` and overwrite a real reference. A pair with no usable
+ * mid must reach the desk as ABSENT, so it refuses
+ * `trade.otc_no_reference_price` at boot-time cost rather than surfacing an
+ * ops typo to a customer as `trade.otc_invalid_price`.
  *
  * Positivity is `parseAmount` vs `ZERO`. A JS Number on a money string
  * rounds past `MAX_SAFE_INTEGER`.
@@ -84,7 +87,9 @@ export function parseOtcMids(raw: string | null | undefined): Map<string, string
   for (const part of (raw ?? '').split(',')) {
     const idx = part.indexOf(':');
     if (idx <= 0) continue;
-    const pair = otcPairKey(...(part.slice(0, idx).split('/') as [string, string]));
+    const [base, quote, extra] = part.slice(0, idx).split('/');
+    if (extra !== undefined || base == null || quote == null) continue;
+    const pair = otcPairKey(base, quote);
     const mid = part.slice(idx + 1).trim();
     if (pair == null || !isPositiveLedgerMid(mid)) continue;
     map.set(pair, mid);
