@@ -669,3 +669,93 @@ describe('retained slice terminal finality', () => {
     }
   });
 });
+
+describe('actual filled ACK terminal quantity', () => {
+  it.each(['direct', 'scheduled'] as const)(
+    '%s actual filled ACK retains observed quantity through native reload and repeated drain',
+    async (mode) => {
+      const f = fixture();
+      try {
+        let cancelCalls = 0;
+        const observed = (id: string) =>
+          order(id, { status: 'filled', filled: parseAmount('1'), remaining: ZERO, averagePrice: parseAmount('99') });
+        const adapter: TradeAdapter = {
+          venue: { id: 'street', displayName: 'Street fixture', kind: 'external-cex', sequencedDepth: true },
+          placeOrder: async (request) => observed(request.clientOrderId),
+          fetchOrder: async (_symbol, id) => observed(id),
+          cancelOrder: async (_symbol, id) => {
+            cancelCalls += 1;
+            return observed(id);
+          },
+          openOrders: async () => [],
+        };
+        const result = await (mode === 'direct' ? sliceLiveAlgoParent : scheduleSliceLiveAlgoParent)({
+          ...fields,
+          ...f,
+          submit: tradeAdapterSubmit(adapter),
+        });
+        expect(result.ok).toBe(true);
+        if (!result.ok) throw new Error('actual filled ACK refused');
+        const terminal = new FileEmsOrderStore(f.emsPath).get(result.child.clientOrderId)!;
+        expect(terminal).toMatchObject({
+          execution: { status: 'filled', filledAmount: parseAmount('1'), remainingAmount: ZERO },
+          drainedRemaining: ZERO,
+        });
+        const wire = JSON.parse(readFileSync(f.emsPath, 'utf8').trim().split('\n').at(-1)!);
+        expect(wire.execution.remainingAmount).toBe('0');
+        expect(wire.drainedRemaining).toBe('0');
+        for (let repeat = 0; repeat < 2; repeat += 1) {
+          expect(
+            await drainInFlightAlgo({
+              parentClientOrderId: 'parent',
+              emsStore: new FileEmsOrderStore(f.emsPath),
+              cancelByVenue: { street: adapter.cancelOrder },
+            }),
+          ).toMatchObject({ residual: { filled: '1', remaining: '0' } });
+          expect(new FileEmsOrderStore(f.emsPath).get(result.child.clientOrderId)).toEqual(terminal);
+        }
+        expect(
+          (
+            await fetchOmsOrder({
+              venueId: 'street',
+              symbol: 'BTC/USDT',
+              clientOrderId: result.child.clientOrderId,
+              emsStore: new FileEmsOrderStore(f.emsPath),
+              fetchByVenue: { street: adapter.fetchOrder },
+            })
+          ).ok,
+        ).toBe(true);
+        expect(new FileEmsOrderStore(f.emsPath).get(result.child.clientOrderId)).toEqual(terminal);
+        expect(cancelCalls).toBe(0);
+      } finally {
+        rmSync(f.dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('filled status without observed remaining quantity stays unknown on direct and scheduled reload', async () => {
+    for (const mode of ['direct', 'scheduled'] as const) {
+      const f = fixture();
+      try {
+        const result = await (mode === 'direct' ? sliceLiveAlgoParent : scheduleSliceLiveAlgoParent)({
+          ...fields,
+          ...f,
+          submit: async (request) => ack(request),
+        });
+        expect(result.ok).toBe(true);
+        if (!result.ok) throw new Error('older submit port refused');
+        const terminal = new FileEmsOrderStore(f.emsPath).get(result.child.clientOrderId)!;
+        expect(terminal.execution?.remainingAmount).toBeUndefined();
+        expect(terminal.drainedRemaining).toBeUndefined();
+        for (let repeat = 0; repeat < 2; repeat += 1) {
+          expect(await drainInFlightAlgo({ parentClientOrderId: 'parent', emsStore: new FileEmsOrderStore(f.emsPath) })).toMatchObject({
+            residual: { filled: '1', remaining: null },
+          });
+          expect(new FileEmsOrderStore(f.emsPath).get(result.child.clientOrderId)).toEqual(terminal);
+        }
+      } finally {
+        rmSync(f.dir, { recursive: true, force: true });
+      }
+    }
+  });
+});

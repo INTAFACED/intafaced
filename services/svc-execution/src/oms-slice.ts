@@ -293,7 +293,7 @@ export async function sliceLiveAlgoParent(input: {
       ...current,
       execution,
       state: execution.status === 'rejected' ? 'REJECTED' : 'ACKNOWLEDGED',
-      ...(execution.status === 'rejected' && execution.remainingAmount !== undefined
+      ...((execution.status === 'rejected' || execution.status === 'filled') && execution.remainingAmount !== undefined
         ? { drainedRemaining: execution.remainingAmount }
         : {}),
       reconciliationKey: null,
