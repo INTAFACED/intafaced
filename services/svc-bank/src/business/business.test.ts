@@ -501,6 +501,73 @@ describe('maker/checker dual control with ledger holds', () => {
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
+  it('a release that throws after a failed settle leaves the row unapproved and a later approve does not settle', async () => {
+    const account = await bank.business.createAccount({
+      name: 'Ops Co',
+      assetId: 'USDT',
+      spendThreshold: amt('100'),
+      creatorUserId: MAKER,
+    });
+    await bank.business.addMember({
+      accountId: account.id,
+      actorUserId: MAKER,
+      userId: CHECKER,
+      role: 'checker',
+    });
+    const primary = await bank.spaces.ensurePrimary(MAKER, 'USDT');
+    const pot = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Payroll' });
+    await fund(MAKER, 'USDT', '1000');
+    const proposed = await bank.business.proposeTransfer({
+      clientId: randomUUID(),
+      accountId: account.id,
+      makerUserId: MAKER,
+      fromSpaceId: primary.id,
+      toSpaceId: pot.id,
+      amount: amt('250'),
+    });
+    if (proposed.kind !== 'pending') throw new Error('expected pending');
+
+    const orig = ledger.post.bind(ledger);
+    let settlePosts = 0;
+    let releasePosts = 0;
+    ledger.post = (async (req: Parameters<MemoryLedger['post']>[0]) => {
+      if (req.idempotencyKey.startsWith('bank.business.settle:')) {
+        settlePosts += 1;
+        throw new Error('settle down');
+      }
+      if (req.idempotencyKey.startsWith('bank.business.release:')) {
+        releasePosts += 1;
+        throw new Error('release down');
+      }
+      return orig(req);
+    }) as MemoryLedger['post'];
+
+    await expect(bank.business.approve({ approvalId: proposed.approval.id, checkerUserId: CHECKER })).rejects.toThrow(
+      /release down/,
+    );
+    expect(settlePosts).toBe(1);
+    expect(releasePosts).toBe(1);
+    expect(await availableOf(MAKER, 'USDT')).toBe('750');
+
+    const rows = await sql<Array<{ status: string; rejection_code: string | null; ledger_tx_id: string | null }>>`
+      SELECT status::text AS status, rejection_code, ledger_tx_id
+        FROM bank.business_approvals WHERE id = ${proposed.approval.id}::uuid
+    `;
+    expect(rows[0]?.status).not.toBe('approved');
+    expect(rows[0]?.status).toBe('rejected');
+    expect(rows[0]?.rejection_code).toBe('bank.business_settle_unposted');
+    expect(rows[0]?.ledger_tx_id).toBeNull();
+
+    await expect(bank.business.approve({ approvalId: proposed.approval.id, checkerUserId: CHECKER })).rejects.toMatchObject({
+      code: 'bank.business_approval_inactive',
+    });
+    expect(settlePosts).toBe(1);
+    expect(releasePosts).toBe(1);
+    expect(ledger.journal().filter((tx) => tx.reason === 'bank.business.approval.settled')).toHaveLength(0);
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.business.release:${proposed.approval.id}`)).toHaveLength(0);
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
   it('a release that dies after reject returns the hold on the next reject', async () => {
     const account = await bank.business.createAccount({
       name: 'Ops Co',

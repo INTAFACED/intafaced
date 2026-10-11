@@ -767,8 +767,9 @@ export class BusinessService {
 
   /**
    * Settle key is the approval id. A posted settle is stored and not released.
-   * A thrown settle releases the held row amount once and leaves the row
-   * rejected, so a later approve cannot post it.
+   * A thrown settle writes rejected before the release post. A throw from
+   * that post cannot leave the row approved with a null ledger tx id, so a
+   * later approve does not settle. A later reject may post the same release.
    */
   private async finishSettle(approval: BusinessApproval): Promise<{ transferId: string; ledgerTxId: string }> {
     const from = await this.spaces.get(approval.fromSpaceId);
@@ -784,7 +785,6 @@ export class BusinessService {
         }),
       );
     } catch {
-      await this.releaseHold(approval);
       await this.sql`
         UPDATE bank.business_approvals
            SET status = 'rejected',
@@ -794,6 +794,7 @@ export class BusinessService {
            AND status = 'approved'
            AND ledger_tx_id IS NULL
       `;
+      await this.releaseHold(approval);
       throw new BankError(
         'The settle did not post and the hold was released',
         'bank.business_rejected',
