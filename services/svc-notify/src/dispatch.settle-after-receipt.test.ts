@@ -613,9 +613,12 @@ describe('a settle error after a receipt is not a second send', () => {
     ['acceptance', RECEIPT],
     ['receipt', 'other-receipt'],
     ['acceptance', 'other-receipt'],
+    ['receipt', null],
+    ['acceptance', null],
   ])('retains an accepted gateway receipt after late %s CAS until the owner records %s', async (write, ownerReference) => {
     let nowMs = 1_000_000;
     const note = notification();
+    const originalReference = ownerReference === null ? null : RECEIPT;
     class LateOwnershipStore extends EmailNoteNeverLands {
       private advanced = false;
       private receiptThrew = false;
@@ -635,7 +638,7 @@ describe('a settle error after a receipt is not a second send', () => {
         await MemoryDeliveryStore.prototype.noteReceipt.call(this, input);
       }
       override async settle(input: SettleInput): Promise<void> {
-        if (write === 'acceptance' && !this.advanced && input.status === 'accepted' && input.reference === RECEIPT) {
+        if (write === 'acceptance' && !this.advanced && input.status === 'accepted' && input.reference === originalReference) {
           this.advanced = true;
           nowMs += 10_001;
           const winner = await this.claim(note.id, 'email', 3);
@@ -655,7 +658,7 @@ describe('a settle error after a receipt is not a second send', () => {
       verifyExpiresAt: new Date(nowMs + 60_000),
     });
     await targets.markVerified(USER, 'email', '4'.repeat(64), new Date(nowMs));
-    const email = new EmailChannel();
+    const email = new EmailChannel(originalReference);
     const dispatcher = new NotificationDispatcher(
       new ChannelRegistry([
         new InAppChannel(),
@@ -755,7 +758,7 @@ describe('a settle error after a receipt is not a second send', () => {
     expect(second.retry).toBe(false);
   });
 
-  it('stores a null handle when the next claim is a new dispatcher', async () => {
+  it.each([false, true])('recovers a null handle on the original attempt with preconfirmed acceptance %s', async (preconfirmed) => {
     let nowMs = 1_000_000;
     const deliveries = new EmailNoteNeverLandsSettleMissesOnce({ leaseMs: 10_000, now: () => new Date(nowMs) }, null);
     const targets = new MemoryTargetStore();
@@ -786,12 +789,22 @@ describe('a settle error after a receipt is not a second send', () => {
     expect(missed?.reference).toBeNull();
     expect(missed?.attemptedAt).toBeNull();
 
+    if (preconfirmed) {
+      if (!missed) throw new Error('original delivery row missing');
+      await MemoryDeliveryStore.prototype.settle.call(deliveries, {
+        id: missed.id,
+        attempt: missed.attempts,
+        status: 'accepted',
+        reference: null,
+        attempted: true,
+      });
+    }
     nowMs += 10_001;
     const second = await new NotificationDispatcher(channels, targets, deliveries, options).dispatch(note);
 
     expect(email.sent).toHaveLength(1);
     expect(second.outcomes.find((o) => o.channel === 'email')).toMatchObject({
-      status: 'accepted',
+      status: preconfirmed ? 'already_accepted' : 'accepted',
       retryable: false,
       code: null,
     });

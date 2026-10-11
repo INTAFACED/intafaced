@@ -336,7 +336,9 @@ export class NotificationDispatcher {
     const held = receiptInHand(this.deliveries).get(handKey);
     if (!held) return null;
     const row = (await this.deliveries.listForNotification(notificationId)).find((record) => record.channel === channel);
-    if (row?.status === 'accepted' && row.reference === held.reference) {
+    // A non-null gateway handle proves receipt identity across bookkeeping
+    // attempts. Null supplies no identity, so its original attempt must match.
+    if (row?.status === 'accepted' && row.reference === held.reference && (held.reference !== null || row.attempts === held.attempt)) {
       receiptInHand(this.deliveries).delete(handKey);
       return { channel, status: 'already_accepted', code: null, detail: null, retryable: false };
     }
