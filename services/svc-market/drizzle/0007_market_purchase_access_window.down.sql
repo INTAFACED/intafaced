@@ -1,4 +1,18 @@
 -- Reverse 0007_market_purchase_access_window.sql
+-- The claimed period is business history, not reconstructible from a live
+-- listing or ledger receipt. The runner holds this transaction through its
+-- tracking-row delete. Exclude concurrent claims before checking for terms.
+LOCK TABLE "market"."purchases" IN ACCESS EXCLUSIVE MODE;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM "market"."purchases" WHERE "period_seconds" IS NOT NULL) THEN
+    RAISE EXCEPTION 'market.purchase_period_downgrade_refused: known purchase periods cannot be discarded'
+      USING ERRCODE = 'check_violation';
+  END IF;
+END;
+$$;
+
 DROP TRIGGER IF EXISTS "purchases_period_snapshot_trg" ON "market"."purchases";
 DROP FUNCTION IF EXISTS "market"."purchases_period_snapshot"();
 

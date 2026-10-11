@@ -341,7 +341,7 @@ describe('svc-market listing eligibility', () => {
         },
       });
       await expect(reading.listedVendors({ limit: 2 })).resolves.toEqual([]);
-      expect(called).toEqual([VENDOR_USER, OTHER_USER]);
+      expect([...called].sort()).toEqual([VENDOR_USER, OTHER_USER].sort());
       expect(peak).toBe(2);
     });
 
