@@ -33,6 +33,11 @@ export interface OkxSpotAccountOptions {
   readonly governor?: RateLimitGovernor;
 }
 
+/** Undefined, null, or whitespace. A published "0" is a real zero, not a blank. */
+function blankOkxBalanceField(value: unknown): boolean {
+  return value === undefined || value === null || (typeof value === 'string' && value.trim() === '');
+}
+
 export function mapOkxSpotDetails(details: unknown, now: Date): VenueBalance[] {
   if (!Array.isArray(details)) {
     throw new VenueUnavailableError(VENUE.id, 'malformed', 'account balance details is not an array');
@@ -42,12 +47,22 @@ export function mapOkxSpotDetails(details: unknown, now: Date): VenueBalance[] {
       throw new VenueUnavailableError(VENUE.id, 'malformed', `details[${i}] is not an object`);
     }
     const rec = row as Record<string, unknown>;
+    // Blank is not a published zero and not an empty asset. Do not add free to used.
+    if (blankOkxBalanceField(rec.frozenBal)) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', `details[${i}] frozenBal is blank`);
+    }
+    if (blankOkxBalanceField(rec.eq)) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', `details[${i}] eq is blank`);
+    }
+    if (blankOkxBalanceField(rec.ccy)) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', `details[${i}] ccy is blank`);
+    }
     const free = readDecimal(rec.availBal, VENUE.id, 'availBal');
-    const used = readDecimal(rec.frozenBal ?? '0', VENUE.id, 'frozenBal');
-    const total = rec.eq === undefined || rec.eq === null || String(rec.eq) === '' ? free + used : readDecimal(rec.eq, VENUE.id, 'eq');
+    const used = readDecimal(rec.frozenBal, VENUE.id, 'frozenBal');
+    const total = readDecimal(rec.eq, VENUE.id, 'eq');
     return {
       venueId: VENUE.id,
-      asset: String(rec.ccy ?? ''),
+      asset: String(rec.ccy),
       free,
       used,
       total,
