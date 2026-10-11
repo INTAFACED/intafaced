@@ -1,3 +1,4 @@
+import { TradeService } from '../controls/test-admission.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,7 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable, orderHoldAccount } from '@intafaced/ledger-client';
 import type { FastifyInstance } from 'fastify';
-import { TradeService, type PlaceOrderInput } from './trade-service.js';
+import { type PlaceOrderInput } from './trade-service.js';
 import { attachReduceOnlyStash, installReduceOnlyPlace } from './reduce-only-place.js';
 import { bindBracket } from './bracket-place.js';
 import { bindOco } from './oco-place.js';

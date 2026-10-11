@@ -1,9 +1,10 @@
+import { TradeService } from '../controls/test-admission.js';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
-import { TradeService, type PlaceOrderInput } from './trade-service.js';
+import { type PlaceOrderInput } from './trade-service.js';
 import {
   COMBO_DISAGREES,
   COMBO_LEGS_MISSING,

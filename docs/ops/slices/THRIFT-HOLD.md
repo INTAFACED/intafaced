@@ -22,7 +22,7 @@ reviewability, not batching.
 
 - **Partner open PRs are a hard wall.** #904 is Denon's — babysit, never dual-edit, never agent-merge.
 - **No `workflow_dispatch`** on a branch that already has PR checks — it runs the same thing twice for no new signal.
-- **`pnpm verify` green locally before the push** that opens or updates a code PR. Local is seconds; CI is minutes.
+- **Agents verify the changed behavior locally.** Full-suite CI and `pnpm verify` are informational; required protection checks still apply. Do not wait for CI green.
 
 ## Wave 209–211
 

@@ -1,7 +1,9 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { createEdgeContext, retainRawBody } from '@intafaced/contracts';
+import { createEdgeContext, retainRawBody, createIdentityOperationDecisionClient } from '@intafaced/contracts';
+import { TradingControls, TradingControlError } from './controls/trading-controls.js';
+import { createLiveTradingOperator } from './controls/identity-port.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { MARKETS_LIMIT_MAX, TradeService } from './spot/trade-service.js';
@@ -116,6 +118,18 @@ await sql`SELECT 1 FROM trade.markets LIMIT 1`.catch(() => {
 });
 
 const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
+const tradingControls = new TradingControls(
+  sql,
+  createLiveTradingOperator({ url: env.IDENTITY_URL, serviceSecret: env.INTERNAL_SERVICE_SECRET, edgeSecret: env.EDGE_PRINCIPAL_SECRET }),
+  createIdentityOperationDecisionClient({
+    owner: 'svc-trade',
+    identityUrl: env.IDENTITY_URL,
+    secret:
+      env.IDENTITY_ADMISSION_SECRET !== env.INTERNAL_SERVICE_SECRET && env.IDENTITY_ADMISSION_SECRET !== env.EDGE_PRINCIPAL_SECRET
+        ? env.IDENTITY_ADMISSION_SECRET
+        : undefined,
+  }),
+);
 const matching = createMatchingClient(env.MATCHING_URL, env.INTERNAL_SERVICE_SECRET);
 const perks = createRankPerksClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET);
 const subAccounts = createSubAccountOwnershipClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET);
@@ -135,6 +149,7 @@ const bus = await JetStreamEventBus.connect({
 });
 const feeSchedule = parseFeeScheduleJson(env.TRADE_FEE_SCHEDULE);
 const trade = new TradeService(sql, ledger, matching, perks, bus, {
+  accountAdmission: tradingControls,
   marketLifecycle,
   spotEnabled: env.TRADE_SPOT_ENABLED,
   futuresEnabled: env.TRADE_FUTURES_ENABLED,
@@ -189,6 +204,7 @@ const otcMidFeedWiring = describeOtcMidFeedWiring({
   liveObservationFeed: otcMidBuilt.liveObservationFeed,
 });
 const otc = new OtcDeskService(ledger, otcStakes, {
+  accountAdmission: tradingControls,
   law: otcDeskLaw,
   midSource: otcMidBuilt.source,
   liveObservationFeed: otcMidBuilt.liveObservationFeed,
@@ -198,20 +214,26 @@ const otc = new OtcDeskService(ledger, otcStakes, {
 const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);
 const copy = new CopyService(ledger, {
+  accountAdmission: tradingControls,
   feeShareLaw: copyFeeShareLaw,
   jurisdictionLaw: copyJurisdictionLaw,
   store: new SqlCopyFollowStore(sql),
   placeFollowerOrder: async (principal, input) => {
-    const order = await trade.placeOrder(principal, {
-      symbol: input.symbol,
-      marketId: input.marketId,
-      side: input.side,
-      type: 'limit',
-      qty: input.qty,
-      price: input.price,
-      tif: 'GTC',
-      clientOrderId: input.clientOrderId,
-    });
+    if (!input.followId) throw new TradingControlError('auth.credential_denied');
+    const order = await trade.placeCopyMirror(
+      principal,
+      {
+        symbol: input.symbol,
+        marketId: input.marketId,
+        side: input.side,
+        type: 'limit',
+        qty: input.qty,
+        price: input.price,
+        tif: 'GTC',
+        clientOrderId: input.clientOrderId,
+      },
+      input.followId,
+    );
     return { orderId: order.id };
   },
   inspectMarket: async (symbol) => {
@@ -256,7 +278,7 @@ const copy = new CopyService(ledger, {
     };
   },
 });
-export const appRouter = createTradeRouter(trade, otc, copy);
+export const appRouter = createTradeRouter(trade, otc, copy, tradingControls);
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
@@ -319,6 +341,7 @@ if (profitSource) {
 const adlDisclosureAcks = sqlAdlDisclosureStore(sql);
 const adlDisclosureEvents = sqlAdlDisclosureEventStore(sql);
 const positions = new PositionService(sql, ledger, {
+  accountAdmission: tradingControls,
   marks: futuresJobs.marks,
   profitSource,
   bus,
@@ -659,25 +682,31 @@ registerPrivateRest(app, {
   listClosedPositions: (principal, input) => positions.listClosed(principal.userId, input),
   getPosition: (principal, positionId) => positions.get(principal.userId, positionId),
   openPosition: (principal, input) =>
-    positions.open({
-      userId: principal.userId,
-      symbol: input.symbol,
-      side: input.side,
-      size: parseAmount(input.size),
-      leverage: parseAmount(input.leverage),
-      marginMode: input.marginMode,
-      collateralClass: input.collateralClass,
-      clientOpenId: input.clientOpenId,
-    }),
+    positions.open(
+      {
+        userId: principal.userId,
+        symbol: input.symbol,
+        side: input.side,
+        size: parseAmount(input.size),
+        leverage: parseAmount(input.leverage),
+        marginMode: input.marginMode,
+        collateralClass: input.collateralClass,
+        clientOpenId: input.clientOpenId,
+      },
+      principal,
+    ),
   closePosition: (principal, positionId) => positions.close(principal.userId, positionId),
   setLeverage: (principal, input) =>
-    positions.setLeverage({
-      userId: principal.userId,
-      symbol: input.symbol,
-      leverage: parseAmount(input.leverage),
-      positionId: input.positionId,
-      clientAdjustmentId: input.clientAdjustmentId,
-    }),
+    positions.setLeverage(
+      {
+        userId: principal.userId,
+        symbol: input.symbol,
+        leverage: parseAmount(input.leverage),
+        positionId: input.positionId,
+        clientAdjustmentId: input.clientAdjustmentId,
+      },
+      principal,
+    ),
   addIsolatedMargin: (principal, input) =>
     positions.addIsolatedMargin({
       userId: principal.userId,

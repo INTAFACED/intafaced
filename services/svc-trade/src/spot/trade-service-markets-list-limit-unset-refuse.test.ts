@@ -1,3 +1,4 @@
+import { TradeService } from '../controls/test-admission.js';
 /**
  * Unit card — TradeService.markets list limit unset refuse (no invented 50)
  *
@@ -15,13 +16,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import {
-  MARKETS_LIMIT_MAX,
-  MarketsLimitUnsetError,
-  publishedMarketsLimit,
-  TRADE_MARKETS_LIMIT_UNSET,
-  TradeService,
-} from './trade-service.js';
+import { MARKETS_LIMIT_MAX, MarketsLimitUnsetError, publishedMarketsLimit, TRADE_MARKETS_LIMIT_UNSET } from './trade-service.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 

@@ -34,8 +34,11 @@ import { planOtcSettle, postOtcSettle } from './settle.js';
 import { assertOtcStakeGate, otcStakeGate } from './stake-gate.js';
 import type { OtcStakeSource } from './stake-source.js';
 import { MemoryOtcQuoteStore, type OtcQuoteStore } from './quote-store.js';
+import { TradingControlError, type TradingAdmissionPort } from '../controls/trading-controls.js';
+import { businessPayload } from '../controls/business-payload.js';
 
 export interface OtcDeskServiceOptions {
+  accountAdmission?: TradingAdmissionPort;
   law?: OtcDeskLaw;
   /** Platform counterparty id disclosed when law.counterparty === 'platform'. */
   platformCounterpartyId?: string;
@@ -51,6 +54,7 @@ export interface OtcDeskServiceOptions {
 }
 
 export class OtcDeskService {
+  private readonly accountAdmission: TradingAdmissionPort | undefined;
   private readonly store: OtcQuoteStore;
   private readonly law: OtcDeskLaw;
   private readonly platformCounterpartyId: string;
@@ -64,6 +68,7 @@ export class OtcDeskService {
     private readonly stakes: OtcStakeSource,
     options: OtcDeskServiceOptions = {},
   ) {
+    this.accountAdmission = options.accountAdmission;
     this.law = options.law ?? UNPUBLISHED_OTC_DESK_LAW;
     this.platformCounterpartyId = options.platformCounterpartyId ?? 'platform:otc-desk';
     this.midSource = options.midSource ?? NO_OTC_MIDS;
@@ -206,7 +211,25 @@ export class OtcDeskService {
       asserted = parseAmount(input.assertedPrice);
     }
 
-    const bound = acceptOtcQuote({ quote: stored.quote, now: this.now(), assertedPrice: asserted });
+    if (!this.accountAdmission) throw new TradingControlError('authority.unavailable');
+    const original = await this.accountAdmission.original(principal.userId, `otc:${stored.quote.quoteId}`);
+    const saved = (original?.payload as { bound?: Record<string, unknown> } | undefined)?.bound;
+    const bound = saved
+      ? ({
+          ...saved,
+          qty: parseAmount(String(saved.qty)),
+          fillPrice: parseAmount(String(saved.fillPrice)),
+          fillNotional: parseAmount(String(saved.fillNotional)),
+        } as unknown as BoundOtcFill)
+      : acceptOtcQuote({ quote: stored.quote, now: this.now(), assertedPrice: asserted });
+    if (asserted !== null && asserted !== bound.fillPrice)
+      throw new OtcError('Last look is not permitted', 'trade.otc_last_look_forbidden');
+    await this.accountAdmission.admit(
+      principal,
+      'order.place',
+      `otc:${stored.quote.quoteId}`,
+      original?.payload ?? businessPayload({ quote: stored.quote, bound }),
+    );
     await this.store.saveBound(stored.quote, bound);
     return presentBoundOtcFill(bound);
   }

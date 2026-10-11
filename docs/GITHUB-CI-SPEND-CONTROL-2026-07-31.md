@@ -1,5 +1,7 @@
 # GitHub CI spend control — RETIRED 2026-08-07
 
+**Clarification 2026-10-09:** standard GitHub-hosted runner minutes have a zero bill on this public repo. Service limits and acceptable-use rules still apply. A 403 or 429 from GitHub is a stop; follow [`AGENT_PROTOCOL.md`](../tooling/agent-protocol/AGENT_PROTOCOL.md) §3 for cooldowns and access restrictions. Parallel pull requests and merge-when-done stay. The live external market-data smoke runs manually; operational third-party polling belongs on our own infrastructure. Do not restore `thrift-preflight`.
+
 **Status:** **VOID. Not law. Do not follow, do not restore, do not reinvent.**  
 **Was:** active operating law from 2026-07-31 to 2026-08-07.  
 **This file is kept only so nobody rediscovers the problem and rebuilds the cure.**
@@ -28,10 +30,11 @@ push/cancel thrash window. The spend was real and the owner could see it on a bi
 
 ## Why it is void
 
-**The repo is public.** GitHub Actions on standard runners are **free and unlimited for
-public repositories** — there is no minute pool, no overage, and no bill. Every rule above
-was buying something that now costs nothing, and it was buying it with the only currency
-that matters here: shipped work. Thrift's real cost was measured — a spend meter dressed as
+**The repo is public.** Standard GitHub-hosted runner minutes are **free for public
+repositories** — those minutes have no overage bill. Service limits and acceptable-use
+rules still apply. Every spend rule above was buying something that now costs nothing,
+and it was buying it with the only currency that matters here: shipped work.
+Thrift's real cost was measured — a spend meter dressed as
 a correctness gate made agents stop shipping (see the "WHY WARN BEFORE BLOCK" note in
 `tooling/ci/value-gate.mjs`).
 
@@ -64,10 +67,15 @@ runs. That reason is gone. Small PRs get real reviews.
 
 ## If someone proposes bringing it back
 
-The only thing that could resurrect a CI budget is the repo going **private again**, which
-is a business/IP decision owned by Nitro and Denon — agents never flip visibility. Until
-that happens, any doc, prompt, or agent instruction that tells you to hold work back, batch
-around a run count, or wait for a window to cool is **stale, and wrong**. Ship it.
+A spend budget would need a new billing reason, such as going **private again** or choosing
+billable runners. Visibility is a business/IP decision owned by Nitro and Denon — agents
+never flip it. While standard runner minutes stay free, keep parallel pull requests and
+merge-when-done; the old run-count meter stays deleted.
+
+Rate-limit cooldowns and access restrictions still apply. A 403 or 429 stops GitHub activity;
+report the response and keep independent local work moving. Actions must serve the repository's
+development, testing, deployment, or publication. Use our own infrastructure for operational
+third-party polling. Neither repeated refusals nor a third-party cron is a reason to restore thrift.
 
 Live CI law: [`../AGENTS.md`](../AGENTS.md) · [`../CONTRIBUTING.md`](../CONTRIBUTING.md) ·
 [`ops/SWARM-MANDATE.md`](ops/SWARM-MANDATE.md).

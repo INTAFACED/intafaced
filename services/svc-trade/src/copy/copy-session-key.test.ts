@@ -13,7 +13,8 @@ import { describe, expect, it } from 'vitest';
 import { createTradeRouter } from '../router.js';
 import type { TradeService } from '../spot/trade-service.js';
 import type { PlaceFollowerOrderPort } from './auto-mirror-place.js';
-import { CopyService, copyLimitPriceFromPlan } from './index.js';
+import { CopyService } from '../controls/test-admission.js';
+import { copyLimitPriceFromPlan } from './index.js';
 import { MemoryCopyFollowStore } from './follow-store.js';
 import { hashCopySessionKey } from './session-key.js';
 

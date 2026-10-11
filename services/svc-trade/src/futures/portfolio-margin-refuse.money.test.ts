@@ -1,3 +1,4 @@
+import { PositionService } from '../controls/test-admission.js';
 /**
  * CARD F1 money proof — portfolio / cross refuse before IM hold.
  *
@@ -27,7 +28,7 @@ import {
   ownerPortfolioScenarioSet,
 } from './margin-mode.js';
 import { memoryMarkBook } from './mark-source.js';
-import { FuturesError, PositionService, type OpenPositionInput } from './position-service.js';
+import { FuturesError, type OpenPositionInput } from './position-service.js';
 import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } from './profit-source.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -74,7 +75,7 @@ const PROFIT_SOURCE = formatAccountRef(recipeProfitFundingAccount('USDT'));
 describe('portfolio-margin refuse hitch (source)', () => {
   it('open path calls checkMarginModeForFuturesOpen before futuresMarginLock', () => {
     const src = readFileSync(join(here, 'position-service.ts'), 'utf8');
-    const openStart = src.indexOf('async open(input: OpenPositionInput)');
+    const openStart = src.indexOf('async open(input: OpenPositionInput, principal?: Principal)');
     expect(openStart).toBeGreaterThan(-1);
     const open = src.slice(openStart);
     const hitch = open.indexOf('checkMarginModeForFuturesOpen(input.marginMode)');

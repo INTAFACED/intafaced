@@ -1,3 +1,4 @@
+import { PositionService } from '../controls/test-admission.js';
 /**
  * CARD F8 money proof — collateral haircuts (PTX-M08-R03 PTX-M08-R11).
  *
@@ -20,7 +21,7 @@ import { MemoryLedger, formatAmount, parseAmount as amt, recipes, userAvailable 
 import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
 import { TEST_MAX_LEVERAGE_AMOUNT } from './initial-margin.test-harness.js';
 import { memoryMarkBook } from './mark-source.js';
-import { PositionService, type OpenPositionInput } from './position-service.js';
+import { type OpenPositionInput } from './position-service.js';
 import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } from './profit-source.js';
 import {
   HAIRCUT_UNSET,

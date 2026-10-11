@@ -1,9 +1,10 @@
+import { CopyService } from '../controls/test-admission.js';
 /**
  * R-copy: follow closed in every closed region; leader money ≠ follower money.
  */
 import { describe, expect, it } from 'vitest';
 import { MemoryLedger, parseAmount, recipes, formatAmount, userAvailable } from '@intafaced/ledger-client';
-import { CopyService, type LookupFollowerFillFeePort, type LookupLeaderFillPort } from './copy-service.js';
+import { type LookupFollowerFillFeePort, type LookupLeaderFillPort } from './copy-service.js';
 import { MemoryCopyFollowStore } from './follow-store.js';
 import { copyRegionClosed } from './follows.js';
 import { COPY_JURISDICTION_RESIDUAL } from './errors.js';
