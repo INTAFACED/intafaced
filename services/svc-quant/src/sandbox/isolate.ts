@@ -156,6 +156,20 @@ function stringify(v: Val): string {
   return 'unknown';
 }
 
+function valuesEqual(a: Val, b: Val): boolean {
+  // Spelling is not value: 50000 and 50000.0 are the same scaled amount. Other text stays stringify.
+  if (isAmountString(a) && isAmountString(b)) return parseAmount(a) === parseAmount(b);
+  return stringify(a) === stringify(b);
+}
+
+function isTruthy(v: Val): boolean {
+  // "0" is a non-empty string. An amount is truthy only when the scaled value is not zero.
+  if (typeof v === 'boolean') return v;
+  if (isAmountString(v)) return parseAmount(v) !== 0n;
+  if (typeof v === 'string') return v !== '';
+  return v !== null;
+}
+
 export function runIsolate(language: Language, source: string, book: PaperBook, limits: IsolateLimits, wired: boolean): IsolateResult {
   const maxSource = assertPublishedSandboxMaxSource(limits.maxSource);
   const maxOps = assertPublishedSandboxMaxOps(limits.maxOps);
@@ -184,6 +198,8 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
   env.set('None', null);
 
   let ops = 0;
+  let live = true;
+  let exited = false;
   const bump = () => {
     ops += 1;
     if (ops > maxOps) throw new QuantError(QUANT_SANDBOX_TIMEOUT, `exceeded ${maxOps} operations`);
@@ -191,6 +207,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
 
   const callHost = (host: Host, method: string, args: Val[]): Val => {
     bump();
+    if (!live || exited) return null;
     const a0 = () => {
       const v = args[0];
       if (typeof v !== 'string') throw new QuantError(QUANT_SANDBOX_SYNTAX, `${host.$host}.${method} needs a string`);
@@ -238,6 +255,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
   };
 
   const printFn = (args: Val[]): Val => {
+    if (!live || exited) return null;
     logs.push(args.map(stringify).join(' '));
     return null;
   };
@@ -270,6 +288,25 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
       return true;
     }
     return false;
+  };
+  const isId = (name: string): boolean => {
+    const t = peek();
+    return t.k === 'id' && t.v === name;
+  };
+  const isOp = (name: string): boolean => {
+    const t = peek();
+    return t.k === 'op' && t.v === name;
+  };
+  // Opening brace is already consumed. A missing close is a syntax error, not a successful run that dropped the rest.
+  const skipBraceBody = (): void => {
+    let depth = 1;
+    while (peek().k !== 'eof' && depth > 0) {
+      const x = peek();
+      if (x.k === 'op' && x.v === '{') depth++;
+      else if (x.k === 'op' && x.v === '}') depth--;
+      p++;
+    }
+    if (depth !== 0) throw new QuantError(QUANT_SANDBOX_SYNTAX, 'expected }');
   };
 
   const parseArgs = (): Val[] => {
@@ -342,7 +379,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
   const parseUnary = (): Val => {
     if (tryOp('!')) {
       const v = parseUnary();
-      return !v;
+      return !isTruthy(v);
     }
     if (tryOp('-')) {
       const v = parseUnary();
@@ -393,8 +430,8 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
       p++;
       const r = parseAdd();
       bump();
-      if (t.v === '==' || t.v === '===') v = stringify(v) === stringify(r);
-      else if (t.v === '!=' || t.v === '!==') v = stringify(v) !== stringify(r);
+      if (t.v === '==' || t.v === '===') v = valuesEqual(v, r);
+      else if (t.v === '!=' || t.v === '!==') v = !valuesEqual(v, r);
       else {
         if (!isAmountString(v) || !isAmountString(r)) throw new QuantError(QUANT_SANDBOX_SYNTAX, 'compare needs decimals');
         const c = parseAmount(v) - parseAmount(r);
@@ -426,7 +463,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
       }
       eatOp('=');
       const val = parseExpr();
-      env.set(name.v, val);
+      if (live && !exited) env.set(name.v, val);
       tryOp(';');
       return;
     }
@@ -441,42 +478,75 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
       p++;
       eatOp('=');
       const val = parseExpr();
-      env.set(t.v, val);
+      if (live && !exited) env.set(t.v, val);
+      tryOp(';');
+      return;
+    }
+    if (isId('return')) {
+      p++;
+      const n = peek();
+      const bare = n.k === 'eof' || n.k === 'nl' || (n.k === 'op' && (n.v === ';' || n.v === '}')) || (n.k === 'id' && n.v === 'else');
+      if (!bare) parseExpr();
+      if (live && !exited) exited = true;
       tryOp(';');
       return;
     }
     if (t.k === 'id' && t.v === 'if') {
       p++;
       if (!python) eatOp('(');
-      const cond = parseExpr();
+      const pass = isTruthy(parseExpr());
       if (!python) eatOp(')');
       if (python) eatOp(':');
       else eatOp('{');
-      if (cond) {
-        while (
-          peek().k !== 'eof' &&
-          !(peek().k === 'op' && ((peek() as { v: string }).v === '}' || (peek() as { v: string }).v === 'else'))
-        ) {
-          if (python && peek().k === 'nl') break;
+      // Indentation is discarded, so a python if body is the next statement, not a brace block.
+      if (python) {
+        while (peek().k === 'nl') p++;
+        if (!pass) {
+          const prev = live;
+          live = false;
+          parseStmt();
+          live = prev;
+        } else {
+          parseStmt();
+        }
+        return;
+      }
+      // else is an identifier. The tokenizer never emits an operator named else.
+      const trueBranchStops = (): boolean => peek().k === 'eof' || isOp('}') || isId('else');
+      if (pass) {
+        while (!trueBranchStops()) {
           parseStmt();
           skipNl();
         }
+        if (peek().k === 'eof') throw new QuantError(QUANT_SANDBOX_SYNTAX, 'expected }');
+        if (isOp('}')) p++;
       } else {
-        let depth = python ? 0 : 1;
-        while (peek().k !== 'eof' && depth > 0) {
-          const x = peek();
-          if (x.k === 'op' && x.v === '{') depth++;
-          if (x.k === 'op' && x.v === '}') {
-            depth--;
-            if (depth === 0 && !python) {
-              p++;
-              break;
+        skipBraceBody();
+      }
+      skipNl();
+      if (isId('else')) {
+        p++;
+        skipNl();
+        if (isId('if')) {
+          const prev = live;
+          const runElse = !pass && live && !exited;
+          if (!runElse) live = false;
+          parseStmt();
+          if (!exited) live = prev;
+        } else {
+          eatOp('{');
+          if (!pass && live && !exited) {
+            while (peek().k !== 'eof' && !isOp('}')) {
+              parseStmt();
+              skipNl();
             }
+            if (peek().k === 'eof') throw new QuantError(QUANT_SANDBOX_SYNTAX, 'expected }');
+            eatOp('}');
+          } else {
+            skipBraceBody();
           }
-          p++;
         }
       }
-      if (!python) tryOp('}');
       return;
     }
     parseExpr();
