@@ -89,9 +89,9 @@ export interface DispatchReport {
  * again. A null reference is a real receipt: the transport accepted the send
  * and gave no handle.
  */
-const receiptsByStore = new WeakMap<DeliveryStore, Map<string, { reference: string | null }>>();
+const receiptsByStore = new WeakMap<DeliveryStore, Map<string, { reference: string | null; attempt: number }>>();
 
-function receiptInHand(store: DeliveryStore): Map<string, { reference: string | null }> {
+function receiptInHand(store: DeliveryStore): Map<string, { reference: string | null; attempt: number }> {
   let held = receiptsByStore.get(store);
   if (held == null) {
     held = new Map();
@@ -221,7 +221,9 @@ export class NotificationDispatcher {
       // A receipt is already on the row. A later kill-switch must not overwrite
       // it with a refusal, and must not send again.
       if (claim.reason === 'receipt_pending') {
-        return this.settleAccepted(channel, claim.record.id, claim.record.attempts, claim.record.reference);
+        const recovered = await this.reconcileInHand(notification.id, channel);
+        if (recovered) return recovered;
+        return this.settleAccepted(notification.id, channel, claim.record.id, claim.record.attempts, claim.record.reference);
       }
       return fromExistingClaim(channel, claim.reason, claim.record);
     }
@@ -250,8 +252,9 @@ export class NotificationDispatcher {
       // The gateway already returned a receipt. This pass only finishes the
       // accepted write. Delivering again would send the same message twice.
       if (claim.reason === 'receipt_pending') {
-        receiptInHand(this.deliveries).delete(handKey);
-        return this.settleAccepted(channel, claim.record.id, claim.record.attempts, claim.record.reference);
+        const recovered = await this.reconcileInHand(notification.id, channel);
+        if (recovered) return recovered;
+        return this.settleAccepted(notification.id, channel, claim.record.id, claim.record.attempts, claim.record.reference);
       }
       return fromExistingClaim(channel, claim.reason, claim.record);
     }
@@ -260,7 +263,8 @@ export class NotificationDispatcher {
     // The receipt is already in hand. Finish it. Do not call the gateway.
     const held = receiptInHand(this.deliveries).get(handKey);
     if (held) {
-      return this.finishReceipt(handKey, notification.id, channel, claim.id, claim.attempt, held.reference);
+      const recovered = await this.reconcileInHand(notification.id, channel);
+      if (recovered) return recovered;
     }
 
     const adapter = this.channels.get(channel);
@@ -322,7 +326,7 @@ export class NotificationDispatcher {
     // here is bookkeeping, not a transport failure: settling `failed` would
     // release the claim and the next pass would deliver again. reference is
     // stored as the gateway returned it, including null. Nothing is filled in.
-    receiptInHand(this.deliveries).set(handKey, { reference: receipt.reference });
+    receiptInHand(this.deliveries).set(handKey, { reference: receipt.reference, attempt: claim.attempt });
     return this.finishReceipt(handKey, notification.id, channel, claim.id, claim.attempt, receipt.reference);
   }
 
@@ -332,11 +336,11 @@ export class NotificationDispatcher {
     const held = receiptInHand(this.deliveries).get(handKey);
     if (!held) return null;
     const row = (await this.deliveries.listForNotification(notificationId)).find((record) => record.channel === channel);
-    if (row?.status === 'accepted') {
+    if (row?.status === 'accepted' && row.reference === held.reference) {
       receiptInHand(this.deliveries).delete(handKey);
       return { channel, status: 'already_accepted', code: null, detail: null, retryable: false };
     }
-    if (row?.status === 'pending') {
+    if (row?.status === 'pending' && row.attempts === held.attempt) {
       return this.finishReceipt(handKey, notificationId, channel, row.id, row.attempts, held.reference);
     }
     // Never invent a refusal or a successful write when a known receipt cannot
@@ -368,7 +372,7 @@ export class NotificationDispatcher {
     for (let pass = 0; pass < 3; pass++) {
       try {
         await this.deliveries.noteReceipt(noted);
-        if (noteDetail != null) {
+        if (noteDetail != null && (await this.receiptLanded(notificationId, channel, attempt, reference))) {
           receiptInHand(this.deliveries).delete(handKey);
           return { channel, status: 'failed', code: null, detail: noteDetail, retryable: true };
         }
@@ -384,7 +388,7 @@ export class NotificationDispatcher {
 
     // Still no handle on the pending row. Accepting on this claim stores it.
     // If acceptance throws, the map for this store still holds the receipt.
-    const settled = await this.settleAccepted(channel, id, attempt, reference);
+    const settled = await this.settleAccepted(notificationId, channel, id, attempt, reference);
     const landed = await this.receiptLanded(notificationId, channel, attempt, reference);
     if (landed) receiptInHand(this.deliveries).delete(handKey);
     // A late ownership CAS can be a successful SQL call that writes nothing.
@@ -431,7 +435,13 @@ export class NotificationDispatcher {
    * On failure the row stays pending with that receipt. The outcome asks the
    * bus to come back. The next claim sees `receipt_pending` and does not deliver.
    */
-  private async settleAccepted(channel: ChannelId, id: string, attempt: number, reference: string | null): Promise<ChannelOutcome> {
+  private async settleAccepted(
+    notificationId: string,
+    channel: ChannelId,
+    id: string,
+    attempt: number,
+    reference: string | null,
+  ): Promise<ChannelOutcome> {
     try {
       await this.deliveries.settle({
         id,
@@ -443,6 +453,10 @@ export class NotificationDispatcher {
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       return { channel, status: 'failed', code: null, detail, retryable: true };
+    }
+    const row = (await this.deliveries.listForNotification(notificationId)).find((record) => record.id === id);
+    if (row?.status !== 'accepted' || row.attempts !== attempt || row.reference !== reference) {
+      return { channel, status: 'failed', code: null, detail: 'gateway receipt acceptance is not recorded', retryable: true };
     }
     return { channel, status: 'accepted', code: null, detail: null, retryable: false };
   }

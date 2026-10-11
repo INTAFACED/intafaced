@@ -608,13 +608,34 @@ describe('a settle error after a receipt is not a second send', () => {
     expect(second.retry).toBe(false);
   });
 
-  it('retains an accepted gateway receipt when a late ownership CAS writes nothing', async () => {
+  it.each([
+    ['receipt', RECEIPT],
+    ['acceptance', RECEIPT],
+    ['receipt', 'other-receipt'],
+    ['acceptance', 'other-receipt'],
+  ])('retains an accepted gateway receipt after late %s CAS until the owner records %s', async (write, ownerReference) => {
     let nowMs = 1_000_000;
     const note = notification();
     class LateOwnershipStore extends EmailNoteNeverLands {
       private advanced = false;
+      private receiptThrew = false;
+      override async noteReceipt(input: NoteReceiptInput): Promise<void> {
+        const row = (await this.listRecent(20)).find((record) => record.id === input.id);
+        if (write !== 'receipt' || row?.channel !== 'email') return super.noteReceipt(input);
+        if (!this.receiptThrew) {
+          this.receiptThrew = true;
+          throw new Error('first receipt write failed');
+        }
+        if (!this.advanced) {
+          this.advanced = true;
+          nowMs += 10_001;
+          const winner = await this.claim(note.id, 'email', 3);
+          if (!winner.claimed) throw new Error('fixture failed to reclaim the expired lease');
+        }
+        await MemoryDeliveryStore.prototype.noteReceipt.call(this, input);
+      }
       override async settle(input: SettleInput): Promise<void> {
-        if (!this.advanced && input.status === 'accepted' && input.reference === RECEIPT) {
+        if (write === 'acceptance' && !this.advanced && input.status === 'accepted' && input.reference === RECEIPT) {
           this.advanced = true;
           nowMs += 10_001;
           const winner = await this.claim(note.id, 'email', 3);
@@ -654,12 +675,27 @@ describe('a settle error after a receipt is not a second send', () => {
       attempts: 2,
       reference: null,
     });
+    nowMs += 10_001;
     const second = await dispatcher.dispatch(note);
-    expect(second.outcomes.find((outcome) => outcome.channel === 'email')).toMatchObject({ status: 'accepted', retryable: false });
+    expect(second.outcomes.find((outcome) => outcome.channel === 'email')).toMatchObject({ status: 'failed', retryable: true });
+    const winningRow = (await deliveries.listForNotification(note.id)).find((row) => row.channel === 'email');
+    expect(winningRow).toMatchObject({ status: 'pending', attempts: 2, reference: null });
+    if (!winningRow) throw new Error('winning delivery row missing');
+    await MemoryDeliveryStore.prototype.settle.call(deliveries, {
+      id: winningRow.id,
+      attempt: 2,
+      status: 'accepted',
+      reference: ownerReference,
+      attempted: true,
+    });
+    const third = await dispatcher.dispatch(note);
+    expect(third.outcomes.find((outcome) => outcome.channel === 'email')).toMatchObject(
+      ownerReference === RECEIPT ? { status: 'already_accepted', retryable: false } : { status: 'failed', retryable: true },
+    );
     expect((await deliveries.listForNotification(note.id)).find((row) => row.channel === 'email')).toMatchObject({
       status: 'accepted',
       attempts: 2,
-      reference: RECEIPT,
+      reference: ownerReference,
     });
     expect(email.sent).toHaveLength(1);
   });
