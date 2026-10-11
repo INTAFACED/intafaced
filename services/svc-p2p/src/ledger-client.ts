@@ -49,7 +49,7 @@ export function createLedgerClient(baseUrl: string, internalSecret: string, opti
 
   const url = baseUrl.replace(/\/$/, '');
 
-  async function call<T>(path: string, body: unknown): Promise<T> {
+  async function call<T>(path: string, body: unknown, fundsRequest?: PostRequest): Promise<T> {
     // Serialised ONCE, and the same string is both signed and sent. Signing
     // `JSON.stringify(body)` and then handing `body` to fetch to re-serialise
     // would digest bytes the server never sees; it presents as a 401 that
@@ -68,10 +68,87 @@ export function createLedgerClient(baseUrl: string, internalSecret: string, opti
       const detail = await response.text();
       // Rehydrate typed funds failure so p2p-service void-on-failed-lock runs
       // in production (MemoryLedger tests already throw InsufficientFundsError).
-      throw rehydrateLedgerHttpError(path, response.status, detail);
+      const error = rehydrateLedgerHttpError(path, response.status, detail);
+      if (error instanceof InsufficientFundsError && fundsRequest) {
+        throw await definitiveFundsRefusal(detail, fundsRequest);
+      }
+      throw error;
     }
 
     return (await response.json()) as T;
+  }
+
+  async function definitiveFundsRefusal(detail: string, request: PostRequest): Promise<InsufficientFundsError> {
+    const unknown = () => new Error('svc-ledger incomplete or inconsistent funds refusal; outcome unknown');
+    let raw: unknown;
+    try {
+      raw = JSON.parse(detail);
+    } catch {
+      throw unknown();
+    }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw unknown();
+    const { code, message, accountId, assetId, requested, availableBalance } = raw as Record<string, unknown>;
+    if (
+      code !== 'ledger.insufficient_funds' ||
+      typeof message !== 'string' ||
+      !message.trim() ||
+      typeof accountId !== 'string' ||
+      accountId !== accountId.trim() ||
+      typeof assetId !== 'string' ||
+      !assetId ||
+      typeof requested !== 'string' ||
+      requested !== requested.trim() ||
+      typeof availableBalance !== 'string' ||
+      availableBalance !== availableBalance.trim()
+    )
+      throw unknown();
+    let needed: ReturnType<typeof parseAmount>;
+    let available: ReturnType<typeof parseAmount>;
+    try {
+      needed = parseAmount(requested);
+      available = parseAmount(availableBalance);
+    } catch {
+      throw unknown();
+    }
+    if (needed <= 0n || available < 0n || available >= needed) throw unknown();
+    const mentioned = /Insufficient (\S+): requested (\S+), available (\S+)/.exec(message);
+    if (mentioned) {
+      try {
+        if (mentioned[1] !== assetId || parseAmount(mentioned[2]!) !== needed || parseAmount(mentioned[3]!) !== available) throw unknown();
+      } catch {
+        throw unknown();
+      }
+    }
+    const credits = request.entries.filter(
+      (entry) => entry.direction === 'credit' && entry.account.assetId === assetId && entry.amount === needed,
+    );
+    if (credits.length !== 1) throw unknown();
+    // Account IDs are opaque. The published balance read is side-effect-free;
+    // only identity is compared, never its current amount as no-effect proof.
+    let identity: unknown;
+    try {
+      identity = await call<unknown>('/trpc/balance', credits[0]!.account);
+    } catch {
+      throw unknown();
+    }
+    if (
+      !identity ||
+      typeof identity !== 'object' ||
+      Array.isArray(identity) ||
+      typeof (identity as Record<string, unknown>).accountId !== 'string' ||
+      (identity as Record<string, unknown>).accountId !== accountId
+    )
+      throw unknown();
+    // Validate the existing read envelope without treating the amount as post evidence.
+    const currentAmount = (identity as Record<string, unknown>).amount;
+    if (typeof currentAmount !== 'string') throw unknown();
+    try {
+      parseAmount(currentAmount);
+    } catch {
+      throw unknown();
+    }
+    // Explicit '' is the published absent-account identity, only when this read agrees.
+    return new InsufficientFundsError(accountId, assetId, requested, availableBalance);
   }
 
   return {
@@ -91,7 +168,7 @@ export function createLedgerClient(baseUrl: string, internalSecret: string, opti
         })),
       };
 
-      const acknowledgement = await call<unknown>('/trpc/post', wire);
+      const acknowledgement = await call<unknown>('/trpc/post', wire, request);
       if (!acknowledgement || typeof acknowledgement !== 'object' || Array.isArray(acknowledgement)) {
         throw new Error('svc-ledger invalid post acknowledgement; outcome unknown');
       }

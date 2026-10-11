@@ -161,6 +161,7 @@ describe('native P2P original terms and decisions', () => {
       await db.sql`TRUNCATE p2p.payment_instruments, p2p.p2p_trades, p2p.offers CASCADE`;
       await seed(db.sql, 'created');
       const fetcher = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => {
+        if (String(_input).endsWith('/trpc/balance')) return new Response(JSON.stringify({ accountId: 'fixture', amount: '0' }));
         if (failure === 'transport') throw new Error('fixture transport lost acknowledgement');
         if (failure === 'http_500') return new Response('{"message":"uncertain ledger outcome"}', { status: 500 });
         if (failure === 'malformed_ack') return new Response('not-json', { status: 200 });
@@ -186,7 +187,7 @@ describe('native P2P original terms and decisions', () => {
         if (failure === 'definitive_funds') await expect(cancelling).resolves.toMatchObject({ resolution: 'voided' });
         else await expect(cancelling).rejects.toBeInstanceOf(Error);
         const trade = await service.getTrade(TRADE);
-        expect(fetcher).toHaveBeenCalledTimes(1);
+        expect(fetcher).toHaveBeenCalledTimes(failure === 'definitive_funds' ? 2 : 1);
         const wire = JSON.parse(fetcher.mock.calls[0]![1]!.body as string);
         expect(wire.idempotencyKey).toBe(`p2p.escrow.lock:${TRADE}`);
         expect(wire.entries.map((entry: { amount: string }) => entry.amount)).toEqual(['100', '100']);
@@ -533,6 +534,218 @@ describe('native P2P original terms and decisions', () => {
     },
   );
 
+  it.each([
+    { code: 'ledger.insufficient_funds', message: 'declined', requested: 'not-money', availableBalance: 'also-not-money' },
+    { accountId: undefined },
+    { assetId: undefined },
+    { requested: undefined },
+    { availableBalance: undefined },
+    { message: undefined },
+    { message: '' },
+    { requested: '100', availableBalance: '200' },
+    { requested: '100', availableBalance: '100' },
+    { availableBalance: '-1' },
+    { requested: '99' },
+    { requested: '1e2' },
+    { requested: 100 },
+    { availableBalance: false },
+    { requested: ' 100' },
+    { requested: '100.0000000000000000001' },
+    { requested: '100000000000000000000' },
+    { assetId: 'BTC' },
+    { assetId: null },
+    { accountId: null },
+    { accountId: 'other-account' },
+    { accountId: ' ' },
+    { message: 'Insufficient BTC: requested 99, available 0' },
+    { code: undefined, message: 'Insufficient USDT: requested 100, available 0' },
+    { identity: 'failure' },
+    { identity: 'malformed' },
+    { identity: 'mismatch' },
+    { identity: 'bad_amount' },
+  ])('retains native intent for an incomplete or inconsistent actual HTTP400 funds refusal %j', async (override) => {
+    await db.sql`TRUNCATE p2p.payment_instruments,p2p.p2p_trades,p2p.offers CASCADE`;
+    await seed(db.sql, 'created');
+    const responseBody = {
+      code: 'ledger.insufficient_funds',
+      message: 'Insufficient balance',
+      assetId: 'USDT',
+      accountId: '',
+      requested: '100',
+      availableBalance: '0',
+      ...override,
+    };
+    const calls: string[] = [];
+    const server = createServer(async (request, response) => {
+      for await (const _ of request) {
+      }
+      calls.push(request.url ?? '');
+      if (request.url === '/trpc/balance') {
+        if ('identity' in override && override.identity === 'failure') {
+          response.statusCode = 500;
+          response.end('{}');
+          return;
+        }
+        response.end(
+          JSON.stringify(
+            'identity' in override && override.identity === 'malformed'
+              ? {}
+              : {
+                  accountId: 'identity' in override && override.identity === 'mismatch' ? 'other-account' : '',
+                  amount: 'identity' in override && override.identity === 'bad_amount' ? 'not-money' : '0',
+                },
+          ),
+        );
+        return;
+      }
+      response.statusCode = 400;
+      response.end(JSON.stringify(responseBody));
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('owned HTTP fixture unavailable');
+    const bus = new MemoryEventBus('svc-p2p');
+    const publish = vi.spyOn(bus, 'publish');
+    const service = new P2pService(
+      db.sql,
+      createLedgerClient(`http://127.0.0.1:${address.port}`, 'synthetic-p2p-fixture-internal-secret'),
+      bus,
+      { instruments: new InstrumentService(db.sql), feeBps: 100 },
+    );
+    try {
+      await expect(service.cancelTrade(TRADE, SELLER)).rejects.toBeInstanceOf(Error);
+      const row = await service.getTrade(TRADE);
+      expect(row.status).toBe('created');
+      expect(row.resolution).toBeNull();
+      expect(row.settledAt).toBeNull();
+      expect(row.escrowedAt).toBeNull();
+      expect(publish).not.toHaveBeenCalled();
+      expect((await db.sql`SELECT remaining_amt::text AS remaining FROM p2p.offers WHERE id=${OFFER}`)[0]?.remaining).toBe(
+        '400.000000000000000000',
+      );
+      expect((await db.sql`SELECT escrow_lock_attempts::text AS attempts FROM p2p.p2p_trades WHERE id=${TRADE}`)[0]?.attempts).toBe('1');
+      expect(calls[0]).toBe('/trpc/post');
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
+  it.each(['absent_account', 'changed_current_balance'] as const)(
+    'accepts an actual complete first funds refusal for %s using identity only',
+    async (mode) => {
+      await db.sql`TRUNCATE p2p.payment_instruments,p2p.p2p_trades,p2p.offers CASCADE`;
+      await seed(db.sql, 'created');
+      const ledger = new MemoryLedger();
+      if (mode === 'changed_current_balance') {
+        await ledger.post(
+          recipes.deposit({
+            userId: SELLER,
+            assetId: 'USDT',
+            amount: parseAmount('100'),
+            rail: 'test-fixture',
+            railRef: 'create-source-identity',
+          }),
+        );
+        await ledger.post(
+          recipes.escrowLock({
+            tradeId: '00000000-0000-4000-8000-0000000000a7',
+            sellerId: SELLER,
+            buyerId: BUYER,
+            assetId: 'USDT',
+            amount: parseAmount('100'),
+          }),
+        );
+      }
+      let balanceReads = 0;
+      let failedPosts = 0;
+      const server = createServer(async (request, response) => {
+        let body = '';
+        for await (const chunk of request) body += chunk;
+        if (request.url === '/trpc/balance') {
+          balanceReads++;
+          if (mode === 'changed_current_balance')
+            await ledger.post(
+              recipes.deposit({
+                userId: SELLER,
+                assetId: 'USDT',
+                amount: parseAmount('1000'),
+                rail: 'test-fixture',
+                railRef: 'fund-after-known-refusal',
+              }),
+            );
+          const balance = await ledger.balance(JSON.parse(body));
+          response.end(JSON.stringify({ accountId: balance.accountId, amount: formatAmount(balance.amount) }));
+          return;
+        }
+        const wire = JSON.parse(body) as Omit<PostRequest, 'entries'> & {
+          entries: Array<Omit<PostRequest['entries'][number], 'amount'> & { amount: string }>;
+        };
+        try {
+          await ledger.post({ ...wire, entries: wire.entries.map((entry) => ({ ...entry, amount: parseAmount(entry.amount) })) });
+          response.statusCode = 500;
+          response.end('unexpected successful fixture lock');
+        } catch (error) {
+          failedPosts++;
+          const failure = error as {
+            code: string;
+            message: string;
+            accountId: string;
+            assetId: string;
+            requested: string;
+            availableBalance: string;
+          };
+          response.statusCode = 400;
+          response.end(
+            JSON.stringify({
+              code: failure.code,
+              message: failure.message,
+              accountId: failure.accountId,
+              assetId: failure.assetId,
+              requested: failure.requested,
+              availableBalance: failure.availableBalance,
+            }),
+          );
+        }
+      });
+      await new Promise<void>((resolve) => {
+        server.listen(0, '127.0.0.1', resolve);
+      });
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('owned HTTP fixture unavailable');
+      const service = new P2pService(
+        db.sql,
+        createLedgerClient(`http://127.0.0.1:${address.port}`, 'synthetic-p2p-fixture-internal-secret'),
+        new MemoryEventBus('svc-p2p'),
+        { instruments: new InstrumentService(db.sql), feeBps: 100 },
+      );
+      try {
+        await expect(service.cancelTrade(TRADE, SELLER)).resolves.toMatchObject({ resolution: 'voided', status: 'cancelled' });
+        expect(failedPosts).toBe(1);
+        expect(balanceReads).toBe(1);
+        expect((await service.getTrade(TRADE)).settledAt).not.toBeNull();
+        expect((await db.sql`SELECT remaining_amt::text AS remaining FROM p2p.offers WHERE id=${OFFER}`)[0]?.remaining).toBe(
+          '500.000000000000000000',
+        );
+        expect(formatAmount((await ledger.balance(tradeEscrowAccount(SELLER, 'USDT', TRADE))).amount)).toBe('0');
+        expect(formatAmount((await ledger.balance(userAvailable(SELLER, 'USDT'))).amount)).toBe(
+          mode === 'changed_current_balance' ? '1000' : '0',
+        );
+        expect(ledger.reconcile()).toEqual({ ok: true });
+        expect(ledger.verifyChain()).toEqual({ ok: true });
+      } finally {
+        server.closeAllConnections();
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
+    },
+  );
+
   it('keeps a delayed remote handler unresolved after timeout and a later funds refusal, then converges exactly', async () => {
     await db.sql`TRUNCATE p2p.payment_instruments, p2p.p2p_trades, p2p.offers CASCADE`;
     await seed(db.sql, 'created');
@@ -549,6 +762,11 @@ describe('native P2P original terms and decisions', () => {
     const server = createServer(async (request, response) => {
       let body = '';
       for await (const chunk of request) body += chunk;
+      if (request.url === '/trpc/balance') {
+        const balance = await ledger.balance(JSON.parse(body));
+        response.end(JSON.stringify({ accountId: balance.accountId, amount: formatAmount(balance.amount) }));
+        return;
+      }
       const wire = JSON.parse(body) as Omit<PostRequest, 'entries'> & {
         entries: Array<Omit<PostRequest['entries'][number], 'amount'> & { amount: string }>;
       };

@@ -1,4 +1,7 @@
 -- intafaced:destructive — remove attempt-history protection only when no claimed created intent is unresolved.
+-- Caller must execute the complete down and migration tracking update in one transaction.
+-- PostgreSQL requires this lock in a transaction; retain it through guard and DDL.
+LOCK TABLE "p2p"."p2p_trades" IN ACCESS EXCLUSIVE MODE;
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM "p2p"."p2p_trades" WHERE "status" = 'created'
              AND "original_terms_claimed_at" IS NOT NULL AND "settled_at" IS NULL
