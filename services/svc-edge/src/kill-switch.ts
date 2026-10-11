@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { MODULE_IDS, isModuleId, type ModuleId } from '@intafaced/config';
 import { UPSTREAMS } from './routes.js';
@@ -288,12 +288,11 @@ export interface KillSwitchAuditEntry {
  * `env.ts` refuses it on purpose, because the internet-facing component should
  * hold the least in the fleet.
  *
- * The failure mode is the safe one. A restarted edge comes back with every
- * module ON, which is the state the deployment was configured for; an operator
- * who killed a module and then lost the process learns that from the console,
- * which reads the state back rather than assuming it. The alternative — a
- * cached "off" that outlives the reason for it — is how a platform stays down
- * after the incident is over.
+ * Memory-only mode, with no state path configured, comes back with every
+ * module ON. That is the deployment default when nothing was asked to
+ * survive a restart. File mode is the other case: a missing, empty, or
+ * unreadable state file halts every module, and a torn write must not
+ * drop an incident halt.
  *
  * The durable half of the platform's operator surface is the ledger's, not this
  * one: `posting_freeze` is a row, carries its own actor, and is enforced by
@@ -304,6 +303,12 @@ export interface KillSwitchAuditEntry {
  * SOCKET §13: multi-replica shared store still residual. Optional
  * `EDGE_KILL_STATE_PATH` file gives **single-process restart durability** so an
  * incident kill is not wiped by a bounce. Multi-edge still needs a shared store.
+ *
+ * File mode does not treat a missing, empty, or unreadable state file as every
+ * module ON. Hydrate halts every module. The write replaces the file only after
+ * a temp file is fsynced; if that write throws, `set` leaves memory where it
+ * was and does not return the audit entry. An explicit `{ "killed": [] }` is
+ * the recorded all-on state.
  */
 export interface KillSwitchStateOptions {
   /** Path to JSON map of killed modules. Empty/undefined = memory only. */
@@ -371,36 +376,125 @@ export class KillSwitchState {
     };
   }
 
-  private hydrateFromDisk(): void {
-    if (!this.statePath) return;
-    try {
-      const raw = readFileSync(this.statePath, 'utf8');
-      const parsed = JSON.parse(raw) as { killed?: unknown };
-      if (!Array.isArray(parsed.killed)) return;
-      for (const row of parsed.killed) {
-        if (!row || typeof row !== 'object') continue;
-        const id = (row as { module?: unknown }).module;
-        const reason = (row as { reason?: unknown }).reason;
-        if (typeof id !== 'string' || !isModuleId(id)) continue;
-        this.killed.add(id);
-        if (typeof reason === 'string' && reason.trim()) this.reasons.set(id, reason.trim());
-      }
-    } catch {
-      /* missing/corrupt → start empty (all ON) — same as pre-persist boot */
+  /** A state file we cannot trust is a halt, not a quiet all-on boot. */
+  private haltEveryModule(): void {
+    const because = 'kill state file missing, empty, or unreadable — every module halted fail-closed';
+    for (const id of MODULE_IDS) {
+      this.killed.add(id);
+      this.reasons.set(id, because);
     }
   }
 
-  private persistToDisk(): void {
+  private hydrateFromDisk(): void {
     if (!this.statePath) return;
+    let raw: string;
     try {
-      mkdirSync(dirname(this.statePath), { recursive: true });
-      const killed = this.disabledModules().map((module) => ({
-        module,
-        reason: this.reasons.get(module) ?? null,
-      }));
-      writeFileSync(this.statePath, `${JSON.stringify({ killed, updatedAt: new Date().toISOString() }, null, 2)}\n`, 'utf8');
+      raw = readFileSync(this.statePath, 'utf8');
     } catch {
-      /* best-effort — decision path must not throw on disk full */
+      this.haltEveryModule();
+      return;
+    }
+    if (raw.trim() === '') {
+      this.haltEveryModule();
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      this.haltEveryModule();
+      return;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      this.haltEveryModule();
+      return;
+    }
+    const killed = (parsed as { killed?: unknown }).killed;
+    if (!Array.isArray(killed)) {
+      this.haltEveryModule();
+      return;
+    }
+    for (const row of killed) {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) {
+        this.haltEveryModule();
+        return;
+      }
+      const id = (row as { module?: unknown }).module;
+      const reason = (row as { reason?: unknown }).reason;
+      if (typeof id !== 'string' || !isModuleId(id) || (reason !== undefined && reason !== null && typeof reason !== 'string')) {
+        this.haltEveryModule();
+        return;
+      }
+      this.killed.add(id);
+      if (typeof reason === 'string' && reason.trim()) this.reasons.set(id, reason.trim());
+    }
+  }
+
+  /**
+   * Write the next killed-set. `pending` is the switch `set` has not applied
+   * yet, so a throw leaves memory on the previous halt.
+   */
+  private persistToDisk(pending?: { module: ModuleId; disabled: boolean; reason: string | null }): void {
+    if (!this.statePath) return;
+    const killed = MODULE_IDS.filter((id) => (pending && id === pending.module ? pending.disabled : this.killed.has(id))).map((module) => ({
+      module,
+      reason: pending && module === pending.module ? pending.reason : (this.reasons.get(module) ?? null),
+    }));
+    this.replaceStateFile(`${JSON.stringify({ killed, updatedAt: new Date().toISOString() }, null, 2)}\n`);
+  }
+
+  /**
+   * Replace the state file only after the new bytes are fsynced. A crash during
+   * the temp write leaves the previous file, and the previous incident halt, in place.
+   * Errors propagate — the caller must not report a change the disk refused.
+   */
+  private replaceStateFile(body: string): void {
+    const path = this.statePath;
+    if (!path) return;
+    mkdirSync(dirname(path), { recursive: true });
+    const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
+    const fd = openSync(tmp, 'wx', 0o600);
+    try {
+      const data = Buffer.from(body, 'utf8');
+      let offset = 0;
+      while (offset < data.length) {
+        const written = writeSync(fd, data, offset, data.length - offset);
+        if (written === 0) throw new Error('Kill-state write made no progress');
+        offset += written;
+      }
+      fsyncSync(fd);
+    } catch (err) {
+      try {
+        closeSync(fd);
+      } catch {
+        // The write already failed. Closing the descriptor must not hide that.
+      }
+      try {
+        unlinkSync(tmp);
+      } catch {
+        // Temp cleanup must not hide the write error.
+      }
+      throw err;
+    }
+    try {
+      closeSync(fd);
+    } catch (err) {
+      try {
+        unlinkSync(tmp);
+      } catch {
+        // Temp cleanup must not hide the close error.
+      }
+      throw err;
+    }
+    try {
+      renameSync(tmp, path);
+    } catch (err) {
+      try {
+        unlinkSync(tmp);
+      } catch {
+        // Temp cleanup must not hide the rename error.
+      }
+      throw err;
     }
   }
 
@@ -425,6 +519,10 @@ export class KillSwitchState {
   /**
    * Move a switch, and record who moved it.
    *
+   * The durable file is replaced before the in-memory booleans move. If that
+   * write throws, the audit entry is not appended and the switches stay put:
+   * `set` does not report a change the disk refused.
+   *
    * The audit entry is appended BEFORE the state changes, so there is no
    * ordering in which the platform is halted and the record of the halt is
    * missing.
@@ -443,18 +541,22 @@ export class KillSwitchState {
       changed: previous !== disabled,
     };
 
+    const recorded = confirmOperatorId ? `${reason} (by ${actor}; confirmed ${confirmOperatorId})` : `${reason} (by ${actor})`;
+
+    if (entry.changed) {
+      this.persistToDisk({ module, disabled, reason: disabled ? recorded : null });
+    }
+
     this.audit.push(entry);
     if (this.audit.length > KillSwitchState.AUDIT_LIMIT) this.audit.shift();
 
     if (disabled) {
       this.killed.add(module);
-      this.reasons.set(module, confirmOperatorId ? `${reason} (by ${actor}; confirmed ${confirmOperatorId})` : `${reason} (by ${actor})`);
+      this.reasons.set(module, recorded);
     } else {
       this.killed.delete(module);
       this.reasons.delete(module);
     }
-
-    if (entry.changed) this.persistToDisk();
 
     return entry;
   }

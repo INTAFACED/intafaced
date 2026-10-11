@@ -1,12 +1,22 @@
-import { describe, expect, it } from 'vitest';
-import { isModuleId } from '@intafaced/config';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { afterEach, describe, expect, it } from 'vitest';
+import { isModuleId, MODULE_IDS } from '@intafaced/config';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ALWAYS_ALLOWED_REST, KillSwitchState, MODULE_BY_PREFIX, procedureLeaf, procedureOf, resolvedPathname } from './kill-switch.js';
 import { UPSTREAMS } from './routes.js';
 
 const OPERATOR = '11111111-1111-4111-8111-111111111111';
+const ownedDirectories: string[] = [];
+function fixtureDir(prefix: string) {
+  const directory = mkdtempSync(join(tmpdir(), prefix));
+  ownedDirectories.push(directory);
+  return directory;
+}
+afterEach(() => {
+  for (const directory of ownedDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
+});
+
 const WHY = 'incident 2026-07-30, book quoting stale prices';
 
 describe('kill-switch route map', () => {
@@ -228,9 +238,12 @@ describe('failing closed', () => {
 
 describe('optional restart durability (EDGE_KILL_STATE_PATH)', () => {
   it('rehydrates killed modules from disk after a new process', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'edge-kill-'));
+    const dir = fixtureDir('edge-kill-');
     const path = join(dir, 'state.json');
+    // An explicit empty list is the recorded all-on state. A missing file is not.
+    writeFileSync(path, `${JSON.stringify({ killed: [] })}\n`);
     const a = new KillSwitchState({ statePath: path });
+    expect(a.isKilled('trade')).toBe(false);
     a.set('trade', true, OPERATOR, WHY);
     expect(a.isKilled('trade')).toBe(true);
     expect(JSON.parse(readFileSync(path, 'utf8')).killed).toEqual(expect.arrayContaining([expect.objectContaining({ module: 'trade' })]));
@@ -241,7 +254,7 @@ describe('optional restart durability (EDGE_KILL_STATE_PATH)', () => {
   });
 
   it('reports file durability as process-local, never multi-replica shared', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'edge-kill-'));
+    const dir = fixtureDir('edge-kill-');
     const path = join(dir, 'state.json');
     const d = new KillSwitchState({ statePath: path }).durability();
     expect(d.persistence).toBe('file');
@@ -255,6 +268,73 @@ describe('optional restart durability (EDGE_KILL_STATE_PATH)', () => {
     expect(d.multiReplicaShared).toBe(false);
     expect(d.note).toMatch(/Memory only|§13/i);
   });
+
+  it('a missing, empty, or unreadable state file does not come back with every module ON, and a failed write does not drop the halt', () => {
+    const expectHalted = (state: KillSwitchState) => {
+      expect(state.disabledModules()).toEqual([...MODULE_IDS]);
+      expect(state.decide('/api/v1/orders', 'POST')).toMatchObject({ refused: true, reason: 'module-killed' });
+    };
+
+    const missingDir = fixtureDir('edge-kill-');
+    expectHalted(new KillSwitchState({ statePath: join(missingDir, 'missing.json') }));
+
+    const emptyDir = fixtureDir('edge-kill-');
+    const emptyPath = join(emptyDir, 'state.json');
+    writeFileSync(emptyPath, '');
+    expectHalted(new KillSwitchState({ statePath: emptyPath }));
+
+    const blankDir = fixtureDir('edge-kill-');
+    const blankPath = join(blankDir, 'state.json');
+    writeFileSync(blankPath, '\n');
+    expectHalted(new KillSwitchState({ statePath: blankPath }));
+
+    const tornDir = fixtureDir('edge-kill-');
+    const tornPath = join(tornDir, 'state.json');
+    writeFileSync(tornPath, '{"killed":[{"module":"trade","reason":"incident halt"}');
+    expectHalted(new KillSwitchState({ statePath: tornPath }));
+
+    const shapelessDir = fixtureDir('edge-kill-');
+    const shapelessPath = join(shapelessDir, 'state.json');
+    writeFileSync(shapelessPath, '{}\n');
+    expectHalted(new KillSwitchState({ statePath: shapelessPath }));
+
+    const sealedDir = fixtureDir('edge-kill-');
+    const sealedPath = join(sealedDir, 'state.json');
+    writeFileSync(sealedPath, `${JSON.stringify({ killed: [] })}\n`);
+    chmodSync(sealedPath, 0o000);
+    try {
+      expectHalted(new KillSwitchState({ statePath: sealedPath }));
+    } finally {
+      chmodSync(sealedPath, 0o644);
+    }
+
+    const durableDir = fixtureDir('edge-kill-');
+    const durablePath = join(durableDir, 'state.json');
+    const incident = `${JSON.stringify({ killed: [{ module: 'trade', reason: 'incident halt' }], updatedAt: '2026-07-30T00:00:00.000Z' }, null, 2)}\n`;
+    writeFileSync(durablePath, incident);
+    const live = new KillSwitchState({ statePath: durablePath });
+    expect(live.isKilled('trade')).toBe(true);
+    expect(live.isKilled('pay')).toBe(false);
+
+    chmodSync(durablePath, 0o444);
+    chmodSync(durableDir, 0o555);
+    try {
+      expect(() => live.set('pay', true, OPERATOR, WHY)).toThrow(/EACCES/);
+    } finally {
+      chmodSync(durableDir, 0o755);
+      chmodSync(durablePath, 0o644);
+    }
+
+    expect(live.isKilled('trade')).toBe(true);
+    expect(live.isKilled('pay')).toBe(false);
+    expect(live.auditTrail().some((entry) => entry.module === 'pay')).toBe(false);
+    expect(readFileSync(durablePath, 'utf8')).toBe(incident);
+
+    const next = new KillSwitchState({ statePath: durablePath });
+    expect(next.isKilled('trade')).toBe(true);
+    expect(next.isKilled('pay')).toBe(false);
+    expect(next.decide('/api/v1/orders', 'POST')).toMatchObject({ refused: true, reason: 'module-killed' });
+  });
 });
 
 /**
@@ -266,6 +346,24 @@ describe('optional restart durability (EDGE_KILL_STATE_PATH)', () => {
  * had halted identity kept serving it — with the console still reporting it
  * disabled and no 503 anywhere in the log.
  */
+it('halts every module for corrupt rows rather than silently dropping them', () => {
+  const path = join(fixtureDir('edge-corrupt-row-'), 'state.json');
+  for (const killed of [
+    [null],
+    [[]],
+    [{ module: 'unknown' }],
+    [{ module: 'trade', reason: 123 }],
+    [{ module: 'trade' }, { module: 'unknown' }],
+  ]) {
+    writeFileSync(path, JSON.stringify({ killed }));
+    const state = new KillSwitchState({ statePath: path });
+    expect(state.disabledModules()).toEqual(MODULE_IDS);
+    expect(state.decide('/api/v1/orders', 'POST').refused).toBe(true);
+    expect(state.decide('/api/v1/orders', 'GET').refused).toBe(false);
+    expect(state.decide('/api/v1/orders/id', 'DELETE').refused).toBe(false);
+  }
+});
+
 describe('resolvedPathname — the guard and the proxy must agree', () => {
   it('resolves a dot segment the way the proxy does, rather than matching the raw target', () => {
     // `new URL` collapses these, so the guard must too or it is answering a

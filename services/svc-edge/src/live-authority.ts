@@ -34,7 +34,7 @@ export async function readEdgeAuthority(principal: Principal, options: EdgeAutho
       url.password ||
       url.search ||
       url.hash ||
-      !options.identityOwnershipSecret ||
+      !options.identityOwnershipSecret?.trim() ||
       options.identityOwnershipSecret.length < 32
     )
       return null;

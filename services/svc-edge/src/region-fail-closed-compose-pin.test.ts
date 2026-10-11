@@ -65,7 +65,15 @@ describe('compose region fail-closed pass-through for svc-edge', () => {
   it('does not invent trust-proxy, geo header, or screening lists', () => {
     expect(block).not.toMatch(/EDGE_TRUST_PROXY:/);
     expect(block).not.toMatch(/EDGE_GEO_COUNTRY_HEADER:/);
-    expect(block).not.toMatch(/INTAFACED_SANCTIONS/);
+    // Operator-provided screening configuration passes through; no list/source is invented.
+    const screening = block
+      .split('\n')
+      .filter((line) => /^\s*INTAFACED_SANCTIONS/.test(line))
+      .map((line) => line.trim());
+    expect(screening).toEqual([
+      'INTAFACED_SANCTIONS_REGIONS: ${INTAFACED_SANCTIONS_REGIONS:-}',
+      'INTAFACED_SANCTIONS_LIST_SOURCE: ${INTAFACED_SANCTIONS_LIST_SOURCE:-}',
+    ]);
   });
 
   it('does not restamp DEFAULT_REGION JWT rate-limit kill path body limit timeout identity', () => {
