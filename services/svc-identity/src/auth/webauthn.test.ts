@@ -1,6 +1,6 @@
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign as cryptoSign } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { encodeCbor } from './cbor.js';
+import { encodeCbor, type CborValue } from './cbor.js';
 import {
   ChallengeStore,
   SqlChallengeStore,
@@ -414,6 +414,156 @@ describe('authentication ceremony', () => {
       },
     };
     expect(() => verifyAuthenticationResponse(config, challenge, credential, response)).toThrow(/counter/);
+  });
+});
+
+describe('authenticator extension boundaries', () => {
+  const extension = Buffer.from(encodeCbor(new Map([['credProtect', 2]])));
+
+  function fixture() {
+    const keys = makeKeyPair();
+    const id = randomBytes(16);
+    const challenge = generateChallenge();
+    const registrationClient = buildClientDataJSON({ type: 'webauthn.create', challenge, origin: config.origin });
+    const registrationData = buildAuthenticatorData({ rpID: config.rpID, counter: 0, credential: { id, publicKeyCose: keys.cose } });
+    const registration = (data: Buffer, fmt = 'none'): RegistrationResponseJSON => ({
+      id: b64urlEncode(id),
+      rawId: b64urlEncode(id),
+      type: 'public-key',
+      response: {
+        clientDataJSON: b64urlEncode(registrationClient),
+        attestationObject: b64urlEncode(
+          encodeCbor(
+            new Map<string, CborValue>([
+              ['fmt', fmt],
+              ['attStmt', new Map()],
+              ['authData', new Uint8Array(data)],
+            ]),
+          ),
+        ),
+      },
+    });
+    const credential: StoredWebAuthnCredential = {
+      credentialId: b64urlEncode(id),
+      publicKey: b64urlEncode(keys.cose),
+      counter: 0,
+      createdAt: new Date().toISOString(),
+    };
+    const assertion = (data: Buffer): AuthenticationResponseJSON => {
+      const client = buildClientDataJSON({ type: 'webauthn.get', challenge, origin: config.origin });
+      return {
+        id: b64urlEncode(id),
+        rawId: b64urlEncode(id),
+        type: 'public-key',
+        response: {
+          clientDataJSON: b64urlEncode(client),
+          authenticatorData: b64urlEncode(data),
+          signature: b64urlEncode(signAssertion(keys.privateKey, data, client)),
+        },
+      };
+    };
+    return { keys, challenge, registrationData, registration, credential, assertion };
+  }
+
+  function withExtensions(data: Buffer, suffix = extension): Buffer {
+    const flagged = Buffer.from(data);
+    flagged[32] = flagged[32]! | 0x80;
+    return Buffer.concat([flagged, suffix]);
+  }
+
+  it('accepts standard ED registration and stores exactly the COSE key', () => {
+    const f = fixture();
+    const stored = verifyRegistrationResponse(config, f.challenge, f.registration(withExtensions(f.registrationData)));
+    expect(b64urlDecode(stored.publicKey)).toEqual(f.keys.cose);
+  });
+
+  it('uses the encoded COSE boundary even when a key label has a wider integer encoding', () => {
+    const f = fixture();
+    const cose = Buffer.concat([f.keys.cose.subarray(0, 1), Buffer.from([0x18, 0x01]), f.keys.cose.subarray(2)]);
+    const data = buildAuthenticatorData({
+      rpID: config.rpID,
+      counter: 0,
+      credential: { id: b64urlDecode(f.credential.credentialId), publicKeyCose: cose },
+    });
+    const stored = verifyRegistrationResponse(config, f.challenge, f.registration(withExtensions(data)));
+    expect(b64urlDecode(stored.publicKey)).toEqual(cose);
+    expect(
+      verifyAuthenticationResponse(config, f.challenge, stored, f.assertion(buildAuthenticatorData({ rpID: config.rpID, counter: 1 })))
+        .newCounter,
+    ).toBe(1);
+  });
+
+  it('reads a previously stored key plus extension map without rewriting it', () => {
+    const f = fixture();
+    const legacy = { ...f.credential, publicKey: b64urlEncode(Buffer.concat([f.keys.cose, extension])) };
+    const snapshot = { ...legacy };
+    const data = buildAuthenticatorData({ rpID: config.rpID, counter: 1 });
+    expect(verifyAuthenticationResponse(config, f.challenge, legacy, f.assertion(data)).newCounter).toBe(1);
+    expect(legacy).toEqual(snapshot);
+  });
+
+  it('accepts a valid signed assertion carrying ED extensions with a key-only credential', () => {
+    const f = fixture();
+    const data = withExtensions(buildAuthenticatorData({ rpID: config.rpID, counter: 1 }));
+    expect(verifyAuthenticationResponse(config, f.challenge, f.credential, f.assertion(data)).newCounter).toBe(1);
+  });
+
+  it.each([Buffer.alloc(0), Buffer.from([0x01]), Buffer.concat([extension, Buffer.from([0])]), Buffer.from([0xa1, 0x01, 0x02])])(
+    'rejects missing, non-map, extra or nontext extension data in registration and signed assertion',
+    (suffix) => {
+      const f = fixture();
+      expect(() => verifyRegistrationResponse(config, f.challenge, f.registration(withExtensions(f.registrationData, suffix)))).toThrow(
+        WebAuthnError,
+      );
+      const data = withExtensions(buildAuthenticatorData({ rpID: config.rpID, counter: 1 }), suffix);
+      expect(() => verifyAuthenticationResponse(config, f.challenge, f.credential, f.assertion(data))).toThrow(WebAuthnError);
+    },
+  );
+
+  it('rejects extension bytes when ED is absent and attested data in an assertion', () => {
+    const f = fixture();
+    expect(() => verifyRegistrationResponse(config, f.challenge, f.registration(Buffer.concat([f.registrationData, extension])))).toThrow(
+      WebAuthnError,
+    );
+    const data = Buffer.concat([buildAuthenticatorData({ rpID: config.rpID, counter: 1 }), extension]);
+    expect(() => verifyAuthenticationResponse(config, f.challenge, f.credential, f.assertion(data))).toThrow(WebAuthnError);
+    expect(() => verifyAuthenticationResponse(config, f.challenge, f.credential, f.assertion(f.registrationData))).toThrow(WebAuthnError);
+  });
+
+  it.each([
+    Buffer.from([0]),
+    Buffer.concat([extension, Buffer.from([0])]),
+    Buffer.concat([extension, extension]),
+    Buffer.from([0xa1, 0x01, 0x02]),
+  ])('refuses legacy stored key suffixes that are not exactly one text-keyed extension map', (suffix) => {
+    const f = fixture();
+    const stored = { ...f.credential, publicKey: b64urlEncode(Buffer.concat([f.keys.cose, suffix])) };
+    const data = buildAuthenticatorData({ rpID: config.rpID, counter: 1 });
+    expect(() => verifyAuthenticationResponse(config, f.challenge, stored, f.assertion(data))).toThrow(WebAuthnError);
+  });
+
+  it('keeps packed attestation unsupported with valid extension boundaries', () => {
+    const f = fixture();
+    expect(() => verifyRegistrationResponse(config, f.challenge, f.registration(withExtensions(f.registrationData), 'packed'))).toThrow(
+      /not accepted/,
+    );
+  });
+
+  it.each([
+    Buffer.from('a2617801617802', 'hex'),
+    Buffer.from('a161ff01', 'hex'),
+    Buffer.concat([Buffer.from('a16178', 'hex'), Buffer.alloc(33, 0x81), Buffer.from([0])]),
+  ])('retains duplicate-key, UTF-8 and depth refusal for every extension reader', (suffix) => {
+    const f = fixture();
+    expect(() => verifyRegistrationResponse(config, f.challenge, f.registration(withExtensions(f.registrationData, suffix)))).toThrow(
+      WebAuthnError,
+    );
+    const data = withExtensions(buildAuthenticatorData({ rpID: config.rpID, counter: 1 }), suffix);
+    expect(() => verifyAuthenticationResponse(config, f.challenge, f.credential, f.assertion(data))).toThrow(WebAuthnError);
+    const legacy = { ...f.credential, publicKey: b64urlEncode(Buffer.concat([f.keys.cose, suffix])) };
+    expect(() =>
+      verifyAuthenticationResponse(config, f.challenge, legacy, f.assertion(buildAuthenticatorData({ rpID: config.rpID, counter: 1 }))),
+    ).toThrow(WebAuthnError);
   });
 });
 

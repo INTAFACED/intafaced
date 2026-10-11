@@ -18,6 +18,13 @@ export type CborMap = Map<CborValue, CborValue> | { [key: string]: CborValue };
 export const MAX_CBOR_NESTING_DEPTH = 32;
 
 export function decodeCbor(input: Uint8Array): CborValue {
+  const { value, bytesRead } = decodeCborItem(input);
+  if (bytesRead !== input.length) throw new Error('CBOR: trailing bytes');
+  return value;
+}
+
+/** Read one item at a protocol-defined boundary; the caller must validate the remaining bytes. */
+export function decodeCborItem(input: Uint8Array): { value: CborValue; bytesRead: number } {
   const view = new DataView(input.buffer, input.byteOffset, input.byteLength);
   let offset = 0;
 
@@ -130,8 +137,7 @@ export function decodeCbor(input: Uint8Array): CborValue {
   }
 
   const value = read(0);
-  if (offset !== input.length) throw new Error('CBOR: trailing bytes');
-  return value;
+  return { value, bytesRead: offset };
 }
 
 export function encodeCbor(value: CborValue): Uint8Array {
