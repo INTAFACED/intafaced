@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { withMarketSpan } from './tracing.js';
-import { decideVendorSlot, usableSlots } from './slot-access.js';
+import { decideVendorSlot, usableSlots, type SlotDecision } from './slot-access.js';
 import type { SlotEntitlementSource } from './stake-source.js';
 
 /**
@@ -607,16 +607,25 @@ export class VendorService {
    * connection.ts explains when it is and when it is not). Same pattern, and
    * mostly the same words, as `svc-academy`'s seat claim.
    *
-   * ── WHY THE STAKE READ HAPPENS BEFORE THE LOCK ─────────────────────────────
+   * ── WHY THE LOCKED STATUS IS READ BEFORE THE STAKE CALL ────────────────────
    *
-   * Deliberately, and it is the subtle half. A stake lookup is a network call to
-   * svc-token. Holding the vendor's row across one would serialise every claim
-   * that vendor makes behind svc-token's latency, and under an outage it would
-   * hold the lock for the full fetch timeout. The capacity read a few
-   * milliseconds early is not a correctness problem: the number it produces is
-   * an ENTITLEMENT, and a stale entitlement can only ever admit a claim the
-   * vendor was entitled to moments ago. What must not be stale is the OCCUPANCY,
-   * and that is counted inside the lock.
+   * An applied, rejected, or suspended vendor is decidable from that row.
+   * `listingEligibility` already answers those statuses without svc-token.
+   * Calling `entitlementOf` first turns the refusal into `market.stake_unavailable`
+   * whenever the gate is down or `vendorSlots` is not an integer, and the router
+   * maps that code to HTTP 500. The status that gates the call is the locked
+   * row, not `myVendor` above: a suspension recorded between those reads must
+   * win.
+   *
+   * The stake read still does not hold the lock. Once the locked status can
+   * still be allowed, that transaction ends and `entitlementOf` runs. Holding
+   * FOR UPDATE across the network call would serialise every claim behind
+   * svc-token, and an outage would hold the lock for the full fetch timeout.
+   * The claim then locks again, re-reads status, and only then counts occupancy
+   * and inserts. A stale entitlement can only admit a claim the vendor was
+   * entitled to moments ago. If the status is no longer allowable, `vendorSlots`
+   * is not consulted — including when it is not an integer. What must not be
+   * stale is the OCCUPANCY, and that is counted inside the second lock.
    *
    * ── AND WHY IT IS IDEMPOTENT ───────────────────────────────────────────────
    *
@@ -636,32 +645,47 @@ export class VendorService {
       throw new MarketError('You have not applied to be a vendor', 'market.vendor_not_found');
     }
 
-    // Before the lock. See the header above — this is a network call.
-    const entitlement = await this.stakes.entitlementOf(input.userId);
-
     return withMarketSpan('market.slot.claim', { op: 'slot.claim', vendorId: vendor.id }, async (span) => {
+      /**
+       * Local facts under the lock, before any stake call. An already-held ref
+       * and a status that cannot be allowed are both answers without svc-token.
+       */
+      const preview = await transaction(
+        this.sql,
+        async (tx) => {
+          const locked = await this.lockedSlotClaim(tx, vendor.id, ref);
+          if (locked.existing) return { kind: 'held' as const, slot: toSlot(locked.existing) };
+          if (locked.status !== 'approved') {
+            return { kind: 'refused' as const, decision: this.refuseUnapproved(locked.status) };
+          }
+          return { kind: 'approved' as const };
+        },
+        { isolation: 'read committed', maxAttempts: 5 },
+      );
+
+      if (preview.kind === 'held') {
+        span.setAttribute('intafaced.decision', 'allowed');
+        return { claimed: false, slot: preview.slot };
+      }
+      if (preview.kind === 'refused') {
+        span.setAttribute('intafaced.decision', preview.decision.code);
+        throw new MarketError(preview.decision.reason, preview.decision.code);
+      }
+
+      // The locked status could still be allowed. The network call stays outside the lock.
+      const entitlement = await this.stakes.entitlementOf(input.userId);
       span.setAttribute('intafaced.market.slot_capacity', entitlement.vendorSlots);
 
       const outcome = await transaction(
         this.sql,
         async (tx) => {
-          /**
-           * The status comes from THIS row read, not from `myVendor` above. An
-           * operator suspending the vendor between those two reads must win, and
-           * a status read outside the lock would let a suspended vendor take a
-           * slot the same instant their suspension was recorded.
-           */
-          const [locked] = await tx<Array<{ id: string; status: VendorStatus }>>`
-            SELECT id, status FROM market.vendors WHERE id = ${vendor.id} FOR UPDATE
-          `;
-          if (!locked) throw new MarketError(`No vendor application ${vendor.id}`, 'market.vendor_not_found');
+          const locked = await this.lockedSlotClaim(tx, vendor.id, ref);
+          if (locked.existing) return { decision: { allowed: true } as const, claimed: false, slot: toSlot(locked.existing), open: -1 };
 
-          const [existing] = await tx<SlotRow[]>`
-            SELECT id, vendor_id, ref, claimed_at, released_at
-              FROM market.vendor_slots
-             WHERE vendor_id = ${vendor.id} AND ref = ${ref} AND released_at IS NULL
-          `;
-          if (existing) return { decision: { allowed: true } as const, claimed: false, slot: toSlot(existing), open: -1 };
+          // Status may have changed while svc-token was being read. Do not use vendorSlots.
+          if (locked.status !== 'approved') {
+            return { decision: this.refuseUnapproved(locked.status), claimed: false, slot: null, open: -1 };
+          }
 
           const open = await this.openSlotCount(vendor.id, tx);
           const decision = decideVendorSlot({ status: locked.status, capacity: entitlement.vendorSlots }, { open });
@@ -692,6 +716,38 @@ export class VendorService {
       if (!outcome.decision.allowed) throw new MarketError(outcome.decision.reason, outcome.decision.code);
       return { claimed: outcome.claimed, slot: outcome.slot! };
     });
+  }
+
+  /**
+   * The vendor row under `FOR UPDATE`, plus the open slot for this ref if one
+   * is already held. Status comes from this read, not from `myVendor`.
+   */
+  private async lockedSlotClaim(tx: Sql, vendorId: string, ref: string): Promise<{ status: VendorStatus; existing: SlotRow | undefined }> {
+    const [locked] = await tx<Array<{ id: string; status: VendorStatus }>>`
+      SELECT id, status FROM market.vendors WHERE id = ${vendorId} FOR UPDATE
+    `;
+    if (!locked) throw new MarketError(`No vendor application ${vendorId}`, 'market.vendor_not_found');
+
+    const [existing] = await tx<SlotRow[]>`
+      SELECT id, vendor_id, ref, claimed_at, released_at
+        FROM market.vendor_slots
+       WHERE vendor_id = ${vendorId} AND ref = ${ref} AND released_at IS NULL
+    `;
+    return { status: locked.status, existing };
+  }
+
+  /**
+   * Refusal for a status that cannot hold a slot. `capacity` is unread — NaN
+   * is not a slot count. `decideVendorSlot` answers from status alone.
+   */
+  private refuseUnapproved(status: VendorStatus): Extract<SlotDecision, { allowed: false }> {
+    const decision = decideVendorSlot({ status, capacity: Number.NaN }, { open: 0 });
+    if (!decision.allowed) return decision;
+    return {
+      allowed: false,
+      code: 'market.vendor_not_approved',
+      reason: 'Only an approved vendor may hold a listing slot.',
+    };
   }
 
   /**
@@ -879,9 +935,43 @@ export class VendorService {
      * Operator and then unstaked to Base still HOLDS three rows, because nothing
      * released them and nothing was ever going to. `usableSlots` clamps them to
      * what the tier svc-token reports THIS SECOND actually covers, which is zero.
+     *
+     * Status and the open count above are only the reason this call is allowed.
+     * `vet` can suspend, and `releaseSlot` can free the last slot, while
+     * svc-token is in flight. Those pre-await values must not decide `listed`.
+     * The reads below are plain selects: a lock held across this call would
+     * deadlock the suspension that has to commit during it.
      */
     const entitlement = await this.stakes.entitlementOf(vendor.userId);
-    if (usableSlots({ status: vendor.status, capacity: entitlement.vendorSlots }, { open }) === 0) {
+    const [fresh] = await this.sql<Array<{ status: VendorStatus }>>`
+      SELECT status FROM market.vendors WHERE id = ${vendor.id}
+    `;
+    if (!fresh) {
+      return {
+        vendorId: null,
+        listed: false,
+        code: 'market.vendor_not_found',
+        reason: 'No vendor application for that id.',
+      };
+    }
+    const openNow = await this.openSlotCount(vendor.id);
+    if (fresh.status !== 'approved') {
+      return {
+        vendorId: vendor.id,
+        listed: false,
+        code: 'market.vendor_not_approved',
+        reason: 'Only an approved vendor can be listed.',
+      };
+    }
+    if (openNow === 0) {
+      return {
+        vendorId: vendor.id,
+        listed: false,
+        code: 'market.slot_required',
+        reason: 'An approved vendor is listed once they hold a listing slot. Claim one.',
+      };
+    }
+    if (usableSlots({ status: fresh.status, capacity: entitlement.vendorSlots }, { open: openNow }) === 0) {
       return {
         vendorId: vendor.id,
         listed: false,
@@ -976,12 +1066,16 @@ export class VendorService {
    * span attribute below is where that difference is a number rather than a
    * silence nobody can see.
    *
-   * A page can come back shorter than `limit`, because the entitlement filter
-   * runs after it. That is correct and not worth back-filling: back-filling would
-   * mean paging svc-token until the page was full, which turns one slow lookup
-   * into an unbounded number of them.
+   * The SQL window does not stop on an under-staked open-slot holder. Unstake
+   * leaves the slot row open, so a `LIMIT` before the stake check lets the
+   * oldest of those rows fill the only page and a newer vendor who is actually
+   * listed is never selected. Candidates stay `created_at ASC, id ASC`. After
+   * `entitlementOf`, `eligibilityFor` decides from a fresh status and a fresh
+   * open count — not the pair this query already saw. The page is the first
+   * `limit` vendors that verdict calls listed. A short page means we ran out
+   * of vendors we can prove, not that an open slot occupied the window.
    *
-   * ponytail: one stake read per candidate, capped at 50 a page. Page size is
+   * ponytail: one stake read per candidate until the page is full. Page size is
    * owner-published — omit is not 20. The upgrade path when the directory gets
    * real traffic is a BATCH entitlement read on svc-token — never a cached
    * `is_listed`, which is the exact lie this method exists to avoid.
@@ -993,39 +1087,40 @@ export class VendorService {
      * Both cheap gates are the database's: approved, and holding at least one
      * open slot. Only the survivors cost a network call, so the common case —
      * most rows in this table are applications nobody has decided yet — reaches
-     * svc-token zero times.
+     * svc-token zero times. No `LIMIT` here. An open slot is not a listed vendor.
      */
-    const rows = await this.sql<Array<VendorRow & { open_slots: string }>>`
-      SELECT v.id, v.user_id, v.display_name, v.description, v.status, v.created_at, v.updated_at,
-             (SELECT COUNT(*) FROM market.vendor_slots s WHERE s.vendor_id = v.id AND s.released_at IS NULL) AS open_slots
+    const rows = await this.sql<VendorRow[]>`
+      SELECT v.id, v.user_id, v.display_name, v.description, v.status, v.created_at, v.updated_at
         FROM market.vendors v
        WHERE v.status = 'approved'::market.vendor_status
          AND EXISTS (SELECT 1 FROM market.vendor_slots s WHERE s.vendor_id = v.id AND s.released_at IS NULL)
        ORDER BY v.created_at ASC, v.id ASC
-       LIMIT ${limit}
     `;
 
     return withMarketSpan('market.listed', { op: 'listed' }, async (span) => {
       let unreadable = 0;
-      const checked = await Promise.all(
-        rows.map(async (row) => {
-          const vendor = toVendor(row);
-          try {
-            const entitlement = await this.stakes.entitlementOf(vendor.userId);
-            const usable = usableSlots({ status: vendor.status, capacity: entitlement.vendorSlots }, { open: Number(row.open_slots) });
-            return usable > 0 ? toPublicProfile(vendor) : null;
-          } catch {
-            // Fail closed. A vendor we cannot verify is not shown — and is
-            // counted, so an outage is visible as an outage.
-            unreadable += 1;
-            return null;
-          }
-        }),
-      );
+      let examined = 0;
+      const listed: PublicVendorProfile[] = [];
+      for (const row of rows) {
+        if (listed.length >= limit) break;
+        examined += 1;
+        const vendor = toVendor(row);
+        try {
+          // Same verdict as the profile read: stake first, then fresh status
+          // and open count. The row above only chose the candidate.
+          const eligibility = await this.eligibilityFor(vendor);
+          if (eligibility.listed) listed.push(toPublicProfile(vendor));
+        } catch {
+          // Fail closed. A vendor we cannot verify is not shown — and is
+          // counted, so an outage is visible as an outage. They do not keep
+          // the window.
+          unreadable += 1;
+        }
+      }
 
-      span.setAttribute('intafaced.market.listed_candidates', rows.length);
+      span.setAttribute('intafaced.market.listed_candidates', examined);
       span.setAttribute('intafaced.market.listed_stake_unreadable', unreadable);
-      return checked.filter((profile): profile is PublicVendorProfile => profile !== null);
+      return listed;
     });
   }
 }

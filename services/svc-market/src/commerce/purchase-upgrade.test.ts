@@ -1,0 +1,113 @@
+import { randomUUID } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
+import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import { describe, expect, it } from 'vitest';
+
+const directory = new URL('../../drizzle/', import.meta.url);
+const read = (name: string) => readFileSync(new URL(name, directory), 'utf8');
+const baseline = readdirSync(directory)
+  .filter((name) => /^000[0-4]_.*\.sql$/.test(name) && !name.endsWith('.down.sql'))
+  .sort()
+  .map(read);
+const recovered = ['0005_market_purchase_status_lock.sql', '0006_market_purchase_snapshot.sql', '0007_market_purchase_access_window.sql'];
+const url = process.env.TEST_DATABASE_URL?.trim();
+if (!url) throw new Error('Purchase upgrade tests require an isolated TEST_DATABASE_URL');
+
+async function fixture(): Promise<{ db: TestDatabase; purchaseId: string }> {
+  const db = await createTestDatabase({ service: 'market', url, migrations: baseline });
+  const vendor = randomUUID();
+  const listing = randomUUID();
+  const purchaseId = randomUUID();
+  const vendorUser = randomUUID();
+  try {
+    await db.sql`INSERT INTO market.vendors (id, user_id, display_name, description, status) VALUES (${vendor}, ${vendorUser}, 'Fixture', 'Native upgrade', 'approved')`;
+    await db.sql`INSERT INTO market.listings (id, vendor_id, title, description, offer_type, asset_id, price, period_seconds) VALUES (${listing}, ${vendor}, 'Feed', 'Hourly', 'subscription', 'USDT', 10, 3600)`;
+    await db.sql`INSERT INTO market.purchases (id, listing_id, buyer_id, vendor_id, vendor_user_id, asset_id, price, commission_bps, status, ledger_tx_id, settled_at, access_until) VALUES (${purchaseId}, ${listing}, ${randomUUID()}, ${vendor}, ${vendorUser}, 'USDT', 10, 500, 'settled', ${randomUUID()}, '2026-01-01T00:00:00Z', '2026-01-01T01:00:00Z')`;
+    return { db, purchaseId };
+  } catch (err) {
+    await db.drop();
+    throw err;
+  }
+}
+
+async function snapshot(db: TestDatabase, id: string) {
+  const [row] = await db.sql`SELECT to_jsonb(p) AS row FROM market.purchases p WHERE id = ${id}`;
+  return row!.row as Record<string, unknown>;
+}
+
+describe('purchase safeguards upgrade the populated public schema', () => {
+  it('preserves original paid rows and unknown legacy periods across up/down/up', async () => {
+    const { db, purchaseId } = await fixture();
+    try {
+      const original = await snapshot(db, purchaseId);
+      for (const name of recovered)
+        await db.sql.begin(async (tx) => {
+          await tx.unsafe(read(name));
+        });
+      expect(await snapshot(db, purchaseId)).toEqual({ ...original, period_seconds: null });
+      for (const name of [...recovered].reverse())
+        await db.sql.begin(async (tx) => {
+          await tx.unsafe(read(name.replace(/\.sql$/, '.down.sql')));
+        });
+      expect(await snapshot(db, purchaseId)).toEqual(original);
+      for (const name of recovered)
+        await db.sql.begin(async (tx) => {
+          await tx.unsafe(read(name));
+        });
+      expect(await snapshot(db, purchaseId)).toEqual({ ...original, period_seconds: null });
+    } finally {
+      await db.drop();
+    }
+  });
+
+  it('refuses contradictory old status fields without rewriting the paid receipt', async () => {
+    const { db, purchaseId } = await fixture();
+    try {
+      await db.sql`UPDATE market.purchases SET rejection_code = 'legacy contradiction' WHERE id = ${purchaseId}`;
+      const original = await snapshot(db, purchaseId);
+      await expect(
+        db.sql.begin(async (tx) => {
+          await tx.unsafe(read(recovered[0]!));
+        }),
+      ).rejects.toMatchObject({ code: '23514' });
+      expect(await snapshot(db, purchaseId)).toEqual(original);
+    } finally {
+      await db.drop();
+    }
+  });
+
+  it('refuses a contradictory old payee without substituting the current vendor', async () => {
+    const { db, purchaseId } = await fixture();
+    try {
+      await db.sql.unsafe(read(recovered[0]!));
+      await db.sql`UPDATE market.purchases SET vendor_user_id = ${randomUUID()} WHERE id = ${purchaseId}`;
+      const original = await snapshot(db, purchaseId);
+      await expect(
+        db.sql.begin(async (tx) => {
+          await tx.unsafe(read(recovered[1]!));
+        }),
+      ).rejects.toMatchObject({ code: '23503' });
+      expect(await snapshot(db, purchaseId)).toEqual(original);
+    } finally {
+      await db.drop();
+    }
+  });
+
+  it('refuses an unbacked legacy access window without clearing its history', async () => {
+    const { db, purchaseId } = await fixture();
+    try {
+      await db.sql`UPDATE market.purchases SET status = 'pending', ledger_tx_id = NULL, settled_at = NULL WHERE id = ${purchaseId}`;
+      await db.sql.unsafe(read(recovered[0]!));
+      await db.sql.unsafe(read(recovered[1]!));
+      const original = await snapshot(db, purchaseId);
+      await expect(
+        db.sql.begin(async (tx) => {
+          await tx.unsafe(read(recovered[2]!));
+        }),
+      ).rejects.toMatchObject({ code: '23514' });
+      expect(await snapshot(db, purchaseId)).toEqual(original);
+    } finally {
+      await db.drop();
+    }
+  });
+});

@@ -398,8 +398,8 @@ describe('market.commerce', () => {
       const [row] = await sql<Array<{ status: string; rejection_code: string | null }>>`
         SELECT status, rejection_code FROM market.purchases WHERE buyer_id = ${BUYER}
       `;
-      expect(row?.status).toBe('rejected');
-      expect(row?.rejection_code).toMatch(/insufficient/i);
+      expect(row?.status).toBe('pending');
+      expect(row?.rejection_code).toBeNull();
     });
 
     it('refuses purchase when the vendor is suspended', async () => {
@@ -726,7 +726,7 @@ describe('market.commerce', () => {
       expect(formatAmount((await ledger.balance(houseFees('market', 'USDT'))).amount)).toBe('5');
     });
 
-    it('same purchaseId after insufficient funds stays refused (no second charge attempt)', async () => {
+    it('retains the same claim after insufficient funds and settles that key when funded', async () => {
       const listing = await (async () => {
         await approvedVendor(VENDOR_USER);
         return commerce.createListing({
@@ -751,12 +751,10 @@ describe('market.commerce', () => {
           railRef: 'buyer-seed-after-insuf',
         }),
       );
-      await expect(commerce.purchase({ buyerId: BUYER, listingId: listing.id, purchaseId })).rejects.toMatchObject({
-        code: 'market.purchase_conflict',
-      });
-      // Fresh id still works after deposit.
-      const ok = await commerce.purchase({ buyerId: BUYER, listingId: listing.id, purchaseId: randomUUID() });
+      const ok = await commerce.purchase({ buyerId: BUYER, listingId: listing.id, purchaseId });
       expect(ok.status).toBe('settled');
+      expect(ok.id).toBe(purchaseId);
+      expect(formatAmount((await ledger.balance(userAvailable(BUYER, 'USDT'))).amount)).toBe('900');
     });
   });
 

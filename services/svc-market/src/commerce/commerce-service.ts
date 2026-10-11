@@ -1,5 +1,15 @@
 import type { Sql } from 'postgres';
-import { formatAmount, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { transaction } from '@intafaced/db';
+import {
+  formatAmount,
+  MoneyError,
+  parseAmount,
+  recipes,
+  type Amount,
+  type LedgerClient,
+  type LedgerTx,
+  type PostRequest,
+} from '@intafaced/ledger-client';
 import { decimalPriceFromDriver, purchasePriceTermsMatch } from './commerce-price.js';
 import {
   affiliateLegAfterMarketPurchase,
@@ -67,7 +77,8 @@ export function assertMyPurchasesListLimit(limit: number | undefined): number {
  * deployment has no rate configured (`commissionBps === null`):
  *   - createListing refuses before insert or slot claim
  *   - publicListings returns [] (shopfront does not advertise unsellable stock)
- *   - purchase refuses before any row or post
+ *   - a fresh purchase refuses before any row or post
+ * A purchase that already posted `marketPurchase` still settles on retry.
  * Never invent a platform rate. Explicit `0` is an owner free-commission
  * decision, not silence. Ledger recipe refuses blank/invalid bps so a
  * miswired caller cannot invent free commission at post time (#1761 owns
@@ -75,7 +86,8 @@ export function assertMyPurchasesListLimit(limit: number | undefined): number {
  *
  * Stage C3 listing subscriptions: one period is paid with the same
  * `marketPurchase` recipe as a one-time sale. Period seconds come from the
- * listing — never a default month. Cancel is a flag (no reverse recipe).
+ * listing and are copied onto the purchase at claim — never a default month.
+ * Cancel is a flag (no reverse recipe).
  * Past-due is computed from the clock vs `access_until`, never a fake paid
  * status. Leftover subscription rows without a period stay unsellable.
  */
@@ -119,6 +131,11 @@ export interface PurchaseRecord {
   settledAt: string | null;
   /** Paid access end. Set on settled subscription purchases; null for one-time. */
   accessUntil: string | null;
+  /**
+   * Listing period at claim, in whole seconds. Null when the listing period
+   * was null. Never a default month.
+   */
+  periodSeconds: number | null;
 }
 
 interface ListingRow {
@@ -151,6 +168,7 @@ interface PurchaseRow {
   created_at: Date;
   settled_at: Date | null;
   access_until: Date | null;
+  period_seconds: number | string | null;
 }
 
 function toListing(row: ListingRow): ListingRecord {
@@ -185,6 +203,7 @@ function toPurchase(row: PurchaseRow): PurchaseRecord {
     createdAt: row.created_at.toISOString(),
     settledAt: row.settled_at ? row.settled_at.toISOString() : null,
     accessUntil: row.access_until ? row.access_until.toISOString() : null,
+    periodSeconds: row.period_seconds == null || row.period_seconds === '' ? null : Number(row.period_seconds),
   };
 }
 
@@ -445,15 +464,23 @@ export class CommerceService {
   /**
    * One-time or one-period subscription purchase via `marketPurchase`.
    *
-   * Order: commission configured → eligibility → claim row → re-check sell
-   * gates → post from the claim snapshot → settle only while still pending.
-   * Crash after post before settle: re-drive posts the same key and finishes
-   * using the purchase row's price/bps (not a live config that may have changed).
+   * A pending row whose ledger already has this purchase settles before the
+   * fresh gates only when an actual matching rich receipt is available. Price
+   * and bps stay the snapshot on the row. The deployed HTTP port cannot look
+   * the key up; without that proof the current fresh gates still apply.
+   * A permitted retry posts the original key and terms. Settle is one update from
+   * pending. This service does not post a reversing entry.
+   *
+   * Fresh order: commission configured → eligibility → claim row → re-check
+   * sell gates → post from the claim snapshot → settle only while still pending.
    */
   async purchase(input: { buyerId: string; listingId: string; purchaseId: string }): Promise<PurchaseRecord> {
     if (!input.purchaseId?.trim()) {
       throw new MarketError('purchaseId is required', 'market.purchase_id_required');
     }
+
+    const resumed = await this.resumePostedPurchase(input);
+    if (resumed) return resumed;
 
     const commissionBps = this.requireCommissionConfigured();
 
@@ -468,7 +495,8 @@ export class CommerceService {
 
     await this.assertListingSellable(listing);
 
-    // Resolve vendor user id for the ledger leg.
+    // Self-purchase compares the vendor's user. The payee written on the row
+    // is selected from that vendor inside the claim, not from this read.
     const [vendorRow] = await this.sql<Array<{ user_id: string }>>`
       SELECT user_id FROM market.vendors WHERE id = ${listing.vendorId}
     `;
@@ -479,16 +507,15 @@ export class CommerceService {
       throw new MarketError('You cannot buy your own listing', 'market.purchase_self');
     }
 
-    const price = parseAmount(listing.price);
+    const price = this.positiveDecimalPrice(listing.price);
 
-    // Claim / idempotent resume.
+    // Claim / idempotent resume. Payee, asset, and period are copied from the
+    // listing and vendor rows inside the insert — not taken as separate arguments.
+    // A null listing period stays null. No default month.
     const claimed = await this.claimPurchase({
       purchaseId: input.purchaseId,
       listingId: listing.id,
       buyerId: input.buyerId,
-      vendorId: listing.vendorId,
-      vendorUserId: vendorRow.user_id,
-      assetId: listing.assetId,
       price: formatAmount(price),
       commissionBps,
     });
@@ -506,28 +533,39 @@ export class CommerceService {
     }
     await this.assertListingSellable(liveListing);
     if (liveListing.offerType === 'subscription') {
-      this.requireSubscriptionPeriod(liveListing);
+      if (this.paidPeriodSeconds(claimed) == null) {
+        throw new MarketError(
+          'This subscription listing has no period — it cannot be sold until the vendor sets one',
+          'market.subscription_period_unset',
+        );
+      }
       await this.assertNotCancelled(liveListing.id, claimed.buyerId);
     }
 
     // Post only from the claim snapshot — never re-read live env bps or a
     // price that may have changed under a different write path later.
-    const snapshotPrice = parseAmount(claimed.price);
+    // A blank snapshot stays a typed refusal. Do not substitute the live
+    // listing price or a made-up amount.
+    const snapshotPrice = this.positiveDecimalPrice(claimed.price);
     const snapshotBps = claimed.commissionBps;
 
     try {
-      const tx = await this.ledger.post(
-        recipes.marketPurchase({
-          purchaseId: claimed.id,
-          listingId: claimed.listingId,
-          buyerId: claimed.buyerId,
-          vendorUserId: claimed.vendorUserId,
-          assetId: claimed.assetId,
-          price: snapshotPrice,
-          commissionBps: snapshotBps,
-        }),
-      );
+      const request = recipes.marketPurchase({
+        purchaseId: claimed.id,
+        listingId: claimed.listingId,
+        buyerId: claimed.buyerId,
+        vendorUserId: claimed.vendorUserId,
+        assetId: claimed.assetId,
+        price: snapshotPrice,
+        commissionBps: snapshotBps,
+      });
+      const tx = await this.ledger.post(request);
+      // Rich clients return the original receipt even when this key was used
+      // with different terms. Never settle that different payment as this sale.
+      if (tx.entries.length > 0) await this.requireMatchingReceipt(tx, request);
 
+      // One update from pending. 0005 refuses a pending ledger_tx_id, and
+      // refuses a later status rewrite. This service does not post a reverse.
       await this.notifyMarketAffiliateAccrue(claimed, snapshotPrice, snapshotBps);
       await this.notifyMarketAffiliatePayout(claimed, snapshotPrice, snapshotBps);
 
@@ -536,7 +574,8 @@ export class CommerceService {
         UPDATE market.purchases
            SET status = 'settled',
                ledger_tx_id = ${tx.id},
-               settled_at = ${settledAtIso}::timestamptz
+               settled_at = ${settledAtIso}::timestamptz,
+               rejection_code = NULL
          WHERE id = ${claimed.id}
            AND status = 'pending'
         RETURNING *
@@ -559,15 +598,10 @@ export class CommerceService {
         err && typeof err === 'object' && 'code' in err && typeof (err as { code: unknown }).code === 'string'
           ? (err as { code: string }).code
           : 'market.purchase_failed';
-      // Insufficient funds and friends — mark rejected so a retry with the same
-      // id does not silently re-post after a different outcome. Ledger keys are
-      // still unique so a partial post cannot double-charge.
-      if (code.includes('insufficient') || code === 'ledger.insufficient_funds') {
-        await this.sql`
-          UPDATE market.purchases
-             SET status = 'rejected', rejection_code = ${code}
-           WHERE id = ${claimed.id} AND status = 'pending'
-        `;
+      // A current rejection cannot erase an earlier uncertain post under this
+      // key. Rows do not prove authoritative absence of all prior effects.
+      // Retain the immutable pending claim for reconciliation on every error.
+      if (code === 'ledger.insufficient_funds') {
         throw new MarketError('Insufficient balance for this purchase', 'market.insufficient_funds');
       }
       throw err;
@@ -658,12 +692,15 @@ export class CommerceService {
 
   /**
    * Time-bounded access. Past-due is a named refuse, never a fake paid row.
+   * A settled purchase whose `access_until` never stuck is stamped from that
+   * row's period snapshot and `settled_at`. The live listing period is not read.
    */
   async subscriptionAccess(input: { buyerId: string; listingId: string }): Promise<SubscriptionAccess> {
     const listing = await this.getListing(input.listingId);
     if (!listing || listing.offerType !== 'subscription') {
       throw new MarketError('No subscription listing with that id', 'market.listing_not_found');
     }
+    await this.stampMissingSubscriptionAccess(listing, input.buyerId);
     const paidUntil = await this.maxAccessUntil(listing.id, input.buyerId);
     if (!paidUntil) {
       throw new MarketError('No paid subscription access', 'market.subscription_no_access');
@@ -710,6 +747,13 @@ export class CommerceService {
     return listing.periodSeconds;
   }
 
+  /** Paid term on the purchase. Null stays null — no default month. */
+  private paidPeriodSeconds(purchase: PurchaseRecord): number | null {
+    const period = purchase.periodSeconds;
+    if (period == null || !Number.isInteger(period) || period <= 0) return null;
+    return period;
+  }
+
   private async assertNotCancelled(listingId: string, buyerId: string): Promise<void> {
     const cancelledAt = await this.cancelledAt(listingId, buyerId);
     if (cancelledAt) {
@@ -738,33 +782,216 @@ export class CommerceService {
   }
 
   /**
-   * Stamp `access_until` from the listing period. Idempotent on the same
-   * purchase id so a crash re-drive cannot stack extra time.
+   * Finish a purchase whose `marketPurchase` is already on the ledger.
+   * Returns null when this id was not posted yet, so fresh gates still apply.
+   * Does not call `ledger.post`.
+   */
+  private async resumePostedPurchase(input: { buyerId: string; listingId: string; purchaseId: string }): Promise<PurchaseRecord | null> {
+    const [row] = await this.sql<PurchaseRow[]>`SELECT * FROM market.purchases WHERE id = ${input.purchaseId}`;
+    if (!row) return null;
+    const existing = toPurchase(row);
+    if (existing.buyerId !== input.buyerId || existing.listingId !== input.listingId) return null;
+    if (existing.status === 'rejected') return null;
+
+    const listing = await this.getListing(existing.listingId);
+    if (!listing) return null;
+
+    if (existing.status === 'settled') {
+      return this.ensureSubscriptionAccess(existing, listing);
+    }
+    if (existing.status !== 'pending') return null;
+
+    const posted = await this.postedMarketPurchase(existing);
+    if (!posted) return null;
+
+    const snapshotPrice = this.positiveDecimalPrice(existing.price);
+    await this.notifyMarketAffiliateAccrue(existing, snapshotPrice, existing.commissionBps);
+    await this.notifyMarketAffiliatePayout(existing, snapshotPrice, existing.commissionBps);
+
+    const settledAtIso = this.now().toISOString();
+    const settledRows = await this.sql<PurchaseRow[]>`
+      UPDATE market.purchases
+         SET status = 'settled',
+             ledger_tx_id = ${posted.id},
+             settled_at = ${settledAtIso}::timestamptz,
+             rejection_code = NULL
+       WHERE id = ${existing.id}
+         AND status = 'pending'
+      RETURNING *
+    `;
+    const settled = settledRows[0];
+    if (settled) return this.ensureSubscriptionAccess(toPurchase(settled), listing);
+
+    const [reload] = await this.sql<PurchaseRow[]>`SELECT * FROM market.purchases WHERE id = ${existing.id}`;
+    if (reload?.status === 'settled') return this.ensureSubscriptionAccess(toPurchase(reload), listing);
+    if (reload?.status === 'rejected') {
+      throw new MarketError(reload.rejection_code ?? 'Purchase previously rejected', 'market.purchase_conflict');
+    }
+    throw new MarketError('Purchase settle returned no row', 'market.purchase_not_written');
+  }
+
+  /**
+   * The matching posted `market.purchase:<id>` transaction, or null when
+   * lookup is unavailable or reports no receipt. Null is not absence proof.
+   *
+   * A pending row does not store `ledger_tx_id` (0005). Resume asks the ledger
+   * by idempotency key. The HTTP client's `getTxByKey` throws; that throw
+   * permits no bypass of current fresh gates and no terminal rejection.
+   */
+  private async postedMarketPurchase(purchase: PurchaseRecord): Promise<{ id: string } | null> {
+    let tx: LedgerTx | null;
+    try {
+      tx = await this.ledger.getTxByKey(`market.purchase:${purchase.id.trim()}`);
+    } catch {
+      // The deployed HTTP port has no lookup. Request echoes and a stored ID
+      // alone are not proof that the ledger holds these exact sale terms.
+      return null;
+    }
+    if (!tx) return null;
+    await this.requireMatchingReceipt(
+      tx,
+      recipes.marketPurchase({
+        purchaseId: purchase.id,
+        listingId: purchase.listingId,
+        buyerId: purchase.buyerId,
+        vendorUserId: purchase.vendorUserId,
+        assetId: purchase.assetId,
+        price: this.positiveDecimalPrice(purchase.price),
+        commissionBps: purchase.commissionBps,
+      }),
+    );
+    return { id: tx.id };
+  }
+
+  private async requireMatchingReceipt(tx: LedgerTx, request: PostRequest): Promise<void> {
+    const refuse = () => new MarketError('Ledger receipt does not match this purchase', 'market.purchase_receipt_mismatch');
+    if (
+      !tx.id ||
+      tx.idempotencyKey !== request.idempotencyKey ||
+      tx.module !== request.module ||
+      tx.reason !== request.reason ||
+      Object.entries(request.meta ?? {}).some(([key, value]) => tx.meta[key] !== value) ||
+      tx.entries.length !== request.entries.length
+    ) {
+      throw refuse();
+    }
+    const expected = await Promise.all(
+      request.entries.map(async (entry) => ({
+        accountId: (await this.ledger.balance(entry.account)).accountId,
+        assetId: entry.account.assetId,
+        direction: entry.direction,
+        amount: entry.amount,
+      })),
+    );
+    const actual = [...tx.entries];
+    for (const entry of expected) {
+      const at = actual.findIndex(
+        (posted) =>
+          posted.accountId === entry.accountId &&
+          posted.assetId === entry.assetId &&
+          posted.direction === entry.direction &&
+          posted.amount === entry.amount,
+      );
+      if (at < 0) throw refuse();
+      actual.splice(at, 1);
+    }
+  }
+
+  /**
+   * Snapshot price from the purchase or listing string already in hand.
+   * Blank, malformed, or non-positive stays `market.listing_invalid_price`.
+   * Never substitutes another price.
+   */
+  private positiveDecimalPrice(price: string): Amount {
+    let amount: Amount;
+    try {
+      amount = parseAmount(price);
+    } catch (err) {
+      if (err instanceof MoneyError) {
+        throw new MarketError('Purchase price must be a positive decimal string', 'market.listing_invalid_price');
+      }
+      throw err;
+    }
+    if (amount <= 0n) {
+      throw new MarketError('Purchase price must be positive', 'market.listing_invalid_price');
+    }
+    return amount;
+  }
+
+  /**
+   * Stamp settled subscription rows that lost `access_until`. Period is the
+   * purchase snapshot. A null snapshot is left null. No price is invented.
+   */
+  private async stampMissingSubscriptionAccess(listing: ListingRecord, buyerId: string): Promise<void> {
+    if (listing.offerType !== 'subscription') return;
+    const rows = await this.sql<PurchaseRow[]>`
+      SELECT * FROM market.purchases
+       WHERE listing_id = ${listing.id}
+         AND buyer_id = ${buyerId}
+         AND status = 'settled'
+         AND ledger_tx_id IS NOT NULL
+         AND access_until IS NULL
+         AND period_seconds IS NOT NULL
+         AND period_seconds > 0
+       ORDER BY settled_at ASC, id ASC
+    `;
+    for (const row of rows) {
+      await this.ensureSubscriptionAccess(toPurchase(row), listing);
+    }
+  }
+
+  /**
+   * Stamp `access_until` from the purchase period snapshot. Idempotent on the
+   * same purchase id so a crash re-drive cannot stack extra time.
+   *
+   * Two settled purchases of the same listing and buyer can both reach this
+   * before either has written `access_until`. The prior window is
+   * `max(access_until)` excluding this id. The advisory lock on (listing, buyer)
+   * is held from that read through the write, at read committed, so the second
+   * statement sees the end the first purchase committed. The second period
+   * starts at the first period's end. A row that already has `access_until`
+   * is returned as stored. Pending and rejected rows are not stamped.
    */
   private async ensureSubscriptionAccess(purchase: PurchaseRecord, listing: ListingRecord): Promise<PurchaseRecord> {
     if (listing.offerType !== 'subscription') return purchase;
+    if (purchase.status !== 'settled' || purchase.ledgerTxId == null) return purchase;
     if (purchase.accessUntil) return purchase;
-    const period = this.requireSubscriptionPeriod(listing);
-    const now = purchase.settledAt ? new Date(purchase.settledAt) : this.now();
-    const previous = await this.maxAccessUntilExcluding(listing.id, purchase.buyerId, purchase.id);
-    const base = previous && previous > now ? previous : now;
-    const until = addSeconds(base, period);
-    const untilIso = until.toISOString();
-    const updated = await this.sql<PurchaseRow[]>`
-      UPDATE market.purchases
-         SET access_until = ${untilIso}::timestamptz
-       WHERE id = ${purchase.id}
-         AND access_until IS NULL
-      RETURNING *
-    `;
-    const row = updated[0];
-    if (row) return toPurchase(row);
-    const [reload] = await this.sql<PurchaseRow[]>`SELECT * FROM market.purchases WHERE id = ${purchase.id}`;
-    return reload ? toPurchase(reload) : purchase;
+    if (this.paidPeriodSeconds(purchase) == null) return purchase;
+    return transaction(
+      this.sql,
+      async (tx) => {
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${listing.id}), hashtext(${purchase.buyerId}))`;
+        const [current] = await tx<PurchaseRow[]>`SELECT * FROM market.purchases WHERE id = ${purchase.id}`;
+        if (!current) return purchase;
+        const snap = toPurchase(current);
+        if (snap.status !== 'settled' || snap.ledgerTxId == null) return snap;
+        if (snap.accessUntil) return snap;
+        const period = this.paidPeriodSeconds(snap);
+        if (period == null) return snap;
+        const now = current.settled_at ? new Date(current.settled_at) : this.now();
+        const previous = await this.maxAccessUntilExcluding(tx, listing.id, purchase.buyerId, purchase.id);
+        const base = previous && previous > now ? previous : now;
+        const untilIso = addSeconds(base, period).toISOString();
+        const updated = await tx<PurchaseRow[]>`
+          UPDATE market.purchases
+             SET access_until = ${untilIso}::timestamptz
+           WHERE id = ${purchase.id}
+             AND status = 'settled'
+             AND ledger_tx_id IS NOT NULL
+             AND access_until IS NULL
+          RETURNING *
+        `;
+        const row = updated[0];
+        if (row) return toPurchase(row);
+        const [reload] = await tx<PurchaseRow[]>`SELECT * FROM market.purchases WHERE id = ${purchase.id}`;
+        return reload ? toPurchase(reload) : purchase;
+      },
+      { isolation: 'read committed' },
+    );
   }
 
-  private async maxAccessUntilExcluding(listingId: string, buyerId: string, exceptPurchaseId: string): Promise<Date | null> {
-    const [row] = await this.sql<Array<{ until: Date | null }>>`
+  private async maxAccessUntilExcluding(sql: Sql, listingId: string, buyerId: string, exceptPurchaseId: string): Promise<Date | null> {
+    const [row] = await sql<Array<{ until: Date | null }>>`
       SELECT max(access_until) AS until
         FROM market.purchases
        WHERE listing_id = ${listingId}
@@ -830,9 +1057,6 @@ export class CommerceService {
     purchaseId: string;
     listingId: string;
     buyerId: string;
-    vendorId: string;
-    vendorUserId: string;
-    assetId: string;
     price: string;
     commissionBps: number;
   }): Promise<PurchaseRecord> {
@@ -840,11 +1064,22 @@ export class CommerceService {
       const inserted = await this.sql<PurchaseRow[]>`
         INSERT INTO market.purchases (
           id, listing_id, buyer_id, vendor_id, vendor_user_id,
-          asset_id, price, commission_bps, status
-        ) VALUES (
-          ${input.purchaseId}, ${input.listingId}, ${input.buyerId}, ${input.vendorId},
-          ${input.vendorUserId}, ${input.assetId}, ${input.price}::numeric, ${input.commissionBps}, 'pending'
+          asset_id, price, commission_bps, period_seconds, status
         )
+        SELECT
+          ${input.purchaseId},
+          l.id,
+          ${input.buyerId},
+          l.vendor_id,
+          v.user_id,
+          l.asset_id,
+          ${input.price}::numeric,
+          ${input.commissionBps},
+          l.period_seconds,
+          'pending'
+        FROM market.listings l
+        JOIN market.vendors v ON v.id = l.vendor_id
+        WHERE l.id = ${input.listingId}
         RETURNING *
       `;
       const row = inserted[0];
@@ -857,14 +1092,25 @@ export class CommerceService {
       `;
       if (existing.length === 0) throw err;
       const row = existing[0]!;
+      const [live] = await this.sql<Array<{ vendor_id: string; user_id: string; asset_id: string }>>`
+        SELECT l.vendor_id, v.user_id, l.asset_id
+          FROM market.listings l
+          JOIN market.vendors v ON v.id = l.vendor_id
+         WHERE l.id = ${input.listingId}
+      `;
       // Commission bps is NOT part of the client-facing terms match: it was
       // snapshotted on first claim. Re-drive after an env bps change must settle
       // the original split, not stuck as purchase_conflict or re-split.
+      // Period seconds is the same kind of snapshot. A later listing period
+      // does not conflict and is not re-read.
+      // Payee and asset are the listing and vendor rows, not caller fields.
       const termsMatch =
+        live !== undefined &&
         row.listing_id === input.listingId &&
         row.buyer_id === input.buyerId &&
-        row.vendor_id === input.vendorId &&
-        row.asset_id === input.assetId &&
+        row.vendor_id === live.vendor_id &&
+        row.vendor_user_id === live.user_id &&
+        row.asset_id === live.asset_id &&
         purchasePriceTermsMatch(row.price, input.price);
       if (!termsMatch) {
         throw new MarketError(`Purchase id ${input.purchaseId} was already used with different terms`, 'market.purchase_conflict');
