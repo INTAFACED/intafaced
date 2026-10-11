@@ -115,6 +115,36 @@ describe('runLots', () => {
     expect(out.unrealized).toBeNull();
   });
 
+  it('blank market price leaves unrealized null, not the open cost basis', () => {
+    const out = runLots(
+      [
+        mv({
+          assetId: 'BTC',
+          side: 'acquire',
+          qty: '2',
+          costBasis: '20000',
+          txId: 'a1',
+          reason: 'deposit',
+          at: '2024-01-01T00:00:00.000Z',
+        }),
+        mv({
+          assetId: 'BTC',
+          side: 'acquire',
+          qty: '1',
+          costBasis: '30000',
+          txId: 'a2',
+          reason: 'deposit',
+          at: '2024-06-01T00:00:00.000Z',
+        }),
+      ],
+      'FIFO',
+    );
+    expect(out.lotsOpen).toHaveLength(2);
+    expect(out.lotsOpen[0]?.costBasis).toBe('20000');
+    expect(out.lotsOpen[1]?.costBasis).toBe('30000');
+    expect(out.unrealized).toBeNull();
+  });
+
   it('dispose beyond open lots is a named underflow, not a negative invent', () => {
     const out = runLots(
       [mv({ assetId: 'BTC', side: 'dispose', qty: '1', txId: 'd', reason: 'trade.fill', at: '2024-01-01T00:00:00.000Z' })],
