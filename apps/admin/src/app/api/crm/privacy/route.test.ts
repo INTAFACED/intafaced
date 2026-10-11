@@ -38,6 +38,17 @@ const pending = {
   pendingSubmissionCount: 1,
   code: null,
 };
+const review = {
+  reviewId: randomUUID(),
+  canonicalContactId,
+  revision: 1,
+  state: 'active',
+  reviewedBy: userId,
+  reviewedAt: now,
+  expiresAt: new Date(Date.now() + 86400000).toISOString(),
+  evidenceRef: 'call-2026-10-11',
+  reason: 'Ongoing discussion confirmed.',
+};
 const begin = {
   requestId: randomUUID(),
   canonicalContactId,
@@ -151,6 +162,121 @@ describe('founder-only privacy BFF', () => {
     expect((await GET(request('/api/crm/privacy?view=privacyRetentionStatus'))).status).toBe(200);
     for (const [, options] of fetcher.mock.calls)
       expect(new Headers(options?.headers).get('authorization')).toBe(`Bearer ${session.accessToken}`);
+  });
+  it('returns configured retention policy fields without downgrading them to unavailable', async () => {
+    const configured = {
+      status: 'configured',
+      inactivityCalendarMonths: 6,
+      clockTimeZone: 'UTC',
+      activeReviewMaxDays: 30,
+      automationEnabled: false,
+      lastSweepAt: now,
+    };
+    const fetcher = upstream({ privacyRetentionStatus: configured });
+    const response = await GET(request('/api/crm/privacy?view=privacyRetentionStatus'));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(configured);
+    expect(new Headers(fetcher.mock.calls[1]?.[1]?.headers).get('authorization')).toBe(`Bearer ${session.accessToken}`);
+  });
+  it('binds the private review lookup to exactly one selected canonical contact', async () => {
+    const fetcher = upstream({ privacyRetentionReviewStatus: review });
+    const response = await GET(request(`/api/crm/privacy?view=privacyRetentionReviewStatus&canonicalContactId=${canonicalContactId}`));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(review);
+    expect(JSON.parse(new URL(String(fetcher.mock.calls[1]?.[0])).searchParams.get('input')!)).toEqual({ canonicalContactId });
+    expect(
+      (await GET(request(`/api/crm/privacy?view=privacyRetentionReviewStatus&canonicalContactId=${randomUUID()}&email=x`))).status,
+    ).toBe(400);
+    fetcher.mockImplementation(async (url) => {
+      if (String(url).includes('/operatorStatus'))
+        return Response.json({ result: { data: { status: 'enabled', userId, version: '1', changedAt: now } } });
+      return Response.json({ result: { data: { ...review, canonicalContactId: randomUUID() } } });
+    });
+    expect((await GET(request(`/api/crm/privacy?view=privacyRetentionReviewStatus&canonicalContactId=${canonicalContactId}`))).status).toBe(
+      502,
+    );
+  });
+  it('requires live founder, exact origin/CSRF, strict review input, and binds the receipt to actor and selected revision', async () => {
+    const input = {
+      requestId: randomUUID(),
+      canonicalContactId,
+      expectedCanonicalRevision: 2,
+      expectedReviewRevision: 0,
+      state: 'active',
+      evidenceRef: 'call-2026-10-11',
+      reason: 'Ongoing discussion confirmed.',
+    };
+    const fetcher = upstream({ privacyRetentionReview: review });
+    expect(
+      (
+        await POST(
+          new Request('https://admin.example/api/crm/privacy', {
+            method: 'POST',
+            headers: { origin: 'https://admin.example', 'content-type': 'application/json', 'x-intafaced-csrf': session.csrf },
+            body: JSON.stringify({ action: 'privacyRetentionReview', input }),
+          }),
+        )
+      ).status,
+    ).toBe(401);
+    expect(
+      (await POST(request('/api/crm/privacy', { action: 'privacyRetentionReview', input }, { origin: 'https://foreign.example' }))).status,
+    ).toBe(403);
+    expect((await POST(request('/api/crm/privacy', { action: 'privacyRetentionReview', input }, { 'x-intafaced-csrf': '' }))).status).toBe(
+      403,
+    );
+    expect(
+      (await POST(request('/api/crm/privacy', { action: 'privacyRetentionReview', input: { ...input, reviewedBy: userId } }))).status,
+    ).toBe(400);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(String(fetcher.mock.calls[0]?.[0])).toContain('accountControls.operatorStatus');
+    const success = await POST(request('/api/crm/privacy', { action: 'privacyRetentionReview', input }));
+    expect(success.status).toBe(200);
+    expect(await success.json()).toEqual(review);
+    const upstreamWrite = fetcher.mock.calls.find(([url]) => String(url).includes('/outreach.privacyRetentionReview'));
+    expect(JSON.parse(String(upstreamWrite?.[1]?.body))).toEqual(input);
+    expect(new Headers(upstreamWrite?.[1]?.headers).get('authorization')).toBe(`Bearer ${session.accessToken}`);
+  });
+  it.each(['canonical', 'actor', 'revision', 'state', 'evidence'] as const)('refuses mismatched review receipt: %s', async (mismatch) => {
+    const input = {
+      requestId: randomUUID(),
+      canonicalContactId,
+      expectedCanonicalRevision: 2,
+      expectedReviewRevision: 0,
+      state: 'active',
+      evidenceRef: 'call-2026-10-11',
+      reason: 'Ongoing discussion confirmed.',
+    };
+    const receipt = {
+      ...review,
+      ...(mismatch === 'canonical' ? { canonicalContactId: randomUUID() } : {}),
+      ...(mismatch === 'actor' ? { reviewedBy: randomUUID() } : {}),
+      ...(mismatch === 'revision' ? { revision: 2 } : {}),
+      ...(mismatch === 'state' ? { state: 'inactive', expiresAt: null } : {}),
+      ...(mismatch === 'evidence' ? { evidenceRef: 'other-ref' } : {}),
+    };
+    upstream({ privacyRetentionReview: receipt });
+    expect((await POST(request('/api/crm/privacy', { action: 'privacyRetentionReview', input }))).status).toBe(502);
+  });
+  it('returns a typed OPS revision refusal without claiming a review was saved', async () => {
+    const input = {
+      requestId: randomUUID(),
+      canonicalContactId,
+      expectedCanonicalRevision: 2,
+      expectedReviewRevision: 0,
+      state: 'inactive',
+      evidenceRef: 'meeting-note-19',
+      reason: 'Discussion concluded.',
+    };
+    const fetcher = upstream({});
+    fetcher.mockImplementation(async (url) =>
+      String(url).includes('operatorStatus')
+        ? Response.json({ result: { data: { status: 'enabled', userId, version: '1', changedAt: now } } })
+        : Response.json({ error: { message: 'ops.crm.revision_conflict' } }, { status: 412 }),
+    );
+    const response = await POST(request('/api/crm/privacy', { action: 'privacyRetentionReview', input }));
+    expect(response.status).toBe(412);
+    expect(await response.json()).toEqual({ code: 'admin.upstream_refused' });
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
   it.each(['foreign', 'duplicate', 'count', 'revision', 'extra'] as const)('refuses an invalid canonical preview: %s', async (wrong) => {
     upstream({

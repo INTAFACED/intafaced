@@ -74,6 +74,9 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
   const [detailTab, setDetailTab] = useState<DetailTab>('overview');
   const [visitedDetailTabs, setVisitedDetailTabs] = useState<Set<DetailTab>>(() => new Set(['overview']));
   const [messageDraftDirty, setMessageDraftDirty] = useState(false);
+  const [retentionDraftDirty, setRetentionDraftDirty] = useState(false);
+  const [retentionWritePending, setRetentionWritePending] = useState(false);
+  const [privacyResetVersion, setPrivacyResetVersion] = useState(0);
   const [mobileDetail, setMobileDetail] = useState(false);
   const detailHeading = useRef<HTMLDivElement>(null);
   const owners = useFounderOwners();
@@ -98,6 +101,13 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
   const pending = useRef(new Map<string, { inputKey: string; requestId: string }>());
   const sequence = useRef(0);
   const listScroll = useRef(0);
+  const retentionPendingPrevious = useRef(false);
+  const onRetentionDraftState = useCallback((dirty: boolean, pending: boolean) => {
+    if (retentionPendingPrevious.current && !pending) setNotice('');
+    retentionPendingPrevious.current = pending;
+    setRetentionDraftDirty(dirty);
+    setRetentionWritePending(pending);
+  }, []);
   const filters = new URLSearchParams({
     limit: '50',
     ...(audience ? { audience } : {}),
@@ -124,8 +134,16 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
   }, [load]);
   async function open(id: string, manageBusy = true) {
     if (id !== detail?.opportunity.id && typeof window !== 'undefined') listScroll.current = window.scrollY;
-    if (detail && detail.opportunity.id !== id && hasDirtyDraft()) {
-      if (!window.confirm('Discard unsaved changes and open another enquiry?')) return false;
+    if (detail && detail.opportunity.id !== id) {
+      if (retentionWritePending) {
+        setNotice('A retention review result is unconfirmed. Retry that same request before leaving this enquiry.');
+        return false;
+      }
+      if (hasDirtyDraft()) {
+        if (!window.confirm('Discard unsaved changes and open another enquiry?')) return false;
+        resetDraft();
+        setPrivacyResetVersion((value) => value + 1);
+      }
     }
     if (manageBusy) setBusy(true);
     setError('');
@@ -170,7 +188,8 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
       actionDescription !== (detail.opportunity.nextAction?.description ?? '') ||
       actionDue !== originalDue ||
       Boolean(reason.trim() || evidence.trim() || note.trim()) ||
-      messageDraftDirty
+      messageDraftDirty ||
+      retentionDraftDirty
     );
   }
   function resetDraft() {
@@ -184,13 +203,22 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
     setEvidence('');
     setNote('');
     setMessageDraftDirty(false);
+    setRetentionDraftDirty(false);
+  }
+  function canLeaveCurrentDetail(prompt: string): boolean {
+    if (retentionWritePending) {
+      setNotice('A retention review result is unconfirmed. Retry that same request before leaving this enquiry.');
+      return false;
+    }
+    if (!hasDirtyDraft()) return true;
+    if (!window.confirm(prompt)) return false;
+    resetDraft();
+    setPrivacyResetVersion((value) => value + 1);
+    return true;
   }
   function navigateView(next: string) {
     if (next === view) return;
-    if (hasDirtyDraft()) {
-      if (!window.confirm('Discard unsaved edits before leaving this CRM view?')) return;
-      resetDraft();
-    }
+    if (!canLeaveCurrentDetail('Discard unsaved edits before leaving this CRM view?')) return;
     setView(next);
   }
   async function mutate(action: string, input: Record<string, unknown>) {
@@ -440,6 +468,7 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                           <td data-label="Contact">
                             <button
                               className="adm-text-button"
+                              data-enquiry-id={item.id}
                               disabled={busy}
                               aria-current={detail?.opportunity.id === item.id ? 'true' : undefined}
                               onClick={() => {
@@ -508,9 +537,15 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                     className="adm-crm-back"
                     type="button"
                     onClick={() => {
-                      if (hasDirtyDraft()) setNotice('Unsaved edits stay with the selected enquiry. Reopen it to continue.');
+                      if (!canLeaveCurrentDetail('Discard unsaved edits before returning to the enquiry list?')) return;
                       setMobileDetail(false);
-                      requestAnimationFrame(() => window.scrollTo(0, listScroll.current));
+                      requestAnimationFrame(() => {
+                        window.scrollTo(0, listScroll.current);
+                        const selected = [...document.querySelectorAll<HTMLButtonElement>('[data-enquiry-id]')].find(
+                          (button) => button.dataset.enquiryId === detail.opportunity.id,
+                        );
+                        selected?.focus({ preventScroll: true });
+                      });
                     }}
                   >
                     ← Back to enquiries
@@ -718,10 +753,12 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                       <details>
                         <summary>Privacy and contact controls</summary>
                         <CrmPrivacy
-                          key={`privacy:${detail.provenance.canonicalContact.id}`}
+                          key={`privacy:${detail.provenance.canonicalContact.id}:${privacyResetVersion}`}
                           csrf={csrf}
                           canonicalContact={detail.provenance.canonicalContact}
+                          canonicalRevision={detail.provenance.canonicalRevision}
                           owners={owners}
+                          onDraftState={onRetentionDraftState}
                           onComplete={async () => {
                             const erasedContactId = detail.provenance.canonicalContact.id;
                             setDetail((current) => (current?.provenance.canonicalContact.id === erasedContactId ? null : current));

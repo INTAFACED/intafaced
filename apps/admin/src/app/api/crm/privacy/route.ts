@@ -6,6 +6,9 @@ import {
   crmErasureStatusInputSchema,
   crmErasureStatusSchema,
   crmRetentionStatusSchema,
+  crmRetentionReviewStatusInputSchema,
+  crmRetentionReviewInputSchema,
+  crmRetentionReviewSchema,
 } from '@intafaced/contracts';
 import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeCall } from '@/lib/founder-session';
 import { readAdminJson } from '@/lib/admin-json';
@@ -44,6 +47,13 @@ export async function GET(request: Request) {
           await founderEdgeCall(config, 'ops', 'outreach.privacyRetentionStatus', 'GET', {}, session.accessToken),
         ),
       );
+    }
+    if (action === 'privacyRetentionReviewStatus') {
+      const selection = input(crmRetentionReviewStatusInputSchema, raw);
+      const review = await founderEdgeCall(config, 'ops', 'outreach.privacyRetentionReviewStatus', 'GET', selection, session.accessToken);
+      const parsed = review === null ? null : output(crmRetentionReviewSchema, review);
+      bound(parsed === null || parsed.canonicalContactId === selection.canonicalContactId);
+      return response(parsed);
     }
     if (action === 'privacyPreview') {
       const selection = input(crmErasurePreviewInputSchema, raw);
@@ -84,6 +94,23 @@ export async function POST(request: Request) {
   try {
     const { session, config } = await authorizeAdminRequest(request);
     const body = await readAdminJson(request);
+    if (body.action === 'privacyRetentionReview') {
+      if (Object.keys(body).some((key) => !['action', 'input'].includes(key))) throw new AdminSessionError('admin.crm_input', 400);
+      const selection = input(crmRetentionReviewInputSchema, body.input);
+      const receipt = output(
+        crmRetentionReviewSchema,
+        await founderEdgeCall(config, 'ops', 'outreach.privacyRetentionReview', 'POST', selection, session.accessToken),
+      );
+      bound(
+        receipt.canonicalContactId === selection.canonicalContactId &&
+          receipt.reviewedBy === session.userId.toLowerCase() &&
+          receipt.revision === selection.expectedReviewRevision + 1 &&
+          receipt.state === selection.state &&
+          receipt.evidenceRef === selection.evidenceRef &&
+          receipt.reason === selection.reason,
+      );
+      return response(receipt);
+    }
     if (body.action === 'privacyBegin') {
       if (Object.keys(body).some((key) => !['action', 'input'].includes(key))) throw new AdminSessionError('admin.crm_input', 400);
       const selection = input(crmErasureBeginInputSchema, body.input);

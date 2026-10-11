@@ -5,6 +5,9 @@ import type {
   crmErasureStatusSchema,
   crmErasureBeginInputSchema,
   crmErasureAdvanceInputSchema,
+  crmRetentionStatusSchema,
+  crmRetentionReviewInputSchema,
+  crmRetentionReviewSchema,
 } from '@intafaced/contracts';
 import { crmJson, crmDate } from '@/lib/crm-browser';
 import { founderName, type FounderOwner } from './founder-names';
@@ -13,6 +16,35 @@ type Preview = (typeof crmErasurePreviewSchema)['_output'];
 type Status = (typeof crmErasureStatusSchema)['_output'];
 type Begin = Omit<(typeof crmErasureBeginInputSchema)['_output'], 'requestId'>;
 type Advance = Omit<(typeof crmErasureAdvanceInputSchema)['_output'], 'requestId'>;
+type RetentionStatus = (typeof crmRetentionStatusSchema)['_output'];
+type RetentionReview = (typeof crmRetentionReviewSchema)['_output'];
+type RetentionReviewDraft = Omit<(typeof crmRetentionReviewInputSchema)['_output'], 'requestId'>;
+export type PendingRetentionReview = { inputKey: string; body: string };
+export class RetentionReviewRefused extends Error {}
+export function RetentionPolicySummary({ status }: { status: RetentionStatus | 'loading' | 'unavailable' }) {
+  let summary = 'Retention status unavailable. Automatic deletion has not been confirmed.';
+  if (status === 'loading') summary = 'Checking retention status…';
+  else if (status !== 'unavailable')
+    summary =
+      status.status === 'disabled'
+        ? 'Automatic retention disabled · published outreach policy not configured.'
+        : `Retention policy configured · six calendar months · automatic deletion ${status.automationEnabled ? 'enabled' : 'paused'}.`;
+  return (
+    <>
+      <p className="adm-subtle">{summary}</p>
+      {status !== 'loading' && status !== 'unavailable' && status.status === 'configured' && (
+        <p className="adm-subtle">
+          Published policy: six calendar months of inactivity · active review window up to 30 days · UTC. Automatic sweep:{' '}
+          {status.automationEnabled ? 'enabled' : 'paused'} · last sweep {status.lastSweepAt ? crmDate(status.lastSweepAt) : 'not recorded'}
+          .
+        </p>
+      )}
+      {status !== 'loading' && status !== 'unavailable' && status.status === 'disabled' && (
+        <p className="adm-subtle">No published retention policy is configured. Automatic retention is unavailable.</p>
+      )}
+    </>
+  );
+}
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const isId = (value: unknown): value is string => typeof value === 'string' && uuid.test(value);
 const isTime = (value: unknown): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value));
@@ -22,6 +54,80 @@ function row(value: unknown): value is Record<string, unknown> {
 }
 function exact(value: Record<string, unknown>, keys: string[]): boolean {
   return Object.keys(value).sort().join(',') === [...keys].sort().join(',');
+}
+function parsedRetentionStatus(value: unknown): RetentionStatus | null {
+  if (!row(value)) return null;
+  if (value.status === 'disabled')
+    return exact(value, ['status', 'reason']) && value.reason === 'published_policy_unconfigured' ? (value as RetentionStatus) : null;
+  if (
+    value.status !== 'configured' ||
+    !exact(value, ['status', 'inactivityCalendarMonths', 'clockTimeZone', 'activeReviewMaxDays', 'automationEnabled', 'lastSweepAt']) ||
+    value.inactivityCalendarMonths !== 6 ||
+    value.clockTimeZone !== 'UTC' ||
+    value.activeReviewMaxDays !== 30 ||
+    typeof value.automationEnabled !== 'boolean' ||
+    (value.lastSweepAt !== null && !isTime(value.lastSweepAt))
+  )
+    return null;
+  return value as RetentionStatus;
+}
+function parsedRetentionReview(value: unknown): RetentionReview {
+  if (
+    !row(value) ||
+    !exact(value, [
+      'reviewId',
+      'canonicalContactId',
+      'revision',
+      'state',
+      'reviewedBy',
+      'reviewedAt',
+      'expiresAt',
+      'evidenceRef',
+      'reason',
+    ]) ||
+    !isId(value.reviewId) ||
+    !isId(value.canonicalContactId) ||
+    !isCount(value.revision) ||
+    value.revision < 1 ||
+    (value.state !== 'active' && value.state !== 'inactive') ||
+    !isId(value.reviewedBy) ||
+    !isTime(value.reviewedAt) ||
+    (value.expiresAt !== null && !isTime(value.expiresAt)) ||
+    typeof value.evidenceRef !== 'string' ||
+    !value.evidenceRef.trim() ||
+    value.evidenceRef.length > 256 ||
+    typeof value.reason !== 'string' ||
+    !value.reason.trim() ||
+    value.reason.length > 2000 ||
+    (value.state === 'inactive' ? value.expiresAt !== null : !validReviewExpiry(value.reviewedAt, value.expiresAt))
+  )
+    throw new Error('The retention review could not be confirmed. Retry the same request.');
+  return value as RetentionReview;
+}
+function validReviewExpiry(reviewedAt: unknown, expiresAt: unknown): boolean {
+  if (typeof reviewedAt !== 'string' || typeof expiresAt !== 'string') return false;
+  const start = Date.parse(reviewedAt),
+    end = Date.parse(expiresAt);
+  return Number.isFinite(start) && Number.isFinite(end) && end > start && end - start <= 30 * 24 * 60 * 60 * 1000;
+}
+function validRetentionDraft(value: unknown): value is RetentionReviewDraft {
+  return (
+    row(value) &&
+    exact(value, ['canonicalContactId', 'expectedCanonicalRevision', 'expectedReviewRevision', 'state', 'evidenceRef', 'reason']) &&
+    isId(value.canonicalContactId) &&
+    isCount(value.expectedCanonicalRevision) &&
+    value.expectedCanonicalRevision > 0 &&
+    isCount(value.expectedReviewRevision) &&
+    (value.state === 'active' || value.state === 'inactive') &&
+    typeof value.evidenceRef === 'string' &&
+    value.evidenceRef === value.evidenceRef.trim() &&
+    value.evidenceRef.length > 0 &&
+    value.evidenceRef.length <= 256 &&
+    typeof value.reason === 'string' &&
+    value.reason === value.reason.trim() &&
+    value.reason.length > 0 &&
+    value.reason.length <= 2000
+  );
 }
 /** The server validates shared schemas. These browser-only guards preserve that receipt boundary without importing server modules. */
 function parsedStatus(value: unknown): Status {
@@ -135,6 +241,51 @@ export async function privacyWrite(
   pending.delete(action);
   return result;
 }
+/** Unknown results retain one exact body and UUID; the operator retries explicitly. */
+export async function retentionReviewWrite(
+  csrf: string,
+  pending: { current: PendingRetentionReview | null },
+  draft: RetentionReviewDraft,
+  canonicalContactId: string,
+): Promise<RetentionReview> {
+  if (!validRetentionDraft(draft)) throw new Error('Add a short evidence reference and reason before saving.');
+  const inputKey = JSON.stringify(draft),
+    previous = pending.current;
+  if (previous && previous.inputKey !== inputKey)
+    throw new Error('The previous review is unconfirmed. Retry its exact request before changing these entries.');
+  const body =
+    previous?.inputKey === inputKey
+      ? previous.body
+      : JSON.stringify({ action: 'privacyRetentionReview', input: { ...draft, requestId: crypto.randomUUID() } });
+  pending.current = { inputKey, body };
+  const response = await fetch('/api/crm/privacy', {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'content-type': 'application/json', 'x-intafaced-csrf': csrf },
+    body,
+  });
+  const raw: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    if ((response.status === 409 || response.status === 412) && row(raw) && raw.code === 'admin.upstream_refused') {
+      pending.current = null;
+      throw new RetentionReviewRefused('The contact or review changed. Refresh its current review before recording another one.');
+    }
+    if (response.status === 401 || response.status === 403)
+      throw new Error('Your founder session is unavailable. Sign in again before retrying this review.');
+    throw new Error('The review result is unconfirmed. Retry this same request.');
+  }
+  const result = parsedRetentionReview(raw);
+  if (
+    result.canonicalContactId !== canonicalContactId ||
+    result.revision !== draft.expectedReviewRevision + 1 ||
+    result.state !== draft.state ||
+    result.evidenceRef !== draft.evidenceRef ||
+    result.reason !== draft.reason
+  )
+    throw new Error('The saved review could not be confirmed. Retry the same request.');
+  pending.current = null;
+  return result;
+}
 const pendingText: Record<NonNullable<Status['code']>, string> = {
   'ops.crm.notification_unconfigured': 'The email service is unavailable. Contact records remain while deletion is pending.',
   'ops.crm.notification_erasure_unknown':
@@ -148,12 +299,16 @@ function statusUrl(intentId: string, canonicalContactId: string) {
 export function CrmPrivacy({
   csrf,
   canonicalContact,
+  canonicalRevision,
   owners,
+  onDraftState,
   onComplete,
 }: {
   csrf: string;
   canonicalContact: { id: string; name: string; email: string };
+  canonicalRevision: number;
   owners: FounderOwner[];
+  onDraftState: (dirty: boolean, pending: boolean) => void;
   onComplete: () => Promise<void>;
 }) {
   const [preview, setPreview] = useState<Preview | null>(null),
@@ -161,7 +316,15 @@ export function CrmPrivacy({
     [confirmed, setConfirmed] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
-  const [retention, setRetention] = useState<'loading' | 'disabled' | 'unavailable'>('loading');
+  const [retention, setRetention] = useState<RetentionStatus | 'loading' | 'unavailable'>('loading');
+  const [retentionReview, setRetentionReview] = useState<RetentionReview | null>(null);
+  const [retentionLoaded, setRetentionLoaded] = useState(false);
+  const [reviewState, setReviewState] = useState<'active' | 'inactive'>('active');
+  const [evidenceRef, setEvidenceRef] = useState('');
+  const [reviewReason, setReviewReason] = useState('');
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewError, setReviewError] = useState('');
+  const reviewPending = useRef<{ inputKey: string; body: string } | null>(null);
   const [needsStatus, setNeedsStatus] = useState(false);
   const pending = useRef(new Map<string, PendingPrivacyWrite>()),
     advance = useRef<Advance | null>(null),
@@ -173,15 +336,9 @@ export function CrmPrivacy({
     const abort = new AbortController();
     void crmJson<unknown>('/api/crm/privacy?view=privacyRetentionStatus', { signal: abort.signal })
       .then((value) => {
-        if (mounted.current)
-          setRetention(
-            row(value) &&
-              exact(value, ['status', 'reason']) &&
-              value.status === 'disabled' &&
-              value.reason === 'published_policy_unconfigured'
-              ? 'disabled'
-              : 'unavailable',
-          );
+        if (mounted.current) {
+          setRetention(parsedRetentionStatus(value) ?? 'unavailable');
+        }
       })
       .catch(() => {
         if (!abort.signal.aborted && mounted.current) setRetention('unavailable');
@@ -191,6 +348,67 @@ export function CrmPrivacy({
       abort.abort();
     };
   }, []);
+  useEffect(() => {
+    const baseline = retentionReview ?? { state: 'active' as const, evidenceRef: '', reason: '' };
+    const dirty =
+      retentionLoaded &&
+      (reviewState !== baseline.state || evidenceRef.trim() !== baseline.evidenceRef || reviewReason.trim() !== baseline.reason);
+    onDraftState(dirty, reviewPending.current !== null);
+  }, [onDraftState, retentionLoaded, retentionReview, reviewState, evidenceRef, reviewReason, reviewBusy, reviewError]);
+  useEffect(() => () => onDraftState(false, false), [onDraftState]);
+  async function loadRetentionReview() {
+    setReviewBusy(true);
+    setReviewError('');
+    try {
+      const [status, review] = await Promise.all([
+        crmJson<unknown>('/api/crm/privacy?view=privacyRetentionStatus'),
+        crmJson<unknown>(
+          `/api/crm/privacy?${new URLSearchParams({ view: 'privacyRetentionReviewStatus', canonicalContactId: canonicalContact.id })}`,
+        ),
+      ]);
+      const parsedStatus = parsedRetentionStatus(status),
+        parsedReview = review === null ? null : parsedRetentionReview(review);
+      if (!parsedStatus || (parsedReview && parsedReview.canonicalContactId !== canonicalContact.id))
+        throw new Error('The retention status could not be confirmed for this contact.');
+      setRetention(parsedStatus);
+      setRetentionReview(parsedReview);
+      setRetentionLoaded(true);
+      if (parsedReview) {
+        setReviewState(parsedReview.state);
+        setEvidenceRef(parsedReview.evidenceRef);
+        setReviewReason(parsedReview.reason);
+      }
+    } catch (failure) {
+      setReviewError(failure instanceof Error ? failure.message : 'Retention review unavailable.');
+    } finally {
+      setReviewBusy(false);
+    }
+  }
+  async function saveRetentionReview() {
+    if (reviewBusy) return;
+    const fields = {
+      canonicalContactId: canonicalContact.id,
+      expectedCanonicalRevision: canonicalRevision,
+      expectedReviewRevision: retentionReview?.revision ?? 0,
+      state: reviewState,
+      evidenceRef: evidenceRef.trim(),
+      reason: reviewReason.trim(),
+    };
+    if (!validRetentionDraft(fields)) {
+      setReviewError('Add a short evidence reference and reason before saving.');
+      return;
+    }
+    setReviewBusy(true);
+    setReviewError('');
+    try {
+      const receipt = await retentionReviewWrite(csrf, reviewPending, fields, canonicalContact.id);
+      setRetentionReview(receipt);
+    } catch (failure) {
+      setReviewError(failure instanceof Error ? failure.message : 'The saved review is unconfirmed. Retry the same request.');
+    } finally {
+      setReviewBusy(false);
+    }
+  }
   async function received(value: Status) {
     if (!mounted.current) return;
     setIntent(value);
@@ -229,7 +447,7 @@ export function CrmPrivacy({
     }
   }
   async function start() {
-    if (busy || !preview || (!confirmed && !pending.current.has('privacyBegin'))) return;
+    if (busy || reviewPending.current || !preview || (!confirmed && !pending.current.has('privacyBegin'))) return;
     if (!begin.current)
       begin.current = {
         canonicalContactId: canonicalContact.id,
@@ -260,7 +478,7 @@ export function CrmPrivacy({
     }
   }
   async function step() {
-    if (busy || needsStatus || !intent || intent.status === 'complete') return;
+    if (busy || reviewPending.current || needsStatus || !intent || intent.status === 'complete') return;
     if (!advance.current) advance.current = { intentId: intent.intentId, expectedRevision: intent.revision };
     setBusy(true);
     setError('');
@@ -324,9 +542,6 @@ export function CrmPrivacy({
       if (mounted.current) setBusy(false);
     }
   }
-  let retentionLabel = 'Retention status unavailable. Automatic deletion has not been confirmed.';
-  if (retention === 'disabled') retentionLabel = 'Automatic retention disabled · published outreach policy not configured.';
-  else if (retention === 'loading') retentionLabel = 'Checking retention status…';
   let startLabel = 'Start contact deletion';
   if (busy) startLabel = 'Confirming…';
   else if (pending.current.has('privacyBegin')) startLabel = 'Retry starting deletion';
@@ -336,7 +551,72 @@ export function CrmPrivacy({
   return (
     <section className="adm-enquiry-workflows" aria-label="Contact privacy">
       <h3>Contact privacy</h3>
-      <p className="adm-subtle">{retentionLabel}</p>
+      <details>
+        <summary>Retention and contact review</summary>
+        <RetentionPolicySummary status={retention} />
+        <p className="adm-subtle">
+          This is the last recorded discussion review. Retention eligibility is rechecked under the current policy; this record alone does
+          not guarantee an exemption.
+        </p>
+        {!retentionLoaded ? (
+          <button type="button" disabled={reviewBusy} onClick={() => void loadRetentionReview()}>
+            {reviewBusy ? 'Loading…' : 'Load contact review'}
+          </button>
+        ) : (
+          <div className="adm-form">
+            <button type="button" disabled={reviewBusy || Boolean(reviewPending.current)} onClick={() => void loadRetentionReview()}>
+              Refresh current review
+            </button>
+            {retentionReview && (
+              <p className="adm-save-notice" role="status">
+                Last review marked <strong>{retentionReview.state}</strong> by {founderName(owners, retentionReview.reviewedBy)} on{' '}
+                {crmDate(retentionReview.reviewedAt)}.
+                {retentionReview.state === 'active' ? ` Recorded review expiry: ${crmDate(retentionReview.expiresAt!)}` : ''}
+              </p>
+            )}
+            {!retentionReview && <p className="adm-subtle">No contact discussion review has been recorded.</p>}
+            <label>
+              Discussion review state
+              <select
+                disabled={reviewBusy || Boolean(reviewPending.current)}
+                value={reviewState}
+                onChange={(event) => setReviewState(event.target.value as 'active' | 'inactive')}
+              >
+                <option value="active">Active discussion</option>
+                <option value="inactive">Inactive discussion</option>
+              </select>
+            </label>
+            <label>
+              Evidence reference
+              <input
+                disabled={reviewBusy || Boolean(reviewPending.current)}
+                value={evidenceRef}
+                maxLength={256}
+                onChange={(event) => setEvidenceRef(event.target.value)}
+              />
+            </label>
+            <label>
+              Review reason
+              <textarea
+                disabled={reviewBusy || Boolean(reviewPending.current)}
+                value={reviewReason}
+                maxLength={2000}
+                onChange={(event) => setReviewReason(event.target.value)}
+                rows={3}
+              />
+            </label>
+            <p className="adm-subtle">Active reviews are bounded by the policy window. No expiry is entered or extended by the browser.</p>
+            {reviewError && (
+              <p className="adm-alert" role="alert">
+                {reviewError}
+              </p>
+            )}
+            <button type="button" disabled={reviewBusy} onClick={() => void saveRetentionReview()}>
+              {reviewBusy ? 'Saving…' : reviewPending.current ? 'Retry same review' : 'Record discussion review'}
+            </button>
+          </div>
+        )}
+      </details>
       <details>
         <summary>Review contact deletion</summary>
         <p>
@@ -422,7 +702,7 @@ export function CrmPrivacy({
                   type="button"
                   className="adm-btn adm-danger-button"
                   data-tone="danger"
-                  disabled={busy || (!confirmed && !pending.current.has('privacyBegin'))}
+                  disabled={busy || Boolean(reviewPending.current) || (!confirmed && !pending.current.has('privacyBegin'))}
                   onClick={() => {
                     void start();
                   }}
@@ -479,7 +759,7 @@ export function CrmPrivacy({
                     type="button"
                     className="adm-btn adm-danger-button"
                     data-tone="danger"
-                    disabled={busy || needsStatus}
+                    disabled={busy || Boolean(reviewPending.current) || needsStatus}
                     onClick={() => {
                       void step();
                     }}
