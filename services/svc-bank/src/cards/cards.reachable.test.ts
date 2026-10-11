@@ -456,9 +456,8 @@ describe('svc-bank cards reachable (PG-hard)', () => {
     beforeEach(async () => {
       await sql`TRUNCATE bank.card_cashback, bank.card_settlements, bank.card_conversions, bank.card_authorizations, bank.cards RESTART IDENTITY CASCADE`;
       const ledger = new MemoryLedger();
-      // No `cards` option at all — index.ts on `BANK_CARD_ISSUER=none` resolves
-      // to exactly this adapter.
-      bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { cards: { issuer: cardIssuerFor('none') } });
+      // No `cards` option. An omitted issuer must stay noCardIssuer, not card-sim.
+      bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger));
     });
 
     /**
