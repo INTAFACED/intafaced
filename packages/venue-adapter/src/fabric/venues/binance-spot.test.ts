@@ -11,6 +11,7 @@ import {
 } from './binance-spot.js';
 import { AsyncFrameQueue, type HttpPort, type HttpResponse, type StreamHandle, type StreamPort } from '../transport.js';
 import { MaintainedBook } from '../book-feed.js';
+import type { PayoutGradePolicy } from '../payout-grade.js';
 import { RateLimitGovernor } from '../rate-limit.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -102,6 +103,10 @@ const depthSnapshot = (lastUpdateId: number): unknown => ({
   ],
 });
 
+/** Fixture floor. Not a production magnitude. */
+const FIXTURE_FLOOR = '250';
+const FIXTURE_PAYOUT_POLICY: PayoutGradePolicy = { minBestLevelNotional: FIXTURE_FLOOR };
+
 function adapter(http: FakeHttp, stream: FakeStream, clock: () => number = () => 1_000_000) {
   return new BinanceSpotMarketData({
     http,
@@ -109,6 +114,7 @@ function adapter(http: FakeHttp, stream: FakeStream, clock: () => number = () =>
     clock,
     restBase: 'https://rest.test',
     wsBase: 'wss://ws.test',
+    payoutPolicy: FIXTURE_PAYOUT_POLICY,
   });
 }
 
@@ -336,7 +342,14 @@ describe('rate governing on the REST path', () => {
   it('spends weight per endpoint, not per request', async () => {
     const governor = new RateLimitGovernor({ venueId: 'binance-spot', capacity: 60, windowMs: 60_000, reservedHeadroomBps: 0 }, 0);
     const http = new FakeHttp().queue(depthSnapshot(1)).queue(depthSnapshot(2));
-    const md = new BinanceSpotMarketData({ http, stream: new FakeStream(), governor, clock: () => 0, restBase: 'https://rest.test' });
+    const md = new BinanceSpotMarketData({
+      http,
+      stream: new FakeStream(),
+      governor,
+      clock: () => 0,
+      restBase: 'https://rest.test',
+      payoutPolicy: FIXTURE_PAYOUT_POLICY,
+    });
 
     // limit 1000 costs 50 weight. One fits in a 60-weight bucket; two do not.
     await md.snapshotBook('BTC/USDT', 1_000);
@@ -411,6 +424,7 @@ describe('latency grading on the live path', () => {
       },
       stream: new FakeStream(),
       clock: () => now,
+      payoutPolicy: FIXTURE_PAYOUT_POLICY,
     });
 
     await md.snapshotBook('BTC/USDT', 1);
@@ -517,6 +531,7 @@ describe('BinanceSpotTrade / BinanceSpotAccount without credentials', () => {
       restBase: 'https://rest.test',
       clock: () => 1_700_000_000_000,
       snapshotLimit: 5,
+      payoutPolicy: FIXTURE_PAYOUT_POLICY,
     });
     const placed = await trade.placeOrder({
       symbol: 'BTC/USDT',
@@ -558,6 +573,7 @@ describe('BinanceSpotTrade / BinanceSpotAccount without credentials', () => {
       restBase: 'https://rest.test',
       clock: () => 1_700_000_000_000,
       snapshotLimit: 5,
+      payoutPolicy: FIXTURE_PAYOUT_POLICY,
     });
 
     await expect(
@@ -596,6 +612,7 @@ describe('BinanceSpotTrade / BinanceSpotAccount without credentials', () => {
       restBase: 'https://rest.test',
       clock: () => 1_700_000_000_000,
       snapshotLimit: 5,
+      payoutPolicy: FIXTURE_PAYOUT_POLICY,
     });
     const placed = await trade.placeOrder({
       symbol: 'BTC/USDT',
@@ -632,6 +649,7 @@ describe('BinanceSpotTrade / BinanceSpotAccount without credentials', () => {
       restBase: 'https://rest.test',
       clock: () => 1_700_000_000_000,
       snapshotLimit: 5,
+      payoutPolicy: FIXTURE_PAYOUT_POLICY,
     });
     const placed = await trade.placeOrder({
       symbol: 'BTC/USDT',
@@ -655,7 +673,12 @@ describe('BinanceSpotTrade / BinanceSpotAccount without credentials', () => {
     const reduceOnly = new FakeHttp().queue(depthSnapshot(1));
     const limitBare = new FakeHttp().queue(depthSnapshot(1));
     const marketPriced = new FakeHttp().queue(depthSnapshot(1));
-    const options = { restBase: 'https://rest.test', clock, snapshotLimit: 5 as const };
+    const options = {
+      restBase: 'https://rest.test',
+      clock,
+      snapshotLimit: 5 as const,
+      payoutPolicy: FIXTURE_PAYOUT_POLICY,
+    };
 
     await expect(
       new BinanceSpotTrade(keys, { ...options, http: reduceOnly }).placeOrder({
@@ -801,7 +824,13 @@ describe('BinanceSpotTrade / BinanceSpotAccount without credentials', () => {
   it('throws the venue error body instead of returning a fake rejected order', async () => {
     const http = new FakeHttp().queue(depthSnapshot(1)).queue({ code: -2010, msg: 'insufficient balance' }, 400);
     const keys = { venueId: 'binance-spot' as const, apiKey: 'k', apiSecret: 's', scopes: ['read', 'trade'] as const };
-    const trade = new BinanceSpotTrade(keys, { http, restBase: 'https://rest.test', clock: () => 1, snapshotLimit: 5 });
+    const trade = new BinanceSpotTrade(keys, {
+      http,
+      restBase: 'https://rest.test',
+      clock: () => 1,
+      snapshotLimit: 5,
+      payoutPolicy: FIXTURE_PAYOUT_POLICY,
+    });
     await expect(
       trade.placeOrder({
         symbol: 'BTC/USDT',
