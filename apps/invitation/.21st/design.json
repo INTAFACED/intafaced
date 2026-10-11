@@ -1,0 +1,42 @@
+{
+  "scope": "Independent public invitation; customer/trading and founder CRM remain separate",
+  "framework": "React 19 + Vite 7.3.6; original React registry sources locally modified",
+  "direction": "Raycast-inspired continuous graphite/lime scene, quiet invitation, one main decision per view",
+  "tokens": {
+    "background": "#090a0b",
+    "text": "#f2f5ef",
+    "muted": "#aab4ac",
+    "accent": "#b9f65a",
+    "surface": "#171b1d"
+  },
+  "typography": {
+    "family": "self-hosted Inter; current refinable baseline",
+    "welcomeWeight": 500,
+    "desktopWelcomePx": "clamp(48px,4.8vw,72px)",
+    "phoneWelcomePx": "clamp(36px,10.6vw,48px)",
+    "bodyPx": 16,
+    "helpPx": 14
+  },
+  "components": [
+    "Cult HaloField/Input/Textarea",
+    "Cult HaloToggleGroup controlled without implicit first answer",
+    "Cult GradientButtonGroup controlled multi-interest choice",
+    "Cult HaloProgress truthful frontend progress, not backend completion",
+    "Magic ShimmerButton finite entrance only",
+    "Magic TextAnimate accessible heading blur entrance",
+    "Magic BlurFade finite question transition"
+  ],
+  "provenance": "src/components/SOURCE-PROVENANCE.json and LICENSES.txt",
+  "art": "Original existing graphite-fins-desktop.webp; continuous scene, explicit phone40px offset and top/lateral falloff; decorative, static",
+  "states": [
+    "native validation",
+    "disabled/pending",
+    "focus/keyboard",
+    "selected",
+    "wrong or expired continuation",
+    "unknown response retry",
+    "reduced motion"
+  ],
+  "authority": "Canonical existing framework-free intake/storage/transport modules; no extra backend writes per question",
+  "evidence": "Local fixtures and compiled browser evidence; visual acceptance and deployed API/HTTPS/mail remain separate"
+}
