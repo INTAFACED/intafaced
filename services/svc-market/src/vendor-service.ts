@@ -1066,16 +1066,13 @@ export class VendorService {
    * span attribute below is where that difference is a number rather than a
    * silence nobody can see.
    *
-   * The SQL window does not stop on an under-staked open-slot holder. Unstake
-   * leaves the slot row open, so a `LIMIT` before the stake check lets the
-   * oldest of those rows fill the only page and a newer vendor who is actually
-   * listed is never selected. Candidates stay `created_at ASC, id ASC`. After
-   * `entitlementOf`, `eligibilityFor` decides from a fresh status and a fresh
-   * open count — not the pair this query already saw. The page is the first
-   * `limit` vendors that verdict calls listed. A short page means we ran out
-   * of vendors we can prove, not that an open slot occupied the window.
+   * Candidate rows are bounded by the requested page size and checked in
+   * parallel, preserving registration order regardless of lookup completion.
+   * After `entitlementOf`, `eligibilityFor` decides from fresh status and slot
+   * facts. A short page remains possible: refilling through more candidates
+   * would multiply stake calls without a whole-request cancellation contract.
    *
-   * ponytail: one stake read per candidate until the page is full. Page size is
+   * ponytail: one stake read per candidate, at most the page size. Page size is
    * owner-published — omit is not 20. The upgrade path when the directory gets
    * real traffic is a BATCH entitlement read on svc-token — never a cached
    * `is_listed`, which is the exact lie this method exists to avoid.
@@ -1087,7 +1084,7 @@ export class VendorService {
      * Both cheap gates are the database's: approved, and holding at least one
      * open slot. Only the survivors cost a network call, so the common case —
      * most rows in this table are applications nobody has decided yet — reaches
-     * svc-token zero times. No `LIMIT` here. An open slot is not a listed vendor.
+     * svc-token zero times. An open slot is not a listed vendor.
      */
     const rows = await this.sql<VendorRow[]>`
       SELECT v.id, v.user_id, v.display_name, v.description, v.status, v.created_at, v.updated_at
@@ -1095,32 +1092,28 @@ export class VendorService {
        WHERE v.status = 'approved'::market.vendor_status
          AND EXISTS (SELECT 1 FROM market.vendor_slots s WHERE s.vendor_id = v.id AND s.released_at IS NULL)
        ORDER BY v.created_at ASC, v.id ASC
+       LIMIT ${limit}
     `;
 
     return withMarketSpan('market.listed', { op: 'listed' }, async (span) => {
       let unreadable = 0;
-      let examined = 0;
-      const listed: PublicVendorProfile[] = [];
-      for (const row of rows) {
-        if (listed.length >= limit) break;
-        examined += 1;
-        const vendor = toVendor(row);
-        try {
-          // Same verdict as the profile read: stake first, then fresh status
-          // and open count. The row above only chose the candidate.
-          const eligibility = await this.eligibilityFor(vendor);
-          if (eligibility.listed) listed.push(toPublicProfile(vendor));
-        } catch {
-          // Fail closed. A vendor we cannot verify is not shown — and is
-          // counted, so an outage is visible as an outage. They do not keep
-          // the window.
-          unreadable += 1;
-        }
-      }
+      const checked = await Promise.all(
+        rows.map(async (row) => {
+          const vendor = toVendor(row);
+          try {
+            const eligibility = await this.eligibilityFor(vendor);
+            return eligibility.listed ? toPublicProfile(vendor) : null;
+          } catch {
+            // Fail closed per vendor, with no further candidate lookups.
+            unreadable += 1;
+            return null;
+          }
+        }),
+      );
 
-      span.setAttribute('intafaced.market.listed_candidates', examined);
+      span.setAttribute('intafaced.market.listed_candidates', rows.length);
       span.setAttribute('intafaced.market.listed_stake_unreadable', unreadable);
-      return listed;
+      return checked.filter((profile): profile is PublicVendorProfile => profile !== null);
     });
   }
 }

@@ -323,30 +323,56 @@ describe('svc-market listing eligibility', () => {
       await expect(service.listedVendors({ limit: 20 })).resolves.toMatchObject([{ id: second }]);
     });
 
-    /**
-     * Unstake leaves the slot row open. `LIMIT` before the stake check lets that
-     * older row fill the only window, so a newer vendor who is actually listed
-     * never gets selected. `publicProfile` already re-reads and still says listed.
-     */
-    it('does not let an under-staked open slot occupy the listed window', async () => {
-      const older = await listedVendor(VENDOR_USER, 1);
-      const listed = await listedVendor(OTHER_USER, 1);
-      const later = await listedVendor(LATER_USER, 1);
-
+    it('checks only the requested candidate window in parallel during a stake outage', async () => {
+      await listedVendor(VENDOR_USER, 1);
+      await listedVendor(OTHER_USER, 1);
+      await listedVendor(LATER_USER, 1);
+      const called: string[] = [];
+      let active = 0;
+      let peak = 0;
       const reading = new VendorService(sql, {
         async entitlementOf(userId: string): Promise<VendorEntitlement> {
-          return {
-            tierName: stakes.tierName,
-            vendorSlots: userId === VENDOR_USER ? 0 : stakes.vendorSlots,
-          };
+          called.push(userId);
+          active += 1;
+          peak = Math.max(peak, active);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          active -= 1;
+          throw new Error('stake outage');
         },
       });
+      await expect(reading.listedVendors({ limit: 2 })).resolves.toEqual([]);
+      expect(called).toEqual([VENDOR_USER, OTHER_USER]);
+      expect(peak).toBe(2);
+    });
 
-      await expect(reading.listedVendors({ limit: 1 })).resolves.toMatchObject([{ id: listed }]);
-      await expect(reading.publicProfile(listed)).resolves.not.toBeNull();
-      await expect(reading.publicProfile(later)).resolves.not.toBeNull();
-      await expect(reading.publicProfile(older)).resolves.toBeNull();
-      await expect(reading.listedVendors({ limit: 2 })).resolves.toMatchObject([{ id: listed }, { id: later }]);
+    it('keeps registration order even when the later parallel lookup finishes first', async () => {
+      const first = await listedVendor(VENDOR_USER, 1);
+      const second = await listedVendor(OTHER_USER, 1);
+      await listedVendor(LATER_USER, 1);
+      const finished: string[] = [];
+      const reading = new VendorService(sql, {
+        async entitlementOf(userId: string): Promise<VendorEntitlement> {
+          await new Promise((resolve) => setTimeout(resolve, userId === VENDOR_USER ? 30 : 1));
+          finished.push(userId);
+          return { tierName: 'Operator', vendorSlots: 1 };
+        },
+      });
+      await expect(reading.listedVendors({ limit: 2 })).resolves.toMatchObject([{ id: first }, { id: second }]);
+      expect(finished).toEqual([OTHER_USER, VENDOR_USER]);
+    });
+
+    it('drops status and slot changes committed during the parallel stake reads', async () => {
+      const suspended = await listedVendor(VENDOR_USER, 1);
+      await listedVendor(OTHER_USER, 1);
+      const eligible = await listedVendor(LATER_USER, 1);
+      const reading = new VendorService(sql, {
+        async entitlementOf(userId: string): Promise<VendorEntitlement> {
+          if (userId === VENDOR_USER) await sql`UPDATE market.vendors SET status = 'suspended' WHERE id = ${suspended}`;
+          if (userId === OTHER_USER) await service.releaseSlot({ userId, ref: 'listing-0' });
+          return { tierName: 'Operator', vendorSlots: 1 };
+        },
+      });
+      await expect(reading.listedVendors({ limit: 3 })).resolves.toMatchObject([{ id: eligible }]);
     });
   });
 
