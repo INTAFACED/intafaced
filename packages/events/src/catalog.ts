@@ -36,8 +36,13 @@ function defineEvent<TSchema extends z.ZodTypeAny>(
 
 // ── Shared primitives ────────────────────────────────────────────────────────
 
-/** Money is a decimal string, always. Never a JS number — 18 decimals matter. */
-export const amountSchema = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'amount must be a decimal string (max 18dp)');
+/** Unsigned money. Decimal string, never a JS number — 18 decimals matter. No leading minus. */
+export const amountSchema = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amount must be a decimal string (max 18dp)');
+/**
+ * Signed money: drift, pnl, and funding (received is negative).
+ * Same decimal string; the leading minus is the sign.
+ */
+export const signedAmountSchema = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'signed amount must be a decimal string (max 18dp)');
 export const assetIdSchema = z.string().min(1).max(16);
 export const userIdSchema = z.string().uuid();
 /**
@@ -141,7 +146,7 @@ export const ledgerReconciliationFailed = defineEvent(
     assetId: assetIdSchema,
     snapshotBalance: amountSchema,
     replayBalance: amountSchema,
-    drift: amountSchema,
+    drift: signedAmountSchema,
     module: z.string(),
   }),
   'Snapshot and entry replay disagree. Pages the operator and freezes the diverging module (§4.2).',
@@ -454,12 +459,12 @@ export const positionUpdated = defineEvent(
     notional: amountSchema,
     leverage: amountSchema.nullable(),
     collateral: amountSchema.nullable(),
-    unrealizedPnl: amountSchema.nullable(),
-    realizedPnl: amountSchema.nullable(),
+    unrealizedPnl: signedAmountSchema.nullable(),
+    realizedPnl: signedAmountSchema.nullable(),
     liquidationPrice: amountSchema.nullable(),
     marginMode: z.enum(['cross', 'isolated']).nullable(),
     /** Cumulative funding paid (positive) or received (negative) as decimal string. */
-    fundingPaid: amountSchema,
+    fundingPaid: signedAmountSchema,
     /** Set when status=closing — futures-namespaced refuse code; null otherwise. */
     closingReason: z.string().nullable().optional(),
     ts: z.string().datetime({ offset: true }),

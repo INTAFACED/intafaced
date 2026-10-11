@@ -299,6 +299,16 @@ export const SHIPPED_BUSINESS_BLOCKS: readonly BusinessBlock[] = businessBlocksF
 
 let businessLookupCache: { blocks: readonly BusinessBlock[]; byRegion: ReadonlyMap<string, BusinessBlock> } | null = null;
 
+/** Trimmed upper-case region. Blank stays blank; it is not a region code. */
+function canonicalRegion(region: RegionCode): string {
+  return region.trim().toUpperCase();
+}
+
+/** Blank and the `XX` sentinel are not region codes. Callers must not look them up. */
+function isUnresolvedRegionCode(code: string): boolean {
+  return code === '' || code === UNRESOLVED_REGION;
+}
+
 /**
  * The business block for a region, if the business refuses it outright.
  *
@@ -311,10 +321,12 @@ export function businessBlockFor(
   region: RegionCode,
   business: readonly BusinessBlock[] = SHIPPED_BUSINESS_BLOCKS,
 ): BusinessBlock | undefined {
+  const code = canonicalRegion(region);
+  if (isUnresolvedRegionCode(code)) return undefined;
   if (!businessLookupCache || businessLookupCache.blocks !== business) {
     businessLookupCache = { blocks: business, byRegion: new Map(business.map((b) => [b.region, b])) };
   }
-  return businessLookupCache.byRegion.get(region.toUpperCase());
+  return businessLookupCache.byRegion.get(code);
 }
 
 /**
@@ -349,10 +361,12 @@ export function activeScreeningList(env: Record<string, string | undefined> = pr
 let lookupCache: { list: ScreeningList; byRegion: ReadonlyMap<string, ScreenedRegion> } | null = null;
 
 function screenedRegion(list: ScreeningList, region: RegionCode): ScreenedRegion | undefined {
+  const code = canonicalRegion(region);
+  if (isUnresolvedRegionCode(code)) return undefined;
   if (!lookupCache || lookupCache.list !== list) {
     lookupCache = { list, byRegion: new Map(list.regions.map((r) => [r.region, r])) };
   }
-  return lookupCache.byRegion.get(region.toUpperCase());
+  return lookupCache.byRegion.get(code);
 }
 
 /**
@@ -428,19 +442,18 @@ export const REGION_FAIL_CLOSED_ENV = 'INTAFACED_REGION_FAIL_CLOSED';
 /**
  * Process-wide fail-closed switch when the screening list is `unset`.
  *
- * Default OFF so local/dev and historical call sites keep the honesty-only
- * path (`allowed` + `listConfigured: false`). When ON, `checkAccess` returns
- * `denied.screening_unconfigured` — refuse hosted access rather than look
- * screened-clean with no list. Mechanism seal (D26-P1-O1); does **not** invent
- * sanctions list content (Class X / Nitro counsel).
- *
- * Accepted truthy forms (case-insensitive): `1`, `true`, `yes`, `on`.
+ * Unset or blank refuses. `checkAccess` returns `denied.screening_unconfigured`
+ * rather than `allowed` with `listConfigured: false`. A blank list is not
+ * screened-clean. Explicit `1`, `true`, `yes`, and `on` also fail closed.
+ * Only explicit `0`, `false`, `no`, and `off` keep the honesty-only path.
+ * Unrecognised values refuse. Mechanism seal (D26-P1-O1); does **not** invent sanctions
+ * list content (Class X / Nitro counsel).
  */
 export const SCREENING_FAIL_CLOSED_ENV = 'INTAFACED_SCREENING_FAIL_CLOSED';
 
-/** True when `region` is not the platform unresolved sentinel. */
+/** True when `region` is a real code: not blank, and not the unresolved sentinel. */
 export function isRegionResolved(region: RegionCode): boolean {
-  return region.toUpperCase() !== UNRESOLVED_REGION;
+  return !isUnresolvedRegionCode(canonicalRegion(region));
 }
 
 /**
@@ -458,7 +471,7 @@ export function regionFailClosedFromEnv(env: Record<string, string | undefined> 
  */
 export function screeningFailClosedFromEnv(env: Record<string, string | undefined> = process.env): boolean {
   const raw = env[SCREENING_FAIL_CLOSED_ENV]?.trim().toLowerCase() ?? '';
-  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+  return raw !== '0' && raw !== 'false' && raw !== 'no' && raw !== 'off';
 }
 
 export interface AccessQuery {
@@ -501,11 +514,11 @@ export interface AccessQuery {
   /**
    * When true, refuse if the screening list is `unset` (nobody supplied content).
    *
-   * Omitted → `screeningFailClosedFromEnv()`. Default env is OFF so honesty-only
-   * surfaces keep returning `allowed` with `listConfigured: false`. Pass `true`
-   * in tests, or set `INTAFACED_SCREENING_FAIL_CLOSED`, when hosted access must
-   * not proceed without a counsel-supplied list (or attributed `none`).
-   * Does not invent list content — Class X stays outside this mechanism.
+   * Omitted → `screeningFailClosedFromEnv()`. Unset env refuses hosted access.
+   * Pass `false`, or set `INTAFACED_SCREENING_FAIL_CLOSED` to an explicit off
+   * value (`0`, `false`, `no`, `off`), for the honesty-only path (`allowed`
+   * with `listConfigured: false`). Does not invent list content — Class X stays
+   * outside this mechanism.
    */
   readonly screeningFailClosed?: boolean;
 }
@@ -571,9 +584,16 @@ export interface AccessDecision {
  * than a yes/no decision would otherwise recompose
  * `entry.modules?.[m] ?? DEFAULT_MODULE_RULES[m]` itself, duplicating this
  * lookup outside the file that owns it. That duplicate is what drifts.
+ *
+ * Blank and `XX` are not matrix keys. They do not fall through to
+ * `DEFAULT_MODULE_RULES` — that open default is what made an unresolved
+ * region look like a cleared one. `checkAccess` applies the default only
+ * when fail-closed is off, after it has already recorded the region unresolved.
  */
 export function ruleFor(module: ModuleId, region: RegionCode): JurisdictionRule {
-  const entry = BY_REGION.get(region.toUpperCase());
+  const code = canonicalRegion(region);
+  if (isUnresolvedRegionCode(code)) return BLOCKED;
+  const entry = BY_REGION.get(code);
   return entry?.modules?.[module] ?? DEFAULT_MODULE_RULES[module];
 }
 
@@ -626,10 +646,12 @@ export function unreviewedRegions(): RegionCode[] {
  * with `denied.region_unknown` instead of falling open on defaults.
  *
  * Screening list honesty: every decision carries `screening.listConfigured`.
- * Flip `INTAFACED_SCREENING_FAIL_CLOSED` (or pass `screeningFailClosed: true`)
- * to refuse with `denied.screening_unconfigured` when the list is `unset`,
- * or `denied.screening_fixture` when the list is a placeholder/test fixture.
- * Counsel-grade `reviewed-empty` and `listed` do not refuse here.
+ * Unset `INTAFACED_SCREENING_FAIL_CLOSED` refuses with
+ * `denied.screening_unconfigured` when the list is `unset`, or
+ * `denied.screening_fixture` when the list is a placeholder/test fixture.
+ * Pass `screeningFailClosed: false` (or set the env explicitly off) for the
+ * honesty-only path. Counsel-grade `reviewed-empty` and `listed` do not refuse
+ * here. A blank list is not screened-clean.
  */
 export function checkAccess(q: AccessQuery): AccessDecision {
   const mod = MODULES[q.module];
@@ -651,11 +673,11 @@ export function checkAccess(q: AccessQuery): AccessDecision {
     };
   }
 
-  // Screening-list fail-closed (D26-P1-O1 mechanism seal). Default OFF: call
-  // sites keep honesty-only (`allowed` + listConfigured:false). When ON, refuse
-  // before region/permissionless so "nobody supplied a list" cannot ride as a
-  // clean bill of health. Does not invent Class X list content — operators set
-  // INTAFACED_SANCTIONS_REGIONS (counsel) or attributed `none`.
+  // Screening-list fail-closed (D26-P1-O1 mechanism seal). Unset env refuses
+  // before region/permissionless so a blank list cannot ride as allowed with
+  // listConfigured:false. Explicit off keeps that honesty path. Does not invent
+  // Class X list content — operators set INTAFACED_SANCTIONS_REGIONS (counsel)
+  // or attributed `none`.
   if (screeningFailClosed && provenance.moneyGrade === 'unconfigured') {
     return {
       allowed: false,
@@ -708,7 +730,9 @@ export function checkAccess(q: AccessQuery): AccessDecision {
     };
   }
 
-  const rule = ruleFor(q.module, q.region);
+  // Fail-closed already returned above. Fail-open keeps the historical default
+  // for an unresolved region so `XX` is not turned into a restrictive rule.
+  const rule = regionResolved ? ruleFor(q.module, q.region) : DEFAULT_MODULE_RULES[q.module];
 
   // A region is refused if the BUSINESS blocks it outright OR the SCREENING list
   // names it. Two authorities, one question — "do we serve this region" — so

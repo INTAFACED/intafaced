@@ -141,8 +141,17 @@ app.get('/ready', async (_req, reply) => {
  * If a future edit ever makes this module custodial, or moves it off the
  * protocol plane, the service refuses to start instead of quietly beginning to
  * gate users who were promised they would never be gated.
+ * This startup probe isolates the custody/plane invariant from deployment
+ * screening and region policy. Request access still uses the strict defaults.
  */
-const sovereignty = checkAccess({ module: 'protocol', plane: 'protocol', region: 'XX', kycTier: 'none' });
+const sovereignty = checkAccess({
+  module: 'protocol',
+  plane: 'protocol',
+  region: 'XX',
+  kycTier: 'none',
+  regionFailClosed: false,
+  screeningFailClosed: false,
+});
 if (sovereignty.code !== 'allowed.permissionless') {
   throw new Error(
     `THE SOVEREIGNTY LAW IS BROKEN (§22): checkAccess for module "protocol" on the protocol plane ` +
