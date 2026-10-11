@@ -1694,8 +1694,14 @@ services:
 
   # ── Apps ───────────────────────────────────────────────
   #
-  # The customer surface is `vendor-shell` below, on :8090. It is the SOLE
-  # product surface — ADR `docs/adr/2026-08-03-retire-apps-web-port-to-vue-shell.md`.
+  # The legacy trading surface is `vendor-shell` below, on :8090. The public
+  # questionnaire uses the independent React/Vite app at apps/invitation;
+  # current UI replacement is allowed by the 2026-10-02 redesign ADR.
+  #
+  # no-deploy: invitation — the separate Vercel join project is configured to
+  # build apps/invitation and serve its Vite dist. App-owned vercel.json supplies SPA rewrites;
+  # its API and identity runtime still require the separately configured edge.
+  # This app is not a Compose HTTP process.
   #
   # There WAS a `web` service here (apps/web, Next, `3000:3000`). It is removed,
   # and removing it is the point rather than a tidy-up: that ADR's own root cause
