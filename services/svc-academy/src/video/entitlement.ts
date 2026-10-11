@@ -42,7 +42,10 @@ export function assertVideoEntitled(input: { readonly gate: VideoGateConfig; rea
     throw new AcademyError('Video min tier is not a known verification tier', 'academy.video_grant_required');
   }
   const need = TIER_ORDER[wantTier as keyof typeof TIER_ORDER];
-  const have = TIER_ORDER[input.caller.tier] ?? 0;
+  if (!Object.hasOwn(TIER_ORDER, input.caller.tier)) {
+    throw new AcademyError('Video caller tier is not a known verification tier', 'academy.video_grant_required');
+  }
+  const have = TIER_ORDER[input.caller.tier];
   if (have < need) {
     throw new AcademyError('Video playback requires a higher verification tier', 'academy.video_grant_required');
   }

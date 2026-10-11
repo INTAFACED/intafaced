@@ -22,6 +22,19 @@ describe('dualControlRefuse', () => {
     expect(requireDualControl(OP, CONFIRM)).toBe(CONFIRM);
   });
 
+  it('empty, whitespace-only, and space-padded actor confirm refuse; a distinct confirm returns trimmed with its case', () => {
+    expect(dualControlRefuse(OP, '')?.code).toBe(MISSING_OPERATOR);
+    expect(dualControlRefuse(OP, '   ')?.code).toBe(MISSING_OPERATOR);
+    expect(dualControlRefuse(OP, `  ${OP}  `)?.code).toBe(MISSING_OPERATOR);
+    expect(() => requireDualControl(OP, '')).toThrow(DualControlError);
+    expect(() => requireDualControl(OP, '   ')).toThrow(DualControlError);
+    expect(() => requireDualControl(OP, `  ${OP}  `)).toThrow(DualControlError);
+
+    const confirm = CONFIRM.replace('d', 'D');
+    expect(dualControlRefuse(OP, `  ${confirm}  `)).toBeNull();
+    expect(requireDualControl(OP, `  ${confirm}  `)).toBe(confirm);
+  });
+
   it('requireDualControl throws DualControlError on refuse', () => {
     expect(() => requireDualControl(OP, null)).toThrow(DualControlError);
     try {

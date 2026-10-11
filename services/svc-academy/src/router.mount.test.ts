@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader, BASE_PERKS } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client';
@@ -26,6 +26,10 @@ import { assertCallerCannotLiePaperFlag, memoryPaperFlagPort } from './paper/mar
  * bitten this repo three times. Calling every procedure through
  * `createCaller` is the cheapest proof that the surface is real.
  */
+
+// The local Vitest config isolates business-door fixtures from the blank
+// screening socket. This mounted-request control separately arms strict policy.
+afterEach(() => vi.unstubAllEnvs());
 
 const SECRET = 'an-academy-mount-test-edge-secret-long';
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -142,6 +146,25 @@ describe('svc-academy mount — the router is actually mounted', () => {
       ok: true,
       service: 'svc-academy',
     });
+  });
+
+  it('refuses blank screening before lobby reads or joins when strict policy is armed', async () => {
+    vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'true');
+    vi.stubEnv('INTAFACED_REGION_FAIL_CLOSED', 'true');
+    vi.stubEnv('INTAFACED_SANCTIONS_REGIONS', '');
+    vi.stubEnv('INTAFACED_SANCTIONS_LIST_SOURCE', '');
+    const academy = stubAcademy();
+    const refusal = {
+      code: 'FORBIDDEN',
+      cause: {
+        code: 'denied.screening_unconfigured',
+        decision: { screening: { listConfigured: false, moneyGrade: 'unconfigured', readsAsScreenedClean: false } },
+      },
+    };
+    await expect(createAcademyRouter(academy).createCaller(signed()).rooms()).rejects.toMatchObject(refusal);
+    await expect(createAcademyRouter(academy).createCaller(signed()).join({ sessionId: SESSION })).rejects.toMatchObject(refusal);
+    expect(academy.listRooms).not.toHaveBeenCalled();
+    expect(academy.join).not.toHaveBeenCalled();
   });
 
   it('exposes the lobby surface §8.3 names plus the thin curriculum catalog', () => {
