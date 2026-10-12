@@ -308,6 +308,10 @@ export class MemorySeenStore implements SeenStore {
 
   async checkAndSet(key: string): Promise<boolean> {
     if (this.seen.has(key)) return true;
+    // Forgetting the oldest key would run that fill, escrow, or ledger fact again.
+    if (this.seen.size >= this.max) {
+      throw new Error('idempotent: seen store is full');
+    }
     this.claimed.add(key);
     return false;
   }
@@ -315,11 +319,6 @@ export class MemorySeenStore implements SeenStore {
   async commit(key: string): Promise<void> {
     this.claimed.delete(key);
     if (this.seen.has(key)) return;
-    if (this.seen.size >= this.max) {
-      // Bounded: drop the oldest insertion (Set preserves insertion order).
-      const oldest = this.seen.values().next();
-      if (!oldest.done) this.seen.delete(oldest.value);
-    }
     this.seen.add(key);
   }
 

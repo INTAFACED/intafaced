@@ -682,6 +682,28 @@ describe('§10 consumer idempotency', () => {
     expect(handler).toHaveBeenCalledTimes(2);
   });
 
+  it('refuses a new key when the seen store is full instead of forgetting a recorded success', async () => {
+    const bus = new MemoryEventBus('svc-identity');
+    const store = new MemorySeenStore(1);
+    const handler = vi.fn();
+    await bus.subscribe('xpEarned', idempotent(handler, store, 'rank-recalc'), { durable: 'rank-recalc' });
+
+    const payload = { userId: crypto.randomUUID(), sourceModule: 'academy', action: 'cert.earned', xpDelta: 500 };
+    await bus.publish('xpEarned', payload, { idempotencyKey: 'cert-99' });
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    await bus.publish('xpEarned', payload, { idempotencyKey: 'cert-99' });
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    await expect(bus.publish('xpEarned', payload, { idempotencyKey: 'cert-100' })).rejects.toThrow(
+      'idempotent: seen store is full',
+    );
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    await bus.publish('xpEarned', payload, { idempotencyKey: 'cert-99' });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   /**
    * A failure is not a completion. The success mark is written only after the
    * handler returns, so a redelivery runs it again. Before this, `checkAndSet`
