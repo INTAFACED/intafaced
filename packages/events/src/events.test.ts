@@ -456,6 +456,25 @@ describe('schema drift: the bus refuses rather than strips', () => {
   it('reports every dropped path, not just the first', () => {
     expect(droppedPaths({ a: 1, b: { c: 2, d: 3 } }, { a: 1, b: { c: 2 } })).toEqual(['b.d']);
     expect(droppedPaths({ a: 1, b: 2 }, {})).toEqual(['a', 'b']);
+    expect(droppedPaths({ toString: 'x', constructor: 'y', valueOf: 'z' }, {})).toEqual([
+      'toString',
+      'constructor',
+      'valueOf',
+    ]);
+    expect(droppedPaths({ b: { toString: 1 } }, { b: {} })).toEqual(['b.toString']);
+    expect(droppedPaths({ a: 1 }, { a: 1 })).toEqual([]);
+  });
+
+  it('refuses a stripped prototype key instead of returning the payload', () => {
+    expect(() => validatePayload('orderFilled', fill({ toString: 'x' }), 'svc-matching')).toThrow(EventSchemaDriftError);
+
+    try {
+      validatePayload('orderFilled', fill({ toString: 'x' }), 'svc-matching');
+      expect.unreachable('drift must not pass');
+    } catch (err) {
+      const drift = err as EventSchemaDriftError;
+      expect(drift.dropped).toContain('toString');
+    }
   });
 
   // The other half of not crying wolf. Every one of these is a payload that

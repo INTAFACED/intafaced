@@ -171,7 +171,9 @@ export function droppedPaths(raw: unknown, parsed: unknown, prefix = ''): string
       // `undefined` was never carried: JSON.stringify drops it on the wire, so
       // an explicit `{ x: undefined }` is not a field the other side sent.
       if (raw[key] === undefined) continue;
-      if (!(key in parsed)) out.push(path);
+      // `in` walks Object.prototype, so a stripped toString, constructor, or
+      // valueOf looks present and is never reported as drift.
+      if (!Object.hasOwn(parsed, key)) out.push(path);
       else out.push(...droppedPaths(raw[key], parsed[key], path));
     }
     return out;
