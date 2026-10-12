@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client/money';
+import { formatAmount, MoneyError, parseAmount as amt } from '@intafaced/ledger-client/money';
 import { CaptureLog } from '@intafaced/connect-data-lake';
 import {
   applyDelta,
@@ -671,6 +671,40 @@ describe('ingestVenueDepthSnapshot — absent vs measured', () => {
       snapshot: snapshot(4, [['100', '-1']], [['101', '2']]),
     });
     expect(result.book).toBeNull();
+    expect(lake.records().at(-1)?.status).toBe('absent');
+    expect(result.record).not.toHaveProperty('bids');
+    expect(JSON.stringify(lake.records())).not.toContain('"-1"');
+  });
+
+  it('does not measure a connected snapshot whose price parseAmount rejects', () => {
+    const price = 'abc';
+    expect(() => amt(price)).toThrow(MoneyError);
+    const lake = new CaptureLog({ now: () => new Date('2026-08-16T13:00:07.000Z') });
+    expect(() =>
+      ingestVenueDepthSnapshot(lake, {
+        venueId: 'binance-spot',
+        marketId: MARKET,
+        connection: 'connected',
+        snapshot: snapshot(5, [[price, '1']], []),
+      }),
+    ).toThrow(MoneyError);
+    expect(lake.records().some((row) => row.status === 'measured')).toBe(false);
+    expect(JSON.stringify(lake.records())).not.toContain(price);
+  });
+
+  it('records a measured book when a connected snapshot parses', () => {
+    const lake = new CaptureLog({ now: () => new Date('2026-08-16T13:00:08.000Z') });
+    const result = ingestVenueDepthSnapshot(lake, {
+      venueId: 'binance-spot',
+      marketId: MARKET,
+      connection: 'connected',
+      snapshot: snapshot(6, [['100', '1']], [['101', '2']]),
+    });
+    expect(result.record).toMatchObject({ status: 'measured', sequence: 6 });
+    expect(result.book).not.toBeNull();
+    expect(result.book?.bids.size).toBe(1);
+    expect(result.book?.asks.size).toBe(1);
+    expect(lake.records().at(-1)?.status).toBe('measured');
   });
 
   it('builds a measured empty DepthBook only when the adapter said connected', () => {

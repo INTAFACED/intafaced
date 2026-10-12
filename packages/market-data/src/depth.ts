@@ -1,5 +1,5 @@
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
-import { CaptureLog, bookLevelsFromCapture, type CaptureRecord, type VenueConnection } from '@intafaced/connect-data-lake';
+import { CaptureLog, type CaptureRecord, type VenueConnection } from '@intafaced/connect-data-lake';
 
 /**
  * INCREMENTAL DEPTH (§5.2 ws.gateway).
@@ -376,27 +376,45 @@ export interface VenueDepthIngestResult {
 
 /**
  * Snapshot ingest with a venue id. Unconnected / missing books write an absent
- * capture hole and return `book: null`. A connected empty snapshot is measured
- * empty and becomes a real (empty) DepthBook.
+ * capture hole and return `book: null`. A connected snapshot is parsed before
+ * it is measured. Invalid qty is that same hole — snapshot null — not the raw
+ * levels. Any other parse error is rethrown with no measured write. A connected
+ * empty snapshot is measured empty and becomes a real (empty) DepthBook.
  */
 export function ingestVenueDepthSnapshot(lake: CaptureLog, input: VenueDepthSnapshotIngest): VenueDepthIngestResult {
   const snapshot = input.snapshot ?? null;
-  const record = lake.captureBook({
-    venueId: input.venueId,
-    marketId: snapshot?.marketId ?? input.marketId,
-    connection: input.connection,
-    snapshot: snapshot ? { sequence: snapshot.sequence, bids: snapshot.bids, asks: snapshot.asks } : null,
-  });
-  if (bookLevelsFromCapture(record) === null || snapshot === null) {
+  if (input.connection !== 'connected' || snapshot === null) {
+    const record = lake.captureBook({
+      venueId: input.venueId,
+      marketId: snapshot?.marketId ?? input.marketId,
+      connection: input.connection,
+      snapshot: snapshot ? { sequence: snapshot.sequence, bids: snapshot.bids, asks: snapshot.asks } : null,
+    });
     return { record, book: null };
   }
+
+  let book: DepthBook;
   try {
-    return { record, book: bookFromSnapshot(snapshot) };
+    book = bookFromSnapshot(snapshot);
   } catch (err) {
     // Same refusal as applyDelta: do not publish a book that dropped a negative qty.
-    if (isInvalidQtyRefusal(err)) return { record, book: null };
-    throw err;
+    if (!isInvalidQtyRefusal(err)) throw err;
+    const record = lake.captureBook({
+      venueId: input.venueId,
+      marketId: snapshot.marketId,
+      connection: input.connection,
+      snapshot: null,
+    });
+    return { record, book: null };
   }
+
+  const record = lake.captureBook({
+    venueId: input.venueId,
+    marketId: snapshot.marketId,
+    connection: input.connection,
+    snapshot: { sequence: snapshot.sequence, bids: snapshot.bids, asks: snapshot.asks },
+  });
+  return { record, book };
 }
 
 export interface VenueDepthDeltaIngest {
