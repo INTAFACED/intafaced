@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   fiatCurrencyCatalogBoardCard,
   fiatCurrencyCatalogStatusLine,
@@ -62,5 +62,18 @@ describe('formatFiat decimal string', () => {
   it('returns an unknown code beside the decimal string', () => {
     expect(FIAT_CURRENCIES.some((row) => row.code === 'XYZ')).toBe(false);
     expect(formatFiat('42.50', 'XYZ')).toBe('42.50 XYZ');
+  });
+
+  it('does not pass the amount to Number', () => {
+    const spy = vi.spyOn(globalThis, 'Number');
+    try {
+      formatFiat('9007199254740993', 'MGA');
+      const sawAmount = spy.mock.calls.some((args) =>
+        args.some((arg) => arg === '9007199254740993' || arg === 9007199254740993),
+      );
+      expect(sawAmount).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
