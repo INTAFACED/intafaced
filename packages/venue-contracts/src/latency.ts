@@ -169,16 +169,18 @@ export type RestLatencyGrade = VenueLatencyGrade & { readonly measurement: 'rest
 export type WsLatencyGrade = VenueLatencyGrade & { readonly measurement: 'ws-round-trip' };
 
 /**
- * True when this grade rests on at least one observation.
+ * True when this grade rests on at least one observation and both rates are numbers.
  *
  * This is the gate, and it is a type guard rather than a boolean field so the
  * compiler enforces it: `grade.grade` is `LatencyGrade | null` until a consumer
  * passes this check, so code that ranks venues on the letter cannot be written
- * without first handling the ungraded case. A `provisional` grade passes — it
- * has evidence — and the caller decides separately whether it is enough.
+ * without first handling the ungraded case. A letter with zero samples, or a
+ * letter whose reject or error rate is still null, is not graded. A
+ * `provisional` grade passes — it has evidence — and the caller decides
+ * separately whether it is enough.
  */
 export function isGraded(grade: VenueLatencyGrade): grade is GradedVenueLatency {
-  return grade.grade !== null;
+  return grade.grade !== null && grade.samples >= 1 && grade.rejectRateBps !== null && grade.errorRateBps !== null;
 }
 
 /** Type-narrow to REST. A consumer that cares which latency must check. */

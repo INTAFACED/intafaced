@@ -6,7 +6,7 @@ import { isCrossed, midFromSnapshot, topOfBook } from './book.js';
 import { annualisedFundingRate } from './rates.js';
 import { assertTradeOnly, requireCredentials, type VenueCredentials } from './adapter.js';
 import { VenueCredentialScopeError, VenueCredentialsMissingError } from './errors.js';
-import { isRestGrade, isWsGrade, type LatencyMeasurement, type VenueLatencyGrade } from './latency.js';
+import { isGraded, isRestGrade, isWsGrade, type LatencyMeasurement, type VenueLatencyGrade } from './latency.js';
 
 describe('decimal discipline — the wire refuses what a number cannot carry', () => {
   it('reads a decimal string exactly', () => {
@@ -417,5 +417,39 @@ describe('LatencyMeasurement — closed union of REST and WS handshake', () => {
     };
     expect(nameOf('rest-round-trip')).toBe('rest');
     expect(nameOf('ws-round-trip')).toBe('ws');
+  });
+});
+
+describe('isGraded — a letter needs one observation and numeric rates', () => {
+  const observed = (over: Partial<VenueLatencyGrade>): VenueLatencyGrade => ({
+    venueId: 'binance-spot',
+    measurement: 'rest-round-trip',
+    grade: 'B',
+    samples: 1,
+    p50Ms: 40,
+    p95Ms: 90,
+    rejectRateBps: 12,
+    errorRateBps: 3,
+    staleMs: 5,
+    provisional: false,
+    reasons: ['observed'],
+    ...over,
+  });
+
+  it('refuses a letter with zero samples even when both rates are numbers', () => {
+    expect(isGraded(observed({ samples: 0 }))).toBe(false);
+  });
+
+  it('refuses a letter when rejectRateBps or errorRateBps is null', () => {
+    expect(isGraded(observed({ samples: 2, rejectRateBps: null }))).toBe(false);
+    expect(isGraded(observed({ samples: 2, errorRateBps: null }))).toBe(false);
+  });
+
+  it('accepts a provisional grade that has a letter, one sample, and both rates', () => {
+    expect(isGraded(observed({ grade: 'C', samples: 1, provisional: true }))).toBe(true);
+  });
+
+  it('refuses a null grade', () => {
+    expect(isGraded(observed({ grade: null, samples: 4 }))).toBe(false);
   });
 });
