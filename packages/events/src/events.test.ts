@@ -185,6 +185,125 @@ describe('event catalog', () => {
       }),
     ).toThrow(EventValidationError);
   });
+
+  it('refuses a leading minus on unsigned money and keeps it on drift and pnl', () => {
+    const uid = () => crypto.randomUUID();
+    const ts = new Date().toISOString();
+    const filled = {
+      marketId: 'btc-usdt',
+      makerOrderId: uid(),
+      takerOrderId: uid(),
+      price: '64000',
+      qty: '0.1',
+      sequence: 1,
+      ts,
+    };
+    expect(() => validatePayload('orderFilled', { ...filled, price: '-1' })).toThrow(EventValidationError);
+    expect(() => validatePayload('orderFilled', { ...filled, qty: '-0.1' })).toThrow(EventValidationError);
+
+    const settled = {
+      fillId: uid(),
+      orderId: uid(),
+      userId: uid(),
+      marketId: 'btc-usdt',
+      side: 'buy' as const,
+      liquidity: 'taker' as const,
+      price: '100',
+      qty: '1',
+      quoteAmount: '100',
+      feeAsset: 'USDT',
+      feeAmount: '0.1',
+      feeBps: 10,
+      sequence: 1,
+      ts,
+    };
+    expect(() => validatePayload('fillSettled', { ...settled, price: '-100' })).toThrow(EventValidationError);
+    expect(() => validatePayload('fillSettled', { ...settled, qty: '-1' })).toThrow(EventValidationError);
+    expect(() => validatePayload('fillSettled', { ...settled, feeAmount: '-0.1' })).toThrow(EventValidationError);
+
+    const position = {
+      positionId: uid(),
+      userId: uid(),
+      marketId: 'btc-usdt-perp',
+      symbol: 'BTC/USDT:USDT',
+      status: 'open' as const,
+      side: 'long' as const,
+      contracts: '1',
+      entryPrice: '64000',
+      markPrice: '64100',
+      notional: '64000',
+      leverage: '5',
+      collateral: '12800',
+      unrealizedPnl: '100',
+      realizedPnl: '0',
+      liquidationPrice: '50000',
+      marginMode: 'cross' as const,
+      fundingPaid: '0',
+      ts,
+    };
+    expect(() => validatePayload('positionUpdated', { ...position, entryPrice: '-64000' })).toThrow(EventValidationError);
+    expect(() => validatePayload('positionUpdated', { ...position, contracts: '-1' })).toThrow(EventValidationError);
+    expect(() => validatePayload('positionUpdated', { ...position, notional: '-64000' })).toThrow(EventValidationError);
+    expect(() => validatePayload('positionUpdated', { ...position, collateral: '-12800' })).toThrow(EventValidationError);
+
+    const released = {
+      tradeId: uid(),
+      sellerId: uid(),
+      buyerId: uid(),
+      asset: 'BTC',
+      amount: '0.1',
+      fee: '0.001',
+      resolvedBy: 'seller' as const,
+      releaseSeconds: 60,
+    };
+    expect(() => validatePayload('p2pEscrowReleased', { ...released, amount: '-0.1' })).toThrow(EventValidationError);
+    expect(() => validatePayload('p2pEscrowReleased', { ...released, fee: '-0.001' })).toThrow(EventValidationError);
+
+    expect(() =>
+      validatePayload('stakeCreated', {
+        stakeId: uid(),
+        userId: uid(),
+        amount: '-100.00',
+        tier: 'flex',
+        unlocksAt: null,
+      }),
+    ).toThrow(EventValidationError);
+
+    expect(() =>
+      validatePayload('ledgerTxPosted', {
+        txId: uid(),
+        module: 'trade',
+        reason: 'trade.fill',
+        hash: 'h1',
+        previousHash: null,
+        entries: [
+          { accountId: uid(), assetId: 'USDT', direction: 'debit', amount: '-10.00' },
+          { accountId: uid(), assetId: 'USDT', direction: 'credit', amount: '10.00' },
+        ],
+        postedAt: ts,
+      }),
+    ).toThrow(EventValidationError);
+
+    expect(() =>
+      validatePayload('ledgerReconciliationFailed', {
+        accountId: uid(),
+        assetId: 'USDT',
+        snapshotBalance: '1.00',
+        replayBalance: '1.01',
+        drift: '-0.01',
+        module: 'ledger',
+      }),
+    ).not.toThrow();
+
+    const loss = validatePayload('positionUpdated', {
+      ...position,
+      unrealizedPnl: '-137.5',
+      realizedPnl: '-10.5',
+      fundingPaid: '-0.004',
+    });
+    expect(loss.unrealizedPnl).toBe('-137.5');
+    expect(loss.realizedPnl).toBe('-10.5');
+  });
 });
 
 describe('bus', () => {
