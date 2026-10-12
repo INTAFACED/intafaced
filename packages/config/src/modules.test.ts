@@ -44,15 +44,68 @@ describe('custody-scan derives its service list from the registry, faithfully', 
   const modulesPath = resolve(here, './modules.ts');
 
   /**
-   * Re-runs the scanner's own derivation regex against the real `modules.ts`.
+   * Re-runs the scanner's derivation regex against the real `modules.ts`.
    *
-   * Deliberately a copy rather than an import: the scanner exports nothing, and
-   * the point is to prove THAT expression parses THIS file correctly. If the two
-   * ever diverge, the copy is what makes the divergence visible.
+   * That regex is taken from the `const entry` assignment inside
+   * `deriveProtocolPlaneServices` in custody-scan.mjs. The scanner does not
+   * export it, and this test does not keep a second copy. A copy would stay
+   * green when the scanner matches fewer protocol-plane services. If the
+   * assignment cannot be read, this throws.
    */
+  function entryRegexFromScanner(scanSource: string): RegExp {
+    const unreadable = 'cannot read the entry regex assignment in deriveProtocolPlaneServices';
+    const start = scanSource.indexOf('function deriveProtocolPlaneServices');
+    if (start < 0) throw new Error(unreadable);
+    const nextFn = scanSource.indexOf('\nfunction ', start + 1);
+    const body = scanSource.slice(start, nextFn === -1 ? scanSource.length : nextFn);
+    const marker = 'const entry =';
+    const at = body.indexOf(marker);
+    if (at < 0) throw new Error(unreadable);
+    let i = at + marker.length;
+    while (body[i] === ' ' || body[i] === '\t' || body[i] === '\n') i += 1;
+    if (body[i] !== '/') throw new Error(unreadable);
+    i += 1;
+    let pattern = '';
+    let inClass = false;
+    let closed = false;
+    while (i < body.length) {
+      const ch = body[i];
+      if (ch === undefined || ch === '\n') throw new Error(unreadable);
+      if (ch === '\\') {
+        const next = body[i + 1];
+        if (next === undefined || next === '\n') throw new Error(unreadable);
+        pattern += ch + next;
+        i += 2;
+        continue;
+      }
+      if (ch === '/' && !inClass) {
+        closed = true;
+        i += 1;
+        break;
+      }
+      if (ch === '[' && !inClass) inClass = true;
+      else if (ch === ']' && inClass) inClass = false;
+      pattern += ch;
+      i += 1;
+    }
+    if (!closed || pattern.length === 0) throw new Error(unreadable);
+    let flags = '';
+    while (i < body.length) {
+      const flag = body[i];
+      if (flag === undefined || !'gimsuy'.includes(flag)) break;
+      flags += flag;
+      i += 1;
+    }
+    try {
+      return new RegExp(pattern, flags);
+    } catch {
+      throw new Error(unreadable);
+    }
+  }
+
   function servicesDerivedFromSource(): string[] {
     const source = readFileSync(modulesPath, 'utf8');
-    const entry = /service:\s*'([^']+)'[^}]*?planes:\s*\[([^\]]*)\][^}]*?custodial:\s*(true|false)/g;
+    const entry = entryRegexFromScanner(readFileSync(scanPath, 'utf8'));
     const derived: string[] = [];
     for (const match of source.matchAll(entry)) {
       const planes = [...match[2]!.matchAll(/'([^']+)'/g)].map((m) => m[1]!);
