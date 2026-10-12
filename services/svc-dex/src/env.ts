@@ -16,7 +16,7 @@ import { externalVenueConfigSchema } from './quote/external-venue.js';
  * if someone imports the wrong module — `custody-scan` catches the import, and
  * the missing secret catches anything that slips past it.
  */
-const schema = baseEnvSchema
+export const schema = baseEnvSchema
   .merge(httpEnvSchema)
   .merge(otelEnvSchema)
   .merge(edgeEnvSchema)
@@ -76,11 +76,19 @@ const schema = baseEnvSchema
        * wants only sovereign liquidity can see which legs are which. An operator
        * who wants this front door to quote nothing custodial sets it to `false`,
        * and the quote path is then Protocol Plane end to end.
+       *
+       * Off, after trim and lowercase: `0`, `false`, `off`, `no`, `disabled`.
+       * Padding and case do not leave the book on. Any other string, including
+       * empty, stays on. Unset stays on.
        */
       DEX_INTERNAL_BOOK_ENABLED: z
         .union([z.boolean(), z.string()])
         .default(true)
-        .transform((v) => (typeof v === 'boolean' ? v : !['0', 'false', 'off', 'no'].includes(v.toLowerCase()))),
+        .transform((v) => {
+          if (typeof v === 'boolean') return v;
+          const token = v.trim().toLowerCase();
+          return !['0', 'false', 'off', 'no', 'disabled'].includes(token);
+        }),
 
       /**
        * ── Venue cost parameters (S-I3 / `socket.dex-fee-source`) ────────────
