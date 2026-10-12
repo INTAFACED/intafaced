@@ -88,9 +88,60 @@ describe('routing', () => {
   });
 
   it('pro-rates a partial take exactly, with no float anywhere', () => {
-    // Take 1 of a 3-unit quote costing 100 → exactly 100/3 in integer arithmetic.
-    const r = route({ side: 'buy', qty: amt('1') }, [pool({ fillableQty: amt('3'), quoteAmount: amt('100') })]);
-    expect(formatAmount(r.legs[0]!.quoteAmount)).toBe('33.333333333333333333');
+    // Take 1 of a 3-unit quote costing 100 → exactly 100/3, then the full
+    // settlement of 2 once. Gas is not divided by 3.
+    const r = route({ side: 'buy', qty: amt('1') }, [
+      pool({ fillableQty: amt('3'), quoteAmount: amt('100'), settlementCost: amt('2') }),
+    ]);
+    expect(formatAmount(r.legs[0]!.quoteAmount)).toBe('35.333333333333333333');
+    expect(formatAmount(r.totalQuoteAmount)).toBe('35.333333333333333333');
+  });
+
+  /**
+   * Settlement is a fixed cost. Ranking it across the venue's whole size makes
+   * a large pool look cheaper than the book for a 1-unit take, and the leg
+   * then omits the gas the taker still pays in full.
+   */
+  it('sends a small buy to the book when a large pool only looks cheaper after diluting gas', () => {
+    const bookQuote: VenueQuote = {
+      venue: 'internal-book',
+      kind: 'book',
+      fillableQty: amt('1'),
+      quoteAmount: amt('100'),
+      feeBps: 0,
+      settlementCost: amt('0'),
+    };
+    const poolQuote: VenueQuote = {
+      venue: 'amm-pool',
+      kind: 'pool',
+      fillableQty: amt('1000'),
+      quoteAmount: amt('99000'),
+      feeBps: 0,
+      settlementCost: amt('50'),
+    };
+
+    const chosen = route({ side: 'buy', qty: amt('1') }, [poolQuote, bookQuote]);
+
+    expect(chosen.legs.map((leg) => leg.venue)).toEqual(['internal-book']);
+    expect(formatAmount(chosen.legs[0]!.quoteAmount)).toBe('100');
+    expect(formatAmount(chosen.totalQuoteAmount)).toBe('100');
+
+    // Taking 1 from the pool costs 99 of notional plus the full 50 gas.
+    const onlyPool = route({ side: 'buy', qty: amt('1') }, [poolQuote]);
+    expect(onlyPool.legs.map((leg) => leg.venue)).toEqual(['amm-pool']);
+    expect(formatAmount(onlyPool.legs[0]!.qty)).toBe('1');
+    expect(formatAmount(onlyPool.legs[0]!.quoteAmount)).toBe('149');
+    expect(formatAmount(onlyPool.legs[0]!.effectivePrice)).toBe('149');
+    expect(formatAmount(onlyPool.totalQuoteAmount)).toBe('149');
+
+    // A full take of that pool still pays the same 50 once. The full-size
+    // price stays (99000 + 50) / 1000.
+    const fullPool = route({ side: 'buy', qty: amt('1000') }, [poolQuote]);
+    expect(formatAmount(fullPool.legs[0]!.qty)).toBe('1000');
+    expect(formatAmount(fullPool.legs[0]!.quoteAmount)).toBe('99050');
+    expect(formatAmount(fullPool.totalQuoteAmount)).toBe('99050');
+    expect(formatAmount(fullPool.legs[0]!.effectivePrice)).toBe('99.05');
+    expect(formatAmount(effectivePrice(poolQuote, 'buy'))).toBe('99.05');
   });
 
   it('reports an unfilled remainder rather than pretending to fill it', () => {
