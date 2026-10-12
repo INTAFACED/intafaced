@@ -256,11 +256,14 @@ export function buildEnvelope<K extends EventName>(
   // declare is the same silent deletion seen from the other end — usually a
   // typo, or a wider internal object spread into a narrower event.
   const validated = validatePayload(name, payload, producer);
+  // Default dedupe key is this id. A second randomUUID would miss a retry of the returned id.
+  const id = crypto.randomUUID();
   const env = createEnvelope<Payload<K>>({
+    id,
     subject: def.subject,
     version: def.version,
     producer,
-    idempotencyKey: opts.idempotencyKey ?? crypto.randomUUID(),
+    idempotencyKey: opts.idempotencyKey ?? id,
     payload: validated,
     ...(opts.occurredAt ? { occurredAt: opts.occurredAt } : {}),
     ...(opts.traceparent ? { traceparent: opts.traceparent } : {}),

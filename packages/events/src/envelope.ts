@@ -48,11 +48,13 @@ export interface EnvelopeInit<T> {
   traceparent?: string;
   causationId?: string;
   correlationId?: string;
+  /** When set, this is the envelope id. Omitted callers still get a fresh uuid. */
+  id?: string;
 }
 
 export function createEnvelope<T>(init: EnvelopeInit<T>): Envelope<T> {
   return {
-    id: crypto.randomUUID(),
+    id: init.id ?? crypto.randomUUID(),
     subject: init.subject,
     version: init.version,
     occurredAt: (init.occurredAt ?? new Date()).toISOString(),

@@ -346,6 +346,28 @@ describe('bus', () => {
     expect(() => new Date(env.occurredAt).toISOString()).not.toThrow();
   });
 
+  it('defaults a missing idempotency key to the envelope id and dedupes a retry of that id', async () => {
+    const bus = new MemoryEventBus('svc-ledger');
+    const store = new MemorySeenStore();
+    const handler = vi.fn();
+    await bus.subscribe('xpEarned', idempotent(handler, store, 'rank-recalc'), { durable: 'rank-recalc' });
+
+    const payload = { userId: crypto.randomUUID(), sourceModule: 'p2p', action: 'trade.completed', xpDelta: 10 };
+
+    const first = await bus.publish('xpEarned', payload);
+    expect(first.idempotencyKey).toBe(first.id);
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    const retry = await bus.publish('xpEarned', payload, { idempotencyKey: first.id });
+    expect(retry.idempotencyKey).toBe(first.id);
+    expect(retry.id).not.toBe(retry.idempotencyKey);
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    const explicit = await bus.publish('xpEarned', payload, { idempotencyKey: 'fill-business-key' });
+    expect(explicit.idempotencyKey).toBe('fill-business-key');
+    expect(explicit.id).not.toBe(explicit.idempotencyKey);
+  });
+
   it('round-trips an envelope through the wire codec', async () => {
     const bus = new MemoryEventBus('svc-ledger');
     const env = await bus.publish('userCreated', { userId: crypto.randomUUID(), handle: 'sovereign' });
