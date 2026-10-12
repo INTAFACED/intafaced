@@ -71,6 +71,8 @@ describe('redactEnv', () => {
     const out = redactEnv({
       SERVICE_NAME: 'svc-ledger',
       DATABASE_URL: 'postgres://user:pw@host/db',
+      REDIS_URL: 'redis://user:pw@host:6379',
+      NATS_URL: 'nats://user:pw@host:4222',
       JWT_ACCESS_SECRET: 'super-secret',
       ISSUER_API_KEY: 'k-123',
       HTTP_PORT: 3000,
@@ -78,6 +80,8 @@ describe('redactEnv', () => {
     expect(out.SERVICE_NAME).toBe('svc-ledger');
     expect(out.HTTP_PORT).toBe(3000);
     expect(out.DATABASE_URL).toBe('«redacted»');
+    expect(out.REDIS_URL).toBe('«redacted»');
+    expect(out.NATS_URL).toBe('«redacted»');
     expect(out.JWT_ACCESS_SECRET).toBe('«redacted»');
     expect(out.ISSUER_API_KEY).toBe('«redacted»');
   });

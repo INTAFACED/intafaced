@@ -122,7 +122,7 @@ export const authEnvSchema = z.object({
 });
 
 /** Keys whose values must never appear in logs, traces, or error payloads. */
-const SECRET_KEY_PATTERN = /(SECRET|PASSWORD|TOKEN|PRIVATE|_KEY|CREDENTIAL|DSN|DATABASE_URL)/i;
+const SECRET_KEY_PATTERN = /(SECRET|PASSWORD|TOKEN|PRIVATE|_KEY|CREDENTIAL|DSN|DATABASE_URL|REDIS_URL|NATS_URL)/i;
 
 export class EnvError extends Error {
   constructor(
