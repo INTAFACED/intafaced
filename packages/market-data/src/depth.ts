@@ -413,7 +413,8 @@ export type VenueDeltaIngestResult =
 
 /**
  * Delta ingest. A missing book or unwired venue is an absent hole — the delta
- * is not applied onto an invented empty book.
+ * is not applied onto an invented empty book. A refused delta is the same
+ * hole: snapshot null, not a measured copy of the book it was refused against.
  */
 export function ingestVenueDepthDelta(lake: CaptureLog, input: VenueDepthDeltaIngest): VenueDeltaIngestResult {
   const book = input.book ?? null;
@@ -432,15 +433,13 @@ export function ingestVenueDepthDelta(lake: CaptureLog, input: VenueDepthDeltaIn
     venueId: input.venueId,
     marketId: book.marketId,
     connection: 'connected',
-    snapshot: {
-      sequence: apply.ok ? apply.book.sequence : book.sequence,
-      bids: apply.ok
-        ? [...apply.book.bids.entries()].map(([price, qty]) => [price, formatAmount(qty)] as const)
-        : [...book.bids.entries()].map(([price, qty]) => [price, formatAmount(qty)] as const),
-      asks: apply.ok
-        ? [...apply.book.asks.entries()].map(([price, qty]) => [price, formatAmount(qty)] as const)
-        : [...book.asks.entries()].map(([price, qty]) => [price, formatAmount(qty)] as const),
-    },
+    snapshot: apply.ok
+      ? {
+          sequence: apply.book.sequence,
+          bids: [...apply.book.bids.entries()].map(([price, qty]) => [price, formatAmount(qty)] as const),
+          asks: [...apply.book.asks.entries()].map(([price, qty]) => [price, formatAmount(qty)] as const),
+        }
+      : null,
   });
   return { record, apply };
 }

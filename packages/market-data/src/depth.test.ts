@@ -702,3 +702,89 @@ describe('ingestVenueDepthDelta — missing book is absent', () => {
     expect(result.record.status).toBe('absent');
   });
 });
+
+describe('ingestVenueDepthDelta — a refused delta is an absent lake row', () => {
+  function refuse(delta: DepthDelta) {
+    const lake = new CaptureLog({ now: () => new Date('2026-08-16T13:00:05.000Z') });
+    const resting = book(10, [['100', '5']], []);
+    const result = ingestVenueDepthDelta(lake, {
+      venueId: 'binance-spot',
+      marketId: MARKET,
+      connection: 'connected',
+      book: resting,
+      delta,
+    });
+    return { lake, resting, result };
+  }
+
+  it('writes absent on a gap and does not advance sequence', () => {
+    const { lake, resting, result } = refuse({
+      type: 'delta',
+      marketId: MARKET,
+      fromSequence: 12,
+      sequence: 13,
+      bids: [['100', '999']],
+      asks: [],
+    });
+    expect(result.apply.reason).toBe('gap');
+    expect(lake.records().at(-1)?.status).toBe('absent');
+    expect(resting.sequence).toBe(10);
+  });
+
+  it('writes absent on a stale delta and does not advance sequence', () => {
+    const { lake, resting, result } = refuse({
+      type: 'delta',
+      marketId: MARKET,
+      fromSequence: 9,
+      sequence: 10,
+      bids: [['100', '1']],
+      asks: [],
+    });
+    expect(result.apply.reason).toBe('stale');
+    expect(lake.records().at(-1)?.status).toBe('absent');
+    expect(resting.sequence).toBe(10);
+  });
+
+  it('writes absent on a wrong-market delta and does not advance sequence', () => {
+    const { lake, resting, result } = refuse({
+      type: 'delta',
+      marketId: 'ETH-USDT',
+      fromSequence: 10,
+      sequence: 11,
+      bids: [['100', '0']],
+      asks: [],
+    });
+    expect(result.apply.reason).toBe('wrong-market');
+    expect(lake.records().at(-1)?.status).toBe('absent');
+    expect(resting.sequence).toBe(10);
+  });
+
+  it('writes absent on an invalid-qty delta and does not advance sequence', () => {
+    const { lake, resting, result } = refuse({
+      type: 'delta',
+      marketId: MARKET,
+      fromSequence: 10,
+      sequence: 11,
+      bids: [['100', '-1']],
+      asks: [],
+    });
+    expect(result.apply.reason).toBe('invalid-qty');
+    expect(lake.records().at(-1)?.status).toBe('absent');
+    expect(resting.sequence).toBe(10);
+  });
+
+  it('records a measured snapshot at the new sequence when the delta applies', () => {
+    const lake = new CaptureLog({ now: () => new Date('2026-08-16T13:00:06.000Z') });
+    const resting = book(10, [['100', '5']], []);
+    const result = ingestVenueDepthDelta(lake, {
+      venueId: 'binance-spot',
+      marketId: MARKET,
+      connection: 'connected',
+      book: resting,
+      delta: { type: 'delta', marketId: MARKET, fromSequence: 10, sequence: 11, bids: [['100', '7']], asks: [] },
+    });
+    expect(result.apply.ok).toBe(true);
+    expect(lake.records().at(-1)).toMatchObject({ status: 'measured', sequence: 11 });
+    expect(resting.sequence).toBe(10);
+  });
+});
