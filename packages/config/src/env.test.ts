@@ -52,6 +52,22 @@ describe('loadEnv', () => {
     expect(() => loadEnv(edgeEnvSchema, { EDGE_PRINCIPAL_SECRET: 'a'.repeat(32) })).not.toThrow();
   });
 
+  it('refuses a blank NATS URL and keeps an omitted or explicit localhost URL', () => {
+    expect(loadEnv(serviceEnvSchema, validServiceEnv).NATS_URL).toBe('nats://localhost:4222');
+    expect(loadEnv(serviceEnvSchema, { ...validServiceEnv, NATS_URL: 'nats://localhost:4222' }).NATS_URL).toBe(
+      'nats://localhost:4222',
+    );
+    for (const NATS_URL of ['', ' ', '\t', '\n']) {
+      try {
+        loadEnv(serviceEnvSchema, { ...validServiceEnv, NATS_URL });
+        expect.unreachable('should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(EnvError);
+        expect((e as EnvError).issues.some((i) => i.startsWith('NATS_URL'))).toBe(true);
+      }
+    }
+  });
+
   it('refuses a missing or short INTERNAL_SERVICE_SECRET', () => {
     for (const source of [{}, { INTERNAL_SERVICE_SECRET: 'short' }]) {
       try {
