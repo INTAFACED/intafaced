@@ -232,9 +232,47 @@ describe('book top', () => {
   it('detects a crossed book — the symptom of a missed removal', () => {
     expect(isCrossed(topOfBook([level('30003', '1')], [level('30002', '1')]))).toBe(true);
     // Touching counts: bid === ask cannot rest on a real venue either.
-    expect(isCrossed(topOfBook([level('30002', '1')], [level('30002', '1')]))).toBe(true);
+    const touching = topOfBook([level('30002', '1')], [level('30002', '1')]);
+    expect(isCrossed(touching)).toBe(true);
+    expect(touching.mid).toBeNull();
     expect(isCrossed(topOfBook([level('30001', '1')], [level('30002', '1')]))).toBe(false);
     expect(isCrossed(topOfBook([], []))).toBe(false);
+  });
+
+  it('mints no mid from a crossed book — a wrong copy is not a price', () => {
+    const bids = [level('30003', '1')];
+    const asks = [level('30002', '1')];
+    const top = topOfBook(bids, asks);
+    expect(isCrossed(top)).toBe(true);
+    expect(formatAmount(top.bestBid!)).toBe('30003');
+    expect(formatAmount(top.bestAsk!)).toBe('30002');
+    expect(formatAmount(top.spread!)).toBe('-1');
+    expect(top.mid).toBeNull();
+    expect(
+      midFromSnapshot({
+        venueId: 'binance-spot',
+        symbol: 'BTC/USDT',
+        bids,
+        asks,
+        sequence: 1,
+        sequenced: true,
+        observedAt: new Date(0),
+      }),
+    ).toBeNull();
+  });
+
+  it('returns a null mid when bid 0 and ask 1 halve to zero — never 0n', () => {
+    const bestBid = parseAmount(0n);
+    const bestAsk = parseAmount(1n);
+    const top = topOfBook(
+      [[bestBid, parseAmount('1')]],
+      [[bestAsk, parseAmount('1')]],
+    );
+    expect(bestBid).toBe(0n);
+    expect(bestAsk).toBe(1n);
+    expect((bestBid + bestAsk) / 2n).toBe(0n);
+    expect(top.mid).toBeNull();
+    expect(top.spread).toBe(bestAsk - bestBid);
   });
 });
 

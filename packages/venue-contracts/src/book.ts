@@ -131,7 +131,8 @@ export interface BookTop {
   /** `null` when either side is empty — a one-sided book has no spread. */
   readonly spread: Amount | null;
   /**
-   * `(bestBid + bestAsk) / 2`, `null` on a one-sided book.
+   * `(bestBid + bestAsk) / 2` when the book is not crossed and that half is
+   * not zero. `null` on a one-sided book, a crossed book, or a half of zero.
    *
    * The figure cross-checking compares venues on. Deliberately not a
    * last-traded price: a stale last-trade on a thin venue is the single most
@@ -148,25 +149,35 @@ export function topOfBook(bids: readonly PriceLevel[], asks: readonly PriceLevel
   const bestBid = bid?.[0] ?? null;
   const bestAsk = ask?.[0] ?? null;
 
+  // Integer halving. The lost wei is irrelevant to a comparison and the
+  // alternative — carrying a fraction — would put a float in a price.
+  // A crossed book (bid >= ask) is a wrong copy. A half of 0n is not a price.
+  let spread: Amount | null = null;
+  let mid: Amount | null = null;
+  if (bestBid !== null && bestAsk !== null) {
+    spread = bestAsk - bestBid;
+    const half = (bestBid + bestAsk) / 2n;
+    if (bestBid < bestAsk && half !== 0n) mid = half;
+  }
+
   return {
     bestBid,
     bestAsk,
     bestBidQty: bid?.[1] ?? null,
     bestAskQty: ask?.[1] ?? null,
-    spread: bestBid !== null && bestAsk !== null ? bestAsk - bestBid : null,
-    // Integer halving. The lost wei is irrelevant to a comparison and the
-    // alternative — carrying a fraction — would put a float in a price.
-    mid: bestBid !== null && bestAsk !== null ? (bestBid + bestAsk) / 2n : null,
+    spread,
+    mid,
   };
 }
 
 /**
  * Mid of a snapshot, or `null`.
  *
- * Empty, one-sided, and missing books have no mid. This is the only derived
- * price this package will mint from a book: never a last-trade, never zero,
- * never a previously-seen number. Callers that need a price when this is
- * `null` must refuse, not invent.
+ * Empty, one-sided, crossed, and missing books have no mid, and neither does
+ * a book whose integer half is zero. This is the only derived price this
+ * package will mint from a book: never a last-trade, never zero, never a
+ * previously-seen number. Callers that need a price when this is `null` must
+ * refuse, not invent.
  */
 export function midFromSnapshot(snapshot: VenueBookSnapshot | null | undefined): Amount | null {
   if (!snapshot) return null;
