@@ -180,6 +180,105 @@ function pluralRules(tag: string): Intl.PluralRules {
   return rules;
 }
 
+const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+const MIN_SAFE_BIGINT = BigInt(Number.MIN_SAFE_INTEGER);
+const PLURAL_MODULI = [10, 100, 1000] as const;
+const PLURAL_PROBE_LIMIT = 5000;
+
+type PluralPredictor = (n: bigint) => PluralCategory;
+
+const pluralPredictorCache = new Map<string, PluralPredictor>();
+
+/**
+ * Integers past `MAX_SAFE_INTEGER` must not go through `Number` or
+ * `PluralRules.select` of their decimal text — both collapse above 2^53.
+ * A modulus explains the locale when its prediction matches `select(i)` for
+ * every i in 0..5000. Residue r is an absolute exception when only the
+ * sample at r disagrees with the later samples r+M, r+2M, ….
+ */
+function integerPluralPredictor(tag: string): PluralPredictor {
+  const cached = pluralPredictorCache.get(tag);
+  if (cached) return cached;
+
+  const rules = pluralRules(tag);
+  const samples: PluralCategory[] = [];
+  for (let i = 0; i <= PLURAL_PROBE_LIMIT; i++) {
+    samples.push(rules.select(i) as PluralCategory);
+  }
+
+  for (const modulus of PLURAL_MODULI) {
+    const predictor = predictorForModulus(samples, modulus);
+    if (!predictor) continue;
+    let explains = true;
+    for (let i = 0; i <= PLURAL_PROBE_LIMIT; i++) {
+      if (predictor(BigInt(i)) !== samples[i]) {
+        explains = false;
+        break;
+      }
+    }
+    if (!explains) continue;
+    pluralPredictorCache.set(tag, predictor);
+    return predictor;
+  }
+
+  throw new Error(`No plural modulus explains locale "${tag}".`);
+}
+
+function predictorForModulus(samples: readonly PluralCategory[], modulus: number): PluralPredictor | undefined {
+  const periodic: PluralCategory[] = [];
+  const exception: Array<PluralCategory | undefined> = [];
+
+  for (let residue = 0; residue < modulus; residue++) {
+    let later: PluralCategory | undefined;
+    for (let n = residue + modulus; n <= PLURAL_PROBE_LIMIT; n += modulus) {
+      const category = samples[n]!;
+      if (later === undefined) later = category;
+      else if (later !== category) return undefined;
+    }
+    if (later === undefined) return undefined;
+    periodic[residue] = later;
+    const atResidue = samples[residue]!;
+    if (atResidue !== later) exception[residue] = atResidue;
+  }
+
+  return (n: bigint): PluralCategory => {
+    const residue = Number(n % BigInt(modulus));
+    const absolute = exception[residue];
+    if (absolute !== undefined && n === BigInt(residue)) return absolute;
+    return periodic[residue]!;
+  };
+}
+
+/** A fraction `Number` can render back unchanged. `"1.5"` stays 1.5, not 1. */
+function exactDecimal(text: string): number | undefined {
+  if (!/^\d+\.\d+$/.test(text)) return undefined;
+  const n = Number(text);
+  if (!Number.isFinite(n) || String(n) !== text) return undefined;
+  return n;
+}
+
+function pluralCategory(tag: string, count: ParamValue): PluralCategory {
+  if (typeof count === 'bigint') {
+    if (count >= MIN_SAFE_BIGINT && count <= MAX_SAFE_BIGINT) {
+      return pluralRules(tag).select(Number(count)) as PluralCategory;
+    }
+    if (count < 0n) throw new Error(`Negative plural count is out of range for locale "${tag}".`);
+    return integerPluralPredictor(tag)(count);
+  }
+
+  if (typeof count === 'number') {
+    return pluralRules(tag).select(Number.isFinite(count) ? count : 0) as PluralCategory;
+  }
+
+  if (/^\d+$/.test(count)) return pluralCategory(tag, BigInt(count));
+
+  const fraction = exactDecimal(count);
+  if (fraction !== undefined) return pluralRules(tag).select(fraction) as PluralCategory;
+
+  // Blank, whitespace, and other non-counts are not zero.
+  return 'other';
+}
+
 const PLACEHOLDER_RE = /\{(\w+)\}/g;
 
 /**
@@ -239,10 +338,9 @@ export function createTranslator(
     return undefined;
   }
 
-  /** Pick the plural form `Intl` says this language uses for this count. */
+  /** Pick the plural form for this count. The count text itself is interpolated unchanged. */
   function selectPluralForm(key: string, message: PluralMessage, count: ParamValue): string {
-    const n = typeof count === 'bigint' ? Number(count) : typeof count === 'string' ? Number.parseInt(count, 10) : count;
-    const category = pluralRules(tag).select(Number.isFinite(n) ? n : 0) as PluralCategory;
+    const category = pluralCategory(tag, count);
 
     const form = message[category];
     if (form !== undefined) return form;

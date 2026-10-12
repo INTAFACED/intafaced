@@ -213,6 +213,63 @@ describe('pluralisation via Intl.PluralRules', () => {
     expect(t.t('wallet.assets', { count: 1 })).toBe('1 asset');
     expect(reports.some((r) => r.kind === 'missing-plural-form' && r.category === 'one')).toBe(true);
   });
+
+  it('classifies a fractional string as that fraction, not its integer part', () => {
+    const enT = createTranslator('en', en, { mode: 'dev' });
+    expect(enT.t('wallet.assets', { count: '1.5' })).toBe('1.5 assets');
+    expect(enT.t('wallet.assets', { count: 1 })).toBe('1 asset');
+    expect(enT.t('wallet.assets', { count: '1' })).toBe('1 asset');
+    expect(enT.t('wallet.assets', { count: 2 })).toBe('2 assets');
+    expect(enT.t('wallet.assets', { count: '2' })).toBe('2 assets');
+    expect(enT.t('wallet.assets', { count: 21 })).toBe('21 assets');
+    expect(enT.t('wallet.assets', { count: '21' })).toBe('21 assets');
+
+    const arT = createTranslator('ar', ar, { mode: 'prod', onMissing: () => {} });
+    expect(arT.t('wallet.assets', { count: '1.5' })).toBe('OTHER 1.5');
+    expect(arT.t('wallet.assets', { count: '1.5' })).not.toMatch(/^ONE /);
+  });
+
+  it('does not treat a blank or non-numeric count as zero', () => {
+    const t = createTranslator('ar', ar, { mode: 'prod', onMissing: () => {} });
+    const blank = '';
+    const whitespace = ' \t ';
+    const nope = 'nope';
+
+    expect(t.t('wallet.assets', { count: blank })).toBe(`OTHER ${blank}`);
+    expect(t.t('wallet.assets', { count: whitespace })).toBe(`OTHER ${whitespace}`);
+    expect(t.t('wallet.assets', { count: nope })).toBe(`OTHER ${nope}`);
+    expect(t.t('wallet.assets', { count: blank })).not.toMatch(/^ZERO /);
+    expect(t.t('wallet.assets', { count: whitespace })).not.toMatch(/^ZERO /);
+    expect(t.t('wallet.assets', { count: nope })).not.toMatch(/^ZERO /);
+  });
+
+  it('classifies a safe bigint the same way as that number', () => {
+    const t = createTranslator('ru', ru, { mode: 'prod', onMissing: () => {} });
+    expect(t.t('wallet.assets', { count: 1n })).toBe('1 актив');
+    expect(t.t('wallet.assets', { count: 2n })).toBe('2 актива');
+    expect(t.t('wallet.assets', { count: 5n })).toBe('5 активов');
+    expect(t.t('wallet.assets', { count: 21n })).toBe('21 актив');
+    expect(t.t('wallet.assets', { count: 22n })).toBe('22 актива');
+  });
+
+  it('classifies an integer past the safe range without collapsing digits', () => {
+    const huge = 9007199254741001n;
+    const ruT = createTranslator('ru', ru, { mode: 'prod', onMissing: () => {} });
+    const enT = createTranslator('en', en, { mode: 'dev' });
+
+    expect(ruT.t('wallet.assets', { count: huge })).toBe(`${formatNumber(huge, 'ru')} актив`);
+    expect(enT.t('wallet.assets', { count: huge })).toBe(`${formatNumber(huge, 'en')} assets`);
+    expect(ruT.t('wallet.assets', { count: '9007199254741001' })).toBe('9007199254741001 актив');
+    expect(enT.t('wallet.assets', { count: '9007199254741001' })).toBe('9007199254741001 assets');
+    expect(ruT.t('wallet.assets', { count: huge }).replace(/\D/g, '')).toBe('9007199254741001');
+    expect(enT.t('wallet.assets', { count: huge }).replace(/\D/g, '')).toBe('9007199254741001');
+  });
+
+  it('does not classify counts with parseInt', () => {
+    const source = readFileSync(fileURLToPath(new URL('./t.ts', import.meta.url)), 'utf8');
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    expect(code).not.toContain('parseInt(');
+  });
 });
 
 // ── Missing keys ────────────────────────────────────────────────────────────
