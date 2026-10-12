@@ -22,6 +22,7 @@ describe('marketing language ban (D26-P0-16 / §8.9)', () => {
     expect(findUnsealedMarketingClaims('Our contracts are fully audited.').map((h) => h.word)).toEqual(['audited']);
     expect(findUnsealedMarketingClaims('Deposits are insured by the house.').map((h) => h.word)).toEqual(['insured']);
     expect(findUnsealedMarketingClaims('Guaranteed yield every month.').map((h) => h.word)).toEqual(['guaranteed']);
+    expect(findUnsealedMarketingClaims('audited: true').map((h) => h.word)).toEqual(['audited']);
     const refused = assertMarketingLanguageAllowed('audited: true');
     expect(refused.ok).toBe(false);
     if (!refused.ok) expect(refused.code).toBe('refuse.marketing_language_unsealed');
@@ -40,6 +41,23 @@ describe('marketing language ban (D26-P0-16 / §8.9)', () => {
     expect(isHonestMarketingLanguageUse('unaudited venue')).toBe(true);
     expect(findUnsealedMarketingClaims('Template is not audited until a real audit.')).toEqual([]);
     expect(findUnsealedMarketingClaims('profit share is not a guaranteed yield')).toEqual([]);
+    expect(findUnsealedMarketingClaims('marked audited:false until a real audit exists')).toEqual([]);
+    expect(findUnsealedMarketingClaims('unaudited venue')).toEqual([]);
+  });
+
+  it('does not let an honest ban word clear the rest of the line', () => {
+    expect(
+      findUnsealedMarketingClaims('not audited; deposits are insured and guaranteed').map((h) => h.word),
+    ).toEqual(['insured', 'guaranteed']);
+    expect(findUnsealedMarketingClaims('not audited; contracts are fully audited.').map((h) => h.word)).toEqual([
+      'audited',
+    ]);
+    expect(
+      findUnsealedMarketingClaims('not audited; deposits are insured and guaranteed', OWNER_SEAL_MARKER),
+    ).toEqual([]);
+    expect(
+      findUnsealedMarketingClaims(`not audited; deposits are insured. ${OWNER_SEAL_MARKER}`),
+    ).toEqual([]);
   });
 
   it('allows honesty-field i18n keys without treating the label as a claim', () => {

@@ -19,8 +19,11 @@
  *
  * Negations (`not audited`, `unaudited`), status honesty (`audited: false`), and
  * i18n keys that merely LABEL the honesty field (`audited: "…"`) are not
- * marketing invent. Affirmative copy ("fully audited", "insured deposits",
- * "guaranteed yield") without `OWNER-SEAL(§8.9)` is refuse.
+ * marketing invent. An honest pattern excuses only the ban word it covers.
+ * It does not excuse a different ban word on the same line, and it does not
+ * excuse a later affirmative use of the same word. Affirmative copy
+ * ("fully audited", "insured deposits", "guaranteed yield") without
+ * `OWNER-SEAL(§8.9)` is refuse.
  */
 
 /** Words DIRECTION §8.9 reserves for owner-sealed product copy. */
@@ -49,7 +52,8 @@ export function hasOwnerSeal(text: string): boolean {
 
 /**
  * Honest mentions that are NOT "described as audited/insured/guaranteed".
- * Negation, status-false, and status-field labels stay green without a seal.
+ * True means a negation, status-false, or status-field label is present.
+ * It is not a whole-line seal — a different ban word can still be a claim.
  */
 export function isHonestMarketingLanguageUse(line: string): boolean {
   const l = line.toLowerCase();
@@ -76,17 +80,43 @@ export function isHonestMarketingLanguageUse(line: string): boolean {
   return false;
 }
 
+/** Blank honest uses of one ban word. A different ban word on the line stays visible. */
+function maskHonestUsesOfBanWord(line: string, word: MarketingBanWord): string {
+  const patterns: RegExp[] = [
+    new RegExp(`\\b(?:un|non)[- ]?${word}\\b`, 'gi'),
+    new RegExp(
+      `\\b(?:not|never|no)\\s+(?:a\\s+|be\\s+|been\\s+|an?\\s+)?(?:fully\\s+|externally\\s+|independently\\s+)?${word}\\b`,
+      'gi',
+    ),
+  ];
+  if (word === 'audited') patterns.push(/\baudited\s*:\s*false\b/gi);
+
+  let masked = line;
+  for (const pattern of patterns) {
+    masked = masked.replace(pattern, (match) => ' '.repeat(match.length));
+  }
+
+  // Leading `audited:` labels the field. The value may repeat that word.
+  // `audited: true` is a claim, not a label.
+  if (word === 'audited' && /^\s*audited\s*:/.test(line) && !/\baudited\s*:\s*true\b/i.test(line)) {
+    masked = masked.replace(/\baudited\b/gi, (match) => ' '.repeat(match.length));
+  }
+
+  return masked;
+}
+
 /**
- * Unsealed ban-word hits on a single line. Empty when sealed, honest, or clean.
+ * Unsealed ban-word hits on a single line.
+ * A seal on this line or the previous line clears the whole line.
+ * Each ban word is judged alone: an honest use does not clear the rest.
  */
 export function findUnsealedMarketingClaims(line: string, previousLine = ''): MarketingLanguageHit[] {
   if (hasOwnerSeal(line) || hasOwnerSeal(previousLine)) return [];
-  if (isHonestMarketingLanguageUse(line)) return [];
 
   const hits: MarketingLanguageHit[] = [];
   for (const word of MARKETING_BAN_WORDS) {
-    const re = new RegExp(`\\b${word}\\b`, 'i');
-    if (re.test(line)) {
+    const visible = maskHonestUsesOfBanWord(line, word);
+    if (new RegExp(`\\b${word}\\b`, 'i').test(visible)) {
       hits.push({
         word,
         reason: `DIRECTION §8.9 — "${word}" in product copy requires ${OWNER_SEAL_MARKER}`,
