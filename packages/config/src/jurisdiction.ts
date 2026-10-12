@@ -1038,7 +1038,7 @@ export function assertScreeningConfigured(
 ): ScreeningStatus {
   const list = activeScreeningList(env);
   const status = screeningStatus(list, business);
-  const appEnv = env.APP_ENV ?? 'dev';
+  const appEnv = (env.APP_ENV ?? 'dev').trim();
   const enforced = (SCREENING_ENFORCED_ENVS as readonly string[]).includes(appEnv);
   if (enforced && list.declaration === 'unset') {
     throw new UnscreenedJurisdictionError(appEnv, status.businessBlockedRegions);

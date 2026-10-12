@@ -258,7 +258,7 @@ export type ScreeningMoneyPosture =
  */
 export function evaluateScreeningMoneyPosture(list: ScreeningList, appEnv: string): ScreeningMoneyPosture {
   const grade = screeningMoneyGrade(list);
-  const enforced = (OWNER_LIST_REQUIRED_ENVS as readonly string[]).includes(appEnv);
+  const enforced = (OWNER_LIST_REQUIRED_ENVS as readonly string[]).includes(appEnv.trim());
   if (grade === 'counsel') {
     return { allowed: true, code: 'allowed.screening_counsel', grade, readsAsScreenedClean: true };
   }

@@ -338,6 +338,14 @@ describe('boot guard — production-like postures refuse to start unscreened', (
     expect(() => assertScreeningConfigured({ APP_ENV: appEnv })).toThrow(UnscreenedJurisdictionError);
   });
 
+  it('throws for APP_ENV prod with a trailing space and no sanctions list', () => {
+    expect(() => assertScreeningConfigured({ APP_ENV: 'prod ' })).toThrow(UnscreenedJurisdictionError);
+  });
+
+  it('throws for APP_ENV staging with a trailing space and no sanctions list', () => {
+    expect(() => assertScreeningConfigured({ APP_ENV: 'staging ' })).toThrow(UnscreenedJurisdictionError);
+  });
+
   it('names the env and the refuse code rather than just failing', () => {
     try {
       assertScreeningConfigured({ APP_ENV: 'prod' });
@@ -851,6 +859,16 @@ describe('money posture — empty and fixtures never read as screened clean (D26
     expect(posture.code).toBe(SCREENING_REFUSE_UNCONFIGURED);
     expect(posture.readsAsScreenedClean).toBe(false);
     expect(posture.grade).toBe('unconfigured');
+  });
+
+  it('evaluateScreeningMoneyPosture on the unset list with padded prod is not allowed', () => {
+    const posture = evaluateScreeningMoneyPosture(UNSET_SCREENING_LIST, 'prod ');
+    expect(posture.allowed).toBe(false);
+  });
+
+  it('evaluateScreeningMoneyPosture on the unset list with padded staging is not allowed', () => {
+    const posture = evaluateScreeningMoneyPosture(UNSET_SCREENING_LIST, 'staging ');
+    expect(posture.allowed).toBe(false);
   });
 
   it.each(OWNER_LIST_REQUIRED_ENVS)('evaluateScreeningMoneyPosture refuses fixture by name in %s', (appEnv) => {
