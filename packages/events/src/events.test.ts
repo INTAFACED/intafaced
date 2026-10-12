@@ -220,6 +220,7 @@ describe('event catalog', () => {
     expect(() => validatePayload('fillSettled', { ...settled, price: '-100' })).toThrow(EventValidationError);
     expect(() => validatePayload('fillSettled', { ...settled, qty: '-1' })).toThrow(EventValidationError);
     expect(() => validatePayload('fillSettled', { ...settled, feeAmount: '-0.1' })).toThrow(EventValidationError);
+    expect(() => validatePayload('fillSettled', { ...settled, feeAsset: '' })).toThrow(EventValidationError);
 
     const position = {
       positionId: uid(),

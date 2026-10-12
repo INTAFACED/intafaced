@@ -421,7 +421,7 @@ export const fillSettled = defineEvent(
     price: amountSchema,
     qty: amountSchema,
     quoteAmount: amountSchema,
-    feeAsset: z.string(),
+    feeAsset: assetIdSchema,
     feeAmount: amountSchema,
     feeBps: z.number().int(),
     /** Book sequence for the market. Not fill identity. */
