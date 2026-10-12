@@ -159,14 +159,69 @@ export function isSupportedFiat(code: string): boolean {
   return BY_CODE.get(code.toUpperCase())?.enabled === true;
 }
 
-/** Display formatting for a fiat amount. Locale-aware; never used for maths. */
-export function formatFiat(amount: number, code: string, locale = 'en-US'): string {
+const DECIMAL_AMOUNT = /^(-?)(\d+)(?:\.(\d+))?$/;
+
+/**
+ * Display formatting for a fiat amount given as a decimal string.
+ * Digits are copied from that string. A blank amount throws. A fraction
+ * longer than the currency's minorUnits throws and is not rounded.
+ * Never used for maths.
+ */
+export function formatFiat(amount: string, code: string, locale = 'en-US'): string {
+  if (typeof amount !== 'string') throw new Error('fiat amount must be a decimal string');
+  if (amount.trim() === '') throw new Error('fiat amount is blank');
+  const text = amount.trim();
+  const match = DECIMAL_AMOUNT.exec(text);
+  if (!match) throw new Error('fiat amount must be a decimal string');
+  const negative = match[1] === '-';
+  const whole = (match[2] ?? '0').replace(/^0+(?=\d)/, '');
+  const frac = match[3] ?? '';
   const cur = fiat(code);
-  if (!cur) return `${amount} ${code}`;
-  return new Intl.NumberFormat(locale, {
+  if (!cur) return `${text} ${code}`;
+  if (frac.length > cur.minorUnits) {
+    throw new Error('fiat amount has more fraction digits than minor units');
+  }
+  const padded = frac.padEnd(cur.minorUnits, '0');
+  return placeFiatDigits(whole, padded, negative, cur.minorUnits, cur.code, locale);
+}
+
+/** Currency affix from a ±1 sample. The amount string is not passed to Intl. */
+function placeFiatDigits(
+  whole: string,
+  frac: string,
+  negative: boolean,
+  minorUnits: 0 | 2 | 3,
+  code: string,
+  locale: string,
+): string {
+  const parts = new Intl.NumberFormat(locale, {
     style: 'currency',
-    currency: cur.code,
-    minimumFractionDigits: cur.minorUnits,
-    maximumFractionDigits: cur.minorUnits,
-  }).format(amount);
+    currency: code,
+    minimumFractionDigits: minorUnits,
+    maximumFractionDigits: minorUnits,
+    useGrouping: false,
+  }).formatToParts(negative ? -1 : 1);
+  let prefix = '';
+  let suffix = '';
+  let decimal = '.';
+  let seenWhole = false;
+  let afterNumber = false;
+  for (const part of parts) {
+    if (part.type === 'integer') {
+      seenWhole = true;
+      afterNumber = true;
+      continue;
+    }
+    if (part.type === 'group' || part.type === 'fraction') continue;
+    if (part.type === 'decimal') {
+      decimal = part.value;
+      afterNumber = true;
+      continue;
+    }
+    if (afterNumber) suffix += part.value;
+    else prefix += part.value;
+  }
+  if (!seenWhole) throw new Error('fiat display could not place the amount');
+  const body = minorUnits === 0 ? whole : `${whole}${decimal}${frac}`;
+  return `${prefix}${body}${suffix}`;
 }

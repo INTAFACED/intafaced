@@ -11,7 +11,7 @@ import {
   isDeclaredFiatCurrency,
   FIAT_CODES,
 } from './fiat-currency-honesty.js';
-import { FIAT_CURRENCIES } from './fiat.js';
+import { FIAT_CURRENCIES, formatFiat } from './fiat.js';
 
 describe('L3 wave217 fiat-currency catalog honesty', () => {
   it('fiat currency catalog boards', () => {
@@ -32,5 +32,35 @@ describe('L3 wave217 fiat-currency catalog honesty', () => {
     expect(isDeclaredFiatCurrency('USD')).toBe(true);
     expect(isDeclaredFiatCurrency('XXX')).toBe(false);
     expect(parseFiatCurrencyCatalogStatusLine('nope')).toBeNull();
+  });
+});
+
+describe('formatFiat decimal string', () => {
+  it('throws on a blank or whitespace amount', () => {
+    expect(() => formatFiat('', 'USD')).toThrow(/blank/);
+    expect(() => formatFiat('   ', 'USD')).toThrow(/blank/);
+    expect(() => formatFiat(' \t', 'XYZ')).toThrow(/blank/);
+  });
+
+  it('keeps minor-unit digits a float would not', () => {
+    const usd = FIAT_CURRENCIES.find((row) => row.code === 'USD');
+    const mga = FIAT_CURRENCIES.find((row) => row.code === 'MGA');
+    expect(usd?.minorUnits).toBe(2);
+    expect(mga?.minorUnits).toBe(0);
+    expect(formatFiat('0.10', 'USD')).toMatch(/^(?:[^\d]*0\.10[^\d]*)$/);
+    expect(formatFiat('1.2', 'USD')).toMatch(/^(?:[^\d]*1\.20[^\d]*)$/);
+    expect(formatFiat('9007199254740993', 'MGA')).toMatch(/^(?:[^\d]*9007199254740993[^\d]*)$/);
+    expect(formatFiat('-0.10', 'USD')).toMatch(/0\.10/);
+    expect(formatFiat('-0.10', 'USD')).toContain('-');
+  });
+
+  it('throws when the fraction has one more digit than minorUnits', () => {
+    expect(() => formatFiat('0.101', 'USD')).toThrow(/minor units/);
+    expect(() => formatFiat('1.0', 'MGA')).toThrow(/minor units/);
+  });
+
+  it('returns an unknown code beside the decimal string', () => {
+    expect(FIAT_CURRENCIES.some((row) => row.code === 'XYZ')).toBe(false);
+    expect(formatFiat('42.50', 'XYZ')).toBe('42.50 XYZ');
   });
 });
