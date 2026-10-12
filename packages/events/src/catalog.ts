@@ -377,19 +377,25 @@ export const orderUpdated = defineEvent(
   'order',
   'updated',
   1,
-  z.object({
-    orderId: z.string().uuid(),
-    userId: z.string().uuid(),
-    marketId: z.string(),
-    status: z.enum(['pending', 'open', 'filled', 'cancelled', 'rejected', 'expired']),
-    side: z.enum(['buy', 'sell']),
-    type: z.enum(['limit', 'market']),
-    qty: amountSchema,
-    filledQty: amountSchema,
-    price: amountSchema.nullable(),
-    clientOrderId: z.string().nullable(),
-    ts: z.string().datetime({ offset: true }),
-  }),
+  z
+    .object({
+      orderId: z.string().uuid(),
+      userId: z.string().uuid(),
+      marketId: z.string(),
+      status: z.enum(['pending', 'open', 'filled', 'cancelled', 'rejected', 'expired']),
+      side: z.enum(['buy', 'sell']),
+      type: z.enum(['limit', 'market']),
+      qty: amountSchema,
+      filledQty: amountSchema,
+      /** Null only on a market order. A limit with no price is refused. */
+      price: amountSchema.nullable(),
+      clientOrderId: z.string().nullable(),
+      ts: z.string().datetime({ offset: true }),
+    })
+    .refine((p) => p.type !== 'limit' || p.price !== null, {
+      message: 'a limit order requires a price',
+      path: ['price'],
+    }),
   'svc-trade order row changed — private WS fans this to the owning principal only.',
 );
 

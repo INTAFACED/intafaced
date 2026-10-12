@@ -489,7 +489,7 @@ describe('schema drift: the bus refuses rather than strips', () => {
     expect(() => validatePayload('orderFilled', fill())).not.toThrow();
     // An explicit `undefined` is not a field the wire ever carried.
     expect(() => validatePayload('orderFilled', fill({ makerAccountId: undefined }))).not.toThrow();
-    // A nullable field that is null.
+    // A nullable field that is null. A market order may omit the price.
     expect(() =>
       validatePayload('orderUpdated', {
         orderId: crypto.randomUUID(),
@@ -497,7 +497,7 @@ describe('schema drift: the bus refuses rather than strips', () => {
         marketId: 'btc-usdt',
         status: 'open',
         side: 'buy',
-        type: 'limit',
+        type: 'market',
         qty: '1',
         filledQty: '0',
         price: null,
@@ -515,6 +515,24 @@ describe('schema drift: the bus refuses rather than strips', () => {
         meta: { tradeId: 'abc', anythingAtAll: { nested: true } },
       }),
     ).not.toThrow();
+  });
+
+  it('refuses a limit order update with a null price', () => {
+    expect(() =>
+      validatePayload('orderUpdated', {
+        orderId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+        marketId: 'btc-usdt',
+        status: 'open',
+        side: 'buy',
+        type: 'limit',
+        qty: '1',
+        filledQty: '0',
+        price: null,
+        clientOrderId: null,
+        ts: new Date().toISOString(),
+      }),
+    ).toThrow(EventValidationError);
   });
 
   it('refuses on the wire too — a consumer never receives a stripped payload', async () => {
