@@ -173,6 +173,17 @@ export class NonPositiveTickError extends Error {
 }
 
 /**
+ * A lot that is not a positive increment. Returning the original size would
+ * let a caller treat an unrounded quantity as a successful rounding.
+ */
+export class NonPositiveLotError extends Error {
+  constructor() {
+    super('non-positive lot');
+    this.name = 'NonPositiveLotError';
+  }
+}
+
+/**
  * Round a limit toward a better or equal price: down for a buy, up for a sell.
  *
  * A buy that rounds up can fill up to one tick above the requested limit. A
@@ -192,6 +203,6 @@ export function roundToTick(price: Amount, tick: Amount, side: 'buy' | 'sell'): 
 
 /** Round a quantity down to the venue's lot size. Never up — we cannot size beyond authority. */
 export function roundToLot(amount: Amount, lot: Amount): Amount {
-  if (lot <= 0n) return amount;
+  if (lot <= 0n) throw new NonPositiveLotError();
   return amount - (amount % lot);
 }

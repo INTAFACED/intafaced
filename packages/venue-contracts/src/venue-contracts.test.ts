@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
+import { formatAmount, MoneyError, parseAmount } from '@intafaced/ledger-client/money';
 import { readDecimal, readInteger, readLevels, readOptionalDecimal, readSignedDecimal, VenueDecimalError } from './decimal.js';
-import { parseUnifiedSymbol, roundToLot, roundToTick, unifiedSymbol } from './market.js';
+import { NonPositiveLotError, parseUnifiedSymbol, roundToLot, roundToTick, unifiedSymbol } from './market.js';
 import { isCrossed, midFromSnapshot, topOfBook } from './book.js';
 import { annualisedFundingRate } from './rates.js';
 import { assertTradeOnly, requireCredentials, type VenueCredentials } from './adapter.js';
@@ -164,6 +164,19 @@ describe('unified instrument', () => {
     const lot = parseAmount('0.001');
     expect(formatAmount(roundToLot(parseAmount('1.23456'), lot))).toBe('1.234');
     expect(formatAmount(roundToLot(parseAmount('0.0009'), lot))).toBe('0');
+  });
+
+  it('refuses a non-positive lot instead of returning the quantity unchanged', () => {
+    const amount = parseAmount('1.23456');
+    expect(() => roundToLot(amount, parseAmount('0'))).toThrow(NonPositiveLotError);
+    expect(() => roundToLot(amount, parseAmount('0'))).toThrow(/non-positive lot/);
+    expect(() => roundToLot(amount, parseAmount('-0.001'))).toThrow(NonPositiveLotError);
+    expect(() => roundToLot(amount, parseAmount('-0.001'))).toThrow(/non-positive lot/);
+  });
+
+  it('refuses a blank lot in parseAmount, so roundToLot never sees one', () => {
+    expect(() => parseAmount('')).toThrow(MoneyError);
+    expect(() => parseAmount('   ')).toThrow(MoneyError);
   });
 });
 
