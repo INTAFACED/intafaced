@@ -147,3 +147,31 @@ describe('sbe codec — decode money stays a decimal string', () => {
     if (!jsonNumber.ok) expect(jsonNumber.reason).toBe('invalid_message');
   });
 });
+
+describe('sbe codec — encode payloadB64 must be canonical standard base64', () => {
+  function encodeFromJava(payloadB64: string, template = 'Trade') {
+    const stub: JavaSbeCodec = {
+      handle: () => JSON.stringify({ ok: true, template, payloadB64 }),
+    };
+    return createSbeCodec({ java: stub }).encode(trade());
+  }
+
+  it('refuses empty, whitespace, and non-alphabet payloadB64', () => {
+    const rejected = ['', ' ', '    ', '\n', '\n\n\n\n', '!!!!', 'b2s-', 'b2s_', '====', 'YR=='];
+    for (const payloadB64 of rejected) {
+      const result = encodeFromJava(payloadB64);
+      expect(result.ok, JSON.stringify(payloadB64)).toBe(false);
+      if (!result.ok) expect(result.reason, JSON.stringify(payloadB64)).toBe('invalid_message');
+    }
+  });
+
+  it('accepts a canonical padded Trade payload from the Java stub', () => {
+    const payloadB64 = Buffer.from('ok').toString('base64');
+    const result = encodeFromJava(payloadB64, 'Trade');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.template).toBe('Trade');
+    expect(result.payloadB64).toBe(payloadB64);
+    expect(Buffer.from(result.payload).toString('utf8')).toBe('ok');
+  });
+});
