@@ -626,10 +626,13 @@ export function unreviewedRegions(): RegionCode[] {
  * with `denied.region_unknown` instead of falling open on defaults.
  *
  * Screening list honesty: every decision carries `screening.listConfigured`.
- * Flip `INTAFACED_SCREENING_FAIL_CLOSED` (or pass `screeningFailClosed: true`)
- * to refuse with `denied.screening_unconfigured` when the list is `unset`,
- * or `denied.screening_fixture` when the list is a placeholder/test fixture.
- * Counsel-grade `reviewed-empty` and `listed` do not refuse here.
+ * The hosted DEX refuses `denied.screening_unconfigured` while the list is
+ * unset, whether or not the fail-closed flag is on. A blank list stays blank.
+ * Other modules stay honesty-only until `INTAFACED_SCREENING_FAIL_CLOSED`
+ * (or `screeningFailClosed: true`) refuses `unset` with
+ * `denied.screening_unconfigured`, or a placeholder/test fixture with
+ * `denied.screening_fixture`. Counsel-grade `reviewed-empty` and `listed`
+ * do not refuse here.
  */
 export function checkAccess(q: AccessQuery): AccessDecision {
   const mod = MODULES[q.module];
@@ -747,6 +750,25 @@ export function checkAccess(q: AccessQuery): AccessDecision {
         screening: provenance,
         regionResolved,
         blockedBy,
+      };
+    }
+    // Hosted DEX only. A blank sanctions list is not a clearance. Other
+    // permissionless modules keep the honesty-only path so protocol and
+    // indexer boot still see `allowed.permissionless`. No region codes are
+    // invented here — the list stays unset.
+    if (q.module === 'dex' && provenance.moneyGrade === 'unconfigured') {
+      return {
+        allowed: false,
+        code: SCREENING_REFUSE_UNCONFIGURED,
+        status: 'blocked',
+        limitMultiplier: 0,
+        reason:
+          `Sanctions screening list is unset — nothing was consulted. ` +
+          `Hosted DEX access refuses while the list is blank. ` +
+          `Counsel/Nitro must supply ${SANCTIONS_REGIONS_ENV} (or attributed ` +
+          `"${SCREENING_REVIEWED_EMPTY}"); agents must not invent list content.`,
+        screening: provenance,
+        regionResolved,
       };
     }
     return {

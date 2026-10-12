@@ -124,7 +124,7 @@ describe('the state is observable — "screened and clear" vs "screened nothing"
    * to be byte-identical and are now distinguishable.
    */
   it('carries the difference on an ALLOWED decision, where it used to be invisible', () => {
-    const query = { module: 'dex', plane: 'protocol', region: 'QQ', kycTier: 'none' } as const;
+    const query = { module: 'protocol', plane: 'protocol', region: 'QQ', kycTier: 'none' } as const;
 
     const unscreened = checkAccess({ ...query, screening: UNSET_SCREENING_LIST });
     const screened = checkAccess({ ...query, screening: POPULATED });
@@ -169,7 +169,7 @@ describe('screening fail-closed — refuse when list unset (D26-P1-O1)', () => {
 
   it('default OFF keeps honesty-only allow with listConfigured false', () => {
     const d = checkAccess({
-      module: 'dex',
+      module: 'protocol',
       plane: 'protocol',
       region: 'QQ',
       kycTier: 'none',
@@ -676,7 +676,8 @@ describe('a commercial block refuses the region, and says the business refused i
    * check turns this red.
    */
   it('§24 Lane A: the region check runs BEFORE the permissionless short-circuit', () => {
-    const query = { module: 'dex', plane: 'protocol', region: 'QQ', kycTier: 'none', screening: UNSET_SCREENING_LIST } as const;
+    const reviewedEmpty = parseScreeningList(SCREENING_REVIEWED_EMPTY, 'counsel-memo-ref');
+    const query = { module: 'dex', plane: 'protocol', region: 'QQ', kycTier: 'none', screening: reviewedEmpty } as const;
 
     const blocked = checkAccess({ ...query, business: COMMERCIAL_BLOCKS });
     expect(blocked.code).toBe('denied.region_blocked');
@@ -693,7 +694,7 @@ describe('a commercial block refuses the region, and says the business refused i
       plane: 'protocol',
       region: 'ZY',
       kycTier: 'none',
-      screening: UNSET_SCREENING_LIST,
+      screening: parseScreeningList(SCREENING_REVIEWED_EMPTY, 'counsel-memo-ref'),
       business: COMMERCIAL_BLOCKS,
     });
     expect(d.code).toBe('allowed.permissionless');

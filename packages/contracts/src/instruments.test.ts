@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkAccess } from '@intafaced/config';
+import { checkAccess, parseScreeningList, SCREENING_REVIEWED_EMPTY } from '@intafaced/config';
 import {
   ASSET_CLASSES,
   CATALOGUE_ASSETS,
@@ -180,7 +180,13 @@ describe('the plane split', () => {
    * from §22 without a test failing here first.
    */
   it('lets a wholly unverified caller reach every DEX listing', () => {
-    const decision = checkAccess({ module: 'dex', plane: 'protocol', region: 'GB', kycTier: 'none' });
+    const decision = checkAccess({
+      module: 'dex',
+      plane: 'protocol',
+      region: 'GB',
+      kycTier: 'none',
+      screening: parseScreeningList(SCREENING_REVIEWED_EMPTY, 'counsel-memo-ref'),
+    });
     expect(decision.allowed).toBe(true);
     expect(decision.code).toBe('allowed.permissionless');
     expect(instrumentsForPlane(INSTRUMENTS, 'protocol').length).toBeGreaterThan(0);
