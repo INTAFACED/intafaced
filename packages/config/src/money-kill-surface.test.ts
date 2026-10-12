@@ -75,9 +75,21 @@ describe('money kill surface (D26-P2-10)', () => {
   });
 
   it('live money modules use the shared edge kill surface', () => {
-    for (const module of ['trade', 'pay', 'bank', 'p2p', 'token', 'market', 'agents'] as const) {
+    for (const module of ['trade', 'pay', 'bank', 'p2p', 'token', 'market', 'agents', 'mining-pool'] as const) {
       expect(moneyKillControlFor(module)).toEqual({ kind: 'edge-module', module });
     }
+  });
+
+  it('a not-deployed mining-pool fails the kill invariant while the live door stays', () => {
+    expect(moneyKillControlFor('mining-pool').kind).toBe('edge-module');
+    expect(MONEY_PUBLIC_DOORS.find((door) => door.id === 'mining.submitShare')?.path).toBe('/api/mining/submitShare');
+    expect(assertCustodialMoneyKillsComplete()).toEqual([]);
+    const failures = assertCustodialMoneyKillsComplete((module) =>
+      module === 'mining-pool'
+        ? { kind: 'not-deployed', module, note: 'probe: door classified missing' }
+        : moneyKillControlFor(module),
+    );
+    expect(failures.some((failure) => failure.includes('mining-pool'))).toBe(true);
   });
 
   it('every live money edge prefix has a catalogue kill mapping', () => {

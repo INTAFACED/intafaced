@@ -472,11 +472,13 @@ export function moneyKillControlFor(module: ModuleId): MoneyKillControl {
  * Invariant: every custodial module has an honest kill control (edge, freeze,
  * sibling, or explicit not-deployed). Never silent.
  */
-export function assertCustodialMoneyKillsComplete(): readonly string[] {
+export function assertCustodialMoneyKillsComplete(
+  controlLookup: (module: ModuleId) => MoneyKillControl = moneyKillControlFor,
+): readonly string[] {
   const failures: string[] = [];
   for (const id of MODULE_IDS) {
     if (!MODULES[id].custodial) continue;
-    const control = moneyKillControlFor(id);
+    const control = controlLookup(id);
     if (control.kind === 'edge-module' && control.module !== id) {
       failures.push(`${id}: edge-module control must name itself`);
     }
@@ -485,7 +487,7 @@ export function assertCustodialMoneyKillsComplete(): readonly string[] {
     }
     if (
       control.kind === 'not-deployed' &&
-      (id === 'trade' || id === 'pay' || id === 'bank' || id === 'p2p' || id === 'token' || id === 'market')
+      (id === 'trade' || id === 'pay' || id === 'bank' || id === 'p2p' || id === 'token' || id === 'market' || id === 'mining-pool')
     ) {
       failures.push(`${id}: live money module must not be classified not-deployed`);
     }
