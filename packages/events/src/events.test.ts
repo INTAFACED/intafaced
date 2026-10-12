@@ -704,6 +704,24 @@ describe('§10 consumer idempotency', () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps both successes when commit is called directly past a one-key ceiling', async () => {
+    const store = new MemorySeenStore(1);
+    await store.commit('a');
+    await store.commit('b');
+    expect(await store.checkAndSet('a')).toBe(true);
+    expect(await store.checkAndSet('b')).toBe(true);
+  });
+
+  it('refuses one key past the default ceiling without forgetting the first recorded success', async () => {
+    const store = new MemorySeenStore();
+    for (let i = 0; i < 100_000; i++) {
+      await store.commit(String(i));
+    }
+    expect(await store.checkAndSet('0')).toBe(true);
+    await expect(store.checkAndSet('100000')).rejects.toThrow('idempotent: seen store is full');
+    expect(await store.checkAndSet('0')).toBe(true);
+  });
+
   /**
    * A failure is not a completion. The success mark is written only after the
    * handler returns, so a redelivery runs it again. Before this, `checkAndSet`
