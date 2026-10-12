@@ -150,8 +150,17 @@ export interface VenueMarket {
  * rather than a naming bug.
  */
 export function unifiedSymbol(base: string, quote: string, settle?: string | null): string {
-  const spot = `${base.toUpperCase()}/${quote.toUpperCase()}`;
-  return settle ? `${spot}:${settle.toUpperCase()}` : spot;
+  const upperBase = base.toUpperCase();
+  const upperQuote = quote.toUpperCase();
+  // A part outside [A-Z0-9] parses back as null, so two adapters name one market two ways.
+  if (!/^[A-Z0-9]+$/.test(upperBase) || !/^[A-Z0-9]+$/.test(upperQuote)) {
+    throw new UnifiedSymbolError();
+  }
+  const spot = `${upperBase}/${upperQuote}`;
+  if (!settle) return spot;
+  const upperSettle = settle.toUpperCase();
+  if (!/^[A-Z0-9]+$/.test(upperSettle)) throw new UnifiedSymbolError();
+  return `${spot}:${upperSettle}`;
 }
 
 /** Split a unified symbol back apart. Returns `null` if it is not one. */
@@ -159,6 +168,17 @@ export function parseUnifiedSymbol(symbol: string): { base: string; quote: strin
   const match = /^([A-Z0-9]+)\/([A-Z0-9]+)(?::([A-Z0-9]+))?$/.exec(symbol);
   if (!match) return null;
   return { base: match[1]!, quote: match[2]!, settle: match[3] ?? null };
+}
+
+/**
+ * A symbol part outside `[A-Z0-9]`. Returning it would make `parseUnifiedSymbol`
+ * answer null for a string this function just built.
+ */
+export class UnifiedSymbolError extends Error {
+  constructor() {
+    super('unified symbol is not [A-Z0-9]');
+    this.name = 'UnifiedSymbolError';
+  }
 }
 
 /**

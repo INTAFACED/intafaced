@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatAmount, MoneyError, parseAmount } from '@intafaced/ledger-client/money';
 import { readDecimal, readInteger, readLevels, readOptionalDecimal, readSignedDecimal, VenueDecimalError } from './decimal.js';
-import { NonPositiveLotError, parseUnifiedSymbol, roundToLot, roundToTick, unifiedSymbol } from './market.js';
+import { NonPositiveLotError, parseUnifiedSymbol, roundToLot, roundToTick, UnifiedSymbolError, unifiedSymbol } from './market.js';
 import { isCrossed, midFromSnapshot, topOfBook } from './book.js';
 import { annualisedFundingRate } from './rates.js';
 import { assertTradeOnly, requireCredentials, type VenueCredentials } from './adapter.js';
@@ -114,12 +114,23 @@ describe('unified instrument', () => {
   it('has exactly one spelling for a symbol', () => {
     expect(unifiedSymbol('btc', 'usdt')).toBe('BTC/USDT');
     expect(unifiedSymbol('btc', 'usd', 'btc')).toBe('BTC/USD:BTC');
+    expect(parseUnifiedSymbol(unifiedSymbol('btc', 'usdt'))).toEqual({ base: 'BTC', quote: 'USDT', settle: null });
+    expect(parseUnifiedSymbol(unifiedSymbol('btc', 'usd', 'btc'))).toEqual({ base: 'BTC', quote: 'USD', settle: 'BTC' });
   });
 
   it('round-trips through the parser', () => {
     expect(parseUnifiedSymbol('BTC/USDT')).toEqual({ base: 'BTC', quote: 'USDT', settle: null });
     expect(parseUnifiedSymbol('BTC/USD:BTC')).toEqual({ base: 'BTC', quote: 'USD', settle: 'BTC' });
     expect(parseUnifiedSymbol('BTCUSDT')).toBeNull();
+  });
+
+  it('omits an empty settle and refuses a part the parser cannot read', () => {
+    expect(unifiedSymbol('btc', 'usdt', '')).toBe('BTC/USDT');
+    expect(() => unifiedSymbol('BTC.P', 'USDT')).toThrow(UnifiedSymbolError);
+    expect(() => unifiedSymbol('BTC.P', 'USDT')).toThrow('unified symbol is not [A-Z0-9]');
+    expect(() => unifiedSymbol('BTC', 'US/DT')).toThrow(UnifiedSymbolError);
+    expect(() => unifiedSymbol('', 'USDT')).toThrow(UnifiedSymbolError);
+    expect(() => unifiedSymbol('BTC ', 'USDT')).toThrow(UnifiedSymbolError);
   });
 
   describe('roundToTick', () => {
