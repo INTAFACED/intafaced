@@ -226,8 +226,38 @@ describe('funding', () => {
     expect(formatAmount(negative)).toBe('-0.1095');
   });
 
-  it('returns zero rather than dividing by zero on a venue with no interval', () => {
-    expect(annualisedFundingRate({ rate: parseAmount('0.01'), intervalSeconds: 0 })).toBe(0n);
+  it('refuses a blank or corrupt interval instead of inventing a zero funding rate', () => {
+    // Zero on a real clock is a real annualised rate. One settlement a year is
+    // the last interval that still annualises to that rate.
+    expect(annualisedFundingRate({ rate: 0n, intervalSeconds: 28_800 })).toBe(0n);
+    expect(formatAmount(annualisedFundingRate({ rate: parseAmount('0.0001'), intervalSeconds: 31_536_000 }))).toBe(
+      '0.0001',
+    );
+
+    const rate = parseAmount('0.01');
+    const corrupt: unknown[] = [
+      undefined,
+      null,
+      '',
+      0,
+      -1,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      Number.NaN,
+      31_536_001,
+    ];
+    const outcomes = corrupt.map((intervalSeconds) => {
+      try {
+        const invented = annualisedFundingRate({ rate, intervalSeconds: intervalSeconds as number });
+        return { intervalSeconds, outcome: `returned ${invented.toString()}` };
+      } catch (error) {
+        const name = error instanceof Error ? error.name : typeof error;
+        return { intervalSeconds, outcome: `threw ${name}` };
+      }
+    });
+    expect(outcomes).toEqual(
+      corrupt.map((intervalSeconds) => ({ intervalSeconds, outcome: 'threw FundingIntervalError' })),
+    );
   });
 });
 
