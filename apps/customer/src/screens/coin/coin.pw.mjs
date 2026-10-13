@@ -359,14 +359,31 @@ test('empty: a market that has never traded says so, with the pills still usable
   await shot(page, 'empty-chart');
 });
 
-test('a market younger than a day: the change says since when, and the stats say their window', async ({ page }) => {
-  await mock(page, {}, { history: 'young', young: true });
+test('a market younger than a day: the change says since when, the stats say their window, long ranges show what there is', async ({
+  page,
+}) => {
+  const api = await mock(page, {}, { history: 'young', young: true });
   await open(page);
   await expect(page.getByTestId('stat-young')).toContainText('This market is less than a day old, so these figures start at');
   await expect(page.getByTestId('change')).toContainText(/Since \d{1,2} \w{3}, \d{2}:\d{2}/);
+  // 1Y and All: one daily or weekly candle cannot be drawn, so the next finer candles are read until there is a line.
   await page.locator('.coin-ranges button', { hasText: 'All' }).click();
-  // Weekly candles are too few to draw: All reads daily ones instead, and is still honest when even those are too few.
-  await expect(page.getByTestId('chart-empty')).toBeVisible();
+  await expect(page.locator('.coin-chart canvas').first()).toBeAttached();
+  expect(await page.getByTestId('chart-empty').count()).toBe(0);
+  await expect(page.getByTestId('change')).toContainText('All time');
+  const asked = api.seen('ohlcv').filter((call) => call.symbol === 'BTC/USDT');
+  for (const [timeframe, limit] of [
+    ['1w', 260],
+    ['1d', 365],
+    ['4h', 180],
+    ['1h', 168],
+  ])
+    expect(
+      asked.some((call) => call.timeframe === timeframe && call.limit === limit),
+      `${timeframe}x${limit}`,
+    ).toBe(true);
+  await page.locator('.coin-ranges button', { hasText: '1Y' }).click();
+  await expect(page.getByTestId('change')).toContainText(/Since \d{1,2} \w{3}, \d{2}:\d{2}/);
   await shot(page, 'young-market');
 });
 

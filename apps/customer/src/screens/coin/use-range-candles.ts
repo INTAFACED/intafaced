@@ -1,23 +1,25 @@
 import { useEffect, useState } from 'react';
 import { useChartCandles, type Candle, type Loadable } from './deps';
-import { ALL_FALLBACK, type RangeSpec } from './ranges';
+import { candleLadder, type RangeSpec } from './ranges';
 
 /**
- * Candles for the selected range. "All" asks for weekly candles; a market younger than two weeks has fewer than two of
- * them, which cannot be drawn as a line, so for that market "All" reads daily candles instead (and keeps doing so).
- * The caller always gets the interval and limit actually in use, so labels and the fitted view follow.
+ * Candles for the selected range. When a market is younger than the range, the range's own candles are too few to
+ * draw (under two), so the next finer ones are read instead (`candleLadder`) and the choice is kept for that market and
+ * range. The caller gets the interval and limit actually in use, so the fitted view follows.
  */
 export function useRangeCandles(
   symbol: string,
   range: RangeSpec,
 ): { candles: Loadable<Candle[]>; interval: RangeSpec['interval']; limit: number } {
-  const [dailyFor, setDailyFor] = useState<string | null>(null);
-  const fallback = range.id === 'All' && dailyFor === symbol;
-  const spec = fallback ? ALL_FALLBACK : range;
+  const ladder = candleLadder(range.id);
+  const key = `${symbol}:${range.id}`;
+  const [step, setStep] = useState<{ key: string; index: number }>({ key, index: 0 });
+  const index = step.key === key ? Math.min(step.index, ladder.length - 1) : 0;
+  const spec = ladder[index]!;
   const loaded = useChartCandles(symbol, spec.interval, spec.limit);
-  const thin = range.id === 'All' && !fallback && loaded.status === 'ready' && loaded.data.length < 2;
+  const thin = loaded.status === 'ready' && loaded.data.length < 2 && index < ladder.length - 1;
   useEffect(() => {
-    if (thin) setDailyFor(symbol);
-  }, [thin, symbol]);
+    if (thin) setStep({ key, index: index + 1 });
+  }, [thin, key, index]);
   return { candles: thin ? { status: 'loading' } : loaded, interval: spec.interval, limit: spec.limit };
 }

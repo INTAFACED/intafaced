@@ -92,10 +92,10 @@ export function PriceCard({
 
   // The change's trailing words: the range, or "Since 14 Oct, 19:29" when the market has less history than that; under
   // the crosshair, the time of the candle.
-  const step = stepOf(interval);
+  const step = stepOf(range.interval);
   const suffix = scrub
     ? dayAndTime(scrub.t, timeZone)
-    : list && range.id !== 'All' && startsLate(list, step, step * limit, Date.now())
+    : list && range.id !== 'All' && startsLate(list, step, step * range.limit, Date.now())
       ? t('Since {time}', { time: dayAndTime(list[0]!.t, timeZone) })
       : t(RANGE_SUFFIX[rangeId]);
 
