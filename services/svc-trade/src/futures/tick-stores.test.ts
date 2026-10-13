@@ -97,6 +97,34 @@ describe('sqlFundingPeriodStore', () => {
     expect(second.map((p) => p.positionId)).toEqual(['pos-a', 'pos-b']);
     expect(second.find((p) => p.positionId === 'pos-c')).toBeUndefined();
   });
+
+  it('freezeRate inserts once then always returns the first stored rate', async () => {
+    const rates = new Map<string, string>();
+    const sql = Object.assign((strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = strings.join('?').toLowerCase();
+      if (text.includes('insert into trade.funding_period_rates')) {
+        if (text.includes('on conflict (period_id) do nothing') && !rates.has(values[0] as string)) {
+          rates.set(values[0] as string, values[1] as string);
+        }
+        return Promise.resolve([]);
+      }
+      if (text.includes('select rate') && text.includes('funding_period_rates')) {
+        const rate = rates.get(values[0] as string);
+        return Promise.resolve(rate === undefined ? [] : [{ rate }]);
+      }
+      return Promise.resolve([]);
+    }, {});
+    const store = sqlFundingPeriodStore(sql as never);
+    expect(await store.freezeRate('m1:p', '0.0001')).toBe('0.0001');
+    expect(await store.freezeRate('m1:p', '0.0003')).toBe('0.0001');
+    expect(await store.freezeRate('m1:q', '0.0003')).toBe('0.0003');
+  });
+
+  it('freezeRate refuses to fall back to the caller rate when no row comes back', async () => {
+    const sql = Object.assign(() => Promise.resolve([]), {});
+    const store = sqlFundingPeriodStore(sql as never);
+    await expect(store.freezeRate('m1:p', '0.0001')).rejects.toThrow(/refusing oracle-rate fallback/);
+  });
 });
 
 describe('sqlLiquidationAttemptStore', () => {
