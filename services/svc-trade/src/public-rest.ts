@@ -9,6 +9,7 @@ import { badRequest, badSymbol, notSupported, toCcxtError, type CcxtErrorRespons
 import type { EngineDepth } from './spot/matching-client.js';
 import { MatchingNoBookError, MatchingUnavailableError } from './spot/matching-client.js';
 import { fxNamedDegrade, isFxProduct } from './spot/fx-product.js';
+import { percentageOf, type TickerStats24h } from './spot/ticker-stats.js';
 import type { Candle, Market, PublicTapePrint } from './spot/types.js';
 
 /**
@@ -61,6 +62,12 @@ export interface PublicRestDeps {
    * never traded — an honest empty chart, not a fabricated one.
    */
   candles(marketId: string, timeframe: Timeframe, limit: number, sinceMs?: number): Promise<Candle[]>;
+  /**
+   * Rolling-24 h ticker stats + hourly sparkline for many markets in ONE query
+   * (`spot/ticker-stats.ts`). Optional: a mount without it serves the old
+   * top-of-book ticker with null rollups — never invented numbers.
+   */
+  tickerStats?(marketIds: readonly string[], nowMs: number): Promise<Map<string, TickerStats24h>>;
   /** Injectable clock for tests. */
   now?: () => number;
   /**
@@ -450,36 +457,61 @@ export function presentOrderBook(symbol: string, depth: EngineDepth, nowMs: numb
 }
 
 /**
- * Best bid/ask from the book + last print if any.
+ * Best bid/ask from the book + last print, plus rolling-24 h stats when given.
  *
- * 24h rollups (high/low/vwap/volume) are null until a windowed aggregation job
- * exists — bots still get a usable top-of-book ticker without inventing stats.
+ * CCXT meaning, all from real (non-seeded) taker fills:
+ *   open        first trade price at or after now − 24 h (null: no trade in window)
+ *   high / low  extremes over the window
+ *   baseVolume  Σ amount, quoteVolume Σ cost, vwap = quoteVolume / baseVolume
+ *   change      last − open
+ *   percentage  change / open × 100   (percent, not a ratio)
+ * Without `stats` the rollups stay null — bots still get a usable top-of-book
+ * ticker without inventing numbers.
+ *
+ * Not stock CCXT, additive: `windowStart` (unix ms the stats really start at —
+ * `now − 24 h` for a full window, the first trade's time for a younger market,
+ * null if it never traded) and, on `/tickers` only, `sparkline`: up to 24 hourly
+ * closes, oldest first, silent hours repeat the previous real close, never null.
  */
-export function presentTicker(symbol: string, depth: EngineDepth, last: PublicTapePrint | null, nowMs: number) {
+export function presentTicker(
+  symbol: string,
+  depth: EngineDepth,
+  last: PublicTapePrint | null,
+  nowMs: number,
+  stats?: TickerStats24h | null,
+  opts: { sparkline?: boolean } = {},
+) {
   const bestBid = depth.bids[0] ?? null;
   const bestAsk = depth.asks[0] ?? null;
   const lastPrice = last ? formatAmount(last.price) : null;
+  const open = stats?.open ?? null;
+  const change = last && open !== null ? last.price - open : null;
+  const percentage = change !== null && open !== null ? percentageOf(change, open) : null;
+  const dec = (v: Amount | null | undefined) => (v === null || v === undefined ? null : formatAmount(v));
 
   return {
     symbol,
     timestamp: nowMs,
     datetime: new Date(nowMs).toISOString(),
-    high: null as string | null,
-    low: null as string | null,
+    high: dec(stats?.high),
+    low: dec(stats?.low),
     bid: bestBid ? bestBid[0] : null,
     bidVolume: bestBid ? bestBid[1] : null,
     ask: bestAsk ? bestAsk[0] : null,
     askVolume: bestAsk ? bestAsk[1] : null,
-    vwap: null as string | null,
-    open: null as string | null,
+    vwap: dec(stats?.vwap),
+    open: dec(open),
     close: lastPrice,
     last: lastPrice,
     previousClose: null as string | null,
-    change: null as string | null,
-    percentage: null as string | null,
+    change: dec(change),
+    percentage: dec(percentage),
     average: null as string | null,
-    baseVolume: null as string | null,
-    quoteVolume: null as string | null,
+    baseVolume: dec(stats?.baseVolume),
+    quoteVolume: dec(stats?.quoteVolume),
+    /** Not stock CCXT: where the 24 h stats really begin (ms), null if never traded. */
+    windowStart: stats?.windowStart ?? (null as number | null),
+    ...(opts.sparkline ? { sparkline: (stats?.sparkline ?? []).map((v) => formatAmount(v)) } : {}),
   };
 }
 
@@ -656,8 +688,13 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
 
     try {
       // Top of book only — ticker is BBO + last, not full depth.
-      const [depth, tape] = await Promise.all([deps.depth(market.id, 1), deps.publicTape(market.id, 1)]);
-      return reply.code(200).send(presentTicker(market.symbol, depth, tape[0] ?? null, now()));
+      const ts = now();
+      const [depth, tape, stats] = await Promise.all([
+        deps.depth(market.id, 1),
+        deps.publicTape(market.id, 1),
+        deps.tickerStats ? deps.tickerStats([market.id], ts) : Promise.resolve(undefined),
+      ]);
+      return reply.code(200).send(presentTicker(market.symbol, depth, tape[0] ?? null, ts, stats?.get(market.id) ?? null));
     } catch (err) {
       // MatchingNoBookError → 404 trade.no_book. MatchingUnavailable → 502.
       return sendMapped(reply, err);
@@ -668,8 +705,10 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
    * All-market tickers. Record keyed by unified symbol (CCXT `fetchTickers`).
    *
    * Matching 200 empty ladder is included as empty BBO. Matching 404 (no book)
-   * and hop-down are omitted — never an empty BBO as if live. Never invent 24h
-   * stats. One dead market must not 502 the map. Limit is required.
+   * and hop-down are omitted — never an empty BBO as if live. 24 h stats and the
+   * hourly `sparkline` come from real fills, for ALL listed markets in one query
+   * (not one per market); a market with no trades gets null rollups and `[]`.
+   * One dead market must not 502 the map. Limit is required.
    */
   app.get<{ Querystring: { limit?: string } }>('/api/v1/tickers', async (req, reply) => {
     const limit = parsePublicRestLimit(req.query.limit, MAX_MARKETS);
@@ -679,6 +718,12 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     const markets = await deps.markets(limit);
     const ts = now();
     const out: Record<string, ReturnType<typeof presentTicker>> = {};
+    const stats = deps.tickerStats
+      ? await deps.tickerStats(
+          markets.map((m) => m.id),
+          ts,
+        )
+      : undefined;
 
     await Promise.all(
       markets.map(async (market) => {
@@ -690,7 +735,7 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
           throw err;
         }
         const tape = await deps.publicTape(market.id, 1);
-        out[market.symbol] = presentTicker(market.symbol, depth, tape[0] ?? null, ts);
+        out[market.symbol] = presentTicker(market.symbol, depth, tape[0] ?? null, ts, stats?.get(market.id) ?? null, { sparkline: true });
       }),
     );
 

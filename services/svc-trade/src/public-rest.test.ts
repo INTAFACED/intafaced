@@ -17,6 +17,7 @@ import {
   type PublicRestDeps,
 } from './public-rest.js';
 import { MatchingNoBookError, MatchingUnavailableError } from './spot/matching-client.js';
+import type { TickerStats24h } from './spot/ticker-stats.js';
 import { markSourceFromBook } from './futures/mark-source.js';
 
 describe('bpsToRate / decimalPlaces', () => {
@@ -264,7 +265,7 @@ describe('presenters', () => {
     expect(wire.close).toBe('100.25');
     expect(typeof wire.bid).toBe('string');
     expect(typeof wire.last).toBe('string');
-    // 24h rollups intentionally null — no windowed aggregation yet.
+    // Without a stats argument the rollups stay null — never invented.
     expect(wire.high).toBeNull();
     expect(wire.baseVolume).toBeNull();
   });
@@ -739,6 +740,107 @@ describe('public REST routes', () => {
     expect((body['BTC/USDT'] as { bid: string }).bid).toBe('100');
     expect(typeof (body['BTC/USDT'] as { last: string }).last).toBe('string');
     await app.close();
+  });
+
+  describe('24 h stats + sparkline', () => {
+    const stats = (over: Partial<TickerStats24h> = {}): TickerStats24h => ({
+      open: parseAmount('100'),
+      high: parseAmount('110'),
+      low: parseAmount('95'),
+      vwap: parseAmount('102.5'),
+      baseVolume: parseAmount('4'),
+      quoteVolume: parseAmount('410'),
+      windowStart: 1_699_913_600_000,
+      sparkline: [parseAmount('100'), parseAmount('110'), parseAmount('100.5')],
+      ...over,
+    });
+
+    it('GET /api/v1/tickers fills the rollups and a sparkline, from ONE stats call for all markets', async () => {
+      const eth = fakeMarket({ id: 'm-eth', symbol: 'ETH/USDT' });
+      const calls: Array<readonly string[]> = [];
+      const app = await build(
+        deps({
+          markets: async () => [market, eth],
+          tickerStats: async (ids) => {
+            calls.push(ids);
+            return new Map([
+              ['m-btc', stats()],
+              [
+                'm-eth',
+                stats({
+                  open: null,
+                  high: null,
+                  low: null,
+                  vwap: null,
+                  baseVolume: null,
+                  quoteVolume: null,
+                  windowStart: null,
+                  sparkline: [],
+                }),
+              ],
+            ]);
+          },
+        }),
+      );
+      const res = await app.inject({ method: 'GET', url: '/api/v1/tickers?limit=500' });
+      const body = res.json() as Record<string, Record<string, unknown>>;
+      expect(calls).toEqual([['m-btc', 'm-eth']]);
+      const btc = body['BTC/USDT']!;
+      expect(tickerSchema.safeParse(btc).success).toBe(true);
+      expect(btc).toMatchObject({
+        open: '100',
+        high: '110',
+        low: '95',
+        vwap: '102.5',
+        baseVolume: '4',
+        quoteVolume: '410',
+        last: '100.5',
+        change: '0.5',
+        percentage: '0.5',
+        windowStart: 1_699_913_600_000,
+        sparkline: ['100', '110', '100.5'],
+      });
+      const quiet = body['ETH/USDT']!;
+      expect(quiet.open).toBeNull();
+      expect(quiet.change).toBeNull();
+      expect(quiet.percentage).toBeNull();
+      expect(quiet.windowStart).toBeNull();
+      expect(quiet.sparkline).toEqual([]);
+      await app.close();
+    });
+
+    it('GET /api/v1/ticker/:symbol carries the rollups and windowStart but no sparkline', async () => {
+      const app = await build(deps({ tickerStats: async () => new Map([['m-btc', stats()]]) }));
+      const res = await app.inject({ method: 'GET', url: '/api/v1/ticker/BTC%2FUSDT' });
+      const body = res.json() as Record<string, unknown>;
+      expect(body.open).toBe('100');
+      expect(body.high).toBe('110');
+      expect(body.windowStart).toBe(1_699_913_600_000);
+      expect('sparkline' in body).toBe(false);
+      await app.close();
+    });
+
+    it('a mount without a stats source keeps null rollups (never invented)', async () => {
+      const app = await build();
+      const res = await app.inject({ method: 'GET', url: '/api/v1/tickers?limit=500' });
+      const row = (res.json() as Record<string, Record<string, unknown>>)['BTC/USDT']!;
+      expect(row.open).toBeNull();
+      expect(row.high).toBeNull();
+      expect(row.sparkline).toEqual([]);
+      await app.close();
+    });
+
+    it('percentage is exact and signed: 100 -> 99.72 is -0.28 %', () => {
+      const wire = presentTicker(
+        'BTC/USDT',
+        { bids: [], asks: [], sequence: 0 },
+        fakePrint({ price: parseAmount('99.72') }),
+        1_700_000_000_000,
+        stats(),
+      );
+      expect(wire.change).toBe('-0.28');
+      expect(wire.percentage).toBe('-0.28');
+    });
   });
 
   it('GET /api/v1/tickers returns empty object when no markets listed', async () => {
