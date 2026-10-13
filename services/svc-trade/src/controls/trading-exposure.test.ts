@@ -14,6 +14,9 @@ import { TradingControls } from './trading-controls.js';
 import '../spot/qty-up-amend.js';
 import { CopyService } from '../copy/copy-service.js';
 
+// #4494: scopes are explicit now - trade:write no longer implies trade:read.
+const TRADE_READ = ['trade:read'] as const;
+
 const user = 'a1111111-1111-4111-8111-111111111111';
 const operator = 'b1111111-1111-4111-8111-111111111111';
 const context = () => ({ principal: { ...principalFor(operator), mfa: true }, service: null, region: 'XX', requestId: randomUUID() });
@@ -142,7 +145,7 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     expect((await ledger.balance(orderHoldAccount(user, 'USDT', placed.id))).amount).toBe(amt('200'));
   });
   it('new Convert execution cannot bypass restriction and moves no additional money', async () => {
-    const quote = await trade.convertQuote(principalFor(user), { symbol: spot.symbol, side: 'buy', qty: amt('1') });
+    const quote = await trade.convertQuote(principalFor(user, TRADE_READ), { symbol: spot.symbol, side: 'buy', qty: amt('1') });
     await controls.change(context(), command());
     const before = ledger.journal().length;
     await expect(trade.convertExecute(principalFor(user), { quoteId: quote.quoteId })).rejects.toMatchObject({
@@ -151,7 +154,7 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     expect(ledger.journal()).toHaveLength(before);
   });
   it('Convert lost identity response recovers original acceptedAt after restriction, without a fresh decision', async () => {
-    const quote = await trade.convertQuote(principalFor(user), { symbol: spot.symbol, side: 'buy', qty: amt('1') });
+    const quote = await trade.convertQuote(principalFor(user, TRADE_READ), { symbol: spot.symbol, side: 'buy', qty: amt('1') });
     onGrant = async () => {
       throw new Error('injected response loss');
     };

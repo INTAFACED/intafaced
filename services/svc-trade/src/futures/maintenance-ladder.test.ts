@@ -324,8 +324,9 @@ describe('planLadderRung', () => {
   });
 
   it('handles the largest representable size without overflowing or throwing', () => {
-    // trade.positions is numeric(38, 18) — 10^20 whole units is the top of it.
-    const huge = amt('100000000000000000000');
+    // trade.positions is numeric(38, 18) — 10^20 whole units itself does not fit (#4425 made parseAmount refuse it),
+    // so the largest representable size is 10^20 - 1 whole units.
+    const huge = amt('99999999999999999999');
     const rung = planLadderRung({
       position: position({ size: huge, entryPrice: amt('100'), margin: mul(huge, amt('10'), 'floor') }),
       markPrice: amt('93'),
