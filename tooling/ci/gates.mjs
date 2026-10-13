@@ -173,10 +173,10 @@ export const GATES = [
     script: 'tooling/ci/shell-brand-scan.mjs',
     doctrine: '§0.7',
     why:
-      'relaxed-boundary ratchet over the Vue product shell (same FORBIDDEN list parsed from brand-scan.mjs). ' +
-      'brand-scan now includes the shell with `\\b`-anchored patterns (D26-P2-14); this gate still catches names ' +
-      'welded into identifiers where `\\b` cannot see them. Baseline drained to zero (L11 wave 5) — any new ' +
-      'product-surface hit fails until fixed; never re-freeze.',
+      'relaxed-boundary ratchet over the vendored Java CORS surface (same FORBIDDEN list parsed from brand-scan.mjs): ' +
+      'CorsConfig / CorsAllowlist / CORS ApplicationConfig, where `\\b` cannot see a name welded into an identifier. ' +
+      'NARROWED 2026-10-13: the retired legacy Vue customer site (vendor 05_Web_Front, replaced by apps/customer, ' +
+      'see its RETIRED.md) is no longer walked. Baseline is empty — any new hit fails until fixed; never re-freeze.',
   },
   {
     id: 'custody',
@@ -249,36 +249,6 @@ export const GATES = [
     why: 'mass-credit endpoints and CORS * inherited from the vendored shell',
   },
   {
-    id: 'lang-duplicate-key',
-    script: 'tooling/ci/lang-duplicate-key-scan.mjs',
-    doctrine: '§9',
-    why:
-      'a repeated key in the shell language literal is not an error and not a warning — the later block simply wins ' +
-      'and every key only the earlier one defined is gone. `intafaced.socket` was declared twice; the first block ' +
-      'defined `needs` alone, the second replaced it wholesale, and `IxSocketPage.vue` asks for exactly that key, so ' +
-      'it resolved to undefined and would render its own raw key to a user. `packages/i18n` makes a missing key a ' +
-      'COMPILE error; the vendored shell has no such type, and a 2,200-key literal edited by several agents at once ' +
-      'gets this instead.',
-  },
-  {
-    id: 'shell-i18n',
-    script: 'tooling/ci/shell-i18n-scan.mjs',
-    doctrine: '§9 / §14.4',
-    why:
-      'hardcoded user-facing strings in the Vue shell are the same class of §9 miss as the apps/ i18n scans. The tip ' +
-      'keying pass is done (scan returns 0 across the product .vue set); the old NOT_GATES reason claimed 200+ hits and ' +
-      'was stale. Blocking so a new hardcode cannot ship green.',
-  },
-  {
-    id: 'shell-golden',
-    script: 'tooling/ci/shell-golden-scan.mjs',
-    doctrine: '§14 / desk honesty',
-    why:
-      'the vendored desk keeps pure Node golden tests (depth feedLive, ix-money, book-honesty, hotkeys) next to the ' +
-      'code they protect. They only prove anything if CI runs them — a suite that only runs when an agent remembers ' +
-      'is how false Live and parseFloat regressions ship green.',
-  },
-  {
     id: 'vendor-java-money',
     script: 'tooling/ci/vendor-java-money-scan.mjs',
     doctrine: 'dual-book Option B',
@@ -291,15 +261,6 @@ export const GATES = [
     why:
       'Grade D ungated mints must stay deleted, a green source scan must not be read as runtime safety, and the ' +
       'compose-jar rebuild path (tooling/scripts/vendor-java-rebuild.mjs + vendor-compile package job) must stay real.',
-  },
-  {
-    id: 'fabricated-money',
-    script: 'tooling/ci/fabricated-money-scan.mjs',
-    doctrine: '§0.6',
-    why:
-      'a money figure on a surface that no service supplied. Was `apps/web/src/testing/fabricated-money.ts`, which had two ' +
-      'consumers and dies with that app; the shell replacing it has one unit spec and no root script that runs it. ' +
-      'Enforcing with an empty BASELINE (ratchet closed) — new invented figures fail; BASELINE can only stay empty or shrink if debt is re-added honestly.',
   },
   {
     id: 'dual-book-door',
@@ -452,8 +413,8 @@ export const GATES = [
       'what it actually did, rather than grepping for a guard’s source text — which would prove a string exists, not ' +
       'that a gate refuses. Measured on arrival: 22 gates refuse, 3 are exempt because their subject travels with them ' +
       'in fixtures, and 7 print CLEAN over nothing and are frozen as debt that may only shrink. The loudest of the ' +
-      'seven is fabricated-money, which prints "NOTHING WAS SCANNED … discovery is broken" and then exits 0 — while ' +
-      'shell-brand-scan prints that same sentence and exits 1. Ordered last because it is the most expensive gate here ' +
+      'seven was fabricated-money (retired 2026-10-13 with the Vue customer site), which printed "NOTHING WAS SCANNED … ' +
+      'discovery is broken" and then exited 0 — while shell-brand-scan prints that same sentence and exits 1. Ordered last because it is the most expensive gate here ' +
       '(~5s, it spawns every other gate once) and because it depends on nothing above it. It classifies ITSELF, and ' +
       'since it cannot run inside its own fixture without recursing, a self-proof runs on every invocation instead: ' +
       'handed a substitute list of zero gates, or one unclassified gate, it must refuse. That is the worktree-gc ' +

@@ -140,10 +140,10 @@ const SKIP_DIRS = new Set([
   // measured, a blind walk of `vendor/` takes the repo-wide result from 0
   // findings to thousands, almost all load-bearing Java package/groupId lines
   // that are not user-facing copy. The product surfaces inside vendor ARE
-  // scanned: see `collectVendorProductFiles()` below (Vue shell roots + Java
-  // `src/main/resources`). `tooling/ci/shell-brand-scan.mjs` remains the
-  // relaxed-boundary ratchet over the same Vue tree so welded identifiers
-  // cannot hide behind `\b`.
+  // scanned: see `collectVendorProductFiles()` below (Java `src/main/resources`;
+  // the retired Vue customer site is no longer walked, 2026-10-13).
+  // `tooling/ci/shell-brand-scan.mjs` remains the relaxed-boundary ratchet over
+  // the vendored Java CORS surface so welded identifiers cannot hide behind `\b`.
   'vendor',
 
   // Tool and package caches. Not our source, not in git, not in CI — but they
@@ -430,17 +430,13 @@ function selfTest() {
   assert(isInternalPastePath('docs/START-HERE.md') === false, 'ordinary docs not paste');
   assert(isInternalPastePath('docs/paste-extra/nope.md') === false, 'paste-extra is not paste-wN');
 
-  // D26-P2-14: vendor product surfaces must be discoverable when the tree exists.
+  // D26-P2-14: vendor Java resource catalogues must be discoverable when the tree exists.
+  // (The retired legacy Vue customer site, vendor 05_Web_Front, is no longer walked — 2026-10-13.)
   const vendorRoot = join(ROOT, 'vendor');
   if (existsSync(vendorRoot)) {
-    const shells = findVendorShellProjectRoots(vendorRoot);
-    assert(shells.length >= 1, 'vendor tree present but no Vue shell project root discovered');
     const productFiles = collectVendorProductFiles();
     assert(productFiles.length > 0, 'vendor product-surface walk returned 0 files');
-    assert(
-      productFiles.some((f) => f.endsWith('.vue')),
-      'vendor product-surface walk must include at least one .vue file',
-    );
+    assert(!productFiles.some((f) => f.endsWith('.vue')), 'vendor product-surface walk must not walk the retired Vue customer site');
   }
 
   if (fails.length) {
@@ -450,7 +446,7 @@ function selfTest() {
   }
   console.log('brand-scan --self-test OK');
   console.log('  fixture paste-wN / PASTE-BUILD-WAVE-N / docs/paste/** allowed; product surfaces not');
-  console.log('  vendor shell + Java resources discoverable when vendor/ is present');
+  console.log('  vendor Java resources discoverable when vendor/ is present; retired Vue site not walked');
   process.exit(0);
 }
 
@@ -458,48 +454,9 @@ const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(resolve
 if (isDirectRun && process.argv.includes('--self-test')) selfTest();
 
 /**
- * Vue shell project roots under `vendor/` — discovered, never hard-coded as a
- * single upstream path, so a directory rename does not blind this gate.
- *
- * A root is any directory holding a Vue entry pair: `App.vue`/`app.vue` beside
- * `main.js`. The scanned unit is the PROJECT root (parent of that directory),
- * matching `shell-brand-scan.mjs`, so package.json / README / config stay in
- * scope with the SFCs.
- */
-function findVendorShellProjectRoots(dir, out = [], depth = 0) {
-  if (depth > 6 || !existsSync(dir)) return out;
-  let entries;
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return out;
-  }
-  const names = new Set(entries.map((n) => n.toLowerCase()));
-  if (names.has('app.vue') && names.has('main.js')) {
-    out.push(resolve(dir, '..'));
-    return out;
-  }
-  for (const name of entries) {
-    // Do not use SKIP_DIRS here — it contains `vendor` for the repo-wide walk.
-    if (name === 'node_modules' || name === '.git' || name === 'dist' || name === 'target' || name === 'build' || name === '.docker-data') {
-      continue;
-    }
-    const full = join(dir, name);
-    try {
-      if (statSync(full).isDirectory()) {
-        if (isSeparateCheckout(full)) continue;
-        findVendorShellProjectRoots(full, out, depth + 1);
-      }
-    } catch {
-      /* unreadable */
-    }
-  }
-  return out;
-}
-
-/**
  * Files inside vendor that can reach a user without walking every Java
- * package line: Vue shell project trees + `src/main/resources` catalogues.
+ * package line: `src/main/resources` catalogues. The Vue shell project tree
+ * (vendor 05_Web_Front) was walked here until 2026-10-13, when it was retired.
  */
 function collectVendorProductFiles() {
   const vendorRoot = join(ROOT, 'vendor');
@@ -526,10 +483,6 @@ function collectVendorProductFiles() {
         yield full;
       }
     }
-  }
-
-  for (const projectRoot of new Set(findVendorShellProjectRoots(vendorRoot))) {
-    for (const file of walkScoped(projectRoot)) files.add(file);
   }
 
   /**
@@ -669,8 +622,8 @@ if (scanned === 0) {
 // sole UI lives under vendor/ is the hole this gate closed once already.
 if (existsSync(join(ROOT, 'vendor')) && vendorProductScanned === 0) {
   console.error('\n✖ BRAND SCAN FAILED — vendor/ is present but 0 vendor product-surface files were read.');
-  console.error('  Vue shell roots + Java src/main/resources must be in scope (D26-P2-14).');
-  console.error('  Check collectVendorProductFiles() / findVendorShellProjectRoots() — discovery is blind.\n');
+  console.error('  Java src/main/resources must be in scope (D26-P2-14).');
+  console.error('  Check collectVendorProductFiles() — discovery is blind.\n');
   process.exit(1);
 }
 

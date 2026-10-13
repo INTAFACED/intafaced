@@ -1,5 +1,13 @@
 #!/usr/bin/env node
 /**
+ * NARROWED 2026-10-13 (Nitro's decision): the legacy Vue customer site
+ * (vendor 05_Web_Front, replaced by the React app apps/customer, #4511) is
+ * retired — kept in the tree, no longer built, deployed or gated. This scan
+ * therefore no longer walks any Vue project root; it keeps only the vendored
+ * Java CORS-adjacent half (CorsConfig / CorsAllowlist / CORS ApplicationConfig),
+ * which is still shipped surface. The history below describes the original,
+ * wider scope and is kept as the record of why the relaxed `\b` matters.
+ *
  * SHELL BRAND SCAN — Doctrine §0.7 applied to the product surface, which
  * `brand-scan.mjs` has never once read.
  *
@@ -121,7 +129,7 @@
  *   node tooling/ci/shell-brand-scan.mjs --self-test
  */
 import { readdirSync, readFileSync, statSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join, relative, dirname, sep } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 
@@ -203,73 +211,6 @@ function forbiddenFromRepoScan() {
 // ── The surface, discovered rather than named ───────────────────────────────
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', '.next', '.turbo', 'coverage', 'drizzle', '.docker-data', 'target', 'build']);
-
-/**
- * Identical in shape and rationale to `findShellRoots` in
- * `fabricated-money-scan.mjs`: a shell root is any directory holding a Vue 2
- * entry pair — `App.vue` beside `main.js`. That is the signature of an SFC
- * application root and of nothing else vendored here.
- *
- * Not shared as an import, because that file also runs and exits at module
- * scope. Kept identical on purpose; if one of them stops finding the surface,
- * both say so out loud rather than passing.
- */
-function findShellRoots(dir, out = [], depth = 0) {
-  if (depth > 4 || !existsSync(dir)) return out;
-  let entries;
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return out;
-  }
-  if (entries.includes('App.vue') && entries.includes('main.js')) {
-    out.push(dir);
-    return out; // Do not descend into a root we have already claimed.
-  }
-  for (const name of entries) {
-    if (SKIP_DIRS.has(name)) continue;
-    const full = join(dir, name);
-    try {
-      if (statSync(full).isDirectory()) findShellRoots(full, out, depth + 1);
-    } catch {
-      /* unreadable — nothing to scan */
-    }
-  }
-  return out;
-}
-
-/**
- * `findShellRoots` lands on the `src/` directory. The findings that matter most
- * sit one level ABOVE it — the package manifest carrying the upstream's project
- * name and author address, the lockfile echoing it, the README title. Scanning
- * only `src/` would have missed six of eight. So the scanned unit is the PROJECT
- * root: the parent of the entry pair's directory.
- */
-const projectRoots = [...new Set(findShellRoots(join(ROOT, 'vendor')).map((src) => dirname(src)))];
-
-/**
- * `brand-scan.mjs`'s extension list plus `.vue`. The addition is the whole
- * reason this cannot be a flag on the other scan: `.vue` is where the shell's
- * user-facing copy actually lives, and adding it repo-wide is a change to a
- * different gate's meaning.
- */
-const EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.json', '.md', '.mdx', '.html', '.css', '.yaml', '.yml', '.vue'];
-
-function* walk(dir) {
-  if (!existsSync(dir)) return;
-  for (const name of readdirSync(dir)) {
-    if (SKIP_DIRS.has(name)) continue;
-    const full = join(dir, name);
-    let stats;
-    try {
-      stats = statSync(full);
-    } catch {
-      continue;
-    }
-    if (stats.isDirectory()) yield* walk(full);
-    else if (EXTENSIONS.some((ext) => name.endsWith(ext))) yield full;
-  }
-}
 
 /**
  * Java CORS surface: sibling of the Vue project, never inside it.
@@ -359,8 +300,7 @@ function plantToken(rules) {
 }
 
 /**
- * Hermetic proof that a partner name in CORS Java (outside the Vue project
- * walk) fails, and that a package-line identity does not force a rebrand.
+ * Hermetic proof that a partner name in CORS Java fails, and that a package-line identity does not force a rebrand.
  */
 function selfTest(rules) {
   const fails = [];
@@ -373,14 +313,10 @@ function selfTest(rules) {
   const tmp = mkdtempSync(join(tmpdir(), 'shell-brand-p214-'));
   try {
     const vendor = join(tmp, 'vendor');
-    const vueSrc = join(vendor, 'ex', '05_Web_Front', 'src');
     const corsDir = join(vendor, 'ex', '00_framework', 'core', 'src', 'main', 'java', 'com', 'example', 'config');
     const daoDir = join(vendor, 'ex', '00_framework', 'core', 'src', 'main', 'java', 'com', 'example', 'dao');
-    mkdirSync(vueSrc, { recursive: true });
     mkdirSync(corsDir, { recursive: true });
     mkdirSync(daoDir, { recursive: true });
-    writeFileSync(join(vueSrc, 'App.vue'), '<template><div>desk</div></template>\n');
-    writeFileSync(join(vueSrc, 'main.js'), 'new Vue({ el: "#app" })\n');
     writeFileSync(
       join(corsDir, 'CorsConfig.java'),
       `package com.example.config;\n/** partner ${plant} must not hide in CORS copy */\npublic class CorsConfig {}\n`,
@@ -390,17 +326,6 @@ function selfTest(rules) {
       `package com.example.dao;\n/** partner ${plant} in a non-CORS Java file */\npublic class WalletDao {}\n`,
     );
     writeFileSync(join(corsDir, 'CorsAllowlist.java'), `package com.${plant}.util;\npublic final class CorsAllowlist {}\n`);
-
-    const vueRoots = [...new Set(findShellRoots(vendor).map((src) => dirname(src)))];
-    const vueFiles = [];
-    for (const root of vueRoots) {
-      for (const f of walk(root)) vueFiles.push(f);
-    }
-    assert(
-      vueFiles.some((f) => f.endsWith('App.vue')),
-      'fixture Vue surface not walked',
-    );
-    assert(!vueFiles.some((f) => /CorsConfig\.java$/.test(f)), 'CORS Java must sit outside the Vue project walk (the skipped-today hole)');
 
     const corsFiles = collectCorsAdjacentJava(vendor);
     assert(
@@ -437,11 +362,10 @@ function selfTest(rules) {
  * `sha256`-12 fingerprint of the exact text that matched. Frozen 2026-08-03 at
  * 4 files / 8 occurrences.
  *
- * Keys are relative to the shell PROJECT root, not the repo root, for the same
- * reason `findShellRoots` exists and with the same benefit: the queue survives
- * the vendor directory being renamed. Findings are still REPORTED at their full
- * repo-relative path, because a path you cannot paste into an editor is not a
- * report.
+ * Keys are repo-relative paths (the Vue project root, whose rows were keyed
+ * project-relative, is no longer walked — see the NARROWED note at the top).
+ * Findings are REPORTED at their repo-relative path, because a path you cannot
+ * paste into an editor is not a report.
  *
  * Not fixed here, on purpose: an agent swarm owns this tree, and the four files
  * below are the shell's manifest, lockfile, README and dev-server config —
@@ -490,91 +414,34 @@ if (FORBIDDEN.length !== DECLARED) {
 selfTest(FORBIDDEN);
 if (process.argv.includes('--self-test')) {
   console.log('✓ shell-brand-scan --self-test OK');
-  console.log('  planted partner name in CORS Java (outside Vue walk) fails; package identity skipped; unrelated Java unread');
+  console.log('  planted partner name in CORS Java fails; package identity skipped; unrelated Java unread');
   process.exit(0);
-}
-
-if (projectRoots.length === 0) {
-  console.error('\n✖ shell-brand-scan — no Vue shell root (App.vue beside main.js) found under vendor/. NOTHING WAS SCANNED.');
-  console.error('  If the product surface still exists, discovery is broken — fix findShellRoots.');
-  console.error('  If it is genuinely gone, delete this gate deliberately rather than leaving it green over nothing.\n');
-  process.exit(1);
 }
 
 const findings = [];
 let scanned = 0;
-const seenAbs = new Set();
-
-for (const root of projectRoots) {
-  for (const file of walk(root)) {
-    // Reported at the full path (pasteable), keyed at the project-relative one
-    // (rename-proof, and sayable without naming the upstream).
-    const key = posix(relative(root, file));
-    const reported = posix(relative(ROOT, file));
-    const content = readFileSync(file, 'utf8');
-    scanned++;
-    seenAbs.add(file);
-
-    const lines = content.split('\n');
-    for (const { pattern, reason } of FORBIDDEN) {
-      if (!pattern.test(content)) continue;
-      const perLine = new RegExp(pattern.source, pattern.flags + 'g');
-      lines.forEach((line, i) => {
-        for (const match of line.matchAll(perLine)) {
-          findings.push({
-            key,
-            reported,
-            line: i + 1,
-            text: match[0],
-            fp: fingerprint(match[0]),
-            reason,
-            context: line.trim().slice(0, 120),
-          });
-        }
-      });
-    }
-  }
-}
 
 const vendorRoot = join(ROOT, 'vendor');
 const corsFiles = collectCorsAdjacentJava(vendorRoot);
-if (existsSync(vendorRoot) && corsFiles.length === 0) {
+if (!existsSync(vendorRoot)) {
+  console.error('\n✖ shell-brand-scan — no vendor/ tree found. NOTHING WAS SCANNED.');
+  console.error(
+    '  If the vendored Java CORS surface still exists, discovery is broken. If it is genuinely gone, delete this gate deliberately rather than leaving it green over nothing.\n',
+  );
+  process.exit(1);
+}
+if (corsFiles.length === 0) {
   console.error('\n✖ shell-brand-scan — vendor/ is present but 0 Java CORS-adjacent files were found.');
   console.error('  D26-P2-14: CorsConfig / CorsAllowlist / CORS ApplicationConfig must be in scope.');
   console.error('  Check collectCorsAdjacentJava() — discovery is blind.\n');
   process.exit(1);
 }
 
-let corsScanned = 0;
 for (const file of corsFiles) {
-  if (seenAbs.has(file)) continue;
-  seenAbs.add(file);
   scanned++;
-  corsScanned++;
   for (const hit of scanFileHits(file, ROOT, FORBIDDEN, { javaIdentity: true })) {
     findings.push(hit);
   }
-}
-
-/**
- * Roots found, nothing read.
- *
- * Stated honestly: this branch cannot be reached by any change to the SHELL,
- * because the entry pair that identifies a root — `App.vue` and `main.js` — is
- * itself scannable, so a discovered root always yields at least two files. It is
- * reachable only by a change to THIS file: an emptied or narrowed EXTENSIONS
- * list, or a SKIP_DIRS entry that swallows the tree.
- *
- * Kept, and proven to fire (by running a copy with EXTENSIONS emptied against
- * the real tree), because that is exactly the class of edit that produced the
- * bug this scan exists for. The guard costs one comparison and removes the
- * possibility of a green tick over an empty walk.
- */
-if (scanned === 0) {
-  console.error(`\n✖ shell-brand-scan — found ${projectRoots.length} shell root(s) but walked 0 files. NOTHING WAS SCANNED.`);
-  console.error('  A gate that reports clean over an empty walk is the failure this scan exists to prevent.');
-  console.error('  Nothing about the product surface can cause this — check EXTENSIONS and SKIP_DIRS in this file.\n');
-  process.exit(1);
 }
 
 // ── Compare against the frozen queue ───────────────────────────────────────
@@ -610,7 +477,7 @@ const frozenTotal = Object.values(BASELINE).reduce((n, rows) => n + rows.length,
 
 if (problems.length === 0) {
   console.log(
-    `✓ shell-brand-scan — ${scanned} product-surface file(s) (incl. ${corsScanned} Java CORS-adjacent), ${FORBIDDEN.length} forbidden name(s) checked, all findings at the frozen baseline`,
+    `✓ shell-brand-scan — ${scanned} Java CORS-adjacent file(s), ${FORBIDDEN.length} forbidden name(s) checked, all findings at the frozen baseline`,
   );
   for (const [key, rows] of Object.entries(BASELINE)) {
     const where = byFile.get(key)?.[0]?.reported ?? key;
@@ -620,7 +487,7 @@ if (problems.length === 0) {
   // debt has to be on it. A green tick over an unnamed eight is how a frozen
   // queue becomes a forgotten one.
   console.log(
-    `  ⚠ ${frozenTotal} forbidden name(s) frozen across ${Object.keys(BASELINE).length} product-surface file(s) — the queue cannot grow. ` +
+    `  ⚠ ${frozenTotal} forbidden name(s) frozen across ${Object.keys(BASELINE).length} file(s) — the queue cannot grow. ` +
       'User-facing copy says only: Identity Blueprint · Sovereign Intelligence · Neural Engine.',
   );
   process.exit(0);

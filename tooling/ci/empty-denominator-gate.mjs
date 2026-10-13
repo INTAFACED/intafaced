@@ -87,8 +87,8 @@
  *
  * HONEST LIMIT, stated because the alternative is implying coverage
  * ────────────────────────────────────────────────────────────────
- * Five ENFORCED gates refuse by UNCAUGHT throw, not by a guard: `secrets`,
- * `lang-duplicate-key`, `dual-book-door-paths`, `compose-secret-parity`,
+ * Four ENFORCED gates refuse by UNCAUGHT throw, not by a guard: `secrets`,
+ * `dual-book-door-paths`, `compose-secret-parity`,
  * `money-property-mutation`. A stack trace is a refusal — nobody reads
  * `ENOENT` as a clean bill of health — so they satisfy the law. But it is
  * WEAKER, and in a specific way worth naming: it proves the gate refuses when
@@ -206,16 +206,6 @@ export const ENFORCED = {
     note:
       'D26-P2-09 continuous perimeter suite — control is the real mainnet scan; if the tree (or the scan) is gone the ' +
       'control fails first, so class/register deletions cannot be reported as caught over an unrunnable subject.',
-  },
-  'lang-duplicate-key': {
-    kind: 'uncaught',
-    must: /ENOENT[\s\S]*en\.js/,
-    note: 'reads one known language file directly; absent subject throws. Refuses, by throw.',
-  },
-  'shell-golden': {
-    kind: 'guard',
-    must: /no \*\.golden\.js under/,
-    note: 'a golden suite that finds no goldens is the textbook version of this defect; it refuses instead.',
   },
   'vendor-java-money': {
     kind: 'guard',
@@ -390,19 +380,6 @@ export const BLIND = {
     observed: /no vendor\/ tree — skip/,
     reason: 'skips clean on absent vendor/, where vendor-java-money and dual-book-door both refuse on exactly that condition.',
   },
-  'shell-i18n': {
-    observed: /no web shell in this checkout/,
-    reason:
-      'skips clean and says "the scan re-arms when it lands". A truthful sentence that still exits 0, so nothing notices ' +
-      'if it never re-arms.',
-  },
-  'fabricated-money': {
-    observed: /NOTHING WAS SCANNED/,
-    reason:
-      'the near-miss, and the most instructive row here: it PRINTS "NOTHING WAS SCANNED … discovery is broken" and then ' +
-      'exits 0. Its own text is the argument for failing. shell-brand-scan prints the same sentence and exits 1. ' +
-      'Announcing is not refusing — and gates.mjs shows one summary line, so the warning is one line from a green tick.',
-  },
   'test-db': {
     observed: /0 Postgres-capable test file\(s\) of 0 scanned/,
     reason: 'prints its zero denominator inside a ✓ line: "0 … of 0 scanned, all on *_test databases". All of nothing.',
@@ -419,7 +396,7 @@ export const BLIND = {
       'than exempted because its denominator IS the repo, which is the test for this table.',
   },
 };
-export const BLIND_MAX = 7;
+export const BLIND_MAX = 5;
 
 // ───────────────────────────────────────────────────────────────────────────
 // 4. SELF — this gate, which cannot run inside its own fixture without
