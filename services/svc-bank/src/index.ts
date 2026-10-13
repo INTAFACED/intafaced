@@ -11,6 +11,7 @@ import { cardIssuerFor } from './cards/issuer.js';
 import { rampProgrammeFor } from './ramps/rails.js';
 import { eventMarginCallSink } from './loans/margin-call-publisher.js';
 import { tickerPriceSource } from './loans/prices.js';
+import { httpTickerSource } from './portfolio/portfolio-service.js';
 import { createLedgerClient, createLedgerHistory } from './ledger-client.js';
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './affiliate-payout.js';
@@ -149,6 +150,11 @@ const bank = createBankServices(sql, ledger, history, {
    * rate counterparty. Unusable TRADE_URL keeps convert unwired. Convert
    * failure still refuses — this service does not invent a §8 mid.
    */
+  /**
+   * PORTFOLIO — "Est. total value" prices from svc-trade's public tickers, the
+   * same TRADE_URL the loan marks read. A read; nothing is written back.
+   */
+  portfolio: { tickers: httpTickerSource({ baseUrl: env.TRADE_URL }) },
   autoInvest: {
     enabled: env.AUTO_INVEST_ENABLED,
     ...(usableTradeConvertUrl(env.TRADE_URL)
