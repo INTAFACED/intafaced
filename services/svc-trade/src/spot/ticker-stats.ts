@@ -35,8 +35,11 @@ export interface TickerStats24h {
   readonly quoteVolume: Amount | null;
   /**
    * Start of the span the stats describe, unix ms. `now − 24 h` when the market
-   * has traded at or before that instant (a full window); otherwise the first
-   * trade's timestamp, so the UI can say "since HH:mm". Null = never traded.
+   * has a real print in the 30 days before that instant (a full window);
+   * otherwise the first in-window trade's timestamp, so the UI can say
+   * "since HH:mm". A market idle for over 30 days before the window therefore
+   * reports its first in-window trade, not `now − 24 h`. Null = no trade in the
+   * window and none in the 30 days before it.
    */
   readonly windowStart: number | null;
   /** Up to 24 hourly closes, oldest first. Empty when the market has never traded. */
