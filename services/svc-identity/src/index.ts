@@ -153,10 +153,8 @@ const auth = new AuthService(
 );
 
 const placeDoor = new PlaceDoor(sql);
-const founderControls = new FounderControls(
-  sql,
-  parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID),
-);
+const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
+const founderControls = new FounderControls(sql, founderPair);
 await founderControls.bootstrap();
 
 const referral = new ReferralService(sql);
@@ -219,6 +217,7 @@ export const appRouter = mergeRouters(
     waitlist,
     actionApprovals,
     founderControls,
+    privilegedUserIds: founderPair ?? [],
   }),
   createApiKeyIpRouter(sql, auth),
   createApiKeyOriginRouter(sql, auth),
@@ -237,11 +236,15 @@ export const appRouter = mergeRouters(
   createOperationIdentityRouter(new OperationIdentityDecisions(sql)),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createOrgRouter(sql, dmaHierarchyLaw),
-  createEnrollPasskeyRouter(sql, {
-    rpId: env.WEBAUTHN_RP_ID,
-    rpName: env.WEBAUTHN_RP_NAME,
-    origin: env.WEBAUTHN_ORIGIN,
-  }),
+  createEnrollPasskeyRouter(
+    sql,
+    {
+      rpId: env.WEBAUTHN_RP_ID,
+      rpName: env.WEBAUTHN_RP_NAME,
+      origin: env.WEBAUTHN_ORIGIN,
+    },
+    founderPair ?? [],
+  ),
   createVerifyPasskeyRouter(sql, {
     rpId: env.WEBAUTHN_RP_ID,
     rpName: env.WEBAUTHN_RP_NAME,

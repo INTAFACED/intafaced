@@ -1,0 +1,198 @@
+/* Living backdrop. Fixed, behind content, never interactive.
+   Motion is transform/opacity only (compositor); the ribbons canvas is one WebGL draw. */
+.lb {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: #000;
+  contain: strict;
+}
+.lb.is-settled-bg {
+  background: #07090a;
+}
+
+/* Everything that resolves in the entrance lives in the stage. */
+.lb__stage {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transform-origin: 50% 50%;
+}
+.lb__stage.is-ready {
+  opacity: 1;
+  transition: opacity 360ms ease-out;
+}
+.lb__stage.is-entering {
+  transition: none;
+  will-change: transform, opacity;
+  animation: lb-resolve 1400ms cubic-bezier(0.2, 0.65, 0.3, 1) both;
+}
+@keyframes lb-resolve {
+  from {
+    opacity: 0;
+    transform: scale(1.06);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Entrance brightness ramp: a black veil that lifts (compositor-only, no filter). */
+.lb__veil {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+}
+.lb__veil.is-entering {
+  animation: lb-veil 1400ms cubic-bezier(0.2, 0.65, 0.3, 1) both;
+}
+@keyframes lb-veil {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Question steps: settle to ~35% brightness over 800ms. */
+.lb__dim {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  transition: opacity 800ms cubic-bezier(0.3, 0, 0.2, 1);
+}
+.lb.is-dim .lb__dim {
+  opacity: 0.65;
+}
+
+.lb__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Photo variant */
+.lb__photo {
+  position: absolute;
+  inset: 0;
+  animation: lb-drift 30s ease-in-out infinite alternate;
+  will-change: transform;
+}
+.lb__photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 50%;
+}
+@keyframes lb-drift {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.04);
+  }
+}
+
+/* Keeps the headline zone calm and the photo a little quieter than raw. */
+.lb__scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 36% 32% at 50% 50%, rgba(6, 8, 9, 0.8) 0%, rgba(6, 8, 9, 0.5) 55%, rgba(6, 8, 9, 0) 100%),
+    linear-gradient(180deg, rgba(6, 8, 9, 0.28), rgba(6, 8, 9, 0.38));
+}
+
+/* One wide lime-tinted band travelling across the fins (perpendicular to them) every ~14s. */
+.lb__sweep {
+  position: absolute;
+  inset: 0;
+  opacity: 0.18;
+  mix-blend-mode: screen;
+  overflow: hidden;
+  transition: opacity 800ms ease;
+}
+.lb.is-dim .lb__sweep {
+  opacity: 0.05;
+}
+/* On question steps nothing should be repainting while someone types: freeze the drift (masked by the dim fade). */
+.lb.is-dim .lb__photo,
+.lb.is-dim .lb__sweep i {
+  animation-play-state: paused;
+}
+.lb__sweep i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 34vmax;
+  height: 240vmax;
+  margin: -120vmax 0 0 -17vmax;
+  background: linear-gradient(
+    90deg,
+    rgba(200, 246, 74, 0) 0%,
+    rgba(200, 246, 74, 0.55) 42%,
+    rgba(200, 246, 74, 0.9) 50%,
+    rgba(200, 246, 74, 0.55) 58%,
+    rgba(200, 246, 74, 0) 100%
+  );
+  transform: rotate(-38deg) translateX(-95vmax);
+  opacity: 0;
+  animation: lb-sweep 14s cubic-bezier(0.4, 0, 0.3, 1) infinite;
+  will-change: transform, opacity;
+}
+@keyframes lb-sweep {
+  0% {
+    transform: rotate(-38deg) translateX(-95vmax);
+    opacity: 0;
+  }
+  14% {
+    opacity: 1;
+  }
+  62% {
+    opacity: 1;
+  }
+  78%,
+  100% {
+    transform: rotate(-38deg) translateX(95vmax);
+    opacity: 0;
+  }
+}
+
+/* A photo shown only because the ribbons could not run (no WebGL, failed shader, lost context) is a still image. */
+.lb.is-still .lb__photo,
+.lb.is-still .lb__sweep i {
+  animation: none !important;
+}
+.lb.is-still .lb__sweep {
+  display: none;
+}
+
+/* Reduced motion: one still frame, no animation at all. Mirrors the JS flag so a live change works. */
+.lb.is-reduced .lb__photo,
+.lb.is-reduced .lb__sweep i,
+.lb.is-reduced .lb__stage,
+.lb.is-reduced .lb__veil {
+  animation: none !important;
+}
+.lb.is-reduced .lb__sweep {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lb__photo,
+  .lb__sweep i,
+  .lb__stage,
+  .lb__veil {
+    animation: none !important;
+  }
+  .lb__sweep {
+    display: none;
+  }
+}
