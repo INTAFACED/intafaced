@@ -428,11 +428,12 @@ if (!available) {
     it('repeating the password-only first step never accumulates against the owner', async () => {
       const { handle, userId } = await register();
       await enrolTotp(userId);
-      for (let i = 0; i < 25; i++) {
+      // Each call hashes a password (argon2), so keep the count above the 10-failure threshold but small, and give CI headroom.
+      for (let i = 0; i < 12; i++) {
         await expect(auth.login({ identifier: handle, password: PASSWORD })).rejects.toMatchObject({ code: 'auth.mfa_required' });
       }
       expect(await attempts(userId)).toEqual([]);
-    });
+    }, 60_000);
   });
 
   describe('step-up mirrors login', () => {
