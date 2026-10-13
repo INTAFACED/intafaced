@@ -1,0 +1,107 @@
+import { describe, expect, it } from 'vitest';
+import { ACTIVITY_KINDS, KIND_BY_MODULE_REASON, KIND_BY_REASON, classify, directionOf, type ActivityKind } from './activity-kind.js';
+
+/** One row per `module/reason` the ledger posts today. The kind is what a person sees. */
+const ROWS: Array<[string, string, ActivityKind]> = [
+  ['ledger', 'deposit.credited', 'deposit'],
+  ['ledger', 'withdraw.held', 'withdrawal'],
+  ['ledger', 'withdraw.settled', 'withdrawal'],
+  ['ledger', 'withdraw.reversed', 'withdrawal'],
+  ['identity', 'identity.sub_account.transfer', 'space_move'],
+  ['trade', 'trade.fill', 'trade'],
+  ['trade', 'trade.fill.mm_maker', 'trade'],
+  ['trade', 'futures.margin.lock', 'trade'],
+  ['trade', 'futures.margin.add', 'trade'],
+  ['trade', 'futures.margin.release', 'trade'],
+  ['trade', 'futures.loss.realized', 'trade'],
+  ['trade', 'futures.profit.realized', 'trade'],
+  ['trade', 'futures.funding.paid', 'trade'],
+  ['trade', 'order.hold', 'other'],
+  ['trade', 'order.hold.released', 'other'],
+  ['trade', 'order.hold.mm', 'other'],
+  ['trade', 'order.hold.mm.released', 'other'],
+  ['trade', 'order.hold.amend', 'other'],
+  ['trade', 'mm.seed.funded', 'other'],
+  ['trade', 'futures.insurance.topup', 'other'],
+  ['p2p', 'p2p.escrow.lock', 'trade'],
+  ['p2p', 'p2p.escrow.release', 'trade'],
+  ['p2p', 'p2p.escrow.refund', 'trade'],
+  ['pay', 'payment.captured', 'payment'],
+  ['pay', 'pay.settled', 'payment'],
+  ['pay', 'payment.refunded', 'payment'],
+  ['pay', 'payment.refund.reversed', 'payment'],
+  ['pay', 'pay.chargeback.opened', 'payment'],
+  ['pay', 'pay.chargeback.shortfall.covered', 'payment'],
+  ['pay', 'pay.chargeback.won', 'payment'],
+  ['pay', 'pay.chargeback.shortfall.recovered', 'payment'],
+  ['market', 'market.purchase', 'payment'],
+  ['market', 'market.listing_fee', 'fee'],
+  ['market', 'market.premium_placement', 'fee'],
+  ['bank', 'bank.business.approval.settled', 'payment'],
+  ['bank', 'bank.business.payroll.settled', 'payment'],
+  ['bank', 'bank.business.approval.held', 'other'],
+  ['bank', 'bank.business.approval.released', 'other'],
+  ['bank', 'bank.earn.deposited', 'other'],
+  ['bank', 'bank.earn.withdrawn', 'other'],
+  ['bank', 'bank.earn.interest', 'other'],
+  ['bank', 'bank.earn.pool.funded', 'other'],
+  ['bank', 'loan.collateral.locked', 'other'],
+  ['bank', 'loan.collateral.released', 'other'],
+  ['bank', 'loan.drawn', 'other'],
+  ['bank', 'loan.repaid', 'other'],
+  ['bank', 'loan.liquidated', 'other'],
+  ['bank', 'loan.bad_debt.covered', 'other'],
+  ['bank', 'loan.reserve.funded', 'other'],
+  ['token', 'token.stake', 'other'],
+  ['token', 'token.unstake', 'other'],
+  ['token', 'token.emission', 'other'],
+  ['token', 'token.burn', 'other'],
+  ['token', 'token.fee.swept', 'other'],
+  ['token', 'token.yield.distributed', 'other'],
+  ['token', 'bank.card.cashback', 'other'],
+];
+
+describe('classify: one test per module/reason row', () => {
+  it.each(ROWS)('%s / %s -> %s', (module, reason, kind) => {
+    expect(classify({ module, reason, direction: 'debit' })).toBe(kind);
+    expect(classify({ module, reason, direction: 'credit' })).toBe(kind);
+  });
+
+  it.each([
+    ['bank.transfer.manual', 'debit', 'transfer_in'],
+    ['bank.transfer.manual', 'credit', 'transfer_out'],
+    ['bank.transfer.scheduled', 'debit', 'transfer_in'],
+    ['bank.transfer.scheduled', 'credit', 'transfer_out'],
+  ] as const)('bank / %s %s -> %s (direction decides)', (reason, direction, kind) => {
+    expect(classify({ module: 'bank', reason, direction })).toBe(kind);
+  });
+
+  it('fee.charged is a fee under ANY caller module (feeCharge takes the module)', () => {
+    for (const module of ['trade', 'agents', 'p2p', 'pay', 'something-new']) {
+      expect(classify({ module, reason: 'fee.charged', direction: 'credit' })).toBe('fee');
+    }
+  });
+
+  it('an unknown module/reason is `other`, never dropped or thrown', () => {
+    expect(classify({ module: 'brand-new', reason: 'brand.new.reason', direction: 'debit' })).toBe('other');
+    expect(classify({ module: '', reason: '', direction: 'credit' })).toBe('other');
+  });
+
+  it('a deposit is `deposit`, and `welcome_funds` only when the rail is named as one (the ledger page does not say today)', () => {
+    expect(classify({ module: 'ledger', reason: 'deposit.credited', direction: 'debit' })).toBe('deposit');
+    expect(classify({ module: 'ledger', reason: 'deposit.credited', direction: 'debit', rail: 'anything' })).toBe('deposit');
+  });
+
+  it('direction: debit increases the account (in), credit decreases it (out)', () => {
+    expect(directionOf('debit')).toBe('in');
+    expect(directionOf('credit')).toBe('out');
+  });
+
+  it('every table row resolves to a declared kind, and every row above is in the table', () => {
+    const declared = new Set<string>([...ACTIVITY_KINDS, 'transfer']);
+    for (const v of [...Object.values(KIND_BY_MODULE_REASON), ...Object.values(KIND_BY_REASON)]) expect(declared.has(v)).toBe(true);
+    const tested = new Set(ROWS.map(([m, r]) => `${m}/${r}`));
+    const untested = Object.keys(KIND_BY_MODULE_REASON).filter((k) => !tested.has(k) && !k.startsWith('bank/bank.transfer.'));
+    expect(untested).toEqual([]);
+  });
+});
