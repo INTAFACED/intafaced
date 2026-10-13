@@ -550,7 +550,7 @@ describe('svc-bank money PG-hard', () => {
           toUserId: USER_C,
           amount: amt('10'),
         }),
-      ).rejects.toMatchObject({ code: 'bank.dest_user_missing' });
+      ).rejects.toMatchObject({ code: 'bank.recipient_cannot_receive' });
       expect(ledger.journal().map((tx) => tx.idempotencyKey)).toEqual(journalBefore);
       expect(await availableOf(USER_A, 'USDT')).toBe('50');
     });
@@ -610,7 +610,7 @@ describe('svc-bank money PG-hard', () => {
           cadence: 'monthly',
           startsAt: new Date('2026-01-01T09:00:00Z'),
         }),
-      ).rejects.toMatchObject({ code: 'bank.dest_user_missing' });
+      ).rejects.toMatchObject({ code: 'bank.recipient_cannot_receive' });
       const rows = await sql`SELECT id FROM bank.scheduled_transfers`;
       expect(rows).toHaveLength(0);
       expect(ledger.journal().map((tx) => tx.idempotencyKey)).toEqual(journalBefore);

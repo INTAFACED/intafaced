@@ -38,6 +38,8 @@ const SECRET = 'bank-recipient-cannot-receive-secret-0123456789';
 const SENDER = '11111111-1111-4111-8111-111111111111';
 const RECIPIENT = '22222222-2222-4222-8222-222222222222';
 const MAKER = '33333333-3333-4333-8333-333333333333';
+const CHECKER = '55555555-5555-4555-8555-555555555555';
+const GHOST = '66666666-6666-4666-8666-666666666666';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', 'drizzle');
@@ -222,6 +224,50 @@ describe('recipient cannot receive — svc-bank refuses before posting', () => {
     });
   });
 
+  describe('one answer for frozen, closed and no such account', () => {
+    it('toUser: a user with no primary space refuses exactly like a frozen one', async () => {
+      const from = await sender();
+      identity.set(RECIPIENT, 'frozen');
+      const refusal = (toUserId: string, transferId: string) =>
+        bank.transfers.transferToUser({ transferId, fromSpaceId: from.id, toUserId, amount: amt('10') }).then(
+          () => null,
+          (e: unknown) => e as { code: string; message: string },
+        );
+      const frozen = await refusal(RECIPIENT, 'uniform-frozen-1');
+      const ghost = await refusal(GHOST, 'uniform-ghost-1');
+      const blank = await refusal('  ', 'uniform-blank-1');
+      expect(ghost).toMatchObject(REFUSAL);
+      expect(ghost?.message).toBe(frozen?.message);
+      expect(blank).toMatchObject(REFUSAL);
+    });
+
+    it('scheduleToUser: no primary space refuses exactly like a frozen one', async () => {
+      const from = await sender();
+      identity.set(RECIPIENT, 'frozen');
+      const refusal = (toUserId: string) =>
+        bank.transfers
+          .scheduleToUser({
+            scheduleId: randomUUID(),
+            userId: SENDER,
+            fromSpaceId: from.id,
+            toUserId,
+            amount: amt('10'),
+            cadence: 'monthly',
+            startsAt: new Date('2099-01-01T09:00:00Z'),
+          })
+          .then(
+            () => null,
+            (e: unknown) => e as { code: string; message: string },
+          );
+      const frozen = await refusal(RECIPIENT);
+      const ghost = await refusal(GHOST);
+      expect(frozen).toMatchObject(REFUSAL);
+      expect(ghost).toMatchObject(REFUSAL);
+      expect(ghost?.message).toBe(frozen?.message);
+      expect(await sql`SELECT id FROM bank.scheduled_transfers`).toHaveLength(0);
+    });
+  });
+
   describe('identity down or not configured', () => {
     it('identity unreachable: retryable refusal, nothing posted, works again when identity is back', async () => {
       const from = await sender();
@@ -374,6 +420,77 @@ describe('recipient cannot receive — svc-bank refuses before posting', () => {
       expect(journalKeys()).toEqual(before);
       expect(await sql`SELECT id FROM bank.business_approvals`).toHaveLength(0);
     });
+
+    async function pendingToRecipient(bankUnderTest: BankServices = bank) {
+      const account = await bankUnderTest.business.createAccount({
+        name: 'Ops Co',
+        assetId: 'USDT',
+        spendThreshold: amt('100'),
+        creatorUserId: MAKER,
+      });
+      await bankUnderTest.business.addMember({ accountId: account.id, actorUserId: MAKER, userId: CHECKER, role: 'checker' });
+      const primary = await bankUnderTest.spaces.ensurePrimary(MAKER, 'USDT');
+      const vendor = await bankUnderTest.spaces.ensurePrimary(RECIPIENT, 'USDT');
+      await fund(MAKER, '1000');
+      const proposed = await bankUnderTest.business.proposeTransfer({
+        clientId: randomUUID(),
+        accountId: account.id,
+        makerUserId: MAKER,
+        fromSpaceId: primary.id,
+        toSpaceId: vendor.id,
+        amount: amt('250'),
+      });
+      if (proposed.kind !== 'pending') throw new Error('expected pending');
+      expect(await available(MAKER)).toBe('750');
+      return proposed.approval;
+    }
+
+    it('approve to a recipient frozen after the proposal is refused, leaves the row PENDING, and the hold can still be released', async () => {
+      const approval = await pendingToRecipient();
+      identity.set(RECIPIENT, 'frozen');
+
+      await expect(bank.business.approve({ approvalId: approval.id, checkerUserId: CHECKER })).rejects.toMatchObject(REFUSAL);
+      const [row] = await sql<Array<{ status: string }>>`SELECT status FROM bank.business_approvals WHERE id = ${approval.id}::uuid`;
+      expect(row?.status).toBe('pending');
+      expect(await available(RECIPIENT)).toBe('0');
+      expect(journalKeys().filter((k) => k.startsWith('bank.business.settle:'))).toEqual([]);
+
+      // The row can be closed, and the maker's money comes back.
+      await bank.business.reject({ approvalId: approval.id, checkerUserId: CHECKER });
+      expect(await available(MAKER)).toBe('1000');
+    });
+
+    it('the maker can also cancel a refused settlement and gets the hold back', async () => {
+      const approval = await pendingToRecipient();
+      identity.set(RECIPIENT, 'closed');
+      await expect(bank.business.approve({ approvalId: approval.id, checkerUserId: CHECKER })).rejects.toMatchObject(REFUSAL);
+
+      await bank.business.cancel({ approvalId: approval.id, actorUserId: MAKER });
+      expect(await available(MAKER)).toBe('1000');
+      expect(await available(RECIPIENT)).toBe('0');
+    });
+
+    it('a recipient frozen between the pre-claim check and the settle: row closed as rejected, hold released, never stuck', async () => {
+      let asks = 0;
+      const flaky = {
+        // 1 = propose, 2 = approve pre-claim check, 3 = the settle after the claim.
+        async statusOf() {
+          asks += 1;
+          return asks >= 3 ? ('frozen' as const) : ('active' as const);
+        },
+      };
+      const racing = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC', recipients: flaky });
+      const approval = await pendingToRecipient(racing);
+
+      await expect(racing.business.approve({ approvalId: approval.id, checkerUserId: CHECKER })).rejects.toMatchObject(REFUSAL);
+
+      const [row] = await sql<Array<{ status: string; rejection_code: string | null }>>`
+        SELECT status, rejection_code FROM bank.business_approvals WHERE id = ${approval.id}::uuid
+      `;
+      expect(row).toMatchObject({ status: 'rejected', rejection_code: 'bank.recipient_cannot_receive' });
+      expect(await available(MAKER)).toBe('1000');
+      expect(await available(RECIPIENT)).toBe('0');
+    });
   });
 });
 
@@ -447,7 +564,7 @@ describe('createIdentityRecipientState (identity /internal/account/:userId)', ()
   const body = (status: string, userId = USER) => ({ userId, status, kycTier: 'none' });
   const reply = (status: number, json?: unknown): Response =>
     new Response(json === undefined ? null : JSON.stringify(json), { status, headers: { 'content-type': 'application/json' } });
-  const port = (fetchFn: typeof fetch) => createIdentityRecipientState('http://identity.test/', SECRET, fetchFn);
+  const port = (fetchFn: typeof fetch) => createIdentityRecipientState('http://identity.test/', SECRET, fetchFn, () => undefined);
 
   it('reads active, frozen and closed from the status field', async () => {
     for (const status of ['active', 'frozen', 'closed'] as const) {
@@ -469,6 +586,38 @@ describe('createIdentityRecipientState (identity /internal/account/:userId)', ()
 
   it('404 means identity does not know them: not_found, which bank refuses like frozen', async () => {
     expect(await port(async () => reply(404, { code: 'identity.account_not_found' })).statusOf(USER)).toBe('not_found');
+  });
+
+  it('logs WHY a check failed (server log only), and the error a caller sees carries no such detail', async () => {
+    const logged: Array<{ userId: string; reason: string; httpStatus?: number }> = [];
+    const log = (d: { userId: string; reason: string; httpStatus?: number }) => void logged.push(d);
+    const withLog = (fetchFn: typeof fetch) => createIdentityRecipientState('http://identity.test', SECRET, fetchFn, log);
+
+    await expect(withLog(async () => reply(401, { code: 'identity.unauthenticated' })).statusOf(USER)).rejects.toThrow();
+    await expect(
+      withLog(async () => {
+        throw new TypeError('connect ECONNREFUSED');
+      }).statusOf(USER),
+    ).rejects.toThrow();
+    await expect(withLog(async () => new Response('nope', { status: 200 })).statusOf(USER)).rejects.toThrow();
+    await expect(withLog(async () => reply(200, { userId: USER })).statusOf(USER)).rejects.toThrow();
+
+    expect(logged).toHaveLength(4);
+    expect(logged[0]).toMatchObject({ userId: USER, httpStatus: 401, reason: 'identity answered non-2xx' });
+    expect(logged[1]?.reason).toMatch(/request failed/);
+    expect(logged[2]?.reason).toMatch(/not JSON/);
+    expect(logged[3]?.reason).toMatch(/schema/);
+
+    // Through the service: the client-facing error never mentions the status or the cause.
+    const spaces = createBankServices(sql, new MemoryLedger(), memoryLedgerHistory(new MemoryLedger()), {
+      recipients: withLog(async () => reply(401, {})),
+    }).spaces;
+    const seen = await spaces.assertCanReceive(USER).then(
+      () => null,
+      (e: unknown) => e as { code: string; message: string },
+    );
+    expect(seen?.code).toBe('bank.recipient_check_unavailable');
+    expect(seen?.message).not.toMatch(/401|identity|secret/i);
   });
 
   it('outage, non-2xx, bad body and a body about someone else are all "unavailable", never active', async () => {

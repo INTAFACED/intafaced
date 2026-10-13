@@ -12,7 +12,7 @@ import {
 import { BankError } from '../errors.js';
 import { assertExecutionsListLimit, assertSchedulesListLimit } from '../owner-list-limit.js';
 import { assertTransferDueLimit } from '../job-batch-limit.js';
-import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
+import { RECIPIENT_CANNOT_RECEIVE_MESSAGE, accountForSpace, type SpaceService } from '../spaces/space-service.js';
 import { MAX_CATCH_UP_PER_PASS, dueOccurrence, lastOccurrenceBefore, planDue, occurrenceStart, type Cadence } from './schedule.js';
 import { withMoneySpan, withSpan } from '../tracing.js';
 
@@ -249,10 +249,9 @@ export class TransferService {
         const from = await this.spaces.resolveForDebit(input.fromSpaceId, now);
         const dest = destUserId ? await this.spaces.findPrimary(destUserId, from.assetId) : null;
         if (!dest) {
-          throw new BankError(
-            `Dest user ${destUserId || '(empty)'} has no primary ${from.assetId} space — transfer refused`,
-            'bank.dest_user_missing',
-          );
+          // One code and one message for "no such account", frozen and closed:
+          // the caller must not be able to tell them apart.
+          throw new BankError(RECIPIENT_CANNOT_RECEIVE_MESSAGE, 'bank.recipient_cannot_receive');
         }
         return this.transfer({
           transferId: input.transferId,
@@ -281,10 +280,9 @@ export class TransferService {
     const from = await this.spaces.get(input.fromSpaceId);
     const dest = destUserId ? await this.spaces.findPrimary(destUserId, from.assetId) : null;
     if (!dest) {
-      throw new BankError(
-        `Dest user ${destUserId || '(empty)'} has no primary ${from.assetId} space — schedule refused`,
-        'bank.dest_user_missing',
-      );
+      // Same one code as frozen and closed, so a far-future schedule is not a
+      // free way to learn that an id is frozen.
+      throw new BankError(RECIPIENT_CANNOT_RECEIVE_MESSAGE, 'bank.recipient_cannot_receive');
     }
     return this.schedule({
       userId: input.userId,

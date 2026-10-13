@@ -67,10 +67,23 @@ export function unconfiguredRecipientState(
 
 const FETCH_MS = 3_000;
 
+export type RecipientCheckFailureLog = (detail: { userId: string; reason: string; httpStatus?: number }) => void;
+
+/**
+ * SERVER LOG ONLY. The caller is told "could not check" and nothing more; this
+ * line is the one place an operator learns WHY (a wrong secret looks like a 401
+ * here and like silent 503s everywhere else). One JSON line on stderr, same
+ * shape as the router's `bank.undisclosed_error`.
+ */
+export const logRecipientCheckFailure: RecipientCheckFailureLog = (detail) => {
+  console.error(JSON.stringify({ level: 'error', service: 'svc-bank', event: 'bank.recipient_check_failed', ...detail }));
+};
+
 export function createIdentityRecipientState(
   baseUrl: string,
   internalSecret: string,
   fetchFn: typeof globalThis.fetch = globalThis.fetch,
+  log: RecipientCheckFailureLog = logRecipientCheckFailure,
 ): RecipientStatePort {
   const base = baseUrl.replace(/\/+$/, '');
   return {
@@ -85,21 +98,29 @@ export function createIdentityRecipientState(
           headers: serviceAuthHeadersForBody('svc-bank', internalSecret, ''),
           signal: AbortSignal.timeout(FETCH_MS),
         });
-      } catch {
+      } catch (err) {
+        log({ userId: id, reason: `identity request failed: ${err instanceof Error ? err.name : 'unknown'}` });
         throw new RecipientStateUnavailableError('identity did not answer the recipient status check');
       }
       if (response.status === 404) return 'not_found';
       if (!response.ok) {
+        log({ userId: id, reason: 'identity answered non-2xx', httpStatus: response.status });
         throw new RecipientStateUnavailableError(`identity refused the recipient status check (${response.status})`);
       }
       let body: unknown;
       try {
         body = await response.json();
       } catch {
+        log({ userId: id, reason: 'identity body was not JSON', httpStatus: response.status });
         throw new RecipientStateUnavailableError('identity returned an unreadable recipient status');
       }
       const parsed = accountStateSchema.safeParse(body);
       if (!parsed.success || parsed.data.userId !== id) {
+        log({
+          userId: id,
+          reason: parsed.success ? 'identity answered about a different user' : 'identity body failed the account state schema',
+          httpStatus: response.status,
+        });
         throw new RecipientStateUnavailableError('identity returned an unreadable recipient status');
       }
       return parsed.data.status;
