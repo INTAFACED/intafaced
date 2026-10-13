@@ -84,7 +84,7 @@ function toTrpcError(err: unknown): unknown {
 export function createKybPspRouter(
   kyb: KybService,
   psp: PspModeService,
-  approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
+  approvals: ActionApprovalConsumer,
   merchants: MerchantOwnerLookup = {
     async getMerchant() {
       throw new PayError('Merchant ownership lookup is unavailable', 'pay.merchant_forbidden');
