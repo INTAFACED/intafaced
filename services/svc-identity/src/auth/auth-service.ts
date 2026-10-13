@@ -649,8 +649,8 @@ export class AuthService {
     }
     // Re-read under a row lock so this enrolment and a login's counter write in
     // this service cannot overwrite each other's credential list. The writers in
-    // enroll-passkey.ts, verify-passkey.ts and unenroll-passkey.ts do not take
-    // this lock yet, so the guarantee holds only between locked writers.
+    // enroll-passkey.ts, verify-passkey.ts and unenroll-passkey.ts take the same
+    // lock, so the guarantee holds between all of them.
     const existingCount = await transaction(this.sql, async (tx) => {
       // Locks the user row and applies the factor rule in the same transaction as the write.
       await assertMayAddFactor(tx, userId, actor, true);
@@ -717,9 +717,8 @@ export class AuthService {
    * Runs in one transaction under `SELECT … FOR UPDATE` on the user row, so two
    * concurrent assertions (or a locked enrolment racing a login) cannot read the
    * same counter and both succeed, and cannot overwrite each other's credential
-   * list. The unlocked writers in enroll-passkey.ts, verify-passkey.ts and
-   * unenroll-passkey.ts are outside this guarantee until they take the same
-   * lock. `refuse` throws the caller's own AuthError for any refusal.
+   * list. The writers in enroll-passkey.ts, verify-passkey.ts and
+   * unenroll-passkey.ts take the same lock. `refuse` throws the caller's own AuthError for any refusal.
    */
   private async verifyAssertionAndAdvanceCounter(
     userId: string,
