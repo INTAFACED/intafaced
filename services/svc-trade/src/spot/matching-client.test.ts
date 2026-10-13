@@ -77,6 +77,13 @@ describe('depth — 404 is no book, not a live empty ladder', () => {
     await expect(client.depth(MARKET, 1)).rejects.toBeInstanceOf(MatchingUnavailableError);
   });
 
+  it('a 200 whose body is not JSON is unavailable, not a raw parse error', async () => {
+    stubFetch(new Response('<html>gateway</html>', { status: 200 }));
+    const client = createMatchingClient('http://matching:4005', SECRET);
+
+    await expect(client.depth(MARKET, 1)).rejects.toMatchObject({ code: 'trade.matching_unavailable' });
+  });
+
   it('a 401 is NOT an empty book — a rejected signature must stay loud', async () => {
     // The engine's order routes are service-only. If our credentials stop
     // verifying, an empty book would present as a quiet, permanent outage.
