@@ -1,15 +1,20 @@
-import { Component, lazy, Suspense, useEffect, type MouseEvent, type ReactNode } from 'react';
+import { Component, Suspense, useEffect, type MouseEvent, type ReactNode } from 'react';
 import { Page, EmptyState, Button, Loading } from '../shared/ui';
-import { findRoom, roomTitle, safeReturnTo } from './navigation';
+import { findRoom, resolveAlias, roomTitle, safeReturnTo, type Room } from './navigation';
 import { useLocation, useReturnLocation, currentReturnLocation, navigate } from './location';
 import { Shell } from './Shell';
 import { PublicRoutes } from '../features/public/PublicRoutes';
 import { useSession } from '../features/session/session';
-import { AccountRoutes } from '../features/account/AccountRoutes';
 import { ApplyView } from '../features/account/View';
 import { appCopy } from './app-copy';
 import { useKeepKeyboardFocusVisible } from '../shared/keyboard-focus';
 import { useCustomerRoomArrival } from './room-arrival';
+import { hiddenFeatureFor, isDevBuild, tabHome, type Feature } from './feature-registry';
+import { LegacyRoom, type LegacyArea } from './LegacyRoom';
+import { matchPath } from './path-match';
+import { screens } from './screens';
+import { DevFeatures } from './DevFeatures';
+import { shellCopy } from './shell-copy';
 
 function configuredTeamHref(path: string): string | undefined {
   const configured: string | undefined = import.meta.env.VITE_TEAM_URL;
@@ -25,11 +30,6 @@ function configuredTeamHref(path: string): string | undefined {
   }
 }
 
-const TradeRoutes = lazy(() => import('../features/trade').then((module) => ({ default: module.TradeRoutes })));
-const PayRoutes = lazy(() => import('../features/pay').then((module) => ({ default: module.PayRoutes })));
-const MoneyRoutes = lazy(() => import('../features/money').then((module) => ({ default: module.MoneyRoutes })));
-const MoreRoutes = lazy(() => import('../features/more').then((module) => ({ default: module.MoreRoutes })));
-
 class RoomBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   override state = { failed: false };
   static getDerivedStateFromError() {
@@ -42,15 +42,35 @@ class RoomBoundary extends Component<{ children: ReactNode }, { failed: boolean 
 function RoomFailure() {
   const { t } = appCopy.useCopy();
   return (
-    <Page title={t('This room could not open')}>
-      <EmptyState
-        title={t('The interface encountered an error')}
-        action={<Button onClick={() => location.reload()}>{t('Reload the app')}</Button>}
-      >
-        {t('Reload to try again. You will need to sign in again. An unconfirmed financial request must still be checked before retrying.')}
-      </EmptyState>
-    </Page>
+    <div className="legacy-room">
+      <Page title={t('This room could not open')}>
+        <EmptyState
+          title={t('The interface encountered an error')}
+          action={<Button onClick={() => location.reload()}>{t('Reload the app')}</Button>}
+        >
+          {t(
+            'Reload to try again. You will need to sign in again. An unconfirmed financial request must still be checked before retrying.',
+          )}
+        </EmptyState>
+      </Page>
+    </div>
   );
+}
+
+/** Dev builds only: says why a hidden screen is open, above it. */
+function DevRibbon({ feature }: { feature: Feature }) {
+  const { t } = shellCopy.useCopy();
+  return (
+    <div className="dev-ribbon" role="note">
+      {t('Hidden from customers: {reason}', { reason: feature.reason })}
+    </div>
+  );
+}
+
+function legacyArea(room: Room): LegacyArea | undefined {
+  return room.area === 'money' || room.area === 'trade' || room.area === 'pay' || room.area === 'more' || room.area === 'person'
+    ? room.area
+    : undefined;
 }
 
 function RoomSignIn({ children }: { children: ReactNode }) {
@@ -74,14 +94,29 @@ export function App() {
   const { t, requestedLocale } = appCopy.useCopy();
   const current = useLocation();
   const path = current.split('?')[0] ?? '/';
+  const search = current.slice(path.length);
   const room = findRoom(path);
   const { session } = useSession();
-  useCustomerRoomArrival(path, !room || !['public', 'team', 'parked'].includes(room.area), Boolean(room?.alias));
+  const dev = isDevBuild();
+  const devFeatures = dev && path === '/dev/features';
+  const hidden = hiddenFeatureFor(path, search);
+  // One redirect rule per render, in this order: a hidden feature in a customer build, an alias row, signed-in `/`.
+  const redirectTo =
+    !devFeatures && hidden && !dev
+      ? tabHome(hidden)
+      : room?.alias
+        ? resolveAlias(room, path, search)
+        : path === '/' && session
+          ? '/home'
+          : undefined;
+  useCustomerRoomArrival(path, devFeatures || !room || !['public', 'team', 'parked'].includes(room.area), Boolean(redirectTo));
   const teamHref = room?.area === 'team' ? configuredTeamHref(current) : undefined;
   useEffect(() => {
-    if (room?.alias) navigate(room.alias + location.search, true);
-    document.title = `${room ? roomTitle(room, requestedLocale) : t('Page not found')} · Intafaced`;
-  }, [path, room, requestedLocale]);
+    if (redirectTo) navigate(redirectTo + location.hash, true);
+  }, [redirectTo]);
+  useEffect(() => {
+    document.title = `${devFeatures ? 'Hidden features' : room ? roomTitle(room, requestedLocale) : t('Page not found')} · Intafaced`;
+  }, [path, room, requestedLocale, devFeatures]);
   function followLink(event: MouseEvent<HTMLDivElement>) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const anchor = event.target instanceof Element ? event.target.closest('a') : null;
@@ -91,27 +126,51 @@ export function App() {
     event.preventDefault();
     navigate(url.pathname + url.search);
   }
-  const needsSession = room && ['money', 'pay', 'more', 'person'].includes(room.area) && path !== '/pay/checkout';
-  const feature =
-    room?.area === 'money' ? (
-      <MoneyRoutes path={current} />
-    ) : room?.area === 'trade' ? (
-      <TradeRoutes path={current} />
-    ) : room?.area === 'pay' ? (
-      <PayRoutes path={current} />
-    ) : room?.area === 'person' ? (
-      <AccountRoutes path={current} />
-    ) : room?.area === 'more' ? (
-      <MoreRoutes path={current} />
-    ) : (
-      <Page title={t('Page not found')}>
-        <EmptyState title={t('This address is not available')}>{t('Return to one of the four customer doors.')}</EmptyState>
-      </Page>
+  const needsSession = room && ['home', 'money', 'pay', 'more', 'person'].includes(room.area) && path !== '/pay/checkout';
+  const ribbon = dev && hidden && !devFeatures ? <DevRibbon feature={hidden} /> : null;
+  const fallback = (
+    <div className="legacy-room">
+      <div className="page">
+        <Loading label={t('Opening room')} />
+      </div>
+    </div>
+  );
+  const area = room ? legacyArea(room) : undefined;
+  let body: ReactNode;
+  if (devFeatures) body = <DevFeatures />;
+  else if (needsSession && !session)
+    body = (
+      <div className="legacy-room">
+        <Page title={room ? roomTitle(room, requestedLocale) : t('Sign in')}>
+          <EmptyState title={t('Sign in to continue')} action={<RoomSignIn>{t('Sign in')}</RoomSignIn>}>
+            {t('Your account context is needed before this room can show private information.')}
+          </EmptyState>
+        </Page>
+      </div>
     );
-  const content =
-    room?.area === 'public' ? (
+  else if (room?.screen) {
+    const Screen = screens[room.screen];
+    body = (
+      <Suspense fallback={fallback}>
+        <Screen path={path} search={search} params={matchPath(room.path, path) ?? {}} />
+      </Suspense>
+    );
+  } else if (area) body = <LegacyRoom area={area} path={current} />;
+  else
+    body = (
+      <div className="legacy-room">
+        <Page title={t('Page not found')}>
+          <EmptyState title={t('This address is not available')}>{t('Return to one of the customer tabs.')}</EmptyState>
+        </Page>
+      </div>
+    );
+  const content = redirectTo ? null : room?.area === 'public' ? (
+    <div className="legacy-room">
+      {ribbon}
       <PublicRoutes path={path} />
-    ) : room?.area === 'team' ? (
+    </div>
+  ) : room?.area === 'team' ? (
+    <div className="legacy-room">
       <Page title={t('Separate team desk')}>
         <EmptyState
           title={t('Open the operator console')}
@@ -128,33 +187,21 @@ export function App() {
             : t('The Team deployment address is not configured. Ask your operator for the verified console address.')}
         </EmptyState>
       </Page>
-    ) : room?.area === 'parked' ? (
+    </div>
+  ) : room?.area === 'parked' ? (
+    <div className="legacy-room">
       <Page title={t('This room is parked')}>
         <EmptyState title={t('Chain services are not active')}>
           {t('This room remains reserved until owner activation. It is not available from customer navigation or search.')}
         </EmptyState>
       </Page>
-    ) : (
-      <Shell door={room?.door}>
-        {needsSession && !session ? (
-          <Page title={room ? roomTitle(room, requestedLocale) : t('Sign in')}>
-            <EmptyState title={t('Sign in to continue')} action={<RoomSignIn>{t('Sign in')}</RoomSignIn>}>
-              {t('Your account context is needed before this room can show private information.')}
-            </EmptyState>
-          </Page>
-        ) : (
-          <Suspense
-            fallback={
-              <div className="page">
-                <Loading label={t('Opening room')} />
-              </div>
-            }
-          >
-            {feature}
-          </Suspense>
-        )}
-      </Shell>
-    );
+    </div>
+  ) : (
+    <Shell door={room?.door} path={path}>
+      {ribbon}
+      {body}
+    </Shell>
+  );
   return (
     <div onClick={followLink}>
       <ApplyView />
