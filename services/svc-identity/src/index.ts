@@ -268,6 +268,7 @@ const identityRequestContext = createIdentityRequestContext({
 });
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+auth.useLogger(app.log);
 
 app.addHook('onRequest', (req, _reply, done) => {
   const rawIp = req.headers['x-forwarded-for'] ?? req.headers['x-real-ip'];

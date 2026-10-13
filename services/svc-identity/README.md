@@ -271,3 +271,9 @@ outcome retains the pending marker and cannot be reported as a completed local
 restriction. An existing grant resolves only its original payload after freeze;
 it grants no fresh child or changed business operation and proves no completed
 ledger effect. Trading/payment enforcement belongs to their service consumers.
+
+Apply `drizzle/0027_auth_attempt_lockouts.sql` before deploying the per-account sign-in
+lockout (`src/auth/attempt-lockout.ts`): 10 wrong passwords in 15 minutes, or 5 wrong
+TOTP/recovery codes in 10 minutes, refuse that account with `auth.too_many_attempts`
+(HTTP 429) for 15 minutes. Counters live in Postgres, shared by every replica. Without
+the table, login and step-up fail closed.
