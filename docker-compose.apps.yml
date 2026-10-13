@@ -39,10 +39,16 @@ x-app: &app
 
 # STAGING / PRODUCTION: a service started with APP_ENV other than dev/test refuses to boot on dev
 # material (packages/config/src/production-posture.ts): any `dev-only-` secret from .env.example, the
-# Anvil keys and chain 31337, and the published `svc_<name>` database passwords. Set every
-# SVC_<NAME>_DB_PASSWORD (URL-safe characters only) to match the role's real password, and replace
-# every dev-only- value, and set INTERNAL_SERVICE_BODY_BIND=require (the default accept-both leaves signed
-# service calls replayable), before running with APP_ENV=staging or prod. Local runs keep the defaults.
+# Anvil keys and chain 31337, and the published `svc_<name>` database passwords. Before running with
+# APP_ENV=staging or prod:
+#   - replace every dev-only- value in .env;
+#   - set SVC_<NAME>_DB_PASSWORD for every service (incl. SVC_CONNECT_LAKE_DB_PASSWORD; URL-safe
+#     characters only) AND rotate the matching roles in the database, because the init SQL creates
+#     them with the dev password: ALTER ROLE svc_<name> PASSWORD '...' (otherwise: auth error 28P01);
+#   - set WEBAUTHN_RP_ID and an https WEBAUTHN_ORIGIN (or WEBAUTHN_ENABLED=off) for svc-identity;
+#   - set INTERNAL_SERVICE_BODY_BIND=require (a warning is logged at boot until you do: the default
+#     accept-both leaves signed service calls replayable against any body for 300 seconds).
+# Local runs keep the defaults.
 x-service-env: &service-env
   # Production Node, dev application environment. They are different questions:
   # NODE_ENV picks the optimised runtime paths, APP_ENV picks the policy —

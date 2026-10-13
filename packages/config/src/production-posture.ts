@@ -18,7 +18,8 @@ import { isExplicitDevOrTest } from './app-env.js';
  * other than exactly `dev` or `test`, with one exception: an UNSET `APP_ENV` on a
  * laptop or in a unit test (no `NODE_ENV=production`) is not production. The
  * Dockerfile sets `NODE_ENV=production`, so a container whose operator forgot
- * `APP_ENV` is still caught. Compose sets `APP_ENV=dev` explicitly for local runs.
+ * `APP_ENV` is still caught. Compose defaults `APP_ENV` to `dev` (`${APP_ENV:-dev}`) for local runs, so a host that forgets it
+ * is unguarded; the staging file should require it (`${APP_ENV:?}`).
  *
  * Messages name the variable, never its value: a refusal must not leak the secret
  * it is refusing.
@@ -97,13 +98,47 @@ const KNOWN_DEV_MNEMONIC = 'test test test test test test test test test test te
 const DEV_CHAIN_IDS = new Set([31337, 1337]);
 
 /**
- * Database passwords that are published in this repo's compose files, init SQL and docs. The init SQL creates
- * every `svc_<name>` role with its own name as the password, so ANY password starting `svc_` is one of those.
+ * Database passwords that are published in this repo's compose files, init SQL and docs. The init SQL creates every
+ * `svc_<name>` role with its own name as the password (list kept in step with `tooling/infra/postgres-init/01-service-schemas.sql`
+ * by a test), plus `intafaced_ops`, and compose connects the data lake as `svc_connect_lake`. An exact list, not a
+ * prefix: a strong password that merely starts `svc_` is fine.
  */
-const DEV_DATABASE_PASSWORD = /^(?:svc_[a-z0-9_]+|intafaced(?:_[a-z0-9_]+)?|postgres|password|changeme)$/i;
+const SERVICE_ROLE_NAMES = [
+  'identity',
+  'ledger',
+  'token',
+  'matching',
+  'trade',
+  'pay',
+  'p2p',
+  'blueprint',
+  'bank',
+  'launch',
+  'academy',
+  'market',
+  'mining_pool',
+  'agents',
+  'core_ops',
+  'ops',
+  'notify',
+  'support',
+  'chain',
+  'indexer',
+  'bridge',
+  'protocol',
+  'connect_lake',
+] as const;
+export const PUBLISHED_DATABASE_PASSWORDS: ReadonlySet<string> = new Set([
+  ...SERVICE_ROLE_NAMES.map((name) => `svc_${name}`),
+  'intafaced',
+  'intafaced_ops',
+  'postgres',
+  'password',
+  'changeme',
+]);
 
 /** "dev-only-" / "test-only-" at a word start, or a whole-word "replace-me" / "change-me" (not "exchange-metrics"). */
-const PLACEHOLDER = /(?:^|[^a-z0-9])(?:dev|test)-only-|(?:^|[^a-z0-9])(?:replace|change)-?me(?:$|[^a-z0-9])/i;
+const PLACEHOLDER = /(?:^|[^a-z0-9])(?:dev|test)[-_]only[-_]|(?:^|[^a-z0-9])(?:replace|change)[-_]?me(?:$|[^a-z0-9])/i;
 /** Service names compose gives the local chain node. */
 const LOCAL_CHAIN_HOSTNAMES = new Set(['evm', 'anvil', 'hardhat', 'ganache', 'host.docker.internal']);
 
@@ -163,10 +198,10 @@ function credentialIssues(key: string, value: string, env: Env): string[] {
     const isPostgres = /^postgres(?:ql)?:/i.test(text);
     if (password === '') {
       const pgPassword = typeof env.PGPASSWORD === 'string' && env.PGPASSWORD.trim() !== '';
-      if (isPostgres && user !== '' && !pgPassword && !url.searchParams.has('sslcert')) {
+      if (isPostgres && user !== '' && !pgPassword && !url.searchParams.get('sslcert')) {
         issues.push(`${key} has no database password (and no PGPASSWORD or client certificate)`);
       }
-    } else if (password === user || DEV_DATABASE_PASSWORD.test(password)) {
+    } else if (password === user || PUBLISHED_DATABASE_PASSWORDS.has(password.toLowerCase())) {
       issues.push(`${key} uses a connection password that is published in this repo (or equals the user name)`);
     }
   }
@@ -196,12 +231,15 @@ export function productionPostureIssues(env: Env = process.env): string[] {
     if (KNOWN_DEV_ADDRESSES_LOWER.some((a) => lower.includes(a))) {
       issues.push(`${key} holds a well-known Anvil/Hardhat address (its keys are public, so anyone controls it on a real chain)`);
     }
-    if (/CHAIN_ID/i.test(key)) {
-      // The schemas parse these with Number(), so 0x7a69, 031337 and 31337.0 all boot as chain 31337.
-      const id = Number(value);
-      if (Number.isFinite(id) && DEV_CHAIN_IDS.has(id)) issues.push(`${key} is ${value}, a local development chain id`);
+    if (/CHAIN_IDS?$/i.test(key)) {
+      // The schemas parse these with Number(), so 0x7a69, 031337 and 31337.0 all boot as chain 31337. A list counts too.
+      for (const part of value.split(/[,\s]+/)) {
+        const id = Number(part);
+        if (part !== '' && Number.isFinite(id) && DEV_CHAIN_IDS.has(id))
+          issues.push(`${key} includes ${part}, a local development chain id`);
+      }
     }
-    if (/RPC|BUNDLER|_WS_URL|NODE_URL|CHAIN_URL/i.test(key)) {
+    if (/(?:^|_)(?:RPC|BUNDLER)(?:_|$)|(?:^|_)(?:INDEXER|PROTOCOL|CHAIN)_WS_URL$|CHAIN_URL$/i.test(key)) {
       for (const part of value.split(',')) {
         const host = urlParts(part.trim())?.hostname;
         if (host !== undefined && isLocalChainHost(host)) issues.push(`${key} points at a local chain node (${host.toLowerCase()})`);
@@ -209,20 +247,27 @@ export function productionPostureIssues(env: Env = process.env): string[] {
     }
     // By the shape of the value, not the variable name: DATABASE_URL, OPS_DB_URL, CONNECT_DATA_LAKE_TSDB_URL, ...
     issues.push(...credentialIssues(key, value, env));
-    if (/^PGPASSWORD$/i.test(key) && DEV_DATABASE_PASSWORD.test(value)) {
+    if (/^PGPASSWORD$/i.test(key) && PUBLISHED_DATABASE_PASSWORDS.has(value.toLowerCase())) {
       issues.push(`${key} is a database password that is published in this repo`);
     }
   }
-  // Not a value that is present but one that is missing: S2S body binding defaults to `accept-both` (the
-  // migration setting), under which a captured service signature is replayable against any body for 300 s.
-  // A service that holds the shared secret must say `require` out loud on a real server.
+  return issues;
+}
+
+/**
+ * Things a real server should fix but that do not stop it booting. Today: S2S body binding. It defaults to `accept-both`
+ * (the migration setting), under which a captured service signature is replayable against any body for 300 s; a real server
+ * should say `require`. This is a warning, not a refusal, because the fleet has never run with `require` end to end (the
+ * local stack and CX-8 boot both pin `accept-both`), and a missed raw-body retention would 401 the money path with no way
+ * to roll back past the guard. It becomes a refusal after one fleet run under `require` (tracked in the PR).
+ */
+export function productionPostureWarnings(env: Env = process.env): string[] {
+  if (!isProductionPosture(env)) return [];
   const secret = env.INTERNAL_SERVICE_SECRET;
   if (typeof secret === 'string' && secret.trim() !== '' && String(env.INTERNAL_SERVICE_BODY_BIND ?? '').trim() !== 'require') {
-    issues.push(
-      'INTERNAL_SERVICE_BODY_BIND must be "require" (it defaults to accept-both, which leaves signed service calls replayable against any body)',
-    );
+    return ['INTERNAL_SERVICE_BODY_BIND is not "require": signed service calls stay replayable against any body for 300 seconds'];
   }
-  return issues;
+  return [];
 }
 
 export class ProductionPostureError extends Error {

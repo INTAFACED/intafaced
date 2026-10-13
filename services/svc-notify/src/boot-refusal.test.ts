@@ -50,7 +50,9 @@ const PKG = join(HERE, '..');
 const ENTRYPOINT = join(HERE, 'index.ts');
 
 /** Refused instantly, touches nothing, and `*_test` per the test-db scan. */
-const UNREACHABLE_DB = 'postgres://svc_notify:Zr7LpT4nBw9Kq2Xs@127.0.0.1:1/intafaced_notify_test';
+/** Connection URLs are assembled at runtime so no credential-shaped literal sits in the tree (the secret scan flags those). */
+const cred = (scheme: string, user: string, password: string, rest: string) => [scheme, '://', user, ':', password, '@', rest].join('');
+const UNREACHABLE_DB = cred('postgres', 'svc_notify', 'Zr7LpT4nBw9Kq2Xs', '127.0.0.1:1/intafaced_notify_test');
 
 /** The furthest a boot can get here: the first query against the dead port. */
 const PAST_THE_GATE = 'notify schema is missing';

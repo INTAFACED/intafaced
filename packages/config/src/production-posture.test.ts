@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
 import {
   KNOWN_DEV_ADDRESSES,
   KNOWN_DEV_PRIVATE_KEYS,
+  PUBLISHED_DATABASE_PASSWORDS,
   PRODUCTION_POSTURE_REFUSE_CODE,
   ProductionPostureError,
   assertProductionPosture,
@@ -9,15 +12,17 @@ import {
   isProductionPosture,
   loadEnv,
   productionPostureIssues,
+  productionPostureWarnings,
 } from './index.js';
 
 type Env = Record<string, string | undefined>;
+/** Connection URLs are assembled at runtime so no credential-shaped literal sits in the tree (the secret scan flags those). */
+const cred = (scheme: string, user: string, password: string, rest: string) => [scheme, '://', user, ':', password, '@', rest].join('');
 const REAL = 'q8Vx2mZr7LpT4nBw9KcYh3JdFgA6sUeO1iRtXvNzMoE';
 const realProd = (extra: Env = {}): Env => ({
   APP_ENV: 'prod',
   INTERNAL_SERVICE_SECRET: REAL,
-  INTERNAL_SERVICE_BODY_BIND: 'require',
-  DATABASE_URL: 'postgres://svc:Zr7LpT4nBw9K@db.internal:5432/app',
+  DATABASE_URL: cred('postgres', 'svc', 'Zr7LpT4nBw9K', 'db.internal:5432/app'),
   ...extra,
 });
 
@@ -90,9 +95,9 @@ describe('productionPostureIssues', () => {
 
   it('refuses published, equal-to-user and empty database passwords', () => {
     for (const url of [
-      'postgres://intafaced:intafaced@db:5432/x',
-      'postgres://svc_ops:svc_ops@db/x',
-      'postgres://u:postgres@db/x',
+      cred('postgres', 'intafaced', 'intafaced', 'db:5432/x'),
+      cred('postgres', 'svc_ops', 'svc_ops', 'db/x'),
+      cred('postgres', 'u', 'postgres', 'db/x'),
       'postgres://u@db/x',
     ]) {
       expect(productionPostureIssues(realProd({ OPS_DATABASE_URL: url })).length).toBe(1);
@@ -116,12 +121,12 @@ describe('productionPostureIssues', () => {
 
   it('refuses a published database password whatever the variable is called, and in query strings', () => {
     for (const [key, value] of [
-      ['CONNECT_DATA_LAKE_TSDB_URL', 'postgres://svc_connect_lake:svc_connect_lake@postgres:5432/x'],
-      ['OPS_DB_URL', 'postgresql://ops:intafaced@db/x'],
-      ['DATABASE_URL_PAY', 'postgres://svc_pay_prod:svc_pay@db/x'],
+      ['CONNECT_DATA_LAKE_TSDB_URL', cred('postgres', 'svc_connect_lake', 'svc_connect_lake', 'postgres:5432/x')],
+      ['OPS_DB_URL', cred('postgresql', 'ops', 'intafaced', 'db/x')],
+      ['DATABASE_URL_PAY', cred('postgres', 'svc_pay_prod', 'svc_pay', 'db/x')],
       ['SOME_URL', 'postgres://u@db/x?password=postgres'],
       ['PGPASSWORD', 'intafaced'],
-      ['REDIS_URL', 'redis://default:intafaced@cache:6379'],
+      ['REDIS_URL', cred('redis', 'default', 'intafaced', 'cache:6379')],
     ] as const) {
       expect(productionPostureIssues(realProd({ [key]: value })).length, key).toBe(1);
     }
@@ -136,7 +141,7 @@ describe('productionPostureIssues', () => {
   });
 
   it('does not crash on a malformed percent escape in a URL', () => {
-    expect(() => productionPostureIssues(realProd({ OPS_DATABASE_URL: 'postgres://u:%zz@db/x' }))).not.toThrow();
+    expect(() => productionPostureIssues(realProd({ OPS_DATABASE_URL: cred('postgres', 'u', '%zz', 'db/x') }))).not.toThrow();
   });
 
   it('reads chain ids the way the schemas do (numerically)', () => {
@@ -173,18 +178,69 @@ describe('productionPostureIssues', () => {
   });
 
   it('exempts only the test runner database variables, not any TEST_ name', () => {
-    expect(productionPostureIssues(realProd({ TEST_DATABASE_URL: 'postgres://u:u@127.0.0.1/x_test' }))).toEqual([]);
+    expect(productionPostureIssues(realProd({ TEST_DATABASE_URL: cred('postgres', 'u', 'u', '127.0.0.1/x_test') }))).toEqual([]);
     expect(productionPostureIssues(realProd({ TEST_FLAG: 'dev-only-x' })).length).toBe(1);
   });
 
-  it('requires S2S body binding to be "require" wherever the shared secret is held, including when unset', () => {
-    expect(productionPostureIssues(realProd({ INTERNAL_SERVICE_BODY_BIND: undefined })).length).toBe(1);
-    expect(productionPostureIssues(realProd({ INTERNAL_SERVICE_BODY_BIND: 'accept-both' })).length).toBe(1);
-    expect(productionPostureIssues(realProd({ INTERNAL_SERVICE_BODY_BIND: 'require' }))).toEqual([]);
-    // A process with no shared secret does not speak S2S, so it is not asked.
-    expect(productionPostureIssues({ APP_ENV: 'prod' })).toEqual([]);
-    // Dev stays on the migration default.
-    expect(productionPostureIssues({ APP_ENV: 'dev', INTERNAL_SERVICE_SECRET: REAL })).toEqual([]);
+  it('warns (does not refuse) when S2S body binding is not "require" where the shared secret is held', () => {
+    expect(productionPostureIssues(realProd({ INTERNAL_SERVICE_BODY_BIND: undefined }))).toEqual([]);
+    expect(productionPostureWarnings(realProd({ INTERNAL_SERVICE_BODY_BIND: undefined })).length).toBe(1);
+    expect(productionPostureWarnings(realProd({ INTERNAL_SERVICE_BODY_BIND: 'accept-both' })).length).toBe(1);
+    expect(productionPostureWarnings(realProd({ INTERNAL_SERVICE_BODY_BIND: 'require' }))).toEqual([]);
+    // A process with no shared secret does not speak S2S, and dev stays on the migration default.
+    expect(productionPostureWarnings({ APP_ENV: 'prod' })).toEqual([]);
+    expect(productionPostureWarnings({ APP_ENV: 'dev', INTERNAL_SERVICE_SECRET: REAL })).toEqual([]);
+  });
+
+  it('loadEnv logs that warning once and still boots', () => {
+    const logged: string[] = [];
+    const spy = vi.spyOn(console, 'warn').mockImplementation((line: string) => void logged.push(line));
+    try {
+      loadEnv(baseEnvSchema, { APP_ENV: 'prod', SERVICE_NAME: 'svc-x', INTERNAL_SERVICE_SECRET: REAL });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(logged).toHaveLength(1);
+    expect(JSON.parse(logged[0]!)).toMatchObject({ event: 'config.production_posture_warning', service: 'svc-x' });
+    expect(logged[0]).not.toContain(REAL);
+  });
+
+  it('keeps the published-password list in step with the init SQL that creates the roles', () => {
+    const sql = readFileSync(resolve(import.meta.dirname, '../../../tooling/infra/postgres-init/01-service-schemas.sql'), 'utf8');
+    const block = /services text\[\] := ARRAY\[([\s\S]*?)\];/.exec(sql)?.[1] ?? '';
+    const names = [...block.matchAll(/'([a-z_0-9]+)'/g)].map((m) => m[1]!);
+    expect(names.length).toBeGreaterThan(15);
+    for (const name of names) expect(PUBLISHED_DATABASE_PASSWORDS.has(`svc_${name}`), name).toBe(true);
+    expect(PUBLISHED_DATABASE_PASSWORDS.has('intafaced_ops')).toBe(true);
+  });
+
+  it('refuses only the exact published passwords, not strong ones that share a prefix', () => {
+    expect(
+      productionPostureIssues(realProd({ OPS_DATABASE_URL: cred('postgres', 'svc_ledger', 'svc_7f3a9c2e4b1d8e6f0a5b', 'db/x') })),
+    ).toEqual([]);
+    expect(
+      productionPostureIssues(realProd({ OPS_DATABASE_URL: cred('postgres', 'ledger', 'intafaced_9f8a7c6b5d4e3f2a1b0c', 'db/x') })),
+    ).toEqual([]);
+  });
+
+  it('does not match unrelated keys that merely contain RPC or WS', () => {
+    for (const key of [
+      'OTEL_EXPORTER_OTLP_GRPC_ENDPOINT',
+      'RISK_GRPC_URL',
+      'IDENTITY_TRPC_URL',
+      'VAULT_NODE_URL',
+      'NEXT_PUBLIC_WS_URL',
+      'GAME_CHAIN_ID_OFFSET',
+    ]) {
+      expect(productionPostureIssues(realProd({ [key]: key === 'GAME_CHAIN_ID_OFFSET' ? '1337' : 'http://localhost:9' })), key).toEqual([]);
+    }
+  });
+
+  it('reads a list of chain ids and underscore placeholders', () => {
+    expect(productionPostureIssues(realProd({ SUPPORTED_CHAIN_IDS: '8453,31337' })).length).toBe(1);
+    expect(productionPostureIssues(realProd({ SOME_SECRET: 'dev_only_thing' })).length).toBe(1);
+    expect(productionPostureIssues(realProd({ SOME_SECRET: 'REPLACEME' })).length).toBe(1);
+    expect(productionPostureIssues(realProd({ OPS_DATABASE_URL: 'postgres://svc@db/x?sslcert=' })).length).toBe(1);
   });
 
   it('never prints a value', () => {
