@@ -33,7 +33,7 @@ function mustInclude(rel, needle, why) {
 
 mustInclude('AGENTS.md', 'Full access', 'cold agents must inherit full-access ship law');
 mustInclude('AGENTS.md', 'Merge when done', 'must not regress to CI or human merge gates');
-mustInclude('AGENTS.md', 'Do not wait for CI green', 'CI must stay informational not a ship gate');
+mustInclude('AGENTS.md', 'merge-gate.mjs', 'merging is gated by the ratchet script (2026-10-13), not by a human or by a fully green main');
 mustInclude('AGENTS.md', '403 or 429', 'cold agents must stop on GitHub refusals instead of retrying or changing credentials');
 mustInclude('AGENTS.md', 'ledger-client', 'value must stay in the ledger');
 mustInclude('AGENTS.md', 'number', 'money must not be a JS number');
