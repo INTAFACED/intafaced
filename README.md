@@ -110,7 +110,7 @@ The twenty-eight, grouped by what they defend:
 
 | Group                 | Gates                                                                                                                                               |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **One book (§0.6)**   | `fabricated-money` · `vendor-java-money` · `dual-book-door` · `dual-book-door-paths` · `money-property-mutation`                                    |
+| **One book (§0.6)**   | `vendor-java-money` · `dual-book-door` · `dual-book-door-paths` · `money-property-mutation`                                                         |
 | **Custody & secrets** | `custody` · `secrets` · `secret-scan-mutation` · `wallet-rpc-auth` · `wallet-rpc-mainnet` · `wallet-rpc-mainnet-mutation` · `compose-secret-parity` |
 | **Honesty of claims** | `tracker` · `coverage` · `reachability` · `skip-honesty` · `event-wiring`                                                                           |
 | **Surface & brand**   | `brand` · `shell-brand` · `vendor-shell` · `i18n` · `i18n-bypass`                                                                                   |
@@ -119,12 +119,12 @@ The twenty-eight, grouped by what they defend:
 
 Three properties are worth knowing before citing any of them:
 
-- **Several are ratchets, not clean-tree checks.** `shell-brand` (8 frozen), `fabricated-money`, `vendor-java-money` (55 frozen), `wallet-rpc-mainnet` (57 frozen constants), `event-wiring` (1 Class B awaiting an owner decision) and `i18n-bypass` all pass with known findings pinned by exact text. **The queue cannot grow.** A ratchet that failed on its pre-existing set would be routed around and deleted, taking the honest part with it.
+- **Several are ratchets, not clean-tree checks.** `shell-brand` (0 frozen), `vendor-java-money` (55 frozen), `wallet-rpc-mainnet` (57 frozen constants), `event-wiring` (1 Class B awaiting an owner decision) and `i18n-bypass` all pass with known findings pinned by exact text. **The queue cannot grow.** A ratchet that failed on its pre-existing set would be routed around and deleted, taking the honest part with it.
 - **Four are mutation-tested** — `secret-scan-mutation`, `money-property-mutation`, `wallet-rpc-mainnet-mutation`, `dual-book-door-paths`. A gate nobody has seen fail is not a gate.
 - **One guards a tool rather than the product.** `worktree-gc-selftest` runs the 15 classifier fixtures of `tooling/scripts/worktree-gc.mjs`, the only script here that can delete another agent's working state — and which has done so (`docs/LANE-CLOSEOUT-OPS-2026-08-08.md`), and could once have run `git branch -D main`. #1151 fixed it and shipped the fixtures; they were wired to nothing, so reverting the fix broke no check. Now it is red instead: verified by reverting the `LIVE-LANES` board read and watching 2 of 15 fail the gate list.
 - **`pnpm gate` (singular) is the §14 Definition of Done**, per service. It is not one of the twenty-eight and runs separately, after build and test.
 
-Two are deliberately **not** in the list, each for a stated reason: `pnpm scan:deps` (the supply-chain ratchet — needs network, so it is its own workflow) and `pnpm scan:shell-i18n` (200+ hardcoded strings on the vendored shell; wiring it blocking would red main before the keying pass).
+One is deliberately **not** in the list, for a stated reason: `pnpm scan:deps` (the supply-chain ratchet — needs network, so it is its own workflow). The gates that watched the legacy Vue customer site (`shell-i18n`, `shell-golden`, `fabricated-money`, `lang-duplicate-key`) were retired on 2026-10-13 with that site; `shell-brand` now covers the vendored Java CORS surface only.
 
 They are verified against deliberate violations, not just against a clean tree.
 

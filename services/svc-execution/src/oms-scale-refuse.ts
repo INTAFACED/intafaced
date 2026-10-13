@@ -8,21 +8,10 @@ export type OmsScaleUnsupportedRefuse = {
   readonly detail: string;
 };
 
-const EXTRA = new Set([
-  'scale-in',
-  'scale-out',
-  'scale',
-  'implementation_shortfall',
-  'is',
-  'sniper',
-  'trailing',
-  'trailing-stop',
-]);
+const EXTRA = new Set(['scale-in', 'scale-out', 'scale', 'implementation_shortfall', 'is', 'sniper', 'trailing', 'trailing-stop']);
 
 /** Extra live OMS kinds refuse closed. Plain limits are not extras. */
-export function refuseLiveOmsScaleExtra(input: {
-  readonly kind?: string | null;
-}): OmsScaleUnsupportedRefuse | null {
+export function refuseLiveOmsScaleExtra(input: { readonly kind?: string | null }): OmsScaleUnsupportedRefuse | null {
   const extraKind = input.kind?.trim().toLowerCase();
   if (!extraKind || !EXTRA.has(extraKind)) return null;
   return {

@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  DEGRADED_REFUSES_NEW_RISK,
-  SLO_OWNER_UNSET,
-  SPLIT_BRAIN_MONEY,
-  handleResilience,
-} from './resilience-gate.js';
+import { DEGRADED_REFUSES_NEW_RISK, SLO_OWNER_UNSET, SPLIT_BRAIN_MONEY, handleResilience } from './resilience-gate.js';
 import { handleS2sResilience } from '../s2s-http.js';
 import type { LedgerService } from '../service.js';
 

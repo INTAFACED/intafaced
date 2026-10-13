@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import {
   amountOf,
@@ -9,15 +9,16 @@ import {
   type ChainBlock,
   type TakerSide,
 } from '../chain/source.js';
-import type {
-  ApplyOutcome,
-  BookLevel,
-  BookView,
-  FillRecord,
-  PositionRecord,
-  ProjectionStore,
-  StoredBlock,
-  UnwindOutcome,
+import {
+  finalizedHeightOf,
+  type ApplyOutcome,
+  type BookLevel,
+  type BookView,
+  type FillRecord,
+  type PositionRecord,
+  type ProjectionStore,
+  type StoredBlock,
+  type UnwindOutcome,
 } from './store.js';
 
 /**
@@ -302,17 +303,53 @@ export class PostgresProjectionStore implements ProjectionStore {
 
   // ── Reads ─────────────────────────────────────────────────────────────────
 
-  async book(market: string, depth: number): Promise<BookView> {
-    const head = await this.head();
-    const [bids, asks] = await Promise.all([this.#side(market, 'bid', depth), this.#side(market, 'ask', depth)]);
-    return {
-      market,
-      chainId: this.chainId,
-      asOfHeight: head?.height ?? null,
-      asOfHash: head?.hash ?? null,
-      bids,
-      asks,
-    };
+  async book(market: string, depth: number, atHeight?: number): Promise<BookView> {
+    // Pinned read: the as-of block must be a canonical block we hold. Without
+    // one there is nothing to name, so the book is empty with a null as-of.
+    return this.#bookSnapshot(market, depth, (head) => (atHeight === undefined ? (head?.height ?? null) : atHeight));
+  }
+
+  async bookFinalized(market: string, depth: number, finalityDepth: number): Promise<BookView> {
+    return this.#bookSnapshot(market, depth, (head) => finalizedHeightOf(head, finalityDepth));
+  }
+
+  /**
+   * Head, as-of block and both sides in ONE snapshot. REPEATABLE READ pins every
+   * statement to the same point in time, so a `prune` (or an apply, or an
+   * unwind) committing mid-read is invisible to the whole read rather than
+   * visible to half of it. READ ONLY because this path must never write.
+   */
+  async #bookSnapshot(market: string, depth: number, pick: (head: StoredBlock | null) => number | null): Promise<BookView> {
+    return this.sql.begin('isolation level repeatable read read only', async (tx) => {
+      const [headRow] = await tx<BlockRow[]>`
+        SELECT chain_id, hash, parent_hash, height, status, block_time, event_count
+        FROM blocks
+        WHERE chain_id = ${this.chainId} AND status = 'canonical'
+        ORDER BY height DESC
+        LIMIT 1
+      `;
+      const head = headRow ? toStoredBlock(headRow) : null;
+      const height = pick(head);
+      let asOf: StoredBlock | null = null;
+      if (height !== null) {
+        if (head && head.height === height) {
+          asOf = head;
+        } else {
+          const [row] = await tx<BlockRow[]>`
+            SELECT chain_id, hash, parent_hash, height, status, block_time, event_count
+            FROM blocks
+            WHERE chain_id = ${this.chainId} AND height = ${height} AND status = 'canonical'
+          `;
+          asOf = row ? toStoredBlock(row) : null;
+        }
+      }
+      if (!asOf) {
+        return { market, chainId: this.chainId, asOfHeight: null, asOfHash: null, bids: [], asks: [] } satisfies BookView;
+      }
+      const bids = await this.#side(tx, market, 'bid', depth, asOf.height);
+      const asks = await this.#side(tx, market, 'ask', depth, asOf.height);
+      return { market, chainId: this.chainId, asOfHeight: asOf.height, asOfHash: asOf.hash, bids, asks } satisfies BookView;
+    }) as Promise<BookView>;
   }
 
   /**
@@ -323,25 +360,25 @@ export class PostgresProjectionStore implements ProjectionStore {
    * that emptied a level and fall back to the depth that level had in an
    * earlier block — resurrecting liquidity that is gone.
    */
-  async #side(market: string, side: BookSide, depth: number): Promise<BookLevel[]> {
+  async #side(q: TransactionSql, market: string, side: BookSide, depth: number, atHeight: number): Promise<BookLevel[]> {
     const rows =
       side === 'bid'
-        ? await this.sql<LevelRow[]>`
+        ? await q<LevelRow[]>`
             SELECT price, quantity FROM (
               SELECT DISTINCT ON (price) price, quantity
               FROM book_levels
-              WHERE chain_id = ${this.chainId} AND market = ${market} AND side = 'bid'
+              WHERE chain_id = ${this.chainId} AND market = ${market} AND side = 'bid' AND block_height <= ${atHeight}
               ORDER BY price, block_height DESC
             ) current
             WHERE quantity > 0
             ORDER BY price DESC
             LIMIT ${depth}
           `
-        : await this.sql<LevelRow[]>`
+        : await q<LevelRow[]>`
             SELECT price, quantity FROM (
               SELECT DISTINCT ON (price) price, quantity
               FROM book_levels
-              WHERE chain_id = ${this.chainId} AND market = ${market} AND side = 'ask'
+              WHERE chain_id = ${this.chainId} AND market = ${market} AND side = 'ask' AND block_height <= ${atHeight}
               ORDER BY price, block_height DESC
             ) current
             WHERE quantity > 0

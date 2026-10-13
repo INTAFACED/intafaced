@@ -60,3 +60,16 @@ export function replayPrelaunchMarkets(records: readonly { readonly kind: string
   }
   return prelaunch;
 }
+
+/**
+ * Markets an approved OPEN has listed. Control state, not a book: a market that
+ * was opened must stay visible to svc-trade (`trade.matching_market_missing`)
+ * even while it holds no book. Callers subtract expired/delisted markets.
+ */
+export function replayOpenedMarkets(records: readonly { readonly kind: string; readonly marketId?: MarketId }[]): ReadonlySet<MarketId> {
+  const opened = new Set<MarketId>();
+  for (const record of records) {
+    if (record.marketId !== undefined && record.kind === 'open') opened.add(record.marketId);
+  }
+  return opened;
+}

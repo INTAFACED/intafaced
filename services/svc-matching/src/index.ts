@@ -21,6 +21,7 @@ import { installRulebookRefuse } from './engine/rulebook-refuse.js';
 import { installLiquidity } from './engine/liquidity.js';
 import { FileJournal } from './engine/journal.js';
 import { shutdownMatching } from './shutdown.js';
+import { registerHealth } from './health.js';
 import { registerMetrics } from './metrics.js';
 import { registerRoutes } from './router.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
@@ -101,25 +102,7 @@ const app = Fastify({ logger: { level: env.LOG_LEVEL } });
  */
 registerMetrics(app, { service: env.SERVICE_NAME });
 
-/**
- * `restingOrders` is on here because "the engine came back up" and "the engine
- * came back up still working N orders that may have nothing funding them" read
- * identically on every other field.
- *
- * The journal outlives a database reset. On the dev fleet on 2026-08-03 this
- * engine was holding books for 10 market ids, not one of which still existed in
- * `trade.markets`. Nobody could see that without a shell in the container. The
- * count of orders the engine believes are live is the number an operator needs
- * before anything is allowed to trade against them.
- */
-app.get('/health', async () => ({
-  ok: true,
-  service: env.SERVICE_NAME,
-  enabled: engine.isEnabled,
-  markets: engine.markets.length,
-  restingOrders: engine.restingOrderCount,
-  journalRecords: journal.length,
-}));
+registerHealth(app, env.SERVICE_NAME, engine, journal);
 
 /**
  * Readiness is stricter than liveness. A disabled engine is alive — it still

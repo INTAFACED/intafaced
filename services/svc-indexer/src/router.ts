@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { formatAmount } from '@intafaced/ledger-client/money';
 import { publicJurisdictionProcedure, publicProcedure, router, TRPCError } from '@intafaced/contracts';
 import { ChainDataError } from './chain/source.js';
-import type { FillRecord, PositionRecord, ProjectionStore } from './projection/store.js';
+import { finalizedHeightOf, type FillRecord, type PositionRecord, type ProjectionStore } from './projection/store.js';
 import type { Indexer } from './indexer.js';
 import { clobFixtureRefusesLiveClaim, clobHonesty, clobHonestySchema, INDEXER_CLOB_FIXTURE_NOT_LIVE } from './clob-honesty.js';
 import { indexerHealthHonesty, indexerHealthHonestySchema } from './health-honesty.js';
@@ -285,7 +285,7 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
           indexedHash: head?.hash ?? null,
           earliestHeight: earliest,
           finalityDepth: deps.finalityDepth,
-          finalizedHeight: head ? Math.max(0, head.height - deps.finalityDepth) : null,
+          finalizedHeight: finalizedHeightOf(head, deps.finalityDepth),
           ingestEnabled: deps.ingestEnabled(),
           halted: halt ? { reason: halt.reason, at: halt.at.toISOString() } : null,
           chain,
@@ -317,7 +317,23 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
       }),
 
     /**
-     * The book, as of a named block.
+     * The book, as of a named block — the FINALIZED block, not the head.
+     *
+     * Inclusion is not finality: a book at the head can still be reorged away,
+     * and a quote reader (svc-dex `IndexerQuoteVenue`) rightly refuses any book
+     * above `status.finalizedHeight`. Serving the head book meant every healthy
+     * head was refused and nothing could ever be priced. So this reads the
+     * projection as of `finalizedHeight` (`store.bookFinalized`, one snapshot, so a
+     * prune cannot land between choosing the height and reading it): only
+     * versions written at or below it count, so a reorg above it cannot change
+     * the answer. The book is `finalityDepth` blocks behind the head by design.
+     * `asOfHeight` therefore equals `status.finalizedHeight` whenever that
+     * block is held; an empty index, or one that holds no block at the
+     * finalized height yet (a `startHeight` less than `finalityDepth` below the
+     * head), answers the empty book with a `null` as-of, never a guess.
+     *
+     * The head book is still reachable through `stream`, which is live market
+     * data rather than a price a trade settles against.
      *
      * `asOfHeight` / `asOfHash` are part of the response rather than a detail,
      * because "which chain state is this?" is the question a reorg makes real.
@@ -350,7 +366,7 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
           if (!isPublishedBookDepth(depth)) {
             throw new TRPCError({ code: 'BAD_REQUEST', message: userCopy(INDEXER_BOOK_DEPTH_UNSET) });
           }
-          const view = await withReadSpan('indexer.book', input.market, () => store.book(input.market, depth));
+          const view = await withReadSpan('indexer.book', input.market, () => store.bookFinalized(input.market, depth, deps.finalityDepth));
           return {
             market: view.market,
             chainId: view.chainId,

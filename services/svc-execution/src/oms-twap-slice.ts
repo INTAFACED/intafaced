@@ -47,9 +47,7 @@ function refuse(reason: OmsTwapSliceRefuseReason, detail: string): OmsTwapSliceR
   return { ok: false, reason, detail };
 }
 
-function parseQty(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsTwapSliceRefusal {
+function parseQty(raw: string | null | undefined): { ok: true; text: string } | OmsTwapSliceRefusal {
   if (raw === null || raw === undefined) {
     return refuse('missing_qty', 'slice qty is blank — refuse rather than invent size from duration');
   }
@@ -60,10 +58,7 @@ function parseQty(
   try {
     const value = parseAmount(text);
     if (value <= 0n) {
-      return refuse(
-        'qty_invalid',
-        'slice qty must be a positive ledger amount — not invented from duration',
-      );
+      return refuse('qty_invalid', 'slice qty must be a positive ledger amount — not invented from duration');
     }
     return { ok: true, text: formatAmount(value) };
   } catch {
@@ -71,9 +66,7 @@ function parseQty(
   }
 }
 
-function parseCredit(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsTwapSliceRefusal {
+function parseCredit(raw: string | null | undefined): { ok: true; text: string } | OmsTwapSliceRefusal {
   if (raw === null || raw === undefined) {
     return refuse('credit_blank', 'pre-trade credit is blank — refuse rather than invent a limit');
   }
@@ -84,43 +77,26 @@ function parseCredit(
   try {
     const value = parseAmount(text);
     if (value < 0n) {
-      return refuse(
-        'credit_invalid',
-        'pre-trade credit must be a non-negative ledger amount — not invented',
-      );
+      return refuse('credit_invalid', 'pre-trade credit must be a non-negative ledger amount — not invented');
     }
     return { ok: true, text: formatAmount(value) };
   } catch {
-    return refuse(
-      'credit_invalid',
-      'pre-trade credit is not a ledger amount — refusing to invent a limit',
-    );
+    return refuse('credit_invalid', 'pre-trade credit is not a ledger amount — refusing to invent a limit');
   }
 }
 
-function parseRetainedRemaining(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsTwapSliceRefusal {
+function parseRetainedRemaining(raw: string | null | undefined): { ok: true; text: string } | OmsTwapSliceRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is missing — refusing to invent leftover from duration or credit',
-    );
+    return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover from duration or credit');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is missing — refusing to invent leftover from duration or credit',
-    );
+    return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover from duration or credit');
   }
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is not a ledger amount — refusing to invent leftover',
-    );
+    return refuse('missing_residual', 'residual.remaining is not a ledger amount — refusing to invent leftover');
   }
 }
 
@@ -155,10 +131,7 @@ export function sliceTwapParent(input: {
     return refuse('not_live', `kind ${String(input.kind)} is not twap`);
   }
   if (input.status !== 'running') {
-    return refuse(
-      'not_running',
-      `parent ${parentClientOrderId} is ${input.status ?? 'not running'} — slice needs a running TWAP parent`,
-    );
+    return refuse('not_running', `parent ${parentClientOrderId} is ${input.status ?? 'not running'} — slice needs a running TWAP parent`);
   }
   const qty = parseQty(input.amount);
   if (!qty.ok) return qty;

@@ -399,7 +399,15 @@ export type BankErrorCode =
    */
   | 'bank.convert_markets_limit_unset'
   /** Nonsense batch (non-integer / out of range) — not clamped. */
-  | 'bank.validation_failed';
+  | 'bank.validation_failed'
+  /**
+   * An earlier repayment on this loan is still `pending`: its ledger post failed
+   * without a definite refusal, so it may have committed (a lost
+   * acknowledgement). It counts as covering the debt until the same repayment
+   * id is retried or `recover-loan-repayments` re-drives it, so a new event
+   * cannot collect the same principal twice.
+   */
+  | 'bank.ledger_outcome_unknown';
 
 export class BankError extends Error {
   constructor(

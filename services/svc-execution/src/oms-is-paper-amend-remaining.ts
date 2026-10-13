@@ -15,13 +15,7 @@ export type OmsIsPaperAmendChild = {
 };
 
 export type OmsIsPaperAmendRefuseReason =
-  | 'remaining_blank'
-  | 'remaining_invalid'
-  | 'missing_parent'
-  | 'not_live'
-  | 'children_unknown'
-  | 'paper_gate_unwired'
-  | 'paper_off';
+  'remaining_blank' | 'remaining_invalid' | 'missing_parent' | 'not_live' | 'children_unknown' | 'paper_gate_unwired' | 'paper_off';
 
 export type OmsIsPaperAmendRefusal = {
   readonly ok: false;
@@ -47,9 +41,7 @@ function refuse(reason: OmsIsPaperAmendRefuseReason, detail: string): OmsIsPaper
   return { ok: false, reason, detail };
 }
 
-function parseRemainingQty(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsIsPaperAmendRefusal {
+function parseRemainingQty(raw: string | null | undefined): { ok: true; text: string } | OmsIsPaperAmendRefusal {
   if (raw === null || raw === undefined) {
     return refuse('remaining_blank', 'remaining qty is blank — refuse rather than invent size');
   }
@@ -99,10 +91,7 @@ export function amendRemainingPaperImplementationShortfallParent(input: {
   }
   const status = input.status?.trim() ?? '';
   if (status !== 'paper') {
-    return refuse(
-      'not_live',
-      `parent ${parentClientOrderId} is ${status || 'not paper'} — amend needs a live paper IS parent`,
-    );
+    return refuse('not_live', `parent ${parentClientOrderId} is ${status || 'not paper'} — amend needs a live paper IS parent`);
   }
 
   const remaining = parseRemainingQty(input.remaining);
@@ -110,10 +99,7 @@ export function amendRemainingPaperImplementationShortfallParent(input: {
 
   const children = input.children ?? [];
   if (!childrenKnown(children)) {
-    return refuse(
-      'children_unknown',
-      'previous request may still be live — refusing to amend remaining until every child cancel is known',
-    );
+    return refuse('children_unknown', 'previous request may still be live — refusing to amend remaining until every child cancel is known');
   }
 
   return {

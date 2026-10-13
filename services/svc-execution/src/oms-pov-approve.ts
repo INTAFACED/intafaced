@@ -48,27 +48,17 @@ function refuse(reason: OmsPovApproveRefuseReason, detail: string): OmsPovApprov
   return { ok: false, reason, detail };
 }
 
-function parseMaxParticipationBps(
-  raw: number | null | undefined,
-): { ok: true; value: number } | OmsPovApproveRefusal {
+function parseMaxParticipationBps(raw: number | null | undefined): { ok: true; value: number } | OmsPovApproveRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'participation_blank',
-      'POV participation is blank — refuse rather than invent a rate',
-    );
+    return refuse('participation_blank', 'POV participation is blank — refuse rather than invent a rate');
   }
   if (!Number.isInteger(raw) || raw < 0) {
-    return refuse(
-      'participation_invalid',
-      'POV participation must be a non-negative integer bps — not invented',
-    );
+    return refuse('participation_invalid', 'POV participation must be a non-negative integer bps — not invented');
   }
   return { ok: true, value: raw };
 }
 
-function parseCredit(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPovApproveRefusal {
+function parseCredit(raw: string | null | undefined): { ok: true; text: string } | OmsPovApproveRefusal {
   if (raw === null || raw === undefined) {
     return refuse('credit_blank', 'pre-trade credit is blank — refuse rather than invent a limit');
   }
@@ -79,43 +69,26 @@ function parseCredit(
   try {
     const value = parseAmount(text);
     if (value < 0n) {
-      return refuse(
-        'credit_invalid',
-        'pre-trade credit must be a non-negative ledger amount — not invented',
-      );
+      return refuse('credit_invalid', 'pre-trade credit must be a non-negative ledger amount — not invented');
     }
     return { ok: true, text: formatAmount(value) };
   } catch {
-    return refuse(
-      'credit_invalid',
-      'pre-trade credit is not a ledger amount — refusing to invent a limit',
-    );
+    return refuse('credit_invalid', 'pre-trade credit is not a ledger amount — refusing to invent a limit');
   }
 }
 
-function parseRetainedRemaining(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPovApproveRefusal {
+function parseRetainedRemaining(raw: string | null | undefined): { ok: true; text: string } | OmsPovApproveRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is missing — refusing to invent leftover from participation or credit',
-    );
+    return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover from participation or credit');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is missing — refusing to invent leftover from participation or credit',
-    );
+    return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover from participation or credit');
   }
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is not a ledger amount — refusing to invent leftover',
-    );
+    return refuse('missing_residual', 'residual.remaining is not a ledger amount — refusing to invent leftover');
   }
 }
 

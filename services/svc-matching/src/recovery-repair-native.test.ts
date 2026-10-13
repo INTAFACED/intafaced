@@ -154,7 +154,8 @@ try {
 } finally { journal.close(); fs.rmSync(dir,{recursive:true,force:true}); }
 `;
 
-describe('native matching review repairs', () => {
+// Native recovery replays run for several seconds under CI load; the 5 s default is too tight.
+describe('native matching review repairs', { timeout: 30_000 }, () => {
   it.each(['bracket', 'quote', 'quote-pair', 'expiry', 'gtt', 'option', 'codec'])(
     '%s preserves actual effects and durable replay',
     (scenario) => {

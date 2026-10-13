@@ -210,7 +210,8 @@ describe('mounted earn doors', () => {
     });
     await fundPoolReserve(pool.id, '100');
     await fundUser(USER, '1000');
-    await bank.earn.deposit({ positionId: randomUUID(),
+    await bank.earn.deposit({
+      positionId: randomUUID(),
       poolId: pool.id,
       userId: USER,
       amount: amount('1000'),
