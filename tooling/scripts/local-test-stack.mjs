@@ -1234,7 +1234,7 @@ async function cmdFund(rawArgs) {
   const [who, assetRaw, amountStr] = args;
   if (!who || !assetRaw || !amountStr)
     fail(
-      'usage: pnpm local:fund <email-or-userId> <ASSET> <decimal-amount> [--ref <id>]   e.g. pnpm local:fund me@example.com USDT 1000',
+      'usage: pnpm local:fund <email-or-userId|house> <ASSET> <decimal-amount> [--ref <id>]   e.g. pnpm local:fund me@example.com USDT 1000  (house = Convert counterparty inventory)',
       2,
     );
   const asset = assetRaw.toUpperCase();
@@ -1257,19 +1257,27 @@ async function cmdFund(rawArgs) {
   if (!pgRunning()) fail('refusing: the local stack Postgres is not running. Run: pnpm local:stack');
   if (!ownedAlive(readProcs().ledger)) fail('refusing: the local stack ledger is not running. Run: pnpm local:stack');
 
-  const found = psql(secrets, `SELECT id::text || E'\\t' || email::text FROM identity.users WHERE email = :'who' OR id::text = :'who'`, {
-    db: DB_NAME,
-    user: 'svc_identity',
-    password: secrets.pgService,
-    vars: { who },
-    tuples: true,
-  })
-    .trim()
-    .split('\n')
-    .filter(Boolean);
-  if (found.length === 0) fail(`no user "${who}" in the local identity database. Register at ${CUSTOMER_ORIGIN} first.`);
-  if (found.length > 1) fail(`"${who}" matches more than one user`);
-  const [userId, email] = found[0].split('\t');
+  // `who` = "house": stock the house market-maker pot, which Convert settles against (quotes are principal
+  // inventory, not book trades: services/svc-trade/src/convert/settle.ts). Without BTC in that pot an accepted
+  // Convert buy fails with "Insufficient BTC". LOCAL TEST inventory, not real money.
+  const toHouse = who === 'house';
+  let userId = null;
+  let email = null;
+  if (!toHouse) {
+    const found = psql(secrets, `SELECT id::text || E'\\t' || email::text FROM identity.users WHERE email = :'who' OR id::text = :'who'`, {
+      db: DB_NAME,
+      user: 'svc_identity',
+      password: secrets.pgService,
+      vars: { who },
+      tuples: true,
+    })
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+    if (found.length === 0) fail(`no user "${who}" in the local identity database. Register at ${CUSTOMER_ORIGIN} first.`);
+    if (found.length > 1) fail(`"${who}" matches more than one user`);
+    [userId, email] = found[0].split('\t');
+  }
 
   const load = (pkg) => import(pathToFileURL(path.join(REPO, 'packages', pkg, 'dist', 'index.js')).href);
   let ledgerClient, contracts;
@@ -1290,7 +1298,9 @@ async function cmdFund(rawArgs) {
   }
   let request;
   try {
-    request = recipes.deposit({ userId, assetId: asset, amount, rail: FUND_RAIL, railRef });
+    request = toHouse
+      ? recipes.marketMakerSeedFund({ assetId: asset, amount, seedId: railRef, rail: FUND_RAIL })
+      : recipes.deposit({ userId, assetId: asset, amount, rail: FUND_RAIL, railRef });
   } catch (err) {
     fail(`ledger refused the deposit: ${err.message}`, 2);
   }
@@ -1314,9 +1324,14 @@ async function cmdFund(rawArgs) {
     return JSON.parse(text);
   };
   const posted = await call('post', wire);
-  const bal = await call('balance', { ownerType: 'user', ownerId: userId, assetId: asset, kind: 'available' });
+  const bal = await call(
+    'balance',
+    toHouse
+      ? { ownerType: 'house', ownerId: 'market-maker', assetId: asset, kind: 'available' }
+      : { ownerType: 'user', ownerId: userId, assetId: asset, kind: 'available' },
+  );
   say(`TEST FUNDS credited through the real ledger (rail "${FUND_RAIL}", not real money)`);
-  say(`  user      ${email}  (${userId})`);
+  say(toHouse ? `  account   house market-maker inventory (Convert counterparty)` : `  user      ${email}  (${userId})`);
   say(`  credited  ${formatAmount(amount)} ${asset}`);
   say(`  railRef   ${railRef}   (to retry safely: --ref ${railRef.replace(/^LOCAL-TEST-/, '')})`);
   say(`  ledger tx ${posted.txId ?? JSON.stringify(posted)}`);
