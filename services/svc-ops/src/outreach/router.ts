@@ -16,6 +16,7 @@ import {
   crmOpportunityPageSchema,
   crmAssignmentInputSchema,
   crmStageChangeInputSchema,
+  crmNextActionInputSchema,
   crmNoteInputSchema,
   crmActivitySchema,
   type Context,
@@ -118,6 +119,10 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
       .input(crmStageChangeInputSchema)
       .output(crmOpportunitySchema)
       .mutation(({ input, ctx }) => mapped(() => crm.changeStage(input, ctx.principal!.userId))),
+    updateNextAction: staffWrite
+      .input(crmNextActionInputSchema)
+      .output(crmOpportunitySchema)
+      .mutation(({ input, ctx }) => mapped(() => crm.updateNextAction(input, ctx.principal!.userId))),
     addNote: staffWrite
       .input(crmNoteInputSchema)
       .output(crmActivitySchema)
