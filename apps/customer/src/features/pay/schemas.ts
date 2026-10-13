@@ -1,0 +1,376 @@
+import { z } from 'zod';
+import { decimalSchema } from '../../shared/money';
+
+// Browser projections of the mounted service outputs. No service/server roots are imported.
+// Authorities: svc-bank/router.ts, svc-p2p/router.ts, svc-pay/{router,subscription-router,submerchant-router}.ts.
+export const id = z.string().uuid();
+export const asset = z.string().min(1).max(16);
+export const amount = decimalSchema.refine((v) => /^\d+(\.\d{1,18})?$/.test(v));
+export const positiveAmount = amount.refine((v) => /[1-9]/.test(v), 'Enter an amount greater than zero');
+export const spaceSchema = z.object({
+  id: z.string(),
+  assetId: asset,
+  kind: z.enum(['primary', 'named']),
+  name: z.string(),
+  goalTarget: amount.nullable(),
+  lockedUntil: z.string().nullable(),
+  balance: amount,
+  ledgerAccount: z.object({ ownerType: z.string(), ownerId: z.string(), assetId: asset, kind: z.string() }),
+});
+export const sendInput = z.object({
+  transferId: z.string().min(8).max(64),
+  fromSpaceId: id,
+  toUserId: z.string().min(1).max(64),
+  amount: positiveAmount,
+});
+export const sendOutput = z.object({ ledgerTxId: z.string().min(1), amount });
+export const offerSchema = z.object({
+  id,
+  makerId: z.string(),
+  side: z.enum(['buy', 'sell']),
+  asset,
+  fiatCurrency: z.string(),
+  priceType: z.enum(['fixed', 'float']),
+  price: amount,
+  minAmount: amount,
+  maxAmount: amount,
+  remainingAmount: amount,
+  methods: z.array(z.unknown()),
+  terms: z.string(),
+  status: z.enum(['active', 'paused', 'closed']),
+  createdAt: z.string(),
+});
+export const tradeSchema = z.object({
+  id,
+  offerId: id,
+  sellerId: z.string(),
+  buyerId: z.string(),
+  asset,
+  amount,
+  fiatCurrency: z.string(),
+  fiatAmount: amount,
+  price: amount,
+  method: z.string(),
+  status: z.enum(['created', 'escrowed', 'fiat_sent', 'released', 'cancelled', 'disputed']),
+  resolution: z.enum(['released', 'refunded', 'voided']).nullable(),
+  deadlineAt: z.string().nullable(),
+  createdAt: z.string(),
+  escrowedAt: z.string().nullable(),
+  resolvedAt: z.string().nullable(),
+  settledAt: z.string().nullable(),
+});
+export const instrumentSchema = z.object({
+  id,
+  methodId: z.string(),
+  country: z.string(),
+  fiatCurrency: z.string(),
+  label: z.string(),
+  status: z.enum(['active', 'removed']),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  removedAt: z.string().nullable(),
+});
+export const methodSchema = z.object({
+  methodId: z.string(),
+  country: z.string(),
+  label: z.string(),
+  fields: z.array(z.unknown()),
+  enabled: z.boolean(),
+});
+export const fiatSchema = z.object({ code: z.string(), name: z.string(), symbol: z.string(), minorUnits: z.number().int() });
+export const tradeDestinationSchema = z.object({
+  tradeId: id,
+  methodId: z.string(),
+  country: z.string(),
+  fiatCurrency: z.string(),
+  label: z.string(),
+  details: z.record(z.string()),
+  attachedAt: z.string(),
+});
+export const moderationSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('absent'), code: z.literal('p2p.moderation_unreachable') }),
+  z.object({ status: z.literal('configured'), code: z.literal('p2p.moderation_unprobed') }),
+]);
+export const p2pHealthSchema = z.object({
+  ok: z.literal(true),
+  service: z.literal('svc-p2p'),
+  moderationConfigured: z.boolean(),
+  moderation: moderationSchema,
+  offerLimitsConfigured: z.boolean(),
+  offerLimitsPosture: z.enum(['unset', 'unlimited', 'configured']),
+  instrumentKmsConfigured: z.literal(false),
+});
+export const disputeSchema = z.object({
+  id,
+  tradeId: id,
+  openedBy: z.string(),
+  openedVia: z.enum(['party', 'timeout']),
+  reason: z.string(),
+  chatThreadId: id.nullable(),
+  status: z.enum(['open', 'resolved']),
+  moderatorId: z.string().nullable(),
+  resolution: z.enum(['release', 'refund']).nullable(),
+  resolutionNotes: z.string().nullable(),
+  deadlineAt: z.string(),
+  openedAt: z.string(),
+  resolvedAt: z.string().nullable(),
+  evidence: z.array(
+    z.object({ seq: z.number().int(), submittedBy: z.string().nullable(), submittedAt: z.string().nullable(), item: z.unknown() }),
+  ),
+  overdue: z.boolean(),
+  escalatedAt: z.string().nullable(),
+  escalations: z.number().int(),
+  lastSeenByModeratorAt: z.string().nullable(),
+});
+export const disputeOpenedSchema = z.object({
+  disputeId: id,
+  tradeId: id,
+  chatThreadId: id,
+  deadlineAt: z.string(),
+  ifNobodyRules: z.literal('escalated_and_held'),
+  moderationConfigured: z.boolean(),
+  moderation: moderationSchema,
+});
+export const reputationSchema = z
+  .object({
+    tradesTotal: z.number().int().nonnegative().max(2147483647),
+    completed: z.number().int().nonnegative().max(2147483647),
+    cancelled: z.number().int().nonnegative().max(2147483647),
+    disputed: z.number().int().nonnegative().max(2147483647),
+    disputesLost: z.number().int().nonnegative().max(2147483647),
+    completionRate: z.number().finite().min(0).max(1),
+    avgReleaseSecs: z.number().int().nonnegative().max(2147483647),
+    badges: z.array(z.string()),
+    merchant: z.boolean().nullable(),
+  })
+  .refine((record) => record.completed + record.cancelled <= record.tradesTotal && record.disputesLost <= record.disputed);
+export const p2pStandingSchema = z.object({
+  userId: z.string(),
+  status: z.enum(['applied', 'approved', 'rejected', 'suspended', 'withdrawn']),
+  appliedCompletionRate: z.number(),
+  appliedTradesTotal: z.number().int(),
+  appliedAt: z.string(),
+  decidedAt: z.string().nullable(),
+});
+export const p2pApiAccessSchema = z.object({
+  eligible: z.boolean(),
+  credential: z.enum(['session', 'api_key']),
+  merchantStatus: p2pStandingSchema.shape.status.nullable(),
+  keyPlane: z.literal('identity'),
+  rateLimitPlane: z.literal('edge'),
+  disputeResolution: z.literal('interactive_human_only'),
+});
+export const merchantSchema = z.object({
+  id,
+  userId: id,
+  mode: z.enum(['gateway', 'psp', 'payfac']),
+  status: z.enum(['pending', 'active', 'suspended', 'closed']),
+  kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
+  kybRef: z.string().nullable(),
+  feeBps: z.number().nullable(),
+});
+export const balanceSchema = z.object({ clearing: amount, available: amount });
+export const linkSchema = z.object({
+  id,
+  prefix: z.string(),
+  label: z.string(),
+  amount: amount.nullable(),
+  currency: z.string().nullable(),
+  active: z.boolean(),
+  expiresAt: z.string().nullable(),
+  maxUses: z.number().int().nullable(),
+  uses: z.number().int(),
+  createdAt: z.string(),
+});
+export const newLinkSchema = z.object({
+  id,
+  token: z.string(),
+  prefix: z.string(),
+  label: z.string(),
+  expiresAt: z.string().datetime({ offset: true }),
+  maxUses: z.number().int().nullable(),
+});
+export const resolvedLinkSchema = z.object({
+  id,
+  merchantId: id,
+  profileId: id.nullable(),
+  label: z.string(),
+  amount: amount.nullable(),
+  currency: z.string().nullable(),
+  expiresAt: z.string().nullable(),
+  remainingUses: z.number().int().nullable(),
+  checkoutConfig: z.record(z.unknown()),
+});
+export const checkoutSchema = z.object({
+  id,
+  status: z.enum(['open', 'completed', 'expired', 'cancelled']),
+  label: z.string(),
+  amount,
+  currency: asset,
+  method: z.string(),
+  expiresAt: z.string().datetime({ offset: true }),
+  instruction: z.object({ reference: z.string(), amount, currency: asset }).nullable(),
+});
+export const paymentSchema = z.object({
+  id,
+  merchantId: id,
+  profileId: id.nullable(),
+  amount,
+  assetId: asset,
+  method: z.string(),
+  railAdapter: z.string(),
+  railRef: z.string().nullable(),
+  status: z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']),
+  capturedAmount: amount,
+  refundedAmount: amount,
+  createdAt: z.string().datetime({ offset: true }),
+});
+export const paymentEventSchema = z.object({
+  id,
+  event: z.string(),
+  payload: z.record(z.unknown()),
+  railEventId: z.string().nullable(),
+  ts: z.string().datetime({ offset: true }),
+});
+export const settlementSchema = z.object({
+  id,
+  merchantId: id,
+  window: z.string(),
+  assetId: asset,
+  gross: amount,
+  fees: amount,
+  net: amount,
+  payoutMethod: z.string().nullable(),
+  payoutRef: z.string().nullable(),
+  status: z.enum(['pending', 'posted', 'paid_out', 'failed']),
+});
+export const mandateSchema = z.object({
+  id,
+  merchantId: id,
+  customerId: z.string(),
+  assetId: asset,
+  amount,
+  ceiling: amount.nullable(),
+  cadence: z.enum(['daily', 'weekly', 'monthly']),
+  startsAt: z.string(),
+  endsAt: z.string().nullable(),
+  railAdapter: z.string().nullable(),
+  railMandateRef: z.string().nullable(),
+  status: z.enum(['active', 'cancelled', 'expired']),
+  cancelledAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+export const subscriptionSchema = z.object({
+  id,
+  mandateId: id,
+  merchantId: id,
+  customerId: z.string(),
+  nextRunAt: z.string(),
+  status: z.enum(['active', 'paused', 'cancelled', 'completed']),
+  cancelledAt: z.string().nullable(),
+  path: z.string(),
+  createdAt: z.string(),
+  anchorAt: z.string().nullable(),
+  anchorOccurrence: z.number().int(),
+  pausedAt: z.string().nullable(),
+  resumedAt: z.string().nullable(),
+  stalledAt: z.string().nullable(),
+  stallReason: z.enum(['operator_pause', 'runner_outage', 'arrears', 'fee_unpublished', 'window_exhausted']).nullable(),
+});
+export const executionSchema = z.object({
+  id,
+  subscriptionId: id,
+  occurrence: z.number().int(),
+  amount,
+  status: z.enum(['pending', 'invoiced', 'settled', 'rejected', 'skipped']),
+  paymentId: id.nullable(),
+  rejectionCode: z.string().nullable(),
+  attemptedAt: z.string(),
+  settledAt: z.string().nullable(),
+  createdAt: z.string(),
+  notifyStatus: z.enum(['attempted', 'skipped_unwired', 'failed']).nullable(),
+  notifyCode: z.string().nullable(),
+});
+export const subscriptionPostureSchema = z.object({
+  paths: z.array(
+    z.object({
+      path: z.enum(['crypto_invoice', 'card']),
+      charge: z.enum(['open_crypto_invoice', 'refuse']),
+      opensMoney: z.boolean(),
+      posture: z.string(),
+    }),
+  ),
+  preChargeNotify: z.object({ status: z.literal('unwired'), notified: z.literal(false), merchantReadable: z.string() }),
+  card: z.object({ status: z.literal('refuse_closed'), code: z.literal('pay.mandate_rail_absent') }),
+});
+export const submerchantSchema = z.object({
+  id,
+  userId: z.string(),
+  parentMerchantId: id.nullable(),
+  mode: z.enum(['gateway', 'psp', 'payfac']),
+  status: z.enum(['pending', 'active', 'suspended', 'closed']),
+  kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
+  settlingParty: z.string(),
+  feeBps: z.number().int().nullable(),
+  depth: z.number().int(),
+  createdAt: z.string(),
+});
+export const grantSchema = z.object({
+  granteeMerchantId: id,
+  subjectMerchantId: id,
+  area: z.string(),
+  reason: z.string(),
+  actorId: z.string(),
+  actorMerchantId: id,
+  grantedAt: z.string(),
+});
+export const permissionEventSchema = z.object({
+  id,
+  seq: z.string(),
+  granteeMerchantId: id,
+  subjectMerchantId: id,
+  area: z.string(),
+  action: z.enum(['grant', 'revoke']),
+  reason: z.string(),
+  actorId: z.string(),
+  actorMerchantId: id,
+  actorScope: z.string(),
+  createdAt: z.string(),
+});
+export const keySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  prefix: z.string(),
+  scopes: z.array(z.string()),
+  lastUsedAt: z.string().nullable(),
+  revoked: z.boolean(),
+  mode: z.enum(['live', 'sandbox']),
+});
+export const webhookSchema = z.object({
+  id,
+  merchantId: id,
+  url: z.string(),
+  status: z.enum(['active', 'disabled']),
+  disabledReason: z.string().nullable(),
+  consecutiveFailures: z.number().int(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export const webhookDeliverySchema = z.object({
+  id,
+  endpointId: id,
+  merchantId: id,
+  eventId: z.string(),
+  eventType: z.string(),
+  status: z.enum(['pending', 'delivered', 'failed', 'dead']),
+  attempts: z.number().int(),
+  nextAttemptAt: z.string(),
+  lastStatusCode: z.number().nullable(),
+  lastError: z.string().nullable(),
+  createdAt: z.string(),
+  deliveredAt: z.string().nullable(),
+});
+export type Offer = z.infer<typeof offerSchema>;
+export type Trade = z.infer<typeof tradeSchema>;
+export type Merchant = z.infer<typeof merchantSchema>;
+export type Payment = z.infer<typeof paymentSchema>;

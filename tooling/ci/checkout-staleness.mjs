@@ -9,7 +9,7 @@
  * An agent reading the stale board spawns workers onto work that is gone.
  *
  * This used to live inside thrift-preflight. Thrift was deleted on 2026-08-07
- * (the repo is public; Actions are free; the bill it metered does not exist).
+ * (the deleted throttle was a private-repo bill; the staleness guard is unrelated).
  * The staleness guard survived the deletion because it never had anything to
  * do with spend — it is the one honest thing that file did.
  *

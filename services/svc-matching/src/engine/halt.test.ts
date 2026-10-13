@@ -222,4 +222,17 @@ describe('dualControlRefuse', () => {
     expect(readConfirmOperatorId({})).toBeNull();
     expect(readConfirmOperatorId({ confirmOperatorId: '  ops-2  ' })).toBe('ops-2');
   });
+
+  it('refuses a blank or whitespace-only id when the caller skipped the readers', () => {
+    expect(dualControlRefuse('', 'ops-2')?.code).toBe(MISSING_OPERATOR);
+    expect(dualControlRefuse(' ', 'ops-2')?.code).toBe(MISSING_OPERATOR);
+    expect(dualControlRefuse('\t', 'ops-2')?.code).toBe(MISSING_OPERATOR);
+    expect(dualControlRefuse('ops-1', '')?.code).toBe(MISSING_OPERATOR);
+    expect(dualControlRefuse('ops-1', '   ')?.code).toBe(MISSING_OPERATOR);
+    expect(dualControlRefuse('   ', '   ')?.code).toBe(MISSING_OPERATOR);
+    expect(dualControlRefuse('ops-1', 'ops-1')?.code).toBe(MISSING_OPERATOR);
+    expect(dualControlRefuse(' ops-1 ', 'ops-1')?.code).toBe(MISSING_OPERATOR);
+    expect(dualControlRefuse('ops-1', 'ops-2')).toBeNull();
+    expect(dualControlRefuse(' ops-1 ', ' ops-2 ')).toBeNull();
+  });
 });

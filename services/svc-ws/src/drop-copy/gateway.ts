@@ -2,6 +2,9 @@ import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { verifyAccessToken, type TokenConfig } from '@intafaced/auth';
+import type { CurrentAuthorityInput } from '@intafaced/contracts';
+import type { CurrentAuthorityPort } from '../private/authority.js';
+import { PrivateAuthorityLease } from '../private/authority-lease.js';
 import { resolveWsCopy, WS_COPY } from '../copy.js';
 import { CLOSE_GOING_AWAY, type DepthSink, type HubLogger } from '../depth/hub.js';
 import { redactAccessTokenQuery } from '../private/gateway.js';
@@ -32,10 +35,10 @@ export interface DropCopyWebSocketGatewayOptions {
   readonly enabled: () => boolean;
   readonly tokens: TokenConfig | null;
   /**
-   * Injected live session/key check. Omitted/null = JWT `exp` only.
-   * Same identity bind as `/private/stream` — no second key store.
+   * Explicit supplemental test/policy adapter. Never replaces live authority.
    */
   readonly liveCredential?: LiveCredentialPort | null;
+  readonly authority?: CurrentAuthorityPort | null;
 }
 
 export interface DropCopyWebSocketGateway {
@@ -63,6 +66,7 @@ function closeUnauthorized(socket: WebSocket): void {
 }
 
 type DropCopySeat = {
+  lease: PrivateAuthorityLease;
   token: string;
   expiresAtMs: number;
   userId: string;
@@ -84,13 +88,13 @@ function liveCredentialInput(seat: DropCopySeat) {
   };
 }
 
-function sinkFor(socket: WebSocket, seat: { expiresAtMs: number }): DepthSink {
+function sinkFor(socket: WebSocket, seat: DropCopySeat): DepthSink {
   return {
     get bufferedBytes() {
       return socket.bufferedAmount;
     },
     send(frame: string) {
-      if (Date.now() >= seat.expiresAtMs) {
+      if (!seat.lease.isCurrent()) {
         closeUnauthorized(socket);
         return;
       }
@@ -122,7 +126,8 @@ function parseDropCopyChannel(raw: string | null): typeof DROP_COPY_CHANNEL | nu
 }
 
 export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGatewayOptions): DropCopyWebSocketGateway {
-  const { server, hub, heartbeatMs, log, enabled, tokens, liveCredential = null } = options;
+  const { server, hub, heartbeatMs, log, enabled, tokens, liveCredential = null, authority = null } = options;
+  let draining = false;
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1_024, perMessageDeflate: false });
 
   /**
@@ -175,6 +180,11 @@ export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGateway
           return;
         }
 
+        if (!authority) {
+          reject(socket, 503, 'Service Unavailable');
+          return;
+        }
+
         const raw = tokenFrom(url, req.headers);
         if (!raw) {
           reject(socket, 401, 'Unauthorized');
@@ -185,6 +195,7 @@ export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGateway
         let expiresAtMs: number;
         let sessionId: string;
         let apiKeyId: string | undefined;
+        let subject: CurrentAuthorityInput;
         try {
           const principal = await verifyAccessToken(raw, tokens);
           if (!principal.userId) {
@@ -199,6 +210,11 @@ export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGateway
           expiresAtMs = principal.expiresAt.getTime();
           sessionId = principal.sid;
           apiKeyId = principal.kid;
+          subject = {
+            userId,
+            credential: apiKeyId ? { kind: 'api_key', apiKeyId } : { kind: 'session', sessionId },
+            ...(principal.sub_account ? { subAccountId: principal.sub_account } : {}),
+          };
         } catch {
           reject(socket, 401, 'Unauthorized');
           return;
@@ -207,22 +223,35 @@ export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGateway
         const callerIp = callerIpFromUpgrade(req);
         const requestOrigin = requestOriginFromUpgrade(req);
         const accountId = requestAccountIdFromUpgrade(req);
-        if (liveCredential) {
-          try {
-            await assertLiveCredential(liveCredential, { userId, sessionId, apiKeyId, callerIp, requestOrigin, accountId });
-          } catch {
-            reject(socket, 401, 'Unauthorized');
-            return;
-          }
+        const policy = { userId, sessionId, apiKeyId, callerIp, requestOrigin, accountId };
+        let lease: PrivateAuthorityLease;
+        try {
+          lease = await PrivateAuthorityLease.acquire({
+            port: authority,
+            subject,
+            jwtExpiresAtMs: expiresAtMs,
+            policy,
+            additional: liveCredential ? () => assertLiveCredential(liveCredential, policy) : undefined,
+          });
+        } catch {
+          reject(socket, 401, 'Unauthorized');
+          return;
+        }
+        if (!lease.isCurrent() || draining || !enabled() || socket.destroyed) {
+          lease.dispose();
+          if (!socket.destroyed) reject(socket, 401, 'Unauthorized');
+          return;
         }
 
         if (parseDropCopyChannel(url.searchParams.get('channel')) === null) {
+          lease.dispose();
           reject(socket, 400, 'Bad Request');
           return;
         }
 
         wss.handleUpgrade(req, socket, head, (ws) => {
           const seat: DropCopySeat = {
+            lease,
             token: raw,
             expiresAtMs,
             userId,
@@ -235,10 +264,17 @@ export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGateway
           const sink = sinkFor(ws, seat);
           const detach = hub.attach(userId, sink);
           if (!detach) {
-            try {
-              ws.terminate();
-            } catch {
-              /* ignore */
+            lease.dispose();
+            // Attach already queued the policy close. terminate() destroys the
+            // socket and can drop that frame, so the client sees 1006.
+            // Leave a closing socket alone. A socket attach left open is not
+            // given an invented code.
+            if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
+              try {
+                ws.terminate();
+              } catch {
+                /* ignore */
+              }
             }
             return;
           }
@@ -256,7 +292,12 @@ export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGateway
           ws.on('close', () => {
             clearTimeout(expiryTimer);
             expiryTimers.delete(expiryTimer);
+            lease.dispose();
             detach();
+          });
+          lease.start(() => {
+            closeUnauthorized(ws);
+            ws.terminate();
           });
           log.info({ userId }, 'ws-drop-copy: client connected');
         });
@@ -277,7 +318,7 @@ export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGateway
     hub.sweepLag();
     for (const ws of wss.clients) {
       const seat = seats.get(ws);
-      if (seat && Date.now() >= seat.expiresAtMs) {
+      if (seat && !seat.lease.isCurrent()) {
         closeUnauthorized(ws);
         continue;
       }
@@ -286,6 +327,7 @@ export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGateway
           () => undefined,
           () => {
             if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
+              seat.lease.revoke();
               closeUnauthorized(ws);
             }
           },
@@ -311,23 +353,28 @@ export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGateway
           }
           continue;
         }
-        // Missed pong on a still-live drop-copy seat is not 1006 — identity
-        // heartbeat already drops revoked seats 4003. terminate() here killed
-        // KEEP across 40ms tests (`recovery-drop-other-streams`, session-revoked).
+        // Ping already went out and no pong has been applied yet. A failed
+        // live credential still closes 4003. A seat that stays silent is
+        // terminate()'d so the hub seat is released.
+        //
+        // The credential promise resolves as a microtask, before a pong already
+        // in the I/O queue can mark this socket alive. terminate() in that
+        // turn is an abnormal 1006 on a client that answered (the 40ms KEEP
+        // tests). Decide after that poll. Do not re-ping a silent seat.
         if (seat && liveCredential) {
           void assertLiveCredential(liveCredential, liveCredentialInput(seat)).then(
             () => {
-              if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
-                awaitingPong.add(ws);
-                try {
-                  ws.ping();
-                } catch {
+              const decide = setImmediate(() => {
+                if (alive.has(ws)) return;
+                if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
                   ws.terminate();
                 }
-              }
+              });
+              decide.unref?.();
             },
             () => {
               if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
+                seat.lease.revoke();
                 closeUnauthorized(ws);
               }
             },
@@ -353,6 +400,7 @@ export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGateway
       return wss.clients.size;
     },
     async close(reason: string) {
+      draining = true;
       clearInterval(heartbeat);
       for (const timer of expiryTimers) clearTimeout(timer);
       expiryTimers.clear();
@@ -360,6 +408,7 @@ export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGateway
       const copy = resolveWsCopy(reason);
       await hub.close(copy);
       for (const client of wss.clients) {
+        seats.get(client)?.lease.dispose();
         try {
           client.close(CLOSE_GOING_AWAY, closeReason(copy));
         } catch {

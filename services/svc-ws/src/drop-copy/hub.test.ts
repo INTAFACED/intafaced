@@ -153,6 +153,73 @@ describe('DropCopyHub', () => {
     expect(bob.parsed().filter((f) => f.type === 'execution')).toHaveLength(0);
   });
 
+  it('refuses a blank or non-decimal price, qty, or fee before fan-out and does not copy a numeric quote amount', () => {
+    const h = hub();
+    h.announceBus(true);
+    const sink = new FakeSink();
+    h.attach(USER, sink);
+    const before = sink.frames.length;
+
+    const blankPrice = '11111111-1111-4111-8111-111111111111';
+    const refused: DropCopyExecutionInput[] = [
+      fill({ fillId: blankPrice, price: '' }),
+      fill({ fillId: '22222222-2222-4222-8222-222222222222', price: 'not-a-price' }),
+      fill({ fillId: '33333333-3333-4333-8333-333333333333', qty: '' }),
+      fill({ fillId: '44444444-4444-4444-8444-444444444444', qty: '1.2.3' }),
+      fill({ fillId: '55555555-5555-4555-8555-555555555555', feeAmount: '' }),
+      fill({ fillId: '66666666-6666-4666-8666-666666666666', feeAmount: 'nope' }),
+      fill({ fillId: '77777777-7777-4777-8777-777777777777', quoteAmount: 1.005 as unknown as string }),
+      fill({ fillId: '88888888-8888-4888-8888-888888888888', quoteAmount: '' }),
+    ];
+    for (const input of refused) {
+      expect(h.publishExecution(input)).toBeNull();
+    }
+
+    expect(
+      sink
+        .parsed()
+        .slice(before)
+        .filter((frame) => frame.type === 'execution'),
+    ).toEqual([]);
+    expect(h.lastSeq(USER)).toBe(0);
+    expect(h.recentFor(USER)).toEqual([]);
+
+    const later = new FakeSink();
+    h.attach(USER, later);
+    expect(later.parsed().find((frame) => frame.type === 'snapshot')).toMatchObject({ executions: [] });
+
+    const published = h.publishExecution(fill({ fillId: blankPrice }));
+    expect(published).toMatchObject({
+      fillId: blankPrice,
+      price: '100.5',
+      qty: '0.01',
+      quoteAmount: '1.005',
+      feeAmount: '0.001005',
+      dropCopySeq: 1,
+    });
+    const live = sink
+      .parsed()
+      .slice(before)
+      .filter((frame) => frame.type === 'execution');
+    expect(live).toEqual([
+      expect.objectContaining({
+        fillId: blankPrice,
+        price: '100.5',
+        qty: '0.01',
+        quoteAmount: '1.005',
+        feeAmount: '0.001005',
+        dropCopySeq: 1,
+      }),
+    ]);
+    expect(typeof live[0]!.price).toBe('string');
+    expect(typeof live[0]!.qty).toBe('string');
+    expect(typeof live[0]!.quoteAmount).toBe('string');
+    expect(typeof live[0]!.feeAmount).toBe('string');
+    const raw = sink.frames.slice(before).find((frame) => frame.includes('"type":"execution"'));
+    expect(raw).toContain('"price":"100.5"');
+    expect(raw).toContain('"quoteAmount":"1.005"');
+  });
+
   it('dedupes fillId so a redelivery is not a second print', () => {
     const h = hub();
     h.announceBus(true);
@@ -167,6 +234,111 @@ describe('DropCopyHub', () => {
         .slice(before)
         .filter((f) => f.type === 'execution'),
     ).toHaveLength(1);
+  });
+
+  it('publishes a fill the replay ring trimmed from a seated session and still refuses one still in the ring', () => {
+    const h = hub(2);
+    h.announceBus(true);
+    const sink = new FakeSink();
+    expect(h.attach(USER, sink)).toEqual(expect.any(Function));
+
+    const oldest = '11111111-1111-4111-8111-111111111111';
+    const kept = '22222222-2222-4222-8222-222222222222';
+    const newest = '33333333-3333-4333-8333-333333333333';
+
+    expect(h.publishExecution(fill({ fillId: oldest, engineSequence: 1 }))).toMatchObject({
+      fillId: oldest,
+      price: '100.5',
+      qty: '0.01',
+      quoteAmount: '1.005',
+      feeAmount: '0.001005',
+      dropCopySeq: 1,
+    });
+    expect(h.publishExecution(fill({ fillId: kept, engineSequence: 2 }))).toMatchObject({ dropCopySeq: 2 });
+    expect(h.publishExecution(fill({ fillId: newest, engineSequence: 3 }))).toMatchObject({ dropCopySeq: 3 });
+
+    expect(h.recentFor(USER).map((row) => row.fillId)).toEqual([kept, newest]);
+    expect(h.lastSeq(USER)).toBe(3);
+
+    const before = sink.frames.length;
+    expect(h.publishExecution(fill({ fillId: newest }))).toBeNull();
+    expect(h.lastSeq(USER)).toBe(3);
+    expect(h.recentFor(USER).map((row) => row.fillId)).toEqual([kept, newest]);
+    expect(
+      sink
+        .parsed()
+        .slice(before)
+        .filter((frame) => frame.type === 'execution'),
+    ).toEqual([]);
+
+    const again = h.publishExecution(
+      fill({
+        fillId: oldest,
+        price: '101.25',
+        qty: '0.02',
+        quoteAmount: '2.025',
+        feeAmount: '0.002',
+        engineSequence: 4,
+      }),
+    );
+    expect(again).toMatchObject({
+      fillId: oldest,
+      price: '101.25',
+      qty: '0.02',
+      quoteAmount: '2.025',
+      feeAmount: '0.002',
+      dropCopySeq: 4,
+    });
+    expect(typeof again!.price).toBe('string');
+    expect(typeof again!.qty).toBe('string');
+    expect(typeof again!.quoteAmount).toBe('string');
+    expect(typeof again!.feeAmount).toBe('string');
+    expect(h.lastSeq(USER)).toBe(4);
+    expect(h.recentFor(USER).map((row) => row.fillId)).toEqual([newest, oldest]);
+    const live = sink
+      .parsed()
+      .slice(before)
+      .filter((frame) => frame.type === 'execution');
+    expect(live).toEqual([
+      expect.objectContaining({
+        fillId: oldest,
+        price: '101.25',
+        qty: '0.02',
+        quoteAmount: '2.025',
+        feeAmount: '0.002',
+        dropCopySeq: 4,
+      }),
+    ]);
+    expect(typeof live[0]!.price).toBe('string');
+    expect(typeof live[0]!.qty).toBe('string');
+    expect(typeof live[0]!.quoteAmount).toBe('string');
+    expect(typeof live[0]!.feeAmount).toBe('string');
+  });
+
+  it('forgets replay and fill dedup after the last seat leaves while preserving the issued sequence', () => {
+    const h = hub();
+    const first = new FakeSink();
+    const detach = h.attach(USER, first)!;
+    expect(h.publishExecution(fill())).toMatchObject({ dropCopySeq: 1 });
+    detach();
+    expect(h.recentFor(USER)).toEqual([]);
+    expect(h.lastSeq(USER)).toBe(1);
+    const second = new FakeSink();
+    h.attach(USER, second);
+    expect(second.parsed().find((row) => row.type === 'ready')).toMatchObject({ lastSeq: 1, replayDurable: false });
+    expect(h.publishExecution(fill())).toMatchObject({ dropCopySeq: 2 });
+    expect(second.parsed().filter((row) => row.type === 'execution')).toHaveLength(1);
+  });
+
+  it('bounds positive-window fill dedup while no seat is attached', () => {
+    const h = hub(2);
+    const oldest = '11111111-1111-4111-8111-111111111111';
+    h.publishExecution(fill({ fillId: oldest }));
+    h.publishExecution(fill({ fillId: '22222222-2222-4222-8222-222222222222' }));
+    h.publishExecution(fill({ fillId: '33333333-3333-4333-8333-333333333333' }));
+    expect(h.recentFor(USER)).toHaveLength(2);
+    expect(h.publishExecution(fill({ fillId: oldest }))).toMatchObject({ dropCopySeq: 4 });
+    expect(h.publishExecution(fill({ fillId: oldest }))).toBeNull();
   });
 
   it('watermarks a gap when a slow consumer misses an execution', () => {
@@ -190,6 +362,182 @@ describe('DropCopyHub', () => {
     expect(types.some((t) => t.startsWith(`status:${DROP_COPY_GAP}`))).toBe(true);
     expect(sink.parsed().filter((f) => f.type === 'execution')).toHaveLength(1);
     expect(sink.parsed().find((f) => f.type === 'execution')!.dropCopySeq).toBe(2);
+  });
+
+  it('surfaces DROP_COPY_GAP when a high-water drop drains with no later fill', () => {
+    const h = new DropCopyHub({
+      highWaterBytes: 10,
+      maxLagTicks: 50,
+      maxConnections: 8,
+      maxConnectionsPerUser: 8,
+      recentLimit: 10,
+    });
+    h.announceBus(true);
+    const sink = new FakeSink();
+    sink.bufferedBytes = 100;
+    h.attach(USER, sink);
+    const before = sink.frames.length;
+
+    const dropped = h.publishExecution(fill());
+    expect(dropped).toMatchObject({
+      price: '100.5',
+      qty: '0.01',
+      quoteAmount: '1.005',
+      feeAmount: '0.001005',
+      dropCopySeq: 1,
+    });
+    expect(typeof dropped!.price).toBe('string');
+    expect(typeof dropped!.qty).toBe('string');
+    expect(typeof dropped!.quoteAmount).toBe('string');
+    expect(typeof dropped!.feeAmount).toBe('string');
+
+    h.sweepLag();
+    const whileSlow = sink.parsed().slice(before);
+    expect(whileSlow.filter((frame) => frame.type === 'execution')).toEqual([]);
+    expect(whileSlow.some((frame) => frame.code === DROP_COPY_GAP)).toBe(false);
+
+    sink.bufferedBytes = 0;
+    h.sweepLag();
+
+    const drained = sink.parsed().slice(before);
+    expect(drained.filter((frame) => frame.type === 'status' && frame.code === DROP_COPY_GAP)).toEqual([
+      expect.objectContaining({
+        channel: DROP_COPY_CHANNEL,
+        type: 'status',
+        code: DROP_COPY_GAP,
+        userId: USER,
+        replayDurable: false,
+        lastSeq: 1,
+      }),
+    ]);
+    expect(drained.filter((frame) => frame.type === 'execution')).toEqual([]);
+    const gapFrame = sink.frames.slice(before).find((frame) => frame.includes(DROP_COPY_GAP));
+    expect(gapFrame).toBeDefined();
+    expect(gapFrame).not.toContain('"price"');
+
+    const later = h.publishExecution(
+      fill({
+        fillId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        price: '101.25',
+        qty: '0.02',
+        quoteAmount: '2.025',
+        feeAmount: '0.002',
+        engineSequence: 8,
+      }),
+    );
+    expect(later).toMatchObject({ price: '101.25', qty: '0.02', quoteAmount: '2.025', feeAmount: '0.002', dropCopySeq: 2 });
+    expect(typeof later!.price).toBe('string');
+
+    const live = sink.parsed().slice(before);
+    expect(live.filter((frame) => frame.type === 'status' && frame.code === DROP_COPY_GAP)).toHaveLength(1);
+    const executions = live.filter((frame) => frame.type === 'execution');
+    expect(executions).toEqual([
+      expect.objectContaining({
+        fillId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        price: '101.25',
+        qty: '0.02',
+        quoteAmount: '2.025',
+        feeAmount: '0.002',
+        dropCopySeq: 2,
+      }),
+    ]);
+    expect(typeof executions[0]!.price).toBe('string');
+    expect(typeof executions[0]!.qty).toBe('string');
+    expect(typeof executions[0]!.quoteAmount).toBe('string');
+    expect(typeof executions[0]!.feeAmount).toBe('string');
+    expect(h.recentFor(USER).map((row) => [row.price, row.qty, row.quoteAmount, row.feeAmount])).toEqual([
+      ['100.5', '0.01', '1.005', '0.001005'],
+      ['101.25', '0.02', '2.025', '0.002'],
+    ]);
+  });
+
+  it('does not emit DROP_COPY_GAP when every send was delivered and the socket was only slow', () => {
+    const h = new DropCopyHub({
+      highWaterBytes: 10,
+      maxLagTicks: 50,
+      maxConnections: 8,
+      maxConnectionsPerUser: 8,
+      recentLimit: 10,
+    });
+    h.announceBus(true);
+    const sink = new FakeSink();
+    h.attach(USER, sink);
+    const before = sink.frames.length;
+
+    const delivered = h.publishExecution(fill());
+    expect(delivered).toMatchObject({
+      price: '100.5',
+      qty: '0.01',
+      quoteAmount: '1.005',
+      feeAmount: '0.001005',
+      dropCopySeq: 1,
+    });
+    expect(typeof delivered!.price).toBe('string');
+    expect(typeof delivered!.qty).toBe('string');
+    expect(typeof delivered!.quoteAmount).toBe('string');
+    expect(typeof delivered!.feeAmount).toBe('string');
+
+    const sent = sink.parsed().slice(before);
+    expect(sent.filter((frame) => frame.type === 'execution')).toEqual([
+      expect.objectContaining({
+        fillId: fill().fillId,
+        price: '100.5',
+        qty: '0.01',
+        quoteAmount: '1.005',
+        feeAmount: '0.001005',
+        dropCopySeq: 1,
+      }),
+    ]);
+    expect(sent.some((frame) => frame.code === DROP_COPY_GAP)).toBe(false);
+    const rawExecution = sink.frames.slice(before).find((frame) => frame.includes('"type":"execution"'));
+    expect(rawExecution).toContain('"price":"100.5"');
+
+    sink.bufferedBytes = 100;
+    h.sweepLag();
+    expect(
+      sink
+        .parsed()
+        .slice(before)
+        .some((frame) => frame.code === DROP_COPY_GAP),
+    ).toBe(false);
+
+    sink.bufferedBytes = 0;
+    h.sweepLag();
+
+    const drained = sink.parsed().slice(before);
+    expect(drained.filter((frame) => frame.type === 'status' && frame.code === DROP_COPY_GAP)).toEqual([]);
+    expect(drained.filter((frame) => frame.type === 'execution')).toHaveLength(1);
+    expect(sink.frames.slice(before).some((frame) => frame.includes(DROP_COPY_GAP))).toBe(false);
+    expect(h.lastSeq(USER)).toBe(1);
+  });
+
+  it('does not emit DROP_COPY_GAP when the socket was only slow across connect', () => {
+    const h = new DropCopyHub({
+      highWaterBytes: 10,
+      maxLagTicks: 50,
+      maxConnections: 8,
+      maxConnectionsPerUser: 8,
+      recentLimit: 10,
+    });
+    h.announceBus(true);
+    const sink = new FakeSink();
+    sink.bufferedBytes = 100;
+    h.attach(USER, sink);
+
+    h.sweepLag();
+    expect(sink.parsed().some((frame) => frame.code === DROP_COPY_GAP)).toBe(false);
+    expect(sink.parsed().some((frame) => frame.type === 'execution')).toBe(false);
+
+    sink.bufferedBytes = 0;
+    h.sweepLag();
+
+    expect(sink.parsed().filter((frame) => frame.type === 'status' && frame.code === DROP_COPY_GAP)).toEqual([]);
+    expect(sink.frames.some((frame) => frame.includes(DROP_COPY_GAP))).toBe(false);
+    expect(sink.parsed().some((frame) => frame.type === 'execution')).toBe(false);
+    expect(h.lastSeq(USER)).toBe(0);
+    expect(h.recentFor(USER)).toEqual([]);
+    const snap = sink.parsed().find((frame) => frame.type === 'snapshot');
+    expect(snap).toMatchObject({ executions: [], lastSeq: 0 });
   });
 
   it('replays the session ring as SESSION and still refuses complete', () => {

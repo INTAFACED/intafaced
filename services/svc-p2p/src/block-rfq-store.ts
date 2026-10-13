@@ -7,6 +7,7 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import {
+  BlockRfqError,
   parseRequiredCapacity,
   parseRequiredFirmness,
   type BlockQuote,
@@ -83,7 +84,10 @@ export class SqlBlockQuoteStore implements BlockQuoteStore {
   constructor(private readonly sql: Sql) {}
 
   async save(quote: BlockQuote): Promise<void> {
-    await this.sql`
+    // Accept and expire decide in memory, then save. The update applies only
+    // while the stored lifecycle is still open, so a firm fill stays put and
+    // an expired quote stays expired.
+    const written = await this.sql<{ quote_id: string }[]>`
       INSERT INTO p2p.block_quotes (
         quote_id, maker_id, taker_id, side, asset, fiat_currency,
         size, price, notional, created_at, expires_at, lifecycle,
@@ -112,7 +116,27 @@ export class SqlBlockQuoteStore implements BlockQuoteStore {
         accepted_at = EXCLUDED.accepted_at,
         fill_price = EXCLUDED.fill_price,
         updated_at = now()
+      WHERE p2p.block_quotes.lifecycle = 'open'
+        AND ROW(p2p.block_quotes.maker_id, p2p.block_quotes.taker_id, p2p.block_quotes.side,
+                p2p.block_quotes.asset, p2p.block_quotes.fiat_currency, p2p.block_quotes.size,
+                p2p.block_quotes.price, p2p.block_quotes.notional, p2p.block_quotes.created_at,
+                p2p.block_quotes.expires_at, p2p.block_quotes.capacity, p2p.block_quotes.firmness)
+            IS NOT DISTINCT FROM
+            ROW(EXCLUDED.maker_id, EXCLUDED.taker_id, EXCLUDED.side, EXCLUDED.asset, EXCLUDED.fiat_currency,
+                EXCLUDED.size, EXCLUDED.price, EXCLUDED.notional, EXCLUDED.created_at, EXCLUDED.expires_at,
+                EXCLUDED.capacity, EXCLUDED.firmness)
+      RETURNING quote_id
     `;
+    if (written.length > 0) return;
+    const current = await this.load(quote.quoteId);
+    if (current?.lifecycle === 'open') throw new BlockRfqError('Block/RFQ original terms conflict', 'p2p.rfq_terms_conflict');
+    if (current?.lifecycle === 'bound') {
+      throw new BlockRfqError(
+        'A bound block/RFQ cannot expire — that would unwind a firm accept into a book fill',
+        'p2p.rfq_already_bound',
+      );
+    }
+    throw new BlockRfqError('Block/RFQ quote expired — refuse rather than requote', 'p2p.rfq_expired');
   }
 
   async load(quoteId: string): Promise<BlockQuote | null> {

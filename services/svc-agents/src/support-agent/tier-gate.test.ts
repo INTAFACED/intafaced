@@ -41,6 +41,24 @@ describe('support Stage-2 tier gate', () => {
     expect(result).toEqual({ status: 'ok', userTier: 'free', allowedTools: ['support.kb.search'] });
   });
 
+  it('refuses a userTier that is only an Object.prototype name', () => {
+    const refused = {
+      status: 'refuse' as const,
+      reason: 'tier_not_granted' as const,
+      userMessageKey: 'agents.support.tier_closed' as const,
+    };
+
+    const toStringResult = supportTierGate({ law: published, userTier: 'toString' });
+    expect(toStringResult).toEqual(refused);
+    expect(toStringResult.status).not.toBe('ok');
+    expect(toStringResult).not.toHaveProperty('allowedTools', Object.prototype.toString);
+
+    const constructorResult = supportTierGate({ law: published, userTier: 'constructor' });
+    expect(constructorResult).toEqual(refused);
+    expect(constructorResult.status).not.toBe('ok');
+    expect(constructorResult).not.toHaveProperty('allowedTools', Object.prototype.constructor);
+  });
+
   it('board card and status line report the refusal reason', () => {
     const refuse = supportTierGate({ law: null, userTier: 'free' });
     expect(supportTierGateBoardCard(refuse)).toEqual({ ok: false, reason: 'tier_law_blank', toolCount: 0 });

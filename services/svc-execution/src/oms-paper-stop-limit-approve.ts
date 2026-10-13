@@ -37,14 +37,9 @@ export type OmsPaperStopLimitApproveOk = {
   readonly limitPrice: string;
 };
 
-export type OmsPaperStopLimitApproveResult =
-  | OmsPaperStopLimitApproveOk
-  | OmsPaperStopLimitApproveRefusal;
+export type OmsPaperStopLimitApproveResult = OmsPaperStopLimitApproveOk | OmsPaperStopLimitApproveRefusal;
 
-function refuse(
-  reason: OmsPaperStopLimitApproveRefuseReason,
-  detail: string,
-): OmsPaperStopLimitApproveRefusal {
+function refuse(reason: OmsPaperStopLimitApproveRefuseReason, detail: string): OmsPaperStopLimitApproveRefusal {
   return { ok: false, reason, detail };
 }
 
@@ -64,10 +59,7 @@ function parseTrigger(
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      invalid,
-      `${label} is not a ledger amount — refusing to invent a trigger`,
-    );
+    return refuse(invalid, `${label} is not a ledger amount — refusing to invent a trigger`);
   }
 }
 
@@ -103,12 +95,7 @@ export function approvePaperStopLimitParent(input: {
   }
   const stop = parseTrigger(input.stopPrice, 'stop_blank', 'stop_invalid', 'stop-limit stop price');
   if (!stop.ok) return stop;
-  const limit = parseTrigger(
-    input.limitPrice,
-    'limit_blank',
-    'limit_invalid',
-    'stop-limit limit price',
-  );
+  const limit = parseTrigger(input.limitPrice, 'limit_blank', 'limit_invalid', 'stop-limit limit price');
   if (!limit.ok) return limit;
 
   return {

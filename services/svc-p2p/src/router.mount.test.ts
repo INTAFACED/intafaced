@@ -1,7 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import { stubApprovalConsumer } from './action-approval-consume.js';
+import {
+  ActionApprovalConsumeError,
+  p2pActionPayloadHash,
+  stubApprovalConsumer,
+  type ActionApprovalConsumer,
+} from './action-approval-consume.js';
 import { createP2pRouter } from './router.js';
 import {
   assertDisputeListLimit,
@@ -17,11 +22,21 @@ import {
   assertMethodSchemaListLimit,
   type InstrumentService,
 } from './instrument-service.js';
+import { parseFieldSpecs } from './instruments.js';
 import { assertMerchantHistoryLimit } from './merchant-service.js';
 import type { MerchantStatus } from './merchant-programme.js';
 import { snapshotOf, type ReputationCounters } from './reputation.js';
 import { BlockRfqService } from './block-rfq.js';
 import { MemoryBlockQuoteStore } from './block-rfq-store.js';
+
+// Attributed local screening fixture: exercise downstream authorization and storage.
+// Explicit dev mode accepts this fixture; it is never a production sanctions list.
+beforeEach(() => {
+  vi.stubEnv('INTAFACED_SANCTIONS_REGIONS', 'none');
+  vi.stubEnv('INTAFACED_SANCTIONS_LIST_SOURCE', 'test-fixture:p2p-recovery');
+  vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'false');
+});
+afterEach(() => vi.unstubAllEnvs());
 
 /**
  * THE MOUNT BOUNDARY, for svc-p2p (docs/decisions/mount-boundary.md).
@@ -44,6 +59,34 @@ import { MemoryBlockQuoteStore } from './block-rfq-store.js';
 
 const SECRET = 'a-p2p-mount-test-edge-secret-long-enough';
 const USER = '11111111-1111-4111-8111-111111111111';
+/** Consumed-row requester. Distinct from the session principal on purpose. */
+const REQUESTER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+/**
+ * A consumed identity row. `approverId` null is legal on the wire contract.
+ * The requester is never substituted in as the confirming operator.
+ */
+function consumedApproval(approverId: string | null, requesterId = REQUESTER) {
+  return {
+    async consume() {
+      return {
+        approvalId: 'appr-1',
+        operationId: 'op-1',
+        payloadHash: 'sha256:abc',
+        targetService: 'svc-p2p',
+        targetId: 'p2p.method_register',
+        expectedVersion: '1',
+        actionType: 'p2p.method_register',
+        requesterId,
+        approverId,
+        policyVersion: 'v1',
+        createdAt: '2026-09-09T12:00:00.000Z',
+        expiresAt: '2026-09-09T12:10:00.000Z',
+        status: 'CONSUMED' as const,
+      };
+    },
+  };
+}
 
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-p2p' });
 
@@ -446,6 +489,249 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
       confirmOperatorId: CONFIRM,
     });
     expect(calls).toEqual([['setEnabled', { methodId: 'bank_transfer', country: 'DE', enabled: false }]]);
+  });
+
+  it('refuses register when the consumed approver is missing and does not write', async () => {
+    const { calls, instruments } = schemaStub();
+    const caller = createP2pRouter(stubP2p(), instruments, undefined, { approvals: consumedApproval(null) }).createCaller(
+      signed(principal({ scopes: ['admin:compliance'], mfa: true })),
+    );
+    await expect(caller.instruments.methods.register({ ...registerInput, ...APPROVED })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses register when the consumed approver is the requester and does not write', async () => {
+    const { calls, instruments } = schemaStub();
+    const caller = createP2pRouter(stubP2p(), instruments, undefined, { approvals: consumedApproval(REQUESTER) }).createCaller(
+      signed(principal({ scopes: ['admin:compliance'], mfa: true })),
+    );
+    await expect(caller.instruments.methods.register({ ...registerInput, ...APPROVED })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses setEnabled when the consumed approver is missing and does not write', async () => {
+    const { calls, instruments } = schemaStub();
+    const caller = createP2pRouter(stubP2p(), instruments, undefined, { approvals: consumedApproval(null) }).createCaller(
+      signed(principal({ scopes: ['admin:compliance'], mfa: true })),
+    );
+    await expect(
+      caller.instruments.methods.setEnabled({ methodId: 'bank_transfer', country: 'DE', enabled: false, ...APPROVED }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses setEnabled when the consumed approver is the requester and does not write', async () => {
+    const { calls, instruments } = schemaStub();
+    const caller = createP2pRouter(stubP2p(), instruments, undefined, { approvals: consumedApproval(REQUESTER) }).createCaller(
+      signed(principal({ scopes: ['admin:compliance'], mfa: true })),
+    );
+    await expect(
+      caller.instruments.methods.setEnabled({ methodId: 'bank_transfer', country: 'DE', enabled: false, ...APPROVED }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+    expect(calls).toEqual([]);
+  });
+
+  /**
+   * Identity stores one payload hash. Consume accepts that hash and refuses
+   * any other, the same rule as action_approval.payload_mismatch.
+   */
+  function hashBoundApproval(payloadHash: string): ActionApprovalConsumer {
+    return {
+      async consume(input) {
+        if (input.payloadHash !== payloadHash) {
+          throw new ActionApprovalConsumeError('payload hash does not match the approved action', 'action_approval.consume_failed');
+        }
+        return {
+          ...input,
+          actionType: input.targetId,
+          requesterId: REQUESTER,
+          approverId: CONFIRM,
+          policyVersion: 'v1',
+          createdAt: '2026-09-09T12:00:00.000Z',
+          expiresAt: '2026-09-09T12:10:00.000Z',
+          status: 'CONSUMED',
+        };
+      },
+    };
+  }
+
+  function registerSchemaHash(fields: unknown, enabled: boolean | undefined): string {
+    return p2pActionPayloadHash('p2p.method_register', {
+      methodId: registerInput.methodId,
+      country: registerInput.country,
+      label: registerInput.label,
+      fields: JSON.stringify(parseFieldSpecs(fields)),
+      enabled: enabled === undefined ? 'preserve-or-default' : enabled ? 'true' : 'false',
+    });
+  }
+
+  const compliance = (approvals: ActionApprovalConsumer) => {
+    const { calls, instruments } = schemaStub();
+    const caller = createP2pRouter(stubP2p(), instruments, undefined, { approvals }).createCaller(
+      signed(principal({ scopes: ['admin:compliance'], mfa: true })),
+    );
+    return { calls, caller };
+  };
+
+  it('refuses register when the approval bound only methodId, country, and label, and does not write', async () => {
+    const unbound = p2pActionPayloadHash('p2p.method_register', {
+      methodId: registerInput.methodId,
+      country: registerInput.country,
+      label: registerInput.label,
+    });
+    const { calls, caller } = compliance(hashBoundApproval(unbound));
+    await expect(caller.instruments.methods.register({ ...registerInput, ...APPROVED })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+    });
+    await expect(caller.instruments.methods.register({ ...registerInput, enabled: false, ...APPROVED })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses a different field list than the approved schema and does not write', async () => {
+    const approved = registerSchemaHash([{ key: 'iban', label: 'IBAN' }], true);
+    const { calls, caller } = compliance(hashBoundApproval(approved));
+    await expect(
+      caller.instruments.methods.register({
+        ...registerInput,
+        fields: [{ key: 'swift', label: 'SWIFT' }],
+        enabled: true,
+        ...APPROVED,
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses a different enabled flag than the approved schema and does not write', async () => {
+    const approved = registerSchemaHash(registerInput.fields, false);
+    const { calls, caller } = compliance(hashBoundApproval(approved));
+    await expect(caller.instruments.methods.register({ ...registerInput, enabled: true, ...APPROVED })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+    });
+    await expect(caller.instruments.methods.register({ ...registerInput, ...APPROVED })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it('registers when enabled is omitted and the approval bound preserve-or-default', async () => {
+    const fields = registerInput.fields;
+    const { calls, caller } = compliance(hashBoundApproval(registerSchemaHash(fields, undefined)));
+    await expect(caller.instruments.methods.register({ ...registerInput, fields, ...APPROVED })).resolves.toMatchObject({
+      methodId: 'bank_transfer',
+      country: 'DE',
+      confirmOperatorId: CONFIRM,
+    });
+    expect(calls).toEqual([
+      [
+        'register',
+        {
+          methodId: 'bank_transfer',
+          country: 'DE',
+          label: 'SEPA',
+          fields,
+        },
+      ],
+    ]);
+  });
+
+  it('registers when the approval hash matches the fields and enabled that are written', async () => {
+    const fields = [{ key: 'iban', label: 'IBAN' }];
+    const { calls, caller } = compliance(hashBoundApproval(registerSchemaHash(fields, false)));
+    await expect(caller.instruments.methods.register({ ...registerInput, fields, enabled: false, ...APPROVED })).resolves.toMatchObject({
+      methodId: 'bank_transfer',
+      country: 'DE',
+      confirmOperatorId: CONFIRM,
+    });
+    expect(calls).toEqual([
+      [
+        'register',
+        {
+          methodId: 'bank_transfer',
+          country: 'DE',
+          label: 'SEPA',
+          fields,
+          enabled: false,
+        },
+      ],
+    ]);
+  });
+
+  /**
+   * `registerMethodSchema` stores `parseFieldSpecs`, not the request array.
+   * Key case, label whitespace, and a non-boolean `required` all change on
+   * the way in. An approval of the raw list did not bind the row that lands.
+   */
+  const rawIbanFields = [{ key: 'IBAN', label: ' IBAN ', required: 'no' }];
+  const storedIbanFields = [{ key: 'iban', label: 'IBAN', required: true }];
+
+  function registerParsingStoredSpecs() {
+    const stored: Array<{
+      methodId: string;
+      country: string;
+      label: string;
+      fields: ReturnType<typeof parseFieldSpecs>;
+      enabled: boolean;
+    }> = [];
+    const instruments = stubInstruments({
+      registerMethodSchema: async (input: { methodId: string; country: string; label: string; fields: unknown; enabled?: boolean }) => {
+        const fields = parseFieldSpecs(input.fields);
+        const enabled = input.enabled ?? true;
+        stored.push({ methodId: input.methodId, country: input.country, label: input.label, fields, enabled });
+        return { methodId: input.methodId, country: input.country, label: input.label, fields, enabled };
+      },
+    });
+    const callerFor = (payloadHash: string) =>
+      createP2pRouter(stubP2p(), instruments, undefined, { approvals: hashBoundApproval(payloadHash) }).createCaller(
+        signed(principal({ scopes: ['admin:compliance'], mfa: true })),
+      );
+    return { stored, callerFor };
+  }
+
+  function registerPayloadHash(fields: unknown, enabled: boolean | undefined): string {
+    return p2pActionPayloadHash('p2p.method_register', {
+      methodId: registerInput.methodId,
+      country: registerInput.country,
+      label: registerInput.label,
+      fields: JSON.stringify(fields),
+      enabled: enabled === undefined ? 'preserve-or-default' : enabled ? 'true' : 'false',
+    });
+  }
+
+  it('refuses an approval of the un-normalized IBAN field list and does not store the normalized schema', async () => {
+    const { stored, callerFor } = registerParsingStoredSpecs();
+    const caller = callerFor(registerPayloadHash(rawIbanFields, undefined));
+    await expect(caller.instruments.methods.register({ ...registerInput, fields: rawIbanFields, ...APPROVED })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+    });
+    expect(stored).toEqual([]);
+  });
+
+  it('registers when the approval bound the stored IBAN field specs and the enabled flag that is written', async () => {
+    const { stored, callerFor } = registerParsingStoredSpecs();
+    const caller = callerFor(registerPayloadHash(storedIbanFields, undefined));
+    await expect(caller.instruments.methods.register({ ...registerInput, fields: rawIbanFields, ...APPROVED })).resolves.toMatchObject({
+      methodId: 'bank_transfer',
+      country: 'DE',
+      label: 'SEPA',
+      fields: storedIbanFields,
+      enabled: true,
+      confirmOperatorId: CONFIRM,
+    });
+    expect(stored).toEqual([
+      {
+        methodId: 'bank_transfer',
+        country: 'DE',
+        label: 'SEPA',
+        fields: storedIbanFields,
+        enabled: true,
+      },
+    ]);
   });
 });
 
@@ -1440,6 +1726,36 @@ describe('svc-p2p mount — merchants.decide dual-control', () => {
       },
     ]);
   });
+
+  it('refuses decide when the consumed approver is missing and does not write', async () => {
+    const { calls, merchants } = decideStub();
+    const caller = createP2pRouter(
+      stubP2p(),
+      stubInstruments(),
+      undefined,
+      { approvals: consumedApproval(null) },
+      merchants as never,
+    ).createCaller(signed(principal({ scopes: ['admin:compliance'], mfa: true })));
+    await expect(
+      caller.merchants.decide({ userId: TARGET, to: 'suspended', reason: 'operator freeze', ...APPROVED }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses decide when the consumed approver is the requester and does not write', async () => {
+    const { calls, merchants } = decideStub();
+    const caller = createP2pRouter(
+      stubP2p(),
+      stubInstruments(),
+      undefined,
+      { approvals: consumedApproval(REQUESTER) },
+      merchants as never,
+    ).createCaller(signed(principal({ scopes: ['admin:compliance'], mfa: true })));
+    await expect(
+      caller.merchants.decide({ userId: TARGET, to: 'suspended', reason: 'operator freeze', ...APPROVED }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+    expect(calls).toEqual([]);
+  });
 });
 
 describe('svc-p2p mount — merchants.history limit unset', () => {
@@ -1660,5 +1976,26 @@ describe('svc-p2p mount — block/RFQ doors', () => {
         firmness: 'firm',
       }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST', message: expect.stringMatching(/capacity/i) });
+  });
+});
+
+describe('svc-p2p strict screening control', () => {
+  it('refuses an actually blank screening list before reading offers or touching escrow', async () => {
+    vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'true');
+    vi.stubEnv('INTAFACED_SANCTIONS_REGIONS', '');
+    vi.stubEnv('INTAFACED_SANCTIONS_LIST_SOURCE', '');
+    let reads = 0;
+    const p2p = stubP2p({
+      listOffers: async () => {
+        reads += 1;
+        return [];
+      },
+    });
+    await expect(
+      createP2pRouter(p2p, stubInstruments())
+        .createCaller(signed(principal({ scopes: ['p2p:read'] })))
+        .offers.list({ limit: 10 }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN', cause: { code: 'denied.screening_unconfigured' } });
+    expect(reads).toBe(0);
   });
 });

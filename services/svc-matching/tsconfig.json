@@ -7,5 +7,12 @@
     "types": ["node"]
   },
   "include": ["src/**/*"],
-  "exclude": ["src/**/*.test.ts", "dist", "node_modules"]
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/engine/journal-lock-recover-child.ts",
+    "src/engine/journal-rewrite-fault-child.ts",
+    "src/engine/journal-short-write-child.ts",
+    "dist",
+    "node_modules"
+  ]
 }

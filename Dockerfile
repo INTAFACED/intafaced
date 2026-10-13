@@ -58,6 +58,8 @@ FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 
 COPY apps/admin/package.json                 apps/admin/
+COPY apps/customer/package.json              apps/customer/
+COPY apps/invitation/package.json            apps/invitation/
 COPY apps/mobile/package.json                apps/mobile/
 
 COPY packages/academy-ambassadors-pay/package.json packages/academy-ambassadors-pay/
@@ -131,7 +133,9 @@ COPY . .
 # turbo builds the dependency graph once: packages, then services, then the two
 # Next apps. Nothing here touches Postgres or NATS — a build must not need the
 # platform to be running.
-RUN pnpm build
+# Native packaging requires a verified HTTPS origin and ships separately.
+# This image is for HTTP services and browser apps, including Customer and Invitation.
+RUN pnpm exec turbo run build --filter='!mobile'
 
 # ── runtime ─────────────────────────────────────────────────────────────────
 # Deliberately keeps devDependencies. `tsx` is a devDependency and every

@@ -64,6 +64,22 @@ describe('newlyEnrolledPasskeyOpensSession — enroll after last unenroll', () =
     expect(sql.sessionReads).toBe(1);
   });
 
+  it('refuses a live session that belongs to a different user', async () => {
+    const other = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const sql = fakeSql([enrolledAgain], { id: 'live-other', user_id: other, revoked: false });
+    const opened = await openLiveSessionAfterNewlyEnrolledPasskey(sql, {
+      userId: A,
+      sessionId: 'live-other',
+    }).then(
+      (value) => value,
+      () => undefined,
+    );
+    expect(opened?.userId).not.toBe(other);
+    await expect(openLiveSessionAfterNewlyEnrolledPasskey(sql, { userId: A, sessionId: 'live-other' })).rejects.toMatchObject({
+      code: 'auth.session_denied',
+    });
+  });
+
   it('newly enrolled cred without lastVerifiedAt is auth.passkey_verify_unavailable and does not open', async () => {
     try {
       newlyEnrolledPasskeyOpensSession([enrolledUnverified]);

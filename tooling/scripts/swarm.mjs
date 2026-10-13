@@ -21,6 +21,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from 
 import { join, dirname, resolve, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { touches } from './path-collide.mjs';
+import { throwOnGitHubRefusal } from './github-refusal.mjs';
 import { checkoutStaleness } from '../ci/checkout-staleness.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -47,6 +48,7 @@ function ghJson(args) {
   try {
     return JSON.parse(execFileSync('gh', args, { encoding: 'utf8', cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] }));
   } catch (error) {
+    throwOnGitHubRefusal(error);
     return { __error: error.stderr?.toString().trim() || error.message };
   }
 }
@@ -644,7 +646,8 @@ function countActionsRuns24h() {
     // if we hit the API page cap, flag so status does not under-report billing risk
     const capped = runs.length >= 1000;
     return { total: last24.length, byName, capped };
-  } catch {
+  } catch (error) {
+    throwOnGitHubRefusal(error);
     return null;
   }
 }
@@ -671,7 +674,8 @@ function buildLanes(m) {
         fails: (p.statusCheckRollup || []).filter((c) => c.conclusion === 'FAILURE').map((c) => c.name),
         url: p.url,
       }));
-  } catch {
+  } catch (error) {
+    throwOnGitHubRefusal(error);
     partnerRed = [];
   }
   // P3 thin TRK
@@ -1019,7 +1023,7 @@ function renderFreezeMd(m) {
       .map(([n, c]) => `${n}=${c}`)
       .join(', ');
     lines.push(
-      `- **Actions runs (24h):** ${m.actionsRuns24h.total}${by ? ` (${by})` : ''} — informational only; the repo is public, so Actions are free and unlimited`,
+      `- **Actions runs (24h):** ${m.actionsRuns24h.total}${by ? ` (${by})` : ''} — informational only; the bill is zero, a 403 or 429 is a stop`,
     );
   } else {
     lines.push('- **Actions runs (24h):** (gh unavailable — re-run with network)');
@@ -1045,7 +1049,7 @@ function renderFreezeMd(m) {
     lines.push('2. **P2** Partner babysit: extract exact CI fails; one NEW comment only; never merge partners.');
     lines.push('3. **P3** Deepen thin `docs/ops/trk/*` for tracker ready non-shehzad rows (code-grounded).');
     lines.push('4. **P4** Invent re-scan only after shell code change; P-WS report only if partner matrix changed.');
-    lines.push('5. **P5** LIVE-LANES/claims truth + merge green when CI passes.');
+    lines.push('5. **P5** Review and verify the change; merge when done once required protection checks pass.');
     lines.push('');
     lines.push(
       '**BAN:** `docs(ops): R07 cycleN freeProduct=0` style PRs when freeShell+freeImplementable stay 0 and partner matrix unchanged.',
@@ -1242,7 +1246,7 @@ function writeReports(m) {
     '| ---: | --- | ---: | --- | --- | --- |',
     ...m.openPrs.map((p) => {
       let action = 'babysit';
-      if (p.author === 'ZenYoda3') action = 'own — rebase/merge if Class N green';
+      if (p.author === 'ZenYoda3') action = 'own — verify affected changes and merge when required protection checks pass';
       else if (p.author === 'shehzad002') action = 'babysit only — never implement';
       else if (p.author === 'Phantom-X-007') action = 'no dual-edit files';
       return `| ${p.number} | @${p.author} | ${p.fileCount} | ${p.mergeable || '?'} | ${(p.title || '').replace(/\|/g, '/')} | ${action} |`;
@@ -1319,16 +1323,15 @@ function pasteFor(claim) {
     `  ${claim.title}`,
     '',
     '--- worker paste ---',
-    'PRE-FLIGHT: pnpm swarm:freeze · pnpm claim:check <paths> · docs/SWARM-ALL-OUT-ORIENT-2026-08-03.md',
-    `FIRST: pnpm swarm:claim ${claim.id}  # writes docs/ops/claims/${claim.id}.md — do NOT edit LIVE-LANES`,
+    'FIRST: follow AGENTS.md, use a worktree, and check open PRs for overlapping files. Swarm reports and claims are optional discovery aids.',
     `You own ONLY claim: ${claim.id}`,
     `Scope: ${claim.title}`,
     `Allowed paths:\n  ${paths}`,
     `Note: ${claim.note || '—'}`,
     'Forbidden: Shehzad protocol/INTACHAIN implement; dual-edit Denon open PR files; invent money/depth; apps/web product; main checkout; mid-wave features.mjs thrash.',
     'Proof: if no Docker — NO-FLEET (proof_missing: fleet-blocked). If :8090 listener cwd ≠ your worktree — visual proof invalid.',
-    'PRE-PUSH: pnpm format:check must pass (covers tooling/scripts/*.mjs). Do not merge until Docs format + CI both green on the PR.',
-    'Worktree from origin/main. pnpm format:check && pnpm verify when code. One PR. Stamp residual-own with checkable proof string.',
+    'PRE-PUSH: format and check the changed files. Review and verify the affected behavior; honor required protection checks without waiting for full CI green.',
+    'Worktree from current origin/main. One service per PR; parallel PRs stay. Record checkable evidence of the change.',
     'Coord width: 6–8 concurrent path-disjoint writers when free claims allow.',
     '--- end paste ---',
   ].join('\n');
@@ -1373,7 +1376,7 @@ function printNext(m, all = false) {
     console.log('  P2 partner unblock: exact CI fail extract + one NEW comment; never merge partners');
     console.log('  P3 deepen thin docs/ops/trk/* for ready non-shehzad tracker rows');
     console.log('  P4 invent re-scan only after shell code change; P-WS report only if #433/#432 changed');
-    console.log('  P5 LIVE-LANES/claims truth + merge green when CI passes');
+    console.log('  P5 Review and verify the change; merge when done once required protection checks pass');
     console.log('  BAN: R07/R01/P-WS tip-bump “cycle N” PRs when freeShell+freeImplementable stay 0 and matrix unchanged');
     return;
   }

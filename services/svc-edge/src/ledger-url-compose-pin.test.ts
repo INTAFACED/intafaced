@@ -66,7 +66,15 @@ describe('compose LEDGER_URL for svc-edge operator forward', () => {
   it('does not invent trust-proxy, geo header, or screening lists, and does not restamp siblings', () => {
     expect(block).not.toMatch(/EDGE_TRUST_PROXY:/);
     expect(block).not.toMatch(/EDGE_GEO_COUNTRY_HEADER:/);
-    expect(block).not.toMatch(/INTAFACED_SANCTIONS/);
+    // Operator-provided screening configuration passes through; no list/source is invented.
+    const screening = block
+      .split('\n')
+      .filter((line) => /^\s*INTAFACED_SANCTIONS/.test(line))
+      .map((line) => line.trim());
+    expect(screening).toEqual([
+      'INTAFACED_SANCTIONS_REGIONS: ${INTAFACED_SANCTIONS_REGIONS:-}',
+      'INTAFACED_SANCTIONS_LIST_SOURCE: ${INTAFACED_SANCTIONS_LIST_SOURCE:-}',
+    ]);
     expect(block).not.toMatch(/JURISDICTION_MATRIX/);
     expect(block.match(IDENTITY)).toHaveLength(1);
     expect(block.match(TRADE)).toHaveLength(1);

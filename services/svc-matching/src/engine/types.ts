@@ -73,6 +73,12 @@ export interface EngineOrder {
    * a trigger — existing stop/stop_limit prices still fire the legs.
    */
   readonly ocoSiblingId?: OrderId | null;
+  /** Existing linked bracket instruction and caller terms; journal replay preserves them. */
+  readonly bracket?: boolean;
+  readonly takeProfit?: Amount | null;
+  readonly stopLoss?: Amount | null;
+  readonly takeProfitOrderId?: OrderId | null;
+  readonly stopLossOrderId?: OrderId | null;
   /**
    * Rest only if filling would shrink this account's position on this book.
    * Position is net fills. The engine does not invent a mark.
@@ -514,6 +520,9 @@ export interface EngineAmend {
   readonly stopPrice?: Amount;
   readonly tif?: TimeInForce;
   readonly expireAt?: string;
+  /** Existing option identity confirmations, not a contract mutation. */
+  readonly strike?: Amount | null;
+  readonly expiry?: string | null;
 }
 
 export type AmendPriority = 'retained' | 'lost';
@@ -593,6 +602,10 @@ export interface StopOrderState {
   readonly minQty?: string;
   /** Present only when the stop is all-or-none. */
   readonly aon?: boolean;
+  /** Trail distance. Absent when the stop does not walk. Decimal string. */
+  readonly trail?: string;
+  /** Extreme the trail follows. Absent when the stop does not walk. Decimal string. */
+  readonly peak?: string;
 }
 
 export interface BookState {

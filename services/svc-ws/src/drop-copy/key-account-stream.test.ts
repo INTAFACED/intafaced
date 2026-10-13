@@ -1,3 +1,4 @@
+import { TEST_AUTHORITY } from '../test-support/authority.js';
 import { createServer, request as httpRequest, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
@@ -61,6 +62,7 @@ describe('drop-copy stream drops when the API key is bound to another account', 
     if (!addr || typeof addr === 'string') throw new Error('no port');
     const log: HubLogger = { info: () => undefined, warn: () => undefined };
     gateway = createDropCopyWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server,
       hub,
       heartbeatMs: 30_000,

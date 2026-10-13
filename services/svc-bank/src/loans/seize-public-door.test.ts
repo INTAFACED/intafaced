@@ -238,6 +238,51 @@ describe('LoanService.seize refuses a missing mark before any post', () => {
     expect(ledger.journal().some((tx) => tx.reason === 'loan.liquidated')).toBe(false);
     expect(await sql`SELECT id FROM bank.loan_liquidations WHERE loan_id = ${opened.loan.id}`).toHaveLength(0);
   });
+
+  it('refuses seizure when the quote asset differs from the debt asset and posts nothing', async () => {
+    const prices: Record<string, { price: string; quality: 'mid' }> = {
+      BTC: { price: '10000', quality: 'mid' },
+      USDT: { price: '1', quality: 'mid' },
+    };
+    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+      loans: { priceSource: fixedPriceSource(prices, () => NOW), venue: marketMakerVenue() },
+    });
+    await fund(ledger, PAYER, 'USDT', '100000');
+    await bank.loans.fundReserve({
+      debtAssetId: 'USDT',
+      fundingId: `f:${randomUUID()}`,
+      amount: amt('100000'),
+      from: userAvailable(PAYER, 'USDT'),
+    });
+    await fund(ledger, BORROWER, 'BTC', '1');
+    await fundMm(ledger);
+    const product = await bank.loans.createProduct({
+      name: 'BTC marked in USD, borrowed in USDT',
+      debtAssetId: 'USDT',
+      collateralAssetId: 'BTC',
+      quoteAssetId: 'USD',
+      aprBps: 1_000,
+      maxLtvBps: 5_000,
+      policy: DEFAULT_LIQUIDATION_POLICY,
+    });
+    const opened = await bank.loans.open({
+      productId: product.id,
+      userId: BORROWER,
+      collateralAmount: amt('1'),
+      principal: amt('5000'),
+      now: NOW,
+    });
+    prices.BTC = { price: '5200', quality: 'mid' };
+    const postsBeforeSeize = ledger.journal().length;
+
+    await expect(bank.loans.seize({ loanId: opened.loan.id, now: NOW })).rejects.toMatchObject({
+      code: 'bank.loan_seizure_cross_asset',
+    });
+
+    expect(ledger.journal().length).toBe(postsBeforeSeize);
+    expect(ledger.journal().some((tx) => tx.reason === 'loan.liquidated')).toBe(false);
+    expect(await sql`SELECT id FROM bank.loan_liquidations WHERE loan_id = ${opened.loan.id}`).toHaveLength(0);
+  });
 });
 
 describe('HTTP /trpc/ops.seizeLoan — seize through ledger-client', () => {

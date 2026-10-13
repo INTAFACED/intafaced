@@ -360,4 +360,85 @@ describe('option combo — named legs, never a silent two-leg rest', () => {
     expect(comboIdentity(namedLegs())).toContain('call|1|100|');
     expect(comboIdentity(namedLegs())).toBe(comboIdentity([...namedLegs()].reverse()));
   });
+
+  it('a leg name containing an identity separator is refused and does not alias another leg set', () => {
+    const pipe: ComboLeg[] = [
+      { name: 'call|1', ratio: A('100'), strike: A('50'), expiry: EXPIRY },
+      { name: 'put', ratio: A('-1'), strike: A('90'), expiry: EXPIRY },
+    ];
+    const shifted: ComboLeg[] = [
+      { name: 'call', ratio: A('1'), strike: A('100'), expiry: `50|${EXPIRY}` },
+      { name: 'put', ratio: A('-1'), strike: A('90'), expiry: EXPIRY },
+    ];
+    const semi: ComboLeg[] = [
+      { name: 'call;put', ratio: A('1'), strike: A('100'), expiry: EXPIRY },
+      { name: 'hedge', ratio: A('-1'), strike: A('100'), expiry: EXPIRY },
+    ];
+    const collided = `call|1|100|50|${EXPIRY};put|-1|90|${EXPIRY}`;
+    const aliasOfNamed: ComboLeg[] = [{ name: `call|1|100|${EXPIRY};put`, ratio: A('-1'), strike: A('100'), expiry: EXPIRY }];
+
+    expect(comboLegsRefuse(pipe)?.code).toBe(COMBO_LEGS_MISSING);
+    expect(comboLegsRefuse(semi)?.code).toBe(COMBO_LEGS_MISSING);
+    expect(comboIntentRefuse({ combo: true, legs: pipe })?.code).toBe(COMBO_LEGS_MISSING);
+    expect(comboIntentRefuse({ combo: true, legs: semi })?.code).toBe(COMBO_LEGS_MISSING);
+
+    const pipeId = comboIdentity(pipe);
+    const shiftedId = comboIdentity(shifted);
+    const semiId = comboIdentity(semi);
+    const aliasId = comboIdentity(aliasOfNamed);
+    const stable = comboIdentity(namedLegs());
+
+    expect(pipeId).toMatchObject({ code: COMBO_LEGS_MISSING });
+    expect(shiftedId).toMatchObject({ code: COMBO_LEGS_MISSING });
+    expect(semiId).toMatchObject({ code: COMBO_LEGS_MISSING });
+    expect(aliasId).toMatchObject({ code: COMBO_LEGS_MISSING });
+    expect(typeof pipeId).not.toBe('string');
+    expect(typeof shiftedId).not.toBe('string');
+    expect(typeof semiId).not.toBe('string');
+    expect(typeof aliasId).not.toBe('string');
+    expect(typeof pipeId === 'string' && pipeId === shiftedId).toBe(false);
+    expect(pipeId).not.toBe(collided);
+    expect(shiftedId).not.toBe(collided);
+    expect(aliasId).not.toBe(stable);
+    expect(stable).not.toBe(collided);
+
+    const book = new OrderBook('BTC/USDT');
+    const rested = book.submit(
+      order({
+        id: MISS,
+        side: 'buy',
+        qty: '2',
+        price: '99',
+        combo: true,
+        legs: pipe,
+      }),
+    );
+    expect(rested.accepted).toBe(false);
+    expect(rested.rejected?.code).toBe(COMBO_LEGS_MISSING);
+    expect(rested.resting).toBeNull();
+    expect(liveIds(book)).toEqual([]);
+  });
+
+  it('comboIdentity refuses a missing ratio, strike, or expiry', () => {
+    const missingRatio = comboIdentity(namedLegs([{ ratio: null }]));
+    const missingStrike = comboIdentity(namedLegs([{ strike: null }]));
+    const missingExpiry = comboIdentity(namedLegs([{ expiry: null }]));
+    expect(missingRatio).toMatchObject({ code: RATIO_MISSING });
+    expect(missingStrike).toMatchObject({ code: STRIKE_MISSING });
+    expect(missingExpiry).toMatchObject({ code: EXPIRY_MISSING });
+    expect(typeof missingRatio).not.toBe('string');
+    expect(typeof missingStrike).not.toBe('string');
+    expect(typeof missingExpiry).not.toBe('string');
+    expect(comboIdentity(namedLegs([{ ratio: A('0') }]))).toMatchObject({ code: RATIO_MISSING });
+    expect(comboIdentity(namedLegs([{ strike: A('0') }]))).toMatchObject({ code: STRIKE_MISSING });
+    expect(comboIdentity(namedLegs([{ expiry: '   ' }]))).toMatchObject({ code: EXPIRY_MISSING });
+  });
+
+  it('an ordinary named pair keeps one stable combo id', () => {
+    const id = comboIdentity(namedLegs());
+    expect(typeof id).toBe('string');
+    expect(id).toContain('call|1|100|');
+    expect(id).toBe(comboIdentity([...namedLegs()].reverse()));
+    expect(comboIntentRefuse({ combo: true, legs: namedLegs() })).toBeNull();
+  });
 });

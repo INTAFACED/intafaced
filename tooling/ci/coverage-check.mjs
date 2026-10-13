@@ -49,7 +49,7 @@
  * out of that are (a) narrow what it checks until it passes — which recreates
  * the exact blindness this exists to fix — or (b) write today's gaps down, NAME
  * them, and refuse to let the set grow. This is (b). Precedent in this repo:
- * `BASELINE` in `fabricated-money-scan.mjs`, where every frozen finding is
+ * `BASELINE` in `fabricated-money-scan.mjs` (deleted 2026-10-13), where every frozen finding is
  * written out by its exact text and matched exactly.
  *
  * Named, and not counted, for one specific reason. The first version of this
@@ -375,7 +375,7 @@ const MIN_NOTE = 20;
 // change the `## N ·` heading style, break the tracker export, and discovery
 // returns `[]` while every path still resolves.
 //
-// The house rule is `tooling/ci/fabricated-money-scan.mjs`: discovery finding
+// The house rule is `tooling/ci/fabricated-money-scan.mjs` (deleted 2026-10-13): discovery finding
 // nothing is a REPORT, never a silent pass. There it is a loud exit 0, because
 // the Vue shell may legitimately be gone. Here every one of the three is a
 // FAILURE, because there is no state of this repo in which the law has no
@@ -693,7 +693,7 @@ for (const dp of dropPhases) {
 // things changed in opposite directions", and only one of those is fine.
 //
 // So the baseline records WHICH, exactly as `BASELINE` does in
-// `tooling/ci/fabricated-money-scan.mjs`: every frozen row written out by its
+// `tooling/ci/fabricated-money-scan.mjs` (deleted 2026-10-13): every frozen row written out by its
 // own identity, matched exactly, and failing in BOTH directions —
 //
 //   · an id that is a gap today and is not in the list  → NEW. Fail.

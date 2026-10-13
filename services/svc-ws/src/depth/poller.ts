@@ -1,5 +1,5 @@
 import { isPublishedDepthLimit } from '../depth-limit.js';
-import { DEPTH_VENUE_HALTED, type DepthMatchingTradingCode } from '../matching-trading.js';
+import { DEPTH_VENUE_HALTED, type MatchingTradingResumeEvidence, type DepthMatchingTradingCode } from '../matching-trading.js';
 import { withWsSpan } from '../tracing.js';
 import type { DepthHub, HubLogger } from './hub.js';
 import type { NativeL3Hub } from './l3-hub.js';
@@ -39,7 +39,7 @@ export interface PrivateMatchingProbe {
   readonly markDown: () => void;
   readonly markUp: () => void;
   /** Venue / board trading status from GET /markets — private-only seats have no depth poll. */
-  readonly markTrading?: (marketId: string, code: DepthMatchingTradingCode | null) => void;
+  readonly markTrading?: (marketId: string, code: DepthMatchingTradingCode | null, confirmedOpen?: MatchingTradingResumeEvidence) => void;
 }
 
 export interface DepthPollerOptions {
@@ -73,14 +73,19 @@ export class DepthPoller {
   start(): void {
     if (this.#timer) return;
     this.#timer = setInterval(() => void this.tick(), this.#options.intervalMs);
-    this.#marketsTimer = setInterval(() => {
-      void this.#hub.refreshMarkets().catch((err: unknown) => {
-        this.#log.warn({ err: String(err) }, 'ws: market list refresh failed — serving the last known list');
-      });
-    }, this.#options.marketsRefreshMs);
     // Neither timer should hold the process open on its own.
     this.#timer.unref?.();
-    this.#marketsTimer.unref?.();
+    // `marketsRefreshMs: 0` is the hub's do-not-cache window: every miss
+    // refetches. Node turns a delay below 1 into 1, so passing 0 here would
+    // call refreshMarkets every turn. Leave the markets timer unset.
+    if (this.#options.marketsRefreshMs > 0) {
+      this.#marketsTimer = setInterval(() => {
+        void this.#hub.refreshMarkets().catch((err: unknown) => {
+          this.#log.warn({ err: String(err) }, 'ws: market list refresh failed — serving the last known list');
+        });
+      }, this.#options.marketsRefreshMs);
+      this.#marketsTimer.unref?.();
+    }
   }
 
   stop(): void {
@@ -106,7 +111,11 @@ export class DepthPoller {
             try {
               await withWsSpan('ws.depth.poll', { marketId, connections: this.#hub.connections }, async () => {
                 const snapshot = await this.#source.snapshot(marketId, limit);
-                this.#hub.noteMatchingTrading(marketId, this.#source.trading?.(marketId) ?? null);
+                this.#hub.noteMatchingTrading(
+                  marketId,
+                  this.#source.trading?.(marketId) ?? null,
+                  this.#source.tradingOpenEvidence?.(marketId) ?? false,
+                );
                 this.#hub.ingest(snapshot);
               });
             } catch (err) {
@@ -141,8 +150,15 @@ export class DepthPoller {
       const ids = await this.#source.markets();
       probe.markUp();
       if (probe.markTrading) {
-        probe.markTrading('*', this.#source.venueHalted?.() ? DEPTH_VENUE_HALTED : null);
-        for (const id of ids) probe.markTrading(id, this.#source.trading?.(id) ?? null);
+        const venueHalted = this.#source.venueHalted?.() === true;
+        // One edge. The orders frame for venue halt carries no market id, so
+        // repeating DEPTH_VENUE_HALTED per listed market is a second copy.
+        probe.markTrading('*', venueHalted ? DEPTH_VENUE_HALTED : null, this.#source.tradingOpenEvidence?.('*') ?? false);
+        for (const id of ids) {
+          const code = this.#source.trading?.(id) ?? null;
+          if (code === DEPTH_VENUE_HALTED) continue;
+          probe.markTrading(id, code, this.#source.tradingOpenEvidence?.(id) ?? false);
+        }
       }
     } catch (err) {
       probe.markDown();

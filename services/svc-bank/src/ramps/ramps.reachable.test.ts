@@ -194,8 +194,8 @@ describe('svc-bank ramps reachable (PG-hard)', () => {
           ...APPROVAL,
         }),
       ).rejects.toMatchObject({
-        message: 'bank.fiat_ramp_no_pay_adapter',
-        cause: { code: 'bank.fiat_ramp_no_pay_adapter' },
+        message: 'bank.fiat_ramp_socket',
+        cause: { code: 'bank.fiat_ramp_socket' },
       });
 
       const offrampId = randomUUID();

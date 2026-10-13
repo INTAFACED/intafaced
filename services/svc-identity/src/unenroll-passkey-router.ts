@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { UnenrollPasskeyError } from './auth/unenroll-passkey.js';
+import { assertMayRemoveFactor, factorActor, factorGateTrpcError } from './auth/factor-gate.js';
 import { unenrollOneOfTwo } from './auth/unenroll-one-of-two.js';
 
 /**
@@ -23,8 +24,12 @@ export function createUnenrollPasskeyRouter(sql: Sql) {
       )
       .mutation(async ({ ctx, input }) => {
         try {
+          // Removing a factor needs an MFA session, refused before any lookup.
+          assertMayRemoveFactor(factorActor(ctx.principal));
           return await unenrollOneOfTwo(sql, ctx.principal.userId, input.credentialId);
         } catch (err) {
+          const gate = factorGateTrpcError(err);
+          if (gate) throw gate;
           if (err instanceof UnenrollPasskeyError) {
             if (err.code === 'auth.not_found') {
               throw new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });

@@ -20,6 +20,13 @@ describe('otc mid-source', () => {
     expect(otcPairKey('BTC', '   ')).toBeNull();
   });
 
+  it('drops a pair side that is not exactly two segments so it cannot overwrite a real mid', () => {
+    // BTC/USDT/X must not land on BTC/USDT. An absent pair stays absent.
+    expect(parseOtcMids('BTC/USDT/X:1').size).toBe(0);
+    expect(parseOtcMids('BTC/USDT:65000,BTC/USDT/X:1').get('BTC/USDT')).toBe('65000');
+    expect(parseOtcMids('BTC/USDT:1.50').get('BTC/USDT')).toBe('1.50');
+  });
+
   it('drops an ops entry whose price is not a positive decimal', async () => {
     // An ops typo must cost a refusal at boot, not surface to a customer.
     const src = createConfigOtcMidSource('BTC/USDT:not-a-number,ETH/USDT:0,SOL/USDT:-5,XRP/USDT:1e5,ADA/USDT:1.1234567890123456789');

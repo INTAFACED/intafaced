@@ -121,6 +121,117 @@ describe('scanOmsExternalArb', () => {
     expect(result.opportunities).toHaveLength(0);
     expect(result.refused.some((r) => r.reason === 'stale_quote')).toBe(true);
   });
+
+  it.each(['', '   ', 'not-a-price'])('blank or invalid quote price %j is a typed refusal and the other quotes still scan', (price) => {
+    const result = scanOmsExternalArb({
+      ...scanBody,
+      quotes: [
+        ...scanBody.quotes,
+        {
+          venueId: 'okx',
+          kind: 'external-cex',
+          price,
+          amount: '1',
+          asOfMs: FRESH_NOW_MS,
+        },
+      ],
+    });
+    expect(result.opportunities).toHaveLength(1);
+    expect(result.opportunities[0]?.buyVenueId).toBe('binance');
+    expect(result.opportunities[0]?.sellVenueId).toBe('bybit');
+    expect(result.refused).toContainEqual({
+      ok: false,
+      buyVenueId: 'okx',
+      sellVenueId: 'okx',
+      reason: 'missing_quote',
+      detail: 'quote price is not a decimal string — mid not invented',
+    });
+  });
+
+  it.each(['', '   ', 'not-an-amount'])('blank or invalid quote amount %j is a typed refusal and the other quotes still scan', (amount) => {
+    const result = scanOmsExternalArb({
+      ...scanBody,
+      quotes: [
+        ...scanBody.quotes,
+        {
+          venueId: 'okx',
+          kind: 'external-cex',
+          price: '102',
+          amount,
+          asOfMs: FRESH_NOW_MS,
+        },
+      ],
+    });
+    expect(result.opportunities).toHaveLength(1);
+    expect(result.opportunities[0]?.buyVenueId).toBe('binance');
+    expect(result.opportunities[0]?.sellVenueId).toBe('bybit');
+    expect(result.refused).toContainEqual({
+      ok: false,
+      buyVenueId: 'okx',
+      sellVenueId: 'okx',
+      reason: 'missing_quote',
+      detail: 'quote amount is not a decimal string — amount not invented',
+    });
+  });
+
+  it.each(['', '   ', 'not-an-amount'])('blank or invalid scan amount %j is a typed refusal and does not invent an amount', (amount) => {
+    const result = scanOmsExternalArb({ ...scanBody, amount });
+    expect(result.opportunities).toEqual([]);
+    expect(result.refused).toEqual([
+      {
+        ok: false,
+        buyVenueId: '',
+        sellVenueId: '',
+        reason: 'missing_quote',
+        detail: 'scan amount is not a decimal string — amount not invented',
+      },
+    ]);
+  });
+
+  it('null quote price still reaches the missing-quote refusal', () => {
+    const result = scanOmsExternalArb({
+      ...scanBody,
+      quotes: [{ ...scanBody.quotes[0]!, price: null }, scanBody.quotes[1]!],
+    });
+    expect(result.opportunities).toHaveLength(0);
+    expect(result.refused).toContainEqual({
+      ok: false,
+      buyVenueId: 'binance',
+      sellVenueId: 'binance',
+      reason: 'missing_quote',
+      detail: 'quote price missing — mid/spread not invented',
+    });
+  });
+
+  it('a zero price string still reaches the non-positive missing-quote refusal', () => {
+    const result = scanOmsExternalArb({
+      ...scanBody,
+      quotes: [{ ...scanBody.quotes[0]!, price: '0' }, scanBody.quotes[1]!],
+    });
+    expect(result.opportunities).toHaveLength(0);
+    expect(result.refused).toContainEqual({
+      ok: false,
+      buyVenueId: 'binance',
+      sellVenueId: 'binance',
+      reason: 'missing_quote',
+      detail: 'quote price non-positive — mid not invented',
+    });
+  });
+
+  it('a decimal price with surrounding whitespace still goes through parseAmount', () => {
+    const result = scanOmsExternalArb({
+      ...scanBody,
+      amount: ' 1 ',
+      quotes: scanBody.quotes.map((quote) => ({
+        ...quote,
+        price: quote.venueId === 'binance' ? ' 100 ' : ' 101 ',
+        amount: ' 1 ',
+      })),
+    });
+    expect(result.opportunities).toHaveLength(1);
+    expect(result.opportunities[0]?.buyAllIn).toBe('100.05');
+    expect(result.refused.some((row) => row.reason === 'missing_quote')).toBe(false);
+  });
 });
 
 describe('execution.arb.scan tRPC', () => {

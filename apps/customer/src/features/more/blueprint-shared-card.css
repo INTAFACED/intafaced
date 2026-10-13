@@ -1,0 +1,111 @@
+.blueprint-shared {
+  min-width: 0;
+}
+.blueprint-shared .panel > .panel-body {
+  min-width: 0;
+}
+.blueprint-shared-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px auto;
+  gap: 16px;
+  align-items: end;
+}
+.blueprint-shared-controls .field {
+  margin: 0;
+  min-width: 0;
+}
+.blueprint-shared-controls input,
+.blueprint-shared-controls select {
+  min-height: 44px;
+  min-width: 0;
+  width: 100%;
+}
+.blueprint-shared .button {
+  min-height: 44px;
+  white-space: normal;
+}
+.blueprint-shared-result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  border-top: 1px solid var(--color-divider);
+  margin-top: 24px;
+  padding-top: 24px;
+}
+.blueprint-shared-context {
+  grid-column: 2;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.blueprint-shared-context code,
+.blueprint-shared-failure code {
+  overflow-wrap: anywhere;
+}
+.blueprint-shared-image {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-8);
+}
+.blueprint-shared-actions {
+  grid-column: 2;
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.blueprint-shared-actions p {
+  margin: 0;
+}
+.blueprint-shared-note {
+  padding: 16px;
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-8);
+  display: grid;
+  gap: 8px;
+}
+.blueprint-shared-note p {
+  color: var(--color-muted);
+}
+.blueprint-shared-failure,
+.blueprint-shared-result > [role='status'] {
+  grid-column: 1 / -1;
+}
+.blueprint-shared-result.landscape {
+  grid-template-columns: minmax(0, 1fr);
+}
+.blueprint-shared-result.landscape > * {
+  grid-column: 1;
+  grid-row: auto;
+}
+.blueprint-shared-full {
+  max-width: 100%;
+  overflow: auto;
+}
+.blueprint-shared-full img {
+  display: block;
+  max-width: none;
+}
+@media (max-width: 1100px) {
+  .blueprint-shared-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .blueprint-shared-result {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .blueprint-shared-result > * {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .blueprint-shared-context {
+    order: 0;
+  }
+  .blueprint-shared-image {
+    order: 1;
+  }
+  .blueprint-shared-actions {
+    order: 2;
+  }
+}

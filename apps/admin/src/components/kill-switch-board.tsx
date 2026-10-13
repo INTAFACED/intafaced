@@ -6,6 +6,8 @@ import type { Drop, ModuleId } from '@intafaced/config';
 import { Chip } from '@/components/chip';
 import { consoleCopy } from '@/lib/console-copy';
 import { dropLabel } from '@/lib/drops';
+import { ModuleStateInspector } from '@/components/module-state-inspector';
+import { MODULE_WRITE_UNAVAILABLE, decodeSnapshot, unavailable, type ToggleInput } from '@/lib/control-plane-contract';
 import { type ControlPlaneState, type KillSwitchSnapshot, postKillSwitch } from '@/lib/control-plane-browser';
 import {
   CONTROL_EFFECT_LABEL,
@@ -27,8 +29,8 @@ import {
  *
  * Two kinds of switch on one board, and telling them apart is the whole job:
  *
- *   · MODULE rows are LIVE against svc-edge when the control plane is reachable
- *     (#186 / A-P5-OPS), and disabled — with the reason — when it is not.
+ *   · MODULE rows inspect svc-edge. New writes require a human operator session,
+ *     an identity-issued approval and original operation context, unavailable here.
  *   · FLAG rows are a session preview of what an override WOULD do. There is no
  *     durable flag store yet (§13), so flipping one changes this browser tab and
  *     nothing else, for ever, no matter how the console is configured.
@@ -93,12 +95,15 @@ export function KillSwitchBoard({ drop, flagEnv, initialControlPlane }: KillSwit
   const [confirmation, setConfirmation] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<ModuleCommandReceipt | null>(null);
+  const [unresolvedIntent, setUnresolvedIntent] = useState<ToggleInput | null>(null);
   const [criticalArmed, setCriticalArmed] = useState(false);
   const [isPending, startTransition] = useTransition();
   const moduleCommandLockRef = useRef(false);
 
-  const disabledModules = plane.snapshot.disabledModules as ModuleId[];
-  const liveModules = plane.status === 'reachable';
+  const liveModules = plane.status === 'reachable' && decodeSnapshot(plane.snapshot) !== null;
+  const disabledModules: ModuleId[] = liveModules ? [...plane.snapshot.disabledModules] : [];
+  // Deployment credentials and a readable snapshot do not provide human authority.
+  const moduleWritesAvailable = false;
 
   const baseline = useMemo(() => flagStates({ drop, env: flagEnv }), [drop, flagEnv]);
   const staged = useMemo(() => flagStates({ drop, env: flagEnv, overrides, disabledModules }), [drop, flagEnv, overrides, disabledModules]);
@@ -128,7 +133,7 @@ export function KillSwitchBoard({ drop, flagEnv, initialControlPlane }: KillSwit
   }
 
   function requestModuleToggle(module: ModuleId) {
-    if (!liveModules) return;
+    if (!moduleWritesAvailable || !liveModules || unresolvedIntent) return;
     setPendingModule(module);
     setReason('');
     setConfirmation('');
@@ -137,6 +142,7 @@ export function KillSwitchBoard({ drop, flagEnv, initialControlPlane }: KillSwit
   }
 
   function applyModuleToggle() {
+    if (!moduleWritesAvailable || unresolvedIntent) return;
     if (!pendingModule) return;
     if (moduleCommandLockRef.current) return;
     const trimmed = reason.trim();
@@ -156,9 +162,21 @@ export function KillSwitchBoard({ drop, flagEnv, initialControlPlane }: KillSwit
     moduleCommandLockRef.current = true;
     setReceipt(null);
     startTransition(async () => {
+      let outcomeUnresolved = false;
       try {
         const result = await postKillSwitch({ module: commandModule, disabled: nextDisabled, reason: trimmed });
         if (!result.ok) {
+          if (result.uncertain) {
+            outcomeUnresolved = true;
+            setUnresolvedIntent(result.intent ?? { module: commandModule, disabled: nextDisabled, reason: trimmed });
+            setPlane(
+              unavailable(
+                'unreachable',
+                result.detail ?? 'Original module outcome is unresolved.',
+                result.code ?? 'admin.kill_outcome_unknown',
+              ),
+            );
+          }
           setActionError(result.detail ?? `kill-switch refused (${result.status})`);
           return;
         }
@@ -169,12 +187,15 @@ export function KillSwitchBoard({ drop, flagEnv, initialControlPlane }: KillSwit
         setConfirmation('');
         setActionError(null);
       } finally {
-        moduleCommandLockRef.current = false;
+        // A transport failure does not authorize replay. The helper retains its
+        // original intent; a later read or audit cannot settle that operation.
+        if (!outcomeUnresolved) moduleCommandLockRef.current = false;
       }
     });
   }
 
   function reset() {
+    if (unresolvedIntent || moduleCommandLockRef.current) return;
     setOverrides({});
     setCriticalArmed(false);
     setPendingModule(null);
@@ -189,270 +210,287 @@ export function KillSwitchBoard({ drop, flagEnv, initialControlPlane }: KillSwit
       <div className="adm-pagehead">
         <div>
           <h1>Kill-switches</h1>
-          <p>
-            {FLAG_COUNT_COPY} Resolved at {dropLabel(drop)} <em>from the registry</em>.{' '}
-            <strong>
-              {enforcedCount} of {staged.length}
-            </strong>{' '}
-            of these flags are read by anything; the rest are §11 launch-plan entries whose capability serves whatever this page says. Of
-            the ones that are enforced, none is enforced <em>from here</em> — they follow a service environment variable this console cannot
-            see. A <strong>module</strong> kill is the exception and is live on svc-edge when the control plane is reachable; per-flag
-            overrides stay session-staged until the flag store lands.
-          </p>
-        </div>
-        <div className="adm-inline">
-          <button type="button" className="adm-btn" onClick={reset} disabled={changes.length === 0 && !pendingModule}>
-            Reset staged flags
-          </button>
+          <p className="mi-room-intro">{consoleCopy('admin.console.module.room.intro')}</p>
         </div>
       </div>
 
-      <ControlPlanePanel plane={plane} />
+      <ModuleStateInspector plane={plane} onRead={setPlane} />
 
-      <ServingWhileDarkPanel states={serving} total={staged.length} />
+      <details className="mi-registry">
+        <summary>Flag registry and session previews</summary>
+        <div className="adm-pagehead mi-registry-intro">
+          <div>
+            <p>
+              {FLAG_COUNT_COPY} Resolved at {dropLabel(drop)} <em>from the registry</em>.{' '}
+              <strong>
+                {enforcedCount} of {staged.length}
+              </strong>{' '}
+              of these flags are read by anything; the rest are §11 launch-plan entries whose capability serves whatever this page says. Of
+              the ones that are enforced, none is enforced <em>from here</em> — they follow a service environment variable this console
+              cannot see. The inspector reads <strong>module</strong> state from svc-edge; module writes require operator and approval
+              prerequisites unavailable in this desk. Per-flag overrides stay session-staged until the flag store lands.
+            </p>
+          </div>
+          <div className="adm-inline">
+            <button
+              type="button"
+              className="adm-btn"
+              onClick={reset}
+              disabled={!!unresolvedIntent || (changes.length === 0 && !pendingModule)}
+            >
+              Reset staged flags
+            </button>
+          </div>
+        </div>
+        <ControlPlanePanel plane={plane} />
 
-      <RuntimeUnknownPanel states={unknown} />
+        <ServingWhileDarkPanel states={serving} total={staged.length} />
 
-      <Panel title="Platform state" live={liveModules}>
-        <div className="adm-statrow">
-          {/* "Flags live" is a registry count and says so. It was previously the
+        <RuntimeUnknownPanel states={unknown} />
+
+        <Panel title="Platform state" live={liveModules}>
+          <div className="adm-statrow">
+            {/* "Flags live" is a registry count and says so. It was previously the
               first number on the page and read as a count of live CAPABILITIES,
               which is what made every other panel plausible. */}
-          <StatBlock label="Flags on in registry" value={`${liveCount} / ${staged.length}`} deltaLabel="not a capability count" />
-          <StatBlock label="Flags anything reads" value={`${enforcedCount} / ${staged.length}`} deltaLabel="the rest gate nothing" />
-          <StatBlock
-            label="States read from the platform"
-            value={`${readFromPlatform} / ${staged.length}`}
-            deltaLabel="the rest are registry values"
-          />
-          <StatBlock label="Off the drop clock" value={offClockCount} deltaLabel="never on by default" />
-          <StatBlock label="Modules killed (live)" value={disabledModules.length} />
-          <StatBlock label="Staged flag changes" value={changes.length} />
-          <StatBlock label="Env overrides" value={Object.keys(flagEnv).length} deltaLabel="INTAFACED_FLAG_*" />
-        </div>
-      </Panel>
-
-      {pendingModule && (
-        <Panel
-          title={`Confirm module ${disabledModules.includes(pendingModule) ? 're-enable' : 'kill'}: ${pendingModule}`}
-          className="adm-panel--warn"
-        >
-          <div className="adm-stack">
-            <p className="adm-footnote">
-              This hits <code>POST /api/kill-switch</code> → svc-edge. Cancels and reads still pass; new commitments on this module refuse
-              with 503. Reason is required on the edge (≥ 12 characters).
-            </p>
-            <label className="adm-stack">
-              <span className="adm-meta">Reason</span>
-              <textarea
-                className="adm-textarea"
-                rows={3}
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="e.g. incident: halt new trade risk while investigating fill anomaly"
-                disabled={isPending}
-              />
-            </label>
-            <div className="adm-field">
-              <label htmlFor="module-toggle-confirmation">
-                Type <code>{moduleTogglePhrase(pendingModule, disabledModules.includes(pendingModule))}</code> to confirm
-              </label>
-              <input
-                id="module-toggle-confirmation"
-                className="adm-input"
-                value={confirmation}
-                autoComplete="off"
-                spellCheck={false}
-                disabled={isPending}
-                onChange={(event) => setConfirmation(event.target.value)}
-              />
-            </div>
-            {actionError && (
-              <div className="adm-callout" data-tone="danger">
-                <strong>Not applied</strong>
-                {actionError}
-              </div>
-            )}
-            <div className="adm-inline">
-              <button
-                type="button"
-                className="adm-btn"
-                data-tone="danger"
-                onClick={applyModuleToggle}
-                disabled={
-                  isPending ||
-                  reason.trim().length < 12 ||
-                  confirmation !== moduleTogglePhrase(pendingModule, disabledModules.includes(pendingModule))
-                }
-              >
-                {isPending ? 'Sending…' : disabledModules.includes(pendingModule) ? 'Re-enable module' : 'Kill module now'}
-              </button>
-              <button
-                type="button"
-                className="adm-btn"
-                onClick={() => {
-                  setPendingModule(null);
-                  setConfirmation('');
-                  setActionError(null);
-                }}
-                disabled={isPending}
-              >
-                Cancel
-              </button>
-            </div>
+            <StatBlock label="Flags on in registry" value={`${liveCount} / ${staged.length}`} deltaLabel="not a capability count" />
+            <StatBlock label="Flags anything reads" value={`${enforcedCount} / ${staged.length}`} deltaLabel="the rest gate nothing" />
+            <StatBlock
+              label="States read from the platform"
+              value={liveModules ? `${readFromPlatform} / ${staged.length}` : 'Unknown'}
+              deltaLabel="the rest are registry values"
+            />
+            <StatBlock label="Off the drop clock" value={offClockCount} deltaLabel="never on by default" />
+            <StatBlock label="Modules killed (returned snapshot)" value={liveModules ? disabledModules.length : 'Unknown'} />
+            <StatBlock label="Staged flag changes" value={changes.length} />
+            <StatBlock label="Env overrides" value={Object.keys(flagEnv).length} deltaLabel="INTAFACED_FLAG_*" />
           </div>
         </Panel>
-      )}
 
-      {receipt && (
-        <Panel title="Service command receipt" actions={<Chip tone="live">svc-edge answered</Chip>}>
-          <ModuleCommandReceiptView receipt={receipt} />
-        </Panel>
-      )}
+        {pendingModule && (
+          <Panel
+            title={`Confirm module ${disabledModules.includes(pendingModule) ? 're-enable' : 'kill'}: ${pendingModule}`}
+            className="adm-panel--warn"
+          >
+            <div className="adm-stack">
+              <p className="adm-footnote">
+                This hits <code>POST /api/kill-switch</code> → svc-edge. Cancels and reads still pass; new commitments on this module refuse
+                with 503. Reason is required on the edge (≥ 12 characters).
+              </p>
+              <label className="adm-stack">
+                <span className="adm-meta">Reason</span>
+                <textarea
+                  className="adm-textarea"
+                  rows={3}
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="e.g. incident: halt new trade risk while investigating fill anomaly"
+                  disabled={isPending}
+                />
+              </label>
+              <div className="adm-field">
+                <label htmlFor="module-toggle-confirmation">
+                  Type <code>{moduleTogglePhrase(pendingModule, disabledModules.includes(pendingModule))}</code> to confirm
+                </label>
+                <input
+                  id="module-toggle-confirmation"
+                  className="adm-input"
+                  value={confirmation}
+                  autoComplete="off"
+                  spellCheck={false}
+                  disabled={isPending}
+                  onChange={(event) => setConfirmation(event.target.value)}
+                />
+              </div>
+              {actionError && (
+                <div className="adm-callout" data-tone="danger">
+                  <strong>{unresolvedIntent ? 'Original outcome unresolved' : 'Request refused'}</strong>
+                  {actionError}
+                </div>
+              )}
+              <div className="adm-inline">
+                <button
+                  type="button"
+                  className="adm-btn"
+                  data-tone="danger"
+                  onClick={applyModuleToggle}
+                  disabled={
+                    !moduleWritesAvailable ||
+                    !!unresolvedIntent ||
+                    isPending ||
+                    reason.trim().length < 12 ||
+                    confirmation !== moduleTogglePhrase(pendingModule, disabledModules.includes(pendingModule))
+                  }
+                >
+                  {isPending ? 'Sending…' : disabledModules.includes(pendingModule) ? 'Re-enable module' : 'Kill module now'}
+                </button>
+                <button
+                  type="button"
+                  className="adm-btn"
+                  onClick={() => {
+                    setPendingModule(null);
+                    setConfirmation('');
+                    setActionError(null);
+                  }}
+                  disabled={isPending || !!unresolvedIntent}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </Panel>
+        )}
 
-      {critical && <CriticalSwitch state={critical} armed={criticalArmed} onArm={setCriticalArmed} onSet={setFlag} onClear={clearFlag} />}
+        {receipt && (
+          <Panel title="Returned service snapshot" actions={<Chip tone="info">transport answered</Chip>}>
+            <ModuleCommandReceiptView receipt={receipt} />
+          </Panel>
+        )}
 
-      {changes.length > 0 && (
-        <Panel title={`Staged — ${changes.length} flag${changes.length === 1 ? '' : 's'} would change`} className="adm-panel--warn">
-          <div className="adm-stack">
-            <div className="adm-scroll">
+        {critical && <CriticalSwitch state={critical} armed={criticalArmed} onArm={setCriticalArmed} onSet={setFlag} onClear={clearFlag} />}
+
+        {changes.length > 0 && (
+          <Panel title={`Staged — ${changes.length} flag${changes.length === 1 ? '' : 's'} would change`} className="adm-panel--warn">
+            <div className="adm-stack">
+              <div className="adm-scroll" tabIndex={0} role="region" aria-label="Flag and module inspector table">
+                <table className="adm-table">
+                  <thead>
+                    <tr>
+                      <th>Flag</th>
+                      <th>Now</th>
+                      <th>After</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {changes.map((change) => (
+                      <tr key={change.key} data-critical={isCritical(change.key)}>
+                        <td className="adm-key">{change.key}</td>
+                        <td>
+                          <StateChip on={change.from} />
+                        </td>
+                        <td>
+                          <StateChip on={change.to} critical={isCritical(change.key) && !change.to} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="adm-footnote">{stageNotice}</p>
+            </div>
+          </Panel>
+        )}
+
+        {liveModules && plane.snapshot.audit.length > 0 && (
+          <Panel title="Historical kill-switch audit (returned order)">
+            <div className="adm-scroll" tabIndex={0} role="region" aria-label="Flag and module inspector table">
               <table className="adm-table">
                 <thead>
                   <tr>
-                    <th>Flag</th>
-                    <th>Now</th>
-                    <th>After</th>
+                    <th>When</th>
+                    <th>Module</th>
+                    <th>Actor</th>
+                    <th>Change</th>
+                    <th>Reason</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {changes.map((change) => (
-                    <tr key={change.key} data-critical={isCritical(change.key)}>
-                      <td className="adm-key">{change.key}</td>
+                  {plane.snapshot.audit.slice(0, 12).map((entry, i) => (
+                    <tr key={`${entry.at}-${entry.module}-${i}`}>
+                      <td className="adm-meta">{entry.at}</td>
+                      <td className="adm-key">{entry.module}</td>
+                      <td className="adm-meta">{entry.actor}</td>
                       <td>
-                        <StateChip on={change.from} />
+                        {entry.previous ? 'killed' : 'live'} → {entry.next ? 'killed' : 'live'}
+                        {!entry.changed && <span className="adm-meta"> (no-op)</span>}
                       </td>
-                      <td>
-                        <StateChip on={change.to} critical={isCritical(change.key) && !change.to} />
-                      </td>
+                      <td className="adm-desc">{entry.reason}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <p className="adm-footnote">{stageNotice}</p>
-          </div>
-        </Panel>
-      )}
+          </Panel>
+        )}
 
-      {plane.snapshot.audit.length > 0 && (
-        <Panel title="Live kill-switch audit (newest first)">
-          <div className="adm-scroll">
+        <Panel
+          title="Flags by module"
+          actions={
+            <Chip tone="warn" dot>
+              Flag switches: preview only
+            </Chip>
+          }
+        >
+          <div className="adm-callout" data-tone="warn">
+            <strong>The per-flag switches in this table change nothing outside this browser tab</strong>
+            {stageNotice}
+          </div>
+          <div className="adm-scroll" tabIndex={0} role="region" aria-label="Flag and module inspector table">
             <table className="adm-table">
               <thead>
                 <tr>
-                  <th>When</th>
-                  <th>Module</th>
-                  <th>Actor</th>
-                  <th>Change</th>
-                  <th>Reason</th>
+                  <th>Flag</th>
+                  <th>Description</th>
+                  <th>Drop</th>
+                  <th>State</th>
+                  {/* Added because the four columns to the left described the
+                    registry and nothing described the platform. */}
+                  <th>Enforced by</th>
+                  <th>Decided by</th>
+                  <th>Switch — preview only</th>
                 </tr>
               </thead>
-              <tbody>
-                {plane.snapshot.audit.slice(0, 12).map((entry, i) => (
-                  <tr key={`${entry.at}-${entry.module}-${i}`}>
-                    <td className="adm-meta">{entry.at}</td>
-                    <td className="adm-key">{entry.module}</td>
-                    <td className="adm-meta">{entry.actor}</td>
-                    <td>
-                      {entry.previous ? 'killed' : 'live'} → {entry.next ? 'killed' : 'live'}
-                      {!entry.changed && <span className="adm-meta"> (no-op)</span>}
+              {groups.map((group) => (
+                <tbody key={group.module}>
+                  <tr>
+                    <td className="adm-subhead" colSpan={7}>
+                      <span className="adm-subhead__row">
+                        <span>{group.module}</span>
+                        <span className="adm-meta">
+                          {group.service} · phase {group.phase} · {group.planes.join(' + ')}
+                        </span>
+                        {group.custodial ? <Chip tone="warn">Custodial</Chip> : <Chip tone="info">Non-custodial</Chip>}
+                        <Chip tone={group.flags.some((f) => f.enabled) ? 'live' : 'dark'}>
+                          {group.flags.filter((f) => f.enabled).length} / {group.flags.length} live
+                        </Chip>
+                        <span className="adm-topbar__spacer" />
+                        {group.killed && <Chip tone="danger">Module killed</Chip>}
+                        {isEdgePerimeterModule(group.module) ? (
+                          <Chip tone="live">Edge perimeter</Chip>
+                        ) : (
+                          <Chip tone="warn">Not edge-enforced</Chip>
+                        )}
+                        <Chip tone="warn">Module write unavailable</Chip>
+                        <Switch
+                          on={!group.killed}
+                          onLabel={liveModules ? 'Not listed as killed' : 'Unknown'}
+                          offLabel="Listed as killed"
+                          disabled={!moduleWritesAvailable || isPending || !!unresolvedIntent}
+                          // The reason travels with the control. A disabled switch
+                          // with no explanation reads as a broken console.
+                          title={MODULE_WRITE_UNAVAILABLE}
+                          onToggle={() => requestModuleToggle(group.module)}
+                        />
+                      </span>
                     </td>
-                    <td className="adm-desc">{entry.reason}</td>
                   </tr>
-                ))}
-              </tbody>
+
+                  {group.flags.map((state) => (
+                    <FlagRow
+                      key={state.def.key}
+                      state={state}
+                      moduleKilled={group.killed}
+                      criticalArmed={criticalArmed}
+                      onSet={setFlag}
+                      onClear={clearFlag}
+                    />
+                  ))}
+                </tbody>
+              ))}
             </table>
           </div>
         </Panel>
-      )}
-
-      <Panel
-        title="Flags by module"
-        actions={
-          <Chip tone="warn" dot>
-            Flag switches: preview only
-          </Chip>
-        }
-      >
-        <div className="adm-callout" data-tone="warn">
-          <strong>The per-flag switches in this table change nothing outside this browser tab</strong>
-          {stageNotice}
-        </div>
-        <div className="adm-scroll">
-          <table className="adm-table">
-            <thead>
-              <tr>
-                <th>Flag</th>
-                <th>Description</th>
-                <th>Drop</th>
-                <th>State</th>
-                {/* Added because the four columns to the left described the
-                    registry and nothing described the platform. */}
-                <th>Enforced by</th>
-                <th>Decided by</th>
-                <th>Switch — preview only</th>
-              </tr>
-            </thead>
-            {groups.map((group) => (
-              <tbody key={group.module}>
-                <tr>
-                  <td className="adm-subhead" colSpan={7}>
-                    <span className="adm-subhead__row">
-                      <span>{group.module}</span>
-                      <span className="adm-meta">
-                        {group.service} · phase {group.phase} · {group.planes.join(' + ')}
-                      </span>
-                      {group.custodial ? <Chip tone="warn">Custodial</Chip> : <Chip tone="info">Non-custodial</Chip>}
-                      <Chip tone={group.flags.some((f) => f.enabled) ? 'live' : 'dark'}>
-                        {group.flags.filter((f) => f.enabled).length} / {group.flags.length} live
-                      </Chip>
-                      <span className="adm-topbar__spacer" />
-                      {group.killed && <Chip tone="danger">Module killed</Chip>}
-                      {isEdgePerimeterModule(group.module) ? (
-                        <Chip tone="live">Edge perimeter</Chip>
-                      ) : (
-                        <Chip tone="warn">Not edge-enforced</Chip>
-                      )}
-                      {liveModules ? <Chip tone="live">Live switch</Chip> : <Chip tone="danger">Inert — {plane.status}</Chip>}
-                      <Switch
-                        on={!group.killed}
-                        onLabel="Enabled"
-                        offLabel="Killed"
-                        disabled={!liveModules || isPending}
-                        // The reason travels with the control. A disabled switch
-                        // with no explanation reads as a broken console.
-                        title={liveModules ? undefined : (plane.detail ?? `control plane ${plane.status}`)}
-                        onToggle={() => requestModuleToggle(group.module)}
-                      />
-                    </span>
-                  </td>
-                </tr>
-
-                {group.flags.map((state) => (
-                  <FlagRow
-                    key={state.def.key}
-                    state={state}
-                    moduleKilled={group.killed}
-                    criticalArmed={criticalArmed}
-                    onSet={setFlag}
-                    onClear={clearFlag}
-                  />
-                ))}
-              </tbody>
-            ))}
-          </table>
-        </div>
-      </Panel>
+      </details>
 
       <Panel title="Modules with no kill-switch" className="adm-panel--warn">
         {uncovered.length === 0 ? (
@@ -486,7 +524,8 @@ export function ModuleCommandReceiptView({ receipt }: { receipt: ModuleCommandRe
   return (
     <div className="adm-stack" data-testid="module-command-receipt">
       <p className="adm-footnote">
-        This receipt is the snapshot and audit entry returned by svc-edge, not a browser-local assumption about the requested state.
+        Returned snapshot only. Historical audit is not a current command receipt. The original operation and current human identity cannot
+        be looked up through this contract.
       </p>
       <dl className="adm-kv">
         <dt>Module</dt>
@@ -497,13 +536,13 @@ export function ModuleCommandReceiptView({ receipt }: { receipt: ModuleCommandRe
         <dd>{returnedDisabled ? 'killed' : 'live'}</dd>
         <dt>Transport</dt>
         <dd>HTTP {receipt.status}</dd>
-        <dt>Service change</dt>
+        <dt>Historical change</dt>
         <dd>{audit ? (audit.changed ? 'changed' : 'no-op') : 'not returned'}</dd>
-        <dt>Actor</dt>
+        <dt>Historical actor</dt>
         <dd>{audit?.actor ?? 'not returned'}</dd>
-        <dt>Changed at</dt>
+        <dt>Historical time</dt>
         <dd>{audit?.at ?? 'not returned'}</dd>
-        <dt>Reason</dt>
+        <dt>Historical reason</dt>
         <dd>{audit?.reason ?? receipt.snapshot.reasons[receipt.module] ?? 'not returned'}</dd>
       </dl>
     </div>
@@ -527,10 +566,8 @@ function ControlPlanePanel({ plane }: { plane: ControlPlaneState }) {
           <strong>{plane.status}</strong>
           {plane.status === 'reachable' && (
             <>
-              Module kills hit svc-edge. Only <b>perimeter</b> modules (trade, pay, identity, …) stop new <code>/api/*</code> traffic.
-              Killing <code>ws</code>/<code>matching</code>/<code>ledger</code> is audited but not process-enforced. Live killed:{' '}
-              <b>{(plane.snapshot as KillSwitchSnapshot).disabledModules.length}</b>. No console SSO — deployment tokens only; do not expose
-              admin without ACL. Per-flag staging stays local.
+              This snapshot was read from svc-edge. It reports <b>{plane.snapshot.disabledModules.length}</b> modules listed as killed; it
+              does not report fleet or service health. {MODULE_WRITE_UNAVAILABLE} Per-flag staging stays local.
             </>
           )}
           {plane.status === 'unconfigured' && (
@@ -538,14 +575,14 @@ function ControlPlanePanel({ plane }: { plane: ControlPlaneState }) {
               {/* `detail` names the variable that is ACTUALLY missing. The old
                   copy always said "set EDGE_URL and ADMIN_OPERATOR_TOKEN", which
                   sends an operator to check a setting that was already right. */}
-              {plane.detail ?? 'This console holds no credential for the control plane.'} Module switches stay disabled until the console
-              can reach the edge — a local flip that looks like a halt is worse than no switch.
+              {plane.detail ?? 'This console holds no credential for the control plane.'} No current module state was read.{' '}
+              {MODULE_WRITE_UNAVAILABLE}
             </>
           )}
-          {plane.status === 'unreachable' && (
+          {plane.status !== 'reachable' && plane.status !== 'unconfigured' && (
             <>
-              {plane.detail ?? 'svc-edge did not answer or refused the operator token.'} Module switches stay disabled until the plane is
-              reachable again.
+              {plane.detail ?? 'No valid current module snapshot was returned.'} No current module state is shown.{' '}
+              {MODULE_WRITE_UNAVAILABLE}
             </>
           )}
         </div>
@@ -562,8 +599,9 @@ const FLAG_COUNT_COPY = 'Every flag declared in the registry, grouped by the mod
 
 const stageNotice =
   'Per-flag switches stage a preview in this browser session and are read by no service — there is no durable flag store yet (§13 socket). ' +
-  'The MODULE switch on each group header is the live one: it posts to svc-edge and refuses new commitments at the door. ' +
-  'To halt all value movement use Ledger ops, which writes an attributed freeze row in svc-ledger. ' +
+  'Module writes are unavailable here until real operator, approval and original operation prerequisites are supplied. ' +
+  consoleCopy('admin.console.transport.treasury.inspect.notice') +
+  ' ' +
   'And note that the flag store would change nothing for a flag marked "Not a control": no service resolves flags, ' +
   'so there is nothing on the far end to push to.';
 
@@ -731,8 +769,8 @@ function ServingWhileDarkPanel({ states, total }: { states: readonly FlagState[]
           Nothing in <code>services/*</code> resolves a feature flag. For the flags below, <code>isEnabled()</code> returns false and the
           procedure answers anyway — <code>protocol.amm</code> quotes, <code>academy.inviteLobbies</code> seats users,{' '}
           <code>edge.gateway</code> proxies every request in the platform. Their switches are disabled here because there is nothing on the
-          other end of them. To actually stop one of these, kill its <strong>module</strong> above (enforced at svc-edge) or take the
-          service down.
+          other end of them. To actually stop one of these, kill its <strong>module</strong> above through an authorized operator and
+          approval workflow (unavailable in this desk), or take the service down.
         </div>
         <div className="adm-inline">
           {states.map((state) => (
@@ -898,8 +936,7 @@ function CriticalSwitch({
         <div className="adm-callout" data-tone="warn">
           <strong>This panel halts nothing — it previews a flag</strong>
           The buttons below stage a value for <code>ledger.posting</code> in this browser session. There is no durable flag store (§13), so
-          no service ever reads what is staged here. <b>To actually stop value movement, use Ledger ops</b> — that screen posts to
-          <code> /api/ledger-freeze</code> and svc-ledger writes a durable, attributed <code>posting_freeze</code> row.
+          no service ever reads what is staged here. {consoleCopy('admin.console.transport.treasury.inspect.notice')}
         </div>
 
         <div className="adm-callout" data-tone="danger">
@@ -911,7 +948,7 @@ function CriticalSwitch({
 
         <div className="adm-inline">
           <a className="adm-btn" data-tone="danger" href="/ledger">
-            Go to Ledger ops — the freeze that works
+            {consoleCopy('admin.console.transport.treasury.inspect')}
           </a>
         </div>
 

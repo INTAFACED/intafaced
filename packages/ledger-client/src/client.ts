@@ -137,8 +137,13 @@ export function assertPairedLocks(entries: readonly EntryInput[]): void {
 
     if (LOCK_KINDS.has(e.account.kind)) {
       if (delta > 0n) lockGain.set(key, (lockGain.get(key) ?? 0n) + delta);
-    } else if (delta < 0n) {
-      availableGiven.set(key, (availableGiven.get(key) ?? 0n) - delta);
+    } else if (e.account.kind === 'available') {
+      if (delta < 0n) availableGiven.set(key, (availableGiven.get(key) ?? 0n) - delta);
+    } else {
+      throw new InvalidEntryError(
+        `Unknown account kind "${e.account.kind}" on ${accountKey(e.account)} — a kind outside the lock list is not available ` +
+          `and cannot fund a hold, escrow, stake, or collateral (§4.2)`,
+      );
     }
   }
 

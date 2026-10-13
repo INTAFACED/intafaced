@@ -68,18 +68,16 @@ function scanProductionRecipeCallers(): Map<string, string[]> {
   return found;
 }
 
+/** Frozen 12-hex digests. Editing a socket reason must change reasonFingerprint(row.reason) and fail the pin. */
 const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
-  { name: 'marketMakerSeedFund', fingerprint: reasonFingerprint(RECIPE_MATRIX.marketMakerSeedFund.reason) },
-  { name: 'futuresInsuranceTopup', fingerprint: reasonFingerprint(RECIPE_MATRIX.futuresInsuranceTopup.reason) },
-  { name: 'chargebackOpen', fingerprint: reasonFingerprint(RECIPE_MATRIX.chargebackOpen.reason) },
-  { name: 'chargebackShortfall', fingerprint: reasonFingerprint(RECIPE_MATRIX.chargebackShortfall.reason) },
-  { name: 'chargebackWon', fingerprint: reasonFingerprint(RECIPE_MATRIX.chargebackWon.reason) },
-  {
-    name: 'chargebackShortfallRecovered',
-    fingerprint: reasonFingerprint(RECIPE_MATRIX.chargebackShortfallRecovered.reason),
-  },
-  { name: 'marketListingFee', fingerprint: reasonFingerprint(RECIPE_MATRIX.marketListingFee.reason) },
-  { name: 'marketPremiumPlacement', fingerprint: reasonFingerprint(RECIPE_MATRIX.marketPremiumPlacement.reason) },
+  { name: 'marketMakerSeedFund', fingerprint: 'f0ed307f9c4c' },
+  { name: 'futuresInsuranceTopup', fingerprint: 'de1438cd42bc' },
+  { name: 'chargebackOpen', fingerprint: '2a3819e675b1' },
+  { name: 'chargebackShortfall', fingerprint: '79e7dbc26929' },
+  { name: 'chargebackWon', fingerprint: 'fec62702951c' },
+  { name: 'chargebackShortfallRecovered', fingerprint: 'a132139e8754' },
+  { name: 'marketListingFee', fingerprint: 'c6b5159bbd35' },
+  { name: 'marketPremiumPlacement', fingerprint: 'ef52f37a4786' },
 ];
 
 /**

@@ -1,8 +1,9 @@
 /**
  * Trailing stop through matching. The stop walks with the mark.
- * Refuse if trail is missing. The engine does not invent a mark.
+ * Trail and peak ride the book snapshot. Refuse if trail is missing.
+ * The engine does not invent a mark.
  */
-import { ZERO, formatAmount, type Amount } from '@intafaced/ledger-client/money';
+import { ZERO, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import { OrderBook } from './book.js';
 import './option.js';
 import './oco-link.js';
@@ -101,6 +102,33 @@ function remember(book: OrderBook, orderId: string, rec: TrailLive): void {
   rows.set(orderId, rec);
 }
 
+/** Sell tightens by raising the trigger. Buy tightens by lowering it. */
+function triggerTightened(side: OrderSide, next: Amount, current: Amount): boolean {
+  return side === 'sell' ? next > current : next < current;
+}
+
+/**
+ * Live rows for this book. A restored book has an empty map, so the rows are
+ * rebuilt from resting stops that already carry a trail and a peak.
+ * A missing trail or a missing peak is not a trailing stop — never invented.
+ */
+function rowsFor(book: OrderBook): Map<string, TrailLive> {
+  let rows = live.get(book);
+  if (!rows) {
+    rows = new Map();
+    live.set(book, rows);
+  }
+  for (const stop of book.toState().stops) {
+    if (rows.has(stop.orderId)) continue;
+    if (stop.trail == null || stop.peak == null) continue;
+    const trail = parseAmount(stop.trail);
+    const peak = parseAmount(stop.peak);
+    if (trail <= ZERO || peak <= ZERO) continue;
+    rows.set(stop.orderId, { side: stop.side, trail, peak });
+  }
+  return rows;
+}
+
 /** Injected mark. Walks every live trailing stop on this book. Never invents one. */
 export function applyMark(
   book: OrderBook,
@@ -108,8 +136,8 @@ export function applyMark(
 ): { readonly refused: { readonly code: TrailingRefuse; readonly message: string } | null } {
   const refuse = markRefuse(mark);
   if (refuse) return { refused: refuse };
-  const rows = live.get(book);
-  if (!rows || mark === null) return { refused: null };
+  if (mark === null) return { refused: null };
+  const rows = rowsFor(book);
   const state = book.toState();
   for (const [orderId, rec] of rows) {
     const stop = state.stops.find((s) => s.orderId === orderId);
@@ -117,15 +145,26 @@ export function applyMark(
       rows.delete(orderId);
       continue;
     }
-    const peak = ratchetPeak(rec.side, rec.peak, mark);
-    const next = walkStop(rec.side, peak, rec.trail);
-    rec.peak = peak;
-    if (next === null || formatAmount(next) === stop.stopPrice) continue;
-    book.amend({
+    const side = stop.side;
+    const peak = ratchetPeak(side, rec.peak, mark);
+    const next = walkStop(side, peak, rec.trail);
+    if (next === null || next <= ZERO) continue;
+    const current = parseAmount(stop.stopPrice);
+    if (!triggerTightened(side, next, current)) {
+      if (peak !== rec.peak && book.noteStopPeak(orderId, peak)) rec.peak = peak;
+      continue;
+    }
+    const amended = book.amend({
       orderId,
       expectedVersion: stop.version && stop.version > 0 ? stop.version : 1,
       stopPrice: next,
     });
+    if (!amended.accepted) continue;
+    if (!book.noteStopPeak(orderId, peak)) {
+      rows.delete(orderId);
+      continue;
+    }
+    rec.peak = peak;
   }
   return { refused: null };
 }

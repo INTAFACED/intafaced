@@ -11,6 +11,7 @@ import {
   LedgerError,
   MemoryLedger,
   earnPoolReserve,
+  earnStakeAccount,
   formatAmount,
   houseFees,
   parseAmount as amt,
@@ -112,6 +113,86 @@ describe('svc-bank money (source)', () => {
     expect(src).not.toMatch(/\bit\.skip\s*\(/);
   });
 });
+
+/**
+ * One `information_schema.columns` row. Precision and scale are type metadata,
+ * not a money amount.
+ */
+type BankSchemaColumn = {
+  table_name: string;
+  column_name: string;
+  data_type: string;
+  numeric_precision: number | null;
+  numeric_scale: number | null;
+};
+
+function bankColumnRef(column: Pick<BankSchemaColumn, 'table_name' | 'column_name'>): string {
+  return `${column.table_name}.${column.column_name}`;
+}
+
+type MoneyColumnGuardResult = {
+  ok: boolean;
+  illegalType: string[];
+  wrongScale: string[];
+  undeclared: string[];
+  missing: string[];
+};
+
+const ILLEGAL_MONEY_DATA_TYPES = new Set(['double precision', 'real', 'money']);
+
+/**
+ * Columns the schema guard treats as money, judged against the allowlist.
+ * Legal money is `numeric(38,18)` and named on the allowlist. `double precision`,
+ * `real`, and `money` fail even when named there. `numeric(38)` at any other
+ * scale fails even when named there.
+ */
+function moneyColumnGuard(columns: readonly BankSchemaColumn[], allowlist: Readonly<Record<string, string>>): MoneyColumnGuardResult {
+  const illegalType = columns.filter((column) => ILLEGAL_MONEY_DATA_TYPES.has(column.data_type)).map(bankColumnRef);
+  const wrongScale = columns
+    .filter((column) => column.data_type === 'numeric' && column.numeric_precision === 38 && column.numeric_scale !== 18)
+    .map(bankColumnRef);
+  const exact = columns
+    .filter((column) => column.data_type === 'numeric' && column.numeric_precision === 38 && column.numeric_scale === 18)
+    .map(bankColumnRef);
+  const undeclared = exact.filter((name) => !(name in allowlist));
+  const present = new Set(exact);
+  const missing = Object.keys(allowlist).filter((name) => !present.has(name));
+  return {
+    ok: illegalType.length === 0 && wrongScale.length === 0 && undeclared.length === 0 && missing.length === 0,
+    illegalType,
+    wrongScale,
+    undeclared,
+    missing,
+  };
+}
+
+function moneyScaleFixtureRow(
+  column_name: string,
+  data_type: string,
+  numeric_precision: number | null,
+  numeric_scale: number | null,
+): BankSchemaColumn {
+  return { table_name: 'fixture', column_name, data_type, numeric_precision, numeric_scale };
+}
+
+/** In-memory column rows. Nothing here is created in the bank schema. */
+function moneyScaleFixtureReport(): Record<string, { ok: boolean; illegalType: string[]; wrongScale: string[] }> {
+  const allowlist: Record<string, string> = {
+    'fixture.kept': 'an allowlisted numeric(38,18) column',
+  };
+  const kept = moneyScaleFixtureRow('kept', 'numeric', 38, 18);
+  const judge = (columns: readonly BankSchemaColumn[]) => {
+    const result = moneyColumnGuard(columns, allowlist);
+    return { ok: result.ok, illegalType: result.illegalType, wrongScale: result.wrongScale };
+  };
+  return {
+    'numeric(38,18)': judge([kept]),
+    'double precision': judge([kept, moneyScaleFixtureRow('slipped', 'double precision', 53, null)]),
+    real: judge([kept, moneyScaleFixtureRow('slipped', 'real', 24, null)]),
+    money: judge([kept, moneyScaleFixtureRow('slipped', 'money', null, null)]),
+    'numeric(38) scale not 18': judge([moneyScaleFixtureRow('kept', 'numeric', 38, 0)]),
+  };
+}
 
 describe('svc-bank money PG-hard', () => {
   // 0002 is in the list so THE SCHEMA GUARD BELOW SEES THE LOAN TABLES: what
@@ -257,6 +338,108 @@ describe('svc-bank money PG-hard', () => {
     it('refuses to archive the primary space — it is the account itself', async () => {
       const primary = await bank.spaces.ensurePrimary(USER_A, 'USDT');
       await expect(bank.spaces.archive(primary.id)).rejects.toMatchObject({ code: 'bank.space_archived' });
+    });
+
+    it('archive of a funded named space leaves the subaccount balance and closes the books', async () => {
+      const primary = await bank.spaces.ensurePrimary(USER_A, 'USDT');
+      const pot = await bank.spaces.create({ userId: USER_A, assetId: 'USDT', name: 'Holiday' });
+      await fund(USER_A, 'USDT', '100');
+      await bank.transfers.transfer({ transferId: 'seed-holiday-archive', fromSpaceId: primary.id, toSpaceId: pot.id, amount: amt('40') });
+
+      const posts = ledger.journal().length;
+      await bank.spaces.archive(pot.id);
+
+      expect(ledger.journal().length).toBe(posts);
+      expect(formatAmount((await ledger.balance(subAccountAvailable(pot.id, 'USDT'))).amount)).toBe('40');
+      expect(await availableOf(USER_A, 'USDT')).toBe('60');
+      expect(ledger.totalsByAsset().USDT).toBe('0');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('overview still returns an archived named space while its balance is greater than zero', async () => {
+      const primary = await bank.spaces.ensurePrimary(USER_A, 'USDT');
+      const pot = await bank.spaces.create({ userId: USER_A, assetId: 'USDT', name: 'Holiday' });
+      await fund(USER_A, 'USDT', '100');
+      await bank.transfers.transfer({ transferId: 'seed-holiday-visible', fromSpaceId: primary.id, toSpaceId: pot.id, amount: amt('40') });
+      await bank.spaces.archive(pot.id);
+
+      const overview = await bank.spaces.overview(USER_A, undefined, 50);
+      const visible = overview.find((space) => space.id === pot.id);
+      expect(visible).toMatchObject({ name: 'Holiday', balance: '40', kind: 'named' });
+      expect(visible?.archivedAt).toBeInstanceOf(Date);
+      expect(typeof visible?.balance).toBe('string');
+    });
+
+    it('overview omits an archived named space whose balance is zero', async () => {
+      await bank.spaces.ensurePrimary(USER_A, 'USDT');
+      const empty = await bank.spaces.create({ userId: USER_A, assetId: 'USDT', name: 'Empty jar' });
+      await bank.spaces.archive(empty.id);
+
+      const overview = await bank.spaces.overview(USER_A, undefined, 50);
+      expect(overview.map((space) => space.id)).not.toContain(empty.id);
+      expect(overview.map((space) => space.name)).toContain('Main');
+    });
+
+    it('resolveForDebit and resolveForCredit still refuse an archived space', async () => {
+      const primary = await bank.spaces.ensurePrimary(USER_A, 'USDT');
+      const pot = await bank.spaces.create({ userId: USER_A, assetId: 'USDT', name: 'Holiday' });
+      await fund(USER_A, 'USDT', '100');
+      await bank.transfers.transfer({ transferId: 'seed-holiday-refuse', fromSpaceId: primary.id, toSpaceId: pot.id, amount: amt('40') });
+      await bank.spaces.archive(pot.id);
+
+      await expect(bank.spaces.resolveForDebit(pot.id, new Date())).rejects.toMatchObject({ code: 'bank.space_archived' });
+      await expect(bank.spaces.resolveForCredit(pot.id)).rejects.toMatchObject({ code: 'bank.space_archived' });
+      expect(formatAmount((await ledger.balance(subAccountAvailable(pot.id, 'USDT'))).amount)).toBe('40');
+    });
+
+    it('unarchive posts nothing, returns the space to list, and a transfer out closes the books', async () => {
+      const primary = await bank.spaces.ensurePrimary(USER_A, 'USDT');
+      const pot = await bank.spaces.create({ userId: USER_A, assetId: 'USDT', name: 'Holiday' });
+      await fund(USER_A, 'USDT', '100');
+      await bank.transfers.transfer({ transferId: 'seed-holiday-out', fromSpaceId: primary.id, toSpaceId: pot.id, amount: amt('40') });
+      await bank.spaces.archive(pot.id);
+
+      const posts = ledger.journal().length;
+      await bank.spaces.unarchive(pot.id);
+      expect(ledger.journal().length).toBe(posts);
+      expect(formatAmount((await ledger.balance(subAccountAvailable(pot.id, 'USDT'))).amount)).toBe('40');
+      expect(ledger.totalsByAsset().USDT).toBe('0');
+
+      const listed = await bank.spaces.list(USER_A, 'USDT', 50);
+      const back = listed.find((space) => space.id === pot.id);
+      expect(back?.archivedAt).toBeNull();
+      expect(back?.name).toBe('Holiday');
+
+      await bank.transfers.transfer({ transferId: 'unarchive-to-primary', fromSpaceId: pot.id, toSpaceId: primary.id, amount: amt('40') });
+      expect(formatAmount((await ledger.balance(subAccountAvailable(pot.id, 'USDT'))).amount)).toBe('0');
+      expect(await availableOf(USER_A, 'USDT')).toBe('100');
+      expect(ledger.totalsByAsset().USDT).toBe('0');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('unarchive of a live named space is a no-op and posts nothing', async () => {
+      const pot = await bank.spaces.create({ userId: USER_A, assetId: 'USDT', name: 'Holiday' });
+      const before = await sql<Array<{ updated_at: Date; archived_at: Date | null }>>`
+        SELECT updated_at, archived_at FROM bank.spaces WHERE id = ${pot.id}
+      `;
+      const posts = ledger.journal().length;
+
+      await bank.spaces.unarchive(pot.id);
+
+      const after = await sql<Array<{ updated_at: Date; archived_at: Date | null }>>`
+        SELECT updated_at, archived_at FROM bank.spaces WHERE id = ${pot.id}
+      `;
+      expect(ledger.journal().length).toBe(posts);
+      expect(after[0]?.archived_at).toBeNull();
+      expect(after[0]?.updated_at?.getTime()).toBe(before[0]?.updated_at?.getTime());
+    });
+
+    it('refuses to unarchive a missing space or the primary space', async () => {
+      const primary = await bank.spaces.ensurePrimary(USER_A, 'USDT');
+      await expect(bank.spaces.unarchive('44444444-4444-4444-8444-444444444444')).rejects.toMatchObject({
+        code: 'bank.space_not_found',
+      });
+      await expect(bank.spaces.unarchive(primary.id)).rejects.toMatchObject({ code: 'bank.space_archived' });
     });
   });
 
@@ -803,7 +986,8 @@ describe('svc-bank money PG-hard', () => {
     });
 
     it('does not retry an occurrence that was rejected — a missed March is not made up in April', async () => {
-      const { rent, schedule } = await standingOrder('100', 'monthly');
+      // Midnight anchor: occurrence 1 is due at 2026-02-01T00:00:00Z, not 09:00.
+      const { rent, schedule } = await standingOrder('100', 'monthly', new Date('2026-01-01T00:00:00Z'));
 
       await bank.transfers.runDueTransfers({ now: new Date('2026-01-01T10:00:00Z'), limit: 200 });
       // Money arrives afterwards; the January occurrence must stay rejected.
@@ -811,9 +995,20 @@ describe('svc-bank money PG-hard', () => {
       await bank.transfers.runDueTransfers({ now: new Date('2026-01-15T10:00:00Z'), limit: 200 });
 
       expect(formatAmount(await bank.spaces.balanceOf(rent))).toBe('0');
+      const january = await bank.transfers.executions(schedule.id, 50);
+      expect(january).toHaveLength(1);
+      expect(january[0]).toMatchObject({ occurrence: 0, status: 'rejected', amount: '100' });
+
+      const february = await bank.transfers.runDueTransfers({ now: new Date('2026-02-01T00:00:00Z'), limit: 200 });
+
+      // February pays its own occurrence once. Rejected January is not repaid.
+      expect(february.settled).toBe(1);
+      expect(february.rejected).toBe(0);
+      expect(formatAmount(await bank.spaces.balanceOf(rent))).toBe('100');
       const executions = await bank.transfers.executions(schedule.id, 50);
-      expect(executions).toHaveLength(1);
-      expect(executions[0]?.status).toBe('rejected');
+      expect(executions).toHaveLength(2);
+      expect(executions[0]).toMatchObject({ occurrence: 0, status: 'rejected', amount: '100' });
+      expect(executions[1]).toMatchObject({ occurrence: 1, status: 'settled', amount: '100' });
     });
 
     it('fires every occurrence exactly once across a catch-up run', async () => {
@@ -1419,7 +1614,15 @@ describe('svc-bank money PG-hard', () => {
       const position = await bank.earn.deposit({ positionId: randomUUID(), poolId: pool.id, userId: USER_A, amount: amt('400') });
 
       await bank.earn.withdraw(position.id, new Date(Date.now() + 100 * DAY_MS));
+
+      // A credit back to available is not a close. The stake pot, the row, and the books have to agree.
       expect(await availableOf(USER_A, 'USDT')).toBe('1000');
+      expect(await stakedOf(USER_A, 'USDT')).toBe('0');
+      const row = await sql<Array<{ status: string }>>`
+        SELECT status FROM bank.earn_positions WHERE id = ${position.id}
+      `;
+      expect(row[0]!.status).toBe('closed');
+      expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
     it('refuses to withdraw twice — the principal is returned exactly once', async () => {
@@ -1448,7 +1651,14 @@ describe('svc-bank money PG-hard', () => {
       );
 
       expect(results.filter((r) => r === 'ok')).toHaveLength(1);
+      // A credit back to available is not a close. One winner releases the stake; the row and the books have to agree.
       expect(await availableOf(USER_A, 'USDT')).toBe('1000');
+      expect(await stakedOf(USER_A, 'USDT')).toBe('0');
+      const row = await sql<Array<{ status: string }>>`
+        SELECT status FROM bank.earn_positions WHERE id = ${position.id}
+      `;
+      expect(row[0]!.status).toBe('closed');
+      expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
     it('enforces the minimum deposit', async () => {
@@ -1588,6 +1798,123 @@ describe('svc-bank money PG-hard', () => {
       expect(formatAmount(await bank.earn.stakedOf(USER_A, 'USDT'))).toBe('1000');
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
+
+    it('refuses a withdraw when the column is below the stake pot, so the remainder is not stranded', async () => {
+      const pool = await openPool();
+      await fund(USER_A, 'USDT', '1000');
+      const position = await bank.earn.deposit({
+        positionId: randomUUID(),
+        poolId: pool.id,
+        userId: USER_A,
+        amount: amt('1000'),
+      });
+
+      // Column 400, pot 1000. Paying the column and closing the row leaves 600
+      // in the pot with no position left to withdraw it.
+      await sql`UPDATE bank.earn_positions SET principal = '400' WHERE id = ${position.id}`;
+
+      const withdraw = await bank.earn.withdraw(position.id).then(
+        () => 'paid',
+        (err: unknown) => (err instanceof BankError ? err.code : 'other'),
+      );
+      const row = await sql<Array<{ status: string }>>`
+        SELECT status FROM bank.earn_positions WHERE id = ${position.id}
+      `;
+      const pot = formatAmount((await ledger.balance(earnStakeAccount(USER_A, 'USDT', position.id))).amount);
+
+      expect({
+        withdraw,
+        status: row[0]!.status,
+        available: await availableOf(USER_A, 'USDT'),
+        pot,
+      }).toEqual({
+        withdraw: 'bank.earn_principal_mismatch',
+        status: 'active',
+        available: '0',
+        pot: '1000',
+      });
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('closes the row on retry when earn withdraw already posted and the close did not commit', async () => {
+      const pool = await openPool({ apr: 3650 });
+      await accrueBankFees('USDT', '10000');
+      await bank.earn.fundPool({ poolId: pool.id, fundingId: 'crash-close-seed', amount: amt('10000') });
+
+      await fund(USER_A, 'USDT', '1000');
+      await fund(USER_B, 'USDT', '1000');
+      const opened = new Date('2026-03-01T00:00:00Z');
+      const crashed = await bank.earn.deposit({
+        positionId: randomUUID(),
+        poolId: pool.id,
+        userId: USER_A,
+        amount: amt('1000'),
+        now: opened,
+      });
+      const healthy = await bank.earn.deposit({
+        positionId: randomUUID(),
+        poolId: pool.id,
+        userId: USER_B,
+        amount: amt('1000'),
+        now: opened,
+      });
+
+      // The ledger commit landed; the bank close did not. Pot is 0, available
+      // already holds the principal, and the row is still active.
+      await ledger.post(
+        recipes.earnWithdraw({
+          positionId: crashed.id,
+          poolId: pool.id,
+          userId: USER_A,
+          assetId: 'USDT',
+          amount: amt('1000'),
+        }),
+      );
+
+      const potOf = async (userId: string, positionId: string) =>
+        formatAmount((await ledger.balance(earnStakeAccount(userId, 'USDT', positionId))).amount);
+      const statusOf = async (positionId: string) => {
+        const rows = await sql<Array<{ status: string }>>`
+          SELECT status FROM bank.earn_positions WHERE id = ${positionId}
+        `;
+        return rows[0]!.status;
+      };
+      const withdrawPosts = () => ledger.journal().filter((tx) => tx.idempotencyKey === `bank.earn.withdraw:${crashed.id}`);
+
+      expect(await statusOf(crashed.id)).toBe('active');
+      expect(await potOf(USER_A, crashed.id)).toBe('0');
+      expect(await availableOf(USER_A, 'USDT')).toBe('1000');
+      expect(withdrawPosts()).toHaveLength(1);
+      await expect(bank.earn.principalOf(USER_A, 'USDT')).rejects.toMatchObject({
+        code: 'bank.earn_principal_mismatch',
+      });
+      await expect(bank.earn.poolSize(pool.id)).rejects.toMatchObject({
+        code: 'bank.earn_principal_mismatch',
+      });
+      await expect(bank.earn.accrue({ poolId: pool.id, at: new Date('2026-03-02T00:00:00Z') })).rejects.toMatchObject({
+        code: 'bank.earn_principal_mismatch',
+      });
+
+      const closed = await bank.earn.withdraw(crashed.id);
+
+      expect(closed.status).toBe('closed');
+      expect(await statusOf(crashed.id)).toBe('closed');
+      expect(await availableOf(USER_A, 'USDT')).toBe('1000');
+      expect(await potOf(USER_A, crashed.id)).toBe('0');
+      expect(await potOf(USER_B, healthy.id)).toBe('1000');
+      expect(await statusOf(healthy.id)).toBe('active');
+      expect(withdrawPosts()).toHaveLength(1);
+      expect(formatAmount(await bank.earn.principalOf(USER_A, 'USDT'))).toBe('0');
+      expect(formatAmount(await bank.earn.principalOf(USER_B, 'USDT'))).toBe('1000');
+      expect(formatAmount(await bank.earn.poolSize(pool.id))).toBe('1000');
+
+      const day = await bank.earn.accrue({ poolId: pool.id, at: new Date('2026-03-02T00:00:00Z') });
+      expect(formatAmount(day.paid)).toBe('1');
+      expect(day.recipients).toBe(1);
+      expect(await availableOf(USER_B, 'USDT')).toBe('1');
+      expect(await availableOf(USER_A, 'USDT')).toBe('1000');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
   });
 
   // ══ Interest accrual ══════════════════════════════════════════════════════
@@ -1707,6 +2034,11 @@ describe('svc-bank money PG-hard', () => {
       await bank.earn.fundPool({ poolId: pool.id, fundingId: 'rescue-1', amount: amt('100') });
       const rescued = await bank.earn.accrue({ poolId: pool.id, at: new Date('2026-03-02T00:00:00Z') });
       expect(formatAmount(rescued.paid)).toBe('1');
+      expect(await availableOf(USER_A, 'USDT')).toBe('1');
+      expect(formatAmount(await bank.earn.reserveBalance(pool.id))).toBe('99');
+      const rescuedRows = await sql`SELECT id FROM bank.interest_accruals WHERE pool_id = ${pool.id}`;
+      expect(rescuedRows).toHaveLength(1);
+      expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
     /**
@@ -1746,6 +2078,10 @@ describe('svc-bank money PG-hard', () => {
       );
       expect(report.results.some((r) => r.poolId === healthy.id && formatAmount(r.paid) === '1')).toBe(true);
       expect(await availableOf(USER_B, 'USDT')).toBe('1');
+      // A deposited their whole balance into the unfunded pool. pool_underfunded
+      // is not proof they were unpaid, and this accrue must not invent a credit.
+      expect(await availableOf(USER_A, 'USDT')).toBe('0');
+      expect(ledger.journal().some((tx) => tx.reason === 'bank.earn.interest' && tx.meta.poolId === empty.id)).toBe(false);
       // Empty day not consumed.
       const emptyRows = await sql`SELECT id FROM bank.interest_accruals WHERE pool_id = ${empty.id}`;
       expect(emptyRows).toHaveLength(0);
@@ -2023,6 +2359,9 @@ describe('svc-bank money PG-hard', () => {
       // shows as an outflow of 200 with a matching inflow — moving your own
       // money between your own pots is not spending it.
       expect(summary.outflowByCategory.transfers).toBe('200');
+      // fund() posts deposit.credited for 1000. That arrival is a deposit, not a reward.
+      expect(summary.outflowByCategory.deposits).toBe('1000');
+      expect(summary.outflowByCategory.rewards).toBe('0');
       expect(summary.totalOutflow).toBe('205');
       expect(summary.totalInflow).toBe('1200');
     });
@@ -2041,6 +2380,7 @@ describe('svc-bank money PG-hard', () => {
 
       expect(summary.movements).toBe(0);
       expect(summary.totalOutflow).toBe('0');
+      expect(summary.outflowByCategory.deposits).toBe('0');
     });
 
     it('gives the same answer twice — nothing is consumed by asking', async () => {
@@ -2226,14 +2566,23 @@ describe('svc-bank money PG-hard', () => {
      * red, with the doctrine quoted in the failure.
      */
     it('has NO balance-like column anywhere in the bank schema', async () => {
-      const columns = await sql<Array<{ table_name: string; column_name: string; data_type: string; numeric_precision: number | null }>>`
-        SELECT table_name, column_name, data_type, numeric_precision
+      expect(moneyScaleFixtureReport()).toEqual({
+        'numeric(38,18)': { ok: true, illegalType: [], wrongScale: [] },
+        'double precision': { ok: false, illegalType: ['fixture.slipped'], wrongScale: [] },
+        real: { ok: false, illegalType: ['fixture.slipped'], wrongScale: [] },
+        money: { ok: false, illegalType: ['fixture.slipped'], wrongScale: [] },
+        'numeric(38) scale not 18': { ok: false, illegalType: [], wrongScale: ['fixture.kept'] },
+      });
+
+      const columns = await sql<BankSchemaColumn[]>`
+        SELECT table_name, column_name, data_type, numeric_precision, numeric_scale
           FROM information_schema.columns
          WHERE table_schema = 'bank' AND table_name <> '__migrations'
          ORDER BY table_name, column_name
       `;
 
       expect(columns.length).toBeGreaterThan(0);
+      expect(columns.every((column) => Object.hasOwn(column, 'numeric_scale'))).toBe(true);
 
       // Names that describe an accumulating figure — a second source of truth
       // for money by any other name.
@@ -2266,7 +2615,8 @@ describe('svc-bank money PG-hard', () => {
        * Every money-typed column, with the reason it is not a balance. A new
        * numeric(38,18) column fails here until someone writes down which of the
        * three legitimate kinds it is: a policy limit, a goal, an instruction, or
-       * a record of one completed event.
+       * a record of one completed event. double precision, real, money, and an
+       * allowlisted numeric(38) whose scale is not 18 fail as well.
        */
       const MONEY_COLUMNS: Record<string, string> = {
         'spaces.goal_target': 'a savings TARGET the user set — never written by a money path',
@@ -2356,21 +2706,25 @@ describe('svc-bank money PG-hard', () => {
         'business_payroll_lines.amount': 'a RECORD of one payroll line; written once with the run',
       };
 
-      const moneyColumns = columns
-        .filter((c) => c.data_type === 'numeric' && c.numeric_precision === 38)
-        .map((c) => `${c.table_name}.${c.column_name}`);
-
-      const undeclared = moneyColumns.filter((c) => !(c in MONEY_COLUMNS));
+      const guard = moneyColumnGuard(columns, MONEY_COLUMNS);
       expect(
-        undeclared,
+        guard.illegalType,
+        `A money column must be numeric(38,18). double precision, real, and money are not: ${guard.illegalType.join(', ')}`,
+      ).toEqual([]);
+      expect(
+        guard.wrongScale,
+        `A money column must be numeric(38,18). numeric(38) at another scale is not: ${guard.wrongScale.join(', ')}`,
+      ).toEqual([]);
+      expect(
+        guard.undeclared,
         `Every money column in svc-bank must be a policy limit, a goal, an instruction, or a record of a ` +
-          `completed event — never a running figure. Undeclared: ${undeclared.join(', ')}`,
+          `completed event — never a running figure. Undeclared: ${guard.undeclared.join(', ')}`,
       ).toEqual([]);
 
       // And the allowlist must not rot: a declared column that no longer exists
-      // means the reasoning above is stale.
-      const missing = Object.keys(MONEY_COLUMNS).filter((c) => !moneyColumns.includes(c));
-      expect(missing).toEqual([]);
+      // means the reasoning above is stale. A declared numeric(38) whose scale
+      // is not 18 is absent from the exact set, so it fails here too.
+      expect(guard.missing).toEqual([]);
     });
 
     it('never writes to a money column after the row is created', async () => {
@@ -2541,7 +2895,7 @@ describe('svc-bank money PG-hard', () => {
       expect(categorise('p2p.escrow.lock')).toBe('p2p');
       expect(categorise('fee.charged')).toBe('fees');
       expect(categorise('withdraw.settled')).toBe('withdrawals');
-      expect(categorise('deposit.credited')).toBe('rewards');
+      expect(categorise('deposit.credited')).toBe('deposits');
     });
 
     it('never drops an unknown reason', () => {
@@ -2832,6 +3186,23 @@ describe('svc-bank money PG-hard', () => {
 
       const err = await api.spaces.archive({ spaceId: space.id }).catch((e: unknown) => e);
       expect(codeOf(err)).toBe('FORBIDDEN');
+    });
+
+    it('spaces.unarchive uses the same ownership refusal as spaces.archive', async () => {
+      const space = await bank.spaces.create({ userId: USER_A, assetId: 'USDT', name: 'Rent' });
+      const owner = await caller(USER_A, ['bank:write']);
+      const stranger = await caller(USER_B, ['bank:write']);
+      await owner.spaces.archive({ spaceId: space.id });
+
+      const archived = await stranger.spaces.archive({ spaceId: space.id }).catch((e: unknown) => e);
+      const unarchived = await stranger.spaces.unarchive({ spaceId: space.id }).catch((e: unknown) => e);
+
+      expect(codeOf(unarchived)).toBe('FORBIDDEN');
+      expect((unarchived as Error).message).toBe((archived as Error).message);
+      expect((await bank.spaces.get(space.id)).archivedAt).toBeInstanceOf(Date);
+
+      await expect(owner.spaces.unarchive({ spaceId: space.id })).resolves.toEqual({ archived: false });
+      expect((await bank.spaces.get(space.id)).archivedAt).toBeNull();
     });
   });
 

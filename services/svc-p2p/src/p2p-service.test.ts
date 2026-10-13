@@ -7,6 +7,7 @@ import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
 import { MemoryEventBus, type Envelope, type EventName, type Payload, type PublishOptions } from '@intafaced/events';
 import {
   MemoryLedger,
+  InsufficientFundsError,
   formatAmount,
   parseAmount as amt,
   recipes,
@@ -1354,9 +1355,7 @@ describe('svc-p2p escrow', () => {
       await p2p.confirmFiatReceived(trade.id, MAKER);
 
       // Even going behind the service, the row physically cannot claim both.
-      await expect(sql`UPDATE p2p.p2p_trades SET resolution = 'refunded' WHERE id = ${trade.id}`).rejects.toThrow(
-        /p2p_trades_resolution_matches_status_ck/,
-      );
+      await expect(sql`UPDATE p2p.p2p_trades SET resolution = 'refunded' WHERE id = ${trade.id}`).rejects.toThrow(/terminal decision/);
     });
 
     it('refuses a terminal trade a deadline, so the sweeper can never re-resolve it', async () => {
@@ -1865,14 +1864,28 @@ describe('svc-p2p escrow', () => {
       expect(await escrowOf(MAKER)).toBe('100');
     });
 
-    it('unwinds a trade that was reserved but never escrowed', async () => {
-      // The `created` window: nothing is locked, but the trade must still die.
-      const trade = await escrowedTrade('100');
-      await sql`
-        UPDATE p2p.p2p_trades
-           SET status = 'created', escrowed_at = NULL, deadline_at = now() - interval '1 hour'
-         WHERE id = ${trade.id}
-      `;
+    it('re-drives a lock with a lost acknowledgement from the original immutable claim', async () => {
+      await fund(MAKER, '1000');
+      const offer = await sellOffer();
+      const tradeId = crypto.randomUUID();
+      const originalPost = ledger.post.bind(ledger);
+      let loseAck = true;
+      ledger.post = async (request) => {
+        const receipt = await originalPost(request);
+        if (loseAck && request.idempotencyKey === `p2p.escrow.lock:${tradeId}`) {
+          loseAck = false;
+          throw new Error('lost lock acknowledgement');
+        }
+        return receipt;
+      };
+      await expect(p2p.takeOffer({ offerId: offer.id, takerId: TAKER, amount: amt('100'), method: 'sepa', tradeId })).rejects.toThrow(
+        'lost lock acknowledgement',
+      );
+      const trade = await p2p.getTrade(tradeId);
+      expect(trade.status).toBe('created');
+      expect(trade.escrowedAt).toBeNull();
+      expect(await escrowOf(MAKER)).toBe('100');
+      await sql`UPDATE p2p.p2p_trades SET deadline_at = now() - interval '1 hour' WHERE id = ${trade.id}`;
 
       await p2p.sweepDeadlines(undefined, 100);
 
@@ -2044,6 +2057,170 @@ describe('svc-p2p escrow', () => {
   // ── The settlement sweep — decided, but not yet posted ────────────────────
 
   describe('DECIDE THEN POST — a decision is never lost', () => {
+    it('serializes a definitive lock failure against another newly funded re-drive', async () => {
+      const offer = await sellOffer();
+      const tradeId = crypto.randomUUID();
+      const originalPost = ledger.post.bind(ledger);
+      let signalFailure!: () => void;
+      let releaseFailure!: () => void;
+      let releaseSecond!: () => void;
+      const failed = new Promise<void>((resolve) => {
+        signalFailure = resolve;
+      });
+      const failureGate = new Promise<void>((resolve) => {
+        releaseFailure = resolve;
+      });
+      const secondGate = new Promise<void>((resolve) => {
+        releaseSecond = resolve;
+      });
+      let lockAttempts = 0;
+      let secondPosted = false;
+      ledger.post = async (request) => {
+        if (request.idempotencyKey !== `p2p.escrow.lock:${tradeId}`) return originalPost(request);
+        lockAttempts += 1;
+        if (lockAttempts === 1) {
+          try {
+            return await originalPost(request);
+          } catch (error) {
+            signalFailure();
+            await failureGate;
+            throw error;
+          }
+        }
+        const receipt = await originalPost(request);
+        secondPosted = true;
+        await secondGate;
+        return receipt;
+      };
+      const taking = p2p
+        .takeOffer({ offerId: offer.id, takerId: TAKER, amount: amt('100'), method: 'sepa', tradeId })
+        .catch((error) => error);
+      let cancelling: Promise<unknown> | undefined;
+      try {
+        await failed;
+        // The first attempt definitely failed. Funds arrive while its response is delayed.
+        await fund(MAKER, '1000');
+        cancelling = p2p.cancelTrade(tradeId, MAKER).catch((error) => error);
+        let reached: 'blocked' | 'second_post' | undefined;
+        for (let i = 0; i < 100 && reached === undefined; i++) {
+          if (secondPosted) reached = 'second_post';
+          else {
+            const [row] = await sql<
+              { blocked: number }[]
+            >`SELECT count(*)::int AS blocked FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%p2p_trades%'`;
+            if (row?.blocked) reached = 'blocked';
+          }
+          if (!reached) await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        expect(reached).toBe('blocked');
+        expect(lockAttempts).toBe(1);
+      } finally {
+        releaseFailure();
+        releaseSecond();
+        const failure = await taking;
+        await cancelling;
+        expect(failure).toBeInstanceOf(InsufficientFundsError);
+      }
+      expect((await p2p.getTrade(tradeId)).resolution).toBe('voided');
+      expect(await availableOf(MAKER)).toBe('1000');
+      expect(await escrowOf(MAKER)).toBe('0');
+      await expectBooksClosed();
+    });
+
+    it('preserves the original lock intent when the SQL commit fails after the ledger acknowledges', async () => {
+      await fund(MAKER, '1000');
+      const offer = await sellOffer();
+      const tradeId = crypto.randomUUID();
+      let lockAttempts = 0;
+      const originalPost = ledger.post.bind(ledger);
+      ledger.post = async (request) => {
+        if (request.idempotencyKey === `p2p.escrow.lock:${tradeId}`) lockAttempts++;
+        return originalPost(request);
+      };
+      await sql.unsafe(
+        `CREATE FUNCTION p2p.fixture_reject_escrow_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status = 'escrowed' THEN RAISE EXCEPTION 'fixture escrow SQL commit failed' USING ERRCODE = 'serialization_failure'; END IF; RETURN NEW; END $$`,
+      );
+      await sql.unsafe(
+        `CREATE CONSTRAINT TRIGGER fixture_reject_escrow_commit AFTER UPDATE ON p2p.p2p_trades DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION p2p.fixture_reject_escrow_commit()`,
+      );
+      try {
+        await expect(p2p.takeOffer({ offerId: offer.id, takerId: TAKER, amount: amt('100'), method: 'sepa', tradeId })).rejects.toThrow(
+          'fixture escrow SQL commit failed',
+        );
+        expect((await p2p.getTrade(tradeId)).status).toBe('created');
+        expect((await p2p.getTrade(tradeId)).escrowedAt).toBeNull();
+        expect(await escrowOf(MAKER)).toBe('100');
+        expect(bus.emitted('p2pEscrowLocked')).toHaveLength(0);
+        expect(lockAttempts).toBe(1);
+        expect((await sql`SELECT escrow_lock_attempts::text AS attempts FROM p2p.p2p_trades WHERE id = ${tradeId}`)[0]?.attempts).toBe('1');
+        expect(formatAmount((await p2p.getOffer(offer.id)).remainingAmt)).toBe('400');
+      } finally {
+        await sql.unsafe('DROP TRIGGER IF EXISTS fixture_reject_escrow_commit ON p2p.p2p_trades');
+        await sql.unsafe('DROP FUNCTION IF EXISTS p2p.fixture_reject_escrow_commit()');
+      }
+      await sql`UPDATE p2p.p2p_trades SET deadline_at = now() - interval '1 hour' WHERE id = ${tradeId}`;
+      await p2p.sweepDeadlines(undefined, 100);
+      expect((await p2p.getTrade(tradeId)).resolution).toBe('refunded');
+      expect(await availableOf(MAKER)).toBe('1000');
+      expect(await escrowOf(MAKER)).toBe('0');
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey === `p2p.escrow.lock:${tradeId}`)).toHaveLength(1);
+      await expectBooksClosed();
+    });
+
+    it('replays the exact release after a committed post loses its acknowledgement', async () => {
+      const trade = await escrowedTrade('100');
+      const originalPost = ledger.post.bind(ledger);
+      let loseAck = true;
+      ledger.post = async (request) => {
+        const receipt = await originalPost(request);
+        if (loseAck && request.idempotencyKey === `p2p.escrow.release:${trade.id}`) {
+          loseAck = false;
+          throw new Error('lost release acknowledgement');
+        }
+        return receipt;
+      };
+      await expect(p2p.confirmFiatReceived(trade.id, MAKER)).rejects.toThrow('lost release acknowledgement');
+      expect((await p2p.getTrade(trade.id)).settledAt).toBeNull();
+      expect(await escrowOf(MAKER)).toBe('0');
+      await expect(sql`UPDATE p2p.p2p_trades SET fee_bps = 0 WHERE id = ${trade.id}`).rejects.toThrow(/immutable original terms/);
+      expect(await p2p.sweepSettlements(100)).toMatchObject({ settled: 1, failed: 0 });
+      expect(await availableOf(TAKER)).toBe('99');
+      expect(await houseOf()).toBe('1');
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey === `p2p.escrow.release:${trade.id}`)).toHaveLength(1);
+      await expectBooksClosed();
+    });
+
+    it('preserves an ambiguous lock intent and refuses a changed duplicate take before posting', async () => {
+      await fund(MAKER, '1000');
+      const offer = await sellOffer();
+      const tradeId = crypto.randomUUID();
+      const originalPost = ledger.post.bind(ledger);
+      let ambiguous = true;
+      let attempts = 0;
+      ledger.post = async (request) => {
+        if (request.idempotencyKey === `p2p.escrow.lock:${tradeId}`) {
+          attempts += 1;
+          if (ambiguous) {
+            ambiguous = false;
+            throw new Error('ledger outcome unknown');
+          }
+        }
+        return originalPost(request);
+      };
+      const input = { offerId: offer.id, takerId: TAKER, amount: amt('100'), method: 'sepa', tradeId };
+      await expect(p2p.takeOffer(input)).rejects.toThrow('ledger outcome unknown');
+      await expect(p2p.takeOffer({ ...input, amount: amt('101') })).rejects.toMatchObject({ code: 'p2p.trade_exists' });
+      await expect(p2p.takeOffer(input)).rejects.toMatchObject({ code: 'p2p.trade_exists' });
+      expect(attempts).toBe(1);
+      expect((await p2p.getTrade(tradeId)).amount).toBe(amt('100'));
+      expect((await p2p.getOffer(offer.id)).remainingAmt).toBe(amt('400'));
+      await sql`UPDATE p2p.p2p_trades SET deadline_at = now() - interval '1 hour' WHERE id = ${tradeId}`;
+      expect(await p2p.sweepDeadlines(undefined, 100)).toMatchObject({ swept: 1 });
+      expect(await availableOf(MAKER)).toBe('1000');
+      expect(await escrowOf(MAKER)).toBe('0');
+      await expectBooksClosed();
+    });
+
     it('posts a resolution that was recorded but never settled', async () => {
       const trade = await escrowedTrade('100');
 

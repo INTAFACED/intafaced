@@ -64,6 +64,16 @@ function toRecord(row: SpaceRow): SpaceRecord {
   };
 }
 
+/** Same order as the list SQL: asset, then primary before named, then name. */
+function orderSpaces(spaces: readonly SpaceRecord[], groupByAsset: boolean): SpaceRecord[] {
+  return [...spaces].sort((a, b) => {
+    if (groupByAsset && a.assetId !== b.assetId) return a.assetId < b.assetId ? -1 : 1;
+    if (a.kind !== b.kind) return a.kind === 'primary' ? -1 : 1;
+    if (a.name !== b.name) return a.name < b.name ? -1 : 1;
+    return a.id < b.id ? -1 : 1;
+  });
+}
+
 /**
  * THE MAPPING. One function, so "which ledger account is this space" has exactly
  * one answer and `grep` finds every caller.
@@ -173,8 +183,13 @@ export class SpaceService {
   }
 
   /**
-   * Work set of every live space. unnamedAssets / spendSummary — not a list page.
-   * A page here would hide named assets and invent unnamed ones.
+   * Work set of every space that can still hold a visible balance.
+   * unnamedAssets / spendSummary — not a list page. A page here would hide
+   * named assets and invent unnamed ones.
+   *
+   * Live rows always. An archived named space stays only while its ledger
+   * balance is greater than zero: the label is gone, the subaccount is not,
+   * and a zero row is just a retired name.
    */
   async namedSpaces(userId: string, assetId?: string): Promise<SpaceRecord[]> {
     const rows = assetId
@@ -188,7 +203,8 @@ export class SpaceService {
             FROM bank.spaces WHERE user_id = ${userId} AND archived_at IS NULL
             ORDER BY asset_id ASC, kind DESC, name ASC
         `;
-    return rows.map(toRecord);
+    const funded = await this.fundedArchived(userId, assetId);
+    return orderSpaces([...rows.map(toRecord), ...funded], assetId === undefined);
   }
 
   async list(userId: string, assetId?: string, limit?: number): Promise<SpaceRecord[]> {
@@ -206,7 +222,10 @@ export class SpaceService {
             ORDER BY asset_id ASC, kind DESC, name ASC
            LIMIT ${page}
         `;
-    return rows.map(toRecord);
+    // Funded archived pots are added after the live page. A cap on labels must
+    // not hide a subaccount that still holds value.
+    const funded = await this.fundedArchived(userId, assetId);
+    return orderSpaces([...rows.map(toRecord), ...funded], assetId === undefined);
   }
 
   /**
@@ -219,6 +238,14 @@ export class SpaceService {
    */
   async balanceOf(space: Pick<SpaceRecord, 'id' | 'userId' | 'assetId' | 'kind'>): Promise<Amount> {
     return (await this.ledger.balance(accountForSpace(space))).amount;
+  }
+
+  /**
+   * Paycheck deposit. Refuses until a paycheck rail exists.
+   * An amount on the call is not a credit and is not posted.
+   */
+  directDeposit(): never {
+    throw new BankError('Direct deposit is refused. The missing piece is an outside company, the paycheck rail.', 'bank.no_paycheck_rail');
   }
 
   /** Spaces with their ledger balances attached — the multi-currency overview (§8.1). */
@@ -280,6 +307,53 @@ export class SpaceService {
       throw new BankError('The primary space is the account itself and cannot be archived', 'bank.space_archived');
     }
     await this.sql`UPDATE bank.spaces SET archived_at = now(), updated_at = now() WHERE id = ${spaceId}`;
+  }
+
+  /**
+   * Clear the archive label. Posts nothing: the subaccount was never swept,
+   * so unarchive is the same kind of gesture as archive.
+   *
+   * A space that is already live is a no-op success. The primary space is
+   * refused with the same code as archive — it is the account, not a pot.
+   */
+  async unarchive(spaceId: string): Promise<void> {
+    const space = await this.get(spaceId);
+    if (space.kind === 'primary') {
+      throw new BankError('The primary space is the account itself and cannot be archived', 'bank.space_archived');
+    }
+    if (!space.archivedAt) return;
+    await this.sql`
+      UPDATE bank.spaces
+         SET archived_at = NULL, updated_at = now()
+       WHERE id = ${spaceId} AND archived_at IS NOT NULL
+    `;
+  }
+
+  /**
+   * Archived named spaces whose ledger balance is still greater than zero.
+   * The comparison stays on the scaled bigint from `balanceOf`. Zero stays out.
+   */
+  private async fundedArchived(userId: string, assetId?: string): Promise<SpaceRecord[]> {
+    const rows = assetId
+      ? await this.sql<SpaceRow[]>`
+          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+            FROM bank.spaces
+           WHERE user_id = ${userId} AND asset_id = ${assetId} AND kind = 'named' AND archived_at IS NOT NULL
+           ORDER BY name ASC
+        `
+      : await this.sql<SpaceRow[]>`
+          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+            FROM bank.spaces
+           WHERE user_id = ${userId} AND kind = 'named' AND archived_at IS NOT NULL
+           ORDER BY asset_id ASC, name ASC
+        `;
+    const funded: SpaceRecord[] = [];
+    for (const row of rows) {
+      const space = toRecord(row);
+      const balance = await this.balanceOf(space);
+      if (balance > 0n) funded.push(space);
+    }
+    return funded;
   }
 
   /** Set or clear the savings target. A goal, never a holding. */

@@ -150,6 +150,51 @@ describe('assertIdentitySessionPasskey', () => {
     ).rejects.toMatchObject({ code: 'auth.passkey_verify_unavailable' });
   });
 
+  it('tRPC envelope for a different user does not keep the stream open', async () => {
+    const other = '99999999-9999-4999-8999-999999999999';
+    await expect(
+      assertIdentitySessionPasskey({
+        ...options,
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              result: { data: { json: { userId: other, lastVerifiedAt: VERIFIED } } },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+      }),
+    ).rejects.toMatchObject({ code: 'auth.passkey_verify_unavailable' });
+  });
+
+  it('tRPC envelope for the requested user with an honest passkey keeps the stream open', async () => {
+    await expect(
+      assertIdentitySessionPasskey({
+        ...options,
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              result: { data: { json: { userId: USER, lastVerifiedAt: VERIFIED } } },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('missing userId on the request refuses', async () => {
+    await expect(
+      assertIdentitySessionPasskey({
+        ...options,
+        userId: '   ',
+        fetch: async () =>
+          new Response(JSON.stringify({ userId: USER, lastVerifiedAt: VERIFIED }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+      }),
+    ).rejects.toMatchObject({ code: 'auth.passkey_verify_unavailable' });
+  });
+
   it('empty creds cannot keep the stream open', async () => {
     await expect(
       assertIdentitySessionPasskey({

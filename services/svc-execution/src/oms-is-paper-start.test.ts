@@ -75,6 +75,25 @@ describe('startPaperImplementationShortfallParent', () => {
     ).toMatchObject({ ok: false, reason: 'not_approved' });
   });
 
+  it('refuses approved true when status is expired, stopped, or any other non-start status', () => {
+    for (const status of ['expired', 'stopped', 'filled']) {
+      const result = startPaperImplementationShortfallParent({
+        parentClientOrderId: 'p-is',
+        approved: true,
+        status,
+        arrivalPrice: '100.5',
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(result).toEqual({
+        ok: false,
+        reason: 'not_approved',
+        detail: 'parent p-is is not an approved paper parent',
+      });
+      expect(result).not.toMatchObject({ started: true, status: 'paper' });
+    }
+  });
+
   it('refuses missing / whitespace operator', () => {
     expect(
       startPaperImplementationShortfallParent({
@@ -197,5 +216,28 @@ describe('startPaperImplementationShortfallParent', () => {
       status: 'paper',
       arrivalPrice: '100.5',
     });
+  });
+
+  it("happy: approved true + status paper or approved + arrival '100.5' starts as paper", () => {
+    for (const status of ['paper', 'approved'] as const) {
+      expect(
+        startPaperImplementationShortfallParent({
+          parentClientOrderId: 'p-is',
+          approved: true,
+          status,
+          arrivalPrice: '100.5',
+          operatorId: OP,
+          paper: PAPER_ON,
+        }),
+      ).toEqual({
+        ok: true,
+        started: true,
+        paper: true,
+        parentClientOrderId: 'p-is',
+        kind: 'implementation_shortfall',
+        status: 'paper',
+        arrivalPrice: '100.5',
+      });
+    }
   });
 });

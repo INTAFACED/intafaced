@@ -39,36 +39,22 @@ function refuse(reason: OmsPaperVwapStartRefuseReason, detail: string): OmsPaper
   return { ok: false, reason, detail };
 }
 
-function parseRetainedTargetVolume(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperVwapStartRefusal {
+function parseRetainedTargetVolume(raw: string | null | undefined): { ok: true; text: string } | OmsPaperVwapStartRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'missing_target_volume',
-      'VWAP target volume is missing — refusing to invent volume or a live venue',
-    );
+    return refuse('missing_target_volume', 'VWAP target volume is missing — refusing to invent volume or a live venue');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'missing_target_volume',
-      'VWAP target volume is missing — refusing to invent volume or a live venue',
-    );
+    return refuse('missing_target_volume', 'VWAP target volume is missing — refusing to invent volume or a live venue');
   }
   try {
     const value = parseAmount(text);
     if (value <= 0n) {
-      return refuse(
-        'missing_target_volume',
-        'VWAP target volume must be a positive ledger amount — refusing to invent volume',
-      );
+      return refuse('missing_target_volume', 'VWAP target volume must be a positive ledger amount — refusing to invent volume');
     }
     return { ok: true, text: formatAmount(value) };
   } catch {
-    return refuse(
-      'missing_target_volume',
-      'VWAP target volume is not a ledger amount — refusing to invent volume',
-    );
+    return refuse('missing_target_volume', 'VWAP target volume is not a ledger amount — refusing to invent volume');
   }
 }
 
@@ -81,7 +67,7 @@ export function startPaperVwapParent(input: {
   kind?: string;
   /** Must be true — start needs an already-approved paper VWAP parent. */
   approved?: boolean;
-  /** Paper-approved status is 'paper'. Live running refuses already_started. */
+  /** Trimmed before compare. 'running' refuses already_started. A present blank or other non-startable status refuses not_approved. */
   status?: 'paper' | 'approved' | 'running' | string;
   /** Retained target volume from paper approve. Blank refuses — never invent volume. */
   targetVolume?: string | null;
@@ -101,13 +87,16 @@ export function startPaperVwapParent(input: {
   if (input.kind !== undefined && input.kind !== 'vwap') {
     return refuse('not_live', `kind ${String(input.kind)} is not vwap`);
   }
-  if (input.status === 'running') {
-    return refuse(
-      'already_started',
-      `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`,
-    );
+  const status = input.status?.trim();
+  if (status === 'running') {
+    return refuse('already_started', `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`);
   }
-  if (input.approved !== true && input.status !== 'paper' && input.status !== 'approved') {
+  // Trimmed '' is present. Only an omitted status is undefined and may follow approved.
+  const startableStatus = status === 'paper' || status === 'approved';
+  if (status !== undefined && !startableStatus) {
+    return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper VWAP parent`);
+  }
+  if (input.approved !== true && !startableStatus) {
     return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper VWAP parent`);
   }
   const operatorId = input.operatorId?.trim() ?? '';

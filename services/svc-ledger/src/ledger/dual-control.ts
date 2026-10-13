@@ -20,24 +20,32 @@ export function readConfirmOperatorId(cmd: { readonly confirmOperatorId?: string
   return trimmed.length === 0 ? null : trimmed;
 }
 
+/** Trim and fold hex case. Blank, whitespace, or the same UUID in another case is not a second person. */
+function canonicalOperatorId(raw: string | null): string | null {
+  if (raw === null) return null;
+  const folded = raw.trim().toLowerCase();
+  return folded.length === 0 ? null : folded;
+}
+
 export function dualControlRefuse(
   operatorId: string | null,
   confirmOperatorId: string | null,
 ): { readonly code: typeof MISSING_OPERATOR; readonly message: string } | null {
-  const actor = operatorId?.trim() ? operatorId.trim() : null;
+  const actor = canonicalOperatorId(operatorId);
+  const confirm = canonicalOperatorId(confirmOperatorId);
   if (actor === null) {
     return {
       code: MISSING_OPERATOR,
       message: 'operator identity is required; the ledger does not invent a caller',
     };
   }
-  if (confirmOperatorId === null) {
+  if (confirm === null) {
     return {
       code: MISSING_OPERATOR,
       message: 'confirming operator identity is required; the ledger does not invent a second caller',
     };
   }
-  if (confirmOperatorId === actor) {
+  if (confirm === actor) {
     return {
       code: MISSING_OPERATOR,
       message: 'confirming operator must be a distinct identity; the ledger does not invent a second caller',
@@ -49,5 +57,5 @@ export function dualControlRefuse(
 export function requireDualControl(operatorId: string | null, confirmOperatorId: string | null): string {
   const refuse = dualControlRefuse(operatorId, confirmOperatorId);
   if (refuse) throw new DualControlError(refuse.message);
-  return confirmOperatorId as string;
+  return canonicalOperatorId(confirmOperatorId) as string;
 }

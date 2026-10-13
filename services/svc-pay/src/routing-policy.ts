@@ -13,6 +13,11 @@ export const ROUTING_REQUIRED_DIMENSIONS = ['geo', 'method', 'risk'] as const;
 /** Named refuse codes on the product path. */
 export const ROUTING_INPUT_MISSING = 'pay.routing_input_missing' as const;
 export const ROUTING_NO_RAIL = 'pay.routing_no_rail' as const;
+/**
+ * No otherwise eligible rail carries an operator-declared success fraction.
+ * The selector throws this; the board must name it. Blank is not a rate.
+ */
+export const ROUTING_APPROVAL_RATE_UNSET = 'pay.routing_approval_rate_unset' as const;
 
 /** Append-only decision record kind for payment_events / operator logs. */
 export const ROUTING_DECISION_KIND = 'pay.routing.decision' as const;
@@ -26,7 +31,7 @@ export type RoutingPolicySummary = ReturnType<typeof describeRoutingPolicy>;
 export function describeRoutingPolicy() {
   return {
     requiredDimensions: [...ROUTING_REQUIRED_DIMENSIONS],
-    refuseCodes: [ROUTING_INPUT_MISSING, ROUTING_NO_RAIL] as const,
+    refuseCodes: [ROUTING_INPUT_MISSING, ROUTING_NO_RAIL, ROUTING_APPROVAL_RATE_UNSET] as const,
     decisionKind: ROUTING_DECISION_KIND,
     forbiddenScoreFields: [...FORBIDDEN_ROUTING_SCORE_FIELDS],
     referenceProfileRailIds: [...REFERENCE_PROFILE_RAIL_IDS],

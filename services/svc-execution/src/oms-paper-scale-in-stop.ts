@@ -7,12 +7,7 @@
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsPaperScaleInStopRefuseReason =
-  | 'missing_parent'
-  | 'not_running'
-  | 'already_stopped'
-  | 'not_live'
-  | 'paper_gate_unwired'
-  | 'paper_off';
+  'missing_parent' | 'not_running' | 'already_stopped' | 'not_live' | 'paper_gate_unwired' | 'paper_off';
 
 export type OmsPaperScaleInStopRefusal = {
   readonly ok: false;
@@ -32,14 +27,9 @@ export type OmsPaperScaleInStopOk = {
   readonly residual: { readonly remaining: string | null };
 };
 
-export type OmsPaperScaleInStopResult =
-  | OmsPaperScaleInStopOk
-  | OmsPaperScaleInStopRefusal;
+export type OmsPaperScaleInStopResult = OmsPaperScaleInStopOk | OmsPaperScaleInStopRefusal;
 
-function refuse(
-  reason: OmsPaperScaleInStopRefuseReason,
-  detail: string,
-): OmsPaperScaleInStopRefusal {
+function refuse(reason: OmsPaperScaleInStopRefuseReason, detail: string): OmsPaperScaleInStopRefusal {
   return { ok: false, reason, detail };
 }
 
@@ -77,10 +67,7 @@ export function stopPaperScaleInParent(input: {
     return refuse('already_stopped', `parent ${parentClientOrderId} is already stopped`);
   }
   if (status === 'running') {
-    return refuse(
-      'not_running',
-      `parent ${parentClientOrderId} is running live — refusing to invent a paper stop over live`,
-    );
+    return refuse('not_running', `parent ${parentClientOrderId} is running live — refusing to invent a paper stop over live`);
   }
   if (status !== 'paper') {
     return refuse('not_running', `parent ${parentClientOrderId} is not a running paper parent`);

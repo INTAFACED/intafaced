@@ -50,6 +50,7 @@ function spyStore() {
   const marketsSeen: number[] = [];
   const positionsSeen: number[] = [];
   const origBook = store.book.bind(store);
+  const origBookFinalized = store.bookFinalized.bind(store);
   const origFills = store.recentFills.bind(store);
   const origAccount = store.fillsForAccount.bind(store);
   const origMarkets = store.markets.bind(store);
@@ -57,6 +58,10 @@ function spyStore() {
   store.book = async (market, depth) => {
     bookSeen.push(depth);
     return origBook(market, depth);
+  };
+  store.bookFinalized = async (market, depth, finalityDepth) => {
+    bookSeen.push(depth);
+    return origBookFinalized(market, depth, finalityDepth);
   };
   store.recentFills = async (market, limit) => {
     fillsSeen.push(limit);

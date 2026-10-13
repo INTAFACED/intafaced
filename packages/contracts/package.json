@@ -17,12 +17,16 @@
     "./academy-cert-perks": {
       "types": "./dist/academy-cert-perks.d.ts",
       "default": "./dist/academy-cert-perks.js"
+    },
+    "./instruments": {
+      "types": "./dist/instruments.d.ts",
+      "default": "./dist/instruments.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
-    "test": "vitest run",
+    "test": "tsc -p tsconfig.json && vitest run",
     "test:watch": "vitest",
     "clean": "rimraf dist .turbo"
   },
@@ -30,7 +34,7 @@
     "@asteasolutions/zod-to-openapi": "7.3.4",
     "@intafaced/auth": "workspace:*",
     "@intafaced/config": "workspace:*",
-    "@trpc/server": "^11.0.0-rc.660",
+    "@trpc/server": "^11.19.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

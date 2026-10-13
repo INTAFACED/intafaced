@@ -1,3 +1,4 @@
+import { TradeService } from '../controls/test-admission.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -6,7 +7,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable, orderHoldAccount } from '@intafaced/ledger-client';
-import { TradeService } from './trade-service.js';
+
 import { installStopLimitPlace } from './stop-limit-place.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
 import type { Market } from './types.js';
@@ -206,7 +207,8 @@ describe('svc-trade stop-limit-place (H8a PG-hard)', () => {
       expect(order.status).toBe('open');
       expect(matching.submitted[0]?.request.type).toBe('limit');
       expect(matching.submitted[0]?.request.stopPx).toBeUndefined();
-      expect(matching.submitted[0]?.request.stopPrice).toBeUndefined();
+      // #31: the plain place request always carries an explicit stopPrice: null (not set), never a value.
+      expect(matching.submitted[0]?.request.stopPrice).toBeNull();
     });
   });
 });

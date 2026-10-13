@@ -210,6 +210,56 @@ describe('loan recipe refusals — balanced lies are still refused', () => {
     ).toThrow(InvalidEntryError);
   });
 
+  it('refuses a reserve funding source in a different asset and still funds the debt asset', async () => {
+    const amount = amt('25');
+    const mismatchKey = 'bank.loan.reserve.fund:USDT:mismatch';
+    expectNoPost(() =>
+      recipes.loanReserveFund({
+        fundingId: 'mismatch',
+        debtAssetId: 'USDT',
+        amount,
+        from: userAvailable(BORROWER, 'BTC'),
+      }),
+    );
+    expect(await ledger.getTxByKey(mismatchKey)).toBeNull();
+    expect(ledger.journal().some((tx) => tx.reason === 'loan.reserve.funded')).toBe(false);
+
+    await deposit('USDT', '25', 'omit-fees');
+    await ledger.post(
+      recipes.feeCharge({
+        chargeId: 'omit-fee',
+        userId: BORROWER,
+        module: 'bank',
+        mode: 'asset',
+        assetId: 'USDT',
+        amount,
+      }),
+    );
+    const omitted = recipes.loanReserveFund({ fundingId: 'omit', debtAssetId: 'USDT', amount });
+    expect(omitted.entries).toEqual([
+      { account: houseFees('bank', 'USDT'), direction: 'credit', amount },
+      { account: loanReserve('USDT'), direction: 'debit', amount },
+    ]);
+    const omittedTx = await ledger.post(omitted);
+    expect(omittedTx.entries.every((entry) => entry.assetId === 'USDT' && entry.amount === amount)).toBe(true);
+    expect(formatAmount((await ledger.balance(houseFees('bank', 'USDT'))).amount)).toBe('0');
+    expect(formatAmount((await ledger.balance(loanReserve('USDT'))).amount)).toBe('25');
+
+    await deposit('USDT', '25', 'match-from');
+    const from = userAvailable(BORROWER, 'USDT');
+    const matched = recipes.loanReserveFund({ fundingId: 'match', debtAssetId: 'USDT', amount, from });
+    expect(matched.entries).toEqual([
+      { account: from, direction: 'credit', amount },
+      { account: loanReserve('USDT'), direction: 'debit', amount },
+    ]);
+    expect(matched.entries.every((entry) => entry.account.assetId === 'USDT')).toBe(true);
+    const matchedTx = await ledger.post(matched);
+    expect(matchedTx.entries.every((entry) => entry.assetId === 'USDT' && entry.amount === amount)).toBe(true);
+    expect(formatAmount((await ledger.balance(userAvailable(BORROWER, 'USDT'))).amount)).toBe('0');
+    expect(formatAmount((await ledger.balance(loanReserve('USDT'))).amount)).toBe('50');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
   it('refuses proceeds that do not fully allocate', () => {
     expect(() =>
       recipes.loanLiquidate({
@@ -228,6 +278,54 @@ describe('loan recipe refusals — balanced lies are still refused', () => {
         markPrice: amt('100'),
       }),
     ).toThrow(/fully allocated/);
+  });
+
+  it('refuses a zero or negative mark and still posts a positive mark', async () => {
+    await deposit('BTC', '1', 'btc-mark');
+    await fundReserveFromBorrower('5000', 'mark-rsv');
+    await ledger.post(recipes.marketMakerSeedFund({ assetId: 'USDT', amount: amt('6000'), seedId: 'mm-mark' }));
+    await ledger.post(
+      recipes.loanCollateralLock({
+        loanId: LOAN,
+        userId: BORROWER,
+        collateralAssetId: 'BTC',
+        amount: amt('1'),
+        sequence: 0,
+      }),
+    );
+    await ledger.post(recipes.loanDraw({ loanId: LOAN, userId: BORROWER, debtAssetId: 'USDT', principal: amt('5000') }));
+
+    const base = {
+      loanId: LOAN,
+      userId: BORROWER,
+      tranche: 0,
+      collateralAssetId: 'BTC' as const,
+      debtAssetId: 'USDT' as const,
+      collateralSold: amt('1'),
+      proceeds: amt('5500'),
+      principalRepaid: amt('5000'),
+      interestRepaid: amt('100'),
+      penalty: amt('200'),
+      surplusToBorrower: amt('200'),
+      buyer: { collateralTo: marketMaker('BTC'), proceedsFrom: marketMaker('USDT') },
+    };
+    const key = `bank.loan.liquidate:${LOAN}:0`;
+
+    for (const markPrice of [0n, -1n]) {
+      expect(() => recipes.loanLiquidate({ ...base, markPrice })).toThrow(InvalidEntryError);
+      expect(() => recipes.loanLiquidate({ ...base, markPrice })).toThrow(/mark price must be positive/);
+      expect(await ledger.getTxByKey(key)).toBeNull();
+    }
+    expect(ledger.journal().some((tx) => tx.reason === 'loan.liquidated')).toBe(false);
+
+    const markPrice = amt('1');
+    const posted = await ledger.post(recipes.loanLiquidate({ ...base, markPrice }));
+    expect(posted.meta.markPrice).toBe(markPrice.toString());
+    const collateralLegs = posted.entries.filter((entry) => entry.assetId === 'BTC');
+    const proceedsLeg = posted.entries.find((entry) => entry.assetId === 'USDT' && entry.direction === 'credit');
+    expect(collateralLegs.every((entry) => entry.amount === base.collateralSold)).toBe(true);
+    expect(proceedsLeg?.amount).toBe(base.proceeds);
+    expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
   it('bad debt draws insurance → reserve; empty fund fails at the book', async () => {
@@ -301,5 +399,152 @@ describe('loan recipe refusals — balanced lies are still refused', () => {
       sequence: 1,
     });
     expect(a.idempotencyKey).not.toBe(b.idempotencyKey);
+  });
+});
+
+const MISSING = undefined as unknown as string;
+const BLANK = ['', '   ', '\t', MISSING] as const;
+
+function expectNoPost(build: () => { idempotencyKey: string }, collapsedKey?: string): void {
+  let posted: { idempotencyKey: string } | undefined;
+  expect(() => {
+    posted = build();
+  }).toThrow(InvalidEntryError);
+  expect(posted).toBeUndefined();
+  if (collapsedKey !== undefined) expect(posted?.idempotencyKey).not.toBe(collapsedKey);
+}
+
+describe('loan ids — a blank identity must not collapse the book', () => {
+  it('refuses an empty loanId before a draw collapses onto bank.loan.draw:', () => {
+    for (const loanId of BLANK) {
+      expectNoPost(() => recipes.loanDraw({ loanId, userId: BORROWER, debtAssetId: 'USDT', principal: amt('1') }), 'bank.loan.draw:');
+      expectNoPost(() => recipes.loanCollateralLock({ loanId, userId: BORROWER, collateralAssetId: 'BTC', amount: amt('1'), sequence: 0 }));
+      expectNoPost(() =>
+        recipes.loanCollateralRelease({ loanId, userId: BORROWER, collateralAssetId: 'BTC', amount: amt('1'), sequence: 0 }),
+      );
+      expectNoPost(() =>
+        recipes.loanRepay({ loanId, userId: BORROWER, debtAssetId: 'USDT', principal: amt('1'), interest: amt('0'), sequence: 0 }),
+      );
+      expectNoPost(() => recipes.loanBadDebt({ loanId, debtAssetId: 'USDT', shortfall: amt('1') }));
+    }
+    expect(recipes.loanDraw({ loanId: LOAN, userId: BORROWER, debtAssetId: 'USDT', principal: amt('1') }).idempotencyKey).toBe(
+      `bank.loan.draw:${LOAN}`,
+    );
+  });
+
+  it('refuses an empty loanId before tranche 0 liquidation collapses onto bank.loan.liquidate::0', () => {
+    const liquidate = (loanId: string) =>
+      recipes.loanLiquidate({
+        loanId,
+        userId: BORROWER,
+        tranche: 0,
+        collateralAssetId: 'BTC',
+        debtAssetId: 'USDT',
+        collateralSold: amt('1'),
+        proceeds: amt('5500'),
+        principalRepaid: amt('5000'),
+        interestRepaid: amt('100'),
+        penalty: amt('200'),
+        surplusToBorrower: amt('200'),
+        buyer: { collateralTo: marketMaker('BTC'), proceedsFrom: marketMaker('USDT') },
+        markPrice: amt('5500'),
+      });
+    for (const loanId of BLANK) expectNoPost(() => liquidate(loanId), 'bank.loan.liquidate::0');
+    expect(liquidate(LOAN).idempotencyKey).toBe(`bank.loan.liquidate:${LOAN}:0`);
+  });
+
+  it('refuses a blank userId before building an account ref', () => {
+    for (const userId of BLANK) {
+      expectNoPost(() => recipes.loanCollateralLock({ loanId: LOAN, userId, collateralAssetId: 'BTC', amount: amt('1'), sequence: 0 }));
+      expectNoPost(() => recipes.loanCollateralRelease({ loanId: LOAN, userId, collateralAssetId: 'BTC', amount: amt('1'), sequence: 0 }));
+      expectNoPost(() => recipes.loanDraw({ loanId: LOAN, userId, debtAssetId: 'USDT', principal: amt('1') }));
+      expectNoPost(() =>
+        recipes.loanRepay({ loanId: LOAN, userId, debtAssetId: 'USDT', principal: amt('1'), interest: amt('0'), sequence: 0 }),
+      );
+      expectNoPost(() =>
+        recipes.loanLiquidate({
+          loanId: LOAN,
+          userId,
+          tranche: 0,
+          collateralAssetId: 'BTC',
+          debtAssetId: 'USDT',
+          collateralSold: amt('1'),
+          proceeds: amt('1'),
+          principalRepaid: amt('1'),
+          interestRepaid: amt('0'),
+          penalty: amt('0'),
+          surplusToBorrower: amt('0'),
+          buyer: { collateralTo: marketMaker('BTC'), proceedsFrom: marketMaker('USDT') },
+          markPrice: amt('1'),
+        }),
+      );
+    }
+  });
+
+  it('refuses a blank asset id before building an account ref', () => {
+    for (const assetId of BLANK) {
+      expectNoPost(() =>
+        recipes.loanCollateralLock({ loanId: LOAN, userId: BORROWER, collateralAssetId: assetId, amount: amt('1'), sequence: 0 }),
+      );
+      expectNoPost(() =>
+        recipes.loanCollateralRelease({ loanId: LOAN, userId: BORROWER, collateralAssetId: assetId, amount: amt('1'), sequence: 0 }),
+      );
+      expectNoPost(() => recipes.loanDraw({ loanId: LOAN, userId: BORROWER, debtAssetId: assetId, principal: amt('1') }));
+      expectNoPost(() =>
+        recipes.loanRepay({
+          loanId: LOAN,
+          userId: BORROWER,
+          debtAssetId: assetId,
+          principal: amt('1'),
+          interest: amt('0'),
+          sequence: 0,
+        }),
+      );
+      expectNoPost(() => recipes.loanBadDebt({ loanId: LOAN, debtAssetId: assetId, shortfall: amt('1') }));
+      expectNoPost(() => recipes.loanReserveFund({ fundingId: 'fund-1', debtAssetId: assetId, amount: amt('1') }));
+      expectNoPost(() =>
+        recipes.loanLiquidate({
+          loanId: LOAN,
+          userId: BORROWER,
+          tranche: 0,
+          collateralAssetId: 'BTC',
+          debtAssetId: assetId,
+          collateralSold: amt('1'),
+          proceeds: amt('1'),
+          principalRepaid: amt('1'),
+          interestRepaid: amt('0'),
+          penalty: amt('0'),
+          surplusToBorrower: amt('0'),
+          buyer: { collateralTo: marketMaker('BTC'), proceedsFrom: marketMaker(assetId) },
+          markPrice: amt('1'),
+        }),
+      );
+      expectNoPost(() =>
+        recipes.loanLiquidate({
+          loanId: LOAN,
+          userId: BORROWER,
+          tranche: 0,
+          collateralAssetId: assetId,
+          debtAssetId: 'USDT',
+          collateralSold: amt('1'),
+          proceeds: amt('1'),
+          principalRepaid: amt('1'),
+          interestRepaid: amt('0'),
+          penalty: amt('0'),
+          surplusToBorrower: amt('0'),
+          buyer: { collateralTo: marketMaker(assetId), proceedsFrom: marketMaker('USDT') },
+          markPrice: amt('1'),
+        }),
+      );
+    }
+  });
+
+  it('refuses a blank fundingId before building the reserve fund key', () => {
+    for (const fundingId of BLANK) {
+      expectNoPost(() => recipes.loanReserveFund({ fundingId, debtAssetId: 'USDT', amount: amt('1') }));
+    }
+    expect(recipes.loanReserveFund({ fundingId: 'fund-1', debtAssetId: 'USDT', amount: amt('1') }).idempotencyKey).toBe(
+      'bank.loan.reserve.fund:USDT:fund-1',
+    );
   });
 });

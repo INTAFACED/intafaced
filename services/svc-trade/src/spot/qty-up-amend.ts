@@ -18,6 +18,7 @@ import type { EngineAmendResult, MatchingClient } from './matching-client.js';
 import { attributionFromOrder, withLedgerAttribution } from './auth-attribution.js';
 import { TradeError, type AmendOrderOutcome, type AmendOutcomeCode, type AmendPriority, type Market, type OrderRecord } from './types.js';
 import { TradeService, type AmendOrderInput } from './trade-service.js';
+import { businessPayload } from '../controls/business-payload.js';
 
 /**
  * Native qty-up on the existing PATCH door.
@@ -249,6 +250,24 @@ async function amendOrderWithQtyUp(
     }
 
     let funded = order;
+    if (input.qty > engineRemaining) {
+      // Each native increase is fresh exposure. Original parent placement is
+      // not authority for it; the stable engine version identifies this intent.
+      await this.admitNativeQtyIncrease(
+        principal,
+        `amend:${order.id}:${expectedVersion}`,
+        businessPayload({
+          orderId: order.id,
+          expectedVersion,
+          qty: input.qty,
+          extra,
+          newHold,
+          holdAmount: order.holdAmount,
+          holdAsset: order.holdAsset,
+          lifecycleProof,
+        }),
+      );
+    }
     if (extra > 0n) {
       const taken = await takeQtyUpHold(host, order, extra, expectedVersion);
       if (!taken.ok) {

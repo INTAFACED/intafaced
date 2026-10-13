@@ -3,6 +3,7 @@ import { type ExchangeErrorCode } from '@intafaced/exchange-contract';
 import { InsufficientFundsError, LedgerError, MoneyError } from '@intafaced/ledger-client';
 import { MatchingNoBookError, MatchingUnavailableError } from './spot/matching-client.js';
 import { TradeError, type TradeErrorCode } from './spot/types.js';
+import { TradingControlError } from './controls/trading-controls.js';
 
 /**
  * CCXT ERROR TAXONOMY FOR THE PUBLIC REST SURFACE (trade.ccxt-api).
@@ -325,6 +326,11 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    * 10/20. Operator publishes; not a retry loop and not a symbol to drop.
    */
   'trade.fee_schedule_blank': { ccxt: 'BadRequest', status: 400 },
+  /**
+   * Paper markets do not settle. Not a venue fault and not a retry: funding
+   * the zero hold to make tradeFill succeed is the bug this refuses.
+   */
+  'trade.paper_fill_refused': { ccxt: 'NotSupported', status: 403 },
   'trade.hold_uncovered': { ccxt: 'ExchangeError', status: 500 },
   /**
    * Funded engine-miss whose fills do not prove no fill. Hold stays.
@@ -344,6 +350,7 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    * human has to look.
    */
   'trade.fill_sequence_conflict': { ccxt: 'ExchangeError', status: 500 },
+  'trade.engine_sequence_regressed': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.missing_expire_at': { ccxt: 'InvalidOrder', status: 400 },
   'trade.engine_clock_missing': { ccxt: 'InvalidOrder', status: 400 },
   'trade.missing_oco_trigger': { ccxt: 'InvalidOrder', status: 400 },
@@ -514,6 +521,19 @@ export function invalidOrder(message: string, intafacedCode = 'trade.validation_
  * will confidently retry forever.
  */
 export function toCcxtError(err: unknown): CcxtErrorResponse | null {
+  if (err instanceof TradingControlError) {
+    let status = 403;
+    if (err.code === 'authority.unavailable') status = 503;
+    else if (err.code === 'operation.conflict') status = 409;
+    return {
+      status,
+      body: {
+        code: err.code === 'authority.unavailable' ? 'ExchangeNotAvailable' : 'PermissionDenied',
+        message: err.message,
+        intafacedCode: err.code,
+      },
+    };
+  }
   if (err instanceof MatchingNoBookError) {
     // Engine answered: it does not hold this market. Not a live empty book.
     return {

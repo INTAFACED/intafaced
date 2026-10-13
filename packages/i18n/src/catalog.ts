@@ -131,6 +131,16 @@ export const en = {
 
   // ── notify · in-app inbox (title + body per kind; keys stored on the row) ──
   'notify.trade.fill.title': 'Order filled',
+  'notify.outreach.enquiry_acknowledgement.title': 'Your INTAFACED enquiry',
+  'notify.outreach.enquiry_acknowledgement.body':
+    'Thanks for your interest in INTAFACED. We’ve received your contact details. The team reviews enquiries before arranging calls.',
+  'notify.outreach.information_request.title': 'A question about your INTAFACED enquiry',
+  'notify.outreach.information_request.body': 'The INTAFACED team has a question about your enquiry.\n\n{staffText}',
+  'notify.outreach.call_invitation.title': 'A conversation about your INTAFACED enquiry',
+  'notify.outreach.call_invitation.body':
+    'The INTAFACED team has reviewed your enquiry and would like to arrange a conversation.\n\n{staffText}',
+  'notify.outreach.follow_up.title': 'Following up on your INTAFACED enquiry',
+  'notify.outreach.follow_up.body': 'The INTAFACED team is following up on your enquiry.\n\n{staffText}',
   'notify.trade.fill.body': '{side} {qty} on {marketId} at {price}.',
   'notify.trade.order.terminal.title': 'Order {status}',
   'notify.trade.order.terminal.body': '{side} {qty} on {marketId} is {status}.',

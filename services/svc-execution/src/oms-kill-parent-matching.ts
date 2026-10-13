@@ -134,7 +134,8 @@ export async function cancelKillParentMatching(input: {
   for (const row of raw) {
     const marketId = row.marketId?.trim() ?? '';
     const orderId = row.orderId?.trim() ?? '';
-    if (!marketId) {
+    // encodeURIComponent leaves "." and ".." unchanged; the URL parser then resolves them as dot segments.
+    if (!marketId || marketId === '.' || marketId === '..') {
       return refuse('missing_market', 'kill-parent child marketId is blank — refuse rather than invent a book');
     }
     if (!orderId || !UUID.test(orderId)) {

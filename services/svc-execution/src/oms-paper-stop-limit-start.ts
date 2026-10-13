@@ -35,14 +35,9 @@ export type OmsPaperStopLimitStartOk = {
   readonly limitPrice: string;
 };
 
-export type OmsPaperStopLimitStartResult =
-  | OmsPaperStopLimitStartOk
-  | OmsPaperStopLimitStartRefusal;
+export type OmsPaperStopLimitStartResult = OmsPaperStopLimitStartOk | OmsPaperStopLimitStartRefusal;
 
-function refuse(
-  reason: OmsPaperStopLimitStartRefuseReason,
-  detail: string,
-): OmsPaperStopLimitStartRefusal {
+function refuse(reason: OmsPaperStopLimitStartRefuseReason, detail: string): OmsPaperStopLimitStartRefusal {
   return { ok: false, reason, detail };
 }
 
@@ -52,25 +47,16 @@ function parseRetainedTrigger(
   label: string,
 ): { ok: true; text: string } | OmsPaperStopLimitStartRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      missing,
-      `${label} is missing — refusing to invent a trigger or a live venue`,
-    );
+    return refuse(missing, `${label} is missing — refusing to invent a trigger or a live venue`);
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      missing,
-      `${label} is missing — refusing to invent a trigger or a live venue`,
-    );
+    return refuse(missing, `${label} is missing — refusing to invent a trigger or a live venue`);
   }
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      missing,
-      `${label} is not a ledger amount — refusing to invent a trigger`,
-    );
+    return refuse(missing, `${label} is not a ledger amount — refusing to invent a trigger`);
   }
 }
 
@@ -83,7 +69,7 @@ export function startPaperStopLimitParent(input: {
   kind?: string;
   /** Must be true — start needs an already-approved paper stop-limit parent. */
   approved?: boolean;
-  /** Paper-approved status is 'paper'. Live running refuses already_started. */
+  /** Trimmed before compare. 'running' refuses already_started. A present blank or other non-startable status refuses not_approved. */
   status?: 'paper' | 'approved' | 'running' | string;
   /** Retained stop price from paper approve. Blank refuses — never invent a trigger. */
   stopPrice?: string | null;
@@ -106,17 +92,17 @@ export function startPaperStopLimitParent(input: {
   if (input.kind !== undefined && input.kind !== 'stop-limit') {
     return refuse('not_live', `kind ${String(input.kind)} is not stop-limit`);
   }
-  if (input.status === 'running') {
-    return refuse(
-      'already_started',
-      `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`,
-    );
+  const status = input.status?.trim();
+  if (status === 'running') {
+    return refuse('already_started', `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`);
   }
-  if (input.approved !== true && input.status !== 'paper' && input.status !== 'approved') {
-    return refuse(
-      'not_approved',
-      `parent ${parentClientOrderId} is not an approved paper stop-limit parent`,
-    );
+  // Trimmed '' is present. Only an omitted status is undefined and may follow approved.
+  const startableStatus = status === 'paper' || status === 'approved';
+  if (status !== undefined && !startableStatus) {
+    return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper stop-limit parent`);
+  }
+  if (input.approved !== true && !startableStatus) {
+    return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper stop-limit parent`);
   }
   const operatorId = input.operatorId?.trim() ?? '';
   if (!operatorId) {
@@ -124,11 +110,7 @@ export function startPaperStopLimitParent(input: {
   }
   const stop = parseRetainedTrigger(input.stopPrice, 'missing_stop', 'stop-limit stop price');
   if (!stop.ok) return stop;
-  const limit = parseRetainedTrigger(
-    input.limitPrice,
-    'missing_limit',
-    'stop-limit limit price',
-  );
+  const limit = parseRetainedTrigger(input.limitPrice, 'missing_limit', 'stop-limit limit price');
   if (!limit.ok) return limit;
 
   return {

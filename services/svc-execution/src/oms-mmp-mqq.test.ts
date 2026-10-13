@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  cancelBothSidesOnMqqBreach,
-  type OmsMmpMqqLiveQuote,
-} from './oms-mmp-mqq.js';
+import { cancelBothSidesOnMqqBreach, type OmsMmpMqqLiveQuote } from './oms-mmp-mqq.js';
 
 function quote(over: Partial<OmsMmpMqqLiveQuote> = {}): OmsMmpMqqLiveQuote {
   return {
@@ -59,6 +56,66 @@ describe('cancelBothSidesOnMqqBreach', () => {
       quotes: [quote({ bidRemaining: 'nope' })],
     });
     expect(result).toMatchObject({ ok: false, reason: 'remaining_invalid' });
+  });
+
+  it('refuses a negative remaining with reason remaining_invalid', () => {
+    const result = cancelBothSidesOnMqqBreach({
+      mqq: '1',
+      quotes: [quote({ askRemaining: '-1' })],
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'remaining_invalid' });
+  });
+
+  it('refuses null, omitted, or non-string bidRemaining without throwing', () => {
+    const nullBid = cancelBothSidesOnMqqBreach({
+      mqq: '1',
+      quotes: [quote({ bidRemaining: null as unknown as string })],
+    });
+    expect(nullBid).toMatchObject({ ok: false, reason: 'remaining_blank' });
+
+    const { bidRemaining: _omitted, ...omittedBid } = quote();
+    const omitted = cancelBothSidesOnMqqBreach({
+      mqq: '1',
+      quotes: [omittedBid as OmsMmpMqqLiveQuote],
+    });
+    expect(omitted).toMatchObject({ ok: false, reason: 'remaining_blank' });
+
+    const numeric = cancelBothSidesOnMqqBreach({
+      mqq: '1',
+      quotes: [quote({ bidRemaining: 10 as unknown as string })],
+    });
+    expect(numeric).toMatchObject({ ok: false, reason: 'remaining_invalid' });
+  });
+
+  it('refuses null, omitted, or non-string askRemaining without throwing', () => {
+    const nullAsk = cancelBothSidesOnMqqBreach({
+      mqq: '1',
+      quotes: [quote({ askRemaining: null as unknown as string })],
+    });
+    expect(nullAsk).toMatchObject({ ok: false, reason: 'remaining_blank' });
+
+    const { askRemaining: _omitted, ...omittedAsk } = quote();
+    const omitted = cancelBothSidesOnMqqBreach({
+      mqq: '1',
+      quotes: [omittedAsk as OmsMmpMqqLiveQuote],
+    });
+    expect(omitted).toMatchObject({ ok: false, reason: 'remaining_blank' });
+
+    const numeric = cancelBothSidesOnMqqBreach({
+      mqq: '1',
+      quotes: [quote({ askRemaining: 4 as unknown as string })],
+    });
+    expect(numeric).toMatchObject({ ok: false, reason: 'remaining_invalid' });
+  });
+
+  it('refuses a null quote in the list without throwing', () => {
+    const result = cancelBothSidesOnMqqBreach({
+      mqq: '1',
+      quotes: [null as unknown as OmsMmpMqqLiveQuote],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe('remaining_blank');
   });
 
   it('cancels BOTH sides when bid remaining is below MQQ and ask is healthy', () => {

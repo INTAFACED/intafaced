@@ -5,12 +5,7 @@
  */
 import type { ApprovedAlgoParentStore } from './oms-start.js';
 
-export type OmsIsExpireRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'already_expired'
-  | 'already_stopped'
-  | 'missing_expire_at';
+export type OmsIsExpireRefuseReason = 'missing_parent' | 'not_live' | 'already_expired' | 'already_stopped' | 'missing_expire_at';
 
 export type OmsIsExpireRefusal = {
   readonly ok: false;
@@ -36,10 +31,7 @@ function refuse(reason: OmsIsExpireRefuseReason, detail: string): OmsIsExpireRef
   return { ok: false, reason, detail };
 }
 
-function parentRemaining(
-  parentStore: ApprovedAlgoParentStore | undefined,
-  parentClientOrderId: string,
-): string | null {
+function parentRemaining(parentStore: ApprovedAlgoParentStore | undefined, parentClientOrderId: string): string | null {
   if (!parentStore) return null;
   const remaining = parentStore.get(parentClientOrderId)?.residual?.remaining?.trim() ?? '';
   return remaining || null;
@@ -84,10 +76,7 @@ export function expireImplementationShortfallParent(input: {
 
   const expireAt = retainedExpireAt(input.expireAt);
   if (!expireAt) {
-    return refuse(
-      'missing_expire_at',
-      'expireAt is missing — refusing to invent a schedule from duration or the clock',
-    );
+    return refuse('missing_expire_at', 'expireAt is missing — refusing to invent a schedule from duration or the clock');
   }
 
   const remaining = parentRemaining(input.parentStore, parentClientOrderId);

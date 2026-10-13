@@ -7,8 +7,8 @@ import { OUT_OF_APP_CHANNELS } from './channels/channel.js';
  * svc-notify environment.
  *
  * Self-mounts /trpc, so it must authenticate the edge principal. No ledger
- * client, no INTERNAL_SERVICE_SECRET — this service never moves value and never
- * calls another service with a service credential.
+ * client. Guest outreach ingress uses a dedicated ops producer secret; it never
+ * makes service-credential calls or moves value.
  *
  * THE CHANNEL CREDENTIALS (§0.4)
  *
@@ -44,12 +44,6 @@ import { OUT_OF_APP_CHANNELS } from './channels/channel.js';
  * makes the decision explicit and its absence loud.
  */
 
-const bool = (defaultOn: boolean) =>
-  z
-    .union([z.boolean(), z.string()])
-    .default(defaultOn)
-    .transform((v) => (typeof v === 'boolean' ? v : !['0', 'false', 'off', 'no'].includes(String(v).toLowerCase())));
-
 /**
  * An unset variable arrives as an empty string, not as nothing.
  *
@@ -64,6 +58,19 @@ const bool = (defaultOn: boolean) =>
 const blankAsAbsent = <T extends z.ZodTypeAny>(inner: T) =>
   z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), inner);
 
+/**
+ * Same blank rule as `blankAsAbsent`: compose `""` and whitespace are absent,
+ * so a default-off flag stays off. A string is trimmed before the false list,
+ * so a padded `false` is off.
+ */
+const bool = (defaultOn: boolean) =>
+  blankAsAbsent(
+    z
+      .union([z.boolean(), z.string()])
+      .default(defaultOn)
+      .transform((v) => (typeof v === 'boolean' ? v : !['0', 'false', 'off', 'no'].includes(v.trim().toLowerCase()))),
+  );
+
 /** Environments where an unwired-but-required channel must stop the boot. */
 const ENFORCED_APP_ENVS = ['staging', 'prod'] as const;
 
@@ -73,6 +80,11 @@ const schema = serviceEnvSchema
     z.object({
       SERVICE_NAME: z.string().default('svc-notify'),
       HTTP_PORT: z.coerce.number().int().default(4015),
+      /** Exact-body authenticated ops ingress; absent leaves it closed. */
+      NOTIFY_OPS_SERVICE_SECRET: blankAsAbsent(z.string().min(32).optional()),
+      /** Per-recipient fixed-window budget, separate from platform verification. */
+      NOTIFY_GUEST_ADDRESS_MAX_PER_WINDOW: z.coerce.number().int().min(1).max(100).default(3),
+      NOTIFY_GUEST_ADDRESS_WINDOW_MS: z.coerce.number().int().min(1000).max(86400000).default(900000),
 
       /**
        * Fan-out kill-switch. When false, event consumers still ack but do not
@@ -156,6 +168,13 @@ const schema = serviceEnvSchema
        * Blank / unset is unpublished — never 15. Owner may set 15 explicitly.
        */
       NOTIFY_VERIFY_TTL_MINUTES: blankAsAbsent(z.coerce.number().int().min(1).max(120).optional()),
+
+      /**
+       * HMAC-SHA256 key for address-confirmation codes.
+       * Blank / unset is unpublished — no default pepper.
+       * A bare hash of the six-digit code is reversible over the code space.
+       */
+      NOTIFY_VERIFY_CODE_PEPPER: blankAsAbsent(z.string().min(1).optional()),
 
       /**
        * Public trade base URL for v22.alerts marks (`GET /api/v1/markets?limit=` +
@@ -261,6 +280,20 @@ const schema = serviceEnvSchema
         message:
           `NOTIFY_REQUIRED_CHANNELS lists ${required.channels.join(', ')} while NOTIFY_OUT_OF_APP_ENABLED is off, so every ` +
           'required channel would refuse. Turn sending on, or stop requiring the channels.',
+      });
+    }
+
+    // Fan-out off acks the bus, inserts no inbox row, and sends nothing.
+    // Out-of-app on and a set credential pair do not change that, so a
+    // required channel in this posture is a silent outage: prod looks ready
+    // and never delivers. `none` stays legal — that is the kill-switch.
+    if (required.channels.length > 0 && !parsed.NOTIFY_FANOUT_ENABLED) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['NOTIFY_FANOUT_ENABLED'],
+        message:
+          `NOTIFY_REQUIRED_CHANNELS lists ${required.channels.join(', ')} while NOTIFY_FANOUT_ENABLED is off, so consumers ` +
+          'ack, insert no inbox rows, and send nothing. Turn fan-out on, or stop requiring the channels.',
       });
     }
   });

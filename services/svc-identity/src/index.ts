@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { createEdgeContext, mergeRouters, rawBodyOf, verifyServiceHeaders } from '@intafaced/contracts';
+import { mergeRouters, rawBodyOf, verifyServiceHeaders } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { AuthService } from './auth/auth-service.js';
@@ -31,6 +31,11 @@ import { createPanicRevokeRouter } from './panic-revoke-router.js';
 import { createApiKeyProductRouter } from './api-key-product-router.js';
 import { createApiKeyAttributionRouter } from './api-key-attribution-router.js';
 import { createDisableUserRouter } from './disable-user-router.js';
+import { FounderControls, parseFounderPair } from './controls/founder-controls.js';
+import { createFounderControlsRouter } from './controls/founder-controls-router.js';
+import { createIdentityRequestContext, configuredIdentityOperationOwners } from './controls/founder-context.js';
+import { OperationIdentityDecisions } from './controls/operation-identity-decisions.js';
+import { createOperationIdentityRouter } from './controls/operation-identity-router.js';
 import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
 import { createOrgRouter } from './org-router.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
@@ -148,6 +153,9 @@ const auth = new AuthService(
 );
 
 const placeDoor = new PlaceDoor(sql);
+const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
+const founderControls = new FounderControls(sql, founderPair);
+await founderControls.bootstrap();
 
 const referral = new ReferralService(sql);
 const share = new ShareService(sql);
@@ -208,6 +216,8 @@ export const appRouter = mergeRouters(
     ...(vault ?? {}),
     waitlist,
     actionApprovals,
+    founderControls,
+    privilegedUserIds: founderPair ?? [],
   }),
   createApiKeyIpRouter(sql, auth),
   createApiKeyOriginRouter(sql, auth),
@@ -221,14 +231,20 @@ export const appRouter = mergeRouters(
   createPanicRevokeRouter(sql),
   createApiKeyProductRouter(sql, auth),
   createApiKeyAttributionRouter(auth),
-  createDisableUserRouter(sql, actionApprovals),
+  createDisableUserRouter(founderControls),
+  createFounderControlsRouter(founderControls),
+  createOperationIdentityRouter(new OperationIdentityDecisions(sql)),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createOrgRouter(sql, dmaHierarchyLaw),
-  createEnrollPasskeyRouter(sql, {
-    rpId: env.WEBAUTHN_RP_ID,
-    rpName: env.WEBAUTHN_RP_NAME,
-    origin: env.WEBAUTHN_ORIGIN,
-  }),
+  createEnrollPasskeyRouter(
+    sql,
+    {
+      rpId: env.WEBAUTHN_RP_ID,
+      rpName: env.WEBAUTHN_RP_NAME,
+      origin: env.WEBAUTHN_ORIGIN,
+    },
+    founderPair ?? [],
+  ),
   createVerifyPasskeyRouter(sql, {
     rpId: env.WEBAUTHN_RP_ID,
     rpName: env.WEBAUTHN_RP_NAME,
@@ -239,7 +255,13 @@ export const appRouter = mergeRouters(
 );
 export type AppRouter = typeof appRouter;
 
-const edgeContext = createEdgeContext({
+const identityRequestContext = createIdentityRequestContext({
+  privateAuthoritySecret: env.IDENTITY_WS_AUTHORITY_SECRET,
+  edgeAuthoritySecret: env.IDENTITY_EDGE_AUTHORITY_SECRET,
+  operationAdmissionSecrets: {
+    'svc-trade': env.IDENTITY_TRADE_ADMISSION_SECRET,
+    'svc-pay': env.IDENTITY_PAY_ADMISSION_SECRET,
+  },
   secret: env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
@@ -270,6 +292,15 @@ app.get('/ready', async () => ({
     launchDrop: env.LAUNCH_DROP,
   }),
   argon2: await argon2Available(),
+  founderControls: founderControls.readiness(),
+  operationAdmission: configuredIdentityOperationOwners({
+    privateAuthoritySecret: env.IDENTITY_WS_AUTHORITY_SECRET,
+    edgeAuthoritySecret: env.IDENTITY_EDGE_AUTHORITY_SECRET,
+    secret: env.EDGE_PRINCIPAL_SECRET,
+    serviceName: env.SERVICE_NAME,
+    internalSecret: env.INTERNAL_SERVICE_SECRET,
+    operationAdmissionSecrets: { 'svc-trade': env.IDENTITY_TRADE_ADMISSION_SECRET, 'svc-pay': env.IDENTITY_PAY_ADMISSION_SECRET },
+  }),
 }));
 
 /**
@@ -349,6 +380,9 @@ app.get<{ Params: { subAccountId: string } }>('/internal/sub-accounts/:subAccoun
  * Bind lists ride as extra JSON fields so WS/edge live-check can read them.
  */
 registerApiKeyOwnershipRoute(app, {
+  privateAuthoritySecret: env.IDENTITY_WS_AUTHORITY_SECRET,
+  edgeAuthoritySecret: env.IDENTITY_EDGE_AUTHORITY_SECRET,
+  operationAdmissionSecrets: { 'svc-trade': env.IDENTITY_TRADE_ADMISSION_SECRET, 'svc-pay': env.IDENTITY_PAY_ADMISSION_SECRET },
   door: placeDoor,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
@@ -410,7 +444,9 @@ await app.register(fastifyTRPCPlugin, {
   trpcOptions: {
     router: appRouter,
     createContext: ({ req }) => {
-      const base = edgeContext({ headers: req.headers, id: req.id });
+      // New POST authority reads require exact retained body bytes. Preserve the
+      // full request for both factories; copying headers discards rawBodyOf.
+      const base = identityRequestContext(req);
       // Origin for apiKeys.exchange domain_whitelist (edge-forwarded; not body).
       const raw = req.headers.origin ?? req.headers['x-forwarded-origin'];
       const clientOrigin = Array.isArray(raw) ? raw[0] : raw;

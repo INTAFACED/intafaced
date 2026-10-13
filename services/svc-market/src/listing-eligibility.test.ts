@@ -45,6 +45,7 @@ const migrations = readdirSync(drizzle)
 
 const VENDOR_USER = '11111111-1111-4111-8111-111111111111';
 const OTHER_USER = '22222222-2222-4222-8222-222222222222';
+const LATER_USER = '44444444-4444-4444-8444-444444444444';
 const OPERATOR = '33333333-3333-4333-8333-333333333333';
 const UNKNOWN_VENDOR = '99999999-9999-4999-8999-999999999999';
 
@@ -321,6 +322,58 @@ describe('svc-market listing eligibility', () => {
       await sql`UPDATE market.vendors SET status = 'suspended'::market.vendor_status WHERE id = ${first}`;
       await expect(service.listedVendors({ limit: 20 })).resolves.toMatchObject([{ id: second }]);
     });
+
+    it('checks only the requested candidate window in parallel during a stake outage', async () => {
+      await listedVendor(VENDOR_USER, 1);
+      await listedVendor(OTHER_USER, 1);
+      await listedVendor(LATER_USER, 1);
+      const called: string[] = [];
+      let active = 0;
+      let peak = 0;
+      const reading = new VendorService(sql, {
+        async entitlementOf(userId: string): Promise<VendorEntitlement> {
+          called.push(userId);
+          active += 1;
+          peak = Math.max(peak, active);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          active -= 1;
+          throw new Error('stake outage');
+        },
+      });
+      await expect(reading.listedVendors({ limit: 2 })).resolves.toEqual([]);
+      expect([...called].sort()).toEqual([VENDOR_USER, OTHER_USER].sort());
+      expect(peak).toBe(2);
+    });
+
+    it('keeps registration order even when the later parallel lookup finishes first', async () => {
+      const first = await listedVendor(VENDOR_USER, 1);
+      const second = await listedVendor(OTHER_USER, 1);
+      await listedVendor(LATER_USER, 1);
+      const finished: string[] = [];
+      const reading = new VendorService(sql, {
+        async entitlementOf(userId: string): Promise<VendorEntitlement> {
+          await new Promise((resolve) => setTimeout(resolve, userId === VENDOR_USER ? 30 : 1));
+          finished.push(userId);
+          return { tierName: 'Operator', vendorSlots: 1 };
+        },
+      });
+      await expect(reading.listedVendors({ limit: 2 })).resolves.toMatchObject([{ id: first }, { id: second }]);
+      expect(finished).toEqual([OTHER_USER, VENDOR_USER]);
+    });
+
+    it('drops status and slot changes committed during the parallel stake reads', async () => {
+      const suspended = await listedVendor(VENDOR_USER, 1);
+      await listedVendor(OTHER_USER, 1);
+      const eligible = await listedVendor(LATER_USER, 1);
+      const reading = new VendorService(sql, {
+        async entitlementOf(userId: string): Promise<VendorEntitlement> {
+          if (userId === VENDOR_USER) await sql`UPDATE market.vendors SET status = 'suspended' WHERE id = ${suspended}`;
+          if (userId === OTHER_USER) await service.releaseSlot({ userId, ref: 'listing-0' });
+          return { tierName: 'Operator', vendorSlots: 1 };
+        },
+      });
+      await expect(reading.listedVendors({ limit: 3 })).resolves.toMatchObject([{ id: eligible }]);
+    });
   });
 
   /**
@@ -384,6 +437,85 @@ describe('svc-market listing eligibility', () => {
 
       await expect(closed.publicProfile(vendorId)).resolves.toBeNull();
       await expect(closed.publicProfile(UNKNOWN_VENDOR)).resolves.toBeNull();
+    });
+  });
+
+  /**
+   * Status and the open count are read BEFORE `entitlementOf`, then the stake
+   * call yields. `vet` or `releaseSlot` can commit in that gap. The verdict has
+   * to come from a read that happens after the call, not from the values that
+   * authorised the call.
+   */
+  describe('facts that move during the stake read', () => {
+    function stakeThatMoves(during: () => Promise<void>): SlotEntitlementSource {
+      return {
+        async entitlementOf(): Promise<VendorEntitlement> {
+          await during();
+          return { tierName: 'Operator', vendorSlots: 1 };
+        },
+      };
+    }
+
+    it('returns market.vendor_not_approved when vet suspends during entitlementOf', async () => {
+      const vendorId = await listedVendor(VENDOR_USER, 1);
+      let suspended = false;
+      const racing = new VendorService(
+        sql,
+        stakeThatMoves(async () => {
+          await service.vet({
+            vendorId,
+            decision: 'suspended',
+            reason: 'suspended while the stake read was in flight',
+            actorId: OPERATOR,
+            actorScope: MARKET_OPS_SCOPE,
+          });
+          suspended = true;
+        }),
+      );
+
+      await expect(racing.listingEligibility({ vendorId })).resolves.toMatchObject({
+        vendorId,
+        listed: false,
+        code: 'market.vendor_not_approved',
+      });
+      expect(suspended).toBe(true);
+      await expect(racing.publicProfile(vendorId)).resolves.toBeNull();
+    });
+
+    it('returns market.slot_required when releaseSlot frees the last slot during entitlementOf', async () => {
+      const vendorId = await listedVendor(VENDOR_USER, 1);
+      let released = false;
+      const racing = new VendorService(
+        sql,
+        stakeThatMoves(async () => {
+          const result = await service.releaseSlot({ userId: VENDOR_USER, ref: 'listing-0' });
+          expect(result.released).toBe(true);
+          released = true;
+        }),
+      );
+
+      await expect(racing.listingEligibility({ vendorId })).resolves.toMatchObject({
+        vendorId,
+        listed: false,
+        code: 'market.slot_required',
+      });
+      expect(released).toBe(true);
+      await expect(racing.publicProfile(vendorId)).resolves.toBeNull();
+    });
+
+    it('stays listed when the vendor is still approved and still holds a covered slot', async () => {
+      const vendorId = await listedVendor(VENDOR_USER, 1);
+      let sawStake = false;
+      const racing = new VendorService(
+        sql,
+        stakeThatMoves(async () => {
+          sawStake = true;
+        }),
+      );
+
+      await expect(racing.listingEligibility({ vendorId })).resolves.toEqual({ vendorId, listed: true });
+      expect(sawStake).toBe(true);
+      await expect(racing.publicProfile(vendorId)).resolves.toMatchObject({ id: vendorId });
     });
   });
 

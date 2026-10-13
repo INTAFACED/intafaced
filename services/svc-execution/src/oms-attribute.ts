@@ -1,9 +1,11 @@
 /**
  * Attribute child fills to one parent — the parent residual updates.
  *
- * Sums confirmed EMS child fills onto that parent. Unknown children
- * keep remaining unknown. This door never invents a fill and does
- * not touch matching.
+ * Sums confirmed EMS child fills onto that parent. No parent quantity
+ * is loaded, so remaining stays unknown: a full child set is not a
+ * finished parent, and a rejected child with no execution is not a
+ * zero leftover. Partial and unknown children stay unknown too.
+ * This door never invents a fill and does not touch matching.
  */
 import { add, formatAmount, ZERO, type Amount } from '@intafaced/ledger-client';
 import type { EmsOrderEvidence, EmsOrderStore } from './oms-ems-store.js';
@@ -121,13 +123,20 @@ export function attributeChildFillsToParent(input: OmsAttributeInput): OmsAttrib
     });
   }
 
+  const filledText = formatAmount(filled);
+  if (unknown) {
+    return {
+      ok: true,
+      parent: { parentClientOrderId },
+      children,
+      residual: { filled: filledText, remaining: null },
+    };
+  }
+  // No parent quantity was loaded. Do not invent a zero leftover.
   return {
     ok: true,
     parent: { parentClientOrderId },
     children,
-    residual: {
-      filled: formatAmount(filled),
-      remaining: unknown ? null : formatAmount(ZERO),
-    },
+    residual: { filled: filledText, remaining: null },
   };
 }

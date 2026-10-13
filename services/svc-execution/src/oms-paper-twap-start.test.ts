@@ -77,6 +77,52 @@ describe('startPaperTwapParent', () => {
     ).toMatchObject({ ok: false, reason: 'already_started' });
   });
 
+  it("refuses padded status 'running ' with already_started and does not return ok", () => {
+    const started = startPaperTwapParent({
+      parentClientOrderId: 'p-twap',
+      approved: true,
+      status: 'running ',
+      durationMs: 60_000,
+      operatorId: OP,
+      paper: PAPER_ON,
+    });
+    expect(started).toMatchObject({ ok: false, reason: 'already_started' });
+    expect(started.ok).toBe(false);
+    expect(started).not.toMatchObject({ ok: true, started: true, status: 'paper' });
+  });
+
+  it('refuses stopped, expired, and halted with not_approved even when approved is true', () => {
+    for (const status of ['stopped', 'expired', 'halted'] as const) {
+      const started = startPaperTwapParent({
+        parentClientOrderId: 'p-twap',
+        approved: true,
+        status,
+        durationMs: 60_000,
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(started).toMatchObject({ ok: false, reason: 'not_approved' });
+      expect(started.ok).toBe(false);
+      expect(started).not.toMatchObject({ ok: true, started: true, status: 'paper' });
+    }
+  });
+
+  it('refuses blank and whitespace-only status with not_approved even when approved is true and does not start', () => {
+    for (const status of ['', '   '] as const) {
+      const started = startPaperTwapParent({
+        parentClientOrderId: 'p-twap',
+        approved: true,
+        status,
+        durationMs: 60_000,
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(started).toMatchObject({ ok: false, reason: 'not_approved' });
+      expect(started.ok).toBe(false);
+      expect(started).not.toMatchObject({ ok: true, started: true, status: 'paper' });
+    }
+  });
+
   it('refuses omitted status and approved:false with not_approved', () => {
     expect(
       startPaperTwapParent({
@@ -161,6 +207,48 @@ describe('startPaperTwapParent', () => {
       durationMs: 60000,
     });
     expect(started).not.toMatchObject({ status: 'running' });
+  });
+
+  it('happy: approved true + status paper + durationMs 60_000 + operator + paper on', () => {
+    expect(
+      startPaperTwapParent({
+        parentClientOrderId: 'p-twap',
+        approved: true,
+        status: 'paper',
+        durationMs: 60_000,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-twap',
+      kind: 'twap',
+      status: 'paper',
+      durationMs: 60000,
+    });
+  });
+
+  it('happy: approved true + status approved + durationMs 60_000 + operator + paper on', () => {
+    expect(
+      startPaperTwapParent({
+        parentClientOrderId: 'p-twap',
+        approved: true,
+        status: 'approved',
+        durationMs: 60_000,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-twap',
+      kind: 'twap',
+      status: 'paper',
+      durationMs: 60000,
+    });
   });
 
   it('happy: approved true + durationMs 60_000 + operator + paper on (status omitted)', () => {

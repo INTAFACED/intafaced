@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { EDGE_PRINCIPAL_HEADER } from '@intafaced/contracts';
 import { exchangePrincipal } from './principal-exchange.js';
+import { currentAuthorityTestReply } from './test-current-authority.js';
 
 const tokens: TokenConfig = {
   secret: 'edge-test-jwt-signing-secret-32-chars',
@@ -33,7 +34,13 @@ async function accessToken(apiKeyId?: string): Promise<string> {
 }
 
 function fetchSession(opts: { revoked: boolean; expectPath?: string }): typeof fetch {
-  return async (input) => {
+  return async (input, init) => {
+    const authority = currentAuthorityTestReply(input, init, {
+      expectedUserId: USER,
+      expectedCredentialId: SESSION,
+      credentialRevoked: opts.revoked,
+    });
+    if (authority) return authority;
     const url = String(input);
     if (url.includes('/internal/account/')) {
       return new Response(JSON.stringify({ userId: USER, status: 'active', kycTier: 'none', lastVerifiedAt: '2026-08-25T00:00:00.000Z' }), {
@@ -90,14 +97,14 @@ describe('revoked session at the HTTP session door', () => {
     expect(result.principal).toBeNull();
   });
 
-  it('missing ownership secret stays on JWT (no invented live-check)', async () => {
+  it('missing dedicated authority key refuses authenticated forwarding', async () => {
     const token = await accessToken();
     const result = await exchangePrincipal(
       { authorization: `Bearer ${token}` },
       { tokens, edgeSecret: EDGE_SECRET, region: 'GB', identityUrl: 'http://identity.test' },
     );
-    expect(result.rejected).toBeNull();
-    expect(result.principal?.userId).toBe(USER);
+    expect(result.rejected).toBe('invalid');
+    expect(result.principal).toBeNull();
   });
 
   it('an API-key bearer is not refused when the session snapshot is revoked', async () => {
@@ -106,9 +113,16 @@ describe('revoked session at the HTTP session door', () => {
       { authorization: 'Bearer ifc_live' },
       {
         ...options,
-        fetch: async (input) => {
+        fetch: async (input, init) => {
+          const authority = currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: KEY });
+          if (authority) return authority;
+          if (String(input).includes('/internal/api-keys/')) {
+            return new Response(JSON.stringify({ id: KEY, userId: USER, revoked: false }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            });
+          }
           expect(String(input)).toContain('/trpc/apiKeys.exchange');
-          expect(String(input)).not.toContain('/internal/sessions/');
           return new Response(JSON.stringify({ result: { data: { json: { accessToken: keyJwt } } } }), {
             status: 200,
             headers: { 'content-type': 'application/json' },

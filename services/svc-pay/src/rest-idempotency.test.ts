@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   fingerprintRequest,
@@ -23,6 +24,40 @@ describe('fingerprintRequest', () => {
     const a = fingerprintRequest('POST', '/p', { amount: '1.1' });
     const b = fingerprintRequest('POST', '/p', { amount: '2.0' });
     expect(a).not.toBe(b);
+  });
+
+  /**
+   * JSON.parse stores `__proto__` as an own data property. Copying that key
+   * with ordinary assignment invokes the prototype setter, JSON.stringify
+   * drops it, and a body that differs only by that member hashes the same.
+   */
+  it('keeps an own __proto__ member, so a body that differs only by it is a different fingerprint', () => {
+    const plain = JSON.parse('{"note":"a"}') as Record<string, unknown>;
+    const withProto = JSON.parse('{"note":"a","__proto__":{"extra":true}}') as Record<string, unknown>;
+    const reordered = JSON.parse('{"__proto__":{"extra":true},"note":"a"}') as Record<string, unknown>;
+
+    expect(Object.getOwnPropertyDescriptor(withProto, '__proto__')).toMatchObject({
+      enumerable: true,
+      writable: true,
+      configurable: true,
+      value: { extra: true },
+    });
+
+    const base = fingerprintRequest('POST', '/p', plain);
+    const changed = fingerprintRequest('POST', '/p', withProto);
+    const otherValue = fingerprintRequest('POST', '/p', JSON.parse('{"note":"a","__proto__":{"extra":false}}') as Record<string, unknown>);
+    // Sorted own keys: `__proto__` then `note`. The member survives JSON.stringify.
+    const kept = createHash('sha256').update('POST\n/p\n{"__proto__":{"extra":true},"note":"a"}').digest('hex');
+    expect(changed).toBe(kept);
+    expect(changed).not.toBe(base);
+    expect(otherValue).not.toBe(changed);
+    expect(fingerprintRequest('POST', '/p', reordered)).toBe(changed);
+
+    const nested = JSON.parse('{"note":"a","box":{"__proto__":{"extra":true}}}') as Record<string, unknown>;
+    const nestedPlain = JSON.parse('{"note":"a","box":{}}') as Record<string, unknown>;
+    const nestedKept = createHash('sha256').update('POST\n/p\n{"box":{"__proto__":{"extra":true}},"note":"a"}').digest('hex');
+    expect(fingerprintRequest('POST', '/p', nested)).toBe(nestedKept);
+    expect(fingerprintRequest('POST', '/p', nested)).not.toBe(fingerprintRequest('POST', '/p', nestedPlain));
   });
 });
 
@@ -53,6 +88,24 @@ describe('MemoryRestIdempotencyStore', () => {
     expect(await store.claim('owner', 'key-2', fp2)).toEqual({ kind: 'conflict' });
   });
 
+  it('CONFLICTS a repeated key when the body differs only by an own __proto__ member', async () => {
+    const store = new MemoryRestIdempotencyStore();
+    const plain = JSON.parse('{"note":"a"}') as Record<string, unknown>;
+    const withProto = JSON.parse('{"note":"a","__proto__":{"extra":true}}') as Record<string, unknown>;
+    const fp1 = fingerprintRequest('POST', '/p', plain);
+    const fp2 = fingerprintRequest('POST', '/p', withProto);
+
+    const first = await store.claim('owner', 'key-proto', fp1);
+    expect(first.kind).toBe('mine');
+    await store.put('owner', 'key-proto', { statusCode: 200, body: { stored: true } }, tokenOf(first));
+
+    expect(await store.claim('owner', 'key-proto', fp2)).toEqual({ kind: 'conflict' });
+    expect(await store.claim('owner', 'key-proto', fp1)).toEqual({
+      kind: 'replay',
+      record: { statusCode: 200, body: { stored: true } },
+    });
+  });
+
   it('abandons a pending claim so a retry may execute', async () => {
     const store = new MemoryRestIdempotencyStore();
     const fp = fingerprintRequest('POST', '/p', {});
@@ -61,6 +114,46 @@ describe('MemoryRestIdempotencyStore', () => {
     expect(c.kind).toBe('mine');
     await store.abandon('owner', 'key-3', tokenOf(c));
     expect((await store.claim('owner', 'key-3', fp)).kind).toBe('mine');
+  });
+
+  /**
+   * A duplicate that arrived while the handler was in flight is parked on the
+   * pending slot. `abandon` deletes that slot and wakes the parkers. Each
+   * parker must claim again: one takes the freed key, and any other waits for
+   * that new owner. Throwing "stalled while pending" turns a failed mutation
+   * into an error for the retry the key exists to allow.
+   */
+  it('lets a concurrent waiter take a key abandon freed', async () => {
+    const store = new MemoryRestIdempotencyStore();
+    const fp = fingerprintRequest('POST', '/p', { a: 1 });
+    const other = fingerprintRequest('POST', '/p', { a: 2 });
+
+    const failed = await store.claim('owner', 'key-retry', fp);
+    const firstWaiter = store.claim('owner', 'key-retry', fp);
+    const secondWaiter = store.claim('owner', 'key-retry', fp);
+
+    expect(await store.claim('owner', 'key-retry', other)).toEqual({ kind: 'conflict' });
+
+    await store.abandon('owner', 'key-retry', tokenOf(failed));
+
+    const winner = await Promise.race([
+      firstWaiter.then((claim) => ({ claim, other: secondWaiter })),
+      secondWaiter.then((claim) => ({ claim, other: firstWaiter })),
+    ]);
+    expect(winner.claim.kind).toBe('mine');
+    expect(tokenOf(winner.claim)).not.toBe(tokenOf(failed));
+
+    await store.put('owner', 'key-retry', { statusCode: 201, body: { retried: true } }, tokenOf(winner.claim));
+
+    expect(await winner.other).toEqual({
+      kind: 'replay',
+      record: { statusCode: 201, body: { retried: true } },
+    });
+    expect(await store.claim('owner', 'key-retry', fp)).toEqual({
+      kind: 'replay',
+      record: { statusCode: 201, body: { retried: true } },
+    });
+    expect(await store.claim('owner', 'key-retry', other)).toEqual({ kind: 'conflict' });
   });
 
   /**

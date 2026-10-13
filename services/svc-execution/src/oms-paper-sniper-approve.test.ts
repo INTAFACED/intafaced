@@ -131,6 +131,21 @@ describe('approvePaperSniperParent', () => {
     ).toMatchObject({ ok: false, reason: 'trigger_blank' });
   });
 
+  it("refuses trigger '0', '-1', and '0.0' with trigger_blank and does not approve", () => {
+    for (const triggerPrice of ['0', '-1', '0.0']) {
+      const result = approvePaperSniperParent({
+        parentClientOrderId: 'p-snip',
+        kind: 'sniper',
+        triggerPrice,
+        amount: '1000',
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(result).toMatchObject({ ok: false, reason: 'trigger_blank' });
+      expect(result).not.toMatchObject({ approved: true });
+    }
+  });
+
   it("refuses 'not-an-amount' with trigger_invalid (no invented trigger from parent amount)", () => {
     expect(
       approvePaperSniperParent({

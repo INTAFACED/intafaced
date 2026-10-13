@@ -99,7 +99,13 @@ function opaqueFailure(err: unknown, context: string): TRPCError {
 function publicDoorWireMessage(err: BankError): string {
   const facing = userFacingBankMessage(err.code, err.message);
   if (facing.includes(err.code)) return facing;
-  if (err.code === 'bank.pool_underfunded' || err.code === 'bank.mark_missing' || err.code === 'bank.earn_principal_mismatch') {
+  if (
+    err.code === 'bank.pool_underfunded' ||
+    err.code === 'bank.mark_missing' ||
+    err.code === 'bank.earn_principal_mismatch' ||
+    err.code === 'bank.loan_seizure_cross_asset' ||
+    err.code === 'bank.loan_health_price_unset'
+  ) {
     return facing + ' (' + err.code + ')';
   }
   return facing;
@@ -149,8 +155,10 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.loan_reserve_underfunded':
       case 'bank.mark_unusable':
       case 'bank.mark_missing':
+      case 'bank.loan_health_price_unset':
       case 'bank.mark_invalid':
       case 'bank.no_liquidation_counterparty':
+      case 'bank.loan_seizure_cross_asset':
       case 'bank.accrual_backlog':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
 
@@ -241,6 +249,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.card_capture_exceeds_authorization':
       /** Disagrees with a claimed settlement row — same class as ramp_conflict. */
       case 'bank.card_settlement_amount_conflict':
+      /** Disagrees with the kind a sequence was claimed for — same class as the amount. */
+      case 'bank.card_settlement_kind_conflict':
       case 'bank.ramp_invalid_amount':
       case 'bank.ramp_invalid_asset':
       case 'bank.ramp_invalid_destination':
@@ -275,7 +285,10 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.no_card_issuer':
       case 'bank.card_sim_not_live':
       case 'bank.cashback_pot_unfunded':
+      case 'bank.rewards_issuer_unset':
       case 'bank.no_ramp_rail':
+      case 'bank.live_ramp_unset':
+      case 'bank.no_paycheck_rail':
       case 'bank.fiat_ramp_no_pay_adapter':
       case 'bank.no_fiat_rail':
       case 'bank.fiat_ramp_socket':
@@ -297,6 +310,11 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.auto_invest_disabled':
       case 'bank.loans_disabled':
       case 'bank.cards_disabled':
+        return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
+
+      // The ledger may have committed; the claim is held pending. Retry later
+      // with the same id, never with a new one.
+      case 'bank.ledger_outcome_unknown':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
       default: {
@@ -614,6 +632,18 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           assertSelf(ctx.principal.userId, space.userId);
           await bank.spaces.archive(input.spaceId);
           return { archived: true as const };
+        }),
+      ),
+
+    unarchive: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ spaceId: z.string().uuid() }))
+      .output(z.object({ archived: z.literal(false) }))
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const space = await bank.spaces.get(input.spaceId);
+          assertSelf(ctx.principal.userId, space.userId);
+          await bank.spaces.unarchive(input.spaceId);
+          return { archived: false as const };
         }),
       ),
   });
@@ -1272,15 +1302,24 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         }),
       ),
 
-    /** Peel surplus collateral. Marks first; refuses if the remainder would exceed the product cap. */
+    /**
+     * `eventId` is the client retry key (§5). Required: omit used to allocate
+     * MAX+1 and post a second loanCollateralRelease. Same eventId + amount is
+     * one release. Overlapping releases share the loan row lock, so they cannot
+     * each pass the product cap.
+     */
     releaseExcess: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ loanId: z.string().uuid(), amount: amountString }))
+      .input(z.object({ loanId: z.string().uuid(), eventId: z.string().uuid(), amount: amountString }))
       .output(z.object({ ledgerTxId: z.string(), sequence: z.number().int() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const loan = await bank.loans.loan(input.loanId);
           assertSelf(ctx.principal.userId, loan.userId);
-          return bank.loans.releaseExcess({ loanId: input.loanId, amount: parseAmount(input.amount) });
+          return bank.loans.releaseExcess({
+            loanId: input.loanId,
+            eventId: input.eventId,
+            amount: parseAmount(input.amount),
+          });
         }),
       ),
 
@@ -1383,6 +1422,19 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     programme: scopedProcedure('bank:read', { module: 'bank' })
       .output(z.object({ id: z.string(), simulated: z.boolean(), displayName: z.string() }))
       .query(async () => guard(async () => bank.cards.programme())),
+
+    /**
+     * Rewards are not the cashback rate. Refuses until a card issuer exists.
+     * The balance slot stays empty and nothing is posted.
+     */
+    rewards: scopedProcedure('bank:read', { module: 'bank' })
+      .output(z.object({ balance: z.null() }))
+      .query(() =>
+        guard(async () => {
+          bank.cards.rewards();
+          return { balance: null };
+        }),
+      ),
 
     list: scopedProcedure('bank:read', { module: 'bank' })
       .input(
@@ -2195,7 +2247,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * Operator on-ramp credit for the CRYPTO ledger half.
      *
      * Not user-callable: a user who credits their own balance does not need a
-     * ramp. Fiat refuses `bank.fiat_ramp_no_pay_adapter` when no pay adapter can settle.
+     * ramp. Kind fiat refuses `bank.fiat_ramp_socket` before any row or ledger post.
      */
     creditOnramp: scopedProcedure('admin:treasury')
       .input(
@@ -2258,8 +2310,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
   });
 
   /**
-   * RAMPS — crypto ledger half. Fiat is socket.psp-partners commercially; the
-   * code path is svc-pay RailAdapter (`fiatVia`) — refuse or ledger-client wire.
+   * RAMPS — crypto ledger half. Fiat is socket.psp-partners commercially.
+   * Kind fiat refuses `bank.fiat_ramp_socket` before any row or ledger post.
    *
    * `simulated` is never omitted: this surface does not broadcast to a chain and
    * never claims a live PSP. Live confirmation stays in svc-pay; Class X is a
@@ -2496,6 +2548,20 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .query(async () => guard(async () => bank.ramps.programmeInfo())),
 
     /**
+     * Live cash ramp. Refuses until a cash rail exists. Posts nothing.
+     * The simulated programme is a different surface and stays marked simulated.
+     */
+    live: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ amount: amountString.optional() }).optional())
+      .output(z.object({ ramp: z.null() }))
+      .mutation(() =>
+        guard(async () => {
+          bank.ramps.liveRamp();
+          return { ramp: null };
+        }),
+      ),
+
+    /**
      * Fiat settle probe. Refuses with a typed code when no svc-pay adapter can
      * settle fiat (empty / sandbox / absent). Does not invent FX. Live partner
      * rails remain Class X — this door never claims simulated: false.
@@ -2587,8 +2653,9 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
 
     /**
      * User off-ramp. `offrampId` + `clientRef` are client-supplied so a retry
-     * is the same withdrawal (§5). Fiat refuses before any hold is posted.
-     * Destination is persisted (or loaded) before withdrawHold.
+     * is the same withdrawal (§5). Kind fiat refuses `bank.fiat_ramp_socket`
+     * before any row or ledger post.
+     * Crypto destination is persisted (or loaded) before withdrawHold.
      */
     offramp: scopedProcedure('bank:write', { module: 'bank' })
       .input(
@@ -2904,6 +2971,19 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-bank') }))
       .query(() => ({ ok: true, service: 'svc-bank' as const })),
+    /**
+     * Paycheck deposit into the bank. Refuses until a paycheck rail exists.
+     * The amount is not credited. Business payroll is a different action.
+     */
+    directDeposit: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ amount: amountString.optional() }).optional())
+      .output(z.object({ deposit: z.null() }))
+      .mutation(() =>
+        guard(async () => {
+          bank.spaces.directDeposit();
+          return { deposit: null };
+        }),
+      ),
     spaces,
     transfers,
     earn,

@@ -141,6 +141,65 @@ describe('a fresh book prices', () => {
     expect(quoted.route.totalQuoteAmount).toBe('198');
   });
 
+  it.each([
+    { kind: 'internal' as const, settlement: '0', net: '99' },
+    { kind: 'amm' as const, settlement: '2', net: '97' },
+  ])('reports net sell proceeds after the configured fee and $settlement settlement', async ({ kind, settlement, net }) => {
+    const venue = new FakeVenue({
+      id: 'fee-bearing',
+      kind,
+      bids: [level('100', '1')],
+      feeBps: 100,
+      settlementCost: amt(settlement),
+    });
+    const quoted = await sourceQuote(deps([venue]), { ...buyOne, side: 'sell' });
+
+    expect(quoted.venues[0]).toMatchObject({ fillableQty: '1', quoteAmount: '100', feeBps: 100, settlementCost: settlement });
+    expect(quoted.route.legs[0]).toMatchObject({ qty: '1', quoteAmount: net, effectivePrice: net });
+    expect(quoted.route).toMatchObject({ filledQty: '1', unfilledQty: '0', totalQuoteAmount: net });
+  });
+
+  it('keeps buy cash cost separate from the fee deducted from received base', async () => {
+    const venue = new FakeVenue({ id: 'pool', kind: 'amm', asks: [level('100', '1')], feeBps: 100, settlementCost: amt('2') });
+    const quoted = await sourceQuote(deps([venue]), buyOne);
+
+    // Gross venue base is 1; buyer receives 0.99 base and pays 102 quote.
+    expect(quoted.venues[0]).toMatchObject({ fillableQty: '1', quoteAmount: '100', feeBps: 100 });
+    expect(quoted.route.legs[0]).toMatchObject({ qty: '1', quoteAmount: '102', effectivePrice: '103.030303030303030303' });
+    expect(quoted.route).toMatchObject({ filledQty: '1', unfilledQty: '0', totalQuoteAmount: '102' });
+  });
+
+  it('preserves exact tiny proceeds instead of reconstructing them from a rounded per-unit price', async () => {
+    const venue = new FakeVenue({
+      id: 'tiny',
+      bids: [level('0.000000000000000002', '2'), level('0.000000000000000001', '1')],
+      feeBps: 5000,
+      settlementCost: amt('0.000000000000000001'),
+    });
+    const quoted = await sourceQuote(deps([venue]), { ...buyOne, side: 'sell', qty: amt('3') });
+
+    // Five quote atoms, two fee atoms (existing integer truncation), one settlement atom.
+    // Net two atoms / three base rounds the displayed unit price to zero atoms.
+    expect(quoted.venues[0]!.quoteAmount).toBe('0.000000000000000005');
+    expect(quoted.route.legs[0]).toMatchObject({ qty: '3', quoteAmount: '0.000000000000000002', effectivePrice: '0' });
+    expect(quoted.route.totalQuoteAmount).toBe('0.000000000000000002');
+  });
+
+  it('retains the existing integer fee rounding on tiny bought base', async () => {
+    const dust = '0.000000000000000003';
+    const venue = new FakeVenue({
+      id: 'tiny-buy',
+      asks: [level('1', dust)],
+      feeBps: 5000,
+      settlementCost: amt('0.000000000000000001'),
+    });
+    const quoted = await sourceQuote(deps([venue]), { ...buyOne, qty: amt(dust) });
+
+    // Three gross base atoms minus one fee atom; four quote atoms paid / two received = 2.
+    expect(quoted.route.legs[0]).toMatchObject({ qty: dust, quoteAmount: '0.000000000000000004', effectivePrice: '2' });
+    expect(quoted.route).toMatchObject({ filledQty: dust, unfilledQty: '0', totalQuoteAmount: '0.000000000000000004' });
+  });
+
   it('reports a partial fill as partial instead of pretending the venue can take it', async () => {
     const venue = new FakeVenue({ id: 'thin', asks: [level('100', '0.4')] });
 

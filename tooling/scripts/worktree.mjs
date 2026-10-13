@@ -10,6 +10,7 @@
  * A worktree per branch makes that structurally impossible.
  *
  *   pnpm wt feat/svc-identity-rank    create + install + report the path
+ *   pnpm wt docs/research-topic --skip-install
  *   pnpm wt:list                      what exists, and how stale
  *   pnpm wt:rm feat/svc-identity-rank remove worktree and local branch
  *
@@ -17,17 +18,71 @@
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, mkdtempSync, statfsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, basename, dirname } from 'node:path';
 
-const command = process.argv[2];
-const argument = process.argv[3];
+const rawArgs = process.argv.slice(2);
+const skipInstall = rawArgs.includes('--skip-install');
+const positionalArgs = rawArgs.filter((arg) => arg !== '--skip-install');
+const command = positionalArgs[0];
+const argument = positionalArgs[1];
 const selfTest = process.argv.slice(2).includes('--self-test');
 
 const REPO = process.cwd();
 const WORKTREE_ROOT = resolve(REPO, '..', `${basename(REPO).toLowerCase().replace(/\s+/g, '-')}-worktrees`);
 const NODE24_PIN = JSON.parse(readFileSync(new URL('./node24-pin.json', import.meta.url), 'utf8'));
+const DEFAULT_MIN_FREE_BYTES = 10n * 1024n ** 3n;
+
+function capacitySnapshot() {
+  const raw = process.env.WT_MIN_FREE_BYTES;
+  if (raw !== undefined && raw !== '' && !/^\d+$/.test(raw)) {
+    throw new Error('WT_MIN_FREE_BYTES must be a non-negative integer byte count');
+  }
+  const minimumBytes = raw === undefined || raw === '' ? DEFAULT_MIN_FREE_BYTES : BigInt(raw);
+  // Before the worktree root exists, its parent is where Git will create it.
+  const volumePath = existsSync(WORKTREE_ROOT) ? WORKTREE_ROOT : resolve(REPO, '..');
+  const fs = statfsSync(volumePath, { bigint: true });
+  return { availableBytes: fs.bavail * fs.bsize, minimumBytes };
+}
+
+function formatGiB(bytes) {
+  return `${(Number(bytes) / 1024 ** 3).toFixed(1)} GiB`;
+}
+
+function requireCreateCapacity(phase) {
+  let state;
+  try {
+    state = capacitySnapshot();
+  } catch (error) {
+    fail(`Cannot verify available space before ${phase}; refusing to create a worktree: ${error.message}`);
+  }
+  if (state.availableBytes < state.minimumBytes) {
+    fail(
+      `Not enough available space before ${phase}: ${formatGiB(state.availableBytes)} available; ` +
+        `${formatGiB(state.minimumBytes)} required. Free space or set WT_MIN_FREE_BYTES deliberately.`,
+    );
+  }
+}
+
+function installCapacityAvailable(path) {
+  let state;
+  try {
+    state = capacitySnapshot();
+  } catch (error) {
+    console.error(`\nWarning: install not started; cannot verify free space (${error.message}). Worktree exists at ${path}.`);
+    return false;
+  }
+  if (state.availableBytes < state.minimumBytes) {
+    console.error(
+      `\nWarning: install not started: ${formatGiB(state.availableBytes)} available; ` +
+        `${formatGiB(state.minimumBytes)} required. Worktree exists at ${path}; ` +
+        'free space, then run pnpm install there.',
+    );
+    return false;
+  }
+  return true;
+}
 
 /** Absolute repo-pinned pnpm. Never PATH `pnpm`. */
 export function pinnedPnpmPath(repo = REPO) {
@@ -283,15 +338,16 @@ const gitIo = {
     spawnSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], { cwd: REPO, stdio: 'ignore' }).status === 0,
 };
 
-function create(branch) {
+function create(branch, { skipInstall = false } = {}) {
   const bad = conventionError(branch);
   if (bad) fail(bad);
 
-  mkdirSync(WORKTREE_ROOT, { recursive: true });
   const path = join(WORKTREE_ROOT, dirNameFor(branch));
 
   if (existsSync(path)) fail(`A worktree already exists at ${path}\n  cd "${path}"`);
 
+  // The same reserve applies to both modes; skipping dependencies is not a bypass.
+  requireCreateCapacity('starting worktree creation');
   const base = baseBranch();
 
   // Always branch from the freshest base. A branch cut from a stale main is the
@@ -309,6 +365,9 @@ function create(branch) {
     else console.log(`· ${w.text}`);
   }
 
+  // Other jobs can consume space during fetch. Check again before writing source.
+  requireCreateCapacity('creating the source checkout');
+  mkdirSync(WORKTREE_ROOT, { recursive: true });
   console.log(`· creating worktree from ${plan.ref} ${plan.sha.slice(0, 8)}`);
   git(worktreeAddArgs({ path, branch, branchExists, sha: plan.sha }), { stdio: 'inherit' });
 
@@ -324,24 +383,29 @@ function create(branch) {
     );
   }
 
-  // Each worktree needs its own node_modules — the dev server, tsserver, and
-  // vitest all resolve from it. pnpm hardlinks from the global store, so ten
-  // worktrees cost about one worktree of disk.
-  const pnpmBin = resolvePinnedPnpm(REPO);
-  const node24Bin = ensureNode24(REPO);
-  const installEnv = {
-    ...process.env,
-    PATH: `${dirname(node24Bin)}:${dirname(pnpmBin)}:${process.env.PATH || ''}`,
-  };
-  console.log(`· pnpm install (${pnpmBin} + ${node24Bin})`);
-  const install = spawnSync(pnpmBin, ['install'], {
-    cwd: path,
-    stdio: 'inherit',
-    shell: false,
-    env: installEnv,
-  });
-  if (install.status !== 0) {
-    console.error('\n⚠ install failed — the worktree exists; T1 does not require frozen-lockfile success');
+  if (skipInstall) {
+    console.log('· install skipped by request; run pnpm install in the worktree when needed');
+  } else if (installCapacityAvailable(path)) {
+    // Preserve the checkout if space drops. Check before provisioning tools and
+    // again before pnpm, while keeping the repo-pinned Node and pnpm invocation.
+    const pnpmBin = resolvePinnedPnpm(REPO);
+    const node24Bin = ensureNode24(REPO);
+    if (installCapacityAvailable(path)) {
+      const installEnv = {
+        ...process.env,
+        PATH: `${dirname(node24Bin)}:${dirname(pnpmBin)}:${process.env.PATH || ''}`,
+      };
+      console.log(`· pnpm install (${pnpmBin} + ${node24Bin})`);
+      const install = spawnSync(pnpmBin, ['install'], {
+        cwd: path,
+        stdio: 'inherit',
+        shell: false,
+        env: installEnv,
+      });
+      if (install.status !== 0) {
+        console.error('\n⚠ install failed — the worktree exists; T1 does not require frozen-lockfile success');
+      }
+    }
   }
 
   // .env is gitignored, so a new worktree has none. Copy it across rather than
@@ -620,13 +684,15 @@ if (selfTest) {
   process.exit(failed ? 1 : 0);
 }
 
+if (skipInstall && command !== 'create' && !selfTest) fail('--skip-install is only valid with worktree creation');
+
 if (!inMainCheckout() && command !== 'list') {
   console.error('\n⚠ Run worktree commands from the MAIN CHECKOUT, not from inside a worktree.\n');
 }
 
 switch (command) {
   case 'create':
-    create(argument);
+    create(argument, { skipInstall });
     break;
   case 'base':
     // What `create` would cut from, without cutting anything. One command, so
@@ -644,7 +710,8 @@ switch (command) {
     console.log(`
 Worktree manager — CONTRIBUTING.md §2
 
-  pnpm wt <branch>       create a worktree (+ install, + .env)
+  pnpm wt <branch>       create + install + .env copy (default)
+  pnpm wt <branch> --skip-install  create without dependencies (same space floor)
   pnpm wt:base           what a new worktree would be cut from, and how stale this checkout is
   pnpm wt:list           list worktrees and how stale they are
   pnpm wt:rm <branch>    remove a worktree (refuses if work is uncommitted)

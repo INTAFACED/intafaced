@@ -31,13 +31,14 @@ export function dualControlRefuse(
       message: 'operator identity is required; the pay service does not invent a caller',
     };
   }
-  if (confirmOperatorId === null) {
+  const confirm = readConfirmOperatorId({ confirmOperatorId });
+  if (confirm === null) {
     return {
       code: MISSING_OPERATOR,
       message: 'confirming operator identity is required; the pay service does not invent a second caller',
     };
   }
-  if (confirmOperatorId === actor) {
+  if (confirm === actor) {
     return {
       code: MISSING_OPERATOR,
       message: 'confirming operator must be a distinct identity; the pay service does not invent a second caller',
@@ -48,6 +49,11 @@ export function dualControlRefuse(
 
 export function requireDualControl(operatorId: string | null, confirmOperatorId: string | null): string {
   const refuse = dualControlRefuse(operatorId, confirmOperatorId);
-  if (refuse) throw new DualControlError(refuse.message);
-  return confirmOperatorId as string;
+  const confirmed = readConfirmOperatorId({ confirmOperatorId });
+  if (refuse || confirmed === null) {
+    throw new DualControlError(
+      refuse?.message ?? 'confirming operator identity is required; the pay service does not invent a second caller',
+    );
+  }
+  return confirmed;
 }

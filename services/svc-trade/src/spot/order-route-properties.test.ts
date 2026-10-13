@@ -1,3 +1,4 @@
+import { TradeService } from '../controls/test-admission.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,7 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import * as fc from 'fast-check';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, formatAmount, parseAmount as amt, recipes } from '@intafaced/ledger-client';
-import { TradeService } from './trade-service.js';
+
 import type { Market } from './types.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
 

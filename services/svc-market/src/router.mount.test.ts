@@ -120,6 +120,21 @@ function stubVendors(overrides: Partial<VendorService> = {}): VendorService {
 }
 
 describe('svc-market mount — perpetual proposal authority', () => {
+  it('refuses a signed request under default blank screening before reaching the vendor service', async () => {
+    const vendors = stubVendors();
+    vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', undefined);
+    vi.stubEnv('INTAFACED_REGION_FAIL_CLOSED', undefined);
+    try {
+      await expect(createMarketRouter(vendors).createCaller(signed()).mine()).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        cause: { decision: { code: 'denied.screening_unconfigured' } },
+      });
+      expect(vendors.myVendor).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('derives the perpetual proposal proposer from a market:write principal', async () => {
     const proposals = {
       propose: vi.fn(async (input) => ({
@@ -640,6 +655,7 @@ describe('svc-market mount — commerce scopes', () => {
         createdAt: '2026-08-09T00:00:00.000Z',
         settledAt: '2026-08-09T00:00:00.000Z',
         accessUntil: null,
+        periodSeconds: null,
       })),
       purchasesOf: vi.fn(async () => []),
       cancelSubscription: vi.fn(),
@@ -676,6 +692,22 @@ describe('svc-market mount — commerce scopes', () => {
         .purchase({ listingId, purchaseId }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(commerce.purchase).not.toHaveBeenCalled();
+  });
+
+  it('maps a mismatching payment receipt to a typed conflict', async () => {
+    const commerce = stubCommerce();
+    commerce.purchase = vi.fn(async () => {
+      throw new MarketError('Receipt mismatch', 'market.purchase_receipt_mismatch');
+    });
+    await expect(
+      createMarketRouter(stubVendors(), commerce as never)
+        .createCaller(signed())
+        .purchase({ listingId, purchaseId }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'market.purchase_receipt_mismatch',
+      cause: { code: 'market.purchase_receipt_mismatch' },
+    });
   });
 
   it('serves public listings anonymously', async () => {
@@ -1050,6 +1082,13 @@ describe('svc-market mount — commerce scopes', () => {
     expect(q.bid).toBeNull();
     expect(q.ask).toBeNull();
     expect(q.index).toBe('30100.25');
+  });
+
+  it('refuses invalid decimal quote prices through the actual public mount', async () => {
+    const caller = createMarketRouter(stubVendors()).createCaller(anonymous());
+    for (const price of [' ', '0', '-1', '1e2']) {
+      await expect(caller.marketData.quote({ kind: 'index', price })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    }
   });
 });
 

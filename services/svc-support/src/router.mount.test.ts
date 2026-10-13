@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createSupportRouter } from './router.js';
@@ -12,7 +12,7 @@ import {
   assertListKbLimit,
   assertListMineTicketsLimit,
   assertOperatorQueueLimit,
-  type SupportService,
+  SupportService,
 } from './support-service.js';
 import { userCopy } from './user-copy.js';
 
@@ -131,7 +131,49 @@ const CITATION = {
   readAt: '2026-08-09T10:00:00.000Z',
 };
 
+afterEach(() => vi.unstubAllEnvs());
+
 describe('svc-support mount', () => {
+  it('opens and reads a real ticket without a money or balance door', async () => {
+    const support = new SupportService();
+    const router = createSupportRouter(support);
+    const caller = router.createCaller(signed());
+    const opened = await caller.create({
+      category: 'account',
+      subject: 'Card charge posted twice',
+      body: 'Please investigate the repeated charge.',
+    });
+    const ticket = await caller.get({ ticketId: opened.id });
+    expect(ticket).toMatchObject({
+      id: opened.id,
+      userId: USER,
+      status: 'open',
+      category: 'account',
+      subject: 'Card charge posted twice',
+      assigneeId: null,
+    });
+    for (const field of ['balance', 'amount', 'currency']) expect(ticket).not.toHaveProperty(field);
+    expect(Object.keys(router._def.procedures)).not.toContain('balance');
+    expect(await caller.getKb({ id: 'unpublished-fixture-article' })).toBeNull();
+    expect(await caller.events({ ticketId: opened.id, limit: 100 })).toMatchObject([{ kind: 'opened', actorId: USER, actorRole: 'user' }]);
+  });
+
+  it('refuses signed unauthorized ops and settlement before effects with strict policy flags', async () => {
+    vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'true');
+    vi.stubEnv('INTAFACED_REGION_FAIL_CLOSED', 'true');
+    vi.stubEnv('INTAFACED_SANCTIONS_LIST', '');
+    vi.stubEnv('INTAFACED_SANCTIONS_LIST_SOURCE', '');
+    const setStatus = vi.fn();
+    const attemptSettlement = vi.fn();
+    const caller = createSupportRouter(stubSupport({ setStatus, attemptSettlement })).createCaller(signed());
+    await expect(caller.setStatus({ ticketId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', status: 'resolved' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      cause: { code: 'scope.denied' },
+    });
+    await expect(caller.settle({ act: 'move_money' })).rejects.toMatchObject({ code: 'FORBIDDEN', cause: { code: 'scope.denied' } });
+    expect(setStatus).not.toHaveBeenCalled();
+    expect(attemptSettlement).not.toHaveBeenCalled();
+  });
   it('refuses anonymous create', async () => {
     let created = false;
     const support = stubSupport({

@@ -1,8 +1,15 @@
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
-import { rankPerksSchema, rankStateSchema } from '@intafaced/contracts';
+import { rankPerksSchema, rankStateSchema, accountControlResultSchema } from '@intafaced/contracts';
+import {
+  callFounderControl,
+  identityFreezeInputSchema,
+  identityRestoreInputSchema,
+  type FounderControlsPort,
+} from './controls/founder-controls-router.js';
 import { AuthError as GuardError, requireMfa } from '@intafaced/auth';
 import { requestIpAls } from './auth/auth-service-ip.js';
+import { factorActor, factorGateTrpcError } from './auth/factor-gate.js';
 import {
   AuthError,
   assertDelegateCannotGrant,
@@ -241,6 +248,9 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     case 'auth.mfa_required':
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
+    case 'auth.privileged_enrolment_requires_invite':
+      // Retrying cannot help: this identity's first factor needs an invite.
+      return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
     case 'auth.mfa_not_enrolled':
     case 'auth.webauthn_not_enrolled':
       // FORBIDDEN, not UNAUTHORIZED: retrying with a code cannot help. The
@@ -355,12 +365,19 @@ export function createIdentityRouter(
   auth: AuthService,
   rank: RankService,
   options: {
+    founderControls?: Pick<FounderControlsPort, 'change'>;
     /**
      * Owner-published registration gate. Unset → register refuses
      * `identity.registration_open_unset`. Explicit false → closed. Never invent true.
      */
     registrationOpen?: boolean;
     webauthnEnabled?: boolean;
+    /**
+     * Founder pair (user ids). These identities may not self-enrol a FIRST
+     * second factor on a password-only session (`auth.privileged_enrolment_requires_invite`).
+     * Unset → only `admin:*`-scoped principals count as privileged.
+     */
+    privilegedUserIds?: readonly string[];
     referral?: ReferralService;
     /** Share tokens (ops.social-promotion). Token → referrer; hits; revoke. */
     share?: ShareService;
@@ -405,6 +422,8 @@ export function createIdentityRouter(
   },
 ) {
   const webauthnEnabled = options.webauthnEnabled !== false;
+  const privilegedUserIds = options.privilegedUserIds ?? [];
+  const toFactorError = (err: unknown): TRPCError => factorGateTrpcError(err) ?? toTrpcError(err);
   const referral = options.referral;
   const share = options.share;
   const freeze = options.freeze;
@@ -654,9 +673,9 @@ export function createIdentityRouter(
         .output(z.object({ secret: z.string(), uri: z.string(), recoveryCodes: z.array(z.string()) }))
         .mutation(async ({ ctx }) => {
           try {
-            return await auth.startTotpEnrolment(ctx.principal.userId);
+            return await auth.startTotpEnrolment(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds));
           } catch (err) {
-            throw toTrpcError(err);
+            throw toFactorError(err);
           }
         }),
 
@@ -665,10 +684,10 @@ export function createIdentityRouter(
         .output(z.object({ ok: z.literal(true) }))
         .mutation(async ({ ctx, input }) => {
           try {
-            await auth.confirmTotpEnrolment(ctx.principal.userId, input.secret, input.code);
+            await auth.confirmTotpEnrolment(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds), input.secret, input.code);
             return { ok: true as const };
           } catch (err) {
-            throw toTrpcError(err);
+            throw toFactorError(err);
           }
         }),
     }),
@@ -684,9 +703,9 @@ export function createIdentityRouter(
       registerOptions: protectedProcedure.mutation(async ({ ctx }) => {
         if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
         try {
-          return await auth.startWebauthnRegistration(ctx.principal.userId);
+          return await auth.startWebauthnRegistration(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds));
         } catch (err) {
-          throw toTrpcError(err);
+          throw toFactorError(err);
         }
       }),
 
@@ -708,9 +727,9 @@ export function createIdentityRouter(
         .mutation(async ({ ctx, input }) => {
           if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
           try {
-            return await auth.confirmWebauthnRegistration(ctx.principal.userId, input);
+            return await auth.confirmWebauthnRegistration(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds), input);
           } catch (err) {
-            throw toTrpcError(err);
+            throw toFactorError(err);
           }
         }),
 
@@ -783,10 +802,14 @@ export function createIdentityRouter(
         .mutation(async ({ ctx, input }) => {
           if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
           try {
-            const removed = await auth.removeWebauthnCredential(ctx.principal.userId, input.credentialId);
+            const removed = await auth.removeWebauthnCredential(
+              ctx.principal.userId,
+              factorActor(ctx.principal, privilegedUserIds),
+              input.credentialId,
+            );
             return { removed };
           } catch (err) {
-            throw toTrpcError(err);
+            throw toFactorError(err);
           }
         }),
     }),
@@ -997,6 +1020,11 @@ export function createIdentityRouter(
             try {
               bytes = Buffer.from(input.bytesBase64, 'base64');
             } catch {
+              throw new TRPCError({ code: 'BAD_REQUEST', message: 'bytesBase64 is not valid base64' });
+            }
+            // Buffer.from accepts ignored characters, padding and unused-bit
+            // variants. Store only the canonical encoding of the decoded bytes.
+            if (bytes.toString('base64') !== input.bytesBase64) {
               throw new TRPCError({ code: 'BAD_REQUEST', message: 'bytesBase64 is not valid base64' });
             }
             // Empty after decode is a put refusal from the store; reject early for a clean code.
@@ -1302,34 +1330,15 @@ export function createIdentityRouter(
      * Cascades: user frozen + all sessions revoked + all sub-accounts + all API keys revoked.
      */
     compliance: router({
-      freezeIdentity: scopedProcedure('admin:compliance')
-        .input(z.object({ userId: z.string().uuid() }))
-        .output(
-          z.object({
-            userId: z.string().uuid(),
-            status: z.literal('frozen'),
-            subAccountsRevoked: z.number().int(),
-            apiKeysRevoked: z.number().int(),
-          }),
-        )
-        .mutation(async ({ input }) => {
-          try {
-            return await auth.freezeIdentity(input.userId);
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
+      freezeIdentity: protectedProcedure
+        .input(identityFreezeInputSchema)
+        .output(accountControlResultSchema)
+        .mutation(({ ctx, input }) => callFounderControl(options.founderControls, ctx, input)),
 
-      unfreezeIdentity: scopedProcedure('admin:compliance')
-        .input(z.object({ userId: z.string().uuid() }))
-        .output(z.object({ userId: z.string().uuid(), status: z.literal('active') }))
-        .mutation(async ({ input }) => {
-          try {
-            return await auth.unfreezeIdentity(input.userId);
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
+      unfreezeIdentity: protectedProcedure
+        .input(identityRestoreInputSchema)
+        .output(accountControlResultSchema)
+        .mutation(({ ctx, input }) => callFounderControl(options.founderControls, ctx, input)),
     }),
 
     subAccounts: router({

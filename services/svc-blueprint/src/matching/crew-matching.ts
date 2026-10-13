@@ -77,8 +77,14 @@ export type MatchableProfile = Pick<BlueprintProfile, CrewAxis>;
 export interface CrewCandidate {
   readonly crewId: string;
   readonly capacity: number;
-  /** One entry per current member. Order does not affect the score. */
+  /**
+   * Members whose blueprint profile is present, so they can be scored.
+   * Order does not affect the score. A seat with no profile is absent here
+   * and still counted in `occupied`.
+   */
   readonly members: readonly MatchableProfile[];
+  /** Every `crew_members` row. Fullness uses this, the same set as capacity enforcement. */
+  readonly occupied: number;
 }
 
 export interface ScoredCrew {
@@ -89,7 +95,7 @@ export interface ScoredCrew {
 }
 
 export function isFull(candidate: CrewCandidate): boolean {
-  return candidate.members.length >= candidate.capacity;
+  return candidate.occupied >= candidate.capacity;
 }
 
 /**

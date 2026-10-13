@@ -29,8 +29,9 @@ function retainedClock(emsStore: EmsOrderStore, parentClientOrderId: string): st
     .map((row) => row.execution?.executedAt)
     .flatMap((at) => {
       if (!at) return [];
-      const iso = at instanceof Date ? at.toISOString() : new Date(at).toISOString();
-      return Number.isNaN(Date.parse(iso)) ? [] : [iso];
+      const parsed = at instanceof Date ? at : new Date(at);
+      if (Number.isNaN(parsed.getTime())) return [];
+      return [parsed.toISOString()];
     })
     .sort();
   return stamps[0] ?? null;
@@ -71,17 +72,13 @@ export function runTcaForParent(input: TcaParentInput): TcaParentResult {
   });
 
   if (!result.ok) {
-    const reason: TcaParentRefuse['reason'] =
-      result.reason === 'missing_identity' ? 'missing_parent' : result.reason;
+    const reason: TcaParentRefuse['reason'] = result.reason === 'missing_identity' ? 'missing_parent' : result.reason;
     return { ok: false, reason, detail: result.detail };
   }
 
   const arrival = result.run.benchmarks.find((row) => row.class === 'arrival');
   if (!arrival || arrival.status !== 'AVAILABLE') {
-    const detail =
-      arrival && arrival.status === 'UNAVAILABLE'
-        ? arrival.detail
-        : 'no retained arrival benchmark — refusing to invent one';
+    const detail = arrival && arrival.status === 'UNAVAILABLE' ? arrival.detail : 'no retained arrival benchmark — refusing to invent one';
     return { ok: false, reason: 'missing_retained_inputs', detail };
   }
 

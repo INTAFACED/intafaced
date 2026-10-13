@@ -174,7 +174,9 @@ export type P2pErrorCode =
   // Payment-instrument details are jsonb at rest. Live offer create stays
   // refuse-closed until OWNER KMS envelope encryption is wired — a key
   // improvised here is the appearance of protection without the substance.
-  | 'p2p.instrument_kms_required';
+  | 'p2p.instrument_kms_required'
+  | 'p2p.escrow_terms_unproven'
+  | 'p2p.escrow_lock_uncertain';
 
 /**
  * A lowercase canonical UUID — the natural-person identifier space, and the ONE
@@ -1329,74 +1331,66 @@ export class P2pService {
    * it, and calling it on an already-escrowed trade is a no-op read.
    */
   private async ensureEscrowed(tradeId: string): Promise<TradeRecord> {
-    const trade = await this.getTrade(tradeId);
-    if (trade.status !== 'created') return trade;
-
-    try {
-      await this.ledger.post(
-        recipes.escrowLock({
-          tradeId: trade.id,
-          sellerId: trade.sellerId,
-          buyerId: trade.buyerId,
-          assetId: trade.asset,
-          amount: trade.amount,
-        }),
-      );
-    } catch (err) {
-      if (err instanceof InsufficientFundsError) {
-        // DEFINITIVE. The ledger checks idempotency before it checks funds, so
-        // an insufficient-funds error proves the lock has never posted — there
-        // is nothing in escrow and nothing to refund. Void the trade, hand the
-        // liquidity back to the offer, and let the caller see the real error.
-        await this.recordDecision({
-          tradeId: trade.id,
-          to: 'cancelled',
-          resolution: 'voided',
-          reason: 'seller.escrow_lock_failed_insufficient_funds',
-        });
-        await this.settle(trade.id);
-      }
-      throw err;
-    }
-
-    // The lock is on the book. From here the trade provably holds escrow, which
-    // is what makes the release and refund paths safe to reach.
-    return this.advanceToEscrowed(trade.id);
-  }
-
-  private async advanceToEscrowed(tradeId: string): Promise<TradeRecord> {
-    const updated = await transaction(
+    // Commit the possible remote attempt BEFORE dispatch. HTTP abort cannot
+    // cancel a request already accepted by the ledger, nor prove it had no effect.
+    const ordinal = await this.claimEscrowLockAttempt(tradeId);
+    // Serialize the post and its outcome on the existing trade row. A delayed
+    // definitive failure must not void a different attempt whose lock posted.
+    const outcome = await transaction(
       this.sql,
       async (tx) => {
-        const rows = await tx<TradeRow[]>`SELECT * FROM p2p.p2p_trades WHERE id = ${tradeId} FOR UPDATE`;
-        const row = rows[0];
-        if (!row) throw unknownTrade(tradeId);
-        if (row.status !== 'created') return toTrade(row);
+        const trade = await this.lockTrade(tx, tradeId);
+        if (trade.status !== 'created') return { trade, newlyLocked: false, failure: null };
+        await this.requireOriginalTermsClaim(trade.id, tx);
 
-        const now = await txNow(tx);
-        const deadlineAt = deadlineFor('escrowed', now, this.deadlines);
-        const deadlines = withDeadline(row.deadlines ?? {}, 'escrowed', deadlineAt);
-
-        const next = await tx<TradeRow[]>`
-          UPDATE p2p.p2p_trades
-             SET status = 'escrowed', escrowed_at = ${now}, deadline_at = ${deadlineAt},
-                 deadlines = ${tx.json(deadlines as never)}
-           WHERE id = ${tradeId} AND status = 'created'
-          RETURNING *
-        `;
-
-        // Reputation counts a trade from the moment it reaches escrow. A take
-        // that never locked cost the counterparty nothing and must not dilute
-        // anyone's completion rate.
-        await this.bumpReputation(tx, row.seller_id, 'escrowed');
-        await this.bumpReputation(tx, row.buyer_id, 'escrowed');
-
-        return toTrade(next[0] ?? row);
+        try {
+          await this.ledger.post(
+            recipes.escrowLock({
+              tradeId: trade.id,
+              sellerId: trade.sellerId,
+              buyerId: trade.buyerId,
+              assetId: trade.asset,
+              amount: trade.amount,
+            }),
+          );
+        } catch (err) {
+          if (!(err instanceof InsufficientFundsError)) {
+            // An ambiguous outcome rolls back the status write. The original
+            // immutable claim remains, so a sweep can replay the same recipe.
+            throw err;
+          }
+          const [history] = await tx<{ attempts: string | null }[]>`
+            SELECT escrow_lock_attempts::text AS attempts FROM p2p.p2p_trades WHERE id = ${trade.id}
+          `;
+          if (ordinal !== '1' || history?.attempts !== '1') {
+            // This refusal describes only this invocation. Earlier accepted
+            // handlers may still post even after our await timed out or died.
+            throw new P2pError('Escrow lock outcome is uncertain; prior attempts may still post', 'p2p.escrow_lock_uncertain');
+          }
+          // A complete first-attempt funds refusal has no earlier remote intent.
+          await this.writeDecision(tx, {
+            trade,
+            to: 'cancelled',
+            resolution: 'voided',
+            reason: 'seller.escrow_lock_failed_insufficient_funds',
+            now: await txNow(tx),
+          });
+          return { trade: await this.lockTrade(tx, trade.id), newlyLocked: false, failure: err };
+        }
+        return { trade: await this.advanceToEscrowed(tx, trade), newlyLocked: true, failure: null };
       },
-      { isolation: 'read committed', maxAttempts: 5 },
+      // Every new remote invocation requires another independently committed claim.
+      { isolation: 'read committed', maxAttempts: 1 },
     );
 
-    if (updated.status === 'escrowed' && updated.escrowedAt) {
+    // Settlement and announcements use the pool only after releasing the row
+    // transaction; nesting either here would consume a second connection.
+    if (outcome.failure) {
+      await this.settle(outcome.trade.id);
+      throw outcome.failure;
+    }
+    const updated = outcome.trade;
+    if (outcome.newlyLocked && updated.escrowedAt) {
       await this.bus.publish(
         'p2pEscrowLocked',
         {
@@ -1413,8 +1407,44 @@ export class P2pService {
         { idempotencyKey: `p2p.escrow.lock:${updated.id}` },
       );
     }
-
     return updated;
+  }
+
+  private async claimEscrowLockAttempt(tradeId: string): Promise<string | null> {
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const trade = await this.lockTrade(tx, tradeId);
+        if (trade.status !== 'created') return null;
+        await this.requireOriginalTermsClaim(trade.id, tx);
+        const [row] = await tx<{ attempts: string | null }[]>`
+        UPDATE p2p.p2p_trades SET escrow_lock_attempts = escrow_lock_attempts + 1
+         WHERE id = ${trade.id} RETURNING escrow_lock_attempts::text AS attempts
+      `;
+        // NULL remains unknown; upgrading must never bless untracked history.
+        return row?.attempts ?? null;
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
+  }
+
+  /** Stamp an acknowledged lock while the caller still holds the trade row. */
+  private async advanceToEscrowed(tx: Sql, trade: TradeRecord): Promise<TradeRecord> {
+    const now = await txNow(tx);
+    const deadlineAt = deadlineFor('escrowed', now, this.deadlines);
+    const deadlines = withDeadline(trade.deadlines, 'escrowed', deadlineAt);
+    const next = await tx<TradeRow[]>`
+      UPDATE p2p.p2p_trades
+         SET status = 'escrowed', escrowed_at = ${now}, deadline_at = ${deadlineAt},
+             deadlines = ${tx.json(deadlines as never)}
+       WHERE id = ${trade.id} AND status = 'created'
+      RETURNING *
+    `;
+    if (!next[0]) throw new P2pError(`Trade ${trade.id} moved before its lock acknowledgement`, 'p2p.trade_moved');
+    // Count reputation only after an acknowledged lock, in the same commit.
+    await this.bumpReputation(tx, trade.sellerId, 'escrowed');
+    await this.bumpReputation(tx, trade.buyerId, 'escrowed');
+    return toTrade(next[0]);
   }
 
   // ── Buyer marks the fiat sent ──────────────────────────────────────────────
@@ -2014,6 +2044,7 @@ export class P2pService {
     args: { trade: TradeRecord; to: TradeStatus; resolution: TradeResolution; reason: string; now: Date },
   ): Promise<void> {
     const { trade, to, resolution, reason, now } = args;
+    await this.requireOriginalTermsClaim(trade.id, tx);
 
     await tx`
       UPDATE p2p.p2p_trades
@@ -2043,6 +2074,19 @@ export class P2pService {
     }
   }
 
+  /** Initial server-validated terms, not a receipt or a guess that escrow posted. */
+  private async requireOriginalTermsClaim(tradeId: string, sql: Sql = this.sql): Promise<void> {
+    const [row] = await sql<{ original_terms_claimed_at: Date | null }[]>`
+      SELECT original_terms_claimed_at FROM p2p.p2p_trades WHERE id = ${tradeId}
+    `;
+    if (!row?.original_terms_claimed_at) {
+      throw new P2pError(
+        'Original escrow terms are unproven; legacy rows are preserved without fabricated backfill',
+        'p2p.escrow_terms_unproven',
+      );
+    }
+  }
+
   /**
    * PHASE 2 — act on the recorded decision.
    *
@@ -2067,6 +2111,7 @@ export class P2pService {
 
     if (!trade.resolution) throw new P2pError(`Trade ${tradeId} has no recorded resolution to settle`, 'p2p.escrow_missing');
     if (trade.settledAt) return trade;
+    await this.requireOriginalTermsClaim(trade.id);
 
     let fee: Amount = 0n;
 

@@ -4,6 +4,7 @@ import type { AccountState } from '@intafaced/contracts';
 import { assertDelegatableScopes, issueAccessToken, SESSION_SCOPES, type Scope, type TokenConfig } from '@intafaced/auth';
 import type { EventBus } from '@intafaced/events';
 import { dummyPasswordHash, generateApiKey, generateToken, hashPassword, hashToken, needsRehash, verifyPassword } from './passwords.js';
+import { assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
@@ -56,6 +57,7 @@ export class AuthError extends Error {
       | 'auth.handle_taken'
       | 'auth.email_taken'
       | 'auth.mfa_required'
+      | 'auth.privileged_enrolment_requires_invite'
       | 'auth.mfa_invalid'
       | 'auth.mfa_already_enrolled'
       | 'auth.session_invalid'
@@ -392,9 +394,17 @@ export class AuthService {
   ): Promise<SessionTokens> {
     const refreshToken = generateToken(48);
     const expiresAt = new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000);
-    const inserted = await this.sql<
-      Array<{ id: string }>
-    >`INSERT INTO sessions (user_id, refresh_hash, device, ip, mfa, expires_at) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? null}, ${options.mfa}, ${expiresAt}) RETURNING id`;
+    const inserted = await transaction(
+      this.sql,
+      async (tx) => {
+        const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId} FOR UPDATE`;
+        if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
+        return tx<
+          Array<{ id: string }>
+        >`INSERT INTO sessions (user_id, refresh_hash, device, ip, mfa, expires_at) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? null}, ${options.mfa}, ${expiresAt}) RETURNING id`;
+      },
+      { isolation: 'read committed' },
+    );
     const sessionId = inserted[0]!.id;
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
     const tier = await this.kycTier(userId);
@@ -547,7 +557,7 @@ export class AuthService {
     });
   }
 
-  async startTotpEnrolment(userId: string): Promise<{ secret: string; uri: string; recoveryCodes: string[] }> {
+  async startTotpEnrolment(userId: string, actor: FactorActor): Promise<{ secret: string; uri: string; recoveryCodes: string[] }> {
     if (!this.totpSecretKey) {
       throw new AuthError(
         'IDENTITY_TOTP_SECRET_KEY is not set to a 32-byte key (base64 or hex) — cannot enrol TOTP',
@@ -555,10 +565,13 @@ export class AuthService {
       );
     }
     const rows = await this.sql<
-      Array<{ email: string; totp_secret: string | null }>
-    >`SELECT email, totp_secret FROM users WHERE id = ${userId}`;
+      Array<{ email: string; totp_secret: string | null; webauthn_creds: unknown }>
+    >`SELECT email, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
     const user = rows[0];
     if (!user) throw new AuthError('User not found', 'auth.not_found');
+    // Gate first (a refused caller learns nothing about TOTP state), then the
+    // already-enrolled conflict. Unlocked: nothing is written here.
+    checkMayAddFactor(user, actor);
     if (user.totp_secret) throw new AuthError('Two-factor is already enrolled', 'auth.mfa_already_enrolled');
     const secret = generateSecret();
     const recoveryCodes = generateRecoveryCodes();
@@ -570,7 +583,7 @@ export class AuthService {
     return { secret, uri: totpUri(secret, user.email), recoveryCodes };
   }
 
-  async confirmTotpEnrolment(userId: string, secret: string, code: string): Promise<void> {
+  async confirmTotpEnrolment(userId: string, actor: FactorActor, secret: string, code: string): Promise<void> {
     const matched = matchTotpStep(secret, code);
     if (matched === null) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
     if (!this.totpSecretKey) {
@@ -579,13 +592,17 @@ export class AuthService {
         'auth.totp_key_missing',
       );
     }
-    const pending = await this.pendingTotp.takeIfSecretHash(userId, hashToken(secret));
-    if (!pending) {
-      throw new AuthError('TOTP enrolment session expired or secret mismatch — start enrolment again', 'auth.mfa_invalid');
-    }
+    // Same transaction, same row lock as the write: "has no factor" cannot change
+    // between the check and the UPDATE (a parallel first-factor enrolment waits).
     const sealed = encryptTotpSecret(this.totpSecretKey, secret);
-    await this
-      .sql`UPDATE users SET totp_secret = ${sealed}, totp_enrolled_at = now(), totp_last_step = ${matched.toString()}, recovery_code_hashes = ${this.sql.json(pending.recoveryHashes as never)}, updated_at = now() WHERE id = ${userId} AND totp_secret IS NULL`;
+    await transaction(this.sql, async (tx) => {
+      await assertMayAddFactor(tx, userId, actor, true);
+      const pending = await this.pendingTotp.takeIfSecretHash(userId, hashToken(secret));
+      if (!pending) {
+        throw new AuthError('TOTP enrolment session expired or secret mismatch — start enrolment again', 'auth.mfa_invalid');
+      }
+      await tx`UPDATE users SET totp_secret = ${sealed}, totp_enrolled_at = now(), totp_last_step = ${matched.toString()}, recovery_code_hashes = ${tx.json(pending.recoveryHashes as never)}, updated_at = now() WHERE id = ${userId} AND totp_secret IS NULL`;
+    });
     await this.rank.awardXp({
       userId,
       sourceModule: 'identity',
@@ -595,19 +612,24 @@ export class AuthService {
     });
   }
 
-  async startWebauthnRegistration(userId: string): Promise<RegistrationOptionsJSON> {
+  async startWebauthnRegistration(userId: string, actor: FactorActor): Promise<RegistrationOptionsJSON> {
     const rows = await this.sql<
-      Array<{ email: string; handle: string; webauthn_creds: StoredWebAuthnCredential[] }>
-    >`SELECT email, handle, webauthn_creds FROM users WHERE id = ${userId}`;
+      Array<{ email: string; handle: string; totp_secret: string | null; webauthn_creds: StoredWebAuthnCredential[] }>
+    >`SELECT email, handle, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
     const user = rows[0];
     if (!user) throw new AuthError('User not found', 'auth.not_found');
+    checkMayAddFactor(user, actor);
     const existing = asCredentialList(user.webauthn_creds);
     const challenge = generateChallenge();
     await this.challenges.put('registration', challenge, userId);
     return createRegistrationOptions(this.webauthn, { id: userId, name: user.email, displayName: user.handle }, existing, challenge);
   }
 
-  async confirmWebauthnRegistration(userId: string, response: RegistrationResponseJSON): Promise<{ credentialId: string }> {
+  async confirmWebauthnRegistration(
+    userId: string,
+    actor: FactorActor,
+    response: RegistrationResponseJSON,
+  ): Promise<{ credentialId: string }> {
     const rows = await this.sql<
       Array<{ webauthn_creds: StoredWebAuthnCredential[] }>
     >`SELECT webauthn_creds FROM users WHERE id = ${userId}`;
@@ -625,13 +647,24 @@ export class AuthService {
     } catch (err) {
       throw mapWebAuthnError(err);
     }
-    const existing = asCredentialList(user.webauthn_creds);
-    if (existing.some((c) => c.credentialId === stored.credentialId)) {
-      throw new AuthError('That authenticator is already registered', 'auth.webauthn_invalid');
-    }
-    const next = [...existing, stored];
-    await this.sql`UPDATE users SET webauthn_creds = ${this.sql.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
-    if (existing.length === 0) {
+    // Re-read under a row lock so this enrolment and a login's counter write in
+    // this service cannot overwrite each other's credential list. The writers in
+    // enroll-passkey.ts, verify-passkey.ts and unenroll-passkey.ts take the same
+    // lock, so the guarantee holds between all of them.
+    const existingCount = await transaction(this.sql, async (tx) => {
+      // Locks the user row and applies the factor rule in the same transaction as the write.
+      await assertMayAddFactor(tx, userId, actor, true);
+      const locked = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId}`;
+      if (!locked[0]) throw new AuthError('User not found', 'auth.not_found');
+      const existing = asCredentialList(locked[0].webauthn_creds);
+      if (existing.some((c) => c.credentialId === stored.credentialId)) {
+        throw new AuthError('That authenticator is already registered', 'auth.webauthn_invalid');
+      }
+      const next = [...existing, stored];
+      await tx`UPDATE users SET webauthn_creds = ${tx.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
+      return existing.length;
+    });
+    if (existingCount === 0) {
       await this.rank.awardXp({
         userId,
         sourceModule: 'identity',
@@ -671,21 +704,45 @@ export class AuthService {
     if (!held || held.userId !== user.id) {
       throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     }
-    const creds = asCredentialList(user.webauthn_creds);
-    if (creds.length === 0) throw new AuthError('No security key enrolled', 'auth.webauthn_not_enrolled');
-    const responseId = normalizeCredId(response.id);
-    const credential = creds.find((c) => c.credentialId === responseId);
-    if (!credential) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
-    let newCounter: number;
-    try {
-      ({ newCounter } = verifyAuthenticationResponse(this.webauthn, held.challenge, credential, response));
-    } catch (err) {
-      if (err instanceof WebAuthnError) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
-      throw err;
-    }
-    const next = creds.map((c) => (c.credentialId === credential.credentialId ? { ...c, counter: newCounter } : c));
-    await this.sql`UPDATE users SET webauthn_creds = ${this.sql.json(next as never)}, updated_at = now() WHERE id = ${user.id}`;
+    if (asCredentialList(user.webauthn_creds).length === 0) throw new AuthError('No security key enrolled', 'auth.webauthn_not_enrolled');
+    await this.verifyAssertionAndAdvanceCounter(user.id, held.challenge, response, () => {
+      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    });
     return this.issueSession(user.id, { device: options.device, ip: options.ip, mfa: true });
+  }
+
+  /**
+   * Verify a passkey assertion and advance that credential's signature counter.
+   *
+   * Runs in one transaction under `SELECT … FOR UPDATE` on the user row, so two
+   * concurrent assertions (or a locked enrolment racing a login) cannot read the
+   * same counter and both succeed, and cannot overwrite each other's credential
+   * list. The writers in enroll-passkey.ts, verify-passkey.ts and
+   * unenroll-passkey.ts take the same lock. `refuse` throws the caller's own AuthError for any refusal.
+   */
+  private async verifyAssertionAndAdvanceCounter(
+    userId: string,
+    challenge: string,
+    response: AuthenticationResponseJSON,
+    refuse: () => never,
+  ): Promise<void> {
+    await transaction(this.sql, async (tx) => {
+      const rows = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE`;
+      if (!rows[0]) return refuse();
+      const creds = asCredentialList(rows[0].webauthn_creds);
+      const responseId = normalizeCredId(response.id);
+      const credential = creds.find((c) => c.credentialId === responseId);
+      if (!credential) return refuse();
+      let newCounter: number;
+      try {
+        ({ newCounter } = await verifyAuthenticationResponse(this.webauthn, challenge, credential, response));
+      } catch (err) {
+        if (err instanceof WebAuthnError) return refuse();
+        throw err;
+      }
+      const next = creds.map((c) => (c.credentialId === credential.credentialId ? { ...c, counter: newCounter } : c));
+      await tx`UPDATE users SET webauthn_creds = ${tx.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
+    });
   }
 
   async listWebauthnCredentials(
@@ -707,7 +764,8 @@ export class AuthService {
       .slice(0, published);
   }
 
-  async removeWebauthnCredential(userId: string, credentialId: string): Promise<boolean> {
+  async removeWebauthnCredential(userId: string, actor: FactorActor, credentialId: string): Promise<boolean> {
+    assertMayRemoveFactor(actor);
     const target = normalizeCredId(credentialId);
     return transaction(this.sql, async (tx) => {
       const rows = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE`;
@@ -750,9 +808,17 @@ export class AuthService {
     assertDelegatableScopes(input.scopes, input.grantorScopes);
     const mode = input.mode === 'sandbox' ? 'sandbox' : 'live';
     const { key, hash, prefix } = generateApiKey(mode);
-    const rows = await this.sql<
-      Array<{ id: string }>
-    >`INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes, domain_whitelist, expires_at, mode) VALUES (${input.userId}, ${input.name}, ${hash}, ${prefix}, ${input.scopes}, ${input.domainWhitelist ?? []}, ${input.expiresAt ?? null}, ${mode}) RETURNING id`;
+    const rows = await transaction(
+      this.sql,
+      async (tx) => {
+        const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${input.userId} FOR UPDATE`;
+        if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
+        return tx<
+          Array<{ id: string }>
+        >`INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes, domain_whitelist, expires_at, mode) VALUES (${input.userId}, ${input.name}, ${hash}, ${prefix}, ${input.scopes}, ${input.domainWhitelist ?? []}, ${input.expiresAt ?? null}, ${mode}) RETURNING id`;
+      },
+      { isolation: 'read committed' },
+    );
     return { id: rows[0]!.id, key, prefix, mode };
   }
 
@@ -1019,8 +1085,7 @@ export class AuthService {
         if (!redeemed) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
       }
     } else {
-      const creds = asCredentialList(user.webauthn_creds);
-      if (creds.length === 0) {
+      if (asCredentialList(user.webauthn_creds).length === 0) {
         throw new AuthError('Enrol a security key before withdrawing with passkey step-up', 'auth.webauthn_not_enrolled');
       }
       const response = input.webauthn!;
@@ -1030,18 +1095,9 @@ export class AuthService {
       if (!held || held.userId !== input.userId) {
         throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
       }
-      const responseId = normalizeCredId(response.id);
-      const credential = creds.find((c) => c.credentialId === responseId);
-      if (!credential) throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
-      let newCounter: number;
-      try {
-        ({ newCounter } = verifyAuthenticationResponse(this.webauthn, held.challenge, credential, response));
-      } catch (err) {
-        if (err instanceof WebAuthnError) throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
-        throw err;
-      }
-      const next = creds.map((c) => (c.credentialId === credential.credentialId ? { ...c, counter: newCounter } : c));
-      await this.sql`UPDATE users SET webauthn_creds = ${this.sql.json(next as never)}, updated_at = now() WHERE id = ${input.userId}`;
+      await this.verifyAssertionAndAdvanceCounter(input.userId, held.challenge, response, () => {
+        throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+      });
     }
     const scopes: Scope[] = [...this.defaultScopes(), ...STEP_UP_SCOPES];
     const tier = await this.kycTier(input.userId);
@@ -1091,8 +1147,9 @@ export class AuthService {
       throw new AuthError('IDENTITY_MAX_SUB_ACCOUNTS is unset — owner must publish a live-partition cap', 'auth.sub_account_cap_unset');
     }
     return transaction(this.sql, async (tx) => {
-      const locked = await tx<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${userId} LIMIT 1 FOR UPDATE`;
+      const locked = await tx<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${userId} LIMIT 1 FOR UPDATE`;
       if (!locked[0]) throw new AuthError('User not found', 'auth.not_found');
+      if (locked[0].status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
       const live = await tx<
         Array<{ n: string }>
       >`SELECT count(*)::text AS n FROM sub_accounts WHERE parent_user_id = ${userId} AND revoked = false`;

@@ -50,7 +50,7 @@ export function parseEvmAssets(raw: string): ReadonlyMap<string, EvmAsset> {
     if (!assetId) throw new EvmAssetError(`Malformed PAY_CRYPTO_ASSETS entry "${entry}"`);
 
     if (parts[1]?.toLowerCase() === 'native') {
-      const decimals = parts[2] !== undefined ? Number(parts[2]) : 18;
+      const decimals = parseAssetDecimals(parts[2], 18);
       if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36) {
         throw new EvmAssetError(`Native asset "${assetId}" has invalid decimals`);
       }
@@ -59,7 +59,7 @@ export function parseEvmAssets(raw: string): ReadonlyMap<string, EvmAsset> {
     }
 
     const addressRaw = parts[1];
-    const decimals = parts[2] !== undefined ? Number(parts[2]) : NaN;
+    const decimals = parseAssetDecimals(parts[2], Number.NaN);
     if (!addressRaw || !isAddress(addressRaw)) {
       throw new EvmAssetError(`Asset "${assetId}" needs a valid ERC-20 address (got "${addressRaw ?? ''}")`);
     }
@@ -69,6 +69,17 @@ export function parseEvmAssets(raw: string): ReadonlyMap<string, EvmAsset> {
     out.set(assetId, { kind: 'erc20', assetId, address: getAddress(addressRaw), decimals });
   }
   return out;
+}
+
+/**
+ * `Number('')` is 0, which would pass the 0–36 check and then scale each base
+ * unit up by 10^18. A missing third part may use `whenOmitted` (18 for native,
+ * NaN for an ERC-20). A present but blank scale is invalid.
+ */
+function parseAssetDecimals(raw: string | undefined, whenOmitted: number): number {
+  if (raw === undefined) return whenOmitted;
+  if (raw.trim() === '') return Number.NaN;
+  return Number(raw);
 }
 
 /** Ledger Amount (1e18) → on-chain integer units. */

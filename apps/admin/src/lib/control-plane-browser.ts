@@ -1,102 +1,65 @@
-/**
- * Browser-side hop to this app's own `/api/kill-switch` route.
- *
- * The edge token never leaves the server (`control-plane-client.ts`). The board
- * talks only to the Next route, which is the property §14.6 needs for
- * "reachable from apps/admin" without putting `admin:write` in devtools.
- */
+/** Browser talks only to the same-origin BFF; deployment credentials stay server-side. */
+import { founderMutationHeaders } from './founder-browser';
+import {
+  decodeRead,
+  decodeToggle,
+  unavailable,
+  unresolved,
+  type ControlPlaneState,
+  type ToggleInput,
+  type ToggleResult,
+} from './control-plane-contract';
+export type { AuditEntry, ControlPlaneState, ControlPlaneStatus, KillSwitchSnapshot, ToggleResult } from './control-plane-contract';
 
-import type { ModuleId } from '@intafaced/config';
-
-export type ControlPlaneStatus = 'reachable' | 'unconfigured' | 'unreachable';
-
-export interface AuditEntry {
-  readonly at: string;
-  readonly module: string;
-  readonly actor: string;
-  readonly reason: string;
-  readonly previous: boolean;
-  readonly next: boolean;
-  readonly changed: boolean;
-}
-
-export interface KillSwitchSnapshot {
-  readonly disabledModules: readonly ModuleId[];
-  readonly reasons: Readonly<Record<string, string>>;
-  readonly audit: readonly AuditEntry[];
-}
-
-export interface ControlPlaneState {
-  readonly status: ControlPlaneStatus;
-  readonly snapshot: KillSwitchSnapshot;
-  readonly detail: string | null;
-}
-
-export interface ToggleResult {
-  readonly ok: boolean;
-  readonly status: number;
-  readonly snapshot: KillSwitchSnapshot;
-  readonly detail: string | null;
-}
-
-const EMPTY: KillSwitchSnapshot = { disabledModules: [], reasons: {}, audit: [] };
-
-export async function fetchKillSwitches(): Promise<ControlPlaneState> {
+export async function fetchKillSwitches(options: { signal?: AbortSignal } = {}): Promise<ControlPlaneState> {
   try {
-    const res = await fetch('/api/kill-switch', { cache: 'no-store' });
-    const body = (await res.json().catch(() => ({}))) as Partial<ControlPlaneState> & {
-      error?: string;
-      status?: ControlPlaneStatus;
-      snapshot?: KillSwitchSnapshot;
-      detail?: string | null;
-    };
-
-    if (body.status && body.snapshot) {
-      return {
-        status: body.status,
-        snapshot: {
-          disabledModules: body.snapshot.disabledModules ?? [],
-          reasons: body.snapshot.reasons ?? {},
-          audit: body.snapshot.audit ?? [],
-        },
-        detail: body.detail ?? null,
-      };
-    }
-
-    return {
-      status: res.ok ? 'reachable' : 'unreachable',
-      snapshot: EMPTY,
-      detail: body.error ?? body.detail ?? `console /api/kill-switch answered ${res.status}`,
-    };
-  } catch (err) {
-    return { status: 'unreachable', snapshot: EMPTY, detail: (err as Error).message };
+    const res = await fetch('/api/kill-switch', { cache: 'no-store', signal: options.signal });
+    return decodeRead(await res.json().catch(() => null), res.status, true);
+  } catch {
+    return unavailable(
+      'unreachable',
+      options.signal?.aborted ? 'The original module read was cancelled.' : 'The module state service could not be reached.',
+      options.signal?.aborted ? 'admin.kill_read_aborted' : 'admin.kill_read_unreachable',
+    );
   }
 }
-
-export async function postKillSwitch(input: { module: ModuleId; disabled: boolean; reason: string }): Promise<ToggleResult> {
+/** Retained transport helper. The new inspector never calls this mutation. */
+export async function postKillSwitch(input: ToggleInput): Promise<ToggleResult> {
+  const intent = Object.freeze({ module: input.module, disabled: input.disabled, reason: input.reason });
+  let headers: Record<string, string>;
+  try {
+    headers = await founderMutationHeaders();
+  } catch (error) {
+    return {
+      ok: false,
+      status: 502,
+      snapshot: { disabledModules: [], reasons: {}, audit: [] },
+      detail: error instanceof Error ? error.message : 'Founder session could not be confirmed. Nothing was sent.',
+      code: 'admin.session_unconfirmed',
+      uncertain: false,
+      intent,
+    };
+  }
   try {
     const res = await fetch('/api/kill-switch', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(input),
+      headers,
+      body: JSON.stringify(intent),
       cache: 'no-store',
     });
-    const body = (await res.json().catch(() => ({}))) as Partial<ToggleResult> & { error?: string };
-    if (typeof body.ok === 'boolean') {
+    const body: unknown = await res.json().catch(() => null);
+    if (res.status === 503 && body && typeof body === 'object' && 'code' in body && body.code === 'admin.kill_unconfigured')
       return {
-        ok: body.ok,
-        status: body.status ?? res.status,
-        snapshot: body.snapshot ?? EMPTY,
-        detail: body.detail ?? body.error ?? null,
+        ok: false,
+        status: 503,
+        snapshot: { disabledModules: [], reasons: {}, audit: [] },
+        detail: 'Module command was not dispatched because this console is unconfigured.',
+        code: 'admin.kill_unconfigured',
+        uncertain: false,
+        intent,
       };
-    }
-    return {
-      ok: false,
-      status: res.status,
-      snapshot: EMPTY,
-      detail: body.error ?? `console /api/kill-switch answered ${res.status}`,
-    };
-  } catch (err) {
-    return { ok: false, status: 502, snapshot: EMPTY, detail: (err as Error).message };
+    return decodeToggle(body, res.status, intent, true);
+  } catch {
+    return unresolved(intent, 'The connection ended before the original module command outcome could be confirmed.');
   }
 }

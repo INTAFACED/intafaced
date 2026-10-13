@@ -1,3 +1,4 @@
+import { OtcDeskService } from '../controls/test-admission.js';
 /**
  * Professional RFQ doors on svc-trade — signed tRPC mount, not createCaller-only.
  */
@@ -7,7 +8,7 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafa
 import { MemoryLedger, parseAmount } from '@intafaced/ledger-client';
 import { createTradeRouter } from '../router.js';
 import type { TradeService } from '../spot/trade-service.js';
-import { OtcDeskService } from './otc-service.js';
+
 import { FixedOtcStake } from './stake-source.js';
 import type { OtcDeskLaw } from './desk-law.js';
 import { createObservedOtcMidSource } from './mid-source.js';

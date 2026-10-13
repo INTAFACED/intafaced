@@ -7,6 +7,7 @@ import { NullChainSource } from './chain/memory-source.js';
 import { EvmChainSource } from './chain/evm/source.js';
 import { PostgresProjectionStore } from './projection/postgres-store.js';
 import { Indexer } from './indexer.js';
+import { shutdownIndexer } from './shutdown.js';
 import { createIndexerRouter, type ChainProbe } from './router.js';
 import { registerIndexerPublicHttp } from './public-http.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -165,8 +166,17 @@ await registerIndexerPublicHttp(app, {
  * If a future edit ever makes this module custodial, or moves it off the
  * protocol plane, the service refuses to start instead of quietly beginning to
  * gate users who were promised they would never be gated.
+ * This probe isolates the custody/plane invariant; actual request gates keep
+ * their strict region and screening policy.
  */
-const sovereignty = checkAccess({ module: 'indexer', plane: 'protocol', region: 'XX', kycTier: 'none' });
+const sovereignty = checkAccess({
+  module: 'indexer',
+  plane: 'protocol',
+  region: 'XX',
+  kycTier: 'none',
+  regionFailClosed: false,
+  screeningFailClosed: false,
+});
 if (sovereignty.code !== 'allowed.permissionless') {
   throw new Error(
     `THE SOVEREIGNTY LAW IS BROKEN (§22): checkAccess for module "indexer" on the protocol plane ` +
@@ -212,17 +222,16 @@ export function setIngestEnabled(next: boolean): void {
   ingestEnabled = next;
 }
 
+let shutdownPromise: Promise<void> | undefined;
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
-    void (async () => {
-      try {
-        await indexer.stopAndDrain();
-      } catch (err) {
-        app.log.error({ err }, 'indexer drain timed out on shutdown — closing anyway');
-      }
-      await app.close();
-      await db.close();
-      process.exit(0);
-    })();
+    // SIGTERM followed by SIGINT shares the same drain and close sequence.
+    void (shutdownPromise ??= shutdownIndexer({
+      stopAndDrain: () => indexer.stopAndDrain(),
+      closeApp: () => app.close(),
+      closeDb: () => db.close(),
+      logError: (err, message) => app.log.error({ err }, message),
+      exit: (code) => process.exit(code),
+    }));
   });
 }

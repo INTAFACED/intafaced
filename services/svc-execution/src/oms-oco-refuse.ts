@@ -6,13 +6,7 @@
  */
 export type OmsOcoRefuseReason = 'oco_unsupported' | 'bracket_unsupported';
 
-export type OmsOcoRefuseField =
-  | 'oco'
-  | 'bracket'
-  | 'takeProfit'
-  | 'stopLoss'
-  | 'ocoSiblingId'
-  | 'kind';
+export type OmsOcoRefuseField = 'oco' | 'bracket' | 'takeProfit' | 'stopLoss' | 'ocoSiblingId' | 'kind';
 
 export type OmsOcoRefusal = {
   readonly ok: false;
@@ -25,8 +19,7 @@ function present(raw: string | null | undefined): boolean {
   return raw !== undefined && raw !== null && raw.trim().length > 0;
 }
 
-const OCO_DETAIL =
-  'live OMS OCO is not matching OCO — refusing rather than placing one side without guaranteed cancel of the other';
+const OCO_DETAIL = 'live OMS OCO is not matching OCO — refusing rather than placing one side without guaranteed cancel of the other';
 const BRACKET_DETAIL =
   'live OMS bracket is not matching bracket — refusing rather than placing one side without guaranteed cancel of the other';
 

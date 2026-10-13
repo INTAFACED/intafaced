@@ -1,5 +1,7 @@
 # Graphify peace check
 
+> Retired on 2026-10-11 at Nitro's request. This page records historical checks. Its Graphify commands and requirements no longer apply; use local search and focused Git history as described in `AGENTS.md`.
+
 **As of:** 2026-08-16. Tip at last run: `7d05b13e`.  
 **Agents:** `pnpm graphify:peace`. **You:** say **graphify peace** after a cook.
 

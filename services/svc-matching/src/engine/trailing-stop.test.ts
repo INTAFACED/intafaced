@@ -138,6 +138,73 @@ describe('trailing stop — walks with the mark', () => {
     expect(wantsTrailing(stop.resting ? { type: 'stop' } : { type: 'stop' })).toBe(false);
   });
 
+  it('a journaled trailing stop walks after restore, and a tighter stopPrice is not loosened', () => {
+    const book = new OrderBook('BTC/USDT');
+    book.submit(order({ id: TS, type: 'stop', side: 'sell', qty: '2', trail: '5', mark: '100' }));
+    expect(book.toState().stops[0]).toMatchObject({ stopPrice: '95', trail: '5', peak: '100' });
+    expect(typeof book.toState().stops[0]!.trail).toBe('string');
+    expect(typeof book.toState().stops[0]!.peak).toBe('string');
+
+    const tightened = book.amend({ orderId: TS, expectedVersion: 1, stopPrice: A('98') });
+    expect(tightened.accepted).toBe(true);
+    expect(book.toState().stops[0]).toMatchObject({ stopPrice: '98', trail: '5', peak: '100', version: 2 });
+
+    expect(applyMark(book, A('100')).refused).toBeNull();
+    expect(book.toState().stops[0]).toMatchObject({ stopPrice: '98', peak: '100', version: 2 });
+
+    expect(applyMark(book, A('99')).refused).toBeNull();
+    expect(book.toState().stops[0]).toMatchObject({ stopPrice: '98', peak: '100', version: 2 });
+
+    expect(applyMark(book, A('102')).refused).toBeNull();
+    expect(book.toState().stops[0]).toMatchObject({ stopPrice: '98', peak: '102', trail: '5', version: 2 });
+
+    expect(applyMark(book, A('110')).refused).toBeNull();
+    expect(book.toState().stops[0]).toMatchObject({ stopPrice: '105', peak: '110', trail: '5' });
+    expect(book.depth(50).asks).toEqual([]);
+    expect(book.depth(50).bids).toEqual([]);
+
+    const restored = OrderBook.fromState(JSON.parse(book.serialize()) as ReturnType<OrderBook['toState']>);
+    expect(restored.toState().stops[0]).toMatchObject({ stopPrice: '105', trail: '5', peak: '110' });
+    expect(applyMark(restored, A('120')).refused).toBeNull();
+    expect(restored.toState().stops[0]).toMatchObject({ stopPrice: '115', peak: '120', trail: '5' });
+    expect(applyMark(restored, A('118')).refused).toBeNull();
+    expect(restored.toState().stops[0]).toMatchObject({ stopPrice: '115', peak: '120' });
+    expect(restored.depth(50).asks).toEqual([]);
+
+    const buy = new OrderBook('ETH/USDT');
+    buy.submit(order({ id: TS, type: 'stop', side: 'buy', qty: '1', trail: '5', mark: '100' }));
+    expect(buy.toState().stops[0]).toMatchObject({ stopPrice: '105', trail: '5', peak: '100' });
+    expect(buy.amend({ orderId: TS, expectedVersion: 1, stopPrice: A('102') }).accepted).toBe(true);
+    expect(applyMark(buy, A('100')).refused).toBeNull();
+    expect(buy.toState().stops[0]).toMatchObject({ stopPrice: '102', peak: '100', trail: '5' });
+    expect(applyMark(buy, A('101')).refused).toBeNull();
+    expect(buy.toState().stops[0]).toMatchObject({ stopPrice: '102', peak: '100' });
+
+    const buyRestored = OrderBook.fromState(JSON.parse(buy.serialize()) as ReturnType<OrderBook['toState']>);
+    expect(applyMark(buyRestored, A('90')).refused).toBeNull();
+    expect(buyRestored.toState().stops[0]).toMatchObject({ stopPrice: '95', peak: '90', trail: '5' });
+    expect(applyMark(buyRestored, A('92')).refused).toBeNull();
+    expect(buyRestored.toState().stops[0]).toMatchObject({ stopPrice: '95', peak: '90' });
+  });
+
+  it('a refused trail amend keeps the previous peak and stopPrice', () => {
+    const book = new OrderBook('BTC/USDT');
+    book.submit(order({ id: MM, account: 'mm', type: 'limit', side: 'sell', qty: '1', price: '100' }));
+    book.submit(order({ id: TAKE, account: 'taker', type: 'limit', side: 'buy', qty: '1', price: '100' }));
+    expect(formatAmount(book.lastPrice!)).toBe('100');
+
+    const rested = book.submit(order({ id: TS, type: 'stop', side: 'sell', qty: '2', trail: '5', mark: '100', tif: 'FOK' }));
+    expect(rested.accepted).toBe(true);
+    expect(book.toState().stops[0]).toMatchObject({ stopPrice: '95', trail: '5', peak: '100', tif: 'FOK', version: 1 });
+
+    expect(applyMark(book, A('110')).refused).toBeNull();
+    expect(book.toState().stops[0]).toMatchObject({ stopPrice: '95', peak: '100', version: 1 });
+    expect(book.toState().stops).toHaveLength(1);
+
+    expect(applyMark(book, A('104')).refused).toBeNull();
+    expect(book.toState().stops[0]).toMatchObject({ stopPrice: '99', peak: '104', trail: '5' });
+  });
+
   it('journal replay keeps a trailing rest off the public book at the same stop', () => {
     const marketId = 'BTC/USDT';
     const journal = new MemoryJournal();

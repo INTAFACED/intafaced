@@ -36,6 +36,23 @@ describe('readLiveSpotTickers', () => {
     expect(await readLiveSpotTickers(port)).toEqual({ ok: true, tickers: [sample] });
   });
 
+  it('a sample whose only last is null or blank is no_live_tickers', async () => {
+    const port: SpotTickersPort = {
+      sample: async () => [
+        { ...sample, last: null },
+        { ...sample, marketId: 'eth-usdt', last: '' },
+        { ...sample, marketId: 'sol-usdt', last: ' \t' },
+      ],
+    };
+    expect(await readLiveSpotTickers(port)).toEqual({ ok: false, reason: 'no_live_tickers' });
+  });
+
+  it('keeps a positive last and drops a blank last from the same sample', async () => {
+    const blank = { ...sample, marketId: 'eth-usdt', last: '  ' };
+    const port: SpotTickersPort = { sample: async () => [sample, blank] };
+    expect(await readLiveSpotTickers(port)).toEqual({ ok: true, tickers: [sample] });
+  });
+
   it('tickers_limit_unset from the HTTP client stays named — not no_live_tickers', async () => {
     const port: SpotTickersPort = {
       sample: async () => {

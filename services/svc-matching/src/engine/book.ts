@@ -96,6 +96,10 @@ interface StopOrder {
   reduceOnly: boolean;
   minQty: Amount | null;
   aon: boolean;
+  /** Trail distance. Null when this stop does not walk. */
+  trail: Amount | null;
+  /** Extreme the trail follows. Null when this stop does not walk. */
+  peak: Amount | null;
 }
 
 interface EffectiveOrder {
@@ -132,6 +136,59 @@ function publishedBookL2Limit(value: number | undefined | null): number {
     throw new Error('OrderBook depth limit is unset — refuse to invent 50');
   }
   return value;
+}
+
+/**
+ * Pure check from the option module. A triggered stop must not print a resting option.
+ * Null until that module loads. Matching stays on this book either way.
+ */
+export type OptionActivationGuard = (book: OrderBook, order: EngineOrder) => RejectReason | null;
+
+let optionActivationGuard: OptionActivationGuard | null = null;
+
+export function registerOptionActivationGuard(guard: OptionActivationGuard | null): void {
+  optionActivationGuard = guard;
+}
+
+/** The order a triggered stop becomes. Market for a stop, limit for a stop_limit. */
+function activationOrder(stop: StopOrder): EngineOrder {
+  return {
+    orderId: stop.orderId,
+    accountId: stop.accountId,
+    type: stop.type === 'stop_limit' ? 'limit' : 'market',
+    side: stop.side,
+    qty: stop.qty,
+    price: stop.type === 'stop_limit' ? stop.price : null,
+    stopPrice: null,
+    tif: stop.tif,
+    ocoSiblingId: stop.ocoSiblingId,
+    reduceOnly: stop.reduceOnly,
+    minQty: stop.minQty,
+    aon: stop.aon,
+  };
+}
+
+/** Both or neither. A missing trail or mark is not a walk — never invent the other. */
+function trailPeak(order: { readonly trail?: Amount | null; readonly mark?: Amount | null }): {
+  readonly trail: Amount | null;
+  readonly peak: Amount | null;
+} {
+  const trail = order.trail != null && order.trail > ZERO ? order.trail : null;
+  const peak = order.mark != null && order.mark > ZERO ? order.mark : null;
+  if (trail === null || peak === null) return { trail: null, peak: null };
+  return { trail, peak };
+}
+
+/** Snapshot pair. A missing or non-positive trail or peak stays off the stop. */
+function trailPeakState(
+  trail: string | null | undefined,
+  peak: string | null | undefined,
+): { readonly trail: Amount | null; readonly peak: Amount | null } {
+  if (trail == null || peak == null) return { trail: null, peak: null };
+  const trailAmt = parseAmount(trail);
+  const peakAmt = parseAmount(peak);
+  if (trailAmt <= ZERO || peakAmt <= ZERO) return { trail: null, peak: null };
+  return { trail: trailAmt, peak: peakAmt };
 }
 
 export class OrderBook {
@@ -215,6 +272,7 @@ export class OrderBook {
 
     if (isStop && !triggersNow) {
       const sequence = this.nextSequence();
+      const walked = trailPeak(order);
       this.stops.push({
         orderId: order.orderId,
         accountId: order.accountId,
@@ -232,6 +290,8 @@ export class OrderBook {
         reduceOnly: order.reduceOnly === true,
         minQty: readMinQty(order),
         aon: readAon(order),
+        trail: walked.trail,
+        peak: walked.peak,
       });
       this.rememberAccepted(order.orderId);
       this.rememberOco(order);
@@ -355,14 +415,21 @@ export class OrderBook {
     return cancellations;
   }
 
-  amend(cmd: EngineAmend): AmendResult {
+  amend(cmd: EngineAmend, now?: Date | null): AmendResult {
+    const expired = now != null ? this.expireDue(now) : [];
+    const attach = (result: AmendResult): AmendResult =>
+      expired.length === 0 ? result : { ...result, cancellations: [...expired, ...result.cancellations] };
+
     const resting = this.index.get(cmd.orderId);
-    if (resting) return this.amendResting(resting, cmd);
+    if (resting) return attach(this.amendResting(resting, cmd));
 
     const stop = this.stops.find((s) => s.orderId === cmd.orderId);
-    if (stop) return this.amendStop(stop, cmd);
+    if (stop) return attach(this.amendStop(stop, cmd));
 
-    return refusedAmend(cmd.orderId, reject('order_not_found', `order ${cmd.orderId} is not live in ${this.marketId}`));
+    if (expired.some((row) => row.orderId === cmd.orderId)) {
+      return attach(refusedAmend(cmd.orderId, reject('already_expired', 'expireAt is not after the engine clock')));
+    }
+    return attach(refusedAmend(cmd.orderId, reject('order_not_found', `order ${cmd.orderId} is not live in ${this.marketId}`)));
   }
 
   private amendResting(resting: RestingOrder, cmd: EngineAmend): AmendResult {
@@ -377,7 +444,7 @@ export class OrderBook {
     const price = cmd.price ?? resting.price;
     if (qty <= ZERO) return refusedAmend(cmd.orderId, reject('invalid_qty', 'quantity must be strictly positive'));
     if (price <= ZERO) return refusedAmend(cmd.orderId, reject('invalid_price', 'price must be strictly positive'));
-    if (resting.reduceOnly && this.wouldIncreasePosition(resting.accountId, resting.side, qty)) {
+    if (resting.reduceOnly && this.wouldIncreasePosition(resting.accountId, resting.side, qty, resting.orderId)) {
       return refusedAmend(
         cmd.orderId,
         reject('would_increase_position', 'reduce-only refuses a qty that would increase the position; the engine does not invent a mark'),
@@ -389,6 +456,10 @@ export class OrderBook {
     const retain = price === resting.price && !tifForcesReexecute && qty <= resting.remaining;
 
     if (retain) {
+      const floor = minQtyRefuse(qty, resting.minQty);
+      if (floor) return refusedAmend(cmd.orderId, reject(floor.code, floor.message));
+      if (cmd.expireAt !== undefined) resting.expireAt = cmd.expireAt;
+      if (tif === 'PO') resting.postOnly = true;
       resting.remaining = qty;
       resting.version += 1;
       this.nextSequence();
@@ -468,12 +539,19 @@ export class OrderBook {
       if (price === null) return refusedAmend(cmd.orderId, reject('missing_price', 'a stop_limit order requires a price'));
       if (price <= ZERO) return refusedAmend(cmd.orderId, reject('invalid_price', 'price must be strictly positive'));
     }
+    if (stop.reduceOnly && this.wouldIncreasePosition(stop.accountId, stop.side, qty, stop.orderId)) {
+      return refusedAmend(
+        cmd.orderId,
+        reject('would_increase_position', 'reduce-only refuses a qty that would increase the position; the engine does not invent a mark'),
+      );
+    }
 
     const tifForcesReexecute = tif === 'IOC' || tif === 'FOK';
     const sameLimit = (price === null && stop.price === null) || (price !== null && stop.price !== null && price === stop.price);
     const retain = stopPrice === stop.stopPrice && sameLimit && tif === stop.tif && !tifForcesReexecute && qty <= stop.qty;
 
     if (retain) {
+      if (cmd.expireAt !== undefined) stop.expireAt = cmd.expireAt;
       stop.qty = qty;
       stop.version += 1;
       this.nextSequence();
@@ -734,10 +812,13 @@ export class OrderBook {
     let total = ZERO;
     let remaining = order.qty;
     const takerMin = readMinQty(order);
+    const removed = new Set<OrderId>();
+    const fills: Fill[] = [];
     for (const level of order.side === 'buy' ? this.asks : this.bids) {
       if (order.price !== null && !crossesLevel(order.side, order.price, level.price)) break;
       for (const maker of level.orders) {
         if (remaining === ZERO) return total;
+        if (removed.has(maker.orderId)) continue;
         if (!stpIdentityPresent(order.accountId) || !stpIdentityPresent(maker.accountId)) {
           return total;
         }
@@ -745,14 +826,33 @@ export class OrderBook {
           // STP expires this rest and continues. Do not count it as fillable.
           continue;
         }
-        const clip = min(remaining, visibleRemaining(maker.remaining, maker.displayRemaining));
+        let clip = min(remaining, visibleRemaining(maker.remaining, maker.displayRemaining));
         if (clip === ZERO) return total;
+        if (maker.reduceOnly) {
+          const open = this.openQty(this.netAfterFills(maker.accountId, fills), maker.side);
+          if (open === ZERO) continue;
+          clip = min(clip, open);
+        }
         if (!clipMeetsAon(clip, maker.remaining, maker.aon)) return total;
         const takerAfter = remaining - clip;
         const makerAfter = maker.remaining - clip;
         if (!bothSidesMeetMinQty(clip, takerAfter, takerMin, makerAfter, readMinQty(maker))) return total;
         total += clip;
         remaining -= clip;
+        fills.push({
+          sequence: 0,
+          makerOrderId: maker.orderId,
+          makerAccountId: maker.accountId,
+          takerOrderId: order.orderId,
+          takerAccountId: order.accountId,
+          takerSide: order.side,
+          price: maker.price,
+          qty: clip,
+        });
+        const makerSibling = this.siblingOf(maker.orderId, order);
+        const takerSibling = this.siblingOf(order.orderId, order);
+        if (makerSibling) removed.add(makerSibling);
+        if (takerSibling) removed.add(takerSibling);
       }
     }
     return total;
@@ -801,6 +901,7 @@ export class OrderBook {
     let remaining = order.qty;
 
     const slicedThisTake = new Set<string>();
+    const ocoFired = new Set<OrderId>();
 
     matchLevels: for (let levelIndex = 0; remaining > ZERO && levelIndex < opposite.length;) {
       const level = opposite[levelIndex] as PriceLevel;
@@ -835,8 +936,16 @@ export class OrderBook {
           continue;
         }
 
-        const qty = min(remaining, visibleRemaining(maker.remaining, maker.displayRemaining));
+        let qty = min(remaining, visibleRemaining(maker.remaining, maker.displayRemaining));
         if (qty === ZERO) break;
+        if (maker.reduceOnly) {
+          const open = this.openQty(this.netAfterFills(maker.accountId, fills), maker.side);
+          if (open === ZERO) {
+            if (this.pullReduceOnlyMaker(opposite, levelIndex, level, maker, cancellations)) continue matchLevels;
+            continue;
+          }
+          if (qty > open) qty = open;
+        }
         if (!clipMeetsAon(qty, maker.remaining, maker.aon)) break matchLevels;
 
         const takerAfter = remaining - qty;
@@ -860,9 +969,15 @@ export class OrderBook {
         remaining -= qty;
         if (maker.displayRemaining !== null) maker.displayRemaining -= qty;
 
+        // The sibling is still on the book. Pull it before the sweep reaches it.
+        this.pullOcoLink(maker.orderId, order, ocoFired, cancellations);
+        this.pullOcoLink(order.orderId, order, ocoFired, cancellations);
+
         if (maker.remaining === ZERO) {
           level.orders.shift();
           this.index.delete(maker.orderId);
+        } else if (maker.reduceOnly && this.openQty(this.netAfterFills(maker.accountId, fills), maker.side) === ZERO) {
+          if (this.pullReduceOnlyMaker(opposite, levelIndex, level, maker, cancellations)) continue matchLevels;
         } else if (maker.displayRemaining === ZERO && maker.displayPeak !== null) {
           maker.displayRemaining = refillDisplay(maker.displayPeak, maker.remaining);
           slicedThisTake.add(maker.orderId);
@@ -988,6 +1103,27 @@ export class OrderBook {
       };
     }
 
+    const optionTake = optionActivationGuard?.(this, activationOrder(stop)) ?? null;
+    if (optionTake) {
+      const sequence = this.nextSequence();
+      return {
+        orderId: stop.orderId,
+        sequence,
+        fills: [],
+        resting: null,
+        cancellations: [
+          {
+            orderId: stop.orderId,
+            accountId: stop.accountId,
+            remainingQty: stop.qty,
+            sequence,
+            reason: 'trigger_rejected',
+          },
+        ],
+        rejected: optionTake,
+      };
+    }
+
     const sequence = this.nextSequence();
     const outcome = this.execute(effective, sequence, stop.version);
     this.recordPrints(outcome.fills);
@@ -1052,27 +1188,42 @@ export class OrderBook {
 
   private cancelOcoSiblings(
     fills: readonly Fill[],
-    incoming?: { readonly orderId: OrderId; readonly ocoSiblingId?: OrderId | null },
+    incoming?: { readonly orderId: OrderId; readonly ocoSiblingId?: OrderId | null; readonly type?: string },
   ): CancelledRef[] {
-    if (fills.length === 0) return [];
     const cancelled: CancelledRef[] = [];
     const fired = new Set<OrderId>();
+    // A stop_limit that triggers and rests has no fill yet. The sibling is still live.
+    if (fills.length === 0) {
+      if (incoming?.type === 'stop_limit' && this.index.has(incoming.orderId)) {
+        this.pullOcoLink(incoming.orderId, incoming, fired, cancelled);
+      }
+      return cancelled;
+    }
     for (const fill of fills) {
       for (const id of [fill.makerOrderId, fill.takerOrderId]) {
-        if (fired.has(id)) continue;
-        fired.add(id);
-        const sibling = this.siblingOf(id, incoming);
-        if (!sibling || fired.has(sibling)) continue;
-        const pulled = this.pullOcoSibling(sibling);
-        if (pulled) {
-          cancelled.push(pulled);
-          fired.add(sibling);
-          this.ocoMembers.add(sibling);
-        }
-        this.clearOcoLink(id);
+        this.pullOcoLink(id, incoming, fired, cancelled);
       }
     }
     return cancelled;
+  }
+
+  private pullOcoLink(
+    orderId: OrderId,
+    incoming: { readonly orderId: OrderId; readonly ocoSiblingId?: OrderId | null } | undefined,
+    fired: Set<OrderId>,
+    cancelled: CancelledRef[],
+  ): void {
+    if (fired.has(orderId)) return;
+    fired.add(orderId);
+    const sibling = this.siblingOf(orderId, incoming);
+    if (!sibling || fired.has(sibling)) return;
+    const pulled = this.pullOcoSibling(sibling);
+    if (pulled) {
+      cancelled.push(pulled);
+      fired.add(sibling);
+      this.ocoMembers.add(sibling);
+    }
+    this.clearOcoLink(orderId);
   }
 
   private pullOcoSibling(orderId: OrderId): CancelledRef | null {
@@ -1108,19 +1259,131 @@ export class OrderBook {
     return this.positions.get(accountId) ?? ZERO;
   }
 
-  private reducibleQty(accountId: AccountId, side: OrderSide): Amount {
-    const net = this.netPosition(accountId);
+  /** Signed net after fills already taken in this match. The book net moves only in applyFillsToPosition. */
+  private netAfterFills(accountId: AccountId, fills: readonly Fill[]): Amount {
+    let net = this.netPosition(accountId);
+    for (const fill of fills) {
+      const signed = fill.takerSide === 'buy' ? fill.qty : -fill.qty;
+      if (fill.takerAccountId === accountId) net += signed;
+      if (fill.makerAccountId === accountId) net -= signed;
+    }
+    return net;
+  }
+
+  private openQty(net: Amount, side: OrderSide): Amount {
     if (side === 'sell') return net > ZERO ? net : ZERO;
     return net < ZERO ? -net : ZERO;
   }
 
-  private wouldIncreasePosition(accountId: AccountId, side: OrderSide, qty: Amount): boolean {
-    return qty > this.reducibleQty(accountId, side);
+  /** Live reduce-only qty on this side. exceptOrderId is the order being checked, so it is not reserved against itself. */
+  private reservedReduceOnly(accountId: AccountId, side: OrderSide, exceptOrderId: OrderId | null): Amount {
+    let reserved = ZERO;
+    for (const resting of this.index.values()) {
+      if (resting.reduceOnly && resting.accountId === accountId && resting.side === side && resting.orderId !== exceptOrderId) {
+        reserved += resting.remaining;
+      }
+    }
+    for (const stop of this.stops) {
+      if (stop.reduceOnly && stop.accountId === accountId && stop.side === side && stop.orderId !== exceptOrderId) {
+        reserved += stop.qty;
+      }
+    }
+    return reserved;
+  }
+
+  private reducibleQty(accountId: AccountId, side: OrderSide, exceptOrderId: OrderId | null = null): Amount {
+    const open = this.openQty(this.netPosition(accountId), side);
+    const reserved = this.reservedReduceOnly(accountId, side, exceptOrderId);
+    return open > reserved ? open - reserved : ZERO;
+  }
+
+  private wouldIncreasePosition(accountId: AccountId, side: OrderSide, qty: Amount, exceptOrderId: OrderId | null = null): boolean {
+    return qty > this.reducibleQty(accountId, side, exceptOrderId);
+  }
+
+  /**
+   * The live order an amend would patch. Null when the id is not resting or stopped.
+   * Does not mutate. Inherited TIF matches amend: a post-only rest stays PO, otherwise GTC;
+   * a stop keeps the TIF it was armed with.
+   */
+  amendTarget(orderId: OrderId): {
+    readonly kind: 'book' | 'stop';
+    readonly side: OrderSide;
+    readonly price: Amount | null;
+    readonly stopPrice: Amount | null;
+    readonly inheritedTif: TimeInForce;
+  } | null {
+    const resting = this.index.get(orderId);
+    if (resting) {
+      return {
+        kind: 'book',
+        side: resting.side,
+        price: resting.price,
+        stopPrice: null,
+        inheritedTif: resting.postOnly ? 'PO' : 'GTC',
+      };
+    }
+    const stop = this.stops.find((row) => row.orderId === orderId);
+    if (!stop) return null;
+    return {
+      kind: 'stop',
+      side: stop.side,
+      price: stop.price,
+      stopPrice: stop.stopPrice,
+      inheritedTif: stop.tif,
+    };
+  }
+
+  /** True when a limit at this side and price would take the opposite top. Does not match. */
+  wouldCrossLimit(side: OrderSide, price: Amount): boolean {
+    return this.wouldCross(side, price);
+  }
+
+  /** True when a stop at this side and stop price would activate now. Does not activate. */
+  stopWouldTrigger(side: OrderSide, stopPrice: Amount): boolean {
+    return this.isTriggered(side, stopPrice);
+  }
+
+  /**
+   * Remember the extreme a trailing stop follows. Does nothing when the stop
+   * has no trail, or the peak is not positive — never invents either.
+   */
+  noteStopPeak(orderId: OrderId, peak: Amount): boolean {
+    if (peak <= ZERO) return false;
+    const stop = this.stops.find((row) => row.orderId === orderId);
+    if (!stop || stop.trail === null || stop.trail <= ZERO) return false;
+    stop.peak = peak;
+    return true;
   }
 
   /** True if this qty on this side would open a flat or grow the net fill position. */
-  wouldOpenOrIncrease(accountId: AccountId, side: OrderSide, qty: Amount): boolean {
-    return this.wouldIncreasePosition(accountId, side, qty);
+  wouldOpenOrIncrease(accountId: AccountId, side: OrderSide, qty: Amount, exceptOrderId: OrderId | null = null): boolean {
+    return this.wouldIncreasePosition(accountId, side, qty, exceptOrderId);
+  }
+
+  /** Drop a reduce-only maker that no longer reduces. True when its price level is gone. */
+  private pullReduceOnlyMaker(
+    opposite: PriceLevel[],
+    levelIndex: number,
+    level: PriceLevel,
+    maker: RestingOrder,
+    cancellations: CancelledRef[],
+  ): boolean {
+    const sequence = this.nextSequence();
+    cancellations.push({
+      orderId: maker.orderId,
+      accountId: maker.accountId,
+      remainingQty: maker.remaining,
+      sequence,
+      reason: 'would_increase_position',
+    });
+    level.orders.shift();
+    this.index.delete(maker.orderId);
+    if (level.orders.length === 0) {
+      opposite.splice(levelIndex, 1);
+      return true;
+    }
+    return false;
   }
 
   private addPosition(accountId: AccountId, delta: Amount): void {
@@ -1147,12 +1410,12 @@ export class OrderBook {
   private cancelReduceOnlyDue(): CancelledRef[] {
     const due: { orderId: OrderId; accountId: AccountId; remaining: Amount }[] = [];
     for (const o of this.index.values()) {
-      if (o.reduceOnly && this.wouldIncreasePosition(o.accountId, o.side, o.remaining)) {
+      if (o.reduceOnly && this.wouldIncreasePosition(o.accountId, o.side, o.remaining, o.orderId)) {
         due.push({ orderId: o.orderId, accountId: o.accountId, remaining: o.remaining });
       }
     }
     for (const s of this.stops) {
-      if (s.reduceOnly && this.wouldIncreasePosition(s.accountId, s.side, s.qty)) {
+      if (s.reduceOnly && this.wouldIncreasePosition(s.accountId, s.side, s.qty, s.orderId)) {
         due.push({ orderId: s.orderId, accountId: s.accountId, remaining: s.qty });
       }
     }
@@ -1241,6 +1504,7 @@ export class OrderBook {
         ...(s.reduceOnly ? { reduceOnly: true } : {}),
         ...(s.minQty !== null ? { minQty: formatAmount(s.minQty) } : {}),
         ...(s.aon ? { aon: true } : {}),
+        ...(s.trail !== null && s.peak !== null ? { trail: formatAmount(s.trail), peak: formatAmount(s.peak) } : {}),
       })),
       ...(this.ocoTerminalIds().length > 0 ? { ocoTerminal: this.ocoTerminalIds() } : {}),
       ...(this.terminalAcceptedIds().length > 0 ? { acceptedOrderIds: this.terminalAcceptedIds() } : {}),
@@ -1288,6 +1552,7 @@ export class OrderBook {
     hydrate(state.asks, 'sell', book.asks);
 
     for (const s of state.stops) {
+      const walked = trailPeakState(s.trail, s.peak);
       book.stops.push({
         orderId: s.orderId,
         accountId: s.accountId,
@@ -1305,6 +1570,8 @@ export class OrderBook {
         reduceOnly: s.reduceOnly === true,
         minQty: s.minQty == null ? null : parseAmount(s.minQty),
         aon: s.aon === true,
+        trail: walked.trail,
+        peak: walked.peak,
       });
       if (s.ocoSiblingId) book.ocoMembers.add(s.orderId);
     }

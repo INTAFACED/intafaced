@@ -22,6 +22,20 @@ describe('dualControlRefuse', () => {
     expect(requireDualControl(OP, CONFIRM)).toBe(CONFIRM);
   });
 
+  it('blank, whitespace, and different UUID hex case are not a second person', () => {
+    expect(dualControlRefuse(OP, '')?.code).toBe(MISSING_OPERATOR);
+    expect(dualControlRefuse(OP, '   ')?.code).toBe(MISSING_OPERATOR);
+    expect(dualControlRefuse(OP, OP.toUpperCase())?.code).toBe(MISSING_OPERATOR);
+    expect(dualControlRefuse(OP, `  ${OP.toUpperCase()}  `)?.code).toBe(MISSING_OPERATOR);
+    expect(() => requireDualControl(OP, '')).toThrow(DualControlError);
+    expect(() => requireDualControl(OP, '   ')).toThrow(DualControlError);
+    expect(() => requireDualControl(OP, OP.toUpperCase())).toThrow(DualControlError);
+
+    const rawConfirm = `  ${CONFIRM.toUpperCase()}  `;
+    expect(dualControlRefuse(OP, rawConfirm)).toBeNull();
+    expect(requireDualControl(OP, rawConfirm)).toBe(CONFIRM);
+  });
+
   it('requireDualControl throws DualControlError on refuse', () => {
     expect(() => requireDualControl(OP, null)).toThrow(DualControlError);
     try {

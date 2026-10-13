@@ -27,6 +27,17 @@ export function parseDecimalString(raw: string): DecimalParse {
   return { ok: true, negative, int: intRaw, frac };
 }
 
+/**
+ * Spelling `compareDecimalStrings` treats as equal.
+ * `100.50` and `100.5` are one cross. Not the raw feed text.
+ */
+export function canonicalDecimalString(raw: string): string {
+  const p = parseDecimalString(raw);
+  if (!p.ok) throw new Error(`invalid decimal: ${p.reason}`);
+  const body = p.frac.length > 0 ? `${p.int}.${p.frac}` : p.int;
+  return p.negative ? `-${body}` : body;
+}
+
 /** -1 if a < b, 0 if equal, 1 if a > b. Both must parse or throws. */
 export function compareDecimalStrings(a: string, b: string): -1 | 0 | 1 {
   const pa = parseDecimalString(a);

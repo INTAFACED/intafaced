@@ -1,0 +1,237 @@
+.subaccounts {
+  min-width: 0;
+}
+.subaccounts__identity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 24px;
+  margin-bottom: 32px;
+  border-bottom: 1px solid var(--color-divider);
+}
+.subaccounts__identity > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.subaccounts__ref {
+  font-size: 13px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.subaccounts__columns {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr);
+  align-items: start;
+  gap: 24px;
+}
+.subaccounts__list {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.subaccounts__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.subaccounts h2 {
+  font-size: 20px;
+  line-height: 28px;
+}
+.subaccounts__jump {
+  display: none;
+}
+.subaccounts__boundary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.subaccounts__rows {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.subaccounts__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 78px 142px;
+  align-items: center;
+  gap: 20px;
+  padding-block: 20px;
+  border-top: 1px solid var(--color-divider);
+}
+.subaccounts__details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.subaccounts__details strong {
+  font-size: 16px;
+  line-height: 22px;
+}
+.subaccounts__details p {
+  font-size: 14px;
+  line-height: 22px;
+}
+.subaccounts__status {
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--color-muted);
+}
+.subaccounts__status--active {
+  color: var(--color-accent);
+}
+.subaccounts__row .button {
+  width: 142px;
+  white-space: normal;
+  min-height: 44px;
+}
+.subaccounts__create {
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: 12px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+.subaccounts__create header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.subaccounts__create form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.subaccounts__create input {
+  min-height: 44px;
+  scroll-margin-block: 120px;
+}
+.subaccounts__create p,
+.subaccounts__review p,
+.subaccounts__request p {
+  font-size: 14px;
+  line-height: 22px;
+}
+.subaccounts__requests {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  margin-top: 32px;
+}
+.subaccounts__request {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.subaccounts__request dl,
+.subaccounts__review dl {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+}
+.subaccounts__request dl > div,
+.subaccounts__review dl > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.subaccounts dt {
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 22px;
+}
+.subaccounts dd {
+  margin: 0;
+}
+.subaccounts__review {
+  overflow-wrap: anywhere;
+}
+.subaccounts__support {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+.subaccounts__announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (max-width: 1100px) and (min-width: 900px) {
+  .subaccounts__row {
+    grid-template-columns: minmax(0, 1fr) 68px;
+    gap: 12px;
+  }
+  .subaccounts__row > .button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
+@media (max-width: 899px) {
+  .subaccounts__columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .subaccounts__jump {
+    display: inline-flex;
+    flex-shrink: 0;
+    min-height: 44px;
+    padding-inline: 12px;
+  }
+  .subaccounts__heading {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .subaccounts__heading h2 {
+    flex: 1;
+    min-width: 0;
+  }
+  .subaccounts__heading > .subaccounts__refresh {
+    width: 100%;
+    order: 2;
+  }
+  .subaccounts__identity {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding-bottom: 20px;
+    margin-bottom: 24px;
+  }
+  .subaccounts__row {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .subaccounts__details {
+    gap: 8px;
+  }
+  .subaccounts__row > .button {
+    width: 100%;
+  }
+  .subaccounts__request {
+    padding: 20px;
+  }
+}

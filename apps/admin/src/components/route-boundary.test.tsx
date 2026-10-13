@@ -63,7 +63,7 @@ describe('App Router special files — present beside the operator shell', () =>
   });
 
   it('keeps the crash probe fail-closed unless ADMIN_ROUTE_PROBE=1', () => {
-    const src = readFileSync(join(APP_DIR, 'route-probe', 'crash', 'page.tsx'), 'utf8');
+    const src = readFileSync(join(APP_DIR, '(console)', 'route-probe', 'crash', 'page.tsx'), 'utf8');
     expect(src).toContain("ADMIN_ROUTE_PROBE !== '1'");
     expect(src).toContain('notFound()');
     expect(src).toContain("throw new Error('admin.route_probe.render_error')");

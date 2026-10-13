@@ -225,7 +225,8 @@ export function rankFixtures(
     const last = parseSignedAmount(row.last);
     const vol = parseSignedAmount(row.volume24h);
     const volWeight = vol == null ? null : log1pVolumeWeight(vol);
-    if (last == null || vol == null || volWeight == null) {
+    // Negative last is incomplete, same as a negative volume (volWeight null). Zero last still ranks.
+    if (last == null || last < 0n || vol == null || volWeight == null) {
       skippedIncomplete += 1;
       continue;
     }

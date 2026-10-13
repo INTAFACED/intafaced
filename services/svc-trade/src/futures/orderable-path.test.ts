@@ -1,3 +1,4 @@
+import { TradeService, PositionService } from '../controls/test-admission.js';
 /**
  * THE FUTURES ORDER PATH — REFUSED WHEN OFF, REAL WHEN ON, AND STILL NOT A
  * SELF-DEALING MACHINE.
@@ -88,10 +89,15 @@ import {
   recipes,
   userAvailable,
 } from '@intafaced/ledger-client';
-import { TradeService, type ListMarketInput } from '../spot/trade-service.js';
-import { StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from '../spot/testing.js';
+import { type ListMarketInput } from '../spot/trade-service.js';
+import { parseFeeScheduleJson } from '../spot/fee-schedule.js';
+import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
+
+// #3699: placeOrder takes the owner fee schedule (not the listing's bps), so the
+// "fees are 0 bps" balances below need an explicitly published zero schedule.
+const ZERO_FEE_SCHEDULE = parseFeeScheduleJson(JSON.stringify({ published: true, version: 'test-zero', makerBps: '0', takerBps: '0' }));
 import { TradeError, type Market } from '../spot/types.js';
-import { PositionService } from './position-service.js';
+
 import {
   DEFAULT_MIN_BEST_LEVEL_BPS_OF_NOTIONAL,
   DEFAULT_MIN_BEST_LEVEL_NOTIONAL,
@@ -337,14 +343,23 @@ describe('futures orderable path', () => {
     perks = new StubPerks();
 
     tradeOff = new TradeService(sql, ledger, matching, perks, bus, {
-      feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+      feeSchedule: ZERO_FEE_SCHEDULE,
+      // #3202: placeOrder refuses without a market lifecycle port.
+      marketLifecycle: READY_MARKET_LIFECYCLE,
       spotEnabled: true,
       futuresEnabled: false,
     });
     tradeOn = new TradeService(sql, ledger, matching, perks, bus, {
-      feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+      feeSchedule: ZERO_FEE_SCHEDULE,
+      // #3202: placeOrder refuses without a market lifecycle port.
+      marketLifecycle: READY_MARKET_LIFECYCLE,
       spotEnabled: true,
       futuresEnabled: true,
+      // #3446 (f05d34ce1): convert refuses with convert_spread_unset / quote_ttl_unset before the
+      // market-kind check, so the convert-on-futures refusal needs an owner-published spread + TTL.
+      convertEnabled: true,
+      convertSpreadBps: 25,
+      convertQuoteTtlMs: 60_000,
     });
 
     // Listing is not enabling. This row exists on both services identically; the
@@ -406,7 +421,9 @@ describe('futures orderable path', () => {
      */
     it('refuses futures on a service constructed without the option at all', async () => {
       const unconfigured = new TradeService(sql, ledger, matching, perks, bus, {
-        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+        feeSchedule: ZERO_FEE_SCHEDULE,
+        // #3202: placeOrder refuses without a market lifecycle port.
+        marketLifecycle: READY_MARKET_LIFECYCLE,
         spotEnabled: true,
       });
       await fund(ALICE, 'USDT', '1000');
@@ -513,7 +530,9 @@ describe('futures orderable path', () => {
      */
     it('takes a futures order while SPOT is killed — one plane per switch', async () => {
       const spotDead = new TradeService(sql, ledger, matching, perks, bus, {
-        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+        feeSchedule: ZERO_FEE_SCHEDULE,
+        // #3202: placeOrder refuses without a market lifecycle port.
+        marketLifecycle: READY_MARKET_LIFECYCLE,
         spotEnabled: false,
         futuresEnabled: true,
       });

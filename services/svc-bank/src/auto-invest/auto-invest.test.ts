@@ -5,7 +5,15 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { MemoryLedger, formatAmount, parseAmount, recipes, userAvailable, type Amount } from '@intafaced/ledger-client';
+import {
+  InsufficientFundsError,
+  MemoryLedger,
+  formatAmount,
+  parseAmount,
+  recipes,
+  userAvailable,
+  type Amount,
+} from '@intafaced/ledger-client';
 import { createBankServices, type BankServices } from '../bank-service.js';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { cardSim } from '../cards/issuer.js';
@@ -214,6 +222,158 @@ describe('auto-invest PG-hard', () => {
       expect(await availableOf(USER_A, 'USDT')).toBe('50');
     });
 
+    it('a below-threshold skip occupying the sweep key is not a later settlement', async () => {
+      const pool = await bank.earn.createPool({
+        assetId: 'USDT',
+        kind: 'flexible',
+        name: 'Flex-skip-key',
+        aprBps: 3650,
+        minDeposit: amt('1'),
+      });
+      await fund(USER_A, 'USDT', '50');
+      const rule = await bank.autoInvest.createThresholdSweep({
+        userId: USER_A,
+        assetId: 'USDT',
+        threshold: amt('100'),
+        targetPoolId: pool.id,
+      });
+      const now = new Date('2026-08-09T12:00:00.000Z');
+
+      const first = await bank.autoInvest.runDue({ now, limit: 200 });
+      expect(first.skipped).toBe(1);
+      expect(first.settled).toBe(0);
+
+      // Same timestamp, now above threshold. The skip already holds sweep:${ruleId}:${now}.
+      await fund(USER_A, 'USDT', '950');
+      const second = await bank.autoInvest.runDue({ now, limit: 200 });
+
+      expect(second.settled).toBe(0);
+      expect(second.skipped).toBe(1);
+      expect(second.rejected).toBe(0);
+      expect(await availableOf(USER_A, 'USDT')).toBe('1000');
+      expect(formatAmount(await bank.earn.stakedOf(USER_A, 'USDT'))).toBe('0');
+      const runs = await bank.autoInvest.runsOf(rule.id);
+      expect(runs).toHaveLength(1);
+      expect(runs[0]?.status).toBe('skipped');
+      expect(runs[0]?.clientRunId).toBe(`sweep:${rule.id}:${now.toISOString()}`);
+      expect(runs[0]?.positionId).toBeNull();
+      expect(runs[0]?.amount).toBeNull();
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('a pending sweep row is not reported as settled and the excess stays available', async () => {
+      const pool = await bank.earn.createPool({
+        assetId: 'USDT',
+        kind: 'flexible',
+        name: 'Flex-pending-key',
+        aprBps: 100,
+        minDeposit: amt('1'),
+      });
+      await fund(USER_A, 'USDT', '1000');
+      const rule = await bank.autoInvest.createThresholdSweep({
+        userId: USER_A,
+        assetId: 'USDT',
+        threshold: amt('400'),
+        targetPoolId: pool.id,
+      });
+      const now = new Date('2026-08-09T17:00:00.000Z');
+      const clientRunId = `sweep:${rule.id}:${now.toISOString()}`;
+      await sql`
+        INSERT INTO bank.auto_invest_runs (rule_id, client_run_id, status, amount)
+        VALUES (${rule.id}::uuid, ${clientRunId}, 'pending', '1'::numeric)
+      `;
+
+      const report = await bank.autoInvest.runDue({ now, limit: 200 });
+      expect(report.considered).toBe(1);
+      expect(report.settled).toBe(0);
+      expect(report.skipped).toBe(0);
+      expect(report.rejected).toBe(0);
+      expect(report.failures).toEqual([]);
+      expect(await availableOf(USER_A, 'USDT')).toBe('1000');
+      expect(formatAmount(await bank.earn.stakedOf(USER_A, 'USDT'))).toBe('0');
+      const runs = await bank.autoInvest.runsOf(rule.id);
+      expect(runs).toHaveLength(1);
+      expect(runs[0]?.status).toBe('pending');
+      expect(runs[0]?.clientRunId).toBe(clientRunId);
+      expect(formatAmount(runs[0]!.amount!)).toBe('1');
+      expect(runs[0]?.positionId).toBeNull();
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('a rejected sweep row is not reported as settled and the excess stays available', async () => {
+      const pool = await bank.earn.createPool({
+        assetId: 'USDT',
+        kind: 'flexible',
+        name: 'Flex-reject-key',
+        aprBps: 100,
+        minDeposit: amt('80'),
+      });
+      await fund(USER_A, 'USDT', '100');
+      const rule = await bank.autoInvest.createThresholdSweep({
+        userId: USER_A,
+        assetId: 'USDT',
+        threshold: amt('50'),
+        targetPoolId: pool.id,
+      });
+      const now = new Date('2026-08-09T15:00:00.000Z');
+
+      const first = await bank.autoInvest.runDue({ now, limit: 200 });
+      expect(first.rejected).toBe(1);
+      expect(first.settled).toBe(0);
+      expect(await availableOf(USER_A, 'USDT')).toBe('100');
+
+      const second = await bank.autoInvest.runDue({ now, limit: 200 });
+      expect(second.settled).toBe(0);
+      expect(second.rejected).toBe(1);
+      expect(await availableOf(USER_A, 'USDT')).toBe('100');
+      expect(formatAmount(await bank.earn.stakedOf(USER_A, 'USDT'))).toBe('0');
+      const runs = await bank.autoInvest.runsOf(rule.id);
+      expect(runs).toHaveLength(1);
+      expect(runs[0]?.status).toBe('rejected');
+      expect(formatAmount(runs[0]!.amount!)).toBe('50');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('a settled sweep is not deposited a second time', async () => {
+      const pool = await bank.earn.createPool({
+        assetId: 'USDT',
+        kind: 'flexible',
+        name: 'Flex-settled-key',
+        aprBps: 3650,
+        minDeposit: amt('1'),
+      });
+      await accrueBankFees('USDT', '100');
+      await bank.earn.fundPool({ poolId: pool.id, fundingId: 'ai-fund-settled-replay', amount: amt('100') });
+      await fund(USER_A, 'USDT', '1000');
+      const rule = await bank.autoInvest.createThresholdSweep({
+        userId: USER_A,
+        assetId: 'USDT',
+        threshold: amt('400'),
+        targetPoolId: pool.id,
+      });
+      const now = new Date('2026-08-09T16:00:00.000Z');
+
+      const first = await bank.autoInvest.runDue({ now, limit: 200 });
+      expect(first.settled).toBe(1);
+      expect(await availableOf(USER_A, 'USDT')).toBe('400');
+      expect(formatAmount(await bank.earn.stakedOf(USER_A, 'USDT'))).toBe('600');
+
+      // Still above threshold at the same timestamp, so the insert conflicts
+      // with the settled row. That row already moved 600; the new 200 stays put.
+      await fund(USER_A, 'USDT', '200');
+      const second = await bank.autoInvest.runDue({ now, limit: 200 });
+      expect(second.settled).toBe(1);
+      expect(second.skipped).toBe(0);
+      expect(second.rejected).toBe(0);
+      expect(await availableOf(USER_A, 'USDT')).toBe('600');
+      expect(formatAmount(await bank.earn.stakedOf(USER_A, 'USDT'))).toBe('600');
+      const runs = await bank.autoInvest.runsOf(rule.id);
+      expect(runs).toHaveLength(1);
+      expect(runs[0]?.status).toBe('settled');
+      expect(formatAmount(runs[0]!.amount!)).toBe('600');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
     it('refuses a pool in a different asset rather than inventing a convert', async () => {
       const pool = await bank.earn.createPool({
         assetId: 'BTC',
@@ -319,6 +479,169 @@ describe('auto-invest PG-hard', () => {
       expect(report.settled).toBe(1);
       expect(await availableOf(USER_A, 'USDT')).toBe('400');
       expect(await availableOf(USER_A, 'BTC')).toBe('100');
+    });
+
+    function bankWithConvert(convert: ConvertPort) {
+      bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+        nativeAssetId: 'IFC',
+        autoInvest: { convert },
+      });
+    }
+
+    /** Spend the rule amount, receive a known fill. The fill is not the spend. */
+    function fillingConvert(received: Amount, calls: { n: number }): ConvertPort {
+      return {
+        async convert(input) {
+          calls.n += 1;
+          await ledger.post(
+            recipes.withdrawHold({
+              userId: input.userId,
+              assetId: input.fromAsset,
+              amount: input.fromAmount,
+              rail: 'test-convert',
+              withdrawalId: input.clientConvertId,
+            }),
+          );
+          await ledger.post(
+            recipes.withdrawSettle({
+              userId: input.userId,
+              assetId: input.fromAsset,
+              amount: input.fromAmount,
+              rail: 'test-convert',
+              withdrawalId: input.clientConvertId,
+            }),
+          );
+          await ledger.post(
+            recipes.deposit({
+              userId: input.userId,
+              assetId: input.toAsset,
+              amount: received,
+              rail: 'test-convert',
+              railRef: `${input.clientConvertId}:in`,
+            }),
+          );
+          return { toAmount: received, ledgerTxId: `tx:${input.clientConvertId}` };
+        },
+      };
+    }
+
+    it('a pending DCA row is not reported as settled and the spend stays available', async () => {
+      const calls = { n: 0 };
+      bankWithConvert(fillingConvert(amt('0.002'), calls));
+      await fund(USER_A, 'USDT', '500');
+      const startsAt = new Date('2026-08-09T08:00:00.000Z');
+      const rule = await bank.autoInvest.createDca({
+        userId: USER_A,
+        spendAssetId: 'USDT',
+        buyAssetId: 'BTC',
+        amount: amt('100'),
+        cadence: 'daily',
+        startsAt,
+      });
+      const clientRunId = `dca:${rule.id}:${rule.nextRunAt!.toISOString()}`;
+      await sql`
+        INSERT INTO bank.auto_invest_runs (rule_id, client_run_id, status, amount)
+        VALUES (${rule.id}::uuid, ${clientRunId}, 'pending', '100'::numeric)
+      `;
+
+      const report = await bank.autoInvest.runDue({ now: startsAt, limit: 200 });
+
+      expect(report.considered).toBe(1);
+      expect(report.settled).toBe(0);
+      expect(report.skipped).toBe(0);
+      expect(report.rejected).toBe(0);
+      expect(report.failures).toEqual([]);
+      expect(calls.n).toBe(0);
+      expect(await availableOf(USER_A, 'USDT')).toBe('500');
+      expect(await availableOf(USER_A, 'BTC')).toBe('0');
+      const runs = await bank.autoInvest.runsOf(rule.id);
+      expect(runs).toHaveLength(1);
+      expect(runs[0]?.status).toBe('pending');
+      expect(runs[0]?.clientRunId).toBe(clientRunId);
+      expect(formatAmount(runs[0]!.amount!)).toBe('100');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('a rejected DCA row is not reported as settled and convert is not run again', async () => {
+      const calls = { n: 0 };
+      bankWithConvert({
+        async convert() {
+          calls.n += 1;
+          throw new InsufficientFundsError('available', 'USDT', '100', '0');
+        },
+      });
+      await fund(USER_A, 'USDT', '500');
+      const now = new Date('2026-08-09T09:00:00.000Z');
+      const rule = await bank.autoInvest.createDca({
+        userId: USER_A,
+        spendAssetId: 'USDT',
+        buyAssetId: 'BTC',
+        amount: amt('100'),
+        cadence: 'daily',
+        startsAt: now,
+      });
+
+      const first = await bank.autoInvest.runDue({ now, limit: 200 });
+      expect(first.rejected).toBe(1);
+      expect(first.settled).toBe(0);
+      expect(calls.n).toBe(1);
+
+      const second = await bank.autoInvest.runDue({ now, limit: 200 });
+      expect(second.settled).toBe(0);
+      expect(second.rejected).toBe(1);
+      expect(second.skipped).toBe(0);
+      expect(calls.n).toBe(1);
+      expect(await availableOf(USER_A, 'USDT')).toBe('500');
+      expect(await availableOf(USER_A, 'BTC')).toBe('0');
+      const runs = await bank.autoInvest.runsOf(rule.id);
+      expect(runs).toHaveLength(1);
+      expect(runs[0]?.status).toBe('rejected');
+      expect(formatAmount(runs[0]!.amount!)).toBe('100');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('books the converted amount and does not convert a settled DCA row again', async () => {
+      const calls = { n: 0 };
+      bankWithConvert(fillingConvert(amt('0.002'), calls));
+      await fund(USER_A, 'USDT', '500');
+      const startsAt = new Date('2026-08-09T10:00:00.000Z');
+      const rule = await bank.autoInvest.createDca({
+        userId: USER_A,
+        spendAssetId: 'USDT',
+        buyAssetId: 'BTC',
+        amount: amt('100'),
+        cadence: 'daily',
+        startsAt,
+      });
+
+      const first = await bank.autoInvest.runDue({ now: startsAt, limit: 200 });
+      expect(first.settled).toBe(1);
+      expect(calls.n).toBe(1);
+      expect(await availableOf(USER_A, 'USDT')).toBe('400');
+      expect(await availableOf(USER_A, 'BTC')).toBe('0.002');
+      const booked = await bank.autoInvest.runsOf(rule.id);
+      expect(booked).toHaveLength(1);
+      expect(booked[0]?.status).toBe('settled');
+      expect(formatAmount(booked[0]!.amount!)).toBe('0.002');
+
+      // Same client_run_id is due again only if next_run_at did not move.
+      // Rewind the schedule so the settled row occupies dca:${ruleId}:${nextRunAt}.
+      await sql`
+        UPDATE bank.auto_invest_rules SET next_run_at = ${startsAt}
+         WHERE id = ${rule.id}::uuid
+      `;
+      const second = await bank.autoInvest.runDue({ now: startsAt, limit: 200 });
+      expect(second.settled).toBe(1);
+      expect(second.rejected).toBe(0);
+      expect(second.skipped).toBe(0);
+      expect(calls.n).toBe(1);
+      expect(await availableOf(USER_A, 'USDT')).toBe('400');
+      expect(await availableOf(USER_A, 'BTC')).toBe('0.002');
+      const runs = await bank.autoInvest.runsOf(rule.id);
+      expect(runs).toHaveLength(1);
+      expect(runs[0]?.status).toBe('settled');
+      expect(formatAmount(runs[0]!.amount!)).toBe('0.002');
+      expect(ledger.reconcile()).toEqual({ ok: true });
     });
   });
 

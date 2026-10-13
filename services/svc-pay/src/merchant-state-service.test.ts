@@ -1,3 +1,4 @@
+import { truncatePayForTest } from './payment-events-test-reset.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -130,7 +131,7 @@ describe('svc-pay merchant state PG-hard', () => {
   }, 120_000);
 
   beforeEach(async () => {
-    await sql`TRUNCATE pay.merchant_status_events, pay.merchants RESTART IDENTITY CASCADE`;
+    await truncatePayForTest(sql, 'pay', `TRUNCATE pay.merchant_status_events, pay.merchants RESTART IDENTITY CASCADE`);
     state = new MerchantStateService(sql);
   });
 

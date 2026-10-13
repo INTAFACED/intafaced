@@ -18,20 +18,14 @@ function refuseUnset(detail: string): OmsBuyingPowerRefusal {
   return { ok: false, reason: 'buying_power_unset', detail };
 }
 
-/** Missing/blank/invalid buying power refuses — never invent a limit. */
-export function refuseUnsetBuyingPower(
-  raw: string | null | undefined,
-): OmsBuyingPowerRefusal | { readonly ok: true; readonly buyingPower: string } {
-  if (raw === undefined || raw === null) {
-    return refuseUnset(
-      'buying-power path is unset — refusing worst-case pre-trade risk rather than inventing buying power',
-    );
+/** Missing/blank/invalid/non-string buying power refuses — never invent a limit. */
+export function refuseUnsetBuyingPower(raw: unknown): OmsBuyingPowerRefusal | { readonly ok: true; readonly buyingPower: string } {
+  if (typeof raw !== 'string') {
+    return refuseUnset('buying-power path is unset — refusing worst-case pre-trade risk rather than inventing buying power');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuseUnset(
-      'buying-power path is unset — refusing worst-case pre-trade risk rather than inventing buying power',
-    );
+    return refuseUnset('buying-power path is unset — refusing worst-case pre-trade risk rather than inventing buying power');
   }
   try {
     const value = parseAmount(text);

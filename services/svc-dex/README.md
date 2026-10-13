@@ -40,6 +40,8 @@ Two venues quoting the same headline price are usually not equivalent. An AMM qu
 
 Fees apply to the side that pays them: a buyer receives less base, raising cost per unit; a seller receives less quote, lowering proceeds per unit. Settlement cost is added on a buy and subtracted on a sell — it is a cost to the taker in both directions and must never look like income.
 
+Requested `qty` and route `qty`/`filledQty` describe planned gross base quantity. A buyer receives that quantity less the base fee; its effective price uses the received quantity. Route leg `quoteAmount` and `totalQuoteAmount` report quote paid on buys and net quote proceeds after fees and settlement on sells. Per-venue `quoteAmount` preserves the gross sourced notional, with fee and settlement disclosed beside it. Ranking and leg amounts share the same integer fee calculation; a rounded per-unit price is never multiplied back into a cash total.
+
 Routing is greedy over per-venue quotes. **Not provably optimal** — a true optimum needs a depth curve per venue, not a single quote. Ties break on venue id so routing is a function of the quote _set_, not of arrival order: two identical requests must route identically, or a fill becomes unreproducible and no dispute about it can be settled.
 
 ## Where prices come from

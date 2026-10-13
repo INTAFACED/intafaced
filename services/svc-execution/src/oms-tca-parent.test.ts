@@ -171,6 +171,130 @@ describe('runTcaForParent', () => {
     expect(result.run.clientOrderIds).toEqual(['child-1']);
     expect(result.run.realized).toMatchObject({ fillVwap: '101' });
   });
+
+  it('drops an invalid executedAt and keeps the earliest valid stamp as the retained clock', () => {
+    const emsStore = new InMemoryEmsOrderStore();
+    const earlier = new Date('2026-08-24T11:00:00.000Z');
+    const later = new Date('2026-08-24T13:00:00.000Z');
+    emsStore.record({
+      clientOrderId: 'child-invalid',
+      parentClientOrderId: 'parent-1',
+      executionGroupId: 'group-1',
+      childOrderId: 'child-invalid',
+      venueId: 'street',
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      execution: {
+        venueId: 'street',
+        venueOrderId: 'v-invalid',
+        filledAmount: parseAmount('1'),
+        averagePrice: parseAmount('101'),
+        feeAmount: parseAmount('0.1'),
+        feeAsset: 'USDT',
+        status: 'filled',
+        executedAt: new Date('not-a-clock'),
+      },
+      state: 'ACKNOWLEDGED',
+      recordedAtMs: 3,
+    });
+    emsStore.record({
+      clientOrderId: 'child-later',
+      parentClientOrderId: 'parent-1',
+      executionGroupId: 'group-1',
+      childOrderId: 'child-later',
+      venueId: 'street',
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      execution: {
+        venueId: 'street',
+        venueOrderId: 'v-later',
+        filledAmount: parseAmount('1'),
+        averagePrice: parseAmount('101'),
+        feeAmount: parseAmount('0.1'),
+        feeAsset: 'USDT',
+        status: 'filled',
+        executedAt: later,
+      },
+      state: 'ACKNOWLEDGED',
+      recordedAtMs: 4,
+    });
+    emsStore.record({
+      clientOrderId: 'child-earlier',
+      parentClientOrderId: 'parent-1',
+      executionGroupId: 'group-1',
+      childOrderId: 'child-earlier',
+      venueId: 'street',
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      execution: {
+        venueId: 'street',
+        venueOrderId: 'v-earlier',
+        filledAmount: parseAmount('1'),
+        averagePrice: parseAmount('101'),
+        feeAmount: parseAmount('0.1'),
+        feeAsset: 'USDT',
+        status: 'filled',
+        executedAt: earlier,
+      },
+      state: 'ACKNOWLEDGED',
+      recordedAtMs: 5,
+    });
+    const result = runTcaForParent({
+      parentClientOrderId: 'parent-1',
+      emsStore,
+      captureLake: retainedBook(earlier),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.run.arrivalAt).toBe('2026-08-24T11:00:00.000Z');
+    expect(result.run.benchmarks.find((row) => row.class === 'arrival')).toMatchObject({
+      status: 'AVAILABLE',
+      source: 'capture.lake',
+    });
+  });
+
+  it('refuses when every retained execution clock is missing or invalid', () => {
+    const emsStore = new InMemoryEmsOrderStore();
+    emsStore.record({
+      clientOrderId: 'child-blank',
+      parentClientOrderId: 'parent-1',
+      venueId: 'street',
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      execution: null,
+      state: 'OUTCOME_UNKNOWN',
+      recordedAtMs: 1,
+    });
+    emsStore.record({
+      clientOrderId: 'child-invalid',
+      parentClientOrderId: 'parent-1',
+      venueId: 'street',
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      execution: {
+        venueId: 'street',
+        venueOrderId: 'v-invalid',
+        filledAmount: parseAmount('1'),
+        averagePrice: parseAmount('101'),
+        feeAmount: parseAmount('0.1'),
+        feeAsset: 'USDT',
+        status: 'filled',
+        executedAt: new Date('not-a-clock'),
+      },
+      state: 'ACKNOWLEDGED',
+      recordedAtMs: 2,
+    });
+    expect(
+      runTcaForParent({
+        parentClientOrderId: 'parent-1',
+        emsStore,
+        captureLake: retainedBook(),
+      }),
+    ).toMatchObject({
+      ok: false,
+      reason: 'missing_retained_inputs',
+    });
+  });
 });
 
 describe('execution.oms.tca.parent tRPC', () => {

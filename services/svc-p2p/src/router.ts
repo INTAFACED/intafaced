@@ -21,7 +21,7 @@ import {
   type DisputeRecord,
   type P2pService,
 } from './p2p-service.js';
-import { InstrumentError } from './instruments.js';
+import { InstrumentError, parseFieldSpecs } from './instruments.js';
 import type { InstrumentService } from './instrument-service.js';
 import { assertModerator, isModerationConfigured, isModerator } from './moderation-auth.js';
 import { moderationHonestySchema, moderationOnPublicDoor } from './moderation-honesty.js';
@@ -276,6 +276,7 @@ function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       case 'p2p.rfq_expired':
       case 'p2p.rfq_already_bound':
+      case 'p2p.rfq_terms_conflict':
       case 'p2p.rfq_last_look_forbidden':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       default:
@@ -305,6 +306,8 @@ function toTrpcError(err: unknown): TRPCError {
       // OWNER KMS is wired. PRECONDITION_FAILED so an operator dash can alarm
       // on the code, not on a generic BAD_REQUEST that looks like a typo.
       case 'p2p.instrument_kms_required':
+      case 'p2p.escrow_terms_unproven':
+      case 'p2p.escrow_lock_uncertain':
       case 'p2p.fee_bps_unset':
       case 'p2p.offer_list_limit_unset':
       case 'p2p.dispute_list_limit_unset':
@@ -488,7 +491,13 @@ export function createP2pRouter(
       targetId: actionType,
       expectedVersion: '1',
     });
-    return consumed.approverId ?? consumed.requesterId;
+    if (!consumed.approverId?.trim() || consumed.approverId.trim().toLowerCase() === consumed.requesterId.trim().toLowerCase()) {
+      throw new ActionApprovalConsumeError(
+        'consumed approval has no distinct approver; the requester does not confirm the mutate',
+        'action_approval.consume_failed',
+      );
+    }
+    return consumed.approverId.trim();
   };
 
   const requireBlockRfq = (): BlockRfqService => {
@@ -1068,6 +1077,8 @@ export function createP2pRouter(
                 methodId: input.methodId,
                 country: input.country,
                 label: input.label,
+                fields: JSON.stringify(parseFieldSpecs(input.fields)),
+                enabled: input.enabled === undefined ? 'preserve-or-default' : input.enabled ? 'true' : 'false',
               });
               const schema = await instruments.registerMethodSchema({
                 methodId: input.methodId,

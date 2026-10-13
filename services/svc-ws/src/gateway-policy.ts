@@ -125,30 +125,53 @@ function firstParam(params: URLSearchParams, keys: readonly string[]): string {
   return '';
 }
 
+/** Later aliases and repeated keys are asks too. The first value is not the only one. */
+function anyAlias(params: URLSearchParams, keys: readonly string[], match: (value: string) => boolean): boolean {
+  for (const key of keys) {
+    for (const raw of params.getAll(key)) {
+      const value = normToken(raw);
+      if (value !== '' && match(value)) return true;
+    }
+  }
+  return false;
+}
+
+function flagOn(params: URLSearchParams, key: string): boolean {
+  return params.getAll(key).includes('1');
+}
+
 function isL3Ask(params: URLSearchParams): boolean {
   return isNativeL3Ask(params) || isQueueProbabilityAsk(params);
 }
 
 /** Public matching queue (per-order remaining). Not fill-probability. */
 export function isNativeL3Ask(params: URLSearchParams): boolean {
-  const channel = firstParam(params, ['channel']);
-  const level = firstParam(params, ['level', 'book', 'dataLevel', 'data_level']);
+  const levelKeys = ['level', 'book', 'dataLevel', 'data_level'] as const;
   return (
-    NATIVE_L3_TOKENS.has(channel) || NATIVE_L3_TOKENS.has(level) || level === '3' || params.get('l3') === '1' || params.get('mbo') === '1'
+    anyAlias(params, ['channel'], (value) => NATIVE_L3_TOKENS.has(value)) ||
+    anyAlias(params, levelKeys, (value) => NATIVE_L3_TOKENS.has(value) || value === '3') ||
+    flagOn(params, 'l3') ||
+    flagOn(params, 'mbo')
   );
 }
 
 /** Derived fill % — matching refuses; never invent from L2 or L3. */
 export function isQueueProbabilityAsk(params: URLSearchParams): boolean {
-  const channel = firstParam(params, ['channel']);
-  const level = firstParam(params, ['level', 'book', 'dataLevel', 'data_level']);
-  return QUEUE_PROBABILITY_TOKENS.has(channel) || QUEUE_PROBABILITY_TOKENS.has(level);
+  const levelKeys = ['level', 'book', 'dataLevel', 'data_level'] as const;
+  return (
+    anyAlias(params, ['channel'], (value) => QUEUE_PROBABILITY_TOKENS.has(value)) ||
+    anyAlias(params, levelKeys, (value) => QUEUE_PROBABILITY_TOKENS.has(value))
+  );
 }
 
 function isBinaryAsk(params: URLSearchParams): boolean {
-  const channel = firstParam(params, ['channel']);
-  const format = firstParam(params, ['format', 'encoding', 'protocol', 'codec', 'schema']);
-  return BINARY_TOKENS.has(channel) || BINARY_TOKENS.has(format) || params.get('sbe') === '1' || params.get('binary') === '1';
+  const formatKeys = ['format', 'encoding', 'protocol', 'codec', 'schema'] as const;
+  return (
+    anyAlias(params, ['channel'], (value) => BINARY_TOKENS.has(value)) ||
+    anyAlias(params, formatKeys, (value) => BINARY_TOKENS.has(value)) ||
+    flagOn(params, 'sbe') ||
+    flagOn(params, 'binary')
+  );
 }
 
 /** Public `orderFilled` tape — the one door that is actually bus push. */
@@ -162,9 +185,12 @@ export function isTradesChannelAsk(params: URLSearchParams): boolean {
  */
 export function isDepthPushAsk(params: URLSearchParams): boolean {
   if (isTradesChannelAsk(params)) return false;
-  const channel = firstParam(params, ['channel']);
-  const transport = firstParam(params, ['transport', 'mode', 'feed', 'source']);
-  return PUSH_TOKENS.has(channel) || PUSH_TOKENS.has(transport) || params.get('push') === '1';
+  const transportKeys = ['transport', 'mode', 'feed', 'source'] as const;
+  return (
+    anyAlias(params, ['channel'], (value) => PUSH_TOKENS.has(value)) ||
+    anyAlias(params, transportKeys, (value) => PUSH_TOKENS.has(value)) ||
+    flagOn(params, 'push')
+  );
 }
 
 /**
@@ -180,16 +206,14 @@ export function isPublicSbeL2Ask(params: URLSearchParams): boolean {
 
 /** L4 / public maker identity on the L2 SBE tape — not entitled (C5 is native L3). */
 export function sbeL2EntitlementRefuse(params: URLSearchParams): typeof DEPTH_ENTITLEMENT_UNAUTHORIZED | null {
-  const channel = firstParam(params, ['channel']);
-  const level = firstParam(params, ['level', 'book', 'dataLevel', 'data_level']);
-  const product = firstParam(params, ['product', 'as', 'name']);
+  const levelKeys = ['level', 'book', 'dataLevel', 'data_level'] as const;
+  const productKeys = ['product', 'as', 'name'] as const;
   if (
-    UNAUTHORIZED_ENTITLEMENT.has(channel) ||
-    UNAUTHORIZED_ENTITLEMENT.has(level) ||
-    UNAUTHORIZED_ENTITLEMENT.has(product) ||
-    level === '4' ||
-    params.get('l4') === '1' ||
-    params.get('maker') === '1'
+    anyAlias(params, ['channel'], (value) => UNAUTHORIZED_ENTITLEMENT.has(value)) ||
+    anyAlias(params, levelKeys, (value) => UNAUTHORIZED_ENTITLEMENT.has(value) || value === '4') ||
+    anyAlias(params, productKeys, (value) => UNAUTHORIZED_ENTITLEMENT.has(value)) ||
+    flagOn(params, 'l4') ||
+    flagOn(params, 'maker')
   ) {
     return DEPTH_ENTITLEMENT_UNAUTHORIZED;
   }
@@ -246,14 +270,20 @@ export function marketDataFeedRefusePayload(code: MarketDataFeedRefuseCode): {
 
 /** Upgrade-time refuse: JSON body with the named code, never an L2/JSON socket. */
 export function writeMarketDataFeedRefuse(
-  socket: { write(chunk: string): unknown; destroy(): void },
+  socket: {
+    write(chunk: string, callback?: (error?: Error | null) => void): unknown;
+    destroy(): void;
+  },
   code: MarketDataFeedRefuseCode,
 ): void {
   const body = JSON.stringify(marketDataFeedRefusePayload(code));
+  // A writable drops bytes still buffered when destroy runs in this turn.
   socket.write(
     `HTTP/1.1 ${MARKET_DATA_FEED_REFUSE_HTTP} Conflict\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`,
+    () => {
+      socket.destroy();
+    },
   );
-  socket.destroy();
 }
 
 /**

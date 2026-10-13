@@ -36,40 +36,24 @@ export type OmsTwapReleaseResidualOk = {
   readonly residual: { readonly remaining: string; readonly released: true };
 };
 
-export type OmsTwapReleaseResidualResult =
-  | OmsTwapReleaseResidualOk
-  | OmsTwapReleaseResidualRefusal;
+export type OmsTwapReleaseResidualResult = OmsTwapReleaseResidualOk | OmsTwapReleaseResidualRefusal;
 
-function refuse(
-  reason: OmsTwapReleaseResidualRefuseReason,
-  detail: string,
-): OmsTwapReleaseResidualRefusal {
+function refuse(reason: OmsTwapReleaseResidualRefuseReason, detail: string): OmsTwapReleaseResidualRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseRetainedRemaining(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsTwapReleaseResidualRefusal {
+function parseRetainedRemaining(raw: string | null | undefined): { ok: true; text: string } | OmsTwapReleaseResidualRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is missing — refusing to invent leftover from duration or the clock',
-    );
+    return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover from duration or the clock');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is missing — refusing to invent leftover from duration or the clock',
-    );
+    return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover from duration or the clock');
   }
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is not a ledger amount — refusing to invent leftover',
-    );
+    return refuse('missing_residual', 'residual.remaining is not a ledger amount — refusing to invent leftover');
   }
 }
 
@@ -94,10 +78,7 @@ export function releaseExpiredTwapResidual(input: {
     return refuse('jobs_gate_unwired', 'algo jobs gate is required for residual release');
   }
   if (input.jobs.enabled === false) {
-    return refuse(
-      'jobs_off',
-      'EXECUTION_ALGO_JOBS_ENABLED is off — refusing to invent a live leftover',
-    );
+    return refuse('jobs_off', 'EXECUTION_ALGO_JOBS_ENABLED is off — refusing to invent a live leftover');
   }
   if (input.kind !== undefined && input.kind !== 'twap') {
     return refuse('not_live', `kind ${String(input.kind)} is not twap`);

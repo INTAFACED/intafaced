@@ -5,8 +5,8 @@ on:
   #
   # It was removed on 2026-08-04 as a thrift measure, to stop "double-billing"
   # a merge out of "a 2,000-minute monthly pool". That pool was a private-repo
-  # quota. This repo is PUBLIC, and GitHub Actions on standard runners are free
-  # and unlimited for public repositories — the bill it protected does not exist.
+  # quota. This repo is public — the bill is zero — but free runners are not
+  # permission to ignore a 403 or 429 from GitHub; that is a stop.
   #
   # What it cost while it was off: nothing verified main after a merge. Two PRs
   # that each passed independently could land and leave the trunk red, on a repo
@@ -42,8 +42,8 @@ on:
 #   runs before they finished. Intermediate tips never got a real green/red
 #   signal; defects landed via cancelled post-merge checks (worked example:
 #   #1466 → cancelled main CI → brand-scan red tip → fleet freeze → #1471).
-#   Actions are free on this public repo — finishing every main run is the
-#   point of push:main, not a cost trade.
+#   The bill is zero on a public repo — finishing every main run is the point
+#   of push:main, not a cost trade. A 403 or 429 is still a stop.
 # - On PR refs, still cancel: force-push / tip-bump on one branch supersedes
 #   the prior run. That is the only legitimate thrift leftover.
 #
@@ -212,6 +212,7 @@ jobs:
       TEST_DATABASE_URL_AGENTS: postgres://svc_agents:svc_agents@127.0.0.1:5432/intafaced_test
       TEST_DATABASE_URL_NOTIFY: postgres://svc_notify:svc_notify@127.0.0.1:5432/intafaced_test
       TEST_DATABASE_URL_SUPPORT: postgres://svc_support:svc_support@127.0.0.1:5432/intafaced_test
+      TEST_DATABASE_URL_SUPPORT_ADMIN: postgres://intafaced:intafaced@127.0.0.1:5432/postgres
       REDIS_URL: redis://127.0.0.1:6379
       NATS_URL: nats://127.0.0.1:4222
       # Same bargain as REQUIRE_POSTGRES, for the same reason. svc-protocol's
@@ -365,7 +366,9 @@ jobs:
 
       - name: Build full-test dependencies
         run: pnpm build
-      - run: pnpm test
+      # --continue: keep running after a failing package so one run lists every
+      # failure instead of stopping at the first (the job is still red if any fail).
+      - run: pnpm test --continue
 
       # The backstop. REQUIRE_POSTGRES / REQUIRE_EVM_CHAIN make the shared probes
       # throw, which turns most missing infrastructure into a red suite before
@@ -498,7 +501,7 @@ jobs:
       - name: Build protocol test dependencies
         run: pnpm --filter @intafaced/svc-protocol... --filter @intafaced/svc-dex... --filter @intafaced/svc-indexer... build
       - name: Protocol package tests
-        run: pnpm --filter @intafaced/svc-protocol... --filter @intafaced/svc-dex... --filter @intafaced/svc-indexer... test
+        run: pnpm --no-bail --filter @intafaced/svc-protocol... --filter @intafaced/svc-dex... --filter @intafaced/svc-indexer... test
       - name: Annotate shard failure
         if: failure()
         run: echo "::error title=Tests (protocol)::Read this job log, not the merge seal. Fix this shard and re-push."
@@ -592,8 +595,13 @@ jobs:
           docker logs intafaced-ci-nats || true
           exit 1
 
+      # vitest resolves workspace packages via dist/ (issue #4554). Build exactly
+      # what these packages depend on, not the whole repo: `...` means "and its
+      # dependencies", and it keeps the mobile native staging step out of the run.
+      - name: Build money test dependencies
+        run: pnpm --filter @intafaced/ledger-client... --filter @intafaced/svc-ledger... --filter @intafaced/svc-identity... --filter @intafaced/svc-token... --filter @intafaced/config... build
       - name: Money package tests
-        run: pnpm --filter @intafaced/ledger-client --filter @intafaced/svc-ledger --filter @intafaced/svc-identity --filter @intafaced/svc-token --filter @intafaced/config test
+        run: pnpm --no-bail --filter @intafaced/ledger-client --filter @intafaced/svc-ledger --filter @intafaced/svc-identity --filter @intafaced/svc-token --filter @intafaced/config test
       - name: Annotate shard failure
         if: failure()
         run: echo "::error title=Tests (money)::Read this job log, not the merge seal. Fix this shard and re-push."
@@ -692,7 +700,7 @@ jobs:
       - run: pnpm build
 
       - name: Trade package tests
-        run: pnpm --filter @intafaced/svc-trade --filter @intafaced/svc-matching --filter @intafaced/svc-execution --filter @intafaced/venue-adapter --filter @intafaced/svc-ws test
+        run: pnpm --no-bail --filter @intafaced/svc-trade --filter @intafaced/svc-matching --filter @intafaced/svc-execution --filter @intafaced/venue-adapter --filter @intafaced/svc-ws test
       - name: Annotate shard failure
         if: failure()
         run: echo "::error title=Tests (trade)::Read this job log, not the merge seal. Fix this shard and re-push."
@@ -791,7 +799,7 @@ jobs:
       - run: pnpm build
 
       - name: Pay/bank package tests
-        run: pnpm turbo run test --filter=@intafaced/svc-pay --filter=@intafaced/svc-bank --filter=@intafaced/svc-p2p
+        run: pnpm turbo run test --filter=@intafaced/svc-pay --filter=@intafaced/svc-bank --filter=@intafaced/svc-p2p --continue
       - name: Annotate shard failure
         if: failure()
         run: echo "::error title=Tests (pay-bank)::Read this job log, not the merge seal. Fix this shard and re-push."

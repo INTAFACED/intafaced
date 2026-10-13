@@ -1,0 +1,167 @@
+.promotions {
+  min-width: 0;
+}
+.promotions h2 {
+  font-size: 20px;
+  line-height: 28px;
+}
+.promotions h3 {
+  font-size: 16px;
+  line-height: 24px;
+}
+.promotions__owner {
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+  margin-bottom: 28px;
+}
+.promotions__columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 28px;
+}
+.promotions__columns > * {
+  min-width: 0;
+}
+.promotions__link {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-12);
+  background: var(--color-surface);
+  min-width: 0;
+}
+.promotions__link p,
+.promotions__original p,
+.promotions__review p {
+  font-size: 14px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+.promotions__link .promotions__caption {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--color-muted);
+}
+.promotions__private {
+  gap: 8px;
+  min-width: 0;
+}
+.promotions__private span {
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.promotions__private input {
+  min-width: 0;
+  min-height: 48px;
+  font-size: 14px;
+  line-height: 22px;
+  padding: 12px;
+}
+.promotions__visits {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding-block: 12px;
+  border-block: 1px solid var(--color-divider);
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--color-muted);
+}
+.promotions__visits strong {
+  font-size: 18px;
+  line-height: 26px;
+  color: var(--color-text);
+  flex-shrink: 0;
+}
+.promotions__actions {
+  display: flex;
+  gap: 12px;
+}
+.promotions .button {
+  min-height: 44px;
+  white-space: normal;
+}
+.promotions__actions .button {
+  flex: 1;
+  min-width: 0;
+}
+.promotions__originals {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  margin-bottom: 28px;
+}
+.promotions__original {
+  padding: 20px;
+  border-left: 2px solid var(--color-accent);
+  border-radius: var(--radius-12);
+  background: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.promotions__ref {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 22px;
+  font-variant-numeric: tabular-nums;
+}
+.promotions__cleanup {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-12);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.promotions .dialog h2 {
+  font-size: 24px;
+  line-height: 32px;
+}
+.promotions__review {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.promotions__review > p:not(.muted) {
+  font-size: 15px;
+  line-height: 24px;
+}
+.promotions__consequence {
+  padding-left: 16px;
+  border-left: 2px solid var(--color-accent);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.promotions__consequence p:first-child {
+  font-size: 15px;
+  line-height: 24px;
+}
+.promotions .page > .actions {
+  margin-top: 28px;
+}
+@media (max-width: 1100px) {
+  .promotions__columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 650px) {
+  .promotions__link {
+    padding: 20px;
+  }
+  .promotions__actions {
+    flex-wrap: wrap;
+  }
+  .promotions__actions .button {
+    flex-basis: 100%;
+  }
+}

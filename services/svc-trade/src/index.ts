@@ -1,11 +1,15 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { createEdgeContext, retainRawBody } from '@intafaced/contracts';
+import { createEdgeContext, retainRawBody, createIdentityOperationDecisionClient } from '@intafaced/contracts';
+import { TradingControls, TradingControlError } from './controls/trading-controls.js';
+import { createLiveTradingOperator } from './controls/identity-port.js';
 import { JetStreamEventBus } from '@intafaced/events';
+import { assertNoLocalTestFixtures } from '@intafaced/config';
 import { env } from './env.js';
 import { MARKETS_LIMIT_MAX, TradeService } from './spot/trade-service.js';
 import { createMatchingClient } from './spot/matching-client.js';
+import { createTickerStatsReader } from './spot/ticker-stats.js';
 import { createRankPerksClient } from './spot/rank-perks.js';
 import { createAffiliateAccrueClient } from './spot/affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './spot/affiliate-payout.js';
@@ -80,7 +84,7 @@ import { startCandleJobs } from './spot/candle-jobs.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
 import { startAlgoJobs } from './algo/algo-jobs.js';
 import { startOptionsExerciseJobs } from './spot/options-exercise-jobs.js';
-import { checkEngineSequences, describeRegressions } from './spot/sequence-guard.js';
+import { checkEngineSequences, describeRegressions, describeUnavailable, probeEngineSequence } from './spot/sequence-guard.js';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { parseOtcDeskLawJson } from './otc/desk-law.js';
@@ -93,7 +97,7 @@ import { canonicalizeCopyFillId } from './copy/fee-share.js';
 import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/fee-share-law.js';
 import { CopyService } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
-import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore } from './market-lifecycle.js';
+import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
 import { registerMarketLifecycleRoutes } from './market-lifecycle-routes.js';
 
 registerProcessHooks(
@@ -105,6 +109,10 @@ registerProcessHooks(
   }),
 );
 
+// Local-test stand-ins (ZZ screening list, SCREENING_FAIL_CLOSED=off, `local-test:` lifecycle
+// records) are refused unless APP_ENV is exactly dev/test. Reads the raw APP_ENV: unset = NOT dev.
+assertNoLocalTestFixtures(process.env);
+
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
   ssl: env.DATABASE_SSL ? 'require' : false,
@@ -114,8 +122,21 @@ const sql = postgres(env.DATABASE_URL, {
 await sql`SELECT 1 FROM trade.markets LIMIT 1`.catch(() => {
   throw new Error('trade schema is missing — run migrations before starting svc-trade');
 });
+await assertNoLocalTestLifecycleRows(sql, process.env);
 
 const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
+const tradingControls = new TradingControls(
+  sql,
+  createLiveTradingOperator({ url: env.IDENTITY_URL, serviceSecret: env.INTERNAL_SERVICE_SECRET, edgeSecret: env.EDGE_PRINCIPAL_SECRET }),
+  createIdentityOperationDecisionClient({
+    owner: 'svc-trade',
+    identityUrl: env.IDENTITY_URL,
+    secret:
+      env.IDENTITY_ADMISSION_SECRET !== env.INTERNAL_SERVICE_SECRET && env.IDENTITY_ADMISSION_SECRET !== env.EDGE_PRINCIPAL_SECRET
+        ? env.IDENTITY_ADMISSION_SECRET
+        : undefined,
+  }),
+);
 const matching = createMatchingClient(env.MATCHING_URL, env.INTERNAL_SERVICE_SECRET);
 const perks = createRankPerksClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET);
 const subAccounts = createSubAccountOwnershipClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET);
@@ -135,6 +156,7 @@ const bus = await JetStreamEventBus.connect({
 });
 const feeSchedule = parseFeeScheduleJson(env.TRADE_FEE_SCHEDULE);
 const trade = new TradeService(sql, ledger, matching, perks, bus, {
+  accountAdmission: tradingControls,
   marketLifecycle,
   spotEnabled: env.TRADE_SPOT_ENABLED,
   futuresEnabled: env.TRADE_FUTURES_ENABLED,
@@ -189,6 +211,7 @@ const otcMidFeedWiring = describeOtcMidFeedWiring({
   liveObservationFeed: otcMidBuilt.liveObservationFeed,
 });
 const otc = new OtcDeskService(ledger, otcStakes, {
+  accountAdmission: tradingControls,
   law: otcDeskLaw,
   midSource: otcMidBuilt.source,
   liveObservationFeed: otcMidBuilt.liveObservationFeed,
@@ -198,20 +221,26 @@ const otc = new OtcDeskService(ledger, otcStakes, {
 const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);
 const copy = new CopyService(ledger, {
+  accountAdmission: tradingControls,
   feeShareLaw: copyFeeShareLaw,
   jurisdictionLaw: copyJurisdictionLaw,
   store: new SqlCopyFollowStore(sql),
   placeFollowerOrder: async (principal, input) => {
-    const order = await trade.placeOrder(principal, {
-      symbol: input.symbol,
-      marketId: input.marketId,
-      side: input.side,
-      type: 'limit',
-      qty: input.qty,
-      price: input.price,
-      tif: 'GTC',
-      clientOrderId: input.clientOrderId,
-    });
+    if (!input.followId) throw new TradingControlError('auth.credential_denied');
+    const order = await trade.placeCopyMirror(
+      principal,
+      {
+        symbol: input.symbol,
+        marketId: input.marketId,
+        side: input.side,
+        type: 'limit',
+        qty: input.qty,
+        price: input.price,
+        tif: 'GTC',
+        clientOrderId: input.clientOrderId,
+      },
+      input.followId,
+    );
     return { orderId: order.id };
   },
   inspectMarket: async (symbol) => {
@@ -256,7 +285,7 @@ const copy = new CopyService(ledger, {
     };
   },
 });
-export const appRouter = createTradeRouter(trade, otc, copy);
+export const appRouter = createTradeRouter(trade, otc, copy, tradingControls);
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
@@ -319,6 +348,7 @@ if (profitSource) {
 const adlDisclosureAcks = sqlAdlDisclosureStore(sql);
 const adlDisclosureEvents = sqlAdlDisclosureEventStore(sql);
 const positions = new PositionService(sql, ledger, {
+  accountAdmission: tradingControls,
   marks: futuresJobs.marks,
   profitSource,
   bus,
@@ -384,7 +414,7 @@ const mmSeedJobs = startMmSeedJobs({
   },
   statePath: env.TRADE_MM_SEED_STATE_PATH,
   recordSeededOrder: async (row) => {
-    await sql`INSERT INTO trade.orders (id, user_id, market_id, side, type, price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, seeded, lifecycle_proof, session_id, api_key_id) VALUES (${row.orderId}, ${HOUSE_MM_USER_UUID}, ${row.marketId}, ${row.side}, ${'limit'}, ${row.price}::numeric, ${row.qty}::numeric, ${'open'}, ${'PO'}, ${row.holdAsset}, ${row.holdAmount}::numeric, ${0}, ${true}, ${JSON.stringify(row.lifecycleProof)}::jsonb, ${null}, ${HOUSE_MM_API_KEY_ID}) ON CONFLICT (id) DO NOTHING`;
+    await sql`INSERT INTO trade.orders (id, user_id, market_id, side, type, price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, seeded, lifecycle_proof, session_id, api_key_id) VALUES (${row.orderId}, ${HOUSE_MM_USER_UUID}, ${row.marketId}, ${row.side}, ${'limit'}, ${row.price}::numeric, ${row.qty}::numeric, ${'open'}, ${'PO'}, ${row.holdAsset}, ${row.holdAmount}::numeric, ${0}, ${true}, ${JSON.stringify(row.lifecycleProof)}::text::jsonb, ${null}, ${HOUSE_MM_API_KEY_ID}) ON CONFLICT (id) DO NOTHING`;
   },
   onError: (name, err) => app.log.error({ err, job: name }, 'mm seed job tick failed'),
   onResult: (marketId, result) => {
@@ -458,18 +488,23 @@ app.get('/ready', async (_req, reply) => {
   const sequences = await checkEngineSequences({
     sql,
     markets: () => trade.markets(MARKETS_LIMIT_MAX),
-    engineSequence: async (marketId) => {
-      try {
-        return (await matching.depth(marketId, 1)).sequence;
-      } catch {
-        return null;
-      }
-    },
+    // Null only for a positively missing book; an outage or malformed reply throws and is reported unavailable.
+    engineSequence: (marketId) => probeEngineSequence((id) => matching.depth(id, 1), marketId),
   });
   if (sequences.regressions.length > 0) {
     const reason = describeRegressions(sequences.regressions);
-    app.log.error({ regressions: sequences.regressions }, reason);
-    return reply.code(503).send({ ready: false, reason, markets: sequences.regressions.map((r) => r.symbol) });
+    app.log.error({ regressions: sequences.regressions, unavailable: sequences.unavailable }, reason);
+    return reply.code(503).send({
+      ready: false,
+      reason,
+      markets: sequences.regressions.map((r) => r.symbol),
+      unavailable: sequences.unavailable.map((u) => u.symbol),
+    });
+  }
+  if (sequences.unavailable.length > 0) {
+    const reason = describeUnavailable(sequences.unavailable);
+    app.log.warn({ unavailable: sequences.unavailable }, reason);
+    return reply.code(503).send({ ready: false, reason, markets: sequences.unavailable.map((u) => u.symbol) });
   }
   return { ready: true, engineSequences: { checked: sequences.checked, unjudged: sequences.unjudged } };
 });
@@ -479,6 +514,7 @@ registerPublicRest(app, {
   depth: (marketId, limit) => matching.depth(marketId, limit),
   publicTape: (marketId, limit, sinceMs) => trade.publicTape(marketId, limit, sinceMs),
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),
+  tickerStats: createTickerStatsReader(sql, { ttlMs: 3000 }),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   fundingRateForMarket: async (marketId, _symbol) => {
     const entry = futuresJobs.getPublishedRate(marketId);
@@ -659,25 +695,31 @@ registerPrivateRest(app, {
   listClosedPositions: (principal, input) => positions.listClosed(principal.userId, input),
   getPosition: (principal, positionId) => positions.get(principal.userId, positionId),
   openPosition: (principal, input) =>
-    positions.open({
-      userId: principal.userId,
-      symbol: input.symbol,
-      side: input.side,
-      size: parseAmount(input.size),
-      leverage: parseAmount(input.leverage),
-      marginMode: input.marginMode,
-      collateralClass: input.collateralClass,
-      clientOpenId: input.clientOpenId,
-    }),
+    positions.open(
+      {
+        userId: principal.userId,
+        symbol: input.symbol,
+        side: input.side,
+        size: parseAmount(input.size),
+        leverage: parseAmount(input.leverage),
+        marginMode: input.marginMode,
+        collateralClass: input.collateralClass,
+        clientOpenId: input.clientOpenId,
+      },
+      principal,
+    ),
   closePosition: (principal, positionId) => positions.close(principal.userId, positionId),
   setLeverage: (principal, input) =>
-    positions.setLeverage({
-      userId: principal.userId,
-      symbol: input.symbol,
-      leverage: parseAmount(input.leverage),
-      positionId: input.positionId,
-      clientAdjustmentId: input.clientAdjustmentId,
-    }),
+    positions.setLeverage(
+      {
+        userId: principal.userId,
+        symbol: input.symbol,
+        leverage: parseAmount(input.leverage),
+        positionId: input.positionId,
+        clientAdjustmentId: input.clientAdjustmentId,
+      },
+      principal,
+    ),
   addIsolatedMargin: (principal, input) =>
     positions.addIsolatedMargin({
       userId: principal.userId,

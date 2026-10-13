@@ -100,13 +100,7 @@ export function refuseIncompleteReportExport(input: z.infer<typeof reportExportI
   });
   const included = presentIds(input);
   if (invented) {
-    return refuse(
-      input.kind,
-      'cost_basis_invented',
-      [],
-      included,
-      'export will not invent cost basis from history or a bare number',
-    );
+    return refuse(input.kind, 'cost_basis_invented', [], included, 'export will not invent cost basis from history or a bare number');
   }
 
   const missing = REQUIRED[input.kind].filter((id) => {
@@ -114,23 +108,22 @@ export function refuseIncompleteReportExport(input: z.infer<typeof reportExportI
     return typeof value !== 'string' || !text(value);
   });
 
-  if (input.complete === true && missing.length > 0) {
-    return refuse(
-      input.kind,
-      'completeness_ids_missing',
-      missing,
-      included,
-      `complete ${input.kind} export refuses — missing ${missing.join(',')}`,
-    );
+  // A regulator export is a ship. Missing owner, entity, regulator, period, or
+  // lot ids refuse even when `complete` is not exactly true — `ok` is permission.
+  const idsRequired = input.complete === true || input.kind === 'regulator';
+  const claim = input.complete === true ? `complete ${input.kind}` : input.kind;
+
+  if (idsRequired && missing.length > 0) {
+    return refuse(input.kind, 'completeness_ids_missing', missing, included, `${claim} export refuses — missing ${missing.join(',')}`);
   }
 
-  if (input.complete === true && (!input.lotIds || input.lotIds.every((id) => !text(id)))) {
+  if (idsRequired && (!input.lotIds || input.lotIds.every((id) => !text(id)))) {
     return refuse(
       input.kind,
       STATEMENT_LOTS_MISSING,
       ['lotIds'],
       included,
-      'complete export refuses — lots are missing, cost basis is not invented',
+      `${input.complete === true ? 'complete' : input.kind} export refuses — lots are missing, cost basis is not invented`,
     );
   }
 

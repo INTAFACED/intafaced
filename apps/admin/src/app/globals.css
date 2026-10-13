@@ -1,14 +1,9 @@
 /**
  * apps/admin — operator console styles.
  *
- * Every colour, font, radius and shadow here is a `--if-*` custom property from
- * `@intafaced/ui/tokens.css`. There is not one hex literal in this file, and
- * there must never be: a colour that is not in the token file does not exist in
- * the product (§3). Tints are produced with `color-mix()` against the tokens
- * rather than by writing a new rgba by hand.
- *
- * Density is the brief. This is a console: small type, tight rows, tabular
- * numerics, no decorative whitespace.
+ * App-local tokens implement Nitro's approved Raycast-inspired dark/lime
+ * founder workspace. Shared trading-direction and risk colours retain their
+ * existing meanings. Rows stay compact; forms, focus and actions stay legible.
  */
 
 *,
@@ -19,16 +14,752 @@
 
 body {
   margin: 0;
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 14px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 
-/* Self-hosted Orbitron / Inter from next/font are exposed as --adm-font-*.
-   The token fallbacks stay in the stack so the console degrades to the same
-   families if a font file ever fails to load. */
+.adm-login {
+  width: min(480px, calc(100% - 32px));
+  margin: 10vh auto;
+  padding: 32px;
+  border: 1px solid var(--if-border);
+  border-radius: 20px;
+  background: var(--if-surface);
+  box-shadow: 0 24px 72px color-mix(in srgb, var(--if-base) 75%, transparent);
+}
+.adm-login h1,
+.adm-workspace h1 {
+  font-size: clamp(26px, 2.4vw, 36px);
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 1.18;
+  margin: 12px 0;
+}
+.adm-workspace {
+  width: 100%;
+  min-width: 0;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+.adm-workspace-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+}
+.adm-workspace > .adm-workspace-heading h1 {
+  margin: 0;
+  font-size: clamp(24px, 2vw, 30px);
+}
+.adm-workspace > .adm-workspace-heading p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--if-text-muted);
+}
+.adm-crm-topbar {
+  position: relative;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: minmax(150px, max-content) minmax(420px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.adm-crm-topbar .adm-workspace-heading {
+  min-width: 0;
+}
+.adm-crm-topbar .adm-workspace-heading h1 {
+  font-size: 25px;
+}
+.adm-crm-overview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  position: relative;
+}
+.adm-crm-report-details {
+  position: relative;
+  flex: 0 0 auto;
+}
+.adm-crm-report-details > summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 7px 10px;
+  cursor: pointer;
+  border: 1px solid var(--if-border-strong);
+  border-radius: var(--if-radius-md);
+  white-space: nowrap;
+}
+.adm-crm-report-popover {
+  display: none;
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(68vh, 700px);
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid var(--if-border-strong);
+  border-radius: var(--if-radius-lg);
+  background: var(--if-surface-raised);
+  box-shadow: 0 16px 36px #000b;
+}
+.adm-crm-report-details[open] .adm-crm-report-popover {
+  display: block;
+}
+.adm-crm-report-popover h2 {
+  margin: 0 0 10px;
+  font-size: 20px;
+}
+.adm-crm-report-popover .adm-provider-status {
+  margin-top: 14px;
+}
+.adm-workspace-heading > div {
+  min-width: 0;
+}
+.adm-eyebrow {
+  color: var(--if-text-muted);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.adm-subtle {
+  color: var(--if-text-muted);
+  font-size: 12px;
+}
+.adm-form {
+  display: grid;
+  gap: 14px;
+  margin: 24px 0;
+}
+.adm-form label,
+.adm-filters label {
+  display: grid;
+  gap: 6px;
+  color: var(--if-text-muted);
+}
+.adm-form input,
+.adm-form select,
+.adm-form textarea,
+.adm-filters input,
+.adm-filters select {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 10px;
+  color: var(--if-text);
+  background: var(--if-surface);
+  border: 1px solid var(--if-border-strong);
+  border-radius: var(--if-radius-md);
+  font: inherit;
+}
+.adm-form textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+.adm-workspace button,
+.adm-login button,
+.adm-session button {
+  min-height: 40px;
+  padding: 8px 14px;
+  color: var(--if-text);
+  background: var(--if-surface-raised);
+  border: 1px solid var(--if-border-strong);
+  border-radius: var(--if-radius-md);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    transform 180ms ease;
+}
+.adm-workspace button:hover:not(:disabled),
+.adm-login button:hover:not(:disabled),
+.adm-session button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--if-surface-raised) 85%, var(--if-accent));
+  border-color: color-mix(in srgb, var(--if-border-strong) 70%, var(--if-accent));
+}
+.adm-form button[type='submit'],
+.adm-login .adm-form button[type='submit'] {
+  background: var(--if-accent);
+  color: var(--if-text-on-accent);
+  border-color: var(--if-accent);
+  font-weight: 600;
+}
+.adm-form button[type='submit']:hover:not(:disabled) {
+  background: var(--if-accent-bright);
+}
+.adm-workspace button:disabled,
+.adm-login button:disabled,
+.adm-session button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.adm-workspace :focus-visible,
+.adm-login :focus-visible,
+.adm-session :focus-visible {
+  outline: 2px solid var(--if-accent);
+  outline-offset: 3px;
+}
+.adm-filters {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 24px 0;
+}
+.adm-filters label {
+  min-width: 150px;
+  flex: 1;
+}
+.adm-workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 420px);
+  gap: 20px;
+  align-items: start;
+}
+.adm-detail {
+  padding: 20px;
+  background: var(--if-surface);
+  border: 1px solid var(--if-border);
+  border-radius: var(--if-radius-lg);
+  min-width: 0;
+  /* Sticky under the 62px header, with its own scroll, so opening a lower row never moves the page. */
+  position: sticky;
+  top: 76px;
+  max-height: calc(100vh - 92px);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+.adm-crm-detail-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.adm-crm-detail-heading > div {
+  min-width: 0;
+}
+.adm-crm-detail-heading h2 {
+  margin: 3px 0 6px;
+  overflow-wrap: anywhere;
+}
+.adm-crm-next-action {
+  display: grid;
+  gap: 3px;
+  margin: 12px 0;
+  padding: 11px 13px;
+  border-left: 2px solid var(--if-accent);
+  background: var(--if-surface-raised);
+}
+.adm-crm-next-action small,
+.adm-crm-next-action span {
+  color: var(--if-text-muted);
+  font-size: 12px;
+}
+.adm-crm-next-action strong {
+  overflow-wrap: anywhere;
+}
+.adm-crm-detail-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--if-border);
+  margin: 16px 0;
+}
+.adm-crm-detail-tabs button {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 9px 10px;
+}
+.adm-crm-detail-tabs button[aria-selected='true'] {
+  color: var(--if-accent);
+  border-bottom: 2px solid var(--if-accent);
+}
+.adm-crm-back {
+  display: none;
+  margin-bottom: 12px;
+  scroll-margin-top: 120px;
+}
+.adm-skip-link {
+  position: absolute;
+  left: 8px;
+  top: -80px;
+  z-index: 200;
+  padding: 10px 14px;
+  color: var(--if-text-on-accent);
+  background: var(--if-accent);
+  border-radius: var(--if-radius-md);
+  font-weight: 600;
+}
+.adm-skip-link:focus {
+  top: 8px;
+}
+#crm-enquiries:focus {
+  outline: none;
+}
+.adm-crm-refresh {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+.adm-crm-refresh .adm-subtle {
+  white-space: nowrap;
+}
+.adm-overdue-badge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--if-warn) 60%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--if-warn) 14%, transparent);
+  color: var(--if-warn);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.adm-crm-table tr[data-overdue='true'] td:first-child {
+  box-shadow: inset 3px 0 0 var(--if-warn);
+}
+.adm-workspace .adm-filters-toggle {
+  display: none;
+}
+.adm-alert button {
+  margin-left: 8px;
+  min-height: 32px;
+  padding: 4px 10px;
+}
+.adm-crm-tools-menu {
+  position: relative;
+  align-self: center;
+}
+.adm-crm-tools-menu summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  color: var(--if-text-muted);
+}
+.adm-crm-tools-menu > div {
+  position: absolute;
+  z-index: 4;
+  top: 100%;
+  right: 0;
+  display: grid;
+  min-width: 210px;
+  gap: 4px;
+  padding: 8px;
+  background: var(--if-surface-raised);
+  border: 1px solid var(--if-border);
+  border-radius: var(--if-radius-md);
+  box-shadow: 0 12px 28px #0008;
+}
+.adm-crm-tools-menu button {
+  text-align: left;
+  border: 0 !important;
+}
+.adm-crm-edit {
+  margin: 16px 0;
+  padding: 0 14px;
+  border: 1px solid var(--if-border);
+  border-radius: var(--if-radius-md);
+}
+.adm-crm-edit .adm-form {
+  margin: 14px 0;
+}
+.adm-crm-table tr.is-selected {
+  background: color-mix(in srgb, var(--if-accent) 8%, var(--if-surface));
+}
+.adm-crm-summary-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px 18px;
+  min-height: 62px;
+  flex: 1 1 auto;
+  padding: 9px 12px;
+  border: 1px solid var(--if-border);
+  border-radius: var(--if-radius-md);
+  color: var(--if-text-muted);
+  font-size: 12px;
+}
+.adm-crm-summary-strip strong {
+  color: var(--if-text);
+  font-size: 14px;
+}
+.adm-crm-summary-strip small {
+  flex-basis: 100%;
+  margin-left: 0;
+}
+.adm-crm-report-details {
+  margin: 4px 0 8px;
+  color: var(--if-text-muted);
+}
+.adm-crm-report-details > summary {
+  min-height: 30px;
+  font-size: 12px;
+}
+.adm-crm-report-details .adm-metric-grid {
+  margin: 10px 0;
+}
+.adm-crm-report-details .adm-metric {
+  padding: 12px;
+}
+.adm-crm-report-details .adm-metric > strong {
+  font-size: 23px;
+}
+.adm-detail h3 {
+  margin-top: 28px;
+}
+.adm-table-scroll {
+  overflow-x: auto;
+}
+.adm-crm-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+.adm-crm-table tbody tr:hover {
+  background: var(--if-surface);
+}
+.adm-crm-table th {
+  color: var(--if-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 12px;
+}
+.adm-crm-table td {
+  padding: 14px 12px;
+  border-top: 1px solid var(--if-border);
+  vertical-align: top;
+}
+.adm-crm-table small,
+.adm-history small {
+  display: block;
+  color: var(--if-text-muted);
+  margin-top: 4px;
+}
+.adm-workspace .adm-text-button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  min-height: 24px;
+  text-align: left;
+}
+.adm-answers {
+  display: grid;
+  gap: 12px;
+}
+.adm-answers dt {
+  color: var(--if-text-muted);
+  font-size: 12px;
+}
+.adm-answers dd {
+  margin: 3px 0 0;
+  white-space: pre-wrap;
+}
+.adm-history {
+  list-style: none;
+  padding: 0;
+}
+.adm-history li {
+  padding: 12px 0;
+  border-top: 1px solid var(--if-border);
+}
+.adm-history p {
+  white-space: pre-wrap;
+}
+.adm-alert {
+  color: var(--if-warn);
+  padding: 14px;
+  border: 1px solid var(--if-border-strong);
+}
+.adm-alert a {
+  text-decoration: underline;
+}
+.adm-empty {
+  padding: 32px 12px;
+  color: var(--if-text-muted);
+}
+.adm-pagination {
+  display: flex;
+  gap: 10px;
+  margin: 18px 0;
+}
+.adm-session {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.adm-session small {
+  color: var(--if-text-muted);
+  font-size: 12px;
+}
+.adm-session .adm-session-note.is-warning {
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--if-warn) 60%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--if-warn) 14%, transparent);
+  color: var(--if-warn);
+  font-weight: 600;
+}
+.adm-control-card {
+  max-width: 680px;
+  padding: 22px;
+  background: var(--if-surface);
+  border: 1px solid var(--if-border);
+}
+.adm-form .adm-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.adm-form .adm-check input {
+  width: 18px;
+  min-height: 18px;
+}
+.adm-workspace .adm-danger-button {
+  border-color: var(--if-danger);
+  color: var(--if-danger);
+}
+.adm-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (max-width: 1000px) {
+  .adm-crm-topbar {
+    grid-template-columns: minmax(140px, 180px) minmax(0, 1fr);
+  }
+  .adm-crm-topbar .adm-crm-tabs {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .adm-crm-topbar .adm-crm-overview {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .adm-workspace-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .adm-detail {
+    position: static;
+    max-height: min(58vh, 660px);
+  }
+}
+@media (max-width: 600px) {
+  .adm-crm-topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .adm-crm-topbar .adm-workspace-heading {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .adm-crm-topbar .adm-crm-overview {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+  .adm-crm-topbar .adm-crm-tabs {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .adm-crm-topbar .adm-crm-summary-strip {
+    min-height: 0;
+  }
+  .adm-crm-topbar .adm-workspace-heading h1 {
+    font-size: 20px;
+  }
+  .adm-crm-topbar .adm-workspace-heading button {
+    min-height: 36px;
+    padding: 4px 9px;
+  }
+  .adm-crm-topbar .adm-crm-tabs button {
+    min-height: 36px;
+    padding: 4px 10px;
+  }
+  .adm-crm-topbar .adm-workspace-heading {
+    align-items: center;
+  }
+  .adm-crm-summary-strip small {
+    display: none;
+  }
+  .adm-workspace-heading {
+    align-items: flex-start;
+  }
+  .adm-filters label {
+    min-width: 100%;
+  }
+  .adm-detail {
+    padding: 16px;
+  }
+  .adm-workspace-grid {
+    display: block;
+  }
+  .adm-workspace-grid.is-mobile-detail > div:first-child {
+    display: none;
+  }
+  .adm-workspace-grid:not(.is-mobile-detail) .adm-detail {
+    display: none;
+  }
+  .adm-workspace-grid.is-mobile-detail .adm-detail {
+    display: block;
+    max-height: none;
+    min-height: 60vh;
+    border: 0;
+    padding: 4px 0 24px;
+    overflow: visible;
+  }
+  .adm-workspace-grid.is-mobile-detail .adm-crm-back {
+    display: inline-flex;
+  }
+  .adm-crm-detail-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .adm-crm-detail-heading h2 {
+    font-size: 25px;
+  }
+  .adm-workspace.is-mobile-detail > .adm-crm-topbar,
+  .adm-workspace.is-mobile-detail > .adm-filters {
+    display: none;
+  }
+  .adm-crm-summary-strip {
+    gap: 2px 12px;
+    min-height: 0;
+    padding: 6px 9px;
+  }
+  .adm-crm-summary-strip small {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+  .adm-crm-report-popover {
+    right: 0;
+    width: min(560px, calc(100vw - 24px));
+  }
+  .adm-crm-topbar .adm-crm-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .adm-crm-topbar .adm-crm-tabs button {
+    flex: 0 0 auto;
+  }
+  /* Phone: search plus a "Filters" button on one row; audience, stage and owner open on demand. */
+  .adm-workspace > .adm-filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 8px;
+    margin: 4px 0;
+  }
+  .adm-workspace > .adm-filters label {
+    min-width: 0;
+  }
+  .adm-workspace > .adm-filters .adm-filter-search {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .adm-workspace > .adm-filters .adm-filters-toggle {
+    display: inline-flex;
+    align-items: center;
+    grid-column: 2;
+    grid-row: 1;
+    min-height: 44px;
+  }
+  .adm-workspace > .adm-filters .adm-filter-field {
+    display: none;
+    grid-column: 1 / -1;
+  }
+  .adm-workspace > .adm-filters.is-open .adm-filter-field {
+    display: grid;
+  }
+  .adm-crm-table,
+  .adm-crm-table tbody {
+    display: block;
+    width: 100%;
+  }
+  .adm-crm-table thead {
+    display: none;
+  }
+  .adm-crm-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 12px;
+    margin-bottom: 6px;
+    padding: 2px 10px;
+    border: 1px solid var(--if-border);
+    border-radius: var(--if-radius-md);
+    background: var(--if-surface);
+  }
+  .adm-crm-table td {
+    display: block;
+    min-width: 0;
+    padding: 4px 0;
+    border: 0;
+    overflow-wrap: anywhere;
+  }
+  /* Rows stay compact on a phone: the cell labels (Contact, Owner...) are dropped because each value says what it is. */
+  .adm-crm-table td::before {
+    display: none;
+  }
+  .adm-crm-table td small {
+    margin-top: 1px;
+  }
+  .adm-crm-table td:first-child {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .adm-crm-table td:nth-child(4) {
+    grid-column: 2;
+    grid-row: 1;
+    text-align: right;
+    font-size: 12px;
+  }
+  .adm-crm-table td:nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 8px;
+  }
+  .adm-crm-table td:nth-child(2) small {
+    margin-top: 0;
+  }
+  .adm-crm-table td:nth-child(3) {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+}
+
+/* Local founder tokens. The public journey uses the same approved palette. */
 :root {
-  --if-font-display: var(--adm-font-display), 'Orbitron', 'Rajdhani', system-ui, sans-serif;
+  --if-base: #090a0b;
+  --if-surface: #111413;
+  --if-surface-raised: #181d1a;
+  --if-border: #2a332d;
+  --if-border-strong: #3d4840;
+  --if-text: #f2f5ef;
+  --if-text-muted: #a3ada5;
+  --if-text-faint: #8e9990;
+  --if-accent: #b9f65a;
+  --if-accent-bright: #d0ff87;
+  --if-text-on-accent: #11170a;
+  --if-radius-md: 8px;
+  --if-radius-lg: 14px;
+  --if-font-display: var(--adm-font-body), 'Inter', system-ui, sans-serif;
   --if-font-body: var(--adm-font-body), 'Inter', system-ui, -apple-system, sans-serif;
   --if-phosphor: var(--if-accent);
   /*
@@ -86,18 +817,23 @@ code {
 .adm-brand {
   font-family: var(--if-font-display);
   font-size: 13px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--if-phosphor);
+  letter-spacing: 0;
+  color: var(--if-text);
   white-space: nowrap;
 }
 
 .adm-brand small {
   display: block;
   font-family: var(--if-font-body);
-  font-size: 9px;
-  letter-spacing: 0.22em;
-  color: var(--if-text-faint);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--if-text-muted);
+}
+.adm-brand img {
+  display: block;
+  width: 164px;
+  height: auto;
+  margin-bottom: 3px;
 }
 
 .adm-nav {
@@ -105,15 +841,17 @@ code {
   gap: 4px;
   flex-wrap: wrap;
 }
+.adm-nav-mobile {
+  display: none;
+}
 
 .adm-nav a {
-  padding: 5px 10px;
+  padding: 8px 10px;
   border: 1px solid transparent;
   border-radius: var(--if-radius-md);
   font-family: var(--if-font-display);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: -0.01em;
   color: var(--if-text-muted);
   transition:
     color var(--if-motion-base),
@@ -129,6 +867,7 @@ code {
   color: var(--if-phosphor);
   border-color: var(--if-glass-border-strong);
   background: var(--if-glass);
+  border-color: color-mix(in srgb, var(--if-accent) 25%, var(--if-border));
 }
 
 .adm-topbar__spacer {
@@ -253,7 +992,7 @@ code {
   display: grid;
   gap: var(--adm-gap);
   grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
-  align-items: start;
+  align-items: flex-start;
 }
 
 @media (max-width: 900px) {
@@ -923,7 +1662,7 @@ code {
   display: grid;
   grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(124px, 1fr)) auto;
   gap: 1px;
-  align-items: end;
+  align-items: flex-end;
   padding: 1px;
   margin-bottom: 0;
   background: var(--if-border);
@@ -1127,20 +1866,91 @@ code {
     scroll-padding-top: 108px;
   }
 
-  .adm-nav {
-    order: 3;
-    flex: 1 0 100%;
-    flex-wrap: wrap;
-    overflow: visible;
-    gap: 2px;
-    padding-bottom: 0;
+  .adm-topbar {
+    flex-wrap: nowrap;
+    justify-content: space-between;
   }
-
-  .adm-nav a {
+  .adm-brand {
     flex: 0 0 auto;
-    padding: 4px 7px;
+  }
+  .adm-brand img {
+    width: 118px;
+    margin: 0;
+  }
+  .adm-nav--desktop {
+    display: none;
+  }
+  .adm-nav-mobile {
+    position: relative;
+    display: block;
+    flex: 0 0 auto;
+    order: 1;
+  }
+  .adm-nav-mobile > summary {
+    cursor: pointer;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    padding: 7px 9px;
+    border: 1px solid var(--if-border-strong);
+    border-radius: var(--if-radius-md);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .adm-nav-mobile > nav {
+    position: absolute;
+    z-index: 120;
+    top: calc(100% + 8px);
+    left: 0;
+    display: grid;
+    min-width: 220px;
+    padding: 7px;
+    border: 1px solid var(--if-border);
+    border-radius: var(--if-radius-md);
+    background: var(--if-surface-raised);
+    box-shadow: 0 14px 28px #0009;
+  }
+  .adm-nav-mobile a {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    padding: 9px 11px;
+    border-radius: var(--if-radius-md);
+    color: var(--if-text-muted);
+  }
+  .adm-nav-mobile a[aria-current='page'] {
+    color: var(--if-accent);
+    background: var(--if-surface);
+  }
+  .adm-topbar__spacer {
+    display: none;
+  }
+  .adm-session {
+    flex-wrap: nowrap;
+    margin-left: auto;
+    gap: 6px;
+    font-size: 12px;
+  }
+  .adm-session small {
+    display: none;
+  }
+  /* The 10-minute expiry warning must stay visible on a phone: hang it under the header. */
+  .adm-session .adm-session-note.is-warning {
+    display: block;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 101;
+    padding: 6px 10px;
+    border-width: 0 0 1px;
     border-radius: 0;
-    font-size: 8px;
+    background: color-mix(in srgb, var(--if-warn) 20%, var(--if-base));
+  }
+  .adm-session button {
+    min-height: 40px;
+    padding: 6px 9px;
+    font-size: 12px;
   }
 
   .adm-alertstrip {
@@ -1243,9 +2053,35 @@ code {
 
 @media (prefers-reduced-motion: reduce) {
   .adm-btn,
+  .adm-workspace button,
+  .adm-login button,
+  .adm-session button,
   .adm-nav a,
   .adm-switch span {
     transition: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .adm-login {
+    padding: 24px;
+    margin-top: 6vh;
+  }
+  .adm-nav a {
+    padding: 10px;
+    font-size: 12px;
+    min-height: 44px;
+  }
+  .adm-workspace button,
+  .adm-session button,
+  .adm-login button {
+    min-height: 44px;
+  }
+  .adm-crm-table .adm-text-button {
+    min-height: 44px;
+  }
+  .adm-brand img {
+    width: 144px;
   }
 }
 
@@ -1291,5 +2127,246 @@ code {
 
   .adm-tools-page .adm-tool-row__meta code {
     overflow-wrap: anywhere;
+  }
+}
+
+/* Founder CRM workflows reuse the approved graphite/lime workspace. */
+.adm-crm-overview {
+  margin: 0;
+}
+.adm-workspace > .adm-filters {
+  margin: 8px 0 6px;
+}
+.adm-crm-page-summary {
+  margin: 2px 0;
+}
+.adm-crm-table th {
+  padding: 7px 10px;
+}
+.adm-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--if-border);
+  border: 1px solid var(--if-border);
+  border-radius: var(--if-radius-lg);
+  overflow: hidden;
+}
+.adm-metric {
+  display: grid;
+  gap: 8px;
+  padding: 20px;
+  min-width: 0;
+  background: var(--if-surface);
+}
+.adm-metric > span {
+  font-size: 12px;
+  color: var(--if-text-muted);
+}
+.adm-metric > strong {
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.adm-metric > small {
+  color: var(--if-text-muted);
+  font-size: 12px;
+}
+.adm-report-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+.adm-report-breakdown > span {
+  padding: 5px 8px;
+  border: 1px solid var(--if-border);
+  border-radius: 6px;
+  color: var(--if-text-muted);
+  font-size: 12px;
+}
+.adm-report-breakdown strong {
+  margin-left: 6px;
+  color: var(--if-text);
+}
+.adm-crm-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-bottom: 0;
+  border-bottom: 1px solid var(--if-border);
+}
+.adm-crm-tabs button[aria-current='page'] {
+  border-color: var(--if-accent);
+  color: var(--if-accent);
+  background: color-mix(in srgb, var(--if-accent) 8%, var(--if-surface));
+}
+.adm-workflow-panel {
+  padding: 24px;
+  margin-top: 18px;
+  background: var(--if-surface);
+  border: 1px solid var(--if-border);
+  border-radius: var(--if-radius-lg);
+  min-width: 0;
+}
+.adm-workflow-panel h2 {
+  font-size: 23px;
+  margin: 0;
+  letter-spacing: -0.03em;
+}
+.adm-workflow-panel h3 {
+  font-size: 16px;
+}
+.adm-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.adm-workflow-columns,
+.adm-provenance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+}
+.adm-workflow-columns > *,
+.adm-provenance-grid > * {
+  min-width: 0;
+}
+.adm-provenance-grid > section,
+.adm-original-contact,
+.adm-export-receipt {
+  padding: 16px;
+  border: 1px solid var(--if-border);
+  border-radius: var(--if-radius-md);
+  background: var(--if-surface-raised);
+  overflow-wrap: anywhere;
+}
+.adm-original-contact {
+  margin-top: 22px;
+}
+.adm-original-contact p {
+  margin: 8px 0;
+}
+.adm-task-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 16px 0;
+  border-top: 1px solid var(--if-border);
+}
+.adm-task-row > div {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.adm-task-row small {
+  display: block;
+  color: var(--if-text-muted);
+  margin-top: 4px;
+}
+.adm-status-pill {
+  padding: 4px 8px;
+  border: 1px solid var(--if-border-strong);
+  border-radius: 999px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--if-text-muted);
+}
+.adm-source-key {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.adm-audit,
+.adm-enquiry-workflows details {
+  padding: 14px 0;
+  border-top: 1px solid var(--if-border);
+}
+.adm-workspace summary {
+  cursor: pointer;
+  min-height: 40px;
+  display: list-item;
+  align-content: center;
+}
+.adm-save-notice {
+  padding: 12px 16px;
+  border-left: 2px solid var(--if-accent);
+  background: color-mix(in srgb, var(--if-accent) 5%, var(--if-surface));
+}
+.adm-provider-status {
+  padding: 14px 16px;
+  border: 1px solid var(--if-border);
+  border-radius: var(--if-radius-md);
+  font-size: 12px;
+  color: var(--if-text-muted);
+}
+.adm-export-form,
+.adm-merge-form {
+  max-width: 900px;
+}
+@media (max-width: 760px) {
+  .adm-workflow-columns,
+  .adm-provenance-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+  .adm-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .adm-workflow-panel {
+    padding: 16px;
+  }
+  .adm-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .adm-task-row {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .adm-task-row > div {
+    flex-basis: 100%;
+  }
+}
+@media (max-width: 420px) {
+  .adm-metric {
+    padding: 14px;
+  }
+  .adm-metric > strong {
+    font-size: 28px;
+  }
+}
+
+.adm-filters .adm-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 44px;
+}
+.adm-filters .adm-check input {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin: 0;
+  accent-color: var(--if-accent);
+}
+.adm-enquiry-messages details {
+  padding: 14px 0;
+  border-top: 1px solid var(--if-border);
+}
+@media (max-width: 600px) {
+  .adm-form input,
+  .adm-form select,
+  .adm-filters input,
+  .adm-filters select {
+    min-height: 44px;
   }
 }

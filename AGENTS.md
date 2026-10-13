@@ -4,10 +4,12 @@ INTAFACED monorepo. Build the product and ship it.
 
 Doctrine: [`INTAFACED_DEFINITIVE_BUILD.md`](INTAFACED_DEFINITIVE_BUILD.md). Protocol: [`tooling/agent-protocol/AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md).
 
+Locate code with `rg`, `rg --files`, and focused Git history. Graphify is retired; historical instructions to install, query, or update it are obsolete.
+
 ## Ship (full access)
 
 1. Review, audit, and debug the change. **Merge when done.** Any agent may merge their own pull request.
-2. **Do not wait for CI green.** GitHub Actions and `pnpm verify` are informational, never a ship gate.
+2. **Do not wait for CI green.** Full-suite CI and `pnpm verify` are informational; required branch-protection checks still apply. A 403 or 429 from `gh` means stop. Do not retry in a loop, do not switch accounts, and do not create a new token.
 3. Start without waiting for a person, an audit seal, FREEZE, a tracker claim, LIVE-LANES, or `pnpm ledger`. A blocked money path refuses closed, with an honest empty state. Leave the audit flag alone.
 4. Any product path is fair game once its dependencies are met, including money. A blank price, limit, or sanctions list stays blank: refuse that action with a typed error. Do not invent live §8 magnitudes or sanctions list content.
 
@@ -42,7 +44,7 @@ Use the installed skills. This file wins where a skill says to wait for a person
 
 ### Issue tracker
 
-Issues and specs live as GitHub issues on Phantom-X-007/intafaced. Use the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues and specs live as GitHub issues on Phantom-X-007/intafaced. Use the `gh` CLI only when an active account is logged in. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

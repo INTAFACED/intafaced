@@ -56,28 +56,35 @@ function ownerSlotCapacitySet(capacity: unknown): capacity is number {
 
 export function decideVendorSlot(entitlement: SlotEntitlement, request: SlotRequest): SlotDecision {
   /**
-   * Unset / unusable owner magnitudes refuse closed. Coercing `undefined` would
-   * skip the zero-capacity stake gate (`undefined <= 0` is false) and then
-   * admit (`0 >= undefined` is false) — inventing a free slot.
-   */
-  if (!ownerSlotCapacitySet(entitlement.capacity)) {
-    return {
-      allowed: false,
-      code: 'market.stake_unavailable',
-      reason: 'Owner stake/slot magnitudes are unset — refuse rather than invent a slot count.',
-    };
-  }
-
-  /**
    * Approval first, because it is the fact that outranks the other two. A
    * suspended vendor with a Sovereign stake still may not list, and telling them
    * "stake more" would be a lie about why they were refused.
+   *
+   * It also outranks an unreadable magnitude. An applied, rejected, or suspended
+   * vendor is decidable with no slot count at all — the same order as
+   * `listingEligibility`. Checking `capacity` first would turn that local
+   * refusal into `market.stake_unavailable` whenever svc-token is down or
+   * `vendorSlots` is not an integer.
    */
   if (entitlement.status !== 'approved') {
     return {
       allowed: false,
       code: 'market.vendor_not_approved',
       reason: 'Only an approved vendor may hold a listing slot.',
+    };
+  }
+
+  /**
+   * Unset / unusable owner magnitudes refuse closed, and only once the status
+   * can still be allowed. Coercing `undefined` would skip the zero-capacity
+   * stake gate (`undefined <= 0` is false) and then admit (`0 >= undefined` is
+   * false) — inventing a free slot. This is not a guess at the count.
+   */
+  if (!ownerSlotCapacitySet(entitlement.capacity)) {
+    return {
+      allowed: false,
+      code: 'market.stake_unavailable',
+      reason: 'Owner stake/slot magnitudes are unset — refuse rather than invent a slot count.',
     };
   }
 

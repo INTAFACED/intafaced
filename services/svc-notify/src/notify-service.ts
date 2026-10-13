@@ -1,4 +1,4 @@
-import { createHash, randomInt } from 'node:crypto';
+import { createHmac, randomInt } from 'node:crypto';
 import type { InsertNotificationInput, ListQuery, ListResult, Notification, NotifyStore } from './store.js';
 import type { ChannelTarget, DeliveryRecord, DeliveryStore, TargetStore } from './channel-store.js';
 import type { DispatchReport, NotificationDispatcher } from './dispatch.js';
@@ -55,6 +55,11 @@ export interface NotifyServiceOptions {
   /** Minutes a confirmation code stays valid. Unset refuses — never invent 15. Inbox-only callers omit. */
   readonly verifyTtlMinutes?: number;
   /**
+   * HMAC key for address-confirmation codes. Unset refuses — never invent a pepper.
+   * Inbox-only callers omit.
+   */
+  readonly verifyCodePepper?: string;
+  /**
    * Optional rate limiter for register/verify. Production always wires one;
    * tests may inject a tight window or omit (a default limiter is created).
    */
@@ -62,6 +67,25 @@ export interface NotifyServiceOptions {
 }
 
 export const NOTIFY_VERIFY_TTL_UNSET = 'notify.verify_ttl_unset' as const;
+
+export const NOTIFY_ANNOUNCEMENT_UNSET = 'notify.announcement_unset' as const;
+
+/** Public announcement content unpublished. Empty stays empty. */
+export class NotifyAnnouncementUnsetError extends Error {
+  readonly code = NOTIFY_ANNOUNCEMENT_UNSET;
+  readonly missingPiece = 'content' as const;
+  readonly slot = null;
+
+  constructor() {
+    super('A public announcement is refused. The missing piece is content.');
+    this.name = 'NotifyAnnouncementUnsetError';
+  }
+}
+
+/** No announcement is published here. Caller text is not content. */
+export function readPublicAnnouncement(): never {
+  throw new NotifyAnnouncementUnsetError();
+}
 
 export const NOTIFY_LIST_LIMIT_UNSET = 'notify.list_limit_unset' as const;
 
@@ -126,6 +150,25 @@ export function publishedVerifyTtlMinutes(minutes: number | null | undefined): n
   return minutes;
 }
 
+export const NOTIFY_VERIFY_CODE_PEPPER_UNSET = 'notify.verify_code_pepper_unset' as const;
+
+/** Owner `NOTIFY_VERIFY_CODE_PEPPER` unpublished. Blank is not a pepper. */
+export class NotifyVerifyCodePepperUnsetError extends Error {
+  readonly code = NOTIFY_VERIFY_CODE_PEPPER_UNSET;
+  constructor() {
+    super('NOTIFY_VERIFY_CODE_PEPPER is unset. Blank refuses — no default pepper.');
+    this.name = 'NotifyVerifyCodePepperUnsetError';
+  }
+}
+
+/** Blank / missing pepper refuses. Never invent a pepper. */
+export function publishedVerifyCodePepper(pepper: string | null | undefined): string {
+  if (typeof pepper !== 'string' || pepper.trim() === '') {
+    throw new NotifyVerifyCodePepperUnsetError();
+  }
+  return pepper;
+}
+
 export interface NotifyServiceDeps {
   readonly targets: TargetStore;
   readonly deliveries: DeliveryStore;
@@ -135,9 +178,9 @@ export interface NotifyServiceDeps {
   readonly muteStore?: MuteStore;
 }
 
-/** Confirmation codes are compared as hashes, and only ever stored as one. */
-function hashCode(code: string): string {
-  return createHash('sha256').update(code).digest('hex');
+/** Stored as HMAC-SHA256 keyed by the owner pepper. A bare digest of the six-digit code is reversible. */
+function hashCode(code: string, pepper: string): string {
+  return createHmac('sha256', publishedVerifyCodePepper(pepper)).update(code).digest('hex');
 }
 
 /** Six digits from a CSPRNG — not `Math.random`, which is predictable. */
@@ -269,6 +312,7 @@ export class NotifyService {
       if (!this.deps) throw new Error('svc-notify was constructed without channel dependencies');
 
       const ttlMinutes = publishedVerifyTtlMinutes(this.options.verifyTtlMinutes);
+      const pepper = publishedVerifyCodePepper(this.options.verifyCodePepper);
       const expiresAt = new Date(Date.now() + ttlMinutes * 60_000);
 
       // Rate limit BEFORE upsert/send so a flood neither rotates the code nor
@@ -291,7 +335,7 @@ export class NotifyService {
         channel: input.channel,
         address: input.address,
         locale,
-        verifyTokenHash: hashCode(code),
+        verifyTokenHash: hashCode(code, pepper),
         verifyExpiresAt: expiresAt,
       });
 
@@ -337,12 +381,13 @@ export class NotifyService {
       span.setAttribute('intafaced.notify.channel', channel);
       if (!this.deps) return { status: 'rejected' };
 
+      const pepper = publishedVerifyCodePepper(this.options.verifyCodePepper);
       if (!(await this.targetRateLimiter.tryTake(userId, channel, 'verify'))) {
         span.setAttribute('intafaced.notify.rate_limited', true);
         return { status: 'refused', code: 'channel.verify_rate_limited' };
       }
 
-      const verified = await this.deps.targets.markVerified(userId, channel, hashCode(code), new Date());
+      const verified = await this.deps.targets.markVerified(userId, channel, hashCode(code, pepper), new Date());
       span.setAttribute('intafaced.notify.verified', verified);
       return verified ? { status: 'verified' } : { status: 'rejected' };
     });

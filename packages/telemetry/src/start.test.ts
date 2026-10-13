@@ -1,8 +1,11 @@
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { createServer, type Server } from 'node:http';
 import { AddressInfo } from 'node:net';
 import { trace, SpanStatusCode, diag } from '@opentelemetry/api';
+import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startTelemetry, isTelemetryActive } from './start.js';
+import { startTelemetry, isTelemetryActive, registerProcessHooks } from './start.js';
 
 /**
  * These tests exist because the bug this package fixes was INVISIBLE: eighteen
@@ -86,6 +89,93 @@ describe('startTelemetry', () => {
     await expect(handle.shutdown()).resolves.toBeUndefined();
     await expect(handle.shutdown()).resolves.toBeUndefined();
   });
+
+  it('overlapping shutdowns await one in-flight flush', async () => {
+    // The flush stays pending so a second caller cannot look settled while the
+    // export is still running. A boolean early return does exactly that.
+    let release: () => void = () => {};
+    const flush = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const proto = NodeTracerProvider.prototype;
+    const original = proto.shutdown;
+    let calls = 0;
+    let instance: NodeTracerProvider | undefined;
+    proto.shutdown = function (this: NodeTracerProvider) {
+      calls += 1;
+      instance = this;
+      return flush;
+    };
+
+    try {
+      const handle = startTelemetry({ serviceName: 'svc-test', endpoint, enabled: true });
+      let firstSettled = false;
+      let secondSettled = false;
+      const first = handle.shutdown().then(() => {
+        firstSettled = true;
+      });
+      const second = handle.shutdown().then(() => {
+        secondSettled = true;
+      });
+
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(firstSettled).toBe(false);
+      expect(secondSettled).toBe(false);
+      expect(calls).toBe(1);
+
+      release();
+      await Promise.all([first, second]);
+      expect(firstSettled).toBe(true);
+      expect(secondSettled).toBe(true);
+
+      await handle.shutdown();
+      expect(calls).toBe(1);
+    } finally {
+      release();
+      proto.shutdown = original;
+      if (instance) await original.call(instance);
+    }
+  });
+
+  it('shares a rejected provider flush and reports the failure without rejecting callers', async () => {
+    const original = NodeTracerProvider.prototype.shutdown;
+    let provider: NodeTracerProvider | undefined;
+    let calls = 0;
+    const warnings: unknown[][] = [];
+    NodeTracerProvider.prototype.shutdown = function () {
+      provider = this;
+      calls += 1;
+      return Promise.reject(new Error('collector unavailable'));
+    };
+    try {
+      const quiet = () => {};
+      const handle = startTelemetry({
+        serviceName: 'svc-test',
+        endpoint,
+        enabled: true,
+        diagLogger: {
+          error: quiet,
+          warn: (...args) => {
+            warnings.push(args);
+          },
+          info: quiet,
+          debug: quiet,
+          verbose: quiet,
+        },
+      });
+      const first = handle.shutdown();
+      const second = handle.shutdown();
+      expect(second).toBe(first);
+      await expect(first).resolves.toBeUndefined();
+      await expect(second).resolves.toBeUndefined();
+      expect(handle.shutdown()).toBe(first);
+      expect(calls).toBe(1);
+      expect(warnings.filter((args) => args[0] === 'telemetry shutdown failed')).toHaveLength(1);
+    } finally {
+      NodeTracerProvider.prototype.shutdown = original;
+      if (provider) await original.call(provider);
+    }
+  });
 });
 
 /**
@@ -159,5 +249,69 @@ describe('the diag failure channel', () => {
     diag.warn('should not be routed to this logger');
 
     expect(cap.lines.join('\n')).not.toContain('should not be routed to this logger');
+  });
+});
+
+describe('service-owned signal drains', () => {
+  it.each(['SIGTERM', 'SIGINT'] as const)(
+    'allows a slower service drain to finish after %s',
+    async (signal) => {
+      // The child is a bare `node` process, and Node 20 (CI) cannot import `.ts`,
+      // so it loads the compiled module. `pnpm test` builds `dist` first.
+      const source = fileURLToPath(new URL('../dist/start.js', import.meta.url));
+      const script = `
+      import { registerProcessHooks } from ${JSON.stringify(source)};
+      registerProcessHooks({ enabled: true, async shutdown() {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        process.stdout.write('flushed\\n');
+      }});
+      process.once(${JSON.stringify(signal)}, () => {
+        void (async () => {
+          await new Promise(resolve => setTimeout(resolve, 120));
+          process.stdout.write('drained\\n');
+          process.exit(0);
+        })();
+      });
+      setInterval(() => {}, 1000);
+      process.stdout.write('ready\\n');
+    `;
+      const child = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let stdout = '';
+      let stderr = '';
+      let sent = false;
+      const outcome = await new Promise<{ code: number | null; signal: NodeJS.Signals | null; timedOut: boolean }>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          child.kill('SIGKILL');
+        }, 5000);
+        child.on('error', (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+        child.stdout.on('data', (chunk) => {
+          stdout += String(chunk);
+          if (!sent && stdout.includes('ready')) {
+            sent = true;
+            child.kill(signal);
+          }
+        });
+        child.stderr.on('data', (chunk) => {
+          stderr += String(chunk);
+        });
+        child.once('exit', (code, received) => {
+          clearTimeout(timer);
+          resolve({ code, signal: received, timedOut: received === 'SIGKILL' });
+        });
+      });
+      expect(outcome, stderr).toEqual({ code: 0, signal: null, timedOut: false });
+      expect(stdout, stderr).toContain('flushed');
+      expect(stdout, stderr).toContain('drained');
+    },
+    10_000,
+  );
+
+  it('adds no process listeners when telemetry is disabled', () => {
+    const before = ['SIGTERM', 'SIGINT'].map((signal) => process.listenerCount(signal));
+    registerProcessHooks({ enabled: false, shutdown: async () => {} });
+    expect(['SIGTERM', 'SIGINT'].map((signal) => process.listenerCount(signal))).toEqual(before);
   });
 });

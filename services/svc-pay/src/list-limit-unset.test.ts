@@ -338,7 +338,8 @@ describe('svc-pay list/history limit unset refuse', () => {
     expect(kybR).not.toMatch(/\?\? 50/);
 
     const stateR = readFileSync(join(ROOT, 'services/svc-pay/src/merchant-state-router.ts'), 'utf8');
-    expect(stateR).toContain('state.history(input.merchantId, input.limit)');
+    expect(stateR).toContain('.input(accountControlHistoryInputSchema)');
+    expect(stateR).toContain('available().history(ctx, input)');
     expect(stateR).not.toMatch(/\?\? 50/);
 
     const subR = readFileSync(join(ROOT, 'services/svc-pay/src/submerchant-router.ts'), 'utf8');

@@ -87,6 +87,8 @@ export interface RouteOptions {
   readonly tradesBus: () => boolean;
   /** Live JetStream subscription for private lifecycle (`privateSub !== null`). */
   readonly privateBus: () => boolean;
+  /** Configuration only; every private seat obtains its own live authority. */
+  readonly privateAuthorityConfigured?: () => boolean;
   /** Live JetStream subscription for drop-copy executions (independent durable). */
   readonly dropCopyBus?: () => boolean;
   /** Real Logic SBE 1.39.0 adapter. Tests inject; production uses the package singleton. */
@@ -154,6 +156,7 @@ export function registerRoutes(app: FastifyInstance, options: RouteOptions): voi
     dropCopyConnections: dropCopyHub?.connections ?? 0,
     tradesBus: tradesBus(),
     privateBus: privateBus(),
+    privateAuthorityConfigured: options.privateAuthorityConfigured?.() ?? false,
     dropCopyBus: dropCopyBus(),
     depthTransport: DEPTH_TRANSPORT_POLL,
     l3Transport: DEPTH_TRANSPORT_POLL,
@@ -212,6 +215,7 @@ export function registerRoutes(app: FastifyInstance, options: RouteOptions): voi
       },
       tradesBus: tradesBus(),
       privateBus: privateBus(),
+      privateAuthorityConfigured: options.privateAuthorityConfigured?.() ?? false,
       dropCopyBus: dropCopyBus(),
       depthTransport: DEPTH_TRANSPORT_POLL,
       l3Transport: DEPTH_TRANSPORT_POLL,
@@ -229,19 +233,22 @@ export function registerRoutes(app: FastifyInstance, options: RouteOptions): voi
     req: { log: { error(obj: Record<string, unknown>, msg: string): void } },
     reply: FastifyReply,
   ) {
-    if (!(await hub.ensureKnownMarket(marketId))) {
-      return reply.code(404).send({ code: 'MarketNotFound', message: `"${marketId}" is not a listed market` });
-    }
-    if (typeof source.l3Queue !== 'function') {
-      return reply.code(MARKET_DATA_FEED_REFUSE_HTTP).send(marketDataFeedRefusePayload(DEPTH_L3_UNAVAILABLE));
-    }
-    if (!isPublishedDepthLimit(depthLimit)) {
-      return reply.code(503).send({
-        code: WS_DEPTH_LIMIT_UNSET,
-        message: 'WS_DEPTH_LIMIT unpublished',
-      });
-    }
     try {
+      // Same door as L2 depth: a thrown lookup is engine-down (502), a false
+      // return is an unlisted market (404). Outside this try the rejection
+      // escapes as a generic 500.
+      if (!(await hub.ensureKnownMarket(marketId))) {
+        return reply.code(404).send({ code: 'MarketNotFound', message: `"${marketId}" is not a listed market` });
+      }
+      if (typeof source.l3Queue !== 'function') {
+        return reply.code(MARKET_DATA_FEED_REFUSE_HTTP).send(marketDataFeedRefusePayload(DEPTH_L3_UNAVAILABLE));
+      }
+      if (!isPublishedDepthLimit(depthLimit)) {
+        return reply.code(503).send({
+          code: WS_DEPTH_LIMIT_UNSET,
+          message: 'WS_DEPTH_LIMIT unpublished',
+        });
+      }
       const queue = await withWsSpan('ws.depth.l3', { marketId }, () => source.l3Queue!(marketId, depthLimit));
       const windowed = windowNativeL3Queue(queue, depthLimit);
       if (!nativeL3HasRestingDepth(windowed)) {

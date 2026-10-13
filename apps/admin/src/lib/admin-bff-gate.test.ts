@@ -1,76 +1,114 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { adminBffGate } from './admin-bff-gate';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { adminBffGate } from './admin-bff-gate.js';
+import { ADMIN_COOKIE, founderCookie, sealFounderSession, type FounderSession } from './founder-session.js';
 
-const original = process.env.ADMIN_BFF_SHARED_SECRET;
+const ORIGIN = 'https://admin.example';
+const SECRET = Buffer.alloc(32, 6).toString('base64url');
+const USER_ID = '11111111-1111-4111-8111-111111111111';
+const NOW = new Date();
+
+function setup(status: 'enabled' | 'revoked' | 'not_operator' = 'enabled', statusUserId = USER_ID) {
+  vi.stubEnv('ADMIN_ORIGIN', ORIGIN);
+  vi.stubEnv('EDGE_URL', 'http://edge:4000');
+  vi.stubEnv('ADMIN_SESSION_SECRET', SECRET);
+  vi.stubEnv('APP_ENV', 'test');
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      const data =
+        status === 'not_operator'
+          ? { status, userId: statusUserId }
+          : { status, userId: statusUserId, version: '1', changedAt: NOW.toISOString() };
+      return Response.json({ result: { data: { json: data } } });
+    }),
+  );
+}
+
+function signedInCookie(userId = USER_ID): string {
+  const session: FounderSession = {
+    userId,
+    accessToken: 'user-access-token',
+    refreshToken: 'refresh-token',
+    issuedAt: NOW.toISOString(),
+    expiresAt: new Date(NOW.getTime() + 60 * 60_000).toISOString(),
+    csrf: Buffer.alloc(32, 9).toString('base64url'),
+  };
+  const token = sealFounderSession(session, { origin: ORIGIN, edgeUrl: 'http://edge:4000', key: Buffer.from(SECRET, 'base64url') }, NOW);
+  return founderCookie(token, 3600).split(';')[0]!;
+}
 
 afterEach(() => {
-  if (original === undefined) delete process.env.ADMIN_BFF_SHARED_SECRET;
-  else process.env.ADMIN_BFF_SHARED_SECRET = original;
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
 describe('adminBffGate', () => {
-  it.each([undefined, '', '   '])('refuses closed when configuration is %j', async (value) => {
-    if (value === undefined) delete process.env.ADMIN_BFF_SHARED_SECRET;
-    else process.env.ADMIN_BFF_SHARED_SECRET = value;
-
-    const response = adminBffGate(new Request('https://admin.example/api/kill-switch'));
-    expect(response?.status).toBe(503);
-    expect(await response?.json()).toMatchObject({ code: 'admin.bff_gate_unconfigured' });
+  it('fails closed when founder-session configuration is absent or blank', async () => {
+    for (const value of [undefined, '', '   ']) {
+      if (value === undefined) delete process.env.ADMIN_ORIGIN;
+      else vi.stubEnv('ADMIN_ORIGIN', value);
+      const response = await adminBffGate(new Request(`${ORIGIN}/api/ops`));
+      expect(response?.status).toBe(503);
+      expect(await response?.json()).toMatchObject({ code: 'admin.session_unconfigured' });
+    }
   });
 
-  it('refuses a missing or wrong credential without echoing either secret', async () => {
-    process.env.ADMIN_BFF_SHARED_SECRET = 'expected-secret';
-    const response = adminBffGate(
-      new Request('https://admin.example/api/kill-switch', {
-        headers: { 'x-intafaced-admin-bff': 'wrong-secret' },
-      }),
-    );
-    expect(response?.status).toBe(401);
-    const body = JSON.stringify(await response?.json());
-    expect(body).not.toContain('expected-secret');
-    expect(body).not.toContain('wrong-secret');
+  it('does not treat the old shared proxy header as authentication and rejects missing or invalid cookies', async () => {
+    setup();
+    for (const cookie of [undefined, `${ADMIN_COOKIE}=not-a-sealed-session`]) {
+      const response = await adminBffGate(
+        new Request(`${ORIGIN}/api/ops`, {
+          headers: { 'x-intafaced-admin-bff': 'former-shared-secret', ...(cookie ? { cookie } : {}) },
+        }),
+      );
+      expect(response?.status).toBe(401);
+      expect(await response?.json()).toMatchObject({ code: 'admin.session_required' });
+    }
   });
 
-  it('allows a configured matching credential', () => {
-    process.env.ADMIN_BFF_SHARED_SECRET = ' expected-secret ';
-    const response = adminBffGate(
-      new Request('https://admin.example/api/kill-switch', {
-        headers: { 'x-intafaced-admin-bff': ' expected-secret ' },
-      }),
-    );
+  it('allows only a same-origin current founder session', async () => {
+    setup();
+    const response = await adminBffGate(new Request(`${ORIGIN}/api/ops`, { headers: { cookie: signedInCookie() } }));
     expect(response).toBeNull();
   });
 
   it.each([
-    ['origin', 'https://evil.example'],
-    ['sec-fetch-site', 'cross-site'],
-    ['origin', 'not a URL'],
-  ] as const)('refuses cross-origin browser mutations for %s', async (header, value) => {
-    process.env.ADMIN_BFF_SHARED_SECRET = 'expected-secret';
-    const headers = new Headers({ 'x-intafaced-admin-bff': 'expected-secret' });
-    headers.set(header, value);
-    const response = adminBffGate(
-      new Request('https://admin.example/api/kill-switch', {
+    ['evil origin', { origin: 'https://evil.example' }],
+    ['cross-site fetch metadata', { 'sec-fetch-site': 'cross-site' }],
+  ])('refuses a browser cross-origin mutation (%s)', async (_label, extraHeaders) => {
+    setup();
+    const csrf = Buffer.alloc(32, 9).toString('base64url');
+    const response = await adminBffGate(
+      new Request(`${ORIGIN}/api/ops`, {
         method: 'POST',
-        headers,
+        headers: { cookie: signedInCookie(), 'x-intafaced-csrf': csrf, ...extraHeaders },
       }),
     );
     expect(response?.status).toBe(403);
-    expect(await response?.json()).toMatchObject({ code: 'admin.bff_gate_origin' });
+    expect(await response?.json()).toMatchObject({ code: 'admin.session_origin' });
   });
 
-  it('allows a same-origin browser mutation and a non-browser proxy call', () => {
-    process.env.ADMIN_BFF_SHARED_SECRET = 'expected-secret';
-    const headers = { 'x-intafaced-admin-bff': 'expected-secret' };
+  it('requires same-origin Origin and a matching CSRF token for mutation requests', async () => {
+    setup();
+    const cookie = signedInCookie();
+    const cases: [Headers, string][] = [
+      [new Headers({ cookie, 'x-intafaced-csrf': Buffer.alloc(32, 9).toString('base64url') }), 'admin.session_origin'],
+      [new Headers({ cookie, origin: ORIGIN, 'x-intafaced-csrf': 'wrong' }), 'admin.session_csrf'],
+    ];
+    for (const [headers, expectedCode] of cases) {
+      const response = await adminBffGate(new Request(`${ORIGIN}/api/ops`, { method: 'POST', headers }));
+      expect(response?.status).toBe(403);
+      expect(await response?.json()).toMatchObject({ code: expectedCode });
+    }
+  });
 
-    expect(
-      adminBffGate(
-        new Request('https://admin.example/api/kill-switch', {
-          method: 'POST',
-          headers: { ...headers, origin: 'https://admin.example' },
-        }),
-      ),
-    ).toBeNull();
-    expect(adminBffGate(new Request('https://admin.example/api/kill-switch', { method: 'POST', headers }))).toBeNull();
+  it.each([
+    ['ordinary user', 'not_operator', USER_ID],
+    ['revoked founder', 'revoked', USER_ID],
+  ] as const)('refuses %s even with a valid signed cookie', async (_label, status, userId) => {
+    setup(status, userId);
+    const response = await adminBffGate(new Request(`${ORIGIN}/api/ops`, { headers: { cookie: signedInCookie() } }));
+    expect(response?.status).toBe(403);
+    expect(await response?.json()).toMatchObject({ code: 'admin.founder_required' });
   });
 });

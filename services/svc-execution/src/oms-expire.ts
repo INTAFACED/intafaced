@@ -2,9 +2,10 @@
  * Expire one TWAP/VWAP/POV parent on the schedule already on the row.
  *
  * Marks a live (approved or running) parent `expired` using expireAt
- * already retained on the schedule. This door never invents expireAt
- * from durationMs, startedAt, or the wall clock, never invents a
- * cancel, and does not touch matching.
+ * already retained on the schedule. Paper, staged, and abandoned stay
+ * as they are — parentStore.expire is not called. This door never
+ * invents expireAt from durationMs, startedAt, or the wall clock,
+ * never invents a cancel, and does not touch matching.
  */
 import type { AlgoKind, ApprovedAlgoParentStore, RetainedAlgoSchedule } from './oms-start.js';
 
@@ -25,7 +26,8 @@ export type OmsExpireRefuse =
   | { readonly ok: false; readonly reason: 'missing_expire_at'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'already_expired'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'already_stopped'; readonly detail: string }
-  | { readonly ok: false; readonly reason: 'undeployed'; readonly detail: string };
+  | { readonly ok: false; readonly reason: 'undeployed'; readonly detail: string }
+  | { readonly ok: false; readonly reason: 'not_live'; readonly detail: string };
 
 export type OmsExpireResult = OmsExpireOk | OmsExpireRefuse;
 
@@ -86,21 +88,18 @@ export function expireAlgoParent(input: {
   if (existing.status === 'undeployed') {
     return refuse('undeployed', `parent ${parentClientOrderId} is undeployed`);
   }
+  if (existing.status !== 'approved' && existing.status !== 'running') {
+    return refuse('not_live', `parent ${parentClientOrderId} is ${existing.status} — expire needs a live (approved or running) parent`);
+  }
 
   const expireAt = retainedExpireAt(existing.schedule);
   if (!expireAt) {
-    return refuse(
-      'missing_expire_at',
-      'schedule.expireAt is missing — refusing to invent expireAt from duration or the clock',
-    );
+    return refuse('missing_expire_at', 'schedule.expireAt is missing — refusing to invent expireAt from duration or the clock');
   }
 
   const expired = input.parentStore.expire(parentClientOrderId);
   if (!expired) {
-    return refuse(
-      'missing_expire_at',
-      'schedule.expireAt is missing — refusing to invent expireAt from duration or the clock',
-    );
+    return refuse('missing_expire_at', 'schedule.expireAt is missing — refusing to invent expireAt from duration or the clock');
   }
 
   return {

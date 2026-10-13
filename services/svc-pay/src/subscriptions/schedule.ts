@@ -98,7 +98,14 @@ export function dueOccurrence(startsAt: Date, cadence: Cadence, now: Date): numb
   return n;
 }
 
-/** The last occurrence index still inside the schedule's window, or null if none. */
+/**
+ * The last occurrence index still inside `[startsAt, endsAt)`, or null.
+ *
+ * Null covers two different windows. An omitted `endsAt` is open: there is no
+ * last occurrence because the schedule does not end. An `endsAt` at or before
+ * `startsAt` is empty: no occurrence sits inside it. Callers that treat every
+ * null as unbounded must check that `endsAt` was omitted first.
+ */
 export function lastOccurrenceBefore(startsAt: Date, cadence: Cadence, endsAt: Date | null): number | null {
   if (!endsAt) return null;
   if (endsAt.getTime() <= startsAt.getTime()) return null;
@@ -135,6 +142,15 @@ export function planDue(input: {
 }): DuePlan {
   const { startsAt, cadence, endsAt, lastFired, now } = input;
   const maxCatchUp = input.maxCatchUp ?? MAX_CATCH_UP_PER_PASS;
+
+  // `lastOccurrenceBefore` returns null for an omitted `endsAt` and for an
+  // `endsAt` at or before `startsAt`. Only the omitted end is an open window.
+  // The inverted pair contains no occurrence; reading it as unbounded would
+  // keep scheduling charges with no end. The end instant is the caller's —
+  // this does not invent a period to stand in for the missing window.
+  if (endsAt !== null && endsAt.getTime() <= startsAt.getTime()) {
+    return { occurrences: [], nextRunAt: new Date(endsAt.getTime()), completed: true };
+  }
 
   const windowEnd = lastOccurrenceBefore(startsAt, cadence, endsAt);
   const due = dueOccurrence(startsAt, cadence, now);

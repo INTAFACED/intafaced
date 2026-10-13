@@ -90,6 +90,49 @@ describe('startPaperScaleOutParent', () => {
     ).toMatchObject({ ok: false, reason: 'already_started' });
   });
 
+  it("refuses padded status 'running ' with already_started and does not start", () => {
+    const started = startPaperScaleOutParent({
+      parentClientOrderId: 'p-sout',
+      approved: true,
+      status: 'running ',
+      childSize: CHILD,
+      operatorId: OP,
+      paper: PAPER_ON,
+    });
+    expect(started).toMatchObject({ ok: false, reason: 'already_started' });
+    expect(started).not.toMatchObject({ started: true });
+  });
+
+  it('refuses stopped, expired, and halted with not_approved even when approved is true', () => {
+    for (const status of ['stopped', 'expired', 'halted'] as const) {
+      const started = startPaperScaleOutParent({
+        parentClientOrderId: 'p-sout',
+        approved: true,
+        status,
+        childSize: CHILD,
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(started).toMatchObject({ ok: false, reason: 'not_approved' });
+      expect(started).not.toMatchObject({ started: true });
+    }
+  });
+
+  it('refuses blank and whitespace-only status with not_approved even when approved is true and does not start', () => {
+    for (const status of ['', '   '] as const) {
+      const started = startPaperScaleOutParent({
+        parentClientOrderId: 'p-sout',
+        approved: true,
+        status,
+        childSize: CHILD,
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(started).toMatchObject({ ok: false, reason: 'not_approved' });
+      expect(started).not.toMatchObject({ started: true });
+    }
+  });
+
   it('refuses omitted status and approved:false with not_approved', () => {
     expect(
       startPaperScaleOutParent({
@@ -210,5 +253,25 @@ describe('startPaperScaleOutParent', () => {
       childSize: formatAmount(parseAmount(CHILD)),
     });
     expect(started).not.toMatchObject({ childSize: '1000' });
+  });
+
+  it("happy: approved true + status approved + childSize '100' starts paper", () => {
+    const started = startPaperScaleOutParent({
+      parentClientOrderId: 'p-sout',
+      approved: true,
+      status: 'approved',
+      childSize: CHILD,
+      operatorId: OP,
+      paper: PAPER_ON,
+    });
+    expect(started).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-sout',
+      kind: 'scale-out',
+      status: 'paper',
+      childSize: formatAmount(parseAmount(CHILD)),
+    });
   });
 });

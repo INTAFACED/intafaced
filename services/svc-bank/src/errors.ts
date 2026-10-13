@@ -29,7 +29,7 @@ export type BankErrorCode =
    */
   | 'bank.earn_rate_unset'
   | 'bank.below_minimum'
-  /** Collateral lock omitted a caller-stable event id. MAX+1 on omit made a retry a second loanCollateralLock. */
+  /** Collateral lock or excess release omitted a caller-stable event id. MAX+1 on omit made a retry a second post. */
   | 'bank.event_id_required'
   | 'bank.native_asset_not_earnable'
   | 'bank.position_not_found'
@@ -132,6 +132,11 @@ export type BankErrorCode =
   | 'bank.mark_unusable'
   /** No mark at all for an asset the position holds. Never valued at zero. */
   | 'bank.mark_missing'
+  /**
+   * Loan health has no price. The health slot stays empty.
+   * The missing piece is price. A stored last mark is not a substitute.
+   */
+  | 'bank.loan_health_price_unset'
   /** A mark was zero or negative — a broken feed, not a cheap asset. */
   | 'bank.mark_invalid'
   /** Product thresholds are not ordered coherently. */
@@ -140,6 +145,12 @@ export type BankErrorCode =
   | 'bank.accrual_backlog'
   /** Liquidation needs a funded counterparty and there is none. */
   | 'bank.no_liquidation_counterparty'
+  /**
+   * Collateral is marked in the quote asset and the debt is a different asset.
+   * Booking mark × quantity as debt would invent a conversion. Seizure refuses
+   * before any ledger post. A same-asset quote may still sell at the mark.
+   */
+  | 'bank.loan_seizure_cross_asset'
   /**
    * Collateral was exhausted without clearing the debt AND the insurance fund
    * could not cover it. The loudest code in this file.
@@ -189,6 +200,16 @@ export type BankErrorCode =
    */
   | 'bank.card_settlement_amount_conflict'
   /**
+   * A settlement disagreed with the kind its sequence was claimed for.
+   *
+   * Capture and reverse both take sequence 0. The unique index makes a second
+   * row impossible, which is right once a movement has settled and wrong if the
+   * other kind is handed the first kind's ledger transaction while the claim is
+   * still pending. A pending capture is not an open door for a reverse, and a
+   * pending reversal is not an open door for a capture.
+   */
+  | 'bank.card_settlement_kind_conflict'
+  /**
    * Cashback was owed and the rewards pot could not pay it.
    *
    * `loanBadDebt`'s rule applied to the other direction: a platform that cannot
@@ -199,6 +220,11 @@ export type BankErrorCode =
    * true. The capture it belongs to still stands; only the reward refuses.
    */
   | 'bank.cashback_pot_unfunded'
+  /**
+   * Card rewards have no issuer. A cashback rate on the card is not a balance.
+   * The missing piece is an outside company, the card issuer.
+   */
+  | 'bank.rewards_issuer_unset'
   // ── Ramps (§8.1 / D-S-09, crypto ledger half) ──────────────────────────
   /**
    * NO RAMP PROGRAMME IS CONFIGURED.
@@ -209,6 +235,16 @@ export type BankErrorCode =
    * `bank.fiat_ramp_socket`.
    */
   | 'bank.no_ramp_rail'
+  /**
+   * A live cash ramp has no rail. The programme stays simulated.
+   * The missing piece is an outside company, the cash rail.
+   */
+  | 'bank.live_ramp_unset'
+  /**
+   * A paycheck deposit has no rail. The missing piece is an outside company,
+   * the paycheck rail. This is not business payroll and it posts nothing.
+   */
+  | 'bank.no_paycheck_rail'
   /**
    * FIAT ON/OFF RAMP IS §13 `socket.psp-partners`.
    *
@@ -363,7 +399,15 @@ export type BankErrorCode =
    */
   | 'bank.convert_markets_limit_unset'
   /** Nonsense batch (non-integer / out of range) — not clamped. */
-  | 'bank.validation_failed';
+  | 'bank.validation_failed'
+  /**
+   * An earlier repayment on this loan is still `pending`: its ledger post failed
+   * without a definite refusal, so it may have committed (a lost
+   * acknowledgement). It counts as covering the debt until the same repayment
+   * id is retried or `recover-loan-repayments` re-drives it, so a new event
+   * cannot collect the same principal twice.
+   */
+  | 'bank.ledger_outcome_unknown';
 
 export class BankError extends Error {
   constructor(

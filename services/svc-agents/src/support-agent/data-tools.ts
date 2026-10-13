@@ -113,13 +113,34 @@ export type SupportDataToolRefuseReason =
 /**
  * Money-shaped keys that must never appear on an account projection fixture.
  * Checked at runtime because JSON / spreads can smuggle fields TypeScript drops.
+ * A stem matches at the start when the next character is `_` or the end
+ * (`balance`, `available_balance`).
  */
 const ACCOUNT_MONEY_KEY = /^(balance|available|amount|hold|credit|debit|equity|pnl|funds|wallet|reserved)(_|$)/i;
+
+/** Same stems, for a camelCase boundary check that must stay case-sensitive. */
+const ACCOUNT_MONEY_STEM = /^(balance|available|amount|hold|credit|debit|equity|pnl|funds|wallet|reserved)/i;
+
+/**
+ * A money stem as a later camel hump (`unrealizedPnl`). The `i` flag is absent
+ * so `[A-Z]` does not also match a lowercase letter.
+ */
+const ACCOUNT_MONEY_CAMEL_HUMP = /(?<=[a-z])(?:Balance|Available|Amount|Hold|Credit|Debit|Equity|Pnl|Funds|Wallet|Reserved)(?=[A-Z]|$)/;
+
+function keyIsInventMoney(key: string): boolean {
+  if (ACCOUNT_MONEY_KEY.test(key) || ACCOUNT_MONEY_CAMEL_HUMP.test(key) || /balance|amount/i.test(key)) return true;
+  // `creditLimit` starts with a stem, then a letter. The snake regex only
+  // accepts `_` or end, so the next character is checked on its own.
+  const stem = ACCOUNT_MONEY_STEM.exec(key);
+  if (!stem) return false;
+  const next = key.charAt(stem[0].length);
+  return next >= 'A' && next <= 'Z';
+}
 
 /** True when a projection object invents money fields beyond status + KYC. */
 export function accountProjectionHasInventMoney(account: object): boolean {
   for (const key of Object.keys(account)) {
-    if (ACCOUNT_MONEY_KEY.test(key) || /balance|amount/i.test(key)) return true;
+    if (keyIsInventMoney(key)) return true;
   }
   return false;
 }
@@ -211,6 +232,13 @@ async function invokeViaDesk(
     if (read.status === 'unreachable') return unavailable(tool, 'no_live_kb');
     if (read.status === 'missing') return unavailable(tool, 'missing_fixture');
     const ticket = read.ticket;
+    const portTicketId = ticket.ticketId.trim();
+    if (!portTicketId) {
+      return unavailable(tool, 'incomplete_ticket');
+    }
+    if (portTicketId !== ticketId) {
+      return unavailable(tool, 'missing_fixture');
+    }
     if (!ticket.category.trim() || !ticket.ownerUserId.trim()) {
       return unavailable(tool, 'incomplete_ticket');
     }

@@ -1,3 +1,4 @@
+import { TEST_AUTHORITY } from '../test-support/authority.js';
 import { createServer, request as httpRequest, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
@@ -6,8 +7,10 @@ import { ORDERS_ENGINE_UNAVAILABLE, PrivateOrderHub } from './hub.js';
 import {
   CLOSE_UNAUTHORIZED,
   createPrivateWebSocketGateway,
+  POSITIONS_SNAPSHOT_UNAVAILABLE,
   PRIVATE_STREAM_PATH,
   redactAccessTokenQuery,
+  sinkFor,
   type PrivateWebSocketGateway,
 } from './gateway.js';
 import type { PrivateBookPort } from './book.js';
@@ -143,6 +146,7 @@ describe('private WebSocket gateway', () => {
     httpPort = addr.port;
     baseUrl = `ws://127.0.0.1:${addr.port}`;
     gateway = createPrivateWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server,
       hub,
       heartbeatMs: opts.heartbeatMs ?? 30_000,
@@ -892,7 +896,7 @@ describe('private WebSocket gateway', () => {
     client.socket.close();
   });
 
-  it('channel=orders sends empty snapshot when book read fails — not a live zero blotter', async () => {
+  it('channel=orders names a thrown book read — not an empty snapshot', async () => {
     await boot({
       tokens,
       book: {
@@ -906,12 +910,87 @@ describe('private WebSocket gateway', () => {
     });
     const token = await accessToken(['trade:read']);
     const client = new Client(`${baseUrl}${PRIVATE_STREAM_PATH}?access_token=${token}&channel=orders`);
-    await client.frameCount(1);
-    await client.untilSnapshot('orders');
-    const snap = client.parsed().find((f) => f.channel === 'orders' && f.type === 'snapshot');
-    expect(snap).toEqual({ channel: 'orders', type: 'snapshot', userId: USER, orders: [] });
+    for (;;) {
+      if (client.parsed().some((f) => f.type === 'status' && f.code === ORDERS_ENGINE_UNAVAILABLE)) break;
+      if (client.closed) throw new Error('closed before orders read failure');
+      await client.frameCount(client.frames.length + 1);
+    }
+    expect(client.parsed().find((f) => f.type === 'status')).toEqual({
+      type: 'status',
+      code: ORDERS_ENGINE_UNAVAILABLE,
+      channel: 'orders',
+      userId: USER,
+    });
+    expect(client.parsed().some((f) => f.channel === 'orders' && f.type === 'snapshot')).toBe(false);
     expect(client.parsed().every((f) => f.channel === 'orders')).toBe(true);
     client.socket.close();
+  });
+
+  it('a thrown open book read is not an empty snapshot; a successful empty read still is', async () => {
+    await boot({
+      tokens,
+      book: {
+        async listOpenOrders() {
+          throw new Error('open orders unread');
+        },
+        async listOpenPositions() {
+          throw new Error('open positions unread');
+        },
+      },
+    });
+    const token = await accessToken(['trade:read']);
+    const failed = new Client(`${baseUrl}${PRIVATE_STREAM_PATH}?access_token=${token}`);
+    for (;;) {
+      const parsed = failed.parsed();
+      const ordersNamed = parsed.some((f) => f.type === 'status' && f.code === ORDERS_ENGINE_UNAVAILABLE && f.channel === 'orders');
+      const positionsNamed = parsed.some(
+        (f) => f.type === 'status' && f.code === POSITIONS_SNAPSHOT_UNAVAILABLE && f.channel === 'positions',
+      );
+      if (ordersNamed && positionsNamed) break;
+      if (failed.closed) throw new Error('closed before failed book read was named');
+      await failed.frameCount(failed.frames.length + 1);
+    }
+    const failedFrames = failed.parsed();
+    expect(
+      failedFrames.some((f) => f.type === 'snapshot' && f.channel === 'orders' && Array.isArray(f.orders) && f.orders.length === 0),
+    ).toBe(false);
+    expect(
+      failedFrames.some(
+        (f) => f.type === 'snapshot' && f.channel === 'positions' && Array.isArray(f.positions) && f.positions.length === 0,
+      ),
+    ).toBe(false);
+    failed.socket.close();
+
+    await gateway.close('next case');
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+
+    await boot({
+      tokens,
+      book: {
+        async listOpenOrders() {
+          return [];
+        },
+        async listOpenPositions() {
+          return [];
+        },
+      },
+    });
+    const empty = new Client(`${baseUrl}${PRIVATE_STREAM_PATH}?access_token=${await accessToken(['trade:read'])}`);
+    await empty.untilSnapshot('orders');
+    await empty.untilSnapshot('positions');
+    expect(empty.parsed().find((f) => f.channel === 'orders' && f.type === 'snapshot')).toEqual({
+      channel: 'orders',
+      type: 'snapshot',
+      userId: USER,
+      orders: [],
+    });
+    expect(empty.parsed().find((f) => f.channel === 'positions' && f.type === 'snapshot')).toEqual({
+      channel: 'positions',
+      type: 'snapshot',
+      userId: USER,
+      positions: [],
+    });
+    empty.socket.close();
   });
 
   it('sends an empty orders snapshot when the user has none', async () => {
@@ -929,5 +1008,189 @@ describe('private WebSocket gateway', () => {
     enabled = false;
     const token = await accessToken(['trade:read']);
     expect(await upgradeStatus(`${PRIVATE_STREAM_PATH}?access_token=${token}`)).toBe(503);
+  });
+});
+
+type HeldAssert = {
+  promise: Promise<void>;
+  resolve: () => void;
+  reject: (err: unknown) => void;
+};
+
+function holdAssert(): HeldAssert {
+  let resolve!: () => void;
+  let reject!: (err: unknown) => void;
+  const promise = new Promise<void>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function openSinkSocket(): {
+  socket: WebSocket;
+  sent: string[];
+  closes: Array<{ code: number; reason: string }>;
+} {
+  const sent: string[] = [];
+  const closes: Array<{ code: number; reason: string }> = [];
+  const socket = {
+    OPEN: WebSocket.OPEN,
+    CONNECTING: WebSocket.CONNECTING,
+    CLOSING: WebSocket.CLOSING,
+    CLOSED: WebSocket.CLOSED,
+    readyState: WebSocket.OPEN as number,
+    bufferedAmount: 0,
+    send(data: unknown) {
+      sent.push(String(data));
+    },
+    close(code?: number, reason?: string) {
+      socket.readyState = WebSocket.CLOSING;
+      closes.push({ code: code ?? 0, reason: String(reason ?? '') });
+    },
+    terminate() {
+      socket.readyState = WebSocket.CLOSED;
+    },
+  };
+  return { socket: socket as unknown as WebSocket, sent, closes };
+}
+
+async function drainMicrotasks(): Promise<void> {
+  await new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+}
+
+describe('private sink live-credential send order', () => {
+  it('starts the next assert only after the previous one settles, and a rejection sends nothing further', async () => {
+    const { socket, sent, closes } = openSinkSocket();
+    const held: HeldAssert[] = [];
+    let dead = 0;
+    const sink = sinkFor(
+      socket,
+      { expiresAtMs: Date.now() + 60_000, lease: { isCurrent: () => true } },
+      {
+        assert() {
+          const gate = holdAssert();
+          held.push(gate);
+          return gate.promise;
+        },
+        onDead() {
+          dead += 1;
+        },
+      },
+    );
+
+    sink.send('order');
+    sink.send('fill');
+    expect(held).toHaveLength(1);
+    expect(sent).toEqual([]);
+
+    held[0]!.resolve();
+    await drainMicrotasks();
+    expect(sent).toEqual(['order']);
+    expect(held).toHaveLength(2);
+    expect(dead).toBe(0);
+    expect(closes).toEqual([]);
+
+    sink.send('position');
+    expect(held).toHaveLength(2);
+
+    held[1]!.reject(new Error('revoked'));
+    await drainMicrotasks();
+    expect(sent).toEqual(['order']);
+    expect(dead).toBe(1);
+    expect(closes).toHaveLength(1);
+    expect(closes[0]!.code).toBe(CLOSE_UNAUTHORIZED);
+
+    sink.send('position');
+    await drainMicrotasks();
+    expect(held).toHaveLength(2);
+    expect(sent).toEqual(['order']);
+    expect(dead).toBe(1);
+    expect(closes).toHaveLength(1);
+  });
+
+  it('sends frames in call order when the earlier live assert is slower', async () => {
+    const { socket, sent, closes } = openSinkSocket();
+    const held: HeldAssert[] = [];
+    let dead = 0;
+    const sink = sinkFor(
+      socket,
+      { expiresAtMs: Date.now() + 60_000, lease: { isCurrent: () => true } },
+      {
+        assert() {
+          const gate = holdAssert();
+          const index = held.length;
+          held.push(gate);
+          if (index === 1) queueMicrotask(() => gate.resolve());
+          return gate.promise;
+        },
+        onDead() {
+          dead += 1;
+        },
+      },
+    );
+
+    sink.send('order');
+    sink.send('fill');
+    expect(held).toHaveLength(1);
+    expect(sent).toEqual([]);
+
+    held[0]!.resolve();
+    await drainMicrotasks();
+    expect(sent).toEqual(['order', 'fill']);
+    expect(held).toHaveLength(2);
+    expect(dead).toBe(0);
+    expect(closes).toEqual([]);
+  });
+});
+
+describe('private sink queued bytes and authority expiry', () => {
+  it('counts frames held by credential checks as buffered bytes and clears them on close', async () => {
+    const { socket, sent } = openSinkSocket();
+    const gate = holdAssert();
+    const sink = sinkFor(
+      socket,
+      { expiresAtMs: Date.now() + 60_000, lease: { isCurrent: () => true } },
+      {
+        assert: () => gate.promise,
+        onDead: () => undefined,
+      },
+    );
+    sink.send('€');
+    sink.send('fill');
+    expect(sink.bufferedBytes).toBe(7);
+    sink.close(1013, 'slow');
+    expect(sink.bufferedBytes).toBe(0);
+    gate.resolve();
+    await drainMicrotasks();
+    expect(sent).toEqual([]);
+  });
+
+  it('stops checks and sends when authority expires during a held credential check', async () => {
+    const { socket, sent } = openSinkSocket();
+    const gate = holdAssert();
+    let current = true;
+    let checks = 0;
+    const sink = sinkFor(
+      socket,
+      { expiresAtMs: Date.now() + 60_000, lease: { isCurrent: () => current } },
+      {
+        assert: () => {
+          checks++;
+          return gate.promise;
+        },
+        onDead: () => undefined,
+      },
+    );
+    sink.send('order');
+    sink.send('fill');
+    current = false;
+    gate.resolve();
+    await drainMicrotasks();
+    expect(sent).toEqual([]);
+    expect(checks).toBe(1);
+    expect(sink.bufferedBytes).toBe(0);
   });
 });

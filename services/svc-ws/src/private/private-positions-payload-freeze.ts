@@ -29,6 +29,9 @@ export const PRIVATE_POSITION_WIRE_KEYS = [
 
 const PRIVATE_POSITION_WIRE_KEY_SET = new Set<string>(PRIVATE_POSITION_WIRE_KEYS);
 
+/** Snapshot envelope only. Row keys stay on `PRIVATE_POSITION_WIRE_KEYS`. */
+const PRIVATE_POSITION_SNAPSHOT_ENVELOPE_KEYS = new Set<string>(['channel', 'type', 'userId', 'positions']);
+
 export type PrivatePositionWirePayload = PrivatePositionUpdate & { readonly channel: 'positions' };
 
 export function freezePrivatePositionUpdate(update: PrivatePositionUpdate): PrivatePositionWirePayload {
@@ -81,13 +84,24 @@ export function assertPrivatePositionWireHonest(value: unknown): void {
   const rec = value as Record<string, unknown>;
   if (rec.channel !== 'positions') return;
   if (rec.type === 'snapshot') {
-    if (!Array.isArray(rec.positions)) return;
-    for (const row of rec.positions) {
-      assertPrivatePositionRowHonest(row);
-    }
+    assertPrivatePositionSnapshotHonest(rec);
     return;
   }
   assertPrivatePositionRowHonest(rec);
+}
+
+function assertPrivatePositionSnapshotHonest(rec: Record<string, unknown>): void {
+  for (const key of Object.keys(rec)) {
+    if (!PRIVATE_POSITION_SNAPSHOT_ENVELOPE_KEYS.has(key)) {
+      throw new Error(`ws-private: unknown position wire key ${key}`);
+    }
+  }
+  if (!Array.isArray(rec.positions)) {
+    throw new Error('ws-private: positions snapshot must be an array');
+  }
+  for (const row of rec.positions) {
+    assertPrivatePositionRowHonest(row);
+  }
 }
 
 function assertPrivatePositionRowHonest(row: unknown): void {

@@ -14,9 +14,9 @@
 # RUNS ON EVERY PULL REQUEST, and the path filter that used to narrow it is
 # gone. Two reasons, and the second is the one that matters.
 #
-# 1. It was filtered to save a bill that no longer exists. Actions are free and
-#    unlimited on this public repo, and the thrift spend law was deleted on
-#    2026-08-07 (#967). The job is one step, ~20s, no build and no services.
+# 1. The private-repo Actions bill is gone (thrift deleted 2026-08-07, #967). The
+#    bill is still zero on a public repo, but a 403 or 429 from GitHub is a stop.
+#    The job is one step, ~20s, no build and no services.
 #
 # 2. A REQUIRED CHECK MUST RUN ON EVERY PR OR IT BLOCKS THE ONES IT SKIPS.
 #    GitHub waits for a context it was told to expect; a workflow that filters
@@ -26,17 +26,12 @@
 #    HIGH came back to main (#904). The gate worked; nothing made anyone wait
 #    for it.
 #
-# The weekly cron stays. Most advisories arrive against dependencies nobody
-# touched — `js-yaml` (#942) landed that way, clean in the morning and a HIGH by
-# lunchtime — and no per-PR trigger can catch those.
+# Dependabot and manual `workflow_dispatch` still surface advisories against
+# dependencies nobody touched — `js-yaml` (#942) landed that way.
 name: Supply chain
 
 on:
   pull_request:
-  schedule:
-    # Mondays, ahead of the dependabot run on the same day, so a human opening
-    # the grouped PR already knows what the tree looked like before it.
-    - cron: '0 6 * * 1'
   workflow_dispatch:
 
 concurrency:

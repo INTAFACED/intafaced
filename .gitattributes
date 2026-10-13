@@ -23,4 +23,3 @@ pnpm-lock.yaml       linguist-generated=true -diff
 
 # SQL migrations are code and must be reviewed line by line.
 *.sql text eol=lf
-graphify-out/graph.json merge=graphify

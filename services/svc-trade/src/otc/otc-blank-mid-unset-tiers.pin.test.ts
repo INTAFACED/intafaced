@@ -1,3 +1,4 @@
+import { OtcDeskService } from '../controls/test-admission.js';
 /**
  * Pin (trade.otc): blank/unset mid and unset DIRECTION §8 owner tiers refuse.
  * Never invent a mid or stake-tier / spread numbers.
@@ -7,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { MemoryLedger, parseAmount } from '@intafaced/ledger-client';
 import { parseOtcDeskLawJson, requirePublishedOtcDeskLaw, UNPUBLISHED_OTC_DESK_LAW, type OtcDeskLaw } from './desk-law.js';
 import { OtcError } from './errors.js';
-import { OtcDeskService } from './otc-service.js';
+
 import { parseOtcMidPrice } from './rfq.js';
 import { FixedOtcStake } from './stake-source.js';
 

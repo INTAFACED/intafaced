@@ -319,6 +319,31 @@ describe('SupportService cannot settle', () => {
     });
   });
 
+  it('refuses resolved and closed when a later technical file follows money_request', async () => {
+    const svc = new SupportService();
+    for (const status of ['resolved', 'closed'] as const) {
+      const t = await svc.createTicket({ userId: USER, category: 'account', subject: 'Refund', body: 'Please' });
+      await svc.escalate({
+        operatorId: OP,
+        ticketId: t.id,
+        reason: 'money_request',
+        summary: 'User asked for a payout.',
+        citedArticleIds: ['kb-deposit-withdraw-honest'],
+      });
+      await svc.escalate({
+        operatorId: OP,
+        ticketId: t.id,
+        reason: 'technical',
+        summary: 'Later file names a different reason.',
+        citedArticleIds: ['kb-deposit-withdraw-honest'],
+      });
+      await expect(svc.setStatus({ operatorId: OP, ticketId: t.id, status })).rejects.toMatchObject({
+        code: 'support.settle.refused',
+      });
+      expect((await svc.getTicket({ userId: USER, ticketId: t.id })).status).toBe('open');
+    }
+  });
+
   it('can still cite KB articles and close a deposit_withdraw ticket without paying', async () => {
     const svc = new SupportService();
     const articles = await svc.searchKb('deposit', { limit: 100 });

@@ -33,6 +33,52 @@ describe('marketPurchase', () => {
     ).toThrow(InvalidEntryError);
   });
 
+  it('refuses a blank purchase identity before any post', async () => {
+    const ledger = new MemoryLedger();
+    await ledger.post(
+      recipes.deposit({
+        userId: BUYER,
+        assetId: 'USDT',
+        amount: amt('1000'),
+        rail: 'test',
+        railRef: 'seed-blank-ids',
+      }),
+    );
+    const journalBefore = ledger.journal().length;
+
+    const real = {
+      purchaseId: 'p-real-ids',
+      listingId: 'l1',
+      buyerId: BUYER,
+      vendorUserId: VENDOR,
+      assetId: 'USDT',
+      price: amt('10'),
+      commissionBps: 250,
+    };
+
+    let posted = false;
+    try {
+      await ledger.post(marketPurchase({ ...real, buyerId: '   ' }));
+      posted = true;
+    } catch (err) {
+      expect(err).toBeInstanceOf(InvalidEntryError);
+      expect((err as Error).message).toMatch(/buyerId is required/);
+    }
+    expect(posted).toBe(false);
+    expect(ledger.journal()).toHaveLength(journalBefore);
+    expect(ledger.journal().some((tx) => tx.reason === 'market.purchase')).toBe(false);
+
+    expect(() => marketPurchase({ ...real, vendorUserId: '' })).toThrow(/vendorUserId is required/);
+    expect(() => marketPurchase({ ...real, assetId: '' })).toThrow(/assetId is required/);
+    expect(() => marketPurchase({ ...real, listingId: '' })).toThrow(/listingId is required/);
+    expect(ledger.journal()).toHaveLength(journalBefore);
+
+    const tx = await ledger.post(marketPurchase(real));
+    expect(tx.reason).toBe('market.purchase');
+    expect(ledger.journal().filter((row) => row.reason === 'market.purchase')).toHaveLength(1);
+    expect(formatAmount((await ledger.balance(userAvailable(BUYER, 'USDT'))).amount)).toBe('990');
+  });
+
   it('refuses self-purchase', () => {
     expect(() =>
       marketPurchase({
@@ -138,10 +184,15 @@ describe('marketPurchase', () => {
    * Unit card A2 — commission conservation residual (Class M adversarial).
    * Promise: recipes/market.ts — "Vendor + house always sum exactly to the price".
    * Done bar: for a table of prices × bps, buyer credit = sum of debit legs; no dust.
+   * A table that refuses every pair (including an ordinary price and bps) fails.
    */
   it('vendor net + house commission always conserve the listed price (no dust leak)', () => {
     const prices = [1n, 3n, 7n, 999n, amt('0.01'), amt('99.99'), amt('1000'), amt('12345.678901234567')];
     const bpsList = [0, 1, 7, 250, 333, 500, 2500, 5000, 9998];
+    const ordinaryPrice = amt('1000');
+    const ordinaryBps = 500;
+    let successes = 0;
+    let ordinaryPosted = false;
     for (const price of prices) {
       for (const commissionBps of bpsList) {
         let req;
@@ -164,8 +215,12 @@ describe('marketPurchase', () => {
         const debitSum = req.entries.filter((e) => e.direction === 'debit').reduce((acc, e) => acc + e.amount, 0n);
         expect(buyerCredit!.amount).toBe(price);
         expect(debitSum).toBe(price);
+        successes += 1;
+        if (price === ordinaryPrice && commissionBps === ordinaryBps) ordinaryPosted = true;
       }
     }
+    expect(successes).toBeGreaterThan(0);
+    expect(ordinaryPosted).toBe(true);
   });
 });
 

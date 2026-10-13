@@ -8,15 +8,16 @@ import {
   type ChainBlock,
   type TakerSide,
 } from '../chain/source.js';
-import type {
-  ApplyOutcome,
-  BookLevel,
-  BookView,
-  FillRecord,
-  PositionRecord,
-  ProjectionStore,
-  StoredBlock,
-  UnwindOutcome,
+import {
+  finalizedHeightOf,
+  type ApplyOutcome,
+  type BookLevel,
+  type BookView,
+  type FillRecord,
+  type PositionRecord,
+  type ProjectionStore,
+  type StoredBlock,
+  type UnwindOutcome,
 } from './store.js';
 
 /**
@@ -91,10 +92,24 @@ export class MemoryProjectionStore implements ProjectionStore {
     const existing = this.#blocks.get(block.hash);
     const duplicate = existing?.status === 'canonical';
 
+    // A hash already in the map is that block. The map is keyed by hash, so a
+    // later set() would replace height and parentHash and leave the level and
+    // position rows at the old height. head() would then walk a gap, and the
+    // parent the reorg path stored would be gone. Replay at the stored height
+    // and parent stays on the idempotent path below.
+    if (existing && (existing.height !== block.height || existing.parentHash !== block.parentHash)) {
+      throw new Error(
+        `indexer.block_hash_relocated: hash ${block.hash} is stored at height ${existing.height} parent ${existing.parentHash} and cannot be applied at height ${block.height} parent ${block.parentHash}`,
+      );
+    }
+
     // The competing-block check the partial unique index enforces in Postgres.
     // Modelled here so the two stores fail the same way rather than one of them
     // quietly accepting a state the other cannot represent.
-    const occupant = await this.blockAt(block.height);
+    // Keep validation and the staged commit in one synchronous turn. Awaiting
+    // our own reads would let another apply/unwind change this snapshot.
+    const canonical = this.#canonical();
+    const occupant = canonical.find((row) => row.height === block.height);
     if (occupant && occupant.hash !== block.hash) {
       throw new Error(`indexer.competing_canonical_block: height ${block.height} already holds canonical ${occupant.hash} — unwind first`);
     }
@@ -102,7 +117,7 @@ export class MemoryProjectionStore implements ProjectionStore {
     // Parent link is the store's last line of defence. The indexer checks the
     // forward link; a second writer (or a corrupted apply) must not plant a
     // height that does not hang off the current canonical head.
-    const head = await this.head();
+    const head = canonical.at(-1);
     // Under-tip plant: with head at H, a new block at height < H that we do not
     // already hold poisons the tape while head() still reports the real tip.
     // Re-applying a known hash at that height (idempotent) still uses the
@@ -133,7 +148,13 @@ export class MemoryProjectionStore implements ProjectionStore {
       }
     }
 
-    this.#blocks.set(block.hash, {
+    // Both or neither, same contract as Postgres `sql.begin`. The block is
+    // not canonical until every event has been projected onto copies. A throw
+    // in the loop — amount parser, toLowerCase — drops the copies, so head()
+    // does not include this hash and a later apply is not a duplicate of a
+    // partial tape. Early refusals above still write nothing.
+    const nextBlocks = new Map(this.#blocks);
+    nextBlocks.set(block.hash, {
       chainId: block.chainId,
       height: block.height,
       hash: block.hash,
@@ -142,6 +163,9 @@ export class MemoryProjectionStore implements ProjectionStore {
       blockTime: new Date(block.timestamp * 1000),
       eventCount: block.events.length,
     });
+    const nextLevels = this.#levels.map((row) => ({ ...row }));
+    const nextFills = this.#fills.map((row) => ({ ...row }));
+    const nextPositions = this.#positions.map((row) => ({ ...row }));
 
     for (const event of block.events) {
       switch (event.kind) {
@@ -149,7 +173,7 @@ export class MemoryProjectionStore implements ProjectionStore {
           const price = positiveAmountOf(event.price, 'book level price');
           const priceKey = formatAmount(price);
           const quantity = nonNegativeAmountOf(event.quantity, 'book level quantity');
-          const row = this.#levels.find(
+          const row = nextLevels.find(
             (l) => l.market === event.market && l.side === event.side && l.priceKey === priceKey && l.blockHeight === block.height,
           );
           // Absolute state: last writer in the block wins, and re-applying the
@@ -158,7 +182,7 @@ export class MemoryProjectionStore implements ProjectionStore {
             row.quantity = quantity;
             row.blockHash = block.hash;
           } else {
-            this.#levels.push({
+            nextLevels.push({
               market: event.market,
               side: event.side,
               priceKey,
@@ -176,8 +200,8 @@ export class MemoryProjectionStore implements ProjectionStore {
           // THE reason re-processing a block cannot double-count a trade.
           // Addresses lowercased on write so EIP-55 spellings cannot dual-key.
           const key = (f: FillRecord) => f.blockHash === block.hash && f.logIndex === event.logIndex;
-          if (this.#fills.some(key)) break;
-          this.#fills.push({
+          if (nextFills.some(key)) break;
+          nextFills.push({
             blockHeight: block.height,
             blockHash: block.hash,
             logIndex: event.logIndex,
@@ -195,7 +219,7 @@ export class MemoryProjectionStore implements ProjectionStore {
         case 'position': {
           // Same casing law as fills: one account is one account.
           const account = event.account.toLowerCase();
-          const row = this.#positions.find((p) => p.market === event.market && p.account === account && p.blockHeight === block.height);
+          const row = nextPositions.find((p) => p.market === event.market && p.account === account && p.blockHeight === block.height);
           const size = amountOf(event.size, 'position size');
           const entryPrice = nonNegativeAmountOf(event.entryPrice, 'position entry price');
           if (row) {
@@ -203,7 +227,7 @@ export class MemoryProjectionStore implements ProjectionStore {
             row.entryPrice = entryPrice;
             row.blockHash = block.hash;
           } else {
-            this.#positions.push({
+            nextPositions.push({
               market: event.market,
               account,
               size,
@@ -216,6 +240,11 @@ export class MemoryProjectionStore implements ProjectionStore {
         }
       }
     }
+
+    this.#blocks = nextBlocks;
+    this.#levels = nextLevels;
+    this.#fills = nextFills;
+    this.#positions = nextPositions;
 
     return { duplicate, eventsApplied: block.events.length };
   }
@@ -283,21 +312,40 @@ export class MemoryProjectionStore implements ProjectionStore {
   // ── Reads ─────────────────────────────────────────────────────────────────
 
   /** Newest version per key, which is what "current" means in this design. */
-  #currentLevels(market: string, side: BookSide): LevelRow[] {
+  #currentLevels(market: string, side: BookSide, atHeight: number): LevelRow[] {
     const newest = new Map<string, LevelRow>();
     for (const row of this.#levels) {
-      if (row.market !== market || row.side !== side) continue;
+      if (row.market !== market || row.side !== side || row.blockHeight > atHeight) continue;
       const held = newest.get(row.priceKey);
       if (!held || row.blockHeight > held.blockHeight) newest.set(row.priceKey, row);
     }
     return [...newest.values()];
   }
 
-  async book(market: string, depth: number): Promise<BookView> {
-    const head = await this.head();
+  async book(market: string, depth: number, atHeight?: number): Promise<BookView> {
+    // Pinned read: the as-of block must be a canonical block we hold. Without
+    // one there is nothing to name, so the book is empty with a null as-of.
+    // No await between the lookup and the scan: see `bookFinalized`.
+    const canonical = this.#canonical();
+    const asOf = atHeight === undefined ? (canonical.at(-1) ?? null) : (canonical.find((b) => b.height === atHeight) ?? null);
+    return this.#bookAt(market, depth, asOf);
+  }
+
+  async bookFinalized(market: string, depth: number, finalityDepth: number): Promise<BookView> {
+    // One synchronous turn: nothing can apply, unwind or prune between the head
+    // read, the finalized-block lookup and the level scan. This is the in-memory
+    // form of the Postgres REPEATABLE READ snapshot.
+    const canonical = this.#canonical();
+    const height = finalizedHeightOf(canonical.at(-1) ?? null, finalityDepth);
+    const asOf = height === null ? null : (canonical.find((b) => b.height === height) ?? null);
+    return this.#bookAt(market, depth, asOf);
+  }
+
+  #bookAt(market: string, depth: number, asOf: StoredBlock | null): BookView {
+    const ceiling = asOf?.height ?? -1;
 
     const side = (s: BookSide, direction: 1 | -1): BookLevel[] =>
-      this.#currentLevels(market, s)
+      this.#currentLevels(market, s, ceiling)
         // Quantity 0 is an empty level, and it is filtered AFTER the newest
         // version is chosen — a level emptied in block N must not fall back to
         // its depth in block N-1.
@@ -309,8 +357,8 @@ export class MemoryProjectionStore implements ProjectionStore {
     return {
       market,
       chainId: this.chainId,
-      asOfHeight: head?.height ?? null,
-      asOfHash: head?.hash ?? null,
+      asOfHeight: asOf?.height ?? null,
+      asOfHash: asOf?.hash ?? null,
       bids: side('bid', -1),
       asks: side('ask', 1),
     };

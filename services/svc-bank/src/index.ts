@@ -165,9 +165,8 @@ const bank = createBankServices(sql, ledger, history, {
    * RAMPS — same missing-wiring shape as cards.
    *
    * Silence is `none` (`BANK_RAMP_MODE` default). `crypto-ledger` turns on the
-   * crypto ledger half. Fiat resolves through PayFiatRampPort (svc-pay
-   * RailAdapter plane); boot default is empty → `bank.fiat_ramp_no_pay_adapter` until
-   * a live pay rail is injected at the edge. `simulated` is always true.
+   * crypto ledger half. Kind fiat refuses `bank.fiat_ramp_socket` before any
+   * row or ledger post. `simulated` is always true.
    */
   ramps: {
     programme: rampProgrammeFor(env.BANK_RAMP_MODE),
@@ -409,6 +408,24 @@ app.post('/internal/jobs/resume-pending-loans', async (req, reply) => {
   try {
     const limit = assertLoanResumePendingLimit(bodyLimit(req.body));
     return await withSpan('bank.job.resumePendingLoans', async () => bank.loans.resumePending(limit));
+  } catch (err) {
+    return sendBankJobRefuse(reply, err);
+  }
+});
+
+/**
+ * Recover loan repayments and collateral releases whose ledger outcome is
+ * unknown (a lost acknowledgement). Re-posts each pending row on its original
+ * key, then closes loans whose debt is clear: collateral released once, loan
+ * repaid. No borrower action needed; safe to fire on a schedule.
+ */
+app.post('/internal/jobs/recover-loan-repayments', async (req, reply) => {
+  if (!requireService(req)) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'bank.unauthenticated' });
+  }
+  try {
+    const limit = assertLoanResumePendingLimit(bodyLimit(req.body));
+    return await withSpan('bank.job.recoverLoanRepayments', async () => bank.loans.recoverRepayments(limit));
   } catch (err) {
     return sendBankJobRefuse(reply, err);
   }

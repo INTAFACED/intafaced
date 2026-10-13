@@ -1,11 +1,12 @@
+import { TEST_AUTHORITY } from '../test-support/authority.js';
 import { createServer, request as httpRequest, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
-import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
+import type { TokenConfig } from '@intafaced/auth';
 import { PRIVATE_STREAM_PATH } from '../private/gateway.js';
 import type { LiveCredentialPort, OwnershipSnapshot } from '../private/live-credential.js';
 import { DropCopyHub } from './hub.js';
 import { createDropCopyWebSocketGateway, DROP_COPY_STREAM_PATH, type DropCopyWebSocketGateway } from './gateway.js';
-import { recoveryCodeOpensRecoveredDropCopyStream } from './recovery-open-recovered-stream.js';
+import { hashRecoveryCode, recoveryCodeOpensRecoveredDropCopyStream } from './recovery-open-recovered-stream.js';
 
 const SECRET = 'test-access-secret-at-least-32-chars!!';
 const USER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -60,6 +61,7 @@ describe('drop-copy stream opens on the recovered session after a recovery redee
     if (!addr || typeof addr === 'string') throw new Error('no port');
     const log = { info: () => undefined, warn: () => undefined };
     gateway = createDropCopyWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server,
       hub,
       heartbeatMs: 30_000,
@@ -69,11 +71,6 @@ describe('drop-copy stream opens on the recovered session after a recovery redee
       liveCredential,
     });
     return { host: '127.0.0.1', port: addr.port };
-  }
-
-  async function access(): Promise<string> {
-    const issued = await issueAccessToken({ userId: USER, sessionId: KEEP, scopes: ['trade:read'] }, tokens);
-    return issued.token;
   }
 
   function upgradeStatus(host: string, port: number, path: string): Promise<number> {
@@ -102,11 +99,36 @@ describe('drop-copy stream opens on the recovered session after a recovery redee
     expect(() => recoveryCodeOpensRecoveredDropCopyStream({ code: CODE, recoveryCodeHashes: [] })).toThrow(/spent/);
   });
 
-  it('recovered session upgrades drop-copy after a remaining recovery code; not the private trading path', async () => {
-    expect(DROP_COPY_STREAM_PATH).not.toBe(PRIVATE_STREAM_PATH);
-    recoveryCodeOpensRecoveredDropCopyStream({ code: CODE, recoveryCodeHashes: ['h'] });
+  it('a wrong recovery code does not open or authorize the recovered drop-copy stream', async () => {
     const { host, port } = await boot(recoveredPort());
-    const token = await access();
-    expect(await upgradeStatus(host, port, `${DROP_COPY_STREAM_PATH}?access_token=${token}`)).toBe(101);
+    let accessToken: string | undefined;
+    try {
+      const opened = await recoveryCodeOpensRecoveredDropCopyStream({
+        code: 'WRONG-CODE',
+        recoveryCodeHashes: [hashRecoveryCode(CODE)],
+        recoveredSessionId: KEEP,
+        userId: USER,
+        tokens,
+      });
+      accessToken = opened.accessToken;
+    } catch (err) {
+      expect(err).toMatchObject({ code: 'auth.recovery_invalid' });
+    }
+    const path = accessToken ? `${DROP_COPY_STREAM_PATH}?access_token=${accessToken}` : DROP_COPY_STREAM_PATH;
+    expect(await upgradeStatus(host, port, path)).toBe(401);
+  });
+
+  it('recovered session upgrades drop-copy after a matching recovery code; not the private trading path', async () => {
+    expect(DROP_COPY_STREAM_PATH).not.toBe(PRIVATE_STREAM_PATH);
+    const opened = await recoveryCodeOpensRecoveredDropCopyStream({
+      code: CODE,
+      recoveryCodeHashes: [hashRecoveryCode(CODE)],
+      recoveredSessionId: KEEP,
+      userId: USER,
+      tokens,
+    });
+    expect(opened.sessionId).toBe(KEEP);
+    const { host, port } = await boot(recoveredPort());
+    expect(await upgradeStatus(host, port, `${DROP_COPY_STREAM_PATH}?access_token=${opened.accessToken}`)).toBe(101);
   });
 });

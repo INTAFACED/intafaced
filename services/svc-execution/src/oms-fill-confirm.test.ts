@@ -5,6 +5,7 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafa
 import { SealedHouseTenantRegistry } from '@intafaced/execution-house-tenant';
 import type { VenueExecution } from '@intafaced/venue-adapter';
 import { InMemoryEmsOrderStore } from './oms-ems-store.js';
+import { assignChildFill, InMemoryFillAssignStore } from './oms-fill-assign.js';
 import { confirmChildFill, InMemoryFillConfirmStore, readChildFillConfirmation } from './oms-fill-confirm.js';
 import { InMemoryApprovedAlgoParentStore, type ApprovedAlgoParent, type RetainedAlgoSchedule } from './oms-start.js';
 import { createExecutionRouter } from './router.js';
@@ -248,6 +249,80 @@ describe('confirmChildFill', () => {
       }),
     ).toMatchObject({ ok: false, reason: 'missing_fill' });
     expect(fillConfirmStore.get('ghost')).toBeNull();
+  });
+
+  it('a zero or negative filled amount or average price is not a child fill and stays off the trail', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(live({ parentClientOrderId: 'parent-twap', kind: 'twap' }));
+    const emsStore = new InMemoryEmsOrderStore();
+    const fillConfirmStore = new InMemoryFillConfirmStore();
+    const fillAssignStore = new InMemoryFillAssignStore();
+    const bad = [
+      { id: 'zero-qty', execution: execution({ filledAmount: ZERO, status: 'filled' }) },
+      { id: 'zero-px', execution: execution({ averagePrice: ZERO, status: 'filled' }) },
+      { id: 'neg-qty', execution: execution({ filledAmount: parseAmount('-0.5'), status: 'partial' }) },
+      { id: 'neg-px', execution: execution({ averagePrice: parseAmount('-100'), status: 'partial' }) },
+    ];
+    for (const row of bad) {
+      seedFill(emsStore, { clientOrderId: row.id, execution: row.execution });
+      expect(
+        confirmChildFill({
+          parentClientOrderId: 'parent-twap',
+          clientOrderId: row.id,
+          confirmerId: OP,
+          parentStore,
+          emsStore,
+          fillConfirmStore,
+        }),
+      ).toMatchObject({ ok: false, reason: 'missing_fill' });
+      expect(
+        readChildFillConfirmation({
+          parentClientOrderId: 'parent-twap',
+          clientOrderId: row.id,
+          parentStore,
+          emsStore,
+          fillConfirmStore,
+        }),
+      ).toMatchObject({ ok: false, reason: 'missing_fill' });
+      expect(
+        assignChildFill({
+          parentClientOrderId: 'parent-twap',
+          clientOrderId: row.id,
+          accountTag: 'client-alpha',
+          operatorId: OP,
+          parentStore,
+          emsStore,
+          fillAssignStore,
+        }),
+      ).toMatchObject({ ok: false, reason: 'missing_fill' });
+      expect(fillConfirmStore.get(row.id)).toBeNull();
+      expect(fillAssignStore.trail(row.id)).toEqual([]);
+    }
+
+    seedFill(emsStore, {
+      clientOrderId: 'child-partial',
+      execution: execution({
+        filledAmount: parseAmount('0.25'),
+        averagePrice: parseAmount('50'),
+        status: 'partial',
+      }),
+    });
+    expect(
+      confirmChildFill({
+        parentClientOrderId: 'parent-twap',
+        clientOrderId: 'child-partial',
+        confirmerId: OP,
+        parentStore,
+        emsStore,
+        fillConfirmStore,
+        now: new Date('2026-08-25T12:00:00.000Z'),
+      }),
+    ).toMatchObject({
+      ok: true,
+      confirmed: true,
+      clientAccepted: true,
+      fill: { filledAmount: '0.25', averagePrice: '50', status: 'partial' },
+    });
   });
 
   it('double-confirm refuses — trail is irreversible', () => {

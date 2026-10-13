@@ -62,12 +62,14 @@ describe('amendRemainingPaperImplementationShortfallParent', () => {
       remaining: '5',
       paper: PAPER_ON,
     };
-    expect(
-      amendRemainingPaperImplementationShortfallParent({ ...base, status: 'running' }),
-    ).toMatchObject({ ok: false, reason: 'not_live' });
-    expect(
-      amendRemainingPaperImplementationShortfallParent({ ...base, status: 'approved' }),
-    ).toMatchObject({ ok: false, reason: 'not_live' });
+    expect(amendRemainingPaperImplementationShortfallParent({ ...base, status: 'running' })).toMatchObject({
+      ok: false,
+      reason: 'not_live',
+    });
+    expect(amendRemainingPaperImplementationShortfallParent({ ...base, status: 'approved' })).toMatchObject({
+      ok: false,
+      reason: 'not_live',
+    });
     expect(amendRemainingPaperImplementationShortfallParent(base)).toMatchObject({
       ok: false,
       reason: 'not_live',
@@ -85,15 +87,18 @@ describe('amendRemainingPaperImplementationShortfallParent', () => {
       ok: false,
       reason: 'remaining_blank',
     });
-    expect(
-      amendRemainingPaperImplementationShortfallParent({ ...base, remaining: null }),
-    ).toMatchObject({ ok: false, reason: 'remaining_blank' });
-    expect(
-      amendRemainingPaperImplementationShortfallParent({ ...base, remaining: '' }),
-    ).toMatchObject({ ok: false, reason: 'remaining_blank' });
-    expect(
-      amendRemainingPaperImplementationShortfallParent({ ...base, remaining: '   ' }),
-    ).toMatchObject({ ok: false, reason: 'remaining_blank' });
+    expect(amendRemainingPaperImplementationShortfallParent({ ...base, remaining: null })).toMatchObject({
+      ok: false,
+      reason: 'remaining_blank',
+    });
+    expect(amendRemainingPaperImplementationShortfallParent({ ...base, remaining: '' })).toMatchObject({
+      ok: false,
+      reason: 'remaining_blank',
+    });
+    expect(amendRemainingPaperImplementationShortfallParent({ ...base, remaining: '   ' })).toMatchObject({
+      ok: false,
+      reason: 'remaining_blank',
+    });
   });
 
   it("refuses 'nope' with remaining_invalid", () => {

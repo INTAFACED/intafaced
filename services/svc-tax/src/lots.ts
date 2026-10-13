@@ -91,7 +91,8 @@ function moneyOrNull(value: Amount | null): string | null {
 /**
  * Lot-match acquire/dispose movements.
  * Missing cost basis is never 0 and never a FIFO/LIFO/HIFO pairing — residual, lots stay open.
- * Aggregate realized/unrealized are null unless every matched lot has a basis.
+ * Aggregate realized is null unless every matched lot has a basis.
+ * Unrealized stays null: LotMovement has no market price, so open cost is not PnL.
  */
 export function runLots(movements: readonly LotMovement[], method: LotMethod): LotRun {
   const byAsset = new Map<string, LotMovement[]>();
@@ -106,9 +107,7 @@ export function runLots(movements: readonly LotMovement[], method: LotMethod): L
   const lotsOpen: OpenLot[] = [];
   const residuals = new Set<string>();
   let realizedSum: Amount | null = 0n;
-  let unrealizedSum: Amount | null = 0n;
   let anyClosed = false;
-  let anyOpen = false;
 
   for (const [, list] of byAsset) {
     list.sort((a, b) => a.postedAt.getTime() - b.postedAt.getTime() || a.txId.localeCompare(b.txId));
@@ -184,13 +183,7 @@ export function runLots(movements: readonly LotMovement[], method: LotMethod): L
     }
 
     for (const lot of open) {
-      anyOpen = true;
-      if (lot.costBasis === null) {
-        residuals.add(TAX_COST_BASIS_UNAVAILABLE);
-        unrealizedSum = null;
-      } else if (unrealizedSum !== null) {
-        unrealizedSum += lot.costBasis;
-      }
+      if (lot.costBasis === null) residuals.add(TAX_COST_BASIS_UNAVAILABLE);
       lotsOpen.push({
         assetId: lot.assetId,
         qtyRemaining: formatAmount(lot.qtyRemaining),
@@ -205,7 +198,7 @@ export function runLots(movements: readonly LotMovement[], method: LotMethod): L
     lotsClosed,
     lotsOpen,
     realized: anyClosed ? moneyOrNull(realizedSum) : null,
-    unrealized: anyOpen ? moneyOrNull(unrealizedSum) : null,
+    unrealized: null,
     residuals: [...residuals].sort(),
   };
 }

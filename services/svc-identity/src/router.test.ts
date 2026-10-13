@@ -1633,6 +1633,19 @@ describe('kyc document procedures — meta only, no free cross-user bytes', () =
     expect(await store.listMetaForUser(DOC_USER, 200)).toEqual([]);
   });
 
+  it.each(['eA==!', 'eA', 'eA===', 'e A==', 'eB=='])(
+    'storeDocument rejects noncanonical base64 %s before storing bytes',
+    async (bytesBase64) => {
+      const { r, store } = vaultRouter();
+      const op = r.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: true }));
+      const result = await op.kyc
+        .storeDocument({ userId: DOC_USER, contentType: 'image/png', bytesBase64, ...kycDual })
+        .catch((error: unknown) => error);
+      expect(codeOf(result)).toBe('BAD_REQUEST');
+      expect(await store.listMetaForUser(DOC_USER, 200)).toEqual([]);
+    },
+  );
+
   it('listDocuments is compliance-only and never includes foreign users or bytes', async () => {
     const { r, store } = vaultRouter();
     await store.put({ userId: DOC_USER, contentType: 'image/png', bytes: Buffer.from('a') });

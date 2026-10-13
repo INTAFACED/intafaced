@@ -9,12 +9,16 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./schemas": {
+      "types": "./dist/schemas.d.ts",
+      "default": "./dist/schemas.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
-    "test": "vitest run",
+    "test": "tsc -p tsconfig.json && vitest run",
     "test:watch": "vitest",
     "clean": "rimraf dist .turbo"
   },

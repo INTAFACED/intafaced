@@ -108,6 +108,12 @@ function remember(engine: MatchingEngine, order: EngineOrder): void {
   seenOf(engine).add(domainKey(order, clientOrderId));
 }
 
+function forget(engine: MatchingEngine, order: EngineOrder): void {
+  const clientOrderId = readClientOrderId(order);
+  if (clientOrderId === null) return;
+  seenOf(engine).delete(domainKey(order, clientOrderId));
+}
+
 function alreadySeen(engine: MatchingEngine, order: EngineOrder): boolean {
   const clientOrderId = readClientOrderId(order);
   if (clientOrderId === null) return false;
@@ -140,8 +146,13 @@ export function installCoreTif(ctor: typeof MatchingEngine = MatchingEngine): vo
   proto.submit = async function (this: MatchingEngine, marketId: MarketId, order: EngineOrder, proof?: unknown) {
     if (tifIsMissing(order)) return tifMissingResult();
     if (alreadySeen(this, order)) return clientOrderIdReuseResult();
+    // Claim before origSubmit. It accepts onto the book, then yields at emit.
+    remember(this, order);
+    // A thrown publication may follow a durable fill. Keep the claim when
+    // the outcome is unknown; only a returned no-effect refusal releases it.
     const result = await origSubmit.call(this, marketId, order, proof);
-    if (result.accepted) remember(this, order);
+    if (!result.accepted && result.fills.length === 0 && result.resting === null && result.triggered.every((row) => row.fills.length === 0))
+      forget(this, order);
     return result;
   };
 

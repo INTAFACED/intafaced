@@ -93,6 +93,13 @@ export function isInventedCompleteEmptyDropCopy(frame: string): boolean {
   }
 }
 
+/** Fill money on the wire: optional sign, digits, at most 18 fractional places. A JSON number is not money. */
+const WIRE_DECIMAL = /^-?\d+(\.\d{1,18})?$/;
+
+function isWireDecimal(value: unknown): value is string {
+  return typeof value === 'string' && WIRE_DECIMAL.test(value);
+}
+
 export function encodeDropCopyExecutionFrame(execution: DropCopyExecution): string {
   return JSON.stringify({
     channel: DROP_COPY_CHANNEL,
@@ -270,6 +277,8 @@ export class DropCopyHub {
 
   /**
    * Fan one settled fill. Invents nothing: no fillId → refused.
+   * Blank or non-decimal price, qty, fee, or quote is refused before sequence,
+   * snapshot, and fan-out. A JSON number is not copied onto the execution.
    * Sequence is this hub's domain, independent of matching `fill.sequence`
    * and of the private fills channel.
    */
@@ -279,7 +288,11 @@ export class DropCopyHub {
       this.#log.warn({ userId: input.userId }, 'ws-drop-copy: refused execution without fillId');
       return null;
     }
-    if (typeof input.price !== 'string' || typeof input.qty !== 'string' || typeof input.feeAmount !== 'string') {
+    const price = input.price;
+    const qty = input.qty;
+    const quoteAmount = input.quoteAmount;
+    const feeAmount = input.feeAmount;
+    if (!isWireDecimal(price) || !isWireDecimal(qty) || !isWireDecimal(quoteAmount) || !isWireDecimal(feeAmount)) {
       this.#log.warn({ userId: input.userId, fillId: input.fillId }, 'ws-drop-copy: refused non-decimal money fields');
       return null;
     }
@@ -294,7 +307,7 @@ export class DropCopyHub {
 
     const dropCopySeq = (this.#seq.get(input.userId) ?? 0) + 1;
     this.#seq.set(input.userId, dropCopySeq);
-    const execution: DropCopyExecution = { ...input, dropCopySeq };
+    const execution: DropCopyExecution = { ...input, price, qty, quoteAmount, feeAmount, dropCopySeq };
     this.#remember(execution);
     this.#executions++;
 
@@ -306,6 +319,7 @@ export class DropCopyHub {
         continue;
       }
       if (isPublishedHighWaterBytes(this.#options.highWaterBytes) && sub.sink.bufferedBytes > this.#options.highWaterBytes) {
+        sub.gapped = true;
         this.#noteLag(sub);
         continue;
       }
@@ -324,9 +338,13 @@ export class DropCopyHub {
       if (sub.closed) continue;
       if (isPublishedHighWaterBytes(this.#options.highWaterBytes) && sub.sink.bufferedBytes > this.#options.highWaterBytes) {
         this.#noteLag(sub);
-      } else {
-        sub.lagTicks = 0;
+        continue;
       }
+      if (sub.gapped) {
+        sub.gapped = false;
+        this.#write(sub, this.#statusFrame(sub.userId, DROP_COPY_GAP));
+      }
+      sub.lagTicks = 0;
     }
   }
 
@@ -386,14 +404,26 @@ export class DropCopyHub {
     if (!isPublishedDropCopyRecentLimit(limit) || limit <= 0) return;
     const ring = this.#recent.get(execution.userId) ?? [];
     ring.push(execution);
-    if (ring.length > limit) ring.splice(0, ring.length - limit);
+    if (ring.length > limit) {
+      const dropped = ring.splice(0, ring.length - limit);
+      this.#forgetTrimmedFills(execution.userId, dropped);
+    }
     this.#recent.set(execution.userId, ring);
+  }
+
+  /** Dedupe follows the positive replay ring, including while no seat is attached. */
+  #forgetTrimmedFills(userId: string, dropped: readonly DropCopyExecution[]): void {
+    const seen = this.#seenFill.get(userId);
+    if (!seen) return;
+    for (const row of dropped) seen.delete(row.fillId);
   }
 
   #forgetIdleUser(userId: string): void {
     for (const s of this.#subscriptions) {
       if (!s.closed && s.userId === userId) return;
     }
+    // Session replay and its fill IDs are process-local. The issued sequence
+    // stays, but reconnect must not advertise a durable or complete tape.
     this.#recent.delete(userId);
     this.#seenFill.delete(userId);
   }
@@ -414,7 +444,6 @@ export class DropCopyHub {
 
   #noteLag(sub: Subscription): void {
     sub.lagTicks++;
-    sub.gapped = true;
     this.#droppedFrames++;
     if (!isPublishedMaxLagTicks(this.#options.maxLagTicks) || sub.lagTicks < this.#options.maxLagTicks) return;
     this.#evictions++;

@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  assertKeyNotExpired,
-  keyPastExpiresAt,
-  optionalExpiresAt,
-  requireNow,
-  KeyExpiresError,
-} from './key-expires.js';
+import { assertKeyNotExpired, keyPastExpiresAt, optionalExpiresAt, requireNow, KeyExpiresError } from './key-expires.js';
 
 const PAST = new Date('2020-01-01T00:00:00.000Z');
 const FUTURE = new Date('2099-01-01T00:00:00.000Z');

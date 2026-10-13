@@ -90,6 +90,22 @@ function toSchedule(row: ScheduleRow): ScheduleRecord {
   };
 }
 
+/**
+ * A same-id retry is the same standing order only when the window matches.
+ *
+ * `startsAt` anchors every occurrence. `endsAt` is the last instant that may
+ * still fire (NULL means until cancelled). An omitted end and a stored NULL
+ * are the same instruction — the insert writes NULL for both. A different
+ * instant is a different order: accepting it would leave the stored row
+ * firing on the first set of dates, or past an end the retry tried to set.
+ */
+function sameScheduleWindow(storedStartsAt: Date, storedEndsAt: Date | null, startsAt: Date, endsAt: Date | null | undefined): boolean {
+  if (storedStartsAt.getTime() !== startsAt.getTime()) return false;
+  const requestedEnd = endsAt ?? null;
+  if (storedEndsAt === null || requestedEnd === null) return storedEndsAt === requestedEnd;
+  return storedEndsAt.getTime() === requestedEnd.getTime();
+}
+
 export type FiringOutcome = 'settled' | 'rejected' | 'already-fired' | 'stopped';
 
 /**
@@ -330,7 +346,8 @@ export class TransferService {
       row.from_space_id !== input.fromSpaceId ||
       row.to_space_id !== input.toSpaceId ||
       parseAmount(row.amount) !== input.amount ||
-      row.cadence !== input.cadence
+      row.cadence !== input.cadence ||
+      !sameScheduleWindow(row.starts_at, row.ends_at, input.startsAt, input.endsAt)
     ) {
       throw new BankError(
         `Schedule ${scheduleId} already exists on different terms — a retry must carry the same instruction`,

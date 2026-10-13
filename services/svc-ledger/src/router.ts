@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Principal } from '@intafaced/auth';
 import { router, publicProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
 import {
   formatAmount,
@@ -11,6 +12,7 @@ import {
   UnbalancedTransactionError,
   InvalidEntryError,
   type EntryInput,
+  type OwnerType,
 } from '@intafaced/ledger-client';
 import { composePortfolioView, portfolioViewSchema } from '@intafaced/portfolio-view';
 import { DualControlError } from './ledger/dual-control.js';
@@ -21,7 +23,8 @@ import {
   readApprovalIds,
   unwiredApprovalConsumer,
 } from './ledger/action-approval-consume.js';
-import { parseHistoryDoorInput, parseHistoryRange } from './ledger/history.js';
+import { parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
+import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
 import { statementPnlFromThisBook, statementPnlInputSchema, statementPnlResultSchema } from './ledger/statement-pnl.js';
 import type { LedgerService } from './service.js';
 import { userCopy } from './user-copy.js';
@@ -55,15 +58,16 @@ function toTrpcError(err: unknown): TRPCError {
   if (err instanceof LedgerError && err.code === 'ledger.freeze_attributed') {
     return new TRPCError({ code: 'CONFLICT', message: userCopy(err.code), cause: err });
   }
-  // The window as asked cannot be answered, and retrying it unchanged never
-  // will be. Same status as `s2s-http.httpError` gives these two, so the mounted
-  // route and its twin cannot tell a caller different things about one refusal.
-  // Cap / range copy stays on the error — it is caller-actionable, not catalog.
+  // Caller-actionable, and retrying the same body never will succeed. Same
+  // status as `s2s-http.httpError`: a history window that cannot be answered,
+  // and an assembled body that is not a recipe. Copy stays on the error.
   if (
     err instanceof LedgerError &&
     (err.code === 'ledger.history_range_invalid' ||
       err.code === 'ledger.history_range_too_large' ||
-      err.code === 'ledger.history_page_socket')
+      err.code === 'ledger.history_page_socket' ||
+      err.code === 'ledger.history_cursor_invalid' ||
+      err.code === RECIPE_REQUIRED_CODE)
   ) {
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
@@ -71,6 +75,17 @@ function toTrpcError(err: unknown): TRPCError {
     return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: userCopy(err.code), cause: err });
   }
   return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: userCopy('error.generic'), cause: err });
+}
+
+/**
+ * A ledger:read principal reads an owner it holds: its user id, or the
+ * sub-account id when the token carries that sub-account. Module, house, and
+ * treasury owners are platform pots and stay on the service door.
+ */
+function assertPrincipalHoldsOwner(principal: Principal, ownerType: OwnerType, ownerId: string): void {
+  const held = (ownerType === 'user' && principal.userId === ownerId) || (ownerType === 'subaccount' && principal.sub_account === ownerId);
+  if (held) return;
+  throw new TRPCError({ code: 'FORBIDDEN', message: userCopy('error.forbidden') });
 }
 
 const balanceOutput = z.object({
@@ -123,13 +138,16 @@ export function createLedgerRouter(
       .input(postRequestSchema)
       .output(z.object({ txId: z.string(), hash: z.string(), postedAt: z.string() }))
       .mutation(async ({ input }) => {
-        const entries: EntryInput[] = input.entries.map((e) => ({
-          account: e.account,
-          direction: e.direction,
-          amount: parseAmount(e.amount),
-        }));
-
         try {
+          // Same gate as the mounted s2s door. An assembled body is not a
+          // recipe, and this mutation is the same post — refuse it before
+          // value moves.
+          assertKnownRecipePost(input);
+          const entries: EntryInput[] = input.entries.map((e) => ({
+            account: e.account,
+            direction: e.direction,
+            amount: parseAmount(e.amount),
+          }));
           const tx = await ledger.post({
             idempotencyKey: input.idempotencyKey,
             module: input.module,
@@ -147,7 +165,8 @@ export function createLedgerRouter(
     balance: scopedProcedure('ledger:read')
       .input(accountRefSchema)
       .output(balanceOutput)
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        assertPrincipalHoldsOwner(ctx.principal, input.ownerType, input.ownerId);
         const balance = await ledger.balance(input);
         return {
           accountId: balance.accountId,
@@ -162,10 +181,7 @@ export function createLedgerRouter(
       .input(z.object({ ownerType: z.enum(['user', 'subaccount', 'module', 'house', 'treasury']), ownerId: z.string() }))
       .output(z.array(balanceOutput))
       .query(async ({ ctx, input }) => {
-        // A principal may only read its own balances, whatever its scopes say.
-        if (input.ownerType === 'user' && ctx.principal.userId !== input.ownerId) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: userCopy('error.forbidden') });
-        }
+        assertPrincipalHoldsOwner(ctx.principal, input.ownerType, input.ownerId);
 
         const balances = await ledger.balances(input.ownerType, input.ownerId);
         return balances.map((b) => ({
@@ -197,9 +213,7 @@ export function createLedgerRouter(
       )
       .output(portfolioViewSchema)
       .query(async ({ ctx, input }) => {
-        if (input.ownerType === 'user' && ctx.principal.userId !== input.ownerId) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'This account belongs to another user' });
-        }
+        assertPrincipalHoldsOwner(ctx.principal, input.ownerType, input.ownerId);
 
         const balances = await ledger.balances(input.ownerType, input.ownerId);
         return composePortfolioView({
@@ -223,9 +237,7 @@ export function createLedgerRouter(
       .input(statementPnlInputSchema)
       .output(statementPnlResultSchema)
       .query(async ({ ctx, input }) => {
-        if (input.ownerType === 'user' && ctx.principal.userId !== input.ownerId) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: userCopy('error.forbidden') });
-        }
+        assertPrincipalHoldsOwner(ctx.principal, input.ownerType, input.ownerId);
         return statementPnlFromThisBook(input);
       }),
 
@@ -290,6 +302,40 @@ export function createLedgerRouter(
             amount: formatAmount(e.amount),
             postedAt: e.postedAt.toISOString(),
           }));
+        } catch (err) {
+          throw toTrpcError(err);
+        }
+      }),
+
+    /**
+     * One page of entry history, newest first (U5a). Sibling of `history`, which
+     * is unchanged. Same `serviceProcedure` guard and the same reasoning: the
+     * account scope comes from this input, which only a service can send, and
+     * the cursor is a position inside that scope, never an account. Served,
+     * like `history`, through `registerS2sHttp` (`/trpc/historyPage`).
+     */
+    historyPage: serviceProcedure
+      .input(z.unknown())
+      .output(
+        z.object({
+          entries: z.array(
+            z.object({
+              txId: z.string(),
+              module: z.string(),
+              reason: z.string(),
+              direction: z.enum(['debit', 'credit']),
+              /** Decimal string. Money never crosses as a `number`. */
+              amount: z.string(),
+              postedAt: z.string(),
+              assetId: z.string(),
+            }),
+          ),
+          nextCursor: z.string().nullable(),
+        }),
+      )
+      .query(async ({ input }) => {
+        try {
+          return serializeHistoryPage(await ledger.historyPage(parseHistoryPageInput(input)));
         } catch (err) {
           throw toTrpcError(err);
         }

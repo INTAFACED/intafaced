@@ -234,18 +234,41 @@ export interface VenueCredentials {
   readonly scopes: readonly string[];
 }
 
-/** Scopes that make a key unacceptable to hold, whatever else it can do. */
-const FORBIDDEN_SCOPES = ['withdraw', 'withdrawal', 'withdrawals', 'transfer', 'universal-transfer'];
+/**
+ * `_` and `-` fold away, so `universal_transfer` and `universal-transfer` are
+ * one token. A blank fold is not a scope.
+ */
+function foldedScope(scope: string): string {
+  return scope.trim().toLowerCase().replace(/[_-]+/g, '');
+}
+
+/** After the fold, a scope means withdraw or transfer when either stem is in it. `transfers` contains `transfer`. */
+function scopeMovesFunds(scope: string): boolean {
+  const folded = foldedScope(scope);
+  return folded.includes('withdraw') || folded.includes('transfer');
+}
 
 /**
  * Refuse a key that can move funds out of the user's venue account.
  *
  * Called at LOAD time, not at use time. A key we never accepted cannot be
  * misused by a bug we have not written yet — and by the time a withdrawal call
- * is on the stack, the safe moment has passed.
+ * is on the stack, the safe moment has passed. An empty list, or a list of
+ * blank scopes, is not trade-only: there is nothing to show the key cannot
+ * withdraw.
  */
 export function assertTradeOnly(credentials: VenueCredentials): void {
-  const refused = credentials.scopes.filter((scope) => FORBIDDEN_SCOPES.includes(scope.trim().toLowerCase()));
+  const scopes = credentials.scopes;
+  const blank = scopes.length === 0 || scopes.every((scope) => foldedScope(scope) === '');
+  if (blank) {
+    throw new VenueCredentialScopeError(
+      credentials.venueId,
+      scopes,
+      `${credentials.venueId}: refusing a key with no scopes — ` +
+        'connect keys must be trade-only (§27 Venue Vault). Re-issue the key without withdrawal rights.',
+    );
+  }
+  const refused = scopes.filter(scopeMovesFunds);
   if (refused.length > 0) {
     throw new VenueCredentialScopeError(
       credentials.venueId,

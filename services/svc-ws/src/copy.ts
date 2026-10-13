@@ -13,6 +13,7 @@ const translator = createTranslator('en', undefined, { mode: 'prod', onMissing: 
 
 export const WS_COPY = {
   unknownMarket: 'ws.close.unknown_market',
+  tradesUnavailable: 'ws.close.trades_unavailable',
   atCapacity: 'ws.close.at_capacity',
   maxConnectionsUnset: 'ws.close.max_connections_unset',
   depthLimitUnset: 'ws.close.depth_limit_unset',

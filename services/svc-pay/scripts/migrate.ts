@@ -25,42 +25,47 @@ const url = process.env.DATABASE_URL ?? 'postgres://svc_pay:svc_pay@localhost:54
 const sql = postgres(url, { max: 1, onnotice: () => undefined });
 
 async function main() {
-  // The schema comes from the database bootstrap, not from here — this role has
-  // no database-level CREATE, by design.
-  await sql`
+  // The journal and its schema changes must commit together. Competing boots
+  // serialize here; a failed DDL statement leaves no partially-applied receipt.
+  await sql.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext('pay.schema_migrations'))`;
+    // The schema comes from the database bootstrap, not from here — this role has
+    // no database-level CREATE, by design.
+    await tx`
     CREATE TABLE IF NOT EXISTS pay.__migrations (
       name       text PRIMARY KEY,
       applied_at timestamptz NOT NULL DEFAULT now()
     )
   `;
 
-  const all = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql'));
-  const ups = all.filter((f) => !f.endsWith('.down.sql')).sort();
+    const all = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql'));
+    const ups = all.filter((f) => !f.endsWith('.down.sql')).sort();
+    const applied = new Set((await tx<Array<{ name: string }>>`SELECT name FROM pay.__migrations`).map((r) => r.name));
 
-  if (down) {
-    for (const up of [...ups].reverse()) {
-      const downFile = up.replace(/\.sql$/, '.down.sql');
-      console.log(`↓ ${downFile}`);
-      await sql.unsafe(readFileSync(join(migrationsDir, downFile), 'utf8'));
-      await sql`DELETE FROM pay.__migrations WHERE name = ${up}`;
+    if (down) {
+      for (const up of [...ups].reverse()) {
+        if (!applied.has(up)) continue;
+        const downFile = up.replace(/\.sql$/, '.down.sql');
+        console.log(`↓ ${downFile}`);
+        await tx.unsafe(readFileSync(join(migrationsDir, downFile), 'utf8'));
+        await tx`DELETE FROM pay.__migrations WHERE name = ${up}`;
+      }
+      console.log('✓ reversed');
+      return;
     }
-    console.log('✓ reversed');
-    return;
-  }
 
-  const applied = new Set((await sql<Array<{ name: string }>>`SELECT name FROM pay.__migrations`).map((r) => r.name));
-
-  for (const file of ups) {
-    if (applied.has(file)) {
-      console.log(`· ${file} (already applied)`);
-      continue;
+    for (const file of ups) {
+      if (applied.has(file)) {
+        console.log(`· ${file} (already applied)`);
+        continue;
+      }
+      console.log(`↑ ${file}`);
+      await tx.unsafe(readFileSync(join(migrationsDir, file), 'utf8'));
+      await tx`INSERT INTO pay.__migrations (name) VALUES (${file})`;
     }
-    console.log(`↑ ${file}`);
-    await sql.unsafe(readFileSync(join(migrationsDir, file), 'utf8'));
-    await sql`INSERT INTO pay.__migrations (name) VALUES (${file})`;
-  }
 
-  console.log('✓ migrations up to date');
+    console.log('✓ migrations up to date');
+  });
 }
 
 try {

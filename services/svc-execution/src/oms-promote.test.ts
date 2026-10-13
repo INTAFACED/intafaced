@@ -57,6 +57,22 @@ function retainedPov(): RetainedAlgoSchedule {
   return { durationMs: 90_000, sliceIntervalMs: 5_000, slicesPlanned: 18, participationBps: 150 };
 }
 
+function nullPromoteStore(initial: ApprovedAlgoParent, after: ApprovedAlgoParent | null): ApprovedAlgoParentStore {
+  let row: ApprovedAlgoParent | null = initial;
+  return {
+    get: () => row,
+    approve: (parent) => parent,
+    start: () => null,
+    stop: () => null,
+    undeploy: () => null,
+    expire: () => null,
+    promote: () => {
+      row = after;
+      return null;
+    },
+  };
+}
+
 function paper(
   over: Partial<ApprovedAlgoParent> &
     Pick<ApprovedAlgoParent, 'parentClientOrderId' | 'kind'> & {
@@ -131,6 +147,128 @@ describe('promotePaperParentToLive', () => {
     expect(parentStore.get('parent-twap')?.residual?.released).toBeUndefined();
     expect(parentStore.get('parent-vwap')?.status).toBe('approved');
     expect(parentStore.get('parent-pov')?.status).toBe('approved');
+  });
+
+  it('a paper parent whose leftover still parses is promote_rejected when the store returns null', () => {
+    const row = paper({
+      parentClientOrderId: 'parent-twap',
+      kind: 'twap',
+      residual: { remaining: '1.25' },
+    });
+    const parentStore: ApprovedAlgoParentStore = {
+      get: () => row,
+      approve: (parent) => parent,
+      start: () => null,
+      stop: () => null,
+      undeploy: () => null,
+      expire: () => null,
+      promote: () => null,
+    };
+    const out = promotePaperParentToLive({ parentClientOrderId: 'parent-twap', parentStore });
+    expect(out).toMatchObject({ ok: false, reason: 'promote_rejected' });
+    if (out.ok) return;
+    expect(out.detail).toContain('the store did not promote this parent');
+    expect(out.detail).not.toMatch(/missing/i);
+    expect(parentStore.get('parent-twap')?.status).toBe('paper');
+    expect(parentStore.get('parent-twap')?.residual?.remaining).toBe('1.25');
+  });
+
+  it('a null promote is not_found when the second read finds no parent', () => {
+    const row = paper({
+      parentClientOrderId: 'parent-gone',
+      kind: 'twap',
+      residual: { remaining: '1.25' },
+    });
+    const parentStore = nullPromoteStore(row, null);
+    const out = promotePaperParentToLive({ parentClientOrderId: 'parent-gone', parentStore });
+    expect(out).toMatchObject({
+      ok: false,
+      reason: 'not_found',
+      detail: 'no approved algo parent for parent-gone',
+    });
+  });
+
+  it('a null promote is not_paper when the second read is no longer paper', () => {
+    const row = paper({
+      parentClientOrderId: 'parent-live',
+      kind: 'twap',
+      residual: { remaining: '1.25' },
+    });
+    const parentStore = nullPromoteStore(row, { ...row, status: 'approved' });
+    const out = promotePaperParentToLive({ parentClientOrderId: 'parent-live', parentStore });
+    expect(out).toMatchObject({
+      ok: false,
+      reason: 'not_paper',
+      detail: 'parent parent-live is approved — promote needs an already paper parent',
+    });
+    expect(parentStore.get('parent-live')?.status).toBe('approved');
+    expect(parentStore.get('parent-live')?.residual?.remaining).toBe('1.25');
+  });
+
+  it('a null promote is missing_residual when the second read has no parseable leftover', () => {
+    const blank = paper({
+      parentClientOrderId: 'parent-blank',
+      kind: 'twap',
+      residual: { remaining: '1.25' },
+    });
+    const released = paper({
+      parentClientOrderId: 'parent-released',
+      kind: 'pov',
+      residual: { remaining: '1.25' },
+    });
+    const invalid = paper({
+      parentClientOrderId: 'parent-bad',
+      kind: 'vwap',
+      residual: { remaining: '1.25' },
+    });
+    expect(
+      promotePaperParentToLive({
+        parentClientOrderId: 'parent-blank',
+        parentStore: nullPromoteStore(blank, { ...blank, residual: { remaining: '   ' } }),
+      }),
+    ).toMatchObject({ ok: false, reason: 'missing_residual' });
+    expect(
+      promotePaperParentToLive({
+        parentClientOrderId: 'parent-released',
+        parentStore: nullPromoteStore(released, { ...released, residual: { remaining: '1.25', released: true } }),
+      }),
+    ).toMatchObject({ ok: false, reason: 'missing_residual' });
+    expect(
+      promotePaperParentToLive({
+        parentClientOrderId: 'parent-bad',
+        parentStore: nullPromoteStore(invalid, { ...invalid, residual: { remaining: 'not-an-amount' } }),
+      }),
+    ).toMatchObject({ ok: false, reason: 'missing_residual' });
+  });
+
+  it('refuses a null, blank, invalid, or released leftover before promote', () => {
+    const rows = [
+      paper({ parentClientOrderId: 'parent-none', kind: 'twap' }),
+      paper({ parentClientOrderId: 'parent-null', kind: 'twap', residual: null }),
+      paper({ parentClientOrderId: 'parent-empty', kind: 'twap', residual: { remaining: '   ' } }),
+      paper({ parentClientOrderId: 'parent-bad', kind: 'twap', residual: { remaining: 'not-an-amount' } }),
+      paper({ parentClientOrderId: 'parent-released', kind: 'twap', residual: { remaining: '1.25', released: true } }),
+    ];
+    let promoteCalls = 0;
+    for (const row of rows) {
+      const parentStore: ApprovedAlgoParentStore = {
+        get: (id) => (id === row.parentClientOrderId ? row : null),
+        approve: (parent) => parent,
+        start: () => null,
+        stop: () => null,
+        undeploy: () => null,
+        expire: () => null,
+        promote: () => {
+          promoteCalls += 1;
+          return null;
+        },
+      };
+      expect(promotePaperParentToLive({ parentClientOrderId: row.parentClientOrderId, parentStore })).toMatchObject({
+        ok: false,
+        reason: 'missing_residual',
+      });
+    }
+    expect(promoteCalls).toBe(0);
   });
 
   it('store.promote returns null when residual is missing or status is not paper', () => {

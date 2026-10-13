@@ -179,7 +179,7 @@ export type ClaimResult =
   | { claimed: true; id: string; attempt: number }
   | {
       claimed: false;
-      reason: 'already_accepted' | 'terminal' | 'exhausted' | 'in_flight';
+      reason: 'already_accepted' | 'terminal' | 'exhausted' | 'in_flight' | 'receipt_pending';
       record: DeliveryRecord;
     };
 
@@ -199,6 +199,20 @@ export interface SettleInput {
   attempted: boolean;
 }
 
+/**
+ * The gateway already returned a receipt and `accepted` has not been written.
+ *
+ * `reference` is the transport's handle, or null when it gave none. Callers
+ * must pass that value through. A stand-in reference would claim a receipt
+ * the gateway did not return.
+ */
+export interface NoteReceiptInput {
+  id: string;
+  /** Ownership by attempt, same rule as `settle`. */
+  attempt: number;
+  reference: string | null;
+}
+
 export interface DeliveryStore {
   /**
    * Take exclusive ownership of the next attempt for this (notification, channel).
@@ -209,6 +223,15 @@ export interface DeliveryStore {
    * two replicas is a race that sends twice.
    */
   claim(notificationId: string, channel: ChannelId, maxAttempts: number): Promise<ClaimResult>;
+  /**
+   * Remember a receipt on the pending row without marking it accepted and
+   * without releasing the claim.
+   *
+   * `settle(accepted)` is a second write. If it throws, the row must already
+   * say the gateway took the message, or the next claim treats the gap as a
+   * crash mid-send and delivers again.
+   */
+  noteReceipt(input: NoteReceiptInput): Promise<void>;
   settle(input: SettleInput): Promise<void>;
   listForNotification(notificationId: string): Promise<DeliveryRecord[]>;
   /**
@@ -342,6 +365,12 @@ export class MemoryDeliveryStore implements DeliveryStore {
       return { claimed: false, reason: 'terminal', record: existing };
     }
 
+    // Gateway already returned a receipt. The accepted write is what is left.
+    // Reclaiming this row would deliver a second time.
+    if (existing.status === 'pending' && existing.attemptedAt != null) {
+      return { claimed: false, reason: 'receipt_pending', record: existing };
+    }
+
     // Active lease first — never abandon or reclaim under a live holder.
     if (existing.status === 'pending' && existing.leaseUntil != null && existing.leaseUntil.getTime() > now.getTime()) {
       return { claimed: false, reason: 'in_flight', record: existing };
@@ -356,11 +385,26 @@ export class MemoryDeliveryStore implements DeliveryStore {
     }
 
     // Reclaim: failed (retryable settle) or pending with expired / null lease.
+    // Clear attempted_at. It belonged to the previous attempt. Left in place,
+    // a pending row would look like a receipt already noted, and the next
+    // claim would skip a send that never happened.
     existing.attempts += 1;
     existing.status = 'pending';
+    existing.attemptedAt = null;
     existing.leaseUntil = leaseUntil;
     existing.updatedAt = now;
     return { claimed: true, id: existing.id, attempt: existing.attempts };
+  }
+
+  async noteReceipt(input: NoteReceiptInput): Promise<void> {
+    const record = this.byId.get(input.id);
+    if (!record) return;
+    if (record.attempts !== input.attempt) return;
+    if (record.status !== 'pending') return;
+    const now = this.now();
+    record.reference = input.reference;
+    if (record.attemptedAt == null) record.attemptedAt = now;
+    record.updatedAt = now;
   }
 
   async settle(input: SettleInput): Promise<void> {
@@ -427,12 +471,19 @@ export type ReapDecision =
  * attempts left but nobody is coming back to spend them.
  */
 export function reapDecision(
-  record: Pick<DeliveryRecord, 'status' | 'attempts' | 'leaseUntil' | 'updatedAt'>,
+  record: Pick<DeliveryRecord, 'status' | 'attempts' | 'leaseUntil' | 'updatedAt'> & {
+    /** Pending + set means a receipt is held and `accepted` is not written yet. */
+    readonly attemptedAt?: Date | null;
+  },
   maxAttempts: number,
   now: Date,
   stuckGraceMs: number = STUCK_PENDING_GRACE_MS,
 ): ReapDecision {
   if (record.status !== 'pending' && record.status !== 'failed') return { reaped: false };
+
+  // A receipt is already on the row and `accepted` has not been written.
+  // Abandoning it would record a transport failure for a message the gateway took.
+  if (record.status === 'pending' && record.attemptedAt != null) return { reaped: false };
 
   const nowMs = now.getTime();
   const leaseLive = record.status === 'pending' && record.leaseUntil !== null && record.leaseUntil.getTime() > nowMs;
@@ -589,16 +640,30 @@ export class PostgresDeliveryStore implements DeliveryStore {
     //
     // Lease: pending rows with a live lease_until are NOT re-owned. That is the
     // two-replica mid-send guard. Failed rows and expired leases remain reclaimable.
+    //
+    // The transaction exists so a miss and the follow-up read share one now().
+    // Date.now() ahead of Postgres would call a lease that UPDATE still treats
+    // as live a terminal miss. The bus would ack, and nothing would claim it.
     const leaseSeconds = Math.max(1, Math.ceil(this.leaseMs / 1000));
-    const claimed = await this.sql<DeliveryPgRow[]>`
+    return this.sql.begin(async (tx): Promise<ClaimResult> => {
+      const claimed = await tx<DeliveryPgRow[]>`
       INSERT INTO notify.deliveries (notification_id, channel, status, attempts, lease_until)
       VALUES (${notificationId}, ${channel}, 'pending', 1, now() + (${leaseSeconds}::text || ' seconds')::interval)
       ON CONFLICT (notification_id, channel) DO UPDATE
         SET attempts = notify.deliveries.attempts + 1,
             status = 'pending',
+            attempted_at = NULL,
             lease_until = now() + (${leaseSeconds}::text || ' seconds')::interval,
             updated_at = now()
         WHERE notify.deliveries.attempts < ${maxAttempts}
+          -- A pending row with attempted_at already holds a receipt. Reclaiming
+          -- it would deliver again. Failed rows still match: their status is
+          -- not pending. The SET clears attempted_at so a new attempt does not
+          -- inherit the previous try's timestamp.
+          AND NOT (
+            notify.deliveries.status = 'pending'
+            AND notify.deliveries.attempted_at IS NOT NULL
+          )
           AND (
             notify.deliveries.status = 'failed'
             OR (
@@ -612,16 +677,16 @@ export class PostgresDeliveryStore implements DeliveryStore {
       RETURNING id, notification_id, channel, status, attempts, attempted_at, accepted_at, lease_until, refusal_code, detail, reference, created_at, updated_at
     `;
 
-    if (claimed.length > 0) {
-      const row = fromDeliveryPg(claimed[0]!);
-      return { claimed: true, id: row.id, attempt: row.attempts };
-    }
+      if (claimed.length > 0) {
+        const row = fromDeliveryPg(claimed[0]!);
+        return { claimed: true, id: row.id, attempt: row.attempts };
+      }
 
-    // The upsert was blocked. Say precisely why, and retire a row that has run
-    // out of attempts rather than leaving it 'failed' forever, which would read
-    // as "still being retried" when nothing is retrying it.
-    // Exhausted only when nobody owns a live lease — never abandon under a holder.
-    const retired = await this.sql<DeliveryPgRow[]>`
+      // The upsert was blocked. Say precisely why, and retire a row that has run
+      // out of attempts rather than leaving it 'failed' forever, which would read
+      // as "still being retried" when nothing is retrying it.
+      // Exhausted only when nobody owns a live lease — never abandon under a holder.
+      const retired = await tx<DeliveryPgRow[]>`
       UPDATE notify.deliveries
          SET status = 'abandoned',
              refusal_code = 'channel.attempts_exhausted',
@@ -630,6 +695,7 @@ export class PostgresDeliveryStore implements DeliveryStore {
        WHERE notification_id = ${notificationId}
          AND channel = ${channel}
          AND attempts >= ${maxAttempts}
+         AND NOT (status = 'pending' AND attempted_at IS NOT NULL)
          AND (
            status = 'failed'
            OR (
@@ -639,21 +705,44 @@ export class PostgresDeliveryStore implements DeliveryStore {
          )
       RETURNING id, notification_id, channel, status, attempts, attempted_at, accepted_at, lease_until, refusal_code, detail, reference, created_at, updated_at
     `;
-    if (retired.length > 0) return { claimed: false, reason: 'exhausted', record: fromDeliveryPg(retired[0]!) };
+      if (retired.length > 0) return { claimed: false, reason: 'exhausted', record: fromDeliveryPg(retired[0]!) };
 
-    const current = await this.sql<DeliveryPgRow[]>`
-      SELECT id, notification_id, channel, status, attempts, attempted_at, accepted_at, lease_until, refusal_code, detail, reference, created_at, updated_at FROM notify.deliveries
+      const current = await tx<(DeliveryPgRow & { lease_live: boolean })[]>`
+      SELECT id, notification_id, channel, status, attempts, attempted_at, accepted_at, lease_until, refusal_code, detail, reference, created_at, updated_at,
+             (status = 'pending' AND lease_until IS NOT NULL AND lease_until > now()) AS lease_live
+        FROM notify.deliveries
        WHERE notification_id = ${notificationId} AND channel = ${channel}
        LIMIT 1
     `;
-    const record = fromDeliveryPg(current[0]!);
-    if (record.status === 'accepted') {
-      return { claimed: false, reason: 'already_accepted', record };
-    }
-    if (record.status === 'pending' && record.leaseUntil != null && record.leaseUntil.getTime() > Date.now()) {
-      return { claimed: false, reason: 'in_flight', record };
-    }
-    return { claimed: false, reason: 'terminal', record };
+      const row = current[0]!;
+      const record = fromDeliveryPg(row);
+      if (record.status === 'pending' && record.attemptedAt != null) {
+        return { claimed: false, reason: 'receipt_pending', record };
+      }
+      if (record.status === 'accepted') {
+        return { claimed: false, reason: 'already_accepted', record };
+      }
+      // Same now() as the UPDATE that missed. Not Date.now().
+      if (row.lease_live) {
+        return { claimed: false, reason: 'in_flight', record };
+      }
+      return { claimed: false, reason: 'terminal', record };
+    });
+  }
+
+  async noteReceipt(input: NoteReceiptInput): Promise<void> {
+    // Same ownership rule as settle. Status stays pending, accepted_at stays
+    // null, and the lease stays with the claim. reference is stored as given,
+    // including null when the transport returned no handle.
+    await this.sql`
+      UPDATE notify.deliveries
+         SET reference = ${input.reference},
+             attempted_at = COALESCE(attempted_at, now()),
+             updated_at = now()
+       WHERE id = ${input.id}
+         AND status = 'pending'
+         AND attempts = ${input.attempt}
+    `;
   }
 
   async settle(input: SettleInput): Promise<void> {
@@ -715,7 +804,8 @@ export class PostgresDeliveryStore implements DeliveryStore {
              END,
              lease_until = NULL,
              updated_at = now()
-       WHERE (
+       WHERE NOT (status = 'pending' AND attempted_at IS NOT NULL)
+         AND (
            -- Arm 1: attempts spent, nobody mid-send
            (
              attempts >= ${maxAttempts}

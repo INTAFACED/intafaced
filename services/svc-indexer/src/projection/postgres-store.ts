@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import {
   amountOf,
@@ -9,15 +9,16 @@ import {
   type ChainBlock,
   type TakerSide,
 } from '../chain/source.js';
-import type {
-  ApplyOutcome,
-  BookLevel,
-  BookView,
-  FillRecord,
-  PositionRecord,
-  ProjectionStore,
-  StoredBlock,
-  UnwindOutcome,
+import {
+  finalizedHeightOf,
+  type ApplyOutcome,
+  type BookLevel,
+  type BookView,
+  type FillRecord,
+  type PositionRecord,
+  type ProjectionStore,
+  type StoredBlock,
+  type UnwindOutcome,
 } from './store.js';
 
 /**
@@ -76,12 +77,9 @@ export class PostgresProjectionStore implements ProjectionStore {
   /**
    * One transaction for the block record and every event it carries.
    *
-   * Read-committed (the default) rather than serializable: this store has a
-   * single writer by construction — one ingest loop, advancing a cursor it owns
-   * — so there is no read/write skew for serializable to detect, and the retry
-   * machinery in `@intafaced/db` exists for contended money paths that this is
-   * not. Atomicity is what is needed here, and atomicity is what a plain
-   * transaction gives.
+   * Read-committed plus a transaction-scoped lock for this schema and chain.
+   * The normal ingest loop is one writer; the lock also serializes competing
+   * writers and reorg repairs so identity checks see the preceding commit.
    */
   async applyBlock(block: ChainBlock): Promise<ApplyOutcome> {
     assertValidBlock(block);
@@ -91,10 +89,28 @@ export class PostgresProjectionStore implements ProjectionStore {
     }
 
     return this.sql.begin(async (tx) => {
-      const [prior] = await tx<Array<{ status: string }>>`
-        SELECT status FROM blocks WHERE chain_id = ${this.chainId} AND hash = ${block.hash}
+      // Serialize identity checks and writes with other applies/reorg repairs.
+      // A concurrent first insert of this hash must become visible before we
+      // decide that it has no recorded height or parent.
+      await tx`SELECT pg_advisory_xact_lock(hashtext(current_schema() || ':indexer.projection:' || ${String(this.chainId)})::bigint)`;
+      const [prior] = await tx<Array<{ status: string; height: string; parent_hash: string }>>`
+        SELECT status, height, parent_hash FROM blocks WHERE chain_id = ${this.chainId} AND hash = ${block.hash}
       `;
       const duplicate = prior?.status === 'canonical';
+
+      // A hash already stored is that block. ON CONFLICT (chain_id, hash)
+      // updates status and event_count and leaves height and parent_hash
+      // where they were, so the partial unique index on canonical height
+      // never sees a second row. The event writes below would still land at
+      // the caller-supplied height — including at the current head, and at
+      // head+1 when parentHash is the head — and book() / the tape would
+      // serve them. Replay at the stored height and parent stays on the
+      // idempotent path below.
+      if (prior && (Number(prior.height) !== block.height || prior.parent_hash !== block.parentHash)) {
+        throw new Error(
+          `indexer.block_hash_relocated: hash ${block.hash} is stored at height ${Number(prior.height)} parent ${prior.parent_hash} and cannot be applied at height ${block.height} parent ${block.parentHash}`,
+        );
+      }
 
       const blockTime = new Date(block.timestamp * 1000);
 
@@ -227,6 +243,7 @@ export class PostgresProjectionStore implements ProjectionStore {
 
   async unwindTo(height: number): Promise<UnwindOutcome> {
     return this.sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(current_schema() || ':indexer.projection:' || ${String(this.chainId)})::bigint)`;
       const orphaned = await tx`
         UPDATE blocks SET status = 'orphaned'
         WHERE chain_id = ${this.chainId} AND height >= ${height} AND status = 'canonical'
@@ -246,6 +263,7 @@ export class PostgresProjectionStore implements ProjectionStore {
 
   async prune(throughHeight: number): Promise<number> {
     return this.sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(current_schema() || ':indexer.projection:' || ${String(this.chainId)})::bigint)`;
       // "Delete a version that a newer version at or below the horizon already
       // supersedes." The `<= throughHeight` on the inner query matters: without
       // it, a level written above the horizon would let this delete the last
@@ -285,17 +303,53 @@ export class PostgresProjectionStore implements ProjectionStore {
 
   // ── Reads ─────────────────────────────────────────────────────────────────
 
-  async book(market: string, depth: number): Promise<BookView> {
-    const head = await this.head();
-    const [bids, asks] = await Promise.all([this.#side(market, 'bid', depth), this.#side(market, 'ask', depth)]);
-    return {
-      market,
-      chainId: this.chainId,
-      asOfHeight: head?.height ?? null,
-      asOfHash: head?.hash ?? null,
-      bids,
-      asks,
-    };
+  async book(market: string, depth: number, atHeight?: number): Promise<BookView> {
+    // Pinned read: the as-of block must be a canonical block we hold. Without
+    // one there is nothing to name, so the book is empty with a null as-of.
+    return this.#bookSnapshot(market, depth, (head) => (atHeight === undefined ? (head?.height ?? null) : atHeight));
+  }
+
+  async bookFinalized(market: string, depth: number, finalityDepth: number): Promise<BookView> {
+    return this.#bookSnapshot(market, depth, (head) => finalizedHeightOf(head, finalityDepth));
+  }
+
+  /**
+   * Head, as-of block and both sides in ONE snapshot. REPEATABLE READ pins every
+   * statement to the same point in time, so a `prune` (or an apply, or an
+   * unwind) committing mid-read is invisible to the whole read rather than
+   * visible to half of it. READ ONLY because this path must never write.
+   */
+  async #bookSnapshot(market: string, depth: number, pick: (head: StoredBlock | null) => number | null): Promise<BookView> {
+    return this.sql.begin('isolation level repeatable read read only', async (tx) => {
+      const [headRow] = await tx<BlockRow[]>`
+        SELECT chain_id, hash, parent_hash, height, status, block_time, event_count
+        FROM blocks
+        WHERE chain_id = ${this.chainId} AND status = 'canonical'
+        ORDER BY height DESC
+        LIMIT 1
+      `;
+      const head = headRow ? toStoredBlock(headRow) : null;
+      const height = pick(head);
+      let asOf: StoredBlock | null = null;
+      if (height !== null) {
+        if (head && head.height === height) {
+          asOf = head;
+        } else {
+          const [row] = await tx<BlockRow[]>`
+            SELECT chain_id, hash, parent_hash, height, status, block_time, event_count
+            FROM blocks
+            WHERE chain_id = ${this.chainId} AND height = ${height} AND status = 'canonical'
+          `;
+          asOf = row ? toStoredBlock(row) : null;
+        }
+      }
+      if (!asOf) {
+        return { market, chainId: this.chainId, asOfHeight: null, asOfHash: null, bids: [], asks: [] } satisfies BookView;
+      }
+      const bids = await this.#side(tx, market, 'bid', depth, asOf.height);
+      const asks = await this.#side(tx, market, 'ask', depth, asOf.height);
+      return { market, chainId: this.chainId, asOfHeight: asOf.height, asOfHash: asOf.hash, bids, asks } satisfies BookView;
+    }) as Promise<BookView>;
   }
 
   /**
@@ -306,25 +360,25 @@ export class PostgresProjectionStore implements ProjectionStore {
    * that emptied a level and fall back to the depth that level had in an
    * earlier block — resurrecting liquidity that is gone.
    */
-  async #side(market: string, side: BookSide, depth: number): Promise<BookLevel[]> {
+  async #side(q: TransactionSql, market: string, side: BookSide, depth: number, atHeight: number): Promise<BookLevel[]> {
     const rows =
       side === 'bid'
-        ? await this.sql<LevelRow[]>`
+        ? await q<LevelRow[]>`
             SELECT price, quantity FROM (
               SELECT DISTINCT ON (price) price, quantity
               FROM book_levels
-              WHERE chain_id = ${this.chainId} AND market = ${market} AND side = 'bid'
+              WHERE chain_id = ${this.chainId} AND market = ${market} AND side = 'bid' AND block_height <= ${atHeight}
               ORDER BY price, block_height DESC
             ) current
             WHERE quantity > 0
             ORDER BY price DESC
             LIMIT ${depth}
           `
-        : await this.sql<LevelRow[]>`
+        : await q<LevelRow[]>`
             SELECT price, quantity FROM (
               SELECT DISTINCT ON (price) price, quantity
               FROM book_levels
-              WHERE chain_id = ${this.chainId} AND market = ${market} AND side = 'ask'
+              WHERE chain_id = ${this.chainId} AND market = ${market} AND side = 'ask' AND block_height <= ${atHeight}
               ORDER BY price, block_height DESC
             ) current
             WHERE quantity > 0

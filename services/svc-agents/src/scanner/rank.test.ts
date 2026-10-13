@@ -210,4 +210,20 @@ describe('scanner last/volume24h are money — bigint parse, rank key is unitles
     if (r.status !== 'unavailable') return;
     expect(r.reason).toBe('no_quotes');
   });
+
+  it('skips a negative last the same way a negative volume is skipped — not a signal', () => {
+    const mixed = rankFixtures(
+      [row({ marketId: 'BTC-USD', last: '100.5', volume24h: '1000' }), row({ marketId: 'NEG-USD', last: '-1', volume24h: '1000' })],
+      sealedOpts(),
+    );
+    expect(mixed.status).toBe('ok');
+    if (mixed.status !== 'ok') return;
+    expect(mixed.signals.map((s) => s.marketId)).toEqual(['BTC-USD']);
+    expect(mixed.skippedIncomplete).toBe(1);
+
+    const onlyNegative = rankFixtures([row({ marketId: 'NEG-USD', last: '-1' })], sealedOpts());
+    expect(onlyNegative.status).toBe('unavailable');
+    if (onlyNegative.status !== 'unavailable') return;
+    expect(onlyNegative.reason).toBe('no_quotes');
+  });
 });

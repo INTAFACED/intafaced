@@ -10,10 +10,13 @@ ALTER TABLE "notify"."deliveries" DROP CONSTRAINT IF EXISTS "deliveries_accepted
 ALTER TABLE "notify"."deliveries" RENAME COLUMN "accepted_at" TO "delivered_at";
 
 ALTER TABLE "notify"."deliveries" DROP CONSTRAINT IF EXISTS "deliveries_status_ck";
+
+-- Rewrite accepted rows before the restored check. Adding the constraint
+-- validates rows already stored, and `accepted` is not in the restored list.
+UPDATE "notify"."deliveries" SET "status" = 'delivered' WHERE "status" = 'accepted';
+
 ALTER TABLE "notify"."deliveries" ADD CONSTRAINT "deliveries_status_ck"
   CHECK ("status" IN ('pending', 'delivered', 'refused', 'failed', 'abandoned'));
-
-UPDATE "notify"."deliveries" SET "status" = 'delivered' WHERE "status" = 'accepted';
 
 ALTER TABLE "notify"."deliveries" DROP CONSTRAINT IF EXISTS "deliveries_delivered_ck";
 ALTER TABLE "notify"."deliveries" ADD CONSTRAINT "deliveries_delivered_ck"

@@ -11,6 +11,7 @@ import {
   type Amount,
   type LedgerClient,
 } from '@intafaced/ledger-client';
+import { isDefiniteLedgerRefusal } from '../ledger-outcome.js';
 import { BankError } from '../errors.js';
 import { assertEarnPoolsListLimit } from '../catalog-list-limit.js';
 import { assertEarnPositionsListLimit } from '../owner-list-limit.js';
@@ -272,7 +273,8 @@ export class EarnService {
    *
    * L3-3 ordering: **claim `pending` → ledger post → activate** (same as
    * svc-token stake). `pending` is not interest-eligible; if the ledger
-   * refuses we delete the claim so nothing is left to accrue against.
+   * definitely refuses we delete the claim so nothing is left to accrue
+   * against. An unknown outcome keeps the claim and rethrows.
    * Ledger post is idempotent on `positionId` for crash recovery — see
    * `resumePending` when the process dies after the post and before activate.
    *
@@ -324,10 +326,12 @@ export class EarnService {
         }
 
         try {
-          // Post alone is in the try: if it fails, funds never left available and
-          // deleting the claim is safe. If the process dies *after* a successful
-          // post and before activate, the row stays `pending` for resumePending —
-          // never delete a staked claim.
+          // Post alone is in the try. Only a definite ledger refusal proves the
+          // funds never left available, so only then is deleting the claim safe.
+          // Any other failure may follow a commit whose acknowledgement was lost:
+          // the row stays `pending` with its original terms for resumePending or
+          // a same-id retry, both of which re-drive the same idempotent post.
+          // Never delete a claim that may be staked.
           await this.postEarnDeposit({
             positionId,
             poolId: pool.id,
@@ -336,6 +340,7 @@ export class EarnService {
             amount: input.amount,
           });
         } catch (err) {
+          if (!isDefiniteLedgerRefusal(err)) throw err;
           await this.sql`
             DELETE FROM bank.earn_positions WHERE id = ${positionId} AND status = 'pending'
           `;
@@ -537,6 +542,21 @@ export class EarnService {
   /**
    * Close a position and return the principal.
    *
+   * The money is the ledger stake pot, checked with `stakePrincipalForAccrual`
+   * the same way `principalOf` checks it. A column that disagrees with a
+   * still-funded pot refuses `bank.earn_principal_mismatch` before anything is
+   * posted, so the row stays open and the pot stays whole.
+   *
+   * A crash after the ledger post and before this close leaves the pot at 0,
+   * the principal already in available, and the row still active. That retry
+   * replays `bank.earn.withdraw:<positionId>` with the column amount. The
+   * ledger returns the committed transaction and does not move the principal
+   * again, then the row closes. Checking the mismatch first never reaches
+   * that key, so the row stays active and interest for the pool stops. An
+   * empty pot with no such key fails the replay and leaves the row active.
+   * A zero column stays a typed refusal — the replay amount is the column,
+   * never a balance invented from the empty pot.
+   *
    * The row is locked for the duration so two concurrent withdrawals cannot both
    * post. The ledger's idempotency key would catch the double-post anyway, but
    * relying on the last line of defence for ordinary correctness is how the last
@@ -567,7 +587,11 @@ export class EarnService {
           throw new BankError(`Fixed-term position is locked until ${row.matures_at.toISOString()}`, 'bank.position_locked');
         }
 
-        const principal = parseAmount(row.principal);
+        const recorded = parseAmount(row.principal);
+        const book = (await this.ledger.balance(earnStakeAccount(row.user_id, row.asset_id, row.id))).amount;
+        // Empty pot, positive column: the withdraw already committed. Replay
+        // the same key. Any other disagreement is drift and refuses first.
+        const principal = book === 0n && recorded > 0n ? recorded : stakePrincipalForAccrual(row.id, recorded, book);
 
         await this.ledger.post(
           recipes.earnWithdraw({

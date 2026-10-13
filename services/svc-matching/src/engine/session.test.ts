@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
 import { MemoryEventBus } from '@intafaced/events';
+import { OrderBook } from './book.js';
 import { MatchingEngine } from './engine.js';
-import { MemoryJournal, replay } from './journal.js';
+import { MemoryJournal, replay, replayFrom, serializeBooks, toWire } from './journal.js';
 import { SESSION_UNSUPPORTED } from './mass-cancel.js';
 import { MISSING_SESSION, SESSION_GONE, replayDeadSessions, sessionOrderIds } from './session.js';
 import { installCodFence } from './cod-fence.js';
@@ -50,6 +51,17 @@ function order(spec: {
 
 function liveIds(engine: MatchingEngine, marketId: string): string[] {
   const book = engine.existingBook(marketId);
+  if (!book) return [];
+  const state = book.toState();
+  return [
+    ...state.bids.flatMap((l) => l.orders.map((o) => o.orderId)),
+    ...state.asks.flatMap((l) => l.orders.map((o) => o.orderId)),
+    ...state.stops.map((s) => s.orderId),
+  ].sort();
+}
+
+function restingIds(books: ReadonlyMap<string, OrderBook>, marketId: string): string[] {
+  const book = books.get(marketId);
   if (!book) return [];
   const state = book.toState();
   return [
@@ -203,6 +215,48 @@ describe('session-dead — cancel-on-disconnect', () => {
     const blocked = await recovered.submit(MARKET, order({ id: AFTER, side: 'buy', qty: '1', price: '99', sessionId: 'sess-1' }));
     expect(blocked.accepted).toBe(false);
     expect(blocked.rejected?.code).toBe(SESSION_GONE);
+  });
+
+  it('a snapshot taken after session_dead does not rest a later submit for that session', async () => {
+    const { journal, engine } = build();
+    await engine.sessionDead({ sessionId: 'sess-1' });
+    const snapshot = engine.snapshot();
+    expect(snapshot.deadSessions).toEqual(['sess-1']);
+    expect(snapshot.journalSeq).toBe(journal.length);
+
+    journal.append({
+      kind: 'submit',
+      marketId: MARKET,
+      at: '2026-10-08T00:00:00.000Z',
+      order: toWire(order({ id: AFTER, side: 'buy', qty: '1', price: '99', sessionId: 'sess-1' })),
+    });
+    journal.append({ kind: 'session_dead', at: '2026-10-08T00:00:01.000Z', sessionId: 'sess-3' });
+    journal.append({
+      kind: 'submit',
+      marketId: MARKET,
+      at: '2026-10-08T00:00:02.000Z',
+      order: toWire(order({ id: TAKER, account: 'mm', side: 'buy', qty: '1', price: '98', sessionId: 'sess-3' })),
+    });
+    journal.append({
+      kind: 'submit',
+      marketId: MARKET,
+      at: '2026-10-08T00:00:03.000Z',
+      order: toWire(order({ id: KEEP, account: 'mm', side: 'sell', qty: '1', price: '101', sessionId: 'sess-2' })),
+    });
+
+    const records = journal.read();
+    expect(records.filter((row) => row.seq > snapshot.journalSeq).map((row) => row.kind)).toEqual([
+      'submit',
+      'session_dead',
+      'submit',
+      'submit',
+    ]);
+
+    const full = replay(records);
+    const fromSnapshot = replayFrom(snapshot, records);
+    expect(serializeBooks(fromSnapshot)).toBe(serializeBooks(full));
+    expect(restingIds(fromSnapshot, MARKET)).toEqual([KEEP]);
+    expect(restingIds(full, MARKET)).toEqual([KEEP]);
   });
 
   it('snapshot restore keeps the session tag so a later session-dead still pulls it', async () => {

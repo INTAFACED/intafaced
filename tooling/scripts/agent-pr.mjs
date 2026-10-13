@@ -6,8 +6,9 @@
  *   node tooling/scripts/agent-pr.mjs create …   # any gh pr create args after --
  *
  * A thin wrapper over `gh pr create` that survives `pnpm pr -- …` argument
- * mangling. No spend preflight: the repo is public and Actions are free/unlimited on
- * standard runners (old thrift meter deleted 2026-08-07).
+ * mangling. There is no spend meter (thrift deleted 2026-08-07); this script
+ * stays thin and must not refuse to open a pull request. A 403 or 429 from
+ * GitHub is a stop.
  *
  * There is deliberately no gate here. Opening a PR is how work is claimed —
  * a tool that can refuse to open one is a tool that stops the build.

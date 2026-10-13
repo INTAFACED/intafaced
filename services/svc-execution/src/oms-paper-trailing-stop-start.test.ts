@@ -79,6 +79,52 @@ describe('startPaperTrailingStopParent', () => {
     ).toMatchObject({ ok: false, reason: 'already_started' });
   });
 
+  it("refuses padded status 'running ' with already_started and does not return ok", () => {
+    const started = startPaperTrailingStopParent({
+      parentClientOrderId: 'p-trail',
+      approved: true,
+      status: 'running ',
+      trailOffset: TRAIL,
+      operatorId: OP,
+      paper: PAPER_ON,
+    });
+    expect(started).toMatchObject({ ok: false, reason: 'already_started' });
+    expect(started.ok).toBe(false);
+    expect(started).not.toMatchObject({ ok: true, started: true, status: 'paper' });
+  });
+
+  it('refuses stopped, expired, and halted with not_approved even when approved is true', () => {
+    for (const status of ['stopped', 'expired', 'halted'] as const) {
+      const started = startPaperTrailingStopParent({
+        parentClientOrderId: 'p-trail',
+        approved: true,
+        status,
+        trailOffset: TRAIL,
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(started).toMatchObject({ ok: false, reason: 'not_approved' });
+      expect(started.ok).toBe(false);
+      expect(started).not.toMatchObject({ ok: true, started: true, status: 'paper' });
+    }
+  });
+
+  it('refuses blank and whitespace-only status with not_approved even when approved is true and does not start', () => {
+    for (const status of ['', '   '] as const) {
+      const started = startPaperTrailingStopParent({
+        parentClientOrderId: 'p-trail',
+        approved: true,
+        status,
+        trailOffset: TRAIL,
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(started).toMatchObject({ ok: false, reason: 'not_approved' });
+      expect(started.ok).toBe(false);
+      expect(started).not.toMatchObject({ ok: true, started: true, status: 'paper' });
+    }
+  });
+
   it('refuses omitted status and approved:false with not_approved', () => {
     expect(
       startPaperTrailingStopParent({
@@ -163,6 +209,48 @@ describe('startPaperTrailingStopParent', () => {
       trailOffset: formatAmount(parseAmount(TRAIL)),
     });
     expect(started).not.toMatchObject({ status: 'running' });
+  });
+
+  it("happy: approved true + status paper + trailOffset '0.05' + operator + paper on", () => {
+    expect(
+      startPaperTrailingStopParent({
+        parentClientOrderId: 'p-trail',
+        approved: true,
+        status: 'paper',
+        trailOffset: TRAIL,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-trail',
+      kind: 'trailing-stop',
+      status: 'paper',
+      trailOffset: formatAmount(parseAmount(TRAIL)),
+    });
+  });
+
+  it("happy: approved true + status approved + trailOffset '0.05' + operator + paper on", () => {
+    expect(
+      startPaperTrailingStopParent({
+        parentClientOrderId: 'p-trail',
+        approved: true,
+        status: 'approved',
+        trailOffset: TRAIL,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-trail',
+      kind: 'trailing-stop',
+      status: 'paper',
+      trailOffset: formatAmount(parseAmount(TRAIL)),
+    });
   });
 
   it("happy: approved true + trailOffset '0.05' + operator + paper on (status omitted)", () => {

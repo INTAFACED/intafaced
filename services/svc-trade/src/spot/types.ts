@@ -398,6 +398,11 @@ export type TradeErrorCode =
    * (`trade.market_expired`) and not a perpetual.
    */
   | 'trade.dated_futures_expired'
+  /**
+   * Paper fill refused before `trade.fills` and before any ledger post.
+   * The zero hold stays unfunded. Not a live match and not a second book.
+   */
+  | 'trade.paper_fill_refused'
   | 'trade.hold_uncovered'
   /**
    * Operator `reconcileOrder` funded engine-miss: `trade.fills` does not prove
@@ -490,6 +495,7 @@ export type TradeErrorCode =
    * `settleFill`.
    */
   | 'trade.fill_sequence_conflict'
+  | 'trade.engine_sequence_regressed'
   /** GTD/GTT placed without expireAt — the engine does not invent one. */
   | 'trade.missing_expire_at'
   /** Matching refused: its engine clock was not injected. */

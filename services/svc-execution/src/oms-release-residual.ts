@@ -24,7 +24,8 @@ export type OmsReleaseResidualRefuse =
   | { readonly ok: false; readonly reason: 'unsupported_kind'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'not_expired'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'already_released'; readonly detail: string }
-  | { readonly ok: false; readonly reason: 'missing_residual'; readonly detail: string };
+  | { readonly ok: false; readonly reason: 'missing_residual'; readonly detail: string }
+  | { readonly ok: false; readonly reason: 'release_rejected'; readonly detail: string };
 
 export type OmsReleaseResidualResult = OmsReleaseResidualOk | OmsReleaseResidualRefuse;
 
@@ -75,28 +76,42 @@ export function releaseExpiredParentResidual(input: {
 
   const remaining = retainedRemaining(existing);
   if (!remaining) {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is missing — refusing to invent leftover from duration, slices, or the clock',
-    );
+    return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover from duration, slices, or the clock');
   }
 
   let echoed: string;
   try {
     echoed = formatAmount(parseAmount(remaining));
   } catch {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is not a ledger amount — refusing to invent leftover',
-    );
+    return refuse('missing_residual', 'residual.remaining is not a ledger amount — refusing to invent leftover');
   }
 
-  const released = input.parentStore.releaseResidual?.(parentClientOrderId);
+  if (typeof input.parentStore.releaseResidual !== 'function') {
+    return refuse('parent_store_unwired', 'approved algo parent store.releaseResidual is required for releaseResidual');
+  }
+
+  const released = input.parentStore.releaseResidual(parentClientOrderId);
   if (!released) {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is missing — refusing to invent leftover from duration, slices, or the clock',
-    );
+    const again = input.parentStore.get(parentClientOrderId);
+    if (!again) {
+      return refuse('not_found', `no approved algo parent for ${parentClientOrderId}`);
+    }
+    if (again.status !== 'expired') {
+      return refuse('not_expired', `parent ${parentClientOrderId} is ${again.status} — releaseResidual needs an already expired parent`);
+    }
+    if (again.residual?.released === true) {
+      return refuse('already_released', `parent ${parentClientOrderId} residual is already released`);
+    }
+    const againRemaining = retainedRemaining(again);
+    if (!againRemaining) {
+      return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover from duration, slices, or the clock');
+    }
+    try {
+      formatAmount(parseAmount(againRemaining));
+    } catch {
+      return refuse('missing_residual', 'residual.remaining is not a ledger amount — refusing to invent leftover');
+    }
+    return refuse('release_rejected', 'the store did not release this parent');
   }
 
   return {

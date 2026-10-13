@@ -160,19 +160,21 @@ describe('passLiveAlgoParent', () => {
 
   it('target accept becomes owner; target reject stays with passer', () => {
     const acceptStore = claimedStore('parent-accept');
+    const acceptBooks = books();
     passLiveAlgoParent({
       parentClientOrderId: 'parent-accept',
       operatorId: OP,
       targetOperatorId: OTHER,
       expireAt: EXPIRE_AT,
       parentStore: acceptStore,
-      ...books(),
+      ...acceptBooks,
     });
     expect(
       acceptLiveAlgoParentPass({
         parentClientOrderId: 'parent-accept',
         operatorId: OTHER,
         parentStore: acceptStore,
+        ...acceptBooks,
       }),
     ).toMatchObject({
       ok: true,
@@ -573,6 +575,49 @@ describe('passLiveAlgoParent', () => {
       executionOwner: OP,
       pendingPassTo: OTHER,
     });
+  });
+
+  it('fill after a clean offer refuses accept — owner stays, pending target stays', () => {
+    const parentStore = claimedStore();
+    const emsStore = new InMemoryEmsOrderStore();
+    const fillConfirmStore = new InMemoryFillConfirmStore();
+    expect(
+      passLiveAlgoParent({
+        parentClientOrderId: 'parent-twap',
+        operatorId: OP,
+        targetOperatorId: OTHER,
+        expireAt: EXPIRE_AT,
+        parentStore,
+        emsStore,
+        fillConfirmStore,
+      }),
+    ).toMatchObject({
+      ok: true,
+      passed: true,
+      executionOwner: OP,
+      pendingPassTo: OTHER,
+      pendingPassExpireAt: EXPIRE_AT,
+    });
+    seedFill(emsStore, { clientOrderId: 'child-late' });
+    expect(
+      acceptLiveAlgoParentPass({
+        parentClientOrderId: 'parent-twap',
+        operatorId: OTHER,
+        parentStore,
+        emsStore,
+        fillConfirmStore,
+      }),
+    ).toMatchObject({
+      ok: false,
+      reason: 'unconfirmed_fills',
+      detail: 'parent parent-twap has unconfirmed EMS child fills — confirm them before accept',
+    });
+    expect(parentStore.get('parent-twap')).toMatchObject({
+      executionOwner: OP,
+      pendingPassTo: OTHER,
+      pendingPassExpireAt: EXPIRE_AT,
+    });
+    expect(fillConfirmStore.get('child-late')).toBeNull();
   });
 
   it('rejected / unknown / no execution / other-parent fills do not block pass', () => {

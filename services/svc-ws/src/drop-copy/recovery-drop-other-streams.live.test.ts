@@ -1,3 +1,4 @@
+import { TEST_AUTHORITY } from '../test-support/authority.js';
 import { createServer, request as httpRequest, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
@@ -7,7 +8,7 @@ import type { LiveCredentialPort, OwnershipSnapshot } from '../private/live-cred
 import type { HubLogger } from '../depth/hub.js';
 import { DropCopyHub } from './hub.js';
 import { CLOSE_UNAUTHORIZED, createDropCopyWebSocketGateway, DROP_COPY_STREAM_PATH, type DropCopyWebSocketGateway } from './gateway.js';
-import { recoveryCodeDropsOtherDropCopyStreams } from './recovery-drop-other-streams.js';
+import { hashRecoveryCode, recoveryCodeDropsOtherDropCopyStreams } from './recovery-drop-other-streams.js';
 
 const SECRET = 'test-access-secret-at-least-32-chars!!';
 const USER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -23,11 +24,14 @@ const tokens: TokenConfig = {
   accessTtlSeconds: 900,
 };
 
-function twoSeatPort(): LiveCredentialPort & { dropOthers: () => void } {
+function twoSeatPort(): LiveCredentialPort & { revoke: (sessionId: string) => void; isRevoked: (sessionId: string) => boolean } {
   const revoked = new Set<string>();
   return {
-    dropOthers() {
-      revoked.add(OTHER);
+    revoke(sessionId: string) {
+      revoked.add(sessionId);
+    },
+    isRevoked(sessionId: string) {
+      return revoked.has(sessionId);
     },
     async getSession(sessionId: string): Promise<OwnershipSnapshot> {
       return { id: sessionId, userId: USER, revoked: revoked.has(sessionId) };
@@ -64,6 +68,7 @@ describe('other drop-copy streams drop after a recovery code; recovered session 
     if (!addr || typeof addr === 'string') throw new Error('no port');
     const log: HubLogger = { info: () => undefined, warn: () => undefined };
     gateway = createDropCopyWebSocketGateway({
+      authority: TEST_AUTHORITY,
       server,
       hub,
       heartbeatMs,
@@ -101,9 +106,30 @@ describe('other drop-copy streams drop after a recovery code; recovered session 
     });
   }
 
+  function seats(live: { revoke: (sessionId: string) => void }) {
+    return [
+      { sessionId: KEEP, drop: () => live.revoke(KEEP) },
+      { sessionId: OTHER, drop: () => live.revoke(OTHER) },
+    ];
+  }
+
   it('spent or missing recovery code refuses before any drop-copy seat is dropped', () => {
     expect(() => recoveryCodeDropsOtherDropCopyStreams({ code: '', recoveryCodeHashes: ['h'] })).toThrow(/missing/);
     expect(() => recoveryCodeDropsOtherDropCopyStreams({ code: CODE, recoveryCodeHashes: [] })).toThrow(/spent/);
+  });
+
+  it('a wrong recovery code does not drop the other drop-copy seat', () => {
+    const live = twoSeatPort();
+    expect(() =>
+      recoveryCodeDropsOtherDropCopyStreams({
+        code: 'WRONG-CODE',
+        recoveryCodeHashes: [hashRecoveryCode(CODE)],
+        recoveredSessionId: KEEP,
+        subscriptions: seats(live),
+      }),
+    ).toThrow(/invalid/);
+    expect(live.isRevoked(OTHER)).toBe(false);
+    expect(live.isRevoked(KEEP)).toBe(false);
   });
 
   it('recovered session still upgrades drop-copy; other live session is refused after the code revokes it', async () => {
@@ -114,8 +140,16 @@ describe('other drop-copy streams drop after a recovery code; recovered session 
     const otherToken = await access(OTHER);
     expect(await upgradeStatus(host, port, `${DROP_COPY_STREAM_PATH}?access_token=${keepToken}`)).toBe(101);
     expect(await upgradeStatus(host, port, `${DROP_COPY_STREAM_PATH}?access_token=${otherToken}`)).toBe(101);
-    recoveryCodeDropsOtherDropCopyStreams({ code: CODE, recoveryCodeHashes: ['h'] });
-    live.dropOthers();
+    const result = recoveryCodeDropsOtherDropCopyStreams({
+      code: CODE,
+      recoveryCodeHashes: [hashRecoveryCode(CODE)],
+      recoveredSessionId: KEEP,
+      subscriptions: seats(live),
+    });
+    expect(result.keptSessionId).toBe(KEEP);
+    expect(result.droppedSessionIds).toEqual([OTHER]);
+    expect(live.isRevoked(OTHER)).toBe(true);
+    expect(live.isRevoked(KEEP)).toBe(false);
     expect(await upgradeStatus(host, port, `${DROP_COPY_STREAM_PATH}?access_token=${keepToken}`)).toBe(101);
     expect(await upgradeStatus(host, port, `${DROP_COPY_STREAM_PATH}?access_token=${otherToken}`)).toBe(401);
   });
@@ -158,8 +192,16 @@ describe('other drop-copy streams drop after a recovery code; recovered session 
     });
     expect(keep.opened).toBe(true);
     expect(other.opened).toBe(true);
-    recoveryCodeDropsOtherDropCopyStreams({ code: CODE, recoveryCodeHashes: ['h'] });
-    live.dropOthers();
+    const result = recoveryCodeDropsOtherDropCopyStreams({
+      code: CODE,
+      recoveryCodeHashes: [hashRecoveryCode(CODE)],
+      recoveredSessionId: KEEP,
+      subscriptions: seats(live),
+    });
+    expect(result.keptSessionId).toBe(KEEP);
+    expect(result.droppedSessionIds).toEqual([OTHER]);
+    expect(live.isRevoked(OTHER)).toBe(true);
+    expect(live.isRevoked(KEEP)).toBe(false);
     await new Promise<void>((resolve) => {
       if (other.closed) {
         resolve();

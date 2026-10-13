@@ -1,3 +1,4 @@
+import { OtcDeskService } from '../controls/test-admission.js';
 /**
  * Pin: OTC quote stays fail-closed when DIRECTION §8 spreads / stake /
  * maxMidAgeSeconds are blank, OR the reference mid is dark / stale.
@@ -8,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { parseAmount, MemoryLedger } from '@intafaced/ledger-client';
-import { OtcDeskService } from './otc-service.js';
+
 import { FixedOtcStake } from './stake-source.js';
 import { parseOtcDeskLawJson, UNPUBLISHED_OTC_DESK_LAW, type OtcDeskLaw } from './desk-law.js';
 import { OtcError } from './errors.js';

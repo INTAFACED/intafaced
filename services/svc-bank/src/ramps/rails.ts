@@ -14,10 +14,10 @@ import { BankError } from '../errors.js';
  *   withdraw recipes into the book). No third-party signature is required for
  *   that arithmetic.
  *
- *   FIAT LEG — `socket.psp-partners` commercially. Code path is svc-pay's
- *   `RailAdapter` plane via `PayFiatRampPort` (D26-P1-B4) — never a bank-local
- *   PSP client. Empty/sandbox/absent refuse by socket name; a live pay rail may
- *   use the same ledger-client recipes (no second book).
+ *   FIAT LEG — `socket.psp-partners` commercially. Kind fiat refuses
+ *   `bank.fiat_ramp_socket` before any row or ledger post. Never a bank-local
+ *   PSP client. A live pay rail id is not a stored fiat row and is not a
+ *   ledger post from this service.
  *
  * The setting below selects the CRYPTO ledger half only. There is no value that
  * turns on a fiat rail, and there is no value that claims a live chain send —
@@ -39,8 +39,8 @@ export interface RampProgramme {
    * TRUE MEANS NO LIVE RAMP EXISTS.
    *
    * Literal `true` — cannot be omitted and cannot be flipped to live on this
-   * surface. Crypto live send/confirm is svc-pay + Class X; fiat live is Class X
-   * on the pay RailAdapter (not inventable here).
+   * surface. Crypto live send/confirm is svc-pay + Class X. Kind fiat refuses
+   * `bank.fiat_ramp_socket` before any row or ledger post (not inventable here).
    */
   readonly simulated: true;
   /** Human label. Never a PSP or partner brand (§0.7). */
@@ -50,8 +50,9 @@ export interface RampProgramme {
   /** Always names the fiat socket — never "coming soon". */
   readonly fiatLeg: 'socket.psp-partners';
   /**
-   * Where fiat value would enter once a partner exists — svc-pay RailAdapter
-   * plane via `PayFiatRampPort`. Never a bank-local PSP client.
+   * Names the svc-pay RailAdapter plane. Kind fiat refuses
+   * `bank.fiat_ramp_socket` before any row or ledger post. Never a bank-local
+   * PSP client. This field does not store a fiat row and does not post.
    */
   readonly fiatVia: 'svc-pay.RailAdapter';
 }

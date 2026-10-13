@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseAmount, ZERO } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, ZERO } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { SealedHouseTenantRegistry } from '@intafaced/execution-house-tenant';
@@ -130,7 +130,7 @@ describe('retryFailedHedgeChild', () => {
       retried: true,
       parent: { parentClientOrderId: 'parent-twap', kind: 'twap', status: 'approved' },
       child: { clientOrderId: 'hedge-fail', venueId: 'street', outcome: 'retried', reason: 'REJECTED' },
-      residual: { filled: '2', remaining: '0' },
+      residual: { filled: '2', remaining: formatAmount(parseAmount('10')) },
     });
     expect(emsStore.get('hedge-fail')).toMatchObject({ state: 'REJECTED', execution: null, venueId: 'street' });
   });
@@ -244,7 +244,7 @@ describe('retryFailedHedgeChild', () => {
     ).toMatchObject({ ok: false, reason: 'not_listed' });
   });
 
-  it('unknown sibling keeps remaining unknown — retry does not invent leftover', () => {
+  it('unknown sibling keeps the parent leftover and the known fill', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
     parentStore.seed(live({ parentClientOrderId: 'parent-twap', kind: 'twap' }));
     const emsStore = new InMemoryEmsOrderStore();
@@ -260,9 +260,63 @@ describe('retryFailedHedgeChild', () => {
     expect(out).toMatchObject({
       ok: true,
       retried: true,
-      residual: { filled: '1', remaining: null },
+      residual: { filled: '1', remaining: formatAmount(parseAmount('10')) },
       child: { venueId: 'street' },
     });
+  });
+
+  it('formats a non-canonical retained leftover as the ledger decimal', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(
+      live({
+        parentClientOrderId: 'parent-twap',
+        kind: 'twap',
+        residual: { remaining: '10.00' },
+      }),
+    );
+    const emsStore = new InMemoryEmsOrderStore();
+    seedChild(emsStore, {
+      clientOrderId: 'filled-1',
+      execution: execution({ filledAmount: parseAmount('2') }),
+    });
+    seedChild(emsStore, { clientOrderId: 'hedge-fail', state: 'REJECTED', execution: null });
+    const out = retryFailedHedgeChild({
+      parentClientOrderId: 'parent-twap',
+      clientOrderId: 'hedge-fail',
+      parentStore,
+      emsStore,
+    });
+    expect(out).toMatchObject({
+      ok: true,
+      residual: { filled: '2', remaining: '10' },
+    });
+  });
+
+  it('blank, missing, or unparsable parent leftover stays null', () => {
+    const leftovers: Array<ApprovedAlgoParent['residual']> = [
+      undefined,
+      null,
+      { remaining: '' },
+      { remaining: '   ' },
+      { remaining: 'not-a-qty' },
+    ];
+    for (const residual of leftovers) {
+      const parentStore = new InMemoryApprovedAlgoParentStore();
+      parentStore.seed(live({ parentClientOrderId: 'parent-twap', kind: 'twap', residual }));
+      const emsStore = new InMemoryEmsOrderStore();
+      seedChild(emsStore, {
+        clientOrderId: 'filled-1',
+        execution: execution({ filledAmount: parseAmount('2') }),
+      });
+      seedChild(emsStore, { clientOrderId: 'hedge-fail', state: 'REJECTED', execution: null });
+      const out = retryFailedHedgeChild({
+        parentClientOrderId: 'parent-twap',
+        clientOrderId: 'hedge-fail',
+        parentStore,
+        emsStore,
+      });
+      expect(out).toMatchObject({ ok: true, residual: { filled: '2', remaining: null } });
+    }
   });
 
   it('refuses a group or unwired stores', () => {

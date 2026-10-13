@@ -3,6 +3,7 @@ import { JetStreamEventBus, type Subscription } from '@intafaced/events';
 import { JAVA_ENV, sbeCodec } from '@intafaced/sbe-codec';
 import { env } from './env.js';
 import { createBusLifecycle } from './bus-lifecycle.js';
+import { attachBusHalf, closeBusSession } from './bus-session-close.js';
 import { DepthHub } from './depth/hub.js';
 import { NativeL3Hub } from './depth/l3-hub.js';
 import { DepthPoller } from './depth/poller.js';
@@ -16,9 +17,9 @@ import { tryAttachPrivate, type PrivateAttachments } from './private/source.js';
 import { DropCopyHub } from './drop-copy/hub.js';
 import { tryAttachDropCopy, type DropCopyAttachments } from './drop-copy/source.js';
 import { WS_COPY } from './copy.js';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { registerSignalShutdown } from './signal-shutdown.js';
 import { createPrivateWebSocketGateway, redactAccessTokenQuery } from './private/gateway.js';
-import { createIdentityOwnershipClient } from './private/live-credential.js';
+import { createIdentityAuthorityClient } from './private/authority.js';
 import { createDropCopyWebSocketGateway } from './drop-copy/gateway.js';
 import { HttpPrivateBookPort } from './private/book.js';
 import { leaseRangeFromEnv } from './private/cod.js';
@@ -63,9 +64,9 @@ registerProcessHooks(
  * to that process trades the entire custodial blast radius for one saved
  * container.
  *
- * So: a process that holds nothing. No database, no ledger client, no service
- * secret, no principal key. Depth is a public GET re-broadcast; trades are a
- * public strip of `orderFilled` off the bus. See README.md.
+ * No database or principal-signing key. Public depth/tape stay anonymous.
+ * Private reads use identity service authentication to obtain bounded live
+ * credential snapshots; this process posts no ledger transactions.
  */
 
 const source = new HttpDepthSource({ baseUrl: env.MATCHING_URL });
@@ -144,8 +145,8 @@ const hub = new DepthHub(
       if (available) privateOrderHub.noteEngineUp();
       else privateOrderHub.markEngineUnavailable();
     },
-    onMatchingTradingChange: (marketId, code) => {
-      privateOrderHub.noteMatchingTrading(marketId, code);
+    onMatchingTradingChange: (marketId, code, confirmedOpen) => {
+      privateOrderHub.noteMatchingTrading(marketId, code, confirmedOpen);
     },
   },
   app.log,
@@ -184,26 +185,17 @@ const privateTokens =
         accessTtlSeconds: 900,
       };
 
-const identityUrl = process.env.IDENTITY_URL;
-const identityOwnershipSecret = process.env.IDENTITY_OWNERSHIP_SECRET;
-const liveCredential =
-  identityUrl && identityOwnershipSecret
-    ? (() => {
-        const identityOwnership = createIdentityOwnershipClient({
-          baseUrl: identityUrl,
-          headers: serviceAuthHeadersForBody('svc-ws', identityOwnershipSecret, ''),
-        });
-        return {
-          getSession: (sessionId: string) => identityOwnership.getSession(sessionId),
-          getApiKey: (keyId: string) => identityOwnership.getApiKey(keyId),
-          getAccount: (userId: string) => identityOwnership.getAccount(userId),
-          sessionPasskey: {
-            identityUrl,
-            identityOwnershipSecret,
-          },
-        };
-      })()
-    : null;
+// Private authority is mandatory; missing configuration leaves public feeds live.
+const identityUrl = env.IDENTITY_URL;
+const identityOwnershipSecret = env.IDENTITY_OWNERSHIP_SECRET;
+const authority = (() => {
+  if (!identityUrl || !identityOwnershipSecret) return null;
+  try {
+    return createIdentityAuthorityClient({ baseUrl: identityUrl, secret: identityOwnershipSecret });
+  } catch {
+    return null;
+  }
+})();
 
 let enabled = env.WS_GATEWAY_ENABLED;
 const isEnabled = () => enabled;
@@ -228,6 +220,37 @@ const busLifecycle = createBusLifecycle({
     let tradeSub: Subscription | null = null;
     let privateHalf: PrivateAttachments | null = null;
     let dropHalf: DropCopyAttachments | null = null;
+    let sessionClosed = false;
+    const attachPrivate = () =>
+      attachBusHalf({
+        attach: () =>
+          tryAttachPrivate({
+            bus: connected,
+            hub: privateOrderHub,
+            durable: env.WS_PRIVATE_ORDERS_DURABLE,
+            log: app.log,
+          }),
+        isClosed: () => sessionClosed,
+        unsubscribe: async (half) => {
+          await half.orders.unsubscribe().catch(() => undefined);
+          await half.fills.unsubscribe().catch(() => undefined);
+          await half.positions.unsubscribe().catch(() => undefined);
+        },
+        announce: () => privateOrderHub.announceBus(true),
+      });
+    const attachDropCopy = () =>
+      attachBusHalf({
+        attach: () =>
+          tryAttachDropCopy({
+            bus: connected,
+            hub: dropCopyHub,
+            durable: env.WS_DROP_COPY_DURABLE,
+            log: app.log,
+          }),
+        isClosed: () => sessionClosed,
+        unsubscribe: (half) => half.fills.unsubscribe(),
+        announce: () => dropCopyHub.announceBus(true),
+      });
     try {
       // Public tape first and independently. A private-half failure must not
       // tear the trade consumer — empty private is privateBus:false, not a dead tape.
@@ -243,25 +266,8 @@ const busLifecycle = createBusLifecycle({
     }
 
     if (privateTokens) {
-      privateHalf = await tryAttachPrivate({
-        bus: connected,
-        hub: privateOrderHub,
-        durable: env.WS_PRIVATE_ORDERS_DURABLE,
-        log: app.log,
-      });
-      if (privateHalf) {
-        privateOrderHub.announceBus(true);
-      }
-
-      dropHalf = await tryAttachDropCopy({
-        bus: connected,
-        hub: dropCopyHub,
-        durable: env.WS_DROP_COPY_DURABLE,
-        log: app.log,
-      });
-      if (dropHalf) {
-        dropCopyHub.announceBus(true);
-      }
+      privateHalf = await attachPrivate();
+      dropHalf = await attachDropCopy();
     }
 
     return {
@@ -271,42 +277,44 @@ const busLifecycle = createBusLifecycle({
       sessionLost: connected.whenClosed(),
       retryPrivate: privateTokens
         ? async () => {
-            privateHalf = await tryAttachPrivate({
-              bus: connected,
-              hub: privateOrderHub,
-              durable: env.WS_PRIVATE_ORDERS_DURABLE,
-              log: app.log,
-            });
-            if (privateHalf) {
-              privateOrderHub.announceBus(true);
-              return true;
-            }
-            return false;
+            const attached = await attachPrivate();
+            if (sessionClosed) return false;
+            privateHalf = attached;
+            return attached !== null;
           }
         : undefined,
       retryDropCopy: privateTokens
         ? async () => {
-            dropHalf = await tryAttachDropCopy({
-              bus: connected,
-              hub: dropCopyHub,
-              durable: env.WS_DROP_COPY_DURABLE,
-              log: app.log,
-            });
-            if (dropHalf) {
-              dropCopyHub.announceBus(true);
-              return true;
-            }
-            return false;
+            const attached = await attachDropCopy();
+            if (sessionClosed) return false;
+            dropHalf = attached;
+            return attached !== null;
           }
         : undefined,
       close: async () => {
-        dropCopyHub.announceBus(false);
-        await tradeSub?.unsubscribe().catch(() => undefined);
-        await privateHalf?.orders.unsubscribe().catch(() => undefined);
-        await privateHalf?.fills.unsubscribe().catch(() => undefined);
-        await privateHalf?.positions.unsubscribe().catch(() => undefined);
-        await dropHalf?.fills.unsubscribe().catch(() => undefined);
-        await connected.close().catch(() => undefined);
+        sessionClosed = true;
+        await closeBusSession({
+          privateHub: privateOrderHub,
+          dropCopyHub,
+          unsubscribe: [
+            async () => {
+              await tradeSub?.unsubscribe();
+            },
+            async () => {
+              await privateHalf?.orders.unsubscribe();
+            },
+            async () => {
+              await privateHalf?.fills.unsubscribe();
+            },
+            async () => {
+              await privateHalf?.positions.unsubscribe();
+            },
+            async () => {
+              await dropHalf?.fills.unsubscribe();
+            },
+          ],
+          disconnect: () => connected.close(),
+        });
       },
     };
   },
@@ -323,7 +331,7 @@ const poller = new DepthPoller(
       connections: () => privateOrderHub.connections,
       markDown: () => privateOrderHub.markEngineUnavailable(),
       markUp: () => privateOrderHub.noteEngineUp(),
-      markTrading: (marketId, code) => privateOrderHub.noteMatchingTrading(marketId, code),
+      markTrading: (marketId, code, confirmedOpen) => privateOrderHub.noteMatchingTrading(marketId, code, confirmedOpen),
     },
     l3Hub,
   },
@@ -344,6 +352,7 @@ registerRoutes(app, {
   // Mutable getters: lifecycle flips these when reconnect lands.
   tradesBus: busLifecycle.tradesBus,
   privateBus: busLifecycle.privateBus,
+  privateAuthorityConfigured: () => authority !== null,
   dropCopyBus: busLifecycle.dropCopyBus,
   pollMs: env.WS_POLL_INTERVAL_MS,
 });
@@ -396,7 +405,7 @@ const privateGateway = createPrivateWebSocketGateway({
   book: new HttpPrivateBookPort({ baseUrl: env.TRADE_URL }),
   codRange: leaseRangeFromEnv(env.WS_COD_MIN_LEASE_MS, env.WS_COD_MAX_LEASE_MS),
   tradeCancel: new HttpTradeCancelPort({ baseUrl: env.TRADE_URL }),
-  liveCredential,
+  authority,
 });
 
 const dropCopyGateway = createDropCopyWebSocketGateway({
@@ -406,7 +415,7 @@ const dropCopyGateway = createDropCopyWebSocketGateway({
   log: app.log,
   enabled: isEnabled,
   tokens: privateTokens,
-  liveCredential,
+  authority,
 });
 
 poller.start();
@@ -420,9 +429,9 @@ app.log.info(
     depthLimit: env.WS_DEPTH_LIMIT,
     pollMs: env.WS_POLL_INTERVAL_MS,
     trades: busLifecycle.tradesBus(),
-    privateOrders: busLifecycle.privateBus() && privateTokens !== null,
-    privatePositions: busLifecycle.privateBus() && privateTokens !== null,
-    dropCopy: busLifecycle.dropCopyBus() && privateTokens !== null,
+    privateOrders: busLifecycle.privateBus() && privateTokens !== null && authority !== null,
+    privatePositions: busLifecycle.privateBus() && privateTokens !== null && authority !== null,
+    dropCopy: busLifecycle.dropCopyBus() && privateTokens !== null && authority !== null,
     enabled,
     sbeLinked: sbeCodec.linked,
     sbeJava: process.env[JAVA_ENV] ?? null,
@@ -430,19 +439,37 @@ app.log.info(
   'svc-ws ready — depth + trade tape + private orders/fills/positions + drop-copy',
 );
 
-for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-  process.once(signal, () => {
-    void (async () => {
-      // Stop producing before closing sockets, so nothing is written to a
-      // socket that is mid-close, and tell every client why it is going.
+registerSignalShutdown(
+  {
+    on(signal, listener) {
+      process.on(signal, listener);
+    },
+  },
+  {
+    disable() {
       enabled = false;
+    },
+    stopPoller() {
       poller.stop();
-      await busLifecycle.stop();
-      await gateway.close(WS_COPY.shuttingDown);
-      await privateGateway.close(WS_COPY.shuttingDown);
-      await dropCopyGateway.close(WS_COPY.shuttingDown);
-      await app.close();
-      process.exit(0);
-    })();
-  });
-}
+    },
+    stopBus() {
+      return busLifecycle.stop();
+    },
+    closeGateway(reason) {
+      return gateway.close(reason);
+    },
+    closePrivateGateway(reason) {
+      return privateGateway.close(reason);
+    },
+    closeDropCopyGateway(reason) {
+      return dropCopyGateway.close(reason);
+    },
+    closeApp() {
+      return app.close();
+    },
+  },
+  (code) => {
+    process.exit(code);
+  },
+  WS_COPY.shuttingDown,
+);

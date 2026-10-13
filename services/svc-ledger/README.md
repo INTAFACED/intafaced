@@ -62,7 +62,7 @@ An **inverted** window (`to` before `from`) refuses too — `ledger.history_rang
 | `intafaced.ledger.reconciliation.failed` | drift or chain break detected | account, cached vs replayed balance, difference     |
 | `intafaced.ledger.freeze.updated`        | posting frozen or thawed      | `frozen`, `reason`, `actor`, `changedAt`            |
 
-`freeze.updated` carries **both** directions on one subject. `VERBS` holds no honest past tense for un-freezing, and more to the point: a consumer subscribed to a freeze-only subject would raise the alarm and never learn it was cleared. Idempotency key is `ledger.freeze:<changedAt>`, and `changedAt` comes from the database's `now()` — two replicas disagreeing about the wall clock must not be able to disagree about the order the platform was halted and resumed in.
+`freeze.updated` carries both directions on one subject. Its stored idempotency key is `ledger.freeze:seq:<switch_seq>`. The sequence is allocated only while holding the actual `posting_freeze` row lock, so an earlier transaction start cannot reorder a later switch. `changedAt` is database observation time; replay order uses the sequence, not timestamps or UUIDs.
 
 `tx.posted` is emitted **after** commit, never inside the transaction. A consumer must never observe a transaction that could still roll back: at-least-once delivery of a fact that happened beats at-most-once delivery of one that might not have. Idempotency key is `ledger.tx:<txId>`.
 
@@ -155,7 +155,7 @@ On failure the service **freezes itself** and emits `reconciliation.failed`. Tha
 
 It lives in `ledger.posting_freeze` — one row, like `chain_tip`, holding `frozen`, `reason`, `actor` and `changed_at`. It is not a field on a service object, because a freeze is a fact about **the ledger**, not about a server. In memory it lost three ways: a restart resumed posting on a book reconciliation had halted, a second replica never heard about the freeze at all, and the operator's reason was written nowhere.
 
-`post()` reads that row **inside the same `chain_tip … FOR UPDATE` transaction it already takes** — a join on the singleton, so no extra round trip. Placement is not an optimisation: read it any earlier and there is a window between "not frozen" and `COMMIT` in which an operator freeze lands while a post sails through it. Under the lock, freeze and post are ordered by the same mechanism that orders posts against each other. `FOR UPDATE OF t` locks only the tip — taking a row lock on the kill-switch would make the operator's freeze queue behind the posts it is trying to stop.
+`post()` first locks `chain_tip`, then reads `posting_freeze` in a fresh statement under that lock. A joined read in the statement waiting on the tip can retain a pre-wait freeze snapshot. Scheduled mismatch freezes commit the switch and durable intent before releasing that same posting lock, so queued new posts see the committed halt. Posts do not lock the freeze row; the standalone operator freeze policy remains unchanged.
 
 A retry of a transaction that **already committed** still returns the original while frozen. The value moved; telling the caller otherwise would have it retry a movement that already happened.
 
@@ -199,3 +199,15 @@ Beyond conformance it proves what only a real database can: CHECK constraints re
 `service.freeze.test.ts` builds **two `LedgerService` instances over separate connection pools** against one database and asserts that a freeze on one refuses a post on the other, survives a third instance starting cold, and is attributed to `reconciliation` when the reconciliation job sets it. A test that only asserted `freeze()` set a field would pass against the bug it exists to catch.
 
 Freeze is a `LedgerService` method and deliberately **not** on the `LedgerClient` interface, so it is not in the conformance suite. `LedgerClient` is what every calling service codes against — widening it would hand svc-trade a method to halt the platform, and promise the in-memory reference a durability guarantee it cannot honour.
+
+## Durable recovery and upgrades
+
+Forward migrations `0014`–`0020` widen purpose trim checks, record nullable historical snapshot anchors, preserve immutable posted key/hash/metadata claims, enforce direct-object decimal-string outbox amounts, and add durable freeze event intents. Existing `0000`–`0013` up files retain their published bytes. The runner refuses unnamed lock claims before historical `0007` can stamp a synthetic purpose.
+
+Run the complete upgrade while posting processes are stopped before starting this version. Each forward file and its tracking row commit together under the migration lock. Claims copy the actual stored journal key/hash/metadata; that upgrade baseline cannot prove whether an earlier administrator changed them. Historical digests remain unchanged. Receipt reads and idempotent retries refuse a journal row that contradicts its append-only claim.
+
+Scheduled reconciliation runs proof and snapshot insertion on the already-held transaction, including with a one-connection pool. SQL proof/snapshot errors roll back to a savepoint, then commit the halt and durable intent before the posting lock is released; bus publication runs after commit. New anchors record the locked sequence/hash and use the database statement timestamp. Old snapshots retain NULL anchors. A thrown proof freezes posting; a chain-only failure logs the actual failure without inventing a balance drift account.
+
+Freeze/thaw intents commit with the switch, receive monotonic sequence identity under its row lock, and drain by that order after commit through the existing bus. Failed sends remain pending, and same-attribution retries drain them without changing the switch again. The full down runner reverses only applied files in one transaction, refuses any posted book, and rolls back tracking deletion with DDL. Direct downs also refuse known snapshot/claim/freeze-event history before removing it.
+
+Posting configuration keeps the current default. Explicit strings enable only after trim/case normalization to `true`, `yes`, `on`, or `1`; malformed, blank, or explicit disable strings freeze durably at boot. This recovery adds no HTTP transaction-receipt route or bearer authority to the internal service door.

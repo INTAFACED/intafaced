@@ -2,6 +2,7 @@ import { readDecimal, requireCredentials, VenueUnavailableError } from '@intafac
 import type { AccountAdapter, VenueBalance, VenueCredentials, VenueDescriptor } from '@intafaced/venue-contracts';
 import { fetchHttpPort, type HttpPort } from '../transport.js';
 import { RateLimitGovernor } from '../rate-limit.js';
+import { assertCredentialVenue } from './credential-guard.js';
 import { signBinanceQuery } from './binance-spot-trade.js';
 
 const REST_BASE = 'https://api.binance.com';
@@ -37,9 +38,14 @@ export function mapBinanceSpotBalances(body: Record<string, unknown>, now: Date)
     const rec = row as Record<string, unknown>;
     const free = readDecimal(rec.free, VENUE.id, 'free');
     const used = readDecimal(rec.locked, VENUE.id, 'locked');
+    const asset = String(rec.asset ?? '')
+      .trim()
+      .toUpperCase();
+    if (!asset) throw new VenueUnavailableError(VENUE.id, 'malformed', `balances[${i}].asset is missing`);
+    if (free < 0n || used < 0n) throw new VenueUnavailableError(VENUE.id, 'malformed', `balances[${i}] contains a negative balance`);
     return {
       venueId: VENUE.id,
-      asset: String(rec.asset ?? ''),
+      asset,
       free,
       used,
       total: free + used,
@@ -57,7 +63,10 @@ export class BinanceSpotAccount implements AccountAdapter {
   readonly #governor: RateLimitGovernor;
 
   constructor(credentials: VenueCredentials | null = null, options: BinanceSpotAccountOptions = {}) {
-    if (credentials) requireCredentials(VENUE.id, 'construct', credentials);
+    if (credentials) {
+      assertCredentialVenue(VENUE.id, credentials);
+      requireCredentials(VENUE.id, 'construct', credentials);
+    }
     this.#credentials = credentials;
     this.#http = options.http ?? fetchHttpPort();
     this.#restBase = options.restBase ?? REST_BASE;
@@ -109,6 +118,7 @@ export class BinanceSpotAccount implements AccountAdapter {
   async closeListenKey(listenKey: string): Promise<void> {
     const keys = requireCredentials(VENUE.id, 'closeListenKey', this.#credentials);
     const del = this.#http.delete?.bind(this.#http);
+    if (!listenKey.trim()) throw new VenueUnavailableError(VENUE.id, 'malformed', 'listenKey is required');
     if (!del) {
       throw new VenueUnavailableError(VENUE.id, 'not_ready', 'closeListenKey: HTTP DELETE port is not wired');
     }

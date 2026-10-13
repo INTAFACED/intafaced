@@ -19,6 +19,17 @@ describe('private order facts', () => {
     }
   });
 
+  it('treats an inherited status name as unknown and still encodes fact', () => {
+    expect(factFromOrderStatus('toString')).toBe('unknown');
+    expect(factFromOrderStatus('constructor')).toBe('unknown');
+
+    const toStringFrame = JSON.parse(encodePrivateOrderFrame({ status: 'toString' })) as Record<string, unknown>;
+    expect(toStringFrame.fact).toBe('unknown');
+
+    const constructorFrame = JSON.parse(encodePrivateOrderFrame({ status: 'constructor' })) as Record<string, unknown>;
+    expect(constructorFrame.fact).toBe('unknown');
+  });
+
   it('puts fact last on the wire so a payload status cannot be read as success', () => {
     const order = JSON.parse(
       encodePrivateOrderFrame({

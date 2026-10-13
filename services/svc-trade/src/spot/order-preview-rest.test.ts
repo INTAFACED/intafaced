@@ -1,6 +1,14 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Fastify from 'fastify';
 import type { Principal } from '@intafaced/auth';
+import {
+  SANCTIONS_REGIONS_ENV,
+  SANCTIONS_SOURCE_ENV,
+  SCREENING_REFUSE_FIXTURE,
+  SCREENING_REFUSE_UNCONFIGURED,
+  SCREENING_FAIL_CLOSED_ENV,
+  SCREENING_REVIEWED_EMPTY,
+} from '@intafaced/config';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client';
 import { decideMarketAction, type MarketLifecyclePort } from '../market-lifecycle.js';
@@ -30,7 +38,7 @@ const MARKET = readyMarket('fixture-spot', {
 const here = dirname(fileURLToPath(import.meta.url));
 const previewSource = readFileSync(join(here, 'order-preview-rest.ts'), 'utf8');
 
-function headers(scopes: string[] = ['trade:read']): Record<string, string> {
+function headers(scopes: string[] = ['trade:read'], region = 'DE'): Record<string, string> {
   const principal = {
     sub: USER,
     userId: USER,
@@ -43,10 +51,49 @@ function headers(scopes: string[] = ['trade:read']): Record<string, string> {
   const raw = encodePrincipal(principal);
   return {
     'x-intafaced-principal': raw,
-    'x-intafaced-principal-sig': signPrincipalHeader(raw, EDGE_SECRET, 'DE'),
-    'x-intafaced-region': 'DE',
+    'x-intafaced-principal-sig': signPrincipalHeader(raw, EDGE_SECRET, region),
+    'x-intafaced-region': region,
   };
 }
+
+/** Install a process screening list for one request, then put the previous answer back. */
+async function withScreeningList(regions: string | undefined, source: string | undefined, run: () => Promise<void>): Promise<void> {
+  const previousRegions = process.env[SANCTIONS_REGIONS_ENV];
+  const previousSource = process.env[SANCTIONS_SOURCE_ENV];
+  if (regions === undefined) delete process.env[SANCTIONS_REGIONS_ENV];
+  else process.env[SANCTIONS_REGIONS_ENV] = regions;
+  if (source === undefined) delete process.env[SANCTIONS_SOURCE_ENV];
+  else process.env[SANCTIONS_SOURCE_ENV] = source;
+  try {
+    await run();
+  } finally {
+    if (previousRegions === undefined) delete process.env[SANCTIONS_REGIONS_ENV];
+    else process.env[SANCTIONS_REGIONS_ENV] = previousRegions;
+    if (previousSource === undefined) delete process.env[SANCTIONS_SOURCE_ENV];
+    else process.env[SANCTIONS_SOURCE_ENV] = previousSource;
+  }
+}
+
+const savedRegions = process.env[SANCTIONS_REGIONS_ENV];
+const savedSource = process.env[SANCTIONS_SOURCE_ENV];
+const savedSwitch = process.env[SCREENING_FAIL_CLOSED_ENV];
+
+beforeEach(() => {
+  // vitest.config.ts turns the shared fail-closed switch off for business fixtures. Preview reads that
+  // switch (it no longer hard-codes strict), so these screening cases run strict like production.
+  process.env[SCREENING_FAIL_CLOSED_ENV] = 'on';
+  process.env[SANCTIONS_REGIONS_ENV] = SCREENING_REVIEWED_EMPTY;
+  process.env[SANCTIONS_SOURCE_ENV] = 'counsel-memo-ref';
+});
+
+afterEach(() => {
+  if (savedSwitch === undefined) delete process.env[SCREENING_FAIL_CLOSED_ENV];
+  else process.env[SCREENING_FAIL_CLOSED_ENV] = savedSwitch;
+  if (savedRegions === undefined) delete process.env[SANCTIONS_REGIONS_ENV];
+  else process.env[SANCTIONS_REGIONS_ENV] = savedRegions;
+  if (savedSource === undefined) delete process.env[SANCTIONS_SOURCE_ENV];
+  else process.env[SANCTIONS_SOURCE_ENV] = savedSource;
+});
 
 const HALTED_LIFECYCLE: MarketLifecyclePort = {
   snapshot(market) {
@@ -291,5 +338,133 @@ describe('POST /api/v1/orders/preview', () => {
     expect(previewSource).not.toMatch(/LedgerClient|orderHold|recipes/);
     expect(previewSource).not.toMatch(/matching\.submit|\.submit\(/);
     expect(previewSource).toContain('never receives a ledger port');
+  });
+
+  it('refuses preview when the sanctions list is unset and posts no hold', async () => {
+    await withScreeningList(undefined, undefined, async () => {
+      const { app, submit, ledgerPost } = appWith({});
+      const response = await app.inject({
+        method: 'POST',
+        url: SPOT_ORDER_PREVIEW_PATH,
+        headers: headers(),
+        payload: limitBuy,
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json().orderable).toBe(false);
+      expect(response.json().refusals.map((row: { code: string }) => row.code)).toContain(SCREENING_REFUSE_UNCONFIGURED);
+      expect(submit).not.toHaveBeenCalled();
+      expect(ledgerPost).not.toHaveBeenCalled();
+      await app.close();
+    });
+  });
+
+  it('refuses preview when the sanctions list is blank and posts no hold', async () => {
+    await withScreeningList('   ', undefined, async () => {
+      const { app, submit, ledgerPost } = appWith({});
+      const response = await app.inject({
+        method: 'POST',
+        url: SPOT_ORDER_PREVIEW_PATH,
+        headers: headers(),
+        payload: limitBuy,
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json().orderable).toBe(false);
+      expect(response.json().refusals.map((row: { code: string }) => row.code)).toContain(SCREENING_REFUSE_UNCONFIGURED);
+      expect(submit).not.toHaveBeenCalled();
+      expect(ledgerPost).not.toHaveBeenCalled();
+      await app.close();
+    });
+  });
+
+  it('refuses preview when the region is on the sanctions list and posts no hold', async () => {
+    await withScreeningList('AA:programme-ref', 'counsel-memo-ref', async () => {
+      const { app, submit, ledgerPost } = appWith({});
+      const response = await app.inject({
+        method: 'POST',
+        url: SPOT_ORDER_PREVIEW_PATH,
+        headers: headers(['trade:read'], 'AA'),
+        payload: limitBuy,
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json().orderable).toBe(false);
+      expect(response.json().refusals.map((row: { code: string }) => row.code)).toContain('denied.region_blocked');
+      expect(submit).not.toHaveBeenCalled();
+      expect(ledgerPost).not.toHaveBeenCalled();
+      await app.close();
+    });
+  });
+
+  it('refuses preview when the sanctions list is a fixture and posts no hold', async () => {
+    await withScreeningList('AA:placeholder', 'test-fixture-not-a-real-list', async () => {
+      const { app, submit, ledgerPost } = appWith({});
+      const response = await app.inject({
+        method: 'POST',
+        url: SPOT_ORDER_PREVIEW_PATH,
+        headers: headers(),
+        payload: limitBuy,
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json().orderable).toBe(false);
+      expect(response.json().refusals.map((row: { code: string }) => row.code)).toContain(SCREENING_REFUSE_FIXTURE);
+      expect(submit).not.toHaveBeenCalled();
+      expect(ledgerPost).not.toHaveBeenCalled();
+      await app.close();
+    });
+  });
+
+  it('follows the shared fail-closed switch: a fixture list is orderable only when explicitly off in dev', async () => {
+    const savedApp = process.env.APP_ENV;
+    const savedSwitch = process.env[SCREENING_FAIL_CLOSED_ENV];
+    try {
+      await withScreeningList('AA:placeholder', 'test-fixture-not-a-real-list', async () => {
+        process.env.APP_ENV = 'dev';
+        process.env[SCREENING_FAIL_CLOSED_ENV] = 'off';
+        const local = appWith({});
+        const open = await local.app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: limitBuy });
+        expect(open.statusCode, open.body).toBe(200);
+        expect(open.json().orderable).toBe(true);
+        expect(open.json().refusals).toEqual([]);
+        await local.app.close();
+
+        // Off is ignored outside explicit dev/test: staging and prod stay fail-closed.
+        process.env.APP_ENV = 'prod';
+        const hosted = appWith({});
+        const shut = await hosted.app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: limitBuy });
+        expect(shut.json().orderable).toBe(false);
+        expect(shut.json().refusals.map((row: { code: string }) => row.code)).toContain(SCREENING_REFUSE_FIXTURE);
+        await hosted.app.close();
+
+        // Unset switch stays fail-closed.
+        process.env.APP_ENV = 'dev';
+        delete process.env[SCREENING_FAIL_CLOSED_ENV];
+        const unset = appWith({});
+        const refused = await unset.app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: limitBuy });
+        expect(refused.json().orderable).toBe(false);
+        await unset.app.close();
+      });
+    } finally {
+      if (savedApp === undefined) delete process.env.APP_ENV;
+      else process.env.APP_ENV = savedApp;
+      if (savedSwitch === undefined) delete process.env[SCREENING_FAIL_CLOSED_ENV];
+      else process.env[SCREENING_FAIL_CLOSED_ENV] = savedSwitch;
+    }
+  });
+
+  it('stays orderable when shape passes and the sanctions gate allows the region', async () => {
+    await withScreeningList('AA:programme-ref', 'counsel-memo-ref', async () => {
+      const { app, submit, ledgerPost } = appWith({});
+      const response = await app.inject({
+        method: 'POST',
+        url: SPOT_ORDER_PREVIEW_PATH,
+        headers: headers(['trade:read'], 'DE'),
+        payload: limitBuy,
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json().orderable).toBe(true);
+      expect(response.json().refusals).toEqual([]);
+      expect(submit).not.toHaveBeenCalled();
+      expect(ledgerPost).not.toHaveBeenCalled();
+      await app.close();
+    });
   });
 });

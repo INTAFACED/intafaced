@@ -52,4 +52,32 @@ describe('userCopy — catalog keys, never invented English', () => {
     expect(userCopy('uninsured account')).not.toBe(INSURED_REFUSED);
     expect(userCopy('error.notFound')).not.toMatch(/insured/i);
   });
+
+  it('echoes inherited object names instead of native function text', () => {
+    for (const key of ['constructor', 'toString', '__proto__'] as const) {
+      const rendered = userCopy(key);
+      expect(rendered).toBe(key);
+      expect(rendered).not.toMatch(/\[native code\]/);
+      expect(rendered).not.toMatch(/\bfunction\b/);
+    }
+  });
+
+  it('does not throw or render native function text for a non-string key', () => {
+    const native = Object.prototype.toString;
+    const tricky = {
+      toString() {
+        return 'function toString() { [native code] }';
+      },
+    };
+    for (const key of [native, tricky, 1, null, undefined] as const) {
+      const rendered = userCopy(key as unknown as string);
+      expect(typeof rendered).toBe('string');
+      expect(rendered).not.toMatch(/\[native code\]/);
+      expect(rendered).not.toMatch(/\bfunction\b/);
+    }
+  });
+
+  it('maps auth.account_frozen through its catalog alias', () => {
+    expect(userCopy('auth.account_frozen')).toBe('You do not have access to this.');
+  });
 });

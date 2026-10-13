@@ -53,6 +53,10 @@ export function supportTierGate(input: { law: SupportTierLaw | null | undefined;
     return { status: 'refuse', reason: 'tier_not_granted', userMessageKey: 'agents.support.tier_closed' };
   }
 
+  if (!Object.hasOwn(law.matrix, tier)) {
+    return { status: 'refuse', reason: 'tier_not_granted', userMessageKey: 'agents.support.tier_closed' };
+  }
+
   const allowed = law.matrix[tier];
   if (!allowed) {
     return { status: 'refuse', reason: 'tier_not_granted', userMessageKey: 'agents.support.tier_closed' };

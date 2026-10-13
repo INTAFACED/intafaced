@@ -108,6 +108,41 @@ describe('assertProdEngine — prod refuses mock and loopback', () => {
     expect(isLoopbackEngineUrl('http://[::1]:4108')).toBe(true);
   });
 
+  it('throws blueprint.prod_engine_config for every loopback engine URL in prod', () => {
+    const loopbacks = [
+      'http://127.0.0.2',
+      'http://127.0.0.0:4108',
+      'http://127.255.255.255:4108',
+      'http://localhost.',
+      'http://localhost.:4108',
+      'http://LOCALHOST.',
+      'http://[::ffff:127.0.0.1]',
+      'http://[::ffff:127.0.0.1]:4108',
+      'http://[::ffff:7f00:1]',
+      'http://[::ffff:7f00:2]:4108',
+      'http://[::ffff:7fff:ffff]',
+      'http://localhost:4108',
+      'http://127.0.0.1:4108',
+      'http://[::1]:4108',
+      'http://0.0.0.0:4108',
+    ];
+
+    for (const url of loopbacks) {
+      expect(isLoopbackEngineUrl(url), url).toBe(true);
+      try {
+        assertProdEngine({
+          APP_ENV: 'prod',
+          BLUEPRINT_ENGINE_MODE: 'http',
+          BLUEPRINT_ENGINE_URL: url,
+        });
+        expect.unreachable(`must throw for ${url}`);
+      } catch (err) {
+        expect(err, url).toBeInstanceOf(ProdEngineConfigError);
+        expect((err as ProdEngineConfigError).code, url).toBe(PROD_ENGINE_CONFIG_CODE);
+      }
+    }
+  });
+
   it('allows APP_ENV=prod with http mode and a non-loopback engine URL', () => {
     expect(() => assertProdEngine(PROD_HTTP)).not.toThrow();
   });

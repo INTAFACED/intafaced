@@ -42,8 +42,10 @@ async function main() {
     for (const up of [...ups].reverse()) {
       const downFile = up.replace(/\.sql$/, '.down.sql');
       console.log(`↓ ${downFile}`);
-      await sql.unsafe(readFileSync(join(migrationsDir, downFile), 'utf8'));
-      await sql`DELETE FROM p2p.__migrations WHERE name = ${up}`;
+      await sql.begin(async (tx) => {
+        await tx.unsafe(readFileSync(join(migrationsDir, downFile), 'utf8'));
+        await tx`DELETE FROM p2p.__migrations WHERE name = ${up}`;
+      });
     }
     console.log('✓ reversed');
     return;

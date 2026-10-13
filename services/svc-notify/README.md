@@ -169,6 +169,58 @@ rather than a green tick over silence.
 
 ## API
 
+### Guest outreach emails
+
+`guestNotifications.send`, `get`, and `eraseSubmission` are **POST mutations**
+restricted to authenticated `svc-ops` with v2 signatures over the exact body.
+Configure a dedicated `NOTIFY_OPS_SERVICE_SECRET` (at least 32 characters), shared
+only with the ops producer and distinct from `EDGE_PRINCIPAL_SECRET`. Absence
+leaves guest ingress closed. Configuring it requires migration
+`0009_guest_notifications.sql` at boot. The installed Fastify tRPC parser retains
+the original JSON string; the owned ingress adapter verifies those exact bytes
+and refuses parsed objects without retained bytes. GET is not a signed lookup.
+
+Ops derives the recipient from the original saved submission, even after a CRM
+contact merge. Guest email neither looks up identity by email nor creates/verifies
+a platform channel target. Existing platform notifications still require their
+confirmed targets. Allowed purposes are contact acknowledgement, staff-authorized
+information request, reviewed call invitation and follow-up. Four fixed English
+wrappers from `@intafaced/i18n` (`notify.outreach.<kind>.title/body`) render the
+messages; callers cannot supply a subject, HTML, template or link. A missing
+catalog key refuses before any transport attempt.
+The acknowledgement says **contact details received**, never questionnaire complete.
+No continuation capability is placed in a message, URL or log.
+
+The owned guest queue commits the immutable business key, normalized request/hash
+and claim before handing a message to the transport. Concurrent callers and
+replicas share the claim. A conservative monotonic dispatch budget starts before the claim transaction; a delayed commit receipt cannot restart it. Before handoff, the remaining lease must cover the delivery timeout, otherwise the claim becomes unresolved without invoking the transport. Accepted duplicates return the original receipt.
+Changing recipient or content under the same key refuses `guest.request_conflict`.
+URL/token configuration is not reachability; `accepted` is gateway acceptance,
+never delivery or human receipt. Error bodies are discarded; only bounded opaque
+references can be retained. Operational results contain IDs, times and typed codes.
+
+There is **one transport attempt per business request**. A timeout, lost response,
+ambiguous HTTP failure or expired process claim becomes `unresolved` with
+`guest.acceptance_unknown`. Acceptance followed by a failed SQL write retains the
+claim; expiry becomes unresolved after restart. Such a request is never blindly
+resent, even though the existing gateway sends an idempotency header. No verified
+provider dedupe/acceptance-lookup capability is configured by this change; staff
+must resolve uncertainty with gateway evidence. A permanent rejection is refused.
+Only a known pre-attempt configuration/kill-switch or recipient-budget refusal can
+resume the identical request safely. Ops owns the durable producer outbox/worker.
+
+The recipient budget defaults to **3 attempts per 15-minute fixed window**, shared
+in PostgreSQL across replicas. `NOTIFY_GUEST_ADDRESS_MAX_PER_WINDOW` and
+`NOTIFY_GUEST_ADDRESS_WINDOW_MS` configure it. Duplicate claims spend no new budget.
+Only a recipient hash is stored in budget rows, and old windows are pruned on send.
+
+`eraseSubmission` purges recipient/staff text and any gateway reference while
+retaining the minimum business hash and outcome. It records an immutable submission
+tombstone and replays the original UUID request receipt. A live attempted claim
+refuses `guest.delivery_in_progress`; settle it or let its bounded lease expire
+before retrying. Erased submissions cannot enqueue further messages. Erasure covers
+notify's owned records; ops owns submission/contact erasure and authorization.
+
 | Procedure               | Scope          | Input                                  | Output                                                                                                         |
 | ----------------------- | -------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `health`                | public         | —                                      | `{ ok, service, fanoutEnabled, venueIncident }` — `ok` is liveness; `venueIncident.allFine` is the venue claim |
@@ -456,6 +508,11 @@ phones without also blinding them. It may **not** be combined with a non-empty
 sending off is a contradiction, and it is the shape a bad rollback takes. The env
 schema refuses it.
 
+`NOTIFY_FANOUT_ENABLED=false` is the same contradiction when
+`NOTIFY_REQUIRED_CHANNELS` names a channel: consumers ack, insert no inbox rows,
+and send nothing, even with out-of-app on and gateway credentials set. The env
+schema refuses that boot. `none` may still turn fan-out off.
+
 `NOTIFY_OUT_OF_APP_ENABLED=false` also counts as incident-silence for the venue
 claim: health/ready must not read as allFine. Flipping sending back on is not an
 all-clear unless `NOTIFY_INCIDENT_ALL_CLEAR` is set and matching `GET /markets`
@@ -472,6 +529,7 @@ is actually open.
 | `NOTIFY_MAX_DELIVERY_ATTEMPTS`          | —       | 1–5, at or below the bus `maxDeliver`. Blank refuses `notify.max_delivery_attempts_unset` — never invent 3. Owner may set 3 explicitly. |
 | `NOTIFY_SMS_MAX_CHARS`                  | `480`   | Three GSM segments.                                                                                                                     |
 | `NOTIFY_VERIFY_TTL_MINUTES`             | —       | 1–120. Blank refuses `notify.verify_ttl_unset` — never invent 15. Owner may set 15 explicitly.                                          |
+| `NOTIFY_VERIFY_CODE_PEPPER`             | —       | Required. Blank refuses `notify.verify_code_pepper_unset` — no default. HMAC key for confirmation codes.                                |
 | `TRADE_URL`                             | —       | Unset ⇒ alert marks stay dark. Set ⇒ public ticker mark source (live wiring).                                                           |
 | `MATCHING_URL`                          | —       | Unset ⇒ venue halt unwired (not allFine, not invented halt). Set ⇒ consume GET /markets. Never POST /halt-all.                          |
 | `NOTIFY_INCIDENT_SILENCE`               | `false` | Latch: matching-open is not allFine until `NOTIFY_INCIDENT_ALL_CLEAR`.                                                                  |
@@ -495,6 +553,18 @@ Email/push/SMS each need a URL and a token before they leave the platform; until
 then the in-app inbox carries every notification and the record says why nothing
 else did. The owner's list of what to obtain and where to put it:
 [`docs/OWNER-ACTIONS-NOTIFY-GATEWAYS.md`](../../docs/OWNER-ACTIONS-NOTIFY-GATEWAYS.md).
+
+## Independent mailbox relay
+
+`node services/svc-notify/dist/gateway/index.js` starts the private relay independently of the platform bus, identity, guest database and notification workers. It adapts the existing email gateway envelope to a configured HTTPS mailbox endpoint accepting `{to:[address], displayName, subject, text}` and an empty HTTP204 response. HTTP204 confirms endpoint acceptance; it does not prove recipient arrival or human reading. No provider SDK is installed.
+
+Provision a separate notify-owned receipt database/schema and role before starting. Set `NOTIFY_RELAY_DATABASE_URL`, `NOTIFY_RELAY_TOKEN` (32–4096 printable characters), `NOTIFY_RELAY_SEND_URL` (the full HTTPS send endpoint), `NOTIFY_RELAY_SEND_TOKEN` (a distinct private upstream credential), `NOTIFY_RELAY_TIMEOUT_MS` (100–10000), and `NOTIFY_RELAY_PORT`. `NOTIFY_RELAY_HOST` defaults to `127.0.0.1`; keep the listener private behind verified TLS ingress. Set the main service email gateway URL to that ingress `/send` and its token to the relay bearer; allow its transport budget to outlast the bounded relay attempt. `/ready` is authenticated and checks receipt storage only, returning upstream `unprobed`.
+
+The entrypoint applies only `drizzle/gateway/0000_mailbox_relay.sql`. Normal guest up/down migrations never enumerate this subdirectory. Never include this database in a prospect or guest rollback. An accidentally identical configured guest/relay database URL refuses startup, but URL spelling cannot establish physical independence, restricted access or backup protection. Verify actual host/restore placement before admitting live traffic. Credentials remain in private runtime secrets, never URLs, source, browser assets or logs.
+
+Guest transport keys derive from the immutable business key rather than the generated notification UUID. The relay commits a hashed key and delivery fingerprint before one upstream attempt; no recipient, body, notification ID, credential or response body is retained. Concurrent/crashed/unknown attempts never authorize another send. Exact accepted repeats return the original opaque receipt, including after an old guest-database restore changes its notification UUID. Changed delivery under that key conflicts. The relay follows no redirects. Known upstream401/403/422 refusals are permanent; other statuses/timeouts or failed/late receipt writes remain acceptance-unknown. Keep those distinctions in the CRM.
+
+Actual SQL/HTTP fixtures and pg_dump/restore demonstrate this ordering and stable-key recovery. The separately retained receipt database must survive any guest restoration. These checks do not establish deployed TLS, upstream credential validity, recipient arrival, backup rotation or human mailbox monitoring. An opaque receipt ledger can prevent repeated attempts while retaining minimal restoration authority; it cannot establish whether an unknown upstream response delivered a message.
 
 ## Port
 

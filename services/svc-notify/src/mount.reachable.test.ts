@@ -39,7 +39,8 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
-import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import { retainRawBody, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import { createGuestIngressContext } from './guests/context.js';
 import { createNotifyRouter, type NotifyRouter } from './router.js';
 import { NotifyService } from './notify-service.js';
 import { MemoryNotifyStore } from './store.js';
@@ -119,14 +120,14 @@ async function mount(options: { marks?: MarkSource; whaleMarks?: MarkSource; wit
       ? null
       : new AlertService(new MemoryAlertStore(), options.marks ?? darkMarks, notify, options.whaleMarks ?? createDarkWhaleMarkSource());
   const appRouter = createNotifyRouter(notify, alerts ?? undefined);
-  const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-notify' });
-
+  const edgeContext = createGuestIngressContext({ edgeSecret: SECRET });
   const app = Fastify({ logger: false, maxParamLength: 5_000 });
+  retainRawBody(app);
   await app.register(fastifyTRPCPlugin, {
     prefix: PREFIX,
     trpcOptions: {
       router: appRouter,
-      createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+      createContext: ({ req }) => edgeContext(req),
     } satisfies FastifyTRPCPluginOptions<NotifyRouter>['trpcOptions'],
   });
 
@@ -270,11 +271,12 @@ describe('the mount proven above is the mount index.ts ships', () => {
     expect(index).toMatch(new RegExp(`prefix: '${PREFIX}'`));
   });
 
-  it('builds its context from the edge principal, not from the request body', () => {
+  it('passes the original request to the signed edge and exact-body ops context', () => {
     // A mount that served the router without this would answer every caller as
     // whoever they claimed to be.
     expect(index).toMatch(/createContext:/);
-    expect(index).toMatch(/edgeContext\(\{ headers: req\.headers/);
+    expect(index).toMatch(/createGuestIngressContext/);
+    expect(index).toMatch(/createContext: \(\{ req \}\) => edgeContext\(req\)/);
     expect(index).toMatch(/EDGE_PRINCIPAL_SECRET/);
   });
 });

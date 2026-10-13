@@ -17,6 +17,8 @@ export const ORDERS_VENUE_HALTED = 'orders.venue_halted' as const;
 export const ORDERS_MARKET_PRELAUNCH = 'orders.market_prelaunch' as const;
 export const ORDERS_MARKET_EXPIRED = 'orders.market_expired' as const;
 export const ORDERS_MARKET_DELISTED = 'orders.market_delisted' as const;
+/** A halt this seat already heard is gone. Not OPEN, not a price, not a depth code. */
+export const ORDERS_SUBMITS_RESUMED = 'orders.submits_resumed' as const;
 
 export type DepthMatchingTradingCode =
   | typeof DEPTH_MARKET_HALTED
@@ -67,8 +69,28 @@ export function parseMatchingTrading(raw: unknown): DepthMatchingTradingCode | n
   return null;
 }
 
+export interface MatchingTradingOpenEvidence {
+  readonly market: boolean;
+  readonly venue: boolean;
+}
+export type MatchingTradingResumeEvidence = MatchingTradingOpenEvidence | boolean;
+
+/** Omitted flags cannot clear an observed halt. Evidence names the matching scope it confirms. */
+export function matchingTradingOpenEvidence(raw: unknown): MatchingTradingOpenEvidence {
+  if (raw === null || typeof raw !== 'object' || parseMatchingTrading(raw) !== null) return { market: false, venue: false };
+  const rec = raw as Record<string, unknown>;
+  const open = typeof rec.status === 'string' && rec.status.toLowerCase() === 'open';
+  return { market: open || rec.halted === false, venue: rec.venueHalted === false || rec.venue_halted === false };
+}
+
+export function confirmsTradingResume(evidence: MatchingTradingResumeEvidence, venue: boolean): boolean {
+  return typeof evidence === 'boolean' ? evidence : venue ? evidence.venue : evidence.market;
+}
+
 export interface MatchingTradingBoard {
   readonly venueHalted: boolean;
+  readonly venueConfirmedOpen: boolean;
+  readonly openMarkets: ReadonlySet<string>;
   readonly byMarket: ReadonlyMap<string, DepthMatchingTradingCode>;
 }
 
@@ -83,14 +105,19 @@ function addBoardIds(byMarket: Map<string, DepthMatchingTradingCode>, ids: unkno
 /** Extra arrays on matching `GET /markets` — `{ markets: string[] }` still the id list. */
 export function parseMatchingBoard(raw: unknown): MatchingTradingBoard {
   const byMarket = new Map<string, DepthMatchingTradingCode>();
-  if (raw === null || typeof raw !== 'object') return { venueHalted: false, byMarket };
+  if (raw === null || typeof raw !== 'object') return { venueHalted: false, venueConfirmedOpen: false, openMarkets: new Set(), byMarket };
   const o = raw as Record<string, unknown>;
   addBoardIds(byMarket, o.delisted, DEPTH_MARKET_DELISTED);
   addBoardIds(byMarket, o.expired, DEPTH_MARKET_EXPIRED);
   addBoardIds(byMarket, o.prelaunch, DEPTH_MARKET_PRELAUNCH);
   addBoardIds(byMarket, o.halted, DEPTH_MARKET_HALTED);
   const venueHalted = o.venueHalted === true || o.venue_halted === true;
-  return { venueHalted, byMarket };
+  const venueConfirmedOpen = !venueHalted && (o.venueHalted === false || o.venue_halted === false);
+  const openMarkets = new Set<string>();
+  if (!venueHalted && Array.isArray(o.markets) && Array.isArray(o.halted)) {
+    for (const id of o.markets) if (typeof id === 'string' && !byMarket.has(id)) openMarkets.add(id);
+  }
+  return { venueHalted, venueConfirmedOpen, openMarkets, byMarket };
 }
 
 export function tradingFromBoard(board: MatchingTradingBoard | null | undefined, marketId: string): DepthMatchingTradingCode | null {
@@ -142,6 +169,23 @@ export function ordersMatchingTradingFrame(
     marketId === undefined || code === ORDERS_VENUE_HALTED
       ? { type: 'status', code, channel, userId }
       : { type: 'status', code, channel, userId, marketId };
+  return JSON.stringify(frame);
+}
+
+export interface OrdersSubmitsResumedFrame {
+  readonly type: 'status';
+  readonly code: typeof ORDERS_SUBMITS_RESUMED;
+  readonly channel: 'orders' | 'fills';
+  readonly userId: string;
+  readonly marketId?: string;
+}
+
+/** Venue resume omits marketId, matching the venue halt frame this seat already has. */
+export function ordersSubmitsResumedFrame(userId: string, channel: 'orders' | 'fills', marketId?: string): string {
+  const frame: OrdersSubmitsResumedFrame =
+    marketId === undefined
+      ? { type: 'status', code: ORDERS_SUBMITS_RESUMED, channel, userId }
+      : { type: 'status', code: ORDERS_SUBMITS_RESUMED, channel, userId, marketId };
   return JSON.stringify(frame);
 }
 

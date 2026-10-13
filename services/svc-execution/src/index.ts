@@ -46,6 +46,7 @@ import { buildTradeBookSnapshotMap } from './trade-book-snapshot.js';
 import { FileEmsOrderStore } from './file-ems-order-store.js';
 import { buildExecutionReadyResponse } from './ready-response.js';
 import { createCaptureLakeRuntime } from './capture-lake-runtime.js';
+import { finishSignalShutdown } from './signal-shutdown.js';
 
 registerProcessHooks(
   startTelemetry({
@@ -188,10 +189,12 @@ app.log.info({ port: env.HTTP_PORT }, 'svc-execution ready');
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
-    void (async () => {
-      await captureLakeRuntime.stop();
-      await app.close();
-      process.exit(0);
-    })();
+    void finishSignalShutdown({
+      stop: () => captureLakeRuntime.stop(),
+      close: () => app.close(),
+      exit: (code) => {
+        process.exit(code);
+      },
+    });
   });
 }

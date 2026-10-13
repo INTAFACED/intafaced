@@ -90,11 +90,8 @@ docs/ops/RUN-LEDGER.json.tmp
 # on purpose: two agents verifying at once must not read each other's skips.
 .intafaced-run/
 
-# Graphify: official team setup commits the map so every clone (GitHub pull,
-# Grok Bot /workspace, new worktree) can query without a first extract.
-# Keep machine-local cache/paths out of git.
-graphify-out/cache/
-graphify-out/cost.json
-graphify-out/.graphify_python
-graphify-out/.graphify_root
-.graphify/
+# Retired Graphify output and installer remnants from older local checkouts.
+/graphify-out/
+/.graphify/
+/.agents/skills/graphify/
+/.cursor/rules/graphify.mdc

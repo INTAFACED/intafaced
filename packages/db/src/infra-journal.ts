@@ -132,14 +132,34 @@ function currentRunId(): string {
  * Strip credentials. The journal is a plain file in the working tree and
  * `pnpm scan:secrets` exists for a reason; a URL with a password in it must not
  * be written somewhere a `cat` or a screenshot can pick it up.
+ *
+ * `URL.password` only sees userinfo. libpq also accepts `?password=` on a URI
+ * that parses, and a keyword DSN (`password=`) that does not parse at all.
  */
 export function redactUrl(raw: string): string {
+  const scrub = (value: string): string =>
+    value
+      .replace(/\/\/([^:@/\s]*):[^@/\s]*@/g, '//$1:***@')
+      .replace(/([?&])([^=&\s]+)=([^&\s]*)/g, (pair, separator: string, key: string) => {
+        try {
+          return decodeURIComponent(key).toLowerCase() === 'password' ? `${separator}${key}=***` : pair;
+        } catch {
+          return pair;
+        }
+      })
+      // libpq permits spaces around '=' and single-quoted values with escaped
+      // quotes or spaces. Redacting only the first whitespace token leaks the rest.
+      .replace(/(^|\s)(password\s*=\s*)(?:'(?:\\[\s\S]|[^'\\])*(?:'|$)|(?:\\[\s\S]|[^\s\\])*)/gi, '$1$2***');
   try {
     const url = new URL(raw);
     if (url.password) url.password = '***';
-    return url.toString();
+    const search = scrub(url.search);
+    if (search !== url.search) url.search = search;
+    // Error text can parse as an opaque URL (for example "error: ...").
+    // Scrub embedded DSNs too, rather than relying on URL.password alone.
+    return scrub(url.toString());
   } catch {
-    return raw.replace(/\/\/([^:@/]*):[^@/]*@/, '//$1:***@');
+    return scrub(raw);
   }
 }
 
@@ -226,7 +246,7 @@ export interface RecordInfraProbeInput {
  */
 export function recordInfraProbe(input: RecordInfraProbeInput): void {
   try {
-    const reason = input.reason ?? '';
+    const reason = redactUrl(input.reason ?? '');
     const probe: InfraProbe = {
       dependency: input.dependency,
       outcome: input.outcome,

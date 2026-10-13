@@ -579,7 +579,11 @@ export function createMatchingClient(baseUrl: string, internalSecret: string): M
         throw new MatchingUnavailableError(`svc-matching ${path} failed (${response.status}): ${detail}`);
       }
 
-      return (await response.json()) as EngineDepth;
+      try {
+        return (await response.json()) as EngineDepth;
+      } catch (err) {
+        throw new MatchingUnavailableError(`svc-matching ${path} returned a body that is not JSON: ${(err as Error).message}`);
+      }
     },
 
     /**

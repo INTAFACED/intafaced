@@ -16,6 +16,7 @@
  * docker-compose.apps.yml name it as a default instead of making every developer
  * copy hex out of a terminal.
  */
+import { assertSeedReceipt } from './seed-receipt.js';
 import { deployDevVenue, devChainClients, devRpcUrl, marketWord, scaled } from './dev-venue.js';
 
 const clients = devChainClients();
@@ -53,7 +54,8 @@ const seed = await clients.walletClient.writeContract({
   account,
   chain: clients.walletClient.chain,
 });
-await clients.publicClient.waitForTransactionReceipt({ hash: seed });
+const seedReceipt = await clients.publicClient.waitForTransactionReceipt({ hash: seed });
+assertSeedReceipt(seedReceipt);
 
 console.log(`
 DevVenue          ${venue.address}

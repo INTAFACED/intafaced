@@ -128,6 +128,69 @@ describe('expirePaperImplementationShortfallParent', () => {
     ).toMatchObject({ ok: false, reason: 'missing_expire_at' });
   });
 
+  it('keeps a future expireAt unexpired and expires when now is at or after expireAt', () => {
+    const atDeadline = new Date(EXPIRE_AT);
+    const afterDeadline = new Date('2026-08-31T19:00:00.000Z');
+
+    expect(
+      expirePaperImplementationShortfallParent({
+        parentClientOrderId: 'p-is',
+        status: 'paper',
+        expireAt: EXPIRE_AT,
+        remaining: '10',
+        paper: PAPER_ON,
+        now: atDeadline,
+      }),
+    ).toEqual({
+      ok: true,
+      expired: true,
+      paper: true,
+      parent: { parentClientOrderId: 'p-is', kind: 'implementation_shortfall' },
+      status: 'expired',
+      expireAt: EXPIRE_AT,
+      residual: { remaining: '10' },
+    });
+
+    expect(
+      expirePaperImplementationShortfallParent({
+        parentClientOrderId: 'p-is',
+        status: 'paper',
+        expireAt: EXPIRE_AT,
+        remaining: '10',
+        paper: PAPER_ON,
+        now: afterDeadline,
+      }),
+    ).toMatchObject({
+      ok: true,
+      status: 'expired',
+      expireAt: EXPIRE_AT,
+      residual: { remaining: '10' },
+    });
+
+    const early = expirePaperImplementationShortfallParent({
+      parentClientOrderId: 'p-is',
+      status: 'paper',
+      expireAt: EXPIRE_AT,
+      remaining: '10',
+      paper: PAPER_ON,
+      now: NOW,
+    });
+    expect(early).toMatchObject({ ok: false, reason: 'not_due' });
+    expect(early).not.toHaveProperty('status', 'expired');
+  });
+
+  it('refuses when now is omitted', () => {
+    const refused = expirePaperImplementationShortfallParent({
+      parentClientOrderId: 'p-is',
+      status: 'paper',
+      expireAt: EXPIRE_AT,
+      remaining: '10',
+      paper: PAPER_ON,
+    });
+    expect(refused).toMatchObject({ ok: false, reason: 'missing_clock' });
+    expect(refused).not.toHaveProperty('status', 'expired');
+  });
+
   it("happy: status paper + expireAt + remaining '10' + paper on", () => {
     const expired = expirePaperImplementationShortfallParent({
       parentClientOrderId: 'p-is',
@@ -135,6 +198,7 @@ describe('expirePaperImplementationShortfallParent', () => {
       expireAt: EXPIRE_AT,
       remaining: '10',
       paper: PAPER_ON,
+      now: new Date(EXPIRE_AT),
     });
     expect(expired).toEqual({
       ok: true,
@@ -153,6 +217,7 @@ describe('expirePaperImplementationShortfallParent', () => {
       status: 'paper',
       expireAt: EXPIRE_AT,
       paper: PAPER_ON,
+      now: new Date('2026-08-31T18:00:00.001Z'),
     });
     expect(expired).toMatchObject({
       ok: true,

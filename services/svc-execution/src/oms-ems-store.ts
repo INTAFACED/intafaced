@@ -4,8 +4,9 @@
  * Records venue acks from the execute path only. Does not invent fills or
  * statuses. Missing entry is an honest miss, not a synthetic ack.
  */
-import type { VenueExecution } from '@intafaced/venue-adapter';
+import type { OmsVenueExecution as VenueExecution } from './oms-trade-submit.js';
 import type { ExecutionCommandOutcome } from '@intafaced/exchange-contract';
+import type { Amount } from '@intafaced/ledger-client';
 
 export type EmsOrderState =
   | 'ACKNOWLEDGED'
@@ -34,6 +35,8 @@ export type EmsOrderAck = {
   readonly side: 'buy' | 'sell';
   readonly execution: VenueExecution;
   readonly state?: EmsOrderState;
+  /** Remaining quantity observed on a confirmed terminal cancel response. Legacy rows stay unknown. */
+  readonly drainedRemaining?: Amount;
   readonly commandOutcome?: ExecutionCommandOutcome;
   /** Durable lookup key for SUBMIT_UNKNOWN/OUTCOME_UNKNOWN children. */
   readonly reconciliationKey?: string | null;
@@ -82,6 +85,7 @@ export class InMemoryEmsOrderStore implements EmsOrderStore {
       side: input.side,
       execution: input.execution,
       state: input.state,
+      drainedRemaining: input.drainedRemaining,
       commandOutcome: input.commandOutcome,
       reconciliationKey: input.reconciliationKey ?? null,
       recordedAtMs: input.recordedAtMs ?? Date.now(),

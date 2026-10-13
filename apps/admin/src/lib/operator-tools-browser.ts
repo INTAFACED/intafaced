@@ -3,6 +3,8 @@
  * Edge tokens never leave the server.
  */
 
+import { founderMutationHeaders } from './founder-browser';
+
 export interface ToolListItem {
   readonly id: string;
   readonly group: string;
@@ -85,7 +87,7 @@ export async function invokeOperatorToolBrowser(toolId: string, input: Record<st
   try {
     const res = await fetch('/api/operator-tools', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: await founderMutationHeaders(),
       body: JSON.stringify({ toolId, input }),
       cache: 'no-store',
     });

@@ -5,7 +5,7 @@
  * Not a redo of #3628 (rest) or #3638 (bazaar place).
  */
 import { OrderBook } from './book.js';
-import type { CancelledRef, EngineOrder, OrderId, SubmitResult } from './types.js';
+import type { CancelledRef, EngineOrder, SubmitResult } from './types.js';
 
 export const OCO_SIBLING_TERMINAL = 'oco_sibling_terminal' as const;
 export const OCO_NOT_FOUND = 'order_not_found' as const;
@@ -73,7 +73,11 @@ function sortPair(a: string, b: string): [string, string] {
   return a < b ? [a, b] : [b, a];
 }
 
-/** Both sibling ids, or null when the caller did not name a pair and nothing live is linked. */
+/**
+ * Both sibling ids when the caller named both take-profit and stop-loss ids,
+ * a live order already stores ocoSiblingId, or the caller named ocoSiblingId.
+ * One named side with nothing live linked is null — never invent orderId:tp or orderId:sl.
+ */
 export function readOcoPair(book: OrderBook, order: OcoCancelOrder): [string, string] | null {
   const namedTp = namedId(order.takeProfitOrderId);
   const namedSl = namedId(order.stopLossOrderId);
@@ -89,11 +93,6 @@ export function readOcoPair(book: OrderBook, order: OcoCancelOrder): [string, st
   const namedSibling = namedId(order.ocoSiblingId ?? null);
   if (namedSibling && namedSibling !== order.orderId) return sortPair(order.orderId, namedSibling);
 
-  if (order.oco === true) {
-    const tp = namedTp ?? `${order.orderId}:tp`;
-    const sl = namedSl ?? `${order.orderId}:sl`;
-    if (tp !== sl) return sortPair(tp, sl);
-  }
   return null;
 }
 
@@ -125,11 +124,46 @@ function rejected(code: NonNullable<SubmitResult['rejected']>['code'], message: 
   };
 }
 
+/**
+ * Cancel the live pair readOcoPair already resolved.
+ * Null only when no pair was named and the refuse helper declines — never invents orderId:tp.
+ */
+export function ocoCancelResult(book: OrderBook, order: OcoCancelOrder, cancel: OrderBook['cancel']): SubmitResult | null {
+  const pair = readOcoPair(book, order);
+  if (!pair) {
+    const missing = ocoCancelRefuse(0);
+    if (!missing) return null;
+    return rejected(missing.code, missing.message);
+  }
+  const live = new Set(liveOrders(book).map((row) => row.orderId));
+  const liveCount = pair.filter((id) => live.has(id)).length;
+  const refuse = ocoCancelRefuse(liveCount);
+  if (refuse) return rejected(refuse.code, refuse.message);
+
+  const cancellations: CancelledRef[] = [];
+  let sequence: number | null = null;
+  for (const id of pair) {
+    const pulled = cancel.call(book, id, 'requested');
+    if (pulled.cancellation) {
+      cancellations.push(pulled.cancellation);
+      sequence = pulled.sequence ?? sequence;
+    }
+  }
+  return {
+    accepted: true,
+    sequence,
+    fills: [],
+    resting: null,
+    cancellations,
+    triggered: [],
+  };
+}
+
 export function installOcoCancel(ctor: typeof OrderBook): void {
   if (!ctor) return;
   const proto = ctor.prototype as {
     submit: (order: EngineOrder, now?: Date | null) => SubmitResult;
-    cancel: (orderId: OrderId, reason?: 'requested' | 'expired') => { cancellation: CancelledRef | null; sequence: number | null };
+    cancel: OrderBook['cancel'];
     [FLAG]?: boolean;
   };
   if (proto[FLAG]) return;
@@ -140,35 +174,9 @@ export function installOcoCancel(ctor: typeof OrderBook): void {
   proto.submit = function (this: OrderBook, order: EngineOrder, now?: Date | null) {
     const extra = order as OcoCancelOrder;
     if (!wantsOcoCancel(extra)) return orig.call(this, order, now);
-
-    const pair = readOcoPair(this, extra);
-    if (!pair) {
-      const missing = ocoCancelRefuse(0);
-      if (!missing) return orig.call(this, order, now);
-      return rejected(missing.code, missing.message);
-    }
-    const live = new Set(liveOrders(this).map((row) => row.orderId));
-    const liveCount = pair.filter((id) => live.has(id)).length;
-    const refuse = ocoCancelRefuse(liveCount);
-    if (refuse) return rejected(refuse.code, refuse.message);
-
-    const cancellations: CancelledRef[] = [];
-    let sequence: number | null = null;
-    for (const id of pair) {
-      const pulled = origCancel.call(this, id, 'requested');
-      if (pulled.cancellation) {
-        cancellations.push(pulled.cancellation);
-        sequence = pulled.sequence ?? sequence;
-      }
-    }
-    return {
-      accepted: true,
-      sequence,
-      fills: [],
-      resting: null,
-      cancellations,
-      triggered: [],
-    };
+    const result = ocoCancelResult(this, extra, origCancel);
+    if (!result) return orig.call(this, order, now);
+    return result;
   };
 }
 

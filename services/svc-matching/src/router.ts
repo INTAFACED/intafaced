@@ -764,6 +764,7 @@ export function registerRoutes(
       oneSided: parsed.data.oneSided,
       bid: parsed.data.bid ? toQuoteSideOrder(parsed.data.accountId, 'buy', parsed.data.bid, setMmp) : null,
       ask: parsed.data.ask ? toQuoteSideOrder(parsed.data.accountId, 'sell', parsed.data.ask, setMmp) : null,
+      lifecycleProof: parsed.data.lifecycleProof,
     });
     return reply.code(200).send(presentMassQuote(result));
   });
@@ -1462,6 +1463,8 @@ function publicMatchingFlags(
   readonly prelaunch: boolean;
   readonly expired: boolean;
   readonly delisted: boolean;
+  readonly reduceOnly: boolean;
+  readonly postOnly: boolean;
 } {
   return {
     venueHalted: engine.isVenueHalted === true,
@@ -1469,6 +1472,8 @@ function publicMatchingFlags(
     prelaunch: engine.isPrelaunch?.(marketId) === true,
     expired: engine.isExpired?.(marketId) === true,
     delisted: engine.isDelisted?.(marketId) === true,
+    reduceOnly: engine.isReduceOnly?.(marketId) === true,
+    postOnly: engine.isPostOnly?.(marketId) === true,
   };
 }
 
@@ -1479,6 +1484,8 @@ function publicMatchingBoard(engine: MatchingEngine): {
   readonly prelaunch: readonly string[];
   readonly expired: readonly string[];
   readonly delisted: readonly string[];
+  readonly reduceOnly: readonly string[];
+  readonly postOnly: readonly string[];
 } {
   const markets = [...(engine.markets ?? [])];
   return {
@@ -1488,5 +1495,7 @@ function publicMatchingBoard(engine: MatchingEngine): {
     prelaunch: markets.filter((id) => engine.isPrelaunch?.(id) === true),
     expired: markets.filter((id) => engine.isExpired?.(id) === true),
     delisted: markets.filter((id) => engine.isDelisted?.(id) === true),
+    reduceOnly: markets.filter((id) => engine.isReduceOnly?.(id) === true),
+    postOnly: markets.filter((id) => engine.isPostOnly?.(id) === true),
   };
 }

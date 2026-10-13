@@ -1,3 +1,4 @@
+import { TradeService } from '../controls/test-admission.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -6,7 +7,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
-import { TradeService, type PlaceOrderInput } from './trade-service.js';
+import { type PlaceOrderInput } from './trade-service.js';
 import {
   COLLAR_MISSING,
   COLLAR_OUTSIDE,
@@ -487,6 +488,8 @@ describe('svc-trade collar-place (H8a PG-hard)', () => {
 
     it('matching reject missing_collar throws — cancel still works, rest stays', async () => {
       await fund(ALICE, 'BTC', '10');
+      // Fixture was always unfunded for the BUY (funds hold precedes matching); hidden by skip-without-Postgres until #3954/#3924 made it hard-fail.
+      await fund(ALICE, 'USDT', '2000');
 
       const resting = await trade.placeOrder(principalFor(ALICE), {
         marketId: btcusdt.id,
@@ -513,6 +516,8 @@ describe('svc-trade collar-place (H8a PG-hard)', () => {
           max: amt('110'),
         } as CollarInput),
       ).rejects.toMatchObject({ code: 'trade.missing_collar' });
+      // The refused BUY moved no money.
+      expect(await avail(ALICE, 'USDT')).toBe('2000');
 
       const cancelled = await trade.cancelOrder(principalFor(ALICE), resting.id);
       expect(cancelled.status).toBe('cancelled');

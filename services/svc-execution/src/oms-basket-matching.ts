@@ -3,6 +3,8 @@
  * Generic live slice (twap|vwap|pov) does not cover basket — do not dual-implement
  * a second engine. Qty/price stay decimal strings. Paper never posts and never
  * ledgers. Partial-failure refuse_all: first matching miss stops remaining legs.
+ * A later miss, timeout, or unknown names acks already accepted and kills those children.
+ * A basket whose children all post is not killed.
  * Kill: unknown matching cancel is killed false — never invent canceled.
  */
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
@@ -45,6 +47,10 @@ export type OmsBasketMatchingRefusal = {
   readonly ok: false;
   readonly reason: OmsBasketMatchingRefuseReason;
   readonly detail: string;
+  /** Acks of children matching already accepted, when a later leg refuses. */
+  readonly children?: readonly OmsBasketMatchingChildAck[];
+  /** Kill of that accepted prefix. The start door reads this and does not kill twice. */
+  readonly kill?: OmsBasketMatchingKillResult;
 };
 
 export type OmsBasketMatchingChildInput = {
@@ -165,6 +171,13 @@ function asTif(raw: string | null | undefined): BasketMatchingTif | null {
   return raw === 'GTC' || raw === 'IOC' || raw === 'FOK' || raw === 'PO' || raw === 'GTD' || raw === 'GTT' ? raw : null;
 }
 
+/** A blank PX-S01 proof is absent. Empty string, false, and 0 are not evidence. */
+function isPresentLifecycleProof(value: unknown): boolean {
+  if (value === undefined || value === null || value === false || value === 0) return false;
+  if (typeof value === 'string' && value.trim() === '') return false;
+  return true;
+}
+
 type ResolvedChild = {
   readonly name: string;
   readonly qty: string;
@@ -225,7 +238,7 @@ function resolveChild(
     price = parsed.text;
   }
   const lifecycleProof = leg.lifecycleProof ?? parentLifecycleProof;
-  if (lifecycleProof === undefined || lifecycleProof === null) {
+  if (!isPresentLifecycleProof(lifecycleProof)) {
     return refuse('missing_lifecycle_proof', `leg ${label} lifecycleProof is missing — refusing to invent PX-S01 evidence`);
   }
   return {
@@ -364,6 +377,7 @@ async function postOne(
 /**
  * POST each named basket leg to matching. Blank MATCHING_URL refuses.
  * First matching miss stops remaining legs (refuse_all — never flatten).
+ * Children already accepted are killed, and their acks stay on the refusal.
  * Does not touch ledger. Paper callers must refuse before this door.
  */
 export async function postBasketChildrenToMatching(input: {
@@ -378,6 +392,8 @@ export async function postBasketChildrenToMatching(input: {
   timeoutMs?: number;
   /** INTERNAL_SERVICE_SECRET. Blank / short refuses before unsigned POST. */
   internalServiceSecret?: string;
+  /** Fired only after matching accepts a child, before a later leg can refuse. */
+  onChildAccepted?: (child: OmsBasketMatchingChildAck) => void;
 }): Promise<OmsBasketMatchingResult> {
   const base = readMatchingUrl(input.matchingUrl);
   if (!base) {
@@ -415,17 +431,26 @@ export async function postBasketChildrenToMatching(input: {
   for (const child of resolved) {
     const posted = await postOne(base, child, fetchFn, timeoutMs, secret.secret);
     if (!posted.ok) {
-      return refuse(
+      const reason =
         posted.reason === 'matching_unknown' ||
-          posted.reason === 'matching_timeout' ||
-          posted.reason === 'matching_unavailable' ||
-          posted.reason === 'matching_rejected'
+        posted.reason === 'matching_timeout' ||
+        posted.reason === 'matching_unavailable' ||
+        posted.reason === 'matching_rejected'
           ? posted.reason
-          : 'flatten_remaining_refused',
-        `${posted.detail} — refuse_all, remaining legs not posted`,
-      );
+          : 'flatten_remaining_refused';
+      const detail = `${posted.detail} — refuse_all, remaining legs not posted`;
+      if (children.length === 0) return refuse(reason, detail);
+      const kill = await killBasketMatchingChildren({
+        children: children.map((ack) => ({ marketId: ack.marketId, orderId: ack.orderId })),
+        matchingUrl: base,
+        fetch: fetchFn,
+        timeoutMs,
+        internalServiceSecret: secret.secret,
+      });
+      return { ...refuse(reason, detail), children, kill };
     }
     children.push(posted.ack);
+    input.onChildAccepted?.(posted.ack);
   }
 
   return {

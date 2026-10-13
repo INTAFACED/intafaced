@@ -5,7 +5,17 @@
  * This gate refuses assembled entries whose (module, reason, legs) are not a
  * registry recipe — so a module cannot open a second book on the HTTP door.
  */
-import { LedgerError, parseAmount, recipes, type PostRequest, type RecipeName, userAvailable } from '@intafaced/ledger-client';
+import {
+  LedgerError,
+  marketMaker,
+  parseAmount,
+  recipes,
+  rewardsEngine,
+  subAccountAvailable,
+  userAvailable,
+  type PostRequest,
+  type RecipeName,
+} from '@intafaced/ledger-client';
 
 export const RECIPE_REQUIRED_CODE = 'ledger.recipe_required';
 
@@ -20,43 +30,27 @@ type WirePost = {
   entries: readonly WireEntry[];
 };
 
+type RepeatRule = {
+  /** Legs that stay fixed while a tail grows (payroll recipients, earn payouts). */
+  prefix: readonly string[];
+  tokens: ReadonlySet<string>;
+  minTail: number;
+};
+
 type CatalogRow = {
   minLegs: number;
-  maxLegs: number | undefined;
   signatures: ReadonlySet<string>;
+  repeats: readonly RepeatRule[];
 };
 
 const U = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const U2 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const U3 = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const S1 = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const S2 = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const S3 = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 const AMT = parseAmount('10');
 const QUOTE = parseAmount('100');
-
-/** Reasons whose entry count / owner types vary by input — module+reason+minLegs only. */
-const FLEX_REASONS: ReadonlySet<string> = new Set([
-  'bank.transfer.manual',
-  'bank.transfer.scheduled',
-  'bank.business.approval.held',
-  'bank.business.approval.released',
-  'bank.business.approval.settled',
-  'bank.business.payroll.settled',
-  'bank.earn.interest',
-  'bank.earn.pool.funded',
-  'loan.reserve.funded',
-  'loan.liquidated',
-  'loan.repaid',
-  'token.emission',
-  'token.burn',
-  'trade.fill',
-  'trade.fill.mm_maker',
-  'p2p.escrow.release',
-  'pay.settled',
-  'market.purchase',
-  'futures.loss.realized',
-  'pay.chargeback.opened',
-  'pay.chargeback.won',
-]);
 
 const VARIABLE_REASON_RECIPES: ReadonlySet<RecipeName> = new Set(['feeCharge', 'rewardPay']);
 
@@ -65,12 +59,30 @@ function purposeHead(purpose: string | undefined): string {
   return purpose.split(':')[0] ?? '';
 }
 
-function legSignature(entry: WireEntry): string {
-  return `${entry.account.ownerType}|${entry.account.kind}|${entry.direction}|${purposeHead(entry.account.purpose)}`;
+/**
+ * Platform helpers store the role in ownerId (`purpose` is empty).
+ * House, module, treasury, and any other non-caller owner keep that id, so
+ * `fees:trade` and `insurance-fund` cannot share a leg. Two segments stay
+ * whole (`bank:loan-reserve`, `fees:bank`). A third segment is an instance id
+ * (`pay:clearing:<merchant>`, `bank:earn:<pool>`) and stays out.
+ * Treasury seams are the ownerId head (`mint`, `rail:<rail>`, `bridge:<chain>`).
+ * User and subaccount ids stay out so a real recipe accepts the caller.
+ */
+function accountRole(account: WireEntry['account']): string {
+  if (account.ownerType === 'user' || account.ownerType === 'subaccount') return '';
+  const ownerId = account.ownerId ?? '';
+  const parts = ownerId.split(':');
+  if (ownerId.length === 0 || parts.some((part) => part.length === 0)) return ownerId;
+  if (account.ownerType === 'treasury') {
+    if (parts.length === 1) return ownerId;
+    return `${parts[0]}:*`;
+  }
+  if (parts.length <= 2) return ownerId;
+  return `${parts.slice(0, -1).join(':')}:*`;
 }
 
-function postSignature(entries: readonly WireEntry[]): string {
-  return entries.map(legSignature).join(';');
+function legSignature(entry: WireEntry): string {
+  return `${entry.account.ownerType}|${entry.account.kind}|${entry.direction}|${purposeHead(entry.account.purpose)}|${accountRole(entry.account)}`;
 }
 
 function recipeError(module: string, reason: string): LedgerError {
@@ -100,6 +112,23 @@ function matchesFeeCharge(input: WirePost): boolean {
     a.account.kind === 'available' &&
     b.direction === 'debit' &&
     isHouseFees(b.account)
+  );
+}
+
+/**
+ * token.fee.swept: any module fee pot credit → rewards engine debit.
+ * The source module is caller-chosen, so it is not one catalog signature.
+ */
+function matchesFeeSweep(input: WirePost): boolean {
+  if (input.module !== 'token' || input.reason !== 'token.fee.swept' || input.entries.length !== 2) return false;
+  const [a, b] = input.entries;
+  return (
+    a !== undefined &&
+    b !== undefined &&
+    a.direction === 'credit' &&
+    isHouseFees(a.account) &&
+    b.direction === 'debit' &&
+    isRewardsEngine(b.account)
   );
 }
 
@@ -371,42 +400,300 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       name: 'marketPremiumPlacement',
       post: recipes.marketPremiumPlacement({ placementId: 'pl1', listingId: 'l1', vendorUserId: U, assetId: 'USDT', amount: AMT }),
     },
+    ...extraShapePosts(),
   ];
 }
 
+/** Other leg shapes `recipes.*` actually emits, including a second length of a repeated tail. */
+function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
+  const fill = {
+    fillId: 'f1',
+    makerId: U2,
+    takerId: U,
+    makerOrderId: 'mo',
+    takerOrderId: 'to',
+    baseAsset: 'BTC',
+    quoteAsset: 'USDT',
+    qty: AMT,
+    quoteAmount: QUOTE,
+    takerSide: 'buy' as const,
+  };
+  const posts: Array<{ name: RecipeName; post: PostRequest }> = [
+    { name: 'tradeFill', post: recipes.tradeFill({ ...fill, makerFeeBps: 10, takerFeeBps: 0 }) },
+    { name: 'tradeFill', post: recipes.tradeFill({ ...fill, makerFeeBps: 0, takerFeeBps: 10 }) },
+    { name: 'marketMakerMakerFill', post: recipes.marketMakerMakerFill({ ...fill, makerFeeBps: 10, takerFeeBps: 0 }) },
+    { name: 'marketMakerMakerFill', post: recipes.marketMakerMakerFill({ ...fill, makerFeeBps: 0, takerFeeBps: 10 }) },
+    { name: 'marketMakerMakerFill', post: recipes.marketMakerMakerFill({ ...fill, makerFeeBps: 10, takerFeeBps: 10 }) },
+    {
+      name: 'marketPurchase',
+      post: recipes.marketPurchase({
+        purchaseId: 'mp2',
+        listingId: 'l1',
+        buyerId: U,
+        vendorUserId: U2,
+        assetId: 'USDT',
+        price: QUOTE,
+        commissionBps: 10,
+      }),
+    },
+    {
+      name: 'loanRepay',
+      post: recipes.loanRepay({ loanId: 'ln1', userId: U, debtAssetId: 'USDT', principal: 0n, interest: AMT, sequence: 1 }),
+    },
+    {
+      name: 'mintEmission',
+      post: recipes.mintEmission({ epoch: 2, assetId: 'IFC', amount: AMT, destination: rewardsEngine('IFC') }),
+    },
+    { name: 'burn', post: recipes.burn({ runId: 'b2', assetId: 'IFC', amount: AMT, from: rewardsEngine('IFC') }) },
+    {
+      name: 'futuresRealizeLoss',
+      post: recipes.futuresRealizeLoss({
+        positionId: 'pos1',
+        userId: U,
+        assetId: 'USDT',
+        fromMargin: AMT,
+        fromInsurance: AMT,
+        lossId: 'l-both',
+      }),
+    },
+    {
+      name: 'loanReserveFund',
+      post: recipes.loanReserveFund({ fundingId: 'f-user', debtAssetId: 'USDT', amount: AMT, from: userAvailable(U, 'USDT') }),
+    },
+    {
+      name: 'earnPoolFund',
+      post: recipes.earnPoolFund({
+        poolId: 'pool1',
+        fundingId: 'f-user',
+        assetId: 'USDT',
+        amount: AMT,
+        from: userAvailable(U, 'USDT'),
+      }),
+    },
+    {
+      name: 'earnInterest',
+      post: recipes.earnInterest({
+        poolId: 'pool1',
+        date: '2026-07-27',
+        assetId: 'USDT',
+        payouts: [
+          { userId: U, amount: AMT },
+          { userId: U2, amount: AMT },
+        ],
+      }),
+    },
+    {
+      name: 'chargebackOpen',
+      post: recipes.chargebackOpen({
+        disputeId: 'd1',
+        paymentId: 'p1',
+        merchantId: 'm1',
+        merchantUserId: U,
+        assetId: 'USDT',
+        rail: 'card-sandbox',
+        fromClearing: AMT,
+        fromMerchantBalance: AMT,
+      }),
+    },
+    {
+      name: 'chargebackWon',
+      post: recipes.chargebackWon({
+        disputeId: 'd1',
+        paymentId: 'p1',
+        merchantId: 'm1',
+        merchantUserId: U,
+        assetId: 'USDT',
+        rail: 'card-sandbox',
+        fromClearing: 0n,
+        fromMerchantBalance: AMT,
+      }),
+    },
+    {
+      name: 'chargebackWon',
+      post: recipes.chargebackWon({
+        disputeId: 'd1',
+        paymentId: 'p1',
+        merchantId: 'm1',
+        merchantUserId: U,
+        assetId: 'USDT',
+        rail: 'card-sandbox',
+        fromClearing: AMT,
+        fromMerchantBalance: AMT,
+      }),
+    },
+  ];
+
+  const userFrom = userAvailable(U, 'USDT');
+  const userTo = userAvailable(U2, 'USDT');
+  const userTo2 = userAvailable(U3, 'USDT');
+  const subFrom = subAccountAvailable(S1, 'USDT');
+  const subTo = subAccountAvailable(S2, 'USDT');
+  const subTo2 = subAccountAvailable(S3, 'USDT');
+  for (const kind of ['manual', 'scheduled'] as const) {
+    for (const from of [userFrom, subFrom]) {
+      for (const to of [userTo, subTo]) {
+        posts.push({
+          name: 'bankTransfer',
+          post: recipes.bankTransfer({
+            transferId: 'tr-shape',
+            occurrence: kind === 'manual' ? 0 : 1,
+            from,
+            to,
+            amount: AMT,
+            kind,
+          }),
+        });
+      }
+    }
+  }
+
+  for (const from of [userFrom, subFrom]) {
+    posts.push(
+      { name: 'businessApprovalHold', post: recipes.businessApprovalHold({ approvalId: 'ap-shape', from, amount: AMT }) },
+      { name: 'businessApprovalRelease', post: recipes.businessApprovalRelease({ approvalId: 'ap-shape', from, amount: AMT }) },
+    );
+    for (const to of [userTo, subTo]) {
+      posts.push({
+        name: 'businessApprovalSettle',
+        post: recipes.businessApprovalSettle({ approvalId: 'ap-shape', from, to, amount: AMT }),
+      });
+    }
+  }
+
+  const payroll = (from: ReturnType<typeof userAvailable>, recipients: ReadonlyArray<ReturnType<typeof userAvailable>>): PostRequest =>
+    recipes.businessPayroll({
+      payrollId: 'pr-shape',
+      from,
+      recipients: recipients.map((to) => ({ to, amount: AMT })),
+    });
+  for (const from of [userFrom, subFrom]) {
+    posts.push(
+      { name: 'businessPayroll', post: payroll(from, [userTo]) },
+      { name: 'businessPayroll', post: payroll(from, [userTo, userTo2]) },
+      { name: 'businessPayroll', post: payroll(from, [subTo]) },
+      { name: 'businessPayroll', post: payroll(from, [subTo, subTo2]) },
+    );
+  }
+
+  const buyers = [
+    { collateralTo: userAvailable(U2, 'BTC'), proceedsFrom: userAvailable(U2, 'USDT') },
+    { collateralTo: marketMaker('BTC'), proceedsFrom: marketMaker('USDT') },
+  ];
+  for (const buyer of buyers) {
+    for (const principal of [false, true]) {
+      for (const house of [false, true]) {
+        for (const surplus of [false, true]) {
+          if (!principal && !house && !surplus) continue;
+          const principalRepaid = principal ? AMT : 0n;
+          const interestRepaid = house ? AMT : 0n;
+          const surplusToBorrower = surplus ? AMT : 0n;
+          posts.push({
+            name: 'loanLiquidate',
+            post: recipes.loanLiquidate({
+              loanId: 'ln1',
+              userId: U,
+              tranche: 0,
+              collateralAssetId: 'BTC',
+              collateralSold: AMT,
+              debtAssetId: 'USDT',
+              proceeds: principalRepaid + interestRepaid + surplusToBorrower,
+              principalRepaid,
+              interestRepaid,
+              penalty: 0n,
+              surplusToBorrower,
+              buyer,
+              markPrice: QUOTE,
+            }),
+          });
+        }
+      }
+    }
+  }
+
+  return posts;
+}
+
+/** A tail may repeat only when two sampled posts show that same tail growing. */
+function deriveRepeatRules(samples: readonly (readonly string[])[]): RepeatRule[] {
+  const byPrefix = new Map<string, { prefix: string[]; tokens: Set<string>; minTail: number }>();
+  for (const shorter of samples) {
+    if (shorter.length < 2) continue;
+    const token = shorter[shorter.length - 1];
+    if (!token) continue;
+    let run = 0;
+    for (let i = shorter.length - 1; i >= 0 && shorter[i] === token; i--) run += 1;
+    const prefix = shorter.slice(0, shorter.length - run);
+    if (prefix.length === 0 || run < 1) continue;
+    const extended = samples.some((longer) => {
+      if (longer.length <= shorter.length) return false;
+      if (longer.length < prefix.length) return false;
+      for (let i = 0; i < prefix.length; i++) if (longer[i] !== prefix[i]) return false;
+      for (let i = prefix.length; i < longer.length; i++) if (longer[i] !== token) return false;
+      return true;
+    });
+    if (!extended) continue;
+    const key = prefix.join(';');
+    const existing = byPrefix.get(key);
+    if (existing) {
+      existing.tokens.add(token);
+      existing.minTail = Math.min(existing.minTail, run);
+      continue;
+    }
+    byPrefix.set(key, { prefix, tokens: new Set([token]), minTail: run });
+  }
+  return [...byPrefix.values()];
+}
+
+function matchesRepeat(rules: readonly RepeatRule[], sigs: readonly string[]): boolean {
+  for (const rule of rules) {
+    if (sigs.length < rule.prefix.length + rule.minTail) continue;
+    let ok = true;
+    for (let i = 0; i < rule.prefix.length; i++) {
+      if (sigs[i] !== rule.prefix[i]) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    for (let i = rule.prefix.length; i < sigs.length; i++) {
+      if (!rule.tokens.has(sigs[i] ?? '')) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return true;
+  }
+  return false;
+}
+
 function buildCatalog(): { catalog: Map<string, CatalogRow>; sampled: ReadonlySet<RecipeName> } {
-  const catalog = new Map<string, { minLegs: number; maxLegs: number; signatures: Set<string> }>();
+  const grouped = new Map<string, { minLegs: number; signatures: Set<string>; legs: string[][] }>();
   const sampled = new Set<RecipeName>();
 
   for (const { name, post } of samplePosts()) {
     sampled.add(name);
     if (VARIABLE_REASON_RECIPES.has(name)) continue;
     const key = `${post.module}::${post.reason}`;
-    const existing = catalog.get(key);
-    const sig = postSignature(post.entries);
+    const legs = post.entries.map((entry) => legSignature(entry));
+    const existing = grouped.get(key);
     if (!existing) {
-      catalog.set(key, {
-        minLegs: post.entries.length,
-        maxLegs: post.entries.length,
-        signatures: new Set([sig]),
-      });
+      grouped.set(key, { minLegs: post.entries.length, signatures: new Set([legs.join(';')]), legs: [legs] });
       continue;
     }
     existing.minLegs = Math.min(existing.minLegs, post.entries.length);
-    existing.maxLegs = Math.max(existing.maxLegs, post.entries.length);
-    existing.signatures.add(sig);
+    existing.signatures.add(legs.join(';'));
+    existing.legs.push(legs);
   }
 
-  const frozen = new Map<string, CatalogRow>();
-  for (const [key, row] of catalog) {
-    const reason = key.split('::')[1] ?? '';
-    frozen.set(key, {
+  const catalog = new Map<string, CatalogRow>();
+  for (const [key, row] of grouped) {
+    catalog.set(key, {
       minLegs: row.minLegs,
-      maxLegs: FLEX_REASONS.has(reason) ? undefined : row.maxLegs,
       signatures: row.signatures,
+      repeats: deriveRepeatRules(row.legs),
     });
   }
-  return { catalog: frozen, sampled };
+  return { catalog, sampled };
 }
 
 const { catalog: RECIPE_CATALOG, sampled: SAMPLED_RECIPES } = buildCatalog();
@@ -417,16 +704,16 @@ export function unsampledRecipeNames(): readonly RecipeName[] {
 }
 
 export function assertKnownRecipePost(input: WirePost): void {
-  if (matchesFeeCharge(input) || matchesRewardPay(input)) return;
+  if (matchesFeeCharge(input) || matchesRewardPay(input) || matchesFeeSweep(input)) return;
 
   const key = `${input.module}::${input.reason}`;
   const spec = RECIPE_CATALOG.get(key);
   if (!spec) throw recipeError(input.module, input.reason);
 
   if (input.entries.length < spec.minLegs) throw recipeError(input.module, input.reason);
-  if (spec.maxLegs !== undefined && input.entries.length > spec.maxLegs) throw recipeError(input.module, input.reason);
 
-  if (!FLEX_REASONS.has(input.reason) && !spec.signatures.has(postSignature(input.entries))) {
-    throw recipeError(input.module, input.reason);
-  }
+  const sigs = input.entries.map((entry) => legSignature(entry));
+  if (spec.signatures.has(sigs.join(';'))) return;
+  if (matchesRepeat(spec.repeats, sigs)) return;
+  throw recipeError(input.module, input.reason);
 }

@@ -3,9 +3,8 @@
 **The live public market-data stream (§5.2 `ws.gateway`).** Depth (snapshot + sequenced deltas) and a public trade
 tape, to any browser that asks.
 
-**What this service is not:** it has no users, no balances, no database, and **no S2S / principal / DB credential**.
-Public depth and the trade tape hold nothing to steal. Optional `JWT_ACCESS_SECRET` exists **only** for the
-authenticated `/private/stream` lifecycle fan-out; public `/stream` never reads it. Depth reads a public endpoint
+This service owns no users, balances or database. Optional `JWT_ACCESS_SECRET` and
+`IDENTITY_OWNERSHIP_SECRET` support authenticated private reads; public `/stream` never uses them. Depth reads a public endpoint
 on svc-matching and diffs it with `@intafaced/market-data`. Trades subscribe to the existing `orderFilled` bus
 event and re-broadcast a stripped public print.
 
@@ -29,19 +28,24 @@ as this service does, while holding `INTERNAL_SERVICE_SECRET` for both the ledge
 `ledger.hold` on the money path. Attaching an unauthenticated public socket to that process trades the entire
 custodial blast radius for one saved container.
 
-So: a process that holds no S2S secret, no principal key, and no database — optional JWT only for private stream.
+The process holds no principal-signing key or database connection. Private reads
+use the dedicated identity read credential, configured through
+`IDENTITY_OWNERSHIP_SECRET` and matching identity's `IDENTITY_WS_AUTHORITY_SECRET`.
+Identity accepts it only for current authority and API-key policy reads. It must
+be distinct from generic and admission keys. Public matching/listing reads never
+receive that credential.
 
 | Holds                                        | svc-edge | svc-trade | svc-matching | **svc-ws**   |
 | -------------------------------------------- | -------- | --------- | ------------ | ------------ |
 | `INTERNAL_SERVICE_SECRET`                    | no       | **yes**   | **yes**      | **no**       |
 | `EDGE_PRINCIPAL_SECRET`                      | yes      | yes       | no           | **no**       |
 | `DATABASE_URL`                               | no       | yes       | no           | **no**       |
-| `JWT_ACCESS_SECRET` (private stream only)    | yes*     | no        | no           | **optional** |
+| `JWT_ACCESS_SECRET` (private and drop-copy)  | yes*     | no        | no           | **optional** |
 | Event bus connection                         | no       | yes       | yes          | **yes***     |
 | A ledger client                              | no       | yes       | no           | **no**       |
 | Accepts anonymous connections from a browser | yes      | no        | no           | **yes**      |
 
-\*NATS for `orderFilled` only — public print fan-out. Not a money path; order ids never leave the bus-side handler.
+\*NATS for the public `orderFilled` print and for private and drop-copy. Not a money path; public order ids never leave the bus-side handler.
 
 The last two rows are the point. This is the second internet-facing process in the fleet, and it is the one with the
 least to steal.
@@ -287,7 +291,7 @@ After a consumer is attached, **nats.js owns TCP reconnect** for that connection
 | `HTTP_PORT`                           | `4014`                  | every port 4000–4013 is taken                                                                                                    |
 | `MATCHING_URL`                        | `http://localhost:4005` | svc-matching's **read** surface; no credential is sent                                                                           |
 | `TRADE_URL`                           | `http://localhost:4004` | svc-trade's public market **listing**; no credential                                                                             |
-| `NATS_URL`                            | `nats://localhost:4222` | bus for `orderFilled` trade tape only                                                                                            |
+| `NATS_URL`                            | `nats://localhost:4222` | bus for public `orderFilled` tape, private, and drop-copy                                                                        |
 | `WS_DEPTH_LIMIT`                      | _(unset)_               | owner-published levels per side (snapshot and delta); blank refuses `ws.depth_limit_unset` (owner may set 50)                    |
 | `WS_POLL_INTERVAL_MS`                 | `250`                   | one GET per subscribed market per tick                                                                                           |
 | `WS_MARKETS_REFRESH_MS`               | `30000`                 | market-list cache window                                                                                                         |
@@ -300,16 +304,19 @@ After a consumer is attached, **nats.js owns TCP reconnect** for that connection
 | `WS_DROP_COPY_RECENT_LIMIT`           | _(unset)_               | owner-published drop-copy session replay; blank refuses `ws.drop_copy_recent_limit_unset` (owner may set 50)                     |
 | `WS_TRADES_DURABLE`                   | `ws-trade-tape`         | JetStream durable; unique per replica for multi-instance                                                                         |
 | `WS_GATEWAY_ENABLED`                  | `true`                  | kill-switch (env / restart / SIGTERM — not edge admin)                                                                           |
-| `JWT_ACCESS_SECRET`                   | _(unset)_               | optional; only `/private/stream` — public path ignores it                                                                        |
+| `JWT_ACCESS_SECRET`                   | _(unset)_               | optional; `/private/stream` and `/drop-copy/stream` — public path ignores it                                                     |
+| `IDENTITY_URL`                        | _(unset)_               | identity authority base; missing/invalid disables private upgrades only                                                          |
+| `IDENTITY_OWNERSHIP_SECRET`           | _(unset)_               | dedicated identity private-read key matching `IDENTITY_WS_AUTHORITY_SECRET`; at least 32 characters; no default                  |
 
 ### Isolation (what this process holds)
 
-| Credential / secret       | Present? | Why                                           |
-| ------------------------- | -------- | --------------------------------------------- |
-| `INTERNAL_SERVICE_SECRET` | **no**   | no S2S writes; depth/listing reads are public |
-| `EDGE_PRINCIPAL_SECRET`   | **no**   | public port is not principal-scoped           |
-| `DATABASE_URL`            | **no**   | nothing stored here                           |
-| `JWT_ACCESS_SECRET`       | optional | private order/fill/position stream only       |
+| Credential / secret         | Present? | Why                                           |
+| --------------------------- | -------- | --------------------------------------------- |
+| `INTERNAL_SERVICE_SECRET`   | **no**   | no S2S writes; depth/listing reads are public |
+| `EDGE_PRINCIPAL_SECRET`     | **no**   | public port is not principal-scoped           |
+| `DATABASE_URL`              | **no**   | nothing stored here                           |
+| `JWT_ACCESS_SECRET`         | optional | private order/fill/position and drop-copy     |
+| `IDENTITY_OWNERSHIP_SECRET` | optional | body-signed identity private authority reads  |
 
 Pin: `src/env.isolation.test.ts` + `FORBIDDEN_SERVICE_CREDENTIALS` in `env.ts`.
 
@@ -322,7 +329,33 @@ Direct `NEXT_PUBLIC_WS_URL` / `apps/web` wiring is not the compose path for the 
 ## Private stream (`/private/stream`)
 
 JWT-authenticated, push-only. Query `?access_token=` (or `Authorization: Bearer`). Requires `trade:read` or
-`trade:write`. Disabled (403) when `JWT_ACCESS_SECRET` is unset — public depth/tape are unaffected.
+`trade:write`. Disabled (403) when `JWT_ACCESS_SECRET` is unset; missing/invalid identity
+configuration refuses private upgrades with 503. Public depth/tape are unaffected.
+
+Both `/private/stream` and `/drop-copy/stream` require identity POST
+`/trpc/accountControls.currentAuthority`, exact plain JSON and body-bound v2 service
+authentication. The response must match the verified JWT's user, session/API key
+and optional subaccount. API-key IP, origin, product, expiry and account restrictions
+remain checked against identity-owned key metadata.
+
+Private authority expires no later than five seconds after request start, and
+sooner for remote expiry or JWT expiry. Local elapsed time uses a monotonic clock;
+future-skew, stale, mismatched, malformed or unavailable eligibility refuses.
+Healthy seats renew halfway through their remaining lease; each identity request
+has a one-second timeout. An independent timer closes and terminates expired seats
+even while renewal hangs, no private events arrive, or invalidation is missed.
+An expired/closed seat cannot revive when a delayed response arrives. Dispatch and
+subscription check the lease as well. Ping/pong heartbeat remains transport health;
+its 30-second default does not govern authority expiry. Timer deadlines assume the
+Node event loop is running; a stalled process cannot provide a real-time bound.
+
+Ordinary production sessions use active identity plus owned live session and
+verified JWT scopes. The prior optional passkey adapter expected fields absent
+from identity account-state responses; production no longer wires it. Callers
+that explicitly supply that supplemental adapter retain its checks. Founder
+mutation MFA is checked separately by identity. Read snapshots never authorize
+trading admission or new money actions. `/health` and `/ready` report
+`privateAuthorityConfigured` as configuration, not a remote availability probe.
 
 On connect the server sends three ready frames, then live updates:
 
@@ -357,7 +390,8 @@ Same `*.engine_unavailable` family as public `depth.engine_unavailable`. A match
 surfaces the same code.
 
 Positions updates are emitted only when `trade.futures` publishes `positionUpdated`. Until then the channel is
-mounted and silent — same honesty as REST `GET /positions → []`. Never invent a position frame.
+mounted and silent. The positions read is `GET /markets/:marketId/positions`, which is `404` `NoPositions` and
+never `200 { positions: [] }`. Never invent a position frame.
 
 ## Not built (outside this service’s Done bar)
 
@@ -402,3 +436,31 @@ detach on close, and the HTTP half including CORS and the `502`-not-`500` rule.
 
 `depth/source.test.ts` covers refusing a JSON number where a price belongs, refusing a response with no engine
 sequence, and asserting no credential is ever attached to an upstream request.
+
+### Replay and backpressure limits
+
+Public trade dedup covers the configured recent ring while watched. Zero replay
+retains no dedup history; older redeliveries and reconnects can print again.
+Drop-copy positive-window dedup follows its session replay ring, including while
+idle. The last seat leaving clears that ring and its fill IDs; the issued
+`dropCopySeq` remains process-local. Restart loses these counters and all replay
+state. The existing zero-window drop-copy behavior retains fill IDs until the
+last seat leaves; it provides no durable recovery guarantee.
+
+`replayDurable: false` and `RECOVERY_REQUIRED` remain honest. These streams do not
+provide exactly-once execution evidence. Private hydration and supplemental
+credential-check queues count pending UTF-8 bytes in the published socket high
+water check; no new unpublished limit is supplied.
+
+A prior matching halt remains named when later responses omit flags. Only
+explicit non-halted or OPEN evidence clears a market halt. A venue halt requires
+`venueHalted: false` or `venue_halted: false`; market OPEN does not confirm venue
+state. `orders.submits_resumed` is never inferred from a null parser result.
+
+Completed COD cancellation results retain the original command ID and scope,
+even if another lease is armed or a later cancellation finishes first. The
+existing single reconnect receipt slot belongs to the latest issued fire
+activation. Issuing that fire clears the older slot while pending; older
+operations still report to their original seat and listeners but cannot replace
+that slot. Arming a newer lease does not erase an already-issued operation's
+receipt. This remains replica-local last-fire replay, not full operation history.

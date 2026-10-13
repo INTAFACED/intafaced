@@ -69,7 +69,18 @@ function sortKeys(value: unknown): unknown {
   if (value && typeof value === 'object') {
     const obj = value as Record<string, unknown>;
     const out: Record<string, unknown> = {};
-    for (const key of Object.keys(obj).sort()) out[key] = sortKeys(obj[key]);
+    for (const key of Object.keys(obj).sort()) {
+      // Ordinary assignment of `__proto__` invokes the prototype setter, so the
+      // key is not an own property and JSON.stringify drops it. Two bodies that
+      // differ only by that member would then share a fingerprint, and a
+      // repeated Idempotency-Key would replay the stored response.
+      Object.defineProperty(out, key, {
+        value: sortKeys(obj[key]),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
     return out;
   }
   return value;
@@ -84,26 +95,28 @@ export class MemoryRestIdempotencyStore implements RestIdempotencyStore {
 
   async claim(ownerId: string, key: string, fingerprint: string): Promise<RestIdempotencyClaim> {
     const id = slotId(ownerId, key);
-    const existing = this.map.get(id);
-    if (existing && 'record' in existing) {
-      if (existing.fingerprint !== fingerprint) return { kind: 'conflict' };
-      return { kind: 'replay', record: existing.record };
-    }
-    if (existing && !('record' in existing)) {
-      if (existing.fingerprint !== fingerprint) return { kind: 'conflict' };
-      await new Promise<void>((resolve) => {
-        existing.waiters.push(resolve);
-      });
-      const settled = this.map.get(id);
-      if (!settled || !('record' in settled)) {
-        throw new Error(`rest idempotency claim for ${id} stalled while pending`);
+    for (;;) {
+      const existing = this.map.get(id);
+      if (existing && 'record' in existing) {
+        if (existing.fingerprint !== fingerprint) return { kind: 'conflict' };
+        return { kind: 'replay', record: existing.record };
       }
-      if (settled.fingerprint !== fingerprint) return { kind: 'conflict' };
-      return { kind: 'replay', record: settled.record };
+      if (existing && !('record' in existing)) {
+        if (existing.fingerprint !== fingerprint) return { kind: 'conflict' };
+        await new Promise<void>((resolve) => {
+          existing.waiters.push(resolve);
+        });
+        // `put` settles this slot. `abandon` deletes it and wakes every
+        // waiter. A woken waiter must look again: the key may be free to
+        // take, a sibling may already hold the new claim, or a record may
+        // be waiting to replay. Treating a missing record as stalled makes
+        // a retry of the failed mutation throw.
+        continue;
+      }
+      const token = randomUUID();
+      this.map.set(id, { fingerprint, waiters: [], token });
+      return { kind: 'mine', token };
     }
-    const token = randomUUID();
-    this.map.set(id, { fingerprint, waiters: [], token });
-    return { kind: 'mine', token };
   }
 
   /** Token-gated for the same reason the Postgres store is — see its `put`. */

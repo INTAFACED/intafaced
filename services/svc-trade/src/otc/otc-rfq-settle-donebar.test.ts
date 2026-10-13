@@ -1,3 +1,4 @@
+import { OtcDeskService } from '../controls/test-admission.js';
 /**
  * D26-P1-T2 done bar — RFQ → stake gate → fail-closed quote → ledger settle.
  *
@@ -8,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { formatAmount, MemoryLedger, parseAmount, recipes, userAvailable } from '@intafaced/ledger-client';
-import { OtcDeskService } from './otc-service.js';
+
 import { FixedOtcStake } from './stake-source.js';
 import type { OtcDeskLaw } from './desk-law.js';
 import { createObservedOtcMidSource } from './mid-source.js';

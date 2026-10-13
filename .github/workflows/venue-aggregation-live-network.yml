@@ -1,17 +1,11 @@
 # venue.aggregation — public market data live-network smoke (§27).
+# This job reaches real external REST and must not run on a schedule or on pull requests.
+# A person runs it by hand.
 # Read-only: no operator credentials. Skips fixture-only paths; reaches real REST.
 name: Venue aggregation live network
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 6 * * 1'
-  pull_request:
-    paths:
-      - 'packages/venue-adapter/**'
-      - 'packages/venue-contracts/**'
-      - 'packages/ledger-client/**'
-      - '.github/workflows/venue-aggregation-live-network.yml'
 
 concurrency:
   group: venue-aggregation-live-network-${{ github.ref }}

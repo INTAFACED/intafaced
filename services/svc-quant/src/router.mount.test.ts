@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import Fastify, { type FastifyInstance } from 'fastify';
+import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { checkAccess } from '@intafaced/config';
-import { createEdgeContext } from '@intafaced/contracts';
+import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import {
   QUANT_BACKTEST_FILLS_MISSING,
   QUANT_BACKTEST_LAKE_MISSING,
@@ -19,7 +21,7 @@ import {
   QUANT_VENUE_VAULT_UNSET,
 } from './errors.js';
 import type { BacktestLake } from './backtest/lake.js';
-import { createQuantRouter } from './router.js';
+import { createQuantRouter, type QuantRouter } from './router.js';
 
 const SECRET = 'a-quant-mount-test-edge-secret-long-enough';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-quant' });
@@ -32,6 +34,19 @@ oms.buy("BTC-USD", "0.01");
 console.log(px);
 console.log(book.cash());
 console.log(book.pnl());`;
+
+async function mountQuant(router: QuantRouter): Promise<FastifyInstance> {
+  const app = Fastify({ logger: false });
+  await app.register(fastifyTRPCPlugin, {
+    prefix: '/trpc',
+    trpcOptions: {
+      router,
+      createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+    } satisfies FastifyTRPCPluginOptions<QuantRouter>['trpcOptions'],
+  });
+  await app.ready();
+  return app;
+}
 
 describe('svc-quant mount — sandbox.run', () => {
   it('serves a five-line javascript run over the wire with decimal-string pnl', async () => {
@@ -349,6 +364,77 @@ describe('svc-quant mount — simulated is never live', () => {
     expect(claim.simulated).toBe(true);
     expect(claim.claimLabel).toBe('Shadow — not live performance');
     expect('pnl' in claim).toBe(false);
+  });
+});
+
+describe('svc-quant mounted request screening', () => {
+  it('refuses an authenticated request before loading backtest fills when the sanctions list is unset', async () => {
+    vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'on');
+    vi.stubEnv('INTAFACED_SANCTIONS_REGIONS', '');
+    vi.stubEnv('INTAFACED_SANCTIONS_LIST_SOURCE', '');
+
+    let fillReads = 0;
+    const lake: BacktestLake = {
+      wired: true,
+      fills() {
+        fillReads += 1;
+        return [
+          { ts: '2026-02-01T00:00:00.000Z', symbol: 'BTC-USD', qty: '0.01', price: '50000' },
+          { ts: '2026-05-01T00:00:00.000Z', symbol: 'BTC-USD', qty: '0.02', price: '51000' },
+        ];
+      },
+    };
+    const router = createQuantRouter({ wired: true, venueVaultSet: false, limits, lake });
+    const app = await mountQuant(router);
+    const principal = {
+      sub: '11111111-1111-4111-8111-111111111111',
+      userId: '11111111-1111-4111-8111-111111111111',
+      sid: '22222222-2222-4222-8222-222222222222',
+      scopes: ['quant:read'],
+      tier: 'none',
+      mfa: false,
+      expiresAt: new Date(Date.now() + 60_000),
+    } satisfies Parameters<typeof encodePrincipal>[0];
+    const raw = encodePrincipal(principal);
+
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/trpc/backtest.run',
+        headers: {
+          'x-intafaced-principal': raw,
+          'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+          'x-intafaced-region': 'DE',
+        },
+        payload: {
+          strategyId: 'alpha',
+          symbol: 'BTC-USD',
+          walkForward: {
+            inSampleFrom: '2026-01-01T00:00:00.000Z',
+            inSampleTo: '2026-04-01T00:00:00.000Z',
+            outOfSampleFrom: '2026-04-01T00:00:00.000Z',
+            outOfSampleTo: '2026-07-01T00:00:00.000Z',
+          },
+          outOfSampleStatus: 'passed',
+          costModel: {
+            fees: { kind: 'venue-schedule', source: 'fixture:fees' },
+            slippage: { kind: 'order-book-replay', source: 'fixture:depth' },
+            latency: { kind: 'measured-distribution', source: 'fixture:latency' },
+          },
+          strategyVariantCount: 1,
+          environment: 'backtest',
+        },
+      });
+      const body = response.json() as { error?: { message?: string; data?: { code?: string; httpStatus?: number } } };
+      expect(response.statusCode).toBe(403);
+      expect(body.error?.data).toMatchObject({ code: 'FORBIDDEN', httpStatus: 403 });
+      expect(body.error?.message).toContain('Sanctions screening list is unset');
+      expect(body.error?.message).toContain('INTAFACED_SCREENING_FAIL_CLOSED');
+      expect(fillReads).toBe(0);
+    } finally {
+      await app.close();
+      vi.unstubAllEnvs();
+    }
   });
 });
 

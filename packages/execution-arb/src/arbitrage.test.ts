@@ -307,6 +307,65 @@ describe('scanExternalCrossExchangeArb — D26-P1-X4', () => {
     expect(result.refused.some((r) => r.reason === 'insufficient_size')).toBe(true);
   });
 
+  it('contemplated amount 0n refuses insufficient_size and is not emitted', () => {
+    const result = scanArb({
+      symbol: 'BTC/USDT',
+      amount: 0n,
+      quotes: [
+        q({ venueId: 'a', kind: 'external-cex', price: '100', amount: amt('10') }),
+        q({ venueId: 'b', kind: 'external-cex', price: '102', amount: amt('10') }),
+      ],
+      costTermsByVenue: {
+        a: completeTerms({ feeBps: 0, expectedImpactBps: 0, transferCostBps: 0 }),
+        b: completeTerms({ feeBps: 0, expectedImpactBps: 0, transferCostBps: 0 }),
+      },
+      inventory: { prePositionedByVenue: { a: true, b: true } },
+    });
+
+    expect(result.opportunities).toHaveLength(0);
+    expect(result.refused.some((r) => r.ok === false && r.reason === 'insufficient_size')).toBe(true);
+  });
+
+  it('negative contemplated amount refuses insufficient_size and is not emitted', () => {
+    const result = scanArb({
+      symbol: 'BTC/USDT',
+      amount: amt('-1'),
+      quotes: [
+        q({ venueId: 'a', kind: 'external-cex', price: '100', amount: amt('10') }),
+        q({ venueId: 'b', kind: 'external-cex', price: '102', amount: amt('10') }),
+      ],
+      costTermsByVenue: {
+        a: completeTerms({ feeBps: 0, expectedImpactBps: 0, transferCostBps: 0 }),
+        b: completeTerms({ feeBps: 0, expectedImpactBps: 0, transferCostBps: 0 }),
+      },
+      inventory: { prePositionedByVenue: { a: true, b: true } },
+    });
+
+    expect(result.opportunities).toHaveLength(0);
+    expect(result.refused.some((r) => r.ok === false && r.reason === 'insufficient_size')).toBe(true);
+  });
+
+  it('positive contemplated amount passes the size check when both quotes are large enough', () => {
+    const amount = amt('1');
+    const result = scanArb({
+      symbol: 'BTC/USDT',
+      amount,
+      quotes: [
+        q({ venueId: 'a', kind: 'external-cex', price: '100', amount: amt('10') }),
+        q({ venueId: 'b', kind: 'external-cex', price: '102', amount: amt('10') }),
+      ],
+      costTermsByVenue: {
+        a: completeTerms({ feeBps: 0, expectedImpactBps: 0, transferCostBps: 0 }),
+        b: completeTerms({ feeBps: 0, expectedImpactBps: 0, transferCostBps: 0 }),
+      },
+      inventory: { prePositionedByVenue: { a: true, b: true } },
+    });
+
+    expect(result.opportunities).toHaveLength(1);
+    expect(result.opportunities[0]).toMatchObject({ ok: true, amount });
+    expect(result.refused.some((r) => r.reason === 'insufficient_size')).toBe(false);
+  });
+
   it('skips house books even when they would be the cheap buy — no house prefer', () => {
     const result = scanArb({
       symbol: 'BTC/USDT',

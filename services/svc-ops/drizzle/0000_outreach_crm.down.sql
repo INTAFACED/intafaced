@@ -1,0 +1,11 @@
+DROP TABLE IF EXISTS ops.crm_rate_windows;
+DROP TABLE IF EXISTS ops.crm_outbox;
+DROP TABLE IF EXISTS ops.crm_requests;
+DROP TABLE IF EXISTS ops.crm_tasks;
+DROP TABLE IF EXISTS ops.crm_activities;
+DROP FUNCTION IF EXISTS ops.crm_activity_append_only();
+DROP TABLE IF EXISTS ops.crm_opportunities;
+DROP TABLE IF EXISTS ops.crm_submissions;
+DROP TABLE IF EXISTS ops.crm_contact_organisations;
+DROP TABLE IF EXISTS ops.crm_organisations;
+DROP TABLE IF EXISTS ops.crm_contacts;

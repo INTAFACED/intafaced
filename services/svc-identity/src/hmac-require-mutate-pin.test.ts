@@ -96,13 +96,16 @@ describe('the deployed svc-identity mutate mounts require body-bound HMAC', () =
     expect(block).not.toMatch(/INTERNAL_SERVICE_BODY_BIND/);
   });
 
-  it('does not pin tRPC createEdgeContext to require (parser clobber)', () => {
+  it('preserves the default tRPC service mode while retaining the full request for delegated reads', () => {
     const live = liveLines(indexSource());
-    const start = live.indexOf('createEdgeContext(');
+    const start = live.indexOf('createIdentityRequestContext(');
     expect(start).toBeGreaterThan(-1);
     const edge = live.slice(start, live.indexOf('});', start) + 3);
     expect(edge).not.toMatch(/bodyBindMode:\s*'require'/);
-    expect(live).toMatch(/edgeContext\(\{\s*headers:\s*req\.headers/);
+    expect(live).toMatch(/identityRequestContext\(req\)/);
+    const factory = liveLines(readFileSync(join(HERE, 'controls/founder-context.ts'), 'utf8'));
+    expect(factory).toMatch(/const regular = createEdgeContext\(options\)/);
+    expect(factory).toMatch(/if \(!requiresBody\) return context/);
   });
 
   it('GET ownership/session/rank/account may still follow compose env', () => {

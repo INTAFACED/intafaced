@@ -1,6 +1,7 @@
 /**
  * Approve one paper OCO parent with linked take-profit and stop-loss children.
- * Both sibling triggers are ledger amounts. Missing/blank/invalid refuses — this
+ * Both sibling triggers are ledger amounts. Missing, blank, zero, or negative
+ * refuses with that leg's blank reason; unparsable refuses invalid — this
  * never invents a trigger from parent qty or the other sibling. Paper off refuses
  * a live venue. Does not start and does not touch matching.
  */
@@ -39,10 +40,7 @@ export type OmsPaperOcoApproveOk = {
 
 export type OmsPaperOcoApproveResult = OmsPaperOcoApproveOk | OmsPaperOcoApproveRefusal;
 
-function refuse(
-  reason: OmsPaperOcoApproveRefuseReason,
-  detail: string,
-): OmsPaperOcoApproveRefusal {
+function refuse(reason: OmsPaperOcoApproveRefuseReason, detail: string): OmsPaperOcoApproveRefusal {
   return { ok: false, reason, detail };
 }
 
@@ -60,12 +58,13 @@ function parseTrigger(
     return refuse(blank, `${label} is blank — refuse rather than invent a trigger`);
   }
   try {
-    return { ok: true, text: formatAmount(parseAmount(text)) };
+    const value = parseAmount(text);
+    if (value <= 0n) {
+      return refuse(blank, `${label} is blank — refuse rather than invent a trigger`);
+    }
+    return { ok: true, text: formatAmount(value) };
   } catch {
-    return refuse(
-      invalid,
-      `${label} is not a ledger amount — refusing to invent a trigger`,
-    );
+    return refuse(invalid, `${label} is not a ledger amount — refusing to invent a trigger`);
   }
 }
 
@@ -99,19 +98,9 @@ export function approvePaperOcoParent(input: {
   if (!operatorId) {
     return refuse('missing_operator', 'operator id is required — refusing to invent a user');
   }
-  const takeProfit = parseTrigger(
-    input.takeProfit,
-    'take_profit_blank',
-    'take_profit_invalid',
-    'OCO take-profit',
-  );
+  const takeProfit = parseTrigger(input.takeProfit, 'take_profit_blank', 'take_profit_invalid', 'OCO take-profit');
   if (!takeProfit.ok) return takeProfit;
-  const stopLoss = parseTrigger(
-    input.stopLoss,
-    'stop_loss_blank',
-    'stop_loss_invalid',
-    'OCO stop-loss',
-  );
+  const stopLoss = parseTrigger(input.stopLoss, 'stop_loss_blank', 'stop_loss_invalid', 'OCO stop-loss');
   if (!stopLoss.ok) return stopLoss;
 
   return {

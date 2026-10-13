@@ -6,11 +6,7 @@
  * router.ts is not recut.
  */
 
-export type OmsMultivenueRefuseReason =
-  | 'best_ex_unset'
-  | 'outage_invented_fill'
-  | 'dex_risk_unset'
-  | 'invented_venue';
+export type OmsMultivenueRefuseReason = 'best_ex_unset' | 'outage_invented_fill' | 'dex_risk_unset' | 'invented_venue';
 
 export type OmsMultivenueRefusal = {
   readonly ok: false;
@@ -82,15 +78,10 @@ export function refuseDexRouting(input: {
   readonly venues?: readonly { readonly kind?: string | null }[];
 }): OmsMultivenueRefusal | null {
   const kind = input.kind?.trim().toLowerCase() ?? '';
-  const dex =
-    DEX_KINDS.has(kind) ||
-    Boolean(input.venues?.some((venue) => DEX_KINDS.has((venue.kind ?? '').trim().toLowerCase())));
+  const dex = DEX_KINDS.has(kind) || Boolean(input.venues?.some((venue) => DEX_KINDS.has((venue.kind ?? '').trim().toLowerCase())));
   if (!dex) return null;
   if (!setText(input.gas) || !setText(input.mev) || !setText(input.reorg)) {
-    return refuse(
-      'dex_risk_unset',
-      'DEX routing must name gas, MEV, and reorg — refusing rather than inventing those terms',
-    );
+    return refuse('dex_risk_unset', 'DEX routing must name gas, MEV, and reorg — refusing rather than inventing those terms');
   }
   return null;
 }
@@ -129,7 +120,10 @@ export function refuseLiveOmsMultivenue(input: {
   if (outage) return outage;
   const dex = refuseDexRouting(input);
   if (dex) return dex;
-  if (input.venueId !== undefined || input.wiredVenueIds) {
+  // Omitted venueId is not a blank id. withWired copies the allowlist onto a
+  // venues-only plan, so check each venues[] id against that list.
+  // A blank venues[] id with no allowlist stays unknown_venue in the plan.
+  if (input.venueId !== undefined) {
     const venue = refuseInventedVenue({ venueId: input.venueId, wiredVenueIds: input.wiredVenueIds });
     if (venue) return venue;
   }

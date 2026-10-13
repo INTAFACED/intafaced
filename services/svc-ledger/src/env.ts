@@ -40,7 +40,7 @@ const schema = serviceEnvSchema
       LEDGER_POSTING_ENABLED: z
         .union([z.boolean(), z.string()])
         .default(true)
-        .transform((v) => (typeof v === 'boolean' ? v : !['0', 'false', 'off', 'no'].includes(v.toLowerCase()))),
+        .transform((v) => (typeof v === 'boolean' ? v : ['true', 'yes', 'on', '1'].includes(v.trim().toLowerCase()))),
 
       /**
        * Identity issuer for operator freeze/unfreeze/reconcile consume.

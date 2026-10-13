@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
 import { OrderBook } from './book.js';
+import { installOcoCancel } from './oco-cancel.js';
 import { installOcoLink, readStopLoss, readTakeProfit, stopLossRefuse, takeProfitRefuse, wantsOco } from './oco-link.js';
 import type { EngineOrder, EngineOrderType, OrderSide, TimeInForce } from './types.js';
 
@@ -10,6 +11,8 @@ import type { EngineOrder, EngineOrderType, OrderSide, TimeInForce } from './typ
  * The engine does not invent a trigger.
  */
 
+// oco-cancel installs while oco-link loads, then oco-link wraps it. Link stays the outer submit hook.
+installOcoCancel(OrderBook);
 installOcoLink(OrderBook);
 
 const A = parseAmount;
@@ -17,6 +20,8 @@ const PARENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const TP = '22222222-2222-4222-8222-222222222222';
 const SL = '33333333-3333-4333-8333-333333333333';
 const LIQ = '11111111-1111-4111-8111-111111111111';
+const PRINT = '44444444-4444-4444-8444-444444444444';
+const BID = '55555555-5555-4555-8555-555555555555';
 
 function order(spec: {
   id: string;
@@ -28,6 +33,7 @@ function order(spec: {
   stopPrice?: string;
   tif?: TimeInForce;
   oco?: boolean;
+  cancel?: boolean;
   takeProfit?: string | null;
   stopLoss?: string | null;
   takeProfitOrderId?: string;
@@ -44,6 +50,7 @@ function order(spec: {
     stopPrice: spec.stopPrice === undefined ? null : A(spec.stopPrice),
     tif: spec.tif ?? 'GTC',
     ...(spec.oco !== undefined ? { oco: spec.oco } : {}),
+    ...(spec.cancel === true ? { cancel: true } : {}),
     ...(spec.takeProfit !== undefined ? { takeProfit: spec.takeProfit == null ? null : A(spec.takeProfit) } : {}),
     ...(spec.stopLoss !== undefined ? { stopLoss: spec.stopLoss == null ? null : A(spec.stopLoss) } : {}),
     ...(spec.takeProfitOrderId ? { takeProfitOrderId: spec.takeProfitOrderId } : {}),
@@ -105,6 +112,75 @@ describe('OCO — rest linked take-profit and stop-loss', () => {
     expect(liveIds(book)).not.toContain(SL);
   });
 
+  it('keeps stop fills when take-profit is rejected, and does not restore a stop snapshot', () => {
+    const filled = new OrderBook('BTC/USDT');
+    filled.submit(order({ id: LIQ, account: 'mm', side: 'buy', qty: '1', price: '100' }));
+    filled.submit(order({ id: PRINT, account: 'taker', side: 'sell', qty: '1', price: '100' }));
+    filled.submit(order({ id: BID, account: 'mm', side: 'buy', qty: '1', price: '95' }));
+    const rejectedTp = filled.submit(
+      order({
+        id: PARENT,
+        side: 'sell',
+        qty: '1',
+        oco: true,
+        takeProfit: '110',
+        stopLoss: '100',
+        takeProfitOrderId: TP,
+        stopLossOrderId: SL,
+      }),
+    );
+    expect(rejectedTp.accepted).toBe(false);
+    expect(rejectedTp.rejected?.code).toBe('oco_sibling_terminal');
+    expect(
+      rejectedTp.fills.some((fill) => fill.takerOrderId === SL && formatAmount(fill.qty) === '1' && formatAmount(fill.price) === '95'),
+    ).toBe(true);
+    expect(liveIds(filled)).not.toContain(SL);
+    expect(rejectedTp.resting).toBeNull();
+    expect(formatAmount(filled.lastPrice!)).toBe('95');
+
+    const book = new OrderBook('BTC/USDT');
+    const removed = book.submit(
+      order({
+        id: PARENT,
+        side: 'sell',
+        qty: '1',
+        tif: 'FOK',
+        oco: true,
+        takeProfit: '110',
+        stopLoss: '90',
+        takeProfitOrderId: TP,
+        stopLossOrderId: SL,
+      }),
+    );
+    expect(removed.accepted).toBe(false);
+    expect(removed.rejected?.code).toBe('fok_unfillable');
+    expect(removed.resting).toBeNull();
+    expect(liveIds(book)).not.toContain(SL);
+    expect(liveIds(book)).not.toContain(TP);
+    const pulled = removed.cancellations.find((row) => row.orderId === SL);
+    expect(pulled?.reason).toBe('requested');
+    expect(formatAmount(pulled!.remainingQty)).toBe('1');
+
+    const crossed = new OrderBook('BTC/USDT');
+    crossed.submit(order({ id: LIQ, account: 'mm', side: 'buy', qty: '1', price: '110' }));
+    const filledTp = crossed.submit(
+      order({
+        id: PARENT,
+        side: 'sell',
+        qty: '1',
+        oco: true,
+        takeProfit: '110',
+        stopLoss: '90',
+        takeProfitOrderId: TP,
+        stopLossOrderId: SL,
+      }),
+    );
+    expect(filledTp.accepted).toBe(true);
+    expect(filledTp.fills.length).toBeGreaterThan(0);
+    expect(filledTp.resting).toBeNull();
+    expect(liveIds(crossed)).not.toContain(SL);
+  });
+
   it('refuses a missing take-profit — last on the book is not a trigger', () => {
     const book = new OrderBook('BTC/USDT');
     book.submit(order({ id: LIQ, account: 'mm', side: 'buy', qty: '1', price: '100' }));
@@ -114,6 +190,47 @@ describe('OCO — rest linked take-profit and stop-loss', () => {
     expect(result.rejected?.message).toContain('take-profit');
     expect(result.fills).toHaveLength(0);
     expect(liveIds(book)).toEqual([LIQ]);
+  });
+
+  it('cancels both live siblings when the outer link hook omits take-profit', () => {
+    const book = new OrderBook('BTC/USDT');
+    const rested = book.submit(
+      order({
+        id: PARENT,
+        side: 'sell',
+        qty: '1',
+        oco: true,
+        takeProfit: '110',
+        stopLoss: '90',
+        takeProfitOrderId: TP,
+        stopLossOrderId: SL,
+      }),
+    );
+    expect(rested.accepted).toBe(true);
+    expect(liveIds(book)).toEqual([SL, TP].sort());
+
+    const pulled = book.submit(
+      order({
+        id: TP,
+        side: 'sell',
+        qty: '1',
+        price: '110',
+        oco: true,
+        cancel: true,
+      }),
+    );
+    expect(pulled.accepted).toBe(true);
+    expect(pulled.rejected?.code).not.toBe('missing_stop_price');
+    expect(pulled.fills).toHaveLength(0);
+    expect(pulled.resting).toBeNull();
+    expect(pulled.cancellations.map((c) => [c.orderId, c.reason]).sort()).toEqual(
+      [
+        [SL, 'requested'],
+        [TP, 'requested'],
+      ].sort(),
+    );
+    expect(liveIds(book)).toEqual([]);
+    expect(book.lastPrice).toBeNull();
   });
 
   it('refuses a missing stop-loss — last on the book is not a trigger', () => {

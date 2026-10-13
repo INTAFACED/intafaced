@@ -10,15 +10,13 @@ export const FINANCE_KINDS = ['segregation', 'close', 'por'] as const;
 export type FinanceKind = (typeof FINANCE_KINDS)[number];
 
 export const CLIENT_CORPORATE_COMMINGLED = 'ledger.finance.client_corporate_commingled' as const;
+export const OWNERS_UNNAMED = 'ledger.finance.owners_unnamed' as const;
 export const RECIPES_INCOMPLETE = 'ledger.finance.recipes_incomplete' as const;
 export const POR_MISLEADING = 'ledger.finance.por_misleading' as const;
 export const RESERVE_INVENTED = 'ledger.finance.reserve_invented' as const;
 
 export type FinanceRefuseReason =
-  | typeof CLIENT_CORPORATE_COMMINGLED
-  | typeof RECIPES_INCOMPLETE
-  | typeof POR_MISLEADING
-  | typeof RESERVE_INVENTED;
+  typeof CLIENT_CORPORATE_COMMINGLED | typeof OWNERS_UNNAMED | typeof RECIPES_INCOMPLETE | typeof POR_MISLEADING | typeof RESERVE_INVENTED;
 
 export type FinanceRefusal = {
   readonly ok: false;
@@ -94,17 +92,20 @@ export function refuseIncompleteFinance(input: z.infer<typeof financeCloseInputS
   }
 
   if (input.commingle === true || (client !== null && corporate !== null && client === corporate)) {
-    return refuse(
-      input.kind,
-      CLIENT_CORPORATE_COMMINGLED,
-      [],
-      included,
-      'client and corporate assets stay distinct',
-    );
+    return refuse(input.kind, CLIENT_CORPORATE_COMMINGLED, [], included, 'client and corporate assets stay distinct');
   }
 
-  const claiming =
-    input.complete === true || input.kind === 'close' || input.kind === 'por' || input.claimFullyReserved === true;
+  const claiming = input.complete === true || input.kind === 'close' || input.kind === 'por' || input.claimFullyReserved === true;
+
+  if (input.kind === 'segregation' && (!client || !corporate)) {
+    return refuse(
+      input.kind,
+      OWNERS_UNNAMED,
+      [!client ? 'clientOwnerId' : '', !corporate ? 'corporateOwnerId' : ''].filter((id) => id.length > 0),
+      included,
+      'client and corporate owners were not named',
+    );
+  }
 
   if (claiming) {
     const missing: string[] = [];
@@ -116,13 +117,7 @@ export function refuseIncompleteFinance(input: z.infer<typeof financeCloseInputS
       if (!recipes.has(recipe)) missing.push(recipe);
     }
     if (missing.length > 0) {
-      return refuse(
-        input.kind,
-        RECIPES_INCOMPLETE,
-        missing,
-        included,
-        `finance ${input.kind} refuses — recipes incomplete`,
-      );
+      return refuse(input.kind, RECIPES_INCOMPLETE, missing, included, `finance ${input.kind} refuses — recipes incomplete`);
     }
   }
 
@@ -139,10 +134,10 @@ export function refuseIncompleteFinance(input: z.infer<typeof financeCloseInputS
   if (!client || !corporate) {
     return refuse(
       input.kind,
-      CLIENT_CORPORATE_COMMINGLED,
+      OWNERS_UNNAMED,
       [!client ? 'clientOwnerId' : '', !corporate ? 'corporateOwnerId' : ''].filter((id) => id.length > 0),
       included,
-      'client and corporate owners must both be named and distinct',
+      'client and corporate owners were not named',
     );
   }
 

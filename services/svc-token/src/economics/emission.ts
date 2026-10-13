@@ -24,36 +24,9 @@ export interface EmissionParams {
 }
 
 /**
- * A SEED, NOT THE SCHEDULE THAT RUNS.
- *
- * `svc-token` boots with `loadParamsFromDb: true`, so `token.token_params` is the authority and
- * these constants are a fallback that a live deployment never reaches. Read them as a shape —
- * three fields of the right types — not as the economy. The two copies are held to each other
- * by the agreement test in `economics.test.ts`; that test is red today, deliberately, because
- * they disagree and only the owner may say which value wins (ADR
- * `docs/adr/2026-08-04-token-economics-outcomes.md`).
- *
- * TRUE OF BOTH COPIES: one epoch is one day, so a halving era of 1460 epochs is about four
- * years — long enough that a miner can plan capex against it, short enough that the curve is
- * not a promise to a generation. 1460 is the one emission number the seed and the live row
- * already agree on.
- *
- * TRUE OF THE LIVE ROW, AND NOT OF THIS SEED: a halving schedule sums to
- * `2 × initialEpochReward × halvingInterval`. The seeded row's 2500/epoch over 1460 epochs
- * gives a geometric limit of 7,300,000 IFC against a `total_supply` of 1,000,000,000, so the
- * live curve tops out at about 0.73% of the cap and the cap IS the entire supply rather than a
- * slice of it. The clamp in `cumulativeEmission` is therefore a backstop rather than the
- * mechanism the economy relies on — but by three orders of magnitude, not by the hair's breadth
- * these seed values imply.
- *
- * INTENT ON RECORD, NOT A STATED FACT: this comment used to assert that the cap was the mining
- * allocation — 40% of a 1,000,000,000 supply, the other 60% (treasury, liquidity, contributors)
- * allocated by governance and never minted here. That split appears NOWHERE else in the repo —
- * not in `INTAFACED_DEFINITIVE_BUILD.md`, not in the migration, not in any doc — and it is not
- * what the live row does. It is kept here as the intent it always was: an emission cap that is a
- * slice of the supply rather than the whole of it is a coherent design and someone meant it.
- * Whether it is the design, and at what ratio, is an undecided owner number on the ADR's
- * enumerated list. Until it is decided, nothing may describe the IFC supply as divided.
+ * Shape for tests and for `loadParamsFromDb: false`. A live boot reads
+ * `token_params` and refuses when the supply or the emission amount is blank.
+ * The migration does not write these figures.
  */
 export const DEFAULT_EMISSION_PARAMS: EmissionParams = {
   initialEpochReward: parseAmount('136000'),

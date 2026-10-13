@@ -182,9 +182,9 @@ export function createTradeHttpWhaleMarkSource(options: TradeHttpWhaleMarkOption
           };
         }
 
-        let body: TickerRow;
+        let body: TickerRow | null;
         try {
-          body = (await res.json()) as TickerRow;
+          body = (await res.json()) as TickerRow | null;
         } catch {
           return {
             kind: 'unavailable',
@@ -193,8 +193,9 @@ export function createTradeHttpWhaleMarkSource(options: TradeHttpWhaleMarkOption
           };
         }
 
-        const flow = flowFromTicker(body);
-        if (!flow) {
+        // JSON null is a 200 body. res.json() does not throw, and body.quoteVolume would.
+        const flow = body === null ? null : flowFromTicker(body);
+        if (body === null || !flow) {
           return {
             kind: 'unavailable',
             reason: 'stale',

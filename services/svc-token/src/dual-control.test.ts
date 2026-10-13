@@ -22,6 +22,24 @@ describe('dualControlRefuse', () => {
     expect(requireDualControl(OP, CONFIRM)).toBe(CONFIRM);
   });
 
+  it('trims the confirming operator before the empty and same-person checks', () => {
+    const blank = dualControlRefuse(OP, '   ');
+    expect(blank?.code).toBe(MISSING_OPERATOR);
+    expect(blank?.message).toBe('confirming operator identity is required; the token service does not invent a second caller');
+    expect(dualControlRefuse(OP, '')?.code).toBe(MISSING_OPERATOR);
+
+    const paddedSelf = dualControlRefuse(OP, `  ${OP}  `);
+    expect(paddedSelf?.code).toBe(MISSING_OPERATOR);
+    expect(paddedSelf?.message).toBe('confirming operator must be a distinct identity; the token service does not invent a second caller');
+    expect(dualControlRefuse(` ${OP} `, `\t${OP}\n`)?.code).toBe(MISSING_OPERATOR);
+    expect(() => requireDualControl(OP, '   ')).toThrow(DualControlError);
+    expect(() => requireDualControl(OP, `  ${OP}  `)).toThrow(DualControlError);
+
+    expect(dualControlRefuse(`  ${OP}  `, `  ${CONFIRM}  `)).toBeNull();
+    expect(requireDualControl(OP, `  ${CONFIRM}  `)).toBe(CONFIRM);
+    expect(requireDualControl(`  ${OP}  `, `  ${CONFIRM}  `)).toBe(CONFIRM);
+  });
+
   it('requireDualControl throws DualControlError on refuse', () => {
     expect(() => requireDualControl(OP, null)).toThrow(DualControlError);
     try {

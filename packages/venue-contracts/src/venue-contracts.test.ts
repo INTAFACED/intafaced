@@ -123,23 +123,58 @@ describe('unified instrument', () => {
   });
 
   describe('roundToTick', () => {
-    it('rounds away from the caller, so the executed price can only be better than the quote', () => {
+    it('rounds a buy toward a cheaper or equal price and a sell toward a higher or equal price', () => {
       const tick = parseAmount('0.5');
-      // A buy rounds UP — never crossing further than authorised.
-      expect(formatAmount(roundToTick(parseAmount('30000.3'), tick, 'buy'))).toBe('30000.5');
-      // A sell rounds DOWN.
-      expect(formatAmount(roundToTick(parseAmount('30000.3'), tick, 'sell'))).toBe('30000');
+      const price = parseAmount('30000.3');
+      const buy = roundToTick(price, tick, 'buy');
+      const sell = roundToTick(price, tick, 'sell');
+      // A buy must not rest above the requested limit. A sell must not rest below it.
+      expect(buy <= price).toBe(true);
+      expect(sell >= price).toBe(true);
+      expect(formatAmount(buy)).toBe('30000');
+      expect(formatAmount(sell)).toBe('30000.5');
     });
 
     it('handles a non-decimal tick, which a decimal-places model cannot express', () => {
       const tick = parseAmount('25');
-      expect(formatAmount(roundToTick(parseAmount('4013'), tick, 'buy'))).toBe('4025');
-      expect(formatAmount(roundToTick(parseAmount('4013'), tick, 'sell'))).toBe('4000');
+      const price = parseAmount('4013');
+      const buy = roundToTick(price, tick, 'buy');
+      const sell = roundToTick(price, tick, 'sell');
+      expect(buy <= price).toBe(true);
+      expect(sell >= price).toBe(true);
+      expect(formatAmount(buy)).toBe('4000');
+      expect(formatAmount(sell)).toBe('4025');
     });
 
     it('leaves an on-tick price alone', () => {
       const tick = parseAmount('0.5');
-      expect(roundToTick(parseAmount('30000.5'), tick, 'buy')).toBe(parseAmount('30000.5'));
+      const price = parseAmount('30000.5');
+      expect(roundToTick(price, tick, 'buy')).toBe(price);
+      expect(roundToTick(price, tick, 'sell')).toBe(price);
+    });
+
+    it('refuses a non-positive tick instead of returning the price unchanged', () => {
+      const price = parseAmount('30000.3');
+      expect(() => roundToTick(price, parseAmount('0'), 'buy')).toThrow(/non-positive tick/);
+      expect(() => roundToTick(price, parseAmount('-0.5'), 'sell')).toThrow(/non-positive tick/);
+    });
+
+    it('preserves caller limits and exact tick alignment at 18dp and beyond safe integer prices', () => {
+      const prices = ['0.000000000000000001', '0.123456789012345678', '9007199254740993.123456789012345678'];
+      const ticks = ['0.000000000000000001', '0.000000000000000007', '0.025', '25'];
+      for (const rawPrice of prices) {
+        for (const rawTick of ticks) {
+          const price = parseAmount(rawPrice);
+          const tick = parseAmount(rawTick);
+          const buy = roundToTick(price, tick, 'buy');
+          const sell = roundToTick(price, tick, 'sell');
+          expect(buy <= price && sell >= price).toBe(true);
+          expect(buy % tick).toBe(0n);
+          expect(sell % tick).toBe(0n);
+          expect(parseAmount(formatAmount(buy))).toBe(buy);
+          expect(parseAmount(formatAmount(sell))).toBe(sell);
+        }
+      }
     });
   });
 
@@ -209,8 +244,24 @@ describe('funding', () => {
     expect(formatAmount(negative)).toBe('-0.1095');
   });
 
-  it('returns zero rather than dividing by zero on a venue with no interval', () => {
-    expect(annualisedFundingRate({ rate: parseAmount('0.01'), intervalSeconds: 0 })).toBe(0n);
+  it('refuses a blank or corrupt interval instead of inventing a zero funding rate', () => {
+    // Zero on a real clock is a real annualised rate. One settlement a year is
+    // the last interval that still annualises to that rate.
+    expect(annualisedFundingRate({ rate: 0n, intervalSeconds: 28_800 })).toBe(0n);
+    expect(formatAmount(annualisedFundingRate({ rate: parseAmount('0.0001'), intervalSeconds: 31_536_000 }))).toBe('0.0001');
+
+    const rate = parseAmount('0.01');
+    const corrupt: unknown[] = [undefined, null, '', 0, -1, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN, 31_536_001];
+    const outcomes = corrupt.map((intervalSeconds) => {
+      try {
+        const invented = annualisedFundingRate({ rate, intervalSeconds: intervalSeconds as number });
+        return { intervalSeconds, outcome: `returned ${invented.toString()}` };
+      } catch (error) {
+        const name = error instanceof Error ? error.name : typeof error;
+        return { intervalSeconds, outcome: `threw ${name}` };
+      }
+    });
+    expect(outcomes).toEqual(corrupt.map((intervalSeconds) => ({ intervalSeconds, outcome: 'threw FundingIntervalError' })));
   });
 });
 
@@ -250,6 +301,25 @@ describe('credentials — the loud failure', () => {
   it('refuses a withdrawal-capable key on the use path too, not only at load', () => {
     const dangerous: VenueCredentials = { ...tradeOnly, scopes: ['trade', 'universal-transfer'] };
     expect(() => requireCredentials('v', 'placeOrder', dangerous)).toThrow(VenueCredentialScopeError);
+  });
+
+  it('refuses a folded withdrawal scope, a plural transfer, an empty scope list, and a blank scope', () => {
+    const universalUnderscore: VenueCredentials = { ...tradeOnly, scopes: ['trade', 'universal_transfer'] };
+    const pluralTransfer: VenueCredentials = { ...tradeOnly, scopes: ['trade', 'transfers'] };
+    const internalTransfer: VenueCredentials = { ...tradeOnly, scopes: ['internal_transfer'] };
+    const emptyScopes: VenueCredentials = { ...tradeOnly, scopes: [] };
+    const blankScope: VenueCredentials = { ...tradeOnly, scopes: [''] };
+    const whitespaceScope: VenueCredentials = { ...tradeOnly, scopes: ['   '] };
+    const trade: VenueCredentials = { ...tradeOnly, scopes: ['trade'] };
+
+    expect(() => requireCredentials('v', 'placeOrder', universalUnderscore)).toThrow(VenueCredentialScopeError);
+    expect(() => requireCredentials('v', 'placeOrder', pluralTransfer)).toThrow(VenueCredentialScopeError);
+    expect(() => requireCredentials('v', 'placeOrder', internalTransfer)).toThrow(VenueCredentialScopeError);
+    expect(() => requireCredentials('v', 'placeOrder', emptyScopes)).toThrow(VenueCredentialScopeError);
+    expect(() => requireCredentials('v', 'placeOrder', blankScope)).toThrow(VenueCredentialScopeError);
+    expect(() => requireCredentials('v', 'placeOrder', whitespaceScope)).toThrow(VenueCredentialScopeError);
+    expect(requireCredentials('v', 'placeOrder', trade)).toBe(trade);
+    expect(requireCredentials('v', 'placeOrder', tradeOnly)).toBe(tradeOnly);
   });
 });
 

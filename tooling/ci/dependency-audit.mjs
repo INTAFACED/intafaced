@@ -15,7 +15,7 @@
  *
  * `pnpm audit --audit-level=high` on day one exits non-zero, so wiring that as
  * required would red main immediately and the gate would be deleted within the
- * day. That is the same trap `shell-i18n-scan.mjs` documents for its 200+
+ * day. That is the same trap `shell-i18n-scan.mjs` (deleted 2026-10-13) documents for its 200+
  * hardcoded strings, and it is why that one is deliberately NOT a gate.
  *
  * So this uses the pattern the repo already trusts — the one behind
@@ -61,11 +61,6 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
  * tooling.
  */
 const KNOWN = {
-  'GHSA-f88m-g3jw-g9cj': {
-    severity: 'high',
-    module: 'sharp',
-    note: 'apps/admin > next > sharp. Image optimisation in the operator console only.',
-  },
   'GHSA-6g55-p6wh-862q': { severity: 'high', module: 'postcss', note: 'apps/admin > next > postcss. Build-time CSS, not a request path.' },
   'GHSA-r28c-9q8g-f849': { severity: 'high', module: 'postcss', note: 'apps/admin > next > postcss. Build-time CSS, not a request path.' },
   'GHSA-fxqj-rqcc-2cmp': {
@@ -94,21 +89,6 @@ const KNOWN = {
     severity: 'moderate',
     module: 'esbuild',
     note: 'packages/db > drizzle-kit > esbuild. Migration tooling, build-time only.',
-  },
-  'GHSA-p293-qw3h-jr36': {
-    severity: 'critical',
-    module: 'next',
-    note: 'apps/admin > next. Windows-hosted RCE; operator console is not a Windows product SPA. Patch is next 15.5.24 / 16.3.3 — admin bump is a separate PR.',
-  },
-  'GHSA-2xp9-vwfh-vxw4': {
-    severity: 'critical',
-    module: 'next',
-    note: 'apps/admin > next > sharp/libheif AVIF. Image optimisation in the operator console only. Patch is next 15.5.24 / 16.3.3 — admin bump is a separate PR.',
-  },
-  'GHSA-rgj7-g3m4-5g8c': {
-    severity: 'high',
-    module: 'sharp',
-    note: 'apps/admin > next > sharp. Image optimisation in the operator console only. Patch is sharp 0.35.4.',
   },
   'GHSA-82fw-gwwq-j7x9': {
     severity: 'moderate',
@@ -236,31 +216,6 @@ const KNOWN = {
     severity: 'low',
     module: '@grpc/grpc-js',
     note: 'testcontainers > dockerode > @grpc/grpc-js. Test-only Docker client. Not a service request path.',
-  },
-  'GHSA-4mh8-r7rc-xpvc': {
-    severity: 'moderate',
-    module: 'fastify',
-    note: 'Direct service HTTP server. On the request path. Advisory published after the freeze; bump is a separate PR.',
-  },
-  'GHSA-667r-xxjv-c9mm': {
-    severity: 'high',
-    module: 'fastify',
-    note: 'Direct service HTTP server. On the request path. Advisory published after the freeze; bump is a separate PR.',
-  },
-  'GHSA-p68q-wchp-6fh7': {
-    severity: 'high',
-    module: 'fastify',
-    note: 'Direct service HTTP server. On the request path. Advisory published after the freeze; bump is a separate PR.',
-  },
-  'GHSA-hwr6-493r-vm6h': {
-    severity: 'high',
-    module: 'fastify',
-    note: 'Direct service HTTP server. On the request path. Advisory published after the freeze; bump is a separate PR.',
-  },
-  'GHSA-9q9j-q6p8-xq58': {
-    severity: 'high',
-    module: 'fastify',
-    note: 'Direct service HTTP server. On the request path. Advisory published after the freeze; bump is a separate PR.',
   },
 };
 

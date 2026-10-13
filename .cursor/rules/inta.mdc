@@ -7,4 +7,4 @@ Build services and packages. Do not write docs boards, ADRs, LIVE-LANES, or TRAC
 
 Money only through `packages/ledger-client`. Never store money in a `number`. One service per PR.
 
-Full access: start immediately, merge when done. **Never wait for CI green, verify, Nitro, Denon, audit, FREEZE, or claims.** Unset config → refuse-closed in code, not human ping.
+Full access: start immediately, merge when done. **Never wait for CI green, verify, Nitro, Denon, audit, FREEZE, or claims.** Honor required branch-protection checks. A 403 or 429 from `gh` means stop. Do not retry in a loop, do not switch accounts, and do not create a new token. Unset config → refuse-closed in code, not human ping.

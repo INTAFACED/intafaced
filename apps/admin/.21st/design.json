@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "project": {
+    "name": "@intafaced/admin",
+    "productType": "Private founder operations console",
+    "stack": ["nextjs", "react"]
+  },
+  "sources": {
+    "tokens": ["src/app/globals.css", "../../packages/ui/src/tokens.css"],
+    "components": [],
+    "assets": ["public/intafaced-logo.svg"],
+    "instructions": []
+  },
+  "design": {
+    "colorMode": "dark",
+    "colors": {
+      "--if-base": {
+        "value": "#090A0B",
+        "source": "src/app/globals.css"
+      },
+      "--if-surface": {
+        "value": "#111413",
+        "source": "src/app/globals.css"
+      },
+      "--if-surface-raised": {
+        "value": "#181D1A",
+        "source": "src/app/globals.css"
+      },
+      "--if-border": {
+        "value": "#2A332D",
+        "source": "src/app/globals.css"
+      },
+      "--if-text": {
+        "value": "#F2F5EF",
+        "source": "src/app/globals.css"
+      },
+      "--if-text-muted": {
+        "value": "#A3ADA5",
+        "source": "src/app/globals.css"
+      },
+      "--if-accent": {
+        "value": "#B9F65A",
+        "source": "src/app/globals.css"
+      },
+      "--if-accent-bright": {
+        "value": "#D0FF87",
+        "source": "src/app/globals.css"
+      },
+      "--if-text-on-accent": {
+        "value": "#11170A",
+        "source": "src/app/globals.css"
+      }
+    },
+    "typography": {
+      "display": "Self-hosted Inter; 26\u201336px, weight 600, tracking -0.045em",
+      "body": "Self-hosted Inter; 14px/1.5",
+      "data": "13px, tabular numbers where needed"
+    },
+    "spacing": {
+      "--adm-gap": {
+        "value": "12px",
+        "source": "src/app/globals.css"
+      }
+    },
+    "radius": {},
+    "shadows": {},
+    "motion": {
+      "feedback": "180ms background/border; reduced motion removes transitions",
+      "workspace": "No ambient animation"
+    },
+    "density": "Compact rows; 40px desktop and 44px mobile controls"
+  },
+  "components": {
+    "installed": [],
+    "preferredPrimitives": ["Native form controls", "Existing @intafaced/ui Panel and Chip"],
+    "patterns": [
+      "Protected founder session bar",
+      "CRM filters and bounded table",
+      "Original-answer detail panel",
+      "Versioned account-control confirmation",
+      "Global CRM metrics distinct from page counts",
+      "Bounded task queue and versioned transitions",
+      "Manual call/follow-up evidence with saved receipts",
+      "Controlled merges with immutable contact provenance",
+      "Campaign/source mappings without recipient verification",
+      "Audited bounded original-submission exports"
+    ]
+  },
+  "constraints": {
+    "must": ["Use existing --if-* tokens", "Keep keyboard focus visible", "Show unavailable services honestly"],
+    "avoid": []
+  },
+  "decisions": [
+    {
+      "direction": "Raycast-inspired dark theme with lime-green accents",
+      "status": "approved by Nitro",
+      "selectedAt": "2026-10-10",
+      "reference": "https://www.raycast.com/",
+      "scope": "Founder console; trading-direction colours keep their meanings",
+      "handoff": "/Users/Nitro/.codex/context/intafaced/questionnaire-oversight/FINAL-STEERING-PROMPT.txt"
+    }
+  ],
+  "evidence": [
+    {
+      "fact": "design.tokens",
+      "source": "src/app/globals.css"
+    },
+    {
+      "fact": "project.stack:nextjs",
+      "source": "package.json"
+    },
+    {
+      "fact": "project.stack:react",
+      "source": "package.json"
+    },
+    {
+      "fact": "design.colorMode:dark",
+      "source": "../../packages/ui/src/tokens.css"
+    },
+    {
+      "fact": "design.workflow-inspiration",
+      "source": "21st search: Records Table / Dashboard Activities; project-native controls retained without dependencies"
+    }
+  ],
+  "generatedAt": "2026-10-10T12:29:39.930Z"
+}
