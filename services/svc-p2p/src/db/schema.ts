@@ -126,6 +126,12 @@ export const p2pTrades = p2p.table(
     fiatCurrency: text('fiat_currency').notNull(),
     /** Crypto quantity held in escrow. */
     amount: amount('amount').notNull(),
+    /**
+     * The figure copied when escrow is first stamped (`0010`). `amount` has to
+     * stay equal to it afterwards, including after `escrowed_at` is cleared.
+     * The trigger writes it. The service does not.
+     */
+    escrowAmount: amount('escrow_amount'),
     /** Initial terms claimed before the first post. Legacy NULL is unproven. */
     originalTermsClaimedAt: tstz('original_terms_claimed_at'),
     escrowLockAttempts: bigint('escrow_lock_attempts', { mode: 'bigint' }),
