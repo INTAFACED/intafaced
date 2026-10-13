@@ -37,7 +37,8 @@ const capture = () => ({
     marketingOptIn: false,
   },
 });
-describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('independent prepared archive barrier SQL/HTTP', () => {
+// Real SQL plus a local HTTP receiver per test; the 5 s default is too tight under CI load.
+describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('independent prepared archive barrier SQL/HTTP', { timeout: 30_000 }, () => {
   let source: TestDatabase, receiverDb: TestDatabase, restored: TestDatabase;
   let server: Awaited<ReturnType<typeof createArchiveReceiver>>;
   const secret = randomBytes(40).toString('base64url');

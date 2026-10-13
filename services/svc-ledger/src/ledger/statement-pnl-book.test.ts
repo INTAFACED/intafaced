@@ -1,15 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseAmount, userAvailable, type Balance } from '@intafaced/ledger-client';
-import {
-  STATEMENT_LOTS_MISSING,
-  STATEMENT_MARK_MISSING,
-  STATEMENT_NAV_INPUTS_MISSING,
-} from './statement-pnl.js';
-import {
-  handleStatementPnlFromBook,
-  refuseInventedCostBasis,
-  statementPnlAgainstPostedBalances,
-} from './statement-pnl-book.js';
+import { STATEMENT_LOTS_MISSING, STATEMENT_MARK_MISSING, STATEMENT_NAV_INPUTS_MISSING } from './statement-pnl.js';
+import { handleStatementPnlFromBook, refuseInventedCostBasis, statementPnlAgainstPostedBalances } from './statement-pnl-book.js';
 
 const OWNER = {
   ownerType: 'user' as const,

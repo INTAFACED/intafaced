@@ -6,17 +6,8 @@
 
 import type { Balance } from '@intafaced/ledger-client';
 import { z } from 'zod';
-import {
-  composeStatementPnl,
-  type StatementPnlFacts,
-  type StatementPnlOwner,
-  type StatementPnlResult,
-} from './statement-pnl.js';
-import {
-  handleStatementPnlFromBook,
-  refuseInventedCostBasis,
-  statementPnlBookInputSchema,
-} from './statement-pnl-book.js';
+import { composeStatementPnl, type StatementPnlFacts, type StatementPnlOwner, type StatementPnlResult } from './statement-pnl.js';
+import { handleStatementPnlFromBook, refuseInventedCostBasis, statementPnlBookInputSchema } from './statement-pnl-book.js';
 
 const decimalString = z.string({
   invalid_type_error: 'JS number refused — amounts are decimal strings',
@@ -46,7 +37,10 @@ export const statementPnlReproduceInputSchema = statementPnlBookInputSchema.exte
 });
 
 export function factsWhenLotsExist(input: {
-  readonly lots?: { readonly closed: readonly { assetId: string; costBasis: string | null; proceeds: string | null }[]; readonly open: readonly { assetId: string; qtyRemaining: string; costBasis: string | null }[] };
+  readonly lots?: {
+    readonly closed: readonly { assetId: string; costBasis: string | null; proceeds: string | null }[];
+    readonly open: readonly { assetId: string; qtyRemaining: string; costBasis: string | null }[];
+  };
   readonly marks?: Readonly<Record<string, string>>;
   readonly navInputs?: { readonly cashReporting: string };
 }): StatementPnlFacts | null {
@@ -65,10 +59,7 @@ export function reproduceStatementPnl(owner: StatementPnlOwner, facts: Statement
 
 export async function handleStatementPnlHappyOrRefuse(
   ledger: {
-    balances(
-      ownerType: StatementPnlOwner['ownerType'],
-      ownerId: string,
-    ): Promise<readonly Balance[]>;
+    balances(ownerType: StatementPnlOwner['ownerType'], ownerId: string): Promise<readonly Balance[]>;
   },
   body: unknown,
 ): Promise<StatementPnlResult> {

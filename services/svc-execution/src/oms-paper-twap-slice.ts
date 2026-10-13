@@ -7,12 +7,7 @@ import { parseAmount } from '@intafaced/ledger-client';
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsPaperTwapSliceRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'missing_qty'
-  | 'qty_invalid'
-  | 'paper_gate_unwired'
-  | 'paper_off';
+  'missing_parent' | 'not_live' | 'missing_qty' | 'qty_invalid' | 'paper_gate_unwired' | 'paper_off';
 
 export type OmsPaperTwapSliceRefusal = {
   readonly ok: false;
@@ -37,9 +32,7 @@ function refuse(reason: OmsPaperTwapSliceRefuseReason, detail: string): OmsPaper
   return { ok: false, reason, detail };
 }
 
-function parseQty(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperTwapSliceRefusal {
+function parseQty(raw: string | null | undefined): { ok: true; text: string } | OmsPaperTwapSliceRefusal {
   if (raw === null || raw === undefined) {
     return refuse('missing_qty', 'slice qty is blank — refuse rather than invent size from duration');
   }
@@ -90,10 +83,7 @@ export function slicePaperTwapParent(input: {
     return refuse('not_live', `kind ${String(input.kind)} is not twap`);
   }
   if (!paperLive(input.status)) {
-    return refuse(
-      'not_live',
-      `parent ${parentClientOrderId} is ${input.status} — slice needs a live paper TWAP parent`,
-    );
+    return refuse('not_live', `parent ${parentClientOrderId} is ${input.status} — slice needs a live paper TWAP parent`);
   }
   const qty = parseQty(input.amount);
   if (!qty.ok) return qty;

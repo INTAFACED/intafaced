@@ -8,13 +8,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsPaperTrailingStopApproveRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'trail_blank'
-  | 'trail_invalid'
-  | 'paper_gate_unwired'
-  | 'paper_off'
-  | 'missing_operator';
+  'missing_parent' | 'not_live' | 'trail_blank' | 'trail_invalid' | 'paper_gate_unwired' | 'paper_off' | 'missing_operator';
 
 export type OmsPaperTrailingStopApproveRefusal = {
   readonly ok: false;
@@ -34,20 +28,13 @@ export type OmsPaperTrailingStopApproveOk = {
   readonly trailOffset: string;
 };
 
-export type OmsPaperTrailingStopApproveResult =
-  | OmsPaperTrailingStopApproveOk
-  | OmsPaperTrailingStopApproveRefusal;
+export type OmsPaperTrailingStopApproveResult = OmsPaperTrailingStopApproveOk | OmsPaperTrailingStopApproveRefusal;
 
-function refuse(
-  reason: OmsPaperTrailingStopApproveRefuseReason,
-  detail: string,
-): OmsPaperTrailingStopApproveRefusal {
+function refuse(reason: OmsPaperTrailingStopApproveRefuseReason, detail: string): OmsPaperTrailingStopApproveRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseTrailOffset(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperTrailingStopApproveRefusal {
+function parseTrailOffset(raw: string | null | undefined): { ok: true; text: string } | OmsPaperTrailingStopApproveRefusal {
   if (raw === null || raw === undefined) {
     return refuse('trail_blank', 'trailing-stop trail is blank — refuse rather than invent trail');
   }
@@ -58,10 +45,7 @@ function parseTrailOffset(
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      'trail_invalid',
-      'trailing-stop trail is not a ledger amount — refusing to invent trail',
-    );
+    return refuse('trail_invalid', 'trailing-stop trail is not a ledger amount — refusing to invent trail');
   }
 }
 

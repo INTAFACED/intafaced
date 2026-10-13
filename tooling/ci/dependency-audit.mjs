@@ -15,7 +15,7 @@
  *
  * `pnpm audit --audit-level=high` on day one exits non-zero, so wiring that as
  * required would red main immediately and the gate would be deleted within the
- * day. That is the same trap `shell-i18n-scan.mjs` documents for its 200+
+ * day. That is the same trap `shell-i18n-scan.mjs` (deleted 2026-10-13) documents for its 200+
  * hardcoded strings, and it is why that one is deliberately NOT a gate.
  *
  * So this uses the pattern the repo already trusts — the one behind

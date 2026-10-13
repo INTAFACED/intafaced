@@ -7,12 +7,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsPaperTrailingStopAmendTrailRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'trail_blank'
-  | 'trail_invalid'
-  | 'paper_gate_unwired'
-  | 'paper_off';
+  'missing_parent' | 'not_live' | 'trail_blank' | 'trail_invalid' | 'paper_gate_unwired' | 'paper_off';
 
 export type OmsPaperTrailingStopAmendTrailRefusal = {
   readonly ok: false;
@@ -31,40 +26,24 @@ export type OmsPaperTrailingStopAmendTrailOk = {
   readonly trailOffset: string;
 };
 
-export type OmsPaperTrailingStopAmendTrailResult =
-  | OmsPaperTrailingStopAmendTrailOk
-  | OmsPaperTrailingStopAmendTrailRefusal;
+export type OmsPaperTrailingStopAmendTrailResult = OmsPaperTrailingStopAmendTrailOk | OmsPaperTrailingStopAmendTrailRefusal;
 
-function refuse(
-  reason: OmsPaperTrailingStopAmendTrailRefuseReason,
-  detail: string,
-): OmsPaperTrailingStopAmendTrailRefusal {
+function refuse(reason: OmsPaperTrailingStopAmendTrailRefuseReason, detail: string): OmsPaperTrailingStopAmendTrailRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseTrailOffset(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperTrailingStopAmendTrailRefusal {
+function parseTrailOffset(raw: string | null | undefined): { ok: true; text: string } | OmsPaperTrailingStopAmendTrailRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'trail_blank',
-      'trailing-stop trail is blank — refuse rather than invent trail from parent amount',
-    );
+    return refuse('trail_blank', 'trailing-stop trail is blank — refuse rather than invent trail from parent amount');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'trail_blank',
-      'trailing-stop trail is blank — refuse rather than invent trail from parent amount',
-    );
+    return refuse('trail_blank', 'trailing-stop trail is blank — refuse rather than invent trail from parent amount');
   }
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      'trail_invalid',
-      'trailing-stop trail is not a ledger amount — refusing to invent trail',
-    );
+    return refuse('trail_invalid', 'trailing-stop trail is not a ledger amount — refusing to invent trail');
   }
 }
 
@@ -96,10 +75,7 @@ export function amendPaperTrailingStopTrail(input: {
   }
   const status = input.status?.trim() ?? '';
   if (status !== 'paper') {
-    return refuse(
-      'not_live',
-      `parent ${parentClientOrderId} is ${status || 'not paper'} — amend needs a live paper trailing-stop parent`,
-    );
+    return refuse('not_live', `parent ${parentClientOrderId} is ${status || 'not paper'} — amend needs a live paper trailing-stop parent`);
   }
   const trail = parseTrailOffset(input.trailOffset);
   if (!trail.ok) return trail;

@@ -8,13 +8,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsPaperVwapApproveRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'target_volume_blank'
-  | 'target_volume_invalid'
-  | 'paper_gate_unwired'
-  | 'paper_off'
-  | 'missing_operator';
+  'missing_parent' | 'not_live' | 'target_volume_blank' | 'target_volume_invalid' | 'paper_gate_unwired' | 'paper_off' | 'missing_operator';
 
 export type OmsPaperVwapApproveRefusal = {
   readonly ok: false;
@@ -36,43 +30,26 @@ export type OmsPaperVwapApproveOk = {
 
 export type OmsPaperVwapApproveResult = OmsPaperVwapApproveOk | OmsPaperVwapApproveRefusal;
 
-function refuse(
-  reason: OmsPaperVwapApproveRefuseReason,
-  detail: string,
-): OmsPaperVwapApproveRefusal {
+function refuse(reason: OmsPaperVwapApproveRefuseReason, detail: string): OmsPaperVwapApproveRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseTargetVolume(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperVwapApproveRefusal {
+function parseTargetVolume(raw: string | null | undefined): { ok: true; text: string } | OmsPaperVwapApproveRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'target_volume_blank',
-      'VWAP target volume is blank — refuse rather than invent volume',
-    );
+    return refuse('target_volume_blank', 'VWAP target volume is blank — refuse rather than invent volume');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'target_volume_blank',
-      'VWAP target volume is blank — refuse rather than invent volume',
-    );
+    return refuse('target_volume_blank', 'VWAP target volume is blank — refuse rather than invent volume');
   }
   try {
     const value = parseAmount(text);
     if (value <= 0n) {
-      return refuse(
-        'target_volume_invalid',
-        'VWAP target volume must be a positive ledger amount — not invented',
-      );
+      return refuse('target_volume_invalid', 'VWAP target volume must be a positive ledger amount — not invented');
     }
     return { ok: true, text: formatAmount(value) };
   } catch {
-    return refuse(
-      'target_volume_invalid',
-      'VWAP target volume is not a ledger amount — refusing to invent volume',
-    );
+    return refuse('target_volume_invalid', 'VWAP target volume is not a ledger amount — refusing to invent volume');
   }
 }
 

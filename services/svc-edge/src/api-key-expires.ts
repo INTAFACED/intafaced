@@ -52,10 +52,7 @@ export function optionalExpiresAtFromExchange(body: unknown): Date | undefined {
 }
 
 /** After expiresAt the session cannot place. Missing expiry stays open. Missing clock refuses. */
-export function keyPastExpiresAt(
-  expiresAt: Date | string | null | undefined,
-  now: Date | string | number | null | undefined,
-): boolean {
+export function keyPastExpiresAt(expiresAt: Date | string | null | undefined, now: Date | string | number | null | undefined): boolean {
   const clock = requireNow(now);
   if (expiresAt === null || expiresAt === undefined) return false;
   if (typeof expiresAt === 'string' && expiresAt.trim() === '') return false;
@@ -64,10 +61,7 @@ export function keyPastExpiresAt(
   return at.getTime() < clock.getTime();
 }
 
-export function assertKeyNotExpired(
-  expiresAt: Date | string | null | undefined,
-  now: Date | string | number | null | undefined,
-): void {
+export function assertKeyNotExpired(expiresAt: Date | string | null | undefined, now: Date | string | number | null | undefined): void {
   if (keyPastExpiresAt(expiresAt, now)) {
     throw new KeyExpiresError('API key is past expiresAt', 'auth.api_key_expired');
   }

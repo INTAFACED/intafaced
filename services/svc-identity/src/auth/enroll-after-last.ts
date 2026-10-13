@@ -5,14 +5,10 @@
  */
 import { beginEnrollPasskey, enrollPasskey } from './enroll-passkey.js';
 
-export async function beginEnrollAfterLastUnenroll(
-  ...args: Parameters<typeof beginEnrollPasskey>
-): ReturnType<typeof beginEnrollPasskey> {
+export async function beginEnrollAfterLastUnenroll(...args: Parameters<typeof beginEnrollPasskey>): ReturnType<typeof beginEnrollPasskey> {
   return beginEnrollPasskey(...args);
 }
 
-export async function enrollAfterLastUnenroll(
-  ...args: Parameters<typeof enrollPasskey>
-): ReturnType<typeof enrollPasskey> {
+export async function enrollAfterLastUnenroll(...args: Parameters<typeof enrollPasskey>): ReturnType<typeof enrollPasskey> {
   return enrollPasskey(...args);
 }

@@ -256,7 +256,9 @@ describe('service-owned signal drains', () => {
   it.each(['SIGTERM', 'SIGINT'] as const)(
     'allows a slower service drain to finish after %s',
     async (signal) => {
-      const source = fileURLToPath(new URL('./start.ts', import.meta.url));
+      // The child is a bare `node` process, and Node 20 (CI) cannot import `.ts`,
+      // so it loads the compiled module. `pnpm test` builds `dist` first.
+      const source = fileURLToPath(new URL('../dist/start.js', import.meta.url));
       const script = `
       import { registerProcessHooks } from ${JSON.stringify(source)};
       registerProcessHooks({ enabled: true, async shutdown() {

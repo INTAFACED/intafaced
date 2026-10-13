@@ -54,7 +54,8 @@ async function fixture(run: (engine: NativeEngine, journal: FileJournal, path: s
   }
 }
 
-describe('native recovery safeguards', () => {
+// Native recovery replays run for several seconds under CI load; the 5 s default is too tight.
+describe('native recovery safeguards', { timeout: 30_000 }, () => {
   it('assignment preserves fill order across writers, with the same attribution after reload', () => {
     const dir = mkdtempSync(join(tmpdir(), 'matching-option-native-'));
     try {

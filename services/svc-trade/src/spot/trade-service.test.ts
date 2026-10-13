@@ -39,6 +39,9 @@ import {
 import { parseFeeScheduleJson, UNPUBLISHED_FEE_SCHEDULE } from './fee-schedule.js';
 import { decideMarketAction, type MarketLifecyclePort } from '../market-lifecycle.js';
 
+// #4494: scopes are explicit now - trade:write no longer implies trade:read.
+const TRADE_READ = ['trade:read'] as const;
+
 /**
  * svc-trade money paths (§5.2).
  *
@@ -621,7 +624,7 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       expect(JSON.stringify(matching.massCancels[0])).not.toContain('sessionId');
       expect(await held(ALICE, 'USDT')).toBe('0');
       expect(await avail(ALICE, 'USDT')).toBe('1000');
-      expect((await trade.getOrder(principalFor(BOB), bob.id)).status).toBe('open');
+      expect((await trade.getOrder(principalFor(BOB, TRADE_READ), bob.id)).status).toBe('open');
       expect(await held(BOB, 'USDT')).toBe('99');
     });
 
@@ -631,7 +634,7 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       const pulled = await trade.massCancelOrders(principalFor(CAROL), btcusdt.id);
       expect(pulled).toEqual([]);
       expect(matching.massCancels).toEqual([{ marketId: btcusdt.id, accountId: CAROL }]);
-      expect((await trade.getOrder(principalFor(ALICE), alice.id)).status).toBe('open');
+      expect((await trade.getOrder(principalFor(ALICE, TRADE_READ), alice.id)).status).toBe('open');
       expect(await held(ALICE, 'USDT')).toBe('200');
     });
 
