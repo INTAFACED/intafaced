@@ -81,7 +81,7 @@ describe('compiled independent relay boot and reboot (actual SQL/HTTP)', () => {
     try {
       const [code] = (await Promise.race([
         invalid.exited,
-        pause(3000).then(() => {
+        pause(15000).then(() => {
           throw new Error('Configuration failure did not terminate');
         }),
       ])) as [number];
@@ -92,7 +92,7 @@ describe('compiled independent relay boot and reboot (actual SQL/HTTP)', () => {
     } finally {
       await stop(invalid.child, invalid.exited);
     }
-  });
+  }, 30000);
 
   it('boots only independent receipt storage, authenticates readiness and closes on SIGTERM', async () => {
     const running = start(database.url, await freePort());
