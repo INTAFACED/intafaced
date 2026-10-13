@@ -188,6 +188,30 @@ export async function handleS2sHistoryPage(ledger: LedgerService, body: unknown)
   return serializeHistoryPage(await ledger.historyPage(parseHistoryPageInput(body)));
 }
 
+const txByKeyInput = z.object({ idempotencyKey: z.string().min(1).max(512) });
+
+/**
+ * Was this idempotency key already booked? A read, never a post.
+ *
+ * svc-trade's Convert settle asks this before each step (is the customer hold
+ * already released? is the fill already booked?), and its HTTP client had no
+ * door to ask, so every `convert.accept` came back as a 500. Answers the
+ * identifying fields only: the entries (who moved what) stay in the ledger.
+ */
+export async function handleS2sTxByKey(ledger: LedgerService, body: unknown) {
+  const input = txByKeyInput.parse(body);
+  const tx = await ledger.getTxByKey(input.idempotencyKey);
+  if (!tx) return { found: false as const };
+  return {
+    found: true as const,
+    txId: tx.id,
+    hash: tx.hash,
+    postedAt: tx.postedAt.toISOString(),
+    module: tx.module,
+    reason: tx.reason,
+  };
+}
+
 export async function handleS2sBalances(ledger: LedgerService, body: unknown) {
   const input = balancesInput.parse(body);
   const balances = await ledger.balances(input.ownerType, input.ownerId);
@@ -351,6 +375,8 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
   app.post('/trpc/post', guarded(handleS2sPost));
   app.post('/trpc/balance', guarded(handleS2sBalance));
   app.post('/trpc/balances', guarded(handleS2sBalances));
+  // Read-only existence check by idempotency key; same `guarded` door.
+  app.post('/trpc/txByKey', guarded(handleS2sTxByKey));
   // Guarded by the same `authenticate` as the other three, and that is the point
   // of registering it here rather than anywhere else: an entry history is a
   // record of what a person or the house did with their money, at least as
