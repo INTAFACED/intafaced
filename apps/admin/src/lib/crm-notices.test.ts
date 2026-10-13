@@ -17,6 +17,21 @@ describe('enquiry notice area', () => {
   it('keeps the stale warning next to a refused save, error first', () => {
     expect(detailNotices({ ...base, error: 'The enquiry changed', stale: true, dirty: true })).toEqual(['error', 'stale']);
   });
+  it('folds a conflict error into one stale warning that leads with the refused save', () => {
+    expect(detailNotices({ ...base, error: 'The enquiry changed', errorKind: 'conflict', stale: true, dirty: true })).toEqual([
+      'stale_refused',
+    ]);
+  });
+  it('still shows a non-conflict error next to the stale warning', () => {
+    for (const errorKind of ['other', 'session'] as const)
+      expect(detailNotices({ ...base, error: 'Server error', errorKind, stale: true, dirty: true })).toEqual(['error', 'stale']);
+  });
+  it('shows a conflict error as before when the draft is not stale', () => {
+    expect(detailNotices({ ...base, error: 'The enquiry changed', errorKind: 'conflict', dirty: true })).toEqual(['error']);
+  });
+  it('keeps the blocked message beside the folded stale warning', () => {
+    expect(detailNotices({ ...base, error: 'x', errorKind: 'conflict', stale: true, blocked: true })).toEqual(['blocked', 'stale_refused']);
+  });
   it('hides a stale "Saved" or "retained" line behind an error', () => {
     expect(detailNotices({ ...base, error: 'Could not save', notice: 'Saved to the enquiry history.', dirty: true })).toEqual(['error']);
   });
