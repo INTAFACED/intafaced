@@ -6,6 +6,7 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
 import {
+  InsufficientFundsError,
   MemoryLedger,
   formatAmount,
   houseFees,
@@ -724,6 +725,141 @@ describe('svc-pay money PG-hard', () => {
       await pay.capture(payment.id);
       await expect(open(m, payment.id, 'dp-replay-4', '500')).rejects.toMatchObject({ code: 'pay.invalid_amount' });
       expect((await events(payment.id)).filter((e) => e === 'chargeback.opening_planned')).toHaveLength(0);
+    });
+
+    const count = async (paymentId: string, event: string) => (await events(paymentId)).filter((e) => e === event).length;
+
+    /** A PayService over the same book whose chargeback-open post misbehaves once, in the way the test asks. */
+    function flakyPay(mode: 'insufficient' | 'lost-reply') {
+      let armed = true;
+      const flaky = new Proxy(ledger, {
+        get(target, prop, receiver) {
+          if (prop !== 'post') {
+            const v = Reflect.get(target, prop, receiver);
+            return typeof v === 'function' ? v.bind(target) : v;
+          }
+          return async (request: Parameters<MemoryLedger['post']>[0]) => {
+            if (armed && request.reason === 'pay.chargeback.opened') {
+              armed = false;
+              if (mode === 'insufficient') throw new InsufficientFundsError('acct', 'USDT', '100', '0');
+              await target.post(request); // committed, but the reply is lost
+              throw new Error('svc-ledger /post failed (503): upstream timeout');
+            }
+            return target.post(request);
+          };
+        },
+      });
+      return new PayService(sql, flaky, rails, {
+        checkoutRiskBand: 'low',
+        payoutDestinations: dests,
+        routingProfiles: TEST_CHECKOUT_PROFILES,
+        linkDefaultTtlDays: 30,
+        linkMaxTtlDays: 365,
+        checkoutSessionTtlSeconds: 900,
+        maxOpenSessionsPerLink: 25,
+      });
+    }
+
+    it('re-plans from live balances after a post that ran out of funds, instead of replaying a split that can no longer be covered', async () => {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '100');
+      await pay.capture(payment.id);
+      const flaky = flakyPay('insufficient');
+      const openVia = (svc: PayService) =>
+        svc.openChargeback({ disputeId: 'dp-void-1', paymentId: payment.id, merchantId: m.id, amount: '100', assetId: 'USDT' });
+
+      // Planned 100-from-clearing, then the post is refused for funds: nothing posted under the key.
+      await expect(openVia(flaky)).rejects.toBeInstanceOf(InsufficientFundsError);
+      expect(ledger.journal().map((t) => t.reason)).not.toContain('pay.chargeback.opened');
+
+      // Money moves between planning and posting: settlement drains clearing into the merchant's available balance.
+      await settle(m.id, 'w-void-1');
+      expect(await clearingOf(m.id)).toBe('0');
+
+      // The redelivery does not throw forever on the stale plan; it re-plans (100 now comes from available) and books.
+      const posted = await openVia(flaky);
+      expect(posted.txId).toBeTruthy();
+      expect(ledger.journal().filter((t) => t.reason === 'pay.chargeback.opened')).toHaveLength(1);
+      expect(await count(payment.id, 'chargeback.opening_planned')).toBe(2);
+      expect(await count(payment.id, 'chargeback.opening_plan_voided')).toBe(1);
+      // And now that it is booked, a further redelivery replays the live plan and returns the same transaction.
+      expect((await openVia(flaky)).txId).toBe(posted.txId);
+      expect(await count(payment.id, 'chargeback.opening_planned')).toBe(2);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('turns an insufficient-funds post on the webhook door into the named uncovered refusal, and keeps one planned and one voided event', async () => {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '100');
+      await pay.capture(payment.id);
+      const flaky = flakyPay('insufficient');
+      const disputeId = `dsp-void-wh-${payment.id}`;
+      const outcome = await flaky.handleWebhook(
+        'card-sandbox',
+        signed('card-sandbox', {
+          id: 'evt_void_wh',
+          type: 'dispute.opened',
+          ref: payment.railRef,
+          amount: '100',
+          assetId: 'USDT',
+          disputeId,
+        }),
+      );
+      expect(outcome.applied).toBe(true);
+      const c = defaultDisputeCaseStore.get(disputeId);
+      expect(c?.ledgerWire).toBe('refused');
+      expect(c?.ledgerRefuse?.code).toBe('pay.chargeback_uncovered');
+      expect(await count(payment.id, 'chargeback.opening_planned')).toBe(1);
+      expect(await count(payment.id, 'chargeback.opening_plan_voided')).toBe(1);
+    });
+
+    it('does NOT void when the outcome is unknown: the post may have committed, so the redelivery replays the same plan', async () => {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '100');
+      await pay.capture(payment.id);
+      const flaky = flakyPay('lost-reply');
+      const openVia = () =>
+        flaky.openChargeback({ disputeId: 'dp-void-2', paymentId: payment.id, merchantId: m.id, amount: '100', assetId: 'USDT' });
+
+      await expect(openVia()).rejects.toThrow(/upstream timeout/);
+      // The post did commit (clearing is drained); the plan must survive.
+      expect(await clearingOf(m.id)).toBe('0');
+      expect(await count(payment.id, 'chargeback.opening_plan_voided')).toBe(0);
+
+      const replay = await openVia();
+      const booked = ledger.journal().filter((t) => t.reason === 'pay.chargeback.opened');
+      expect(booked).toHaveLength(1);
+      expect(replay.txId).toBe(booked[0]!.id);
+      expect(await count(payment.id, 'chargeback.opening_planned')).toBe(1);
+      expect(await count(payment.id, 'chargeback.opening_plan_voided')).toBe(0);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('answers a conflicting redelivery on the webhook door with a named refusal, so the rail stops redelivering', async () => {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '100');
+      await pay.capture(payment.id);
+      const disputeId = `dsp-conflict-${payment.id}`;
+      await open(m, payment.id, disputeId, '60');
+
+      const outcome = await pay.handleWebhook(
+        'card-sandbox',
+        signed('card-sandbox', {
+          id: 'evt_conflict',
+          type: 'dispute.opened',
+          ref: payment.railRef,
+          amount: '100',
+          assetId: 'USDT',
+          disputeId,
+        }),
+      );
+      expect(outcome.applied).toBe(true);
+      const c = defaultDisputeCaseStore.get(disputeId);
+      expect(c?.ledgerWire).toBe('refused');
+      expect(c?.ledgerRefuse?.code).toBe('pay.chargeback_plan_conflict');
+      // The first plan stands and moved the only money there is.
+      expect(await clearingOf(m.id)).toBe('40');
+      expect(ledger.journal().filter((t) => t.reason === 'pay.chargeback.opened')).toHaveLength(1);
     });
   });
 

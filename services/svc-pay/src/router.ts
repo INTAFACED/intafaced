@@ -1278,6 +1278,8 @@ export function createPayRouter(
             if (e instanceof DualControlError || e instanceof ActionApprovalConsumeError) {
               throw new TRPCError({ code: 'PRECONDITION_FAILED', message: e.message, cause: e });
             }
+            // A redelivered open for another amount is a state conflict (retrying cannot fix it), not a malformed request.
+            if (e instanceof PayError && e.code === 'pay.chargeback_plan_conflict') throw toTrpcError(e);
             if (e instanceof DisputeCaseError || e instanceof PayError) {
               throw new TRPCError({
                 code: 'BAD_REQUEST',
