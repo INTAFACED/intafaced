@@ -45,7 +45,7 @@ Shapes live in `.env.example` and `packages/config` / `services/*/src/env.ts`. C
 | `INTERNAL_SERVICE_SECRET` | Shared secret on the internal money plane. svc-ledger verifies; callers send it. `z.string().min(32)`, **no default**. | One `.env` edit. Restart **all** callers + ledger together (10 services on the 2026-08-03 map). Partial rotation → `ledger.post` **401** while `/health` stays green. **Verify with a money path** (`pnpm order-path-smoke` or a small fill), not a health check. |
 | `JWT_ACCESS_SECRET`       | Access-token HMAC. Identity mints; edge/ledger/ws verify. `z.string().min(32)`.                                        | Identity + edge + ledger + ws **together**. Every existing session dies; that is the design.                                                                                                                                                                      |
 
-`INTERNAL_SERVICE_BODY_BIND` is not a secret. If it is `require` anywhere, set it everywhere before blaming a rotation 401 on the secret.
+`INTERNAL_SERVICE_BODY_BIND` is not a secret. If it is `require` anywhere, set it everywhere before blaming a rotation 401 on the secret. In production posture (`APP_ENV` anything but exactly `dev`/`test`) it must be exactly `require` on every process that holds `INTERNAL_SERVICE_SECRET`, or that process refuses to boot (`config.s2s_body_bind_not_required`).
 
 ### 1.3 · Notify gateway tokens
 

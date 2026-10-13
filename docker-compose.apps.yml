@@ -46,8 +46,9 @@ x-app: &app
 #     characters only) AND rotate the matching roles in the database, because the init SQL creates
 #     them with the dev password: ALTER ROLE svc_<name> PASSWORD '...' (otherwise: auth error 28P01);
 #   - set WEBAUTHN_RP_ID and an https WEBAUTHN_ORIGIN (or WEBAUTHN_ENABLED=off) for svc-identity;
-#   - set INTERNAL_SERVICE_BODY_BIND=require (a warning is logged at boot until you do: the default
-#     accept-both leaves signed service calls replayable against any body for 300 seconds).
+#   - set INTERNAL_SERVICE_BODY_BIND=require in .env. REQUIRED: every service that holds INTERNAL_SERVICE_SECRET
+#     refuses to boot (config.s2s_body_bind_not_required) without it, because the default accept-both
+#     leaves signed service calls replayable against any body for 300 seconds.
 # Local runs keep the defaults.
 x-service-env: &service-env
   # Production Node, dev application environment. They are different questions:
@@ -85,7 +86,9 @@ x-edge-secret: &edge-secret
 x-internal-secret: &internal-secret
   INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?missing — copy .env.example to .env. Every service must share ONE value or service-to-service calls return 401.}
   # Host pin for S2S body-bind (internalServiceEnvSchema default accept-both).
-  # Do not default require — v1 callers 401 until the fleet finishes v2.
+  # The compose default stays accept-both so a local run (APP_ENV=dev) needs no setup, and the pin tests hold it
+  # there. It is NOT a production value: with APP_ENV=staging/prod a service holding INTERNAL_SERVICE_SECRET refuses
+  # to boot unless the host .env says INTERNAL_SERVICE_BODY_BIND=require (packages/config/src/production-posture.ts).
   INTERNAL_SERVICE_BODY_BIND: ${INTERNAL_SERVICE_BODY_BIND:-accept-both}
 
 # `/health`, never `/ready` — the script explains why at length.
