@@ -853,5 +853,36 @@ describe('svc-pay sub-merchant trees PG-hard', () => {
       );
       expect((await rejection(child(mid.id, leaf.id), SubMerchantError)).code).toBe('pay.submerchant_permission_denied');
     });
+
+    it('withholds a child’s pricing, status, KYB, and account when merchant.profile over that child is revoked', async () => {
+      const platform = await root();
+      const parent = await child(platform.merchantId, platform.merchantId);
+      const kid = await child(parent.id, parent.id);
+
+      const open = at(await trees.listSubMerchants(parent.id, parent.id, 100), 0, 'children');
+      expect(open.id).toBe(kid.id);
+      expect(open.userId).toBe(kid.userId);
+      expect(open.status).toBe('pending');
+      expect(open.kybStatus).toBe('none');
+      expect(open.feeBps).toBe(150);
+
+      await trees.revokePermission({
+        actorMerchantId: platform.merchantId,
+        granteeMerchantId: parent.id,
+        subjectMerchantId: kid.id,
+        area: 'merchant.profile',
+        reason: 'profile visibility withdrawn; the node may still be listed',
+        actorId: 'platform-user',
+        actorScope: 'pay:write',
+      });
+
+      const listed = at(await trees.listSubMerchants(parent.id, parent.id, 100), 0, 'children');
+      expect(listed.id).toBe(kid.id);
+      expect(listed.depth).toBe(kid.depth);
+      expect(listed.userId).toBeNull();
+      expect(listed.status).toBeNull();
+      expect(listed.kybStatus).toBeNull();
+      expect(listed.feeBps).toBeNull();
+    });
   });
 });

@@ -41,11 +41,16 @@ const areaSchema = z.enum(PERMISSION_AREAS);
 
 const subMerchantView = z.object({
   id: z.string().uuid(),
-  userId: z.string(),
+  /**
+   * Null when a list row is visible under `submerchant` and the caller does not
+   * hold `merchant.profile` over that child. `get` and `create` still return
+   * the account, because those paths already require the profile grant.
+   */
+  userId: z.string().nullable(),
   parentMerchantId: z.string().uuid().nullable(),
   mode: z.enum(['gateway', 'psp', 'payfac']),
-  status: z.enum(['pending', 'active', 'suspended', 'closed']),
-  kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
+  status: z.enum(['pending', 'active', 'suspended', 'closed']).nullable(),
+  kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']).nullable(),
   settlingParty: z.string(),
   /**
    * Nullable, and NOT defaulted to zero. A sub-merchant onboarded by some other
