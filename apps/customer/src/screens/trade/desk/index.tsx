@@ -1,8 +1,175 @@
-import { LegacyRoom } from '../../../app/LegacyRoom';
+import { useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import type { ScreenProps } from '../../../app/screen-types';
+import { useSession } from '../../../features/session/session';
+import { usePreferences } from '../../../shared/preferences';
+import { useTicker as useTickerRow } from './deps';
+import './desk.css';
+import '../chart/chart.css';
+import { BookPanel, type BookPick } from './OrderBook';
+import { BottomTabs, type BottomTab } from './BottomTabs';
+import { ChartPanel } from './ChartPanel';
+import { MarketsPanel } from './MarketsPanel';
+import { OrderPanel } from './OrderForm';
+import { TickerStrip } from './TickerStrip';
+import { deskCopy } from './copy';
+import { DESK_INTERVALS, useBalances, useBook, useDeskApi, useDeskMarkets, useFills, useOpenOrders } from './data';
+import {
+  defaultDeskPair,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  refusalCopy,
+  Skeleton,
+  StateBlock,
+  normalizePair,
+  useFavorites,
+} from './deps';
+import { findMarket, type DeskMarket } from './market';
+import type { Side } from './order-math';
 
-// Stub from the shell builder (B2): shows the old view inside .legacy-room until this screen is rebuilt.
-// This folder's owner replaces the file; keep the default export and the ScreenProps contract.
+function PairPicker({ selected }: { selected: string }) {
+  const { t } = deskCopy.useCopy();
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger className="dk-icon-btn dk-picker" aria-label={t('Choose a market')}>
+        <ChevronDown size={16} aria-hidden="true" />
+      </PopoverTrigger>
+      <PopoverContent align="start" className="dk-picker-pop">
+        <MarketsPanel selected={selected} compact onChoose={() => setOpen(false)} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMarket[]; side: Side | null }) {
+  const { t } = deskCopy.useCopy();
+  const { userId } = useSession();
+  const { timeZone } = usePreferences();
+  const api = useDeskApi();
+  const ticker = useTickerRow(market.symbol, { intervalMs: DESK_INTERVALS.ticker });
+  const book = useBook(market.symbol);
+  const balances = useBalances();
+  const openOrders = useOpenOrders();
+  const fills = useFills(true);
+  const { isFavorite, toggle } = useFavorites(userId);
+  const [tab, setTab] = useState<BottomTab>('open');
+  const [suggestion, setSuggestion] = useState<BookPick | null>(null);
+
+  return (
+    <div className="if-desk" data-market={market.symbol}>
+      <TickerStrip
+        market={market}
+        ticker={ticker}
+        favorite={isFavorite(market.symbol)}
+        onToggleFavorite={() => toggle(market.symbol)}
+        zone={timeZone}
+        picker={<PairPicker selected={market.symbol} />}
+      />
+      <div className="dk-grid">
+        <aside className="dk-panel dk-left" aria-label={t('Markets')}>
+          <div className="dk-fill">
+            <div className="dk-tab-title">
+              <span>{t('Markets')}</span>
+            </div>
+            <MarketsPanel selected={market.symbol} />
+          </div>
+        </aside>
+        <div className="dk-centre">
+          <ChartPanel market={market} openOrders={openOrders} fills={fills} />
+          <OrderPanel
+            market={market}
+            book={book}
+            balances={balances}
+            suggestion={suggestion}
+            focusSide={side}
+            onPlaced={() => setTab('open')}
+          />
+        </div>
+        <BookPanel
+          market={market}
+          book={book}
+          ticker={ticker}
+          zone={timeZone}
+          onPick={setSuggestion}
+          onPickPrice={(price) => setSuggestion((previous) => ({ price, amount: '', nonce: (previous?.nonce ?? 0) + 1 }))}
+        />
+      </div>
+      <BottomTabs
+        market={market}
+        markets={markets}
+        api={api}
+        openOrders={openOrders}
+        fills={fills}
+        balances={balances}
+        tab={tab}
+        onTab={setTab}
+      />
+    </div>
+  );
+}
+
+function DeskSkeleton() {
+  return (
+    <div className="if-desk" role="status" aria-busy="true">
+      <div className="dk-ticker">
+        <Skeleton width={160} height={24} className="bg-field" />
+      </div>
+      <div className="dk-grid">
+        <div className="dk-panel dk-left">
+          <Skeleton height={500} className="bg-field" />
+        </div>
+        <div className="dk-centre">
+          <div className="dk-panel dk-chart">
+            <Skeleton height={440} className="bg-field" />
+          </div>
+          <div className="dk-panel dk-order">
+            <Skeleton height={330} className="bg-field" />
+          </div>
+        </div>
+        <div className="dk-panel dk-book">
+          <Skeleton height={500} className="bg-field" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Pro desk, `/trade/spot/:pair` (UI-SPEC 5.7). */
 export default function TradeDeskScreen({ params, search }: ScreenProps) {
-  return <LegacyRoom area="trade" path={`/exchange/${params.pair ?? ''}${search}`} />;
+  const { t } = deskCopy.useCopy();
+  const markets = useDeskMarkets();
+  const pair = normalizePair(params.pair ?? defaultDeskPair);
+  const side: Side | null =
+    new URLSearchParams(search).get('side') === 'sell' ? 'sell' : new URLSearchParams(search).get('side') === 'buy' ? 'buy' : null;
+
+  if (markets.status === 'loading') return <DeskSkeleton />;
+  if (markets.status === 'error')
+    return (
+      <div className="if-desk if-desk--state">
+        <StateBlock kind="error" title={t('Couldn’t load this market')} onRetry={markets.retry} retryLabel={t('Try again')} />
+      </div>
+    );
+  if (markets.status === 'refused') {
+    const words = refusalCopy(markets.code, { pair });
+    return (
+      <div className="if-desk if-desk--state">
+        <StateBlock kind="refused" title={words.title} body={words.body} action={words.action} />
+      </div>
+    );
+  }
+  const market = markets.status === 'ready' ? findMarket(markets.data, pair) : undefined;
+  if (!market || markets.status !== 'ready')
+    return (
+      <div className="if-desk if-desk--state">
+        <StateBlock
+          kind="empty"
+          title={t('Market not found title')}
+          body={t('Market not found body')}
+          action={{ label: t('See all markets'), href: '/trade' }}
+        />
+      </div>
+    );
+  return <Desk key={market.symbol} market={market} markets={markets.data} side={side} />;
 }
