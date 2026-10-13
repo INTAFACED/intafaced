@@ -818,6 +818,13 @@ function App() {
       id="intake-heading"
       tabIndex={-1}
       ref={(node) => {
+        // The confirmation moves this h1 into the receipt, so React unmounts the focused node and remounts a new one. Carry
+        // focus across that swap; otherwise a heading focus that ran just before the commit leaves focus on <body>.
+        if (!node) vm.headingHadFocus = document.activeElement === vm.refs.stepHeading;
+        else if (vm.headingHadFocus) {
+          vm.headingHadFocus = false;
+          if (document.activeElement !== node) node.focus();
+        }
         vm.refs.stepHeading = node;
       }}
     >

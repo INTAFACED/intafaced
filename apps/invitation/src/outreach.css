@@ -320,14 +320,11 @@ body {
 .outreach-text-button.with-icon {
   gap: 8px;
 }
-/* A wrapping sentence: the tick stays beside its first line. */
-.saved-summary {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-}
+/* A wrapping sentence: the tick sits inline before the first word, so every line starts at the column edge. */
 .saved-summary .ui-icon {
-  margin-top: 0.25em;
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: -2px;
 }
 .draft-status .ui-icon,
 .received-status .ui-icon,

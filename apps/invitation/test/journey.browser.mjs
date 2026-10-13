@@ -327,6 +327,8 @@ async function openDeviceDetails(page) {
 }
 async function showSavedStatus(page) {
   await expect(page.locator('.draft-status')).toHaveText('Draft saved');
+  await expect(page.locator('.draft-status svg.ui-icon')).toHaveCount(1);
+  await expect(page.locator('.draft-status svg.ui-icon')).toHaveAttribute('aria-hidden', 'true');
 }
 async function continueGroup(page) {
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -1220,6 +1222,7 @@ try {
     const emailBox = await page.locator('.receipt-email').first().boundingBox();
     assert.ok(emailBox.x + emailBox.width <= width, 'the address stays inside the screen');
     await expect(page.locator('.outreach-complete li')).toContainText('Received');
+    await expect(page.locator('.received-status svg')).toHaveCount(1);
     await geometry(page);
     // A13 + A15: the disclosure line, the privacy panel aligned to the column, a readable date, a quiet destructive action.
     const details = await openDeviceDetails(page);
