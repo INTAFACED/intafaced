@@ -114,6 +114,35 @@ describe('MerchantWebhookService', () => {
     });
   });
 
+  it('REFUSES https to the link-local metadata address before anything is attempted', async () => {
+    const svc = new MerchantWebhookService(new MemoryMerchantWebhookStore());
+    await expect(svc.registerEndpoint(MERCHANT, 'https://169.254.169.254')).rejects.toMatchObject({
+      code: 'pay.webhook_url_invalid',
+    });
+    await expect(svc.registerEndpoint(MERCHANT, 'http://169.254.169.254')).rejects.toMatchObject({
+      code: 'pay.webhook_url_invalid',
+    });
+  });
+
+  it('REFUSES https to a private address', async () => {
+    const svc = new MerchantWebhookService(new MemoryMerchantWebhookStore());
+    await expect(svc.registerEndpoint(MERCHANT, 'https://10.1.2.3/hook')).rejects.toMatchObject({
+      code: 'pay.webhook_url_invalid',
+    });
+  });
+
+  it('allows http for bracketed IPv6 loopback', async () => {
+    const svc = new MerchantWebhookService(new MemoryMerchantWebhookStore());
+    const created = await svc.registerEndpoint(MERCHANT, 'http://[::1]/');
+    expect(created.url).toBe('http://[::1]/');
+  });
+
+  it('allows a public https URL', async () => {
+    const svc = new MerchantWebhookService(new MemoryMerchantWebhookStore());
+    const created = await svc.registerEndpoint(MERCHANT, 'https://merchant.example/hooks/pay');
+    expect(created.url).toBe('https://merchant.example/hooks/pay');
+  });
+
   it('REFUSES listEndpoints when limit is omitted — never invents 50', async () => {
     const svc = new MerchantWebhookService(new MemoryMerchantWebhookStore());
     await expect(svc.listEndpoints(MERCHANT)).rejects.toMatchObject({

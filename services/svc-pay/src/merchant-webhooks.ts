@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { BlockList, isIP } from 'node:net';
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import {
   PayError,
@@ -131,6 +132,38 @@ export function buildSignedHeaders(secret: string, timestamp: string, rawBody: s
   };
 }
 
+/** Private and link-local ranges the pay service must not POST to. */
+const WEBHOOK_BLOCKED_ADDRS = new BlockList();
+WEBHOOK_BLOCKED_ADDRS.addSubnet('169.254.0.0', 16, 'ipv4');
+WEBHOOK_BLOCKED_ADDRS.addSubnet('10.0.0.0', 8, 'ipv4');
+WEBHOOK_BLOCKED_ADDRS.addSubnet('172.16.0.0', 12, 'ipv4');
+WEBHOOK_BLOCKED_ADDRS.addSubnet('192.168.0.0', 16, 'ipv4');
+WEBHOOK_BLOCKED_ADDRS.addSubnet('fe80::', 10, 'ipv6');
+WEBHOOK_BLOCKED_ADDRS.addSubnet('fc00::', 7, 'ipv6');
+
+/**
+ * Node's URL.hostname keeps the brackets on IPv6 (`[::1]`). A zone id, when
+ * present, is not part of the address BlockList checks.
+ */
+function webhookAddressHost(hostname: string): string {
+  let host = hostname.toLowerCase();
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
+  const zone = host.indexOf('%');
+  if (zone !== -1) host = host.slice(0, zone);
+  return host;
+}
+
+function isWebhookLoopback(host: string): boolean {
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
+
+function isPrivateOrLinkLocal(host: string): boolean {
+  const kind = isIP(host);
+  if (kind === 4) return WEBHOOK_BLOCKED_ADDRS.check(host, 'ipv4');
+  if (kind === 6) return WEBHOOK_BLOCKED_ADDRS.check(host, 'ipv6');
+  return false;
+}
+
 function assertHttpsUrl(url: string): void {
   let parsed: URL;
   try {
@@ -138,13 +171,19 @@ function assertHttpsUrl(url: string): void {
   } catch {
     throw new PayError('Webhook URL is not a valid absolute URL. NOTHING WAS ATTEMPTED.', 'pay.webhook_url_invalid');
   }
-  const host = parsed.hostname.toLowerCase();
-  const local = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  const host = webhookAddressHost(parsed.hostname);
+  const local = isWebhookLoopback(host);
   if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && local)) {
     throw new PayError('Webhook URL must be https (http is only allowed for localhost). NOTHING WAS ATTEMPTED.', 'pay.webhook_url_invalid');
   }
   if (parsed.username || parsed.password) {
     throw new PayError('Webhook URL must not embed credentials. NOTHING WAS ATTEMPTED.', 'pay.webhook_url_invalid');
+  }
+  if (isPrivateOrLinkLocal(host)) {
+    throw new PayError(
+      'Webhook URL must not target a private or link-local address. NOTHING WAS ATTEMPTED.',
+      'pay.webhook_url_invalid',
+    );
   }
 }
 
