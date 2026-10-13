@@ -155,7 +155,7 @@ describe('groupActivity', () => {
     const { groups, holdLines } = groupActivity(labelled);
     expect(groups).toHaveLength(1);
     expect(holdLines).toBe(0);
-    expect(titleOf(groups[0]!.main, t, withHandle)).toBe('On hold for an open order');
+    expect(titleOf(groups[0]!.main, t, withHandle)).toBe('Set aside for an order');
     expect(titleOf(item({ kind: 'order_release' }), t, withHandle)).toBe('Returned from an order');
   });
 

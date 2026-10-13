@@ -209,7 +209,7 @@ export function titleOf(
       | 'Payment sent'
       | 'Withdrawal'
       | 'Moved between your accounts'
-      | 'On hold for an open order'
+      | 'Set aside for an order'
       | 'Returned from an order'
       | 'Other activity',
   ) => string,
@@ -236,7 +236,7 @@ export function titleOf(
     case 'space_move':
       return t('Moved between your accounts');
     case 'order_hold':
-      return t('On hold for an open order');
+      return t('Set aside for an order');
     case 'order_release':
       return t('Returned from an order');
     case 'other':

@@ -94,7 +94,7 @@ const messages = {
   Withdrawal: 'Withdrawal',
   'Moved between your accounts': 'Moved between your accounts',
   'Other activity': 'Other activity',
-  'On hold for an open order': 'On hold for an open order',
+  'Set aside for an order': 'Set aside for an order',
   'Returned from an order': 'Returned from an order',
   'On hold': 'On hold',
   'Paid {amount} {asset}': 'Paid {amount} {asset}',
