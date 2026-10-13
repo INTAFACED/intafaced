@@ -257,6 +257,57 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('founder CRM workflows on
     const history = await crm.listWorkflowAudit({ subjectType: 'contact', subjectId: winner.value.sourceContactId, limit: 10 });
     expect(history.items[0]).toMatchObject({ kind: 'contacts_merged', actorUserId: expect.stringMatching(new RegExp(founders.join('|'))) });
   });
+  it('finds a merged-away contact by its old name or email and names it, but only when the visible contact does not match', async () => {
+    const keep = { ...captureInput(), contact: { ...captureInput().contact, name: 'Ada Lovelace', email: 'ada@example.test' } },
+      gone = { ...captureInput(), contact: { ...captureInput().contact, name: 'Augusta Byron', email: 'augusta@old.example.test' } },
+      other = { ...captureInput(), contact: { ...captureInput().contact, name: 'Grace Hopper', email: 'grace@example.test' } };
+    await crm.capture(keep, 'alias-keep');
+    await crm.capture(gone, 'alias-gone');
+    await crm.capture(other, 'alias-other');
+    const contactOf = async (email: string) => (await db.sql`SELECT id,revision FROM ops.crm_contacts WHERE record->>'email'=${email}`)[0]!;
+    const source = await contactOf('augusta@old.example.test'),
+      target = await contactOf('ada@example.test');
+    await crm.mergeContacts(
+      {
+        requestId: randomUUID(),
+        sourceContactId: String(source.id),
+        targetContactId: String(target.id),
+        sourceExpectedRevision: source.revision,
+        targetExpectedRevision: target.revision,
+        confirmed: true,
+        reason: 'Founder confirmed one person',
+      },
+      founders[0],
+    );
+    const visibleName = async (query: string) => {
+      const page = await crm.listOpportunities({ limit: 10, query });
+      return { page, names: page.items.map((o) => page.contacts.find((c) => c.id === o.contactId)?.name) };
+    };
+    // Merging moves both enquiries under the surviving contact; the old name finds them and each row says so.
+    const old = await visibleName('augusta');
+    expect(old.names).toEqual(['Ada Lovelace', 'Ada Lovelace']);
+    expect(old.page.aliasMatches).toEqual(
+      expect.arrayContaining(old.page.items.map((item) => ({ opportunityId: item.id, name: 'Augusta Byron' }))),
+    );
+    expect(old.page.aliasMatches).toHaveLength(2);
+    // The old email works too, case-insensitively.
+    const byEmail = await visibleName('AUGUSTA@OLD');
+    expect(byEmail.names).toHaveLength(2);
+    expect(byEmail.page.aliasMatches?.map((match) => match.name)).toEqual(['Augusta Byron', 'Augusta Byron']);
+    // A match on the visible contact is a direct match: no "also".
+    const direct = await visibleName('lovelace');
+    expect(direct.names).toEqual(['Ada Lovelace', 'Ada Lovelace']);
+    expect(direct.page.aliasMatches).toBeUndefined();
+    // When the old and the surviving contact both match, the match is direct. No-match searches carry nothing.
+    expect((await visibleName('example.test')).page.aliasMatches).toBeUndefined();
+    const none = await visibleName('zzz-nobody');
+    expect(none.names).toEqual([]);
+    expect(none.page.aliasMatches).toBeUndefined();
+    // Wildcards stay literal, and an alias match respects the other filters.
+    expect((await visibleName('%')).names).toEqual([]);
+    expect((await crm.listOpportunities({ limit: 10, query: 'augusta', audience: 'merchant' })).items).toEqual([]);
+    expect((await crm.listOpportunities({ limit: 10 })).aliasMatches).toBeUndefined();
+  });
   it('requires reviewed investor answers before calls and audits raced task completion with manual evidence', async () => {
     const input = captureInput();
     const receipt = await crm.capture(input, 'calls');
