@@ -24,8 +24,8 @@ const SECRET = 'conformance-secret-at-least-32-chars-long';
 const cardAdapter = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
 
 runRailAdapterConformance('card-sandbox', async (): Promise<RailHarness> => {
-  const signRaw = (body: string): RailWebhookRequest => {
-    const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signRaw = (body: string, at: Date = new Date()): RailWebhookRequest => {
+    const timestamp = Math.floor(at.getTime() / 1000).toString();
     return {
       headers: { 'x-sandbox-signature': signPayload(SECRET, timestamp, body), 'x-sandbox-timestamp': timestamp },
       body,
@@ -47,6 +47,7 @@ runRailAdapterConformance('card-sandbox', async (): Promise<RailHarness> => {
           amount: event.amount === undefined ? undefined : formatAmount(event.amount),
           assetId: event.assetId,
         }),
+        event.at,
       ),
     signRaw,
     failNext: () => cardAdapter.failNext(),
@@ -60,8 +61,8 @@ const chain = new MemoryChain();
 const cryptoAdapter = new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 6, toleranceSeconds: 300 });
 
 runRailAdapterConformance('crypto-native', async (): Promise<RailHarness> => {
-  const signRaw = (body: string): RailWebhookRequest => {
-    const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signRaw = (body: string, at: Date = new Date()): RailWebhookRequest => {
+    const timestamp = Math.floor(at.getTime() / 1000).toString();
     return {
       headers: { 'x-chain-signature': signPayload(SECRET, timestamp, body), 'x-chain-timestamp': timestamp },
       body,
@@ -90,6 +91,7 @@ runRailAdapterConformance('crypto-native', async (): Promise<RailHarness> => {
           amount: event.amount === undefined ? undefined : formatAmount(event.amount),
           assetId: event.assetId,
         }),
+        event.at,
       ),
     signRaw,
     failNext: () => chain.failNextCall(),

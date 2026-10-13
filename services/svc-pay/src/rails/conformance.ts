@@ -59,8 +59,20 @@ export interface RailHarness {
   /**
    * Produce a webhook delivery the adapter should accept, signed the way the
    * real rail signs. Omit if the adapter does not declare 'webhook'.
+   *
+   * `at` is the instant the signature covers. Omit it and the delivery is
+   * signed now. A replay case passes an old `at` so the MAC is computed over
+   * that timestamp: rewriting the header afterwards would fail the signature
+   * check instead of the freshness window.
    */
-  signWebhook?(event: { id: string; type: string; ref: string; amount?: Amount; assetId?: string }): RailWebhookRequest;
+  signWebhook?(event: {
+    id: string;
+    type: string;
+    ref: string;
+    amount?: Amount;
+    assetId?: string;
+    at?: Date;
+  }): RailWebhookRequest;
 
   /**
    * Sign an arbitrary raw body, correctly.
@@ -530,13 +542,23 @@ export function runRailAdapterConformance(name: string, createHarness: () => Pro
       it('rejects a replayed delivery once it is old enough', () => {
         if (!supports(adapter, 'webhook') || !harness.signWebhook) return;
 
-        const request = harness.signWebhook({ id: 'evt_6', type: 'captured', ref: 'ref_1' });
-        const timestampHeader = Object.keys(request.headers).find((h) => h.includes('timestamp'));
-        if (!timestampHeader) return;
+        const event = { id: 'evt_6', type: 'captured', ref: 'ref_1' };
+        const fresh = harness.signWebhook(event);
+        expect(adapter.verifyWebhook(fresh)).not.toBeNull();
 
-        // Correct signature over a stale timestamp: exactly what an observed
-        // delivery looks like when it is replayed a week later.
-        const stale = { ...request, headers: { ...request.headers, [timestampHeader]: '1' } };
+        // A week is far outside the freshness window. The harness signs this
+        // instant, so the MAC matches the old timestamp and a null result is
+        // the age check. Overwriting only the header would reject a bad MAC.
+        const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const stale = harness.signWebhook({ ...event, at: weekAgo });
+        const timestampHeader = Object.keys(stale.headers).find((h) => h.includes('timestamp'));
+        expect(timestampHeader).toBeDefined();
+        expect(stale.headers[timestampHeader!]).toBe(Math.floor(weekAgo.getTime() / 1000).toString());
+
+        const signatureHeader = Object.keys(stale.headers).find((h) => h.includes('signature'));
+        expect(signatureHeader).toBeDefined();
+        expect(stale.headers[signatureHeader!]).not.toBe(fresh.headers[signatureHeader!]);
+
         expect(adapter.verifyWebhook(stale)).toBeNull();
       });
 
