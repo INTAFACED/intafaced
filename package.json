@@ -11,7 +11,7 @@
   "scripts": {
     "prepare": "git config core.hooksPath .githooks || true",
     "build": "turbo run build",
-    "mobile": "pnpm --filter mobile build",
+    "mobile": "pnpm --filter mobile native:stage",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
