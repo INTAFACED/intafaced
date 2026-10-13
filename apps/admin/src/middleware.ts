@@ -16,6 +16,15 @@ import {
  * gated page also re-checks on the server (`lib/module-page-guard.ts`). With
  * ADMIN_MODULES unset nothing here changes behaviour.
  */
+/** ADMIN_ORIGIN (the configured public origin, also used for the session's origin check), else the request's own. */
+function publicOrigin(request: NextRequest): string {
+  try {
+    return new URL(process.env.ADMIN_ORIGIN ?? '').origin;
+  } catch {
+    return request.nextUrl.origin;
+  }
+}
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -39,9 +48,10 @@ export function middleware(request: NextRequest) {
   if (id && !isModuleEnabled(id)) {
     const target = firstEnabledHref();
     if (target) {
-      // A relative Location resolves against the address the founder used. Behind the edge or
-      // the preview proxy, request.nextUrl carries Next's own internal host and port instead.
-      return new NextResponse(null, { status: 307, headers: { location: target, 'cache-control': 'no-store' } });
+      // Next requires an absolute Location here. Build it on the console's public origin: behind the
+      // edge or the preview proxy, request.nextUrl carries Next's own internal host and port instead.
+      const location = new URL(target, publicOrigin(request));
+      return NextResponse.redirect(location, { status: 307, headers: { 'cache-control': 'no-store' } });
     }
     return new NextResponse('Not found', { status: 404, headers: { 'cache-control': 'no-store' } });
   }

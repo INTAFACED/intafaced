@@ -40,7 +40,7 @@ describe('admin middleware module gate', () => {
     for (const path of ['/', '/accounts', '/launch', '/jurisdiction', '/ledger', '/tools', '/tools/x']) {
       const res = run(path);
       expect(res.status, path).toBe(307);
-      expect(res.headers.get('location')).toBe('/crm');
+      expect(new URL(res.headers.get('location')!).pathname).toBe('/crm');
     }
   });
 
@@ -59,6 +59,16 @@ describe('admin middleware module gate', () => {
     expect(passes(run('/api/ledger-freeze'))).toBe(true);
     expect(run('/tools').status).toBe(307);
     expect(run('/api/operator-tools').status).toBe(404);
+  });
+
+  it('the redirect uses the public ADMIN_ORIGIN, not the internal host Next sees', () => {
+    process.env.ADMIN_MODULES = 'crm';
+    process.env.ADMIN_ORIGIN = 'https://console.example';
+    try {
+      expect(run('/tools').headers.get('location')).toBe('https://console.example/crm');
+    } finally {
+      delete process.env.ADMIN_ORIGIN;
+    }
   });
 
   it('nothing enabled: pages 404 instead of redirecting in a loop', () => {
@@ -84,7 +94,7 @@ describe('admin middleware module gate', () => {
     ]) {
       const res = run(path);
       expect(res.status, path).toBe(307);
-      expect(res.headers.get('location'), path).toBe('/crm');
+      expect(new URL(res.headers.get('location')!).pathname, path).toBe('/crm');
     }
   });
 
