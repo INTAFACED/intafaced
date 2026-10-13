@@ -37,6 +37,9 @@ const HOP2 = '00000000-0000-4000-8000-00000000000d';
 const FEE_EVENT = 'fee-evt-1';
 
 /** Owner-published law fixture. These numbers are a TEST FIXTURE, never a default. */
+/** Caller checked the freeze list and found nobody frozen. Omission is a different call. */
+const NOBODY_FROZEN: ReadonlySet<string> = new Set();
+
 const PUBLISHED: AccrualTierLaw = {
   published: true,
   tiers: [
@@ -170,7 +173,7 @@ describe('payout refuses when the owner has published no rate', () => {
     expect(laundered[0]!.rate).toBe('0.90');
 
     try {
-      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: laundered, law: PUBLISHED });
+      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: laundered, law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
       expect.unreachable('must refuse an operator-supplied rate');
     } catch (err) {
       expect(err).toBeInstanceOf(AffiliatePayoutRefuseError);
@@ -209,7 +212,7 @@ describe('multi-tier fan-out across the tree', () => {
     const ledger = await fundedLedger();
     expect(await bal(ledger, houseFees(AFFILIATE_PAYOUT_SOURCE_MODULE, ASSET))).toBe('100');
 
-    const plan = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED });
+    const plan = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
     expect(plan.legs).toHaveLength(3);
     expect(plan.totalCommission).toBe('17'); // 10 + 5 + 2 on a fee of 100
 
@@ -228,7 +231,7 @@ describe('multi-tier fan-out across the tree', () => {
 
   it('the whole book still sums to zero per asset after the fan-out', async () => {
     const ledger = await fundedLedger();
-    await postAffiliatePayout(ledger, planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED }));
+    await postAffiliatePayout(ledger, planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN }));
 
     // treasury holds the negative of every custodial balance; the invariant the
     // ledger enforces per transaction must also hold across the book.
@@ -245,7 +248,7 @@ describe('multi-tier fan-out across the tree', () => {
 
   it('an unfunded fee pool fails rather than inventing the commission', async () => {
     const ledger = new MemoryLedger(); // no deposit, no fee charge
-    const plan = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED });
+    const plan = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
 
     await expect(postAffiliatePayout(ledger, plan)).rejects.toThrow();
 
@@ -277,7 +280,7 @@ describe('multi-tier fan-out across the tree', () => {
     const tradeRows = rows(PUBLISHED, feeEvent({ sourceModule: 'trade' }));
     expect(tradeRows.every((r) => r.sourceModule === 'trade')).toBe(true);
 
-    const plan = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: tradeRows, law: PUBLISHED });
+    const plan = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: tradeRows, law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
     // Plan must name trade in every sweep key path — not identity.
     for (const leg of plan.legs) {
       expect(leg.sweep.idempotencyKey).toContain('trade');
@@ -313,7 +316,7 @@ describe('multi-tier fan-out across the tree', () => {
     expect(identityRows.every((r) => r.sourceModule === 'identity')).toBe(true);
 
     await expect(
-      postAffiliatePayout(ledger, planAffiliatePayout({ feeEventId: FEE_EVENT, rows: identityRows, law: PUBLISHED })),
+      postAffiliatePayout(ledger, planAffiliatePayout({ feeEventId: FEE_EVENT, rows: identityRows, law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN })),
     ).rejects.toThrow();
     expect(await bal(ledger, userAvailable(HOP0, ASSET))).toBe('0');
     expect(await bal(ledger, houseFees('trade', ASSET))).toBe('100');
@@ -334,7 +337,7 @@ describe('multi-tier fan-out across the tree', () => {
     const beforePool = await bal(ledger, houseFees(AFFILIATE_PAYOUT_SOURCE_MODULE, ASSET));
 
     try {
-      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: mixed, law: PUBLISHED });
+      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: mixed, law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
       expect.unreachable('must refuse mixed fee pools on one fee event');
     } catch (err) {
       expect(err).toBeInstanceOf(AffiliatePayoutRefuseError);
@@ -351,7 +354,7 @@ describe('multi-tier fan-out across the tree', () => {
 describe('a retried payout pays once', () => {
   it('re-posting the same plan leaves every balance unchanged', async () => {
     const ledger = await fundedLedger();
-    const plan = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED });
+    const plan = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
 
     const first = await postAffiliatePayout(ledger, plan);
     const after = {
@@ -377,12 +380,13 @@ describe('a retried payout pays once', () => {
   });
 
   it('a replanned payout derives identical keys — no clock, no random id', async () => {
-    const planA = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED });
+    const planA = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
     // A different process, a different day, the same business event.
     const planB = planAffiliatePayout({
       feeEventId: FEE_EVENT,
       rows: rows(PUBLISHED, feeEvent({ at: new Date('2027-01-01T00:00:00.000Z') })),
       law: PUBLISHED,
+      frozenBeneficiaryIds: NOBODY_FROZEN,
     });
 
     const keysOf = (p: typeof planA) => p.legs.flatMap((l) => [l.sweep.idempotencyKey, l.payout.idempotencyKey]);
@@ -416,7 +420,7 @@ describe('a retried payout pays once', () => {
 
   it('every key is distinct and derived from the business event', async () => {
     const ledger = await fundedLedger();
-    const receipt = await postAffiliatePayout(ledger, planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED }));
+    const receipt = await postAffiliatePayout(ledger, planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN }));
 
     expect(payoutKeysAreDistinct(receipt)).toBe(true);
     expect(payoutKeysAreBusinessDerived(receipt)).toBe(true);
@@ -435,7 +439,7 @@ describe('a retried payout pays once', () => {
 
   it('a partial fan-out completes on replay and pays nobody twice', async () => {
     const ledger = await fundedLedger();
-    const plan = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED });
+    const plan = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
 
     // Simulate a crash after the first leg: post only leg 0.
     await ledger.post(plan.legs[0]!.sweep);
@@ -518,7 +522,7 @@ describe('self-referral is refused', () => {
 
     const before = await bal(ledger, userAvailable(PAYER, ASSET));
     try {
-      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: [selfRow], law: PUBLISHED });
+      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: [selfRow], law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
       expect.unreachable('must refuse self-referral payout');
     } catch (err) {
       expect((err as AffiliatePayoutRefuseError).code).toBe('affiliate.payout.self_referral');
@@ -556,7 +560,7 @@ describe('the depth bound is enforced', () => {
     const law: AccrualTierLaw = { published: true, tiers: [{ hop: MAX_PAYOUT_TIER_DEPTH, rate: '0.02' }] };
 
     try {
-      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: [deepRow], law });
+      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: [deepRow], law, frozenBeneficiaryIds: NOBODY_FROZEN });
       expect.unreachable('must refuse past the depth bound');
     } catch (err) {
       expect((err as AffiliatePayoutRefuseError).code).toBe('affiliate.payout.depth_exceeded');
@@ -566,7 +570,7 @@ describe('the depth bound is enforced', () => {
 
   it('an explicit tighter bound is honoured over the default', () => {
     try {
-      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED, maxTierDepth: 1 });
+      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN, maxTierDepth: 1 });
       expect.unreachable('must refuse hop 1 and 2 under a bound of 1');
     } catch (err) {
       expect((err as AffiliatePayoutRefuseError).code).toBe('affiliate.payout.depth_exceeded');
@@ -594,9 +598,28 @@ describe('fan-out integrity', () => {
     expect(await bal(ledger, userAvailable(HOP0, ASSET))).toBe('0');
   });
 
+  it('an omitted freeze roster refuses and yields no payout rows', () => {
+    const accrued = rows();
+    expect(accrued.length).toBeGreaterThan(0);
+    let refused: unknown;
+    let legs: readonly unknown[] = [];
+    try {
+      legs = planAffiliatePayout({
+        feeEventId: FEE_EVENT,
+        rows: accrued,
+        law: PUBLISHED,
+      }).legs;
+    } catch (err) {
+      refused = err;
+    }
+    expect(refused, `planner returned ${legs.length} payout rows`).toBeInstanceOf(AffiliatePayoutRefuseError);
+    expect((refused as AffiliatePayoutRefuseError).code).toBe('affiliate.payout.freeze_roster_required');
+    expect(legs).toEqual([]);
+  });
+
   it('no accrual rows refuses rather than reporting a paid zero', () => {
     try {
-      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: [], law: PUBLISHED });
+      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: [], law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
       expect.unreachable('must refuse');
     } catch (err) {
       expect((err as AffiliatePayoutRefuseError).code).toBe('affiliate.payout.nothing_accrued');
@@ -606,7 +629,7 @@ describe('fan-out integrity', () => {
   it('a mixed-asset fan-out is refused — sum-to-zero is per asset', () => {
     const mixed = [...rows(), { ...rows()[0]!, asset: 'BTC', beneficiaryId: HOP2, hop: 2, rate: '0.02', commissionAmount: '2' }];
     try {
-      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: mixed, law: PUBLISHED });
+      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: mixed, law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
       expect.unreachable('must refuse mixed assets');
     } catch (err) {
       expect((err as AffiliatePayoutRefuseError).code).toBe('affiliate.payout.mixed_asset');
@@ -616,7 +639,7 @@ describe('fan-out integrity', () => {
   it('rows from another fee event cannot be smuggled into a plan', () => {
     const foreign = { ...rows()[0]!, feeEventId: 'fee-evt-other' };
     try {
-      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: [foreign], law: PUBLISHED });
+      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: [foreign], law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
       expect.unreachable('must refuse a mixed-event plan');
     } catch (err) {
       expect((err as AffiliatePayoutRefuseError).code).toBe('affiliate.payout.invalid');
@@ -626,7 +649,7 @@ describe('fan-out integrity', () => {
   it('a duplicated row cannot pay one accrual twice inside one plan', () => {
     const first = rows()[0]!;
     try {
-      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: [first, { ...first }], law: PUBLISHED });
+      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: [first, { ...first }], law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
       expect.unreachable('must refuse a duplicate row');
     } catch (err) {
       expect((err as AffiliatePayoutRefuseError).code).toBe('affiliate.payout.invalid');
@@ -637,7 +660,7 @@ describe('fan-out integrity', () => {
     const zero = rows(PUBLISHED, feeEvent({ feeAmount: '0' }));
     expect(zero).toEqual([]);
     try {
-      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: zero, law: PUBLISHED });
+      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: zero, law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
       expect.unreachable('must refuse');
     } catch (err) {
       expect((err as AffiliatePayoutRefuseError).code).toBe('affiliate.payout.nothing_accrued');
@@ -647,7 +670,7 @@ describe('fan-out integrity', () => {
   it('a fractional fee pays fractional commission without touching a float', async () => {
     const ledger = await fundedLedger('33.333333333333333333');
     const fee = feeEvent({ feeAmount: '33.333333333333333333' });
-    const plan = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(PUBLISHED, fee), law: PUBLISHED });
+    const plan = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(PUBLISHED, fee), law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
     await postAffiliatePayout(ledger, plan);
 
     // 10% of 33.333333333333333333, truncated at 18dp by decimalMul.
@@ -661,7 +684,7 @@ describe('fan-out integrity', () => {
     const inflated: CommissionRow = { ...base, commissionAmount: '99' };
     expect(() => assertAccrualRowCommissionMath(inflated)).toThrow(AffiliatePayoutRefuseError);
     try {
-      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: [inflated], law: PUBLISHED });
+      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: [inflated], law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
       expect.unreachable('must refuse tampered commission');
     } catch (err) {
       expect((err as AffiliatePayoutRefuseError).code).toBe('affiliate.payout.commission_mismatch');
@@ -676,7 +699,7 @@ describe('fan-out integrity', () => {
     const mixed: CommissionRow[] = [base[0]!, { ...base[1]!, feeAmount: '50' }];
     const beforeHop0 = await bal(ledger, userAvailable(HOP0, ASSET));
     try {
-      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: mixed, law: PUBLISHED });
+      planAffiliatePayout({ feeEventId: FEE_EVENT, rows: mixed, law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
       expect.unreachable('must refuse mixed fee amounts');
     } catch (err) {
       expect((err as AffiliatePayoutRefuseError).code).toBe('affiliate.payout.fee_mismatch');
@@ -685,7 +708,7 @@ describe('fan-out integrity', () => {
   });
 
   it('every leg sweep and payout wire the same amount as the row claims', () => {
-    const plan = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED });
+    const plan = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED, frozenBeneficiaryIds: NOBODY_FROZEN });
     for (const leg of plan.legs) {
       const claimed = parseAmount(leg.commissionAmount);
       const sweepCredit = leg.sweep.entries.filter((e) => e.direction === 'credit').reduce((s, e) => s + e.amount, 0n);
