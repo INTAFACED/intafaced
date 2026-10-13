@@ -61,7 +61,7 @@ body {
   position: relative;
   z-index: 5;
   display: grid;
-  grid-template-columns: minmax(150px, 190px) minmax(420px, 1fr) auto;
+  grid-template-columns: minmax(150px, max-content) minmax(420px, 1fr) auto;
   align-items: center;
   gap: 10px;
   margin-bottom: 8px;
@@ -227,7 +227,10 @@ body {
   border: 1px solid var(--if-border);
   border-radius: var(--if-radius-lg);
   min-width: 0;
-  max-height: min(68vh, 760px);
+  /* Sticky under the 62px header, with its own scroll, so opening a lower row never moves the page. */
+  position: sticky;
+  top: 76px;
+  max-height: calc(100vh - 92px);
   overflow-y: auto;
   overflow-wrap: anywhere;
 }
@@ -274,13 +277,63 @@ body {
   background: transparent;
   padding: 9px 10px;
 }
-.adm-crm-detail-tabs button[aria-current='page'] {
+.adm-crm-detail-tabs button[aria-selected='true'] {
   color: var(--if-accent);
   border-bottom: 2px solid var(--if-accent);
 }
 .adm-crm-back {
   display: none;
   margin-bottom: 12px;
+  scroll-margin-top: 120px;
+}
+.adm-skip-link {
+  position: absolute;
+  left: 8px;
+  top: -80px;
+  z-index: 200;
+  padding: 10px 14px;
+  color: var(--if-text-on-accent);
+  background: var(--if-accent);
+  border-radius: var(--if-radius-md);
+  font-weight: 600;
+}
+.adm-skip-link:focus {
+  top: 8px;
+}
+#crm-enquiries:focus {
+  outline: none;
+}
+.adm-crm-refresh {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+.adm-crm-refresh .adm-subtle {
+  white-space: nowrap;
+}
+.adm-overdue-badge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--if-warn) 60%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--if-warn) 14%, transparent);
+  color: var(--if-warn);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.adm-crm-table tr[data-overdue='true'] td:first-child {
+  box-shadow: inset 3px 0 0 var(--if-warn);
+}
+.adm-workspace .adm-filters-toggle {
+  display: none;
+}
+.adm-alert button {
+  margin-left: 8px;
+  min-height: 32px;
+  padding: 4px 10px;
 }
 .adm-crm-tools-menu {
   position: relative;
@@ -446,6 +499,15 @@ body {
 }
 .adm-session small {
   color: var(--if-text-muted);
+  font-size: 12px;
+}
+.adm-session .adm-session-note.is-warning {
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--if-warn) 60%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--if-warn) 14%, transparent);
+  color: var(--if-warn);
+  font-weight: 600;
 }
 .adm-control-card {
   max-width: 680px;
@@ -493,6 +555,7 @@ body {
     grid-template-columns: minmax(0, 1fr);
   }
   .adm-detail {
+    position: static;
     max-height: min(58vh, 660px);
   }
 }
@@ -515,14 +578,24 @@ body {
     grid-row: 2;
   }
   .adm-crm-topbar .adm-crm-summary-strip {
-    min-height: 56px;
+    min-height: 0;
   }
   .adm-crm-topbar .adm-workspace-heading h1 {
-    font-size: 24px;
+    font-size: 20px;
   }
   .adm-crm-topbar .adm-workspace-heading button {
-    min-height: 40px;
-    padding: 6px 9px;
+    min-height: 36px;
+    padding: 4px 9px;
+  }
+  .adm-crm-topbar .adm-crm-tabs button {
+    min-height: 36px;
+    padding: 4px 10px;
+  }
+  .adm-crm-topbar .adm-workspace-heading {
+    align-items: center;
+  }
+  .adm-crm-summary-strip small {
+    display: none;
   }
   .adm-workspace-heading {
     align-items: flex-start;
@@ -565,9 +638,9 @@ body {
     display: none;
   }
   .adm-crm-summary-strip {
-    gap: 4px 12px;
-    min-height: 56px;
-    padding: 7px 9px;
+    gap: 2px 12px;
+    min-height: 0;
+    padding: 6px 9px;
   }
   .adm-crm-summary-strip small {
     margin-left: 0;
@@ -584,17 +657,34 @@ body {
   .adm-crm-topbar .adm-crm-tabs button {
     flex: 0 0 auto;
   }
+  /* Phone: search plus a "Filters" button on one row; audience, stage and owner open on demand. */
   .adm-workspace > .adm-filters {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
     gap: 8px;
-    margin: 8px 0 4px;
+    margin: 4px 0;
   }
   .adm-workspace > .adm-filters label {
     min-width: 0;
   }
-  .adm-workspace > .adm-filters label:last-child {
+  .adm-workspace > .adm-filters .adm-filter-search {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .adm-workspace > .adm-filters .adm-filters-toggle {
+    display: inline-flex;
+    align-items: center;
+    grid-column: 2;
+    grid-row: 1;
+    min-height: 44px;
+  }
+  .adm-workspace > .adm-filters .adm-filter-field {
+    display: none;
     grid-column: 1 / -1;
+  }
+  .adm-workspace > .adm-filters.is-open .adm-filter-field {
+    display: grid;
   }
   .adm-crm-table,
   .adm-crm-table tbody {
@@ -608,8 +698,8 @@ body {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 0 12px;
-    margin-bottom: 8px;
-    padding: 5px 10px;
+    margin-bottom: 6px;
+    padding: 2px 10px;
     border: 1px solid var(--if-border);
     border-radius: var(--if-radius-md);
     background: var(--if-surface);
@@ -617,35 +707,40 @@ body {
   .adm-crm-table td {
     display: block;
     min-width: 0;
-    padding: 8px 0;
+    padding: 4px 0;
     border: 0;
     overflow-wrap: anywhere;
   }
+  /* Rows stay compact on a phone: the cell labels (Contact, Owner...) are dropped because each value says what it is. */
   .adm-crm-table td::before {
-    content: attr(data-label);
-    display: block;
-    margin-bottom: 3px;
-    color: var(--if-text-muted);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    display: none;
   }
-  .adm-crm-table td:first-child,
-  .adm-crm-table td:nth-child(3) {
-    grid-column: 1 / -1;
+  .adm-crm-table td small {
+    margin-top: 1px;
   }
-  .adm-crm-table td:nth-child(2) {
+  .adm-crm-table td:first-child {
     grid-column: 1;
-    grid-row: 2;
+    grid-row: 1;
   }
   .adm-crm-table td:nth-child(4) {
     grid-column: 2;
-    grid-row: 2;
+    grid-row: 1;
     text-align: right;
+    font-size: 12px;
+  }
+  .adm-crm-table td:nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 8px;
+  }
+  .adm-crm-table td:nth-child(2) small {
+    margin-top: 0;
   }
   .adm-crm-table td:nth-child(3) {
+    grid-column: 1 / -1;
     grid-row: 3;
-    border-top: 1px solid var(--if-border);
   }
 }
 
@@ -1834,10 +1929,23 @@ code {
     flex-wrap: nowrap;
     margin-left: auto;
     gap: 6px;
-    font-size: 11px;
+    font-size: 12px;
   }
   .adm-session small {
     display: none;
+  }
+  /* The 10-minute expiry warning must stay visible on a phone: hang it under the header. */
+  .adm-session .adm-session-note.is-warning {
+    display: block;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 101;
+    padding: 6px 10px;
+    border-width: 0 0 1px;
+    border-radius: 0;
+    background: color-mix(in srgb, var(--if-warn) 20%, var(--if-base));
   }
   .adm-session button {
     min-height: 40px;
@@ -2064,7 +2172,7 @@ code {
 }
 .adm-metric > small {
   color: var(--if-text-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .adm-report-breakdown {
   display: flex;
@@ -2164,7 +2272,9 @@ code {
   padding: 4px 8px;
   border: 1px solid var(--if-border-strong);
   border-radius: 999px;
-  font-size: 11px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  font-size: 12px;
   color: var(--if-text-muted);
 }
 .adm-source-key {

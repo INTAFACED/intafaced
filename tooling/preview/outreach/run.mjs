@@ -264,6 +264,8 @@ async function main() {
         // Local-only session key, regenerated each run; never a deployment secret.
         ADMIN_SESSION_SECRET: (await import('node:crypto')).randomBytes(32).toString('base64url'),
         APP_ENV: 'dev',
+        // Launch scope: the founder CRM only; the exchange modules answer 404.
+        ADMIN_MODULES: 'crm',
         NEXT_TELEMETRY_DISABLED: '1',
       },
       stdio: ['ignore', 'ignore', 'inherit'],

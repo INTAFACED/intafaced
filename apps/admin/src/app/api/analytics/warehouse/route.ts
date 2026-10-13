@@ -1,3 +1,4 @@
+import { moduleDisabledResponse } from '@/lib/modules';
 import {
   queryWarehouseSurface,
   resolveEtlWatermark,
@@ -89,6 +90,8 @@ async function runSurface(facts: readonly CubeFactRow[]): Promise<Response> {
  * (honest empty / unavailable). Never invents volume series.
  */
 export async function GET(request: Request) {
+  const disabled = moduleDisabledResponse('tools');
+  if (disabled) return disabled;
   const gate = await adminBffGate(request);
   if (gate) return gate;
   return runSurface([]);
@@ -99,6 +102,8 @@ export async function GET(request: Request) {
  * Body: `{ "facts": CubeFactRow[] }`. Empty/missing facts → empty, not invent.
  */
 export async function POST(request: Request) {
+  const disabled = moduleDisabledResponse('tools');
+  if (disabled) return disabled;
   const gate = await adminBffGate(request);
   if (gate) return gate;
 
