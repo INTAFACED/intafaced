@@ -1,6 +1,6 @@
 # Decision: S2S body binding (L2-6) — how it ships without an outage
 
-**Status:** **Mechanism landed, `accept-both` by default on raw `/internal` routes (the flip to `require` is a separate operator action). The tRPC door is `require` by default since 2026-10-13.**
+**Status:** **Mechanism landed. `accept-both` is still the schema default, for local runs and tests only. The tRPC door is `require` by default since 2026-10-13. In production posture (`APP_ENV` anything but exactly `dev`/`test`) a service that holds `INTERNAL_SERVICE_SECRET` REFUSES TO BOOT unless `INTERNAL_SERVICE_BODY_BIND` is exactly `require` (`config.s2s_body_bind_not_required`), since the PR that added the section "Refusal in production posture" below.**
 **Date:** 2026-07-30 · **Author:** Denon spine (Stream B) · **Board:** D12 · **Audit finding:** L2-6
 
 ---
@@ -246,6 +246,33 @@ stops the flip on the raw `/internal` routes (the tRPC door is already `require`
 each verifier is flipped, a captured v1-style signature remains replayable there. The fix
 is the flip.
 
+### Refusal in production posture (since this change)
+
+The flip to `require` on the raw `/internal` routes stopped being optional. `packages/config/src/production-posture.ts`
+used to log `config.production_posture_warning` when a production-posture process held `INTERNAL_SERVICE_SECRET` and
+`INTERNAL_SERVICE_BODY_BIND` was not `require`. It now throws `ProductionPostureError` with the stable code
+`config.s2s_body_bind_not_required`, through `loadEnv` (every service) and through the entry points that call
+`assertProductionPosture` directly (apps/admin, svc-notify's gateway, svc-ops' archive receiver). Why it could stop being a warning:
+
+- The tRPC door has been `require` in code since 2026-10-13 and ignores the variable, so the variable only decides the
+  raw `/internal` REST routes, where `accept-both` keeps a captured service signature replayable against any body for 300 s.
+- No non-test caller signs v1 (the sweep above), so `require` refuses no honest caller.
+- Every service that verifies on a raw route installs `retainRawBody` on the instance serving it, so `require` does not
+  401 honest calls as `body-unavailable`. The 2026-10-14 survey found no raw route that `require` would break, and the launch services' suites (svc-ledger, svc-identity, svc-ops, svc-notify, svc-trade, svc-edge) pass identically with `INTERNAL_SERVICE_BODY_BIND=require` exported; the table is in the PR.
+
+What it means for an operator:
+
+- **Production posture** is `APP_ENV` anything other than exactly `dev` or `test` (or unset inside a `NODE_ENV=production`
+  container). That includes `staging`: the staging deploy runs `docker-compose.apps.yml` with `APP_ENV=staging`.
+- The host `.env` must say `INTERNAL_SERVICE_BODY_BIND=require` **before** the first deploy of this change. Compose still
+  defaults the variable to `accept-both` (the pin tests hold that, and it keeps a local run working with no setup), so a host that forgets
+  it now refuses to boot every service that receives `INTERNAL_SERVICE_SECRET`. Unset, `accept-both`, a typo and a
+  different case all refuse; only the exact value `require` passes.
+- A process that holds no `INTERNAL_SERVICE_SECRET` (svc-edge, svc-notify and apps/admin by design) is not affected.
+- There is no flag to turn the refusal off. Rollback of a bad flip is a redeploy of the previous build, not a setting:
+  `accept-both` is no longer a rollback lever in production posture.
+- Dev and test (`APP_ENV=dev|test`, including the local stack and the CX-8 boot) keep `accept-both`; nothing on a laptop changes.
+
 ---
 
 ## Deliberately not in this change
@@ -265,4 +292,4 @@ is the flip.
 ## Config
 
 `INTERNAL_SERVICE_BODY_BIND` on `internalServiceEnvSchema`, so every S2S service picks it
-up: `accept-both` (default) | `require`.
+up: `accept-both` (default, dev and test only) | `require` (mandatory in production posture, see above).
