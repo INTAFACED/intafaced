@@ -15,7 +15,7 @@ Pick artifact: `docs/styleboard/VIEW-PICK.html`
 
 ## 1 · Verdict
 
-**#3301 did the wrong job.** It remapped orange → gray and squared corners. The page is still the vendored Bizzan desk: marketing nav, overlapping menus, empty chart, ticket as a policy essay, broken white tab chips. Nitro is right. Proof: worktree `.artifacts/uiproof/n4-1440.png` / `n4-390.png`.
+**#3301 did the wrong job.** It remapped orange → gray and squared corners. The page is still the vendored upstream exchange desk: marketing nav, overlapping menus, empty chart, ticket as a policy essay, broken white tab chips. Nitro is right. Proof: worktree `.artifacts/uiproof/n4-1440.png` / `n4-390.png`.
 
 **The idiot move:** we asked him to pick N1–N4 off four _identical_ mini-desks. He picked **dense terminal**. We encoded **a skin**. Codex shipped the skin.
 

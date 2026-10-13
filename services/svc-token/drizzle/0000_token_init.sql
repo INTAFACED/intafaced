@@ -1,3 +1,6 @@
+-- intafaced:destructive — the idempotent re-create idiom drops and re-adds CHECKs under the same names, and drops
+-- NOT NULL / DEFAULT on token.token_params columns so an undecided supply, emission, fee ladder or buyback split
+-- stays NULL. Invariants are relaxed on purpose; no table, column or row is dropped and no value is invented.
 -- svc-token · initial schema (§4.3 THE NATIVE ECONOMY — IFC)
 -- Reversal: 0000_token_init.down.sql
 --
