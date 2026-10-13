@@ -633,13 +633,22 @@ export class AuthService {
     } catch (err) {
       throw mapWebAuthnError(err);
     }
-    const existing = asCredentialList(user.webauthn_creds);
-    if (existing.some((c) => c.credentialId === stored.credentialId)) {
-      throw new AuthError('That authenticator is already registered', 'auth.webauthn_invalid');
-    }
-    const next = [...existing, stored];
-    await this.sql`UPDATE users SET webauthn_creds = ${this.sql.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
-    if (existing.length === 0) {
+    // Re-read under a row lock so this enrolment and a login's counter write in
+    // this service cannot overwrite each other's credential list. The writers in
+    // enroll-passkey.ts, verify-passkey.ts and unenroll-passkey.ts do not take
+    // this lock yet, so the guarantee holds only between locked writers.
+    const existingCount = await transaction(this.sql, async (tx) => {
+      const locked = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE`;
+      if (!locked[0]) throw new AuthError('User not found', 'auth.not_found');
+      const existing = asCredentialList(locked[0].webauthn_creds);
+      if (existing.some((c) => c.credentialId === stored.credentialId)) {
+        throw new AuthError('That authenticator is already registered', 'auth.webauthn_invalid');
+      }
+      const next = [...existing, stored];
+      await tx`UPDATE users SET webauthn_creds = ${tx.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
+      return existing.length;
+    });
+    if (existingCount === 0) {
       await this.rank.awardXp({
         userId,
         sourceModule: 'identity',
@@ -679,21 +688,46 @@ export class AuthService {
     if (!held || held.userId !== user.id) {
       throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     }
-    const creds = asCredentialList(user.webauthn_creds);
-    if (creds.length === 0) throw new AuthError('No security key enrolled', 'auth.webauthn_not_enrolled');
-    const responseId = normalizeCredId(response.id);
-    const credential = creds.find((c) => c.credentialId === responseId);
-    if (!credential) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
-    let newCounter: number;
-    try {
-      ({ newCounter } = verifyAuthenticationResponse(this.webauthn, held.challenge, credential, response));
-    } catch (err) {
-      if (err instanceof WebAuthnError) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
-      throw err;
-    }
-    const next = creds.map((c) => (c.credentialId === credential.credentialId ? { ...c, counter: newCounter } : c));
-    await this.sql`UPDATE users SET webauthn_creds = ${this.sql.json(next as never)}, updated_at = now() WHERE id = ${user.id}`;
+    if (asCredentialList(user.webauthn_creds).length === 0) throw new AuthError('No security key enrolled', 'auth.webauthn_not_enrolled');
+    await this.verifyAssertionAndAdvanceCounter(user.id, held.challenge, response, () => {
+      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    });
     return this.issueSession(user.id, { device: options.device, ip: options.ip, mfa: true });
+  }
+
+  /**
+   * Verify a passkey assertion and advance that credential's signature counter.
+   *
+   * Runs in one transaction under `SELECT … FOR UPDATE` on the user row, so two
+   * concurrent assertions (or a locked enrolment racing a login) cannot read the
+   * same counter and both succeed, and cannot overwrite each other's credential
+   * list. The unlocked writers in enroll-passkey.ts, verify-passkey.ts and
+   * unenroll-passkey.ts are outside this guarantee until they take the same
+   * lock. `refuse` throws the caller's own AuthError for any refusal.
+   */
+  private async verifyAssertionAndAdvanceCounter(
+    userId: string,
+    challenge: string,
+    response: AuthenticationResponseJSON,
+    refuse: () => never,
+  ): Promise<void> {
+    await transaction(this.sql, async (tx) => {
+      const rows = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE`;
+      if (!rows[0]) return refuse();
+      const creds = asCredentialList(rows[0].webauthn_creds);
+      const responseId = normalizeCredId(response.id);
+      const credential = creds.find((c) => c.credentialId === responseId);
+      if (!credential) return refuse();
+      let newCounter: number;
+      try {
+        ({ newCounter } = await verifyAuthenticationResponse(this.webauthn, challenge, credential, response));
+      } catch (err) {
+        if (err instanceof WebAuthnError) return refuse();
+        throw err;
+      }
+      const next = creds.map((c) => (c.credentialId === credential.credentialId ? { ...c, counter: newCounter } : c));
+      await tx`UPDATE users SET webauthn_creds = ${tx.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
+    });
   }
 
   async listWebauthnCredentials(
@@ -1035,8 +1069,7 @@ export class AuthService {
         if (!redeemed) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
       }
     } else {
-      const creds = asCredentialList(user.webauthn_creds);
-      if (creds.length === 0) {
+      if (asCredentialList(user.webauthn_creds).length === 0) {
         throw new AuthError('Enrol a security key before withdrawing with passkey step-up', 'auth.webauthn_not_enrolled');
       }
       const response = input.webauthn!;
@@ -1046,18 +1079,9 @@ export class AuthService {
       if (!held || held.userId !== input.userId) {
         throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
       }
-      const responseId = normalizeCredId(response.id);
-      const credential = creds.find((c) => c.credentialId === responseId);
-      if (!credential) throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
-      let newCounter: number;
-      try {
-        ({ newCounter } = verifyAuthenticationResponse(this.webauthn, held.challenge, credential, response));
-      } catch (err) {
-        if (err instanceof WebAuthnError) throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
-        throw err;
-      }
-      const next = creds.map((c) => (c.credentialId === credential.credentialId ? { ...c, counter: newCounter } : c));
-      await this.sql`UPDATE users SET webauthn_creds = ${this.sql.json(next as never)}, updated_at = now() WHERE id = ${input.userId}`;
+      await this.verifyAssertionAndAdvanceCounter(input.userId, held.challenge, response, () => {
+        throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+      });
     }
     const scopes: Scope[] = [...this.defaultScopes(), ...STEP_UP_SCOPES];
     const tier = await this.kycTier(input.userId);
