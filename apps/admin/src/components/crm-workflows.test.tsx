@@ -288,24 +288,30 @@ describe('plain wording', () => {
     for (const text of Object.values(statusText)) expect(text).not.toMatch(/dispatch|gateway|durable|queue/i);
   });
 
-  it('shows a message with its plain kind, and its text when the API returns it', () => {
+  it('shows a message with its plain kind, and the text the founder wrote when it is stored', () => {
     const base = {
       id: 'm1',
       opportunityId: 'o1',
       submissionId: 's1',
       kind: 'call_invitation',
+      staffText: null,
       actorUserId: 'u1',
       status: 'pending',
       createdAt: '2026-10-13T05:00:00Z',
       notification: null,
-    };
-    const without = renderToStaticMarkup(<MessageItem message={base as never} owners={owners} />);
+    } as const;
+    const without = renderToStaticMarkup(<MessageItem message={base} owners={owners} />);
     expect(without).toContain('Call invitation');
     expect(without).not.toContain('call_invitation');
     expect(without).not.toContain('adm-message-text');
     const withText = renderToStaticMarkup(
-      <MessageItem message={{ ...base, staffText: 'Could you join a call on Friday?' } as never} owners={owners} />,
+      <MessageItem message={{ ...base, staffText: 'Could you join a call on Friday?' }} owners={owners} />,
     );
     expect(withText).toContain('Could you join a call on Friday?');
+    expect(withText).toContain('adm-message-text');
+    // Text is shown as text, never as markup.
+    const hostile = renderToStaticMarkup(<MessageItem message={{ ...base, staffText: '<img src=x onerror=alert(1)>' }} owners={owners} />);
+    expect(hostile).not.toContain('<img');
+    expect(hostile).toContain('&lt;img src=x onerror=alert(1)&gt;');
   });
 });
