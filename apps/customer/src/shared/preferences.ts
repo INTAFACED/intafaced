@@ -161,16 +161,10 @@ export function currentPreferences() {
   return snapshot;
 }
 
-const deviceAppearanceQuery = '(prefers-color-scheme: light)';
-function subscribeDeviceAppearance(notify: () => void) {
-  const media = window.matchMedia(deviceAppearanceQuery);
-  media.addEventListener('change', notify);
-  return () => media.removeEventListener('change', notify);
-}
-function deviceUsesLightAppearance() {
-  return typeof window !== 'undefined' && window.matchMedia(deviceAppearanceQuery).matches;
-}
-export function useResolvedTheme(theme: Preferences['theme']): 'light' | 'dark' {
-  const deviceIsLight = useSyncExternalStore(subscribeDeviceAppearance, deviceUsesLightAppearance, () => false);
-  return theme === 'system' ? (deviceIsLight ? 'light' : 'dark') : theme;
+/**
+ * The theme the app draws. Light is out of scope, so every stored value (`light`, `system`, or an old `light` from an
+ * earlier build) still renders dark; the stored value is kept untouched, ready for the day light ships.
+ */
+export function useResolvedTheme(_theme: Preferences['theme']): 'light' | 'dark' {
+  return 'dark';
 }
