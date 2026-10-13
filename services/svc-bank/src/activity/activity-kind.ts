@@ -179,7 +179,7 @@ export const ACTIVITY_KIND_LABELS: Readonly<Record<ActivityKind, string>> = {
   payment: 'Payment',
   withdrawal: 'Withdrawal',
   space_move: 'Moved between Spaces',
-  order_hold: 'On hold for an open order',
+  order_hold: 'Set aside for an order',
   order_release: 'Returned from an order',
   other: 'Other',
 };
