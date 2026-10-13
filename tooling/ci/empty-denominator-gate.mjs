@@ -57,7 +57,7 @@
  * ───────────────────────────────────────
  * Every entry in `GATES` must appear in exactly one of the four tables below.
  * An unclassified gate is a hard failure with no default — the same ratchet
- * shape `fabricated-money-scan`, `vendor-java-money-scan`,
+ * shape `fabricated-money-scan` (deleted 2026-10-13), `vendor-java-money-scan`,
  * `wallet-rpc-mainnet-scan` and `test-typecheck` already use here. A new gate
  * cannot be silently skipped: it must be classified, and classifying it means
  * running it against nothing and looking at what it did. That is the whole
@@ -206,6 +206,11 @@ export const ENFORCED = {
     note:
       'D26-P2-09 continuous perimeter suite — control is the real mainnet scan; if the tree (or the scan) is gone the ' +
       'control fails first, so class/register deletions cannot be reported as caught over an unrunnable subject.',
+  },
+  'invitation-outreach-golden': {
+    kind: 'guard',
+    must: /no outreach-\*\.golden\.js under/,
+    note: 'a golden suite that finds no goldens is the textbook version of this defect; it refuses instead.',
   },
   'vendor-java-money': {
     kind: 'guard',

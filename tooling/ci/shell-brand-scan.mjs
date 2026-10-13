@@ -72,7 +72,7 @@
  * An agent swarm owns this tree at the time of writing, and dual-editing a file
  * somebody else is mid-change on costs more than the day it saves. So this is a
  * RATCHET, the same instrument and the same rules as
- * `fabricated-money-scan.mjs`: today's findings are frozen exactly, the queue
+ * `fabricated-money-scan.mjs` (deleted 2026-10-13): today's findings are frozen exactly, the queue
  * can only shrink, and the ninth occurrence fails the build today.
  *
  * This is not a TODO pointing at "later" (§14.8). Every frozen item is written
@@ -82,7 +82,7 @@
  *
  * ── WHY THE BASELINE IS HASHED ──────────────────────────────────────────────
  *
- * `fabricated-money-scan.mjs` freezes the exact matched TEXT, because naming
+ * `fabricated-money-scan.mjs` (deleted 2026-10-13) freezes the exact matched TEXT, because naming
  * the string is the whole point of a ratchet — a count lets a fixed violation
  * and a fresh one cancel out silently. The same is wanted here, but the matched
  * text IS a forbidden name, and writing it down would make this file a
