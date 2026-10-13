@@ -274,11 +274,12 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       expect(maker.status).toBe('open');
       expect(maker.lifecycleProof?.action).toBe('PLACE');
       expect(maker.lifecycleProof?.decision).toBe('ELIGIBLE');
-      const persistedProof = await sql<Array<{ lifecycle_proof: { action?: string; decision?: string } | string | null }>>`
-        SELECT lifecycle_proof FROM trade.orders WHERE id = ${maker.id}
+      // The stored value must be a JSON object, not the text of one (postgres.js stores a string bound to `::jsonb` as a JSON string).
+      const persistedProof = await sql<Array<{ kind: string; action: string | null; decision: string | null }>>`
+        SELECT jsonb_typeof(lifecycle_proof) AS kind, lifecycle_proof->>'action' AS action, lifecycle_proof->>'decision' AS decision
+        FROM trade.orders WHERE id = ${maker.id}
       `;
-      const proof = persistedProof[0]?.lifecycle_proof;
-      expect(typeof proof === 'string' ? JSON.parse(proof) : proof).toMatchObject({ action: 'PLACE', decision: 'ELIGIBLE' });
+      expect(persistedProof[0]).toEqual({ kind: 'object', action: 'PLACE', decision: 'ELIGIBLE' });
       expect(await held(BOB, 'BTC')).toBe('2');
       expect(await avail(BOB, 'BTC')).toBe('3');
 
@@ -997,6 +998,11 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       expect(ledger.journal()).toEqual([]);
       expect(await heldFor(BOB, 'BTC', maker.id)).toBe('0');
       expect(await heldFor(ALICE, 'USDT', taker.id)).toBe('0');
+      // The paper insert path stores the lifecycle proof as a JSON object too, not the text of one.
+      const stored = await sql<Array<{ kind: string; action: string | null }>>`
+        SELECT jsonb_typeof(lifecycle_proof) AS kind, lifecycle_proof->>'action' AS action FROM trade.orders WHERE id = ${maker.id}
+      `;
+      expect(stored[0]).toEqual({ kind: 'object', action: 'PLACE' });
     });
 
     it('refuses a paper fill before trade.fills and before recipes.tradeFill', async () => {
