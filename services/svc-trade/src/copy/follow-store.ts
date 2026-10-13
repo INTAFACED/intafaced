@@ -654,9 +654,22 @@ type MirroredFillRow = {
   next_exposure: string;
 };
 
-function marketsFromJson(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((m) => String(m));
+/**
+ * Rows written before the `::text::jsonb` fix hold the list as a JSON string
+ * (`'["BTC/USDT"]'`). Parse those instead of reading them as empty, or the next
+ * load-and-save in copy-service would overwrite the follower's real markets.
+ */
+export function marketsFromJson(raw: unknown): string[] {
+  let value = raw;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(value)) return [];
+  return value.map((m) => String(m));
 }
 
 function rowToFollow(row: FollowRow): CopyFollow {
@@ -791,7 +804,7 @@ export class SqlCopyFollowStore implements CopyFollowStore {
         ${follow.followerId},
         ${follow.leaderId},
         ${follow.region},
-        ${markets}::jsonb,
+        ${markets}::text::jsonb,
         ${formatAmount(follow.envelope.maxNotionalPerOrder)},
         ${formatAmount(follow.envelope.maxAggregateExposure)},
         ${follow.envelope.maxLoss !== undefined ? formatAmount(follow.envelope.maxLoss) : null},

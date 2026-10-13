@@ -1503,7 +1503,7 @@ export class TradeService {
         ${formatAmount(input.qty)}::numeric, 'pending', ${tif},
         ${hold.assetId}, ${formatAmount(hold.amount)}::numeric, ${perks.feeDiscountBps},
         ${protectionPrice === null ? null : formatAmount(protectionPrice)}::numeric,
-        ${seeded}, ${JSON.stringify(lifecycleProof)}::jsonb,
+        ${seeded}, ${JSON.stringify(lifecycleProof)}::text::jsonb,
         ${input.replacementOf ?? null}, ${input.replacementRequestHash ?? null},
         ${attribution.sessionId}, ${attribution.apiKeyId}
       )
@@ -1610,7 +1610,7 @@ export class TradeService {
         ${formatAmount(input.qty)}::numeric, 'open', ${tif},
         ${holdAsset}, ${formatAmount(0n)}::numeric, 0,
         null,
-        false, ${JSON.stringify(lifecycleProof)}::jsonb,
+        false, ${JSON.stringify(lifecycleProof)}::text::jsonb,
         ${input.replacementOf ?? null}, ${input.replacementRequestHash ?? null},
         ${attribution.sessionId}, ${attribution.apiKeyId}
       )
