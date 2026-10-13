@@ -254,7 +254,6 @@ describe('amount predicates', () => {
     expect(isPositiveAmount('0')).toBe(false);
     expect(isPositiveAmount('0.000')).toBe(false);
   });
-
 });
 
 describe('parsePasted (no silent misreads)', () => {
