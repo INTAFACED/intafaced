@@ -10,6 +10,7 @@ import {
 } from '@intafaced/ledger-client';
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 import type { HistoryRange, LedgerEntryRecord, LedgerHistory } from './analytics/ledger-history.js';
+import type { LedgerHistoryPages, LedgerPageRequest } from './activity/activity-service.js';
 
 /**
  * HTTP client for svc-ledger.
@@ -129,6 +130,64 @@ export function createLedgerHistory(baseUrl: string, internalSecret: string): Le
         amount: parseAmount(e.amount),
         postedAt: new Date(e.postedAt),
       }));
+    },
+  };
+}
+
+/**
+ * Paged history adapter for `bank.activity.list` — svc-ledger `/trpc/historyPage`.
+ *
+ * Same service credential and body-bound signing as every other call here. The
+ * ledger's schema is strict: this sends exactly `{ownerType, ownerId, kind,
+ * assetId?, limit, cursor?}` and never `purpose`, `before` or anything else. A
+ * failure is thrown, never turned into an empty page: "no activity" and "we
+ * could not ask" must not look alike.
+ */
+export function createLedgerHistoryPages(baseUrl: string, internalSecret: string): LedgerHistoryPages {
+  const url = baseUrl.replace(/\/$/, '');
+  const authHeaders = (payload: string) => serviceAuthHeadersForBody('svc-bank', internalSecret, payload);
+
+  return {
+    async page(request: LedgerPageRequest) {
+      const body = {
+        ownerType: request.ownerType,
+        ownerId: request.ownerId,
+        kind: request.kind,
+        ...(request.assetId === undefined ? {} : { assetId: request.assetId }),
+        limit: request.limit,
+        ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
+      };
+      const result = await call<{
+        entries: Array<{
+          txId: string;
+          module: string;
+          reason: string;
+          direction: 'debit' | 'credit';
+          amount: string;
+          postedAt: string;
+          assetId: string;
+          entryId?: string;
+          rail?: string | null;
+        }>;
+        nextCursor: string | null;
+      }>(url, '/trpc/historyPage', body, authHeaders);
+
+      return {
+        entries: result.entries.map((e) => ({
+          txId: e.txId,
+          module: e.module,
+          reason: e.reason,
+          direction: e.direction,
+          // Round-trip through the scaled bigint so a malformed amount is refused here, not shown.
+          amount: formatAmount(parseAmount(e.amount)),
+          postedAt: new Date(e.postedAt),
+          assetId: e.assetId,
+          // Both arrive with svc-ledger's entry-id change; absent before it, and the feed copes.
+          ...(typeof e.entryId === 'string' && /^\d{1,19}$/.test(e.entryId) ? { entryId: e.entryId } : {}),
+          ...(typeof e.rail === 'string' || e.rail === null ? { rail: e.rail } : {}),
+        })),
+        nextCursor: result.nextCursor,
+      };
     },
   };
 }
