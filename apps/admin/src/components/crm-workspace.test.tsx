@@ -210,6 +210,12 @@ describe('stale draft warning', () => {
     expect(html).toContain('Discard my edits and reload');
     expect(renderToStaticMarkup(<StaleDraftWarning busy onDiscard={() => undefined} />)).toContain('disabled');
   });
+  it('leads with the refused save only when a save was just refused', () => {
+    expect(renderToStaticMarkup(<StaleDraftWarning busy={false} onDiscard={() => undefined} />)).not.toContain('Your save was refused.');
+    const refused = renderToStaticMarkup(<StaleDraftWarning busy={false} refused onDiscard={() => undefined} />);
+    expect(refused.indexOf('Your save was refused.')).toBeGreaterThan(-1);
+    expect(refused.indexOf('Your save was refused.')).toBeLessThan(refused.indexOf('This enquiry has changed'));
+  });
 });
 
 describe('collapsed editor wording and confirmation bar', () => {

@@ -323,9 +323,12 @@ export function StaleDraftWarning({
   busy,
   onDiscard,
   role = 'alert',
+  refused = false,
 }: {
   busy: boolean;
   onDiscard: () => void;
+  /** A save was just refused: say so first, so a separate conflict error is not needed. */
+  refused?: boolean;
   /** "alert" for the one copy that is announced; "note" for repeats beside other save buttons. */
   role?: 'alert' | 'note';
 }) {
@@ -341,6 +344,7 @@ export function StaleDraftWarning({
         </button>
       }
     >
+      {refused && <strong>Your save was refused. </strong>}
       <strong>This enquiry has changed since you wrote these edits.</strong> Saving a stage, owner, next action or message will be refused,
       so nothing newer is overwritten. Copy anything you want to keep, then discard the edits to load the latest version.
     </Callout>
@@ -712,6 +716,8 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
     if (!latest) return;
     const form = formAfterDiscard(latest, crmLocalDate);
     clearDraft(browserDraftStorage(), latest.opportunity.id);
+    // A refused save was about the edits that are now gone; leave no conflict error behind (other errors stay).
+    if (detailErrorKind === 'conflict') setDetailError('');
     // The edits are gone, so the form is based on the record on screen again.
     setBase(form.base);
     setMessageValues({ kind: 'information_request', staffText: '', reason: '' });
@@ -875,14 +881,18 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
     else {
       clearDraft(storage, detail.opportunity.id);
       // Nothing left to keep (reverted by hand, or the record now matches), so there is nothing stale either.
-      if (revision !== detail.opportunity.revision) setBase({ id: detail.opportunity.id, revision: detail.opportunity.revision });
+      if (revision !== detail.opportunity.revision) {
+        setBase({ id: detail.opportunity.id, revision: detail.opportunity.revision });
+        // The refused save was about edits that are gone (Cancel, or reverted by hand): no conflict error may outlive them.
+        if (detailErrorKind === 'conflict') setDetailError('');
+      }
     }
-  }, [detail, busy, draftSignature, userId, base]);
+  }, [detail, busy, draftSignature, userId, base, detailErrorKind]);
   const expectedRevision = detail ? expectedRevisionFor(base, detail.opportunity.id, detail.opportunity.revision) : 0;
   const staleDraft = detail ? baseIsStale(base, detail.opportunity.id, detail.opportunity.revision) : false;
   // One warning per draft is announced: the copy in the notice area is the alert, and the copies beside the save buttons are notes.
-  const staleWarningFor = (role: 'alert' | 'note') =>
-    staleDraft ? <StaleDraftWarning busy={busy} role={role} onDiscard={() => void refresh()} /> : null;
+  const staleWarningFor = (role: 'alert' | 'note', refused = false) =>
+    staleDraft ? <StaleDraftWarning busy={busy} role={role} refused={refused} onDiscard={() => void refresh()} /> : null;
   // Coming back from sign-in (or a reload) lands on /crm?enquiry=<id>: open that enquiry.
   useEffect(() => {
     const id = enquiryIdFromSearch(window.location.search);
@@ -963,6 +973,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
   const panelError = detailErrorKind === 'session' && errorKind === 'session' && error ? '' : detailError;
   const noticeKinds = detailNotices({
     error: panelError,
+    errorKind: detailErrorKind,
     notice: detailNotice,
     stale: staleDraft,
     dirty: hasDirtyDraft(),
@@ -976,10 +987,14 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
   // The skip link lives in the page layout; it needs to know when the list it points at is not on screen.
   useEffect(() => {
     document.body.dataset.crmView = view;
+    // One enquiry is open (on a phone it replaces the list): the skip link then points at that enquiry.
+    if (mobileDetail && view === 'enquiries') document.body.dataset.crmDetail = 'open';
+    else delete document.body.dataset.crmDetail;
     return () => {
       delete document.body.dataset.crmView;
+      delete document.body.dataset.crmDetail;
     };
-  }, [view]);
+  }, [view, mobileDetail]);
   const discardBar = discardQuestion && (
     <DiscardBar prompt={discardQuestion.prompt} onKeep={() => answerDiscard(false)} onDiscard={() => answerDiscard(true)} />
   );
@@ -1500,7 +1515,8 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                               {RETENTION_BLOCKED_NOTICE}
                             </Callout>
                           );
-                        if (kind === 'stale') return <Fragment key={kind}>{staleWarningFor('alert')}</Fragment>;
+                        if (kind === 'stale' || kind === 'stale_refused')
+                          return <Fragment key={kind}>{staleWarningFor('alert', kind === 'stale_refused')}</Fragment>;
                         return (
                           <Callout key={kind} role="status" icon={kind === 'notice' ? 'check' : 'info'}>
                             {kind === 'notice' ? detailNotice : RETAINED_EDITS_NOTICE}

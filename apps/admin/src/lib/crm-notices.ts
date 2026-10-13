@@ -9,10 +9,15 @@ export const RETAINED_EDITS_NOTICE = 'Unsaved edits are retained while you revie
 /** Shown when leaving the enquiry is refused because a retention review result still has to be confirmed. */
 export const RETENTION_BLOCKED_NOTICE = 'A retention review result is unconfirmed. Retry that same request before leaving this enquiry.';
 
-export type DetailNoticeKind = 'error' | 'blocked' | 'stale' | 'notice' | 'retained';
+/** 'stale_refused' is the stale warning for a draft whose save was just refused: it leads with "Your save was refused." */
+export type DetailNoticeKind = 'error' | 'blocked' | 'stale' | 'stale_refused' | 'notice' | 'retained';
+/** Same meaning as CrmErrorKind: session = 401/403, conflict = 409/412 (changed or refused), other = anything else. */
+export type DetailErrorKind = 'session' | 'conflict' | 'other';
 export type DetailNoticeInput = {
   /** A failed save or read for this enquiry. */
   error: string;
+  /** What kind of failure `error` is. A conflict while the draft is stale is folded into the stale warning. */
+  errorKind?: DetailErrorKind;
   /** "Saved", "Restored your unsaved edits", and similar. */
   notice: string;
   /** A click on another enquiry, view or Back was refused (see RETENTION_BLOCKED_NOTICE). It explains why nothing happened. */
@@ -24,16 +29,26 @@ export type DetailNoticeInput = {
 };
 
 /**
- * - An error always shows, and so does the stale warning (a refused save and "the record has changed" are different facts).
+ * - An error shows, and so does the stale warning, except that a conflict error (changed or refused) while the draft is stale is the
+ *   same fact the stale warning already states: one amber box leads with "Your save was refused." and offers the one action.
+ *   Any other error (a 500, a network failure, a lost session) is a different fact and shows as well.
  * - The "blocked" message is the answer to a click that otherwise does nothing, so it is never hidden behind another notice.
  * - The stale warning replaces any saved / restored / retained notice, because those would only repeat or contradict it.
  * - The "retained" hint is the quietest message: it shows only when nothing else does.
  */
-export function detailNotices({ error, notice, stale, dirty, blocked = false }: DetailNoticeInput): DetailNoticeKind[] {
+export function detailNotices({
+  error,
+  errorKind = 'other',
+  notice,
+  stale,
+  dirty,
+  blocked = false,
+}: DetailNoticeInput): DetailNoticeKind[] {
   const shown: DetailNoticeKind[] = [];
-  if (error) shown.push('error');
+  const refusedWhileStale = Boolean(error) && stale && errorKind === 'conflict';
+  if (error && !refusedWhileStale) shown.push('error');
   if (blocked) shown.push('blocked');
-  if (stale) shown.push('stale');
+  if (stale) shown.push(refusedWhileStale ? 'stale_refused' : 'stale');
   else if (!error && notice) shown.push('notice');
   else if (!error && dirty) shown.push('retained');
   return shown;
