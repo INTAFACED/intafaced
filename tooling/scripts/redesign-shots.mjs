@@ -859,7 +859,18 @@ async function runRedirect(ctx, d) {
 // Flow stubs: M2/M3 flows move money (orders, conversions, transfers) so they stay stubs until their screens
 // exist and an Opus reviewer has passed the money path. Each stub reports whether its entry screen exists yet.
 export const FLOWS = {
-  M1: [],
+  M1: [
+    {
+      // Critic H3: a link with a "#" used to be handed to the browser, which reloaded the page and dropped the
+      // in-memory sign-in. Real flow, no money moves: a marker on window survives only if there was no reload.
+      id: 'home-rows-stay-signed-in',
+      title: 'Cash and Crypto rows open Money without a reload',
+      kind: 'noReload',
+      path: '/home',
+      click: '.home-holdings__row',
+      expectPath: '/money',
+    },
+  ],
   M2: [
     {
       id: 'limit-buy-cancel-btc-usdt',
@@ -896,9 +907,41 @@ export const FLOWS = {
   ],
 };
 
+async function runNoReload(ctx, flow) {
+  const result = { id: flow.id, title: flow.title, status: 'fail', detail: '' };
+  try {
+    await ctx.page.setViewportSize({ width: 1440, height: 900 });
+    await spaNavigate(ctx.page, flow.path);
+    await settle(ctx.page, ctx.state, { quietMs: 400, maxMs: 6000 });
+    await ctx.page.evaluate(() => {
+      window.__noReloadMark = 'alive';
+    });
+    await ctx.page.locator(flow.click).first().click({ timeout: 5000 });
+    await settle(ctx.page, ctx.state, { quietMs: 400, maxMs: 6000 });
+    const after = await ctx.page.evaluate(() => ({
+      mark: window.__noReloadMark ?? null,
+      path: location.pathname,
+      signedOut: /sign in to continue/i.test(document.body.innerText),
+    }));
+    const problems = [];
+    if (after.mark !== 'alive') problems.push('the page reloaded');
+    if (after.path !== flow.expectPath) problems.push(`landed on ${after.path}, expected ${flow.expectPath}`);
+    if (after.signedOut) problems.push('the screen asks to sign in');
+    result.status = problems.length ? 'fail' : 'pass';
+    result.detail = problems.join('; ');
+  } catch (error) {
+    result.detail = String(error?.message ?? error).split('\n')[0];
+  }
+  return result;
+}
+
 async function runFlows(ctx, milestone) {
   const out = [];
   for (const flow of FLOWS[milestone] ?? []) {
+    if (flow.kind === 'noReload') {
+      out.push(await runNoReload(ctx, flow));
+      continue;
+    }
     let present = false;
     try {
       await spaNavigate(ctx.page, flow.probe.path);
