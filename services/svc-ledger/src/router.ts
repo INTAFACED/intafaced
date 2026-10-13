@@ -23,7 +23,7 @@ import {
   readApprovalIds,
   unwiredApprovalConsumer,
 } from './ledger/action-approval-consume.js';
-import { parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
+import { HISTORY_RAILS, parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
 import { statementPnlFromThisBook, statementPnlInputSchema, statementPnlResultSchema } from './ledger/statement-pnl.js';
 import type { LedgerService } from './service.js';
@@ -328,6 +328,10 @@ export function createLedgerRouter(
               amount: z.string(),
               postedAt: z.string(),
               assetId: z.string(),
+              /** `ledger_entries.id` (bigserial) as a decimal string. */
+              entryId: z.string(),
+              /** `meta.rail` when allow-listed (see `HISTORY_RAILS`), else null. */
+              rail: z.enum(HISTORY_RAILS).nullable(),
             }),
           ),
           nextCursor: z.string().nullable(),

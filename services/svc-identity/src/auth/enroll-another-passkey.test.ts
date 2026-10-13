@@ -192,6 +192,7 @@ describe('enrollAnotherPasskey', () => {
         response: { clientDataJSON: clientData('lib-challenge'), attestationObject: 'a' },
       }),
       challenges,
+      { mfa: true, privileged: false },
       ceremony,
     );
     expect(out).toEqual({ credentialId: 'cred-2' });
@@ -319,6 +320,7 @@ describe('enrollAnotherPasskey', () => {
           response: { clientDataJSON: clientData('lib-challenge'), attestationObject: 'a' },
         }),
         challenges,
+        { mfa: true, privileged: false },
         ceremony,
       ),
     ).rejects.toMatchObject({ code: 'auth.webauthn_invalid' });
