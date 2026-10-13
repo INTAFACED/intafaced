@@ -35,6 +35,31 @@ import { describeBusinessPolicy } from './business/business-policy.js';
  */
 
 /** Money crosses the wire as a decimal string. Always. Never a number. */
+/** 2-decimal USD figure on the wire. May be negative (a price move). */
+const usd2String = z.string().regex(/^-?\d+\.\d{2}$/);
+/** Full-precision signed decimal string (a per-asset value or price move). */
+const signedAmountString = z.string().regex(/^-?\d+(\.\d{1,18})?$/);
+
+const portfolioSummaryOutput = z.object({
+  totalUsd: usd2String.nullable(),
+  change24hUsd: usd2String.nullable(),
+  cashUsd: usd2String.nullable(),
+  cryptoUsd: usd2String.nullable(),
+  priced: z.array(
+    z.object({
+      asset: z.string(),
+      amount: z.string(),
+      priceUsd: z.string(),
+      valueUsd: z.string(),
+      change24hUsd: signedAmountString.nullable(),
+      pair: z.string().nullable(),
+    }),
+  ),
+  unpriced: z.array(z.object({ asset: z.string(), amount: z.string(), reason: z.enum(['no_market', 'no_price_yet']) })),
+  asOf: z.number().int(),
+  windowStart: z.number().int().nullable(),
+});
+
 const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amount must be an unsigned decimal string (max 18dp)');
 
 /**
@@ -102,6 +127,7 @@ function publicDoorWireMessage(err: BankError): string {
   if (
     err.code === 'bank.pool_underfunded' ||
     err.code === 'bank.mark_missing' ||
+    err.code === 'bank.prices_unavailable' ||
     err.code === 'bank.earn_principal_mismatch' ||
     err.code === 'bank.loan_seizure_cross_asset' ||
     err.code === 'bank.loan_health_price_unset'
@@ -319,6 +345,11 @@ function toTrpcError(err: unknown): TRPCError {
       // The ledger may have committed; the claim is held pending. Retry later
       // with the same id, never with a new one.
       case 'bank.ledger_outcome_unknown':
+        return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
+
+      // svc-trade's prices could not be read. A retry later may work; the
+      // caller sent nothing wrong.
+      case 'bank.prices_unavailable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
       default: {
@@ -1091,6 +1122,20 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           };
         }),
       ),
+  });
+
+  /**
+   * PORTFOLIO (UI-SPEC §1.2, U3) — the one server-computed "Est. total value".
+   *
+   * Self-only: the owner is `ctx.principal.userId`, there is no input to name
+   * anyone else. The rule (stablecoins at $1, last price of asset/USDT else
+   * asset/USDC, `unpriced` otherwise, change as a price move on current holdings
+   * and not P&L) is written once in `portfolio/valuation.ts`.
+   */
+  const portfolio = router({
+    summary: scopedProcedure('bank:read', { module: 'bank' })
+      .output(portfolioSummaryOutput)
+      .query(async ({ ctx }) => guard(async () => bank.portfolio.summary(ctx.principal.userId))),
   });
 
   /**
@@ -3004,6 +3049,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     autoInvest,
     business,
     analytics,
+    portfolio,
     ops,
   });
 }
