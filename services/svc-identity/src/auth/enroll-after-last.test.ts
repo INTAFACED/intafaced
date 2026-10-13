@@ -220,6 +220,7 @@ describe('enrollAfterLastUnenroll — enroll after last passkey was unenrolled',
         response: { clientDataJSON: clientData('lib-challenge'), attestationObject: 'a' },
       }),
       challenges,
+      { mfa: true, privileged: false },
       ceremony,
     );
     expect(out).toEqual({ credentialId: 'cred-3' });

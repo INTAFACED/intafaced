@@ -110,9 +110,9 @@ describe('svc-bank ramps reachable (PG-hard)', () => {
       sub: HOLDER,
       userId: HOLDER,
       sid: '22222222-2222-4222-8222-222222222222',
-      scopes: ['bank:read', 'bank:write'],
+      scopes: ['bank:read', 'bank:write', 'trade:withdraw'],
       tier: 'full',
-      mfa: false,
+      mfa: true,
       expiresAt: new Date(Date.now() + 60_000),
       ...overrides,
     } as Principal;
