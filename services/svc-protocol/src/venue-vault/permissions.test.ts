@@ -98,4 +98,41 @@ describe('S-L6 venue key permissions — refuse at registration', () => {
       expect(() => assertTradeOnly({ scopes: [scope] })).toThrow(WithdrawalPermissionRefusedError);
     }
   });
+
+  it('applies one shared rule: case, space, underscore and hyphen fold; send, transfer and read-write wallets refused', () => {
+    for (const scope of [
+      'wallet:transactions:send',
+      'can_transfer',
+      'AccountTransfer',
+      'SubMemberTransfer',
+      'internal transfer',
+      'Internal Transfer',
+      'WALLET:READ_WRITE',
+      'wallet:read_write',
+      'fund out',
+    ]) {
+      expect(withdrawalPermissionHits({ scopes: ['trade', scope] })).toEqual([`scope:${scope}`]);
+      expect(() => assertTradeOnly({ scopes: [scope] })).toThrow(WithdrawalPermissionRefusedError);
+    }
+    expect(withdrawalPermissionHits({ scopes: ['trade'], flags: { can_transfer: true } })).toEqual(['flag:can_transfer']);
+    expect(withdrawalPermissionHits({ scopes: ['trade'], flags: { 'Sub Member Transfer': 'yes' } })).toEqual(['flag:Sub Member Transfer']);
+    expect(withdrawalPermissionHits({ scopes: ['trade'], flags: { can_transfer: false } })).toEqual([]);
+    expect(withdrawalPermissionHits({ scopes: ['wallet:accounts:read', 'wallet:buys:create'] })).toEqual([]);
+  });
+
+  it('refuses empty or blank scopes: nothing shows the key cannot withdraw', () => {
+    expect(() => assertTradeOnly({ scopes: [] })).toThrow(WithdrawalPermissionRefusedError);
+    expect(() => withdrawalPermissionHits({ scopes: [] })).toThrow(WithdrawalPermissionRefusedError);
+    expect(() => assertTradeOnly({ scopes: ['  '] })).toThrow(WithdrawalPermissionRefusedError);
+    expect(() => assertTradeOnly({ scopes: [''] })).toThrow(WithdrawalPermissionRefusedError);
+  });
+
+  it('refuses flags that are not a plain object of primitives', () => {
+    for (const flags of ['enableWithdraw', ['enableWithdraw'], null, { nested: { enableWithdraw: true } }, { list: [true] }, { x: null }]) {
+      const permissions = { scopes: ['trade'], flags } as unknown as Parameters<typeof assertTradeOnly>[0];
+      expect(() => assertTradeOnly(permissions)).toThrow(WithdrawalPermissionRefusedError);
+    }
+    expect(() => assertTradeOnly({ scopes: ['trade'], flags: { enableSpot: true, tier: 'a', n: 2 } })).not.toThrow();
+    expect(() => assertTradeOnly({ scopes: ['trade'] })).not.toThrow();
+  });
 });

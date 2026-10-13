@@ -78,6 +78,8 @@ export class VenueVault {
       'utf8',
     );
     const id = randomUUID();
+    // Buffers are zeroed (best effort; JS strings cannot be wiped): the
+    // JSON.stringify result and credential strings stay in memory until GC.
     let wrapped: WrappedSecret;
     try {
       wrapped = wrapSecret(this.kek, plaintext, recordAad(userId, id, credential.venueId));
@@ -93,6 +95,8 @@ export class VenueVault {
     if (!row || row.id !== id || row.userId !== userId) throw new VenueVaultNotFoundError();
     const opened = unwrapSecret(this.kek, row.wrapped, recordAad(userId, id, row.venueId));
     let parsed: VenueCredential;
+    // Buffers are zeroed (best effort; JS strings cannot be wiped): the strings
+    // from toString() and JSON.parse stay in memory until GC.
     try {
       parsed = JSON.parse(opened.toString('utf8')) as VenueCredential;
       if (parsed.venueId !== row.venueId) throw new VenueVaultUnwrapFailedError();

@@ -63,8 +63,8 @@ async function settle(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
-describe('session logs publish only for a recorded factory deployment', () => {
-  it('drops a foreign or undeployed emitter and still publishes a deployed account', async () => {
+describe('session logs publish only for a registered factory account', () => {
+  it('drops an unregistered look-alike and publishes registered accounts, deployed or not', async () => {
     const store = new MemoryAccountStore();
     const registry = new AccountRegistry(store, { chainId: CHAIN_ID, factory: FACTORY, implementation: IMPLEMENTATION });
     const row = {
@@ -122,15 +122,17 @@ describe('session logs publish only for a recorded factory deployment', () => {
     expect(errors).toEqual([]);
     const created = bus.emitted('protocolSessionKeyCreated');
     const cancelled = bus.emitted('protocolSessionKeyCancelled');
-    expect(created).toHaveLength(1);
-    expect(cancelled).toHaveLength(1);
-    expect(created[0]?.payload.account).toBe(toChecksum(DEPLOYED));
-    expect(created[0]?.payload.spendLimitWei).toBe(SPEND_LIMIT_WEI.toString());
-    expect(typeof created[0]?.payload.spendLimitWei).toBe('string');
-    expect(created[0]?.payload.validAfter).toBe(10);
-    expect(created[0]?.payload.validUntil).toBe(1_700_000_000);
-    expect(cancelled[0]?.payload.account).toBe(toChecksum(DEPLOYED));
-    expect(cancelled[0]?.payload.sessionKey).toBe(toChecksum(SESSION));
-    expect(cancelled[0]?.payload.revokedBy).toBe(toChecksum(REVOKER));
+    // UNDEPLOYED is registered (claimed) but recordDeployment has not run yet:
+    // a grant in the deploy transaction must still be published. FOREIGN has no
+    // registry row and is dropped.
+    expect(created.map((event) => event.payload.account)).toEqual([toChecksum(UNDEPLOYED), toChecksum(DEPLOYED)]);
+    expect(cancelled.map((event) => event.payload.account)).toEqual([toChecksum(UNDEPLOYED), toChecksum(DEPLOYED)]);
+    expect(created.map((event) => event.payload.account)).not.toContain(toChecksum(FOREIGN));
+    expect(created[1]?.payload.spendLimitWei).toBe(SPEND_LIMIT_WEI.toString());
+    expect(typeof created[1]?.payload.spendLimitWei).toBe('string');
+    expect(created[1]?.payload.validAfter).toBe(10);
+    expect(created[1]?.payload.validUntil).toBe(1_700_000_000);
+    expect(cancelled[1]?.payload.sessionKey).toBe(toChecksum(SESSION));
+    expect(cancelled[1]?.payload.revokedBy).toBe(toChecksum(REVOKER));
   });
 });
