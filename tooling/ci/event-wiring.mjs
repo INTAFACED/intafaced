@@ -512,7 +512,7 @@ const socketFor = (event, missing) => sockets.find((s) => s.event === event && s
  * that is red on every run is a gate whose red means nothing; `gates.mjs` says
  * so itself about `advisory`.
  *
- * The repo has already answered this three times — `fabricated-money-scan`
+ * The repo has already answered this three times — `fabricated-money-scan` (deleted 2026-10-13)
  * froze 12 findings, `vendor-java-money-scan` 63, `wallet-rpc-mainnet-scan` 38.
  * None fails on the pre-existing set. Each PINS it and fails on any deviation.
  * Same answer here.
@@ -571,7 +571,7 @@ const bFound = sockets.filter((s) => s.class === 'B');
  * ORDER-SENSITIVE, both directions, and the fingerprint compared too.
  *
  * Order matters because a set comparison lets one entry being resolved and a
- * different one appearing cancel out — the same reason `fabricated-money-scan`
+ * different one appearing cancel out — the same reason `fabricated-money-scan` (deleted 2026-10-13)
  * freezes exact text rather than a count.
  */
 const pinnedKeys = CLASS_B_AWAITING_A_DECISION.map((p) => `${p.event}::${p.missing}`);

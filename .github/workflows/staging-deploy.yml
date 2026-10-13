@@ -189,7 +189,7 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for f in Dockerfile docker-compose.yml docker-compose.apps.yml vendor/upstream-exchange/05_Web_Front/Dockerfile; do
+          for f in Dockerfile docker-compose.yml docker-compose.apps.yml apps/customer/Dockerfile; do
             if [ ! -f "$f" ]; then
               echo "::error::deployment unit incomplete — $f is missing"
               missing=1
@@ -256,9 +256,14 @@ jobs:
           printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_USER" --password-stdin
 
       # Two images, because the deployment unit is two images: the monorepo
-      # runtime that every service and both apps share, and the vendored trading
-      # shell, which is Vue 2.5 / webpack 3 with its own lockfile and its own
-      # Dockerfile deliberately outside the pnpm workspace.
+      # runtime that every service and both apps share, and the customer site
+      # (React, apps/customer, its own Dockerfile and nginx runtime stage).
+      #
+      # The customer site is still tagged and composed as `vendor-shell` because
+      # that is the slot name docker-compose.apps.yml and fleet-tip-image.mjs
+      # pin. The legacy Vue site that used to be built into this slot
+      # (vendor/upstream-exchange/05_Web_Front) was retired 2026-10-13 by
+      # Nitro's decision and is no longer built here; see its RETIRED.md.
       #
       # Tagged by commit SHA, and the DIGEST is what gets handed to the deploy
       # job. A tag can be moved to different bytes after review; a digest is the
@@ -286,11 +291,11 @@ jobs:
             --push \
             .
           docker buildx build \
-            --file vendor/upstream-exchange/05_Web_Front/Dockerfile \
+            --file apps/customer/Dockerfile \
             --target runtime \
             --tag "$shell_ref" \
             --push \
-            vendor/upstream-exchange/05_Web_Front
+            .
 
           app_digest=$(docker buildx imagetools inspect "$app_ref" --format '{{.Manifest.Digest}}')
           shell_digest=$(docker buildx imagetools inspect "$shell_ref" --format '{{.Manifest.Digest}}')
@@ -400,10 +405,10 @@ jobs:
             echo "app=$SUPPLIED" >> "$GITHUB_OUTPUT"
             # ROLLBACK IS APP-IMAGE ONLY, ON PURPOSE — see the threat model,
             # "partial failure". One input cannot name two images, and guessing
-            # the matching shell digest is how you get a shell and an API from
+            # the matching customer-site digest is how you get a site and an API from
             # different commits talking to each other.
             echo "shell=" >> "$GITHUB_OUTPUT"
-            echo "::warning::rollback path: redeploying app digest $SUPPLIED; the vendored shell is left as it is"
+            echo "::warning::rollback path: redeploying app digest $SUPPLIED; the customer site image is left as it is"
           else
             for pair in "app:$BUILT_APP" "shell:$BUILT_SHELL"; do
               value="${pair#*:}"
