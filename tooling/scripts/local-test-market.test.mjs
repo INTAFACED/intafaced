@@ -7,7 +7,16 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GuardError, assertLocalTarget, buildLadder, createPriceWalk, fromScaled, toScaled, toScaledFloor } from './local-test-market.mjs';
+import {
+  GuardError,
+  assertLocalTarget,
+  buildLadder,
+  createPriceWalk,
+  crossingSide,
+  fromScaled,
+  toScaled,
+  toScaledFloor,
+} from './local-test-market.mjs';
 
 const script = resolve(dirname(fileURLToPath(import.meta.url)), 'local-test-market.mjs');
 const run = (home, args) => spawnSync(process.execPath, [script, ...args], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
@@ -115,5 +124,8 @@ for (const q of ladder) {
   assert.equal(toScaled(q.amount) % toScaled('0.00001'), 0n);
   assert.ok((toScaled(q.price) * toScaled(q.amount)) / toScaled('1') >= toScaled('5'), 'below minimum cost');
 }
+
+// The taker must alternate sides so it cannot drain one asset (it once bought forever and every order got 400).
+assert.deepEqual([1, 2, 3, 4].map(crossingSide), ['buy', 'sell', 'buy', 'sell']);
 
 console.log('local-test-market: guard and price-walk checks passed');
