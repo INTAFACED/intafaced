@@ -398,14 +398,11 @@ export class PostgresLedger implements LedgerClient {
    * contributes only an entry id to start below, so a forged cursor cannot widen
    * what is readable.
    *
-   * WHY ID ORDER IS TIME ORDER. `post()` takes the `chain_tip ... FOR UPDATE`
-   * lock first, then stamps `posted_at = new Date()` and inserts the entries
-   * (bigserial `ledger_entries.id`) inside that same transaction. Posts are
-   * therefore serialised: a later id has a later-or-equal `posted_at`. So the
-   * page walks each account's `ledger_entries_account_idx (account_id, id)`
+   * ORDER. Newest first by posting sequence (entry id; posts are serialised
+   * under the global chain_tip lock). The page walks each account's `ledger_entries_account_idx (account_id, id)`
    * backwards, `LIMIT n+1` per account (LATERAL), and merges the accounts —
    * bounded work per page however long the history, no sort of the whole set.
-   * `before` is a time filter applied inside that walk.
+   * There is deliberately no time filter (see `historyPageInputSchema`).
    *
    * LIMIT + 1 tells us whether a next page exists without a count.
    */
@@ -413,7 +410,6 @@ export class PostgresLedger implements LedgerClient {
     const cursor = input.cursor === undefined ? undefined : decodeHistoryCursor(input.cursor);
     const purpose = (input.purpose ?? '').trim(); // same canonical trim as `accountPurpose`
     const limit = input.limit;
-    const before = input.before === undefined ? null : new Date(input.before);
     const assetId = input.assetId ?? null;
     const cursorId = cursor?.entryId ?? null;
 
@@ -423,10 +419,8 @@ export class PostgresLedger implements LedgerClient {
         CROSS JOIN LATERAL (
           SELECT e.id AS entry_id, e.tx_id, e.direction, e.amount, e.asset_id
             FROM ledger_entries e
-            JOIN ledger_tx lt ON lt.id = e.tx_id
            WHERE e.account_id = a.id
              AND (${cursorId}::bigint IS NULL OR e.id < ${cursorId}::bigint)
-             AND (${before}::timestamptz IS NULL OR lt.posted_at < ${before}::timestamptz)
            ORDER BY e.id DESC
            LIMIT ${limit + 1}
         ) x

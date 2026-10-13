@@ -175,12 +175,11 @@ describe('PostgresLedger.historyPage', () => {
     expect(seen.every((e) => e.assetId === 'USDT')).toBe(true);
   });
 
-  it('`before` bounds the first page (strictly before)', async () => {
-    const page = await engine.historyPage(scope({ before: TIED_AT, limit: 200 }));
-    // The 3 real postings are earlier than the tied block; the tied block is not strictly before itself.
-    expect(page.entries).toHaveLength(3);
-    const page2 = await engine.historyPage(scope({ before: new Date(Date.parse(TIED_AT) + 1).toISOString(), limit: 200 }));
-    expect(page2.entries).toHaveLength(10);
+  it('refuses `before` (and any unknown key) instead of silently ignoring it', () => {
+    const base = { ownerType: 'user', ownerId: PAGER, kind: 'available' };
+    expect(() => historyPageInputSchema.parse({ ...base, before: TIED_AT })).toThrow();
+    expect(() => historyPageInputSchema.parse({ ...base, offset: 5 })).toThrow();
+    expect(historyPageInputSchema.parse(base).limit).toBe(50);
   });
 
   it('answers an empty history, and an account that never existed, as empty with no cursor (and creates nothing)', async () => {

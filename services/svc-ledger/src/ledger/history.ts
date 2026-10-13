@@ -220,12 +220,13 @@ export function parseHistoryDoorInput(body: unknown): HistoryInput {
  * The scope comes ONLY from this input, which only a service can send. The
  * cursor carries a position, never an account.
  *
- * ORDER. Newest first by entry id (`ledger_entries.id`, a global bigserial).
- * That IS time order: `post()` takes the chain-tip lock, stamps `posted_at` and
- * inserts the entries under it, so a later id always has a later-or-equal
- * `posted_at`. Ids are unique, so a page boundary can fall between two entries
- * with the same timestamp without skipping or repeating either, and the read can
- * walk `ledger_entries_account_idx (account_id, id)` instead of sorting.
+ * ORDER. Newest first by posting sequence (entry id; posts are serialised under
+ * the global chain_tip lock). Ids are unique, so a page boundary can fall between
+ * two entries with the same timestamp without skipping or repeating either, and
+ * the read walks `ledger_entries_account_idx (account_id, id)` instead of
+ * sorting. There is no time filter: the cursor does the paging, and a far-past
+ * time bound would have to walk every newer entry. The schema is strict, so a
+ * stray `before` (or any unknown key) is refused, not silently ignored.
  */
 export const HISTORY_PAGE_DEFAULT_LIMIT = 50;
 export const HISTORY_PAGE_MAX_LIMIT = 200;
@@ -237,9 +238,8 @@ export const historyPageInputSchema = accountRefSchema
     assetId: z.string().min(1).max(16).optional(),
     limit: z.number().int().min(1).max(HISTORY_PAGE_MAX_LIMIT).default(HISTORY_PAGE_DEFAULT_LIMIT),
     cursor: z.string().min(1).max(256).optional(),
-    /** Only entries posted strictly before this instant. Anchors the first page. */
-    before: z.string().datetime({ offset: true }).optional(),
   })
+  .strict()
   .superRefine((ref, ctx) => {
     if (isValidOwnerId(ref.ownerType, ref.ownerId)) return;
     ctx.addIssue({
