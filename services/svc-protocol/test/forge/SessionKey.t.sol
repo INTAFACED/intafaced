@@ -24,6 +24,25 @@ contract SessionKeyLibHarness {
     function outbound(bytes4 selector) external pure returns (bool) {
         return SessionKeyLib.isOutboundTransfer(selector);
     }
+
+    function recipientOffset(bytes4 selector) external pure returns (uint256) {
+        return SessionKeyLib.recipientOffset(selector);
+    }
+
+    function recipient(bytes4 selector, bytes calldata data, address account) external pure {
+        SessionKeyLib.assertRecipientIsAccount(selector, data, account);
+    }
+}
+
+/// Stands in for a pool / router / vault: accepts any call and counts it.
+contract SessionCallSink {
+    uint256 public calls;
+
+    fallback() external payable {
+        calls++;
+    }
+
+    receive() external payable {}
 }
 
 /**
@@ -342,5 +361,166 @@ contract SessionKeyForgeTest {
         account.grantSession(spec);
         uint256 used = start - gasleft();
         require(used < 250_000, "grantSession gas drifted");
+    }
+
+    // ── recipient scope: output goes to the granting account ─────────────────
+    //
+    // The test contract is the EntryPoint, the owner AND the session key, so it
+    // can grant a session and then call `executeWithSession` as that key.
+
+    bytes4 internal constant POOL_SWAP_EXACT_IN = 0xa6220b66; // swapExactIn(address,uint256,uint256,address)
+    bytes4 internal constant ROUTER_SWAP_EXACT_IN = 0x7b32b50e; // swapExactIn(address,address,uint256,uint256,address)
+
+    function _recipientSetup(bytes4 selector)
+        internal
+        returns (SmartAccount account, SessionCallSink sink, SessionKeyLib.SessionSpec memory spec)
+    {
+        account = _deployClone();
+        sink = new SessionCallSink();
+        spec = _legalSpec(address(this), address(sink));
+        spec.spendLimitWei = 0;
+        spec.selectors[0] = selector;
+        account.grantSession(spec);
+    }
+
+    function _poolSwap(address to) internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(POOL_SWAP_EXACT_IN, address(0x3333), uint256(1_000_000_000), uint256(0), to);
+    }
+
+    function _routerSwap(address to) internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(
+            ROUTER_SWAP_EXACT_IN, address(0x2222), address(0x3333), uint256(1_000_000_000), uint256(0), to
+        );
+    }
+
+    /// Reverts the test unless `data` is refused with exactly `errorSelector`.
+    function _expectRefusal(SmartAccount account, SessionKeyLib.SessionSpec memory spec, address target, bytes memory data, bytes4 errorSelector, string memory why)
+        internal
+    {
+        try account.executeWithSession(spec, target, 0, data) {
+            revert(why);
+        } catch (bytes memory err) {
+            require(err.length >= 4 && bytes4(err) == errorSelector, "refused for the wrong reason");
+        }
+    }
+
+    function test_pool_swap_to_stranger_reverts() public {
+        (SmartAccount account, SessionCallSink sink, SessionKeyLib.SessionSpec memory spec) =
+            _recipientSetup(POOL_SWAP_EXACT_IN);
+        _expectRefusal(
+            account, spec, address(sink), _poolSwap(address(0x4444)), SessionKeyLib.SessionRecipientNotAccount.selector,
+            "swap to a stranger must revert"
+        );
+        require(sink.calls() == 0, "refused call must not reach the pool");
+    }
+
+    function test_pool_swap_to_own_account_passes() public {
+        (SmartAccount account, SessionCallSink sink, SessionKeyLib.SessionSpec memory spec) =
+            _recipientSetup(POOL_SWAP_EXACT_IN);
+        account.executeWithSession(spec, address(sink), 0, _poolSwap(address(account)));
+        require(sink.calls() == 1, "swap to own account must reach the pool");
+    }
+
+    function test_router_swap_to_stranger_reverts_and_to_account_passes() public {
+        (SmartAccount account, SessionCallSink sink, SessionKeyLib.SessionSpec memory spec) =
+            _recipientSetup(ROUTER_SWAP_EXACT_IN);
+        _expectRefusal(
+            account, spec, address(sink), _routerSwap(address(0x4444)), SessionKeyLib.SessionRecipientNotAccount.selector,
+            "router swap to a stranger must revert"
+        );
+        // The router's first two args are addresses too; the account in the pool slot is not the recipient.
+        _expectRefusal(
+            account,
+            spec,
+            address(sink),
+            abi.encodeWithSelector(
+                ROUTER_SWAP_EXACT_IN, address(account), address(account), uint256(1), uint256(0), address(0x4444)
+            ),
+            SessionKeyLib.SessionRecipientNotAccount.selector,
+            "account in a non-recipient slot must not satisfy the rule"
+        );
+        require(sink.calls() == 0, "refused calls must not reach the router");
+        account.executeWithSession(spec, address(sink), 0, _routerSwap(address(account)));
+        require(sink.calls() == 1, "router swap to own account must pass");
+    }
+
+    function test_short_calldata_reverts_not_allowed() public {
+        (SmartAccount account, SessionCallSink sink, SessionKeyLib.SessionSpec memory spec) =
+            _recipientSetup(POOL_SWAP_EXACT_IN);
+        bytes memory full = _poolSwap(address(account));
+        // Selector only, then every length up to one byte short of the end of the recipient word.
+        for (uint256 len = 4; len < full.length; len++) {
+            bytes memory cut = new bytes(len);
+            for (uint256 i = 0; i < len; i++) cut[i] = full[i];
+            _expectRefusal(
+                account, spec, address(sink), cut, SessionKeyLib.SessionRecipientCalldataTooShort.selector,
+                "truncated calldata must revert"
+            );
+        }
+        require(sink.calls() == 0, "truncated calls must not reach the pool");
+        // Exactly the end of the recipient word is enough.
+        account.executeWithSession(spec, address(sink), 0, full);
+        require(sink.calls() == 1, "full-length call must pass");
+    }
+
+    function test_dirty_high_bytes_in_recipient_word_revert() public {
+        (SmartAccount account, SessionCallSink sink, SessionKeyLib.SessionSpec memory spec) =
+            _recipientSetup(POOL_SWAP_EXACT_IN);
+        bytes memory data = abi.encodePacked(
+            POOL_SWAP_EXACT_IN,
+            uint256(uint160(address(0x3333))),
+            uint256(1),
+            uint256(0),
+            bytes12(0xff0000000000000000000000),
+            address(account)
+        );
+        _expectRefusal(
+            account, spec, address(sink), data, SessionKeyLib.SessionRecipientNotAccount.selector,
+            "dirty recipient word must revert"
+        );
+    }
+
+    function test_unconstrained_selector_is_unaffected() public {
+        (SmartAccount account, SessionCallSink sink, SessionKeyLib.SessionSpec memory spec) =
+            _recipientSetup(bytes4(keccak256("placeOrder(address,bool,uint256,uint256)")));
+        // A selector with no recipient argument passes, even with nothing after the selector.
+        account.executeWithSession(spec, address(sink), 0, abi.encodePacked(spec.selectors[0]));
+        require(sink.calls() == 1, "unconstrained selector must pass");
+    }
+
+    function test_recipientOffset_table() public view {
+        require(harness.recipientOffset(0xa6220b66) == 100, "pool swapExactIn");
+        require(harness.recipientOffset(0x7b32b50e) == 132, "router swapExactIn");
+        require(harness.recipientOffset(0x6d9a640a) == 68, "pool swap");
+        require(harness.recipientOffset(0x156e29f6) == 4, "pool mint");
+        require(harness.recipientOffset(0x9dc29fac) == 4, "pool burn");
+        require(harness.recipientOffset(0x20a1440a) == 4, "vault proposeSpend");
+        require(harness.recipientOffset(0x78db6c53) == 36, "nft setTokenRoyalty");
+        require(harness.recipientOffset(bytes4(0)) == 0, "zero selector names no recipient");
+    }
+
+    function testFuzz_foreign_recipient_refused(address account, address recipient) public view {
+        if (recipient == account) return;
+        bytes memory data = abi.encodeWithSelector(
+            POOL_SWAP_EXACT_IN, address(0x3333), uint256(1), uint256(0), recipient
+        );
+        try harness.recipient(POOL_SWAP_EXACT_IN, data, account) {
+            revert("foreign recipient must revert");
+        } catch {}
+    }
+
+    function testFuzz_own_recipient_passes(address account, uint256 a, uint256 b) public view {
+        bytes memory data = abi.encodeWithSelector(ROUTER_SWAP_EXACT_IN, address(0x2222), address(0x3333), a, b, account);
+        harness.recipient(ROUTER_SWAP_EXACT_IN, data, account);
+    }
+
+    function testFuzz_truncated_calldata_refused(uint8 cutBy, address account) public view {
+        bytes memory full = _routerSwap(account);
+        uint256 len = full.length - 1 - (uint256(cutBy) % (full.length - 4 - 1));
+        bytes memory cut = new bytes(len);
+        for (uint256 i = 0; i < len; i++) cut[i] = full[i];
+        try harness.recipient(ROUTER_SWAP_EXACT_IN, cut, account) {
+            revert("truncated calldata must revert");
+        } catch {}
     }
 }

@@ -9,7 +9,7 @@
     "enabled": true,
     "runs": 200
   },
-  "sourceHash": "0x874c54a9aafcb75f6fcfeb5f16114f1fad5eb9d08b6857eb847e4a07a7cb77f2",
+  "sourceHash": "0x0896dee5c12c081f698dc0fc716175b1ce28413e6a1a01bc7ea3f9ce67e67fe1",
   "abi": [
     {
       "inputs": [],
@@ -48,6 +48,33 @@
       "type": "error"
     },
     {
+      "inputs": [
+        {
+          "internalType": "bytes4",
+          "name": "selector",
+          "type": "bytes4"
+        }
+      ],
+      "name": "SessionRecipientCalldataTooShort",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes4",
+          "name": "selector",
+          "type": "bytes4"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "recipientWord",
+          "type": "bytes32"
+        }
+      ],
+      "name": "SessionRecipientNotAccount",
+      "type": "error"
+    },
+    {
       "inputs": [],
       "name": "SessionSelectorsRequired",
       "type": "error"
@@ -78,7 +105,7 @@
       "type": "error"
     }
   ],
-  "bytecode": "0x60566037600b82828239805160001a607314602a57634e487b7160e01b600052600060045260246000fd5b30600052607381538281f3fe73000000000000000000000000000000000000000030146080604052600080fdfea264697066735822122004c2a347dfe98951c130f50b5d91bcbb35b4e9698ac26452a072907eae19522964736f6c634300081c0033",
-  "deployedBytecode": "0x73000000000000000000000000000000000000000030146080604052600080fdfea264697066735822122004c2a347dfe98951c130f50b5d91bcbb35b4e9698ac26452a072907eae19522964736f6c634300081c0033",
+  "bytecode": "0x60566037600b82828239805160001a607314602a57634e487b7160e01b600052600060045260246000fd5b30600052607381538281f3fe73000000000000000000000000000000000000000030146080604052600080fdfea26469706673582212207666574aaf87342c275378c02f400c738aa90d8220a6870c254ea88f0347874364736f6c634300081c0033",
+  "deployedBytecode": "0x73000000000000000000000000000000000000000030146080604052600080fdfea26469706673582212207666574aaf87342c275378c02f400c738aa90d8220a6870c254ea88f0347874364736f6c634300081c0033",
   "immutableReferences": {}
 }

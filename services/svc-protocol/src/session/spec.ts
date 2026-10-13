@@ -65,6 +65,42 @@ export function isOutboundTransferSelector(selector: Hex): boolean {
   return FORBIDDEN_SELECTORS.has(selector.toLowerCase() as Hex);
 }
 
+/**
+ * Calls a session may be allowlisted for whose calldata names who receives the
+ * output, and the position of that argument. For each, the recipient must be the
+ * granting account — a session trades FOR its account, never for a stranger,
+ * even when the owner's token allowance is what pays for the trade.
+ *
+ * Found by sweeping the non-view ABIs the session could be pointed at
+ * (`contracts/amm`, `contracts/router`, `src/amm/build.ts`, the vaults) for an
+ * address argument named `to`; `spec.test.ts` repeats that sweep against the
+ * compiled ABIs so a new recipient-bearing function cannot slip in unlisted.
+ *
+ * Mirrors `SessionKeyLib.recipientOffset`. `spec.test.ts` asserts every selector
+ * and byte offset (4 + 32 * recipientArg) against the Solidity source.
+ */
+export const RECIPIENT_SCOPED_CALLS = [
+  // ConstantProductPool.swapExactIn(tokenIn, amountIn, minAmountOut, to)
+  { signature: 'swapExactIn(address,uint256,uint256,address)', recipientArg: 3 },
+  // SovereignRouter.swapExactIn(pool, tokenIn, amountIn, minAmountOut, to)
+  { signature: 'swapExactIn(address,address,uint256,uint256,address)', recipientArg: 4 },
+  // ConstantProductPool.swap(amount0Out, amount1Out, to)
+  { signature: 'swap(uint256,uint256,address)', recipientArg: 2 },
+  // ConstantProductPool.mint(to, amount0Desired, amount1Desired) — LP credited to `to`
+  { signature: 'mint(address,uint256,uint256)', recipientArg: 0 },
+  // ConstantProductPool.burn(to, liquidity) — underlying paid to `to`
+  { signature: 'burn(address,uint256)', recipientArg: 0 },
+  // CrewVault.proposeSpend(to, amount)
+  { signature: 'proposeSpend(address,uint256)', recipientArg: 0 },
+  // SovereignNft.setTokenRoyalty(tokenId, receiver, bps) — royalties paid to `receiver`
+  { signature: 'setTokenRoyalty(uint256,address,uint16)', recipientArg: 1 },
+] as const;
+
+/** selector → byte offset of the 32-byte recipient word in calldata. */
+export const RECIPIENT_OFFSETS: ReadonlyMap<Hex, number> = new Map(
+  RECIPIENT_SCOPED_CALLS.map((c) => [toFunctionSelector(c.signature).toLowerCase() as Hex, 4 + 32 * c.recipientArg]),
+);
+
 // ── The spec ────────────────────────────────────────────────────────────────
 
 /**
@@ -317,6 +353,8 @@ export type SessionCallCode =
   | 'session.calldata_too_short'
   | 'session.selector_not_allowed'
   | 'session.outbound_transfer_forbidden'
+  | 'session.recipient_not_account'
+  | 'session.recipient_calldata_too_short'
   | 'session.spend_limit_exceeded';
 
 export interface SessionCallDecision {
@@ -375,6 +413,30 @@ export function evaluateSessionCall(q: SessionCallQuery): SessionCallDecision {
   const forbidden = FORBIDDEN_SELECTORS.get(selector);
   if (forbidden) {
     return deny('session.outbound_transfer_forbidden', `"${forbidden}" is never callable by a session key`);
+  }
+
+  // Where the call names a recipient, it must be this account. Whole-word
+  // compare against the left-padded account, no decoding — exactly
+  // `SessionKeyLib.assertRecipientIsAccount`. Dirty high bytes are refused, and
+  // calldata that ends before the word is refused, never read as zero.
+  const recipientOffset = RECIPIENT_OFFSETS.get(selector);
+  if (recipientOffset !== undefined) {
+    const start = 2 + recipientOffset * 2;
+    const end = start + 64;
+    if (q.data.length < end) {
+      return deny(
+        'session.recipient_calldata_too_short',
+        `${selector} names a recipient, but the calldata ends before it. A session call must carry its recipient.`,
+      );
+    }
+    const word = q.data.slice(start, end).toLowerCase();
+    const expected = '0'.repeat(24) + q.account.slice(2).toLowerCase();
+    if (word !== expected) {
+      return deny(
+        'session.recipient_not_account',
+        `${selector} sends its output to 0x${word}, not to the account ${q.account}. A session key trades for its account only.`,
+      );
+    }
   }
 
   const spentAfterWei = q.spentWei + q.value;

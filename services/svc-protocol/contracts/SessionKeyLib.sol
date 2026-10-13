@@ -25,6 +25,11 @@ pragma solidity ^0.8.24;
  *      cannot be constructed: `assertGrantable` reverts.
  *   4. NATIVE VALUE IS CAPPED cumulatively by `spendLimitWei`, counted before
  *      the external call, so re-entrancy cannot spend it twice.
+ *   5. OUTPUT GOES HOME. A selector that names a recipient (a swap's `to`, an
+ *      LP mint/burn `to`) may only be called with the granting account as that
+ *      recipient. A session key trades FOR the account; it cannot route the
+ *      proceeds of a trade to anyone else, even when the owner's token
+ *      allowance is what pays for it. See `recipientOffset`.
  *
  * The user grants it. The user revokes it. The platform relays the transaction
  * and holds nothing else.
@@ -83,6 +88,31 @@ library SessionKeyLib {
     bytes4 internal constant SEL_UPGRADE_TO = 0x3659cfe6;
     bytes4 internal constant SEL_UPGRADE_TO_AND_CALL = 0x4f1ef286;
 
+    // ── The recipient-bearing selectors ──────────────────────────────────────
+    //
+    // Calls a session MAY be allowlisted for, whose calldata names who receives
+    // the output. For each, the recipient argument must be the account itself.
+    //
+    //   pool    swapExactIn(address tokenIn,uint256,uint256,address to)  arg 3
+    //   router  swapExactIn(address pool,address tokenIn,uint256,uint256,address to)  arg 4
+    //   pool    swap(uint256,uint256,address to)                         arg 2
+    //   pool    mint(address to,uint256,uint256)                         arg 0
+    //   pool    burn(address to,uint256)                                 arg 0
+    //   vault   proposeSpend(address to,uint256)                         arg 0
+    //   nft     setTokenRoyalty(uint256,address receiver,uint16)         arg 1
+    //
+    // The TypeScript mirror (`RECIPIENT_SCOPED_CALLS` in session/spec.ts) lists
+    // the same signatures and argument positions; spec.test.ts asserts every
+    // selector and offset below against it, and against the compiled ABIs.
+
+    bytes4 internal constant SEL_POOL_SWAP_EXACT_IN = 0xa6220b66;
+    bytes4 internal constant SEL_ROUTER_SWAP_EXACT_IN = 0x7b32b50e;
+    bytes4 internal constant SEL_POOL_SWAP = 0x6d9a640a;
+    bytes4 internal constant SEL_POOL_MINT = 0x156e29f6;
+    bytes4 internal constant SEL_POOL_BURN = 0x9dc29fac;
+    bytes4 internal constant SEL_VAULT_PROPOSE_SPEND = 0x20a1440a;
+    bytes4 internal constant SEL_NFT_SET_TOKEN_ROYALTY = 0x78db6c53;
+
     error SessionKeyRequired();
     error SessionExpiryRequired();
     error SessionExpiryInPast();
@@ -96,6 +126,10 @@ library SessionKeyLib {
     error SessionFallbackSelectorForbidden();
     /** The one that matters: a session key may not be given transfer power. */
     error SessionOutboundTransferForbidden(bytes4 selector);
+    /** The call's recipient word is not the granting account (right-aligned, clean high bytes). */
+    error SessionRecipientNotAccount(bytes4 selector, bytes32 recipientWord);
+    /** The call's calldata ends before its recipient word does. */
+    error SessionRecipientCalldataTooShort(bytes4 selector);
 
     /**
      * The commitment stored on the account.
@@ -181,6 +215,39 @@ library SessionKeyLib {
             selector == SEL_TRANSFER_OWNERSHIP ||
             selector == SEL_UPGRADE_TO ||
             selector == SEL_UPGRADE_TO_AND_CALL;
+    }
+
+    /**
+     * Byte offset, within calldata, of the recipient word of a recipient-bearing
+     * selector (4 + 32 * argument index). 0 means the selector names no recipient
+     * that this library constrains.
+     */
+    function recipientOffset(bytes4 selector) internal pure returns (uint256) {
+        if (selector == SEL_POOL_SWAP_EXACT_IN) return 100;
+        if (selector == SEL_ROUTER_SWAP_EXACT_IN) return 132;
+        if (selector == SEL_POOL_SWAP) return 68;
+        if (selector == SEL_POOL_MINT) return 4;
+        if (selector == SEL_POOL_BURN) return 4;
+        if (selector == SEL_VAULT_PROPOSE_SPEND) return 4;
+        if (selector == SEL_NFT_SET_TOKEN_ROYALTY) return 36;
+        return 0;
+    }
+
+    /**
+     * For a recipient-bearing selector, require the recipient to be `account`.
+     *
+     * The comparison is on the whole 32-byte word against the account
+     * left-padded with zeros, with no decoding: a word with dirty high bytes is
+     * refused rather than truncated, so there is nothing for the TypeScript
+     * mirror to decode differently. Calldata that ends before the word is
+     * refused, never read as zero. Selectors that are not recipient-bearing pass.
+     */
+    function assertRecipientIsAccount(bytes4 selector, bytes calldata data, address account) internal pure {
+        uint256 offset = recipientOffset(selector);
+        if (offset == 0) return;
+        if (data.length < offset + 32) revert SessionRecipientCalldataTooShort(selector);
+        bytes32 word = bytes32(data[offset:offset + 32]);
+        if (word != bytes32(uint256(uint160(account)))) revert SessionRecipientNotAccount(selector, word);
     }
 
     function allowsTarget(SessionSpec memory spec, address target) internal pure returns (bool) {
