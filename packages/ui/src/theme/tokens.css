@@ -1,0 +1,109 @@
+/**
+ * INTAFACED customer-app design tokens (UI-SPEC section 2).
+ * GENERATED from src/theme/tokens.ts by src/theme/generate.ts.
+ * Do not edit by hand: theme/tokens.test.ts fails if the two drift.
+ * Values are PROVISIONAL until measured from okx.com CSS.
+ */
+
+:root {
+  --if-bg: #000000;
+  --if-panel: #121212;
+  --if-field: #212121;
+  --if-hover: #1d1d1d;
+  --if-raised: #2c2c2c;
+  --if-pill-active: #383838;
+  --if-line: #2e2e2e;
+  --if-line-strong: #383838;
+  --if-fg: #ffffff;
+  --if-fg-2: #909090;
+  --if-fg-3: #6c6c6c;
+  --if-up: #25a750;
+  --if-up-text: #25a750;
+  --if-on-up: #0b0b0b;
+  --if-down: #ca3f64;
+  --if-down-text: #e0567a;
+  --if-on-down: #ffffff;
+  --if-up-bg: #0b361a;
+  --if-down-bg: #280d14;
+  --if-lime: #c8f64a;
+  --if-lime-hover: #d4fa6e;
+  --if-lime-press: #b5e03a;
+  --if-on-lime: #0b0b0b;
+  --if-lime-soft: rgba(200, 246, 74, 0.12);
+  --if-warn: #f5a524;
+  --if-scrim: rgba(0, 0, 0, 0.64);
+  --if-ma-1: #ffa726;
+  --if-ma-2: #ea3f79;
+  --if-ma-3: #27c6da;
+  --if-alloc-1: #c8f64a;
+  --if-alloc-2: #e6e6e6;
+  --if-alloc-3: #a6a6a6;
+  --if-alloc-4: #737373;
+  --if-alloc-5: #4d4d4d;
+  --if-alloc-6: #2e2e2e;
+  --if-font-ui: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --if-font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --if-text-2xs: 11px;
+  --if-leading-2xs: 14px;
+  --if-weight-2xs: 500;
+  --if-text-xs: 12px;
+  --if-leading-xs: 16px;
+  --if-weight-xs: 400;
+  --if-text-sm: 13px;
+  --if-leading-sm: 18px;
+  --if-weight-sm: 400;
+  --if-text-base: 14px;
+  --if-leading-base: 20px;
+  --if-weight-base: 400;
+  --if-text-md: 16px;
+  --if-leading-md: 24px;
+  --if-weight-md: 500;
+  --if-text-lg: 20px;
+  --if-leading-lg: 28px;
+  --if-weight-lg: 600;
+  --if-text-xl: 24px;
+  --if-leading-xl: 32px;
+  --if-weight-xl: 700;
+  --if-text-2xl: 28px;
+  --if-leading-2xl: 36px;
+  --if-weight-2xl: 700;
+  --if-text-hero-pro: 32px;
+  --if-leading-hero-pro: 40px;
+  --if-weight-hero-pro: 700;
+  --if-text-hero: 48px;
+  --if-leading-hero: 56px;
+  --if-weight-hero: 700;
+  --if-tracking-tight: -0.02em;
+  --if-r-xs: 4px;
+  --if-r-sm: 8px;
+  --if-r-md: 12px;
+  --if-r-lg: 16px;
+  --if-r-pill: 999px;
+  --if-shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --if-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --if-t-fast: 120ms;
+  --if-t-menu: 160ms;
+  --if-t-tab: 150ms;
+  --if-t-flash: 600ms;
+}
+
+/* "Red for up" preference: the up/down pair swaps here, components never branch on it. */
+[data-up-color='red'] {
+  --if-up: #ca3f64;
+  --if-up-text: #e0567a;
+  --if-on-up: #ffffff;
+  --if-down: #25a750;
+  --if-down-text: #25a750;
+  --if-on-down: #0b0b0b;
+  --if-up-bg: #280d14;
+  --if-down-bg: #0b361a;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --if-t-fast: 0ms;
+    --if-t-menu: 0ms;
+    --if-t-tab: 0ms;
+    --if-t-flash: 0ms;
+  }
+}
