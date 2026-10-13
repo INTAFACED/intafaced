@@ -1317,7 +1317,10 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
           },
         },
         reducer: sqlPositionReducer(sql),
-        // 600 bps of notional: mark 95 (equity 50) seizes; 115+ walk stays healthy.
+        // 600 bps of notional. At mark 95 equity is 50 against maintenance 57 (health
+        // 8771 bps < 12000 call), so the ladder closes the MINIMUM tranche that restores
+        // target health (15000 bps) — a partial close, not a seizure (DIRECTION-2026-07-31 §1,
+        // ADR 2026-08-05 futures-risk-and-mark-law, ladder #1136). 115+ walk stays healthy.
         policy: {
           tiers: [{ uptoDepthBps: Number.MAX_SAFE_INTEGER, maintenanceBps: 600 }],
           marginCallBps: 12_000,
@@ -1331,7 +1334,9 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
   /**
    * entry 100, size 10, leverage 10 → margin 100, maintenance 50 (named 5000 bps
    * fixture on the tick; omitted MM no longer invents 50%).
-   * At mark 95 equity is exactly 50 and it liquidates.
+   * At mark 95 equity is exactly 50, below the tick policy's maintenance (600 bps), so the
+   * ladder partially liquidates: it closes the minimum that restores maintenance margin
+   * (DIRECTION-2026-07-31 §1; ADR 2026-08-05 futures-risk-and-mark-law; ladder #1136).
    */
   async function marginal() {
     feed('100');
@@ -1351,11 +1356,19 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
 
     feed('95');
     const result = await tick();
-    expect(result.liquidated).toBe(1);
-    // THE BALANCES: 50 of margin absorbed the loss, 50 came back.
-    expect(formatAmount((await ledger.balance(positionCollateralAccount(ALICE, 'USDT', pos.id!))).amount)).toBe('0');
-    expect(formatAmount((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount)).toBe('99950');
-    expect(await positions.listOpen(ALICE)).toEqual([]);
+    // Partial liquidation is the intended ladder behaviour (DIRECTION-2026-07-31 §1, ADR
+    // 2026-08-05 futures-risk-and-mark-law, #1136): close the minimum that restores target health.
+    expect(result.liquidated).toBe(0);
+    expect(result.partial).toBe(1);
+    expect(result.items[0]!.outcome).toBe('partially_liquidated');
+    expect(result.items[0]!.reason).toBe('ladder_partial');
+    // THE BALANCES: the closed slice's ~20.76 loss is paid out of the position's collateral (100 -> 79.24);
+    // available stays 99900 and the remaining position stays open.
+    expect(formatAmount((await ledger.balance(positionCollateralAccount(ALICE, 'USDT', pos.id!))).amount)).toBe('79.239766081871345025');
+    expect(formatAmount((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount)).toBe('99900');
+    const open = await positions.listOpen(ALICE);
+    expect(open).toHaveLength(1);
+    expect(open[0]!.contracts).toBe('5.847953216374269005');
   });
 
   /**
