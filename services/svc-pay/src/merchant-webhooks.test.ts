@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { parseAmount } from '@intafaced/ledger-client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { verifySignature } from './rails/webhook-signature.js';
 import {
   MemoryMerchantWebhookStore,
@@ -11,6 +11,8 @@ import {
   paymentStateBody,
 } from './merchant-webhooks.js';
 import { PayError, type PaymentView } from './payment-service.js';
+import type { PinnedPostRequest, WebhookTransport } from './webhook-pinned-post.js';
+import type { WebhookResolver } from './webhook-url-guard.js';
 
 const MERCHANT = '33333333-3333-4333-8333-333333333333';
 
@@ -124,7 +126,7 @@ describe('MerchantWebhookService', () => {
 
   it('enqueues once per endpoint and dedupes on event id', async () => {
     const store = new MemoryMerchantWebhookStore();
-    const svc = new MerchantWebhookService(store);
+    const svc = new MerchantWebhookService(store, { allowLocalHttp: true });
     const { url, server: s } = await listen((_req, res) => {
       res.writeHead(200);
       res.end('ok');
@@ -153,7 +155,7 @@ describe('MerchantWebhookService', () => {
     });
     server = s;
 
-    const svc = new MerchantWebhookService(store, { disableAfterFailures: 3, maxAttempts: 3 });
+    const svc = new MerchantWebhookService(store, { allowLocalHttp: true, disableAfterFailures: 3, maxAttempts: 3 });
     const created = await svc.registerEndpoint(MERCHANT, url);
     seenSecret = created.secret;
     expect(seenSecret.length).toBe(64);
@@ -187,7 +189,7 @@ describe('MerchantWebhookService', () => {
     });
     server = s;
 
-    const svc = new MerchantWebhookService(store, { disableAfterFailures: 2, maxAttempts: 8 });
+    const svc = new MerchantWebhookService(store, { allowLocalHttp: true, disableAfterFailures: 2, maxAttempts: 8 });
     await svc.registerEndpoint(MERCHANT, url);
     await svc.enqueue({ type: 'payment.authorized', payment: payment({ status: 'authorized' }) });
 
@@ -220,7 +222,7 @@ describe('MerchantWebhookService', () => {
     });
     server = s;
 
-    const svc = new MerchantWebhookService(store, { disableAfterFailures: 99, maxAttempts: 2 });
+    const svc = new MerchantWebhookService(store, { allowLocalHttp: true, disableAfterFailures: 99, maxAttempts: 2 });
     await svc.registerEndpoint(MERCHANT, url);
     await svc.enqueue({ type: 'payment.failed', payment: payment({ status: 'failed' }) });
 
@@ -263,7 +265,7 @@ describe('MerchantWebhookService', () => {
     });
     server = s;
 
-    const svc = new MerchantWebhookService(store, { disableAfterFailures: 1, maxAttempts: 8 });
+    const svc = new MerchantWebhookService(store, { allowLocalHttp: true, disableAfterFailures: 1, maxAttempts: 8 });
     const created = await svc.registerEndpoint(MERCHANT, url);
     await svc.enqueue({ type: 'payment.authorized', payment: payment({ status: 'authorized' }) });
     await svc.processDue(25);
@@ -287,7 +289,7 @@ describe('MerchantWebhookService', () => {
     });
     server = s;
 
-    const svc = new MerchantWebhookService(store, { disableAfterFailures: 8, maxAttempts: 8 });
+    const svc = new MerchantWebhookService(store, { allowLocalHttp: true, disableAfterFailures: 8, maxAttempts: 8 });
     const created = await svc.registerEndpoint(MERCHANT, url);
     const ep = store.endpoints.get(created.id);
     expect(ep).toBeTruthy();
@@ -306,7 +308,7 @@ describe('MerchantWebhookService', () => {
 
   it('processDue refuses unset batch — never invent 25; owner may pass 25', async () => {
     const store = new MemoryMerchantWebhookStore();
-    const svc = new MerchantWebhookService(store);
+    const svc = new MerchantWebhookService(store, { allowLocalHttp: true });
     await expect(svc.processDue()).rejects.toMatchObject({
       code: 'pay.due_webhook_deliveries_batch_limit_unset',
     });
@@ -314,5 +316,250 @@ describe('MerchantWebhookService', () => {
     await expect(svc.processDue(0)).rejects.toMatchObject({ code: 'pay.validation_failed' });
     await expect(svc.processDue(501)).rejects.toMatchObject({ code: 'pay.validation_failed' });
     await expect(svc.processDue(25)).resolves.toEqual({ delivered: 0, failed: 0, disabled: 0 });
+  });
+});
+
+describe('MerchantWebhookService — SSRF guard', () => {
+  const PUBLIC_ADDR = '93.184.216.34';
+  const publicResolver: WebhookResolver = async () => [{ address: PUBLIC_ADDR, family: 4 }];
+
+  /** Transport stub: records every connect and answers with `status`. No sockets. */
+  function stubTransport(status = 200) {
+    const calls: PinnedPostRequest[] = [];
+    const transport: WebhookTransport = async (req) => {
+      calls.push(req);
+      return { status };
+    };
+    return { calls, transport };
+  }
+
+  async function seed(svc: MerchantWebhookService, store: MemoryMerchantWebhookStore, url: string) {
+    // Written straight to the store: this is an endpoint that predates the guard.
+    const id = '55555555-5555-4555-8555-555555555555';
+    await store.insertEndpoint({ id, merchantId: MERCHANT, url, secretHash: 'h', secretEncrypted: 'x'.repeat(64) });
+    await svc.enqueue({ type: 'payment.captured', payment: payment() });
+    for (const d of store.deliveries.values()) d.nextAttemptAt = new Date(0);
+    return id;
+  }
+
+  it('registerEndpoint REFUSES private targets in production posture (default)', async () => {
+    const svc = new MerchantWebhookService(new MemoryMerchantWebhookStore());
+    for (const url of ['https://169.254.169.254/x', 'https://10.0.0.1/x', 'https://svc-ledger/x', 'http://localhost:3000/x']) {
+      await expect(svc.registerEndpoint(MERCHANT, url)).rejects.toMatchObject({ code: 'pay.webhook_url_invalid' });
+    }
+    await expect(svc.registerEndpoint(MERCHANT, 'https://merchant.example/x')).resolves.toBeTruthy();
+  });
+
+  it('registerEndpoint allows http localhost only with allowLocalHttp', async () => {
+    const svc = new MerchantWebhookService(new MemoryMerchantWebhookStore(), { allowLocalHttp: true });
+    await expect(svc.registerEndpoint(MERCHANT, 'http://localhost:3000/x')).resolves.toBeTruthy();
+  });
+
+  it('delivery to an endpoint stored with a private URL fails as webhook_target_not_public, is counted, and never connects', async () => {
+    const store = new MemoryMerchantWebhookStore();
+    const { calls, transport } = stubTransport();
+    const svc = new MerchantWebhookService(store, { transport, resolver: publicResolver, disableAfterFailures: 2, maxAttempts: 8 });
+    const id = await seed(svc, store, 'http://169.254.169.254/latest/meta-data/');
+
+    const r1 = await svc.processDue(25);
+    expect(r1).toEqual({ delivered: 0, failed: 1, disabled: 0 });
+    const [delivery] = [...store.deliveries.values()];
+    expect(delivery?.lastError).toBe('webhook_target_not_public');
+    expect(delivery?.status).toBe('failed');
+    expect(store.endpoints.get(id)?.consecutiveFailures).toBe(1);
+
+    for (const d of store.deliveries.values()) d.nextAttemptAt = new Date(0);
+    const r2 = await svc.processDue(25);
+    expect(r2).toEqual({ delivered: 0, failed: 1, disabled: 1 });
+    expect(store.endpoints.get(id)?.status).toBe('disabled');
+    expect(store.endpoints.get(id)?.disabledReason).toBe('consecutive_failures');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('a hostname that resolves to a private address fails as webhook_target_not_public', async () => {
+    const store = new MemoryMerchantWebhookStore();
+    const { calls, transport } = stubTransport();
+    const resolver: WebhookResolver = async () => [
+      { address: PUBLIC_ADDR, family: 4 },
+      { address: '10.1.2.3', family: 4 },
+    ];
+    const svc = new MerchantWebhookService(store, { transport, resolver });
+    await seed(svc, store, 'https://rebind.merchant.example/hook');
+
+    const r = await svc.processDue(25);
+    expect(r.failed).toBe(1);
+    expect([...store.deliveries.values()][0]?.lastError).toBe('webhook_target_not_public');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('a resolver error fails closed as webhook_target_not_public', async () => {
+    const store = new MemoryMerchantWebhookStore();
+    const { calls, transport } = stubTransport();
+    const resolver: WebhookResolver = async () => {
+      throw new Error('ENOTFOUND');
+    };
+    const svc = new MerchantWebhookService(store, { transport, resolver });
+    await seed(svc, store, 'https://merchant.example/hook');
+
+    await svc.processDue(25);
+    expect([...store.deliveries.values()][0]?.lastError).toBe('webhook_target_not_public');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('PINS the connect: the vetted address is used and the name is never resolved a second time', async () => {
+    const store = new MemoryMerchantWebhookStore();
+    const { calls, transport } = stubTransport(200);
+    let lookups = 0;
+    // First answer is public; any later answer would be loopback (DNS rebinding).
+    const resolver: WebhookResolver = async () => {
+      lookups += 1;
+      return [{ address: lookups === 1 ? PUBLIC_ADDR : '127.0.0.1', family: 4 }];
+    };
+    const svc = new MerchantWebhookService(store, { transport, resolver });
+    await seed(svc, store, 'https://merchant.example/hook');
+
+    const r = await svc.processDue(25);
+    expect(r.delivered).toBe(1);
+    expect(lookups).toBe(1);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.addresses).toEqual([{ address: PUBLIC_ADDR, family: 4 }]);
+    // Name kept for SNI / Host; the transport receives the vetted IP separately.
+    expect(calls[0]!.url.hostname).toBe('merchant.example');
+    expect(calls[0]!.timeoutMs).toBeLessThanOrEqual(10_000);
+    expect(calls[0]!.timeoutMs).toBeGreaterThan(9_000);
+  });
+
+  it('a 302 to the metadata service is NOT followed and is recorded as a failure', async () => {
+    const store = new MemoryMerchantWebhookStore();
+    const { calls, transport } = stubTransport(302);
+    const svc = new MerchantWebhookService(store, { transport, resolver: publicResolver, disableAfterFailures: 1 });
+    const id = await seed(svc, store, 'https://merchant.example/hook');
+
+    const r = await svc.processDue(25);
+    expect(r).toEqual({ delivered: 0, failed: 1, disabled: 1 });
+    const [delivery] = [...store.deliveries.values()];
+    expect(delivery?.lastStatusCode).toBe(302);
+    expect(delivery?.lastError).toBe('webhook_redirect_not_followed (HTTP 302)');
+    expect(calls).toHaveLength(1);
+    expect(store.endpoints.get(id)?.status).toBe('disabled');
+  });
+
+  it('end to end with the real transport: a receiver that redirects to 169.254.169.254 is hit once and fails', async () => {
+    const store = new MemoryMerchantWebhookStore();
+    const {
+      url,
+      server: s,
+      cap,
+    } = await listen((_req, res) => {
+      res.writeHead(302, { location: 'http://169.254.169.254/latest/meta-data/' });
+      res.end();
+    });
+    server = s;
+    const svc = new MerchantWebhookService(store, { allowLocalHttp: true });
+    await svc.registerEndpoint(MERCHANT, url);
+    await svc.enqueue({ type: 'payment.captured', payment: payment() });
+    const r = await svc.processDue(25);
+    expect(r.failed).toBe(1);
+    expect(cap.count).toBe(1);
+    expect([...store.deliveries.values()][0]?.lastError).toBe('webhook_redirect_not_followed (HTTP 302)');
+  });
+
+  it('production posture refuses even a loopback receiver at delivery time', async () => {
+    const store = new MemoryMerchantWebhookStore();
+    const {
+      url,
+      server: s,
+      cap,
+    } = await listen((_req, res) => {
+      res.writeHead(200);
+      res.end('ok');
+    });
+    server = s;
+    const svc = new MerchantWebhookService(store); // allowLocalHttp defaults to false
+    await seed(svc, store, url);
+
+    const r = await svc.processDue(25);
+    expect(r.failed).toBe(1);
+    expect(cap.count).toBe(0);
+    expect([...store.deliveries.values()][0]?.lastError).toBe('webhook_target_not_public');
+  });
+});
+
+describe('MerchantWebhookService — one delivery deadline (DNS + connect + headers)', () => {
+  const MERCHANT_ID = MERCHANT;
+
+  async function seedOne(svc: MerchantWebhookService, store: MemoryMerchantWebhookStore) {
+    await store.insertEndpoint({
+      id: '66666666-6666-4666-8666-666666666666',
+      merchantId: MERCHANT_ID,
+      url: 'https://merchant.example/hook',
+      secretHash: 'h',
+      secretEncrypted: 'x'.repeat(64),
+    });
+    await svc.enqueue({ type: 'payment.captured', payment: payment() });
+    for (const d of store.deliveries.values()) d.nextAttemptAt = new Date(0);
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a resolver that never answers fails the attempt within the budget and records it', async () => {
+    vi.useFakeTimers();
+    const store = new MemoryMerchantWebhookStore();
+    const calls: PinnedPostRequest[] = [];
+    const transport: WebhookTransport = async (req) => {
+      calls.push(req);
+      return { status: 200 };
+    };
+    const hung: WebhookResolver = () => new Promise(() => {});
+    const svc = new MerchantWebhookService(store, { transport, resolver: hung, disableAfterFailures: 1 });
+    await seedOne(svc, store);
+
+    const run = svc.processDue(25);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const r = await run;
+    expect(r).toEqual({ delivered: 0, failed: 1, disabled: 1 });
+    expect([...store.deliveries.values()][0]?.lastError).toBe('webhook_dns_timeout');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('a slow resolver spends the shared budget: the transport only gets what is left', async () => {
+    vi.useFakeTimers();
+    const store = new MemoryMerchantWebhookStore();
+    const calls: PinnedPostRequest[] = [];
+    const transport: WebhookTransport = async (req) => {
+      calls.push(req);
+      return { status: 200 };
+    };
+    const slow: WebhookResolver = () =>
+      new Promise((resolve) => setTimeout(() => resolve([{ address: '93.184.216.34', family: 4 }]), 4_000));
+    const svc = new MerchantWebhookService(store, { transport, resolver: slow });
+    await seedOne(svc, store);
+
+    const run = svc.processDue(25);
+    await vi.advanceTimersByTimeAsync(4_000);
+    const r = await run;
+    expect(r.delivered).toBe(1);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.timeoutMs).toBeLessThanOrEqual(6_000);
+    expect(calls[0]!.timeoutMs).toBeGreaterThan(0);
+  });
+
+  it('hands every vetted address to the transport, families alternating', async () => {
+    const store = new MemoryMerchantWebhookStore();
+    const calls: PinnedPostRequest[] = [];
+    const transport: WebhookTransport = async (req) => {
+      calls.push(req);
+      return { status: 200 };
+    };
+    const resolver: WebhookResolver = async () => [
+      { address: '2606:4700:4700::1111', family: 6 },
+      { address: '93.184.216.34', family: 4 },
+    ];
+    const svc = new MerchantWebhookService(store, { transport, resolver });
+    await seedOne(svc, store);
+    await svc.processDue(25);
+    expect(calls[0]!.addresses.map((a) => a.address)).toEqual(['2606:4700:4700::1111', '93.184.216.34']);
   });
 });

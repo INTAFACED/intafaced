@@ -22,7 +22,7 @@ describe('ops.support fleet compose pin', () => {
     expect(block).toMatch(/\*internal-secret/);
     expect(block).toMatch(/SERVICE_NAME:\s*svc-support/);
     expect(block).toMatch(/HTTP_PORT:\s*'4017'/);
-    expect(block).toMatch(/DATABASE_URL:\s*postgres:\/\/svc_support:svc_support@postgres:5432\/intafaced/);
+    expect(block).toMatch(/DATABASE_URL:\s*postgres:\/\/svc_support:\$\{SVC_SUPPORT_DB_PASSWORD:-svc_support\}@postgres:5432\/intafaced/);
     expect(block).toMatch(/IDENTITY_URL:\s*http:\/\/svc-identity:4002/);
     expect(block).not.toMatch(/^\s+LEDGER_URL:/m);
     expect(block).toMatch(/svc-identity:\s*\{\s*condition:\s*service_healthy\s*\}/);

@@ -8,6 +8,7 @@ import {
   formatAmount,
   parseAmount,
   recipes,
+  sum,
   type Amount,
   type LedgerClient,
 } from '@intafaced/ledger-client';
@@ -123,6 +124,21 @@ export interface AccrualResult {
   /** Null when nothing was owed — a real, recorded outcome, not a failure. */
   ledgerTxId: string | null;
   alreadyAccrued: boolean;
+}
+
+/** One day's payout list as the accrual claim row stores it. */
+type PlannedPayout = { userId: string; amount: Amount };
+
+/** What the first transaction of `accrueInner` decided: finished, or a plan to post. */
+type AccrualStep = { kind: 'done'; result: AccrualResult } | { kind: 'resume'; accrualId: string; payouts: PlannedPayout[] };
+
+/** Amounts go to JSON as decimal strings: a bigint cannot, and a number would lose digits. */
+function encodePayouts(payouts: readonly PlannedPayout[]): Array<{ userId: string; amount: string }> {
+  return payouts.map((p) => ({ userId: p.userId, amount: formatAmount(p.amount) }));
+}
+
+function decodePayouts(stored: ReadonlyArray<{ userId: string; amount: string }>): PlannedPayout[] {
+  return stored.map((p) => ({ userId: p.userId, amount: parseAmount(p.amount) }));
 }
 
 /**
@@ -625,16 +641,24 @@ export class EarnService {
    * Both derive from the same (pool, day) pair, so a cron that fires twice at
    * midnight, or a catch-up run overlapping the live schedule, pays once.
    *
-   * If this crashes exactly here — after the ledger post, before the database
-   * commit — the claim rolls back while the payment stands. The next run
-   * re-claims, re-posts (idempotent, returns the same transaction when the payout list
-   * is unchanged; if a position moved in between the body differs, which the ledger logs
-   * in `detect` mode and refuses in `refuse` mode: reconcile against `getTxByKey` before flipping)
-   * and writes the record against it. Nobody's funds are stranded: the interest is in the
-   * users' available balances the whole time.
+   * Three steps, so a crash cannot change what the day pays:
    *
-   * If the reserve cannot cover the day, NOTHING moves and the claim rolls back
-   * so the day can be re-run once the pool is funded. That is the loud failure
+   *   1. One transaction claims the day, reads the positions and ledger stake
+   *      pots, plans the payouts, and stores that list on the claim row
+   *      (`planned_payouts`, amounts as decimal strings). Committed.
+   *   2. The ledger post, outside any transaction, with the STORED list.
+   *   3. The claim row gets `paid_amount`, `recipients` and `ledger_tx_id`.
+   *
+   * A crash after step 2 and before step 3 leaves a claim with a plan and no
+   * ledger transaction. The next run does not plan again: a position may have
+   * been withdrawn since, and the same ledger key with a different body is a
+   * conflict, not a retry. It posts the stored list (idempotent, returns the
+   * same transaction) and records it. Nobody's funds are stranded: the interest
+   * is in the users' available balances the whole time. A row with a
+   * transaction, or with no stored plan (older rows, an empty day), is final.
+   *
+   * If the reserve cannot cover the day, NOTHING moves and the claim is deleted
+   * so the day can be planned afresh once the pool is funded. That is the loud failure
    * §8.1 needs: a pool that cannot pay its advertised rate is an operator
    * problem today, not a shortfall discovered at maturity.
    */
@@ -655,10 +679,11 @@ export class EarnService {
   private async accrueInner(poolId: string, date: string, boundary: Date, daysPerYear?: number): Promise<AccrualResult> {
     const pool = await this.pool(poolId);
 
-    return transaction(
+    // Step 1: claim the day and store the plan, committed before any money moves.
+    const step = await transaction(
       this.sql,
-      async (tx) => {
-        // Claim the day. A second run blocks here, then finds zero rows.
+      async (tx): Promise<AccrualStep> => {
+        // Claim the day. A second run blocks here until the claim commits.
         const claimed = await tx<Array<{ id: string }>>`
           INSERT INTO bank.interest_accruals (pool_id, accrual_date, rate_bps, paid_amount, recipients)
           VALUES (${pool.id}, ${date}, ${pool.aprBps}, 0, 0)
@@ -667,18 +692,34 @@ export class EarnService {
         `;
 
         if (claimed.length === 0) {
-          const existing = await tx<Array<{ paid_amount: string; recipients: number; ledger_tx_id: string | null }>>`
-            SELECT paid_amount, recipients, ledger_tx_id FROM bank.interest_accruals
+          const existing = await tx<
+            Array<{
+              id: string;
+              paid_amount: string;
+              recipients: number;
+              ledger_tx_id: string | null;
+              planned_payouts: Array<{ userId: string; amount: string }> | null;
+            }>
+          >`
+            SELECT id, paid_amount, recipients, ledger_tx_id, planned_payouts FROM bank.interest_accruals
              WHERE pool_id = ${pool.id} AND accrual_date = ${date}
           `;
           const row = existing[0]!;
+          if (row.ledger_tx_id === null && row.planned_payouts !== null) {
+            // A run planned the day and stopped before recording the post. Pay
+            // exactly what it planned.
+            return { kind: 'resume', accrualId: row.id, payouts: decodePayouts(row.planned_payouts) };
+          }
           return {
-            poolId: pool.id,
-            date,
-            paid: parseAmount(row.paid_amount),
-            recipients: row.recipients,
-            ledgerTxId: row.ledger_tx_id,
-            alreadyAccrued: true,
+            kind: 'done',
+            result: {
+              poolId: pool.id,
+              date,
+              paid: parseAmount(row.paid_amount),
+              recipients: row.recipients,
+              ledgerTxId: row.ledger_tx_id,
+              alreadyAccrued: true,
+            },
           };
         }
 
@@ -713,46 +754,128 @@ export class EarnService {
         if (plan.payouts.length === 0) {
           // A real outcome, recorded: an empty pool, or every position too small
           // to earn a unit today. Writing the row keeps the day from being
-          // reconsidered forever.
-          return { poolId: pool.id, date, paid: 0n, recipients: 0, ledgerTxId: null, alreadyAccrued: false };
+          // reconsidered forever. No plan is stored, so the row is final.
+          return {
+            kind: 'done',
+            result: { poolId: pool.id, date, paid: 0n, recipients: 0, ledgerTxId: null, alreadyAccrued: false },
+          };
         }
 
-        let posted;
-        try {
-          posted = await this.ledger.post(recipes.earnInterest({ poolId: pool.id, date, assetId: pool.assetId, payouts: plan.payouts }));
-        } catch (err) {
-          if (err instanceof InsufficientFundsError || (err instanceof LedgerError && err.code === 'ledger.insufficient_funds')) {
-            // Rethrown as a bank code so the operator alert says what is wrong
-            // ("this pool cannot pay its rate") rather than what the ledger saw.
-            // The throw rolls the claim back — deliberately, so the day is
-            // re-runnable the moment the reserve is topped up.
-            throw new BankError(
-              `Pool "${pool.name}" cannot cover ${formatAmount(plan.total)} ${pool.assetId} of interest for ${date}`,
-              'bank.pool_underfunded',
-            );
-          }
-          throw err;
-        }
-
+        const payouts = plan.payouts.map((p) => ({ userId: p.userId, amount: p.amount }));
         await tx`
           UPDATE bank.interest_accruals
-             SET paid_amount = ${formatAmount(plan.total)}::numeric,
-                 recipients = ${plan.payouts.length},
-                 ledger_tx_id = ${posted.id}
+             SET planned_payouts = ${tx.json(encodePayouts(payouts) as never)}
            WHERE id = ${accrualId}
         `;
-
-        return {
-          poolId: pool.id,
-          date,
-          paid: plan.total,
-          recipients: plan.payouts.length,
-          ledgerTxId: posted.id,
-          alreadyAccrued: false,
-        };
+        return { kind: 'resume', accrualId, payouts };
       },
       { isolation: 'read committed', maxAttempts: 5 },
     );
+
+    if (step.kind === 'done') return step.result;
+
+    return this.settleAccrual(pool, date, step.accrualId, step.payouts, 'release');
+  }
+
+  /**
+   * Steps 2 and 3 of an accrual: post the stored plan, then record it.
+   *
+   * `onUnderfunded` says what happens to the claim when the reserve cannot
+   * cover the plan. `release` deletes it so the day is planned afresh, which is
+   * right for the day being accrued now. `keep` leaves the stored plan in
+   * place, which is right for an earlier day that only ever resumes: nothing
+   * would plan that day again, and the plan is still what it owed.
+   */
+  private async settleAccrual(
+    pool: PoolRecord,
+    date: string,
+    accrualId: string,
+    payouts: PlannedPayout[],
+    onUnderfunded: 'release' | 'keep',
+  ): Promise<AccrualResult> {
+    const total = sum(payouts.map((p) => p.amount));
+    let posted;
+    try {
+      posted = await this.ledger.post(recipes.earnInterest({ poolId: pool.id, date, assetId: pool.assetId, payouts }));
+    } catch (err) {
+      if (err instanceof InsufficientFundsError || (err instanceof LedgerError && err.code === 'ledger.insufficient_funds')) {
+        // Nothing posted. Drop the claim so the day is re-runnable the moment
+        // the reserve is topped up, and is planned afresh from live positions.
+        // The guard keeps a claim that a concurrent run has already recorded.
+        if (onUnderfunded === 'release') {
+          await this.sql`
+            DELETE FROM bank.interest_accruals WHERE id = ${accrualId} AND ledger_tx_id IS NULL
+          `;
+        }
+        // Rethrown as a bank code so the operator alert says what is wrong
+        // ("this pool cannot pay its rate") rather than what the ledger saw.
+        throw new BankError(
+          `Pool "${pool.name}" cannot cover ${formatAmount(total)} ${pool.assetId} of interest for ${date}`,
+          'bank.pool_underfunded',
+        );
+      }
+      throw err;
+    }
+
+    const recorded = await this.sql<Array<{ id: string }>>`
+      UPDATE bank.interest_accruals
+         SET paid_amount = ${formatAmount(total)}::numeric,
+             recipients = ${payouts.length},
+             ledger_tx_id = ${posted.id}
+       WHERE id = ${accrualId}
+      RETURNING id
+    `;
+    if (recorded.length === 0) {
+      // The claim was deleted after the post landed: a concurrent run saw the
+      // reserve short before our post took effect and released it. The payment
+      // stands, so it gets its record back.
+      await this.sql`
+        INSERT INTO bank.interest_accruals (pool_id, accrual_date, rate_bps, paid_amount, recipients, ledger_tx_id, planned_payouts)
+        VALUES (
+          ${pool.id}, ${date}, ${pool.aprBps}, ${formatAmount(total)}::numeric, ${payouts.length}, ${posted.id},
+          ${this.sql.json(encodePayouts(payouts) as never)}
+        )
+        ON CONFLICT (pool_id, accrual_date) DO UPDATE
+           SET paid_amount = EXCLUDED.paid_amount,
+               recipients = EXCLUDED.recipients,
+               ledger_tx_id = EXCLUDED.ledger_tx_id,
+               planned_payouts = EXCLUDED.planned_payouts
+      `;
+    }
+
+    return {
+      poolId: pool.id,
+      date,
+      paid: total,
+      recipients: payouts.length,
+      ledgerTxId: posted.id,
+      alreadyAccrued: false,
+    };
+  }
+
+  /**
+   * Finish accruals from EARLIER days that stopped between planning and
+   * recording. Each keeps its own date and its own stored plan; no day is
+   * planned here. Every failure is reported against its pool.
+   */
+  private async resumeEarlierAccruals(before: string, results: AccrualResult[], failures: AccrueAllReport['failures']): Promise<void> {
+    const pending = await this.sql<
+      Array<{ id: string; pool_id: string; accrual_date: string; planned_payouts: Array<{ userId: string; amount: string }> }>
+    >`
+      SELECT id, pool_id, accrual_date::text AS accrual_date, planned_payouts FROM bank.interest_accruals
+       WHERE planned_payouts IS NOT NULL AND ledger_tx_id IS NULL AND accrual_date < ${before}
+       ORDER BY accrual_date ASC, id ASC
+    `;
+    for (const row of pending) {
+      try {
+        const pool = await this.pool(row.pool_id);
+        results.push(await this.settleAccrual(pool, row.accrual_date, row.id, decodePayouts(row.planned_payouts), 'keep'));
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        const code = err instanceof BankError ? err.code : undefined;
+        failures.push({ poolId: row.pool_id, reason: `${row.accrual_date}: ${reason}`, ...(code ? { code } : {}) });
+      }
+    }
   }
 
   /**
@@ -762,11 +885,15 @@ export class EarnService {
    * THAT pool (`bank.pool_underfunded` still throws from `accrue` when called
    * alone), but it must not withhold every other pool's advertised yield for the
    * day. Failures are returned, not swallowed — ops see which pool blocked.
+   *
+   * Earlier days whose run stopped after planning are finished first, from
+   * their stored plans, and reported alongside today's results.
    */
   async accrueAll(at: Date = new Date(), daysPerYear?: number): Promise<AccrueAllReport> {
     const pools = await this.openPoolsForAccrual();
     const results: AccrualResult[] = [];
     const failures: AccrueAllReport['failures'] = [];
+    await this.resumeEarlierAccruals(accrualDate(at), results, failures);
     for (const pool of pools) {
       try {
         results.push(await this.accrue({ poolId: pool.id, at, ...(daysPerYear === undefined ? {} : { daysPerYear }) }));

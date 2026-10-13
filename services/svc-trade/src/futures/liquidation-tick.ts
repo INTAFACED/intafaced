@@ -283,7 +283,9 @@ export interface LiquidationTickItemResult {
     | 'margin_call'
     | 'partially_liquidated'
     | 'liquidated'
-    | 'invalid';
+    | 'invalid'
+    /** The position's own processing threw. Its failure is reported here and never stops the others. */
+    | 'errored';
   reason: string;
   summary?: string;
   /**
@@ -300,6 +302,15 @@ export interface LiquidationTickResult {
   partial: number;
   /** Positions under the margin-call threshold but not yet liquidatable. */
   marginCalls: number;
+  /** Positions whose processing threw. Each has an `errored` item carrying the cause. */
+  errored: number;
+  /**
+   * Open positions the tick skipped as `skipped_already`: an attempt/claim row
+   * exists, yet the position is still open. A claim whose worker is mid-flight
+   * clears itself next tick; one that persists is a rung parked after a crash
+   * (see `runLadderRung`) and needs an operator. Alert on it staying non-zero.
+   */
+  parked: number;
   items: LiquidationTickItemResult[];
 }
 
@@ -317,92 +328,117 @@ export async function runLiquidationTick(deps: LiquidationTickDeps): Promise<Liq
   let liquidated = 0;
   let partial = 0;
   let marginCalls = 0;
+  let errored = 0;
 
   for (const row of open) {
-    const liquidationId = deps.liquidationIdFor?.(row, at) ?? defaultLiquidationId(row.positionId);
-
-    if (await deps.attempts.isDone(liquidationId)) {
-      items.push({ positionId: row.positionId, outcome: 'skipped_already', reason: 'already_done' });
-      continue;
-    }
-
     /**
-     * THE GATE, BEFORE ANYTHING IS SEIZED.
+     * ONE POSITION'S FAILURE IS NOT THE BOOK'S.
      *
-     * Only a LABELLED quote enters the gate. Stamping bare `markPrice` as
-     * `quality: 'mid'` used to invent a liquidation quality and set `asOf: now`,
-     * disarming quality + staleness (Denon handoff §6). Missing `quote()` is
-     * darkness — skip, never invent.
-     *
-     * ABSENT IS NOT ZERO. There is no branch below that turns a missing mark
-     * into a price — on a perp, valuing a missing mark at zero does not
-     * misprice one position, it liquidates every one of them.
+     * Positions are scanned oldest first and nothing below this line is
+     * transactional across them. A throw out of one position (a refused ledger
+     * post, an unreadable store) used to abort the loop, so every position
+     * NEWER than the stuck one went unliquidated on every tick for as long as
+     * it stayed stuck. The failure is reported on its own item and the scan
+     * goes on; the stuck position is retried next tick like any other.
      */
-    // W4 R5: pass position size so depth-backed marks apply the relative
-    // floor (authorisesSize). Omitting it re-opens the size-blind liq path
-    // that close already sealed — absolute dust floor alone is not enough.
-    const authorisesSize = parseAmount(row.size);
-    if (!deps.marks.quote) {
+    try {
+      const liquidationId = deps.liquidationIdFor?.(row, at) ?? defaultLiquidationId(row.positionId);
+
+      if (await deps.attempts.isDone(liquidationId)) {
+        items.push({ positionId: row.positionId, outcome: 'skipped_already', reason: 'already_done' });
+        continue;
+      }
+
+      /**
+       * THE GATE, BEFORE ANYTHING IS SEIZED.
+       *
+       * Only a LABELLED quote enters the gate. Stamping bare `markPrice` as
+       * `quality: 'mid'` used to invent a liquidation quality and set `asOf: now`,
+       * disarming quality + staleness (Denon handoff §6). Missing `quote()` is
+       * darkness — skip, never invent.
+       *
+       * ABSENT IS NOT ZERO. There is no branch below that turns a missing mark
+       * into a price — on a perp, valuing a missing mark at zero does not
+       * misprice one position, it liquidates every one of them.
+       */
+      // W4 R5: pass position size so depth-backed marks apply the relative
+      // floor (authorisesSize). Omitting it re-opens the size-blind liq path
+      // that close already sealed — absolute dust floor alone is not enough.
+      const authorisesSize = parseAmount(row.size);
+      if (!deps.marks.quote) {
+        items.push({
+          positionId: row.positionId,
+          outcome: 'skipped_no_mark',
+          reason: 'no_labelled_quote',
+          summary: `${row.marketId}: mark source has no labelled quote() — refuse inventing quality from bare markPrice`,
+        });
+        continue;
+      }
+      const quoted = await deps.marks.quote({ marketId: row.marketId, symbol: row.symbol, at, authorisesSize });
+      if (!quoted) {
+        items.push({ positionId: row.positionId, outcome: 'skipped_no_mark', reason: 'no_mark' });
+        continue;
+      }
+
+      /**
+       * THE BREAKER, ARMED. `previous` is read from storage the position's owner
+       * cannot reach — `trade.positions.accepted_mark`, written by this service
+       * from marks it read itself. Before `accepted-mark.ts` existed this was a
+       * literal `null` on every tick and the breaker never fired once.
+       */
+      const previous = await deps.acceptedMarks.previous(row.positionId);
+      const check = acceptableForLiquidation(quoted, breakerBasis(previous), at, deps.markPolicy ?? DEFAULT_FUTURES_MARK_POLICY);
+      if (!check.ok) {
+        items.push({
+          positionId: row.positionId,
+          outcome: 'skipped_mark_unusable',
+          reason: check.code ?? 'trade.mark_unusable',
+          summary: check.reason,
+        });
+        continue;
+      }
+
+      /**
+       * Recorded because it was ACCEPTED, not because it was acted on — a healthy
+       * position's mark is still a mark this position was judged against, and it
+       * is what keeps the basis walking with the market so an honest 30% day over
+       * many ticks never looks like one impossible jump. A REFUSED mark is
+       * deliberately not recorded: that is what stops a caller ratcheting the
+       * basis along in sub-breaker steps.
+       */
+      await deps.acceptedMarks.record(row.positionId, { price: quoted.price, at });
+
+      if (!deps.ladder) {
+        items.push({
+          positionId: row.positionId,
+          outcome: 'skipped_d3_unset',
+          reason: 'trade.ladder_unset',
+          summary: `${row.marketId}: no published ladder — will not flatten the book as a silent default`,
+        });
+        continue;
+      }
+
+      const outcomeItem = await runLadderRung(deps, deps.ladder, row, quoted.price, liquidationId);
+      items.push(outcomeItem);
+      if (outcomeItem.outcome === 'liquidated') liquidated += 1;
+      else if (outcomeItem.outcome === 'partially_liquidated') partial += 1;
+      else if (outcomeItem.outcome === 'margin_call') marginCalls += 1;
+    } catch (err) {
+      const code = (err as { code?: unknown } | null)?.code;
       items.push({
         positionId: row.positionId,
-        outcome: 'skipped_no_mark',
-        reason: 'no_labelled_quote',
-        summary: `${row.marketId}: mark source has no labelled quote() — refuse inventing quality from bare markPrice`,
+        outcome: 'errored',
+        reason: typeof code === 'string' ? code : 'trade.liquidation_tick_error',
+        summary: err instanceof Error ? err.message : String(err),
       });
-      continue;
+      errored += 1;
     }
-    const quoted = await deps.marks.quote({ marketId: row.marketId, symbol: row.symbol, at, authorisesSize });
-    if (!quoted) {
-      items.push({ positionId: row.positionId, outcome: 'skipped_no_mark', reason: 'no_mark' });
-      continue;
-    }
-
-    /**
-     * THE BREAKER, ARMED. `previous` is read from storage the position's owner
-     * cannot reach — `trade.positions.accepted_mark`, written by this service
-     * from marks it read itself. Before `accepted-mark.ts` existed this was a
-     * literal `null` on every tick and the breaker never fired once.
-     */
-    const previous = await deps.acceptedMarks.previous(row.positionId);
-    const check = acceptableForLiquidation(quoted, breakerBasis(previous), at, deps.markPolicy ?? DEFAULT_FUTURES_MARK_POLICY);
-    if (!check.ok) {
-      items.push({
-        positionId: row.positionId,
-        outcome: 'skipped_mark_unusable',
-        reason: check.code ?? 'trade.mark_unusable',
-        summary: check.reason,
-      });
-      continue;
-    }
-
-    /**
-     * Recorded because it was ACCEPTED, not because it was acted on — a healthy
-     * position's mark is still a mark this position was judged against, and it
-     * is what keeps the basis walking with the market so an honest 30% day over
-     * many ticks never looks like one impossible jump. A REFUSED mark is
-     * deliberately not recorded: that is what stops a caller ratcheting the
-     * basis along in sub-breaker steps.
-     */
-    await deps.acceptedMarks.record(row.positionId, { price: quoted.price, at });
-
-    if (!deps.ladder) {
-      items.push({
-        positionId: row.positionId,
-        outcome: 'skipped_d3_unset',
-        reason: 'trade.ladder_unset',
-        summary: `${row.marketId}: no published ladder — will not flatten the book as a silent default`,
-      });
-      continue;
-    }
-
-    const outcomeItem = await runLadderRung(deps, deps.ladder, row, quoted.price, liquidationId);
-    items.push(outcomeItem);
-    if (outcomeItem.outcome === 'liquidated') liquidated += 1;
-    else if (outcomeItem.outcome === 'partially_liquidated') partial += 1;
-    else if (outcomeItem.outcome === 'margin_call') marginCalls += 1;
   }
 
-  return { scanned: open.length, liquidated, partial, marginCalls, items };
+  // Every item came off `listOpen`, so a `skipped_already` is an open position
+  // that still has a claim — see `LiquidationTickResult.parked`.
+  const parked = items.filter((i) => i.outcome === 'skipped_already').length;
+  return { scanned: open.length, liquidated, partial, marginCalls, errored, parked, items };
 }
 
 /**
@@ -562,6 +598,10 @@ async function runLadderRung(
    * twice. Partial rungs deliberately do NOT claim `liq:{positionId}` — the
    * position stays open for the next rung, and recipe keys already include the
    * closed size so two partials do not share a ledger id.
+   *
+   * A claim that outlives its worker parks the position here until an operator
+   * clears it. The tick counts these (`parked`) and `startFuturesJobs` logs each
+   * one every tick, so the park is a signal and not a silence.
    */
   if (decision.closesPosition) {
     if (!(await deps.attempts.tryClaim(liquidationId))) {

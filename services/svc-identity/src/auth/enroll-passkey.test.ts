@@ -8,7 +8,10 @@ import {
   toRegistrationResponseJSON,
   type PasskeyCeremony,
 } from './enroll-passkey.js';
+import type { FactorActor } from './factor-gate.js';
 import type { ChallengeStorePort } from './webauthn.js';
+
+const mfaActor: FactorActor = { mfa: true, privileged: false };
 
 function fakeSql(rows: unknown[] = []) {
   const fn = async () => rows;
@@ -102,6 +105,7 @@ describe('enrollPasskey', () => {
           response: { clientDataJSON: clientData('x'), attestationObject: 'a' },
         }),
         memChallenges(),
+        mfaActor,
         ceremony,
       ),
     ).rejects.toMatchObject({ code: 'auth.origin_missing' });
@@ -135,6 +139,7 @@ describe('enrollPasskey', () => {
         response: { clientDataJSON: clientData('lib-challenge'), attestationObject: 'a' },
       }),
       challenges,
+      mfaActor,
       ceremony,
     );
     expect(out).toEqual({ credentialId: 'cred-1' });
