@@ -14,10 +14,7 @@ export const DEGRADED_REFUSES_NEW_RISK = 'ledger.resilience.degraded_refuses_new
 export const SPLIT_BRAIN_MONEY = 'ledger.resilience.split_brain_money' as const;
 export const SLO_OWNER_UNSET = 'ledger.resilience.slo_owner_unset' as const;
 
-export type ResilienceRefuseReason =
-  | typeof DEGRADED_REFUSES_NEW_RISK
-  | typeof SPLIT_BRAIN_MONEY
-  | typeof SLO_OWNER_UNSET;
+export type ResilienceRefuseReason = typeof DEGRADED_REFUSES_NEW_RISK | typeof SPLIT_BRAIN_MONEY | typeof SLO_OWNER_UNSET;
 
 export type ResilienceRefusal = {
   readonly ok: false;
@@ -74,12 +71,7 @@ function namedSet(values: readonly string[] | undefined): string[] {
   return [...new Set((values ?? []).map((v) => v.trim()).filter((v) => v.length > 0))];
 }
 
-function refuse(
-  kind: ResilienceKind,
-  reason: ResilienceRefuseReason,
-  detail: string,
-  metrics: ResilienceMetrics,
-): ResilienceRefusal {
+function refuse(kind: ResilienceKind, reason: ResilienceRefuseReason, detail: string, metrics: ResilienceMetrics): ResilienceRefusal {
   return { ok: false, reason, kind, posted: false, detail, metrics };
 }
 
@@ -89,12 +81,7 @@ export function refuseResilienceRisk(input: z.infer<typeof resilienceInputSchema
   const truths = namedSet(input.sourcesOfTruth);
 
   if (input.splitBrain === true || writers.length > 1 || truths.length > 1) {
-    return refuse(
-      input.kind,
-      SPLIT_BRAIN_MONEY,
-      'split-brain money is impossible — one writer, one book',
-      metrics,
-    );
+    return refuse(input.kind, SPLIT_BRAIN_MONEY, 'split-brain money is impossible — one writer, one book', metrics);
   }
 
   if (input.kind === 'slo' && (input.ownerSloSet !== true || text(input.sloTargetMs))) {
