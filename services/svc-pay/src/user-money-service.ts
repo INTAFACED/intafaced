@@ -649,6 +649,19 @@ export class UserMoneyService {
     );
   }
 
+  /** The claim lock is over. Re-read this row and hold it until the caller commits. */
+  private async lockWithdrawal(tx: Sql, withdrawalId: string): Promise<WithdrawalRecord> {
+    const rows = await tx<WithdrawalRow[]>`
+      SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
+        FROM pay.withdrawals
+       WHERE id = ${withdrawalId}
+         FOR UPDATE
+    `;
+    const row = rows[0];
+    if (!row) throw new PayError(`Withdrawal ${withdrawalId} not found`, 'pay.withdrawal_not_found');
+    return toWithdrawal(row);
+  }
+
   /**
    * Complete a rail-refusal reverse. Idempotent on the attempt key.
    *
