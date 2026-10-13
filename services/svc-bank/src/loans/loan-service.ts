@@ -608,7 +608,7 @@ export class LoanService {
       };
     }
 
-    return this.completePending(loan, input.collateralAmount, openingLtv, now);
+    return this.completePending(loan, input.collateralAmount, openingLtv, now, collateralMark.price);
   }
 
   /**
@@ -623,6 +623,7 @@ export class LoanService {
     collateralAmount: Amount,
     openingLtv: number,
     now: Date,
+    openingMarkPrice: Amount,
   ): Promise<{ loan: LoanRecord; ltvBps: number; collateralLedgerTxId: string; drawLedgerTxId: string }> {
     return withMoneySpan('bank.loan.open', { operation: 'loan-open', loanId: loan.id }, async (span) => {
       // ── STEP 1: COLLATERAL ────────────────────────────────────────────────
@@ -677,11 +678,13 @@ export class LoanService {
       }
 
       // Status and tx id commit together, so there is no window in which the
-      // principal has moved and the row does not know.
+      // principal has moved and the row does not know. The opening collateral
+      // mark is the deviation baseline; null would let the first sweep seize
+      // on a print the breaker was built to refuse.
       const updated = await this.sql<Array<Record<string, unknown>>>`
         UPDATE bank.loans
            SET status = 'active', draw_ledger_tx_id = ${drawTxId}, drawn_at = ${now},
-               last_mark_price = ${null}, updated_at = now()
+               last_mark_price = ${formatAmount(openingMarkPrice)}::numeric, updated_at = now()
          WHERE id = ${loan.id} AND status = 'pending'
          RETURNING *
       `;
@@ -718,6 +721,7 @@ export class LoanService {
 
     for (const row of rows) {
       const loan = toLoan(row);
+      const now = new Date();
       try {
         const locked = await this.collateralEvent(loan.id, 0);
         if (!locked) {
@@ -727,7 +731,12 @@ export class LoanService {
           out.push({ loanId: loan.id, outcome: 'failed', reason: 'no collateral event to resume from' });
           continue;
         }
-        await this.completePending(loan, parseAmount(locked.amount), 0, new Date());
+        // A pending row has no stored opening mark. A marking-acceptable
+        // collateral mark is the baseline. If marksFor throws, this loan is
+        // failed and the row stays pending.
+        const marks = await this.marksFor(loan.collateralAssetId, loan.debtAssetId, loan.quoteAssetId, now);
+        const collateralMark = marks.get(loan.collateralAssetId)!;
+        await this.completePending(loan, parseAmount(locked.amount), 0, now, collateralMark.price);
         out.push({ loanId: loan.id, outcome: 'completed' });
       } catch (err) {
         out.push({ loanId: loan.id, outcome: 'failed', reason: err instanceof Error ? err.message : String(err) });
@@ -1233,6 +1242,8 @@ export class LoanService {
    * ends when the claim commits, which is before the post, so it cannot keep a
    * settle out of the gap between those two reads. The session lock can. A
    * retry of an event that already has a row posts that row, not a second split.
+   * The offered amount must equal the stored interest plus principal. A different
+   * amount throws `bank.loan_repayment_mismatch` and does not post.
    */
   async repay(input: { loanId: string; amount: Amount; eventId: string; now?: Date }): Promise<{
     ledgerTxId: string;
@@ -1257,6 +1268,7 @@ export class LoanService {
           'bank.loan_borrower_mismatch',
         );
       }
+      this.assertRepaymentRetryMatches(loan, eventId, input.amount, prior);
       if (prior.ledger_tx_id) {
         const remaining = await this.outstanding(loan.id);
         // The repayment already settled. Do not post it again. If this retry
@@ -2563,6 +2575,28 @@ export class LoanService {
     ]);
 
     return posted.id;
+  }
+
+  /**
+   * Same event id means the stored split. Interest plus principal is the amount
+   * a retry must repeat. A different amount is a new event, not a second post.
+   */
+  private assertRepaymentRetryMatches(
+    loan: LoanRecord,
+    eventId: string,
+    amount: Amount,
+    existing: { interest_amount: string; principal_amount: string },
+  ): void {
+    const interest = parseAmount(existing.interest_amount);
+    const principal = parseAmount(existing.principal_amount);
+    const stored = interest + principal;
+    if (amount !== stored) {
+      throw new BankError(
+        `Repayment ${eventId} already exists for ${formatAmount(interest)} interest and ${formatAmount(principal)} principal ` +
+          `(${formatAmount(stored)} ${loan.debtAssetId}), but this request asks for ${formatAmount(amount)} — a retry must carry the same terms. Use a new event id to post a different amount`,
+        'bank.loan_repayment_mismatch',
+      );
+    }
   }
 
   private async repaymentById(eventId: string): Promise<{

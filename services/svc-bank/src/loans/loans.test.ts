@@ -1292,6 +1292,9 @@ describe('svc-bank loans PG-hard', () => {
           .catch(() => undefined);
 
         await fundReserve('USDT', '100000');
+        // resumePending marks at wall clock. The suite price clock stays on the
+        // fixed test instant unless a sweep moves it, which would stale this mark.
+        markNow = new Date();
         const resumed = await loans.resumePending(100);
 
         expect(resumed).toHaveLength(1);
@@ -1707,6 +1710,35 @@ describe('svc-bank loans PG-hard', () => {
         expect(rows[0]!.status).toBe('rejected');
         expect(formatAmount((await loans.outstanding(loan.id)).total)).toBe('5000');
       });
+
+      it('refuses a same eventId retry whose amount differs from the stored split', async () => {
+        const { loan } = await openLoan();
+        const eventId = randomUUID();
+        const first = await loans.repay({ eventId, loanId: loan.id, amount: amt('100') });
+        expect(formatAmount(first.interestPaid)).toBe('0');
+        expect(formatAmount(first.principalPaid)).toBe('100');
+
+        await expect(loans.repay({ eventId, loanId: loan.id, amount: amt('250') })).rejects.toMatchObject({
+          code: 'bank.loan_repayment_mismatch',
+        });
+
+        expect(formatAmount((await loans.outstanding(loan.id)).total)).toBe('4900');
+        const rows = await sql<Array<{ id: string }>>`SELECT id FROM bank.loan_repayments WHERE loan_id = ${loan.id}`;
+        expect(rows).toHaveLength(1);
+        expect(ledger.journal().filter((tx) => tx.reason === 'loan.repaid')).toHaveLength(1);
+      });
+
+      it('returns the same receipt when the retry repeats the stored amount', async () => {
+        const { loan } = await openLoan();
+        const eventId = randomUUID();
+        const first = await loans.repay({ eventId, loanId: loan.id, amount: amt('100') });
+        const again = await loans.repay({ eventId, loanId: loan.id, amount: amt('100') });
+
+        expect(again.ledgerTxId).toBe(first.ledgerTxId);
+        expect(again.principalPaid).toBe(first.principalPaid);
+        const rows = await sql<Array<{ id: string }>>`SELECT id FROM bank.loan_repayments WHERE loan_id = ${loan.id}`;
+        expect(rows).toHaveLength(1);
+      });
     });
 
     // ── The sweep: marking, calling, laddering ───────────────────────────────
@@ -1822,9 +1854,19 @@ describe('svc-bank loans PG-hard', () => {
       });
 
       it('waives grace past the insolvency threshold, and records that it did', async () => {
-        const opened = await openAt('5200'); // ~96.2%
-        const sweep = await sweepAt(now);
+        const opened = await openAt('5200'); // draw at 10000; sweep at 5200 is ~96.2%
+        expect(opened.loan.lastMarkPrice).toBe(amt('10000'));
 
+        // 4800 bps is past the 2000 bps breaker. The print is stored, not seized.
+        const first = await sweepAt(now);
+        expect(first.liquidated).toBe(0);
+        expect(first.refused).toHaveLength(1);
+        expect(first.refused[0]!.reason).toMatch(/breaker/);
+        expect(await sql`SELECT id FROM bank.loan_liquidations WHERE loan_id = ${opened.loan.id}`).toHaveLength(0);
+        expect(formatAmount(await loans.collateralOf(await loans.loan(opened.loan.id)))).toBe('1');
+
+        // The same 5200 print is the baseline. This sweep is the seizure.
+        const sweep = await sweepAt(now);
         expect(sweep.liquidated).toBe(1);
         const rows = await sql<Array<{ grace_waived: boolean }>>`
           SELECT grace_waived FROM bank.loan_liquidations WHERE loan_id = ${opened.loan.id}
@@ -1974,12 +2016,15 @@ describe('svc-bank loans PG-hard', () => {
         const interestBefore = (await loans.outstanding(opened.loan.id)).interest;
         expect(interestBefore).toBeGreaterThan(0n);
 
-        // Gap crash: 1 USDT/BTC → proceeds 1 < interest; insolvency waives grace.
+        // Gap from the opening mark of 10000 to 1 is past the breaker. The
+        // exhausting sale is the second identical mark; insolvency waives grace.
         loans = new LoanService(sql, ledger, {
           priceSource: price('1'),
           venue: marketMakerVenue(),
           marginCalls: { send: async () => undefined },
         });
+        const refused = await sweepAt(now);
+        expect(refused.liquidated).toBe(0);
         const crash = await sweepAt(now);
         expect(crash.liquidated).toBe(1);
 
@@ -2419,6 +2464,9 @@ describe('svc-bank loans PG-hard', () => {
        */
       it('two overlapping sweeps of one open loan do not each sell the same collateral', async () => {
         const opened = await openAt('5200');
+        // 5200 is past the breaker from the opening mark. The next identical
+        // print is the one that can liquidate.
+        await sweepAt(now);
         const innerPost = ledger.post.bind(ledger);
         let parked = false;
         let releasePark!: () => void;
@@ -2499,6 +2547,9 @@ describe('svc-bank loans PG-hard', () => {
 
       it('does not sell a loan that is already liquidating', async () => {
         const opened = await openAt('5200');
+        // Record 5200 as the baseline. The measured sweep must reach the
+        // status guard, not stop on the deviation breaker.
+        await sweepAt(now);
         await sql`UPDATE bank.loans SET status = 'liquidating' WHERE id = ${opened.loan.id}`;
 
         const sweep = await sweepAt(now);
@@ -2516,6 +2567,8 @@ describe('svc-bank loans PG-hard', () => {
             marginCalls: { send: async () => undefined },
           });
           const opened = await openAt('5200');
+          // Record 5200 as the baseline so the measured sweep reaches the quote.
+          await sweepAt(now);
           loans = new LoanService(sql, ledger, {
             priceSource: price('5200'),
             venue: {

@@ -152,10 +152,10 @@ export function acceptableForMarking(mark: QuotedMark, now: Date, policy: MarkPo
 /**
  * Is this mark fit to SEIZE COLLATERAL on? A strictly higher bar.
  *
- * `previous` is the last mark this loan was accepted against. Passing null skips
- * the deviation breaker — correct for a loan's first mark, and the reason the
- * first mark can never trigger a liquidation on its own is that `planLiquidation`
- * also requires an already-open margin call.
+ * `previous` is the last mark this loan was accepted against. A null previous
+ * skips the deviation breaker. Draw stores the opening collateral mark so the
+ * first sweep has a baseline. A null previous is not a rule that the first
+ * mark can never liquidate.
  */
 export function acceptableForLiquidation(mark: QuotedMark, previous: Amount | null, now: Date, policy: MarkPolicy): MarkCheck {
   const base = acceptableForMarking(mark, now, policy);
@@ -277,7 +277,10 @@ export function tickerPriceSource(options: { baseUrl: string; fetchImpl?: typeof
             if (!res.ok) return;
 
             const body = (await res.json()) as TickerResponse;
-            const asOf = typeof body.timestamp === 'number' ? new Date(body.timestamp) : new Date();
+            // A non-numeric timestamp is not now. Omit the mark; wall-clock
+            // would look fresh and pass the staleness gate.
+            if (typeof body.timestamp !== 'number') return;
+            const asOf = new Date(body.timestamp);
 
             if (body.bid && body.ask) {
               const bid = parseAmount(body.bid);
