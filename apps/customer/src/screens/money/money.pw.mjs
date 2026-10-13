@@ -622,7 +622,7 @@ test('All: the legs of one buy are one Trade row with what was paid; holds are l
   await snap(page, 'activity-all-trade-1440x900');
 });
 
-test('All shows a hold the server has labelled as "On hold", never as completed money gone', async ({ page }) => {
+test('All shows a hold the server has labelled as "Set aside", never as completed money gone', async ({ page }) => {
   await mock(page, {
     bank: {
       'activity.list': () => ({
