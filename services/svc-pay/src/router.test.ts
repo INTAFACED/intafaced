@@ -742,6 +742,78 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     expect(defaultFraudReviewQueue.get(id)?.merchantId).toBe(MERCHANT);
   });
 
+  /**
+   * A blocklist hit is an auto-decline, so the review queue does not open a
+   * case. The refusal still has to name the match: dropping ip/deviceId made
+   * this path queue a missing-signal review instead.
+   */
+  const blocklistScoringOff = {
+    velocity_count: false,
+    velocity_volume: false,
+    amount_anomaly: false,
+  } as const;
+
+  it('names a blocklist_ip match when the supplied ip is listed and the rule is enabled, and does not plant a review', async () => {
+    const api = await caller(['pay:write']);
+    const id = `rev-ip-${Date.now()}`;
+    const err = await api.fraud
+      .enqueueReview({
+        id,
+        merchantId: MERCHANT,
+        amount: '10',
+        assetId: 'USDT',
+        ip: '203.0.113.9',
+        blocklists: { ips: ['203.0.113.9'] },
+        enabled: { ...blocklistScoringOff, blocklist_ip: true, blocklist_device: false },
+      })
+      .catch((e: unknown) => e);
+
+    expect(codeOf(err)).toBe('BAD_REQUEST');
+    expect(String((err as Error).message)).toContain('blocklist_ip: IP matched the merchant/ops blocklist');
+    expect(String((err as Error).message)).not.toContain('203.0.113.9');
+    expect(defaultFraudReviewQueue.get(id)).toBeNull();
+  });
+
+  it('names a blocklist_device match when the supplied deviceId is listed and the rule is enabled, and does not plant a review', async () => {
+    const api = await caller(['pay:write']);
+    const id = `rev-dev-${Date.now()}`;
+    const err = await api.fraud
+      .enqueueReview({
+        id,
+        merchantId: MERCHANT,
+        amount: '10',
+        assetId: 'USDT',
+        deviceId: 'dev_bad',
+        blocklists: { devices: ['dev_bad'] },
+        enabled: { ...blocklistScoringOff, blocklist_ip: false, blocklist_device: true },
+      })
+      .catch((e: unknown) => e);
+
+    expect(codeOf(err)).toBe('BAD_REQUEST');
+    expect(String((err as Error).message)).toContain('blocklist_device: device matched the merchant/ops blocklist');
+    expect(String((err as Error).message)).not.toContain('dev_bad');
+    expect(defaultFraudReviewQueue.get(id)).toBeNull();
+  });
+
+  it('does not invent a blocklist match when ip and deviceId are omitted', async () => {
+    const api = await caller(['pay:write']);
+    const id = `rev-omit-${Date.now()}`;
+    const c = await api.fraud.enqueueReview({
+      id,
+      merchantId: MERCHANT,
+      amount: '10',
+      assetId: 'USDT',
+      blocklists: { ips: ['203.0.113.9'], devices: ['dev_bad'] },
+      enabled: { ...blocklistScoringOff, blocklist_ip: true, blocklist_device: true },
+    });
+    expect(c.reasons).toEqual([
+      { ruleId: 'blocklist_ip', detail: 'IP risk signal is unavailable' },
+      { ruleId: 'blocklist_device', detail: 'device risk signal is unavailable' },
+    ]);
+    expect(c.reasons.some((r) => r.detail.includes('matched'))).toBe(false);
+    expect(defaultFraudReviewQueue.get(id)?.decision.reasons).toEqual(c.reasons);
+  });
+
   it('still serves payment.get to the merchant who owns it', async () => {
     const api = await caller(['pay:read']);
     await expect(api.payment.get({ paymentId: PAYMENT })).resolves.toMatchObject({ id: PAYMENT, merchantId: MERCHANT });

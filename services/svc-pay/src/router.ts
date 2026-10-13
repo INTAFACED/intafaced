@@ -1065,6 +1065,8 @@ export function createPayRouter(
             amount: amountSchema,
             assetId: assetIdSchema,
             paymentId: z.string().uuid().nullable().optional(),
+            ip: z.string().nullable().optional(),
+            deviceId: z.string().nullable().optional(),
             // Re-evaluate from the same inputs so the queue never accepts a forged review.
             recentPaymentCount: z.number().int().min(0).optional(),
             recentVolume: amountSchema.optional(),
@@ -1097,15 +1099,18 @@ export function createPayRouter(
           }),
         )
         .mutation(async ({ ctx, input }) => {
+          let decision: ReturnType<typeof evaluateFraud> | undefined;
           try {
-            // merchantId, thresholds, and blocklists stay caller-supplied.
+            // merchantId, thresholds, blocklists, ip, and deviceId stay caller-supplied.
             // The principal must hold this merchant before the review lands in
             // the process-global queue that admin:treasury lists.
             await assertAccess(ctx.principal.userId, input.merchantId, 'trpc.payment.create');
-            const decision = evaluateFraud({
+            decision = evaluateFraud({
               merchantId: input.merchantId,
               amount: input.amount,
               assetId: input.assetId,
+              ip: input.ip,
+              deviceId: input.deviceId,
               recentPaymentCount: input.recentPaymentCount,
               recentVolume: input.recentVolume,
               baselineAmount: input.baselineAmount,
@@ -1130,7 +1135,12 @@ export function createPayRouter(
             };
           } catch (e) {
             if (e instanceof FraudReviewError) {
-              throw new TRPCError({ code: 'BAD_REQUEST', message: `${e.code}: ${e.message}`, cause: e });
+              // A blocklist match is a decline, so it never becomes a case. The
+              // refusal still carries that decision, or the caller cannot tell a
+              // match from an empty allow.
+              const explained = decision?.reasons.map((r) => `${r.ruleId}: ${r.detail}`).join('; ') ?? '';
+              const suffix = explained ? ` (${explained})` : '';
+              throw new TRPCError({ code: 'BAD_REQUEST', message: `${e.code}: ${e.message}${suffix}`, cause: e });
             }
             throw toTrpcError(e);
           }
