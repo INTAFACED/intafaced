@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { parseAmount } from '@intafaced/ledger-client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { verifySignature } from './rails/webhook-signature.js';
 import {
   MemoryMerchantWebhookStore,
@@ -422,10 +422,11 @@ describe('MerchantWebhookService — SSRF guard', () => {
     expect(r.delivered).toBe(1);
     expect(lookups).toBe(1);
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.address).toEqual({ address: PUBLIC_ADDR, family: 4 });
+    expect(calls[0]!.addresses).toEqual([{ address: PUBLIC_ADDR, family: 4 }]);
     // Name kept for SNI / Host; the transport receives the vetted IP separately.
     expect(calls[0]!.url.hostname).toBe('merchant.example');
-    expect(calls[0]!.timeoutMs).toBe(10_000);
+    expect(calls[0]!.timeoutMs).toBeLessThanOrEqual(10_000);
+    expect(calls[0]!.timeoutMs).toBeGreaterThan(9_000);
   });
 
   it('a 302 to the metadata service is NOT followed and is recorded as a failure', async () => {
@@ -481,5 +482,84 @@ describe('MerchantWebhookService — SSRF guard', () => {
     expect(r.failed).toBe(1);
     expect(cap.count).toBe(0);
     expect([...store.deliveries.values()][0]?.lastError).toBe('webhook_target_not_public');
+  });
+});
+
+describe('MerchantWebhookService — one delivery deadline (DNS + connect + headers)', () => {
+  const MERCHANT_ID = MERCHANT;
+
+  async function seedOne(svc: MerchantWebhookService, store: MemoryMerchantWebhookStore) {
+    await store.insertEndpoint({
+      id: '66666666-6666-4666-8666-666666666666',
+      merchantId: MERCHANT_ID,
+      url: 'https://merchant.example/hook',
+      secretHash: 'h',
+      secretEncrypted: 'x'.repeat(64),
+    });
+    await svc.enqueue({ type: 'payment.captured', payment: payment() });
+    for (const d of store.deliveries.values()) d.nextAttemptAt = new Date(0);
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a resolver that never answers fails the attempt within the budget and records it', async () => {
+    vi.useFakeTimers();
+    const store = new MemoryMerchantWebhookStore();
+    const calls: PinnedPostRequest[] = [];
+    const transport: WebhookTransport = async (req) => {
+      calls.push(req);
+      return { status: 200 };
+    };
+    const hung: WebhookResolver = () => new Promise(() => {});
+    const svc = new MerchantWebhookService(store, { transport, resolver: hung, disableAfterFailures: 1 });
+    await seedOne(svc, store);
+
+    const run = svc.processDue(25);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const r = await run;
+    expect(r).toEqual({ delivered: 0, failed: 1, disabled: 1 });
+    expect([...store.deliveries.values()][0]?.lastError).toBe('webhook_dns_timeout');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('a slow resolver spends the shared budget: the transport only gets what is left', async () => {
+    vi.useFakeTimers();
+    const store = new MemoryMerchantWebhookStore();
+    const calls: PinnedPostRequest[] = [];
+    const transport: WebhookTransport = async (req) => {
+      calls.push(req);
+      return { status: 200 };
+    };
+    const slow: WebhookResolver = () =>
+      new Promise((resolve) => setTimeout(() => resolve([{ address: '93.184.216.34', family: 4 }]), 4_000));
+    const svc = new MerchantWebhookService(store, { transport, resolver: slow });
+    await seedOne(svc, store);
+
+    const run = svc.processDue(25);
+    await vi.advanceTimersByTimeAsync(4_000);
+    const r = await run;
+    expect(r.delivered).toBe(1);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.timeoutMs).toBeLessThanOrEqual(6_000);
+    expect(calls[0]!.timeoutMs).toBeGreaterThan(0);
+  });
+
+  it('hands every vetted address to the transport, families alternating', async () => {
+    const store = new MemoryMerchantWebhookStore();
+    const calls: PinnedPostRequest[] = [];
+    const transport: WebhookTransport = async (req) => {
+      calls.push(req);
+      return { status: 200 };
+    };
+    const resolver: WebhookResolver = async () => [
+      { address: '2606:4700:4700::1111', family: 6 },
+      { address: '93.184.216.34', family: 4 },
+    ];
+    const svc = new MerchantWebhookService(store, { transport, resolver });
+    await seedOne(svc, store);
+    await svc.processDue(25);
+    expect(calls[0]!.addresses.map((a) => a.address)).toEqual(['2606:4700:4700::1111', '93.184.216.34']);
   });
 });

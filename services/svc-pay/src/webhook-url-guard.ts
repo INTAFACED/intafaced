@@ -1,4 +1,4 @@
-import { lookup } from 'node:dns/promises';
+import { Resolver, lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { PayError } from './payment-service.js';
 
@@ -21,7 +21,10 @@ import { PayError } from './payment-service.js';
  *      the name (DNS rebinding: a second answer must not swap in 127.0.0.1).
  *      Redirects are never followed either — see merchant-webhooks.ts.
  *
- * Not covered here: the receiver's own behaviour. This module does not move value.
+ * Not covered here: the receiver's own behaviour, and public-but-trusted targets
+ * (for example our own load balancer IPs are public addresses and pass). Deploy
+ * must still apply deny-by-default egress; this guard is a second wall, not the first.
+ * This module does not move value.
  */
 
 export interface PublicWebhookUrlOptions {
@@ -47,7 +50,29 @@ export interface LookupAnswer {
 /** Injectable DNS for tests. Must return EVERY answer, not just the first. */
 export type WebhookResolver = (hostname: string) => Promise<readonly LookupAnswer[]>;
 
+/**
+ * `dns.lookup` (getaddrinfo: honours /etc/hosts and nsswitch). Only for the dev/test
+ * hatch, where `localhost` must resolve; it runs on the libuv pool and has no
+ * timeout of its own, so the caller must bound it.
+ */
 export const systemResolver: WebhookResolver = async (hostname) => lookup(hostname, { all: true, verbatim: true });
+
+/**
+ * Production resolver: c-ares with its own 2 s x 2 tries limit, so one slow merchant
+ * nameserver cannot hold a worker for the system default of tens of seconds. Returns
+ * every A then every AAAA answer. It ignores /etc/hosts on purpose.
+ */
+const publicDns = new Resolver({ timeout: 2000, tries: 2 });
+export const publicDnsResolver: WebhookResolver = async (hostname) => {
+  const [v4, v6] = await Promise.allSettled([publicDns.resolve4(hostname), publicDns.resolve6(hostname)]);
+  const out: LookupAnswer[] = [];
+  if (v4.status === 'fulfilled') for (const address of v4.value) out.push({ address, family: 4 });
+  if (v6.status === 'fulfilled') for (const address of v6.value) out.push({ address, family: 6 });
+  if (out.length === 0) {
+    throw v4.status === 'rejected' ? v4.reason : new Error('ENODATA');
+  }
+  return out;
+};
 
 /**
  * Ports that belong to our own infrastructure (Postgres, Redis, NATS client and
@@ -267,21 +292,26 @@ export function assertPublicWebhookUrl(url: string, opts: PublicWebhookUrlOption
 // ── DNS check ───────────────────────────────────────────────────────────────
 
 /**
- * Resolve `hostname` and return ONE vetted address to connect to.
+ * Resolve `hostname` and return EVERY vetted address, in connect order.
  *
  * Every answer must be public: if a hostname has one public and one private
  * A record we refuse, because the connecting client may pick either. The caller
- * must connect to the returned address and keep the original hostname only for
- * SNI and the Host header; it must not resolve the name a second time.
+ * must connect only to the returned addresses and keep the original hostname only
+ * for SNI and the Host header; it must not resolve the name a second time.
+ *
+ * Order: the resolver's order, but families alternate (v4, v6, v4, ...) starting
+ * with the first answer's family, so an IPv6-first answer on an IPv4-only host
+ * falls back to IPv4 on the next candidate.
  *
  * Throws `pay.webhook_url_invalid` on any refusal, including a resolver error
  * (fail closed). `allowLoopback` is the dev/test hatch and admits loopback only.
+ * The resolver has no time limit here; the caller bounds the whole call.
  */
-export async function resolvePublicAddress(
+export async function resolvePublicAddresses(
   hostname: string,
-  resolver: WebhookResolver = systemResolver,
+  resolver: WebhookResolver = publicDnsResolver,
   opts: { allowLoopback?: boolean } = {},
-): Promise<ResolvedAddress> {
+): Promise<readonly ResolvedAddress[]> {
   const host = stripBrackets(hostname.toLowerCase()).replace(/\.$/, '');
   let answers: readonly LookupAnswer[];
   if (isIP(host) !== 0) {
@@ -300,6 +330,23 @@ export async function resolvePublicAddress(
       return invalid('Webhook host resolves to a private, loopback, link-local or reserved address.');
     }
   }
-  const first = answers[0]!;
-  return { address: first.address, family: isIP(first.address) === 6 ? 6 : 4 };
+  const all: ResolvedAddress[] = answers.map((a) => ({ address: a.address, family: isIP(a.address) === 6 ? 6 : 4 }));
+  const queues: Record<4 | 6, ResolvedAddress[]> = { 4: all.filter((a) => a.family === 4), 6: all.filter((a) => a.family === 6) };
+  let next: 4 | 6 = all[0]!.family;
+  const ordered: ResolvedAddress[] = [];
+  while (ordered.length < all.length) {
+    const take = queues[next].shift() ?? queues[next === 4 ? 6 : 4].shift();
+    if (take) ordered.push(take);
+    next = next === 4 ? 6 : 4;
+  }
+  return ordered;
+}
+
+/** First vetted address only. Prefer `resolvePublicAddresses` for delivery. */
+export async function resolvePublicAddress(
+  hostname: string,
+  resolver: WebhookResolver = publicDnsResolver,
+  opts: { allowLoopback?: boolean } = {},
+): Promise<ResolvedAddress> {
+  return (await resolvePublicAddresses(hostname, resolver, opts))[0]!;
 }

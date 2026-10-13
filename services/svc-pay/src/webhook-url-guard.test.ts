@@ -1,7 +1,13 @@
 import { createServer, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { pinnedPost } from './webhook-pinned-post.js';
-import { assertPublicWebhookUrl, isPublicIpAddress, resolvePublicAddress, type WebhookResolver } from './webhook-url-guard.js';
+import {
+  assertPublicWebhookUrl,
+  isPublicIpAddress,
+  resolvePublicAddress,
+  resolvePublicAddresses,
+  type WebhookResolver,
+} from './webhook-url-guard.js';
 
 /** Throws `pay.webhook_url_invalid` — and says nothing was attempted. */
 function refused(url: string, opts: { allowLocalHttp?: boolean } = {}): void {
@@ -199,6 +205,33 @@ describe('resolvePublicAddress — DNS', () => {
   });
 });
 
+describe('resolvePublicAddresses — all vetted candidates, in connect order', () => {
+  const answers = (...addrs: string[]): WebhookResolver => {
+    return async () => addrs.map((address) => ({ address, family: address.includes(':') ? 6 : 4 }));
+  };
+
+  it('returns every vetted address, alternating families starting with the first answer', async () => {
+    await expect(
+      resolvePublicAddresses('m.example', answers('2606:4700:4700::1111', '93.184.216.34', '8.8.8.8', '2606:4700:4700::1001')),
+    ).resolves.toEqual([
+      { address: '2606:4700:4700::1111', family: 6 },
+      { address: '93.184.216.34', family: 4 },
+      { address: '2606:4700:4700::1001', family: 6 },
+      { address: '8.8.8.8', family: 4 },
+    ]);
+    await expect(resolvePublicAddresses('m.example', answers('93.184.216.34', '8.8.8.8'))).resolves.toEqual([
+      { address: '93.184.216.34', family: 4 },
+      { address: '8.8.8.8', family: 4 },
+    ]);
+  });
+
+  it('still refuses the whole set when any answer is private', async () => {
+    await expect(resolvePublicAddresses('m.example', answers('93.184.216.34', '2606:4700:4700::1111', '10.0.0.1'))).rejects.toMatchObject({
+      code: 'pay.webhook_url_invalid',
+    });
+  });
+});
+
 describe('pinnedPost — connect uses the vetted address', () => {
   let server: Server | undefined;
   afterEach(async () => {
@@ -220,7 +253,7 @@ describe('pinnedPost — connect uses the vetted address', () => {
     // socket went to the vetted address and no DNS lookup of the name happened.
     const res = await pinnedPost({
       url: new URL(`http://pinned.invalid:${addr.port}/hook`),
-      address: { address: '127.0.0.1', family: 4 },
+      addresses: [{ address: '127.0.0.1', family: 4 }],
       headers: { 'content-type': 'application/json' },
       body: '{}',
       timeoutMs: 5_000,
@@ -240,7 +273,7 @@ describe('pinnedPost — connect uses the vetted address', () => {
     if (!addr || typeof addr === 'string') throw new Error('no port');
     const res = await pinnedPost({
       url: new URL(`http://127.0.0.1:${addr.port}/hook`),
-      address: { address: '127.0.0.1', family: 4 },
+      addresses: [{ address: '127.0.0.1', family: 4 }],
       headers: {},
       body: '{}',
       timeoutMs: 5_000,
@@ -259,12 +292,82 @@ describe('pinnedPost — connect uses the vetted address', () => {
     await expect(
       pinnedPost({
         url: new URL(`http://127.0.0.1:${addr.port}/hook`),
-        address: { address: '127.0.0.1', family: 4 },
+        addresses: [{ address: '127.0.0.1', family: 4 }],
         headers: {},
         body: '{}',
         timeoutMs: 100,
       }),
     ).rejects.toBeTruthy();
     server.closeAllConnections();
+  });
+
+  it('tries the next vetted address when the connect is refused, never an address it was not given', async () => {
+    let hits = 0;
+    server = createServer((_req, res) => {
+      hits += 1;
+      res.writeHead(204).end();
+    });
+    await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
+    const addr = server.address();
+    if (!addr || typeof addr === 'string') throw new Error('no port');
+    // ::1 refuses (nothing listens on the IPv6 loopback; hosts without IPv6 fail with a
+    // connect-level error too); the second candidate answers.
+    const res = await pinnedPost({
+      url: new URL(`http://pinned.invalid:${addr.port}/hook`),
+      addresses: [
+        { address: '::1', family: 6 },
+        { address: '127.0.0.1', family: 4 },
+      ],
+      headers: {},
+      body: '{}',
+      timeoutMs: 5_000,
+    });
+    expect(res.status).toBe(204);
+    expect(hits).toBe(1);
+  });
+
+  it('rejects when every vetted address refuses the connect', async () => {
+    server = createServer();
+    await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
+    const addr = server.address();
+    if (!addr || typeof addr === 'string') throw new Error('no port');
+    const port = addr.port;
+    await new Promise<void>((resolve) => server!.close(() => resolve()));
+    server = undefined;
+    await expect(
+      pinnedPost({
+        url: new URL(`http://pinned.invalid:${port}/hook`),
+        addresses: [
+          { address: '127.0.0.1', family: 4 },
+          { address: '::1', family: 6 },
+        ],
+        headers: {},
+        body: '{}',
+        timeoutMs: 5_000,
+      }),
+    ).rejects.toMatchObject({ code: expect.stringMatching(/ECONNREFUSED|EADDRNOTAVAIL|ENETUNREACH|EHOSTUNREACH/) });
+  });
+
+  it('never moves to the next address after an HTTP response', async () => {
+    let hits = 0;
+    server = createServer((_req, res) => {
+      hits += 1;
+      res.writeHead(500).end();
+    });
+    await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
+    const addr = server.address();
+    if (!addr || typeof addr === 'string') throw new Error('no port');
+    const res = await pinnedPost({
+      url: new URL(`http://127.0.0.1:${addr.port}/hook`),
+      addresses: [
+        { address: '127.0.0.1', family: 4 },
+        { address: '127.0.0.1', family: 4 },
+      ],
+      headers: {},
+      body: '{}',
+      timeoutMs: 5_000,
+    });
+    expect(res.status).toBe(500);
+    expect(hits).toBe(1);
   });
 });

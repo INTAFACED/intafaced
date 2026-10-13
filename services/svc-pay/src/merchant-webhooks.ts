@@ -11,7 +11,14 @@ import {
 import { paymentModeFromRail } from './sandbox-key-routing.js';
 import { signPayload } from './rails/webhook-signature.js';
 import { pinnedPost, type WebhookTransport } from './webhook-pinned-post.js';
-import { assertPublicWebhookUrl, resolvePublicAddress, systemResolver, type WebhookResolver } from './webhook-url-guard.js';
+import {
+  assertPublicWebhookUrl,
+  publicDnsResolver,
+  resolvePublicAddresses,
+  systemResolver,
+  type ResolvedAddress,
+  type WebhookResolver,
+} from './webhook-url-guard.js';
 
 /**
  * Outbound merchant webhooks — `pay.public-api` step 3.
@@ -78,7 +85,11 @@ export interface MerchantWebhookRuntime {
    * Replaces `fetch`: `fetch` re-resolves the hostname, which defeats the SSRF guard.
    */
   readonly transport?: WebhookTransport;
-  /** DNS for the delivery-time SSRF check. Must return every answer. */
+  /**
+   * DNS for the delivery-time SSRF check. Must return every answer. Default: c-ares with
+   * its own timeout (production) or `dns.lookup` when `allowLocalHttp` (dev/test, so
+   * `localhost` resolves). Either way the call sits inside the delivery deadline.
+   */
   readonly resolver?: WebhookResolver;
   /**
    * Permit http and loopback receivers. dev/test only — the service wiring sets
@@ -93,8 +104,27 @@ export interface MerchantWebhookRuntime {
 
 const DEFAULT_MAX_ATTEMPTS = 8;
 const DEFAULT_DISABLE_AFTER = 5;
-/** Ceiling for connect + response headers. */
+/** One deadline per delivery attempt: DNS + connect + response headers, all inside it. */
 const DELIVERY_TIMEOUT_MS = 10_000;
+
+class DeadlineExceeded extends Error {}
+
+/** Rejects with DeadlineExceeded after `ms`; the underlying work is abandoned, not cancelled. */
+function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new DeadlineExceeded('deadline')), Math.max(0, ms));
+    work.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
 
 /**
  * How long a worker owns a due row after `claimDue`.
@@ -675,8 +705,8 @@ export class MerchantWebhookService {
   ) {
     this.now = runtime.now ?? (() => new Date());
     this.transport = runtime.transport ?? pinnedPost;
-    this.resolver = runtime.resolver ?? systemResolver;
     this.allowLocalHttp = runtime.allowLocalHttp === true;
+    this.resolver = runtime.resolver ?? (this.allowLocalHttp ? systemResolver : publicDnsResolver);
     this.maxAttempts = runtime.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
     this.disableAfter = runtime.disableAfterFailures ?? DEFAULT_DISABLE_AFTER;
   }
@@ -803,14 +833,24 @@ export class MerchantWebhookService {
       }
 
       // SSRF guard, every attempt: the stored URL may predate the guard, and DNS
-      // can change between attempts. The address vetted here is the one we connect to.
-      let target: { url: URL; address: Awaited<ReturnType<typeof resolvePublicAddress>> };
+      // can change between attempts. The addresses vetted here are the only ones we connect to.
+      const deadline = Date.now() + DELIVERY_TIMEOUT_MS;
+      let url: URL;
       try {
-        const url = assertPublicWebhookUrl(item.url, { allowLocalHttp: this.allowLocalHttp });
-        const address = await resolvePublicAddress(url.hostname, this.resolver, { allowLoopback: this.allowLocalHttp });
-        target = { url, address };
+        url = assertPublicWebhookUrl(item.url, { allowLocalHttp: this.allowLocalHttp });
       } catch {
         await fail(item, null, 'webhook_target_not_public');
+        continue;
+      }
+      let addresses: readonly ResolvedAddress[];
+      try {
+        addresses = await withDeadline(
+          resolvePublicAddresses(url.hostname, this.resolver, { allowLoopback: this.allowLocalHttp }),
+          deadline - Date.now(),
+        );
+      } catch (err) {
+        // A hung nameserver is a failure to retry, not a refusal; either way nothing was POSTed.
+        await fail(item, null, err instanceof DeadlineExceeded ? 'webhook_dns_timeout' : 'webhook_target_not_public');
         continue;
       }
 
@@ -821,11 +861,12 @@ export class MerchantWebhookService {
 
       try {
         const res = await this.transport({
-          url: target.url,
-          address: target.address,
+          url,
+          addresses,
           headers,
           body: rawBody,
-          timeoutMs: DELIVERY_TIMEOUT_MS,
+          // Whatever DNS left of the one deadline.
+          timeoutMs: Math.max(1, deadline - Date.now()),
         });
         if (res.status >= 200 && res.status < 300) {
           await this.store.markDelivered(item.id, res.status, this.now());
