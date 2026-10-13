@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { bigint, bigserial, boolean, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { amount, createdAt, tstz, updatedAt } from '@intafaced/db';
 
@@ -275,6 +276,10 @@ export const paymentEvents = pay.table(
     uniqueIndex('payment_events_seq_idx').on(t.seq),
     index('payment_events_payment_idx').on(t.paymentId, t.seq),
     index('payment_events_kind_idx').on(t.paymentId, t.event),
+    /** Webhook dedupe. Partial: house events have no rail id; a present id is unique. */
+    uniqueIndex('payment_events_rail_event_idx')
+      .on(t.railEventId)
+      .where(sql`${t.railEventId} IS NOT NULL`),
   ],
 );
 
