@@ -8,12 +8,13 @@ import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-cli
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   MatchingNoBookError,
+  MatchingUnavailableError,
   type EngineDepth,
   type EngineSubmitRequest,
   type EngineSubmitResult,
   type MatchingClient,
 } from './matching-client.js';
-import { checkEngineSequences, describeRegressions } from './sequence-guard.js';
+import { checkEngineSequences, describeRegressions, describeUnavailable, probeEngineSequence } from './sequence-guard.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE, restsInFull } from './testing.js';
 import { TradeService } from '../controls/test-admission.js';
 import type { Market } from './types.js';
@@ -368,8 +369,53 @@ describe('svc-trade sequence-guard (H8a PG-hard)', () => {
       const probe = new RestartProbe(counter, 'rest');
       await expect(placeAfter(probe, `invalid-counter-${counter}`)).rejects.toMatchObject({ code: 'trade.matching_unavailable' });
       expect(probe.submits).toBe(0);
-      await expect(guard(async () => counter)).rejects.toMatchObject({ code: 'trade.matching_unavailable' });
+      const result = await guard(async () => counter);
+      expect(result.regressions).toHaveLength(0);
+      expect(result.checked).toBe(0);
+      expect(result.unavailable).toHaveLength(1);
     }
+  });
+
+  it('judges the reply against a fill that settled while the depth probe was in flight', async () => {
+    await recordFillAt(50);
+    const probe = new RestartProbe(100, 'rest');
+    // The previous engine's delayed fill settles at 200 while the restarted engine answers 100.
+    probe.depth = async () => {
+      await recordFillAt(200);
+      return { bids: [], asks: [], sequence: 100 };
+    };
+
+    await expect(placeAfter(probe, 'race-submit')).rejects.toMatchObject({ code: 'trade.engine_sequence_regressed' });
+
+    expect(probe.submits).toBe(0);
+    const orders = await sql<Array<{ id: string }>>`
+      SELECT id FROM trade.orders WHERE client_order_id = ${'race-submit'}
+    `;
+    expect(orders).toHaveLength(0);
+  });
+
+  it('reports a successful depth reply without a counter as unavailable, not as a missing book', async () => {
+    await recordFillAt(500);
+    const probe = new RestartProbe(500, 'rest');
+    probe.depth = async () => ({ bids: [], asks: [], sequence: null }) as unknown as EngineDepth;
+
+    await expect(placeAfter(probe, 'null-counter-submit')).rejects.toMatchObject({ code: 'trade.matching_unavailable' });
+    expect(probe.submits).toBe(0);
+  });
+
+  it('keeps an unreachable engine out of the regression list at readiness', async () => {
+    await recordFillAt(500);
+
+    const result = await guard(async () => {
+      throw new MatchingUnavailableError('svc-matching /depth failed (503): down');
+    });
+
+    expect(result.regressions).toHaveLength(0);
+    expect(result.checked).toBe(0);
+    expect(result.unavailable).toEqual([{ marketId: btcusdt.id, symbol: 'BTC/USDT', reason: 'svc-matching /depth failed (503): down' }]);
+    const message = describeUnavailable(result.unavailable);
+    expect(message).toContain('BTC/USDT');
+    expect(message).not.toMatch(/journal|replay/i);
   });
 
   it('returns the original order on retry while sequence probing is unavailable', async () => {
@@ -383,6 +429,26 @@ describe('svc-trade sequence-guard (H8a PG-hard)', () => {
     expect(retried.id).toBe(original.id);
     expect(retried.holdAmount).toBe(original.holdAmount);
     expect(probe.submits).toBe(1);
+  });
+
+  it('probes three distinct outcomes: a counter, a known missing book, and unknown', async () => {
+    await expect(probeEngineSequence(async () => ({ sequence: 7 }), 'm')).resolves.toBe(7);
+    await expect(
+      probeEngineSequence(async () => {
+        throw new MatchingNoBookError('m');
+      }, 'm'),
+    ).resolves.toBeNull();
+    const outage = new MatchingUnavailableError('unreachable');
+    await expect(
+      probeEngineSequence(async () => {
+        throw outage;
+      }, 'm'),
+    ).rejects.toBe(outage);
+    for (const sequence of [null, undefined, '7', -1, 1.5]) {
+      await expect(probeEngineSequence(async () => ({ sequence }) as unknown as EngineDepth, 'm')).rejects.toMatchObject({
+        code: 'trade.matching_unavailable',
+      });
+    }
   });
 
   it('names the market and both numbers, because a count cannot be acted on', () => {

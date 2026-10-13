@@ -82,7 +82,7 @@ import { startCandleJobs } from './spot/candle-jobs.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
 import { startAlgoJobs } from './algo/algo-jobs.js';
 import { startOptionsExerciseJobs } from './spot/options-exercise-jobs.js';
-import { checkEngineSequences, describeRegressions } from './spot/sequence-guard.js';
+import { checkEngineSequences, describeRegressions, describeUnavailable, probeEngineSequence } from './spot/sequence-guard.js';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { parseOtcDeskLawJson } from './otc/desk-law.js';
@@ -481,18 +481,18 @@ app.get('/ready', async (_req, reply) => {
   const sequences = await checkEngineSequences({
     sql,
     markets: () => trade.markets(MARKETS_LIMIT_MAX),
-    engineSequence: async (marketId) => {
-      try {
-        return (await matching.depth(marketId, 1)).sequence;
-      } catch {
-        return null;
-      }
-    },
+    // Null only for a positively missing book; an outage or malformed reply throws and is reported unavailable.
+    engineSequence: (marketId) => probeEngineSequence((id) => matching.depth(id, 1), marketId),
   });
   if (sequences.regressions.length > 0) {
     const reason = describeRegressions(sequences.regressions);
-    app.log.error({ regressions: sequences.regressions }, reason);
+    app.log.error({ regressions: sequences.regressions, unavailable: sequences.unavailable }, reason);
     return reply.code(503).send({ ready: false, reason, markets: sequences.regressions.map((r) => r.symbol) });
+  }
+  if (sequences.unavailable.length > 0) {
+    const reason = describeUnavailable(sequences.unavailable);
+    app.log.warn({ unavailable: sequences.unavailable }, reason);
+    return reply.code(503).send({ ready: false, reason, markets: sequences.unavailable.map((u) => u.symbol) });
   }
   return { ready: true, engineSequences: { checked: sequences.checked, unjudged: sequences.unjudged } };
 });

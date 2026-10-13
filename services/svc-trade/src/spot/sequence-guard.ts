@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { MatchingUnavailableError } from './matching-client.js';
+import { MatchingNoBookError, MatchingUnavailableError, type EngineDepth } from './matching-client.js';
 
 /**
  * HAS THE ENGINE FORGOTTEN WHAT WE ALREADY SETTLED?
@@ -49,6 +49,35 @@ import { MatchingUnavailableError } from './matching-client.js';
  */
 
 /**
+ * Ask the engine for its counter on one market. Three outcomes, and they stay
+ * distinct:
+ *
+ *   - a valid counter (a non-negative safe integer from a successful reply);
+ *   - null, ONLY when matching positively answers that it holds no book (404);
+ *   - a throw for everything else. A transport failure or 5xx is already a
+ *     MatchingUnavailableError from the client. A successful reply whose
+ *     `sequence` is null, missing or not a counter is malformed, and is
+ *     reported as unavailable rather than read as a missing book.
+ */
+export async function probeEngineSequence(
+  depth: (marketId: string) => Promise<Pick<EngineDepth, 'sequence'>>,
+  marketId: string,
+): Promise<number | null> {
+  let reply: Pick<EngineDepth, 'sequence'>;
+  try {
+    reply = await depth(marketId);
+  } catch (err) {
+    if (err instanceof MatchingNoBookError) return null;
+    throw err;
+  }
+  const sequence: unknown = (reply as { sequence?: unknown } | null | undefined)?.sequence;
+  if (typeof sequence !== 'number' || !Number.isSafeInteger(sequence) || sequence < 0) {
+    throw new MatchingUnavailableError('matching depth did not report a valid sequence counter');
+  }
+  return sequence;
+}
+
+/**
  * No recorded fill: unjudged. Recorded fills with no book, or a live counter
  * behind that max: regression. Otherwise the engine is ahead or equal, which
  * is healthy.
@@ -80,6 +109,13 @@ export interface SequenceRegression {
   readonly recordedSequence: number;
 }
 
+export interface SequenceUnavailable {
+  readonly marketId: string;
+  readonly symbol: string;
+  /** Why the counter could not be read or compared. Not evidence of a lost journal. */
+  readonly reason: string;
+}
+
 export interface SequenceGuardResult {
   /** Markets judged — recorded fills, including a missing book after those fills. */
   readonly checked: number;
@@ -94,6 +130,12 @@ export interface SequenceGuardResult {
    * counted as failing.
    */
   readonly unjudged: number;
+  /**
+   * Markets with recorded fills whose engine counter could not be read: an
+   * outage, a 5xx, or a malformed reply. Not ready, but not a regression —
+   * the engine may be fine and merely unreachable.
+   */
+  readonly unavailable: readonly SequenceUnavailable[];
 }
 
 export interface SequenceGuardDeps {
@@ -101,9 +143,10 @@ export interface SequenceGuardDeps {
   /** Live markets to check. */
   readonly markets: () => Promise<ReadonlyArray<{ id: string; symbol: string }>>;
   /**
-   * The engine's current counter for a market, or null when it has no book.
-   * `depth(marketId, 1)` is the cheapest way to ask — and since the memo landed
-   * it is close to free.
+   * The engine's current counter for a market, or null ONLY when matching
+   * positively reports no book. Throw when the answer is unknown (outage, 5xx,
+   * malformed reply); see `probeEngineSequence`. `depth(marketId, 1)` is the
+   * cheapest way to ask — and since the memo landed it is close to free.
    */
   readonly engineSequence: (marketId: string) => Promise<number | null>;
 }
@@ -114,7 +157,7 @@ export interface SequenceGuardDeps {
  */
 export async function checkEngineSequences(deps: SequenceGuardDeps): Promise<SequenceGuardResult> {
   const markets = await deps.markets();
-  if (markets.length === 0) return { checked: 0, regressions: [], unjudged: 0 };
+  if (markets.length === 0) return { checked: 0, regressions: [], unjudged: 0, unavailable: [] };
 
   const rows = await deps.sql<Array<{ market_id: string; max_sequence: string | null }>>`
     SELECT market_id, MAX(sequence)::text AS max_sequence
@@ -124,6 +167,7 @@ export async function checkEngineSequences(deps: SequenceGuardDeps): Promise<Seq
   const recorded = new Map(rows.map((r) => [r.market_id, Number(r.max_sequence)]));
 
   const regressions: SequenceRegression[] = [];
+  const unavailable: SequenceUnavailable[] = [];
   let checked = 0;
   let unjudged = 0;
 
@@ -137,14 +181,24 @@ export async function checkEngineSequences(deps: SequenceGuardDeps): Promise<Seq
 
     // Fills exist. A missing book is the counter about to start again, which
     // is the same regression as a live counter sitting below the recorded max.
-    const engineSequence = await deps.engineSequence(market.id);
+    // An unknown answer is not a missing book: keep it out of the regression
+    // list, so an outage is never reported as a lost journal.
+    let engineSequence: number | null;
+    let verdict: ReturnType<typeof judgeEngineSequence>;
+    try {
+      engineSequence = await deps.engineSequence(market.id);
+      verdict = judgeEngineSequence(recordedSequence, engineSequence);
+    } catch (err) {
+      unavailable.push({ marketId: market.id, symbol: market.symbol, reason: (err as Error).message });
+      continue;
+    }
     checked += 1;
-    if (judgeEngineSequence(recordedSequence, engineSequence) === 'regression') {
+    if (verdict === 'regression') {
       regressions.push({ marketId: market.id, symbol: market.symbol, engineSequence, recordedSequence });
     }
   }
 
-  return { checked, regressions, unjudged };
+  return { checked, regressions, unjudged, unavailable };
 }
 
 /** One line an operator can act on, naming the market and both numbers. */
@@ -162,4 +216,10 @@ export function describeRegressions(regressions: readonly SequenceRegression[]):
     `identify settled trades — and fillIdFor(market, sequence) is the ledger's idempotency key. ` +
     `Restore the engine's journal volume, or replay it, before serving traffic.`
   );
+}
+
+/** Not ready because the engine could not be asked. No journal or replay advice: nothing says it was lost. */
+export function describeUnavailable(unavailable: readonly SequenceUnavailable[]): string {
+  const detail = unavailable.map((u) => `${u.symbol} (${u.reason})`).join(', ');
+  return `the matching engine's sequence counter could not be read for: ${detail}. Readiness is unknown until matching answers.`;
 }

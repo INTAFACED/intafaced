@@ -59,7 +59,6 @@ import {
 } from './drop-copy-ingest.js';
 import { NoSubAccounts, assertSubAccountOwned, type SubAccountOwnershipSource } from './sub-account-ownership.js';
 import {
-  MatchingNoBookError,
   type EngineAmendResult,
   type EngineCancellation,
   type EngineFill,
@@ -67,7 +66,7 @@ import {
   type EngineSubmitResult,
   type MatchingClient,
 } from './matching-client.js';
-import { judgeEngineSequence } from './sequence-guard.js';
+import { judgeEngineSequence, probeEngineSequence } from './sequence-guard.js';
 import {
   acceptConvertQuote,
   buildFirmConvertQuote,
@@ -1409,23 +1408,40 @@ export class TradeService {
     return this.executeAdmittedOrder(evidence);
   }
 
-  private async refuseRestartedEngineSequence(market: Market): Promise<void> {
+  private async recordedFillSequence(marketId: string): Promise<number | undefined> {
     const rows = await this.sql<Array<{ max_sequence: string | null }>>`
       SELECT MAX(sequence)::text AS max_sequence
         FROM trade.fills
-       WHERE market_id = ${market.id}
+       WHERE market_id = ${marketId}
     `;
     const raw = rows[0]?.max_sequence;
-    const recordedSequence = raw == null ? undefined : Number(raw);
-    if (recordedSequence === undefined) return;
+    return raw == null ? undefined : Number(raw);
+  }
 
-    let engineSequence: number | null;
-    try {
-      engineSequence = (await this.matching.depth(market.id, 1)).sequence;
-    } catch (err) {
-      if (!(err instanceof MatchingNoBookError)) throw err;
-      engineSequence = null;
-    }
+  /**
+   * Refuse a new order while the engine counter is behind what is settled.
+   *
+   * The stored max is read again AFTER the depth reply: a delayed fill from the
+   * previous engine can settle while the probe is in flight, and the reply must
+   * be judged against that newer max, not the one sampled before the await.
+   * This narrows the window; it does not make admission atomic with
+   * settlement. A fill that settles after the second read is still caught by
+   * `insertFillLeg` (#899) at settlement. No epoch or restart-safety protocol
+   * is claimed here.
+   *
+   * Unknown is not missing: an outage, 5xx or malformed depth reply throws
+   * `MatchingUnavailableError` (502), never `engine_sequence_regressed`.
+   */
+  private async refuseRestartedEngineSequence(market: Market): Promise<void> {
+    // A market with no stored fill is unjudged, as before: no probe.
+    const before = await this.recordedFillSequence(market.id);
+    if (before === undefined) return;
+
+    const engineSequence = await probeEngineSequence((marketId) => this.matching.depth(marketId, 1), market.id);
+
+    // Fills only grow, but take the max so a stale read can never lower the bar.
+    const after = await this.recordedFillSequence(market.id);
+    const recordedSequence = after === undefined ? before : Math.max(before, after);
     if (judgeEngineSequence(recordedSequence, engineSequence) !== 'regression') return;
 
     const where =
