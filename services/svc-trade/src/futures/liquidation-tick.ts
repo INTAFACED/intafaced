@@ -3,9 +3,11 @@
  *
  * JOB SHAPE (not a wall-clock cron): one callable tick that:
  *  1. loads open positions
- *  2. asks an external MarkSource for each mark (never invents)
- *  3. plans via the published ladder (never a silent full-close default)
- *  4. posts ledger recipes + marks position liquidated (via PositionCloser)
+ *  2. finishes any rung already in flight for a position (stored recipes, no re-decision)
+ *  3. else asks an external MarkSource for the mark (never invents)
+ *  4. plans via the published ladder (never a silent full-close default)
+ *  5. stores the rung, posts its ledger recipes, then moves the position row and the
+ *     rung's state in one transaction (`liquidation-rungs.ts`)
  *
  * Out of scope: mark oracle product, matching engine, funding.
  *
@@ -13,7 +15,8 @@
  * `DIRECTION` §1's failure mode, not a fallback policy. Omit `deps.ladder` and
  * the tick refuses (`trade.ladder_unset`) — it does not flatten the book.
  */
-import { parseAmount, type Amount, type LedgerClient, type PostRequest } from '@intafaced/ledger-client';
+import { randomUUID } from 'node:crypto';
+import { formatAmount, parseAmount, recipes, type Amount, type LedgerClient, type PostRequest } from '@intafaced/ledger-client';
 import { type LiquidationPosition } from './liquidation-planner.js';
 import {
   DEPTH_UNKNOWN,
@@ -28,6 +31,7 @@ import { breakerBasis, type AcceptedMarkStore } from './accepted-mark.js';
 import { INSURANCE_UNDERFUNDED, checkInsuranceBound } from './insurance-bound.js';
 import { parkUnderfundedWithAdl, type LiquidationAdlDeps } from './liquidation-adl-gate.js';
 export type { LiquidationAdlDeps } from './liquidation-adl-gate.js';
+import type { LiquidationRungStore, RungIdFactory, RungPlan, RungRecord } from './liquidation-rungs.js';
 
 /**
  * WHAT A CALLER ASKS A MARK SOURCE FOR — AND WHAT THE ANSWER IS FOR.
@@ -96,6 +100,13 @@ export interface LiquidationPositionLoader {
  */
 export interface PositionCloser {
   markLiquidated(positionId: string, meta: { liquidationId: string; reason: string }): Promise<void>;
+  /**
+   * The bus fan-out half of `markLiquidated`, for a row a RUNG already closed.
+   * A rung closes the row inside its own transaction (`LiquidationRungStore.apply`),
+   * so the announcement is a separate step that runs after that commit. Optional:
+   * a closer with no bus has nothing to announce.
+   */
+  announceLiquidated?(positionId: string, meta: { liquidationId: string; reason: string }): Promise<void>;
 }
 
 /**
@@ -112,7 +123,15 @@ export interface PositionCloser {
  * to argue about it.
  */
 export interface PositionReducer {
-  reduce(positionId: string, input: { liquidationId: string; sizeClosed: Amount; marginRemaining: Amount; reason: string }): Promise<void>;
+  /**
+   * Resolves `false` when NO row moved (the row changed between the read and the
+   * UPDATE, or it is no longer open). The caller must not treat that as success.
+   * `void` is a legacy recorder that does not say; it is taken as applied.
+   */
+  reduce(
+    positionId: string,
+    input: { liquidationId: string; sizeClosed: Amount; marginRemaining: Amount; reason: string },
+  ): Promise<boolean | void>;
 }
 
 /** The book this position would have to be closed INTO. Null → skip (never invent depth). */
@@ -175,6 +194,13 @@ export const stubMarginCallNotifier: MarginCallNotifier = {
 };
 
 /**
+ * THE CLAIM-BASED ATTEMPT RECORD — kept for rungs from before rung ids.
+ *
+ * New rungs are a state machine on `LiquidationRungStore` and do not claim; this
+ * table is written (`markDone`) only after a closing rung has closed the row, and
+ * a row found here on a still-open position is an old-code closing rung that must
+ * not be planned again (its loss may be booked under the old key).
+ *
  * Prevent double-liquidation attempts for the same position+attempt key.
  *
  * `tryClaim` must be called BEFORE any ledger post. A store that only records
@@ -223,6 +249,17 @@ export interface LiquidationTickDeps {
    */
   ledger: Pick<LedgerClient, 'post' | 'balance'>;
   /**
+   * The rung state machine (see `liquidation-rungs.ts`). Production passes
+   * `sqlLiquidationRungStore`. Omitted → the CLAIM-BASED path every rung used
+   * before rung ids: plan fresh each tick, a closing rung claims `liq:{positionId}`
+   * and parks on any failure. That path is kept for in-flight rungs and for unit
+   * tests of the planner; it is NOT a degraded mode to ship — `startFuturesJobs`
+   * always wires this.
+   */
+  rungs?: LiquidationRungStore;
+  /** Mints rung ids. Default `crypto.randomUUID`. */
+  newRungId?: RungIdFactory;
+  /**
    * Ignored. The tick no longer full-closes through the legacy planner; a
    * published `ladder.policy` is the only maintenance table.
    */
@@ -270,6 +307,9 @@ export interface LiquidationTickDeps {
   adl?: LiquidationAdlDeps;
 }
 
+/** `skipped_already` reason: the position's latest rung is abandoned (see `LiquidationRungStore.isParked`). */
+export const ABANDONED_PARKED = 'trade.liquidation_abandoned_parked';
+
 export interface LiquidationTickItemResult {
   positionId: string;
   outcome:
@@ -280,6 +320,8 @@ export interface LiquidationTickItemResult {
     | 'skipped_healthy'
     | 'skipped_already'
     | 'skipped_insurance_underfunded'
+    /** The row moved (or closed) between the read that decided and the lock that would write. Nothing was posted. */
+    | 'skipped_changed'
     | 'margin_call'
     | 'partially_liquidated'
     | 'liquidated'
@@ -288,6 +330,15 @@ export interface LiquidationTickItemResult {
     | 'errored';
   reason: string;
   summary?: string;
+  /**
+   * The rung applied, but its margin did not reconcile (see `RungAlert`). The item is
+   * still a success; `reportLiquidationTick` raises the alert at error level.
+   */
+  alert?: { code: string; rungId: string; amount: string };
+  /** The rung's margin release was amended down to what the pot held (`trade.liquidation_release_short`). Amount is the shortfall. */
+  releaseShort?: { code: string; rungId: string; amount: string };
+  /** A partial rung's loss was booked for less than planned because the pot held less (`trade.liquidation_loss_short`). Amount is the shortfall. */
+  lossShort?: { code: string; rungId: string; amount: string };
   /**
    * Set when `outcome === 'margin_call'`: whether the notify port accepted
    * delivery. Observable on the tick result; REST durability is the trader door.
@@ -306,9 +357,11 @@ export interface LiquidationTickResult {
   errored: number;
   /**
    * Open positions the tick skipped as `skipped_already`: an attempt/claim row
-   * exists, yet the position is still open. A claim whose worker is mid-flight
-   * clears itself next tick; one that persists is a rung parked after a crash
-   * (see `runLadderRung`) and needs an operator. Alert on it staying non-zero.
+   * exists, yet the position is still open. Rungs that run through the rung store
+   * write that row only once the position has closed, so on an open position it is
+   * a closing rung claimed by the code that predates rung ids and parked after a
+   * crash (see `LiquidationTickDeps.rungs`) — it needs an operator. Alert on it
+   * staying non-zero.
    */
   parked: number;
   items: LiquidationTickItemResult[];
@@ -344,9 +397,59 @@ export async function runLiquidationTick(deps: LiquidationTickDeps): Promise<Liq
     try {
       const liquidationId = deps.liquidationIdFor?.(row, at) ?? defaultLiquidationId(row.positionId);
 
+      /**
+       * A CLAIM ROW IS A RUNG FROM BEFORE RUNG IDS, OR A FINISHED CLOSE.
+       *
+       * Rungs that run through `deps.rungs` do not write `liquidation_attempts`
+       * until the row has closed, so on a position that is still open this row can
+       * only be a closing rung claimed by the old code. Its loss may already be
+       * booked under the OLD key (`liq:{positionId}:loss`); planning a new rung
+       * beside it would book the loss twice. It stays parked for an operator,
+       * counted and logged every tick (`parked`).
+       */
       if (await deps.attempts.isDone(liquidationId)) {
         items.push({ positionId: row.positionId, outcome: 'skipped_already', reason: 'already_done' });
         continue;
+      }
+
+      /**
+       * A LIVE RUNG IS FINISHED BEFORE ANYTHING NEW IS DECIDED.
+       *
+       * It posted (or is posting) a loss the row has not caught up with. That is
+       * owed whatever the mark, depth or policy say now — the position may have
+       * recovered since, and re-deciding would skip it and leave the ledger and
+       * the row disagreeing for good. So the replay runs before the mark gate and
+       * needs neither a mark nor a book.
+       */
+      if (deps.rungs) {
+        const live = await deps.rungs.findLive(row.positionId);
+        if (live) {
+          const item = await driveRung(deps, deps.rungs, row, live);
+          items.push(item);
+          if (item.outcome === 'liquidated') liquidated += 1;
+          else if (item.outcome === 'partially_liquidated') partial += 1;
+          else if (item.outcome === 'errored') errored += 1;
+          continue;
+        }
+
+        /**
+         * PARKED BEHIND AN ABANDONED RUNG.
+         *
+         * The latest rung booked a loss the row could not be reconciled with. A new
+         * rung planned beside it would charge the same tranche again, so nothing is
+         * planned until an operator has reconciled the margin and marked the rung
+         * `resolved`. Counted in `parked` and logged every tick.
+         */
+        if (await deps.rungs.isParked(row.positionId)) {
+          items.push({
+            positionId: row.positionId,
+            outcome: 'skipped_already',
+            reason: ABANDONED_PARKED,
+            summary:
+              "the position's latest liquidation rung was abandoned after its loss was booked — reconcile it, then mark the rung resolved",
+          });
+          continue;
+        }
       }
 
       /**
@@ -423,6 +526,7 @@ export async function runLiquidationTick(deps: LiquidationTickDeps): Promise<Liq
       if (outcomeItem.outcome === 'liquidated') liquidated += 1;
       else if (outcomeItem.outcome === 'partially_liquidated') partial += 1;
       else if (outcomeItem.outcome === 'margin_call') marginCalls += 1;
+      else if (outcomeItem.outcome === 'errored') errored += 1;
     } catch (err) {
       const code = (err as { code?: unknown } | null)?.code;
       items.push({
@@ -435,6 +539,22 @@ export async function runLiquidationTick(deps: LiquidationTickDeps): Promise<Liq
     }
   }
 
+  /**
+   * ANNOUNCEMENTS RUN LAST, AND A DOWN BUS COSTS ONE ATTEMPT.
+   *
+   * A close commits in `apply`; telling the bus is a separate, slower, failure-prone
+   * step (a JetStream publish waits for an ack). Doing it before or inside the scan
+   * let a dead bus stall every liquidation behind it. Now the scan never waits on it,
+   * and this pass stops at the first failure.
+   */
+  if (deps.rungs) {
+    const failed = await announceMissing(deps, deps.rungs);
+    if (failed) {
+      items.push(failed);
+      errored += 1;
+    }
+  }
+
   // Every item came off `listOpen`, so a `skipped_already` is an open position
   // that still has a claim — see `LiquidationTickResult.parked`.
   const parked = items.filter((i) => i.outcome === 'skipped_already').length;
@@ -442,21 +562,28 @@ export async function runLiquidationTick(deps: LiquidationTickDeps): Promise<Liq
 }
 
 /**
- * ONE POSITION, THROUGH THE LADDER.
+ * ONE POSITION, THROUGH THE LADDER — DECIDING A NEW RUNG.
  *
- * Split out rather than inlined because the ORDER of the four steps below is the
- * whole safety property, and it is easier to check when it is not buried in the
- * scan loop.
+ * Split out rather than inlined because the ORDER of the steps is the whole
+ * safety property, and it is easier to check when it is not buried in the scan
+ * loop. A rung already in flight never reaches here: the scan loop replays it
+ * first (`driveRung`).
  *
  *   1. Read the depth this position would be closed into. No depth → skip.
  *   2. Plan. A refusal or a healthy rung → skip, and nothing posts.
- *   3. Post the recipes. The ledger dedupes on `liquidationId`.
- *   4. THEN move the row — reduce on a partial rung, close on a closing one.
+ *   3. Check the insurance bound for the shortfall leg.
+ *   4. `rungs.begin`: under a row lock, confirm the row is still the one steps 1–3
+ *      read, and persist the rung as 'planned'. Two replicas converge on one rung.
+ *   5. `driveRung`: post its recipes, then move the row and mark the rung
+ *      'applied' in one transaction.
  *
- * Step 4 last, and the attempt only marked done after it, so a crash between 3
- * and 4 re-runs the whole rung: the ledger moves nothing twice on the replay, and
- * the row catches up. The reverse order would shrink a position whose loss never
- * posted.
+ * The row moves LAST: the reverse order would shrink a position whose loss never
+ * posted. A crash anywhere between 4 and 5 leaves a live rung, and the next tick
+ * replays the stored bodies (the ledger moves nothing twice) until the row
+ * catches up.
+ *
+ * Without `deps.rungs` the claim-based path below runs instead (see
+ * `LiquidationTickDeps.rungs`).
  */
 async function runLadderRung(
   deps: LiquidationTickDeps,
@@ -499,6 +626,9 @@ async function runLadderRung(
     };
   }
 
+  // Minted per decision, BEFORE planning, so every key the plan produces carries it.
+  const rungId = deps.rungs ? (deps.newRungId ?? randomUUID)() : undefined;
+
   let decision;
   try {
     decision = planLadderLiquidation({
@@ -507,6 +637,7 @@ async function runLadderRung(
       markPrice,
       depthNotional,
       policy: ladder.policy,
+      ...(rungId !== undefined ? { rungId } : {}),
     });
   } catch (err) {
     // An incoherent policy is an operator problem on every position, not a market
@@ -593,7 +724,42 @@ async function runLadderRung(
     });
   }
 
+  if (deps.rungs && rungId !== undefined) {
+    const begun = await deps.rungs.begin({
+      rungId,
+      positionId: row.positionId,
+      liquidationId,
+      kind: decision.closesPosition ? 'closing' : 'partial',
+      fromSize: row.size,
+      fromMargin: row.margin,
+      plan: {
+        recipes: decision.recipes as PostRequest[],
+        sizeClosed: decision.sizeClosed,
+        marginRemaining: decision.marginRemaining,
+        marginTaken: decision.fromMargin,
+        releaseShort: 0n,
+        lossShort: 0n,
+        reason: decision.reason,
+        fromInsurance: decision.fromInsurance,
+        marginAsset: row.marginAsset,
+      },
+    });
+    if (begun.status === 'changed') {
+      return {
+        positionId: row.positionId,
+        outcome: 'skipped_changed',
+        reason: 'trade.liquidation_row_changed_before_plan',
+        summary: `${row.marketId}: the position moved (or closed) since it was read; nothing was posted — the next tick reads it again`,
+      };
+    }
+    // 'live': another worker planned this position first. Its rung wins and is
+    // replayed as stored; what this tick computed is discarded.
+    return driveRung(deps, deps.rungs, row, begun.rung);
+  }
+
   /**
+   * CLAIM-BASED PATH (no `deps.rungs`).
+   *
    * Closing rungs claim the lifecycle id so a second worker cannot full-close
    * twice. Partial rungs deliberately do NOT claim `liq:{positionId}` — the
    * position stays open for the next rung, and recipe keys already include the
@@ -617,12 +783,22 @@ async function runLadderRung(
     await deps.closer.markLiquidated(row.positionId, { liquidationId, reason: decision.reason });
     await deps.attempts.markDone(liquidationId);
   } else {
-    await ladder.reducer.reduce(row.positionId, {
+    const moved = await ladder.reducer.reduce(row.positionId, {
       liquidationId,
       sizeClosed: decision.sizeClosed,
       marginRemaining: decision.marginRemaining,
       reason: decision.reason,
     });
+    if (moved === false) {
+      // The loss is booked and no row moved. Reporting success here is how a row
+      // ends up claiming more margin than the ledger holds.
+      return {
+        positionId: row.positionId,
+        outcome: 'errored',
+        reason: 'trade.liquidation_row_changed_after_post',
+        summary: `${row.marketId}: the partial rung's loss is booked but the position row did not move (it changed since it was read)`,
+      };
+    }
   }
 
   return {
@@ -631,6 +807,282 @@ async function runLadderRung(
     reason: decision.reason,
     summary: summarizeLadder(decision),
   };
+}
+
+/**
+ * ADVANCE ONE STORED RUNG TO THE END — for a fresh rung and for a replay alike.
+ *
+ *   planned ─ post every recipe ─▶ posted ─ apply (row + state, one tx) ─▶ applied
+ *
+ * A replay is NOT a decision: it does not look at health, depth or the mark. The
+ * rung committed to its recipes and to the figures in them, and that is what this
+ * finishes. Posting is idempotent on the stored keys, so a recipe that is already
+ * booked returns its old transaction. The ledger is also the only judge of whether
+ * a recipe that is NOT yet booked is affordable:
+ *
+ *   · INSURANCE. If the ledger refuses a rung's insurance leg for insufficient
+ *     funds, the fund drained since the rung was planned. The tick reports
+ *     `trade.liquidation_insurance_underfunded_on_replay` (with the last-resort ADL
+ *     answer), and the rung stays live — loud on every tick — until the fund is
+ *     back. There is deliberately NO lookup of "is this key booked" first: the
+ *     production ledger client cannot answer one (it throws), and a guess would
+ *     either wedge a rung that is fine or wave through one that is not.
+ *   · THE ROW. `apply` takes the row lock and moves the row by the rung's DELTA
+ *     (see `liquidation-rungs.ts`). Only a row that cannot be reconciled with the
+ *     booked loss abandons the rung — `trade.liquidation_row_changed_after_post`,
+ *     and the position is parked until an operator resolves it.
+ *
+ * A closing rung that throws anywhere here is simply replayed next tick; there is
+ * no claim to park behind. `liquidation_attempts` is written (`markDone`) only
+ * after the row has closed, for the benefit of everything that still reads it.
+ */
+async function driveRung(
+  deps: LiquidationTickDeps,
+  rungs: LiquidationRungStore,
+  row: LiquidationPositionRow,
+  rung: RungRecord,
+  depth = 0,
+): Promise<LiquidationTickItemResult> {
+  const { plan } = rung;
+  const closing = rung.kind === 'closing';
+  const outcome = closing ? ('liquidated' as const) : ('partially_liquidated' as const);
+  const label = `rung ${rung.rungId} (${rung.kind}) close=${formatAmount(plan.sizeClosed)} marginTaken=${formatAmount(plan.marginTaken)}`;
+
+  let releaseShort = plan.releaseShort;
+  let lossShort = plan.lossShort;
+
+  if (rung.state === 'planned') {
+    let current: RungPlan = plan;
+    let version = rung.planVersion;
+    /** Persist an amended plan BEFORE it posts. Null: somebody else amended first — the caller re-reads. */
+    const amend = async (next: RungPlan): Promise<boolean> => {
+      const v = await rungs.amendPlan(rung.rungId, next, version);
+      if (v === null) return false;
+      version = v;
+      current = next;
+      return true;
+    };
+    /** Lost the compare-and-set: take what the winner stored and post THAT. */
+    const rereadAndDrive = async (): Promise<LiquidationTickItemResult> => {
+      const fresh = await rungs.findLive(row.positionId);
+      if (!fresh || depth >= 3) throw new Error(`rung ${rung.rungId} changed under a concurrent amendment — replayed next tick`);
+      return driveRung(deps, rungs, row, fresh, depth + 1);
+    };
+    const replace = (key: string, recipe: PostRequest | null): PostRequest[] =>
+      current.recipes.flatMap((r) => (r.idempotencyKey !== key ? [r] : recipe ? [recipe] : []));
+    const underfundedItem = async (fromInsurance: Amount, why: string): Promise<LiquidationTickItemResult> => {
+      const parked = await parkUnderfundedWithAdl({
+        adl: deps.adl,
+        row,
+        fromInsurance,
+        insuranceReason: INSURANCE_UNDERFUNDED,
+        at: (deps.now ?? (() => new Date()))(),
+      });
+      return {
+        positionId: row.positionId,
+        outcome: 'errored',
+        reason: 'trade.liquidation_insurance_underfunded_on_replay',
+        summary: `${label}: ${why} ${formatAmount(fromInsurance)} — rung stays live and is retried every tick (${parked.summary})`,
+      };
+    };
+
+    for (const stored of plan.recipes) {
+      try {
+        await deps.ledger.post(stored);
+      } catch (err) {
+        const code = (err as { code?: unknown } | null)?.code;
+        if (code !== 'ledger.insufficient_funds') throw err;
+        // WHICH ACCOUNT IS SHORT? The ledger's refusal is not reliable about it over HTTP
+        // (`accountId` arrives as 'unknown' or a ledger uuid, not an account ref), so the
+        // balances are read instead.
+        const potEntry = stored.entries.find((e) => e.direction === 'credit' && e.account.kind === 'collateral');
+
+        if (stored.reason === 'futures.margin.release' && potEntry) {
+          /**
+           * THE RELEASE CAME UP SHORT — AMEND IT, NEVER LEAVE THE POSITION OPEN.
+           *
+           * The loss is booked (it posted first). The release returns the margin the loss
+           * did not consume, as planned from the row; if the pot holds less now (funding
+           * or a margin withdrawal took some before the release posted) the ledger refuses
+           * it and, unamended, the rung would error every tick with the row still open and
+           * tradable after its loss was booked. So: read the pot, release what it holds
+           * under the SAME key (a refused post leaves nothing booked, so a different body
+           * is not a key reuse), skip the release when the pot is empty, and persist the
+           * amended plan BEFORE posting so a replay posts the same body.
+           */
+          const pot = (await deps.ledger.balance(potEntry.account)).amount;
+          if (pot >= potEntry.amount) throw err; // the pot is not short: this refusal is something else
+          const amended = pot > 0n ? pot : 0n;
+          const recipe: PostRequest | null =
+            amended > 0n ? { ...stored, entries: stored.entries.map((e) => ({ ...e, amount: amended })) } : null;
+          releaseShort += potEntry.amount - amended;
+          if (!(await amend({ ...current, recipes: replace(stored.idempotencyKey, recipe), releaseShort }))) return rereadAndDrive();
+          if (recipe) await deps.ledger.post(recipe);
+        } else if (
+          stored.reason === 'futures.loss.realized' &&
+          potEntry &&
+          (await deps.ledger.balance(potEntry.account)).amount < potEntry.amount
+        ) {
+          /**
+           * THE LOSS CAME UP SHORT — THE POT SHRANK AFTER PLANNING.
+           *
+           * Funding (or a withdrawal) left the position's pot holding less than the loss's
+           * pot leg, so the ledger refuses the whole loss. The loss key was never booked, so
+           * a different body is safe.
+           *   · CLOSING rung: the pot leg becomes what the pot holds and the difference moves
+           *     to the INSURANCE leg — the position is liquidated either way, and insurance
+           *     is what covers loss beyond the margin. Only if insurance cannot cover the
+           *     grown leg is it a genuine shortfall (the ADL park path).
+           *   · PARTIAL rung: the pot leg becomes what the pot holds and the under-booked loss
+           *     is recorded (`lossShort`, alert `trade.liquidation_loss_short`); the row is
+           *     reduced by the margin actually taken.
+           */
+          const pot = (await deps.ledger.balance(potEntry.account)).amount;
+          const potLegNow = pot > 0n ? pot : 0n;
+          const shift = potEntry.amount - potLegNow;
+          const lossId = stored.idempotencyKey.slice('futures.loss:'.length);
+          let recipe: PostRequest | null;
+          let next: RungPlan;
+          if (closing) {
+            const fromInsurance = current.fromInsurance + shift;
+            const bound = await checkInsuranceBound({
+              assetId: plan.marginAsset,
+              fromInsurance,
+              balance: (ref) => deps.ledger.balance(ref),
+            });
+            if (!bound.ok)
+              return underfundedItem(fromInsurance, 'the position pot shrank and the insurance fund cannot cover the grown leg of');
+            recipe = recipes.futuresRealizeLoss({
+              positionId: row.positionId,
+              userId: row.userId,
+              assetId: plan.marginAsset,
+              fromMargin: potLegNow,
+              fromInsurance,
+              lossId,
+            });
+            next = { ...current, recipes: replace(stored.idempotencyKey, recipe), fromInsurance, marginTaken: potLegNow };
+          } else {
+            recipe =
+              potLegNow > 0n
+                ? recipes.futuresRealizeLoss({
+                    positionId: row.positionId,
+                    userId: row.userId,
+                    assetId: plan.marginAsset,
+                    fromMargin: potLegNow,
+                    fromInsurance: 0n,
+                    lossId,
+                  })
+                : null;
+            lossShort += shift;
+            next = { ...current, recipes: replace(stored.idempotencyKey, recipe), marginTaken: potLegNow, lossShort };
+          }
+          if (!(await amend(next))) return rereadAndDrive();
+          if (recipe) await deps.ledger.post(recipe);
+        } else if (plan.fromInsurance > 0n) {
+          // The pot holds what the recipe needs, so a refusal on a rung that draws on insurance is
+          // the insurance fund — but only if the fund is actually below the leg. Otherwise it is
+          // something else, and telling the operator to top up insurance (or letting ADL deleverage
+          // others) would be wrong.
+          const bound = await checkInsuranceBound({
+            assetId: plan.marginAsset,
+            fromInsurance: plan.fromInsurance,
+            balance: (ref) => deps.ledger.balance(ref),
+          });
+          if (!bound.ok) return underfundedItem(plan.fromInsurance, 'the ledger refused the insurance leg of');
+          throw err;
+        } else {
+          throw err;
+        }
+      }
+    }
+    await rungs.markPosted(rung.rungId);
+  }
+
+  const applied = await rungs.apply(row.positionId, rung.rungId);
+  switch (applied.status) {
+    case 'applied':
+    case 'already_applied': {
+      // The announcement is NOT made here: it is the after-scan pass's job
+      // (`announceMissing`), so a slow or dead bus never delays a rung.
+      if (closing) await deps.attempts.markDone(rung.liquidationId);
+      const alert = applied.status === 'applied' ? applied.alert : undefined;
+      return {
+        positionId: row.positionId,
+        outcome,
+        reason: plan.reason,
+        summary: `${label} ${applied.status === 'applied' ? 'applied' : 'already applied'}${alert ? ` — ${alert.code} ${formatAmount(alert.amount)}` : ''}`,
+        ...(alert ? { alert: { code: alert.code, rungId: rung.rungId, amount: formatAmount(alert.amount) } } : {}),
+        ...(lossShort > 0n && applied.status === 'applied'
+          ? { lossShort: { code: 'trade.liquidation_loss_short', rungId: rung.rungId, amount: formatAmount(lossShort) } }
+          : {}),
+        ...(releaseShort > 0n && applied.status === 'applied'
+          ? { releaseShort: { code: 'trade.liquidation_release_short', rungId: rung.rungId, amount: formatAmount(releaseShort) } }
+          : {}),
+      };
+    }
+    case 'abandoned':
+      return {
+        positionId: row.positionId,
+        outcome: 'errored',
+        reason: 'trade.liquidation_row_changed_after_post',
+        summary: `${label}: the position row cannot be reconciled with the booked loss (${applied.reason}) — rung abandoned and the position parked; operator must reconcile, then mark the rung resolved`,
+      };
+    case 'not_live':
+      return {
+        positionId: row.positionId,
+        outcome: 'errored',
+        reason: 'trade.liquidation_rung_not_live',
+        summary: `${label}: the rung was abandoned before it could apply`,
+      };
+  }
+}
+
+/**
+ * Publish a closed rung's `positionUpdated`, then record that it went out.
+ *
+ * AT-LEAST-ONCE. The row closed in `apply`'s transaction; the bus is a separate
+ * system, so a crash between the two used to lose the event for good. Now the rung
+ * row says whether the announcement is recorded (`announced_at`), and every tick's
+ * last pass (`announceMissing`) publishes the applied closing rungs that are not.
+ * The publish key `trade.position.liquidated:{id}:{liquidationId}` makes a repeat
+ * harmless.
+ */
+async function announceRung(deps: LiquidationTickDeps, rungs: LiquidationRungStore, rung: RungRecord): Promise<void> {
+  await deps.closer.announceLiquidated?.(rung.positionId, { liquidationId: rung.liquidationId, reason: rung.plan.reason });
+  await rungs.markAnnounced(rung.rungId);
+}
+
+/**
+ * Publish the closes that have not been announced — oldest first, and STOPPING AT THE
+ * FIRST FAILURE: a bus that is down fails every publish and each one can wait for an
+ * ack, so trying fifty of them would turn one outage into minutes of stall per tick.
+ * Returns the single errored item, or null.
+ */
+async function announceMissing(deps: LiquidationTickDeps, rungs: LiquidationRungStore): Promise<LiquidationTickItemResult | null> {
+  let pending: RungRecord[];
+  try {
+    pending = await rungs.listUnannounced(50);
+  } catch (err) {
+    return {
+      positionId: 'announce-scan',
+      outcome: 'errored',
+      reason: 'trade.liquidation_announce_failed',
+      summary: `could not list unannounced liquidations (${err instanceof Error ? err.message : String(err)})`,
+    };
+  }
+  for (const rung of pending) {
+    try {
+      await announceRung(deps, rungs, rung);
+    } catch (err) {
+      return {
+        positionId: rung.positionId,
+        outcome: 'errored',
+        reason: 'trade.liquidation_announce_failed',
+        summary: `rung ${rung.rungId}: the liquidation closed the position but its announcement did not publish (${err instanceof Error ? err.message : String(err)}) — retried next tick, ${pending.length} unannounced`,
+      };
+    }
+  }
+  return null;
 }
 
 export function memoryLiquidationAttemptStore(): LiquidationAttemptStore {
