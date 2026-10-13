@@ -37,7 +37,8 @@ const capture = () => ({
     marketingOptIn: false,
   },
 });
-describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('independent prepared archive barrier SQL/HTTP', () => {
+// Real SQL plus a local HTTP receiver per test; the 5 s default is too tight under CI load.
+describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('independent prepared archive barrier SQL/HTTP', { timeout: 30_000 }, () => {
   let source: TestDatabase, receiverDb: TestDatabase, restored: TestDatabase;
   let server: Awaited<ReturnType<typeof createArchiveReceiver>>;
   const secret = randomBytes(40).toString('base64url');
@@ -306,7 +307,7 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('independent prepared arc
 it('receiver deployment config requires loopback TLS ingress, independent key and distinct private bearer', () => {
   const environment = {
     OPS_ERASURE_ARCHIVE_URL: 'https://archive.example.test',
-    OPS_ERASURE_ARCHIVE_DATABASE_URL: 'postgres://fixture/archive',
+    OPS_ERASURE_ARCHIVE_DATABASE_URL: 'postgres://fixture/archive_test',
     OPS_ERASURE_ARCHIVE_SECRET: randomBytes(40).toString('base64url'),
     OPS_ERASURE_ARCHIVE_ENCRYPTION_KEY: randomBytes(32).toString('base64url'),
     OPS_ERASURE_ARCHIVE_TLS_INGRESS: 'trusted_loopback',

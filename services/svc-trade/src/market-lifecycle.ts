@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { LOCAL_TEST_MARKER_PREFIX, hasLocalTestMarker, isExplicitDevOrTest } from '@intafaced/config';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import {
@@ -187,6 +188,71 @@ export class MarketLifecyclePublicationChainError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'MarketLifecyclePublicationChainError';
+  }
+}
+
+/**
+ * LOCAL-TEST STAND-INS (Nitro-approved 2026-10-13, local only).
+ *
+ * The local test stack publishes lifecycle records whose `authority.actorId`,
+ * `authority.grantId` or `dossier.dossierId` start with `local-test:`. Such a
+ * record is a stand-in for a real authority decision. It may exist only when
+ * `APP_ENV` is exactly `dev` or `test`; an unset or empty `APP_ENV` counts as
+ * NOT dev (the raw value is read, never the schema's `dev` default).
+ *
+ *   publish  outside dev/test -> 409 `trade.lifecycle_local_test_fixture_refused`, nothing written
+ *   read     outside dev/test -> treated as no authority (AUTHORITY_UNAVAILABLE, orders refused)
+ *   boot     outside dev/test -> `assertNoLocalTestLifecycleRows` throws if a marked row exists
+ */
+export class MarketLifecycleLocalTestFixtureError extends Error {
+  readonly code = 'trade.lifecycle_local_test_fixture_refused';
+  constructor(readonly fields: readonly string[]) {
+    super(
+      `lifecycle publication carries a ${LOCAL_TEST_MARKER_PREFIX} marker (${fields.join(', ')}) and APP_ENV is not explicitly dev or test`,
+    );
+    this.name = 'MarketLifecycleLocalTestFixtureError';
+  }
+}
+
+/** The publication fields that carry a `local-test:` marker. Empty means the record is not a stand-in. */
+export function lifecycleLocalTestMarkerFields(publication: MarketLifecyclePublication): string[] {
+  const fields: string[] = [];
+  if (hasLocalTestMarker(publication.authority.actorId)) fields.push('authority.actorId');
+  if (hasLocalTestMarker(publication.authority.grantId)) fields.push('authority.grantId');
+  if (hasLocalTestMarker(publication.dossier.dossierId)) fields.push('dossier.dossierId');
+  return fields;
+}
+
+type LifecycleEnv = Record<string, string | undefined>;
+
+/** True when this publication must be refused under `env` (marked AND not explicit dev/test). */
+function isRefusedLocalTestPublication(publication: MarketLifecyclePublication, env: LifecycleEnv): boolean {
+  return !isExplicitDevOrTest(env.APP_ENV) && lifecycleLocalTestMarkerFields(publication).length > 0;
+}
+
+/**
+ * Boot guard for svc-trade. Outside explicit dev/test, throws if any stored
+ * lifecycle publication carries a `local-test:` marker, so a database restored
+ * from a local run cannot quietly authorise orders. Mirrors the schema-missing
+ * check in index.ts: a top-level throw before `app.listen`, so the process
+ * crashes and never becomes ready.
+ */
+export async function assertNoLocalTestLifecycleRows(sql: Sql, env: LifecycleEnv = process.env): Promise<void> {
+  if (isExplicitDevOrTest(env.APP_ENV)) return;
+  const pattern = `${LOCAL_TEST_MARKER_PREFIX}%`;
+  const rows = await sql<Array<{ evidence_id: string }>>`
+    SELECT evidence_id FROM trade.market_lifecycle_evidence
+    WHERE evidence_kind = 'AUTHORITY_DOSSIER'
+      AND (   lower(btrim(publication #>> '{authority,actorId}')) LIKE ${pattern}
+           OR lower(btrim(publication #>> '{authority,grantId}')) LIKE ${pattern}
+           OR lower(btrim(publication #>> '{dossier,dossierId}')) LIKE ${pattern})
+    LIMIT 5
+  `;
+  if (rows.length > 0) {
+    throw new Error(
+      `svc-trade refuses to start: ${rows.length}+ stored market-lifecycle publication(s) carry a ${LOCAL_TEST_MARKER_PREFIX} marker ` +
+        `(e.g. ${rows[0]?.evidence_id}) and APP_ENV is not explicitly dev or test. Remove the local-test rows or restore a clean database.`,
+    );
   }
 }
 
@@ -439,7 +505,7 @@ export class SqlMarketLifecycleAuthority implements MarketLifecyclePort {
   constructor(
     private readonly sql: Sql,
     private readonly matching: MatchingClient,
-    private readonly options: { readonly spotEnabled: boolean; readonly futuresEnabled: boolean },
+    private readonly options: { readonly spotEnabled: boolean; readonly futuresEnabled: boolean; readonly env?: LifecycleEnv },
   ) {}
 
   async snapshot(market: Market, options: MarketLifecycleSnapshotOptions = {}): Promise<MarketStateSnapshot> {
@@ -549,6 +615,9 @@ export class SqlMarketLifecycleAuthority implements MarketLifecyclePort {
     if (!row) return null;
     const parsed = marketLifecyclePublicationSchema.safeParse(row.publication);
     if (!parsed.success) return null;
+    // A local-test stand-in outside explicit dev/test is no authority at all:
+    // the caller derives AUTHORITY_UNAVAILABLE and the order is refused.
+    if (isRefusedLocalTestPublication(parsed.data, this.options.env ?? process.env)) return null;
     if (parsed.data.authority.decision === 'AUTHORIZED' && now > Date.parse(parsed.data.expiresAt)) {
       const stale = authorityEvidenceSchema.parse({
         ...parsed.data.authority,
@@ -593,7 +662,10 @@ export class AppendOnlyMarketLifecycleLog {
 
 /** Durable append-only adapter used by the service process when SQL is available. */
 export class SqlMarketLifecycleEvidenceStore {
-  constructor(private readonly sql: Sql) {}
+  constructor(
+    private readonly sql: Sql,
+    private readonly options: { readonly env?: LifecycleEnv } = {},
+  ) {}
 
   async readLatest(marketId: string): Promise<MarketLifecyclePublication | null> {
     const [row] = await this.sql<Array<{ publication: unknown }>>`
@@ -603,13 +675,22 @@ export class SqlMarketLifecycleEvidenceStore {
     `;
     if (!row) return null;
     const parsed = marketLifecyclePublicationSchema.safeParse(row.publication);
-    return parsed.success ? parsed.data : null;
+    if (!parsed.success) return null;
+    return isRefusedLocalTestPublication(parsed.data, this.options.env ?? process.env) ? null : parsed.data;
   }
 
   async publish(publication: MarketLifecyclePublication): Promise<MarketLifecyclePublication> {
     const parsed = marketLifecyclePublicationSchema.parse(publication);
+    // Before any SQL: a refused stand-in must leave nothing behind.
+    if (isRefusedLocalTestPublication(parsed, this.options.env ?? process.env)) {
+      throw new MarketLifecycleLocalTestFixtureError(lifecycleLocalTestMarkerFields(parsed));
+    }
     assertPublicationNotFuture(parsed);
     const evidenceId = lifecyclePublicationId(parsed.marketId, parsed.idempotencyKey);
+    // `::text::jsonb`, not `::jsonb`: postgres.js serialises a string bound to a jsonb parameter as a JSON
+    // string, so the row would store the text of the object instead of the object. Read-back then failed
+    // the schema and every publish answered `trade.lifecycle_publication_conflict`. The fakes in the tests
+    // never saw it; the real driver does.
     const payload = JSON.stringify(parsed);
     const [existing] = await this.sql<Array<{ publication: unknown }>>`
       SELECT publication FROM trade.market_lifecycle_evidence WHERE evidence_id = ${evidenceId} LIMIT 1
@@ -646,7 +727,7 @@ export class SqlMarketLifecycleEvidenceStore {
       await this.sql`
         INSERT INTO trade.market_lifecycle_evidence
           (evidence_id, market_id, evidence_kind, publication, causal_predecessor_id, reconciliation_key, observed_at)
-        VALUES (${evidenceId}, ${parsed.marketId}, 'AUTHORITY_DOSSIER', ${payload}::jsonb,
+        VALUES (${evidenceId}, ${parsed.marketId}, 'AUTHORITY_DOSSIER', ${payload}::text::jsonb,
           ${parsed.causalPredecessorId}, ${evidenceId}, ${parsed.observedAt}::timestamptz)
         ON CONFLICT (evidence_id) DO NOTHING
       `;
@@ -676,7 +757,7 @@ export class SqlMarketLifecycleEvidenceStore {
       INSERT INTO trade.market_lifecycle_evidence
         (evidence_id, market_id, evidence_kind, transition, correction, causal_predecessor_id, reconciliation_key, observed_at)
       VALUES
-        (${parsed.transitionId}, ${parsed.marketId}, 'TRANSITION', ${JSON.stringify(parsed)}::jsonb, NULL,
+        (${parsed.transitionId}, ${parsed.marketId}, 'TRANSITION', ${JSON.stringify(parsed)}::text::jsonb, NULL,
          ${parsed.authorityRef}, ${reconciliationKey}, ${parsed.requestedAt}::timestamptz)
       ON CONFLICT (evidence_id) DO NOTHING
     `;
@@ -689,7 +770,7 @@ export class SqlMarketLifecycleEvidenceStore {
       INSERT INTO trade.market_lifecycle_evidence
         (evidence_id, market_id, evidence_kind, transition, correction, causal_predecessor_id, reconciliation_key, observed_at)
       VALUES
-        (${parsed.correctionId}, NULL, 'CORRECTION', NULL, ${JSON.stringify(parsed)}::jsonb,
+        (${parsed.correctionId}, NULL, 'CORRECTION', NULL, ${JSON.stringify(parsed)}::text::jsonb,
          ${parsed.causalPredecessorId}, NULL, ${parsed.correctedAt}::timestamptz)
       ON CONFLICT (evidence_id) DO NOTHING
     `;

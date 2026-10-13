@@ -1,4 +1,5 @@
 import { requireFounderPage } from '@/lib/founder-page';
+import { requireModulePage } from '@/lib/module-page-guard';
 import { OperatorToolsBoard } from '@/components/operator-tools-board';
 import { listToolWireStates } from '@/lib/operator-edge-client';
 import { OPERATOR_TOOLS } from '@/lib/operator-tools-catalog';
@@ -10,6 +11,7 @@ import type { ToolListResponse } from '@/lib/operator-tools-browser';
  * with an admin-scoped token. No new service work; not-wired when env missing.
  */
 export default async function OperatorToolsPage() {
+  requireModulePage('tools');
   const { session } = await requireFounderPage();
   const status = readConsoleStatus();
   const wires = listToolWireStates(OPERATOR_TOOLS, session.accessToken);

@@ -1,0 +1,99 @@
+# Local test stack
+
+One command starts a private copy of the INTAFACED backend and the Customer app on your Mac, without Docker. Everything binds to `127.0.0.1`. Balances in it are **test funds, not real money**; the Customer shows a fixed banner saying so.
+
+## Commands
+
+| Command                                              | What it does                                                                                                                                   |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm local:stack`                                   | Start (safe to re-run) and print a health table. First run builds and sets up the database; allow a few minutes. `--rebuild` forces a rebuild. |
+| `pnpm local:stack:stop`                              | Stop only the processes this script started (checked by pid file and command line), then Postgres. Data is kept.                               |
+| `pnpm local:fund <email-or-userId> <ASSET> <amount>` | Credit test funds, e.g. `pnpm local:fund me@example.com USDT 1000`. Decimal strings only.                                                      |
+| `node tooling/scripts/local-test-stack.mjs status`   | Health table only.                                                                                                                             |
+| `pnpm local:stack:plan`                              | Read-only: every service, port, database schema and where Edge sends each route. Changes nothing (`--json` for a machine-readable copy).       |
+| `pnpm local:stack --only token,p2p`                  | Start only the named services (plus Postgres and NATS). Anything already running is left alone.                                                |
+| `pnpm local:stack:restart edge`                      | Stop the named services, then start whatever is not running. Use after Edge's wiring changes; other services and their data stay up.           |
+
+Open **http://127.0.0.1:3210** for everything except passkeys.
+
+**Passkeys (Touch ID): open http://localhost:3210.** A passkey is bound to a hostname, and browsers refuse an IP address as the relying-party ID, so the stack serves the same app on `localhost:3210` too (LOCAL TEST: Identity runs with `WEBAUTHN_ENABLED=true`, relying-party ID `localhost`, origin `http://localhost:3210`; Edge allows both origins). Sessions and passkeys are per origin: a passkey enrolled on `localhost` does not exist on `127.0.0.1`, and you sign in again on each. In Security, add a passkey; later sign in or step up with it.
+
+## Ports
+
+Postgres 15460 · NATS 14232 (monitor 18232) · Edge 14500 · Ledger 14501 · Identity 14502 · Token 14503 · Trade 14504 · Matching 14505 · Pay 14506 · Agents 14507 · P2P 14508 · Bank 14509 · Notify 14510 · Academy 14511 · Support 14512 · Market 14513 · Blueprint 14514 · Quant 14515 · Execution 14516 · Customer 3210. Ports 3200, 3401, 3162, 3340, 5432, 15440 and 15444 are not used.
+
+State lives in `~/.intafaced/local-test-stack/` (data, logs, `secrets.json` mode 600, `LOCAL-TEST-STACK.json` marker). Delete that folder to start from nothing. Requires PostgreSQL 16 at `/opt/homebrew/bin` and at least 14 GB free disk.
+
+## Real vs test
+
+Real: the code. Identity, Ledger, Trade, Matching, Pay, Bank and Edge are the repository's own services, running their own migrations against a real Postgres and a real NATS JetStream. Funds move only through the ledger (`packages/ledger-client` recipes into `svc-ledger`); amounts are decimal strings on the wire.
+
+Test: the money. `local:fund` posts a `deposit` recipe on rail `local-test` with reference `LOCAL-TEST-<timestamp>-<id>`, so every entry is labelled. It refuses unless the marker file exists and the database is `127.0.0.1` on the stack's port. No bank, card, chain or exchange feed is connected. Prices, bank cards, on-chain Pay, WebSocket (`/ws` returns 503) and loans' price marks are unavailable. Background money jobs in Bank (scheduled transfers, auto-invest, interest, loan accrual) are switched off.
+
+Placeholders the services refuse to boot without (no owner-published value exists): reconcile cadence, rate limits, Pay checkout limits (from `.env.example`), Bank `LOAN_QUOTE_ASSET_ID=USDT` and batch sizes `1` (jobs off), Matching snapshot cadence `0` (off). They are local-test values, not product decisions. Edge's kill-state file is written once as an explicit all-on list; without it Edge halts every module.
+
+## Every Customer door is reachable
+
+Edge answers `502 Connection unavailable` for any route whose service is not running, so the stack starts all 17 backend services the Customer app calls: besides Ledger, Identity, Matching, Trade, Pay and Bank, also **Token** (Token room), **P2P**, **Academy**, **Support**, **Market**, **Notify** (Notifications), **Agents** (Navigator), **Blueprint**, **Quant** and **Execution** (Trade tools). Each is one Node process on `127.0.0.1`, gets the same secrets as the others (edge principal, internal service secret, screening pass-through) and its own Postgres schema and role (`svc_<name>`); Quant and Execution have no tables. `pnpm local:stack:test` fails if any route in `services/svc-edge/src/routes.ts`, or any module the Customer app calls, points at a service the stack does not start and is not listed (with a reason) in `EDGE_ABSENT` in the script.
+
+"Reachable" means the door answers with the service's own responses. These parts stay **not connected** on purpose, because they need a real outside provider or an owner decision, and the service says so by name instead of inventing an answer:
+
+| Door               | Not connected              | Why                                                                                                                                                                                 |
+| ------------------ | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Navigator / Agents | Model provider             | `AGENTS_PROVIDER=upstream` aimed at a closed port; the service's built-in mock is not used. Metering is off, so no usage fee is charged.                                            |
+| Blueprint          | Neural engine              | `BLUEPRINT_ENGINE_MODE=http` aimed at a closed port; the stub engine is not used. Card PNG renderer is unset.                                                                       |
+| Academy            | Live classes, video        | No LiveKit and no video storage. Paper-trading market limit is owner-unpublished and unset.                                                                                         |
+| P2P                | Fee, offer caps, deadlines | Owner-unpublished, so unset. Payment-instrument encryption has no provider locally.                                                                                                 |
+| Notifications      | Email, push, SMS           | No gateway; the in-app inbox works.                                                                                                                                                 |
+| Market             | House commission           | Owner-unpublished, unset.                                                                                                                                                           |
+| Quant              | Data lake, venue vault     | Not connected.                                                                                                                                                                      |
+| Execution          | Outside venues             | `EXECUTION_VENUE_IDS` is empty, so nothing can route off-platform.                                                                                                                  |
+| Token              | Emissions, yield, buyback  | Background jobs off, like Bank's.                                                                                                                                                   |
+| Mining             | The whole service          | Not started: `svc-mining-pool` listens on `0.0.0.0` in its code, which breaks the loopback-only rule. The Mining room is a static "unavailable" page; its health probe answers 502. |
+
+Not started because the Customer app never calls them: Protocol, DEX, Indexer, Tax, Ops (operator back-office) and the data-lake door.
+
+## Screening
+
+Edge refuses **every** `/api/*` call, including sign-up and sign-in, with `edge.screening_unset` (HTTP 503) until a sanctions screening list is set. This script never sets or invents one. It passes `INTAFACED_SANCTIONS_REGIONS` and `INTAFACED_SANCTIONS_LIST_SOURCE` to Edge from the shell environment, or else from the machine-local file `~/.intafaced/local-test-stack/screening.local.json` (`{"regions": "...", "source": "..."}`), which is never committed. Without either, it prints a warning and every call returns 503. See `services/svc-edge/src/geo-block.ts` and `packages/config/src/screening.ts`.
+
+On Nitro's Mac (approved by Nitro, 13 Oct 2026) that file holds a labelled local test fixture. It is not counsel's list and must never be copied to staging or production. Commas separate entries, so keep any explanation in `source`, not in `regions`.
+
+## Living test market (prices, book, fills)
+
+`pnpm local:market` / `pnpm local:market:stop` / `node tooling/scripts/local-test-market.mjs status`. It makes Trade look alive on this stack only: a labelled test account `test_market_maker` keeps a ladder of post-only bids and asks around a deterministic synthetic **TEST PRICE** (BTC/ETH vs USDT and USDC, IFC/USDT; `--markets all` adds commodities; `--seed N`, `--interval S`, `--levels N`), and a second account `test_taker` occasionally crosses the best level so recent trades and candles exist. Log: `~/.intafaced/local-test-stack/logs/market.log`. Credentials of the two test accounts: `~/.intafaced/local-test-stack/market-accounts.json` (mode 600).
+
+Real vs test: orders go through Edge `/api/v1` into svc-trade and svc-matching, and the accounts are funded by `local:fund` (svc-ledger deposits, rail refs `LOCAL-TEST-MM-...`). Nothing writes a balance, fill or price into a database. Ticker, order book, trades and candles on the Customer are derived by svc-trade from the book and the fill tape (`services/svc-trade/src/public-rest.ts`), so there is no separate price feed to drive. Prices are invented starting points, not a feed.
+
+Containment: it refuses unless the state directory and `LOCAL-TEST-STACK.json` exist and every target URL is `http://127.0.0.1:<a port the marker lists>`. Test: `pnpm local:market:test`.
+
+Preflight: before the stand-ins below existed, three gates stopped every order, and the script reads them (GET only) and refuses with their names instead of sending failing orders: (1) Edge refuses new orders because svc-matching `/health` carries no halt flag (`edge.venue_halt_unavailable`); (2) no market-lifecycle publication exists, so svc-trade refuses every order (`trade.lifecycle_authority_unavailable`); (3) svc-matching holds no book until a first order, and svc-trade will not admit that first order (`trade.matching_market_missing`). Until these are resolved the script prints them and exits. In the Customer the market picker lists every active market but opens on the first one alphabetically (AUD/USD, which is also not orderable), which is why only AUD/USD appears to show.
+
+## Living test world (local only)
+
+`pnpm local:world` watches for new accounts every 5 s and gives each one labelled test funds (10,000 USDT, 0.25 BTC, 2 ETH; edit `WELCOME_AMOUNTS` in `tooling/scripts/local-test-world.mjs`) through the real ledger, using the `local:fund` recipe with ref `LOCAL-TEST-welcome-<userId>-<ASSET>`, so a repeat is a no-op. `pnpm local:world:seed` creates the test counterparty `test_friend` (credentials in `~/.intafaced/local-test-stack/world-accounts.json`, mode 600) and has it send the newest real user 3 small transfers; the watcher also sends back what anyone pays `test_friend`. It refuses unless `LOCAL-TEST-STACK.json` exists and every target is 127.0.0.1. Log: `logs/world.log`.
+
+Limits: Bank transfers have no memo field, so labels like "Lunch (test)" appear only in the log. The recipient needs a primary space for the asset (`bank.dest_user_missing`). Bank refuses every call while the screening list is a test fixture under fail-closed screening.
+
+## Local test stand-ins (option B, approved by Nitro on 2026-10-13)
+
+On this stack only, the stack may stand in for three people who do not exist locally. Every record carries the label **"LOCAL TEST — not a real approval"** and a `local-test:` marker, and no service code is bypassed.
+
+`node tooling/scripts/local-test-gates.mjs apply` (also: `operators | lifecycle | open | verify | status`) does, in order:
+
+1. **Owner publishes the market lifecycle.** For each orderable 24/7 crypto spot market it posts a real publication to svc-trade's signed internal route `/internal/market-lifecycle` (HMAC with the stack's `INTERNAL_SERVICE_SECRET`). Authority, grant and dossier ids start with `local-test:`; the free text says "LOCAL TEST — not an owner or legal approval". It lasts 30 days and is renewed when under a week is left.
+2. **Matching opens the book.** svc-matching's `open` needs a two-person approval from svc-identity. The script signs in two labelled operators (`local_test_operator_a`, `local_test_operator_b`; credentials and TOTP secrets in `~/.intafaced/local-test-stack/operators.json`, mode 600), operator A proposes, operator B approves with a second factor, and matching consumes the approval. Needs `IDENTITY_URL` on matching and `IDENTITY_ACTION_APPROVAL_TTL_SECONDS` (600, a local test value) and `IDENTITY_TOTP_SECRET_KEY` on identity; the stack sets all three.
+3. **Operator verifies test accounts.** An account submits its own `full` request (`kyc.submit`; nobody can submit for someone else), then operator A approves it with a consumed approval from operator B. The operator token is minted for a real signed-in operator session the way `.env.example` documents for operator principals, because user sessions never carry `admin:compliance`. The world watcher runs this for any account that has a pending request, so **a new account only has to tap Verify** (the stack submits requests only for the three test accounts whose passwords it holds). Accounts the stack cannot sign in as (including the founder's) are listed by `verify`.
+4. **Sanctions list.** The stack env sets `INTAFACED_SCREENING_FAIL_CLOSED=off` so the labelled test fixture (kept outside this repo) is read as "a list exists". It is not counsel's list.
+
+What production refuses today: #4606/#4607 refuse `local-test:` market lifecycle records in svc-trade, and refuse to boot svc-trade with a test sanctions list or `INTAFACED_SCREENING_FAIL_CLOSED=off` outside explicit `APP_ENV` dev/test. Nothing yet refuses the other stand-ins below: screening `off` in other services when `APP_ENV` is unset, the `local-test:` fee-schedule version, `local-test:v1` approvals, the test operator accounts and their approved verifications, or the unlabelled number stand-ins (tracked in #4611 and #4612). Markers a production check can refuse: any id or label starting `local-test:`; operator handles `local_test_operator_*` and emails `@local-test.invalid`; `policyVersion` `local-test:v1`; KYC jurisdiction `ZZ`; the env values `INTAFACED_SCREENING_FAIL_CLOSED=off` and `IDENTITY_ACTION_APPROVAL_TTL_SECONDS` set by this stack. Containment: every command refuses unless `LOCAL-TEST-STACK.json` exists and every target is `http://127.0.0.1:<a port the marker lists>`. Test: `node tooling/scripts/local-test-gates.test.mjs`.
+
+Owner risk limits: the stack publishes LOCAL TEST values for `TRADE_MAX_ORDER`, `TRADE_MAX_POSITION` and `TRADE_MAX_LOSS` (1,000,000 / 5,000,000 / 100,000) under option B. `services/svc-trade/src/futures/pretrade-credit.ts` only requires them to be published integers and does not compare orders against them. They are not owner decisions.
+
+Trade fee schedule: `TRADE_FEE_SCHEDULE` is `{"published":true,"version":"local-test:okx-regular-spot-reference","makerBps":"8","takerBps":"10"}` (maker 0.08%, taker 0.10%, no maker rebate), referenced to OKX's public regular-user spot tier. LOCAL TEST, not an owner decision (option B). Without it every order is refused with 400 `trade.fee_schedule_blank`.
+
+Trade commercial values (LOCAL TEST, not owner decisions, option B 2026-10-13; realistic retail-exchange numbers): `TRADE_MARKET_SLIPPAGE_CAP_BPS=50` (a market buy is funded at best ask plus 0.50% and can never fill above that; without it: `trade.slippage_cap_unset`), `TRADE_CONVERT_SPREAD_BPS=20` (Convert house edge 0.20%; without it: `trade.convert_spread_unset`) and `TRADE_CONVERT_QUOTE_TTL_MS=15000` (a firm Convert quote binds 15 s; without it: `trade.convert_quote_ttl_unset`).
+
+Convert settles against house market-maker inventory (principal quotes, not book trades), so that pot must hold both sides: `pnpm local:fund house BTC 100` and `pnpm local:fund house USDT 5000000` (LOCAL TEST inventory through the real ledger; without it an accepted Convert fails with `Insufficient BTC`). The market runner's taker spends its USDT as it trades, so top it up before a manual trade session.
+
+Trade order preview reads the shared screening switch (`screeningFailClosedFromEnv`) like placing does, so with `INTAFACED_SCREENING_FAIL_CLOSED=off` the order form previews as orderable for a verified test user. After changing any service env here, restart only the services whose env changed (`pnpm local:stack:restart <names>`); a service started before the change keeps the old env until restarted.

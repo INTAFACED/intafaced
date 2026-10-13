@@ -133,6 +133,16 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
       formatAmount((await ledger.balance(orderHoldAccount(userId, assetId, orderId))).amount);
     const postsWithReason = (reason: string) => ledger.journal().filter((tx) => tx.reason === reason);
 
+    // #4591: a market close row carries no price (orders_price_shape_ck); the executed price lives on the fill.
+    async function expectMarketRowWithoutPrice(orderId: string, fillPrices: number[]) {
+      const rows = await sql<Array<{ type: string; price: string | null }>>`
+        SELECT type::text, price::text FROM trade.orders WHERE id = ${orderId}`;
+      expect(rows[0]).toEqual({ type: 'market', price: null });
+      const fills = await sql<Array<{ price: string }>>`
+        SELECT price::text FROM trade.fills WHERE order_id = ${orderId} ORDER BY price`;
+      expect(fills.map((f) => Number(f.price))).toEqual(fillPrices);
+    }
+
     beforeEach(async () => {
       await sql`TRUNCATE trade.order_replace_requests, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
       ledger = new MemoryLedger();
@@ -223,6 +233,13 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
       expect(order.side).toBe('sell');
       expect(formatAmount(order.qty)).toBe('1');
       expect(await heldFor(ALICE, 'BTC', order.id)).toBe('0');
+      expect(order.type).toBe('market');
+      expect(order.price).toBeNull();
+      await expectMarketRowWithoutPrice(order.id, [100]);
+      // The flatten row stores its lifecycle proof as a JSON object, not the text of one.
+      const proof = await sql<Array<{ kind: string; action: string | null }>>`
+        SELECT jsonb_typeof(lifecycle_proof) AS kind, lifecycle_proof->>'action' AS action FROM trade.orders WHERE id = ${order.id}`;
+      expect(proof[0]).toEqual({ kind: 'object', action: 'PLACE' });
     });
 
     it('releases leftover hold through recipes.orderHoldRelease', async () => {
@@ -275,6 +292,77 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
       expect(await heldFor(ALICE, 'BTC', order.id)).toBe('0');
       expect(await avail(ALICE, 'BTC')).toBe('2');
       expect(postsWithReason('order.hold.released')).toHaveLength(1);
+      expect(order.price).toBeNull();
+      await expectMarketRowWithoutPrice(order.id, [100]);
+    });
+
+    it('short flatten BUY across two fill prices holds the exact notional and settles both fills', async () => {
+      await fund(BOB, 'BTC', '2');
+      const ask1 = await trade.placeOrder(principalFor(BOB), {
+        marketId: btcusdt.id,
+        side: 'sell',
+        type: 'limit',
+        qty: amt('1'),
+        price: amt('100'),
+        clientOrderId: 'bob-ask-1',
+      });
+      const ask2 = await trade.placeOrder(principalFor(BOB), {
+        marketId: btcusdt.id,
+        side: 'sell',
+        type: 'limit',
+        qty: amt('1'),
+        price: amt('110'),
+        clientOrderId: 'bob-ask-2',
+      });
+      await fund(ALICE, 'USDT', '1000');
+      matching.closeScript = (_marketId, request) => ({
+        accepted: true,
+        sequence: 7,
+        fills: [
+          {
+            sequence: 8,
+            makerOrderId: ask1.id,
+            makerAccountId: BOB,
+            takerOrderId: request.orderId,
+            takerAccountId: ALICE,
+            takerSide: 'buy',
+            price: '100',
+            qty: '1',
+          },
+          {
+            sequence: 9,
+            makerOrderId: ask2.id,
+            makerAccountId: BOB,
+            takerOrderId: request.orderId,
+            takerAccountId: ALICE,
+            takerSide: 'buy',
+            price: '110',
+            qty: '1',
+          },
+        ],
+        resting: null,
+        rejected: null,
+        cancellations: [],
+        triggered: [],
+      });
+
+      const order = await closeSpotPosition(trade, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-short' });
+
+      expect(order.side).toBe('buy');
+      expect(order.status).toBe('filled');
+      expect(formatAmount(order.filledQty)).toBe('2');
+      expect(order.price).toBeNull();
+      // The hold is the sum of ceil(price x qty) over both fills (100 + 110), not first price x total qty (200).
+      const held = await sql<Array<{ hold_amount: string }>>`SELECT hold_amount::text FROM trade.orders WHERE id = ${order.id}`;
+      expect(Number(held[0]?.hold_amount)).toBe(210);
+      const holdPosts = postsWithReason('order.hold').filter((tx) => tx.entries.some((e) => Number(formatAmount(e.amount)) === 210));
+      expect(holdPosts.length).toBeGreaterThan(0);
+      await expectMarketRowWithoutPrice(order.id, [100, 110]);
+      // Both fills settled in the ledger: Alice paid 210 USDT and holds nothing; she received the BTC.
+      expect(await avail(ALICE, 'USDT')).toBe('790');
+      expect(await heldFor(ALICE, 'USDT', order.id)).toBe('0');
+      expect(await avail(ALICE, 'BTC')).not.toBe('0');
+      expect(ledger.reconcile()).toEqual({ ok: true });
     });
   });
 });

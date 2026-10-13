@@ -1,49 +1,275 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CrmWorkflowsContract, CrmOpportunity } from '@intafaced/contracts';
-import { crmJson, crmWrite, workflowUrl, crmLabel as label, crmDate as date, crmLocalDate, type PendingCrmWrite } from '@/lib/crm-browser';
+import type {
+  CrmWorkflowsContract,
+  CrmOpportunity,
+  CrmOpportunityPage,
+  CrmContact,
+  CrmOrganisation,
+  CrmSubmission,
+} from '@intafaced/contracts';
+import {
+  crmJson,
+  crmWrite,
+  workflowUrl,
+  crmLabel as label,
+  crmDate as date,
+  crmLocalDate,
+  crmRelative,
+  crmOverdueDays,
+  AT_FETCH_TIME,
+  resolveFetchTime,
+  readFailureKeepsValue,
+  type PendingCrmWrite,
+} from '@/lib/crm-browser';
 import { founderName, type FounderOwner } from './founder-names';
+import './crm-workflows.css';
 type Result<K extends keyof CrmWorkflowsContract> = Awaited<ReturnType<CrmWorkflowsContract[K]>>;
 function sourceLabel(source: { campaignId: string | null; sourceKey: string | null }): string {
-  if (source.campaignId) return 'Mapped campaign';
-  if (source.sourceKey) return 'Unmapped source hint';
+  if (source.campaignId) return 'Known campaign';
+  if (source.sourceKey) return 'Unrecognised link code';
   return 'Source unknown';
 }
-function useRead<K extends keyof CrmWorkflowsContract>(view: K, input: Record<string, unknown>) {
+const KIND_LABELS: Record<string, string> = {
+  next_action: 'Next action',
+  follow_up: 'Follow-up',
+  call_invitation: 'Call invitation',
+  information_request: 'Information request',
+};
+/** Plain label for a task or message kind: "call_invitation" becomes "Call invitation". */
+export const kindLabel = (kind: string) => KIND_LABELS[kind] ?? label(kind);
+const pluralise = (count: number, one: string, many: string) => `${count.toLocaleString('en-GB')} ${count === 1 ? one : many}`;
+/** "13 Oct 2026" from the shared en-GB formatter, without the time. */
+const dayOnly = (value: string) => date(value).split(',')[0] ?? date(value);
+function groupedAmount(value: string): string {
+  const [whole = '0', fraction] = value.split('.');
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return fraction === undefined ? grouped : `${grouped}.${fraction}`;
+}
+
+/** Everything a founder needs to recognise an enquiry at a glance. */
+export type EnquiryBrief = {
+  id: string;
+  contactId: string;
+  contactName: string;
+  email: string;
+  organisation: string | null;
+  audience: string;
+  stage: string;
+  ownerUserId: string;
+  receivedAt: string;
+  amount: string | null;
+};
+function amountOf(opportunity: CrmOpportunity): string | null {
+  if (opportunity.audience !== 'investor' || opportunity.indicativeContribution.status !== 'stated') return null;
+  return `${groupedAmount(opportunity.indicativeContribution.amount)} ${opportunity.indicativeContribution.currency}`;
+}
+export function briefsFromList(page: Pick<CrmOpportunityPage, 'items' | 'contacts' | 'submissions'>): EnquiryBrief[] {
+  return page.items.flatMap((opportunity) => {
+    const contact = page.contacts.find((item) => item.id === opportunity.contactId);
+    if (!contact) return [];
+    const submission = page.submissions.find((item) => item.submissionId === opportunity.submissionId);
+    return [
+      {
+        id: opportunity.id,
+        contactId: contact.id,
+        contactName: contact.name,
+        email: contact.email,
+        organisation: submission?.organisationName ?? null,
+        audience: opportunity.audience,
+        stage: opportunity.stage,
+        ownerUserId: opportunity.ownerUserId,
+        receivedAt: opportunity.createdAt,
+        amount: amountOf(opportunity),
+      },
+    ];
+  });
+}
+type EnquiryDetail = { opportunity: CrmOpportunity; contact: CrmContact; organisation: CrmOrganisation | null; submission: CrmSubmission };
+export function briefFromDetail({ opportunity, contact, organisation, submission }: EnquiryDetail): EnquiryBrief {
+  return {
+    id: opportunity.id,
+    contactId: contact.id,
+    contactName: contact.name,
+    email: contact.email,
+    organisation: organisation?.name ?? submission.contact.organisationName ?? null,
+    audience: opportunity.audience,
+    stage: opportunity.stage,
+    ownerUserId: opportunity.ownerUserId,
+    receivedAt: opportunity.createdAt,
+    amount: amountOf(opportunity),
+  };
+}
+/**
+ * The tasks and duplicates responses carry ids only, so names, organisations, audiences and stages come from the
+ * enquiry list (newest 200). An id outside that window is fetched from its own enquiry record instead.
+ */
+function useEnquiryIndex() {
+  const [rows, setRows] = useState<EnquiryBrief[]>([]),
+    [loaded, setLoaded] = useState(false),
+    [truncated, setTruncated] = useState(false);
+  useEffect(() => {
+    let live = true;
+    crmJson<CrmOpportunityPage>('/api/crm?limit=200')
+      .then((page) => {
+        if (!live) return;
+        setRows(briefsFromList(page));
+        setTruncated(page.nextCursor !== null);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (live) setLoaded(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+  return { rows, loaded, truncated };
+}
+function useTaskBriefs(opportunityIds: string[]) {
+  const index = useEnquiryIndex();
+  const [extra, setExtra] = useState<Record<string, EnquiryBrief | null>>({});
+  const wanted = opportunityIds.filter((id) => !index.rows.some((row) => row.id === id) && !(id in extra));
+  const key = wanted.join(',');
+  useEffect(() => {
+    if (!index.loaded || !key) return;
+    let live = true;
+    for (const id of key.split(','))
+      crmJson<EnquiryDetail | null>(`/api/crm?opportunityId=${encodeURIComponent(id)}`)
+        .then((detail) => live && setExtra((current) => ({ ...current, [id]: detail ? briefFromDetail(detail) : null })))
+        .catch(() => live && setExtra((current) => ({ ...current, [id]: null })));
+    return () => {
+      live = false;
+    };
+  }, [index.loaded, key]);
+  return {
+    find: (id: string): EnquiryBrief | null | undefined => index.rows.find((row) => row.id === id) ?? (id in extra ? extra[id] : undefined),
+    loading: !index.loaded || wanted.length > 0,
+  };
+}
+
+type TaskItem = Result<'listTasks'>['items'][number];
+/** Overdue pending tasks first, then the rest by due date, soonest first. Finished tasks go last. */
+export function sortTasks<T extends { task: { status: string; dueAt: string } }>(items: T[], now = Date.now()): T[] {
+  const rank = (item: T) => (item.task.status !== 'pending' ? 2 : Date.parse(item.task.dueAt) < now ? 0 : 1);
+  return [...items].sort((a, b) => rank(a) - rank(b) || Date.parse(a.task.dueAt) - Date.parse(b.task.dueAt));
+}
+/** "2 days overdue" or "due in 3 days"; null for tasks that are no longer pending. */
+export function dueText(task: { status: string; dueAt: string }, now = Date.now()): { text: string; overdue: boolean } | null {
+  if (task.status !== 'pending') return null;
+  if (Date.parse(task.dueAt) >= now) return { text: `due ${crmRelative(task.dueAt, now)}`, overdue: false };
+  const days = crmOverdueDays(task.dueAt, now);
+  if (days >= 1) return { text: `${days} ${days === 1 ? 'day' : 'days'} overdue`, overdue: true };
+  const hours = Math.floor((now - Date.parse(task.dueAt)) / 3600000);
+  return { text: hours >= 1 ? `${hours} ${hours === 1 ? 'hour' : 'hours'} overdue` : 'overdue', overdue: true };
+}
+/** Inline hint under a date field; a past date is still allowed. */
+export function PastDateWarning({ value, now = Date.now() }: { value: string; now?: number }) {
+  if (!value || Number.isNaN(Date.parse(value)) || Date.parse(value) >= now) return null;
+  return (
+    <small className="crm-wf-warn" role="status">
+      That date is in the past
+    </small>
+  );
+}
+/** Escape Tools and Reports on Escape or an outside click, so an opened menu never lingers over the page. */
+function useDismissableMenus() {
+  useEffect(() => {
+    const open = () =>
+      Array.from(document.querySelectorAll<HTMLDetailsElement>('details.adm-crm-report-details[open], details.adm-crm-tools-menu[open]'));
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      for (const menu of open()) {
+        menu.open = false;
+        menu.querySelector<HTMLElement>('summary')?.focus();
+      }
+    };
+    // mousedown closes on an outside press; click also closes after choosing an item inside, once that item has acted.
+    const onPointer = (event: MouseEvent) => {
+      const target = event.target instanceof Node ? event.target : null;
+      for (const menu of open()) {
+        const inside = target !== null && menu.contains(target);
+        const choseItem = event.type === 'click' && inside && target instanceof Element && target.closest('button') !== null;
+        if (!inside || choseItem) menu.open = false;
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('click', onPointer);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('click', onPointer);
+    };
+  }, []);
+}
+/**
+ * `version` refetches when it changes. The previous value stays on screen until the new one arrives. If a refetch of the same
+ * request fails, the value also stays and `staleError` carries the reason quietly (no alert, nothing wiped); a first load, or a
+ * request whose inputs changed, still fails loudly through `error`. An input equal to `AT_FETCH_TIME` is replaced by the current
+ * time on every fetch, so "overdue" is measured when the data is read, not when the view opened.
+ */
+function useRead<K extends keyof CrmWorkflowsContract>(view: K, input: Record<string, unknown>, version = 0) {
   const [value, setValue] = useState<Result<K> | null>(null),
     [error, setError] = useState(''),
+    [staleError, setStaleError] = useState(''),
     [loading, setLoading] = useState(true);
   const url = workflowUrl(view, input),
-    generation = useRef(0);
+    generation = useRef(0),
+    shown = useRef<string | null>(null),
+    inputRef = useRef(input);
+  inputRef.current = input;
   const refresh = useCallback(async () => {
     const current = ++generation.current;
     setLoading(true);
     setError('');
     try {
-      const data = await crmJson<Result<K>>(url);
-      if (current === generation.current) setValue(data);
+      const data = await crmJson<Result<K>>(workflowUrl(view, resolveFetchTime(inputRef.current)));
+      if (current === generation.current) {
+        shown.current = url;
+        setValue(data);
+        setStaleError('');
+      }
       return true;
     } catch (failure) {
       if (current === generation.current) {
-        setError(failure instanceof Error ? failure.message : 'Records unavailable.');
-        setValue(null);
+        const message = failure instanceof Error ? failure.message : 'Records unavailable.';
+        if (readFailureKeepsValue(shown.current, url)) setStaleError(message);
+        else {
+          shown.current = null;
+          setError(message);
+          setStaleError('');
+          setValue(null);
+        }
       }
       return false;
     } finally {
       if (current === generation.current) setLoading(false);
     }
+    // `input` is read through a ref and is covered by `url`; `view` is part of it too.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
   useEffect(() => {
     void refresh();
     return () => {
       generation.current++;
     };
-  }, [refresh]);
-  return { value, error, loading, refresh };
+  }, [refresh, version]);
+  return { value, error, staleError, loading, refresh };
 }
-function Message({ error, notice }: { error?: string; notice?: string }) {
+/** Shown beside figures that stayed on screen after a failed reload. */
+export function StaleNote({ error }: { error: string }) {
+  if (!error) return null;
+  return (
+    <small className="adm-subtle" role="status" title={error}>
+      Couldn&apos;t refresh just now. Showing the last figures we have.
+    </small>
+  );
+}
+function Message({ error, notice, stale }: { error?: string; notice?: string; stale?: string }) {
   return (
     <>
+      <StaleNote error={stale ?? ''} />
       {error && (
         <p className="adm-alert" role="alert">
           {error}
@@ -69,52 +295,90 @@ function Pager({ next, loading, setCursor }: { next?: string | null; loading: bo
     </div>
   );
 }
-export function CrmMetrics({ filters, onTasks }: { filters: Record<string, unknown>; onTasks: () => void }) {
-  const { value, error, loading } = useRead('metrics', filters);
-  let observation = loading ? 'Loading global totals…' : 'Reporting unavailable';
-  if (value) observation = `observed ${date(value.observedAt)}`;
+export function CrmMetrics({
+  filters,
+  onTasks,
+  onOverdue,
+  onIncomplete,
+  onInvitations,
+  version = 0,
+}: {
+  filters: Record<string, unknown>;
+  onTasks: () => void;
+  /** Change this number to refetch the totals in place (no remount, no "Loading totals…" flash). */
+  version?: number;
+  /** Open Follow-ups already filtered to overdue (see CrmTasks `initialOverdue`). Falls back to `onTasks`. */
+  onOverdue?: () => void;
+  /** Show only enquiries whose questions are unfinished. The count stays plain text until this is provided. */
+  onIncomplete?: () => void;
+  /** Show enquiries with a recorded call invitation. The count stays plain text until this is provided. */
+  onInvitations?: () => void;
+}) {
+  const { value, error, staleError, loading } = useRead('metrics', filters, version);
+  useDismissableMenus();
+  const firstLoad = loading && !value;
+  let observation = firstLoad ? 'Loading totals…' : 'Reporting unavailable';
+  if (value) observation = `updated ${date(value.observedAt)}`;
+  const count = (n: number | undefined) => n?.toLocaleString('en-GB') ?? '—';
+  const overdueGo = onOverdue ?? onTasks;
   return (
-    <section className="adm-crm-overview" aria-label="CRM totals">
+    <section className="adm-crm-overview" aria-label="Enquiry totals">
       <div className="adm-crm-summary-strip" aria-live="polite">
         <strong>
-          {loading
+          {firstLoad
             ? 'Loading totals…'
-            : `${value?.totals.opportunities.toLocaleString() ?? '—'} ${value?.totals.opportunities === 1 ? 'enquiry' : 'enquiries'}`}
+            : `${value?.totals.opportunities.toLocaleString('en-GB') ?? '—'} ${value?.totals.opportunities === 1 ? 'enquiry' : 'enquiries'}`}
         </strong>
-        <span>{value?.totals.incompleteSubmissions.toLocaleString() ?? '—'} incomplete</span>
-        <span>{value?.totals.overdueTasks.toLocaleString() ?? '—'} overdue</span>
-        <span>{value?.totals.manualCallInvitations.toLocaleString() ?? '—'} invitations</span>
-        <small>Global totals · audience, stage and owner filtered · search applies to list only</small>
+        {onIncomplete ? (
+          <button type="button" className="crm-wf-count" onClick={onIncomplete}>
+            {count(value?.totals.incompleteSubmissions)} incomplete
+          </button>
+        ) : (
+          <span>{count(value?.totals.incompleteSubmissions)} incomplete</span>
+        )}
+        <button type="button" className={`crm-wf-count${value?.totals.overdueTasks ? ' is-warn' : ''}`} onClick={overdueGo}>
+          {count(value?.totals.overdueTasks)} overdue
+        </button>
+        {onInvitations ? (
+          <button type="button" className="crm-wf-count" onClick={onInvitations}>
+            {count(value?.totals.manualCallInvitations)} invitations
+          </button>
+        ) : (
+          <span>{count(value?.totals.manualCallInvitations)} invitations</span>
+        )}
+        <small>Totals follow your filters (not the search)</small>
+        <StaleNote error={staleError} />
       </div>
       <Message error={error} />
       <details className="adm-crm-report-details">
-        <summary aria-label="Open reports, attribution and plan status">Reports</summary>
+        <summary aria-label="Open reports and totals">Reports</summary>
         <div className="adm-crm-report-popover">
-          <h2>Reports and attribution</h2>
+          <h2>Reports</h2>
           <p className="adm-subtle">Totals {observation}.</p>
           <p className="adm-subtle">
-            Audience, stage and owner filters apply to global totals. Name search affects the enquiry list only. Indicative amounts are not
-            received funds.
+            The Audience, Stage and Owner filters change these totals. Searching by name only changes the list. Indicative amounts are what
+            people said they might invest, not money received.
           </p>
           {value && (
             <>
               <div className="adm-metric-grid">
                 {[
-                  ['Enquiries', value.totals.opportunities, 'Audience opportunities'],
-                  ['Incomplete', value.totals.incompleteSubmissions, 'Saved details, questions unfinished'],
-                  ['Overdue', value.totals.overdueTasks, 'Pending tasks past their due time'],
-                  ['Call invitations', value.totals.manualCallInvitations, 'Manually recorded evidence'],
-                ].map(([name, count, help]) => (
+                  ['Enquiries', value.totals.opportunities, 'All enquiries'],
+                  ['Incomplete', value.totals.incompleteSubmissions, 'Contact saved, questions unfinished'],
+                  ['Overdue', value.totals.overdueTasks, 'Follow-ups past their due time'],
+                  ['Call invitations', value.totals.manualCallInvitations, 'Recorded by hand'],
+                ].map(([name, n, help]) => (
                   <div className="adm-metric" key={String(name)}>
                     <span>{name}</span>
-                    <strong>{typeof count === 'number' ? count.toLocaleString() : '—'}</strong>
+                    <strong>{typeof n === 'number' ? n.toLocaleString('en-GB') : '—'}</strong>
                     <small>{help}</small>
                   </div>
                 ))}
               </div>
               <p className="adm-subtle">
-                {value.totals.submissions} submissions · {value.totals.canonicalContacts} canonical contacts ·{' '}
-                {value.totals.manualCallBookings} manually recorded call bookings
+                {pluralise(value.totals.submissions, 'submission', 'submissions')} ·{' '}
+                {pluralise(value.totals.canonicalContacts, 'contact', 'contacts')} after merging duplicates ·{' '}
+                {pluralise(value.totals.manualCallBookings, 'call booking', 'call bookings')} recorded by hand
               </p>
               <div className="adm-report-breakdown">
                 {value.byStage.map((item) => (
@@ -122,12 +386,12 @@ export function CrmMetrics({ filters, onTasks }: { filters: Record<string, unkno
                     {label(item.audience)} / {label(item.stage)} <strong>{item.count}</strong>
                   </span>
                 ))}
-                <button type="button" onClick={onTasks}>
-                  Review due tasks
+                <button type="button" onClick={overdueGo}>
+                  Review overdue follow-ups
                 </button>
               </div>
               <details className="adm-audit">
-                <summary>Captured opportunities by source</summary>
+                <summary>Enquiries by source</summary>
                 <ul className="adm-history">
                   {value.bySource.map((source, index) => (
                     <li key={index}>
@@ -135,46 +399,104 @@ export function CrmMetrics({ filters, onTasks }: { filters: Record<string, unkno
                         {sourceLabel(source)} · {source.count}
                       </strong>
                       {source.sourceKey && <code className="adm-source-key">{source.sourceKey}</code>}
-                      <small>Recipient identity remains unknown.</small>
+                      <small>This shows which link was used, not who used it.</small>
                     </li>
                   ))}
                 </ul>
-                {value.sourceGroupsTruncated && (
-                  <p className="adm-subtle">This report contains the first 200 source groups; more groups exist.</p>
-                )}
+                {value.sourceGroupsTruncated && <p className="adm-subtle">Showing the first 200 sources; there are more.</p>}
               </details>
             </>
           )}
           <p className="adm-provider-status">
-            Papermark Free · API access unavailable. Deck views cannot be imported on this plan; a source link does not verify a reader.
+            Deck tracking: not connected. Our Papermark plan does not let us import deck views, so we cannot see who opened the deck. A
+            source link shows which link was used, not who used it.
           </p>
         </div>
       </details>
     </section>
   );
 }
-export function CrmTasks({ owners, onOpen }: { owners: FounderOwner[]; onOpen: (id: string) => void }) {
+export function TaskRow({
+  item,
+  brief,
+  loading,
+  owners,
+  onOpen,
+  now = Date.now(),
+}: {
+  item: TaskItem;
+  brief: EnquiryBrief | null | undefined;
+  loading: boolean;
+  owners: FounderOwner[];
+  onOpen: (id: string) => void;
+  now?: number;
+}) {
+  const { task, kind } = item,
+    due = dueText(task, now);
+  return (
+    <li>
+      <button type="button" className="crm-wf-task" onClick={() => onOpen(task.opportunityId)}>
+        <span className="crm-wf-task-who">
+          <strong>{brief ? brief.contactName : loading && brief === undefined ? 'Loading name…' : 'Contact details unavailable'}</strong>{' '}
+          {brief && <small>{[brief.organisation, label(brief.audience)].filter(Boolean).join(' · ')}</small>}
+        </span>
+        <span className="crm-wf-task-what">{task.description}</span>
+        <span className="crm-wf-task-meta">
+          {kindLabel(kind)} · {founderName(owners, task.ownerUserId)} · due {date(task.dueAt)}
+        </span>
+        <span className="crm-wf-task-due">
+          {due ? (
+            <span className={`crm-wf-due${due.overdue ? ' is-overdue' : ''}`}>{due.text}</span>
+          ) : (
+            <span className="adm-status-pill">{label(task.status)}</span>
+          )}
+        </span>
+      </button>
+    </li>
+  );
+}
+export function CrmTasks({
+  owners,
+  onOpen,
+  initialOverdue = false,
+  version = 0,
+  filtersActive = false,
+}: {
+  owners: FounderOwner[];
+  onOpen: (id: string) => void;
+  /** Start with "Overdue only" ticked. Key this component on the value so changing it re-applies. */
+  initialOverdue?: boolean;
+  /** Change this number to refetch the list in place (the workspace bumps it on every refresh and save). */
+  version?: number;
+  /** The totals strip has Audience, Stage or Owner filters on, so its overdue count can be smaller than this list. */
+  filtersActive?: boolean;
+}) {
   const [owner, setOwner] = useState(''),
     [status, setStatus] = useState('pending'),
-    [overdue, setOverdue] = useState(false),
+    [overdue, setOverdue] = useState(initialOverdue),
     [cursor, setCursor] = useState<string>();
-  const [observedAt] = useState(() => new Date().toISOString());
-  const { value, error, loading, refresh } = useRead('listTasks', {
-    limit: 50,
-    cursor,
-    ownerUserId: owner || undefined,
-    status: status || undefined,
-    dueBefore: overdue ? observedAt : undefined,
-  });
+  // "Overdue" is measured at the moment of each fetch, so a task that falls due while this view stays open appears on the next refresh.
+  const { value, error, staleError, loading, refresh } = useRead(
+    'listTasks',
+    {
+      limit: 50,
+      cursor,
+      ownerUserId: owner || undefined,
+      status: status || undefined,
+      dueBefore: overdue ? AT_FETCH_TIME : undefined,
+    },
+    version,
+  );
+  const briefs = useTaskBriefs(value?.items.map((item) => item.task.opportunityId) ?? []);
   return (
     <section className="adm-workflow-panel">
       <div className="adm-section-heading">
         <div>
-          <h2>Follow-up queue</h2>
-          <p className="adm-subtle">Prioritise overdue reviews and incomplete enquiries without losing their originals.</p>
+          <h2>Follow-ups</h2>
+          <p className="adm-subtle">Overdue first, then soonest due. Click a row to open the enquiry.</p>
         </div>
         <button type="button" onClick={() => void refresh()} disabled={loading}>
-          Refresh tasks
+          Refresh
         </button>
       </div>
       <div className="adm-filters">
@@ -226,24 +548,26 @@ export function CrmTasks({ owners, onOpen }: { owners: FounderOwner[]; onOpen: (
           Overdue only
         </label>
       </div>
+      {initialOverdue && filtersActive && (
+        <p className="adm-subtle" role="note">
+          This list covers every audience, stage and owner. The overdue count above follows your filters, so it can be smaller.
+        </p>
+      )}
       <Message error={error} />
-      <div className="adm-task-list">
-        {value?.items.map(({ task, kind }) => (
-          <article key={task.id} className="adm-task-row">
-            <div>
-              <strong>{task.description}</strong>
-              <small>
-                {label(kind)} · {founderName(owners, task.ownerUserId)} · {date(task.dueAt)}
-              </small>
-            </div>
-            <span className="adm-status-pill">{label(task.status)}</span>
-            <button type="button" onClick={() => onOpen(task.opportunityId)}>
-              Review enquiry
-            </button>
-          </article>
+      <StaleNote error={staleError} />
+      <ul className="crm-wf-task-list">
+        {sortTasks(value?.items ?? []).map((item) => (
+          <TaskRow
+            key={item.task.id}
+            item={item}
+            brief={briefs.find(item.task.opportunityId)}
+            loading={briefs.loading}
+            owners={owners}
+            onOpen={onOpen}
+          />
         ))}
-      </div>
-      {!loading && value?.items.length === 0 && <p className="adm-empty">No tasks match these filters.</p>}
+      </ul>
+      {!loading && value?.items.length === 0 && <p className="adm-empty">No follow-ups match these filters.</p>}
       <Pager next={value?.nextCursor} loading={loading} setCursor={setCursor} />
     </section>
   );
@@ -259,7 +583,7 @@ export function CrmEnquiryTasks({
   owners: FounderOwner[];
   onSaved: () => Promise<boolean>;
 }) {
-  const { value, error: readError, refresh } = useRead('listTasks', { opportunityId: opportunity.id, limit: 100 });
+  const { value, error: readError, staleError: readStale, refresh } = useRead('listTasks', { opportunityId: opportunity.id, limit: 100 });
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [notice, setNotice] = useState('');
@@ -305,7 +629,9 @@ export function CrmEnquiryTasks({
       }
       const fresh = await onSaved();
       const tasksFresh = await refresh();
-      setNotice(fresh && tasksFresh ? 'Saved with founder attribution.' : 'Saved. Refresh the enquiry to load the latest records.');
+      setNotice(
+        fresh && tasksFresh ? 'Saved. Your name is recorded against it.' : 'Saved. Refresh the enquiry to load the latest records.',
+      );
     } catch (failure) {
       if (saved) setNotice('Saved. The latest records could not be loaded.');
       else setError(failure instanceof Error ? failure.message : 'Could not confirm the save.');
@@ -315,14 +641,14 @@ export function CrmEnquiryTasks({
   }
   return (
     <section className="adm-enquiry-workflows">
-      <h3>Tasks and manually recorded follow-up</h3>
-      <Message error={error || readError} notice={notice} />
+      <h3>Follow-ups for this enquiry</h3>
+      <Message error={error || readError} stale={readStale} notice={notice} />
       <ul className="adm-history">
         {value?.items.map(({ task, kind }) => (
           <li key={task.id}>
             <strong>{task.description}</strong>
             <small>
-              {label(kind)} · {label(task.status)} · {date(task.dueAt)} · {founderName(owners, task.ownerUserId)}
+              {kindLabel(kind)} · {label(task.status)} · {date(task.dueAt)} · {founderName(owners, task.ownerUserId)}
             </small>
           </li>
         ))}
@@ -381,6 +707,7 @@ export function CrmEnquiryTasks({
               value={dueAt}
               onChange={(e) => setDueAt(e.target.value)}
             />
+            <PastDateWarning value={dueAt} />
           </label>
           <label>
             Task reason
@@ -461,6 +788,7 @@ export function CrmEnquiryTasks({
                   value={replacementDue}
                   onChange={(e) => setReplacementDue(e.target.value)}
                 />
+                <PastDateWarning value={replacementDue} />
               </label>
             </>
           )}
@@ -554,6 +882,7 @@ export function CrmEnquiryTasks({
                   value={nextDue}
                   onChange={(e) => setNextDue(e.target.value)}
                 />
+                <PastDateWarning value={nextDue} />
               </label>
             </>
           )}
@@ -568,15 +897,15 @@ export function CrmEnquiryTasks({
 }
 export function CrmAudit({ subjectType, subjectId, owners }: { subjectType: string; subjectId: string; owners: FounderOwner[] }) {
   const [cursor, setCursor] = useState<string>();
-  const { value, error, loading } = useRead('listWorkflowAudit', { subjectType, subjectId, limit: 25, cursor });
+  const { value, error, staleError, loading } = useRead('listWorkflowAudit', { subjectType, subjectId, limit: 25, cursor });
   return (
     <details className="adm-audit">
-      <summary>Attributed workflow audit</summary>
-      <Message error={error} />
+      <summary>History</summary>
+      <Message error={error} stale={staleError} />
       <ol className="adm-history">
         {value?.items.map((item) => (
           <li key={item.id}>
-            <strong>{label(item.kind)}</strong>
+            <strong>{kindLabel(item.kind)}</strong>
             <small>
               {founderName(owners, item.actorUserId)} · {date(item.occurredAt)}
             </small>
@@ -584,7 +913,7 @@ export function CrmAudit({ subjectType, subjectId, owners }: { subjectType: stri
           </li>
         ))}
       </ol>
-      {!loading && value?.items.length === 0 && <p className="adm-subtle">No workflow changes recorded.</p>}
+      {!loading && value?.items.length === 0 && <p className="adm-subtle">Nothing recorded yet.</p>}
       <Pager next={value?.nextCursor} loading={loading} setCursor={setCursor} />
     </details>
   );
@@ -630,7 +959,9 @@ export function CrmCampaigns({ csrf, owners }: { csrf: string; owners: FounderOw
       const fresh = await campaigns.refresh(),
         mappingsFresh = await mappings.refresh();
       setNotice(
-        fresh && mappingsFresh ? 'Saved with founder attribution.' : 'Saved. Refresh campaign records to see the latest configuration.',
+        fresh && mappingsFresh
+          ? 'Saved. Your name is recorded against it.'
+          : 'Saved. Refresh campaign records to see the latest configuration.',
       );
     } catch (failure) {
       if (saved) setNotice('Saved. Latest configuration could not be loaded.');
@@ -657,7 +988,7 @@ export function CrmCampaigns({ csrf, owners }: { csrf: string; owners: FounderOw
           Refresh campaigns
         </button>
       </div>
-      <Message error={error || campaigns.error || mappings.error} notice={notice} />
+      <Message error={error || campaigns.error || mappings.error} stale={campaigns.staleError || mappings.staleError} notice={notice} />
       <div className="adm-workflow-columns">
         <div>
           <h3>Campaigns</h3>
@@ -871,11 +1202,131 @@ export function CrmCampaigns({ csrf, owners }: { csrf: string; owners: FounderOw
         </div>
       </div>
       <p className="adm-provider-status">
-        Papermark Free · API access unavailable. Provider views cannot be imported on this plan. Saving a mapping does not enable analytics
-        or verify a recipient.
+        Deck tracking: not connected. Our Papermark plan does not let us import deck views. Saving a mapping does not turn tracking on or
+        tell us who opened the deck.
       </p>
     </section>
   );
+}
+type DuplicateItem = Result<'listDuplicates'>['items'][number];
+/** Candidates that share an email address belong together; each group is one merge decision. */
+export function groupDuplicates<T extends { contact: { email: string } }>(items: T[]): T[][] {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const key = item.contact.email.trim().toLowerCase();
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return [...groups.values()];
+}
+/** One line describing a record the way a founder recognises it: "received 13 Oct 2026, Investor, New". */
+export function recordSummary(contact: { createdAt: string; interests: readonly string[] }, briefs: EnquiryBrief[]): string {
+  const first = briefs[0];
+  return first
+    ? `received ${dayOnly(first.receivedAt)}, ${label(first.audience)}, ${label(first.stage)}`
+    : `received ${dayOnly(contact.createdAt)}${contact.interests.length ? `, ${contact.interests.map(label).join(' / ')}` : ''}`;
+}
+/** Plain-English consequence shown before the merge button. Undo is not offered by the backend, so it says so. */
+export function mergeSummary(
+  keep: DuplicateItem['contact'],
+  keepBriefs: EnquiryBrief[],
+  fold: DuplicateItem['contact'],
+  foldBriefs: EnquiryBrief[],
+): string {
+  const moved = foldBriefs.length
+    ? `${pluralise(foldBriefs.length, 'enquiry', 'enquiries')} from ${fold.name} will move to ${keep.name}`
+    : `${fold.name}'s enquiries will move to ${keep.name}`;
+  return `Keep ${keep.name} (${recordSummary(keep, keepBriefs)}). Fold in ${fold.name} (${recordSummary(fold, foldBriefs)}). ${moved}. Both original sign-ups and all answers stay saved. This can't be undone.`;
+}
+export function MergeCard({
+  contact,
+  briefs,
+  owners,
+  role,
+  groupLoaded,
+  onKeep,
+}: {
+  contact: DuplicateItem['contact'];
+  briefs: EnquiryBrief[];
+  owners: FounderOwner[];
+  role: 'keep' | 'fold' | null;
+  groupLoaded: boolean;
+  onKeep: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`crm-wf-card${role === 'keep' ? ' is-keep' : ''}${role === 'fold' ? ' is-fold' : ''}`}
+      aria-pressed={role === 'keep'}
+      onClick={onKeep}
+    >
+      <span className="crm-wf-card-tag">
+        {role === 'keep' ? 'Keeping this one' : role === 'fold' ? 'Will be folded in' : 'Click to keep this one'}
+      </span>
+      <strong>{contact.name}</strong>
+      <span>{contact.email}</span>
+      <small>{contact.emailEvidence.status === 'verified' ? 'Email verified' : 'Email not verified'}</small>
+      {briefs.length === 0 ? (
+        <span className="crm-wf-fields">
+          <span className="crm-wf-key">Audience</span>
+          <span>{contact.interests.length ? contact.interests.map(label).join(', ') : '—'}</span>
+          <span className="crm-wf-key">Received</span>
+          <span>{dayOnly(contact.createdAt)}</span>
+          {groupLoaded && (
+            <>
+              <span className="crm-wf-key">Enquiry</span>
+              <span>Not in the 200 newest enquiries</span>
+            </>
+          )}
+        </span>
+      ) : (
+        briefs.map((brief, index) => (
+          <span key={brief.id} style={{ display: 'contents' }}>
+            {index > 0 && <span className="crm-wf-sep" />}
+            <span className="crm-wf-fields">
+              <span className="crm-wf-key">Organisation</span>
+              <span>{brief.organisation ?? '—'}</span>
+              <span className="crm-wf-key">Audience</span>
+              <span>{label(brief.audience)}</span>
+              <span className="crm-wf-key">Stage</span>
+              <span>{label(brief.stage)}</span>
+              <span className="crm-wf-key">Owner</span>
+              <span>{founderName(owners, brief.ownerUserId)}</span>
+              <span className="crm-wf-key">Received</span>
+              <span>{dayOnly(brief.receivedAt)}</span>
+              {brief.amount && (
+                <>
+                  <span className="crm-wf-key">Indicative amount</span>
+                  <span>{brief.amount}</span>
+                </>
+              )}
+            </span>
+          </span>
+        ))
+      )}
+    </button>
+  );
+}
+/**
+ * The card the founder clicks is the contact that is KEPT (`target`, the canonical record the enquiries move to). With exactly two
+ * records the other one is folded in (`source`); with more, the founder picks which to fold in, one merge at a time.
+ */
+export function chooseKeep(
+  group: Array<{ contact: { id: string } }>,
+  clicked: { contact: { id: string } },
+): { target: string; source: string } {
+  const others = group.filter((other) => other.contact.id !== clicked.contact.id);
+  return { target: clicked.contact.id, source: others.length === 1 ? (others[0]?.contact.id ?? '') : '' };
+}
+/** The merge request body, named as the contract names it (`crmMergeInputSchema`). */
+export function mergeInput(source: string, target: string, sourceRevision: number, targetRevision: number, reason: string) {
+  return {
+    sourceContactId: source,
+    targetContactId: target,
+    sourceExpectedRevision: sourceRevision,
+    targetExpectedRevision: targetRevision,
+    confirmed: true,
+    reason,
+  };
 }
 export function CrmDuplicates({ csrf, owners, onChanged }: { csrf: string; owners: FounderOwner[]; onChanged: () => Promise<void> }) {
   const [cursor, setCursor] = useState<string>(),
@@ -891,6 +1342,7 @@ export function CrmDuplicates({ csrf, owners, onChanged }: { csrf: string; owner
     [error, setError] = useState(''),
     [notice, setNotice] = useState('');
   const candidates = useRead('listDuplicates', { limit: 50, cursor, query: query || undefined }),
+    index = useEnquiryIndex(),
     generation = useRef(0),
     pending = useRef(new Map<string, PendingCrmWrite>());
   useEffect(() => {
@@ -910,7 +1362,7 @@ export function CrmDuplicates({ csrf, owners, onChanged }: { csrf: string; owner
         }
       })
       .catch((failure) => {
-        if (current === generation.current) setError(failure instanceof Error ? failure.message : 'Provenance unavailable.');
+        if (current === generation.current) setError(failure instanceof Error ? failure.message : 'Could not load the records to merge.');
       });
     return () => {
       generation.current++;
@@ -923,38 +1375,52 @@ export function CrmDuplicates({ csrf, owners, onChanged }: { csrf: string; owner
     setNotice('');
     let saved = false;
     try {
-      const receipt = await crmWrite<Result<'mergeContacts'>>(csrf, pending.current, 'mergeContacts', {
-        sourceContactId: source,
-        targetContactId: target,
-        sourceExpectedRevision: sourceProof.originalRevision,
-        targetExpectedRevision: targetProof.originalRevision,
-        confirmed: true,
-        reason,
-      });
+      const receipt = await crmWrite<Result<'mergeContacts'>>(
+        csrf,
+        pending.current,
+        'mergeContacts',
+        mergeInput(source, target, sourceProof.originalRevision, targetProof.originalRevision, reason),
+      );
       saved = true;
       setLastMergedTarget(receipt.targetContactId);
       setConfirmed(false);
       setSource('');
       setTarget('');
+      setReason('');
       const refreshed = await candidates.refresh();
       await onChanged();
+      const n = receipt.movedOpportunityCount;
       setNotice(
-        `Merge saved: ${receipt.movedOpportunityCount} enquiries now link to the canonical contact. Originals remain preserved.${refreshed ? '' : ' Refresh duplicate records.'}`,
+        `Merged. ${pluralise(n, 'enquiry', 'enquiries')} now ${n === 1 ? 'links' : 'link'} to the contact you kept. The original sign-ups and answers are still saved.${refreshed ? '' : ' Refresh to see the updated list.'}`,
       );
     } catch (failure) {
-      if (saved) setNotice('Merge saved. Refresh the workspace to load canonical links.');
+      if (saved) setNotice('Merged. Refresh the page to see the updated links.');
       else setError(failure instanceof Error ? failure.message : 'Could not confirm the merge.');
     } finally {
       setBusy(false);
     }
   }
+  const items = candidates.value?.items ?? [],
+    groups = groupDuplicates(items),
+    briefsOf = (contactId: string) => index.rows.filter((row) => row.contactId === contactId),
+    keepItem = items.find((item) => item.contact.id === target),
+    foldItem = items.find((item) => item.contact.id === source);
+  function keep(group: DuplicateItem[], item: DuplicateItem) {
+    const choice = chooseKeep(group, item);
+    setTarget(choice.target);
+    setSource(choice.source);
+    setError('');
+  }
   return (
     <section className="adm-workflow-panel">
-      <h2>Duplicate review</h2>
-      <p className="adm-subtle">Matching email is a review hint. It never verifies identity or merges public enquiries automatically.</p>
+      <h2>Duplicates</h2>
+      <p className="adm-subtle">
+        Contacts that share an email address. A matching email is only a hint: it does not prove they are the same person, and nothing is
+        merged automatically.
+      </p>
       <div className="adm-filters">
         <label>
-          Duplicate search
+          Search duplicates
           <input
             aria-label="Duplicate search"
             type="search"
@@ -967,105 +1433,131 @@ export function CrmDuplicates({ csrf, owners, onChanged }: { csrf: string; owner
           />
         </label>
       </div>
-      <Message error={error || candidates.error} notice={notice} />
-      <div className="adm-table-scroll">
-        <table className="adm-crm-table">
-          <caption className="adm-sr-only">Unmerged duplicate candidates</caption>
-          <thead>
-            <tr>
-              <th>Original contact</th>
-              <th>Email evidence</th>
-              <th>Matching contacts</th>
-            </tr>
-          </thead>
-          <tbody>
-            {candidates.value?.items.map((item) => (
-              <tr key={item.contact.id}>
-                <td>
-                  {item.contact.name}
-                  <small>{item.contact.email}</small>
-                </td>
-                <td>{label(item.contact.emailEvidence.status)}</td>
-                <td>{item.matchingUnmergedContactCount}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <Pager next={candidates.value?.nextCursor} loading={candidates.loading} setCursor={setCursor} />
-      {!candidates.loading && candidates.value?.items.length === 0 && (
-        <p className="adm-empty">No matching unmerged contacts on this page.</p>
+      <Message error={error || candidates.error} stale={candidates.staleError} notice={notice} />
+      {groups.map((group) => {
+        const first = group[0]!;
+        const other = group.length < first.matchingUnmergedContactCount;
+        const active = group.some((item) => item.contact.id === target);
+        return (
+          <fieldset className="crm-wf-group" key={first.contact.email.toLowerCase()}>
+            <legend>
+              {pluralise(first.matchingUnmergedContactCount, 'record', 'records')} for {first.contact.email}. Click the one to keep.
+            </legend>
+            <div className="crm-wf-cards">
+              {group.map((item) => {
+                const role = item.contact.id === target ? 'keep' : active && item.contact.id === source ? 'fold' : null;
+                return (
+                  <div className="crm-wf-cardwrap" key={item.contact.id}>
+                    <MergeCard
+                      contact={item.contact}
+                      briefs={briefsOf(item.contact.id)}
+                      owners={owners}
+                      role={role}
+                      groupLoaded={index.loaded}
+                      onKeep={() => keep(group, item)}
+                    />
+                    {active && group.length > 2 && item.contact.id !== target && (
+                      <button type="button" aria-pressed={item.contact.id === source} onClick={() => setSource(item.contact.id)}>
+                        {item.contact.id === source ? 'Folding this one in' : 'Fold this one in'}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {other && (
+              <p className="adm-subtle">The other record is on another page of results. Use the search or the next page to find it.</p>
+            )}
+          </fieldset>
+        );
+      })}
+      {index.truncated && (
+        <p className="adm-subtle">Details are shown for the 200 newest enquiries. Older records show only what the contact itself holds.</p>
       )}
-      <form
-        className="adm-form adm-merge-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void merge();
-        }}
-      >
-        <h3>Controlled contact merge</h3>
-        <div className="adm-workflow-columns">
+      <Pager next={candidates.value?.nextCursor} loading={candidates.loading} setCursor={setCursor} />
+      {!candidates.loading && items.length === 0 && <p className="adm-empty">No duplicates found on this page.</p>}
+      {keepItem && (
+        <form
+          className="adm-form adm-merge-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void merge();
+          }}
+        >
+          <h3>Merge duplicates</h3>
+          {foldItem ? (
+            <p className="crm-wf-summary" role="status">
+              {mergeSummary(keepItem.contact, briefsOf(keepItem.contact.id), foldItem.contact, briefsOf(foldItem.contact.id))}
+            </p>
+          ) : (
+            <p className="adm-subtle">Now choose which record to fold in.</p>
+          )}
           <label>
-            Original contact to link
-            <select aria-label="Original contact to link" required value={source} onChange={(e) => setSource(e.target.value)}>
-              <option value="">Choose the source</option>
-              {candidates.value?.items.map((item) => (
-                <option value={item.contact.id} key={item.contact.id}>
-                  {item.contact.name} · {item.contact.email}
-                </option>
-              ))}
-            </select>
+            Why are you merging these?
+            <textarea aria-label="Merge reason" required maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} />
           </label>
-          <label>
-            Canonical contact to keep
-            <select aria-label="Canonical contact to keep" required value={target} onChange={(e) => setTarget(e.target.value)}>
-              <option value="">Choose the target</option>
-              {candidates.value?.items
-                .filter((item) => item.contact.id !== source)
-                .map((item) => (
-                  <option value={item.contact.id} key={item.contact.id}>
-                    {item.contact.name} · {item.contact.email}
-                  </option>
-                ))}
-            </select>
+          <label className="adm-check">
+            <input type="checkbox" required checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />I have checked both
+            records and understand this can&apos;t be undone.
           </label>
-        </div>
-        {sourceProof && targetProof && (
-          <div className="adm-provenance-grid">
-            {[
-              ['Original source', sourceProof],
-              ['Canonical target', targetProof],
-            ].map(([title, raw]) => {
-              const proof = raw as NonNullable<Result<'getContactProvenance'>>;
-              return (
-                <section key={String(title)}>
-                  <h4>{String(title)}</h4>
-                  <strong>{proof.originalContact.name}</strong>
-                  <p>{proof.originalContact.email}</p>
-                  <small>
-                    {label(proof.originalContact.emailEvidence.status)} · revision {proof.originalRevision}
-                  </small>
-                  <p>{proof.firstKnownSource?.campaign?.name ?? 'Campaign source unknown'} · recipient unknown</p>
-                </section>
-              );
-            })}
-          </div>
-        )}
-        <label>
-          Merge reason
-          <textarea aria-label="Merge reason" required maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} />
-        </label>
-        <label className="adm-check">
-          <input type="checkbox" required checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />I reviewed both records.
-          Keep all original contacts and answers; move the source enquiries to the selected canonical contact.
-        </label>
-        <button type="submit" disabled={busy || !confirmed || !sourceProof || !targetProof || source === target}>
-          Confirm contact merge
-        </button>
-      </form>
+          <button type="submit" disabled={busy || !confirmed || !sourceProof || !targetProof || source === target || !foldItem}>
+            Merge into {keepItem.contact.name}
+          </button>
+        </form>
+      )}
       {(target || lastMergedTarget) && <CrmAudit subjectType="contact" subjectId={target || lastMergedTarget} owners={owners} />}
     </section>
   );
+}
+/** One CSV cell: quoted when needed, and neutralised so a spreadsheet never runs it as a formula. */
+export function csvCell(value: unknown): string {
+  let text = value === null || value === undefined ? '' : String(value);
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+const CSV_COLUMNS = [
+  'submission_id',
+  'captured_at',
+  'completed_at',
+  'first_completed_at',
+  'name',
+  'email',
+  'organisation',
+  'country',
+  'interests',
+  'marketing_opt_in_at_capture',
+  'canonical_contact_name',
+  'canonical_contact_email',
+  'campaign',
+  'channel',
+  'source_hint',
+  'answers_json',
+] as const;
+/** The same rows as the JSON download, flattened: one line per original submission. Answers stay as JSON in the last column. */
+export function submissionsToCsv(page: Pick<Result<'exportSubmissions'>, 'items'>): string {
+  const lines = page.items.map(({ submission, initialContact, firstCompletedAt, canonicalContact, attribution }) =>
+    [
+      submission.submissionId,
+      submission.capturedAt,
+      submission.completedAt,
+      firstCompletedAt,
+      submission.contact.name,
+      submission.contact.email,
+      submission.contact.organisationName,
+      submission.contact.country,
+      submission.contact.interests.join('; '),
+      initialContact.marketingOptIn ? 'yes' : 'no',
+      canonicalContact.name,
+      canonicalContact.email,
+      attribution.campaign?.name,
+      attribution.campaign?.channel,
+      attribution.sourceHint,
+      JSON.stringify(submission.questionnaires),
+    ]
+      .map(csvCell)
+      .join(','),
+  );
+  return `\uFEFF${[CSV_COLUMNS.join(','), ...lines].join('\r\n')}\r\n`;
 }
 export function CrmExports({ csrf, filters, owners }: { csrf: string; filters: Record<string, unknown>; owners: FounderOwner[] }) {
   const [limit, setLimit] = useState('100'),
@@ -1102,12 +1594,13 @@ export function CrmExports({ csrf, filters, owners }: { csrf: string; filters: R
       setBusy(false);
     }
   }
-  function download() {
+  function download(format: 'json' | 'csv') {
     if (!value) return;
-    const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }));
+    const body = format === 'csv' ? submissionsToCsv(value) : JSON.stringify(value, null, 2);
+    const url = URL.createObjectURL(new Blob([body], { type: format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json' }));
     const link = document.createElement('a');
     link.href = url;
-    link.download = `intafaced-original-submissions-${new Date(value.generatedAt).toISOString().replaceAll(':', '-')}.json`;
+    link.download = `intafaced-original-submissions-${new Date(value.generatedAt).toISOString().replaceAll(':', '-')}.${format}`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
@@ -1118,7 +1611,7 @@ export function CrmExports({ csrf, filters, owners }: { csrf: string; filters: R
         Each request exports at most 200 original submissions with initial consent, preserved answers, canonical contact linkage and source
         snapshots. No automatic bulk download.
       </p>
-      <Message error={error || campaigns.error} notice={notice} />
+      <Message error={error || campaigns.error} stale={campaigns.staleError} notice={notice} />
       <form
         className="adm-form adm-export-form"
         onSubmit={(e) => {
@@ -1199,7 +1692,10 @@ export function CrmExports({ csrf, filters, owners }: { csrf: string; filters: R
           </strong>
           <p>Original answers are preserved. Campaign linkage does not verify the recipient.</p>
           <div className="adm-pagination">
-            <button type="button" onClick={download}>
+            <button type="button" onClick={() => download('csv')}>
+              Download CSV
+            </button>
+            <button type="button" onClick={() => download('json')}>
               Download JSON
             </button>
             <button
