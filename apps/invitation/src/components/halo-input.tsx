@@ -29,12 +29,16 @@ function AnimatedControlShell({ children, className, innerClassName, translucent
   const reduceMotion = useReducedMotion() ?? false;
 
   return (
-    <div className={cn('relative isolate w-full max-w-full rounded-xl p-px', className)} data-slot="halo-input-shell">
+    <div className={cn('group/halo relative isolate w-full max-w-full rounded-xl p-px', className)} data-slot="halo-input-shell">
       {/*
         Clip to the same 11px round as the shell (not `rounded-xl`) so the rim and gradient share one curve —
         matches `SelectGradientUnderlay` / `HaloSwitch` underglow.
       */}
-      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[11px]">
+      {/* Local change: the glow is a response to hover and focus. An empty, unfocused field rests nearly dark, so it never reads as a stain. */}
+      <div
+        className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[11px] opacity-[0.05] transition-opacity duration-300 ease-out group-hover/halo:opacity-100 group-focus-within/halo:opacity-100"
+        data-slot="halo-glow"
+      >
         {translucent ? (
           <div className={cn('absolute inset-0', reduceMotion ? 'opacity-[0.38]' : 'opacity-50')}>
             <div
