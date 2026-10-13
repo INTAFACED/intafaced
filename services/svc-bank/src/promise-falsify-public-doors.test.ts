@@ -148,7 +148,7 @@ describe('D26-P2-01e public doors (PG-hard)', () => {
       sub: HOLDER,
       userId: HOLDER,
       sid: '22222222-2222-4222-8222-222222222222',
-      scopes: ['bank:read', 'bank:write'],
+      scopes: ['bank:read', 'bank:write', 'trade:withdraw'],
       tier: 'full',
       mfa: true,
       expiresAt: new Date(Date.now() + 60_000),

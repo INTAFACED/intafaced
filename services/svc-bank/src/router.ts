@@ -2649,7 +2649,10 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * Persist a user withdraw dest (IBAN/IFSC/EVM) so a later offramp has a
      * real ref before withdrawHold. Does not move value and does not invent a PSP.
      */
-    setWithdrawDestination: scopedProcedure('bank:write', { module: 'bank' })
+    // `trade:withdraw` is the step-up scope: no API key may hold it and a normal session does not carry it,
+    // `auth.stepUp` mints it for five minutes against a second factor (§9). `bank:write` alone let a leaked
+    // key or an XSS-stolen access token change where money is sent and send it.
+    setWithdrawDestination: scopedProcedure('trade:withdraw', { module: 'bank' })
       .input(z.object({ kind: z.enum(['crypto', 'bank']), ref: z.string().min(1).max(256) }))
       .output(z.object({ kind: z.string(), ref: z.string() }))
       .mutation(async ({ ctx, input }) =>
@@ -2662,7 +2665,10 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * before any row or ledger post.
      * Crypto destination is persisted (or loaded) before withdrawHold.
      */
-    offramp: scopedProcedure('bank:write', { module: 'bank' })
+    // `trade:withdraw` is the step-up scope: no API key may hold it and a normal session does not carry it,
+    // `auth.stepUp` mints it for five minutes against a second factor (§9). `bank:write` alone let a leaked
+    // key or an XSS-stolen access token change where money is sent and send it.
+    offramp: scopedProcedure('trade:withdraw', { module: 'bank' })
       .input(
         z.object({
           offrampId: z.string().uuid(),
