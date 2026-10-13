@@ -17,6 +17,7 @@ import type { BankServices } from './bank-service.js';
 import { userFacingBankMessage } from './user-copy.js';
 import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
 import { describeBusinessPolicy } from './business/business-policy.js';
+import { createActivityRouter } from './activity/activity.router.js';
 
 /**
  * svc-bank's API.
@@ -3045,6 +3046,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     business,
     analytics,
     portfolio,
+    activity: createActivityRouter(bank),
     ops,
   });
 }
