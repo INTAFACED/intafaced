@@ -508,6 +508,22 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
   }
 
   /**
+   * Journal owner for one user and one key environment.
+   *
+   * Missing `key_env` is live, the same rule as `resolveMerchantRail`.
+   * Sandbox is a separate owner, so a live key and a sandbox key do not share
+   * a row. The other environment runs the handler, and the rail check can
+   * still return `pay.sandbox_rail_refused`. The environment stays out of the
+   * body fingerprint: putting it only there would answer
+   * `pay.idempotency_conflict` and skip that check.
+   *
+   * Live keeps the bare user id so a same-env retry still finds the row.
+   */
+  function idempotencyJournalOwner(userId: string, keyEnv: Principal['key_env']): string {
+    return keyEnv === 'sandbox' ? `sandbox\u001f${userId}` : userId;
+  }
+
+  /**
    * Run a mutating handler behind the Idempotency-Key claim→put journal.
    * 5xx abandons the claim so a retry may execute; 2xx/4xx are stored and replayed.
    */
@@ -517,11 +533,13 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
     ownerId: string,
     key: string,
     body: unknown,
+    keyEnv: Principal['key_env'],
     run: () => Promise<void>,
   ): Promise<FastifyReply> {
     const path = req.url.split('?')[0] ?? req.url;
     const fingerprint = fingerprintRequest(req.method, path, body ?? {});
-    const claim = await idempotency.claim(ownerId, key, fingerprint);
+    const journalOwner = idempotencyJournalOwner(ownerId, keyEnv);
+    const claim = await idempotency.claim(journalOwner, key, fingerprint);
     if (claim.kind === 'conflict') {
       return reply.code(409).send({
         error: {
@@ -545,13 +563,13 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
     try {
       await run();
       if (captured && captured.statusCode < 500) {
-        await idempotency.put(ownerId, key, { statusCode: captured.statusCode, body: captured.body }, claim.token);
+        await idempotency.put(journalOwner, key, { statusCode: captured.statusCode, body: captured.body }, claim.token);
       } else {
-        await idempotency.abandon(ownerId, key, claim.token);
+        await idempotency.abandon(journalOwner, key, claim.token);
       }
       return reply;
     } catch (err) {
-      await idempotency.abandon(ownerId, key, claim.token);
+      await idempotency.abandon(journalOwner, key, claim.token);
       throw err;
     }
   }
@@ -696,7 +714,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       const key = requireIdempotencyKey(req, reply);
       if (!key) return reply;
 
-      return withIdempotency(req, reply, principal.userId, key, req.body, async () => {
+      return withIdempotency(req, reply, principal.userId, key, req.body, principal.key_env, async () => {
         try {
           await assertAccess(principal.userId, req.body.merchantId, areaForSurface('rest.payments.create'));
           const amount = requireDecimalString(req.body.amount, 'amount');
@@ -754,7 +772,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       const key = requireIdempotencyKey(req, reply);
       if (!key) return reply;
 
-      return withIdempotency(req, reply, principal.userId, key, req.body ?? {}, async () => {
+      return withIdempotency(req, reply, principal.userId, key, req.body ?? {}, principal.key_env, async () => {
         try {
           const existing = await deps.pay.getPayment(req.params.id);
           await assertAccess(principal.userId, existing.merchantId, areaForSurface('rest.payments.authorize'));
@@ -795,7 +813,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       const key = requireIdempotencyKey(req, reply);
       if (!key) return reply;
 
-      return withIdempotency(req, reply, principal.userId, key, req.body ?? {}, async () => {
+      return withIdempotency(req, reply, principal.userId, key, req.body ?? {}, principal.key_env, async () => {
         try {
           const existing = await deps.pay.getPayment(req.params.id);
           await assertAccess(principal.userId, existing.merchantId, areaForSurface('rest.payments.capture'));
@@ -837,7 +855,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       const key = requireIdempotencyKey(req, reply);
       if (!key) return reply;
 
-      return withIdempotency(req, reply, principal.userId, key, req.body, async () => {
+      return withIdempotency(req, reply, principal.userId, key, req.body, principal.key_env, async () => {
         try {
           const existing = await deps.pay.getPayment(req.params.id);
           await assertAccess(principal.userId, existing.merchantId, areaForSurface('rest.payments.refund'));
@@ -962,7 +980,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       const key = requireIdempotencyKey(req, reply);
       if (!key) return reply;
 
-      return withIdempotency(req, reply, principal.userId, key, req.body, async () => {
+      return withIdempotency(req, reply, principal.userId, key, req.body, principal.key_env, async () => {
         try {
           await assertAccess(principal.userId, req.body.merchantId, areaForSurface('rest.payment-links.create'));
           const amount = req.body.amount === undefined ? undefined : parseAmount(requireDecimalString(req.body.amount, 'amount'));

@@ -940,6 +940,83 @@ describe('step 4 — sandbox keys route to sandbox rail (ADR §2.5)', () => {
     expect(res.statusCode).toBe(503);
     expect(res.json().error.code).toBe('pay.sandbox_looks_live');
   });
+
+  it('does not replay a sandbox create onto a live key that shares the Idempotency-Key', async () => {
+    const pay = stubPay();
+    app = await build(pay);
+    const body = { ...createBody, railAdapter: 'card-sandbox' };
+    const sandboxHeaders = {
+      ...signed(principal({ key_env: 'sandbox', kid: 'k-sandbox-idem' })),
+      'content-type': 'application/json',
+      'idempotency-key': 'cross-env:sandbox-create',
+    };
+
+    const stored = await app.inject({ method: 'POST', url: '/v1/payments', headers: sandboxHeaders, payload: body });
+    const replay = await app.inject({ method: 'POST', url: '/v1/payments', headers: sandboxHeaders, payload: body });
+
+    expect(stored.statusCode).toBe(200);
+    expect(stored.json().mode).toBe('sandbox');
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json()).toEqual(stored.json());
+    expect(pay.calls.filter((c) => c.method === 'createPayment')).toHaveLength(1);
+
+    const live = await app.inject({
+      method: 'POST',
+      url: '/v1/payments',
+      headers: {
+        ...signed(principal({ key_env: 'live', kid: 'k-live-idem' })),
+        'content-type': 'application/json',
+        'idempotency-key': 'cross-env:sandbox-create',
+      },
+      payload: body,
+    });
+
+    expect(live.statusCode).toBe(503);
+    expect(live.json().error.code).toBe('pay.sandbox_rail_refused');
+    expect(live.json()).not.toEqual(stored.json());
+    expect(pay.calls.filter((c) => c.method === 'createPayment')).toHaveLength(1);
+  });
+
+  it('a missing key_env replays the live journal and does not share the sandbox row', async () => {
+    const pay = stubPay();
+    app = await build(pay);
+    const body = { ...createBody, railAdapter: 'crypto-native' };
+    const headersFor = (p: Principal) => ({
+      ...signed(p),
+      'content-type': 'application/json',
+      'idempotency-key': 'cross-env:missing-is-live',
+    });
+
+    const missing = await app.inject({
+      method: 'POST',
+      url: '/v1/payments',
+      headers: headersFor(principal({ kid: 'k-missing' })),
+      payload: body,
+    });
+    const liveReplay = await app.inject({
+      method: 'POST',
+      url: '/v1/payments',
+      headers: headersFor(principal({ key_env: 'live', kid: 'k-live-missing' })),
+      payload: body,
+    });
+
+    expect(missing.statusCode).toBe(200);
+    expect(missing.json().mode).toBe('live');
+    expect(liveReplay.json()).toEqual(missing.json());
+    expect(pay.calls.filter((c) => c.method === 'createPayment')).toHaveLength(1);
+
+    const sandbox = await app.inject({
+      method: 'POST',
+      url: '/v1/payments',
+      headers: headersFor(principal({ key_env: 'sandbox', kid: 'k-sandbox-missing' })),
+      payload: body,
+    });
+
+    expect(sandbox.statusCode).toBe(200);
+    expect(sandbox.json().mode).toBe('sandbox');
+    expect(sandbox.json()).not.toEqual(missing.json());
+    expect(pay.calls.filter((c) => c.method === 'createPayment')).toHaveLength(2);
+  });
 });
 
 describe('missing webhook config refuses by name', () => {
