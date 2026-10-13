@@ -857,7 +857,7 @@ describe('s2s HTTP — service credentials', () => {
       stubService({
         historyPage: async (input: unknown) => {
           seen.push(input);
-          return { entries: [{ ...historyEntry, assetId: 'USDT' }], nextCursor: 'abc' };
+          return { entries: [{ ...historyEntry, assetId: 'USDT', entryId: '42', rail: 'crypto-native' }], nextCursor: 'abc' };
         },
       }),
     );
@@ -874,6 +874,8 @@ describe('s2s HTTP — service credentials', () => {
           amount: '12.345678901234567891',
           postedAt: '2026-07-27T12:00:00.000Z',
           assetId: 'USDT',
+          entryId: '42',
+          rail: 'crypto-native',
         },
       ],
       nextCursor: 'abc',
