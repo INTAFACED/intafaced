@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createOpenGate, draftOf, followRecord, rebaseActionFields, type ActionFields } from './crm-open-gate';
+import { createOpenGate, draftOf, followRecord, formAfterDiscard, rebaseActionFields, type ActionFields } from './crm-open-gate';
 
 type Record = { id: string; owner: string; stage: string; description: string };
 const records: { [id: string]: Record } = {
@@ -173,5 +173,24 @@ describe('next-action fields after a same-enquiry refresh (M1: stale editor)', (
   it('followRecord reads as an updater: typed text wins over the record, untouched text follows it', () => {
     expect(followRecord('a', 'a', 'b')).toBe('b');
     expect(followRecord('typed', 'a', 'b')).toBe('typed');
+  });
+});
+
+describe('what Discard puts back', () => {
+  it('uses the record as it is now and its revision, so a save made while the question was open is not undone', () => {
+    const before = { opportunity: { ...toDetail(records.A!).opportunity, id: 'A', revision: 1 } };
+    const saved = {
+      opportunity: {
+        ...before.opportunity,
+        revision: 2,
+        nextAction: { description: 'Send the term sheet', dueAt: '2026-10-21T09:00:00Z' },
+      },
+    };
+    expect(formAfterDiscard(before, String).base).toEqual({ id: 'A', revision: 1 });
+    const after = formAfterDiscard(saved, String);
+    expect(after.base).toEqual({ id: 'A', revision: 2 });
+    expect(after.actionDescription).toBe('Send the term sheet');
+    expect(after.editDescription).toBe('Send the term sheet');
+    expect(after.editDue).toBe(after.actionDue);
   });
 });

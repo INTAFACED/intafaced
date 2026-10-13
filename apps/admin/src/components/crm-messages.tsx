@@ -39,6 +39,7 @@ export function CrmMessages({
   csrf,
   opportunity,
   expectedRevision,
+  staleDraft = false,
   originalRecipient,
   owners,
   onSaved,
@@ -50,6 +51,8 @@ export function CrmMessages({
   opportunity: CrmOpportunity;
   /** The revision the console's form is based on (see crm-base-revision); defaults to the record's own. */
   expectedRevision?: number;
+  /** The form is based on an older version, so queueing will be refused: the button stays neutral. */
+  staleDraft?: boolean;
   originalRecipient: { name: string; email: string };
   owners: FounderOwner[];
   onSaved: () => Promise<boolean>;
@@ -240,6 +243,7 @@ export function CrmMessages({
             {...submitProps({
               disabled: busy || !confirmed || opportunity.stage === 'closed' || (kind === 'call_invitation' && !inviteAllowed),
               changed: Boolean(staffText.trim() || reason.trim() || confirmed),
+              refused: staleDraft,
             })}
           >
             Queue message

@@ -237,6 +237,15 @@
   color: var(--if-warn);
   font-size: 12px;
 }
+/* Phone: the editor's fields and buttons (including Cancel and the quick-due chips) are finger targets. */
+@media (max-width: 600px) {
+  .adm-crm-next-edit input,
+  .adm-workspace .adm-crm-next-edit button,
+  .adm-workspace .adm-crm-next-chips button,
+  .adm-workspace .adm-crm-next-edit button[type='submit'] {
+    min-height: 44px;
+  }
+}
 /* "also: <old name>" under a row whose search match came through a merged contact. */
 .adm-crm-table .adm-crm-also {
   display: block;

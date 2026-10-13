@@ -46,6 +46,21 @@ export function createOpenGate() {
 type DraftSource = {
   opportunity: { ownerUserId: string; stage: string; nextAction?: { description: string; dueAt: string } | null };
 };
+type DiscardSource = DraftSource & { opportunity: { id: string; revision: number } };
+/**
+ * What a Discard puts back: every field from the record on screen NOW, and a base revision equal to that record's. Callers pass
+ * the latest record (read through a ref), never one captured when the question was asked, because the founder can save while
+ * the question is open and the record moves on.
+ */
+export function formAfterDiscard(detail: DiscardSource, toLocalDate: (iso: string) => string) {
+  const fields = draftOf(detail, toLocalDate);
+  return {
+    ...fields,
+    editDescription: fields.actionDescription,
+    editDue: fields.actionDue,
+    base: { id: detail.opportunity.id, revision: detail.opportunity.revision },
+  };
+}
 /** The editable fields an enquiry opens with. `toLocalDate` turns an ISO due time into the date field's value. */
 export function draftOf(detail: DraftSource, toLocalDate: (iso: string) => string) {
   const next = detail.opportunity.nextAction;

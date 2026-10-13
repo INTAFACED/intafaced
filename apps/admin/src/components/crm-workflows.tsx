@@ -592,6 +592,7 @@ export function CrmEnquiryTasks({
   csrf,
   opportunity,
   expectedRevision,
+  staleDraft = false,
   owners,
   onSaved,
 }: {
@@ -599,6 +600,8 @@ export function CrmEnquiryTasks({
   opportunity: CrmOpportunity;
   /** The revision the console's form is based on (see crm-base-revision); defaults to the record's own. */
   expectedRevision?: number;
+  /** The form is based on an older version, so these saves will be refused: the buttons stay neutral. */
+  staleDraft?: boolean;
   owners: FounderOwner[];
   onSaved: () => Promise<boolean>;
 }) {
@@ -737,6 +740,7 @@ export function CrmEnquiryTasks({
             {...submitProps({
               disabled: busy || owners.length !== 2 || opportunity.stage === 'closed',
               changed: Boolean(description.trim() || dueAt || reason.trim()),
+              refused: staleDraft,
             })}
           >
             Create task
@@ -819,7 +823,11 @@ export function CrmEnquiryTasks({
           )}
           <button
             type="submit"
-            {...submitProps({ disabled: busy || !task, changed: Boolean(task && (transitionReason.trim() || replacement.trim())) })}
+            {...submitProps({
+              disabled: busy || !task,
+              changed: Boolean(task && (transitionReason.trim() || replacement.trim())),
+              refused: staleDraft,
+            })}
           >
             Record task outcome
           </button>

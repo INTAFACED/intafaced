@@ -20,4 +20,12 @@ describe('enquiry notice area', () => {
   it('hides a stale "Saved" or "retained" line behind an error', () => {
     expect(detailNotices({ ...base, error: 'Could not save', notice: 'Saved to the enquiry history.', dirty: true })).toEqual(['error']);
   });
+  it('never hides the message that explains a refused click, whatever else is showing', () => {
+    expect(detailNotices({ ...base, blocked: true })).toEqual(['blocked']);
+    expect(detailNotices({ ...base, blocked: true, stale: true, dirty: true })).toEqual(['blocked', 'stale']);
+    expect(detailNotices({ ...base, blocked: true, error: 'Could not save', notice: 'Saved to the enquiry history.' })).toEqual([
+      'error',
+      'blocked',
+    ]);
+  });
 });

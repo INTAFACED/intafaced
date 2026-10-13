@@ -4,16 +4,16 @@ import { founderName, useFounderOwners } from './founder-names';
 import { CrmMetrics, CrmTasks, CrmCampaigns, CrmDuplicates, CrmExports, CrmEnquiryTasks, useDismissableMenus } from './crm-workflows';
 import { CrmMessages } from './crm-messages';
 import { CrmPrivacy } from './crm-privacy';
-import { Callout } from './crm-callout';
+import { Callout, CrmIcon } from './crm-callout';
 import { crmDate, crmLocalDate, crmRelative, crmTime } from '@/lib/crm-browser';
 import { describeDue, overdueText } from '@/lib/crm-due';
-import { RESTORED_EDITS_NOTICE, RETAINED_EDITS_NOTICE, SAVED_NOTICE, detailNotices } from '@/lib/crm-notices';
-import { createDiscardConfirm, type DiscardQuestion } from '@/lib/crm-discard-confirm';
+import { RESTORED_EDITS_NOTICE, RETAINED_EDITS_NOTICE, RETENTION_BLOCKED_NOTICE, SAVED_NOTICE, detailNotices } from '@/lib/crm-notices';
+import { createDiscardConfirm, keepEditingBeforeSave, type DiscardQuestion } from '@/lib/crm-discard-confirm';
 import { nextEditorDirty, nextEditorOpen } from '@/lib/crm-next-editor';
 import { submitProps } from '@/lib/crm-form-state';
 import { listSummary, toolsLabel, viewHeading, viewShowsTotals } from '@/lib/crm-view';
 import { baseIsStale, expectedRevisionFor, nextBaseRevision, type BaseRevision, type BaseRevisionChange } from '@/lib/crm-base-revision';
-import { createOpenGate, draftOf, followRecord } from '@/lib/crm-open-gate';
+import { createOpenGate, draftOf, followRecord, formAfterDiscard } from '@/lib/crm-open-gate';
 import {
   DEFAULT_CRM_SORT,
   MIXED_CURRENCY_NOTE,
@@ -184,6 +184,7 @@ export function NextActionEditor({
   due,
   unchanged,
   busy,
+  refused = false,
   onDescription,
   onDue,
   onSave,
@@ -195,11 +196,13 @@ export function NextActionEditor({
   due: string;
   unchanged: boolean;
   busy: boolean;
+  /** The save will be refused (the form is based on an older version), so the button is not the lime action. */
+  refused?: boolean;
   onDescription: (value: string) => void;
   onDue: (value: string) => void;
   onSave: () => void;
   /** Closes the editor and drops what was typed in it. Left out when the editor cannot be closed. */
-  onCancel?: () => void;
+  onCancel?: () => void | Promise<void>;
   /** Put the cursor in the first field when the editor appears (the founder just pressed Change). */
   focusOnMount?: boolean;
   now?: number;
@@ -242,7 +245,10 @@ export function NextActionEditor({
         </p>
       )}
       <div className="adm-crm-next-buttons">
-        <button type="submit" {...submitProps({ disabled: busy || unchanged || !description.trim() || !due, changed: !unchanged })}>
+        <button
+          type="submit"
+          {...submitProps({ disabled: busy || unchanged || !description.trim() || !due, changed: !unchanged, refused })}
+        >
           Save next action
         </button>
         {onCancel && (
@@ -313,11 +319,20 @@ function syncEnquiryUrl(enquiryId: string | null) {
  * Shown next to the save buttons while the form is based on an older version of the enquiry than the one on screen, so a
  * founder cannot miss that another save has happened since. It leaves only when the edits are discarded or a save succeeds.
  */
-export function StaleDraftWarning({ busy, onDiscard }: { busy: boolean; onDiscard: () => void }) {
+export function StaleDraftWarning({
+  busy,
+  onDiscard,
+  role = 'alert',
+}: {
+  busy: boolean;
+  onDiscard: () => void;
+  /** "alert" for the one copy that is announced; "note" for repeats beside other save buttons. */
+  role?: 'alert' | 'note';
+}) {
   return (
     <Callout
       tone="warn"
-      role="alert"
+      role={role}
       data-testid="stale-draft-warning"
       className="adm-stale-warning"
       actions={
@@ -359,7 +374,8 @@ export function DiscardBar({ prompt, onKeep, onDiscard }: { prompt: string; onKe
           <button ref={keep} type="button" onClick={onKeep}>
             Keep editing
           </button>
-          <button type="button" onClick={onDiscard}>
+          <button type="button" className="adm-irreversible" onClick={onDiscard}>
+            <CrmIcon name="warning" />
             Discard
           </button>
         </>
@@ -389,6 +405,8 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
   const inFlight = useRef(0);
   const lastAutoRefresh = useRef(0);
   const live = useRef({ detailId: '', dirty: false, busy: false, retentionPending: false, view: 'enquiries' });
+  // The record on screen right now. Code that runs after an `await` (a Discard answered later) reads this, never its own render's `detail`.
+  const detailRef = useRef<Detail | null>(null);
   const refreshRef = useRef<(auto: boolean) => Promise<void>>(async () => undefined);
   const owners = useFounderOwners();
   useDismissableMenus();
@@ -406,6 +424,8 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
   const [detailError, setDetailError] = useState('');
   const [detailErrorKind, setDetailErrorKind] = useState<CrmErrorKind>('other');
   const [detailNotice, setDetailNotice] = useState('');
+  // A click that would leave the enquiry was refused (retention review unconfirmed). It is explained, never hidden by other notices.
+  const [leaveBlocked, setLeaveBlocked] = useState(false);
   // The founder pressed "Change" on the next action. The editor also shows by itself while it holds edits.
   const [nextEditorOpenedByFounder, setNextEditorOpenedByFounder] = useState(false);
   const [discardQuestion, setDiscardQuestion] = useState<DiscardQuestion | null>(null);
@@ -435,6 +455,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
   const pending = useRef(new Map<string, { inputKey: string; requestId: string }>());
   const discardConfirm = useRef<ReturnType<typeof createDiscardConfirm> | null>(null);
   if (!discardConfirm.current) discardConfirm.current = createDiscardConfirm(setDiscardQuestion);
+  detailRef.current = detail;
   // Where focus was when the question appeared, so it can go back there once it is answered.
   const focusBeforeQuestion = useRef<HTMLElement | null>(null);
   const changeNextButton = useRef<HTMLButtonElement>(null);
@@ -443,7 +464,11 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
   const listScroll = useRef(0);
   const retentionPendingPrevious = useRef(false);
   const onRetentionDraftState = useCallback((dirty: boolean, pending: boolean) => {
-    if (retentionPendingPrevious.current && !pending) setDetailNotice('');
+    if (retentionPendingPrevious.current && !pending) {
+      setDetailNotice('');
+      setLeaveBlocked(false);
+      setError((current) => (current === RETENTION_BLOCKED_NOTICE ? '' : current));
+    }
     retentionPendingPrevious.current = pending;
     setRetentionDraftDirty(dirty);
     setRetentionWritePending(pending);
@@ -497,7 +522,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
     if (id !== gate.selected() && typeof window !== 'undefined') listScroll.current = window.scrollY;
     if (detail && detail.opportunity.id !== id) {
       if (retentionWritePending) {
-        setDetailNotice('A retention review result is unconfirmed. Retry that same request before leaving this enquiry.');
+        blockLeave();
         return false;
       }
       if (hasDirtyDraft()) {
@@ -513,6 +538,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
       setNotice('');
       setDetailError('');
       setDetailNotice('');
+      setLeaveBlocked(false);
     }
     inFlight.current += 1;
     try {
@@ -631,8 +657,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
       const { message, kind } = failureOf(failure, 'Enquiry unavailable.');
       // A kept enquiry is still on screen, so its error belongs in its panel; otherwise there is no panel to hold it.
       if (keep) {
-        setDetailError(message);
-        setDetailErrorKind(kind);
+        raiseDetailError(message, kind);
       } else {
         setError(message);
         setErrorKind(kind);
@@ -659,20 +684,44 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
       retentionDraftDirty
     );
   }
+  /**
+   * An error about the open enquiry. It shows in the enquiry panel, except when the panel is not on screen (a tool view such as
+   * Duplicates) and for a lost session, which is one page-level "Sign in again" alert instead of one in each place.
+   */
+  function raiseDetailError(message: string, kind: CrmErrorKind) {
+    if (kind === 'session' || live.current.view !== 'enquiries') {
+      setDetailError('');
+      setError(message);
+      setErrorKind(kind);
+    } else {
+      setDetailError(message);
+      setDetailErrorKind(kind);
+    }
+  }
+  /** Leaving the enquiry was refused because a retention review result is unconfirmed; say so where the founder is looking. */
+  function blockLeave() {
+    if (live.current.view === 'enquiries') setLeaveBlocked(true);
+    else {
+      setError(RETENTION_BLOCKED_NOTICE);
+      setErrorKind('other');
+    }
+  }
   function resetDraft() {
-    if (!detail) return;
-    clearDraft(browserDraftStorage(), detail.opportunity.id);
+    // The latest record, not the one from the render that asked: a save made while the question was open has moved it on.
+    const latest = detailRef.current;
+    if (!latest) return;
+    const form = formAfterDiscard(latest, crmLocalDate);
+    clearDraft(browserDraftStorage(), latest.opportunity.id);
     // The edits are gone, so the form is based on the record on screen again.
-    setBase({ id: detail.opportunity.id, revision: detail.opportunity.revision });
+    setBase(form.base);
     setMessageValues({ kind: 'information_request', staffText: '', reason: '' });
     setMessagesResetVersion((value) => value + 1);
-    setNewOwner(detail.opportunity.ownerUserId);
-    setNewStage(detail.opportunity.stage);
-    setActionDescription(detail.opportunity.nextAction?.description ?? '');
-    const due = detail.opportunity.nextAction?.dueAt;
-    setActionDue(due ? crmLocalDate(due) : '');
-    setEditDescription(detail.opportunity.nextAction?.description ?? '');
-    setEditDue(due ? crmLocalDate(due) : '');
+    setNewOwner(form.newOwner);
+    setNewStage(form.newStage);
+    setActionDescription(form.actionDescription);
+    setActionDue(form.actionDue);
+    setEditDescription(form.editDescription);
+    setEditDue(form.editDue);
     setReason('');
     setEvidence('');
     setNote('');
@@ -685,9 +734,9 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
     focusBeforeQuestion.current = active instanceof HTMLElement && active !== document.body ? active : null;
     return discardConfirm.current!.ask(prompt);
   }
-  function answerDiscard(discard: boolean) {
+  function answerDiscard(discard: boolean, refocus = true) {
     discardConfirm.current!.answer(discard);
-    const back = focusBeforeQuestion.current;
+    const back = refocus ? focusBeforeQuestion.current : null;
     focusBeforeQuestion.current = null;
     // After the bar has left the page. An open that follows a Discard moves focus to the new enquiry itself, a moment later.
     requestAnimationFrame(() => {
@@ -696,7 +745,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
   }
   async function canLeaveCurrentDetail(prompt: string): Promise<boolean> {
     if (retentionWritePending) {
-      setDetailNotice('A retention review result is unconfirmed. Retry that same request before leaving this enquiry.');
+      blockLeave();
       return false;
     }
     if (!hasDirtyDraft()) return true;
@@ -710,6 +759,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
     setNotice('');
     setDetailNotice('');
     setDetailError('');
+    setLeaveBlocked(false);
   }
   function selectTab(tab: DetailTab) {
     setDetailTab(tab);
@@ -730,9 +780,14 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
   }
   async function mutate(action: string, input: Record<string, unknown>) {
     if (!detail) return;
+    // The form stays live behind a discard question. Saving answers it as "Keep editing" (and does not pull focus away from the
+    // button just pressed), so a Discard pressed afterwards cannot reset the form from the record as it was before this save.
+    if (keepEditingBeforeSave(discardConfirm.current!)) focusBeforeQuestion.current = null;
     setBusy(true);
     setDetailError('');
     setDetailNotice('');
+    setLeaveBlocked(false);
+    if (errorKind === 'session') setError('');
     const inputKey = JSON.stringify(input);
     const previous = pending.current.get(action);
     const requestId = previous?.inputKey === inputKey ? previous.requestId : crypto.randomUUID();
@@ -764,8 +819,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
       setDetailNotice(refreshed ? SAVED_NOTICE : 'Your change was saved. Reopen the enquiry to load its latest records.');
     } catch (failure) {
       const { message, kind } = failureOf(failure, 'Could not save.');
-      setDetailError(message);
-      setDetailErrorKind(kind);
+      raiseDetailError(message, kind);
     } finally {
       setBusy(false);
     }
@@ -826,7 +880,9 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
   }, [detail, busy, draftSignature, userId, base]);
   const expectedRevision = detail ? expectedRevisionFor(base, detail.opportunity.id, detail.opportunity.revision) : 0;
   const staleDraft = detail ? baseIsStale(base, detail.opportunity.id, detail.opportunity.revision) : false;
-  const staleWarning = staleDraft ? <StaleDraftWarning busy={busy} onDiscard={() => void refresh()} /> : null;
+  // One warning per draft is announced: the copy in the notice area is the alert, and the copies beside the save buttons are notes.
+  const staleWarningFor = (role: 'alert' | 'note') =>
+    staleDraft ? <StaleDraftWarning busy={busy} role={role} onDiscard={() => void refresh()} /> : null;
   // Coming back from sign-in (or a reload) lands on /crm?enquiry=<id>: open that enquiry.
   useEffect(() => {
     const id = enquiryIdFromSearch(window.location.search);
@@ -903,7 +959,15 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
     : null;
   const activeFilters = [audience, stageFilter, ownerFilter].filter(Boolean).length;
   const heading = viewHeading(view);
-  const noticeKinds = detailNotices({ error: detailError, notice: detailNotice, stale: staleDraft, dirty: hasDirtyDraft() });
+  // A lost session is announced once, at page level; never also as the panel's own error.
+  const panelError = detailErrorKind === 'session' && errorKind === 'session' && error ? '' : detailError;
+  const noticeKinds = detailNotices({
+    error: panelError,
+    notice: detailNotice,
+    stale: staleDraft,
+    dirty: hasDirtyDraft(),
+    blocked: leaveBlocked,
+  });
   const nextAction = detail?.opportunity.nextAction ?? null;
   const nextEditorShown = nextEditorOpen(
     nextEditorOpenedByFounder,
@@ -1315,7 +1379,14 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                   >
                     ← Back to the list
                   </button>
-                  <div className="adm-crm-detail-heading" ref={detailHeading} tabIndex={-1} role="region" aria-label="Selected enquiry">
+                  <div
+                    id="crm-detail-heading"
+                    className="adm-crm-detail-heading"
+                    ref={detailHeading}
+                    tabIndex={-1}
+                    role="region"
+                    aria-label="Selected enquiry"
+                  >
                     <div>
                       <p className="adm-eyebrow">
                         {label(detail.opportunity.audience)} · {label(detail.opportunity.stage)}
@@ -1365,9 +1436,12 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                     {detail.opportunity.nextAction && nextEditorShown && (
                       <NextActionEditor
                         focusOnMount={nextEditorOpenedByFounder}
-                        onCancel={() => {
-                          // Drops what was typed in the editor and closes it.
-                          const record = detail.opportunity.nextAction;
+                        onCancel={async () => {
+                          // Drops what was typed in the editor and closes it. Typed (or restored) edits are never dropped unasked.
+                          if (nextEditorDirty(nextAction, { description: editDescription, due: editDue }, crmLocalDate)) {
+                            if (!(await askDiscard('Discard your unsaved next-action edits?'))) return;
+                          }
+                          const record = detailRef.current?.opportunity.nextAction ?? null;
                           setEditDescription(record?.description ?? '');
                           setEditDue(record ? crmLocalDate(record.dueAt) : '');
                           setNextEditorOpenedByFounder(false);
@@ -1380,6 +1454,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                           editDue === crmLocalDate(detail.opportunity.nextAction.dueAt)
                         }
                         busy={busy}
+                        refused={staleDraft}
                         onDescription={setEditDescription}
                         onDue={setEditDue}
                         onSave={() => {
@@ -1419,7 +1494,13 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                               {detailError}
                             </Callout>
                           );
-                        if (kind === 'stale') return <Fragment key={kind}>{staleWarning}</Fragment>;
+                        if (kind === 'blocked')
+                          return (
+                            <Callout key={kind} tone="warn" role="alert">
+                              {RETENTION_BLOCKED_NOTICE}
+                            </Callout>
+                          );
+                        if (kind === 'stale') return <Fragment key={kind}>{staleWarningFor('alert')}</Fragment>;
                         return (
                           <Callout key={kind} role="status" icon={kind === 'notice' ? 'check' : 'info'}>
                             {kind === 'notice' ? detailNotice : RETAINED_EDITS_NOTICE}
@@ -1508,7 +1589,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                         onToggle={(event) => setStageFormOpen(event.currentTarget.open)}
                       >
                         <summary>Assign owner and set next action</summary>
-                        {staleWarning}
+                        {staleWarningFor('note')}
                         <form
                           className="adm-form"
                           onSubmit={(event) => {
@@ -1536,6 +1617,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                             {...submitProps({
                               disabled: busy || ownersMissing || newOwner === detail.opportunity.ownerUserId,
                               changed: newOwner !== detail.opportunity.ownerUserId,
+                              refused: staleDraft,
                             })}
                           >
                             Assign owner
@@ -1643,6 +1725,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                                 Boolean(reason.trim() || evidence.trim()) ||
                                 actionDescription !== (detail.opportunity.nextAction?.description ?? '') ||
                                 actionDue !== (detail.opportunity.nextAction ? crmLocalDate(detail.opportunity.nextAction.dueAt) : ''),
+                              refused: staleDraft,
                             })}
                           >
                             Save stage and follow-up
@@ -1706,7 +1789,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                   {visitedDetailTabs.has('activity') && (
                     <section role="tabpanel" id="crm-activity-panel" aria-labelledby="crm-activity-tab" hidden={detailTab !== 'activity'}>
                       <h3>History</h3>
-                      {staleWarning}
+                      {staleWarningFor('note')}
                       <ol className="adm-history">
                         {detail.activities.map((activity) => {
                           const entry = activityTitle(activity, owners);
@@ -1753,6 +1836,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                         csrf={csrf}
                         opportunity={detail.opportunity}
                         expectedRevision={expectedRevision}
+                        staleDraft={staleDraft}
                         owners={owners}
                         onSaved={async () => {
                           const refreshed = await open(detail.opportunity.id, false, false, false, true, true);
@@ -1765,12 +1849,13 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                   )}
                   {visitedDetailTabs.has('messages') && (
                     <section role="tabpanel" id="crm-messages-panel" aria-labelledby="crm-messages-tab" hidden={detailTab !== 'messages'}>
-                      {staleWarning}
+                      {staleWarningFor('note')}
                       <CrmMessages
                         key={`messages:${detail.opportunity.id}:${messagesResetVersion}`}
                         csrf={csrf}
                         opportunity={detail.opportunity}
                         expectedRevision={expectedRevision}
+                        staleDraft={staleDraft}
                         originalRecipient={detail.submission.contact}
                         owners={owners}
                         onDraftChange={setMessageDraftDirty}

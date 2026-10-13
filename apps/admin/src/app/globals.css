@@ -268,6 +268,10 @@ body {
 .adm-form input[aria-invalid='true'] {
   border-color: var(--if-short);
 }
+.adm-login-field {
+  display: grid;
+  gap: var(--s1);
+}
 .adm-field-error {
   color: var(--if-short);
   font-size: 12px;
@@ -361,6 +365,27 @@ body {
 }
 .adm-workspace button.adm-irreversible:disabled {
   border-color: color-mix(in srgb, var(--if-warn) 50%, transparent);
+  color: var(--if-text-muted);
+  opacity: 1;
+}
+/*
+ * Contact deletion is the most destructive action in the console, so it reads as danger rather than as a merge: a neutral
+ * fill, a red border and a warning icon. Merge and the discard question stay amber (.adm-irreversible).
+ */
+.adm-workspace button.adm-danger-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  background: var(--if-surface-raised);
+  color: var(--if-text);
+  border-color: var(--if-short);
+  font-weight: 600;
+}
+.adm-workspace button.adm-danger-action .crm-icon {
+  color: var(--if-short);
+}
+.adm-workspace button.adm-danger-action:disabled {
+  border-color: color-mix(in srgb, var(--if-short) 50%, transparent);
   color: var(--if-text-muted);
   opacity: 1;
 }
@@ -888,7 +913,7 @@ body[data-crm-view]:not([data-crm-view='enquiries']) .adm-skip-link {
   }
   .adm-workspace > .adm-filters label:not(.adm-check) select,
   .adm-workspace > .adm-filters label:not(.adm-check) input {
-    height: 40px;
+    height: 44px;
   }
   .adm-workspace > .adm-filters label:not(.adm-check) select {
     flex: 1;
@@ -1434,7 +1459,6 @@ code {
 .adm-input:focus-visible,
 .adm-select:focus-visible,
 .adm-textarea:focus-visible,
-.adm-btn:focus-visible,
 .adm-switch:focus-visible {
   outline: 1px solid var(--if-phosphor);
   outline-offset: 1px;
@@ -2620,6 +2644,11 @@ code {
     min-height: 44px;
   }
   .adm-filters .adm-check {
+    min-height: 44px;
+  }
+  /* The safety choices and the editor's controls are finger targets too: Keep editing, Discard, the quick-due chips, the editor, "overdue". */
+  .crm-callout__actions button,
+  .adm-crm-summary-strip .crm-wf-count {
     min-height: 44px;
   }
 }

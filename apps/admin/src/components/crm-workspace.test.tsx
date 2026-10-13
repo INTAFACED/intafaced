@@ -249,6 +249,31 @@ describe('collapsed editor wording and confirmation bar', () => {
     expect(html.indexOf('Keep editing')).toBeGreaterThan(-1);
     expect(html.indexOf('Keep editing')).toBeLessThan(html.indexOf('>Discard<'));
   });
+  it('makes Discard the amber irreversible choice and leaves Keep editing as the plain default', () => {
+    const html = renderToStaticMarkup(<DiscardBar prompt="Discard?" onKeep={() => undefined} onDiscard={() => undefined} />);
+    expect(html).toMatch(/<button[^>]*class="adm-irreversible"[^>]*>(<svg.*?<\/svg>)?Discard<\/button>/);
+    expect(html).not.toMatch(/<button[^>]*class="[^"]*"[^>]*>Keep editing/);
+  });
+  it('announces the stale warning once: the repeats beside other save buttons are notes, not alerts', () => {
+    expect(renderToStaticMarkup(<StaleDraftWarning busy={false} onDiscard={() => undefined} />)).toContain('role="alert"');
+    const repeat = renderToStaticMarkup(<StaleDraftWarning busy={false} role="note" onDiscard={() => undefined} />);
+    expect(repeat).toContain('role="note"');
+    expect(repeat).not.toContain('role="alert"');
+  });
+  it('keeps the next-action save neutral while the save will be refused', () => {
+    const base = {
+      description: 'Send the deck',
+      due: '2026-10-16T09:00',
+      busy: false,
+      onDescription: () => undefined,
+      onDue: () => undefined,
+      onSave: () => undefined,
+      now,
+    };
+    const html = renderToStaticMarkup(<NextActionEditor {...base} unchanged={false} refused />);
+    expect(html).toContain('data-primary="false"');
+    expect(html).not.toContain('disabled=""');
+  });
   it('words the confirmation email in plain terms', () => {
     expect(deliveryText({ status: 'unconfigured', errorCode: null })).toBe('Not set up yet');
     expect(deliveryText({ status: 'failed', errorCode: 'ops.crm.notification_unconfigured' })).toBe('Not set up yet');

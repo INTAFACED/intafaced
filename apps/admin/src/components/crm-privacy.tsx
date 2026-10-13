@@ -724,7 +724,7 @@ export function CrmPrivacy({
                 </p>
                 <button
                   type="button"
-                  className="adm-irreversible"
+                  className="adm-danger-action"
                   disabled={busy || Boolean(reviewPending.current) || (!confirmed && !pending.current.has('privacyBegin'))}
                   onClick={() => {
                     void start();
@@ -785,7 +785,7 @@ export function CrmPrivacy({
                   </button>
                   <button
                     type="button"
-                    className="adm-irreversible"
+                    className="adm-danger-action"
                     disabled={busy || Boolean(reviewPending.current) || needsStatus}
                     onClick={() => {
                       void step();

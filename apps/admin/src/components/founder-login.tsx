@@ -41,6 +41,8 @@ export function FounderLogin() {
     'aria-invalid': fieldErrors[name] ? (true as const) : undefined,
     'aria-describedby': fieldErrors[name] ? `login-${name}-error` : undefined,
   });
+  const clearFieldError = (name: keyof LoginFieldErrors) =>
+    setFieldErrors((current) => (current[name] ? { ...current, [name]: undefined } : current));
   const fieldError = (name: keyof LoginFieldErrors) =>
     fieldErrors[name] ? (
       <small id={`login-${name}-error`} className="adm-field-error">
@@ -89,43 +91,58 @@ export function FounderLogin() {
         }
       }}
     >
-      <label>
-        Email or handle
-        <input
-          {...fieldProps('identifier')}
-          autoComplete="username"
-          required
-          value={identifier}
-          onChange={(event) => setIdentifier(event.target.value)}
-          maxLength={254}
-        />
+      <div className="adm-login-field">
+        <label>
+          Email or handle
+          <input
+            {...fieldProps('identifier')}
+            autoComplete="username"
+            required
+            value={identifier}
+            onChange={(event) => {
+              setIdentifier(event.target.value);
+              clearFieldError('identifier');
+            }}
+            maxLength={254}
+          />
+        </label>
         {fieldError('identifier')}
-      </label>
-      <label>
-        Password
-        <input
-          {...fieldProps('password')}
-          type="password"
-          autoComplete="current-password"
-          required
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          maxLength={1024}
-        />
+      </div>
+      <div className="adm-login-field">
+        <label>
+          Password
+          <input
+            {...fieldProps('password')}
+            type="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(event) => {
+              setPassword(event.target.value);
+              clearFieldError('password');
+            }}
+            maxLength={1024}
+          />
+        </label>
         {fieldError('password')}
-      </label>
-      <label>
-        Authenticator or recovery code
-        <input
-          {...fieldProps('totpCode')}
-          autoComplete="one-time-code"
-          required
-          value={totpCode}
-          onChange={(event) => setTotpCode(event.target.value)}
-          maxLength={11}
-        />
+      </div>
+      <div className="adm-login-field">
+        <label>
+          Authenticator or recovery code
+          <input
+            {...fieldProps('totpCode')}
+            autoComplete="one-time-code"
+            required
+            value={totpCode}
+            onChange={(event) => {
+              setTotpCode(event.target.value);
+              clearFieldError('totpCode');
+            }}
+            maxLength={11}
+          />
+        </label>
         {fieldError('totpCode')}
-      </label>
+      </div>
       {error && (
         <Callout tone="danger" role="alert">
           {error}

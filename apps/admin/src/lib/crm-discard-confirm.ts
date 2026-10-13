@@ -7,6 +7,17 @@
  */
 export type DiscardQuestion = { id: number; prompt: string };
 
+/**
+ * A save while the question is open answers it as "Keep editing". The form stays live behind the bar, so a save followed by a
+ * late Discard would otherwise reset the form from the record as it was when the question was asked. Returns true when a
+ * question was open and has now been closed.
+ */
+export function keepEditingBeforeSave(confirm: { pending(): boolean; answer(discard: boolean): void }): boolean {
+  if (!confirm.pending()) return false;
+  confirm.answer(false);
+  return true;
+}
+
 export function createDiscardConfirm(onChange: (question: DiscardQuestion | null) => void) {
   let counter = 0;
   let open: { question: DiscardQuestion; settle: (discard: boolean) => void } | null = null;
