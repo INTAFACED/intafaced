@@ -11,6 +11,8 @@ export * from './env.js';
 export * from './flags.js';
 export * from './jurisdiction.js';
 export * from './screening.js';
+export * from './app-env.js';
+export * from './local-test-guard.js';
 export * from './fiat.js';
 export * from './network-signal.js';
 export * from './compliance-queue.js';

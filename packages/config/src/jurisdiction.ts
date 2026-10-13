@@ -1,4 +1,5 @@
 import { MODULES, type ModuleId, type Plane } from './modules.js';
+import { isExplicitDevOrTest } from './app-env.js';
 import {
   SANCTIONS_REGIONS_ENV,
   SANCTIONS_SOURCE_ENV,
@@ -465,13 +466,27 @@ export function regionFailClosedFromEnv(env: Record<string, string | undefined> 
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
 }
 
+/** True when the env holds an explicit off value (`0`, `false`, `no`, `off`). Unset or unknown is NOT off. */
+export function screeningFailClosedIsExplicitlyOff(env: Record<string, string | undefined> = process.env): boolean {
+  const raw = env[SCREENING_FAIL_CLOSED_ENV]?.trim().toLowerCase() ?? '';
+  return raw === '0' || raw === 'false' || raw === 'no' || raw === 'off';
+}
+
 /**
  * Read the screening-list fail-closed switch from an env map.
  * Explicit `AccessQuery.screeningFailClosed` always wins over this.
+ *
+ * An explicit off is a LOCAL-TEST stand-in. It is honoured only when `APP_ENV`
+ * is unset/empty (bare unit-test runs; `assertNoLocalTestFixtures` refuses that
+ * combination at service boot) or exactly `dev`/`test`. When `APP_ENV` names any
+ * other environment (staging, prod, a typo), `off` is ignored and screening stays
+ * fail-closed.
  */
 export function screeningFailClosedFromEnv(env: Record<string, string | undefined> = process.env): boolean {
-  const raw = env[SCREENING_FAIL_CLOSED_ENV]?.trim().toLowerCase() ?? '';
-  return raw !== '0' && raw !== 'false' && raw !== 'no' && raw !== 'off';
+  if (!screeningFailClosedIsExplicitlyOff(env)) return true;
+  const appEnv = env.APP_ENV;
+  const appEnvNamed = appEnv !== undefined && appEnv.trim() !== '';
+  return appEnvNamed && !isExplicitDevOrTest(appEnv);
 }
 
 export interface AccessQuery {
