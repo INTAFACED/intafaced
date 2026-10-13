@@ -522,7 +522,7 @@ describe('router: a stranger learns nothing about the recipient', () => {
       prefix: '/trpc',
       trpcOptions: {
         router: createBankRouter(bank),
-        createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+        createContext: ({ req }) => edgeContext(req),
       } satisfies FastifyTRPCPluginOptions<BankRouter>['trpcOptions'],
     });
     await app.ready();
