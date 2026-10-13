@@ -77,8 +77,8 @@ const sparkline = {
   'DOGE-USDT': series(6, false),
 };
 
-/** /tickers. `withOpen: false` leaves the 24 h fields empty, so the data layer derives them from hourly candles. */
-export const tickers = ({ withOpen = true } = {}) => {
+/** /tickers. `withOpen: false` leaves the 24 h fields empty, so the data layer derives them from hourly candles. `windowStart` is the server's own 24 h window start (epoch ms), as the live ticker sends it. */
+export const tickers = ({ withOpen = true, windowStart = undefined } = {}) => {
   const now = Date.now();
   return Object.fromEntries(
     Object.entries(prices).map(([symbol, [last, open]]) => [
@@ -104,6 +104,7 @@ export const tickers = ({ withOpen = true } = {}) => {
         baseVolume: null,
         quoteVolume: null,
         sparkline: withOpen ? sparkline[symbol] : null,
+        ...(windowStart === undefined ? {} : { windowStart }),
       },
     ]),
   );

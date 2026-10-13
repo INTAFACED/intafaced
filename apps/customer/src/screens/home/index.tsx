@@ -1,11 +1,13 @@
 import { useMemo } from 'react';
 import { ChevronRight, Eye, EyeOff } from 'lucide-react';
 import './home.css';
+import { clockTime } from './clock';
 import { homeCopy } from './copy';
 import {
   Button,
   ChangeText,
   dec,
+  defaultDeskPair,
   fmtChangeLine,
   fmtUsd,
   HeroNumber,
@@ -27,19 +29,38 @@ import {
   type TickerRow,
 } from './deps';
 import { InfoTip } from './InfoTip';
+import { IN_PANEL, STATE_IN_COLUMN } from './panel';
 import { MarketsFailure, MarketsRow, MarketsSkeleton, MoversHeading, MoversRow, MoversSkeleton } from './MarketsSection';
+import { YourCrypto, YourCryptoSkeleton } from './YourCrypto';
 import { listings, topCards, topMovers } from './select';
 import { Watchlist } from './Watchlist';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { useSession } from '../../features/session/session';
 
+/**
+ * Until the M2 Buy card lands (B8), Buy and Sell open the working spot desk on BTC/USDT: `/trade/buy` is the old
+ * screen on a simulated market (critic H4). When M2 lands, point Buy at `/trade/buy` and Sell at `/trade/buy?side=sell`.
+ */
 const ACTIONS = [
-  { label: 'Buy', href: '/trade/buy' },
-  { label: 'Sell', href: '/trade/buy?side=sell' },
+  { label: 'Buy', href: `/trade/spot/${defaultDeskPair}` },
+  { label: 'Sell', href: `/trade/spot/${defaultDeskPair}?side=sell` },
   { label: 'Convert', href: '/trade/convert' },
   { label: 'Send', href: '/pay/send' },
   { label: 'Receive', href: '/pay/receive' },
 ] as const;
+
+type ActionLabel = (typeof ACTIONS)[number]['label'];
+/** Which pills make sense for the account: nothing to spend, nothing to trade, or a paused account. */
+type ActionMode = 'normal' | 'empty' | 'noMarkets' | 'emptyNoMarkets' | 'refused';
+const ACTIONS_FOR: Record<ActionMode, readonly ActionLabel[] | null> = {
+  normal: null,
+  empty: ['Receive', 'Buy'],
+  noMarkets: ['Send', 'Receive'],
+  emptyNoMarkets: ['Receive'],
+  refused: ['Receive'],
+};
+/** Real pill widths, so the skeletons are the final size (critic M4). */
+const PILL_WIDTH: Record<ActionLabel, number> = { Buy: 64, Sell: 60, Convert: 88, Send: 72, Receive: 88 };
 
 /** A USD decimal rounded half-up to cents, as the string HeroNumber animates. Unknown stays null. */
 function cents(value: string | null): string | null {
@@ -47,18 +68,16 @@ function cents(value: string | null): string | null {
   return parsed === null ? null : toFixedString(roundScaled(parsed, 2), 2);
 }
 
-function clockTime(at: number, zone: 'UTC' | 'UTC+8' | 'device'): string {
-  const timeZone = zone === 'UTC' ? 'UTC' : zone === 'UTC+8' ? 'Etc/GMT-8' : undefined;
-  return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone }).format(at);
-}
-
-function ActionPills({ loading }: { loading: boolean }) {
+function ActionPills({ loading, mode }: { loading: boolean; mode: ActionMode }) {
   const { t } = homeCopy.useCopy();
-  const live = ACTIONS.filter((action) => !isHiddenPath(action.href.split('?')[0]!));
+  const wanted = ACTIONS_FOR[mode];
+  const live = (wanted ? wanted.map((label) => ACTIONS.find((action) => action.label === label)!) : [...ACTIONS]).filter(
+    (action) => !isHiddenPath(action.href.split('?')[0]!),
+  );
   return (
     <nav className="home-actions" aria-label={t('Actions')}>
       {loading
-        ? live.map((action) => <Skeleton key={action.label} width={action.label === 'Convert' ? 100 : 80} height={40} circle />)
+        ? live.map((action) => <Skeleton key={action.label} width={PILL_WIDTH[action.label]} height={40} circle />)
         : live.map((action, index) => (
             <Button
               key={action.label}
@@ -101,11 +120,11 @@ function HoldingsSkeleton() {
     <section className="home-holdings" aria-hidden="true">
       {[0, 1].map((index) => (
         <div key={index} className="home-holdings__row">
-          <Skeleton width={32} height={32} circle />
+          <Skeleton width={32} height={32} circle className={IN_PANEL} />
           <span className="home-holdings__label">
-            <Skeleton width={64} height={20} />
+            <Skeleton width={64} height={20} className={IN_PANEL} />
           </span>
-          <Skeleton width={96} height={20} />
+          <Skeleton width={96} height={20} className={IN_PANEL} />
         </div>
       ))}
     </section>
@@ -129,11 +148,29 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<PortfolioSummary>;
     );
 
   if (portfolio.status === 'error')
-    return <StateBlock kind="error" title={t('Couldn’t load your balance')} onRetry={portfolio.retry} retryLabel={t('Try again')} />;
+    return (
+      <StateBlock
+        kind="error"
+        className={STATE_IN_COLUMN}
+        title={t('Couldn’t load your balance')}
+        onRetry={portfolio.retry}
+        retryLabel={t('Try again')}
+      />
+    );
 
   if (portfolio.status === 'refused') {
+    // The raw service code never reaches the screen: only a short reference a customer can quote to support.
     const copy = refusalCopy(portfolio.code);
-    return <StateBlock kind="refused" title={copy.title} body={copy.body} code={portfolio.code} action={copy.action} />;
+    return (
+      <StateBlock
+        kind="refused"
+        className={STATE_IN_COLUMN}
+        title={copy.title}
+        body={copy.body}
+        code={copy.reference}
+        action={copy.action}
+      />
+    );
   }
 
   const empty = portfolio.status === 'empty' || portfolio.data.holdings.length === 0;
@@ -142,7 +179,7 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<PortfolioSummary>;
       <>
         <div className="home-total">
           {/* The balance call answered with no assets, so zero is correct here and only here. */}
-          <HeroNumber value="0.00" decimals={2} prefix="$" unit="USD" hidden={hidden} />
+          <HeroNumber value="0.00" decimals={2} prefix="$" hidden={hidden} />
         </div>
         <p className="home-note home-note--lg">{t('No crypto yet')}</p>
       </>
@@ -157,12 +194,14 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<PortfolioSummary>;
         ? t('Today, from price moves')
         : t('Today');
   const unpriced = data.unpriced.length;
+  // A cash-only account has no price moves: "$0.00 (0.00%) Today" would say nothing (critic M9).
+  const hasCrypto = (dec(data.cryptoUsd) ?? 0n) > 0n;
   return (
     <>
       <div className="home-total">
-        <HeroNumber value={cents(data.totalUsd)} decimals={2} prefix="$" unit="USD" hidden={hidden} />
+        <HeroNumber value={cents(data.totalUsd)} decimals={2} prefix="$" hidden={hidden} />
       </div>
-      {data.change24hUsd !== null ? (
+      {data.change24hUsd !== null && (hasCrypto || unpriced > 0) ? (
         <p className="home-change">
           <ChangeText value={fmtChangeLine(data.change24hUsd, data.change24hPct)} hidden={hidden} suffix={changeLabel} />
           {data.source === 'derived' ? <InfoTip text={t('Today change rule')} label={t('Today change rule label')} /> : null}
@@ -180,13 +219,14 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<PortfolioSummary>;
 
 export default function Home() {
   const { t } = homeCopy.useCopy();
-  const { hideBalances } = usePreferences();
+  const { hideBalances, timeZone } = usePreferences();
   const portfolio = usePortfolio();
   const markets = useMarkets();
   const tickers = useTickers();
   const movers = useMovers(6);
   const { userId } = useSession();
-  const { favorites } = useFavorites(userId);
+  const { favorites, isFavorite, toggle } = useFavorites(userId);
+  const favoriting = useMemo(() => ({ isFavorite, toggle }), [isFavorite, toggle]);
 
   const all = useMemo(() => (markets.status === 'ready' ? listings(markets.data) : []), [markets]);
   const tickerData = tickers.status === 'ready' ? tickers.data : undefined;
@@ -220,6 +260,21 @@ export default function Home() {
   const marketsLoading = markets.status === 'loading';
   const marketsBroken = markets.status === 'error' || markets.status === 'refused';
   const showMarkets = !noMarkets;
+  // With four markets or fewer the movers are the cards again, so the section would only repeat them (critic M1).
+  const showMovers = showMarkets && (marketsLoading || (all.length > 4 && moverItems.length > 0));
+
+  const accountEmpty = portfolio.status === 'empty' || (portfolio.status === 'ready' && portfolio.data.holdings.length === 0);
+  const actionMode: ActionMode =
+    portfolio.status === 'refused'
+      ? 'refused'
+      : accountEmpty
+        ? noMarkets
+          ? 'emptyNoMarkets'
+          : 'empty'
+        : noMarkets && portfolio.status === 'ready'
+          ? 'noMarkets'
+          : 'normal';
+  const pricesAsOf = tickers.status === 'ready' ? tickers.asOf : null;
 
   return (
     <div className="if-home">
@@ -236,11 +291,11 @@ export default function Home() {
             >
               {hideBalances ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
             </button>
-            <InfoTip text={t('Total value rule')} label={t('How the total is worked out')} />
+            <InfoTip text={t('Total value rule')} label={t('How the total is worked out')} side="right" />
           </div>
 
           <Balance portfolio={portfolio} hidden={hideBalances} />
-          <ActionPills loading={portfolio.status === 'loading'} />
+          <ActionPills loading={portfolio.status === 'loading'} mode={actionMode} />
           {portfolio.status === 'loading' ? <HoldingsSkeleton /> : null}
           {portfolio.status === 'ready' && portfolio.data.holdings.length > 0 ? (
             <HoldingsCard portfolio={portfolio.data} hidden={hideBalances} />
@@ -248,20 +303,25 @@ export default function Home() {
 
           {showMarkets ? (
             <section className="home-section" aria-labelledby="home-markets-title">
-              <h2 className="home-h2" id="home-markets-title">
-                {t('Markets')}
-              </h2>
+              <div className="home-section__head">
+                <h2 className="home-h2" id="home-markets-title">
+                  {t('Markets')}
+                </h2>
+                {pricesAsOf !== null ? (
+                  <p className="home-fresh">{t('Prices updated {time}', { time: clockTime(pricesAsOf, timeZone) })}</p>
+                ) : null}
+              </div>
               {marketsLoading ? (
-                <MarketsSkeleton />
+                <MarketsSkeleton count={all.length || 4} />
               ) : marketsBroken ? (
                 <MarketsFailure retry={markets.status === 'error' ? markets.retry : undefined} />
               ) : (
-                <MarketsRow cards={cards} tickers={tickers} sparklines={sparklines} />
+                <MarketsRow cards={cards} tickers={tickers} sparklines={sparklines} favoriting={favoriting} />
               )}
             </section>
           ) : null}
 
-          {showMarkets && (marketsLoading || moverItems.length > 0) ? (
+          {showMovers ? (
             <section className="home-section home-section--movers">
               <MoversHeading />
               {marketsLoading || movers.status === 'loading' ? <MoversSkeleton /> : <MoversRow movers={moverItems} />}
@@ -271,7 +331,16 @@ export default function Home() {
 
         {showMarkets && !marketsBroken ? (
           <aside className="home-side">
-            <Watchlist items={watchItems} popular={popular} tickers={tickers} sparklines={sparklines} loading={marketsLoading} />
+            {portfolio.status === 'loading' ? <YourCryptoSkeleton /> : null}
+            {portfolio.status === 'ready' ? <YourCrypto holdings={portfolio.data.holdings} hidden={hideBalances} /> : null}
+            <Watchlist
+              items={watchItems}
+              popular={popular}
+              tickers={tickers}
+              sparklines={sparklines}
+              loading={marketsLoading}
+              favoriting={favoriting}
+            />
           </aside>
         ) : null}
       </div>

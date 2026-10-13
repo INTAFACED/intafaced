@@ -19,6 +19,8 @@ import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
 import { navigate } from '../../app/location';
+import { hiddenFeatureFor } from '../../app/feature-registry';
+import { fmtPctPoints } from '../../data';
 import { useResource, type Resource } from '../../shared/resource';
 import { Button, DataTable, Dialog, EmptyState, Field, Loading, Tabs } from '../../shared/ui';
 import { unavailable, type ApiResult } from '../../shared/api';
@@ -164,21 +166,24 @@ export function TradeRoutes({ path }: { path: string }) {
             ))}
           </div>
         )}
-        <label className="trade-simulation">
-          <input
-            type="checkbox"
-            checked={simulation}
-            onChange={(event) => {
-              setSimulation(event.target.checked);
-              setSelected(null);
-              const target = new URL(location.href);
-              if (event.target.checked) target.searchParams.set('simulated', 'true');
-              else target.searchParams.delete('simulated');
-              navigate(`${target.pathname}${target.search}${target.hash}`, true);
-            }}
-          />
-          <CopyText k="simulated" />
-        </label>
+        {/* The feature registry hides simulated markets from customers; the switch only shows once that row goes live. */}
+        {hiddenFeatureFor(pathname, '?simulated=true') ? null : (
+          <label className="trade-simulation">
+            <input
+              type="checkbox"
+              checked={simulation}
+              onChange={(event) => {
+                setSimulation(event.target.checked);
+                setSelected(null);
+                const target = new URL(location.href);
+                if (event.target.checked) target.searchParams.set('simulated', 'true');
+                else target.searchParams.delete('simulated');
+                navigate(`${target.pathname}${target.search}${target.hash}`, true);
+              }}
+            />
+            <CopyText k="simulated" />
+          </label>
+        )}
       </nav>
       {activeMode !== 'Spot' ? (
         <TradingTools
@@ -470,7 +475,7 @@ function MarketFacts({ api, market }: { api: TradeApi; market: Listing }) {
         <span>
           <CopyText k="hChange" />
         </span>
-        <strong>{ticker.resource.status === 'ready' ? displayAmount(ticker.resource.data.percentage) : '—'}</strong>
+        <strong>{ticker.resource.status === 'ready' ? fmtPctPoints(ticker.resource.data.percentage) : '—'}</strong>
       </div>
       <div>
         <span>
