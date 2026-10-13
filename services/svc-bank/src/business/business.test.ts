@@ -51,7 +51,7 @@ const MAKER = '11111111-1111-4111-8111-111111111111';
 const CHECKER = '22222222-2222-4222-8222-222222222222';
 const amt = (v: string): Amount => parseAmount(v);
 
-/** The shape `services/svc-bank/src/ledger-client.ts` actually returns. */
+/** The receipt shape `services/svc-bank/src/ledger-client.ts` returns from `post` and `getTxByKey`: no entries. */
 function ledgerThatHidesEntries(inner: MemoryLedger): LedgerClient {
   return {
     async post(request: PostRequest) {
@@ -60,11 +60,10 @@ function ledgerThatHidesEntries(inner: MemoryLedger): LedgerClient {
     },
     balance: (ref) => inner.balance(ref),
     balances: (ownerType, ownerId) => inner.balances(ownerType, ownerId),
-    async getTx() {
-      throw new Error('getTx is not exposed over the internal ledger API — query svc-ledger directly');
-    },
-    async getTxByKey() {
-      throw new Error('getTxByKey is not exposed over the internal ledger API — query svc-ledger directly');
+    getTx: (txId) => inner.getTx(txId),
+    async getTxByKey(idempotencyKey) {
+      const found = await inner.getTxByKey(idempotencyKey);
+      return found ? { ...found, entries: [] } : null;
     },
   };
 }
