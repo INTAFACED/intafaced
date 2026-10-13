@@ -646,6 +646,13 @@ export const merchantWebhookDeliveries = pay.table(
     lastError: text('last_error'),
     createdAt: createdAt(),
     deliveredAt: tstz('delivered_at'),
+    /**
+     * Set when a worker commits this attempt to the network, before the POST
+     * returns and before status becomes delivered. claimDue skips it so a lease
+     * expiry cannot send the body again. Null means the attempt never left.
+     * markRetry clears it so a failed attempt can leave later.
+     */
+    httpSentAt: tstz('http_sent_at'),
   },
   (t) => [
     uniqueIndex('merchant_webhook_deliveries_endpoint_event_uq').on(t.endpointId, t.eventId),

@@ -82,12 +82,16 @@ const DEFAULT_MAX_ATTEMPTS = 8;
 const DEFAULT_DISABLE_AFTER = 5;
 
 /**
- * How long a worker owns a due row after `claimDue`.
+ * How long a worker owns a due row after `claimDue`, before the POST leaves.
  *
- * claimDue advances `next_attempt_at` into the future so a second replica
- * (FOR UPDATE SKIP LOCKED) will not POST the same delivery while this one is
- * in flight. Crash before markDelivered/markRetry: the lease expires and
- * another worker retries — at-least-once, never silently dropped.
+ * claimDue advances `next_attempt_at` so a second replica (FOR UPDATE SKIP
+ * LOCKED) will not take the row while it is still unsent. `commitSend` records
+ * that this worker is handing the body to the network. After that mark lands,
+ * claimDue will not return the row even if the lease expires before
+ * `markDelivered` — the body is not POSTed again. A crash before `commitSend`
+ * leaves the mark unset; when the lease expires another worker retries the
+ * attempt that never left. A non-2xx or a thrown redirect still goes through
+ * `markRetry`, which clears the mark so a later attempt can leave.
  */
 export const WEBHOOK_CLAIM_LEASE_MS = 60_000;
 
@@ -189,6 +193,12 @@ export interface MerchantWebhookStore {
     nextAttemptAt: Date;
   }): Promise<MerchantWebhookDelivery | null>;
   claimDue(limit: number, now: Date): Promise<Array<MerchantWebhookDelivery & { secret: string; url: string }>>;
+  /**
+   * Commit this attempt to the network. False when another worker already
+   * committed it — the caller must not POST. A crash before this returns
+   * leaves the row unsent so lease expiry can retry it.
+   */
+  commitSend(id: string, now: Date): Promise<boolean>;
   markDelivered(id: string, statusCode: number, deliveredAt: Date): Promise<void>;
   markRetry(id: string, attempts: number, nextAttemptAt: Date, statusCode: number | null, error: string, dead: boolean): Promise<void>;
   listDeliveries(merchantId: string, opts: { status?: WebhookDeliveryStatus; limit: number }): Promise<MerchantWebhookDelivery[]>;
@@ -226,6 +236,8 @@ type MemDelivery = {
 export class MemoryMerchantWebhookStore implements MerchantWebhookStore {
   readonly endpoints = new Map<string, MemEndpoint>();
   readonly deliveries = new Map<string, MemDelivery>();
+  /** Attempts whose POST has been committed. Not part of the public delivery row. */
+  private readonly httpSentAt = new Map<string, Date>();
 
   async insertEndpoint(row: {
     id: string;
@@ -329,6 +341,7 @@ export class MemoryMerchantWebhookStore implements MerchantWebhookStore {
     const leaseUntil = new Date(now.getTime() + WEBHOOK_CLAIM_LEASE_MS);
     const due = [...this.deliveries.values()]
       .filter((d) => d.status === 'pending' || d.status === 'failed')
+      .filter((d) => !this.httpSentAt.has(d.id))
       .filter((d) => d.nextAttemptAt.getTime() <= now.getTime())
       .sort((a, b) => a.nextAttemptAt.getTime() - b.nextAttemptAt.getTime())
       .slice(0, limit);
@@ -341,6 +354,14 @@ export class MemoryMerchantWebhookStore implements MerchantWebhookStore {
       out.push({ ...d, secret: ep.secret, url: ep.url });
     }
     return out;
+  }
+
+  async commitSend(id: string, now: Date): Promise<boolean> {
+    const d = this.deliveries.get(id);
+    if (!d || this.httpSentAt.has(id)) return false;
+    if (d.status !== 'pending' && d.status !== 'failed') return false;
+    this.httpSentAt.set(id, now);
+    return true;
   }
 
   async markDelivered(id: string, statusCode: number, deliveredAt: Date): Promise<void> {
@@ -368,6 +389,8 @@ export class MemoryMerchantWebhookStore implements MerchantWebhookStore {
     d.lastStatusCode = statusCode;
     d.lastError = error;
     d.status = dead ? 'dead' : 'failed';
+    // The POST did not succeed. A later attempt may leave.
+    this.httpSentAt.delete(id);
   }
 
   async listDeliveries(merchantId: string, opts: { status?: WebhookDeliveryStatus; limit: number }): Promise<MerchantWebhookDelivery[]> {
@@ -513,9 +536,13 @@ export class PostgresMerchantWebhookStore implements MerchantWebhookStore {
      * Multi-replica claim (ADR §2.4 at-least-once, never silently dropped).
      *
      * CTE selects due rows with FOR UPDATE SKIP LOCKED so two drainers never
-     * POST the same delivery concurrently. Advancing next_attempt_at leases the
-     * row for WEBHOOK_CLAIM_LEASE_MS; a crashed worker's lease expires and
-     * another replica retries. Merchants still dedupe on event id.
+     * POST the same delivery concurrently. Advancing next_attempt_at leases an
+     * unsent row for WEBHOOK_CLAIM_LEASE_MS. `http_sent_at` is set by
+     * `commitSend` once the worker hands the body to the network; those rows
+     * stay out of this claim even after the lease expires, so markDelivered
+     * landing late cannot cause a second POST. A crash before commitSend leaves
+     * `http_sent_at` null and the lease expiry retries the attempt that never
+     * left. Merchants still dedupe on event id.
      */
     const leaseUntil = new Date(now.getTime() + WEBHOOK_CLAIM_LEASE_MS).toISOString();
     const nowIso = now.toISOString();
@@ -526,6 +553,7 @@ export class PostgresMerchantWebhookStore implements MerchantWebhookStore {
           JOIN pay.merchant_webhook_endpoints e ON e.id = d.endpoint_id
          WHERE e.status = 'active'
            AND d.status IN ('pending', 'failed')
+           AND d.http_sent_at IS NULL
            AND d.next_attempt_at <= ${nowIso}
          ORDER BY d.next_attempt_at ASC
          LIMIT ${limit}
@@ -546,6 +574,18 @@ export class PostgresMerchantWebhookStore implements MerchantWebhookStore {
         JOIN pay.merchant_webhook_endpoints e ON e.id = c.endpoint_id
     `) as ReadonlyArray<DeliveryRow & { signing_secret: string; url: string }>;
     return rows.map((r) => ({ ...mapDelivery(r), secret: r.signing_secret, url: r.url }));
+  }
+
+  async commitSend(id: string, now: Date): Promise<boolean> {
+    const rows = await this.sql`
+      UPDATE pay.merchant_webhook_deliveries
+         SET http_sent_at = ${now.toISOString()}
+       WHERE id = ${id}
+         AND http_sent_at IS NULL
+         AND status IN ('pending', 'failed')
+      RETURNING id
+    `;
+    return rows.length > 0;
   }
 
   async markDelivered(id: string, statusCode: number, deliveredAt: Date): Promise<void> {
@@ -574,7 +614,8 @@ export class PostgresMerchantWebhookStore implements MerchantWebhookStore {
              attempts = ${attempts},
              next_attempt_at = ${nextAttemptAt.toISOString()},
              last_status_code = ${statusCode},
-             last_error = ${error}
+             last_error = ${error},
+             http_sent_at = NULL
        WHERE id = ${id}
     `;
   }
@@ -801,13 +842,20 @@ export class MerchantWebhookService {
         continue;
       }
 
+      // Before the socket write: a second worker who also holds this id loses
+      // the compare-and-set and must not POST. After it lands, lease expiry
+      // cannot claim the row even if markDelivered has not.
+      const leaving = await this.store.commitSend(item.id, this.now());
+      if (!leaving) continue;
+
       const rawBody = JSON.stringify(item.payload);
       const timestamp = String(Math.floor(this.now().getTime() / 1000));
       const headers = buildSignedHeaders(item.secret, timestamp, rawBody);
       headers['x-intafaced-event-id'] = item.eventId;
 
+      let res: Awaited<ReturnType<typeof fetch>>;
       try {
-        const res = await this.fetchImpl(item.url, {
+        res = await this.fetchImpl(item.url, {
           method: 'POST',
           headers,
           body: rawBody,
@@ -816,30 +864,9 @@ export class MerchantWebhookService {
           redirect: 'error',
           signal: AbortSignal.timeout(10_000),
         });
-        if (res.ok) {
-          await this.store.markDelivered(item.id, res.status, this.now());
-          await this.store.resetEndpointFailures(item.endpointId);
-          delivered += 1;
-          continue;
-        }
-        const err = `HTTP ${res.status}`;
-        const attempts = item.attempts + 1;
-        const dead = attempts >= this.maxAttempts;
-        const backoff = BACKOFF_SECONDS[Math.min(attempts - 1, BACKOFF_SECONDS.length - 1)] ?? 86_400;
-        const next = new Date(this.now().getTime() + backoff * 1000);
-        await this.store.markRetry(item.id, attempts, next, res.status, err, dead);
-        failed += 1;
-        const consecutive = await this.store.bumpEndpointFailure(item.endpointId);
-        if (consecutive >= this.disableAfter || dead) {
-          await this.store.setEndpointStatus(
-            item.endpointId,
-            'disabled',
-            dead ? 'delivery_exhausted' : 'consecutive_failures',
-            consecutive,
-          );
-          disabled += 1;
-        }
       } catch (err) {
+        // Redirects throw here (`redirect: 'error'`) and are not marked delivered.
+        // markRetry clears the send mark so a later attempt can leave.
         const message = err instanceof Error ? err.message : 'delivery_error';
         const attempts = item.attempts + 1;
         const dead = attempts >= this.maxAttempts;
@@ -857,6 +884,33 @@ export class MerchantWebhookService {
           );
           disabled += 1;
         }
+        continue;
+      }
+
+      if (res.ok) {
+        // Send mark stays set. A throw from markDelivered must not schedule
+        // another POST of a body that already left.
+        await this.store.markDelivered(item.id, res.status, this.now());
+        await this.store.resetEndpointFailures(item.endpointId);
+        delivered += 1;
+        continue;
+      }
+      const err = `HTTP ${res.status}`;
+      const attempts = item.attempts + 1;
+      const dead = attempts >= this.maxAttempts;
+      const backoff = BACKOFF_SECONDS[Math.min(attempts - 1, BACKOFF_SECONDS.length - 1)] ?? 86_400;
+      const next = new Date(this.now().getTime() + backoff * 1000);
+      await this.store.markRetry(item.id, attempts, next, res.status, err, dead);
+      failed += 1;
+      const consecutive = await this.store.bumpEndpointFailure(item.endpointId);
+      if (consecutive >= this.disableAfter || dead) {
+        await this.store.setEndpointStatus(
+          item.endpointId,
+          'disabled',
+          dead ? 'delivery_exhausted' : 'consecutive_failures',
+          consecutive,
+        );
+        disabled += 1;
       }
     }
 

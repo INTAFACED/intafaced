@@ -255,6 +255,74 @@ describe('MerchantWebhookService', () => {
     expect(second).toHaveLength(0);
   });
 
+  it('does not POST again when the claim lease expires after the body was sent', async () => {
+    const store = new MemoryMerchantWebhookStore();
+    let posts = 0;
+    let release = (): void => {};
+    const releasePost = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let signalSent = (): void => {};
+    const bodySent = new Promise<void>((resolve) => {
+      signalSent = resolve;
+    });
+    const fetchImpl: typeof fetch = async () => {
+      posts += 1;
+      if (posts === 1) {
+        signalSent();
+        await releasePost;
+      }
+      return new Response('ok', { status: 200 });
+    };
+
+    const svc = new MerchantWebhookService(store, { fetch: fetchImpl });
+    await svc.registerEndpoint(MERCHANT, 'https://merchant.example/hooks');
+    await svc.enqueue({ type: 'payment.captured', payment: payment() });
+    for (const d of store.deliveries.values()) d.nextAttemptAt = new Date(0);
+
+    const first = svc.processDue(25);
+    await bodySent;
+
+    // The POST has left. markDelivered has not run. The lease is gone.
+    for (const d of store.deliveries.values()) d.nextAttemptAt = new Date(0);
+    const second = await svc.processDue(25);
+
+    expect(posts).toBe(1);
+    expect(second).toEqual({ delivered: 0, failed: 0, disabled: 0 });
+    const inflight = [...store.deliveries.values()][0];
+    expect(inflight?.status).not.toBe('delivered');
+    expect(inflight?.deliveredAt).toBeNull();
+
+    release();
+    await expect(first).resolves.toEqual({ delivered: 1, failed: 0, disabled: 0 });
+    expect(posts).toBe(1);
+    expect([...store.deliveries.values()][0]?.status).toBe('delivered');
+  });
+
+  it('retries a claimed delivery that crashed before the POST once the lease expires', async () => {
+    const store = new MemoryMerchantWebhookStore();
+    let posts = 0;
+    const fetchImpl: typeof fetch = async () => {
+      posts += 1;
+      return new Response('ok', { status: 200 });
+    };
+    const start = new Date('2026-08-12T12:00:00.000Z');
+    let now = start;
+    const svc = new MerchantWebhookService(store, { now: () => now, fetch: fetchImpl });
+    await svc.registerEndpoint(MERCHANT, 'https://merchant.example/hooks');
+    await svc.enqueue({ type: 'payment.captured', payment: payment() });
+    for (const d of store.deliveries.values()) d.nextAttemptAt = new Date(0);
+
+    const claimed = await store.claimDue(25, now);
+    expect(claimed).toHaveLength(1);
+    expect(posts).toBe(0);
+
+    now = new Date(start.getTime() + WEBHOOK_CLAIM_LEASE_MS + 1);
+    const result = await svc.processDue(25);
+    expect(posts).toBe(1);
+    expect(result).toEqual({ delivered: 1, failed: 0, disabled: 0 });
+  });
+
   it('enableEndpoint restores active status after consecutive-failure disable', async () => {
     const store = new MemoryMerchantWebhookStore();
     const { url, server: s } = await listen((_req, res) => {
