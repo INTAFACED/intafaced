@@ -12,7 +12,7 @@ import { rampProgrammeFor } from './ramps/rails.js';
 import { eventMarginCallSink } from './loans/margin-call-publisher.js';
 import { tickerPriceSource } from './loans/prices.js';
 import { httpTickerSource } from './portfolio/portfolio-service.js';
-import { createLedgerClient, createLedgerHistory } from './ledger-client.js';
+import { createLedgerClient, createLedgerHistory, createLedgerHistoryPages } from './ledger-client.js';
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './affiliate-payout.js';
 import { createBankRouter, type BankRouter } from './router.js';
@@ -86,6 +86,8 @@ const bus = await JetStreamEventBus.connect({
 
 const bank = createBankServices(sql, ledger, history, {
   nativeAssetId: env.TOKEN_ASSET_ID,
+  // `bank.activity.list`: svc-ledger `historyPage` (read-only), cursors signed under the service secret.
+  activity: { pages: createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET), cursorSecret: env.INTERNAL_SERVICE_SECRET },
   loans: {
     // Marks are READ from svc-trade's public REST. svc-trade belongs to another
     // stream; nothing here imports it, shares a table with it, or writes to it.
