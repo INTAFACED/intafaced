@@ -403,16 +403,6 @@
     padding: 24px;
   }
 
-  /* The Buy card at 288 wide: its "Available …" line must wrap under the pay-with row instead of running over the select. */
-  .coin-col .buy-card[data-compact] .buy-row[data-static] {
-    flex-wrap: wrap;
-    row-gap: 0;
-  }
-  .coin-col .buy-card[data-compact] .buy-row[data-static] .buy-row__aside {
-    flex-basis: 100%;
-    text-align: left;
-  }
-
   /* Narrow windows must not break: one column */
   @media (max-width: 960px) {
     .coin-grid {

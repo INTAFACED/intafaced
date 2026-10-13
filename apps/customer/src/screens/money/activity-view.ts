@@ -21,8 +21,21 @@ export function tabFromSearch(search: string): Tab {
   return (TABS as readonly string[]).includes(value ?? '') ? (value as Tab) : 'trades';
 }
 
-export function tabHref(tab: Tab): string {
-  return tab === 'trades' ? '/money/activity' : `/money/activity?tab=${tab}`;
+/** `?asset=BTC`: show only this coin. Empty or missing reads as no filter; the symbol is upper-cased like the coins are. */
+export function assetFromSearch(search: string): string | null {
+  const value = new URLSearchParams(search).get('asset')?.trim().toUpperCase();
+  return value ? value : null;
+}
+
+/** The Activity link for a tab, keeping the coin filter when there is one. */
+export function tabHref(tab: Tab, asset: string | null = null): string {
+  const query = [tab === 'trades' ? null : `tab=${tab}`, asset ? `asset=${encodeURIComponent(asset)}` : null].filter(Boolean).join('&');
+  return query ? `/money/activity?${query}` : '/money/activity';
+}
+
+/** Does a fill's symbol ("BTC/USDT", or "BTC-USDT") have this coin as its base or quote? */
+export function symbolHasAsset(symbol: string, asset: string): boolean {
+  return symbol.replace('-', '/').split('/').includes(asset);
 }
 
 export function inTab(item: ActivityItem, tab: LedgerTab): boolean {
@@ -193,6 +206,11 @@ export function groupActivity(items: readonly ActivityItem[]): Grouped {
   for (const [orderId, lines] of byOrder) groups.push(...orderGroups(orderId, lines));
   groups.sort((a, b) => at(b.main) - at(a.main));
   return { groups };
+}
+
+/** A row is in a coin when any of its ledger lines is in that coin, so an order's whole row stays together. */
+export function groupInAsset(group: ActivityGroup, asset: string): boolean {
+  return group.lines.some((line) => line.asset === asset);
 }
 
 // ── words ────────────────────────────────────────────────────────────────────

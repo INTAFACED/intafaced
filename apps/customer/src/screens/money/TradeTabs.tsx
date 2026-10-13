@@ -4,6 +4,7 @@ import { deskCopy } from '../trade/desk/copy';
 import { useClosedOrders, useDeskMarkets, useFills, useOpenOrders, useRefreshPrivate } from '../trade/desk/data';
 import { FillsTable, LoadState, OrdersTable, precisionOf } from '../trade/desk/OrderTables';
 import { StateBlock } from './deps';
+import { symbolHasAsset } from './activity-view';
 import { moneyCopy } from './copy';
 
 /**
@@ -21,7 +22,7 @@ function usePrecision() {
 /** The fills call returns the latest this many; a full page says so instead of pretending to be everything. */
 const FILLS_PAGE = 100;
 
-export function TradesPanel() {
+export function TradesPanel({ asset = null }: { asset?: string | null }) {
   const { t } = deskCopy.useCopy();
   const money = moneyCopy.useCopy();
   const fills = useFills(true);
@@ -29,16 +30,17 @@ export function TradesPanel() {
   return (
     <div className="money-trade-tab">
       <LoadState load={fills} thing="trades">
-        {(rows) =>
-          rows.length === 0 ? (
+        {(all) => {
+          const rows = asset ? all.filter((fill) => symbolHasAsset(fill.symbol, asset)) : all;
+          return rows.length === 0 ? (
             <StateBlock kind="empty" className="money-state" title={money.t('No trades yet')} body={money.t('No trades yet body')} />
           ) : (
             <>
               <FillsTable rows={rows} precision={precision} layout="activity" />
-              {rows.length >= FILLS_PAGE ? <p className="money-act-note">{t('Latest trades note', { count: FILLS_PAGE })}</p> : null}
+              {all.length >= FILLS_PAGE ? <p className="money-act-note">{t('Latest trades note', { count: FILLS_PAGE })}</p> : null}
             </>
-          )
-        }
+          );
+        }}
       </LoadState>
     </div>
   );

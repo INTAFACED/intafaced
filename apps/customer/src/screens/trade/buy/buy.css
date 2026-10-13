@@ -226,6 +226,15 @@
     text-align: right;
     white-space: nowrap;
   }
+  /* The Buy card at 288 wide: the "Available …" line wraps under the pay-with select instead of running over it. */
+  .buy-card[data-compact] .buy-row[data-static] {
+    flex-wrap: wrap;
+    row-gap: 0;
+  }
+  .buy-card[data-compact] .buy-row[data-static] .buy-row__aside {
+    flex-basis: 100%;
+    text-align: left;
+  }
   .buy-row__chev {
     color: var(--if-fg-2);
     flex-shrink: 0;

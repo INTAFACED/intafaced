@@ -583,6 +583,46 @@ test('activity opens on Trades, built from fills: one row per trade with price, 
   expect(errors).toEqual([]);
 });
 
+test('activity ?asset= narrows Trades and All to one coin, shows a removable chip, and unknown coins read as empty', async ({ page }) => {
+  await mock(page);
+  const chip = (name) => page.getByRole('button', { name: `Remove ${name} filter` });
+  // Trades: fills whose base or quote is the coin.
+  await open(page, '/money/activity?tab=trades&asset=BTC');
+  await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(2);
+  await expect(chip('BTC')).toHaveText('BTC');
+  await open(page, '/money/activity?asset=USDT');
+  await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(2);
+  await open(page, '/money/activity?tab=trades&asset=ETH');
+  await expect(chip('ETH')).toBeVisible();
+  await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(0);
+  await expect(page.locator('.money-state')).toContainText('No trades yet');
+  // Unknown coin: the normal empty state, and the chip still removes the filter.
+  await open(page, '/money/activity?tab=trades&asset=ZZZ');
+  await expect(page.locator('.money-state')).toContainText('No trades yet');
+  await chip('ZZZ').click();
+  await expect(page).toHaveURL(/\/money\/activity$/);
+  await expect(chip('ZZZ')).toHaveCount(0);
+  await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(2);
+  // All: a whole order stays together when any of its lines is in the coin (the BTC buy keeps its USDT lines).
+  await open(page, '/money/activity?tab=all&asset=BTC');
+  await expect(page.locator('.money-act')).toHaveCount(1);
+  expect(await texts(page.locator('.money-act__title'))).toEqual(['Trade']);
+  expect(await texts(page.locator('.money-act__sub'))).toEqual(['Paid 678.124000 USDT · Fee 0.678100 USDT']);
+  // ...and it looks back through older pages on its own (ETH is on both pages).
+  await open(page, '/money/activity?tab=all&asset=ETH');
+  await expect(page.locator('.money-act')).toHaveCount(2);
+  await open(page, '/money/activity?tab=all&asset=ZZZ');
+  await expect(page.locator('.money-act')).toHaveCount(0);
+  await expect(page.locator('.money-state')).toContainText('No activity yet');
+  // Switching tab keeps the coin; removing the chip clears only the coin.
+  await open(page, '/money/activity?tab=all&asset=BTC');
+  await page.locator('[data-slot="tabs-tab"]', { hasText: 'Deposits' }).click();
+  await expect(page).toHaveURL(/tab=deposits&asset=BTC$/);
+  await snap(page, 'activity-asset-chip-1440x900');
+  await chip('BTC').click();
+  await expect(page).toHaveURL(/\/money\/activity\?tab=deposits$/);
+});
+
 test('activity Orders tab shows open orders with Cancel and the order history (critic H2)', async ({ page }) => {
   await mock(page);
   await open(page, '/money/activity?tab=orders');

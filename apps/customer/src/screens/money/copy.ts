@@ -62,6 +62,7 @@ const messages = {
   Trades: 'Trades',
   Orders: 'Orders',
   'Activity filters': 'Filter your activity',
+  'Remove {asset} filter': 'Remove {asset} filter',
   Date: 'Date',
   Status: 'Status',
   Completed: 'Completed',

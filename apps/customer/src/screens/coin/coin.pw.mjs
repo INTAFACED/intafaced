@@ -78,6 +78,14 @@ test('Simple, loaded, 1440x900: grid, header, chart, range pills, stats, holding
   expect(Math.round(buy.y)).toBe(Math.round(left.y));
   expect(Math.round(stats.width)).toBe(288);
   expect(stats.y).toBeGreaterThan(buy.y + buy.height);
+  // The 288 px Buy card: "Available …" wraps under the pay-with select instead of running over it, inside the card.
+  const payRowLoc = page.locator('.buy-card .buy-row').filter({ has: page.getByTestId('available') });
+  const payRow = await box(payRowLoc);
+  const available = await box(page.getByTestId('available'));
+  const payLabel = await box(payRowLoc.locator('.buy-row__text'));
+  expect(available.y).toBeGreaterThanOrEqual(payLabel.y + payLabel.height - 1);
+  expect(available.x).toBeGreaterThanOrEqual(payRow.x);
+  expect(available.x + available.width).toBeLessThanOrEqual(payRow.x + payRow.width + 0.5);
 
   // Price: HeroNumber at 48/58, the live last price from the ticker, dollars.
   await expectPrice(page, '$67,812.40');
