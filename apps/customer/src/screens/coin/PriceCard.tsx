@@ -7,6 +7,7 @@ import {
   fmtChangeLine,
   fmtPrice,
   HeroNumber,
+  partialWindowStart,
   refusalCopy,
   Select,
   SelectContent,
@@ -96,7 +97,14 @@ export function PriceCard({
   const suffix = scrub
     ? dayAndTime(scrub.t, timeZone)
     : list && range.id !== 'All' && startsLate(list, step, step * range.limit, Date.now())
-      ? t('Since {time}', { time: dayAndTime(list[0]!.t, timeZone) })
+      ? // The first coarse candle opens before the market's first trade (a 4 h candle at 16:00 for a 19:25 market), so
+        // start from whichever is later; the Key stats note uses the same first-trade time.
+        t('Since {time}', {
+          time: dayAndTime(
+            Math.max(list[0]!.t, ticker.status === 'ready' ? (partialWindowStart(ticker.data, Date.now()) ?? 0) : 0),
+            timeZone,
+          ),
+        })
       : t(RANGE_SUFFIX[rangeId]);
 
   const updated = ticker.status === 'ready' ? ticker.asOf : null;

@@ -126,8 +126,9 @@ export function CoinChart({ candles, resetKey, tickSize, direction, timeZone, la
           timeVisible: true,
           secondsVisible: false,
           fixLeftEdge: true,
-          fixRightEdge: true,
-          rightOffset: 0,
+          // Room on the right so a High or Low label near the latest price is not cut off at the edge.
+          fixRightEdge: false,
+          rightOffset: 8,
           tickMarkFormatter: (seconds: number, kind: number) => tickMark(seconds, kind, latest.current.zone),
         },
         crosshair: {

@@ -143,7 +143,8 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
   // Legend: "14 Oct, 02:15" in the person's zone, like every other time in the app.
   const formatTime = useMemo(
     () => (seconds: number) =>
-      new Intl.DateTimeFormat(language, {
+      // Day before month ("14 Oct"), like every other time in the app: plain "en" would write "Oct 14".
+      new Intl.DateTimeFormat(language === 'en' ? 'en-GB' : language, {
         day: 'numeric',
         month: 'short',
         hour: '2-digit',

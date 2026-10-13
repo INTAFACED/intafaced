@@ -405,9 +405,27 @@
 
   /* Narrow windows must not break: one column */
   @media (max-width: 960px) {
+    /* One column: the Buy card (or the Trade button) comes straight after the price, full width, then the rest */
     .coin-grid {
-      grid-template-columns: minmax(0, 1fr);
-      row-gap: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+    .coin-grid > .coin-col {
+      display: contents;
+    }
+    .coin-grid .coin-price-card,
+    .coin-grid .coin-dollar,
+    .coin-grid .coin-nomarket {
+      order: -2;
+    }
+    .coin-grid .buy-card,
+    .coin-grid [data-testid='trade-button'] {
+      order: -1;
+    }
+    .coin-grid .buy-card[data-compact] {
+      max-width: none;
+      width: 100%;
     }
     .coin-yours {
       grid-template-columns: minmax(0, 1fr);
