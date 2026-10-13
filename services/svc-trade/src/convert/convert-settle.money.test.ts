@@ -294,7 +294,7 @@ describe('svc-trade convert-settle (H8a PG-hard)', () => {
       expect(await avail('BTC')).toBe(btc);
     });
 
-    it('already bound legacy Convert recovers after expiry using its immutable acceptedAt exactly once', async () => {
+    it('already bound Convert with the customer hold booked recovers after expiry using its immutable acceptedAt exactly once', async () => {
       const created = new Date(Date.now() - 20_000);
       const estimate = estimateConvert({
         side: 'buy',
@@ -320,15 +320,55 @@ describe('svc-trade convert-settle (H8a PG-hard)', () => {
       });
       const bound = acceptConvertQuote({ quote, now: new Date(created.getTime() + 1_000) });
       await new SqlConvertQuoteStore(sql).saveBound(quote, bound);
+      // The customer hold is already booked (an earlier attempt got that far), so recovery stands.
+      const ids = convertSettleIdsFor(quote.quoteId);
+      await ledger.post(planConvertSettle({ bound, ...ids, now: new Date(bound.acceptedAt) }).hold);
       const usdt = await avail('USDT');
       const btc = await avail('BTC');
 
       const first = await trade.convertExecute(principal, { quoteId: quote.quoteId });
       expect(fillPosts()).toHaveLength(1);
-      expect(amt(await avail('USDT'))).toBeLessThan(amt(usdt));
+      // USDT already left available when the hold was booked above; the fill must not hold again.
+      expect(amt(await avail('USDT'))).toBe(amt(usdt));
       expect(amt(await avail('BTC'))).toBe(amt(btc) + amt('1'));
       expect((await trade.convertExecute(principal, { quoteId: quote.quoteId })).fillId).toBe(first.fillId);
       expect(fillPosts()).toHaveLength(1);
+    });
+
+    it('bound quote with NO customer hold, past the TTL: refuses trade.convert_quote_expired, posts nothing, stays bound', async () => {
+      const created = new Date(Date.now() - 20_000);
+      const estimate = estimateConvert({
+        side: 'buy',
+        qty: amt('1'),
+        levels: [['100', '5']],
+        convertSpreadBps: OWNER_CONVERT_SPREAD_BPS,
+        tickSize: amt('0.01'),
+      });
+      const quote = buildFirmConvertQuote({
+        quoteId: crypto.randomUUID(),
+        userId: ALICE,
+        symbol: btcusdt.symbol,
+        marketId: btcusdt.id,
+        side: 'buy',
+        baseAsset: 'BTC',
+        quoteAsset: 'USDT',
+        requestedQty: amt('1'),
+        estimate,
+        convertSpreadBps: OWNER_CONVERT_SPREAD_BPS,
+        source: { kind: 'book', symbol: btcusdt.symbol, asOf: created.toISOString() },
+        now: created,
+        quoteTtlMs: 15_000,
+      });
+      const bound = acceptConvertQuote({ quote, now: new Date(created.getTime() + 1_000) });
+      await new SqlConvertQuoteStore(sql).saveBound(quote, bound);
+      const journalBefore = ledger.journal().length;
+
+      await expect(trade.convertExecute(principal, { quoteId: quote.quoteId })).rejects.toMatchObject({
+        code: 'trade.convert_quote_expired',
+      });
+      expect(ledger.journal()).toHaveLength(journalBefore);
+      expect(ledger.journal().filter((tx) => tx.reason === 'order.hold' || tx.reason === 'order.hold.mm')).toHaveLength(0);
+      expect(fillPosts()).toHaveLength(0);
     });
 
     describe('convert hold order — customer first, no stranded house inventory (#4676)', () => {

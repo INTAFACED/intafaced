@@ -1082,12 +1082,13 @@ export class TradeService {
             assertedPrice: input.maxAvgPrice ?? null,
           });
         }
-        // A quote put back to `open` after a refused settle (#4676) keeps its
-        // recorded price. With no customer hold booked, a retry is a fresh accept
-        // in effect, so the TTL applies: refuse before anything is posted or
-        // re-bound, else a top-up hours later settles at a stale rate. With the
-        // hold booked (or a `bound` quote) the original settle semantics stand.
-        if (stored.lifecycle === 'open' && recordedBound) {
+        // A recorded price (a `bound` quote, or one put back to `open` after a
+        // refused settle, #4676) is replayed on retry. With no customer hold
+        // booked nothing is committed yet, so the TTL applies: refuse before
+        // anything is posted or re-bound, else a top-up hours later (or a retry
+        // after a timed-out hold post) settles at a stale rate. With the hold
+        // booked, the original recovery semantics stand.
+        if (stored.lifecycle === 'bound' || (stored.lifecycle === 'open' && recordedBound)) {
           const expiresAt = Date.parse(stored.quote.expiresAt);
           if (this.now().getTime() > expiresAt && !(await this.ledger.getTxByKey(convertCustomerHoldKey(ids.takerOrderId)))) {
             throw new TradeError('convert quote expired — refuse rather than requote', 'trade.convert_quote_expired');
