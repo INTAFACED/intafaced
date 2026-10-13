@@ -500,10 +500,10 @@ describe('EvmLiveChain description', () => {
   });
 
   it('still blanks userinfo when the path and query also hold a key', () => {
-    const published = described('https://rpc-user:rpc-pass@example/v2/SECRET?apikey=SECRET');
+    const published = described('https://rpc-user:placeholder-pass@example/v2/SECRET?apikey=SECRET');
     expect(published).toContain('rpc=https://***:***@example/***');
     expect(published).not.toContain('rpc-user');
-    expect(published).not.toContain('rpc-pass');
+    expect(published).not.toContain('placeholder-pass');
     expect(published).not.toContain('SECRET');
     expect(published).not.toContain('apikey');
   });
