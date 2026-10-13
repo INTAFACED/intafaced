@@ -34,6 +34,8 @@ const space = (id: string, userId: string, name: string, assetId = 'USDT'): Spac
 interface Posted extends LedgerPageEntry {
   /** Only sent by the fake ledger in `entryIds` mode. */
   rowRail?: string | null;
+  /** The owner's own trade order the ledger links this posting to. Sent whenever set. */
+  rowOrderId?: string | null;
   ownerType: 'user' | 'subaccount';
   ownerId: string;
   /** Position in the book: newer = larger. The real ledger pages on this. */
@@ -80,7 +82,7 @@ function fakePages(rows: Posted[], mode: { entryIds?: boolean } = {}) {
       const page = mine.slice(0, req.limit);
       const last = page[page.length - 1];
       return {
-        entries: page.map(({ txId, module, reason, direction, amount, postedAt, assetId, seq: entrySeq, rowRail }) => ({
+        entries: page.map(({ txId, module, reason, direction, amount, postedAt, assetId, seq: entrySeq, rowRail, rowOrderId }) => ({
           txId,
           module,
           reason,
@@ -89,6 +91,7 @@ function fakePages(rows: Posted[], mode: { entryIds?: boolean } = {}) {
           postedAt,
           assetId,
           ...(mode.entryIds ? { entryId: String(entrySeq), rail: rowRail ?? null } : {}),
+          ...(rowOrderId !== undefined ? { orderId: rowOrderId } : {}),
         })),
         nextCursor: mine.length > req.limit && last ? Buffer.from(`v2.${last.seq}`).toString('base64url') : null,
       };
@@ -598,5 +601,66 @@ describe('bank.activity.list through the router', () => {
       .catch((e: unknown) => e);
     expect(err).toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
     expect((err as Error).message).not.toContain('ECONNREFUSED');
+  });
+});
+
+describe('bank.activity.list orderId (what the ledger links to a trade order)', () => {
+  const TAKER_ORDER = 'c1111111-1111-4111-8111-c11111111111';
+  const MAKER_ORDER = 'c2222222-2222-4222-8222-c22222222222';
+  const withOrder = (p: Posted, orderId: string | null): Posted => ({ ...p, rowOrderId: orderId });
+
+  // One fill between Alice (taker, buys BTC with USDT) and Bob (maker, sells BTC). The ledger names each
+  // user's own order on that user's own line, so the two users' reads carry different ids for the same tx.
+  // A factory, not a constant: `post` bumps a module-wide counter that other tests' timestamps depend on.
+  const makeRows = (): Posted[] => [
+    withOrder(post('user', ALICE, 'tx-hold', 'order.hold', 'credit', '100', 'USDT', 'trade'), TAKER_ORDER),
+    withOrder(post('user', ALICE, 'tx-amend', 'order.hold.amend', 'credit', '20', 'USDT', 'trade'), TAKER_ORDER),
+    withOrder(post('user', ALICE, 'tx-fill', 'trade.fill', 'debit', '0.5', 'BTC', 'trade'), TAKER_ORDER),
+    withOrder(post('user', ALICE, 'tx-release', 'order.hold.released', 'debit', '30', 'USDT', 'trade'), TAKER_ORDER),
+    withOrder(post('user', BOB, 'tx-fill', 'trade.fill', 'debit', '90', 'USDT', 'trade'), MAKER_ORDER),
+    post('user', ALICE, 'tx-dep', 'deposit.credited', 'debit', '5', 'USDT', 'ledger'),
+    withOrder(post('user', ALICE, 'tx-null', 'trade.fill', 'debit', '1', 'BTC', 'trade'), null),
+  ];
+
+  it('a taker fill leg carries the taker order id, and a maker fill leg carries the maker order id', async () => {
+    const { service } = build(makeRows());
+    const alice = (await service.list(ALICE, {})).items.find((i) => i.txId === 'tx-fill')!;
+    const bob = (await service.list(BOB, {})).items.find((i) => i.txId === 'tx-fill')!;
+    expect(alice).toMatchObject({ kind: 'trade', asset: 'BTC', orderId: TAKER_ORDER });
+    expect(bob).toMatchObject({ kind: 'trade', asset: 'USDT', orderId: MAKER_ORDER });
+  });
+
+  it('an order hold, a hold amend and a release carry the order id', async () => {
+    const { service } = build(makeRows());
+    const items = (await service.list(ALICE, {})).items;
+    const by = (txId: string) => items.find((i) => i.txId === txId)!;
+    expect(by('tx-hold')).toMatchObject({ kind: 'order_hold', orderId: TAKER_ORDER });
+    expect(by('tx-amend')).toMatchObject({ kind: 'order_hold', orderId: TAKER_ORDER });
+    expect(by('tx-release')).toMatchObject({ kind: 'order_release', orderId: TAKER_ORDER });
+  });
+
+  it('a line the ledger does not link to an order omits orderId (absent or null from the ledger)', async () => {
+    const { service } = build(makeRows());
+    const items = (await service.list(ALICE, {})).items;
+    for (const txId of ['tx-dep', 'tx-null']) {
+      const item = items.find((i) => i.txId === txId)!;
+      expect(item).not.toHaveProperty('orderId');
+    }
+  });
+
+  it('is optional on the wire: the router returns orderId when present and omits the key when not', async () => {
+    const { service } = build(makeRows());
+    const out = await callerFor(service, principal(ALICE)).activity.list({ limit: 50 });
+    expect(out.items.find((i) => i.txId === 'tx-fill')).toMatchObject({ orderId: TAKER_ORDER });
+    expect(out.items.find((i) => i.txId === 'tx-dep')).not.toHaveProperty('orderId');
+  });
+
+  it('leaves the cursor unchanged: it encodes the same positions with or without order ids', async () => {
+    const rows = makeRows();
+    const plain = rows.map(({ rowOrderId: _o, ...r }) => r as Posted);
+    const a = await build(rows).service.list(ALICE, { limit: 2 });
+    const b = await build(plain).service.list(ALICE, { limit: 2 });
+    expect(a.nextCursor).toBe(b.nextCursor);
+    expect(a.items.map((i) => i.id)).toEqual(b.items.map((i) => i.id));
   });
 });

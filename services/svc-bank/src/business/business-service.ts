@@ -12,7 +12,7 @@ import {
 } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { assertBusinessListLimit, assertBusinessPendingListLimit } from '../owner-list-limit.js';
-import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
+import { accountForSpace, type SpaceRecord, type SpaceService } from '../spaces/space-service.js';
 import type { TransferService } from '../transfers/transfer-service.js';
 import { withMoneySpan } from '../tracing.js';
 
@@ -293,7 +293,14 @@ export class BusinessService {
 
     const now = new Date();
     const from = await this.spaces.resolveForDebit(input.fromSpaceId, now);
-    const to = await this.spaces.resolveForCredit(input.toSpaceId);
+    const to = await this.spaces.resolveForCredit(input.toSpaceId, {
+      actingUserId: from.userId,
+      // A retry of a proposal that already booked must resume it, not be refused.
+      alreadyBooked: async () =>
+        (await this.approvalExists(input.clientId)) ||
+        (await this.ledger.getTxByKey(`bank.transfer:${input.clientId}:0`)) !== null ||
+        (await this.ledger.getTxByKey(`bank.business.hold:${input.clientId}`)) !== null,
+    });
     if (from.assetId !== account.assetId || to.assetId !== account.assetId) {
       throw new BankError(`Business account ${account.assetId} cannot move ${from.assetId}→${to.assetId}`, 'bank.asset_mismatch');
     }
@@ -381,6 +388,12 @@ export class BusinessService {
         throw new BankError('Maker cannot approve their own transfer', 'bank.business_self_approve');
       }
       await this.assertRole(approval.accountId, input.checkerUserId, ['admin', 'checker']);
+
+      // Ask identity BEFORE the claim. A refusal here leaves the row `pending`,
+      // which reject and cancel accept, so the maker's hold can still be
+      // released. Checking after the claim would leave an `approved` row that
+      // neither can close.
+      await this.resolveSettleTarget(approval);
 
       // Claim pending first so concurrent reject/cancel cannot also release the hold.
       const claimed = await this.sql<ApprovalRow[]>`
@@ -517,7 +530,10 @@ export class BusinessService {
         throw new BankError('Payroll cannot pay the same space twice, or pay the source', 'bank.same_space');
       }
       seen.add(line.toSpaceId);
-      const to = await this.spaces.resolveForCredit(line.toSpaceId);
+      const to = await this.spaces.resolveForCredit(line.toSpaceId, {
+        actingUserId: from.userId,
+        alreadyBooked: async () => Boolean(existing) || (await this.ledger.getTxByKey(`bank.business.payroll:${input.payrollId}`)) !== null,
+      });
       if (to.assetId !== from.assetId) {
         throw new BankError(
           `Payroll cannot mix ${from.assetId} and ${to.assetId} — rates are not invented here`,
@@ -847,7 +863,24 @@ export class BusinessService {
   /** Reconcile the original settle key; an unknown outcome never releases its hold. */
   private async finishSettle(approval: BusinessApproval): Promise<{ transferId: string; ledgerTxId: string }> {
     const from = await this.spaces.get(approval.fromSpaceId);
-    const to = await this.spaces.resolveForCredit(approval.toSpaceId);
+    let to: SpaceRecord;
+    try {
+      to = await this.resolveSettleTarget(approval);
+    } catch (refusal) {
+      // The recipient became unable to receive AFTER the claim (the pre-claim
+      // check in approve() passed). An outage (`_unavailable`) stays recoverable
+      // on this row. A definite refusal will not clear, so close the row and
+      // return the maker's hold rather than keep it forever.
+      if (!(refusal instanceof BankError) || refusal.code !== 'bank.recipient_cannot_receive') throw refusal;
+      const closed = await this.sql<Array<{ id: string }>>`
+        UPDATE bank.business_approvals
+           SET status = 'rejected', rejection_code = ${'bank.recipient_cannot_receive'}, decided_at = now()
+         WHERE id = ${approval.id}::uuid AND status = 'approved' AND ledger_tx_id IS NULL
+        RETURNING id
+      `;
+      if (closed[0]) await this.releaseHold(approval);
+      throw refusal;
+    }
     const request = recipes.businessApprovalSettle({
       approvalId: approval.id,
       from: accountForSpace(from),
@@ -890,6 +923,15 @@ export class BusinessService {
     return { transferId: approval.id, ledgerTxId: settled.id };
   }
 
+  /** The settle destination, refusing a recipient who cannot receive (unless this settle already posted). */
+  private async resolveSettleTarget(approval: BusinessApproval): Promise<SpaceRecord> {
+    const from = await this.spaces.get(approval.fromSpaceId);
+    return this.spaces.resolveForCredit(approval.toSpaceId, {
+      actingUserId: from.userId,
+      alreadyBooked: async () => (await this.ledger.getTxByKey(`bank.business.settle:${approval.id}`)) !== null,
+    });
+  }
+
   /** Release key is the approval id. A second call does not pay the hold twice. */
   private async releaseHold(approval: BusinessApproval): Promise<void> {
     // An intent can be cancelled before any hold posts. If a late post is still
@@ -912,6 +954,11 @@ export class BusinessService {
     `;
     if (!rows[0]) throw new BankError(`Business account ${id} not found`, 'bank.business_not_found');
     return toAccount(rows[0]);
+  }
+
+  private async approvalExists(id: string): Promise<boolean> {
+    const rows = await this.sql<Array<{ id: string }>>`SELECT id FROM bank.business_approvals WHERE id = ${id}::uuid`;
+    return rows.length > 0;
   }
 
   private async approval(id: string): Promise<BusinessApproval> {

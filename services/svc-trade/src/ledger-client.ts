@@ -107,8 +107,28 @@ export function createLedgerClient(baseUrl: string, internalSecret: string): Led
       throw new Error('getTx is not exposed over the internal ledger API — query svc-ledger directly');
     },
 
-    async getTxByKey(): Promise<LedgerTx | null> {
-      throw new Error('getTxByKey is not exposed over the internal ledger API — query svc-ledger directly');
+    /**
+     * Existence check by idempotency key. Convert settle asks "was this release /
+     * hold / fill already booked?" before it posts; this used to throw here, so
+     * every Convert accept came back as a 500. The ledger answers with the
+     * identifying fields only; entries stay in svc-ledger.
+     */
+    async getTxByKey(idempotencyKey: string): Promise<LedgerTx | null> {
+      const result = await call<
+        { found: false } | { found: true; txId: string; hash: string; postedAt: string; module: string; reason: string }
+      >('/trpc/txByKey', { idempotencyKey });
+      if (!result.found) return null;
+      return {
+        id: result.txId,
+        idempotencyKey,
+        module: result.module,
+        reason: result.reason,
+        meta: {},
+        postedAt: new Date(result.postedAt),
+        hash: result.hash,
+        previousHash: null,
+        entries: [],
+      };
     },
   };
 }

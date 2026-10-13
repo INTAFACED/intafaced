@@ -87,6 +87,33 @@ describe('createLedgerHistoryPages (svc-ledger /trpc/historyPage)', () => {
     expect(out.entries[2]).not.toHaveProperty('rail');
   });
 
+  it('passes orderId through when the ledger names one, and drops null, absent and empty', async () => {
+    const e = {
+      txId: 't',
+      module: 'trade',
+      reason: 'trade.fill',
+      direction: 'debit',
+      amount: '1',
+      postedAt: '2026-10-13T00:00:00.000Z',
+      assetId: 'BTC',
+    };
+    stubFetch(
+      () =>
+        new Response(
+          JSON.stringify({ entries: [{ ...e, orderId: 'order-1' }, { ...e, orderId: null }, { ...e, orderId: '' }, e], nextCursor: null }),
+          { status: 200 },
+        ),
+    );
+    const out = await createLedgerHistoryPages('http://ledger.test', 'secret-secret-secret-secret-secret').page({
+      ownerType: 'user',
+      ownerId: OWNER,
+      kind: 'available',
+      limit: 5,
+    });
+    expect(out.entries[0]).toMatchObject({ orderId: 'order-1' });
+    for (const i of [1, 2, 3]) expect(out.entries[i]).not.toHaveProperty('orderId');
+  });
+
   it('passes assetId and cursor through when given, and nothing else', async () => {
     const calls = stubFetch(() => new Response(JSON.stringify({ entries: [], nextCursor: null }), { status: 200 }));
     await createLedgerHistoryPages('http://ledger.test', 'secret-secret-secret-secret-secret').page({
