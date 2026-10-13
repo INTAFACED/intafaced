@@ -140,6 +140,9 @@ try {
     await page.getByLabel('Your name', { exact: true }).pressSequentially('Shader regression visitor', { delay: 15 });
     await page.getByLabel('Email', { exact: true }).pressSequentially(`shader-${width}@example.invalid`, { delay: 15 });
     await page.waitForTimeout(1100);
+    // Contact is two screens: the metal Continue only moves on; the save is on the second screen.
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'A little more, if you like.' })).toBeFocused();
     const save = page.getByRole('button', { name: 'Save details & continue', exact: true });
     await expect(save).toBeVisible();
     await expect(save).toBeEnabled();
@@ -225,6 +228,8 @@ try {
     await begin.press('Enter');
     await page.getByLabel('Your name', { exact: true }).fill('Fallback regression visitor');
     await page.getByLabel('Email', { exact: true }).fill(failure + '@example.invalid');
+    await page.getByRole('button', { name: 'Continue', exact: true }).press('Enter');
+    await expect(page.getByRole('heading', { name: 'A little more, if you like.' })).toBeFocused();
     const save = page.getByRole('button', { name: 'Save details & continue', exact: true });
     await expect(page.locator('.metal-fx-fallback')).toBeVisible();
     await expect(save).toHaveAttribute('type', 'submit');
