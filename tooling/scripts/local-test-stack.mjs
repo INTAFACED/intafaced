@@ -86,6 +86,9 @@ const PORTS = {
 };
 const HOST = '127.0.0.1';
 const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
+// LOCAL TEST: WebAuthn (passkeys) cannot use an IP address as its relying-party ID, so the same Customer
+// server is also reachable as localhost. Passkeys: open this one. Everything else works on either.
+const CUSTOMER_LOCALHOST_ORIGIN = `http://localhost:${PORTS.customer}`;
 const DB_NAME = 'intafaced_local_test';
 const DB_ADMIN = 'local_test_admin';
 // One Postgres schema + one login role (svc_<schema>) per service that owns tables.
@@ -552,7 +555,12 @@ function serviceDefs(secrets) {
         DATABASE_URL: dbUrl('svc_identity', secrets),
         LEDGER_URL: urlOf('ledger'),
         REGISTRATION_OPEN: 'true',
-        WEBAUTHN_ENABLED: 'false',
+        // LOCAL TEST ONLY: passkeys on. Relying-party ID must be a hostname, so use localhost and open
+        // http://localhost:3210 for passkeys. Not the production relying party.
+        WEBAUTHN_ENABLED: 'true',
+        WEBAUTHN_RP_ID: 'localhost',
+        WEBAUTHN_RP_NAME: 'INTAFACED (LOCAL TEST)',
+        WEBAUTHN_ORIGIN: CUSTOMER_LOCALHOST_ORIGIN,
         IDENTITY_TRADE_ADMISSION_SECRET: secrets.tradeAdmission,
         IDENTITY_PAY_ADMISSION_SECRET: secrets.payAdmission,
         // Edge reads each caller's current account authority with this key; without it
@@ -795,7 +803,7 @@ function serviceDefs(secrets) {
         const env = {
           ...c('svc-edge', PORTS.edge),
           IDENTITY_OWNERSHIP_SECRET: secrets.edgeAuthority,
-          EDGE_ALLOWED_ORIGINS: CUSTOMER_ORIGIN,
+          EDGE_ALLOWED_ORIGINS: `${CUSTOMER_ORIGIN},${CUSTOMER_LOCALHOST_ORIGIN}`,
           EDGE_RATE_LIMIT_ENABLED: 'true',
           // Required, no default. LOCAL TEST values (generous: the UI polls).
           EDGE_RATE_LIMIT_MAX: '1200',
@@ -1146,9 +1154,9 @@ function serveCustomer() {
   };
   const server = http.createServer((req, res) => {
     const host = req.headers.host ?? '';
-    if (host !== `${HOST}:${PORTS.customer}`) {
-      // Refuse foreign Host headers (DNS rebinding) and steer localhost to the allowed origin.
-      res.writeHead(host === `localhost:${PORTS.customer}` ? 302 : 403, { location: `${CUSTOMER_ORIGIN}${req.url}` });
+    if (host !== `${HOST}:${PORTS.customer}` && host !== `localhost:${PORTS.customer}`) {
+      // Refuse foreign Host headers (DNS rebinding). Only the two local names are served.
+      res.writeHead(403);
       return void res.end();
     }
     const url = new URL(req.url, CUSTOMER_ORIGIN);

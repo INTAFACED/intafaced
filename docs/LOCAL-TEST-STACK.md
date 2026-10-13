@@ -14,7 +14,9 @@ One command starts a private copy of the INTAFACED backend and the Customer app 
 | `pnpm local:stack --only token,p2p`                  | Start only the named services (plus Postgres and NATS). Anything already running is left alone.                                                |
 | `pnpm local:stack:restart edge`                      | Stop the named services, then start whatever is not running. Use after Edge's wiring changes; other services and their data stay up.           |
 
-Open **http://127.0.0.1:3210**. (`localhost:3210` redirects there; Edge only allows that one origin.)
+Open **http://127.0.0.1:3210** for everything except passkeys.
+
+**Passkeys (Touch ID): open http://localhost:3210.** A passkey is bound to a hostname, and browsers refuse an IP address as the relying-party ID, so the stack serves the same app on `localhost:3210` too (LOCAL TEST: Identity runs with `WEBAUTHN_ENABLED=true`, relying-party ID `localhost`, origin `http://localhost:3210`; Edge allows both origins). Sessions and passkeys are per origin: a passkey enrolled on `localhost` does not exist on `127.0.0.1`, and you sign in again on each. In Security, add a passkey; later sign in or step up with it.
 
 ## Ports
 
