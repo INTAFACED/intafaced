@@ -9,6 +9,7 @@ const { publicInfo } = info;
 import storageModule from '@outreach/storage';
 const { createDraftStorage } = storageModule;
 import countryModule from '@outreach/countries';
+import { parseAmount } from './lib/amount';
 const countries = countryModule.countryOptions('en');
 let AUDIENCES = [
   { key: 'investor', path: '/invest', label: 'Investor', description: 'Discuss backing INTAFACED or introduce an investor' },
@@ -329,6 +330,12 @@ const presentation = {
         delete values.processingVolume;
       }
       if (this.forms[this.currentAudience]) Object.assign(values, this.forms[this.currentAudience]);
+      // A draft stored with a grouped amount ("150,000") is read back as the plain string; anything that is
+      // not a valid amount stays as typed and is stopped at the amount step.
+      if (typeof values.amount === 'string') {
+        const parsed = parseAmount(values.amount);
+        if (parsed.kind === 'valid') values.amount = parsed.plain;
+      }
       this.answers = values;
       this.group = Math.min(this.groups[this.currentAudience] || 0, this.reviewIndex);
       this.countrySearch = '';

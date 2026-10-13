@@ -2,7 +2,7 @@
 // local:fund refuses outside its own stack, and the script never supplies a sanctions list.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -67,3 +67,86 @@ assert.equal(/screening\.local\.json/.test(source), true);
 assert.equal(/\bZZ\b/.test(source), false, 'the repo script must not carry the ZZ fixture');
 
 console.log('local-test-stack: 6 refusal checks passed');
+
+// 7. Every Edge upstream, and every module the Customer app calls, points at a service this
+// stack starts or is listed as intentionally absent with a reason. `plan` changes nothing.
+const repo = resolve(here, '..', '..');
+const planHome = mkdtempSync(join(tmpdir(), 'local-test-stack-plan-'));
+try {
+  const r = spawnSync(process.execPath, [script, 'plan', '--json'], { env: { ...process.env, HOME: planHome }, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(existsSync(join(planHome, '.intafaced')), false, 'plan must not create the state directory');
+  assert.equal(/x{32}/.test(r.stdout), false, 'plan output must not carry any secret value');
+  const plan = JSON.parse(r.stdout);
+
+  const names = plan.services.map((x) => x.name);
+  assert.equal(new Set(names).size, names.length, 'duplicate service names');
+  assert.equal(new Set(plan.services.map((x) => x.port)).size, names.length, 'two services share a port');
+  for (const sv of plan.services) {
+    assert.equal(sv.url, `http://127.0.0.1:${sv.port}`, `${sv.name} must bind loopback`);
+    assert.equal(existsSync(join(repo, 'services', `svc-${sv.name}`, 'src', 'index.ts')), true, `no services/svc-${sv.name}`);
+    assert.equal(plan.backendPackages.includes(`svc-${sv.name}`), true, `svc-${sv.name} is started but never built`);
+  }
+  for (const schema of plan.schemas) {
+    assert.equal(names.includes(schema), true, `schema ${schema} has no service`);
+    const sql = join(repo, 'services', `svc-${schema}`, 'scripts', 'migrate.ts');
+    assert.equal(existsSync(sql), true, `svc-${schema} has no migrate script`);
+  }
+  assert.equal(names.at(-1), 'edge', 'Edge starts last');
+
+  // Edge route table, read from source.
+  const routes = readFileSync(join(repo, 'services', 'svc-edge', 'src', 'routes.ts'), 'utf8');
+  const upstreams = [...routes.matchAll(/prefix: '\/api\/([a-z0-9]+)', module: '[a-z0-9-]+', envVar: '([A-Z0-9_]+)'/g)].map((m) => ({
+    prefix: m[1],
+    envVar: m[2],
+  }));
+  assert.ok(upstreams.length >= 20, `could not read the Edge route table (${upstreams.length} rows)`);
+  const reachable = (envVar) => {
+    const u = plan.edgeUpstreams[envVar];
+    if (!u) return null;
+    if (u.service) {
+      assert.equal(u.service, envVar.replace(/_URL$/, '').toLowerCase(), `${envVar} points at the wrong service (${u.service})`);
+    }
+    if (u.service) return names.includes(u.service) && u.url === plan.services.find((x) => x.name === u.service).url ? 'started' : 'broken';
+    return u.absentReason && u.absentReason.length > 20 ? 'absent' : 'broken';
+  };
+  for (const { prefix, envVar } of upstreams) {
+    assert.ok(
+      reachable(envVar) && reachable(envVar) !== 'broken',
+      `Edge ${envVar} (/api/${prefix}) is neither a started service nor listed absent with a reason`,
+    );
+  }
+
+  // Modules the Customer app calls (literal names in api.query/mutate/plain/rest-free helpers and /api/<module> paths).
+  const walk = (dir) =>
+    readdirSync(dir).flatMap((f) => {
+      const full = join(dir, f);
+      if (statSync(full).isDirectory()) return f === 'vendor' || f === 'node_modules' ? [] : walk(full);
+      return /\.(ts|tsx)$/.test(f) && !/\.(test|pw|spec)\./.test(f) ? [full] : [];
+    });
+  const used = new Set();
+  for (const f of walk(join(repo, 'apps', 'customer', 'src'))) {
+    const src = readFileSync(f, 'utf8');
+    for (const m of src.matchAll(/\b(?:query|mutate|plain)\(\s*'([a-z0-9]+)'/g)) used.add(m[1]);
+    for (const m of src.matchAll(/'\/api\/([a-z0-9]+)/g)) used.add(m[1]);
+  }
+  used.delete('v1'); // public exchange REST, served by svc-trade
+  used.add('trade');
+  used.delete('ledger'); // /api/ledger is deliberately not routed (a string in a comment/refusal)
+  used.delete('v2');
+  assert.ok(used.size >= 12, `found only ${used.size} Customer modules: ${[...used]}`);
+  const unmapped = [...used].filter((m) => !upstreams.some((u) => u.prefix === m));
+  assert.deepEqual(unmapped, [], `Customer calls modules Edge has no route for: ${unmapped}`);
+  const absentButUsed = [];
+  for (const m of used) {
+    const envVar = upstreams.find((u) => u.prefix === m).envVar;
+    const state = reachable(envVar);
+    assert.equal(state === 'started' || state === 'absent', true, `Customer module ${m} (${envVar}) has no started service`);
+    if (state === 'absent') absentButUsed.push(m);
+  }
+  // The only Customer module allowed to be absent is mining (static placeholder room), with its reason on record.
+  assert.deepEqual(absentButUsed, ['mining'], `unexpected Customer modules without a service: ${absentButUsed}`);
+} finally {
+  rmSync(planHome, { recursive: true, force: true });
+}
+console.log('local-test-stack: edge upstream coverage checks passed');
