@@ -791,7 +791,7 @@ export class SqlCopyFollowStore implements CopyFollowStore {
         ${follow.followerId},
         ${follow.leaderId},
         ${follow.region},
-        ${markets}::jsonb,
+        ${markets}::text::jsonb,
         ${formatAmount(follow.envelope.maxNotionalPerOrder)},
         ${formatAmount(follow.envelope.maxAggregateExposure)},
         ${follow.envelope.maxLoss !== undefined ? formatAmount(follow.envelope.maxLoss) : null},
