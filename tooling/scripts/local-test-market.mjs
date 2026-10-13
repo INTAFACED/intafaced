@@ -65,7 +65,8 @@ export function stackPaths(home = os.homedir()) {
 /** Throws GuardError unless this machine has the local test stack and every URL is its own 127.0.0.1 port. */
 export function assertLocalTarget({ home = os.homedir(), urls = [DEFAULT_EDGE] } = {}) {
   const p = stackPaths(home);
-  if (!fs.existsSync(p.stateDir)) throw new GuardError(`refusing: state directory ${p.stateDir} not found. Start the stack first (pnpm local:stack).`);
+  if (!fs.existsSync(p.stateDir))
+    throw new GuardError(`refusing: state directory ${p.stateDir} not found. Start the stack first (pnpm local:stack).`);
   if (!fs.existsSync(p.marker)) throw new GuardError(`refusing: marker ${p.marker} not found. Start the stack first (pnpm local:stack).`);
   let marker;
   try {
@@ -170,7 +171,7 @@ export function buildLadder({ mid, tick, lot, minAmount, minCost, levels, halfSp
     for (const side of ['buy', 'sell']) {
       let price = side === 'buy' ? floorTo((mid * (10000n - offset)) / 10000n, tick) : ceilTo((mid * (10000n + offset)) / 10000n, tick);
       if (price <= 0n) price = tick;
-      let amount = floorTo(((levelNotional * BigInt(i + 1)) * ONE) / price, lot);
+      let amount = floorTo((levelNotional * BigInt(i + 1) * ONE) / price, lot);
       if (amount < minAmount) amount = ceilTo(minAmount, lot);
       if ((price * amount) / ONE < minCost) amount = ceilTo((minCost * 12n * ONE) / (10n * price), lot);
       out.push({ side, level: i, price: fromScaled(price), amount: fromScaled(amount) });
@@ -261,7 +262,12 @@ class EdgeClient {
     return { status: res.status, json, text };
   }
   async login() {
-    const res = await this.http('POST', '/api/identity/trpc/auth.login', { identifier: this.account.email, password: this.account.password }, { auth: false });
+    const res = await this.http(
+      'POST',
+      '/api/identity/trpc/auth.login',
+      { identifier: this.account.email, password: this.account.password },
+      { auth: false },
+    );
     const data = res.json?.result?.data;
     if (!data?.accessToken) throw new Error(`login refused for ${this.account.handle} (${res.status})`);
     this.token = data.accessToken;
@@ -269,14 +275,24 @@ class EdgeClient {
     this.account.userId = data.userId;
   }
   async ensureAccount() {
-    const login = await this.http('POST', '/api/identity/trpc/auth.login', { identifier: this.account.email, password: this.account.password }, { auth: false });
+    const login = await this.http(
+      'POST',
+      '/api/identity/trpc/auth.login',
+      { identifier: this.account.email, password: this.account.password },
+      { auth: false },
+    );
     if (login.json?.result?.data?.accessToken) {
       this.token = login.json.result.data.accessToken;
       this.tokenAt = Date.now();
       this.account.userId = login.json.result.data.userId;
       return 'existing';
     }
-    const reg = await this.http('POST', '/api/identity/trpc/auth.register', { handle: this.account.handle, email: this.account.email, password: this.account.password }, { auth: false });
+    const reg = await this.http(
+      'POST',
+      '/api/identity/trpc/auth.register',
+      { handle: this.account.handle, email: this.account.email, password: this.account.password },
+      { auth: false },
+    );
     const data = reg.json?.result?.data;
     if (!data?.accessToken) throw new Error(`could not register ${this.account.handle} (${reg.status}): ${reg.text.slice(0, 200)}`);
     this.token = data.accessToken;
@@ -321,23 +337,32 @@ async function preflight(maker, symbols) {
   // Gate 1: Edge refuses every NEW order unless matching's /health carries a halt flag.
   const marker = JSON.parse(fs.readFileSync(stackPaths().marker, 'utf8'));
   const matchingUrl = `http://${LOCAL_HOST}:${marker.ports.matching}`;
-  const mh = await fetch(`${matchingUrl}/health`, { signal: AbortSignal.timeout(10_000) }).then((r) => r.json()).catch(() => null);
+  const mh = await fetch(`${matchingUrl}/health`, { signal: AbortSignal.timeout(10_000) })
+    .then((r) => r.json())
+    .catch(() => null);
   if (!mh) blockers.push('matching /health is not answering');
   else if (typeof (mh.venueHalted ?? mh.halted) !== 'boolean')
-    blockers.push('GATE 1: matching /health has no halted/venueHalted flag, so Edge answers every new order with 503 edge.venue_halt_unavailable (services/svc-edge/src/matching-venue-halt.ts:51, services/svc-matching/src/index.ts:115)');
+    blockers.push(
+      'GATE 1: matching /health has no halted/venueHalted flag, so Edge answers every new order with 503 edge.venue_halt_unavailable (services/svc-edge/src/matching-venue-halt.ts:51, services/svc-matching/src/index.ts:115)',
+    );
   // Gate 2 + 3: lifecycle authority per market, as the same account would be judged.
   const reasons = new Map();
   for (const symbol of symbols) {
     const res = await maker.http('GET', `/api/v1/account/market-lifecycle/${encodeURIComponent(symbol)}`);
     const snap = res.json;
     const ok = snap?.allowedActions?.includes?.('PLACE_POST_ONLY');
-    if (!ok) reasons.set(snap?.reasonCode ?? `http_${res.status}`, (reasons.get(snap?.reasonCode ?? `http_${res.status}`) ?? []).concat(symbol));
+    if (!ok)
+      reasons.set(snap?.reasonCode ?? `http_${res.status}`, (reasons.get(snap?.reasonCode ?? `http_${res.status}`) ?? []).concat(symbol));
   }
   for (const [reason, syms] of reasons) {
     if (reason === 'trade.lifecycle_authority_unavailable')
-      blockers.push(`GATE 2: no market-lifecycle publication exists for ${syms.join(', ')} (reason ${reason}); trade refuses every order (services/svc-trade/src/spot/trade-service.ts:757, services/svc-trade/src/market-lifecycle.ts:445). Publication is owner/legal approval evidence; this script does not invent it.`);
+      blockers.push(
+        `GATE 2: no market-lifecycle publication exists for ${syms.join(', ')} (reason ${reason}); trade refuses every order (services/svc-trade/src/spot/trade-service.ts:757, services/svc-trade/src/market-lifecycle.ts:445). Publication is owner/legal approval evidence; this script does not invent it.`,
+      );
     else if (reason === 'trade.matching_market_missing')
-      blockers.push(`GATE 3: matching holds no book for ${syms.join(', ')} yet, and trade will not admit the first order until it does (services/svc-trade/src/market-lifecycle.ts:476-486; a book is only created by a submit, services/svc-matching/src/engine/engine.ts:254)`);
+      blockers.push(
+        `GATE 3: matching holds no book for ${syms.join(', ')} yet, and trade will not admit the first order until it does (services/svc-trade/src/market-lifecycle.ts:476-486; a book is only created by a submit, services/svc-matching/src/engine/engine.ts:254)`,
+      );
     else blockers.push(`market lifecycle refuses PLACE_POST_ONLY for ${syms.join(', ')}: ${reason}`);
   }
   return blockers;
@@ -354,7 +379,9 @@ async function ensureFunds(client, who, assets, divisor) {
     const free = toScaled(have[asset]?.free ?? '0');
     if (free * 2n >= target) continue;
     const ref = `MM-${who}-${asset}-${nowIso().slice(0, 13).replace(/[-:T]/g, '')}`;
-    const r = spawnSync(process.execPath, [STACK_SCRIPT, 'fund', client.account.userId, asset, fromScaled(target), '--ref', ref], { encoding: 'utf8' });
+    const r = spawnSync(process.execPath, [STACK_SCRIPT, 'fund', client.account.userId, asset, fromScaled(target), '--ref', ref], {
+      encoding: 'utf8',
+    });
     if (r.status !== 0) throw new Error(`local:fund ${asset} failed: ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
     log(`funded ${who} ${fromScaled(target)} ${asset} through the real ledger (TEST FUNDS, rail ref LOCAL-TEST-${ref})`);
   }
@@ -408,7 +435,10 @@ async function runLoop(opts, home) {
   const wanted = opts.symbols ?? DEFAULT_SYMBOLS;
   const markets = await discoverMarkets(maker, wanted);
   if (markets.length === 0) die(`none of ${wanted.join(', ')} is an active, orderable spot market on this stack`);
-  const blockers = await preflight(maker, markets.map((m) => m.symbol));
+  const blockers = await preflight(
+    maker,
+    markets.map((m) => m.symbol),
+  );
   if (blockers.length) {
     log('NOT QUOTING. The services refuse orders on this stack for these reasons:');
     for (const b of blockers) log(`  - ${b}`);
@@ -478,7 +508,9 @@ async function runLoop(opts, home) {
         if (r.status === 201) rested += 1;
         else refused = `${r.status} ${(r.json?.intafacedCode ?? r.json?.code ?? r.json?.error ?? r.text).toString().slice(0, 120)}`;
       }
-      log(`${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}`);
+      log(
+        `${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}`,
+      );
       if (cycle % 3 === 0 && rested > 0 && (cycle / 3 + m.symbol.length) % 2 === 0) {
         const side = (cycle / 3) % 2 === 0 ? 'buy' : 'sell';
         const best = ladder.find((q) => q.level === 0 && q.side === (side === 'buy' ? 'sell' : 'buy'));
@@ -487,7 +519,9 @@ async function runLoop(opts, home) {
       }
     }
     fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(p.walkFile, JSON.stringify({ seed: opts.seed, steps: Object.fromEntries([...walks].map(([k, w]) => [k, w.steps])) }), { mode: 0o600 });
+    fs.writeFileSync(p.walkFile, JSON.stringify({ seed: opts.seed, steps: Object.fromEntries([...walks].map(([k, w]) => [k, w.steps])) }), {
+      mode: 0o600,
+    });
     for (let waited = 0; waited < opts.seconds * 1000 && !stopping; waited += 250) await sleep(250);
   }
   log('stopping: cancelling the test market-maker orders');
@@ -528,20 +562,28 @@ async function main() {
     if (!pid) return console.log('test market is not running');
     process.kill(pid, 'SIGTERM');
     for (let i = 0; i < 40 && runningPid(p); i += 1) await sleep(500);
-    return console.log(runningPid(p) ? `pid ${pid} is still cancelling orders; check ${p.log}` : 'test market stopped, resting test orders cancelled');
+    return console.log(
+      runningPid(p) ? `pid ${pid} is still cancelling orders; check ${p.log}` : 'test market stopped, resting test orders cancelled',
+    );
   }
   if (cmd === 'status') {
     const pid = runningPid(p);
     console.log(pid ? `running (pid ${pid}); log ${p.log}` : 'not running');
     return;
   }
-  if (cmd === 'check' || opts.foreground) process.exit(await runLoop({ ...opts, ...(cmd === 'check' ? { seconds: 2 } : {}) }, os.homedir()));
+  if (cmd === 'check' || opts.foreground)
+    process.exit(await runLoop({ ...opts, ...(cmd === 'check' ? { seconds: 2 } : {}) }, os.homedir()));
   if (cmd !== 'start') die(`unknown command "${cmd}". Use: start | stop | status | check`, 2);
   if (runningPid(p)) return console.log(`already running (pid ${runningPid(p)}); log ${p.log}`);
   fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
   fs.mkdirSync(path.dirname(p.log), { recursive: true, mode: 0o700 });
   const fd = fs.openSync(p.log, 'a', 0o600);
-  const child = spawn(process.execPath, [SCRIPT, '__run', ...rest], { cwd: REPO, detached: true, stdio: ['ignore', fd, fd], env: { PATH: process.env.PATH, HOME: os.homedir() } });
+  const child = spawn(process.execPath, [SCRIPT, '__run', ...rest], {
+    cwd: REPO,
+    detached: true,
+    stdio: ['ignore', fd, fd],
+    env: { PATH: process.env.PATH, HOME: os.homedir() },
+  });
   child.unref();
   fs.writeFileSync(p.pidFile, JSON.stringify({ pid: child.pid, startedAt: nowIso() }), { mode: 0o600 });
   console.log(`test market starting (pid ${child.pid}). Watch: tail -f ${p.log}`);

@@ -186,19 +186,29 @@ function writePrivate(file, obj) {
 }
 
 function psql(secrets, role, sql) {
-  const r = spawnSync(PSQL, ['-X', '-At', '-F', '\t', '-v', 'ON_ERROR_STOP=1', '-h', LOCAL_HOST, '-p', '15460', '-U', role, '-d', DB_NAME, '-c', sql], {
-    encoding: 'utf8',
-    env: { PATH: '/usr/bin:/bin:/opt/homebrew/bin', PGPASSWORD: secrets.pgService },
-  });
+  const r = spawnSync(
+    PSQL,
+    ['-X', '-At', '-F', '\t', '-v', 'ON_ERROR_STOP=1', '-h', LOCAL_HOST, '-p', '15460', '-U', role, '-d', DB_NAME, '-c', sql],
+    {
+      encoding: 'utf8',
+      env: { PATH: '/usr/bin:/bin:/opt/homebrew/bin', PGPASSWORD: secrets.pgService },
+    },
+  );
   if (r.status !== 0) throw new Error(`psql failed: ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
-  return r.stdout.trim().split('\n').filter(Boolean).map((l) => l.split('\t'));
+  return r.stdout
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => l.split('\t'));
 }
 
 // Read-only SELECTs, as each service's own role (the same way `local:fund` reads identity.users).
 const listUsers = (secrets) =>
-  psql(secrets, 'svc_identity', 'SELECT id::text, handle::text, email::text, created_at::text FROM identity.users ORDER BY created_at, id').map(
-    ([id, handle, email, createdAt]) => ({ id, handle, email, createdAt }),
-  );
+  psql(
+    secrets,
+    'svc_identity',
+    'SELECT id::text, handle::text, email::text, created_at::text FROM identity.users ORDER BY created_at, id',
+  ).map(([id, handle, email, createdAt]) => ({ id, handle, email, createdAt }));
 const listLedgerAssets = (secrets) => psql(secrets, 'svc_ledger', 'SELECT id FROM ledger.assets WHERE active').map(([id]) => id);
 const maxTxSeq = (secrets) => Number(psql(secrets, 'svc_ledger', 'SELECT COALESCE(max(seq),0) FROM ledger.ledger_tx')[0][0]);
 
@@ -213,7 +223,13 @@ function listIncoming(secrets, friendId, sinceSeq) {
       JOIN ledger.accounts da ON da.id = de.account_id AND da.owner_type = 'user' AND da.kind = 'available'
      WHERE t.module = 'bank' AND t.seq > ${Number(sinceSeq)}
      ORDER BY t.seq`;
-  return psql(secrets, 'svc_ledger', sql).map(([seq, txId, fromUserId, asset, amount]) => ({ seq: Number(seq), txId, fromUserId, asset, amount }));
+  return psql(secrets, 'svc_ledger', sql).map(([seq, txId, fromUserId, asset, amount]) => ({
+    seq: Number(seq),
+    txId,
+    fromUserId,
+    asset,
+    amount,
+  }));
 }
 
 /** Credit through the real ledger by calling `local:fund` (idempotent on --ref). Returns { ok, txId, text }. */
@@ -236,7 +252,12 @@ class EdgeClient {
     if (auth && (!this.token || Date.now() - this.tokenAt > 8 * 60_000)) await this.login();
     const headers = { origin: CUSTOMER_ORIGIN, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) };
     if (auth) headers.authorization = `Bearer ${this.token}`;
-    const res = await fetch(`${EDGE}${route}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(30_000) });
+    const res = await fetch(`${EDGE}${route}`, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(30_000),
+    });
     const text = await res.text();
     let json = null;
     try {
@@ -252,18 +273,33 @@ class EdgeClient {
     this.account.userId = data.userId;
   }
   async login() {
-    const res = await this.http('POST', '/api/identity/trpc/auth.login', { identifier: this.account.email, password: this.account.password }, false);
+    const res = await this.http(
+      'POST',
+      '/api/identity/trpc/auth.login',
+      { identifier: this.account.email, password: this.account.password },
+      false,
+    );
     const data = res.json?.result?.data;
     if (!data?.accessToken) throw new Error(`login refused for ${this.account.handle} (${res.status}): ${refusalText(res)}`);
     this.adopt(data);
   }
   async ensureAccount() {
-    const login = await this.http('POST', '/api/identity/trpc/auth.login', { identifier: this.account.email, password: this.account.password }, false);
+    const login = await this.http(
+      'POST',
+      '/api/identity/trpc/auth.login',
+      { identifier: this.account.email, password: this.account.password },
+      false,
+    );
     if (login.json?.result?.data?.accessToken) {
       this.adopt(login.json.result.data);
       return 'existing';
     }
-    const reg = await this.http('POST', '/api/identity/trpc/auth.register', { handle: this.account.handle, email: this.account.email, password: this.account.password }, false);
+    const reg = await this.http(
+      'POST',
+      '/api/identity/trpc/auth.register',
+      { handle: this.account.handle, email: this.account.email, password: this.account.password },
+      false,
+    );
     const data = reg.json?.result?.data;
     if (!data?.accessToken) throw new Error(`could not register ${this.account.handle} (${reg.status}): ${refusalText(reg)}`);
     this.adopt(data);
@@ -303,7 +339,8 @@ async function ensureFriendSpaces(client, assets, log) {
   for (const asset of assets) {
     if (rows.some((s) => s.assetId === asset && s.kind === 'primary')) continue;
     const created = await client.mutate('bank', 'spaces.create', { assetId: asset, name: 'Test wallet' });
-    if (!created.json?.result?.data?.id) throw new Error(`friend spaces.create ${asset} refused (${created.status}): ${refusalText(created)}`);
+    if (!created.json?.result?.data?.id)
+      throw new Error(`friend spaces.create ${asset} refused (${created.status}): ${refusalText(created)}`);
     log(`friend: created ${asset} space (primary + "Test wallet") through svc-bank`);
   }
   const again = await client.query('bank', 'spaces.list', { limit: 200 });
@@ -338,7 +375,9 @@ function runWelcomePass({ secrets, state, log, onlyUserIds }) {
     }
     done.add(doneKey(w.userId, w.asset));
     credited += 1;
-    log(`welcome ${w.amount} ${w.asset} -> ${w.handle} (${w.userId}) ledger tx ${r.txId ?? '?'} ref LOCAL-TEST-${w.ref} [TEST FUNDS, not real money]`);
+    log(
+      `welcome ${w.amount} ${w.asset} -> ${w.handle} (${w.userId}) ledger tx ${r.txId ?? '?'} ref LOCAL-TEST-${w.ref} [TEST FUNDS, not real money]`,
+    );
   }
   state.welcomed = [...done];
   return { credited, users };
@@ -355,7 +394,13 @@ async function friendReplyPass({ secrets, p, state, log, skipUserIds }) {
   const friend = state._friend;
   if (!friend?.userId) return;
   const incoming = listIncoming(secrets, friend.userId, state.returnCursor ?? 0);
-  const plan = planReturns({ incoming, friendId: friend.userId, cursor: state.returnCursor ?? 0, answered: new Set(state.answered ?? []), skipUserIds });
+  const plan = planReturns({
+    incoming,
+    friendId: friend.userId,
+    cursor: state.returnCursor ?? 0,
+    answered: new Set(state.answered ?? []),
+    skipUserIds,
+  });
   if (plan.length === 0) return;
   const client = state._friendClient;
   const spaces = await ensureFriendSpaces(client, [...new Set(plan.map((r) => r.asset))], log);
@@ -368,7 +413,9 @@ async function friendReplyPass({ secrets, p, state, log, skipUserIds }) {
     const out = await friendSend(client, from.id, r.fromUserId, r.amount, r.transferId);
     if (out.ok) {
       (state.answered ??= []).push(r.txId);
-      log(`friend sent back ${r.amount} ${r.asset} to ${r.fromUserId} (answering ledger tx ${r.txId}) -> ledger tx ${out.ledgerTxId} [TEST transfer]`);
+      log(
+        `friend sent back ${r.amount} ${r.asset} to ${r.fromUserId} (answering ledger tx ${r.txId}) -> ledger tx ${out.ledgerTxId} [TEST transfer]`,
+      );
     } else if (!state._warned?.has(r.txId)) {
       (state._warned ??= new Set()).add(r.txId);
       log(`friend could NOT send back ${r.amount} ${r.asset} to ${r.fromUserId}: ${out.refusal}`);
@@ -480,7 +527,9 @@ async function cmdSeed() {
     const probe = await friendSend(client, '00000000-0000-4000-8000-000000000000', founder.id, '1', 'world-probe-0000');
     log(`seed BLOCKED at svc-bank: ${String(err.message).slice(0, 400)}`);
     log(`seed BLOCKED probe of transfers.toUser (Send): ${probe.refusal ?? 'unexpectedly accepted'}`);
-    console.log(`\nseed: BLOCKED. Welcome funds were credited, but Bank refuses this account, so no transfer was attempted.\n  ${err.message}`);
+    console.log(
+      `\nseed: BLOCKED. Welcome funds were credited, but Bank refuses this account, so no transfer was attempted.\n  ${err.message}`,
+    );
     process.exitCode = 3;
     return;
   }
@@ -494,11 +543,16 @@ async function cmdSeed() {
     }
     const out = await friendSend(client, from.id, founder.id, t.amount, seedTransferId(founder.id, i + 1));
     results.push({ ...t, ...out });
-    log(out.ok ? `seed: ${t.amount} ${t.asset} "${t.label}" -> ${founder.handle} ledger tx ${out.ledgerTxId}` : `seed REFUSED ${t.amount} ${t.asset} "${t.label}": ${out.refusal}`);
+    log(
+      out.ok
+        ? `seed: ${t.amount} ${t.asset} "${t.label}" -> ${founder.handle} ledger tx ${out.ledgerTxId}`
+        : `seed REFUSED ${t.amount} ${t.asset} "${t.label}": ${out.refusal}`,
+    );
   }
   const ok = results.filter((r) => r.ok).length;
   console.log(`\nseed: ${ok}/${results.length} transfers settled. ${LABEL}`);
-  for (const r of results) console.log(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.amount} ${r.asset} "${r.label}"  ${r.ok ? `ledger tx ${r.ledgerTxId}` : r.refusal}`);
+  for (const r of results)
+    console.log(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.amount} ${r.asset} "${r.label}"  ${r.ok ? `ledger tx ${r.ledgerTxId}` : r.refusal}`);
   if (ok < results.length) process.exitCode = 3;
 }
 
@@ -506,7 +560,20 @@ function cmdStatus() {
   const { paths: p } = guard();
   const state = readJson(p.state, {});
   const running = readJson(p.pidFile, null);
-  console.log(JSON.stringify({ label: LABEL, watcherPid: running?.pid ?? null, welcomedLines: (state.welcomed ?? []).length, answered: (state.answered ?? []).length, returnCursor: state.returnCursor ?? null, friend: readJson(p.accounts, {})?.friend?.handle ?? null }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        label: LABEL,
+        watcherPid: running?.pid ?? null,
+        welcomedLines: (state.welcomed ?? []).length,
+        answered: (state.answered ?? []).length,
+        returnCursor: state.returnCursor ?? null,
+        friend: readJson(p.accounts, {})?.friend?.handle ?? null,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 async function main() {

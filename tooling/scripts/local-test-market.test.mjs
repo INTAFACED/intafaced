@@ -101,8 +101,14 @@ const ladder = buildLadder({
 assert.equal(ladder.length, 6);
 const bids = ladder.filter((q) => q.side === 'buy').map((q) => toScaled(q.price));
 const asks = ladder.filter((q) => q.side === 'sell').map((q) => toScaled(q.price));
-assert.ok(bids.every((x, i) => x < toScaled('65000') && (i === 0 || x < bids[i - 1])), 'bids must step down below mid');
-assert.ok(asks.every((x, i) => x > toScaled('65000') && (i === 0 || x > asks[i - 1])), 'asks must step up above mid');
+assert.ok(
+  bids.every((x, i) => x < toScaled('65000') && (i === 0 || x < bids[i - 1])),
+  'bids must step down below mid',
+);
+assert.ok(
+  asks.every((x, i) => x > toScaled('65000') && (i === 0 || x > asks[i - 1])),
+  'asks must step up above mid',
+);
 for (const q of ladder) {
   assert.equal(toScaled(q.price) % toScaled('0.01'), 0n);
   assert.equal(toScaled(q.amount) % toScaled('0.00001'), 0n);

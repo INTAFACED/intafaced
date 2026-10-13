@@ -66,19 +66,35 @@ try {
   // Welcome plan: only ledger assets, skips the maker, idempotent once done.
   const users = [
     { id: '11111111-1111-4111-8111-111111111111', handle: 'Luffy', email: 'l@example.com', createdAt: '2026-10-13 17:23:43' },
-    { id: '22222222-2222-4222-8222-222222222222', handle: 'test_market_maker', email: 'test-market-maker@local-test.invalid', createdAt: '2026-10-13 17:40:15' },
-    { id: '33333333-3333-4333-8333-333333333333', handle: 'test_friend', email: 'test-friend@local.test', createdAt: '2026-10-13 18:00:00' },
+    {
+      id: '22222222-2222-4222-8222-222222222222',
+      handle: 'test_market_maker',
+      email: 'test-market-maker@local-test.invalid',
+      createdAt: '2026-10-13 17:40:15',
+    },
+    {
+      id: '33333333-3333-4333-8333-333333333333',
+      handle: 'test_friend',
+      email: 'test-friend@local.test',
+      createdAt: '2026-10-13 18:00:00',
+    },
   ];
   const ledgerAssets = ['USDT', 'BTC', 'USD']; // ETH not in the ledger -> not credited
   const first = pendingWelcomes({ users, ledgerAssets, done: new Set() });
-  assert.deepEqual(first.map((w) => `${w.handle}:${w.asset}:${w.amount}`), ['Luffy:USDT:10000', 'Luffy:BTC:0.25', 'test_friend:USDT:10000', 'test_friend:BTC:0.25']);
+  assert.deepEqual(
+    first.map((w) => `${w.handle}:${w.asset}:${w.amount}`),
+    ['Luffy:USDT:10000', 'Luffy:BTC:0.25', 'test_friend:USDT:10000', 'test_friend:BTC:0.25'],
+  );
   assert.equal(first[0].ref, `welcome-${users[0].id}-USDT`);
   assert.equal(welcomeRef('u', 'BTC'), 'welcome-u-BTC');
   assert.ok(first.every((w) => !w.handle.startsWith('test_market_maker')));
   const done = new Set(first.map((w) => doneKey(w.userId, w.asset)));
   assert.deepEqual(pendingWelcomes({ users, ledgerAssets, done }), []); // idempotent
   const withEth = pendingWelcomes({ users: [users[0]], ledgerAssets: [...ledgerAssets, 'ETH'], done });
-  assert.deepEqual(withEth.map((w) => w.asset), ['ETH']); // a newly listed asset is picked up once
+  assert.deepEqual(
+    withEth.map((w) => w.asset),
+    ['ETH'],
+  ); // a newly listed asset is picked up once
   assert.deepEqual(Object.keys(WELCOME_AMOUNTS), ['USDT', 'BTC', 'ETH']);
   // Refs fit local:fund's --ref rule (letters, digits, dashes; 4-64 chars).
   for (const w of first) assert.match(w.ref, /^[A-Za-z0-9-]{4,64}$/);
@@ -100,11 +116,17 @@ try {
     { seq: 13, txId: 'aaaaaaaa-0000-4000-8000-000000000004', fromUserId: users[0].id, asset: 'BTC', amount: '0.001' },
   ];
   const plan = planReturns({ incoming, friendId, cursor: 9, answered: new Set(), skipUserIds: new Set([users[1].id]) });
-  assert.deepEqual(plan.map((r) => r.txId.slice(-1)), ['1', '4']);
+  assert.deepEqual(
+    plan.map((r) => r.txId.slice(-1)),
+    ['1', '4'],
+  );
   assert.equal(plan[0].transferId, returnTransferId(incoming[0].txId));
   assert.match(plan[0].transferId, /^world-return-[0-9a-f]{32}$/);
   assert.deepEqual(planReturns({ incoming, friendId, cursor: 13, answered: new Set() }), []);
-  assert.deepEqual(planReturns({ incoming, friendId, cursor: 9, answered: new Set(plan.map((r) => r.txId)), skipUserIds: new Set([users[1].id]) }), []);
+  assert.deepEqual(
+    planReturns({ incoming, friendId, cursor: 9, answered: new Set(plan.map((r) => r.txId)), skipUserIds: new Set([users[1].id]) }),
+    [],
+  );
 
   console.log('local-test-world: all checks passed');
 } finally {
