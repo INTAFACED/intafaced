@@ -19,7 +19,7 @@ Design read: professional crypto **workbench** for a trader who judges by glance
 
 ## 0 · Why the last pass failed
 
-We asked Nitro to pick N1–N4 off four **identical mini-desks**. He picked **N4** meaning “dense pro terminal.” We wrote **a skin**. Codex `#3301` remapped orange to gray, squared radii, added a chart-empty banner. The skeleton is still vendored Bizzan:
+We asked Nitro to pick N1–N4 off four **identical mini-desks**. He picked **N4** meaning “dense pro terminal.” We wrote **a skin**. Codex `#3301` remapped orange to gray, squared radii, added a chart-empty banner. The skeleton is still the vendored upstream exchange desk:
 
 Proof (Codex’s own shots, **[RAN-IT]**):
 
@@ -45,7 +45,7 @@ That is not a venue. Recolor is not the product.
 9. **He will not pick palettes again.** N4 paint is closed. The next artifact is a **layout picture**, then Codex paints that.
 10. **He cannot read code.** “Tokens remapped, 0 orange matches” is not a result. The page is the result.
 11. **No fake life.** No invented candles, mids, depth, or balances to make the screenshot pretty.
-12. **Ambition survives contact.** If Vue2/iView cannot deliver the 1440 grid, **stop and name the hole**. Do not silently ship “a bit less ugly Bizzan.” Do not start a new SPA unless that hole is written and the leverage law exception is proven.
+12. **Ambition survives contact.** If Vue2/iView cannot deliver the 1440 grid, **stop and name the hole**. Do not silently ship “a bit less ugly upstream desk.” Do not start a new SPA unless that hole is written and the leverage law exception is proven.
 13. **One writer on `Exchange.vue` / `src/App.vue` chrome.** `#3280` is merged. Do not dual-edit money engines or open Shehzad protocol (`#2473`).
 14. **Token spend.** Plan when a hole is real. Do not re-audit leverage. Do not download Node. Do not invent a second `:8090` server. Use existing `pnpm ui:boot` / vendor shell from the **worktree**.
 15. **Crop-logo test.** A crop of the desk must not name Binance / OKX / HL. Steal jobs, not skins.
@@ -105,7 +105,7 @@ From methodology 2026-07-31 (Nitro yes on 1–7) + N4 pick 2026-08-25:
 | Ownable (scorecard dim 9)  | Crop of `/exchange` must not read as “that’s Binance / OKX / HL.” INTAFACED honesty + N4 + our grid are the identity                                                        |
 | Honesty moat (gates 4, 11) | Facts stay. Presentation is quiet (this file §8)                                                                                                                            |
 | Desk before CMS            | `/exchange` is the product. Lab/Announce/Partner do not sit on it                                                                                                           |
-| Free hands                 | Prior Bizzan chrome is **inventory**, not sacred. Bazaar _kit_ is still law (no new SPA)                                                                                    |
+| Free hands                 | Prior upstream-exchange chrome is **inventory**, not sacred. Bazaar _kit_ is still law (no new SPA)                                                                         |
 | False betters              | Neon, wallpaper indicators, more tabs, AI homepage, retail progressive disclosure as the **terminal default**                                                               |
 
 N2 was the methodology _recommendation_. Nitro **overruled** it with N4. Closed.
@@ -126,7 +126,7 @@ One desk. Each venue donates **one job**. Default view is the composition. Depth
 | Command palette / later saved layout                           | **2026 terminals** (Hyperdash, d.Terminal) | ⌘K exists; widget canvas = Wave C                                        | 13-panel drag-drop as slice 1                                                                |
 | **Our job (not stolen)**                                       | INTAFACED                                  | Honest `—` / down / unknown; dual-book labeled; ledger as the only money | Invented live-ness                                                                           |
 
-**Composition rule:** `/exchange` is a **packed cockpit**. HL donates _what is not on the page_ (mall). OKX/Binance donate _what is on the page_ (every pro control, ordered). Coinbase donates _how failure looks_ (calm, short). Packing ≠ dumping: a 11px type strip is density; six fat tiles and eight policy paragraphs are noise. If a PR hides TWAP/stop/TP/positions “for cleanliness,” it fails. If it looks like gray Bizzan mall, it fails. If it looks like a paste of Hyperliquid, it fails.
+**Composition rule:** `/exchange` is a **packed cockpit**. HL donates _what is not on the page_ (mall). OKX/Binance donate _what is on the page_ (every pro control, ordered). Coinbase donates _how failure looks_ (calm, short). Packing ≠ dumping: a 11px type strip is density; six fat tiles and eight policy paragraphs are noise. If a PR hides TWAP/stop/TP/positions “for cleanliness,” it fails. If it looks like a gray upstream-exchange mall, it fails. If it looks like a paste of Hyperliquid, it fails.
 
 **Quality gates for this program** (methodology dims, desk-only): 1 time-to-read, 6 density+hierarchy, 7 chart-as-tool, 8 craft (alignment, mono, no glass), 9 ownable, plus honesty/feed gates. Never sacrifice 4/11 for 8.
 
@@ -409,7 +409,7 @@ Paste [`PROMPT-CODEX-EXCHANGE-DESK-LAYOUT-2026-08-25.md`](PROMPT-CODEX-EXCHANGE-
 
 ### Residual risks (honest)
 
-1. Vue2/iView may fight the 1440 grid — then **stop and name the hole**, don’t ship smaller Bizzan, don’t start a SPA.
+1. Vue2/iView may fight the 1440 grid — then **stop and name the hole**, don’t ship a smaller upstream desk, don’t start a SPA.
 2. Door vs tip confusion — mitigated by copy-pack + PORT recipe; still the #1 Codex failure mode.
 3. Crop-logo test: packed CEX types + N4 can still read as “gray Binance.” Ownable = honesty + no yellow/teal clone + our grid.
 4. These docs are **uncommitted**. Next cold chat on a clean worktree will not see them until copied or landed in a docs PR (separate, not this craft PR unless Codex includes them).
