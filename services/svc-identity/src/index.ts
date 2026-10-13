@@ -271,6 +271,12 @@ const identityRequestContext = createIdentityRequestContext({
   secret: env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  // The tRPC door has no v1 callers (every outbound client signs v2), so it is
+  // `require` whatever INTERNAL_SERVICE_BODY_BIND says: that fleet knob exists
+  // for the raw /internal routes that still need a migration window, and letting
+  // it downgrade this door would re-open unbound-signature replay on
+  // rank.awardXp and the other serviceProcedures.
+  bodyBindMode: 'require',
 });
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });

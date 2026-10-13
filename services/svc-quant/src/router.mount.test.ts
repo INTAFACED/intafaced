@@ -41,7 +41,7 @@ async function mountQuant(router: QuantRouter): Promise<FastifyInstance> {
     prefix: '/trpc',
     trpcOptions: {
       router,
-      createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+      createContext: ({ req }) => edgeContext(req),
     } satisfies FastifyTRPCPluginOptions<QuantRouter>['trpcOptions'],
   });
   await app.ready();
