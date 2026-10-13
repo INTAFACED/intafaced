@@ -582,8 +582,10 @@ jobs:
         run: |
           set -euo pipefail
           ssh_opts="-i $RUNNER_TEMP/ssh/id -o UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes"
+          # APP_ENV is passed in because docker-compose.apps.yml has no default for it
+          # (#4610): even `compose ps` refuses to run without it.
           # shellcheck disable=SC2086
-          ssh $ssh_opts "$STAGING_SSH_USER@$STAGING_SSH_HOST" 'bash -s' <<'REMOTE'
+          ssh $ssh_opts "$STAGING_SSH_USER@$STAGING_SSH_HOST" "APP_ENV='$APP_ENV' bash -s" <<'REMOTE'
           set -euo pipefail
           cd "$HOME/intafaced-staging"
 
