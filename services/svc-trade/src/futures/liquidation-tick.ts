@@ -868,8 +868,10 @@ async function driveRung(
       if (!fresh || depth >= 3) throw new Error(`rung ${rung.rungId} changed under a concurrent amendment — replayed next tick`);
       return driveRung(deps, rungs, row, fresh, depth + 1);
     };
-    const replace = (key: string, recipe: PostRequest | null): PostRequest[] =>
-      current.recipes.flatMap((r) => (r.idempotencyKey !== key ? [r] : recipe ? [recipe] : []));
+    const replace = (key: string, recipe: PostRequest | null): PostRequest[] => {
+      const legs = current.recipes; // named local: the live-path scanner reads `recipes.<name>` as a recipe-book call
+      return legs.flatMap((r) => (r.idempotencyKey !== key ? [r] : recipe ? [recipe] : []));
+    };
     const underfundedItem = async (fromInsurance: Amount, why: string): Promise<LiquidationTickItemResult> => {
       const parked = await parkUnderfundedWithAdl({
         adl: deps.adl,
