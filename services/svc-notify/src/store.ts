@@ -187,7 +187,7 @@ type PgRow = {
   kind: string;
   title_key: string;
   body_key: string;
-  params: Record<string, unknown>;
+  params: Record<string, unknown> | string | null;
   href: string | null;
   severity: Severity;
   read_at: Date | null;
@@ -196,6 +196,19 @@ type PgRow = {
   created_at: Date;
 };
 
+/** Rows written before the `::text::jsonb` fix hold the object as a JSON string; read both shapes. */
+function paramsFromPg(value: Record<string, unknown> | string | null): Record<string, unknown> {
+  if (typeof value === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  }
+  return value ?? {};
+}
+
 function fromPg(row: PgRow): Notification {
   return {
     id: row.id,
@@ -203,7 +216,7 @@ function fromPg(row: PgRow): Notification {
     kind: row.kind,
     titleKey: row.title_key,
     bodyKey: row.body_key,
-    params: row.params ?? {},
+    params: paramsFromPg(row.params),
     href: row.href,
     severity: row.severity,
     readAt: row.read_at,
@@ -217,6 +230,8 @@ export class PostgresNotifyStore implements NotifyStore {
   constructor(private readonly sql: Sql) {}
 
   async insert(input: InsertNotificationInput): Promise<{ inserted: boolean; notification: Notification | null }> {
+    // `::text::jsonb`: postgres.js already JSON-encodes a parameter the server types as jsonb, so a bare
+    // `::jsonb` stored the string twice (a JSON string, not an object) and notify.list failed output validation.
     const params = JSON.stringify(input.params ?? {});
     const severity = input.severity ?? 'info';
     const href = input.href ?? null;
@@ -230,7 +245,7 @@ export class PostgresNotifyStore implements NotifyStore {
         ${input.kind},
         ${input.titleKey},
         ${input.bodyKey},
-        ${params}::jsonb,
+        ${params}::text::jsonb,
         ${href},
         ${severity},
         ${input.sourceSubject},
