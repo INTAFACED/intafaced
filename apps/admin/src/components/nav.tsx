@@ -3,18 +3,16 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-const ROUTES = [
-  { href: '/crm', label: 'CRM' },
-  { href: '/accounts', label: 'Account controls' },
-  { href: '/', label: 'Kill-switches' },
-  { href: '/launch', label: 'Launch sequence' },
-  { href: '/jurisdiction', label: 'Jurisdiction' },
-  { href: '/ledger', label: 'Ledger ops' },
-  { href: '/tools', label: 'Operator tools' },
-] as const;
+import { MODULE_ROUTES, type ModuleId } from '@/lib/modules';
 
-export function Nav() {
+/**
+ * `modules` is the server-resolved list of enabled module ids (ADMIN_MODULES);
+ * omitted means all. The env var cannot be read in the browser, so the layout
+ * passes it down. This only hides links; the middleware and routes enforce.
+ */
+export function Nav({ modules }: { modules?: readonly ModuleId[] }) {
   const pathname = usePathname();
+  const ROUTES = modules ? MODULE_ROUTES.filter((route) => modules.includes(route.id)) : MODULE_ROUTES;
   const links = ROUTES.map((route) => {
     const active = route.href === '/' ? pathname === '/' : pathname.startsWith(route.href);
     return (

@@ -5,6 +5,7 @@ import { createEdgeContext, retainRawBody, createIdentityOperationDecisionClient
 import { TradingControls, TradingControlError } from './controls/trading-controls.js';
 import { createLiveTradingOperator } from './controls/identity-port.js';
 import { JetStreamEventBus } from '@intafaced/events';
+import { assertNoLocalTestFixtures } from '@intafaced/config';
 import { env } from './env.js';
 import { MARKETS_LIMIT_MAX, TradeService } from './spot/trade-service.js';
 import { createMatchingClient } from './spot/matching-client.js';
@@ -95,7 +96,7 @@ import { canonicalizeCopyFillId } from './copy/fee-share.js';
 import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/fee-share-law.js';
 import { CopyService } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
-import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore } from './market-lifecycle.js';
+import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
 import { registerMarketLifecycleRoutes } from './market-lifecycle-routes.js';
 
 registerProcessHooks(
@@ -107,6 +108,10 @@ registerProcessHooks(
   }),
 );
 
+// Local-test stand-ins (ZZ screening list, SCREENING_FAIL_CLOSED=off, `local-test:` lifecycle
+// records) are refused unless APP_ENV is exactly dev/test. Reads the raw APP_ENV: unset = NOT dev.
+assertNoLocalTestFixtures(process.env);
+
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
   ssl: env.DATABASE_SSL ? 'require' : false,
@@ -116,6 +121,7 @@ const sql = postgres(env.DATABASE_URL, {
 await sql`SELECT 1 FROM trade.markets LIMIT 1`.catch(() => {
   throw new Error('trade schema is missing — run migrations before starting svc-trade');
 });
+await assertNoLocalTestLifecycleRows(sql, process.env);
 
 const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
 const tradingControls = new TradingControls(
