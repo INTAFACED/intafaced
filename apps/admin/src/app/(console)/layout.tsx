@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Nav } from '@/components/nav';
 import { FounderSessionBar } from '@/components/founder-session-bar';
 import { requireFounderPage } from '@/lib/founder-page';
+import { enabledModuleIds } from '@/lib/modules';
 
 export default async function ConsoleLayout({ children }: { children: ReactNode }) {
   const { session } = await requireFounderPage();
@@ -12,7 +13,7 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
           <img src="/intafaced-logo.svg" alt="INTAFACED" width="164" height="30" />
           <small>Founder console</small>
         </a>
-        <Nav />
+        <Nav modules={enabledModuleIds()} />
         <span className="adm-topbar__spacer" />
         <FounderSessionBar csrf={session.csrf} userId={session.userId} expiresAt={session.expiresAt} />
       </header>

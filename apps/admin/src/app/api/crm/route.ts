@@ -1,3 +1,4 @@
+import { moduleDisabledResponse } from '@/lib/modules';
 import {
   crmAssignmentInputSchema,
   crmListInputSchema,
@@ -75,6 +76,8 @@ function detailResponse(data: unknown, id: string) {
 }
 
 export async function GET(request: Request) {
+  const disabled = moduleDisabledResponse('crm');
+  if (disabled) return disabled;
   try {
     const { session, config } = await authorizeAdminRequest(request);
     const params = new URL(request.url).searchParams;
@@ -154,6 +157,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const disabled = moduleDisabledResponse('crm');
+  if (disabled) return disabled;
   try {
     const { session, config } = await authorizeAdminRequest(request);
     const body = await readAdminJson(request);
