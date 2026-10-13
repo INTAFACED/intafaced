@@ -194,7 +194,11 @@ function SearchPanel({
         label: listing.base,
         hint: assetName(listing.base, names) ?? '',
         // Until the M3 coin page: the Buy card in Simple, the coin's own desk in Pro (critic H3).
-        href: coinHref(listing.base, layoutMode, listing.market.symbol),
+        href: coinHref(
+          listing.base,
+          layoutMode,
+          (listed.find((m) => m.base === listing.base && m.quote === 'USDT') ?? listing.market).symbol,
+        ),
         asset: listing.base,
         price: priceOf(listing.market),
       }));

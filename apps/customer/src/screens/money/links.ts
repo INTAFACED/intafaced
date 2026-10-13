@@ -12,6 +12,7 @@ const deskHref = (symbol: string, sell: boolean) => `/trade/spot/${symbol}${sell
 export function buyHref(asset: string | null, symbol: string | null, sell: boolean, mode: Mode = 'simple'): string | null {
   if (mode === 'simple' && !isHiddenPath('/trade/buy'))
     return `/trade/buy?${asset ? `asset=${encodeURIComponent(asset)}&` : ''}side=${sell ? 'sell' : 'buy'}`;
-  const target = symbol ?? defaultDeskPair;
+  // The desk's address spells a pair with a dash (BTC-USDT); a market's own symbol has a slash (BTC/USDT).
+  const target = (symbol ?? defaultDeskPair).replace('/', '-');
   return isHiddenPath(`/trade/spot/${target}`) ? null : deskHref(target, sell);
 }
