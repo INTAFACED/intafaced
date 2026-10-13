@@ -32,7 +32,7 @@ export function NotificationRow({
   const { timeZone } = usePreferences();
   const { title, body, icon } = describe(item, markets, copy);
   const Icon = ICONS[icon];
-  const href = linkFor(item);
+  const href = linkFor(item, markets);
   const unread = !item.readAt;
   const label = whenLabel(item.createdAt, now, timeZone, copy);
   const inner = (

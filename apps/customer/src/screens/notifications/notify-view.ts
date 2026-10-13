@@ -8,7 +8,7 @@
 import { customerRoomHref } from '../../app/navigation';
 import { isHiddenPath } from '../../app/feature-registry';
 import { dec } from '../../data/decimal';
-import { fmtAmount, fmtPrice, fmtUsd } from '../../data/format';
+import { fmtAmount, fmtPrice } from '../../data/format';
 import type { Preferences } from '../../shared/preferences';
 import { stamp } from '../money/time';
 import type { notifyCopy } from './copy';
@@ -39,8 +39,8 @@ const text = (value: unknown): string | null => (typeof value === 'string' && va
 function priceText(price: unknown, market: NotifyMarket): string | null {
   const value = text(price);
   if (value === null || dec(value) === null) return null;
-  // USDT and USDC count as 1 USD (UI-SPEC 1.2), so a price in either is a dollar price with two decimals.
-  return market.quote === 'USDT' || market.quote === 'USDC' ? fmtUsd(value) : `${fmtPrice(value, null)} ${market.quote}`;
+  // Same as the trade desk: the number with no currency sign, then the quote coin.
+  return `${fmtPrice(value, null)} ${market.quote}`;
 }
 
 const TERMINAL_TITLE = {
@@ -110,9 +110,17 @@ const KIND_LINK: Readonly<Record<string, string>> = {
 };
 
 /** A live customer screen for this notification, or null (the row then just marks itself read). Never a hidden feature. */
-export function linkFor(item: Pick<Notification, 'kind' | 'href'>): string | null {
-  const target = KIND_LINK[item.kind] ?? customerRoomHref(item.href);
+export function linkFor(
+  item: Pick<Notification, 'kind' | 'href'> & Partial<Pick<Notification, 'params'>>,
+  markets?: ReadonlyMap<string, NotifyMarket>,
+): string | null {
+  let target = KIND_LINK[item.kind] ?? customerRoomHref(item.href);
   if (!target) return null;
+  // A fill or an ended order opens its tab already filtered to the coin, so the row you clicked is easy to find.
+  if (item.kind === 'trade.fill' || item.kind === 'trade.order.terminal') {
+    const market = markets?.get(text(item.params?.marketId) ?? '');
+    if (market) target += `&asset=${encodeURIComponent(market.base)}`;
+  }
   return isHiddenPath(target.split('?')[0] ?? target) ? null : target;
 }
 

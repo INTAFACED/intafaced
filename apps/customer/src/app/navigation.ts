@@ -241,7 +241,7 @@ export const rooms: readonly Room[] = [
   { path: '/verification', title: 'Verification', description: 'Verification status and documents', area: 'person', screen: 'account' },
   { path: '/identbusiness', title: 'Business verification', description: 'Open a verified company account', area: 'person' },
   { path: '/view', title: 'Display', description: 'Theme, language and display preferences', area: 'person', screen: 'account' },
-  { path: '/notifications', title: 'Inbox', description: 'Your account notifications', area: 'person', screen: 'notifications' },
+  { path: '/notifications', title: 'Notifications', description: 'Your account notifications', area: 'person', screen: 'notifications' },
   { path: '/uc/promotion', title: 'Promotions', description: 'Referral activity', area: 'person' },
   { path: '/uc/promotion/mycards', title: 'Promotion cards', description: 'Your promotion cards', area: 'person' },
   { path: '/uc/promotion/mypromotion', title: 'My promotions', description: 'Referral activity', area: 'person' },

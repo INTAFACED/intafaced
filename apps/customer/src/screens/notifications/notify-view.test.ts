@@ -23,17 +23,17 @@ const base: Notification = {
 };
 
 describe('describe', () => {
-  it('writes a fill from its params, with the coin and a $ price, never the market id', () => {
+  it('writes a fill from its params, with the coin and the price in its quote coin, never the market id', () => {
     const text = describeNotification(base, markets, copy);
     expect(text.title).toBe('Order filled');
-    expect(text.body).toBe('Bought 0.00015 BTC at $64,733.35');
+    expect(text.body).toBe('Bought 0.00015 BTC at 64,733.35 USDT');
     expect(text.icon).toBe('fill');
     expect(JSON.stringify(text)).not.toContain(BTC_ID);
   });
 
   it('says a sell as a sell, and falls back to a plain line while the market name is unknown', () => {
     expect(describeNotification({ ...base, params: { ...base.params, side: 'sell' } }, markets, copy).body).toBe(
-      'Sold 0.00015 BTC at $64,733.35',
+      'Sold 0.00015 BTC at 64,733.35 USDT',
     );
     expect(describeNotification(base, new Map(), copy).body).toBe('Your buy order was filled.');
   });
@@ -56,12 +56,12 @@ describe('describe', () => {
     };
     const text = describeNotification(cancelled, markets, copy);
     expect(text.title).toBe('Order cancelled');
-    expect(text.body).toBe('Buy 0.00017 BTC at $30,000.00');
+    expect(text.body).toBe('Buy 0.00017 BTC at 30,000 USDT');
     expect(
       describeNotification({ ...cancelled, params: { ...cancelled.params, filledQty: '0.00005', status: 'expired' } }, markets, copy),
     ).toMatchObject({
       title: 'Order expired',
-      body: 'Buy 0.00017 BTC at $30,000.00 · 0.00005 filled',
+      body: 'Buy 0.00017 BTC at 30,000 USDT · 0.00005 filled',
     });
   });
 
@@ -86,6 +86,13 @@ describe('linkFor', () => {
   it('opens a fill in Activity Trades and an ended order in Activity Orders', () => {
     expect(linkFor(base)).toBe('/money/activity?tab=trades');
     expect(linkFor({ kind: 'trade.order.terminal', href: '/trade/orders/o' })).toBe('/money/activity?tab=orders');
+  });
+  it('filters a fill or an ended order to its coin when the market is known', () => {
+    expect(linkFor(base, markets)).toBe('/money/activity?tab=trades&asset=BTC');
+    expect(linkFor({ ...base, kind: 'trade.order.terminal', params: { marketId: BTC_ID } }, markets)).toBe(
+      '/money/activity?tab=orders&asset=BTC',
+    );
+    expect(linkFor({ ...base, params: { marketId: 'unknown' } }, markets)).toBe('/money/activity?tab=trades');
   });
   it('opens verification and rank on live screens', () => {
     expect(linkFor({ kind: 'identity.kyc.approved', href: '/settings/verification' })).toBe('/verification');
