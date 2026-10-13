@@ -396,7 +396,12 @@ async function ensureFunds(client, who, assets, divisor) {
       encoding: 'utf8',
     });
     if (r.status !== 0) throw new Error(`local:fund ${asset} failed: ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
-    log(`funded ${who} ${fromScaled(target)} ${asset} through the real ledger (TEST FUNDS, rail ref LOCAL-TEST-${ref})`);
+    // The rail ref repeats within the hour, so a second top-up is a ledger no-op: say so instead of "funded".
+    const after = await client.http('GET', '/api/v1/account/balance');
+    const nowFree = toScaledFloor(after.json?.balances?.[asset]?.free ?? '0');
+    if (nowFree > free)
+      log(`funded ${who} ${fromScaled(target)} ${asset} through the real ledger (TEST FUNDS, rail ref LOCAL-TEST-${ref})`);
+    else log(`top-up for ${who} ${asset} already booked this hour (rail ref LOCAL-TEST-${ref}); nothing new credited`);
   }
 }
 
