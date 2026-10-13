@@ -3231,7 +3231,13 @@ export class PayService {
             }
           }
           if (settlement.status === 'paid_out') return settlement;
-          if (settlement.status !== 'posted' && settlement.status !== 'failed')
+          // Rail refusal is also `failed`, but only after post (method is ledger,
+          // attempts advanced) and may be retried. releasePendingSettlement writes
+          // the same status on a pending window that never posted: method stays
+          // null, attempts stay 0, and no ledger value moved.
+          const releasedWithoutPost =
+            settlement.status === 'failed' && settlement.payoutMethod == null && settlement.payoutAttempts === 0;
+          if ((settlement.status !== 'posted' && settlement.status !== 'failed') || releasedWithoutPost)
             throw new PayError('Settlement is not payable', 'pay.invalid_transition');
           const adapter = this.rails.require(admission?.rail_id ?? input.railId, 'payout');
           assertRailMayMoveValue(adapter, 'payout', this.valueMovement);
@@ -3262,10 +3268,16 @@ export class PayService {
                     'Unrecorded payout requires attributed recovery; hold alone cannot establish original destination',
                     'pay.payout_admission_missing',
                   );
-                const locked = await tx`SELECT status,payout_attempts FROM pay.settlements WHERE id=${settlement.id} FOR UPDATE`;
+                const locked = await tx`SELECT status,payout_method,payout_attempts FROM pay.settlements WHERE id=${settlement.id} FOR UPDATE`;
+                const releasedWithoutPost =
+                  locked[0] != null &&
+                  String(locked[0].status) === 'failed' &&
+                  locked[0].payout_method == null &&
+                  Number(locked[0].payout_attempts) === 0;
                 if (
                   !locked[0] ||
                   !['posted', 'failed'].includes(String(locked[0].status)) ||
+                  releasedWithoutPost ||
                   Number(locked[0].payout_attempts) !== settlement.payoutAttempts
                 )
                   throw new PayError('Settlement changed before admission', 'pay.payout_recovery_conflict');
