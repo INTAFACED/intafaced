@@ -39,6 +39,7 @@ describe('which swaps exist', () => {
     expect(defaultPair(all, { asset: 'ETH' })).toEqual({ from: 'USDT', to: 'ETH' });
     expect(defaultPair(all, { from: 'ETH', to: 'USDC' })).toEqual({ from: 'ETH', to: 'USDC' });
     expect(defaultPair(all, { from: 'BTC', to: 'ETH' })).toEqual({ from: 'USDT', to: 'BTC' });
+    expect(defaultPair(all, { from: 'BTC' })).toEqual({ from: 'BTC', to: 'USDT' });
     expect(defaultPair(all, { asset: 'NOPE' })).toEqual({ from: 'USDT', to: 'BTC' });
     expect(defaultPair([], {})).toBeNull();
   });
