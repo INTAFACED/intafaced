@@ -8,6 +8,7 @@ import {
   crmAssignmentInputSchema,
   crmContactSchema,
   crmListInputSchema,
+  crmNextActionInputSchema,
   crmNoteInputSchema,
   crmOpportunitySchema,
   crmOpportunityPageSchema,
@@ -24,6 +25,7 @@ import {
   type CrmActivity,
   type CrmAssignmentInput,
   type CrmListInput,
+  type CrmNextActionInput,
   type CrmNoteInput,
   type CrmOpportunity,
   type CrmStageChangeInput,
@@ -392,7 +394,11 @@ export class OutreachCrm {
         WHERE (${input.audience ?? null}::text IS NULL OR o.audience=${input.audience ?? null})
         AND (${input.stage ?? null}::text IS NULL OR o.stage=${input.stage ?? null})
         AND (${input.ownerUserId ?? null}::uuid IS NULL OR o.owner_user_id=${input.ownerUserId ?? null}::uuid)
-        AND (${input.query ?? null}::text IS NULL OR strpos(lower(c.record->>'name'),lower(${input.query ?? ''}))>0 OR strpos(lower(c.record->>'email'),lower(${input.query ?? ''}))>0)
+        AND (${input.query ?? null}::text IS NULL OR strpos(lower(c.record->>'name'),lower(${input.query ?? ''}))>0 OR strpos(lower(c.record->>'email'),lower(${input.query ?? ''}))>0
+          OR EXISTS(SELECT 1 FROM ops.crm_contact_aliases al JOIN ops.crm_contacts ac ON ac.id=al.contact_id
+            WHERE al.canonical_contact_id=o.contact_id
+            AND NOT EXISTS(SELECT 1 FROM ops.crm_erasure_intents e WHERE ac.id = ANY(e.contact_ids))
+            AND (strpos(lower(ac.record->>'name'),lower(${input.query ?? ''}))>0 OR strpos(lower(ac.record->>'email'),lower(${input.query ?? ''}))>0)))
         AND (${cursor?.at ?? null}::timestamptz IS NULL OR (o.created_at,o.id)<(${cursor?.at ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
         ORDER BY o.created_at DESC,o.id DESC LIMIT ${input.limit + 1}`;
       const items = rows.slice(0, input.limit).map((r) => crmOpportunitySchema.parse(r.record));
@@ -401,7 +407,20 @@ export class OutreachCrm {
       const contactRows = contactIds.length
         ? await tx`SELECT record FROM ops.crm_contacts WHERE id = ANY(${tx.array(contactIds)}::uuid[])`
         : [];
+      // Only when the visible (canonical) contact does not itself match: name the merged-away contact the search came through.
+      const aliasRows =
+        input.query && items.length
+          ? await tx`SELECT DISTINCT ON (o.id) o.id AS opportunity_id,ac.record->>'name' AS name
+            FROM ops.crm_opportunities o JOIN ops.crm_contacts c ON c.id=o.contact_id
+            JOIN ops.crm_contact_aliases al ON al.canonical_contact_id=o.contact_id JOIN ops.crm_contacts ac ON ac.id=al.contact_id
+            WHERE o.id = ANY(${tx.array(items.map((item) => item.id))}::uuid[])
+            AND NOT (strpos(lower(c.record->>'name'),lower(${input.query}))>0 OR strpos(lower(c.record->>'email'),lower(${input.query}))>0)
+            AND NOT EXISTS(SELECT 1 FROM ops.crm_erasure_intents e WHERE ac.id = ANY(e.contact_ids))
+            AND (strpos(lower(ac.record->>'name'),lower(${input.query}))>0 OR strpos(lower(ac.record->>'email'),lower(${input.query}))>0)
+            ORDER BY o.id,al.created_at,ac.id`
+          : [];
       return crmOpportunityPageSchema.parse({
+        ...(aliasRows.length ? { aliasMatches: aliasRows.map((row) => ({ opportunityId: row.opportunity_id, name: row.name })) } : {}),
         contacts: contactRows.map((row) => crmContactSchema.parse(row.record)),
         submissions: [
           ...new Map(
@@ -518,6 +537,28 @@ export class OutreachCrm {
         revision: row.revision,
         indicative: row.audience === 'investor' ? row.indicativeContribution : null,
       });
+      return row;
+    });
+  }
+  /** Edits the pending next action only: no stage change, no reason. Same lock, revision check, replay and audit as the other writes. */
+  async updateNextAction(raw: CrmNextActionInput, actorUserId: string) {
+    actorUserId = uuidSchema.parse(actorUserId).toLowerCase();
+    const input = normalizeIds(crmNextActionInputSchema.parse(raw));
+    // One instant has one spelling, so a retry that writes the same moment in another offset replays instead of conflicting.
+    input.dueAt = new Date(input.dueAt).toISOString();
+    return this.mutate(actorUserId, input, 'updateNextAction', async (tx, old) => {
+      if (old.revision !== input.expectedRevision) throw new OutreachError('ops.crm.revision_conflict');
+      if (old.stage === 'closed') throw new OutreachError('ops.crm.opportunity_closed');
+      const dueAt = input.dueAt;
+      const row = await this.saveOpportunity(tx, {
+        ...old,
+        nextAction: { description: input.description, dueAt },
+        revision: old.revision + 1,
+        updatedAt: this.now().toISOString(),
+      });
+      await this.task(tx, row, { actor: actorUserId, requestId: input.requestId, reason: 'Founder edited the next action' });
+      // note = the new description, referenceId = the new due time, so the history can say what the next action became.
+      await this.activity(tx, row.id, { kind: 'operator', userId: actorUserId }, 'next_action_changed', input.description, dueAt);
       return row;
     });
   }
@@ -1100,6 +1141,7 @@ export class OutreachCrm {
         opportunityId: old.id,
         submissionId: original.submissionId,
         kind: input.kind,
+        staffText: input.staffText,
         actorUserId: actor.toLowerCase(),
         status: 'unconfigured',
         createdAt: at,
@@ -1128,6 +1170,8 @@ export class OutreachCrm {
           opportunityId: row.opportunity_id,
           submissionId: row.submission_id,
           kind: row.kind,
+          // Founder-only: the text lives in the stored wire payload; null when it is gone. Reached only through staffRead.
+          staffText: staffTextOf(row.dispatch_payload),
           actorUserId: row.actor_user_id,
           status: row.status,
           createdAt: new Date(row.created_at).toISOString(),
@@ -1205,6 +1249,10 @@ export class OutreachCrm {
   }
 }
 const uuidSchema = z.string().uuid();
+function staffTextOf(payload: unknown): string | null {
+  const message = (payload as { message?: { staffText?: unknown } } | null)?.message;
+  return typeof message?.staffText === 'string' && message.staffText.length > 0 ? message.staffText : null;
+}
 const cursorSchema = z.object({ at: z.string().datetime({ offset: true }), id: uuidSchema }).strict();
 function outreachCaptureReceipt(value: unknown) {
   return outreachCaptureReceiptSchema.parse(value);

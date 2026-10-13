@@ -4,6 +4,7 @@ import type { AccountState } from '@intafaced/contracts';
 import { assertDelegatableScopes, issueAccessToken, SESSION_SCOPES, type Scope, type TokenConfig } from '@intafaced/auth';
 import type { EventBus } from '@intafaced/events';
 import { dummyPasswordHash, generateApiKey, generateToken, hashPassword, hashToken, needsRehash, verifyPassword } from './passwords.js';
+import { assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
@@ -56,6 +57,7 @@ export class AuthError extends Error {
       | 'auth.handle_taken'
       | 'auth.email_taken'
       | 'auth.mfa_required'
+      | 'auth.privileged_enrolment_requires_invite'
       | 'auth.mfa_invalid'
       | 'auth.mfa_already_enrolled'
       | 'auth.session_invalid'
@@ -555,7 +557,7 @@ export class AuthService {
     });
   }
 
-  async startTotpEnrolment(userId: string): Promise<{ secret: string; uri: string; recoveryCodes: string[] }> {
+  async startTotpEnrolment(userId: string, actor: FactorActor): Promise<{ secret: string; uri: string; recoveryCodes: string[] }> {
     if (!this.totpSecretKey) {
       throw new AuthError(
         'IDENTITY_TOTP_SECRET_KEY is not set to a 32-byte key (base64 or hex) — cannot enrol TOTP',
@@ -563,10 +565,13 @@ export class AuthService {
       );
     }
     const rows = await this.sql<
-      Array<{ email: string; totp_secret: string | null }>
-    >`SELECT email, totp_secret FROM users WHERE id = ${userId}`;
+      Array<{ email: string; totp_secret: string | null; webauthn_creds: unknown }>
+    >`SELECT email, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
     const user = rows[0];
     if (!user) throw new AuthError('User not found', 'auth.not_found');
+    // Gate first (a refused caller learns nothing about TOTP state), then the
+    // already-enrolled conflict. Unlocked: nothing is written here.
+    checkMayAddFactor(user, actor);
     if (user.totp_secret) throw new AuthError('Two-factor is already enrolled', 'auth.mfa_already_enrolled');
     const secret = generateSecret();
     const recoveryCodes = generateRecoveryCodes();
@@ -578,7 +583,7 @@ export class AuthService {
     return { secret, uri: totpUri(secret, user.email), recoveryCodes };
   }
 
-  async confirmTotpEnrolment(userId: string, secret: string, code: string): Promise<void> {
+  async confirmTotpEnrolment(userId: string, actor: FactorActor, secret: string, code: string): Promise<void> {
     const matched = matchTotpStep(secret, code);
     if (matched === null) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
     if (!this.totpSecretKey) {
@@ -587,13 +592,17 @@ export class AuthService {
         'auth.totp_key_missing',
       );
     }
-    const pending = await this.pendingTotp.takeIfSecretHash(userId, hashToken(secret));
-    if (!pending) {
-      throw new AuthError('TOTP enrolment session expired or secret mismatch — start enrolment again', 'auth.mfa_invalid');
-    }
+    // Same transaction, same row lock as the write: "has no factor" cannot change
+    // between the check and the UPDATE (a parallel first-factor enrolment waits).
     const sealed = encryptTotpSecret(this.totpSecretKey, secret);
-    await this
-      .sql`UPDATE users SET totp_secret = ${sealed}, totp_enrolled_at = now(), totp_last_step = ${matched.toString()}, recovery_code_hashes = ${this.sql.json(pending.recoveryHashes as never)}, updated_at = now() WHERE id = ${userId} AND totp_secret IS NULL`;
+    await transaction(this.sql, async (tx) => {
+      await assertMayAddFactor(tx, userId, actor, true);
+      const pending = await this.pendingTotp.takeIfSecretHash(userId, hashToken(secret));
+      if (!pending) {
+        throw new AuthError('TOTP enrolment session expired or secret mismatch — start enrolment again', 'auth.mfa_invalid');
+      }
+      await tx`UPDATE users SET totp_secret = ${sealed}, totp_enrolled_at = now(), totp_last_step = ${matched.toString()}, recovery_code_hashes = ${tx.json(pending.recoveryHashes as never)}, updated_at = now() WHERE id = ${userId} AND totp_secret IS NULL`;
+    });
     await this.rank.awardXp({
       userId,
       sourceModule: 'identity',
@@ -603,19 +612,24 @@ export class AuthService {
     });
   }
 
-  async startWebauthnRegistration(userId: string): Promise<RegistrationOptionsJSON> {
+  async startWebauthnRegistration(userId: string, actor: FactorActor): Promise<RegistrationOptionsJSON> {
     const rows = await this.sql<
-      Array<{ email: string; handle: string; webauthn_creds: StoredWebAuthnCredential[] }>
-    >`SELECT email, handle, webauthn_creds FROM users WHERE id = ${userId}`;
+      Array<{ email: string; handle: string; totp_secret: string | null; webauthn_creds: StoredWebAuthnCredential[] }>
+    >`SELECT email, handle, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
     const user = rows[0];
     if (!user) throw new AuthError('User not found', 'auth.not_found');
+    checkMayAddFactor(user, actor);
     const existing = asCredentialList(user.webauthn_creds);
     const challenge = generateChallenge();
     await this.challenges.put('registration', challenge, userId);
     return createRegistrationOptions(this.webauthn, { id: userId, name: user.email, displayName: user.handle }, existing, challenge);
   }
 
-  async confirmWebauthnRegistration(userId: string, response: RegistrationResponseJSON): Promise<{ credentialId: string }> {
+  async confirmWebauthnRegistration(
+    userId: string,
+    actor: FactorActor,
+    response: RegistrationResponseJSON,
+  ): Promise<{ credentialId: string }> {
     const rows = await this.sql<
       Array<{ webauthn_creds: StoredWebAuthnCredential[] }>
     >`SELECT webauthn_creds FROM users WHERE id = ${userId}`;
@@ -635,10 +649,12 @@ export class AuthService {
     }
     // Re-read under a row lock so this enrolment and a login's counter write in
     // this service cannot overwrite each other's credential list. The writers in
-    // enroll-passkey.ts, verify-passkey.ts and unenroll-passkey.ts do not take
-    // this lock yet, so the guarantee holds only between locked writers.
+    // enroll-passkey.ts, verify-passkey.ts and unenroll-passkey.ts take the same
+    // lock, so the guarantee holds between all of them.
     const existingCount = await transaction(this.sql, async (tx) => {
-      const locked = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE`;
+      // Locks the user row and applies the factor rule in the same transaction as the write.
+      await assertMayAddFactor(tx, userId, actor, true);
+      const locked = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId}`;
       if (!locked[0]) throw new AuthError('User not found', 'auth.not_found');
       const existing = asCredentialList(locked[0].webauthn_creds);
       if (existing.some((c) => c.credentialId === stored.credentialId)) {
@@ -701,9 +717,8 @@ export class AuthService {
    * Runs in one transaction under `SELECT … FOR UPDATE` on the user row, so two
    * concurrent assertions (or a locked enrolment racing a login) cannot read the
    * same counter and both succeed, and cannot overwrite each other's credential
-   * list. The unlocked writers in enroll-passkey.ts, verify-passkey.ts and
-   * unenroll-passkey.ts are outside this guarantee until they take the same
-   * lock. `refuse` throws the caller's own AuthError for any refusal.
+   * list. The writers in enroll-passkey.ts, verify-passkey.ts and
+   * unenroll-passkey.ts take the same lock. `refuse` throws the caller's own AuthError for any refusal.
    */
   private async verifyAssertionAndAdvanceCounter(
     userId: string,
@@ -749,7 +764,8 @@ export class AuthService {
       .slice(0, published);
   }
 
-  async removeWebauthnCredential(userId: string, credentialId: string): Promise<boolean> {
+  async removeWebauthnCredential(userId: string, actor: FactorActor, credentialId: string): Promise<boolean> {
+    assertMayRemoveFactor(actor);
     const target = normalizeCredId(credentialId);
     return transaction(this.sql, async (tx) => {
       const rows = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE`;
