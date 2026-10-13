@@ -1360,6 +1360,7 @@ export class LoanService {
                 'bank.loan_borrower_mismatch',
               );
             }
+            this.assertRepaymentRetryMatches(loan, eventId, input.amount, held);
             interestPaid = parseAmount(held.interest_amount);
             principalPaid = parseAmount(held.principal_amount);
             postSequence = Number(held.sequence);
@@ -1453,6 +1454,7 @@ export class LoanService {
               'bank.loan_borrower_mismatch',
             );
           }
+          this.assertRepaymentRetryMatches(loan, eventId, input.amount, row);
           interestPaid = parseAmount(row.interest_amount);
           principalPaid = parseAmount(row.principal_amount);
           postSequence = Number(row.sequence);
