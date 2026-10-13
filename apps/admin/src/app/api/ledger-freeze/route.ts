@@ -1,3 +1,4 @@
+import { moduleDisabledResponse } from '@/lib/modules';
 import { adminBffGate } from '@/lib/admin-bff-gate';
 import { readFreeze, setFreeze } from '@/lib/control-plane-client';
 
@@ -18,6 +19,8 @@ import { readFreeze, setFreeze } from '@/lib/control-plane-client';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
+  const disabled = moduleDisabledResponse('ledger');
+  if (disabled) return disabled;
   const gate = await adminBffGate(request);
   if (gate) return gate;
   const result = await readFreeze();
@@ -25,6 +28,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const disabled = moduleDisabledResponse('ledger');
+  if (disabled) return disabled;
   const gate = await adminBffGate(request);
   if (gate) return gate;
 

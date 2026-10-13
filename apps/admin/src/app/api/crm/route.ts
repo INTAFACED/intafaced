@@ -1,6 +1,8 @@
+import { moduleDisabledResponse } from '@/lib/modules';
 import {
   crmAssignmentInputSchema,
   crmListInputSchema,
+  crmNextActionInputSchema,
   crmNoteInputSchema,
   crmStageChangeInputSchema,
   crmOpportunityPageSchema,
@@ -23,6 +25,7 @@ function record(value: unknown): value is Record<string, unknown> {
 function writeSchema(action: unknown) {
   if (action === 'assign') return crmAssignmentInputSchema;
   if (action === 'changeStage') return crmStageChangeInputSchema;
+  if (action === 'updateNextAction') return crmNextActionInputSchema;
   if (action === 'addNote') return crmNoteInputSchema;
   return null;
 }
@@ -75,6 +78,8 @@ function detailResponse(data: unknown, id: string) {
 }
 
 export async function GET(request: Request) {
+  const disabled = moduleDisabledResponse('crm');
+  if (disabled) return disabled;
   try {
     const { session, config } = await authorizeAdminRequest(request);
     const params = new URL(request.url).searchParams;
@@ -154,6 +159,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const disabled = moduleDisabledResponse('crm');
+  if (disabled) return disabled;
   try {
     const { session, config } = await authorizeAdminRequest(request);
     const body = await readAdminJson(request);
@@ -165,6 +172,17 @@ export async function POST(request: Request) {
     const result = body.action === 'addNote' ? crmActivitySchema.safeParse(data) : crmOpportunitySchema.safeParse(data);
     if (!result.success) throw new AdminSessionError('admin.upstream_invalid', 502);
     const row = result.data;
+    if (body.action === 'updateNextAction') {
+      // The receipt must be the edit that was asked for: same enquiry, one revision on, the new text and time, stage untouched.
+      const asked = parsed.data as { expectedRevision: number; description: string; dueAt: string };
+      if (
+        !('nextAction' in row) ||
+        row.revision !== asked.expectedRevision + 1 ||
+        row.nextAction?.description !== asked.description ||
+        Date.parse(row.nextAction.dueAt) !== Date.parse(asked.dueAt)
+      )
+        throw new AdminSessionError('admin.upstream_invalid', 502);
+    }
     if (
       ('opportunityId' in row ? row.opportunityId : row.id) !== parsed.data.opportunityId.toLowerCase() ||
       ('actor' in row && (row.actor.kind !== 'operator' || row.actor.userId !== session.userId.toLowerCase()))
