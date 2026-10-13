@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, hkdfSync, timingSafeEqual } from 'node:crypto';
 
 /**
  * THE COMPOSITE CURSOR for `bank.activity.list`.
@@ -8,7 +8,8 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
  * where every one of them stopped.
  *
  * WHAT STOPS IT BEING REPOINTED. The cursor is `payload.signature`, the
- * signature an HMAC-SHA256 over the payload under a service secret. It binds
+ * signature an HMAC-SHA256 over the payload under a key HKDF-derived from the
+ * service secret (so the raw secret never signs anything it also signs elsewhere). It binds
  * the user id and the asset filter, so a cursor cannot be moved to another
  * user, another asset filter, or edited to name a different position. And it
  * never decides WHICH owners are read: the owner list is rebuilt from the
@@ -35,11 +36,24 @@ export class ActivityCursorInvalidError extends Error {
   }
 }
 
-const DOMAIN = 'bank.activity.cursor.v1';
+/** HKDF `info`: the cursor key is derived from the service secret, never the raw secret itself. */
+export const CURSOR_KEY_INFO = 'bank.activity.cursor.v1';
 const MAX_CURSOR_LENGTH = 16_384;
 
+const keyCache = new Map<string, Buffer>();
+
+/** HKDF-SHA256 (RFC 5869) of the service secret, empty salt, `info` = {@link CURSOR_KEY_INFO}. */
+export function deriveCursorKey(secret: string): Buffer {
+  let key = keyCache.get(secret);
+  if (key === undefined) {
+    key = Buffer.from(hkdfSync('sha256', secret, Buffer.alloc(0), CURSOR_KEY_INFO, 32));
+    keyCache.set(secret, key);
+  }
+  return key;
+}
+
 function sign(secret: string, payload: string): Buffer {
-  return createHmac('sha256', secret).update(DOMAIN).update('\0').update(payload).digest();
+  return createHmac('sha256', deriveCursorKey(secret)).update(payload).digest();
 }
 
 export function encodeCursor(secret: string, body: CursorBody): string {

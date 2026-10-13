@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { ACTIVITY_KINDS, KIND_BY_MODULE_REASON, KIND_BY_REASON, classify, directionOf, type ActivityKind } from './activity-kind.js';
+import {
+  ACTIVITY_KINDS,
+  ACTIVITY_KIND_LABELS,
+  KIND_BY_MODULE_REASON,
+  KIND_BY_REASON,
+  classify,
+  directionOf,
+  type ActivityKind,
+} from './activity-kind.js';
 
 /** One row per `module/reason` the ledger posts today. The kind is what a person sees. */
 const ROWS: Array<[string, string, ActivityKind]> = [
@@ -87,9 +95,20 @@ describe('classify: one test per module/reason row', () => {
     expect(classify({ module: '', reason: '', direction: 'credit' })).toBe('other');
   });
 
-  it('a deposit is `deposit`, and `welcome_funds` only when the rail is named as one (the ledger page does not say today)', () => {
-    expect(classify({ module: 'ledger', reason: 'deposit.credited', direction: 'debit' })).toBe('deposit');
-    expect(classify({ module: 'ledger', reason: 'deposit.credited', direction: 'debit', rail: 'anything' })).toBe('deposit');
+  it('a deposit is `deposit`; `welcome_funds` only on the local-test rail', () => {
+    const d = { module: 'ledger', reason: 'deposit.credited', direction: 'debit' } as const;
+    expect(classify(d)).toBe('deposit');
+    expect(classify({ ...d, rail: null })).toBe('deposit');
+    expect(classify({ ...d, rail: 'anything' })).toBe('deposit');
+    expect(classify({ ...d, rail: 'crypto-native' })).toBe('deposit');
+    expect(classify({ ...d, rail: 'local-test' })).toBe('welcome_funds');
+    // The rail only matters for a deposit.
+    expect(classify({ module: 'trade', reason: 'trade.fill', direction: 'debit', rail: 'local-test' })).toBe('trade');
+  });
+
+  it('every kind has a label, and welcome funds reads "Welcome test funds"', () => {
+    for (const k of ACTIVITY_KINDS) expect(ACTIVITY_KIND_LABELS[k].length).toBeGreaterThan(0);
+    expect(ACTIVITY_KIND_LABELS.welcome_funds).toBe('Welcome test funds');
   });
 
   it('direction: debit increases the account (in), credit decreases it (out)', () => {

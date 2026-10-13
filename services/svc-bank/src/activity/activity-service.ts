@@ -24,9 +24,10 @@ import { ActivityCursorInvalidError, decodeCursor, encodeCursor, type OwnerPosit
  * `postedAt` (then tx id) descending, and the first `limit` are the page. For
  * each owner the cursor then records where it stopped: the ledger's own cursor
  * when the whole fetched page was used, or a re-read of exactly the consumed
- * count when it was not. The ledger page does not return per-entry ids, so
- * `postedAt` is the cross-owner key; within one owner the ledger's own order is
- * never disturbed. A transaction is never split across a page boundary where
+ * count when it was not (or, when the ledger returns each entry's `entryId`,
+ * resume exactly below the last entry shown, with no re-read). Owners merge by
+ * `postedAt`, then `entryId` (then tx id on a ledger that does not send it);
+ * within one owner the ledger's own order is never disturbed. A transaction is never split across a page boundary where
  * its other half is visible.
  */
 
@@ -59,6 +60,10 @@ export interface LedgerPageEntry {
   readonly amount: string;
   readonly postedAt: Date;
   readonly assetId: string;
+  /** Position in the book, a decimal string (newer = larger). Absent until svc-ledger sends it; then used for exact resume. */
+  readonly entryId?: string;
+  /** Allow-listed rail of a deposit posting, else null. Absent until svc-ledger sends it. */
+  readonly rail?: string | null;
 }
 
 export interface LedgerPageRequest {
@@ -86,7 +91,8 @@ export interface ActivityCounterparties {
 }
 
 export interface SpaceLister {
-  namedSpaces(userId: string, assetId?: string): Promise<SpaceRecord[]>;
+  /** Every named Space the user owns, archived and empty ones included: history outlives a closed Space. */
+  allNamedSpaces(userId: string, assetId?: string): Promise<SpaceRecord[]>;
 }
 
 export interface ActivityServiceOptions {
@@ -131,12 +137,25 @@ interface Taken {
   readonly queue: Queue;
 }
 
+/**
+ * svc-ledger's opaque cursor for "entries older than this entry id": base64url of
+ * `v2.<entryId>` (services/svc-ledger/src/ledger/history.ts). Built here only from
+ * an `entryId` the ledger itself returned; the ledger validates it on use, so a
+ * wrong one is refused there, never trusted here.
+ */
+function ledgerCursorBelow(entryId: string): string {
+  return Buffer.from(`v2.${entryId}`, 'utf8').toString('base64url');
+}
+
 const TRANSFER_REASONS = new Set(['bank/bank.transfer.manual', 'bank/bank.transfer.scheduled']);
 
 /** Positive when `a` belongs AFTER `b` in a newest-first list. */
 function after(a: LedgerPageEntry, b: LedgerPageEntry): number {
   const t = b.postedAt.getTime() - a.postedAt.getTime();
   if (t !== 0) return t;
+  if (a.entryId !== undefined && b.entryId !== undefined && a.entryId !== b.entryId) {
+    return BigInt(b.entryId) > BigInt(a.entryId) ? 1 : -1;
+  }
   return a.txId < b.txId ? 1 : a.txId > b.txId ? -1 : 0;
 }
 
@@ -191,9 +210,15 @@ export class ActivityService {
         } else if (q.taken === 0) {
           positions[q.owner.key] = q.start;
         } else {
-          // Used part of a fetched page: the ledger cursor after exactly `taken` entries.
-          const upto = await read(q.owner, q.start, q.taken);
-          positions[q.owner.key] = upto.nextCursor ?? false;
+          const lastUsed = q.entries[q.taken - 1]!;
+          if (lastUsed.entryId !== undefined) {
+            // Exact: resume strictly below the last entry shown. Nothing is re-read.
+            positions[q.owner.key] = ledgerCursorBelow(lastUsed.entryId);
+          } else {
+            // Ledger without entry ids: the cursor after exactly `taken` entries, by a re-read.
+            const upto = await read(q.owner, q.start, q.taken);
+            positions[q.owner.key] = upto.nextCursor ?? false;
+          }
         }
       }
 
@@ -208,7 +233,7 @@ export class ActivityService {
 
   /** The caller's own account plus their named Spaces. Space ids come from svc-bank's table filtered by `user_id`. */
   private async ownersOf(userId: string, assetId: string | null): Promise<Owner[]> {
-    const named = (await this.spaces.namedSpaces(userId, assetId ?? undefined)).filter((s) => s.kind === 'named' && s.userId === userId);
+    const named = (await this.spaces.allNamedSpaces(userId, assetId ?? undefined)).filter((s) => s.kind === 'named' && s.userId === userId);
     if (named.length + 1 > ACTIVITY_MAX_OWNERS) throw new ActivityUnavailableError('Too many Spaces to merge into one feed');
     return [
       { key: 'u', ownerType: 'user', ownerId: userId, spaceName: null },
@@ -265,7 +290,7 @@ export class ActivityService {
       seen.set(base, n + 1);
       return {
         id: n === 0 ? base : `${base}#${n}`,
-        kind: own ? 'space_move' : classify({ module: entry.module, reason: entry.reason, direction: entry.direction }),
+        kind: own ? 'space_move' : classify({ module: entry.module, reason: entry.reason, direction: entry.direction, rail: entry.rail }),
         direction: dir,
         asset: entry.assetId,
         amount: entry.amount,

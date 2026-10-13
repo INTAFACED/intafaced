@@ -25,12 +25,11 @@
  *   services/svc-bank/src/cards/card-service.ts:1095    rewardPay reason 'bank.card.cashback'
  *   services/svc-token/src/token-service.ts:1072        rewardPay reason 'token.yield.distributed'
  *
- * NOT DECIDABLE FROM module/reason: a real deposit and an operator-credited
- * "welcome funds" credit both post `ledger / deposit.credited`; only the post's
- * `meta.rail` tells them apart and the ledger page does not return `meta`
- * (services/svc-ledger/src/ledger/history.ts HistoryPageEntry). So today every
- * such credit is `deposit`. `welcome_funds` is produced only when a caller can
- * name the rail, via `WELCOME_FUNDS_RAILS` and `classify({ rail })`.
+ * DEPOSIT vs WELCOME FUNDS. A real deposit and a local-test grant both post
+ * `ledger / deposit.credited`; only the post's rail tells them apart. The ledger
+ * page returns that rail (allow-listed: crypto-native, card-sandbox,
+ * bank-crypto-ledger, local-test, else null). `local-test` is `welcome_funds`;
+ * an unknown rail, or a ledger that does not send one yet, stays `deposit`.
  */
 
 export const ACTIVITY_KINDS = [
@@ -135,15 +134,15 @@ export const KIND_BY_REASON: Readonly<Record<string, Row>> = {
   'fee.charged': 'fee',
 };
 
-/** Rails whose credit is an operator/local-test "welcome funds" grant. Empty until a deployment names them. */
-export const WELCOME_FUNDS_RAILS: ReadonlySet<string> = new Set<string>();
+/** Rails whose credit is a local-test "welcome funds" grant. The ledger page reports the rail (allow-listed, else null). */
+export const WELCOME_FUNDS_RAILS: ReadonlySet<string> = new Set<string>(['local-test']);
 
 export interface ClassifyInput {
   readonly module: string;
   readonly reason: string;
   readonly direction: EntryDirection;
-  /** Only when the ledger page can say which rail a deposit arrived on. */
-  readonly rail?: string;
+  /** The rail a deposit arrived on, when the ledger page says (null or absent = unknown). */
+  readonly rail?: string | null;
 }
 
 /** The direction the person sees, from the ledger's `debit increases` convention. */
@@ -154,6 +153,20 @@ export function directionOf(direction: EntryDirection): 'in' | 'out' {
 export function classify(input: ClassifyInput): ActivityKind {
   const row = KIND_BY_MODULE_REASON[`${input.module}/${input.reason}`] ?? KIND_BY_REASON[input.reason] ?? 'other';
   if (row === 'transfer') return input.direction === 'debit' ? 'transfer_in' : 'transfer_out';
-  if (row === 'deposit' && input.rail !== undefined && WELCOME_FUNDS_RAILS.has(input.rail)) return 'welcome_funds';
+  if (row === 'deposit' && input.rail != null && WELCOME_FUNDS_RAILS.has(input.rail)) return 'welcome_funds';
   return row;
 }
+
+/** The words a screen shows for each kind. */
+export const ACTIVITY_KIND_LABELS: Readonly<Record<ActivityKind, string>> = {
+  deposit: 'Deposit',
+  welcome_funds: 'Welcome test funds',
+  transfer_in: 'Transfer received',
+  transfer_out: 'Transfer sent',
+  trade: 'Trade',
+  fee: 'Fee',
+  payment: 'Payment',
+  withdrawal: 'Withdrawal',
+  space_move: 'Moved between Spaces',
+  other: 'Other',
+};

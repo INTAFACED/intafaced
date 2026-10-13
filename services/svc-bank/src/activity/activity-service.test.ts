@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createHmac, hkdfSync } from 'node:crypto';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createBankRouter } from '../router.js';
@@ -31,6 +32,8 @@ const space = (id: string, userId: string, name: string, assetId = 'USDT'): Spac
 });
 
 interface Posted extends LedgerPageEntry {
+  /** Only sent by the fake ledger in `entryIds` mode. */
+  rowRail?: string | null;
   ownerType: 'user' | 'subaccount';
   ownerId: string;
   /** Position in the book: newer = larger. The real ledger pages on this. */
@@ -64,7 +67,7 @@ function post(
 }
 
 /** A fake svc-ledger `historyPage`: opaque `v2.<seq>` cursors, newest first, LIMIT+1 for nextCursor. Records every request. */
-function fakePages(rows: Posted[]) {
+function fakePages(rows: Posted[], mode: { entryIds?: boolean } = {}) {
   const asked: LedgerPageRequest[] = [];
   const pages: LedgerHistoryPages = {
     async page(req) {
@@ -77,7 +80,7 @@ function fakePages(rows: Posted[]) {
       const page = mine.slice(0, req.limit);
       const last = page[page.length - 1];
       return {
-        entries: page.map(({ txId, module, reason, direction, amount, postedAt, assetId }) => ({
+        entries: page.map(({ txId, module, reason, direction, amount, postedAt, assetId, seq: entrySeq, rowRail }) => ({
           txId,
           module,
           reason,
@@ -85,6 +88,7 @@ function fakePages(rows: Posted[]) {
           amount,
           postedAt,
           assetId,
+          ...(mode.entryIds ? { entryId: String(entrySeq), rail: rowRail ?? null } : {}),
         })),
         nextCursor: mine.length > req.limit && last ? Buffer.from(`v2.${last.seq}`).toString('base64url') : null,
       };
@@ -94,12 +98,12 @@ function fakePages(rows: Posted[]) {
 }
 
 const spacesOf = (all: SpaceRecord[]) => ({
-  namedSpaces: async (userId: string, assetId?: string) =>
+  allNamedSpaces: async (userId: string, assetId?: string) =>
     all.filter((s) => s.userId === userId && (assetId === undefined || s.assetId === assetId)),
 });
 
-function build(rows: Posted[], spaces: SpaceRecord[] = []) {
-  const fake = fakePages(rows);
+function build(rows: Posted[], spaces: SpaceRecord[] = [], mode: { entryIds?: boolean } = {}) {
+  const fake = fakePages(rows, mode);
   const service = new ActivityService(spacesOf(spaces), { pages: fake.pages, cursorSecret: SECRET });
   return { service, ...fake };
 }
@@ -170,7 +174,7 @@ describe('ActivityService: merging several owners', () => {
 
   it("refuses to treat a Space row that claims another user's id as Alice's", async () => {
     const forged = { ...space(BOB_SPACE, BOB, 'Bobs'), userId: BOB };
-    const lister = { namedSpaces: async () => [forged] }; // a lister that wrongly returns Bob's Space for Alice
+    const lister = { allNamedSpaces: async () => [forged] }; // a lister that wrongly returns Bob's Space for Alice
     const fake = fakePages(rows);
     const service = new ActivityService(lister, { pages: fake.pages, cursorSecret: SECRET });
     await service.list(ALICE, { limit: 10 });
@@ -361,6 +365,104 @@ describe('ActivityService: the cursor', () => {
     await service.list(ALICE, { limit: 3, cursor: signed });
     expect(asked.every((a) => a.ownerId === ALICE)).toBe(true);
     expect(decodeCursor(SECRET, signed, { userId: ALICE, assetId: null }).owners).toHaveProperty(`s:${BOB_SPACE}`);
+  });
+});
+
+describe('ActivityService: closed Spaces, exact resume, welcome funds, the key', () => {
+  const ARCHIVED = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  const archivedSpace = { ...space(ARCHIVED, ALICE, 'Old trip'), archivedAt: new Date('2026-09-01T00:00:00Z') };
+
+  it('a move into an archived (closed, empty) Space is a space_move, not a payment sent', async () => {
+    const out = post('user', ALICE, 'to-closed', 'bank.transfer.manual', 'credit', '40');
+    const into = post('subaccount', ARCHIVED, 'to-closed', 'bank.transfer.manual', 'debit', '40');
+    const { service, asked } = build([out, into], [archivedSpace]);
+    const { items } = await service.list(ALICE, { limit: 10 });
+    expect(items.map((i) => [i.kind, i.direction, i.spaceName])).toEqual([
+      ['space_move', 'in', 'Old trip'],
+      ['space_move', 'out', null],
+    ]);
+    expect(asked.map((a) => a.ownerId).sort()).toEqual([ALICE, ARCHIVED].sort());
+  });
+
+  for (const entryIds of [false, true]) {
+    describe(entryIds ? 'ledger sends entryId' : 'ledger without entryId', () => {
+      it('a posting between pages causes no duplicate and no gap', async () => {
+        const rows: Posted[] = [];
+        for (let i = 1; i <= 8; i++) {
+          rows.push(
+            i % 2
+              ? post('user', ALICE, `p-${i}`, 'deposit.credited', 'debit', '1', 'USDT', 'ledger')
+              : post('subaccount', ALICE_SPACE, `p-${i}`, 'bank.transfer.manual', 'debit', '1'),
+          );
+        }
+        const { service } = build(rows, [space(ALICE_SPACE, ALICE, 'Holiday')], { entryIds });
+        const p1 = await service.list(ALICE, { limit: 3 });
+        // A newer posting lands between the two page reads.
+        rows.push(post('user', ALICE, 'newer', 'deposit.credited', 'debit', '5', 'USDT', 'ledger'));
+        const seen = p1.items.map((i) => i.txId);
+        let cursor = p1.nextCursor;
+        while (cursor !== null) {
+          const next = await service.list(ALICE, { limit: 3, cursor });
+          seen.push(...next.items.map((i) => i.txId));
+          cursor = next.nextCursor;
+        }
+        expect(seen).toEqual(['p-8', 'p-7', 'p-6', 'p-5', 'p-4', 'p-3', 'p-2', 'p-1']);
+        expect(new Set(seen).size).toBe(seen.length);
+      });
+    });
+  }
+
+  it('with entryId, resumes exactly with no re-read; without it, falls back to one re-read per partly-used owner', async () => {
+    const rows: Posted[] = [];
+    for (let i = 1; i <= 6; i++)
+      rows.push(
+        post(i % 2 ? 'user' : 'subaccount', i % 2 ? ALICE : ALICE_SPACE, `r-${i}`, 'deposit.credited', 'debit', '1', 'USDT', 'ledger'),
+      );
+    const spaces = [space(ALICE_SPACE, ALICE, 'Holiday')];
+
+    const exact = build(rows, spaces, { entryIds: true });
+    await exact.service.list(ALICE, { limit: 2 });
+    expect(exact.asked).toHaveLength(2); // one read per owner, nothing more
+
+    const legacy = build(rows, spaces);
+    await legacy.service.list(ALICE, { limit: 2 });
+    expect(legacy.asked.length).toBeGreaterThan(2);
+  });
+
+  it('merges equal timestamps across owners by entryId', async () => {
+    const a = post('user', ALICE, 'tie-a', 'deposit.credited', 'debit', '1', 'USDT', 'ledger');
+    const later = post('subaccount', ALICE_SPACE, 'tie-b', 'deposit.credited', 'debit', '1', 'USDT', 'ledger');
+    // Same instant as `a`, later in the book, and a tx id that would sort the other way.
+    const b = { ...later, postedAt: a.postedAt, txId: 'aaa-tie-b' };
+    const { service } = build([a, b], [space(ALICE_SPACE, ALICE, 'Holiday')], { entryIds: true });
+    const { items } = await service.list(ALICE, { limit: 10 });
+    expect(items.map((i) => i.txId)).toEqual(['aaa-tie-b', 'tie-a']);
+  });
+
+  it('local-test deposits are welcome_funds; a real or unknown rail stays deposit', async () => {
+    const mk = (id: string, rail: string | null) => {
+      const r = post('user', ALICE, id, 'deposit.credited', 'debit', '1000', 'USDT', 'ledger');
+      r.rowRail = rail;
+      return r;
+    };
+    const { service } = build([mk('w', 'local-test'), mk('c', 'crypto-native'), mk('n', null)], [], { entryIds: true });
+    const { items } = await service.list(ALICE, { limit: 10 });
+    expect(Object.fromEntries(items.map((i) => [i.txId, i.kind]))).toEqual({ w: 'welcome_funds', c: 'deposit', n: 'deposit' });
+    // A ledger that does not send the rail yet: everything stays a deposit.
+    const old = build([mk('w2', 'local-test')]);
+    expect((await old.service.list(ALICE, { limit: 10 })).items[0]!.kind).toBe('deposit');
+  });
+
+  it('signs with an HKDF-derived key (info bank.activity.cursor.v1), not the raw secret', async () => {
+    const cursor = encodeCursor(SECRET, { userId: ALICE, assetId: null, owners: { u: null } });
+    const [payload, mac] = cursor.split('.') as [string, string];
+    const derived = Buffer.from(hkdfSync('sha256', SECRET, Buffer.alloc(0), 'bank.activity.cursor.v1', 32));
+    expect(mac).toBe(createHmac('sha256', derived).update(payload).digest('base64url'));
+    expect(mac).not.toBe(createHmac('sha256', SECRET).update(payload).digest('base64url'));
+    // A cursor signed with the raw secret is refused.
+    const rawSigned = `${payload}.${createHmac('sha256', SECRET).update(payload).digest('base64url')}`;
+    expect(() => decodeCursor(SECRET, rawSigned, { userId: ALICE, assetId: null })).toThrow(ActivityCursorInvalidError);
+    expect(decodeCursor(SECRET, cursor, { userId: ALICE, assetId: null }).owners).toEqual({ u: null });
   });
 });
 

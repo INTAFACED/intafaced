@@ -166,6 +166,8 @@ export function createLedgerHistoryPages(baseUrl: string, internalSecret: string
           amount: string;
           postedAt: string;
           assetId: string;
+          entryId?: string;
+          rail?: string | null;
         }>;
         nextCursor: string | null;
       }>(url, '/trpc/historyPage', body, authHeaders);
@@ -180,6 +182,9 @@ export function createLedgerHistoryPages(baseUrl: string, internalSecret: string
           amount: formatAmount(parseAmount(e.amount)),
           postedAt: new Date(e.postedAt),
           assetId: e.assetId,
+          // Both arrive with svc-ledger's entry-id change; absent before it, and the feed copes.
+          ...(typeof e.entryId === 'string' && /^\d{1,19}$/.test(e.entryId) ? { entryId: e.entryId } : {}),
+          ...(typeof e.rail === 'string' || e.rail === null ? { rail: e.rail } : {}),
         })),
         nextCursor: result.nextCursor,
       };

@@ -54,6 +54,39 @@ describe('createLedgerHistoryPages (svc-ledger /trpc/historyPage)', () => {
     expect(out.entries[0]!.postedAt).toEqual(new Date('2026-10-13T00:00:00.000Z'));
   });
 
+  it('passes entryId and rail through when the ledger sends them, and drops a malformed entryId', async () => {
+    const e = {
+      txId: 't',
+      module: 'ledger',
+      reason: 'deposit.credited',
+      direction: 'debit',
+      amount: '1',
+      postedAt: '2026-10-13T00:00:00.000Z',
+      assetId: 'USDT',
+    };
+    stubFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            entries: [{ ...e, entryId: '42', rail: 'local-test' }, { ...e, entryId: 'nope', rail: null }, e],
+            nextCursor: null,
+          }),
+          { status: 200 },
+        ),
+    );
+    const out = await createLedgerHistoryPages('http://ledger.test', 'secret-secret-secret-secret-secret').page({
+      ownerType: 'user',
+      ownerId: OWNER,
+      kind: 'available',
+      limit: 5,
+    });
+    expect(out.entries[0]).toMatchObject({ entryId: '42', rail: 'local-test' });
+    expect(out.entries[1]).not.toHaveProperty('entryId');
+    expect(out.entries[1]).toMatchObject({ rail: null });
+    expect(out.entries[2]).not.toHaveProperty('entryId');
+    expect(out.entries[2]).not.toHaveProperty('rail');
+  });
+
   it('passes assetId and cursor through when given, and nothing else', async () => {
     const calls = stubFetch(() => new Response(JSON.stringify({ entries: [], nextCursor: null }), { status: 200 }));
     await createLedgerHistoryPages('http://ledger.test', 'secret-secret-secret-secret-secret').page({
