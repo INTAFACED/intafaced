@@ -218,6 +218,16 @@ function assertServing(indexer: Indexer, chainSource: string, venue?: string | n
   }
 }
 
+/**
+ * The height below which blocks are treated as final: head minus the finality
+ * depth, floored at 0. The ONE definition — `status.finalizedHeight` publishes
+ * it and `book` is pinned to it, so the two can never disagree about which
+ * block is safe to price from. `null` on an empty index.
+ */
+function finalizedHeightOf(head: { readonly height: number } | null, finalityDepth: number): number | null {
+  return head ? Math.max(0, head.height - finalityDepth) : null;
+}
+
 export function createIndexerRouter(deps: IndexerRouterDeps) {
   const { store, indexer } = deps;
 
@@ -285,7 +295,7 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
           indexedHash: head?.hash ?? null,
           earliestHeight: earliest,
           finalityDepth: deps.finalityDepth,
-          finalizedHeight: head ? Math.max(0, head.height - deps.finalityDepth) : null,
+          finalizedHeight: finalizedHeightOf(head, deps.finalityDepth),
           ingestEnabled: deps.ingestEnabled(),
           halted: halt ? { reason: halt.reason, at: halt.at.toISOString() } : null,
           chain,
@@ -317,7 +327,22 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
       }),
 
     /**
-     * The book, as of a named block.
+     * The book, as of a named block — the FINALIZED block, not the head.
+     *
+     * Inclusion is not finality: a book at the head can still be reorged away,
+     * and a quote reader (svc-dex `IndexerQuoteVenue`) rightly refuses any book
+     * above `status.finalizedHeight`. Serving the head book meant every healthy
+     * head was refused and nothing could ever be priced. So this reads the
+     * projection as of `finalizedHeight` (`store.book(…, atHeight)`): only
+     * versions written at or below it count, so a reorg above it cannot change
+     * the answer. The book is `finalityDepth` blocks behind the head by design.
+     * `asOfHeight` therefore equals `status.finalizedHeight` whenever that
+     * block is held; an empty index, or one that holds no block at the
+     * finalized height yet (a `startHeight` less than `finalityDepth` below the
+     * head), answers the empty book with a `null` as-of, never a guess.
+     *
+     * The head book is still reachable through `stream`, which is live market
+     * data rather than a price a trade settles against.
      *
      * `asOfHeight` / `asOfHash` are part of the response rather than a detail,
      * because "which chain state is this?" is the question a reorg makes real.
@@ -350,7 +375,12 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
           if (!isPublishedBookDepth(depth)) {
             throw new TRPCError({ code: 'BAD_REQUEST', message: userCopy(INDEXER_BOOK_DEPTH_UNSET) });
           }
-          const view = await withReadSpan('indexer.book', input.market, () => store.book(input.market, depth));
+          const view = await withReadSpan('indexer.book', input.market, async () => {
+            const finalizedHeight = finalizedHeightOf(await store.head(), deps.finalityDepth);
+            // No head: nothing is finalized. `store.book` without a height is
+            // the honest empty book (null as-of) on an empty index.
+            return finalizedHeight === null ? store.book(input.market, depth) : store.book(input.market, depth, finalizedHeight);
+          });
           return {
             market: view.market,
             chainId: view.chainId,

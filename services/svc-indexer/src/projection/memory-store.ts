@@ -311,21 +311,24 @@ export class MemoryProjectionStore implements ProjectionStore {
   // ── Reads ─────────────────────────────────────────────────────────────────
 
   /** Newest version per key, which is what "current" means in this design. */
-  #currentLevels(market: string, side: BookSide): LevelRow[] {
+  #currentLevels(market: string, side: BookSide, atHeight: number): LevelRow[] {
     const newest = new Map<string, LevelRow>();
     for (const row of this.#levels) {
-      if (row.market !== market || row.side !== side) continue;
+      if (row.market !== market || row.side !== side || row.blockHeight > atHeight) continue;
       const held = newest.get(row.priceKey);
       if (!held || row.blockHeight > held.blockHeight) newest.set(row.priceKey, row);
     }
     return [...newest.values()];
   }
 
-  async book(market: string, depth: number): Promise<BookView> {
-    const head = await this.head();
+  async book(market: string, depth: number, atHeight?: number): Promise<BookView> {
+    // Pinned read: the as-of block must be a canonical block we hold. Without
+    // one there is nothing to name, so the book is empty with a null as-of.
+    const asOf = atHeight === undefined ? await this.head() : await this.blockAt(atHeight);
+    const ceiling = asOf?.height ?? -1;
 
     const side = (s: BookSide, direction: 1 | -1): BookLevel[] =>
-      this.#currentLevels(market, s)
+      this.#currentLevels(market, s, ceiling)
         // Quantity 0 is an empty level, and it is filtered AFTER the newest
         // version is chosen — a level emptied in block N must not fall back to
         // its depth in block N-1.
@@ -337,8 +340,8 @@ export class MemoryProjectionStore implements ProjectionStore {
     return {
       market,
       chainId: this.chainId,
-      asOfHeight: head?.height ?? null,
-      asOfHash: head?.hash ?? null,
+      asOfHeight: asOf?.height ?? null,
+      asOfHash: asOf?.hash ?? null,
       bids: side('bid', -1),
       asks: side('ask', 1),
     };

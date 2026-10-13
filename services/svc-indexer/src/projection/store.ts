@@ -194,7 +194,21 @@ export interface ProjectionStore {
 
   // ── Reads ───────────────────────────────────────────────────────────────
 
-  book(market: string, depth: number): Promise<BookView>;
+  /**
+   * The book. With no `atHeight` it is the canonical head's book. With
+   * `atHeight` it is the book AS OF that canonical block: only versions written
+   * at or below it count, and `asOfHeight` / `asOfHash` name that block, not the
+   * head. Nothing above `atHeight` can leak in, so a reorg above it leaves the
+   * answer unchanged — this is how a caller reads the finalized book.
+   *
+   * `atHeight` with no canonical block recorded there (above the head, or below
+   * what the index ever held) is an empty book with a `null` as-of. Unknown is
+   * not a quiet market, and the nearest block is not the one asked for.
+   *
+   * Exact only while `prune` has not passed `atHeight`: the horizon is the
+   * finalized height, so a read at the finalized height is always inside it.
+   */
+  book(market: string, depth: number, atHeight?: number): Promise<BookView>;
   recentFills(market: string, limit: number): Promise<readonly FillRecord[]>;
   fillsForAccount(account: string, limit: number): Promise<readonly FillRecord[]>;
   position(market: string, account: string): Promise<PositionRecord | null>;

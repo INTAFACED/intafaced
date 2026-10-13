@@ -302,14 +302,19 @@ export class PostgresProjectionStore implements ProjectionStore {
 
   // ── Reads ─────────────────────────────────────────────────────────────────
 
-  async book(market: string, depth: number): Promise<BookView> {
-    const head = await this.head();
-    const [bids, asks] = await Promise.all([this.#side(market, 'bid', depth), this.#side(market, 'ask', depth)]);
+  async book(market: string, depth: number, atHeight?: number): Promise<BookView> {
+    // Pinned read: the as-of block must be a canonical block we hold. Without
+    // one there is nothing to name, so the book is empty with a null as-of.
+    const asOf = atHeight === undefined ? await this.head() : await this.blockAt(atHeight);
+    if (!asOf) {
+      return { market, chainId: this.chainId, asOfHeight: null, asOfHash: null, bids: [], asks: [] };
+    }
+    const [bids, asks] = await Promise.all([this.#side(market, 'bid', depth, asOf.height), this.#side(market, 'ask', depth, asOf.height)]);
     return {
       market,
       chainId: this.chainId,
-      asOfHeight: head?.height ?? null,
-      asOfHash: head?.hash ?? null,
+      asOfHeight: asOf.height,
+      asOfHash: asOf.hash,
       bids,
       asks,
     };
@@ -323,14 +328,14 @@ export class PostgresProjectionStore implements ProjectionStore {
    * that emptied a level and fall back to the depth that level had in an
    * earlier block — resurrecting liquidity that is gone.
    */
-  async #side(market: string, side: BookSide, depth: number): Promise<BookLevel[]> {
+  async #side(market: string, side: BookSide, depth: number, atHeight: number): Promise<BookLevel[]> {
     const rows =
       side === 'bid'
         ? await this.sql<LevelRow[]>`
             SELECT price, quantity FROM (
               SELECT DISTINCT ON (price) price, quantity
               FROM book_levels
-              WHERE chain_id = ${this.chainId} AND market = ${market} AND side = 'bid'
+              WHERE chain_id = ${this.chainId} AND market = ${market} AND side = 'bid' AND block_height <= ${atHeight}
               ORDER BY price, block_height DESC
             ) current
             WHERE quantity > 0
@@ -341,7 +346,7 @@ export class PostgresProjectionStore implements ProjectionStore {
             SELECT price, quantity FROM (
               SELECT DISTINCT ON (price) price, quantity
               FROM book_levels
-              WHERE chain_id = ${this.chainId} AND market = ${market} AND side = 'ask'
+              WHERE chain_id = ${this.chainId} AND market = ${market} AND side = 'ask' AND block_height <= ${atHeight}
               ORDER BY price, block_height DESC
             ) current
             WHERE quantity > 0
