@@ -50,3 +50,23 @@ S-D2 spec (2026-09-18): [`2026-09-18-intacore-module-map.md`](2026-09-18-intacor
 ## Conflict rule
 
 If a dated board or tracker “ready” line says start INTACHAIN P1 **now**, **this ADR wins** until Nitro GOs. Doctrine §17 still wins on _what P1 is_ when it starts.
+
+---
+
+## 2026-10-13 — P1 decision: NO-GO, with a re-decide trigger (Nitro human decision)
+
+**INTACHAIN P1 stays parked.** This is a recorded NO-GO, not silence. Everything in "Decision" above stays in force.
+
+**Re-decide when** the Protocol DEX on Base quotes and completes a testnet swap end to end, from a self-custody account with real evidence. That needs at least:
+
+1. A healthy indexer head yields a quotable, finalized book (the indexer/DEX finality issue closed).
+2. A session key cannot route ERC20 swap output to a foreign recipient (session-scope issue closed, TypeScript and Solidity).
+3. Authority, quote/finality, signing, nonce, allowance, submit and recovery proven on Base Sepolia.
+
+At that point Nitro writes GO or NO-GO again on this ADR. Agents may raise the re-decision; they do not start P1 work before it.
+
+**Why:** securing a second chain while the first DEX cannot yet show a price would split effort away from the one finish line both founders agree comes first (Protocol DEX, no-KYC, on Base).
+
+**Venue (`socket.dex-venue-set`, issue #935):** the DEX quotes **INTAFACED's own pools on Base first**, through the indexer quote path. External Base liquidity is a later addition, not a substitute. Seed liquidity for those pools is a separate spending decision for Nitro; until then pools may run on testnet with labelled test funds.
+
+Phantom's "GO INTACHAIN P1" chat line is not a GO under this ADR (Phantom agreed, 2026-10-13).
