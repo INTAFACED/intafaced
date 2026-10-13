@@ -6,6 +6,7 @@ import {
   aliasNamesOf,
   NEXT_ACTION_CHIPS,
   NextActionEditor,
+  StaleDraftWarning,
   activityTitle,
   overdueLabel,
   pastDueWarning,
@@ -166,16 +167,28 @@ describe('session bar clock', () => {
     expect(sessionStatus(at(8), now)).toEqual({ warning: true, text: 'Session ends in 8 min — save your work' });
     expect(sessionStatus(at(10), now)?.warning).toBe(true);
     expect(sessionStatus(at(-1), now)?.warning).toBe(true);
+    expect(sessionStatus(at(-1), now)?.expired).toBe(true);
+    expect(sessionStatus(at(8), now)?.expired).toBeUndefined();
   });
 });
 
 describe('workspace shell', () => {
   it('offers a skip link, a Filters button for phones, and one Enquiries title and tab', () => {
-    const html = renderToStaticMarkup(<CrmWorkspace csrf="csrf" />);
+    const html = renderToStaticMarkup(<CrmWorkspace csrf="csrf" userId="u-nitro" />);
     expect(html).toContain('Skip to enquiries');
     expect(html).toContain('adm-filters-toggle');
     expect(html).toContain('id="crm-enquiries"');
     expect(html.match(/>Enquiries</g)?.length).toBe(2);
     expect(html).not.toContain('Sign in');
+  });
+});
+
+describe('stale draft warning', () => {
+  it('is a visible alert with the discard button, and the button is off while a save is running', () => {
+    const html = renderToStaticMarkup(<StaleDraftWarning busy={false} onDiscard={() => undefined} />);
+    expect(html).toContain('role="alert"');
+    expect(html).toContain('This enquiry has changed since you wrote these edits.');
+    expect(html).toContain('Discard my edits and reload');
+    expect(renderToStaticMarkup(<StaleDraftWarning busy onDiscard={() => undefined} />)).toContain('disabled');
   });
 });
