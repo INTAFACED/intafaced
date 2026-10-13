@@ -1,3 +1,7 @@
+-- intafaced:destructive — drops NOT NULL on ops.crm_erasure_intents.actor_user_id (replaced by the
+-- crm_erasure_actor_coherent CHECK: a founder action needs a user, a system action needs the retention policy) and
+-- replaces ops.crm_apply_erasure(), whose DELETE FROM statements only run when an erasure is applied, not when this
+-- migration applies. No existing row is deleted or rewritten. Intended: automated retention must not impersonate a founder.
 -- Approved outreach policy metadata; automation never impersonates a founder.
 ALTER TABLE ops.crm_erasure_intents ALTER COLUMN actor_user_id DROP NOT NULL;
 ALTER TABLE ops.crm_erasure_intents ADD COLUMN actor_kind text NOT NULL DEFAULT 'founder'

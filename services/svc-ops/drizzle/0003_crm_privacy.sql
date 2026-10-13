@@ -1,3 +1,7 @@
+-- intafaced:destructive — contains DELETE FROM statements, but only inside the function ops.crm_apply_erasure()
+-- (and the append-only triggers it relaxes). Nothing is deleted when this migration applies. Rows are deleted
+-- only when that function runs, after every notify erasure receipt has committed (a privacy-erasure request or
+-- an approved retention policy). Intended: it is the only permitted route to remove CRM personal data. Reversal: the .down.sql.
 -- IDs and typed outcomes only: no contact values, answers, staff text or capability hashes.
 CREATE TABLE ops.crm_erasure_intents (
  id uuid PRIMARY KEY, canonical_contact_id uuid NOT NULL, actor_user_id uuid NOT NULL,
