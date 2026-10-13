@@ -1,3 +1,4 @@
+import { postPayLedger } from './ledger-receipt.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { withPaymentAdmission, preparePaymentAdmission, type PreparedPaymentOperation } from './payment-admission.js';
 import type { OwnerIdentityAuthorityPort } from './payment-authority.js';
@@ -200,6 +201,8 @@ export type PayErrorCode =
   | 'pay.settlement_not_pending'
   | 'pay.rail_declined'
   | 'pay.rail_failed'
+  | 'pay.rail_outcome_unknown'
+  | 'pay.ledger_outcome_unknown'
   | 'pay.rail_amount_mismatch'
   | 'pay.rail_pending'
   | 'pay.webhook_invalid'
@@ -313,6 +316,7 @@ export type PayErrorCode =
    * reports itself healthy and collects nothing.
    */
   | 'pay.subscription_invoice_unpaid'
+  | 'pay.subscription_due_pass_fault'
   /**
    * Resuming would re-space periods past the mandate's `endsAt`.
    *
@@ -726,6 +730,12 @@ export interface PayServiceOptions {
   readonly afterSettlementMerchantLock?: () => void | Promise<void>;
 
   /**
+   * Test failpoint inside the settlement posting transaction, before the
+   * merchant eligibility lock that authorizes the credit. Never wired at boot.
+   */
+  readonly beforeSettlementPostMerchantLock?: () => void | Promise<void>;
+
+  /**
    * Outbound merchant webhook notifier (pay.public-api step 3 / ADR §2.4).
    *
    * Called AFTER the money transaction commits. Must never move value. Failures
@@ -912,6 +922,7 @@ export class PayService {
       }) => void | Promise<void>)
     | undefined;
   private readonly afterSettlementMerchantLock: (() => void | Promise<void>) | undefined;
+  private readonly beforeSettlementPostMerchantLock: (() => void | Promise<void>) | undefined;
   private readonly affiliateAccrue: AffiliateAccruePort;
   private readonly affiliatePayout: AffiliatePayoutPort;
   private readonly payoutDestinations: MerchantPayoutDestinations;
@@ -938,6 +949,7 @@ export class PayService {
     this.now = options.now ?? (() => new Date());
     this.afterPaymentEvent = options.afterPaymentEvent;
     this.afterSettlementMerchantLock = options.afterSettlementMerchantLock;
+    this.beforeSettlementPostMerchantLock = options.beforeSettlementPostMerchantLock;
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
     this.affiliatePayout = options.affiliatePayout ?? new NoopAffiliatePayout();
     this.payoutDestinations = options.payoutDestinations ?? assertOnlyPayoutDestinations();
@@ -2106,7 +2118,7 @@ export class PayService {
             });
           }
 
-          if (result.amount !== authorized) {
+          if (result.amount !== authorized || result.assetId !== row.currency) {
             // The rail captured something other than what we authorized. Book
             // neither number: one of the two systems is wrong and guessing which
             // is how a discrepancy becomes a loss.
@@ -2117,7 +2129,8 @@ export class PayService {
             );
           }
 
-          const posted = await this.ledger.post(
+          const posted = await postPayLedger(
+            this.ledger,
             recipes.paymentCapture({
               paymentId: row.id,
               merchantId: row.merchant_id,
@@ -2346,7 +2359,8 @@ export class PayService {
         const merchant = await this.getMerchant(row.merchant_id);
         const source = row.status === 'settled' ? ('settled' as const) : ('clearing' as const);
 
-        const posted = await this.ledger.post(
+        const posted = await postPayLedger(
+          this.ledger,
           recipes.paymentRefund({
             refundId,
             paymentId: row.id,
@@ -2401,7 +2415,7 @@ export class PayService {
         if (!result.ok) {
           // Put the merchant's money back. Its own business key, so a retry of
           // the reversal finds the reversal rather than the refund.
-          await this.ledger.post(recipes.paymentRefundReverse(refundInput));
+          await postPayLedger(this.ledger, recipes.paymentRefundReverse(refundInput));
           await appendEvent(tx, row.id, 'refund.reversed', {
             refundId: prepared.refundId,
             amount: formatAmount(amount),
@@ -2742,11 +2756,9 @@ export class PayService {
     if (!current) throw new PayError(`Settlement ${settlementId} not found`, 'pay.settlement_not_found');
     if (current.status !== 'pending') return toSettlement(current);
 
-    const merchant = await this.getMerchant(current.merchant_id);
-    // About to post gross → merchant available. Suspension mid-freeze must
-    // not finish the move; captured volume stays in clearing until reopen.
-    this.assertMerchantActive(merchant);
-
+    // The unlocked merchant read is not the credit gate. Eligibility is locked
+    // below, on this transaction, before the ledger post.
+    let merchantUserId: string | undefined;
     const posted = await transaction(
       this.sql,
       async (tx) => {
@@ -2756,6 +2768,14 @@ export class PayService {
         `;
         const row = rows[0]!;
         if (row.status !== 'pending') return toSettlement(row);
+
+        // Merchant eligibility, then payment rows — the same order as capture.
+        // A suspend that commits before this lock must not credit available
+        // or mark the window posted. Frozen gross, fees, and net stay as frozen.
+        await this.beforeSettlementPostMerchantLock?.();
+        const merchant = await this.lockMerchantEligibility(tx, row.merchant_id);
+        this.assertMerchantActive(merchant);
+        merchantUserId = merchant.userId;
 
         const gross = parseAmount(row.gross);
         const fees = parseAmount(row.fees);
@@ -2789,7 +2809,8 @@ export class PayService {
           );
         }
 
-        await this.ledger.post(
+        await postPayLedger(
+          this.ledger,
           recipes.merchantSettlement({
             merchantId: row.merchant_id,
             merchantUserId: merchant.userId,
@@ -2823,8 +2844,11 @@ export class PayService {
       },
       { isolation: 'read committed', maxAttempts: 5 },
     );
-    await this.notifyPayAffiliateAccrue(posted, merchant.userId);
-    await this.notifyPayAffiliatePayout(posted, merchant.userId);
+    // Already posted by a concurrent winner: no credit happened here. Accrue
+    // still wants the merchant user id, and that read is not a credit gate.
+    const userId = merchantUserId ?? (await this.getMerchant(posted.merchantId)).userId;
+    await this.notifyPayAffiliateAccrue(posted, userId);
+    await this.notifyPayAffiliatePayout(posted, userId);
     return posted;
   }
 
@@ -3225,7 +3249,7 @@ export class PayService {
           let refused = outcomes.find((outcome) => outcome.kind === 'rail_refused')?.payload as
             { failureReason: string; failureCode: string } | undefined;
           if (!refused && !accepted) {
-            await this.ledger.post(plan.hold);
+            await postPayLedger(this.ledger, plan.hold);
             const result = await withRailSpan(adapter.id, 'payout', () =>
               adapter.payout({
                 settlementId: admission!.business_id,
@@ -3247,14 +3271,14 @@ export class PayService {
             }
           }
           if (!accepted) {
-            await this.ledger.post(plan.reverse);
+            await postPayLedger(this.ledger, plan.reverse);
             await payoutTransaction(connection, async (tx) => {
               await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission!.id},'reversed','{}') ON CONFLICT DO NOTHING`;
               await tx`UPDATE pay.settlements SET status='failed',payout_attempts=${admission!.attempt + 1},updated_at=now() WHERE id=${settlement.id}`;
             });
             throw new PayError(refused?.failureReason ?? 'Rail refused payout', 'pay.rail_failed', { failureCode: refused?.failureCode });
           }
-          await this.ledger.post(plan.settle);
+          await postPayLedger(this.ledger, plan.settle);
           await payoutTransaction(connection, async (tx) => {
             await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission!.id},'settled','{}') ON CONFLICT DO NOTHING`;
             await tx`UPDATE pay.settlements SET status='paid_out',payout_method=${admission!.rail_id},payout_ref=${accepted!.railRef},updated_at=now() WHERE id=${settlement.id}`;
@@ -3757,15 +3781,54 @@ function assertFeeBps(feeBps: number): void {
   }
 }
 
-/** `'2026-07-27'` → that UTC day, half-open. Explicit bounds win. */
+/**
+ * `'2026-07-27'` → that UTC day, half-open, ending 24 hours later.
+ * A year 0000–0099 label is that written year. Both explicit bounds win.
+ * Exactly one bound refuses. A label that matches YYYY-MM-DD but is not a
+ * real UTC calendar day (2026-02-31) refuses — it is not rolled through Date
+ * and not frozen under the original window key.
+ */
 function windowBounds(window: string, from?: Date, to?: Date): { from: Date; to: Date } {
   if (from && to) return { from, to };
-  const day = /^\d{4}-\d{2}-\d{2}$/.test(window) ? new Date(`${window}T00:00:00.000Z`) : null;
-  if (!day || Number.isNaN(day.getTime())) {
+  if (from || to) {
+    throw new PayError(`Window "${window}" was given only one of from/to; pass both bounds or neither`, 'pay.invalid_window');
+  }
+  const day = utcCalendarDay(window);
+  if (!day) {
     throw new PayError(
       `Window "${window}" is not a YYYY-MM-DD date; pass explicit from/to bounds for a custom window`,
       'pay.invalid_window',
     );
   }
   return { from: day, to: new Date(day.getTime() + 24 * 60 * 60 * 1000) };
+}
+
+/**
+ * UTC midnight of a real calendar day, or null.
+ * Impossible dates are rejected from the year/month/day fields. The instant is
+ * then `YYYY-MM-DDT00:00:00.000Z`, which keeps years 0000–0099. Date.UTC maps
+ * years 0–99 onto 1900–1999, so it is the wrong construction here. The result
+ * is checked so a rollover cannot be returned.
+ */
+function utcCalendarDay(window: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(window);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > daysInUtcMonth(year, month)) return null;
+  const start = new Date(`${window}T00:00:00.000Z`);
+  if (start.getUTCFullYear() !== year || start.getUTCMonth() !== month - 1 || start.getUTCDate() !== day) return null;
+  return start;
+}
+
+function daysInUtcMonth(year: number, month: number): number {
+  if (month === 2) return isUtcLeapYear(year) ? 29 : 28;
+  if (month === 4 || month === 6 || month === 9 || month === 11) return 30;
+  return 31;
+}
+
+function isUtcLeapYear(year: number): boolean {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
 }

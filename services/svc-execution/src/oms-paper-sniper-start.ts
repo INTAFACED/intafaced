@@ -33,40 +33,24 @@ export type OmsPaperSniperStartOk = {
   readonly triggerPrice: string;
 };
 
-export type OmsPaperSniperStartResult =
-  | OmsPaperSniperStartOk
-  | OmsPaperSniperStartRefusal;
+export type OmsPaperSniperStartResult = OmsPaperSniperStartOk | OmsPaperSniperStartRefusal;
 
-function refuse(
-  reason: OmsPaperSniperStartRefuseReason,
-  detail: string,
-): OmsPaperSniperStartRefusal {
+function refuse(reason: OmsPaperSniperStartRefuseReason, detail: string): OmsPaperSniperStartRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseRetainedTriggerPrice(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperSniperStartRefusal {
+function parseRetainedTriggerPrice(raw: string | null | undefined): { ok: true; text: string } | OmsPaperSniperStartRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'missing_trigger',
-      'sniper trigger price is missing — refusing to invent a trigger or a live venue',
-    );
+    return refuse('missing_trigger', 'sniper trigger price is missing — refusing to invent a trigger or a live venue');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'missing_trigger',
-      'sniper trigger price is missing — refusing to invent a trigger or a live venue',
-    );
+    return refuse('missing_trigger', 'sniper trigger price is missing — refusing to invent a trigger or a live venue');
   }
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      'missing_trigger',
-      'sniper trigger price is not a ledger amount — refusing to invent a trigger',
-    );
+    return refuse('missing_trigger', 'sniper trigger price is not a ledger amount — refusing to invent a trigger');
   }
 }
 
@@ -77,9 +61,9 @@ function parseRetainedTriggerPrice(
 export function startPaperSniperParent(input: {
   parentClientOrderId?: string;
   kind?: string;
-  /** Must be true — start needs an already-approved paper sniper parent. */
+  /** Explicit false refuses. Omitted is not false: a paper or approved status may still start. */
   approved?: boolean;
-  /** Paper-approved status is 'paper'. Live running refuses already_started. */
+  /** Trimmed before compare. 'running' refuses already_started. A present blank or other non-startable status refuses not_approved. */
   status?: 'paper' | 'approved' | 'running' | string;
   /** Retained trigger price from paper approve. Blank refuses — never invent a trigger. */
   triggerPrice?: string | null;
@@ -99,17 +83,18 @@ export function startPaperSniperParent(input: {
   if (input.kind !== undefined && input.kind !== 'sniper') {
     return refuse('not_live', `kind ${String(input.kind)} is not sniper`);
   }
-  if (input.status === 'running') {
-    return refuse(
-      'already_started',
-      `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`,
-    );
+  const status = input.status?.trim();
+  if (status === 'running') {
+    return refuse('already_started', `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`);
   }
-  if (input.approved !== true && input.status !== 'paper' && input.status !== 'approved') {
-    return refuse(
-      'not_approved',
-      `parent ${parentClientOrderId} is not an approved paper sniper parent`,
-    );
+  // Trimmed '' is present. Only an omitted status is undefined and may follow approved.
+  const startableStatus = status === 'paper' || status === 'approved';
+  if (status !== undefined && !startableStatus) {
+    return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper sniper parent`);
+  }
+  // Explicit false refuses even when status is paper or approved. Omitted is not false.
+  if (input.approved === false || (input.approved !== true && !startableStatus)) {
+    return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper sniper parent`);
   }
   const operatorId = input.operatorId?.trim() ?? '';
   if (!operatorId) {

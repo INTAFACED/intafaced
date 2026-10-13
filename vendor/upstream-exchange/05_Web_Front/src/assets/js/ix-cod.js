@@ -35,6 +35,11 @@ function emptyView() {
     lastCode: null,
     lastCompletion: null,
     lastCompletionReason: null,
+    lastCompletionCommandId: null,
+    lastCompletionReceivedAt: null,
+    lastCompletionExpiresAt: null,
+    lastCompletionScope: null,
+    lastCompletionMarketId: null,
     lastActivation: null,
     lastTargets: [],
     complete: null,
@@ -157,13 +162,49 @@ function summarizeTargets(targets, complete, tradeReached) {
   return { outcome: OUTCOMES.OUTCOME_UNKNOWN, reason: reason };
 }
 
+function completionIdentity(rec) {
+  return {
+    commandId: typeof rec.commandId === 'string' ? rec.commandId : null,
+    receivedAt: typeof rec.receivedAt === 'string' ? rec.receivedAt : null,
+    expiresAt: typeof rec.expiresAt === 'string' ? rec.expiresAt : null,
+    scope: SCOPES[rec.scope] || rec.scope || null,
+    marketId: rec.marketId == null ? null : rec.marketId,
+  };
+}
+
+function matchesActiveLease(view, result) {
+  return (
+    view.armed === true &&
+    typeof result.commandId === 'string' &&
+    result.commandId.length > 0 &&
+    result.commandId === view.leaseCommandId &&
+    typeof result.receivedAt === 'string' &&
+    result.receivedAt.length > 0 &&
+    result.receivedAt === view.receivedAt &&
+    typeof result.expiresAt === 'string' &&
+    result.expiresAt.length > 0 &&
+    result.expiresAt === view.expiresAt &&
+    Object.prototype.hasOwnProperty.call(SCOPES, result.scope) &&
+    result.scope === view.scope &&
+    result.marketId === view.marketId
+  );
+}
+
+function attributeCompletion(view, result) {
+  view.lastCompletionCommandId = result.commandId;
+  view.lastCompletionReceivedAt = result.receivedAt;
+  view.lastCompletionExpiresAt = result.expiresAt;
+  view.lastCompletionScope = result.scope;
+  view.lastCompletionMarketId = result.marketId;
+}
+
 function parseFrame(raw) {
   var rec = asRecord(raw);
   if (!rec) return { kind: 'ignore' };
   if (rec.channel !== COD_CHANNEL && rec.type !== 'cod.armed' && rec.type !== 'cod.renewed' && rec.type !== 'cod.disarmed' && rec.type !== 'cod.refused' && rec.type !== 'cod.fired') {
     return { kind: 'ignore' };
   }
-  if (wouldInventCodMassSuccess(rec)) return { kind: 'lie' };
+  if (wouldInventCodMassSuccess(rec)) return Object.assign({ kind: 'lie' }, completionIdentity(rec));
   if (rec.type === 'cod.refused') {
     return {
       kind: 'refused',
@@ -228,7 +269,9 @@ function applyFrame(view, raw) {
     next.lastCompletionReason = 'cod.invented_mass_success';
     next.complete = false;
     next.tradeReached = false;
-    next.armed = false;
+    next.lastTargets = [];
+    next.lastActivation = null;
+    attributeCompletion(next, parsed);
     return next;
   }
   if (parsed.kind === 'refused') {
@@ -266,14 +309,13 @@ function applyFrame(view, raw) {
     return next;
   }
   if (parsed.kind === 'fired') {
-    next.armed = false;
+    // A result belongs to the original server receipt. It can arrive after
+    // another scope arms, or after the same command id is reused on reconnect.
+    // Display that result without changing the active lease or its heartbeat.
+    if (matchesActiveLease(next, parsed)) next.armed = false;
     next.lastType = 'cod.fired';
     next.lastCode = null;
-    next.commandId = parsed.commandId;
-    next.receivedAt = parsed.receivedAt;
-    next.expiresAt = parsed.expiresAt;
-    next.scope = parsed.scope;
-    next.marketId = parsed.marketId;
+    attributeCompletion(next, parsed);
     next.lastActivation = parsed.activation;
     next.complete = parsed.complete;
     next.tradeReached = parsed.tradeReached;
@@ -300,11 +342,16 @@ function applyFrame(view, raw) {
 function applyDisconnect(view) {
   var next = cloneView(view);
   next.socket = 'closed';
-  if (next.lastType === 'cod.fired') {
-    next.armed = false;
-    return next;
-  }
   if (next.armed) {
+    // A prior completed result may belong to another lease. Socket death still
+    // leaves this active lease unconfirmed; it never proves its cancel applied.
+    attributeCompletion(next, {
+      commandId: next.leaseCommandId,
+      receivedAt: next.receivedAt,
+      expiresAt: next.expiresAt,
+      scope: next.scope,
+      marketId: next.marketId
+    });
     next.armed = false;
     next.lastCompletion = OUTCOMES.OUTCOME_UNKNOWN;
     next.lastCompletionReason = DISCONNECT_REASON;

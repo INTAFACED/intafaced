@@ -92,8 +92,15 @@ import { dueOccurrence, lastOccurrenceBefore, occurrenceStart, type Cadence } fr
  */
 export const MAX_ATTEMPTS_PER_CYCLE = 3;
 
-/** Why a subscription stopped advancing. Four different facts, four words. */
-export const STALL_REASONS = ['operator_pause', 'runner_outage', 'arrears', 'fee_unpublished', 'window_exhausted'] as const;
+/** Why a subscription stopped advancing. Each word is a different fact. */
+export const STALL_REASONS = [
+  'operator_pause',
+  'runner_outage',
+  'arrears',
+  'fee_unpublished',
+  'window_exhausted',
+  'due_pass_fault',
+] as const;
 export type StallReason = (typeof STALL_REASONS)[number];
 
 /** Statuses an execution row can carry (0010's enum). */
@@ -188,14 +195,31 @@ export function assertWithinMandateCeiling(mandate: { amount: Amount; ceiling: A
  * Refuses a charge outside the mandate's authorised WINDOW.
  *
  * The window is consent too. `startsAt` is inclusive, `endsAt` exclusive, which
- * matches `lastOccurrenceBefore`.
+ * matches `lastOccurrenceBefore`. `endsAt === null` is an open end, not a blank
+ * bound.
+ *
+ * An `Invalid Date` makes `getTime()` NaN, and every NaN comparison is false, so
+ * a missing or unparsable bound would skip both guards and be treated as inside
+ * the window. A blank bound refuses the charge. The message is built only after
+ * the instant is known to be real — `toISOString` on an Invalid Date throws.
  */
 export function assertWithinMandateWindow(mandate: { startsAt: Date; endsAt: Date | null }, at: Date): void {
-  if (at.getTime() < mandate.startsAt.getTime()) {
+  const startMs = mandate.startsAt.getTime();
+  const atMs = at.getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(atMs)) {
+    throw new PayError('Mandate window is not a date — refusing the charge', 'pay.subscription_exceeds_mandate');
+  }
+  if (atMs < startMs) {
     throw new PayError(`Mandate does not authorise a charge before ${mandate.startsAt.toISOString()}`, 'pay.subscription_exceeds_mandate');
   }
-  if (mandate.endsAt !== null && at.getTime() >= mandate.endsAt.getTime()) {
-    throw new PayError(`Mandate authorisation ended at ${mandate.endsAt.toISOString()}`, 'pay.subscription_exceeds_mandate');
+  if (mandate.endsAt !== null) {
+    const endMs = mandate.endsAt.getTime();
+    if (!Number.isFinite(endMs)) {
+      throw new PayError('Mandate window is not a date — refusing the charge', 'pay.subscription_exceeds_mandate');
+    }
+    if (atMs >= endMs) {
+      throw new PayError(`Mandate authorisation ended at ${mandate.endsAt.toISOString()}`, 'pay.subscription_exceeds_mandate');
+    }
   }
 }
 

@@ -19,7 +19,15 @@ import { STAKE_TIERS } from './economics/staking.js';
  * The insert copies `stakes.user_id`. It does not open a ledger account.
  */
 
-const ADMIN_URL = 'postgres://127.0.0.1:5432/postgres';
+// Admin connection (needs CREATEDB) comes from TEST_DATABASE_URL like the rest of svc-token's database
+// tests, pointed at the `postgres` maintenance database. Unset keeps the old local default.
+const ADMIN_URL = ((): string => {
+  const envUrl = process.env.TEST_DATABASE_URL?.trim();
+  if (!envUrl) return 'postgres://127.0.0.1:5432/postgres';
+  const url = new URL(envUrl);
+  url.pathname = '/postgres';
+  return url.toString();
+})();
 const UUID_STAKER = '11111111-1111-4111-8111-111111111111';
 const TEXT_STAKER = 'not-a-uuid';
 const UUID_STAKE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

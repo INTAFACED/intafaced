@@ -48,7 +48,7 @@
  * install a gate that gates nothing, which is the defect being fixed.
  *
  * So: the mechanism lands enforcing, with today's failures pinned. This is the
- * pattern the repo already uses in `fabricated-money-scan` (12 frozen),
+ * pattern the repo already uses in `fabricated-money-scan` (deleted 2026-10-13) (12 frozen),
  * `vendor-java-money-scan` (55) and `wallet-rpc-mainnet-scan` (57). A NEW error
  * fails the build. A pinned one that gets FIXED also fails the build, telling
  * you to delete its row — so the list can only shrink, and it cannot rot into
@@ -181,7 +181,6 @@ const PINNED = {
 
   // 3 — services/svc-indexer
   'services/svc-indexer': [
-    [1, "src/chain/evm/abi.test.ts | TS2339 | Property 'solcVersion' does not exist on type 'DevVenueArtifact'."],
     [
       1,
       "src/chain/evm/abi.test.ts | TS6059 | File '<repo>/services/svc-indexer/scripts/dev-venue.ts' is not under 'rootDir' '<repo>/services/svc-indexer/src'. 'rootDir' is expected to contain all source files.",

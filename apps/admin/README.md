@@ -44,7 +44,7 @@ pnpm --filter @intafaced/admin typecheck
 - `ledger.posting` off — same reasoning on the kill-switch board: the switch is locked until the operator
   acknowledges the platform-wide blast radius in the panel above it.
 
-## Wired (live)
+## Inspected transports
 
 **Module kill-switches** reach svc-edge through this console (#186 + A-P5-OPS):
 
@@ -54,16 +54,15 @@ pnpm --filter @intafaced/admin typecheck
 | `GET/POST /api/ledger-freeze`  | `/admin/ledger/freeze` · unfreeze | `EDGE_URL` + `ADMIN_TREASURY_TOKEN` (`admin:treasury`)      |
 | `GET/POST /api/operator-tools` | `/api/{module}/trpc/{procedure}`  | current individual founder session; services enforce scopes |
 
-The `/` board **loads live disabled modules** and **posts module kill/enable** with a required reason when the
-control plane status is `reachable`. Per-flag rows remain session-staged (flag store §13).
+The `/` board reads current module state and audit. A successful read or configured transport never enables module writes: identity-issued approval and original operation context are not supplied by these controls. Per-flag rows remain explicitly labelled local session previews (flag store §13).
 
 Operator runbook: [`docs/OPS-KILL-SWITCH-RUNBOOK.md`](../../docs/OPS-KILL-SWITCH-RUNBOOK.md).
 
 ## Still not wired (honest residual)
 
-`src/lib/operator-commands.ts` still stubs **ledger reconcile** (and the Ledger ops page still uses those stubs
-for freeze/unfreeze UI — prefer `/api/ledger-freeze` when wiring that screen). Every simulated result says so
-on its face; no invented money number.
+Ledger ops is read-only: its posting snapshot is neither command history nor an original receipt. Freeze/unfreeze require verified treasury authority, MFA, identity-issued approvals and original lookup; disabled requirement inspection cannot acquire them. Live reconciliation is not mounted. The retained simulated preview sends nothing, and zero placeholder counts are displayed as not counted/not checked.
+
+Current main's founder page and BFF gates remain authoritative and asynchronous. Retained browser mutation helpers obtain the current founder CSRF nonce before POST; an absent or malformed nonce is a definite no-dispatch refusal. A valid posting record cannot settle an unknown command. Existing command transports are not new UI authority.
 
 ## Founder sessions and deployment
 

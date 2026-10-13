@@ -7,6 +7,7 @@ import type { EngineOrder, OrderSide } from './types.js';
 import {
   QUOTE_PAIR_INCOMPLETE,
   QUOTE_PAIR_REJECTED,
+  QUOTE_PAIR_REJECTED_MESSAGE,
   QUOTE_SET_MISSING,
   installMassQuote,
   type MassQuoteCommand,
@@ -162,5 +163,53 @@ describe('mass quote — paired set, oneSided explicit, qty is Amount', () => {
     expect(result.results[0]!.status).toBe('APPLIED');
     expect(typeof bid.qty).toBe('bigint');
     expect(engine.restingOrders(MARKET)[0]!.remaining).toBe('1');
+  });
+
+  it('a thrown cancel that leaves the order resting does not claim the side was unwound', async () => {
+    const { engine } = build();
+    const orig = engine.cancel.bind(engine);
+    engine.cancel = (async (marketId, orderId) => {
+      if (orderId === BID) throw new Error('cancel boom');
+      return orig(marketId, orderId);
+    }) as typeof engine.cancel;
+
+    const result = await engine.massQuote({
+      setId: SET,
+      marketId: MARKET,
+      accountId: 'desk',
+      bid: order({ id: BID, side: 'buy', qty: '1', price: '99' }),
+      ask: order({ id: ASK, side: 'sell', qty: '1', price: null }),
+    });
+
+    expect(liveIds(engine)).toEqual([BID]);
+    expect(result.results[0]).toMatchObject({ side: 'bid', status: 'APPLIED', orderId: BID });
+    expect(result.rejected).toBeUndefined();
+    expect(result.results.every((row) => row.rejected?.message !== QUOTE_PAIR_REJECTED_MESSAGE)).toBe(true);
+    expect(result.results[1]!.rejected?.code).toBe('missing_price');
+  });
+
+  it('a thrown submit that already rested the order is applied so the pair can unwind it', async () => {
+    const { engine } = build();
+    const orig = engine.submit.bind(engine);
+    engine.submit = (async (marketId, order, proof) => {
+      const result = await orig(marketId, order, proof);
+      if (order.orderId === BID) throw new Error('submit boom');
+      return result;
+    }) as typeof engine.submit;
+
+    const result = await engine.massQuote({
+      setId: SET,
+      marketId: MARKET,
+      accountId: 'desk',
+      bid: order({ id: BID, side: 'buy', qty: '1', price: '99' }),
+      ask: order({ id: ASK, side: 'sell', qty: '1', price: null }),
+    });
+
+    expect(liveIds(engine)).toEqual([]);
+    expect(result.rejected?.code).toBe(QUOTE_PAIR_REJECTED);
+    expect(result.rejected?.message).toBe(QUOTE_PAIR_REJECTED_MESSAGE);
+    expect(result.results[0]).toMatchObject({ side: 'bid', status: 'REFUSED', orderId: BID });
+    expect(result.results[0]!.rejected?.code).toBe(QUOTE_PAIR_REJECTED);
+    expect(result.results[1]!.rejected?.code).toBe('missing_price');
   });
 });

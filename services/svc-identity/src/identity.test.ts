@@ -5,7 +5,7 @@ import { describe, expect, it, beforeEach, afterAll } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb, postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { verifyAccessToken, hasScope, SESSION_SCOPES } from '@intafaced/auth';
-import { checkAccess } from '@intafaced/config';
+import { checkAccess, screeningFailClosedFromEnv, UNSET_SCREENING_LIST } from '@intafaced/config';
 import { createHash, generateKeyPairSync, randomBytes, sign as cryptoSign, type KeyObject } from 'node:crypto';
 import { AuthService, AuthError } from './auth/auth-service.js';
 import { bindApiKeyOriginAllowlist } from './auth/auth-service-origin.js';
@@ -57,6 +57,11 @@ function totpNext(secret: string): string {
 
 // Ops role can CREATE SCHEMA; the service role cannot. Host port is 5433.
 const URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
+/** A fresh register/login-by-password session: `mfa` false. */
+const PASSWORD_SESSION = { mfa: false, privileged: false } as const;
+/** A session that passed a second factor (or holds a fresh step-up token). */
+const MFA_SESSION = { mfa: true, privileged: false } as const;
+
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', 'drizzle');
 
@@ -95,7 +100,7 @@ function softAuthenticator() {
 
   const sign = (authData: Buffer, clientDataJSON: Buffer, key: KeyObject = privateKey) => {
     const clientDataHash = createHash('sha256').update(clientDataJSON).digest();
-    return cryptoSign('SHA256', Buffer.concat([authData, clientDataHash]), { key, dsaEncoding: 'ieee-p1363' });
+    return cryptoSign('SHA256', Buffer.concat([authData, clientDataHash]), { key, dsaEncoding: 'der' });
   };
 
   return {
@@ -312,14 +317,14 @@ if (!available) {
   describe('TOTP enrolment', () => {
     it('does not persist the secret until a code confirms it', async () => {
       const session = await register();
-      const { secret } = await auth.startTotpEnrolment(session.userId);
+      const { secret } = await auth.startTotpEnrolment(session.userId, PASSWORD_SESSION);
 
       const before = await db.sql<Array<{ totp_secret: string | null }>>`
         SELECT totp_secret FROM users WHERE id = ${session.userId}
       `;
       expect(before[0]!.totp_secret).toBeNull();
 
-      await auth.confirmTotpEnrolment(session.userId, secret, totp(secret));
+      await auth.confirmTotpEnrolment(session.userId, PASSWORD_SESSION, secret, totp(secret));
 
       const after = await db.sql<Array<{ totp_secret: string | null }>>`
         SELECT totp_secret FROM users WHERE id = ${session.userId}
@@ -332,18 +337,20 @@ if (!available) {
 
     it('rejects a wrong confirmation code', async () => {
       const session = await register();
-      const { secret } = await auth.startTotpEnrolment(session.userId);
-      await expect(auth.confirmTotpEnrolment(session.userId, secret, '000000')).rejects.toMatchObject({ code: 'auth.mfa_invalid' });
+      const { secret } = await auth.startTotpEnrolment(session.userId, PASSWORD_SESSION);
+      await expect(auth.confirmTotpEnrolment(session.userId, PASSWORD_SESSION, secret, '000000')).rejects.toMatchObject({
+        code: 'auth.mfa_invalid',
+      });
     });
 
     it('completes enrolment when start and confirm hit different AuthService instances (multi-pod)', async () => {
       // Two services share SQL + key — models two identity pods behind a LB.
       const authB = new AuthService(db.sql, bus, rank, tokenConfig, webauthnConfig, totpSecretKeyMaterial);
       const session = await register();
-      const { secret } = await auth.startTotpEnrolment(session.userId);
+      const { secret } = await auth.startTotpEnrolment(session.userId, PASSWORD_SESSION);
 
       // Pending must not live only in pod-A process memory.
-      await authB.confirmTotpEnrolment(session.userId, secret, totp(secret));
+      await authB.confirmTotpEnrolment(session.userId, PASSWORD_SESSION, secret, totp(secret));
 
       const after = await db.sql<Array<{ totp_secret: string | null }>>`
         SELECT totp_secret FROM users WHERE id = ${session.userId}
@@ -351,22 +358,22 @@ if (!available) {
       expect(after[0]!.totp_secret).toMatch(/^enc:v1:/);
 
       // Pending is single-use — second confirm fails closed.
-      await expect(authB.confirmTotpEnrolment(session.userId, secret, totpNext(secret))).rejects.toMatchObject({
+      await expect(authB.confirmTotpEnrolment(session.userId, MFA_SESSION, secret, totpNext(secret))).rejects.toMatchObject({
         code: 'auth.mfa_invalid',
       });
     });
 
     it('wrong secret on confirm does not burn a legitimate pending enrolment', async () => {
       const session = await register();
-      const { secret } = await auth.startTotpEnrolment(session.userId);
+      const { secret } = await auth.startTotpEnrolment(session.userId, PASSWORD_SESSION);
       const wrongSecret = secret === 'A'.repeat(32) ? 'B'.repeat(32) : 'A'.repeat(32);
 
-      await expect(auth.confirmTotpEnrolment(session.userId, wrongSecret, totp(wrongSecret))).rejects.toMatchObject({
+      await expect(auth.confirmTotpEnrolment(session.userId, PASSWORD_SESSION, wrongSecret, totp(wrongSecret))).rejects.toMatchObject({
         code: 'auth.mfa_invalid',
       });
 
       // Real secret still works after the mismatch attempt.
-      await auth.confirmTotpEnrolment(session.userId, secret, totp(secret));
+      await auth.confirmTotpEnrolment(session.userId, PASSWORD_SESSION, secret, totp(secret));
       const after = await db.sql<Array<{ totp_secret: string | null }>>`
         SELECT totp_secret FROM users WHERE id = ${session.userId}
       `;
@@ -376,8 +383,8 @@ if (!available) {
     it('then requires the code at login, and marks the session mfa', async () => {
       const handle = unique();
       const session = await auth.register({ handle, email: `${handle}@example.com`, password: 'correct horse battery staple' });
-      const { secret } = await auth.startTotpEnrolment(session.userId);
-      await auth.confirmTotpEnrolment(session.userId, secret, totp(secret));
+      const { secret } = await auth.startTotpEnrolment(session.userId, PASSWORD_SESSION);
+      await auth.confirmTotpEnrolment(session.userId, PASSWORD_SESSION, secret, totp(secret));
 
       await expect(auth.login({ identifier: handle, password: 'correct horse battery staple' })).rejects.toMatchObject({
         code: 'auth.mfa_required',
@@ -396,8 +403,8 @@ if (!available) {
     it('refuses a TOTP code that was already consumed in this window (anti-replay)', async () => {
       const handle = unique();
       const session = await auth.register({ handle, email: `${handle}@example.com`, password: 'correct horse battery staple' });
-      const { secret } = await auth.startTotpEnrolment(session.userId);
-      await auth.confirmTotpEnrolment(session.userId, secret, totp(secret));
+      const { secret } = await auth.startTotpEnrolment(session.userId, PASSWORD_SESSION);
+      await auth.confirmTotpEnrolment(session.userId, PASSWORD_SESSION, secret, totp(secret));
 
       const code = totpNext(secret);
       await auth.login({ identifier: handle, password: 'correct horse battery staple', totpCode: code });
@@ -408,8 +415,8 @@ if (!available) {
       });
 
       const live = await register();
-      const { secret: s2 } = await auth.startTotpEnrolment(live.userId);
-      await auth.confirmTotpEnrolment(live.userId, s2, totp(s2));
+      const { secret: s2 } = await auth.startTotpEnrolment(live.userId, PASSWORD_SESSION);
+      await auth.confirmTotpEnrolment(live.userId, PASSWORD_SESSION, s2, totp(s2));
       const stepCode = totpNext(s2);
       await auth.stepUp({ userId: live.userId, sessionId: live.sessionId, totpCode: stepCode });
       await expect(auth.stepUp({ userId: live.userId, sessionId: live.sessionId, totpCode: stepCode })).rejects.toMatchObject({
@@ -420,7 +427,7 @@ if (!available) {
     it('stores hashed recovery codes on confirm and redeems once at login (ID-P1-1)', async () => {
       const handle = unique();
       const session = await auth.register({ handle, email: `${handle}@example.com`, password: 'correct horse battery staple' });
-      const { secret, recoveryCodes } = await auth.startTotpEnrolment(session.userId);
+      const { secret, recoveryCodes } = await auth.startTotpEnrolment(session.userId, PASSWORD_SESSION);
       expect(recoveryCodes.length).toBeGreaterThan(0);
 
       // Plaintext never lands before confirm.
@@ -429,7 +436,7 @@ if (!available) {
       `;
       expect(normalizeStringList(before[0]!.recovery_code_hashes)).toEqual([]);
 
-      await auth.confirmTotpEnrolment(session.userId, secret, totp(secret));
+      await auth.confirmTotpEnrolment(session.userId, PASSWORD_SESSION, secret, totp(secret));
 
       const after = await db.sql<Array<{ recovery_code_hashes: unknown }>>`
         SELECT recovery_code_hashes FROM users WHERE id = ${session.userId}
@@ -481,11 +488,15 @@ if (!available) {
       });
       const authenticator = softAuthenticator();
 
-      const options = await auth.startWebauthnRegistration(session.userId);
+      const options = await auth.startWebauthnRegistration(session.userId, PASSWORD_SESSION);
       expect(options.challenge).toBeTruthy();
       expect(options.rp.id).toBe('localhost');
 
-      const enrolled = await auth.confirmWebauthnRegistration(session.userId, authenticator.registrationResponse(options.challenge));
+      const enrolled = await auth.confirmWebauthnRegistration(
+        session.userId,
+        PASSWORD_SESSION,
+        authenticator.registrationResponse(options.challenge),
+      );
       expect(enrolled.credentialId).toBe(b64urlEncode(authenticator.credId));
 
       const stored = await db.sql<Array<{ webauthn_creds: unknown }>>`
@@ -506,10 +517,10 @@ if (!available) {
     it('does not persist a credential when the challenge is wrong', async () => {
       const session = await register();
       const authenticator = softAuthenticator();
-      const options = await auth.startWebauthnRegistration(session.userId);
+      const options = await auth.startWebauthnRegistration(session.userId, PASSWORD_SESSION);
       // Consume the real challenge by never using it; present a different one.
       await expect(
-        auth.confirmWebauthnRegistration(session.userId, authenticator.registrationResponse('not-the-challenge')),
+        auth.confirmWebauthnRegistration(session.userId, PASSWORD_SESSION, authenticator.registrationResponse('not-the-challenge')),
       ).rejects.toMatchObject({ code: 'auth.webauthn_invalid' });
 
       const stored = await db.sql<Array<{ webauthn_creds: unknown }>>`
@@ -520,7 +531,7 @@ if (!available) {
       // a failed verify with a foreign challenge leaves the real one intact, so
       // a second attempt with the real challenge still works.
       await expect(
-        auth.confirmWebauthnRegistration(session.userId, authenticator.registrationResponse(options.challenge)),
+        auth.confirmWebauthnRegistration(session.userId, PASSWORD_SESSION, authenticator.registrationResponse(options.challenge)),
       ).resolves.toMatchObject({ credentialId: b64urlEncode(authenticator.credId) });
     });
 
@@ -540,17 +551,21 @@ if (!available) {
       const owner = await register();
       const stranger = await register();
       const authenticator = softAuthenticator();
-      const options = await auth.startWebauthnRegistration(owner.userId);
-      const enrolled = await auth.confirmWebauthnRegistration(owner.userId, authenticator.registrationResponse(options.challenge));
+      const options = await auth.startWebauthnRegistration(owner.userId, PASSWORD_SESSION);
+      const enrolled = await auth.confirmWebauthnRegistration(
+        owner.userId,
+        PASSWORD_SESSION,
+        authenticator.registrationResponse(options.challenge),
+      );
 
       expect(await auth.listWebauthnCredentials(owner.userId, 200)).toHaveLength(1);
       // Foreign principal: same shape as apiKeys.revoke — false, no leak.
-      expect(await auth.removeWebauthnCredential(stranger.userId, enrolled.credentialId)).toBe(false);
+      expect(await auth.removeWebauthnCredential(stranger.userId, MFA_SESSION, enrolled.credentialId)).toBe(false);
       expect(await auth.listWebauthnCredentials(owner.userId, 200)).toHaveLength(1);
 
-      expect(await auth.removeWebauthnCredential(owner.userId, enrolled.credentialId)).toBe(true);
+      expect(await auth.removeWebauthnCredential(owner.userId, MFA_SESSION, enrolled.credentialId)).toBe(true);
       expect(await auth.listWebauthnCredentials(owner.userId, 200)).toHaveLength(0);
-      expect(await auth.removeWebauthnCredential(owner.userId, enrolled.credentialId)).toBe(false);
+      expect(await auth.removeWebauthnCredential(owner.userId, MFA_SESSION, enrolled.credentialId)).toBe(false);
 
       // Assertion path is gone for that key.
       const handle = (await db.sql<Array<{ handle: string }>>`SELECT handle FROM users WHERE id = ${owner.userId}`)[0]!.handle;
@@ -1313,15 +1328,45 @@ if (!available) {
       // `trade` is OPEN_BASIC — the CUSTODIAL spot venue, which holds user funds
       // in ledger accounts. Before approval a freshly registered user cannot
       // place an order at all.
-      const before = checkAccess({ module: 'trade', region: 'DE', plane: 'fiat', kycTier: await auth.kycTier(session.userId) });
+      // KYC-only fixture: no sanctions authority is supplied or claimed.
+      const before = checkAccess({
+        screeningFailClosed: false,
+        module: 'trade',
+        region: 'DE',
+        plane: 'fiat',
+        kycTier: await auth.kycTier(session.userId),
+      });
       expect(before.allowed).toBe(false);
       expect(before.code).toBe('denied.kyc_required');
 
       const submitted = await auth.submitKyc({ userId: session.userId, tier: 'basic', jurisdiction: 'DE' });
       await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId });
 
-      const after = checkAccess({ module: 'trade', region: 'DE', plane: 'fiat', kycTier: await auth.kycTier(session.userId) });
+      const after = checkAccess({
+        screeningFailClosed: false,
+        module: 'trade',
+        region: 'DE',
+        plane: 'fiat',
+        kycTier: await auth.kycTier(session.userId),
+      });
       expect(after.allowed).toBe(true);
+    });
+
+    it('still refuses an unconfigured sanctions list for a verified identity', async () => {
+      const session = await register();
+      await auth.approveKyc({ userId: session.userId, tier: 'full', jurisdiction: 'DE' });
+      expect(screeningFailClosedFromEnv({})).toBe(true);
+      const decision = checkAccess({
+        module: 'bank',
+        region: 'DE',
+        plane: 'fiat',
+        kycTier: await auth.kycTier(session.userId),
+        screening: UNSET_SCREENING_LIST,
+        screeningFailClosed: screeningFailClosedFromEnv({}),
+      });
+      expect(decision.allowed).toBe(false);
+      expect(decision.code).toBe('denied.screening_unconfigured');
+      expect(decision.screening.listConfigured).toBe(false);
     });
 
     it('leaves the PERMISSIONLESS plane alone — no tier is ever consulted there (§22)', async () => {
@@ -1332,7 +1377,14 @@ if (!available) {
       // is read, so an unverified account is not second class there — it is the
       // normal case. If this ever fails, a KYC gate has leaked onto a plane that
       // holds nothing.
-      const decision = checkAccess({ module: 'protocol', region: 'DE', plane: 'protocol', kycTier: await auth.kycTier(session.userId) });
+      // Custody-only fixture: no sanctions authority is supplied or claimed.
+      const decision = checkAccess({
+        screeningFailClosed: false,
+        module: 'protocol',
+        region: 'DE',
+        plane: 'protocol',
+        kycTier: await auth.kycTier(session.userId),
+      });
       expect(decision.allowed).toBe(true);
       expect(decision.code).toBe('allowed.permissionless');
     });
@@ -1553,8 +1605,8 @@ if (!available) {
    */
   describe('step-up elevation', () => {
     const enrol = async (userId: string) => {
-      const { secret, recoveryCodes } = await auth.startTotpEnrolment(userId);
-      await auth.confirmTotpEnrolment(userId, secret, totp(secret));
+      const { secret, recoveryCodes } = await auth.startTotpEnrolment(userId, PASSWORD_SESSION);
+      await auth.confirmTotpEnrolment(userId, PASSWORD_SESSION, secret, totp(secret));
       return { secret, recoveryCodes };
     };
 
@@ -1745,8 +1797,8 @@ if (!available) {
     // trade:withdraw) so a login assertion cannot be replayed into withdraw.
     const enrolPasskey = async (userId: string) => {
       const authenticator = softAuthenticator();
-      const options = await auth.startWebauthnRegistration(userId);
-      await auth.confirmWebauthnRegistration(userId, authenticator.registrationResponse(options.challenge));
+      const options = await auth.startWebauthnRegistration(userId, PASSWORD_SESSION);
+      await auth.confirmWebauthnRegistration(userId, PASSWORD_SESSION, authenticator.registrationResponse(options.challenge));
       return authenticator;
     };
 
@@ -1992,8 +2044,8 @@ if (!available) {
       });
 
       // 2 · enrol TOTP
-      const { secret } = await auth.startTotpEnrolment(registered.userId);
-      await auth.confirmTotpEnrolment(registered.userId, secret, totp(secret));
+      const { secret } = await auth.startTotpEnrolment(registered.userId, PASSWORD_SESSION);
+      await auth.confirmTotpEnrolment(registered.userId, PASSWORD_SESSION, secret, totp(secret));
 
       // 3 · log in with the second factor (next step — confirm burned current)
       const loggedIn = await auth.login({
@@ -2054,12 +2106,29 @@ if (!available) {
     it('a verified user passes the jurisdiction matrix that an unverified one fails', async () => {
       const session = await register();
 
+      // KYC-only fixture: no sanctions authority is supplied or claimed.
       // Ties identity to §22: the tier this service issues is what the matrix reads.
-      expect(checkAccess({ module: 'bank', region: 'DE', plane: 'fiat', kycTier: await auth.kycTier(session.userId) }).allowed).toBe(false);
+      expect(
+        checkAccess({
+          screeningFailClosed: false,
+          module: 'bank',
+          region: 'DE',
+          plane: 'fiat',
+          kycTier: await auth.kycTier(session.userId),
+        }).allowed,
+      ).toBe(false);
 
       await auth.approveKyc({ userId: session.userId, tier: 'full', jurisdiction: 'DE' });
 
-      expect(checkAccess({ module: 'bank', region: 'DE', plane: 'fiat', kycTier: await auth.kycTier(session.userId) }).allowed).toBe(true);
+      expect(
+        checkAccess({
+          screeningFailClosed: false,
+          module: 'bank',
+          region: 'DE',
+          plane: 'fiat',
+          kycTier: await auth.kycTier(session.userId),
+        }).allowed,
+      ).toBe(true);
     });
   });
 }

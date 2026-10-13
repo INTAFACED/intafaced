@@ -18,6 +18,8 @@ This is not the complete professional execution product. It does not provide dur
 
 All protected procedures use the edge HMAC principal under `/trpc` (edge mount `/api/execution`). The policy catalog is public; protected read doors require `admin:read`. OMS mutations, `execution.arb.scan/planLegs/executeLegs`, `execution.mm.quote/hedge`, `execution.tenant.kill`, and HTTP OMS POSTs require service HMAC as `svc-execution` — session `admin:write` is not a writer.
 
+Live slices reserve retained quantity and journal the original parent, operator, venue, symbol, side, quantity, limit and child identity before submission. A lost acknowledgement retains that reservation and refuses another unresolved child; existing fetch/cancel observations provide reconciliation. The journals assume one service process owns their paths and do not provide atomic updates across files or an exactly-once venue guarantee. A partially filled cancel response remains unknown until the venue reports a terminal status.
+
 HTTP endpoints are `GET /health` and `GET /ready`. Readiness reports the `oms-ems` stage, EMS store mode and acknowledgement count, wired external trade/account/market-data venues, credential presence, operator/public-data supplements, and `internalVenue: blocked`. A ready process does not prove venue health, complete execution lifecycle, or production maturity.
 
 ## Events

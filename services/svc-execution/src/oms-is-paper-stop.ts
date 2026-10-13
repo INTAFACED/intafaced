@@ -7,12 +7,7 @@
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsIsPaperStopRefuseReason =
-  | 'missing_parent'
-  | 'not_running'
-  | 'already_stopped'
-  | 'not_live'
-  | 'paper_gate_unwired'
-  | 'paper_off';
+  'missing_parent' | 'not_running' | 'already_stopped' | 'not_live' | 'paper_gate_unwired' | 'paper_off';
 
 export type OmsIsPaperStopRefusal = {
   readonly ok: false;

@@ -1,3 +1,4 @@
+import { P2pError } from './p2p-service.js';
 import type { Sql } from 'postgres';
 import { isSupportedFiat } from '@intafaced/config';
 import {
@@ -301,13 +302,20 @@ export class InstrumentService {
     }
     const fields = parseFieldSpecs(input.fields);
 
+    // A new row still defaults to enabled. A replace that omits `enabled` must
+    // not copy that default onto a row `setMethodSchemaEnabled` turned off:
+    // EXCLUDED.enabled would be true, and schemaFor would accept the rail again.
+    const writeEnabled = input.enabled !== undefined;
     const rows = await this.sql<SchemaRow[]>`
       INSERT INTO p2p.payment_method_schemas (method_id, country, label, fields, enabled)
       VALUES (${methodId}, ${country}, ${label}, ${this.sql.json(fields as never)}, ${input.enabled ?? true})
       ON CONFLICT (method_id, country) DO UPDATE SET
         label = EXCLUDED.label,
         fields = EXCLUDED.fields,
-        enabled = EXCLUDED.enabled,
+        enabled = CASE
+          WHEN ${writeEnabled}::boolean THEN EXCLUDED.enabled
+          ELSE payment_method_schemas.enabled
+        END,
         updated_at = now()
       RETURNING *
     `;
@@ -821,10 +829,11 @@ export class InstrumentService {
           buyer_id: string;
           purged_at: Date | null;
           dispute_status: string | null;
+          original_terms_claimed_at: Date | null;
         }>
       >`
         SELECT tpi.trade_id, tpi.instrument_id, tpi.owner_id, tpi.purged_at,
-               t.status, t.seller_id, t.buyer_id, d.status AS dispute_status
+               t.status, t.seller_id, t.buyer_id, t.original_terms_claimed_at, d.status AS dispute_status
           FROM p2p.trade_payment_instruments tpi
           JOIN p2p.p2p_trades t ON t.id = tpi.trade_id
           LEFT JOIN p2p.p2p_disputes d ON d.trade_id = tpi.trade_id
@@ -858,6 +867,21 @@ export class InstrumentService {
         throw notFound(input.tradeId);
       }
 
+      if (ctx.original_terms_claimed_at === null) {
+        await this.logDenied({
+          instrumentId: ctx.instrument_id,
+          ownerId: ctx.owner_id,
+          viewerId: input.viewerId,
+          viewerRole: decision.role,
+          tradeId: ctx.trade_id,
+          reason: 'original_terms_unproven',
+        });
+        throw new P2pError(
+          'Original escrow terms are unproven; the legacy pay-to snapshot is preserved without disclosure',
+          'p2p.escrow_terms_unproven',
+        );
+      }
+
       // 2 · The disclosure. Read and log, or neither.
       const rows = await this.sql<
         Array<{
@@ -882,6 +906,7 @@ export class InstrumentService {
            WHERE tpi.trade_id = ${input.tradeId}
              AND tpi.details IS NOT NULL
              AND t.status IN ('escrowed', 'fiat_sent', 'disputed')
+             AND t.original_terms_claimed_at IS NOT NULL
         ),
         logged AS (
           INSERT INTO p2p.instrument_access_log (instrument_id, owner_id, viewer_id, viewer_role, trade_id, outcome)

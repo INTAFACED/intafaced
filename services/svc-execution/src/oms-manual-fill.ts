@@ -11,7 +11,7 @@
  * Does not post ledger value, does not touch matching.
  */
 import { formatAmount, parseAmount, ZERO, type Amount } from '@intafaced/ledger-client';
-import { capAgainstParentPrice, capAgainstParentRemaining, consumeCappedRemaining } from './oms-parent-cap.js';
+import { capAgainstParentPrice, capAgainstParentRemaining, consumeCappedRemaining, retainedRemaining } from './oms-parent-cap.js';
 import type { AlgoKind, ApprovedAlgoParent, ApprovedAlgoParentStore } from './oms-start.js';
 
 export type ManualChildFill = {
@@ -84,6 +84,7 @@ export type OmsManualFillRefuse =
   | { readonly ok: false; readonly reason: 'worse_than_cap'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'missing_residual'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'exceeds_remaining'; readonly detail: string }
+  | { readonly ok: false; readonly reason: 'non_positive_qty'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'fill_store_unwired'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'already_recorded'; readonly detail: string };
 
@@ -103,6 +104,17 @@ function liveStatus(status: string): boolean {
 
 function confirmerOf(confirmerId?: string): string {
   return confirmerId?.trim() ?? '';
+}
+
+/** Put the leftover back through the same residual writer consume used. */
+function restoreConsumedRemaining(
+  parentStore: ApprovedAlgoParentStore,
+  parentClientOrderId: string,
+  priorRemaining: string | null,
+  consumedRemaining: string,
+): void {
+  if (!priorRemaining) return;
+  consumeCappedRemaining(parentStore, parentClientOrderId, priorRemaining, consumedRemaining);
 }
 
 function locateParent(input: {
@@ -220,18 +232,26 @@ export function recordManualChildFill(input: {
       `child fill ${clientOrderId} is already recorded by ${existing.confirmerId} — refusing to rewrite the trail`,
     );
   }
+  const priorRemaining = retainedRemaining(located.parent);
   const consumed = consumeCappedRemaining(parentStore, located.parent.parentClientOrderId, cap.nextRemaining);
   if (!consumed.ok) return consumed;
   const confirmedAt = (input.now ?? new Date()).toISOString();
-  const recorded = input.manualFillStore.record({
-    clientOrderId,
-    parentClientOrderId: located.parent.parentClientOrderId,
-    filledAmount: qty.formatted,
-    averagePrice: px.formatted,
-    confirmerId,
-    confirmedAt,
-  });
+  let recorded: ManualChildFill | null;
+  try {
+    recorded = input.manualFillStore.record({
+      clientOrderId,
+      parentClientOrderId: located.parent.parentClientOrderId,
+      filledAmount: qty.formatted,
+      averagePrice: px.formatted,
+      confirmerId,
+      confirmedAt,
+    });
+  } catch (error) {
+    restoreConsumedRemaining(parentStore, located.parent.parentClientOrderId, priorRemaining, consumed.remaining);
+    throw error;
+  }
   if (!recorded) {
+    restoreConsumedRemaining(parentStore, located.parent.parentClientOrderId, priorRemaining, consumed.remaining);
     return refuse('already_recorded', `child fill ${clientOrderId} is already recorded — refusing to rewrite the trail`);
   }
   return {

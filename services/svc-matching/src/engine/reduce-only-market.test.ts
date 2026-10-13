@@ -25,6 +25,10 @@ const CLOSE = '77777777-7777-4777-8777-777777777777';
 const OTHER_REST = '88888888-8888-4888-8888-888888888888';
 const AMEND = '99999999-9999-4999-8999-999999999999';
 const EXIT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const BID_HIGH = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const BID_LOW = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const FLAT = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const REDUCE = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 
 function order(spec: { id: string; account?: string; side: OrderSide; qty: string; price?: string; reduceOnly?: boolean }): EngineOrder {
   return {
@@ -212,6 +216,54 @@ describe('operator reduce-only of one market', () => {
     expect(amended.accepted).toBe(false);
     expect(amended.rejected?.code).toBe(MARKET_REDUCE_ONLY);
     expect(journal.length).toBe(before);
+  });
+
+  it('a price amend that omits qty does not grow a position on a reduce-only market', async () => {
+    const { journal, engine } = build();
+    await openLong(engine);
+    await engine.submit(MARKET, order({ id: BID_LOW, account: 'mm', side: 'buy', qty: '2', price: '80' }));
+    await engine.submit(MARKET, order({ id: BID_HIGH, account: 'mm', side: 'buy', qty: '2', price: '100' }));
+    const rest = await engine.submit(MARKET, order({ id: AMEND, side: 'sell', qty: '2', price: '110' }));
+    expect(rest.accepted).toBe(true);
+    const reducing = await engine.submit(MARKET, order({ id: REDUCE, side: 'sell', qty: '1', price: '120' }));
+    expect(reducing.accepted).toBe(true);
+    await engine.reduceOnly(MARKET, { operatorId: 'ops-1', confirmOperatorId: 'ops-2' });
+
+    const shrunk = await engine.amend(MARKET, { orderId: REDUCE, expectedVersion: 1, qty: parseAmount('1'), price: parseAmount('119') });
+    expect(shrunk.accepted).toBe(true);
+    expect(shrunk.fills).toEqual([]);
+    expect(
+      engine
+        .book(MARKET)
+        .toState()
+        .positions?.find((row) => row.accountId === 'desk')?.qty,
+    ).toBe('2');
+
+    const flat = await engine.submit(MARKET, order({ id: FLAT, side: 'sell', qty: '2', price: '100' }));
+    expect(flat.accepted).toBe(true);
+    expect(flat.fills).toHaveLength(1);
+    expect(engine.book(MARKET).toState().positions).toBeUndefined();
+
+    const before = journal.length;
+    const amended = await engine.amend(MARKET, { orderId: AMEND, expectedVersion: 1, price: parseAmount('80') });
+
+    expect(amended.accepted).toBe(false);
+    expect(amended.rejected?.code).toBe(MARKET_REDUCE_ONLY);
+    expect(amended.fills).toEqual([]);
+    expect(journal.length).toBe(before);
+    expect(engine.book(MARKET).toState().positions).toBeUndefined();
+    expect(engine.book(MARKET).toState().lastTradePrice).toBe('100');
+    expect(
+      engine
+        .book(MARKET)
+        .toState()
+        .asks.find((level) => level.price === '110')?.orders[0],
+    ).toMatchObject({
+      orderId: AMEND,
+      remaining: '2',
+    });
+    expect(engine.book(MARKET).toState().bids[0]).toMatchObject({ price: '80' });
+    expect(engine.book(MARKET).toState().bids[0]!.orders[0]!.remaining).toBe('2');
   });
 
   it('replay of reduce-only then resume leaves the market open', async () => {

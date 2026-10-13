@@ -22,15 +22,11 @@ export function refuseUnsetDiscretionCap(
   raw: string | null | undefined,
 ): OmsDiscretionRefusal | { readonly ok: true; readonly discretionCap: string } {
   if (raw === undefined || raw === null) {
-    return refuseUnset(
-      'discretion cap is unset — refusing rather than inventing a care-desk limit',
-    );
+    return refuseUnset('discretion cap is unset — refusing rather than inventing a care-desk limit');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuseUnset(
-      'discretion cap is unset — refusing rather than inventing a care-desk limit',
-    );
+    return refuseUnset('discretion cap is unset — refusing rather than inventing a care-desk limit');
   }
   try {
     const value = parseAmount(text);

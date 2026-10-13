@@ -38,20 +38,12 @@ function refuse(reason: OmsPaperPovStartRefuseReason, detail: string): OmsPaperP
   return { ok: false, reason, detail };
 }
 
-function parseRetainedMaxParticipation(
-  raw: number | null | undefined,
-): { ok: true; value: number } | OmsPaperPovStartRefusal {
+function parseRetainedMaxParticipation(raw: number | null | undefined): { ok: true; value: number } | OmsPaperPovStartRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'missing_max_participation',
-      'POV max participation is missing — refusing to invent a rate or a live venue',
-    );
+    return refuse('missing_max_participation', 'POV max participation is missing — refusing to invent a rate or a live venue');
   }
   if (!Number.isInteger(raw) || raw < 0) {
-    return refuse(
-      'missing_max_participation',
-      'POV max participation must be a non-negative integer bps — refusing to invent a rate',
-    );
+    return refuse('missing_max_participation', 'POV max participation must be a non-negative integer bps — refusing to invent a rate');
   }
   return { ok: true, value: raw };
 }
@@ -65,7 +57,7 @@ export function startPaperPovParent(input: {
   kind?: string;
   /** Must be true — start needs an already-approved paper POV parent. */
   approved?: boolean;
-  /** Paper-approved status is 'paper'. Live running refuses already_started. */
+  /** Trimmed 'paper' or 'approved' may start. Trimmed 'running' refuses already_started. Any other present status, including blank, refuses not_approved. Omitted status follows approved. */
   status?: 'paper' | 'approved' | 'running' | string;
   /** Retained max participation from paper approve. Blank refuses — never invent a rate. */
   maxParticipationBps?: number | null;
@@ -85,13 +77,16 @@ export function startPaperPovParent(input: {
   if (input.kind !== undefined && input.kind !== 'pov') {
     return refuse('not_live', `kind ${String(input.kind)} is not pov`);
   }
-  if (input.status === 'running') {
-    return refuse(
-      'already_started',
-      `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`,
-    );
+  const status = input.status?.trim();
+  if (status === 'running') {
+    return refuse('already_started', `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`);
   }
-  if (input.approved !== true && input.status !== 'paper' && input.status !== 'approved') {
+  const startableStatus = status === 'paper' || status === 'approved';
+  // Trimmed '' is present. Only an omitted status is undefined and may follow approved.
+  if (status !== undefined && !startableStatus) {
+    return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper POV parent`);
+  }
+  if (input.approved !== true && !startableStatus) {
     return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper POV parent`);
   }
   const operatorId = input.operatorId?.trim() ?? '';

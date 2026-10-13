@@ -4,12 +4,13 @@
  * Caller supplies quotes, §28 cost terms, inventory, clock, and owner max age.
  * This module never invents mids, spreads, fees, or freshness windows.
  */
-import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import {
   scanArbClass,
   type ArbOpportunity,
   type ArbRefusal,
   type ArbScanClass,
+  type ArbVenueQuote,
   type ScanExternalArbResult,
 } from '@intafaced/execution-arb';
 import type { SorCostTerms, VenueKind } from '@intafaced/venue-adapter';
@@ -17,7 +18,10 @@ import type { SorCostTerms, VenueKind } from '@intafaced/venue-adapter';
 export type OmsArbQuoteInput = {
   readonly venueId: string;
   readonly kind: VenueKind;
-  /** Null = missing quote — scanner refuses; never a default mid. */
+  /**
+   * Null stays null so the scanner can refuse a missing quote.
+   * A blank or non-decimal string is a typed refusal at this door — never a throw, never a mid.
+   */
   readonly price: string | null;
   readonly amount: string;
   /** Observation time (ms). Null = missing — refused as stale/missing. */
@@ -83,23 +87,84 @@ function wireScanResult(result: ScanExternalArbResult): OmsArbScanResultWire {
   };
 }
 
+function parseLedgerAmount(raw: string): { readonly ok: true; readonly value: Amount } | { readonly ok: false } {
+  try {
+    return { ok: true, value: parseAmount(raw) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function quoteRefusal(venueId: string, detail: string): ArbRefusal {
+  return { ok: false, buyVenueId: venueId, sellVenueId: venueId, reason: 'missing_quote', detail };
+}
+
+function emptyScan(symbol: string, refused: readonly ArbRefusal[]): OmsArbScanResultWire {
+  return { symbol, opportunities: [], refused };
+}
+
 export function scanOmsExternalArb(input: OmsArbScanInput): OmsArbScanResultWire {
+  const parsedScanAmount = parseLedgerAmount(input.amount);
+  if (!parsedScanAmount.ok) {
+    return emptyScan(input.symbol, [
+      {
+        ok: false,
+        buyVenueId: '',
+        sellVenueId: '',
+        reason: 'missing_quote',
+        detail: 'scan amount is not a decimal string — amount not invented',
+      },
+    ]);
+  }
+
+  const doorRefused: ArbRefusal[] = [];
+  const quotes: ArbVenueQuote[] = [];
+
+  for (const quote of input.quotes) {
+    let price: Amount | null = null;
+    if (quote.price !== null) {
+      const parsedPrice = parseLedgerAmount(quote.price);
+      if (!parsedPrice.ok) {
+        doorRefused.push(quoteRefusal(quote.venueId, 'quote price is not a decimal string — mid not invented'));
+        continue;
+      }
+      price = parsedPrice.value;
+    }
+
+    const parsedAmount = parseLedgerAmount(quote.amount);
+    if (!parsedAmount.ok) {
+      doorRefused.push(quoteRefusal(quote.venueId, 'quote amount is not a decimal string — amount not invented'));
+      continue;
+    }
+
+    quotes.push({
+      venueId: quote.venueId,
+      kind: quote.kind,
+      price,
+      amount: parsedAmount.value,
+      asOfMs: quote.asOfMs,
+    });
+  }
+
+  if (quotes.length === 0 && doorRefused.length > 0) {
+    return emptyScan(input.symbol, doorRefused);
+  }
+
   const result = scanArbClass({
     scanClass: input.scanClass ?? 'cross-exchange',
     fundingRate: input.fundingRate,
     symbol: input.symbol,
-    amount: parseAmount(input.amount),
-    quotes: input.quotes.map((quote) => ({
-      venueId: quote.venueId,
-      kind: quote.kind,
-      price: quote.price === null ? null : parseAmount(quote.price),
-      amount: parseAmount(quote.amount),
-      asOfMs: quote.asOfMs,
-    })),
+    amount: parsedScanAmount.value,
+    quotes,
     costTermsByVenue: input.costTermsByVenue,
     inventory: input.inventory,
     nowMs: input.nowMs,
     maxQuoteAgeMs: input.maxQuoteAgeMs,
   });
-  return wireScanResult(result);
+  const wired = wireScanResult(result);
+  return {
+    symbol: wired.symbol,
+    opportunities: wired.opportunities,
+    refused: [...doorRefused, ...wired.refused],
+  };
 }

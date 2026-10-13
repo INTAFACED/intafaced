@@ -7,11 +7,20 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
-export function executionComposeBlock(): string {
-  const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const match = compose.match(/^  svc-execution:\n(?:.*\n)*?(?=^  [a-z#]|\Z)/m);
+/**
+ * Slice the svc-execution service out of compose text.
+ * JavaScript `\Z` matches the letter Z. End of input is `(?![\s\S])`.
+ * `/m` makes `$` the end of a line, so it is not the end of the file.
+ */
+export function matchExecutionComposeBlock(compose: string): string {
+  const match = compose.match(/^  svc-execution:\n(?:.*\n)*?(?=^  [a-z#]|(?![\s\S]))/m);
   if (!match) throw new Error('svc-execution service block missing from docker-compose.apps.yml');
   return match[0];
+}
+
+export function executionComposeBlock(): string {
+  const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
+  return matchExecutionComposeBlock(compose);
 }
 
 export function executionEmsStoreComposeWired(): boolean {

@@ -405,29 +405,33 @@ describe('scanner.rank metered session run', () => {
     const result = await runScannerRankSession({
       ...liveWithPort(fake, [
         ticker('btc-usdt'),
-        ticker('ghost-usdt', { last: null }), // no quote — refused, never zero-filled
-        ticker('stale-usdt', { asOf: '2026-08-07T00:00:00.000Z' }), // older than maxAgeMs
+        ticker('ghost-usdt', { last: null }), // blank last stays out of the live sample
+        ticker('stale-usdt', { asOf: '2026-08-07T00:00:00.000Z' }), // older than maxAgeMs — the tool refuses this row
       ]),
     });
 
     expect(result.status).toBe('ok');
     if (result.status !== 'ok') return;
     expect(result.tickersAccepted).toBe(1);
-    expect(result.tickersRefusedByTool).toBe(2);
+    // The stale row is the only one the tool saw and refused. The null last never reached it.
+    expect(result.tickersRefusedByTool).toBe(1);
     expect(result.signals.map((s) => s.marketId)).toEqual(['btc-usdt']);
   });
 
   it('refuses the whole run when every ticker was refused — no invented list', async () => {
     const fake = new FakeRuntime();
     const result = await runScannerRankSession({
-      ...liveWithPort(fake, [ticker('a-usdt', { last: null }), ticker('b-usdt', { volume24h: null })]),
+      ...liveWithPort(fake, [
+        ticker('a-usdt', { last: null }), // a null last is absent from the live sample
+        ticker('b-usdt', { volume24h: null }), // live last; the tool refuses the incomplete row
+      ]),
     });
 
     expect(result).toMatchObject({
       status: 'refuse',
       reason: 'no_live_tickers',
       userMessageKey: 'agents.scanner.unavailable',
-      tickersRefusedByTool: 2,
+      tickersRefusedByTool: 1,
     });
     // The session it opened is still settled and closed.
     expect(fake.openCalls).toBe(1);

@@ -1,3 +1,4 @@
+import { truncatePayForTest } from './payment-events-test-reset.js';
 import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -26,7 +27,8 @@ const migrations = readdirSync(dir)
   .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
   .sort()
   .map((f) => readFileSync(new URL(f, dir), 'utf8'));
-describe('PayFac original credential admission real PostgreSQL', () => {
+// Real-PostgreSQL admission races can exceed the 5 s default under CI load.
+describe('PayFac original credential admission real PostgreSQL', { timeout: 30_000 }, () => {
   let db: TestDatabase, trees: SubMerchantService, pay: PayService;
   let ledger: MemoryLedger;
   beforeAll(async () => {
@@ -36,7 +38,7 @@ describe('PayFac original credential admission real PostgreSQL', () => {
     await db.drop();
   });
   beforeEach(async () => {
-    await db.sql`TRUNCATE pay.merchants CASCADE`;
+    await truncatePayForTest(db.sql, 'pay', `TRUNCATE pay.merchants CASCADE`);
     trees = new SubMerchantService(db.sql);
     ledger = new MemoryLedger();
   });

@@ -10,3 +10,9 @@ ios/DerivedData/
 *.ipa
 *.apk
 *.aab
+
+# Native staging is generated from apps/customer; keep the absence host only.
+www/*
+!www/index.html
+www.stage-*/
+www.previous-*/

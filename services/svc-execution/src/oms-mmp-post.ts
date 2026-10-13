@@ -22,13 +22,7 @@ export type OmsMmpPostInput = Readonly<{
 }>;
 
 export type OmsMmpPostRefuseReason =
-  | 'missing_parent'
-  | 'missing_quote_id'
-  | 'mqq_blank'
-  | 'mqq_invalid'
-  | 'size_blank'
-  | 'size_invalid'
-  | 'one_sided';
+  'missing_parent' | 'missing_quote_id' | 'mqq_blank' | 'mqq_invalid' | 'size_blank' | 'size_invalid' | 'one_sided';
 
 export type OmsMmpPostRefusal = {
   readonly ok: false;
@@ -57,9 +51,7 @@ function refuse(reason: OmsMmpPostRefuseReason, detail: string): OmsMmpPostRefus
   return { ok: false, reason, detail };
 }
 
-function parseOwnerMqq(
-  raw: string | null | undefined,
-): { ok: true; value: Amount; text: string } | OmsMmpPostRefusal {
+function parseOwnerMqq(raw: string | null | undefined): { ok: true; value: Amount; text: string } | OmsMmpPostRefusal {
   if (raw === null || raw === undefined) {
     return refuse('mqq_blank', 'MQQ is blank — refuse rather than invent a minimum quote quantity');
   }
@@ -79,10 +71,7 @@ function parseOwnerMqq(
   }
 }
 
-function parseSize(
-  raw: string | null | undefined,
-  label: string,
-): { ok: true; value: Amount; text: string } | OmsMmpPostRefusal {
+function parseSize(raw: string | null | undefined, label: string): { ok: true; value: Amount; text: string } | OmsMmpPostRefusal {
   if (raw === null || raw === undefined) {
     return refuse('size_blank', `${label} is blank — refuse rather than invent size`);
   }
@@ -134,10 +123,7 @@ export function postBothSidesMmpQuote(input: OmsMmpPostInput): OmsMmpPostResult 
   if (!ask.ok) return ask;
 
   if (bid.value < mqq.value || ask.value < mqq.value) {
-    return refuse(
-      'one_sided',
-      'bid or ask is below MQQ — refusing rather than post a one-sided MMP quote',
-    );
+    return refuse('one_sided', 'bid or ask is below MQQ — refusing rather than post a one-sided MMP quote');
   }
 
   return {

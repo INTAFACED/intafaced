@@ -660,15 +660,26 @@ export function createPayRouter(
 
       /** Its own scope. Refunding is not the same authority as taking payment. */
       refund: scopedProcedure('pay:refund', { module: 'pay' })
-        .input(z.object({ paymentId: z.string().uuid(), amount: amountSchema, refundId: z.string().optional() }))
+        // refundId is the caller's idempotency key. Without it the service invented
+        // `${paymentId}:${count + 1}`, so a client retry of a PARTIAL refund that had
+        // already succeeded booked a second refund. A retry must carry the same id.
+        .input(
+          z.object({
+            paymentId: z.string().uuid(),
+            amount: amountSchema,
+            refundId: z
+              .string()
+              .min(1)
+              .max(200)
+              .refine((id) => id.trim().length > 0, 'refundId must not be blank'),
+          }),
+        )
         .output(paymentView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
             await assertAccess(ctx.principal?.userId, payment.merchantId, 'trpc.payment.refund');
-            return toPaymentOut(
-              await pay.refund(input.paymentId, parseAmount(input.amount), input.refundId ? { refundId: input.refundId } : {}),
-            );
+            return toPaymentOut(await pay.refund(input.paymentId, parseAmount(input.amount), { refundId: input.refundId }));
           }),
         ),
 
@@ -1741,6 +1752,8 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.routing_input_missing':
         return 'BAD_REQUEST' as const;
       case 'pay.routing_no_rail':
+      case 'pay.rail_outcome_unknown':
+      case 'pay.ledger_outcome_unknown':
       case 'pay.identity_admission_unavailable':
       case 'pay.payout_destination_missing':
       case 'pay.payout_admission_missing':

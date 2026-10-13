@@ -67,9 +67,16 @@ export class FileApprovedAlgoParentStore implements ApprovedAlgoParentStore {
     }
   }
 
-  private persist(row: ApprovedAlgoParent | null): ApprovedAlgoParent | null {
+  private commit(parentClientOrderId: string, apply: () => ApprovedAlgoParent | null): ApprovedAlgoParent | null {
+    const previous = this.inner.get(parentClientOrderId);
+    const row = apply();
     if (!row) return null;
-    appendJsonl(this.filePath, row);
+    try {
+      appendJsonl(this.filePath, row);
+    } catch (err) {
+      this.inner.restore(parentClientOrderId, previous);
+      throw err;
+    }
     return row;
   }
 
@@ -82,83 +89,83 @@ export class FileApprovedAlgoParentStore implements ApprovedAlgoParentStore {
   }
 
   approve(parent: ApprovedAlgoParent): ApprovedAlgoParent {
-    return this.persist(this.inner.approve(parent)) as ApprovedAlgoParent;
+    return this.commit(parent.parentClientOrderId, () => this.inner.approve(parent)) as ApprovedAlgoParent;
   }
 
   start(parentClientOrderId: string, startedAt: string, operatorId?: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.start(parentClientOrderId, startedAt, operatorId));
+    return this.commit(parentClientOrderId, () => this.inner.start(parentClientOrderId, startedAt, operatorId));
   }
 
   stop(parentClientOrderId: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.stop(parentClientOrderId));
+    return this.commit(parentClientOrderId, () => this.inner.stop(parentClientOrderId));
   }
 
   kill(parentClientOrderId: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.kill(parentClientOrderId));
+    return this.commit(parentClientOrderId, () => this.inner.kill(parentClientOrderId));
   }
 
   undeploy(parentClientOrderId: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.undeploy(parentClientOrderId));
+    return this.commit(parentClientOrderId, () => this.inner.undeploy(parentClientOrderId));
   }
 
   expire(parentClientOrderId: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.expire(parentClientOrderId));
+    return this.commit(parentClientOrderId, () => this.inner.expire(parentClientOrderId));
   }
 
   releaseResidual(parentClientOrderId: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.releaseResidual(parentClientOrderId));
+    return this.commit(parentClientOrderId, () => this.inner.releaseResidual(parentClientOrderId));
   }
 
-  consumeResidual(parentClientOrderId: string, remaining: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.consumeResidual(parentClientOrderId, remaining));
+  consumeResidual(parentClientOrderId: string, remaining: string, expectedRemaining?: string): ApprovedAlgoParent | null {
+    return this.commit(parentClientOrderId, () => this.inner.consumeResidual(parentClientOrderId, remaining, expectedRemaining));
   }
 
   paper(parentClientOrderId: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.paper(parentClientOrderId));
+    return this.commit(parentClientOrderId, () => this.inner.paper(parentClientOrderId));
   }
 
   promote(parentClientOrderId: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.promote(parentClientOrderId));
+    return this.commit(parentClientOrderId, () => this.inner.promote(parentClientOrderId));
   }
 
   stage(parentClientOrderId: string, operatorId: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.stage(parentClientOrderId, operatorId));
+    return this.commit(parentClientOrderId, () => this.inner.stage(parentClientOrderId, operatorId));
   }
 
   release(parentClientOrderId: string, operatorId: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.release(parentClientOrderId, operatorId));
+    return this.commit(parentClientOrderId, () => this.inner.release(parentClientOrderId, operatorId));
   }
 
   abandon(parentClientOrderId: string, operatorId: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.abandon(parentClientOrderId, operatorId));
+    return this.commit(parentClientOrderId, () => this.inner.abandon(parentClientOrderId, operatorId));
   }
 
   claim(parentClientOrderId: string, operatorId: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.claim(parentClientOrderId, operatorId));
+    return this.commit(parentClientOrderId, () => this.inner.claim(parentClientOrderId, operatorId));
   }
 
   unclaim(parentClientOrderId: string, operatorId: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.unclaim(parentClientOrderId, operatorId));
+    return this.commit(parentClientOrderId, () => this.inner.unclaim(parentClientOrderId, operatorId));
   }
 
   offerPass(parentClientOrderId: string, fromOperatorId: string, toOperatorId: string, expireAt: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.offerPass(parentClientOrderId, fromOperatorId, toOperatorId, expireAt));
+    return this.commit(parentClientOrderId, () => this.inner.offerPass(parentClientOrderId, fromOperatorId, toOperatorId, expireAt));
   }
 
   acceptPass(parentClientOrderId: string, operatorId: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.acceptPass(parentClientOrderId, operatorId));
+    return this.commit(parentClientOrderId, () => this.inner.acceptPass(parentClientOrderId, operatorId));
   }
 
   rejectPass(parentClientOrderId: string, operatorId: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.rejectPass(parentClientOrderId, operatorId));
+    return this.commit(parentClientOrderId, () => this.inner.rejectPass(parentClientOrderId, operatorId));
   }
 
   timeoutPass(parentClientOrderId: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.timeoutPass(parentClientOrderId));
+    return this.commit(parentClientOrderId, () => this.inner.timeoutPass(parentClientOrderId));
   }
 
   shift(parentClientOrderId: string, fromOperatorId: string, toOperatorId: string): ApprovedAlgoParent | null {
-    return this.persist(this.inner.shift(parentClientOrderId, fromOperatorId, toOperatorId));
+    return this.commit(parentClientOrderId, () => this.inner.shift(parentClientOrderId, fromOperatorId, toOperatorId));
   }
 }
 
@@ -167,6 +174,10 @@ type StoredPauseLine = {
   readonly id: string;
   readonly paused: boolean;
 };
+
+function pauseIds(key: AlgoPauseKey): AlgoPauseIds {
+  return key.kind === 'parent' ? { parentClientOrderId: key.id } : { executionGroupId: key.id };
+}
 
 export class FileAlgoPauseStore implements AlgoPauseStore {
   private readonly inner = new InMemoryAlgoPauseStore();
@@ -190,15 +201,15 @@ export class FileAlgoPauseStore implements AlgoPauseStore {
   }
 
   pause(key: AlgoPauseKey): boolean {
-    const newlyPaused = this.inner.pause(key);
-    if (newlyPaused) appendJsonl(this.filePath, { kind: key.kind, id: key.id, paused: true } satisfies StoredPauseLine);
-    return newlyPaused;
+    if (this.inner.isPaused(pauseIds(key))) return false;
+    appendJsonl(this.filePath, { kind: key.kind, id: key.id, paused: true } satisfies StoredPauseLine);
+    return this.inner.pause(key);
   }
 
   resume(key: AlgoPauseKey): boolean {
-    const resumed = this.inner.resume(key);
-    if (resumed) appendJsonl(this.filePath, { kind: key.kind, id: key.id, paused: false } satisfies StoredPauseLine);
-    return resumed;
+    if (!this.inner.isPaused(pauseIds(key))) return false;
+    appendJsonl(this.filePath, { kind: key.kind, id: key.id, paused: false } satisfies StoredPauseLine);
+    return this.inner.resume(key);
   }
 
   isPaused(ids: AlgoPauseIds): boolean {

@@ -1,4 +1,5 @@
 Original React registry sources locally modified for INTAFACED outreach.
+Includes original Magic UI NoiseTexture, TextAnimate and BlurFade sources.
 
 MIT License
 

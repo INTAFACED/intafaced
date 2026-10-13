@@ -100,9 +100,9 @@ function parseRetainedRemaining(raw: string | null | undefined): { ok: true; tex
 export function startPovParent(input: {
   parentClientOrderId?: string;
   kind?: string;
-  /** Must be true — start needs an already-approved live POV parent. */
+  /** Must be true. A true flag still needs omitted or approved status. */
   approved?: boolean;
-  /** Live-approved status is 'approved'. Running refuses already_started. */
+  /** Trimmed. Omitted stays omitted. running is already_started. Only omitted or approved can start. */
   status?: 'approved' | 'running' | 'paper' | string;
   /** Retained max participation from live approve. Blank refuses — never invent a rate. */
   maxParticipationBps?: number | null;
@@ -126,10 +126,11 @@ export function startPovParent(input: {
   if (input.kind !== undefined && input.kind !== 'pov') {
     return refuse('not_live', `kind ${String(input.kind)} is not pov`);
   }
-  if (input.status === 'running') {
+  const status = input.status === undefined ? undefined : input.status.trim();
+  if (status === 'running') {
     return refuse('already_started', `parent ${parentClientOrderId} is already running`);
   }
-  if (input.approved !== true && input.status !== 'approved') {
+  if (input.approved !== true || (status !== undefined && status !== 'approved')) {
     return refuse('not_approved', `parent ${parentClientOrderId} is not approved`);
   }
   const operatorId = input.operatorId?.trim() ?? '';

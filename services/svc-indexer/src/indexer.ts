@@ -1,5 +1,5 @@
 import type { ChainSource } from './chain/source.js';
-import type { ProjectionStore, StoredBlock } from './projection/store.js';
+import { finalizedHeightOf, type ProjectionStore, type StoredBlock } from './projection/store.js';
 import { withSpan } from './tracing.js';
 
 /**
@@ -350,7 +350,7 @@ export class Indexer {
     // it inside the block loop would put a delete-with-subquery between every
     // pair of blocks during a backfill.
     if (head && blocksApplied > 0) {
-      const horizon = head.height - this.deps.finalityDepth;
+      const horizon = finalizedHeightOf(head, this.deps.finalityDepth) ?? 0;
       if (horizon > 0) await store.prune(horizon);
     }
 

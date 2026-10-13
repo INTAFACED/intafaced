@@ -1,6 +1,11 @@
 import { PayError, type PayService } from './payment-service.js';
 import { SubMerchantError, type PermissionArea } from './submerchants.js';
 
+/** The ownership rule reads `userId` only. */
+export interface MerchantOwnerLookup {
+  getMerchant(merchantId: string): Promise<{ userId: string }>;
+}
+
 /**
  * DOES THIS PRINCIPAL OWN THIS MERCHANT? — asked in exactly one place.
  *
@@ -20,7 +25,11 @@ import { SubMerchantError, type PermissionArea } from './submerchants.js';
  * refusal that already knows about HTTP cannot be reused by anything that is
  * not HTTP.
  */
-export async function assertMerchantOwnership(pay: PayService, principalUserId: string | undefined, merchantId: string): Promise<void> {
+export async function assertMerchantOwnership(
+  pay: MerchantOwnerLookup,
+  principalUserId: string | undefined,
+  merchantId: string,
+): Promise<void> {
   const merchant = await pay.getMerchant(merchantId);
 
   /**

@@ -21,9 +21,10 @@ describe('stopImplementationShortfallParent', () => {
       ok: false,
       reason: 'missing_parent',
     });
-    expect(
-      stopImplementationShortfallParent({ parentClientOrderId: '   ', status: 'running' }),
-    ).toMatchObject({ ok: false, reason: 'missing_parent' });
+    expect(stopImplementationShortfallParent({ parentClientOrderId: '   ', status: 'running' })).toMatchObject({
+      ok: false,
+      reason: 'missing_parent',
+    });
   });
 
   it('refuses omitted status with not_running', () => {

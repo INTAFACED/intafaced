@@ -64,6 +64,53 @@ describe('private CRM router authority boundary', () => {
     });
     expect(authority).not.toHaveBeenCalled();
   });
+  it('keeps the next-action edit and the sent message text founder-only', async () => {
+    const crm = new OutreachCrm(null, null);
+    const edit = vi.spyOn(crm, 'updateNextAction').mockImplementation(async () => {
+      throw new OutreachError('ops.crm.storage_unconfigured');
+    });
+    const list = vi.spyOn(crm, 'listMessages').mockImplementation(async () => {
+      throw new OutreachError('ops.crm.storage_unconfigured');
+    });
+    const input = {
+      requestId: randomUUID(),
+      opportunityId: randomUUID(),
+      expectedRevision: 1,
+      description: 'Send the deck',
+      dueAt: '2026-10-14T09:00:00.000Z',
+    };
+    const reads = { opportunityId: input.opportunityId, limit: 10 };
+    // No sign-in, and a read-only token, never reach the service.
+    const anonymous = createOutreachRouter(
+      crm,
+      vi.fn(async () => userId),
+    ).createCaller({ ...context, principal: null });
+    await expect(anonymous.updateNextAction(input)).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    await expect(anonymous.listMessages(reads)).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    const readOnly = createOutreachRouter(
+      crm,
+      vi.fn(async () => userId),
+    ).createCaller({
+      ...context,
+      principal: { ...context.principal!, scopes: ['ops:read'] },
+    });
+    await expect(readOnly.updateNextAction(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    // A signed-in user who is not a founder is refused before either call.
+    const notFounder = createOutreachRouter(crm, async () => {
+      throw new OutreachError('ops.crm.operator_forbidden');
+    }).createCaller(context);
+    await expect(notFounder.updateNextAction(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(notFounder.listMessages(reads)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(edit).not.toHaveBeenCalled();
+    expect(list).not.toHaveBeenCalled();
+    // A founder reaches the service, and the edit carries the authenticated user, never one the caller names.
+    const founder = createOutreachRouter(crm, async () => userId).createCaller(context);
+    await expect(founder.updateNextAction(input)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+    expect(edit).toHaveBeenCalledWith(input, userId);
+    await expect(founder.updateNextAction({ ...input, actorUserId: randomUUID() } as never)).rejects.toThrow();
+    await expect(founder.listMessages(reads)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+    expect(edit).toHaveBeenCalledOnce();
+  });
   it('rechecks founder authority for exports, workflow reads and unavailable provider surfaces', async () => {
     const crm = new OutreachCrm(null, null);
     const exportRead = vi.spyOn(crm, 'exportSubmissions').mockRejectedValue(new OutreachError('ops.crm.storage_unconfigured'));

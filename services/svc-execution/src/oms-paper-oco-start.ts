@@ -37,10 +37,7 @@ export type OmsPaperOcoStartOk = {
 
 export type OmsPaperOcoStartResult = OmsPaperOcoStartOk | OmsPaperOcoStartRefusal;
 
-function refuse(
-  reason: OmsPaperOcoStartRefuseReason,
-  detail: string,
-): OmsPaperOcoStartRefusal {
+function refuse(reason: OmsPaperOcoStartRefuseReason, detail: string): OmsPaperOcoStartRefusal {
   return { ok: false, reason, detail };
 }
 
@@ -50,25 +47,16 @@ function parseRetainedTrigger(
   label: string,
 ): { ok: true; text: string } | OmsPaperOcoStartRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      missing,
-      `${label} is missing — refusing to invent a trigger or a live venue`,
-    );
+    return refuse(missing, `${label} is missing — refusing to invent a trigger or a live venue`);
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      missing,
-      `${label} is missing — refusing to invent a trigger or a live venue`,
-    );
+    return refuse(missing, `${label} is missing — refusing to invent a trigger or a live venue`);
   }
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      missing,
-      `${label} is not a ledger amount — refusing to invent a trigger`,
-    );
+    return refuse(missing, `${label} is not a ledger amount — refusing to invent a trigger`);
   }
 }
 
@@ -81,7 +69,7 @@ export function startPaperOcoParent(input: {
   kind?: string;
   /** Must be true — start needs an already-approved paper OCO parent. */
   approved?: boolean;
-  /** Paper-approved status is 'paper'. Live running refuses already_started. */
+  /** Paper-approved status is 'paper' or 'approved'. Trimmed 'running' refuses already_started. Stopped and expired refuse not_approved. */
   status?: 'paper' | 'approved' | 'running' | string;
   /** Retained take-profit from paper approve. Blank refuses — never invent a trigger. */
   takeProfit?: string | null;
@@ -104,33 +92,20 @@ export function startPaperOcoParent(input: {
   if (input.kind !== undefined && input.kind !== 'oco') {
     return refuse('not_live', `kind ${String(input.kind)} is not oco`);
   }
-  if (input.status === 'running') {
-    return refuse(
-      'already_started',
-      `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`,
-    );
+  const status = input.status?.trim();
+  if (status === 'running') {
+    return refuse('already_started', `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`);
   }
-  if (input.approved !== true && input.status !== 'paper' && input.status !== 'approved') {
-    return refuse(
-      'not_approved',
-      `parent ${parentClientOrderId} is not an approved paper OCO parent`,
-    );
+  if (status === 'stopped' || status === 'expired' || (input.approved !== true && status !== 'paper' && status !== 'approved')) {
+    return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper OCO parent`);
   }
   const operatorId = input.operatorId?.trim() ?? '';
   if (!operatorId) {
     return refuse('missing_operator', 'operator id is required — refusing to invent a user');
   }
-  const takeProfit = parseRetainedTrigger(
-    input.takeProfit,
-    'missing_take_profit',
-    'OCO take-profit',
-  );
+  const takeProfit = parseRetainedTrigger(input.takeProfit, 'missing_take_profit', 'OCO take-profit');
   if (!takeProfit.ok) return takeProfit;
-  const stopLoss = parseRetainedTrigger(
-    input.stopLoss,
-    'missing_stop_loss',
-    'OCO stop-loss',
-  );
+  const stopLoss = parseRetainedTrigger(input.stopLoss, 'missing_stop_loss', 'OCO stop-loss');
   if (!stopLoss.ok) return stopLoss;
 
   return {

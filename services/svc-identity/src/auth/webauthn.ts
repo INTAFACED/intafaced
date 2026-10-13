@@ -1,16 +1,20 @@
-import { createHash, createPublicKey, randomBytes, verify as cryptoVerify, type KeyObject } from 'node:crypto';
+import { createHash, createPublicKey, randomBytes, type KeyObject } from 'node:crypto';
+import { verifyAuthenticationResponse as verifyAssertionWithLibrary } from '@simplewebauthn/server';
 import type { Sql } from 'postgres';
-import { decodeCbor, encodeCbor, mapGet, type CborValue } from './cbor.js';
+import { decodeCbor, decodeCborItem, encodeCbor, mapGet, type CborValue } from './cbor.js';
 
 /**
  * WebAuthn (W3C Level 2) — registration + assertion, ES256 only.
  *
- * Implemented here rather than imported for the same reason as TOTP: this is
- * the authentication path, and a dependency we cannot check against the spec is
- * a dependency we are trusting blind. ES256 (P-256) is the algorithm every
- * platform authenticator and security key must support; that is enough for
- * enrolment and assertion. Other algs are refused, deliberately — better to
- * reject than to accept a signature algorithm we have not verified.
+ * Registration is parsed here (attestation `none`, ES256 only). Assertion
+ * verification — ASN.1 DER signature decoding, RP ID hash, origin, user
+ * presence/verification flags and the signature counter — is delegated to the
+ * maintained `@simplewebauthn/server` library. The earlier hand-rolled
+ * verifier read the signature as raw r||s (IEEE P1363), but every real
+ * authenticator emits ASN.1 DER for ES256, so it refused real passkeys.
+ * We keep strict pre-checks (typed error codes, key policy) in front of the
+ * library. ES256 (P-256) is the only algorithm accepted; other algs are
+ * refused, deliberately.
  *
  * §9: TOTP + WebAuthn are both required. This is the WebAuthn half.
  */
@@ -328,6 +332,18 @@ interface AuthData {
   publicKeyCose?: Buffer;
 }
 
+function validateAuthenticatorExtensions(bytes: Buffer): void {
+  let extensions: CborValue;
+  try {
+    extensions = decodeCbor(bytes);
+  } catch (err) {
+    throw new WebAuthnError(`authenticator extensions are not valid CBOR: ${(err as Error).message}`, 'webauthn.invalid');
+  }
+  if (!(extensions instanceof Map) || [...extensions.keys()].some((key) => typeof key !== 'string')) {
+    throw new WebAuthnError('authenticator extensions must be a text-keyed map', 'webauthn.invalid');
+  }
+}
+
 function parseAuthData(authData: Buffer, expectAttested: boolean): AuthData {
   if (authData.length < 37) throw new WebAuthnError('authenticatorData too short', 'webauthn.invalid');
 
@@ -336,12 +352,16 @@ function parseAuthData(authData: Buffer, expectAttested: boolean): AuthData {
   const up = (flags & 0x01) !== 0;
   const uv = (flags & 0x04) !== 0;
   const at = (flags & 0x40) !== 0;
+  const ed = (flags & 0x80) !== 0;
 
   if (!up) throw new WebAuthnError('user presence flag not set', 'webauthn.invalid');
   // Passwordless path marks the session MFA-complete — refuse presence-only
   // authenticators that never verified the user (L2-WA-UV).
   if (!uv) throw new WebAuthnError('user verification flag not set', 'webauthn.invalid');
 
+  let offset = 37;
+  let credentialId: Buffer | undefined;
+  let publicKeyCose: Buffer | undefined;
   if (expectAttested) {
     if (!at) throw new WebAuthnError('attested credential data missing', 'webauthn.invalid');
     // aaguid (16) + credIdLen (2) + credId + cose key
@@ -350,18 +370,39 @@ function parseAuthData(authData: Buffer, expectAttested: boolean): AuthData {
     const credIdStart = 37 + 18;
     const credIdEnd = credIdStart + credIdLen;
     if (authData.length < credIdEnd + 1) throw new WebAuthnError('credential id truncated', 'webauthn.invalid');
-    const credentialId = authData.subarray(credIdStart, credIdEnd);
-    const publicKeyCose = authData.subarray(credIdEnd);
-    return { flags, counter, credentialId, publicKeyCose };
+    credentialId = authData.subarray(credIdStart, credIdEnd);
+    // AT carries one COSE item, followed by the ED extension item when present.
+    // Its byte boundary comes from decoding, never from a re-encoded length.
+    try {
+      const item = decodeCborItem(authData.subarray(credIdEnd));
+      if (!(item.value instanceof Map)) throw new Error('COSE key is not a map');
+      offset = credIdEnd + item.bytesRead;
+      publicKeyCose = authData.subarray(credIdEnd, offset);
+    } catch (err) {
+      throw new WebAuthnError(`COSE key is not valid CBOR: ${(err as Error).message}`, 'webauthn.invalid');
+    }
+  } else if (at) {
+    throw new WebAuthnError('attested credential data is not valid in an assertion', 'webauthn.invalid');
   }
 
-  return { flags, counter };
+  if (ed) validateAuthenticatorExtensions(authData.subarray(offset));
+  else if (offset !== authData.length) throw new WebAuthnError('authenticatorData has trailing bytes without ED', 'webauthn.invalid');
+  return { flags, counter, credentialId, publicKeyCose };
 }
 
-function coseEc2ToKey(coseBytes: Buffer): { key: KeyObject; alg: number } {
+function coseEc2ToKey(coseBytes: Buffer, legacyStoredExtensions = false): { key: KeyObject; alg: number } {
   let decoded: CborValue;
   try {
-    decoded = decodeCbor(coseBytes);
+    if (legacyStoredExtensions) {
+      // Older registration stored the key plus ED bytes together. Read only
+      // this historical shape: one key and at most one complete extension map.
+      // The suffix grants no authority and the stored credential is not rewritten.
+      const item = decodeCborItem(coseBytes);
+      decoded = item.value;
+      if (item.bytesRead !== coseBytes.length) validateAuthenticatorExtensions(coseBytes.subarray(item.bytesRead));
+    } else {
+      decoded = decodeCbor(coseBytes);
+    }
   } catch (err) {
     throw new WebAuthnError(`COSE key is not valid CBOR: ${(err as Error).message}`, 'webauthn.invalid');
   }
@@ -459,12 +500,12 @@ export function verifyRegistrationResponse(
   };
 }
 
-export function verifyAuthenticationResponse(
+export async function verifyAuthenticationResponse(
   config: WebAuthnConfig,
   expectedChallenge: string,
   credential: StoredWebAuthnCredential,
   response: AuthenticationResponseJSON,
-): { newCounter: number } {
+): Promise<{ newCounter: number }> {
   if (response.type !== 'public-key') throw new WebAuthnError('credential type must be public-key', 'webauthn.invalid');
 
   const responseId = b64urlEncode(b64urlDecode(response.id));
@@ -472,6 +513,8 @@ export function verifyAuthenticationResponse(
     throw new WebAuthnError('credential id does not match stored credential', 'webauthn.invalid');
   }
 
+  // Strict pre-checks keep the typed error codes callers rely on. The library
+  // below re-checks all of them and is the authority for the signature.
   parseClientData(response.response.clientDataJSON, {
     type: 'webauthn.get',
     challenge: expectedChallenge,
@@ -479,27 +522,54 @@ export function verifyAuthenticationResponse(
   });
 
   const authData = b64urlDecode(response.response.authenticatorData);
-  const expectedRpHash = rpIdHash(config.rpID);
-  if (!authData.subarray(0, 32).equals(expectedRpHash)) {
+  if (!authData.subarray(0, 32).equals(rpIdHash(config.rpID))) {
     throw new WebAuthnError('rpIdHash mismatch', 'webauthn.invalid');
   }
 
   const parsed = parseAuthData(authData, false);
 
-  // Counter must advance when the authenticator tracks one. A zero that stays
-  // zero is allowed (some platform authenticators never increment); a decrease
-  // is a cloned authenticator.
-  if (credential.counter > 0 && parsed.counter > 0 && parsed.counter <= credential.counter) {
+  // A zero that stays zero is allowed (some platform authenticators never
+  // increment); a counter that goes backwards or stalls is a cloned authenticator.
+  if (credential.counter > 0 && parsed.counter <= credential.counter) {
     throw new WebAuthnError('authenticator counter did not advance', 'webauthn.counter');
   }
 
-  const clientDataHash = createHash('sha256').update(b64urlDecode(response.response.clientDataJSON)).digest();
-  const signed = Buffer.concat([authData, clientDataHash]);
-  const signature = b64urlDecode(response.response.signature);
+  // Enforce the ES256-only key policy, and hand the library a canonical COSE
+  // key (older rows may carry a trailing extension map after the key).
+  const { key } = coseEc2ToKey(b64urlDecode(credential.publicKey), true);
+  const jwk = key.export({ format: 'jwk' }) as { x: string; y: string };
+  const canonicalCose = coseKeyFromJwk(jwk);
 
-  const { key } = coseEc2ToKey(b64urlDecode(credential.publicKey));
-  const ok = cryptoVerify('SHA256', signed, { key, dsaEncoding: 'ieee-p1363' }, signature);
-  if (!ok) throw new WebAuthnError('signature verification failed', 'webauthn.invalid');
+  let verified: boolean;
+  try {
+    const result = await verifyAssertionWithLibrary({
+      response: {
+        id: responseId,
+        rawId: responseId,
+        type: 'public-key',
+        response: {
+          clientDataJSON: response.response.clientDataJSON,
+          authenticatorData: response.response.authenticatorData,
+          signature: response.response.signature,
+          ...(response.response.userHandle ? { userHandle: response.response.userHandle } : {}),
+        },
+        clientExtensionResults: {},
+      },
+      expectedChallenge,
+      expectedOrigin: [...expectedOrigins(config)],
+      expectedRPID: config.rpID,
+      requireUserVerification: true,
+      credential: {
+        id: credential.credentialId,
+        publicKey: new Uint8Array(canonicalCose),
+        counter: credential.counter,
+      },
+    });
+    verified = result.verified;
+  } catch (err) {
+    throw new WebAuthnError(`assertion rejected: ${err instanceof Error ? err.message : 'verification failed'}`, 'webauthn.invalid');
+  }
+  if (!verified) throw new WebAuthnError('signature verification failed', 'webauthn.invalid');
 
   return { newCounter: parsed.counter };
 }

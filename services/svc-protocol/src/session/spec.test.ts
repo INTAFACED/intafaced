@@ -17,6 +17,8 @@ import {
   MAX_SESSION_DURATION_SECONDS,
   MAX_SELECTORS,
   MAX_TARGETS,
+  RECIPIENT_SCOPED_CALLS,
+  TARGET_ARG_CALLS,
   sessionSpecInputSchema,
   SessionScopeError,
   type SessionSpec,
@@ -356,6 +358,49 @@ describe('the Solidity library refuses the same selectors', () => {
       expect(constantName, `no constant in SessionKeyLib.sol for ${signature}`).toBeDefined();
       expect(body).toContain(constantName as string);
     }
+  });
+
+  describe('recipient-bearing selectors', () => {
+    const body = source.slice(source.indexOf('function recipientOffset'), source.indexOf('function assertRecipientIsAccount'));
+    const constants = [...source.matchAll(/bytes4 internal constant (SEL_\w+) = (0x[0-9a-fA-F]{8});/g)];
+
+    it.each([...RECIPIENT_SCOPED_CALLS])(
+      'recipientOffset returns the byte offset of arg $recipientArg for $signature',
+      ({ signature, recipientArg }) => {
+        const selector = toFunctionSelector(signature).toLowerCase();
+        const name = constants.find(([, , value]) => value?.toLowerCase() === selector)?.[1];
+        expect(name, `no constant in SessionKeyLib.sol for ${signature}`).toBeDefined();
+        expect(body).toContain(`if (selector == ${name}) return ${4 + 32 * recipientArg};`);
+      },
+    );
+
+    it('constrains exactly the selectors the TypeScript mirror lists, no more and no fewer', () => {
+      const returns = [...body.matchAll(/if \(selector == (SEL_\w+)\) return (\d+);/g)];
+      expect(returns).toHaveLength(RECIPIENT_SCOPED_CALLS.length);
+      expect(body.match(/return /g)).toHaveLength(RECIPIENT_SCOPED_CALLS.length + 1); // +1 for the `return 0` default
+    });
+
+    it.each([...TARGET_ARG_CALLS])(
+      'targetArgOffset returns the byte offset of arg $targetArg for $signature',
+      ({ signature, targetArg }) => {
+        const tbody = source.slice(source.indexOf('function targetArgOffset'), source.indexOf('function assertTargetArgAllowed'));
+        const selector = toFunctionSelector(signature).toLowerCase();
+        const name = constants.find(([, , value]) => value?.toLowerCase() === selector)?.[1];
+        expect(name, `no constant in SessionKeyLib.sol for ${signature}`).toBeDefined();
+        expect(tbody).toContain(`if (selector == ${name}) return ${4 + 32 * targetArg};`);
+        expect(tbody.match(/return /g)).toHaveLength(TARGET_ARG_CALLS.length + 1);
+      },
+    );
+
+    it('is enforced by SmartAccount.executeWithSession after the selector checks and before value is counted', () => {
+      const account = readFileSync(join(contractsDir, 'SmartAccount.sol'), 'utf8');
+      const at = account.indexOf('SessionKeyLib.assertRecipientIsAccount(selector, data, address(this));');
+      expect(at).toBeGreaterThan(account.indexOf('SessionKeyLib.SessionOutboundTransferForbidden(selector)'));
+      expect(at).toBeLessThan(account.indexOf('record.spentWei = uint128(attempted);'));
+      const targetArg = account.indexOf('SessionKeyLib.assertTargetArgAllowed(spec, selector, data);');
+      expect(targetArg).toBeGreaterThan(at);
+      expect(targetArg).toBeLessThan(account.indexOf('record.spentWei = uint128(attempted);'));
+    });
   });
 
   it('agrees on the 30-day cap', () => {

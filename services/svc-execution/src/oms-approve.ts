@@ -66,8 +66,20 @@ function ownerOf(parent: ApprovedAlgoParent): string | null {
 function scheduleMissing(kind: AlgoKind, schedule: RetainedAlgoSchedule | undefined): boolean {
   if (!schedule) return true;
   const { durationMs, sliceIntervalMs, slicesPlanned, participationBps } = schedule;
-  if (!(durationMs > 0) || !(sliceIntervalMs > 0) || slicesPlanned < 1) return true;
-  if (kind === 'pov' && (participationBps === null || !Number.isInteger(participationBps))) return true;
+  // Comparisons alone treat NaN, Infinity, and 1.5 as present, and Infinity > 0.
+  if (
+    !Number.isFinite(durationMs) ||
+    !(durationMs > 0) ||
+    !Number.isFinite(sliceIntervalMs) ||
+    !(sliceIntervalMs > 0) ||
+    !Number.isInteger(slicesPlanned) ||
+    slicesPlanned < 1
+  ) {
+    return true;
+  }
+  if (kind === 'pov' && (participationBps === null || !Number.isInteger(participationBps) || participationBps < 0)) {
+    return true;
+  }
   return false;
 }
 

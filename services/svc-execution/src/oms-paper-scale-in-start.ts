@@ -33,47 +33,28 @@ export type OmsPaperScaleInStartOk = {
   readonly childSize: string;
 };
 
-export type OmsPaperScaleInStartResult =
-  | OmsPaperScaleInStartOk
-  | OmsPaperScaleInStartRefusal;
+export type OmsPaperScaleInStartResult = OmsPaperScaleInStartOk | OmsPaperScaleInStartRefusal;
 
-function refuse(
-  reason: OmsPaperScaleInStartRefuseReason,
-  detail: string,
-): OmsPaperScaleInStartRefusal {
+function refuse(reason: OmsPaperScaleInStartRefuseReason, detail: string): OmsPaperScaleInStartRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseRetainedChildSize(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperScaleInStartRefusal {
+function parseRetainedChildSize(raw: string | null | undefined): { ok: true; text: string } | OmsPaperScaleInStartRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'missing_child_size',
-      'scale-in child size is missing — refusing to invent size or a live venue',
-    );
+    return refuse('missing_child_size', 'scale-in child size is missing — refusing to invent size or a live venue');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'missing_child_size',
-      'scale-in child size is missing — refusing to invent size or a live venue',
-    );
+    return refuse('missing_child_size', 'scale-in child size is missing — refusing to invent size or a live venue');
   }
   try {
     const value = parseAmount(text);
     if (value <= 0n) {
-      return refuse(
-        'missing_child_size',
-        'scale-in child size must be a positive ledger amount — refusing to invent size',
-      );
+      return refuse('missing_child_size', 'scale-in child size must be a positive ledger amount — refusing to invent size');
     }
     return { ok: true, text: formatAmount(value) };
   } catch {
-    return refuse(
-      'missing_child_size',
-      'scale-in child size is not a ledger amount — refusing to invent size',
-    );
+    return refuse('missing_child_size', 'scale-in child size is not a ledger amount — refusing to invent size');
   }
 }
 
@@ -107,17 +88,17 @@ export function startPaperScaleInParent(input: {
   if (input.kind !== undefined && input.kind !== 'scale-in') {
     return refuse('not_live', `kind ${String(input.kind)} is not scale-in`);
   }
-  if (input.status === 'running') {
-    return refuse(
-      'already_started',
-      `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`,
-    );
+  const status = input.status?.trim();
+  if (status === 'running') {
+    return refuse('already_started', `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`);
   }
-  if (input.approved !== true && input.status !== 'paper' && input.status !== 'approved') {
-    return refuse(
-      'not_approved',
-      `parent ${parentClientOrderId} is not an approved paper scale-in parent`,
-    );
+  if (
+    status === 'stopped' ||
+    status === 'expired' ||
+    input.approved === false ||
+    (input.approved !== true && status !== 'paper' && status !== 'approved')
+  ) {
+    return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper scale-in parent`);
   }
   const operatorId = input.operatorId?.trim() ?? '';
   if (!operatorId) {

@@ -3,6 +3,12 @@
  *
  * Reuses cancel-remaining. Children stop or the outcome is unknown.
  * An unknown child cancel is not killed: true and does not stop the parent.
+ * A successful matching delete stays beside the EMS children. When those book
+ * orders are already gone and an EMS child is unknown, the parent is paused.
+ * A refused or unconfirmed matching cancel still cancels street children and
+ * pauses, so a running parent takes no later slice. A null kill or stop still
+ * returns those canceled children with not_live. Unknown filled stays
+ * unknown — this door does not invent a zero fill.
  * Matching never-saw (404) / ack without sequence is unknown — never killed
  * from silence. Cancel is a request until matching sequence. This door never
  * invents a canceled order, a matching sequence, or a silent-success missing
@@ -22,12 +28,17 @@ import {
   type OmsKillParentMatchingRefusal,
 } from './oms-kill-parent-matching.js';
 
+export type OmsKillParentResidual = {
+  readonly filled: string | null;
+  readonly remaining: string | null;
+};
+
 export type OmsKillParentOk = {
   readonly ok: true;
   readonly killed: boolean;
   readonly parent: { readonly parentClientOrderId: string; readonly kind: AlgoKind };
   readonly children: readonly OmsDrainChild[];
-  readonly residual: OmsDrainResidual;
+  readonly residual: OmsKillParentResidual;
 };
 
 export type OmsKillParentRefuse =
@@ -38,7 +49,12 @@ export type OmsKillParentRefuse =
   | { readonly ok: false; readonly reason: 'not_found'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'unsupported_kind'; readonly detail: string }
   | { readonly ok: false; readonly reason: 'paper'; readonly detail: string }
-  | { readonly ok: false; readonly reason: 'not_live'; readonly detail: string }
+  | {
+      readonly ok: false;
+      readonly reason: 'not_live';
+      readonly detail: string;
+      readonly children?: readonly OmsDrainChild[];
+    }
   | { readonly ok: false; readonly reason: 'missing_operator'; readonly detail: string };
 
 export type OmsKillParentResult = OmsKillParentOk | OmsKillParentRefuse;
@@ -61,6 +77,14 @@ function operatorOf(operatorId?: string): string {
 
 function childrenKnown(children: readonly OmsDrainChild[]): boolean {
   return children.every((child) => child.outcome === 'stopped' || child.outcome === 'already_stopped');
+}
+
+/** A zero fill with unknown remaining was not observed. Leave filled unknown. */
+function residualAfterUnconfirmedMatching(residual: OmsDrainResidual): OmsKillParentResidual {
+  if (residual.remaining === null && residual.filled === '0') {
+    return { filled: null, remaining: null };
+  }
+  return residual;
 }
 
 export async function killLiveAlgoParent(input: {
@@ -117,6 +141,9 @@ export async function killLiveAlgoParent(input: {
   }
 
   const matchingChildren = input.matchingChildren;
+  let matchingRefusal: OmsKillParentMatchingRefusal | null = null;
+  let matchingUnconfirmedChildren: readonly OmsDrainChild[] | null = null;
+  let matchingStoppedChildren: readonly OmsDrainChild[] = [];
   if (matchingChildren && matchingChildren.length > 0) {
     const matching = await cancelKillParentMatching({
       children: matchingChildren,
@@ -125,16 +152,11 @@ export async function killLiveAlgoParent(input: {
       internalServiceSecret: input.internalServiceSecret,
     });
     if (!matching.ok) {
-      return matching;
-    }
-    if (!matching.killed) {
-      return {
-        ok: true,
-        killed: false,
-        parent: { parentClientOrderId: existing.parentClientOrderId, kind: existing.kind },
-        children: matching.children,
-        residual: { filled: '0', remaining: null },
-      };
+      matchingRefusal = matching;
+    } else if (!matching.killed) {
+      matchingUnconfirmedChildren = matching.children;
+    } else {
+      matchingStoppedChildren = matching.children;
     }
   }
 
@@ -144,16 +166,36 @@ export async function killLiveAlgoParent(input: {
     emsStore: input.emsStore,
     kindsByVenue: input.kindsByVenue,
   });
+  if (matchingRefusal || matchingUnconfirmedChildren) {
+    input.pauseStore.pause({ kind: 'parent', id: parentClientOrderId });
+  }
   if (!cancelled.ok) {
     return cancelled;
   }
-
-  if (!childrenKnown(cancelled.children)) {
+  if (matchingRefusal) {
+    return matchingRefusal;
+  }
+  if (matchingUnconfirmedChildren) {
     return {
       ok: true,
       killed: false,
       parent: { parentClientOrderId: existing.parentClientOrderId, kind: existing.kind },
-      children: cancelled.children,
+      children: [...matchingUnconfirmedChildren, ...cancelled.children],
+      residual: residualAfterUnconfirmedMatching(cancelled.residual),
+    };
+  }
+
+  const children = [...matchingStoppedChildren, ...cancelled.children];
+
+  if (!childrenKnown(cancelled.children)) {
+    if (matchingStoppedChildren.length > 0) {
+      input.pauseStore.pause({ kind: 'parent', id: parentClientOrderId });
+    }
+    return {
+      ok: true,
+      killed: false,
+      parent: { parentClientOrderId: existing.parentClientOrderId, kind: existing.kind },
+      children,
       residual: cancelled.residual,
     };
   }
@@ -165,14 +207,19 @@ export async function killLiveAlgoParent(input: {
       ? input.parentStore.kill(parentClientOrderId)
       : input.parentStore.stop(parentClientOrderId);
   if (!stopped) {
-    return refuse('not_live', `parent ${parentClientOrderId} could not be stopped`);
+    return {
+      ok: false,
+      reason: 'not_live',
+      detail: `parent ${parentClientOrderId} could not be stopped`,
+      children,
+    };
   }
 
   return {
     ok: true,
     killed: true,
     parent: { parentClientOrderId: stopped.parentClientOrderId, kind: stopped.kind },
-    children: cancelled.children,
+    children,
     residual: cancelled.residual,
   };
 }

@@ -28,6 +28,11 @@ const TAKE = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const OPT_A = '11111111-1111-4111-8111-111111111111';
 const OPT_B = '22222222-2222-4222-8222-222222222222';
 const MISS = '44444444-4444-4444-8444-444444444444';
+const STOP_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const FUEL = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const SPARK = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+const WARM_SELL = 'abababab-abab-4aba-8aba-abababababab';
+const WARM_BUY = 'cdcdcdcd-cdcd-4cdc-8cdc-cdcdcdcdcdcd';
 const EXPIRY = '2026-12-31T00:00:00.000Z';
 const OTHER = '2026-06-30T00:00:00.000Z';
 
@@ -46,6 +51,7 @@ function order(spec: {
   side: OrderSide;
   qty: string;
   price?: string;
+  stop?: string;
   strike?: string | null;
   expiry?: string | null;
   combo?: boolean;
@@ -60,7 +66,7 @@ function order(spec: {
     side: spec.side,
     qty: A(spec.qty),
     price: spec.price === undefined ? null : A(spec.price),
-    stopPrice: null,
+    stopPrice: spec.stop === undefined ? null : A(spec.stop),
     tif: spec.tif ?? 'GTC',
     ...(spec.strike !== undefined ? { strike: spec.strike == null ? null : A(spec.strike) } : {}),
     ...(spec.expiry !== undefined ? { expiry: spec.expiry } : {}),
@@ -483,5 +489,136 @@ describe('combo book — match/unwind as one instrument', () => {
     expect(restored!.depth(50).bids).toEqual([]);
     expect(restored!.depth(50).asks).toEqual([]);
     expect(comboRestOf(restored!, COMBO)).toBeUndefined();
+  });
+});
+
+describe('combo book — a triggered stop does not print a different identity', () => {
+  function bookAt100(): OrderBook {
+    const book = new OrderBook('BTC/USDT');
+    book.submit(order({ id: WARM_SELL, account: 'warm', side: 'sell', qty: '1', price: '100' }));
+    const bought = book.submit(order({ id: WARM_BUY, account: 'spark', side: 'buy', qty: '1' }));
+    expect(bought.fills).toHaveLength(1);
+    expect(formatAmount(bought.fills[0]!.price)).toBe('100');
+    expect(liveIds(book)).toEqual([]);
+    return book;
+  }
+
+  function parkStop(book: OrderBook, spec: { type: 'stop' | 'stop_limit'; price?: string }): void {
+    const parked = book.submit(
+      order({
+        id: STOP_ID,
+        account: 'stopdesk',
+        type: spec.type,
+        side: 'buy',
+        qty: '2',
+        ...(spec.price !== undefined ? { price: spec.price } : {}),
+        stop: '105',
+        combo: true,
+        legs: namedLegs(),
+      }),
+    );
+    expect(parked.accepted).toBe(true);
+    expect(parked.fills).toHaveLength(0);
+    expect(parked.resting).toMatchObject({ kind: 'stop', orderId: STOP_ID });
+    expect(liveIds(book)).toEqual([]);
+    expect(comboRestOf(book, STOP_ID)?.identity).toBe(comboIdentity(namedLegs()));
+  }
+
+  function arm(book: OrderBook): ReturnType<OrderBook['submit']> {
+    book.submit(order({ id: FUEL, account: 'fuel', side: 'sell', qty: '1', price: '105' }));
+    return book.submit(order({ id: SPARK, account: 'spark2', side: 'buy', qty: '1', price: '105' }));
+  }
+
+  it('a combo stop-limit that later activates does not print against a plain order', () => {
+    const book = bookAt100();
+    parkStop(book, { type: 'stop_limit', price: '120' });
+    book.submit(order({ id: OPT_A, account: 'maker', side: 'sell', qty: '2', price: '110' }));
+
+    const trigger = arm(book);
+
+    expect(trigger.accepted).toBe(true);
+    expect(trigger.fills).toHaveLength(1);
+    expect(formatAmount(trigger.fills[0]!.price)).toBe('105');
+    expect(formatAmount(trigger.fills[0]!.qty)).toBe('1');
+    expect(trigger.triggered).toHaveLength(1);
+    expect(trigger.triggered[0]!.orderId).toBe(STOP_ID);
+    expect(trigger.triggered[0]!.fills).toHaveLength(0);
+    expect(trigger.triggered[0]!.rejected?.code).toBe(COMBO_DISAGREES);
+    expect(trigger.triggered[0]!.resting).toBeNull();
+    expect(trigger.triggered[0]!.cancellations[0]?.reason).toBe('trigger_rejected');
+    expect(trigger.triggered[0]!.cancellations[0]?.sequence).toBe(trigger.triggered[0]!.sequence);
+    expect(typeof trigger.triggered[0]!.cancellations[0]?.remainingQty).toBe('bigint');
+    expect(liveIds(book)).toEqual([OPT_A]);
+    expect(book.depth(50).asks).toEqual([['110', '2']]);
+    expect(book.depth(50).bids).toEqual([]);
+    expect(book.toState().stops).toHaveLength(0);
+    expect(comboRestOf(book, STOP_ID)).toBeUndefined();
+    expect(comboRestOf(book, OPT_A)).toBeUndefined();
+  });
+
+  it('a combo stop that later activates does not print against a different leg identity', () => {
+    const book = bookAt100();
+    parkStop(book, { type: 'stop' });
+    book.submit(
+      order({
+        id: COMBO,
+        account: 'maker',
+        side: 'sell',
+        qty: '2',
+        price: '110',
+        combo: true,
+        legs: namedLegs([{ strike: A('105') }]),
+      }),
+    );
+
+    const trigger = arm(book);
+
+    expect(trigger.accepted).toBe(true);
+    expect(trigger.fills).toHaveLength(1);
+    expect(formatAmount(trigger.fills[0]!.price)).toBe('105');
+    expect(trigger.triggered).toHaveLength(1);
+    expect(trigger.triggered[0]!.fills).toHaveLength(0);
+    expect(trigger.triggered[0]!.rejected?.code).toBe(COMBO_DISAGREES);
+    expect(trigger.triggered[0]!.resting).toBeNull();
+    expect(liveIds(book)).toEqual([COMBO]);
+    expect(book.depth(50).asks).toEqual([['110', '2']]);
+    expect(book.depth(50).bids).toEqual([]);
+    expect(formatAmount(comboRestOf(book, COMBO)!.legs[0]!.ratio)).toBe('1');
+  });
+
+  it('a same-identity combo stop-limit still prints at the resting combo price', () => {
+    const book = bookAt100();
+    parkStop(book, { type: 'stop_limit', price: '120' });
+    book.submit(
+      order({
+        id: COMBO,
+        account: 'maker',
+        side: 'sell',
+        qty: '2',
+        price: '110',
+        combo: true,
+        legs: namedLegs(),
+      }),
+    );
+
+    const trigger = arm(book);
+    const printed = trigger.triggered[0]!;
+
+    expect(trigger.accepted).toBe(true);
+    expect(trigger.fills).toHaveLength(1);
+    expect(formatAmount(trigger.fills[0]!.price)).toBe('105');
+    expect(printed.fills).toHaveLength(1);
+    expect(printed.fills[0]).toMatchObject({ makerOrderId: COMBO, takerOrderId: STOP_ID, takerSide: 'buy' });
+    expect(formatAmount(printed.fills[0]!.qty)).toBe('2');
+    expect(formatAmount(printed.fills[0]!.price)).toBe('110');
+    expect(typeof printed.fills[0]!.qty).toBe('bigint');
+    expect(typeof printed.fills[0]!.price).toBe('bigint');
+    expect(printed.rejected).toBeUndefined();
+    expect(printed.resting).toBeNull();
+    expect(liveIds(book)).toEqual([]);
+    expect(book.depth(50).asks).toEqual([]);
+    expect(book.depth(50).bids).toEqual([]);
+    expect(comboRestOf(book, COMBO)).toBeUndefined();
+    expect(comboRestOf(book, STOP_ID)).toBeUndefined();
   });
 });

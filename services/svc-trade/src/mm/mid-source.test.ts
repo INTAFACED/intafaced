@@ -313,4 +313,31 @@ describe('createVenueMmMidSource from MaintainedBook port', () => {
     });
     expect(await src('m1')).toBeNull();
   });
+
+  /**
+   * An Invalid Date is not null. `getTime()` is NaN, `toQuotedMark` keeps that
+   * stamp, and `acceptableForMarking` treats NaN age as inside the window
+   * (`NaN > maxAgeSeconds` is false). The snapshot path already refuses this
+   * through `readObservedAt`. A finite stamp on the same book still mids.
+   */
+  it('refuses an Invalid Date observedAt and still mids a finite one', async () => {
+    const maintained = (at: Date) =>
+      createVenueMmMidSource({
+        adapter: { snapshotBook: vi.fn(async () => healthyBook()) },
+        resolveSymbol: () => 'BTC/USDT',
+        now: readNow,
+        bookForSymbol: () => ({
+          servable: true,
+          top: () => twoSided,
+          observedAt: () => at,
+        }),
+      });
+
+    expect(await maintained(new Date(Number.NaN))('m1')).toBeNull();
+
+    const finite = await maintained(observedAt)('m1');
+    expect(finite).not.toBeNull();
+    expect(priceOf(finite)).toBe('101');
+    expect(finite?.provenance).toBe('venue');
+  });
 });

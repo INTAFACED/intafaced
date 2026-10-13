@@ -12,9 +12,9 @@ export const MARKET_REDUCE_ONLY = 'market_reduce_only' as const;
 export type ReduceOnlyMarketRefuse = typeof MARKET_REDUCE_ONLY;
 
 /** True when this qty on this side would open a flat or grow the net. */
-export function wouldOpenOrIncrease(book: OrderBook | null, order: Pick<EngineOrder, 'accountId' | 'side' | 'qty'>): boolean {
+export function wouldOpenOrIncrease(book: OrderBook | null, order: Pick<EngineOrder, 'accountId' | 'side' | 'qty' | 'orderId'>): boolean {
   if (book === null) return true;
-  return book.wouldOpenOrIncrease(order.accountId, order.side, order.qty);
+  return book.wouldOpenOrIncrease(order.accountId, order.side, order.qty, order.orderId);
 }
 
 export function marketReduceOnlyRefuse(marketId: MarketId): RejectReason {

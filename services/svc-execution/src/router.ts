@@ -988,6 +988,8 @@ export function createExecutionRouter(
                 parentClientOrderId: input.parentClientOrderId,
                 operatorId: ctx.principal?.userId,
                 parentStore,
+                emsStore,
+                fillConfirmStore,
               }),
             ),
           ),

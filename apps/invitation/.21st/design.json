@@ -1,7 +1,7 @@
 {
   "scope": "Independent public invitation; customer/trading and founder CRM remain separate",
   "framework": "React 19 + Vite 7.3.6; original React registry sources locally modified",
-  "direction": "Centred dark continuous graphite/lime welcome; left-aligned native invitation forms",
+  "direction": "Centred original graphite/lime welcome; selected A static textured graphite answering scene with restrained outer-edge reflection",
   "tokens": {
     "background": "#090a0b",
     "text": "#f2f5ef",
@@ -24,10 +24,11 @@
     "Cult HaloProgress truthful frontend progress, not backend completion",
     "Magic TextAnimate accessible heading blur entrance",
     "Magic BlurFade finite question transition",
-    "Original Cult MetalButton + MetalFx silver/dark shared primary actions; native shadcn Button"
+    "Original Cult MetalButton + MetalFx silver/dark shared primary actions; native shadcn Button",
+    "Original Magic NoiseTexture static SVG material, locally imported"
   ],
   "provenance": "src/components/SOURCE-PROVENANCE.json and LICENSES.txt",
-  "art": "Original graphite-fins-desktop.webp and framing retained; gentler welcome-only central veil restores facets and lime reflection, near-black perimeter; question scene unchanged",
+  "art": "Original welcome asset/crop/veil retained in a retiring layer; 600ms composed crossfade to unkeyed original NoiseTexture. One finite 240ms/8px edge-light arrival follows real stage navigation; answer, validation, pending, and recovery-error updates do not renew it.",
   "states": [
     "native validation",
     "disabled/pending",
@@ -39,6 +40,13 @@
   ],
   "authority": "Canonical existing framework-free intake/storage/transport modules; no extra backend writes per question",
   "evidence": "Local fixtures and compiled browser evidence; visual acceptance and deployed API/HTTPS/mail remain separate",
-  "entrance": "Selected A: art450ms; original TextAnimate90ms start; support/action250\u2013700ms, once on entry, static reduced-motion",
-  "completion": "Selected A: fine lime outline resolves into small mark and calm receipt with a700ms CSS sequence after authoritative completed-draft confirmation; pending/unknown/retry/reduced-motion/returned receipts static; no extra write"
+  "entrance": "Approximately1.5s fresh entrance: art650ms, original TextAnimate line transition640ms with170ms stagger after220ms delay; support800\u20131280ms; immediately readable Metal action emphasis940\u20131460ms. Actual final emphasis animationend cleanup, defensive2200ms; early navigation/reduced/hidden/returned draft static. Fresh decoration begins without gating Begin; a nonblocking100ms recovery grace settles slow bootstrap forward to static before the220ms text start, never replays on late readiness.",
+  "completion": "Selected A: fine lime outline resolves into small mark and calm receipt with a700ms CSS sequence after authoritative completed-draft confirmation; pending/unknown/retry/reduced-motion/returned receipts static; no extra write",
+  "decisions": [
+    {
+      "decision": "Questionnaire background A: textured graphite",
+      "source": "Explicit Nitro selection; SELECTED-A-EXECUTION.txt",
+      "scope": "Independent React invitation only; separate accepted completion A unchanged"
+    }
+  ]
 }

@@ -50,6 +50,54 @@ describe('parseCopyFeeShareLawJson', () => {
     }
   });
 
+  it('refuses an unparsable or negative earnings cap before publish', () => {
+    const base = { published: true, leaderShareBps: 2_500, decayRoundTrips: 10, decayShareBps: 500 };
+    for (const earningsCapPerFollower of ['12.34.56', '-1']) {
+      try {
+        parseCopyFeeShareLawJson(JSON.stringify({ ...base, earningsCapPerFollower }));
+        expect.unreachable(`should refuse earningsCapPerFollower=${earningsCapPerFollower}`);
+      } catch (err) {
+        expect(err).toBeInstanceOf(CopyError);
+        expect((err as CopyError).code).toBe('trade.copy_fee_share_blank');
+        expect((err as CopyError).residual).toBe(COPY_FEE_SHARE_RESIDUAL);
+      }
+    }
+  });
+
+  it('publishes a positive decimal cap as the owner string', () => {
+    const law = parseCopyFeeShareLawJson(
+      JSON.stringify({
+        published: true,
+        leaderShareBps: 2_500,
+        earningsCapPerFollower: '10.5',
+        decayRoundTrips: 10,
+        decayShareBps: 500,
+      }),
+    );
+    expect(law.published).toBe(true);
+    if (law.published) {
+      expect(law.earningsCapPerFollower).toBe('10.5');
+      expect(typeof law.earningsCapPerFollower).toBe('string');
+    }
+  });
+
+  it('publishes the shipped earnings cap with its owner decimals', () => {
+    const law = parseCopyFeeShareLawJson(
+      JSON.stringify({
+        published: true,
+        leaderShareBps: 1000,
+        earningsCapPerFollower: '1000.00',
+        decayRoundTrips: 50,
+        decayShareBps: 5000,
+      }),
+    );
+    expect(law.published).toBe(true);
+    if (law.published) {
+      expect(law.earningsCapPerFollower).toBe('1000.00');
+      expect(typeof law.earningsCapPerFollower).toBe('string');
+    }
+  });
+
   it('refuses invent — missing leaderShareBps', () => {
     expect(() => parseCopyFeeShareLawJson(JSON.stringify({ published: true, earningsCapPerFollower: '1' }))).toThrow(CopyError);
   });

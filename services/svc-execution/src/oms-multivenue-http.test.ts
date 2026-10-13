@@ -11,8 +11,14 @@ import { executeOmsRoute, type OmsSubmitFn } from './oms-execute.js';
 import { InMemoryEmsOrderStore } from './oms-ems-store.js';
 import { latencyGradeWire, type OmsPlanVenue } from './oms-plan.js';
 import { createExecutionRouter } from './router.js';
-import { handleOmsBestExClaimDoor, handleOmsDexRouteDoor, registerOmsMultivenueDoor } from './oms-multivenue-http.js';
-import { refuseDexRouting, refuseInventedVenue, refuseOutageInventedFill, refuseUnsetBestExClaim } from './oms-multivenue-refuse.js';
+import { handleOmsBestExClaimDoor, handleOmsDexRouteDoor, handleOmsPlanDoor, registerOmsMultivenueDoor } from './oms-multivenue-http.js';
+import {
+  refuseDexRouting,
+  refuseInventedVenue,
+  refuseLiveOmsMultivenue,
+  refuseOutageInventedFill,
+  refuseUnsetBestExClaim,
+} from './oms-multivenue-refuse.js';
 import { installOmsWriteRawBody } from './oms-write-hmac.js';
 
 const SECRET = 'a-execution-oms-multivenue-http-test-edge-secret';
@@ -144,6 +150,109 @@ describe('refuseInventedVenue', () => {
       reason: 'invented_venue',
     });
     expect(refuseInventedVenue({ venueId: 'street', wiredVenueIds: ['street'] })).toBeNull();
+  });
+});
+
+describe('refuseLiveOmsMultivenue venues allowlist', () => {
+  it('checks each venues[] id when venueId is omitted and the allowlist was copied onto the body', () => {
+    expect(
+      refuseLiveOmsMultivenue({
+        wiredVenueIds: ['binance-spot', 'okx-spot'],
+        venues: [{ id: 'binance-spot' }, { id: 'okx-spot' }],
+      }),
+    ).toBeNull();
+  });
+
+  it('refuses a venues[] id that is not on the allowlist', () => {
+    expect(
+      refuseLiveOmsMultivenue({
+        wiredVenueIds: ['binance-spot'],
+        venues: [{ id: 'binance-spot' }, { id: 'ghost' }],
+      }),
+    ).toMatchObject({
+      ok: false,
+      reason: 'invented_venue',
+      detail: expect.stringContaining('ghost'),
+    });
+  });
+
+  it('does not call a blank venues[] id invented when the allowlist is absent', () => {
+    expect(refuseLiveOmsMultivenue({ venues: [{ id: 'street' }, { id: '' }] })).toBeNull();
+    expect(refuseLiveOmsMultivenue({ venues: [{ id: null }] })).toBeNull();
+    expect(refuseLiveOmsMultivenue({ venues: [{ id: '   ' }] })).toBeNull();
+  });
+
+  it('refuses a blank venues[] id when an allowlist is present', () => {
+    expect(
+      refuseLiveOmsMultivenue({
+        wiredVenueIds: ['street'],
+        venues: [{ id: '  ' }],
+      }),
+    ).toMatchObject({ ok: false, reason: 'invented_venue' });
+  });
+
+  it('refuses an explicit blank venueId', () => {
+    expect(
+      refuseLiveOmsMultivenue({
+        venueId: '  ',
+        wiredVenueIds: ['street'],
+        venues: [{ id: 'street' }],
+      }),
+    ).toMatchObject({ ok: false, reason: 'invented_venue' });
+    expect(refuseLiveOmsMultivenue({ venueId: '' })).toMatchObject({ ok: false, reason: 'invented_venue' });
+    expect(refuseLiveOmsMultivenue({ venueId: null })).toMatchObject({ ok: false, reason: 'invented_venue' });
+  });
+
+  it('does not refuse a venues-only plan because withWired copied the server allowlist', async () => {
+    const f = Fastify();
+    installOmsWriteRawBody(f);
+    registerOmsMultivenueDoor(f, {
+      edgeContext,
+      internalSecret: SERVICE_SECRET,
+      wiredVenueIds: ['street'],
+    });
+    await f.ready();
+    const payload = {
+      symbol: 'BTC/USDT',
+      side: 'buy' as const,
+      amount: '1',
+      venues: [completeVenue({ id: 'street', price: '100' })],
+    };
+    const res = await f.inject({
+      method: 'POST',
+      url: '/execution/oms/plan',
+      headers: hmacHeaders(payload),
+      payload: JSON.stringify(payload),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: true });
+    await f.close();
+  });
+});
+
+describe('handleOmsPlanDoor side', () => {
+  const venues = [completeVenue({ id: 'street', price: '100' })];
+  const named = { symbol: 'BTC/USDT', amount: '1', venues };
+
+  it('refuses an omitted, blank, or non buy/sell side instead of planning a buy', async () => {
+    const sideUnset = {
+      ok: false,
+      reason: 'side_unset',
+      detail: 'a plan that does not name a side refuses — rather than planning a buy',
+    };
+    expect(await handleOmsPlanDoor(named)).toEqual(sideUnset);
+    for (const side of ['', '   ', 'hold', 'BUY', 1, null, { n: 1 }] as const) {
+      expect(await handleOmsPlanDoor({ ...named, side })).toEqual(sideUnset);
+    }
+
+    const buy = await handleOmsPlanDoor({ ...named, side: 'buy' });
+    expect(buy).toMatchObject({ ok: true, report: { side: 'buy', symbol: 'BTC/USDT' } });
+
+    const sell = await handleOmsPlanDoor({ ...named, side: 'sell' });
+    expect(sell).toMatchObject({ ok: true, report: { side: 'sell', symbol: 'BTC/USDT' } });
+
+    const emptyAmount = await handleOmsPlanDoor({ symbol: 'BTC/USDT', side: 'buy', amount: '', venues });
+    expect(emptyAmount).toMatchObject({ ok: false, reason: 'invalid_amount' });
   });
 });
 

@@ -1,3 +1,4 @@
+import { truncatePayForTest } from './payment-events-test-reset.js';
 import { readdirSync, readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -132,7 +133,11 @@ describe('svc-pay PSP pricing durability PG-hard', () => {
   }, 120_000);
 
   beforeEach(async () => {
-    await sql`TRUNCATE pay.merchant_kyb_events, pay.merchant_pricing_events, pay.merchant_status_events, pay.merchants RESTART IDENTITY CASCADE`;
+    await truncatePayForTest(
+      sql,
+      'pay',
+      `TRUNCATE pay.merchant_kyb_events, pay.merchant_pricing_events, pay.merchant_status_events, pay.merchants RESTART IDENTITY CASCADE`,
+    );
     psp = new PspModeService(sql);
   });
 

@@ -62,6 +62,14 @@ export function navigatorTierGate(input: { law: NavigatorTierLaw | null | undefi
     };
   }
 
+  if (!Object.hasOwn(law.matrix, tier)) {
+    return {
+      status: 'refuse',
+      reason: 'tier_not_granted',
+      userMessageKey: 'agents.navigator.tier_closed',
+    };
+  }
+
   const allowed = law.matrix[tier];
   if (!allowed) {
     return {

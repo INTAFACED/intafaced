@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import Fastify, { type FastifyRequest } from 'fastify';
+import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createPayRouter } from './router.js';
@@ -168,4 +170,52 @@ describe('svc-pay mount — the public surface', () => {
     // A rejected principal makes the caller anonymous, not rejected outright.
     await expect(router().createCaller(forged()).health()).resolves.toMatchObject({ ok: true });
   });
+});
+
+it('actual signed HTTP mount refuses blank screening under strict defaults before money work', async () => {
+  const oldStrict = process.env.INTAFACED_SCREENING_FAIL_CLOSED;
+  const oldList = process.env.INTAFACED_SANCTIONS_REGIONS;
+  const oldRegion = process.env.INTAFACED_REGION_FAIL_CLOSED;
+  delete process.env.INTAFACED_REGION_FAIL_CLOSED;
+  delete process.env.INTAFACED_SCREENING_FAIL_CLOSED;
+  delete process.env.INTAFACED_SANCTIONS_REGIONS;
+  const balance = vi.fn(async () => ({}));
+  const app = Fastify();
+  try {
+    await app.register(fastifyTRPCPlugin, {
+      prefix: '/trpc',
+      trpcOptions: {
+        router: router(stubPay({ createPayment: balance }), stubMoney()),
+        createContext: ({ req }: { req: FastifyRequest }) => edgeContext(req),
+      },
+    });
+    const raw = encodePrincipal(principal({ scopes: ['pay:write'], mfa: true }));
+    const response = await app.inject({
+      method: 'POST',
+      url: '/trpc/payment.create',
+      payload: {
+        merchantId: '55555555-5555-4555-8555-555555555555',
+        amount: '1',
+        assetId: 'USDT',
+        method: 'card',
+        railAdapter: 'card-sandbox',
+      },
+      headers: {
+        'x-intafaced-principal': raw,
+        'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+        'x-intafaced-region': 'DE',
+      },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.body).toContain('Sanctions screening list is unset');
+    expect(balance).not.toHaveBeenCalled();
+  } finally {
+    await app.close();
+    if (oldRegion === undefined) delete process.env.INTAFACED_REGION_FAIL_CLOSED;
+    else process.env.INTAFACED_REGION_FAIL_CLOSED = oldRegion;
+    if (oldStrict === undefined) delete process.env.INTAFACED_SCREENING_FAIL_CLOSED;
+    else process.env.INTAFACED_SCREENING_FAIL_CLOSED = oldStrict;
+    if (oldList === undefined) delete process.env.INTAFACED_SANCTIONS_REGIONS;
+    else process.env.INTAFACED_SANCTIONS_REGIONS = oldList;
+  }
 });

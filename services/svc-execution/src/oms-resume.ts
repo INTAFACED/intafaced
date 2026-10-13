@@ -62,6 +62,14 @@ function childOutcome(row: EmsOrderEvidence): OmsResumeChild {
       reason: row.state ?? 'no_execution',
     };
   }
+  if (row.execution.status === 'rejected') {
+    return {
+      clientOrderId: row.clientOrderId,
+      venueId: row.venueId,
+      outcome: 'already_stopped',
+      status: row.execution.status,
+    };
+  }
   return {
     clientOrderId: row.clientOrderId,
     venueId: row.venueId,
@@ -86,9 +94,7 @@ export function resumeInFlightAlgo(input: OmsResumeInput): OmsResumeResult {
     return { ok: false, reason: 'pause_store_unwired', detail: 'pause store is required for algo resume' };
   }
 
-  const key: AlgoPauseKey = parentClientOrderId
-    ? { kind: 'parent', id: parentClientOrderId }
-    : { kind: 'group', id: executionGroupId };
+  const key: AlgoPauseKey = parentClientOrderId ? { kind: 'parent', id: parentClientOrderId } : { kind: 'group', id: executionGroupId };
   const wasPaused = input.pauseStore.resume(key);
   if (!wasPaused) {
     return { ok: false, reason: 'not_paused', detail: 'algo is not paused — refusing to invent a resume' };

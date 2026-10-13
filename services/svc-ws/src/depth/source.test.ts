@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEPTH_MARKET_HALTED } from '../matching-trading.js';
 import { DepthL3UnavailableError, DepthNoBookError, DepthSourceError, HttpDepthSource, parseNativeL3 } from './source.js';
 
 /**
@@ -35,6 +36,57 @@ describe('HttpDepthSource', () => {
     await expect(s.snapshot('BTC-USDT', 50)).rejects.toThrow(/decimal strings/);
   });
 
+  it("does not leave a refused book's trading flag in trading()", async () => {
+    // The halt rides on the same body as the ladder. A refused ladder must not
+    // store that body's flag: a market with no prior flag stays unknown, and a
+    // prior flag stays as it was. Do not invent OPEN, and do not serve the halt
+    // from the body that was refused.
+    const fresh = source(
+      respondWith({
+        marketId: 'BTC-USDT',
+        sequence: 9,
+        bids: [['100', '1']],
+        asks: [['101', 1]],
+        halted: true,
+      }),
+    );
+    await expect(fresh.snapshot('BTC-USDT', 50)).rejects.toThrow(/decimal strings/);
+    expect(fresh.trading('BTC-USDT')).toBeNull();
+
+    let serveGood = true;
+    const held = source((async () => {
+      const body = serveGood
+        ? {
+            marketId: 'BTC-USDT',
+            sequence: 4,
+            bids: [['100', '1']],
+            asks: [['101', '1']],
+            halted: true,
+          }
+        : {
+            marketId: 'BTC-USDT',
+            sequence: 5,
+            bids: [['100', '1']],
+            asks: [['101', 1]],
+            delisted: true,
+          };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof globalThis.fetch);
+
+    await expect(held.snapshot('BTC-USDT', 50)).resolves.toEqual({
+      type: 'snapshot',
+      marketId: 'BTC-USDT',
+      sequence: 4,
+      bids: [['100', '1']],
+      asks: [['101', '1']],
+    });
+    expect(held.trading('BTC-USDT')).toBe(DEPTH_MARKET_HALTED);
+
+    serveGood = false;
+    await expect(held.snapshot('BTC-USDT', 50)).rejects.toThrow(/decimal strings/);
+    expect(held.trading('BTC-USDT')).toBe(DEPTH_MARKET_HALTED);
+  });
+
   it('refuses a response with no integer sequence', async () => {
     // Without the engine's sequence there is no safe delta stream at all, and
     // inventing one would produce a book that drifts silently.
@@ -53,6 +105,33 @@ describe('HttpDepthSource', () => {
     }) as typeof globalThis.fetch);
 
     await expect(s.snapshot('BTC-USDT', 50)).rejects.toThrow(/svc-matching unreachable/);
+    await expect(s.snapshot('BTC-USDT', 50)).rejects.toBeInstanceOf(DepthSourceError);
+  });
+
+  it('rejects a 200 whose body is not JSON as DepthSourceError', async () => {
+    // A body that will not parse is not a book. Letting response.json() throw
+    // SyntaxError would look like a bug here, and filling in a ladder, a price,
+    // or a sequence would invent one matching never sent.
+    for (const body of ['{', 'not-json']) {
+      const s = source((async () => new Response(body, { status: 200 })) as typeof globalThis.fetch);
+      await expect(s.snapshot('BTC-USDT', 50)).rejects.toBeInstanceOf(DepthSourceError);
+      await expect(s.snapshot('BTC-USDT', 50)).rejects.not.toBeInstanceOf(SyntaxError);
+    }
+  });
+
+  it('treats a 200 whose JSON value is null as DepthSourceError, and a 404 as DepthNoBookError', async () => {
+    // response.json() of the JSON value null returns null without throwing.
+    // That is a malformed success, not matching holding no book. A 404 is the
+    // absence signal. Neither path may invent a ladder, a price, or a sequence.
+    const nullBody = source(respondWith(null));
+    await expect(nullBody.snapshot('BTC-USDT', 50)).rejects.toMatchObject({
+      name: 'DepthSourceError',
+      status: null,
+    });
+    await expect(nullBody.snapshot('BTC-USDT', 50)).rejects.not.toBeInstanceOf(DepthNoBookError);
+
+    const missing = source(respondWith({ code: 'MarketNotFound' }, 404));
+    await expect(missing.snapshot('BTC-USDT', 50)).rejects.toBeInstanceOf(DepthNoBookError);
   });
 
   it('sends no credential of any kind', async () => {

@@ -37,14 +37,9 @@ export type OmsPaperBracketStartOk = {
   readonly stopLoss: string;
 };
 
-export type OmsPaperBracketStartResult =
-  | OmsPaperBracketStartOk
-  | OmsPaperBracketStartRefusal;
+export type OmsPaperBracketStartResult = OmsPaperBracketStartOk | OmsPaperBracketStartRefusal;
 
-function refuse(
-  reason: OmsPaperBracketStartRefuseReason,
-  detail: string,
-): OmsPaperBracketStartRefusal {
+function refuse(reason: OmsPaperBracketStartRefuseReason, detail: string): OmsPaperBracketStartRefusal {
   return { ok: false, reason, detail };
 }
 
@@ -54,25 +49,20 @@ function parseRetainedTrigger(
   label: string,
 ): { ok: true; text: string } | OmsPaperBracketStartRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      missing,
-      `${label} is missing — refusing to invent a trigger or a live venue`,
-    );
+    return refuse(missing, `${label} is missing — refusing to invent a trigger or a live venue`);
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      missing,
-      `${label} is missing — refusing to invent a trigger or a live venue`,
-    );
+    return refuse(missing, `${label} is missing — refusing to invent a trigger or a live venue`);
   }
   try {
-    return { ok: true, text: formatAmount(parseAmount(text)) };
+    const value = parseAmount(text);
+    if (value <= 0n) {
+      return refuse(missing, `${label} must be a positive ledger amount — refusing to invent a trigger`);
+    }
+    return { ok: true, text: formatAmount(value) };
   } catch {
-    return refuse(
-      missing,
-      `${label} is not a ledger amount — refusing to invent a trigger`,
-    );
+    return refuse(missing, `${label} is not a ledger amount — refusing to invent a trigger`);
   }
 }
 
@@ -111,16 +101,10 @@ export function startPaperBracketParent(input: {
     return refuse('not_live', `kind ${String(input.kind)} is not bracket`);
   }
   if (input.status === 'running') {
-    return refuse(
-      'already_started',
-      `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`,
-    );
+    return refuse('already_started', `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`);
   }
   if (input.approved !== true && input.status !== 'paper' && input.status !== 'approved') {
-    return refuse(
-      'not_approved',
-      `parent ${parentClientOrderId} is not an approved paper bracket parent`,
-    );
+    return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper bracket parent`);
   }
   const operatorId = input.operatorId?.trim() ?? '';
   if (!operatorId) {
@@ -128,17 +112,9 @@ export function startPaperBracketParent(input: {
   }
   const entry = parseRetainedTrigger(input.entry, 'missing_entry', 'bracket entry');
   if (!entry.ok) return entry;
-  const takeProfit = parseRetainedTrigger(
-    input.takeProfit,
-    'missing_take_profit',
-    'bracket take-profit',
-  );
+  const takeProfit = parseRetainedTrigger(input.takeProfit, 'missing_take_profit', 'bracket take-profit');
   if (!takeProfit.ok) return takeProfit;
-  const stopLoss = parseRetainedTrigger(
-    input.stopLoss,
-    'missing_stop_loss',
-    'bracket stop-loss',
-  );
+  const stopLoss = parseRetainedTrigger(input.stopLoss, 'missing_stop_loss', 'bracket stop-loss');
   if (!stopLoss.ok) return stopLoss;
 
   return {

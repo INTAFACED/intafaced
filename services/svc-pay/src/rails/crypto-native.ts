@@ -328,14 +328,7 @@ export class CryptoNativeAdapter implements RailAdapter {
     try {
       transfer = await this.findTransfer(ref);
     } catch (err) {
-      return railFailure({
-        railRef: ref,
-        amount,
-        assetId: '',
-        failureCode: this.chainFailureCode(err, 'chain.unavailable'),
-        failureReason: err instanceof Error ? err.message : String(err),
-        at: this.now(),
-      });
+      throw new RailOutcomeUnknownError(err);
     }
 
     if (!transfer) {
@@ -481,14 +474,16 @@ export class CryptoNativeAdapter implements RailAdapter {
         raw: { txHash, to: s.destination.ref, window: s.window },
       };
     } catch (err) {
-      return railFailure({
-        railRef: '',
-        amount: s.amount,
-        assetId: s.assetId,
-        failureCode: this.chainFailureCode(err, 'chain.broadcast_failed'),
-        failureReason: err instanceof Error ? err.message : String(err),
-        at: this.now(),
-      });
+      if (err instanceof ChainNotConfiguredError)
+        return railFailure({
+          railRef: '',
+          amount: s.amount,
+          assetId: s.assetId,
+          failureCode: 'chain.not_configured',
+          failureReason: err.message,
+          at: this.now(),
+        });
+      throw new RailOutcomeUnknownError(err);
     }
   }
 
@@ -587,5 +582,14 @@ export class CryptoNativeAdapter implements RailAdapter {
   private async findTransfer(address: string) {
     if (!address) return null;
     return this.chain.inboundTransfer(address);
+  }
+}
+
+/** Transport failure is uncertainty, never a provider refusal or rollback. */
+export class RailOutcomeUnknownError extends Error {
+  readonly code = 'pay.rail_outcome_unknown';
+  constructor(cause: unknown) {
+    super('Chain send outcome is unknown; preserve the original claim', { cause });
+    this.name = 'RailOutcomeUnknownError';
   }
 }

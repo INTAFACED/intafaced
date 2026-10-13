@@ -127,9 +127,13 @@ async function runExecute(over: Record<string, unknown> = {}) {
 describe('refuseUnsetBuyingPower', () => {
   it('refuses unset/blank/invalid — never invents buying power', () => {
     expect(refuseUnsetBuyingPower(undefined)).toMatchObject({ ok: false, reason: 'buying_power_unset' });
+    expect(refuseUnsetBuyingPower(null)).toMatchObject({ ok: false, reason: 'buying_power_unset' });
     expect(refuseUnsetBuyingPower('')).toMatchObject({ ok: false, reason: 'buying_power_unset' });
+    expect(refuseUnsetBuyingPower('   ')).toMatchObject({ ok: false, reason: 'buying_power_unset' });
     expect(refuseUnsetBuyingPower('not-an-amount')).toMatchObject({ ok: false, reason: 'buying_power_unset' });
     expect(refuseUnsetBuyingPower('0')).toMatchObject({ ok: false, reason: 'buying_power_unset' });
+    expect(refuseUnsetBuyingPower(1000)).toMatchObject({ ok: false, reason: 'buying_power_unset' });
+    expect(refuseUnsetBuyingPower({ limit: '1000' })).toMatchObject({ ok: false, reason: 'buying_power_unset' });
   });
   it('accepts a positive ledger amount', () => {
     expect(refuseUnsetBuyingPower('1000')).toMatchObject({ ok: true, buyingPower: formatAmount(parseAmount('1000')) });
@@ -215,6 +219,21 @@ describe('POST /execution/oms/buying-power', () => {
   it('handleOmsBuyingPowerDoor never slices', () => {
     expect(handleOmsBuyingPowerDoor({})).toMatchObject({ ok: false, reason: 'buying_power_unset' });
     expect(handleOmsBuyingPowerDoor({ buyingPower: '1000' })).toMatchObject({ ok: true });
+  });
+  it('signed admin:write refuses a JSON number or object buying power', async () => {
+    const f = await app();
+    for (const buyingPower of [1000, { limit: '1000' }] as const) {
+      const payload = { buyingPower };
+      const res = await f.inject({
+        method: 'POST',
+        url: '/execution/oms/buying-power',
+        headers: hmacHeaders(payload),
+        payload: JSON.stringify(payload),
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ ok: false, reason: 'buying_power_unset' });
+    }
+    await f.close();
   });
 });
 

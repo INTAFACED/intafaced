@@ -1,3 +1,4 @@
+import net from 'node:net';
 import { describe, expect, it } from 'vitest';
 import {
   DEPTH_ENGINE_UNAVAILABLE,
@@ -21,6 +22,7 @@ import {
   describeGatewayPolicy,
   isPublicSbeL2Ask,
   marketDataFeedRefuse,
+  writeMarketDataFeedRefuse,
   sbeL2EntitlementRefuse,
   wouldInventInitialEmptyLadder,
   wouldInventQuietMarketFromEngineDown,
@@ -193,4 +195,70 @@ describe('marketDataFeedRefuse', () => {
     expect(marketDataFeedRefuse(q('channel=trades&transport=push'), { allowPublicSbeL2: true, allowNativeL3: true })).toBeNull();
     expect(marketDataFeedRefuse(q(''))).toBeNull();
   });
+
+  it('sees a later alias and a repeated key as the binary, L3, push, or L4 ask', () => {
+    expect(marketDataFeedRefuse(q('format=json&encoding=sbe'))).toBe(DEPTH_BINARY_UNAVAILABLE);
+    expect(marketDataFeedRefuse(q('level=2&book=mbo'))).toBe(DEPTH_L3_UNAVAILABLE);
+    expect(marketDataFeedRefuse(q('level=1&level=3'))).toBe(DEPTH_L3_UNAVAILABLE);
+    expect(marketDataFeedRefuse(q('transport=poll&mode=push'))).toBe(DEPTH_PUSH_UNAVAILABLE);
+    expect(sbeL2EntitlementRefuse(q('level=20&data_level=4'))).toBe(DEPTH_ENTITLEMENT_UNAUTHORIZED);
+    expect(marketDataFeedRefuse(q('format=json&level=2&transport=poll'))).toBeNull();
+    expect(sbeL2EntitlementRefuse(q('format=json&level=2'))).toBeNull();
+  });
+
+  it('delivers the named 409 refuse when the write is still buffered', async () => {
+    const received = await readBufferedRefuse(DEPTH_L3_UNAVAILABLE);
+    expect(received).toBe(
+      'HTTP/1.1 409 Conflict\r\n' +
+        'Content-Type: application/json; charset=utf-8\r\n' +
+        'Content-Length: 113\r\n' +
+        'Connection: close\r\n' +
+        '\r\n' +
+        '{"type":"status","code":"depth.l3_unavailable","message":"matching native L3 is unavailable; L2 depth is not L3"}',
+    );
+  });
 });
+
+/**
+ * Cork holds the response in the writable buffer. Node drops that buffer on
+ * destroy, so the peer reads bytes only when the refuse is flushed first.
+ */
+function readBufferedRefuse(code: Parameters<typeof writeMarketDataFeedRefuse>[1]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let client: net.Socket | undefined;
+    const server = net.createServer((socket) => {
+      socket.cork();
+      try {
+        writeMarketDataFeedRefuse(socket, code);
+      } finally {
+        socket.uncork();
+      }
+    });
+    const finish = (body: string) => {
+      if (settled) return;
+      settled = true;
+      client?.destroy();
+      server.close(() => resolve(body));
+    };
+    server.once('error', (err) => {
+      if (settled) return;
+      settled = true;
+      client?.destroy();
+      server.close(() => reject(err));
+    });
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (address === null || typeof address === 'string') {
+        finish('');
+        return;
+      }
+      const chunks: Buffer[] = [];
+      client = net.connect(address.port, '127.0.0.1');
+      client.setTimeout(1000, () => finish(Buffer.concat(chunks).toString('utf8')));
+      client.on('data', (chunk: Buffer) => chunks.push(chunk));
+      client.on('error', () => undefined);
+      client.on('close', () => finish(Buffer.concat(chunks).toString('utf8')));
+    });
+  });
+}

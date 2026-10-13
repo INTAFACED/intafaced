@@ -139,7 +139,7 @@ export function refuseUnconfirmedHandoff(
     emsStore?: EmsOrderStore;
     fillConfirmStore?: FillConfirmStore;
   },
-  action: 'pass' | 'shift',
+  action: 'pass' | 'shift' | 'accept',
 ): { readonly ok: true } | OmsUnconfirmedHandoffRefuse {
   const listed = listUnconfirmedChildFills(input);
   if (!listed.ok) return listed;

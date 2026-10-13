@@ -223,6 +223,111 @@ describe('startApprovedAlgoParent', () => {
     ).toMatchObject({ ok: false, reason: 'missing_schedule' });
   });
 
+  it('missing_schedule for NaN or Infinity slices, infinite durations, and negative POV bps', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    const rows: Array<{ id: string; kind: 'twap' | 'vwap' | 'pov'; schedule: RetainedAlgoSchedule }> = [
+      {
+        id: 'slices-nan',
+        kind: 'twap',
+        schedule: { durationMs: 60_000, sliceIntervalMs: 10_000, slicesPlanned: Number.NaN, participationBps: null },
+      },
+      {
+        id: 'slices-infinity',
+        kind: 'vwap',
+        schedule: {
+          durationMs: 120_000,
+          sliceIntervalMs: 15_000,
+          slicesPlanned: Number.POSITIVE_INFINITY,
+          participationBps: null,
+        },
+      },
+      {
+        id: 'duration-infinity',
+        kind: 'twap',
+        schedule: {
+          durationMs: Number.POSITIVE_INFINITY,
+          sliceIntervalMs: 10_000,
+          slicesPlanned: 6,
+          participationBps: null,
+        },
+      },
+      {
+        id: 'interval-infinity',
+        kind: 'twap',
+        schedule: {
+          durationMs: 60_000,
+          sliceIntervalMs: Number.POSITIVE_INFINITY,
+          slicesPlanned: 6,
+          participationBps: null,
+        },
+      },
+      {
+        id: 'duration-nan',
+        kind: 'twap',
+        schedule: { durationMs: Number.NaN, sliceIntervalMs: 10_000, slicesPlanned: 6, participationBps: null },
+      },
+      {
+        id: 'pov-negative-bps',
+        kind: 'pov',
+        schedule: { durationMs: 90_000, sliceIntervalMs: 5_000, slicesPlanned: 18, participationBps: -1 },
+      },
+    ];
+    for (const row of rows) {
+      parentStore.seed(approved({ parentClientOrderId: row.id, kind: row.kind, schedule: row.schedule }));
+      expect(
+        startApprovedAlgoParent({
+          parentClientOrderId: row.id,
+          parentStore,
+          jobs: { enabled: true },
+        }),
+        row.id,
+      ).toMatchObject({ ok: false, reason: 'missing_schedule' });
+      expect(parentStore.get(row.id)?.status, row.id).toBe('approved');
+    }
+  });
+
+  it('finite slice count, finite durations, and non-negative POV bps still start', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    const now = new Date('2026-08-25T12:00:00.000Z');
+    const oneSlice: RetainedAlgoSchedule = {
+      durationMs: 1,
+      sliceIntervalMs: 1,
+      slicesPlanned: 1,
+      participationBps: null,
+    };
+    const zeroBps: RetainedAlgoSchedule = {
+      durationMs: 90_000,
+      sliceIntervalMs: 5_000,
+      slicesPlanned: 18,
+      participationBps: 0,
+    };
+    parentStore.seed(approved({ parentClientOrderId: 'parent-one-slice', kind: 'twap', schedule: oneSlice }));
+    parentStore.seed(approved({ parentClientOrderId: 'parent-pov-zero-bps', kind: 'pov', schedule: zeroBps }));
+
+    expect(
+      startApprovedAlgoParent({
+        parentClientOrderId: 'parent-one-slice',
+        operatorId: OP,
+        parentStore,
+        jobs: { enabled: true },
+        matchingVenueHalt: MATCHING_OPEN,
+        now,
+      }),
+    ).toMatchObject({ ok: true, status: 'running', schedule: oneSlice });
+    expect(
+      startApprovedAlgoParent({
+        parentClientOrderId: 'parent-pov-zero-bps',
+        operatorId: OP,
+        parentStore,
+        jobs: { enabled: true },
+        matchingVenueHalt: MATCHING_OPEN,
+        now,
+      }),
+    ).toMatchObject({ ok: true, status: 'running', schedule: zeroBps });
+    expect(parentStore.get('parent-one-slice')?.status).toBe('running');
+    expect(parentStore.get('parent-pov-zero-bps')?.status).toBe('running');
+  });
+
   it('happy TWAP, VWAP, POV: jobs on + approved + retained schedule → ok, echo, running', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
     const now = new Date('2026-08-25T12:00:00.000Z');
@@ -443,6 +548,92 @@ describe('startApprovedAlgoParent', () => {
       ).toMatchObject({ ok: false, reason: 'venue_halt_unavailable' });
       expect(parentStore.get(id)?.status).toBe('approved');
     }
+  });
+});
+
+describe('InMemoryApprovedAlgoParentStore.start', () => {
+  const STARTED = '2026-08-25T12:00:00.000Z';
+  const PRIOR = '2026-08-24T00:00:00.000Z';
+
+  function parked(status: ApprovedAlgoParent['status'], id: string): ApprovedAlgoParent {
+    return {
+      ...approved({
+        parentClientOrderId: id,
+        kind: 'twap',
+        executionOwner: OP,
+        originator: OP,
+      }),
+      status,
+      startedAt: status === 'approved' || status === 'staged' || status === 'paper' ? null : PRIOR,
+    };
+  }
+
+  it('does not start a stopped parent or rewrite startedAt', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(parked('stopped', 'parent-stopped'));
+    expect(parentStore.start('parent-stopped', STARTED, OP)).toBeNull();
+    expect(parentStore.get('parent-stopped')).toMatchObject({
+      status: 'stopped',
+      startedAt: PRIOR,
+      executionOwner: OP,
+    });
+  });
+
+  it('a blank or omitted operatorId does not start an approved parent that has an owner', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(parked('approved', 'parent-owned'));
+    expect(parentStore.start('parent-owned', STARTED, '')).toBeNull();
+    expect(parentStore.start('parent-owned', STARTED, '   ')).toBeNull();
+    expect(parentStore.start('parent-owned', STARTED)).toBeNull();
+    expect(parentStore.get('parent-owned')).toMatchObject({
+      status: 'approved',
+      startedAt: null,
+      executionOwner: OP,
+    });
+  });
+
+  it('expired, paper, staged, and already-running parents stay as stored', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    for (const status of ['expired', 'paper', 'staged', 'running'] as const) {
+      const id = `parent-${status}`;
+      parentStore.seed(parked(status, id));
+      const before = parentStore.get(id);
+      expect(parentStore.start(id, STARTED, OP)).toBeNull();
+      expect(parentStore.get(id)).toEqual(before);
+    }
+  });
+
+  it('a different operator does not start an approved owned parent', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(parked('approved', 'parent-owned'));
+    expect(parentStore.start('parent-owned', STARTED, OTHER)).toBeNull();
+    expect(parentStore.get('parent-owned')).toMatchObject({
+      status: 'approved',
+      startedAt: null,
+      executionOwner: OP,
+    });
+  });
+
+  it('a missing row returns null', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    expect(parentStore.start('missing', STARTED, OP)).toBeNull();
+  });
+
+  it('the matching operator starts an approved parent at the caller startedAt', () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(parked('approved', 'parent-owned'));
+    expect(parentStore.start('parent-owned', STARTED, `  ${OP}  `)).toMatchObject({
+      parentClientOrderId: 'parent-owned',
+      status: 'running',
+      startedAt: STARTED,
+      executionOwner: OP,
+    });
+    expect(parentStore.get('parent-owned')).toMatchObject({
+      status: 'running',
+      startedAt: STARTED,
+      executionOwner: OP,
+      originator: OP,
+    });
   });
 });
 

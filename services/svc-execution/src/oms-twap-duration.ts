@@ -13,34 +13,21 @@ export type OmsTwapDurationRefuse =
 
 export type OmsApproveWithTwapDurationResult = OmsApproveResult | OmsTwapDurationRefuse;
 
-function refuseDuration(
-  reason: OmsTwapDurationRefuse['reason'],
-  detail: string,
-): OmsTwapDurationRefuse {
+function refuseDuration(reason: OmsTwapDurationRefuse['reason'], detail: string): OmsTwapDurationRefuse {
   return { ok: false, reason, detail };
 }
 
-function parseTwapDurationMs(
-  raw: number | null | undefined,
-): { ok: true; value: number } | OmsTwapDurationRefuse {
+function parseTwapDurationMs(raw: number | null | undefined): { ok: true; value: number } | OmsTwapDurationRefuse {
   if (raw === null || raw === undefined) {
-    return refuseDuration(
-      'duration_blank',
-      'TWAP duration is blank — refuse rather than invent a schedule',
-    );
+    return refuseDuration('duration_blank', 'TWAP duration is blank — refuse rather than invent a schedule');
   }
   if (!Number.isInteger(raw) || raw <= 0) {
-    return refuseDuration(
-      'duration_invalid',
-      'TWAP duration must be a positive integer ms — not invented from slices',
-    );
+    return refuseDuration('duration_invalid', 'TWAP duration must be a positive integer ms — not invented from slices');
   }
   return { ok: true, value: raw };
 }
 
-function resolvedKind(
-  input: Parameters<typeof approveAlgoParent>[0],
-): AlgoKind | string | undefined {
+function resolvedKind(input: Parameters<typeof approveAlgoParent>[0]): AlgoKind | string | undefined {
   const fromInput = input.kind;
   if (fromInput === 'twap' || fromInput === 'vwap' || fromInput === 'pov') return fromInput;
   const id = input.parentClientOrderId?.trim() ?? '';
@@ -62,9 +49,7 @@ export function approveAlgoParentWithTwapDuration(
     const duration = parseTwapDurationMs(input.durationMs);
     if (!duration.ok) return duration;
     const { durationMs: ownerDuration, ...rest } = input;
-    const schedule = rest.schedule
-      ? { ...rest.schedule, durationMs: duration.value }
-      : rest.schedule;
+    const schedule = rest.schedule ? { ...rest.schedule, durationMs: duration.value } : rest.schedule;
     return approveAlgoParent({ ...rest, schedule });
   }
   const { durationMs: _ignored, ...approveInput } = input;

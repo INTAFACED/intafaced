@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  InMemoryApprovedAlgoParentStore,
-  type RetainedAlgoSchedule,
-} from './oms-start.js';
+import { InMemoryApprovedAlgoParentStore, type RetainedAlgoSchedule } from './oms-start.js';
 import { approveAlgoParentWithMaxParticipation } from './oms-pov-max-participation.js';
 
 const MATCHING_OPEN = { venueHalted: false } as const;
@@ -39,54 +36,42 @@ function povApproveInput(
 describe('approveAlgoParentWithMaxParticipation', () => {
   it('refuses POV + null maxParticipationBps with max_participation_blank; store has no approved row', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithMaxParticipation(
-      povApproveInput(parentStore, { maxParticipationBps: null }),
-    );
+    const result = approveAlgoParentWithMaxParticipation(povApproveInput(parentStore, { maxParticipationBps: null }));
     expect(result).toMatchObject({ ok: false, reason: 'max_participation_blank' });
     expect(parentStore.get('p-pov')).toBeNull();
   });
 
   it('refuses POV + undefined maxParticipationBps with max_participation_blank', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithMaxParticipation(
-      povApproveInput(parentStore, { maxParticipationBps: undefined }),
-    );
+    const result = approveAlgoParentWithMaxParticipation(povApproveInput(parentStore, { maxParticipationBps: undefined }));
     expect(result).toMatchObject({ ok: false, reason: 'max_participation_blank' });
     expect(parentStore.get('p-pov')).toBeNull();
   });
 
   it('refuses POV + 1.5 (non-integer) with max_participation_invalid; no approved row', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithMaxParticipation(
-      povApproveInput(parentStore, { maxParticipationBps: 1.5 }),
-    );
+    const result = approveAlgoParentWithMaxParticipation(povApproveInput(parentStore, { maxParticipationBps: 1.5 }));
     expect(result).toMatchObject({ ok: false, reason: 'max_participation_invalid' });
     expect(parentStore.get('p-pov')).toBeNull();
   });
 
   it('refuses POV + -1 with max_participation_invalid', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithMaxParticipation(
-      povApproveInput(parentStore, { maxParticipationBps: -1 }),
-    );
+    const result = approveAlgoParentWithMaxParticipation(povApproveInput(parentStore, { maxParticipationBps: -1 }));
     expect(result).toMatchObject({ ok: false, reason: 'max_participation_invalid' });
     expect(parentStore.get('p-pov')).toBeNull();
   });
 
   it('refuses POV + NaN with max_participation_invalid', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithMaxParticipation(
-      povApproveInput(parentStore, { maxParticipationBps: Number.NaN }),
-    );
+    const result = approveAlgoParentWithMaxParticipation(povApproveInput(parentStore, { maxParticipationBps: Number.NaN }));
     expect(result).toMatchObject({ ok: false, reason: 'max_participation_invalid' });
     expect(parentStore.get('p-pov')).toBeNull();
   });
 
   it('POV + 0 (not blank) + jobs on + operator + matching open: approve succeeds', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithMaxParticipation(
-      povApproveInput(parentStore, { maxParticipationBps: 0 }),
-    );
+    const result = approveAlgoParentWithMaxParticipation(povApproveInput(parentStore, { maxParticipationBps: 0 }));
     expect(result).toMatchObject({
       ok: true,
       approved: true,
@@ -99,9 +84,7 @@ describe('approveAlgoParentWithMaxParticipation', () => {
 
   it('POV + 200 + complete schedule: approve succeeds (ok true, approved true, kind pov)', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithMaxParticipation(
-      povApproveInput(parentStore, { maxParticipationBps: 200 }),
-    );
+    const result = approveAlgoParentWithMaxParticipation(povApproveInput(parentStore, { maxParticipationBps: 200 }));
     expect(result).toEqual({
       ok: true,
       approved: true,

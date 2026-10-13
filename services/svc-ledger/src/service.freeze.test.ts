@@ -5,7 +5,7 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import postgres, { type Sql } from 'postgres';
 import { describe, expect, it, beforeAll, beforeEach, afterEach, afterAll } from 'vitest';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
-import { MemoryEventBus } from '@intafaced/events';
+import { MemoryEventBus, type EventBus, type EventName, type Payload, type PublishOptions } from '@intafaced/events';
 import { LedgerError, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { LedgerService } from './service.js';
 
@@ -64,6 +64,17 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
         `TEST_DATABASE_URL unset and Testcontainers could not start ${H8A_IMAGE}: ${msg}`,
     );
   }
+}
+
+function gatedBus(inner: MemoryEventBus, blocked: () => boolean): EventBus {
+  return {
+    publish<K extends EventName>(name: K, payload: Payload<K>, opts?: PublishOptions) {
+      if (blocked()) throw new Error('bus down');
+      return inner.publish(name, payload, opts);
+    },
+    subscribe: (name, handler, opts) => inner.subscribe(name, handler, opts),
+    close: () => inner.close(),
+  };
 }
 
 describe('svc-ledger freeze PG-hard (source)', () => {
@@ -130,7 +141,7 @@ describe('svc-ledger freeze', () => {
 
   beforeEach(async () => {
     const opened = requireDb();
-    await opened.sql`TRUNCATE ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE`;
+    await opened.sql`TRUNCATE ledger_freeze_outbox, ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE`;
     await opened.sql`UPDATE chain_tip SET hash = NULL, seq = 0 WHERE id = true`;
     await opened.sql`UPDATE posting_freeze SET frozen = false, reason = NULL, actor = NULL WHERE id = true`;
 
@@ -220,11 +231,49 @@ describe('svc-ledger freeze', () => {
          WHERE owner_type = 'user' AND owner_id = ${USER} AND asset_id = 'USDT' AND kind = 'available'
       `;
 
+      const [account] = await requireDb().sql<Array<{ id: string }>>`
+        SELECT id
+          FROM accounts
+         WHERE owner_type = 'user' AND owner_id = ${USER} AND asset_id = 'USDT' AND kind = 'available'
+      `;
+
       const report = await a.reconcile();
       expect(report.ok).toBe(false);
 
       await expect(b.status()).resolves.toMatchObject({ postingEnabled: false, frozenBy: 'reconciliation' });
       await expect(b.post(deposit())).rejects.toMatchObject({ code: 'ledger.frozen' });
+
+      if (report.balances.ok) throw new Error('fixture drift missing');
+      const drift = report.balances.drift[0];
+      expect(drift?.accountId).toBe(account?.id);
+      const [page] = busA.emitted('ledgerReconciliationFailed');
+      expect(page?.payload).toMatchObject({
+        accountId: drift?.accountId,
+        assetId: drift?.assetId,
+        snapshotBalance: drift?.cached,
+        replayBalance: drift?.replayed,
+        drift: drift?.difference,
+      });
+    });
+
+    it('a chain break with no balance drift freezes and does not page a nil zero drift', async () => {
+      await a.post(deposit());
+
+      // Break the hash chain only. Balances still match their entries.
+      await requireDb().sql`UPDATE ledger_tx SET hash = hash || 'tamper'`;
+
+      const report = await a.reconcile();
+      expect(report.ok).toBe(false);
+      expect(report.balances.ok).toBe(true);
+      expect(report.chain.ok).toBe(false);
+
+      await expect(b.status()).resolves.toMatchObject({ postingEnabled: false, frozenBy: 'reconciliation' });
+
+      const pages = busA.emitted('ledgerReconciliationFailed');
+      expect(pages[0]?.payload.accountId).not.toBe('00000000-0000-4000-8000-000000000000');
+      expect(pages[0]?.payload.drift).not.toBe('0');
+      expect(pages[0]?.payload.assetId).not.toBe('UNKNOWN');
+      expect(pages).toHaveLength(0);
     });
   });
 
@@ -333,18 +382,126 @@ describe('svc-ledger freeze', () => {
       expect(row!.changed_at.getTime()).toBeGreaterThanOrEqual(before[0]!.now.getTime());
     });
 
-    it('keys the envelope on the column precision, so a same-millisecond thaw survives', async () => {
-      // STOP §4.2b #7. `freeze-event-key.test.ts` proves the arithmetic without a
-      // database; this proves the value actually reaching the bus is the one the
-      // DATABASE produced, not a Date round-trip that has already dropped the
-      // microseconds. Those are two different claims and both have to hold.
+    it('a failed publish stays in the outbox; the same-attribution retry emits it once without moving the switch', async () => {
+      const inner = new MemoryEventBus('retry');
+      let failPublish = true;
+      const ledger = new LedgerService(
+        connect(),
+        gatedBus(inner, () => failPublish),
+      );
+
+      await expect(ledger.freeze('drift', OPERATOR)).rejects.toThrow(/bus down/);
+
+      const frozen = await ledger.freezeState();
+      expect(frozen).toMatchObject({ frozen: true, reason: 'drift', actor: OPERATOR });
+      expect(inner.emitted('ledgerFreezeUpdated')).toHaveLength(0);
+
+      const pending = await requireDb().sql<Array<{ idempotency_key: string; published_at: Date | null }>>`
+        SELECT idempotency_key, published_at FROM ledger_freeze_outbox
+      `;
+      expect(pending).toHaveLength(1);
+      expect(pending[0]?.published_at).toBeNull();
+      expect(pending[0]?.idempotency_key).toMatch(/^ledger\.freeze:seq:[1-9][0-9]*$/);
+
+      failPublish = false;
+      const again = await ledger.freeze('drift', OPERATOR);
+      expect(again.changedAtPrecise).toBe(frozen.changedAtPrecise);
+      expect(again.changedAt.getTime()).toBe(frozen.changedAt.getTime());
+      expect(again).toMatchObject({ frozen: true, reason: 'drift', actor: OPERATOR });
+
+      const emitted = inner.emitted('ledgerFreezeUpdated');
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0]?.payload).toMatchObject({
+        frozen: true,
+        reason: 'drift',
+        actor: OPERATOR,
+        changedAt: frozen.changedAt.toISOString(),
+      });
+      expect(emitted[0]?.idempotencyKey).toBe(pending[0]?.idempotency_key);
+
+      const third = await ledger.freeze('drift', OPERATOR);
+      expect(third.changedAtPrecise).toBe(frozen.changedAtPrecise);
+      expect(inner.emitted('ledgerFreezeUpdated')).toHaveLength(1);
+
+      const sent = await requireDb().sql<Array<{ published_at: Date | null }>>`
+        SELECT published_at FROM ledger_freeze_outbox
+      `;
+      expect(sent[0]?.published_at).toBeInstanceOf(Date);
+    });
+
+    it('a failed unfreeze publish retries once and does not thaw again', async () => {
       await a.freeze('drift', OPERATOR);
-      const [row] = await requireDb().sql<Array<{ precise: string }>>`
-        SELECT changed_at::text AS precise FROM posting_freeze WHERE id = true
+      const inner = new MemoryEventBus('thaw');
+      let failPublish = true;
+      const ledger = new LedgerService(
+        connect(),
+        gatedBus(inner, () => failPublish),
+      );
+
+      await expect(ledger.unfreeze(OPERATOR)).rejects.toThrow(/bus down/);
+      const thawed = await ledger.freezeState();
+      expect(thawed).toMatchObject({ frozen: false, reason: null, actor: OPERATOR });
+      expect(inner.emitted('ledgerFreezeUpdated')).toHaveLength(0);
+
+      failPublish = false;
+      const again = await ledger.unfreeze(OPERATOR);
+      expect(again.frozen).toBe(false);
+      expect(again.changedAtPrecise).toBe(thawed.changedAtPrecise);
+      expect(again.changedAt.getTime()).toBe(thawed.changedAt.getTime());
+
+      const emitted = inner.emitted('ledgerFreezeUpdated');
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0]?.payload).toMatchObject({ frozen: false, reason: null, actor: OPERATOR });
+      expect(emitted[0]?.idempotencyKey).toBe(
+        (await requireDb().sql`SELECT idempotency_key FROM ledger_freeze_outbox ORDER BY switch_seq DESC LIMIT 1`)[0]?.idempotency_key,
+      );
+
+      await ledger.unfreeze(OPERATOR);
+      expect(inner.emitted('ledgerFreezeUpdated')).toHaveLength(1);
+      const still = await ledger.freezeState();
+      expect(still.changedAtPrecise).toBe(thawed.changedAtPrecise);
+    });
+
+    it('recoverUnpublishedOutbox emits a pending freeze event without a second switch', async () => {
+      const inner = new MemoryEventBus('recover');
+      let failPublish = true;
+      const ledger = new LedgerService(
+        connect(),
+        gatedBus(inner, () => failPublish),
+      );
+
+      await expect(ledger.freeze('drift', OPERATOR)).rejects.toThrow(/bus down/);
+      const frozen = await ledger.freezeState();
+      expect(inner.emitted('ledgerFreezeUpdated')).toHaveLength(0);
+
+      failPublish = false;
+      expect(await ledger.recoverUnpublishedOutbox()).toBe(1);
+      expect(inner.emitted('ledgerFreezeUpdated')).toHaveLength(1);
+      expect(inner.emitted('ledgerFreezeUpdated')[0]?.idempotencyKey).toBe(
+        (await requireDb().sql`SELECT idempotency_key FROM ledger_freeze_outbox ORDER BY switch_seq DESC LIMIT 1`)[0]?.idempotency_key,
+      );
+
+      const after = await ledger.freezeState();
+      expect(after.changedAtPrecise).toBe(frozen.changedAtPrecise);
+      expect(after).toMatchObject({ frozen: true, reason: 'drift', actor: OPERATOR });
+
+      expect(await ledger.recoverUnpublishedOutbox()).toBe(0);
+      await ledger.freeze('drift', OPERATOR);
+      expect(inner.emitted('ledgerFreezeUpdated')).toHaveLength(1);
+    });
+
+    it('keys the envelope on the durable switch sequence, so a same-millisecond thaw survives', async () => {
+      // STOP §4.2b #7. `freeze-event-key.test.ts` proves the arithmetic without a
+      // database; durable native events instead use the stored sequence allocated
+      // under the singleton lock. No Date round-trip creates their identity.
+      await a.freeze('drift', OPERATOR);
+      const [row] = await requireDb().sql<Array<{ key: string; seq: string }>>`
+        SELECT idempotency_key AS key, switch_seq::text AS seq FROM ledger_freeze_outbox ORDER BY switch_seq DESC LIMIT 1
       `;
 
       const [emitted] = busA.emitted('ledgerFreezeUpdated');
-      expect(emitted!.idempotencyKey).toBe(`ledger.freeze:${row!.precise}`);
+      expect(emitted!.idempotencyKey).toBe(row!.key);
+      expect(emitted!.idempotencyKey).toBe(`ledger.freeze:seq:${row!.seq}`);
 
       // And the freeze/thaw pair never share an identity, however fast it is.
       await a.unfreeze(OPERATOR);

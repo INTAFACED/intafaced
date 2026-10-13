@@ -90,7 +90,7 @@ describe('attributeChildFillsToParent', () => {
     if (!result.ok) return;
     expect(result.children.map((c) => c.clientOrderId)).toEqual(['child-1', 'child-2']);
     expect(result.children.every((c) => c.outcome === 'attributed')).toBe(true);
-    expect(result.residual).toEqual({ filled: '3', remaining: '0' });
+    expect(result.residual).toEqual({ filled: '3', remaining: null });
   });
 
   it('does not attribute another parent', () => {
@@ -105,7 +105,7 @@ describe('attributeChildFillsToParent', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.children.map((c) => c.clientOrderId)).toEqual(['child-1']);
-    expect(result.residual).toEqual({ filled: '1', remaining: '0' });
+    expect(result.residual).toEqual({ filled: '1', remaining: null });
   });
 
   it('unknown child keeps remaining unknown — no invented fill', () => {
@@ -133,7 +133,7 @@ describe('attributeChildFillsToParent', () => {
     expect(result.residual).toEqual({ filled: '0.4', remaining: null });
   });
 
-  it('rejected child is already_stopped — no invented fill', () => {
+  it('rejected child with no execution is not a zero leftover', () => {
     const store = new InMemoryEmsOrderStore();
     seed(store, { state: 'REJECTED', execution: null });
     const result = attributeChildFillsToParent({ parentClientOrderId: 'parent-1', emsStore: store });
@@ -141,7 +141,7 @@ describe('attributeChildFillsToParent', () => {
     if (!result.ok) return;
     expect(result.children[0]).toMatchObject({ outcome: 'already_stopped', reason: 'REJECTED' });
     expect(result.children[0]?.filled).toBeUndefined();
-    expect(result.residual).toEqual({ filled: '0', remaining: '0' });
+    expect(result.residual).toEqual({ filled: '0', remaining: null });
   });
 
   it('refuses a group, a missing parent, or an empty journal', () => {
@@ -198,6 +198,6 @@ describe('execution.oms.attribute tRPC', () => {
     if (!out.ok) return;
     expect(out.parent).toEqual({ parentClientOrderId: 'parent-1' });
     expect(out.children[0]?.outcome).toBe('attributed');
-    expect(out.residual).toEqual({ filled: '1', remaining: '0' });
+    expect(out.residual).toEqual({ filled: '1', remaining: null });
   });
 });

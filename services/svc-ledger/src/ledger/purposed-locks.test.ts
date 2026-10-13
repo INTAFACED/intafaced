@@ -216,6 +216,44 @@ describe('svc-ledger purposed lock kinds', () => {
       ).rejects.toMatchObject({ code: CHECK_VIOLATION });
     });
 
+    it('REFUSES Unicode White_Space pads that String.trim strips (FEFF, 2028, 2029)', async () => {
+      for (const pad of ['\uFEFF', '\u2028', '\u2029', '\u3000']) {
+        await expect(
+          requireDb().sql`
+            INSERT INTO accounts (owner_type, owner_id, asset_id, kind, purpose)
+            VALUES ('user'::owner_type, ${USER}, 'USDT', 'hold'::account_kind, ${'order:x' + pad})
+          `,
+        ).rejects.toMatchObject({ code: CHECK_VIOLATION });
+      }
+    });
+
+    it('REFUSES a vertical tab pad (U+000B)', async () => {
+      await expect(
+        requireDb().sql`
+          INSERT INTO accounts (owner_type, owner_id, asset_id, kind, purpose)
+          VALUES ('user'::owner_type, ${USER}, 'USDT', 'hold'::account_kind, ${'order:x\u000b'})
+        `,
+      ).rejects.toMatchObject({ code: CHECK_VIOLATION });
+    });
+
+    it('allows a purpose that ends in the letter v', async () => {
+      await expect(
+        requireDb().sql`
+          INSERT INTO accounts (owner_type, owner_id, asset_id, kind, purpose)
+          VALUES ('user'::owner_type, ${USER}, 'USDT', 'hold'::account_kind, 'order:v')
+        `,
+      ).resolves.toBeDefined();
+    });
+
+    it('allows a trailing character String.trim keeps (U+180E)', async () => {
+      await expect(
+        requireDb().sql`
+          INSERT INTO accounts (owner_type, owner_id, asset_id, kind, purpose)
+          VALUES ('user'::owner_type, ${USER}, 'USDT', 'hold'::account_kind, ${'order:x\u180E'})
+        `,
+      ).resolves.toBeDefined();
+    });
+
     it('REFUSES NBSP-padded lock purpose (U+00A0 dual pot)', async () => {
       await expect(
         requireDb().sql`

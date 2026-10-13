@@ -232,12 +232,13 @@ export const accounts = ledger.table(
      *
      * 0011: purpose must equal trimmed form so padded claims cannot open a
      * second pot beside the trimmed identity; `available` must store `''` only.
-     * 0012: pad set is space/tab/CR/LF/VT/FF/NBSP — not bare `btrim()` (space
-     * only). Mirrors the dual-book pads client `String.trim()` collapses.
+     * 0014: pad set is what `String.trim()` strips — space/tab/LF/VT/FF/CR,
+     * NBSP, U+1680, U+2000–U+200A, U+2028, U+2029, U+202F, U+205F, U+3000,
+     * and U+FEFF — not bare `btrim()` (space only).
      */
     check(
       'accounts_lock_purposed_ck',
-      sql`(kind = 'available' AND purpose = '') OR (kind <> 'available' AND purpose = btrim(purpose, E' \\t\\n\\r\\v\\f' || chr(160)) AND length(purpose) > 0 AND purpose NOT LIKE 'legacy:%')`,
+      sql`(kind = 'available' AND purpose = '') OR (kind <> 'available' AND purpose = btrim(purpose, E' \\t\\n\\r\\f' || chr(11) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)) AND length(purpose) > 0 AND purpose NOT LIKE 'legacy:%')`,
     ),
     /**
      * Every `owner_id` is drawn from the space its `owner_type` declares (0005).
@@ -278,7 +279,12 @@ export const ledgerTx = ledger.table(
     reason: text('reason').notNull(),
     meta: jsonb('meta').notNull().default({}),
     postedAt: timestamp('posted_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
-    /** Hex-encoded SHA-256 of (previousHash ‖ canonical form). Tamper-evident. */
+    /**
+     * Hex-encoded SHA-256 of (previousHash ‖ canonical form). Tamper-evident.
+     * The original digest remains unchanged. The key and meta columns
+     * are immutable (0016), with an append-only claim: rewriting the key used to leave the chain green
+     * and let the original key post the movement again.
+     */
     hash: text('hash').notNull(),
     previousHash: text('previous_hash'),
   },
@@ -288,6 +294,30 @@ export const ledgerTx = ledger.table(
     index('ledger_tx_module_idx').on(t.module, t.postedAt),
     /** The 8-character minimum `assertValidPost` states, enforced here too (0009). */
     check('ledger_tx_idempotency_key_len_ck', sql`length(idempotency_key) >= 8`),
+  ],
+);
+
+/**
+ * The posted idempotency claim (0017, 0018). Not a second book: no balance.
+ *
+ * `posted_hash` and `posted_meta` are the hash and meta stored at insert.
+ * Append-only is a trigger (`ledger_posted_keys_immutable`), not a CHECK.
+ */
+export const ledgerPostedKeys = ledger.table(
+  'ledger_posted_keys',
+  {
+    idempotencyKey: text('idempotency_key').primaryKey(),
+    txId: uuid('tx_id').notNull(),
+    postedHash: text('posted_hash').notNull(),
+    postedMeta: jsonb('posted_meta').notNull(),
+  },
+  (t) => [
+    uniqueIndex('ledger_posted_keys_tx_idx').on(t.txId),
+    foreignKey({
+      columns: [t.txId],
+      foreignColumns: [ledgerTx.id],
+      name: 'ledger_posted_keys_tx_id_fkey',
+    }),
   ],
 );
 
@@ -356,8 +386,15 @@ export const balanceSnapshots = ledger.table(
     accountId: uuid('account_id').notNull(),
     asOf: tstz('as_of').notNull(),
     balance: amount('balance').notNull(),
-    /** Last entry included — where a replay check starts from. */
+    /** Last entry included — where a replay check starts from. Not the chain tip. */
     throughEntryId: text('through_entry_id'),
+    /**
+     * `chain_tip.seq` held `FOR UPDATE` while `balance` was read (0015).
+     * Null only on rows written before that column existed — a seq is never invented.
+     */
+    chainTipSeq: bigint('chain_tip_seq', { mode: 'bigint' }),
+    /** `chain_tip.hash` under that same lock. Null at genesis and on pre-0015 rows. */
+    chainTipHash: text('chain_tip_hash'),
   },
   (t) => [
     index('balance_snapshots_account_idx').on(t.accountId, t.asOf),
@@ -408,9 +445,10 @@ export const chainTip = ledger.table(
  * may already have been published; re-firing them is not recover).
  *
  * Amounts in `payload.entries[].amount` are decimal strings. Postgres forbids
- * subqueries in CHECK, so this constraint only seals payload object + entries
- * array. A JSON number is refused on write (`formatAmount`) and on publish
- * (`ledgerTxPostedPayload`) — the same law as the live money path.
+ * subqueries in CHECK, so the live rule is `jsonb_path_query_array`, not
+ * `jsonb_array_elements`. A missing `entries` key fails. A JSON number amount
+ * fails. An empty entries array passes. Forward migration 0019 installs the
+ * complete decimal-string rule on databases that already applied 0013.
  */
 export const ledgerTxOutbox = ledger.table(
   'ledger_tx_outbox',
@@ -428,7 +466,41 @@ export const ledgerTxOutbox = ledger.table(
       .on(t.createdAt)
       .where(sql`published_at IS NULL`),
     foreignKey({ columns: [t.txId], foreignColumns: [ledgerTx.id], name: 'ledger_tx_outbox_tx_id_fkey' }),
-    check('ledger_tx_outbox_amount_string_ck', sql`jsonb_typeof(payload) = 'object' AND jsonb_typeof(payload->'entries') = 'array'`),
+    check(
+      'ledger_tx_outbox_amount_string_ck',
+      sql`CASE WHEN jsonb_typeof(payload) = 'object' AND jsonb_typeof(payload -> 'entries') = 'array' THEN jsonb_array_length(jsonb_path_query_array(payload, 'strict $.entries[*] ? (@.type() == "object" && exists(@.amount) && @.amount.type() == "string" && @.amount like_regex "^-?[0-9]+([.][0-9]+)?$")', '{}'::jsonb, true)) = jsonb_array_length(payload -> 'entries') ELSE false END`,
+    ),
+  ],
+);
+
+/**
+ * Durable `ledgerFreezeUpdated` publish intent (0020).
+ *
+ * Written in the same transaction as the `posting_freeze` update. `published_at`
+ * is null until the bus accepts the event. A same-attribution retry does not
+ * move the switch; it publishes this row. The payload is the freeze state the
+ * bus already carries. It holds no amount.
+ */
+export const ledgerFreezeOutbox = ledger.table(
+  'ledger_freeze_outbox',
+  {
+    switchSeq: bigserial('switch_seq', { mode: 'bigint' }).notNull(),
+    id: uuid('id').primaryKey().defaultRandom(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    payload: jsonb('payload').notNull(),
+    createdAt: createdAt(),
+    publishedAt: timestamp('published_at', { withTimezone: true, mode: 'date' }),
+  },
+  (t) => [
+    uniqueIndex('ledger_freeze_outbox_switch_idx').on(t.switchSeq),
+    uniqueIndex('ledger_freeze_outbox_key_idx').on(t.idempotencyKey),
+    index('ledger_freeze_outbox_unpublished_idx')
+      .on(t.switchSeq)
+      .where(sql`published_at IS NULL`),
+    check(
+      'ledger_freeze_outbox_payload_ck',
+      sql`coalesce(jsonb_typeof(payload) = 'object' AND jsonb_typeof(payload -> 'frozen') = 'boolean' AND jsonb_typeof(payload -> 'actor') = 'string' AND length(payload ->> 'actor') > 0 AND jsonb_typeof(payload -> 'changedAt') = 'string' AND length(payload ->> 'changedAt') > 0 AND (((payload ->> 'frozen') = 'false' AND jsonb_typeof(payload -> 'reason') = 'null') OR ((payload ->> 'frozen') = 'true' AND jsonb_typeof(payload -> 'reason') = 'string' AND length(payload ->> 'reason') > 0)), false)`,
+    ),
   ],
 );
 
@@ -461,4 +533,15 @@ export const postingFreeze = ledger.table(
   ],
 );
 
-export const schema = { assets, accounts, ledgerTx, ledgerEntries, balanceSnapshots, chainTip, postingFreeze, ledgerTxOutbox };
+export const schema = {
+  assets,
+  accounts,
+  ledgerTx,
+  ledgerPostedKeys,
+  ledgerEntries,
+  balanceSnapshots,
+  chainTip,
+  postingFreeze,
+  ledgerTxOutbox,
+  ledgerFreezeOutbox,
+};

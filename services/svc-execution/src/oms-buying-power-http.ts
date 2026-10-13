@@ -8,8 +8,16 @@ import { refuseUnsetBuyingPower, type OmsBuyingPowerRefusal } from './oms-buying
 import { authorizeOmsWriteRequest } from './oms-write-hmac.js';
 
 export type OmsBuyingPowerDoorBody = {
-  readonly buyingPower?: string | null;
+  readonly buyingPower?: unknown;
 };
+
+/** Body is unschematized JSON. buyingPower stays unknown until the ledger parse. */
+function buyingPowerDoorBody(raw: unknown): OmsBuyingPowerDoorBody {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const record = raw as Record<string, unknown>;
+  if (!Object.hasOwn(record, 'buyingPower')) return {};
+  return { buyingPower: record.buyingPower };
+}
 
 export type OmsBuyingPowerDoorOk = {
   readonly ok: true;
@@ -34,7 +42,6 @@ export function registerOmsBuyingPowerDoor(app: FastifyInstance, deps: OmsBuying
   app.post('/execution/oms/buying-power', async (req, reply) => {
     const auth = authorizeOmsWriteRequest(req, deps.internalSecret);
     if (!auth.ok) return reply.code(auth.status).send(auth.body);
-    const body = (req.body ?? {}) as OmsBuyingPowerDoorBody;
-    return reply.send(handleOmsBuyingPowerDoor(body));
+    return reply.send(handleOmsBuyingPowerDoor(buyingPowerDoorBody(req.body)));
   });
 }

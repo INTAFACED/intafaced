@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { describe, expect, it } from 'vitest';
-import { HttpPrivateBookPort, parseOpenOrder, parseOpenPosition, PrivateBookError } from './book.js';
+import { HttpPrivateBookPort, parseOpenOrder, parseOpenOrderList, parseOpenPosition, PrivateBookError } from './book.js';
 
 const USER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -26,6 +26,69 @@ describe('private book parse', () => {
     expect(row.filledQty).toBe('0');
     expect(row.price).toBe('64000.5');
     expect(row.userId).toBe(USER);
+  });
+
+  it('refuses an open order that omits filledQty and filled', () => {
+    const row = {
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      symbol: 'BTC/USDT',
+      type: 'limit',
+      side: 'buy',
+      status: 'open',
+      price: '64000.5',
+      amount: '1.5',
+    };
+    expect(() => parseOpenOrder(row, USER)).toThrow(PrivateBookError);
+    expect(() => parseOpenOrder({ ...row, filledQty: null, filled: null }, USER)).toThrow(PrivateBookError);
+  });
+
+  it('refuses an incomplete open-order snapshot when any row omits the fill', () => {
+    const omitted = {
+      id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      symbol: 'ETH/USDT',
+      type: 'limit',
+      side: 'sell',
+      status: 'open',
+      price: '3000',
+      amount: '2',
+    };
+    const good = {
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      symbol: 'BTC/USDT',
+      type: 'limit',
+      side: 'buy',
+      status: 'open',
+      price: '64000.5',
+      amount: '1.5',
+      filled: '0',
+      datetime: '2026-07-31T00:00:00.000Z',
+    };
+    expect(() => parseOpenOrderList([omitted, good], USER)).toThrow(PrivateBookError);
+    expect(() => parseOpenOrderList([omitted], USER)).toThrow(PrivateBookError);
+  });
+
+  it('refuses the open-order list when a row has a JSON-number price', () => {
+    const good = {
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      symbol: 'BTC/USDT',
+      type: 'limit',
+      side: 'buy',
+      status: 'open',
+      price: '64000.5',
+      amount: '1.5',
+      filled: '0',
+    };
+    const numericPrice = {
+      id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      symbol: 'ETH/USDT',
+      type: 'limit',
+      side: 'sell',
+      status: 'open',
+      price: 3000,
+      amount: '2',
+      filled: '0',
+    };
+    expect(() => parseOpenOrderList([good, numericPrice], USER)).toThrow(PrivateBookError);
   });
 
   it('refuses a JSON-number price (no fabricated mids)', () => {
@@ -62,6 +125,44 @@ describe('private book parse', () => {
         USER,
       ),
     ).toThrow(PrivateBookError);
+  });
+
+  it('refuses a blank or unrecognized position status and keeps the four known statuses', () => {
+    const row = (status: unknown) => ({
+      id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      symbol: 'BTC/USDT:USDT',
+      side: 'long',
+      status,
+      contracts: '1',
+      entryPrice: '100',
+      notional: '101',
+    });
+    expect(() => parseOpenPosition(row(''), USER)).toThrow(PrivateBookError);
+    expect(() => parseOpenPosition(row(undefined), USER)).toThrow(PrivateBookError);
+    expect(() => parseOpenPosition(row('mystery'), USER)).toThrow(PrivateBookError);
+    for (const status of ['open', 'closing', 'closed', 'liquidated'] as const) {
+      expect(parseOpenPosition(row(status), USER).status).toBe(status);
+    }
+  });
+
+  it('keeps a missing or null fundingPaid null and parses a decimal-string funding figure', () => {
+    const row = (fundingPaid?: unknown) => {
+      const base: Record<string, unknown> = {
+        id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        symbol: 'BTC/USDT:USDT',
+        side: 'long',
+        status: 'open',
+        contracts: '1',
+        entryPrice: '100',
+        notional: '101',
+      };
+      if (fundingPaid !== undefined) base.fundingPaid = fundingPaid;
+      return base;
+    };
+    expect(parseOpenPosition(row(), USER).fundingPaid).toBeNull();
+    expect(parseOpenPosition(row(null), USER).fundingPaid).toBeNull();
+    expect(parseOpenPosition(row('0'), USER).fundingPaid).toBe('0');
+    expect(parseOpenPosition(row('-0.004'), USER).fundingPaid).toBe('-0.004');
   });
 });
 

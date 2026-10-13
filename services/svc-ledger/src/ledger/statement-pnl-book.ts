@@ -22,11 +22,7 @@ export const statementPnlBookInputSchema = statementPnlInputSchema.extend({
   costBasis: z.string().nullable().optional(),
 });
 
-const MISSING: StatementPnlResult['codes'] = [
-  STATEMENT_LOTS_MISSING,
-  STATEMENT_MARK_MISSING,
-  STATEMENT_NAV_INPUTS_MISSING,
-];
+const MISSING: StatementPnlResult['codes'] = [STATEMENT_LOTS_MISSING, STATEMENT_MARK_MISSING, STATEMENT_NAV_INPUTS_MISSING];
 
 function refuseMissing(owner: StatementPnlOwner): StatementPnlResult {
   return {
@@ -58,10 +54,7 @@ export function refuseInventedCostBasis(
 }
 
 /** Posted cash is not NAV. Do not fold balances into 0 PnL. */
-export function statementPnlAgainstPostedBalances(
-  owner: StatementPnlOwner,
-  balances: readonly Balance[],
-): StatementPnlResult {
+export function statementPnlAgainstPostedBalances(owner: StatementPnlOwner, balances: readonly Balance[]): StatementPnlResult {
   void balances;
   const out = statementPnlFromThisBook(owner);
   if (out.status !== 'refused' || out.realized !== null || out.unrealized !== null || out.nav !== null) {
@@ -72,10 +65,7 @@ export function statementPnlAgainstPostedBalances(
 
 export async function handleStatementPnlFromBook(
   ledger: {
-    balances(
-      ownerType: StatementPnlOwner['ownerType'],
-      ownerId: string,
-    ): Promise<readonly Balance[]>;
+    balances(ownerType: StatementPnlOwner['ownerType'], ownerId: string): Promise<readonly Balance[]>;
   },
   body: unknown,
 ): Promise<StatementPnlResult> {

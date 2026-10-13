@@ -156,7 +156,7 @@ export function renderCheckoutPage(state: CheckoutPageState, paths: CheckoutPath
       return {
         status: 400,
         html: pageShell(
-          errorBody(resolvePayerCopy(PAYER_COPY_KEYS.required), resolvePayerCopy(PAYER_COPY_KEYS.notFound)),
+          errorBody(resolvePayerCopy(PAYER_COPY_KEYS.required), resolvePayerCopy(PAYER_COPY_KEYS.required)),
           resolvePayerCopy(PAYER_COPY_KEYS.required),
         ),
       };

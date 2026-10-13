@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import { MemoryEventBus } from '@intafaced/events';
 import { MatchingEngine } from './engine.js';
-import { FileJournal, MemoryJournal, replay } from './journal.js';
+import { FileJournal, MemoryJournal, replay, type EngineJournal, type JournalCommand, type JournalRecord } from './journal.js';
 import type { EngineOrder, EngineSurveillanceCase, OrderSide } from './types.js';
 import { AUTO_CLOSE_FORBIDDEN, closeSurveillanceCase } from './surveillance-case.js';
 import {
@@ -59,6 +59,37 @@ function build() {
   const bus = new MemoryEventBus('svc-matching');
   const engine = new MatchingEngine({ journal, bus, snapshotEvery: 0 }) as PersistEngine;
   return { journal, bus, engine };
+}
+
+/** Match appends succeed. The surveillance read or append after accept throws. */
+class FaultAfterAcceptJournal implements EngineJournal {
+  private readonly inner = new MemoryJournal();
+
+  constructor(private readonly fault: 'read' | 'append') {}
+
+  append(command: JournalCommand): JournalRecord {
+    if (this.fault === 'append' && command.kind === 'open_surveillance') {
+      throw new Error('journal append failed');
+    }
+    return this.inner.append(command);
+  }
+
+  read(): readonly JournalRecord[] {
+    if (this.fault === 'read') throw new Error('journal read failed');
+    return this.inner.read();
+  }
+
+  get length(): number {
+    return this.inner.length;
+  }
+
+  close(): void {
+    this.inner.close();
+  }
+
+  recorded(): readonly JournalRecord[] {
+    return this.inner.read();
+  }
 }
 
 function spoofingCase(): EngineSurveillanceCase {
@@ -228,4 +259,27 @@ describe('surveillance persist — open cases survive recover; no auto-adjudicat
     expect(j2.read().some((row) => row.kind === 'cancel')).toBe(false);
     j2.close();
   });
+
+  it.each(['read', 'append'] as const)(
+    'returns the accepted SubmitResult when the journal throws on %s after a matched submit',
+    async (fault) => {
+      const journal = new FaultAfterAcceptJournal(fault);
+      const engine = new MatchingEngine({ journal, bus: new MemoryEventBus('svc-matching'), snapshotEvery: 0 });
+      await engine.submit(MARKET, order({ id: OWN, account: 'same', side: 'buy', qty: '1', price: '100' }));
+      const take = await engine.submit(MARKET, order({ id: TAKE, account: 'same', side: 'sell', qty: '1', price: '100' }));
+
+      expect(take.accepted).toBe(true);
+      expect(take.rejected).toBeUndefined();
+      expect(take.fills).toEqual([]);
+      expect(take.resting?.orderId).toBe(TAKE);
+      expect(take.resting?.remaining).toEqual(parseAmount('1'));
+      expect(take.cancellations.map((row) => ({ orderId: row.orderId, reason: row.reason }))).toEqual([
+        { orderId: OWN, reason: 'self_trade_prevention' },
+      ]);
+      expect(take.surveillanceCases).toEqual([{ accountId: 'same', marketId: MARKET, reason: 'self_trade', status: 'open' }]);
+      expect(engine.book(MARKET).toState().asks[0]?.orders[0]).toMatchObject({ orderId: TAKE, remaining: '1' });
+      expect(engine.book(MARKET).toState().bids).toEqual([]);
+      expect(journal.recorded().map((row) => row.kind)).toEqual(['submit', 'submit']);
+    },
+  );
 });

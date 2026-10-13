@@ -21,7 +21,8 @@ export type OmsMultivenueDoorBody = {
   readonly venueId?: string | null;
   readonly wiredVenueIds?: readonly string[];
   readonly symbol?: string;
-  readonly side?: 'buy' | 'sell';
+  /** Untrusted wire value. Only the exact strings buy and sell are a side. */
+  readonly side?: unknown;
   readonly amount?: string;
   readonly venues?: OmsPlanInput['venues'];
 };
@@ -78,7 +79,18 @@ export function handleOmsDexRouteDoor(body: OmsMultivenueDoorBody): OmsMultivenu
   return { ok: true };
 }
 
-export async function handleOmsPlanDoor(body: OmsMultivenueDoorBody): Promise<OmsMultivenueRefusal | OmsPlanResult> {
+export type OmsPlanSideRefusal = {
+  readonly ok: false;
+  readonly reason: 'side_unset';
+  readonly detail: string;
+};
+
+/** Exact buy or sell. Omitted, blank, and anything else are unnamed — never a default buy. */
+function namedPlanSide(raw: unknown): 'buy' | 'sell' | null {
+  return raw === 'buy' || raw === 'sell' ? raw : null;
+}
+
+export async function handleOmsPlanDoor(body: OmsMultivenueDoorBody): Promise<OmsMultivenueRefusal | OmsPlanSideRefusal | OmsPlanResult> {
   const extra = refuseLiveOmsMultivenue({
     kind: body.kind,
     bestEx: body.bestEx,
@@ -93,9 +105,17 @@ export async function handleOmsPlanDoor(body: OmsMultivenueDoorBody): Promise<Om
     venues: body.venues,
   });
   if (extra) return extra;
+  const side = namedPlanSide(body.side);
+  if (!side) {
+    return {
+      ok: false,
+      reason: 'side_unset',
+      detail: 'a plan that does not name a side refuses — rather than planning a buy',
+    };
+  }
   return planOmsRoute({
     symbol: body.symbol ?? '',
-    side: body.side ?? 'buy',
+    side,
     amount: body.amount ?? '',
     venues: body.venues ?? [],
   });

@@ -47,24 +47,17 @@ function refuse(reason: OmsVwapApproveRefuseReason, detail: string): OmsVwapAppr
   return { ok: false, reason, detail };
 }
 
-function parseVwapDurationMs(
-  raw: number | null | undefined,
-): { ok: true; value: number } | OmsVwapApproveRefusal {
+function parseVwapDurationMs(raw: number | null | undefined): { ok: true; value: number } | OmsVwapApproveRefusal {
   if (raw === null || raw === undefined) {
     return refuse('duration_blank', 'VWAP duration is blank — refuse rather than invent a schedule');
   }
   if (!Number.isInteger(raw) || raw <= 0) {
-    return refuse(
-      'duration_invalid',
-      'VWAP duration must be a positive integer ms — not invented from slices',
-    );
+    return refuse('duration_invalid', 'VWAP duration must be a positive integer ms — not invented from slices');
   }
   return { ok: true, value: raw };
 }
 
-function parseCredit(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsVwapApproveRefusal {
+function parseCredit(raw: string | null | undefined): { ok: true; text: string } | OmsVwapApproveRefusal {
   if (raw === null || raw === undefined) {
     return refuse('credit_blank', 'pre-trade credit is blank — refuse rather than invent a limit');
   }
@@ -75,43 +68,26 @@ function parseCredit(
   try {
     const value = parseAmount(text);
     if (value < 0n) {
-      return refuse(
-        'credit_invalid',
-        'pre-trade credit must be a non-negative ledger amount — not invented',
-      );
+      return refuse('credit_invalid', 'pre-trade credit must be a non-negative ledger amount — not invented');
     }
     return { ok: true, text: formatAmount(value) };
   } catch {
-    return refuse(
-      'credit_invalid',
-      'pre-trade credit is not a ledger amount — refusing to invent a limit',
-    );
+    return refuse('credit_invalid', 'pre-trade credit is not a ledger amount — refusing to invent a limit');
   }
 }
 
-function parseRetainedRemaining(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsVwapApproveRefusal {
+function parseRetainedRemaining(raw: string | null | undefined): { ok: true; text: string } | OmsVwapApproveRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is missing — refusing to invent leftover from duration or credit',
-    );
+    return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover from duration or credit');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is missing — refusing to invent leftover from duration or credit',
-    );
+    return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover from duration or credit');
   }
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      'missing_residual',
-      'residual.remaining is not a ledger amount — refusing to invent leftover',
-    );
+    return refuse('missing_residual', 'residual.remaining is not a ledger amount — refusing to invent leftover');
   }
 }
 

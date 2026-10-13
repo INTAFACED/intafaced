@@ -106,9 +106,7 @@ describe('postBothSidesMmpQuote', () => {
   });
 
   it('both sizes above MQQ posts both sides as one live parent — no invented size', () => {
-    const result = postBothSidesMmpQuote(
-      input({ mqq: '1', bidSize: '5.25000000', askSize: '7.5' }),
-    );
+    const result = postBothSidesMmpQuote(input({ mqq: '1', bidSize: '5.25000000', askSize: '7.5' }));
     expect(result).toMatchObject({
       ok: true,
       posted: true,

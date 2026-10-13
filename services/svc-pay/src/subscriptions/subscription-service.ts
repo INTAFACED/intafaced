@@ -676,6 +676,10 @@ export class SubscriptionService {
    * compressed and nothing is forfeited — the subscription simply ends later,
    * and the return value says when.
    *
+   * A `fee_unpublished` stall is not that gap. The due time already stored on
+   * the row is restored: `next_run_at`, `anchor_at`, and `anchor_occurrence`
+   * stay as they are. The mandate-window check below belongs to the re-anchor.
+   *
    * If re-spacing would carry periods past the mandate's `endsAt`, resume is
    * REFUSED with the projected end (`pay.subscription_resume_exceeds_mandate`).
    * The window is part of what the customer authorised; charging past it is
@@ -694,6 +698,27 @@ export class SubscriptionService {
     }
 
     const at = this.now();
+    if (existing.stallReason === 'fee_unpublished') {
+      const rows = await this.sql<SubRow[]>`
+        UPDATE pay.subscriptions
+           SET status = 'active',
+               resumed_at = ${at},
+               paused_at = NULL,
+               stalled_at = NULL,
+               stall_reason = NULL,
+               updated_at = ${at}
+         WHERE id = ${subscriptionId}
+           AND status = 'paused'
+           AND stall_reason = 'fee_unpublished'
+        RETURNING id, mandate_id, merchant_id, customer_id, next_run_at, status,
+                  cancelled_at, path, created_at, anchor_at, anchor_occurrence,
+                  paused_at, resumed_at, stalled_at, stall_reason
+      `;
+      const row = rows[0];
+      if (!row) throw new PayError(`Subscription ${subscriptionId} is no longer paused`, 'pay.subscription_inactive');
+      return { subscription: toSub(row), projectedEnd: null };
+    }
+
     const frame = this.frameOf(existing, mandate);
     const last = await this.lastCycle(existing.id);
     const nextOccurrence = last === null ? 0 : last.occurrence + 1;
@@ -766,12 +791,55 @@ export class SubscriptionService {
 
     const report: RunReport = { examined: due.length, fired: 0, retried: 0, stalled: 0, outcomes: [] };
 
+    /*
+     * ONE THROW BELONGS TO ONE SUBSCRIPTION.
+     *
+     * `getMandate`, amount parsing, and the charge transaction can throw. Left
+     * uncaught, that throw discarded this report and left `next_run_at` in the
+     * past, so the earliest due row stayed first and every later subscription
+     * was skipped on this pass and the next. Stall that row and continue. Do
+     * not charge it and do not invent an amount.
+     */
     for (const row of due) {
-      const sub = toSub(row);
-      await this.runOneSubscription(sub, now, report);
+      try {
+        const sub = toSub(row);
+        await this.runOneSubscription(sub, now, report);
+      } catch (err) {
+        await this.quarantineDuePassThrow(row.id, now, report, err);
+      }
     }
 
     return report;
+  }
+
+  /**
+   * A due-pass throw is this subscription's, not the batch's.
+   *
+   * Stall with `due_pass_fault` so the row leaves the active due set. If that
+   * write fails, move `next_run_at` past this pass so the row cannot remain the
+   * permanent first due row. Neither arm charges and neither invents an amount.
+   */
+  private async quarantineDuePassThrow(subscriptionId: string, now: Date, report: RunReport, err: unknown): Promise<void> {
+    const rejectionCode = err instanceof PayError ? err.code : 'pay.subscription_due_pass_fault';
+    let stallReason: StallReason | undefined;
+    try {
+      await this.stall(subscriptionId, 'due_pass_fault', now);
+      stallReason = 'due_pass_fault';
+      report.stalled += 1;
+    } catch {
+      try {
+        await this.setNextRun(subscriptionId, new Date(now.getTime() + 1), now);
+      } catch {
+        // The report still records the fault. Later subscriptions in this pass still run.
+      }
+    }
+    report.outcomes.push({
+      subscriptionId,
+      occurrence: null,
+      outcome: stallReason === undefined ? 'skipped' : 'stalled',
+      ...(stallReason === undefined ? {} : { stallReason }),
+      rejectionCode,
+    });
   }
 
   /** One subscription, one pass, at most one charge. */
@@ -821,6 +889,9 @@ export class SubscriptionService {
 
       case 'blocked': {
         // An unsettled period does not roll forward. It stalls, with a reason.
+        // A payment openInvoice already committed is stored first, or the stall
+        // gives up while that invoice is still unlinked.
+        await this.rememberUnlinkedCreatedPayment(sub.id, plan.occurrence);
         await this.stall(sub.id, plan.reason, now);
         report.stalled += 1;
         report.outcomes.push({ subscriptionId: sub.id, occurrence: plan.occurrence, outcome: 'stalled', stallReason: plan.reason });
@@ -836,19 +907,32 @@ export class SubscriptionService {
          * period: no execution row, no attempt spent, the period still owed. The
          * subscription stalls with `fee_unpublished` so it is an operator's
          * visible problem today rather than a settlement surprise later.
+         *
+         * Any other throw is a blip, not a missing rate. Pausing would remove
+         * the row from the active due set, so the next pass could not retry.
+         * Leave it active. Do not charge, do not invent a fee, and do not move
+         * the anchor.
          */
         try {
           await this.resolveFeeBps(sub.merchantId);
         } catch (err) {
-          const code = err instanceof PayError ? err.code : 'pay.subscription_fee_unpublished';
-          await this.stall(sub.id, 'fee_unpublished', now);
-          report.stalled += 1;
+          if (err instanceof PayError && err.code === 'pay.subscription_fee_unpublished') {
+            await this.stall(sub.id, 'fee_unpublished', now);
+            report.stalled += 1;
+            report.outcomes.push({
+              subscriptionId: sub.id,
+              occurrence: plan.occurrence,
+              outcome: 'stalled',
+              stallReason: 'fee_unpublished',
+              rejectionCode: err.code,
+            });
+            return;
+          }
           report.outcomes.push({
             subscriptionId: sub.id,
             occurrence: plan.occurrence,
-            outcome: 'stalled',
-            stallReason: 'fee_unpublished',
-            rejectionCode: code,
+            outcome: 'skipped',
+            ...(err instanceof PayError ? { rejectionCode: err.code } : {}),
           });
           return;
         }
@@ -945,15 +1029,46 @@ export class SubscriptionService {
     notifyStatus?: CycleRecord['notifyStatus'];
     idempotencyKey: string;
   }> {
-    const { sub, mandate, occurrence, now } = input;
-    if (sub.status !== 'active')
-      return { outcome: 'skipped', idempotencyKey: chargeIdempotencyKey({ subscriptionId: sub.id, occurrence }) };
+    const { sub: loadedSub, mandate: loadedMandate, occurrence, now } = input;
+    if (loadedSub.status !== 'active')
+      return { outcome: 'skipped', idempotencyKey: chargeIdempotencyKey({ subscriptionId: loadedSub.id, occurrence }) };
 
-    const idempotencyKey = chargeIdempotencyKey({ subscriptionId: sub.id, occurrence });
+    const idempotencyKey = chargeIdempotencyKey({ subscriptionId: loadedSub.id, occurrence });
 
     return transaction(
       this.sql,
       async (tx) => {
+        /*
+         * The due pass already loaded this pair. Cancel commits on another
+         * connection. Lock the mandate, then the subscription, and charge from
+         * those rows. A cancel that committed after the snapshot is visible
+         * here, so the invoice does not open and no amount is invented.
+         */
+        const lockedMandateRows = await tx<MandateRow[]>`
+          SELECT id, merchant_id, customer_id, asset_id, amount::text, ceiling::text,
+                 cadence, starts_at, ends_at, rail_adapter, rail_mandate_ref,
+                 status, cancelled_at, created_at
+            FROM pay.subscription_mandates
+           WHERE id = ${loadedMandate.id}
+           FOR UPDATE
+        `;
+        const lockedSubRows = await tx<SubRow[]>`
+          SELECT id, mandate_id, merchant_id, customer_id, next_run_at, status,
+                 cancelled_at, path, created_at, anchor_at, anchor_occurrence,
+                 paused_at, resumed_at, stalled_at, stall_reason
+            FROM pay.subscriptions
+           WHERE id = ${loadedSub.id}
+           FOR UPDATE
+        `;
+        const lockedMandateRow = lockedMandateRows[0];
+        const lockedSubRow = lockedSubRows[0];
+        if (!lockedMandateRow || !lockedSubRow) return { outcome: 'skipped' as const, idempotencyKey };
+        const mandate = toMandate(lockedMandateRow);
+        const sub = toSub(lockedSubRow);
+        if (sub.status !== 'active' || mandate.status !== 'active' || sub.mandateId !== mandate.id) {
+          return { outcome: 'skipped' as const, idempotencyKey };
+        }
+
         const claimed = await tx<Array<{ id: string; amount: string; attempt_count: number }>>`
           INSERT INTO pay.subscription_executions (
             subscription_id, occurrence, amount, status, idempotency_key,
@@ -993,8 +1108,15 @@ export class SubscriptionService {
             // Already collected, or already asked for. Not asked again.
             return { outcome: 'already-fired' as const, idempotencyKey };
           }
-          if (row.exhausted_at !== null) return { outcome: 'already-fired' as const, idempotencyKey };
-          if (row.status === 'rejected' && row.attempt_count >= MAX_ATTEMPTS_PER_CYCLE) {
+          /*
+           * Giving up while a created payment is still unlinked leaves a paid
+           * invoice off this row. Attach that id before already-fired. Do not
+           * open another invoice and do not change the amount.
+           */
+          if (row.exhausted_at !== null || (row.status === 'rejected' && row.attempt_count >= MAX_ATTEMPTS_PER_CYCLE)) {
+            if (row.payment_id === null) {
+              await this.attachCreatedPayment(tx, row.id, sub.id, occurrence);
+            }
             return { outcome: 'already-fired' as const, idempotencyKey };
           }
           executionId = row.id;
@@ -1018,10 +1140,11 @@ export class SubscriptionService {
          * THE MANDATE IS THE CEILING — checked here, at the moment of the charge.
          *
          * `chargeAmount` is the amount recorded when the period was claimed; the
-         * mandate is re-read on every attempt. A retry of a period claimed under
-         * terms that have since been lowered or replaced must refuse, and it
-         * must refuse TERMINALLY: retrying cannot make an unauthorised charge
-         * authorised, so the attempts are spent rather than burned one per pass.
+         * mandate is the row locked above, not the due-pass snapshot. A retry of
+         * a period claimed under terms that have since been lowered or replaced
+         * must refuse, and it must refuse TERMINALLY: retrying cannot make an
+         * unauthorised charge authorised, so the attempts are spent rather than
+         * burned one per pass.
          */
         try {
           assertWithinMandateCeiling(mandate, chargeAmount);
@@ -1063,24 +1186,18 @@ export class SubscriptionService {
           return { outcome: 'rejected' as const, rejectionCode: 'pay.subscription_driver_absent', idempotencyKey };
         }
 
+        /*
+         * openInvoice commits on its own connection. The id it returns is kept
+         * for the rejection write: a later statement in this transaction can
+         * throw after that commit, and rejectCycle would otherwise record the
+         * failure without the payment.
+         */
+        let openedPaymentId: string | null = null;
         try {
-          // openInvoice commits on its own connection. A crash after that create
-          // and before this UPDATE left a pending execution + an orphan payment.
           // Reuse any payment already tagged for this occurrence so a re-fire
           // never opens a second invoice.
           let paymentId = priorPaymentId;
-          if (!paymentId) {
-            const prior = await tx<Array<{ payment_id: string }>>`
-              SELECT payment_id
-                FROM pay.payment_events
-               WHERE event = 'created'
-                 AND payload#>>'{metadata,subscriptionId}' = ${sub.id}
-                 AND payload#>>'{metadata,occurrence}' = ${String(occurrence)}
-               ORDER BY seq ASC
-               LIMIT 1
-            `;
-            paymentId = prior[0]?.payment_id ?? null;
-          }
+          if (!paymentId) paymentId = await this.createdPaymentId(tx, sub.id, occurrence);
           /*
            * SPEC §4 pre-charge notify — record the attempt BEFORE money work,
            * including invoice reuse. Unwired is skipped_unwired, never silent
@@ -1117,12 +1234,27 @@ export class SubscriptionService {
               idempotencyKey,
             });
             paymentId = opened.paymentId;
+            openedPaymentId = opened.paymentId;
           }
-          await tx`
-            UPDATE pay.subscription_executions
-               SET status = 'invoiced', payment_id = ${paymentId}
-             WHERE id = ${executionId}
-          `;
+          /*
+           * The link write is its own savepoint. If it throws, the payment
+           * openInvoice already committed stays on the rejection instead of
+           * the aborted transaction dropping both the link and the rejection.
+           */
+          const linkedId = paymentId;
+          await tx`SAVEPOINT pay_invoice_link`;
+          try {
+            await tx`
+              UPDATE pay.subscription_executions
+                 SET status = 'invoiced', payment_id = ${linkedId}
+               WHERE id = ${executionId}
+            `;
+            await tx`RELEASE SAVEPOINT pay_invoice_link`;
+          } catch (error) {
+            await tx`ROLLBACK TO SAVEPOINT pay_invoice_link`;
+            await tx`RELEASE SAVEPOINT pay_invoice_link`;
+            throw error;
+          }
           return {
             outcome: 'invoiced' as const,
             idempotencyKey,
@@ -1131,7 +1263,7 @@ export class SubscriptionService {
           };
         } catch (err) {
           const code = err instanceof PayError ? err.code : err instanceof Error ? err.message.slice(0, 120) : 'invoice.failed';
-          await this.rejectCycle(tx, executionId, code, attemptCount, now);
+          await this.rejectCycle(tx, executionId, code, attemptCount, now, openedPaymentId);
           return { outcome: 'rejected' as const, rejectionCode: code, idempotencyKey };
         }
       },
@@ -1305,15 +1437,78 @@ export class SubscriptionService {
     return resolveSubscriptionFeeBps({ merchantFeeBps, defaultFeeBps: this.defaultFeeBps });
   }
 
-  private async rejectCycle(tx: Sql, executionId: string, code: string, attemptCount: number, now: Date): Promise<void> {
+  private async rejectCycle(
+    tx: Sql,
+    executionId: string,
+    code: string,
+    attemptCount: number,
+    now: Date,
+    paymentId: string | null = null,
+  ): Promise<void> {
     const exhausted = attemptCount >= MAX_ATTEMPTS_PER_CYCLE;
     await tx`
       UPDATE pay.subscription_executions
          SET status = 'rejected', rejection_code = ${code},
              last_attempt_at = ${now},
-             exhausted_at = ${exhausted ? now : null}
+             exhausted_at = ${exhausted ? now : null},
+             payment_id = COALESCE(payment_id, ${paymentId}::uuid)
        WHERE id = ${executionId}
     `;
+  }
+
+  /** The payment openInvoice already committed for this period, if one exists. */
+  private async createdPaymentId(tx: Sql, subscriptionId: string, occurrence: number): Promise<string | null> {
+    const prior = await tx<Array<{ payment_id: string; matches: boolean }>>`
+      SELECT e.payment_id,
+        (p.merchant_id = s.merchant_id AND m.merchant_id = s.merchant_id AND m.customer_id = s.customer_id
+          AND p.currency = m.asset_id AND p.amount = x.amount) AS matches
+        FROM pay.payment_events e
+        JOIN pay.payments p ON p.id = e.payment_id
+        JOIN pay.subscriptions s ON s.id = ${subscriptionId}
+        JOIN pay.subscription_mandates m ON m.id = s.mandate_id
+        JOIN pay.subscription_executions x ON x.subscription_id = s.id AND x.occurrence = ${occurrence}
+       WHERE e.event = 'created'
+         AND e.payload#>>'{metadata,subscriptionId}' = ${subscriptionId}
+         AND e.payload#>>'{metadata,occurrence}' = ${String(occurrence)}
+       ORDER BY e.seq ASC
+       LIMIT 2
+    `;
+    if (prior.length > 1 || (prior[0] && !prior[0].matches))
+      throw new PayError('Original subscription invoice identity is ambiguous', 'pay.subscription_exceeds_mandate');
+    return prior[0]?.payment_id ?? null;
+  }
+
+  /**
+   * Store that payment on the execution. The amount and the status stay as
+   * they are: this is the invoice already created, not a new charge.
+   */
+  private async attachCreatedPayment(tx: Sql, executionId: string, subscriptionId: string, occurrence: number): Promise<void> {
+    const paymentId = await this.createdPaymentId(tx, subscriptionId, occurrence);
+    if (!paymentId) return;
+    await tx`
+      UPDATE pay.subscription_executions
+         SET payment_id = ${paymentId}
+       WHERE id = ${executionId} AND payment_id IS NULL
+    `;
+  }
+
+  /** Before an exhausted period is given up, keep the invoice it already opened. */
+  private async rememberUnlinkedCreatedPayment(subscriptionId: string, occurrence: number): Promise<void> {
+    await transaction(
+      this.sql,
+      async (tx) => {
+        const rows = await tx<Array<{ id: string; payment_id: string | null }>>`
+          SELECT id, payment_id
+            FROM pay.subscription_executions
+           WHERE subscription_id = ${subscriptionId} AND occurrence = ${occurrence}
+           FOR UPDATE
+        `;
+        const row = rows[0];
+        if (!row || row.payment_id !== null) return;
+        await this.attachCreatedPayment(tx, row.id, subscriptionId, occurrence);
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
   }
 
   private async setNextRun(subscriptionId: string, nextRunAt: Date, now: Date): Promise<void> {

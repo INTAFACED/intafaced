@@ -38,17 +38,12 @@ function refuse(reason: OmsPaperTwapStartRefuseReason, detail: string): OmsPaper
   return { ok: false, reason, detail };
 }
 
-function parseRetainedDuration(
-  raw: number | null | undefined,
-): { ok: true; value: number } | OmsPaperTwapStartRefusal {
+function parseRetainedDuration(raw: number | null | undefined): { ok: true; value: number } | OmsPaperTwapStartRefusal {
   if (raw === null || raw === undefined) {
     return refuse('missing_schedule', 'TWAP duration is missing — refusing to invent a schedule');
   }
   if (!Number.isInteger(raw) || raw <= 0) {
-    return refuse(
-      'missing_schedule',
-      'TWAP duration must be a positive integer ms — refusing to invent a schedule from slices',
-    );
+    return refuse('missing_schedule', 'TWAP duration must be a positive integer ms — refusing to invent a schedule from slices');
   }
   return { ok: true, value: raw };
 }
@@ -62,7 +57,7 @@ export function startPaperTwapParent(input: {
   kind?: string;
   /** Must be true — start needs an already-approved paper TWAP parent. */
   approved?: boolean;
-  /** Paper-approved status is 'paper'. Live running refuses already_started. */
+  /** Trimmed before compare. 'running' refuses already_started. A present blank or other non-startable status refuses not_approved. */
   status?: 'paper' | 'approved' | 'running' | string;
   /** Retained duration from paper approve. Blank refuses — never invent a schedule. */
   durationMs?: number | null;
@@ -82,13 +77,16 @@ export function startPaperTwapParent(input: {
   if (input.kind !== undefined && input.kind !== 'twap') {
     return refuse('not_live', `kind ${String(input.kind)} is not twap`);
   }
-  if (input.status === 'running') {
-    return refuse(
-      'already_started',
-      `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`,
-    );
+  const status = input.status?.trim();
+  if (status === 'running') {
+    return refuse('already_started', `parent ${parentClientOrderId} is already running live — refusing to invent a paper start over live`);
   }
-  if (input.approved !== true && input.status !== 'paper' && input.status !== 'approved') {
+  // Trimmed '' is present. Only an omitted status is undefined and may follow approved.
+  const startableStatus = status === 'paper' || status === 'approved';
+  if (status !== undefined && !startableStatus) {
+    return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper TWAP parent`);
+  }
+  if (input.approved !== true && !startableStatus) {
     return refuse('not_approved', `parent ${parentClientOrderId} is not an approved paper TWAP parent`);
   }
   const operatorId = input.operatorId?.trim() ?? '';

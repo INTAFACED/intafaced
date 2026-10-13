@@ -112,10 +112,7 @@ describe('POST /markets/:marketId/orders IOC', () => {
       }),
     ]);
     const live = engine.book(MARKET).toState();
-    const ids = [
-      ...live.bids.flatMap((l) => l.orders.map((o) => o.orderId)),
-      ...live.asks.flatMap((l) => l.orders.map((o) => o.orderId)),
-    ];
+    const ids = [...live.bids.flatMap((l) => l.orders.map((o) => o.orderId)), ...live.asks.flatMap((l) => l.orders.map((o) => o.orderId))];
     expect(ids).not.toContain('22222222-2222-4222-8222-222222222222');
     await app.close();
   });

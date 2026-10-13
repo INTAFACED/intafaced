@@ -150,7 +150,7 @@ describe('cancelRemainingParentChildren', () => {
     expect(result.children[0]).toMatchObject({ outcome: 'already_stopped', reason: 'REJECTED' });
     expect(result.children[0]?.status).toBeUndefined();
     expect(street.calls).toHaveLength(0);
-    expect(result.residual).toEqual({ filled: '0', remaining: '0' });
+    expect(result.residual).toEqual({ filled: '0', remaining: null });
   });
 
   it('venue throw is unknown residual — never invents canceled', async () => {

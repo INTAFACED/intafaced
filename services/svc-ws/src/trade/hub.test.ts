@@ -12,6 +12,18 @@ const TAKER_ORDER_ID = '22222222-2222-2222-2222-222222222222';
 const MAKER_ACCOUNT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const TAKER_ACCOUNT_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 
+function seededPrint(sequence: number): TradePrint {
+  return {
+    type: 'trade',
+    marketId: MARKET,
+    sequence,
+    price: '100',
+    quantity: '1',
+    ts: '2026-07-29T12:00:04.000Z',
+    kind: TRADE_PRINT_KIND_UNKNOWN,
+  };
+}
+
 /**
  * Fill-shaped payload as a bus/handler might hand us — including private and
  * unknown fields the strip must drop. Cast: FillLike is the accepted shape;
@@ -252,6 +264,77 @@ describe('TradeHub fan-out', () => {
     expect(sink.prints()).toHaveLength(1);
   });
 
+  it('retains no dedup history when recentLimit is 0, including across reconnect', async () => {
+    hub = hubFor([MARKET], { recentLimit: 0 });
+    const sink = new FakeSink();
+    const detach = hub.attach(MARKET, sink)!;
+    await settle();
+
+    expect(hub.ingest(fill(1))).not.toBeNull();
+    expect(hub.ingest(fill(1))).not.toBeNull();
+    expect(sink.prints()).toHaveLength(2);
+    expect(sink.prints()[0]).toMatchObject({ sequence: 1, price: '100', quantity: '1' });
+    expect(hub.recentFor(MARKET)).toEqual([]);
+
+    detach();
+    expect(hub.recentFor(MARKET)).toEqual([]);
+
+    const rejoined = new FakeSink();
+    hub.attach(MARKET, rejoined);
+    await settle();
+    expect(hub.ingest(fill(1))).not.toBeNull();
+    expect(rejoined.prints()).toHaveLength(1);
+    expect(sink.prints()).toHaveLength(2);
+    expect(hub.recentFor(MARKET)).toEqual([]);
+  });
+
+  it('does not consume a sequence at recentLimit 0 while the watcher is still opening', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    hub = hubFor([MARKET], {
+      recentLimit: 0,
+      ensureKnownMarket: async () => {
+        await gate;
+        return true;
+      },
+    });
+
+    const sink = new FakeSink();
+    hub.attach(MARKET, sink);
+    expect(hub.ingest(fill(1))).toBeNull();
+    expect(sink.prints()).toHaveLength(0);
+    expect(hub.recentFor(MARKET)).toEqual([]);
+
+    release();
+    await settle();
+    await settle();
+
+    expect(sink.prints()).toHaveLength(0);
+    expect(hub.recentFor(MARKET)).toEqual([]);
+    expect(hub.ingest(fill(1))).not.toBeNull();
+    expect(hub.ingest(fill(1))).not.toBeNull();
+    expect(sink.prints()).toHaveLength(2);
+    expect(hub.recentFor(MARKET)).toEqual([]);
+  });
+
+  it('forgets a sequence once it falls out of a positive recent ring', async () => {
+    hub = hubFor([MARKET], { recentLimit: 2 });
+    const sink = new FakeSink();
+    hub.attach(MARKET, sink);
+    await settle();
+
+    hub.ingest(fill(1));
+    hub.ingest(fill(2));
+    hub.ingest(fill(3));
+    expect(hub.recentFor(MARKET).map((print) => print.sequence)).toEqual([2, 3]);
+
+    expect(hub.ingest(fill(1))).not.toBeNull();
+    expect(sink.prints().map((print) => print.sequence)).toEqual([1, 2, 3, 1]);
+    expect(hub.recentFor(MARKET).map((print) => print.sequence)).toEqual([3, 1]);
+  });
+
   it('bounds the recent ring; stored history is public keys only (no order/account ids)', async () => {
     const sink = new FakeSink();
     hub.attach(MARKET, sink);
@@ -279,6 +362,23 @@ describe('TradeHub fan-out', () => {
     // Pin: CLOSE_POLICY + fixed phrase. Market id is client-supplied; reason
     // must not embed stack traces or ensureKnownMarket error bodies.
     expect(sink.closed).toEqual({ code: CLOSE_POLICY, reason: 'ws.close.unknown_market' });
+    expect(hub.connections).toBe(0);
+  });
+
+  it('closes when the market lookup throws, without the exception text on the close frame', async () => {
+    const leaked = 'postgres password in the lookup';
+    hub = hubFor([], {
+      ensureKnownMarket: async () => {
+        throw new Error(leaked);
+      },
+    });
+    const sink = new FakeSink();
+    hub.attach(MARKET, sink);
+    await settle();
+
+    expect(sink.closed?.code).toBe(CLOSE_TRY_LATER);
+    expect(sink.closed?.reason).toBe('ws.close.trades_unavailable');
+    expect(sink.closed?.reason).not.toContain(leaked);
     expect(hub.connections).toBe(0);
   });
 
@@ -335,6 +435,88 @@ describe('TradeHub fan-out', () => {
     expect(raw).toMatch(/"price":"30000\.5"/);
     expect(raw).toMatch(/"quantity":"1\.25"/);
     expect(raw).not.toMatch(/"price":30000/);
+  });
+
+  it('retries a tape seed that threw before returning a promise', async () => {
+    let calls = 0;
+    hub = hubFor([MARKET], {
+      seedRecent: () => {
+        calls += 1;
+        throw new Error('seed failed before a promise');
+      },
+    });
+
+    const first = new FakeSink();
+    hub.attach(MARKET, first);
+    await settle();
+
+    expect(calls).toBe(1);
+    expect(first.closed).toBeNull();
+    expect(first.frames).toEqual([]);
+    expect(hub.recentFor(MARKET)).toEqual([]);
+
+    const second = new FakeSink();
+    hub.attach(MARKET, second);
+    await settle();
+
+    expect(calls).toBe(2);
+    expect(second.closed).toBeNull();
+    expect(second.frames).toEqual([]);
+    expect(hub.recentFor(MARKET)).toEqual([]);
+  });
+
+  it('replays prints from a successful seed', async () => {
+    const seeded = seededPrint(4);
+    hub = hubFor([MARKET], {
+      seedRecent: async () => [seeded],
+    });
+    const sink = new FakeSink();
+    hub.attach(MARKET, sink);
+    await settle();
+
+    expect(sink.prints()).toEqual([expect.objectContaining({ type: 'trade', marketId: MARKET, sequence: 4, price: '100', quantity: '1' })]);
+    expect(hub.recentFor(MARKET)).toEqual([expect.objectContaining({ sequence: 4, price: '100', quantity: '1' })]);
+  });
+
+  it('does not store a ring when the seed is empty', async () => {
+    hub = hubFor([MARKET], {
+      seedRecent: async () => [],
+    });
+    const sink = new FakeSink();
+    hub.attach(MARKET, sink);
+    await settle();
+
+    expect(sink.closed).toBeNull();
+    expect(sink.frames).toEqual([]);
+    expect(hub.recentFor(MARKET)).toEqual([]);
+    expect(hub.stats.markets).toBe(0);
+  });
+
+  it('shares one in-flight seed across overlapping subscribers', async () => {
+    let calls = 0;
+    let release!: (prints: readonly TradePrint[]) => void;
+    const seeded = seededPrint(4);
+    hub = hubFor([MARKET], {
+      seedRecent: () => {
+        calls += 1;
+        return new Promise((resolve) => {
+          release = resolve;
+        });
+      },
+    });
+
+    const first = new FakeSink();
+    const second = new FakeSink();
+    hub.attach(MARKET, first);
+    hub.attach(MARKET, second);
+    await settle();
+    expect(calls).toBe(1);
+
+    release([seeded]);
+    await settle();
+
+    expect(first.prints()).toEqual([expect.objectContaining({ type: 'trade', sequence: 4, price: '100', quantity: '1' })]);
+    expect(second.prints()).toEqual([expect.objectContaining({ type: 'trade', sequence: 4, price: '100', quantity: '1' })]);
   });
 
   it('closeAll tells every client why', async () => {

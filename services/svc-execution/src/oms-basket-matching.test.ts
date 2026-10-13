@@ -186,6 +186,32 @@ describe('postBasketChildrenToMatching', () => {
     ).toMatchObject({ ok: false, reason: 'missing_lifecycle_proof' });
   });
 
+  it('refuses a blank lifecycle proof and does not post it on the matching order', async () => {
+    const base = await listen(async (req, res) => {
+      await capture(req, res, 200, { accepted: true, sequence: 1 });
+    });
+    const blanks: readonly unknown[] = ['', '   ', false, 0];
+    for (const lifecycleProof of blanks) {
+      const onLeg = await postBasketChildrenToMatching({
+        parent: started(),
+        legs: [{ ...legs()[0], lifecycleProof }, legs()[1]],
+        ...liveAuth({ matchingUrl: base }),
+      });
+      expect(onLeg).toMatchObject({ ok: false, reason: 'missing_lifecycle_proof' });
+      const onParent = await postBasketChildrenToMatching({
+        parent: started(),
+        legs: [
+          { ...legs()[0], lifecycleProof: undefined },
+          { ...legs()[1], lifecycleProof: undefined },
+        ],
+        lifecycleProof,
+        ...liveAuth({ matchingUrl: base }),
+      });
+      expect(onParent).toMatchObject({ ok: false, reason: 'missing_lifecycle_proof' });
+    }
+    expect(recorded).toHaveLength(0);
+  });
+
   it('POSTs each child to matching with decimal qty strings — not JSON numbers, no fills minted', async () => {
     const base = await listen(async (req, res) => {
       await capture(req, res, 200, { accepted: true, sequence: 7, fills: [{ last: 99.5 }], last: 99.5 });
@@ -267,21 +293,185 @@ describe('postBasketChildrenToMatching', () => {
     expect(recorded).toHaveLength(0);
   });
 
-  it('second-leg matching reject is refuse_all — remaining not posted, no flatten', async () => {
+  it('second-leg matching reject cancels the accepted child — remaining not posted, no flatten', async () => {
     const base = await listen(async (req, res) => {
-      const n = recorded.length;
-      await capture(req, res, n === 0 ? 200 : 400, n === 0 ? { accepted: true, sequence: 1 } : { accepted: false });
+      const method = req.method ?? '';
+      if (method === 'DELETE') {
+        await capture(req, res, 200, { cancelled: true });
+        return;
+      }
+      const posts = recorded.filter((row) => row.method === 'POST').length;
+      await capture(req, res, posts === 0 ? 200 : 400, posts === 0 ? { accepted: true, sequence: 1 } : { accepted: false });
     });
     const out = await postBasketChildrenToMatching({
       parent: started(),
       legs: legs(),
       ...liveAuth({ matchingUrl: base }),
     });
-    expect(out).toMatchObject({ ok: false, reason: 'matching_rejected' });
-    expect(recorded).toHaveLength(2);
+    expect(out).toMatchObject({
+      ok: false,
+      reason: 'matching_rejected',
+      children: [
+        {
+          name: 'BTC',
+          qty: formatAmount(parseAmount('0.5')),
+          marketId: 'BTC-USDT',
+          orderId: BTC_ID,
+          matching: { accepted: true, sequence: 1 },
+        },
+      ],
+      kill: {
+        ok: true,
+        killed: true,
+        children: [{ marketId: 'BTC-USDT', orderId: BTC_ID, outcome: 'stopped' }],
+      },
+    });
+    expect(recorded.map((row) => `${row.method} ${row.url}`)).toEqual([
+      'POST /markets/BTC-USDT/orders',
+      'POST /markets/ETH-USDT/orders',
+      `DELETE /markets/BTC-USDT/orders/${BTC_ID}`,
+    ]);
     expect(out.ok).toBe(false);
     if (out.ok) return;
     expect(out.detail).toContain('refuse_all');
+    expect(out.children?.some((child) => child.orderId === ETH_ID)).toBe(false);
+  });
+
+  it('a later matching miss names the accepted prefix and kills those children', async () => {
+    const base = await listen(async (req, res) => {
+      const method = req.method ?? '';
+      if (method === 'DELETE') {
+        await capture(req, res, 200, { cancelled: true, orderId: 'invented-order' });
+        return;
+      }
+      const posts = recorded.filter((row) => row.method === 'POST').length;
+      await capture(req, res, posts === 0 ? 200 : 400, posts === 0 ? { accepted: true, sequence: 1 } : { accepted: false });
+    });
+    const out = await postBasketChildrenToMatching({
+      parent: started(),
+      legs: legs(),
+      ...liveAuth({ matchingUrl: base }),
+    });
+    expect(out).toMatchObject({
+      ok: false,
+      reason: 'matching_rejected',
+      children: [
+        {
+          name: 'BTC',
+          qty: formatAmount(parseAmount('0.5')),
+          marketId: 'BTC-USDT',
+          orderId: BTC_ID,
+          matching: { accepted: true, sequence: 1 },
+        },
+      ],
+    });
+    expect(recorded.map((row) => `${row.method} ${row.url}`)).toEqual([
+      'POST /markets/BTC-USDT/orders',
+      'POST /markets/ETH-USDT/orders',
+      `DELETE /markets/BTC-USDT/orders/${BTC_ID}`,
+    ]);
+    expect(JSON.stringify(out)).not.toContain('invented-order');
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.detail).toContain('refuse_all');
+    expect(out.children?.some((child) => child.orderId === ETH_ID)).toBe(false);
+  });
+
+  it('a later matching timeout names the accepted prefix and kills those children', async () => {
+    const base = await listen(async (req, res) => {
+      const method = req.method ?? '';
+      if (method === 'DELETE') {
+        await capture(req, res, 200, { cancelled: true, orderId: 'invented-order' });
+        return;
+      }
+      const posts = recorded.filter((row) => row.method === 'POST').length;
+      await capture(
+        req,
+        res,
+        posts === 0 ? 200 : 504,
+        posts === 0 ? { accepted: true, sequence: 1 } : { accepted: false, orderId: 'invented-order' },
+      );
+    });
+    const out = await postBasketChildrenToMatching({
+      parent: started(),
+      legs: legs(),
+      ...liveAuth({ matchingUrl: base }),
+    });
+    expect(out).toMatchObject({
+      ok: false,
+      reason: 'matching_timeout',
+      children: [
+        {
+          name: 'BTC',
+          qty: formatAmount(parseAmount('0.5')),
+          marketId: 'BTC-USDT',
+          orderId: BTC_ID,
+          matching: { accepted: true, sequence: 1 },
+        },
+      ],
+    });
+    expect(recorded.map((row) => `${row.method} ${row.url}`)).toEqual([
+      'POST /markets/BTC-USDT/orders',
+      'POST /markets/ETH-USDT/orders',
+      `DELETE /markets/BTC-USDT/orders/${BTC_ID}`,
+    ]);
+    expect(JSON.stringify(out)).not.toContain('invented-order');
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.children?.some((child) => child.orderId === ETH_ID)).toBe(false);
+  });
+
+  it('a later matching unknown names the accepted prefix and kills those children', async () => {
+    const calls: string[] = [];
+    const fetchFn: typeof fetch = async (input, init) => {
+      const method = init?.method ?? 'GET';
+      const url = String(input);
+      calls.push(`${method} ${url}`);
+      if (method === 'POST' && url.endsWith('/markets/BTC-USDT/orders')) {
+        return new Response(JSON.stringify({ accepted: true, sequence: 1 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (method === 'POST' && url.endsWith('/markets/ETH-USDT/orders')) {
+        throw new Error('matching socket closed');
+      }
+      if (method === 'DELETE' && url.endsWith(`/markets/BTC-USDT/orders/${BTC_ID}`)) {
+        return new Response(JSON.stringify({ cancelled: true, orderId: 'invented-order' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      throw new Error(`unexpected ${method} ${url}`);
+    };
+    const out = await postBasketChildrenToMatching({
+      parent: started(),
+      legs: legs(),
+      ...liveAuth({ matchingUrl: 'http://matching.example' }),
+      fetch: fetchFn,
+    });
+    expect(out).toMatchObject({
+      ok: false,
+      reason: 'matching_unknown',
+      children: [
+        {
+          name: 'BTC',
+          qty: formatAmount(parseAmount('0.5')),
+          marketId: 'BTC-USDT',
+          orderId: BTC_ID,
+          matching: { accepted: true, sequence: 1 },
+        },
+      ],
+    });
+    expect(calls).toEqual([
+      'POST http://matching.example/markets/BTC-USDT/orders',
+      'POST http://matching.example/markets/ETH-USDT/orders',
+      `DELETE http://matching.example/markets/BTC-USDT/orders/${BTC_ID}`,
+    ]);
+    expect(JSON.stringify(out)).not.toContain('invented-order');
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.children?.some((child) => child.orderId === ETH_ID)).toBe(false);
   });
 
   it('matching timeout is unknown — not a fill, remaining legs not posted', async () => {
@@ -299,6 +489,21 @@ describe('postBasketChildrenToMatching', () => {
 });
 
 describe('killBasketMatchingChildren — unknown ≠ killed', () => {
+  it('HTTP 503 is not stopped and does not invent an order id', async () => {
+    const base = await listen(async (req, res) => {
+      await capture(req, res, 503, { cancelled: true, outcome: 'stopped', orderId: 'invented-order' });
+    });
+    const out = await killBasketMatchingChildren({
+      ...liveAuth({ matchingUrl: base }),
+      children: [{ marketId: 'BTC-USDT', orderId: BTC_ID }],
+    });
+    expect(out).toEqual({
+      ok: true,
+      killed: false,
+      children: [{ marketId: 'BTC-USDT', orderId: BTC_ID, outcome: 'unknown', reason: 'cancel_failed' }],
+    });
+  });
+
   it('unknown matching cancel is killed false', async () => {
     const base = await listen(async (req, res) => {
       await capture(req, res, 503, { cancelled: false });

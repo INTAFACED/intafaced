@@ -225,6 +225,143 @@ export function runProjectionConformance(label: string, makeHarness: () => Promi
       await expect(store.applyBlock(impostor)).rejects.toThrow();
     });
 
+    // ── Book as of a height (the finalized view) ──────────────────────────
+
+    it('serves the book AS OF a height: later versions and later levels stay out, and the as-of is that block', async () => {
+      source.append(block(level(MARKET, 'bid', '100', '5'), level(MARKET, 'ask', '101', '3'))); // 0
+      source.append(block(level(MARKET, 'bid', '100', '9'))); // 1
+      source.append(block(level(MARKET, 'bid', '100', '12'), level(MARKET, 'ask', '102', '4'))); // 2
+      await indexer.sync();
+
+      const at1 = await store.book(MARKET, 10, 1);
+      expect(levels(at1.bids)).toEqual([['100', '9']]);
+      expect(levels(at1.asks)).toEqual([['101', '3']]);
+      expect(at1.asOfHeight).toBe(1);
+      expect(at1.asOfHash).toBe((await store.blockAt(1))!.hash);
+
+      // Unpinned is still the head; at the head height the two agree.
+      expect(levels((await store.book(MARKET, 10)).bids)).toEqual([['100', '12']]);
+      expect(await store.book(MARKET, 10, 2)).toEqual(await store.book(MARKET, 10));
+    });
+
+    it('a level emptied above the height is still there at the height; one emptied at it is gone', async () => {
+      source.append(block(level(MARKET, 'bid', '100', '5'), level(MARKET, 'bid', '99', '1'))); // 0
+      source.append(block(level(MARKET, 'bid', '99', '0'))); // 1 empties 99
+      source.append(block(level(MARKET, 'bid', '100', '0'))); // 2 empties 100
+      await indexer.sync();
+
+      expect(levels((await store.book(MARKET, 10, 0)).bids)).toEqual([
+        ['100', '5'],
+        ['99', '1'],
+      ]);
+      expect(levels((await store.book(MARKET, 10, 1)).bids)).toEqual([['100', '5']]);
+      expect(levels((await store.book(MARKET, 10, 2)).bids)).toEqual([]);
+    });
+
+    it('a height with no canonical block is an empty book with a null as-of, never the nearest block', async () => {
+      source.append(block(level(MARKET, 'bid', '100', '5'))); // 0
+      source.append(block(level(MARKET, 'bid', '100', '6'))); // 1
+      await indexer.sync();
+
+      for (const height of [2, 50]) {
+        const view = await store.book(MARKET, 10, height);
+        expect(view).toMatchObject({ market: MARKET, chainId: CHAIN_ID, asOfHeight: null, asOfHash: null });
+        expect(view.bids).toEqual([]);
+        expect(view.asks).toEqual([]);
+      }
+      // And on an empty index.
+      await harness.reset();
+      expect((await harness.store.book(MARKET, 10, 0)).asOfHeight).toBeNull();
+    });
+
+    it('a reorg above the height leaves the book at that height unchanged; one at it changes it', async () => {
+      for (const qty of ['1', '2', '3', '4', '5']) source.append(block(level(MARKET, 'bid', '100', qty))); // 0..4
+      await indexer.sync();
+      const before = await store.book(MARKET, 10, 2);
+      expect(levels(before.bids)).toEqual([['100', '3']]);
+
+      // Fork at 2: blocks 3 and 4 are replaced, and one adds a new level.
+      source.reorg(2, [block(level(MARKET, 'bid', '100', '40'), level(MARKET, 'ask', '103', '1')), block()]);
+      expect((await indexer.sync()).reorgs).toBe(1);
+
+      expect(await store.book(MARKET, 10, 2)).toEqual(before);
+      expect(levels((await store.book(MARKET, 10)).bids)).toEqual([['100', '40']]);
+
+      // Fork at 1 replaces block 2 itself, so the book at 2 now differs and
+      // names the new block.
+      source.reorg(1, [block(level(MARKET, 'bid', '100', '77'))]);
+      await indexer.sync();
+      const after = await store.book(MARKET, 10, 2);
+      expect(levels(after.bids)).toEqual([['100', '77']]);
+      expect(after.asOfHash).not.toBe(before.asOfHash);
+    });
+
+    it('stays exact at the prune horizon: pruning through H does not change the book at H', async () => {
+      for (const qty of ['1', '2', '3', '4', '5', '6'])
+        source.append(block(level(MARKET, 'bid', '100', qty), level(MARKET, 'ask', '101', qty)));
+      await indexer.sync();
+
+      const before = await store.book(MARKET, 10, 3);
+      expect(levels(before.bids)).toEqual([['100', '4']]);
+      expect(await store.prune(3)).toBeGreaterThan(0);
+      expect(await store.book(MARKET, 10, 3)).toEqual(before);
+    });
+
+    /**
+     * The finalized read is ONE snapshot. `prune` runs through `head - depth`
+     * after every sync pass, so a prune landing between "read the head" and
+     * "read the levels" collapses versions below a horizon that has moved past
+     * the height already chosen: the book at the old height loses a level that
+     * is still live, with a valid as-of. Here the chain advances and prunes
+     * right after the head is read (the hook fires for any implementation that
+     * reads `head()` first; a single-snapshot one never calls it and cannot be
+     * split). Whichever block the answer names, the level written once at
+     * block 0 and re-written later must be in it.
+     */
+    it('bookFinalized is one snapshot: a prune landing after the head read cannot drop a live level', async () => {
+      source.append(block(level(MARKET, 'ask', '101', '2'), level(MARKET, 'ask', '102', '2'))); // 0
+      source.append(block()); // 1
+      source.append(block()); // 2
+      const shallow = newIndexer(1);
+      await shallow.sync();
+      expect((await store.head())!.height).toBe(2);
+
+      const realHead = store.head.bind(store);
+      let armed = true;
+      store.head = async () => {
+        const head = await realHead();
+        if (armed) {
+          armed = false;
+          // Head moves to 4 and prune(3) runs: 101@0 is superseded by 101@3.
+          source.append(block(level(MARKET, 'ask', '101', '5')));
+          source.append(block());
+          await shallow.sync();
+        }
+        return head;
+      };
+      try {
+        const view = await store.bookFinalized(MARKET, 10, 1);
+        expect(levels(view.asks).map(([price]) => price)).toEqual(['101', '102']);
+        expect(view.asOfHeight).not.toBeNull();
+      } finally {
+        store.head = realHead;
+      }
+    });
+
+    it('bookFinalized is the book at head - finalityDepth, and empty with no finalized block', async () => {
+      expect(await store.bookFinalized(MARKET, 10, 1)).toMatchObject({ asOfHeight: null, asOfHash: null, bids: [], asks: [] });
+
+      source.append(block(level(MARKET, 'bid', '100', '5'))); // 0
+      source.append(block(level(MARKET, 'bid', '100', '6'))); // 1
+      source.append(block(level(MARKET, 'bid', '100', '7'))); // 2
+      await indexer.sync();
+
+      expect(await store.bookFinalized(MARKET, 10, 1)).toEqual(await store.book(MARKET, 10, 1));
+      expect(await store.bookFinalized(MARKET, 10, 0)).toEqual(await store.book(MARKET, 10));
+      // Depth beyond the chain floors at height 0 — the same floor status uses.
+      expect((await store.bookFinalized(MARKET, 10, 50)).asOfHeight).toBe(0);
+    });
+
     // ── Reorg ─────────────────────────────────────────────────────────────
 
     it('unwinds an orphaned block and matches the NEW canonical chain', async () => {

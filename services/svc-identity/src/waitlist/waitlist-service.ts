@@ -57,7 +57,8 @@ export class WaitlistService {
    */
   async enroll(input: { email: string; referralCode?: string }): Promise<WaitlistEnrollResult> {
     this.assertWaitlist();
-    const referredBy = input.referralCode?.trim() ? input.referralCode : null;
+    const trimmed = input.referralCode?.trim();
+    const referredBy = trimmed ? trimmed : null;
     if (referredBy) this.assertReferralQueue();
     try {
       return await this.store.enroll({ email: input.email, referredBy });

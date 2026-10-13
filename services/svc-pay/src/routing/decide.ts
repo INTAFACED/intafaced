@@ -46,7 +46,8 @@ export type SmartRoutingSkipReason =
   | 'risk-mismatch'
   | 'risk-unset'
   | 'approval-rate-unset'
-  | 'outranked-success-rate';
+  | 'outranked-success-rate'
+  | 'tied-declared-rate-lost-preference-order';
 
 export interface SmartRailDecisionEntry {
   readonly railId: string;
@@ -211,8 +212,12 @@ type SkipSlot = { readonly tag: 'skip'; readonly entry: SmartRailDecisionEntry }
  * operator-declared success fraction. Blank/zero/guessed rates cannot win.
  *
  * Walks the preference list. For each entry: profile eligibility → posture
- * → declared success-rate. Eligible rails rank by that declared fraction
- * (preference order breaks ties). Full considered log always returned.
+ * → declared success-rate. Eligible slots rank by the scaled fraction from
+ * `readOperatorDeclaredSuccessRate`. A strictly higher scaled rate replaces
+ * the winner. An equal scaled rate keeps the earlier preference entry. Any
+ * other eligible slot at that same scaled rate is a preference tie, not a
+ * higher success rate. Chosen is that winning slot object, once.
+ * Full considered log always returned.
  */
 export function selectSmartCheckoutRail(request: SmartRoutingRequest): SmartRoutingDecision {
   // Smart routing always requires all three dims — never preference-only invent.
@@ -309,7 +314,10 @@ export function selectSmartCheckoutRail(request: SmartRoutingRequest): SmartRout
 
   const considered: SmartRailDecisionEntry[] = slots.map((slot) => {
     if (slot.tag === 'skip') return slot.entry;
-    if (slot.railId === winner.railId) return { railId: slot.railId, outcome: 'chosen' };
+    if (slot === winner) return { railId: slot.railId, outcome: 'chosen' };
+    if (slot.scaled === winner.scaled) {
+      return { railId: slot.railId, outcome: 'skipped', reason: 'tied-declared-rate-lost-preference-order' };
+    }
     return { railId: slot.railId, outcome: 'skipped', reason: 'outranked-success-rate' };
   });
 

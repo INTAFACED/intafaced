@@ -226,14 +226,21 @@ describe('svc-ledger schema-drift PG-hard (source)', () => {
     expect(src).not.toMatch(/\bit\.skip\s*\(/);
   });
 
-  it('outbox payload CHECK has no subquery (Postgres forbids it)', () => {
-    const up = readFileSync(join(drizzleDir, '0013_tx_posted_outbox.sql'), 'utf8');
+  it('outbox amount CHECK has no SQL subquery (Postgres forbids it)', () => {
+    const historical = readFileSync(join(drizzleDir, '0013_tx_posted_outbox.sql'), 'utf8');
+    const live = readFileSync(join(drizzleDir, '0019_outbox_amount_string.sql'), 'utf8');
     const orm = readFileSync(join(here, 'schema.ts'), 'utf8');
-    const legal = "jsonb_typeof(payload) = 'object' AND jsonb_typeof(payload->'entries') = 'array'";
-    const sqlCheck = up.match(/CONSTRAINT "ledger_tx_outbox_amount_string_ck" CHECK \((.*)\)/)?.[1];
+    const weak = "jsonb_typeof(payload) = 'object' AND jsonb_typeof(payload->'entries') = 'array'";
+    const numberRule =
+      "jsonb_typeof(payload) = 'object' AND jsonb_exists(payload, 'entries') AND jsonb_typeof(payload->'entries') = 'array' AND NOT jsonb_path_exists(payload, '$.entries[*].amount ? (@.type() == \"number\")')";
+    expect(historical).toContain(`CONSTRAINT "ledger_tx_outbox_amount_string_ck" CHECK (${weak})`);
     const tsCheck = orm.match(/'ledger_tx_outbox_amount_string_ck',\s*sql`([^`]+)`/)?.[1];
-    expect(sqlCheck).toBe(legal);
-    expect(tsCheck).toBe(legal);
+    expect(tsCheck).toBeTruthy();
+    expect(tsCheck).not.toMatch(/\bSELECT\b|jsonb_array_elements/i);
+    expect(tsCheck).not.toBe(weak);
+    expect(tsCheck).not.toBe(numberRule);
+    const flat = (s: string) => s.replace(/\s+/g, ' ');
+    expect(flat(live)).toContain(flat(tsCheck!));
   });
 });
 

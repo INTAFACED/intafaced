@@ -1,11 +1,8 @@
+import { InMemoryEmsOrderStore } from './oms-ems-store.js';
 import { describe, expect, it } from 'vitest';
 import { formatAmount, parseAmount, sub, ZERO } from '@intafaced/ledger-client';
 import type { SubmitRequest, VenueExecution } from '@intafaced/venue-adapter';
-import {
-  InMemoryApprovedAlgoParentStore,
-  type ApprovedAlgoParent,
-  type RetainedAlgoSchedule,
-} from './oms-start.js';
+import { InMemoryApprovedAlgoParentStore, type ApprovedAlgoParent, type RetainedAlgoSchedule } from './oms-start.js';
 import type { OmsSubmitFn } from './oms-trade-submit.js';
 import { sliceLiveAlgoParentWithSessionCredit } from './oms-slice-credit.js';
 
@@ -81,6 +78,7 @@ describe('sliceLiveAlgoParentWithSessionCredit', () => {
       parentClientOrderId: 'parent-twap',
       ...sliceFields,
       parentStore,
+      emsStore: new InMemoryEmsOrderStore(),
       submit: street.submit,
       credit: null,
     });
@@ -97,6 +95,7 @@ describe('sliceLiveAlgoParentWithSessionCredit', () => {
       parentClientOrderId: 'parent-twap',
       ...sliceFields,
       parentStore,
+      emsStore: new InMemoryEmsOrderStore(),
       submit: street.submit,
       credit: undefined,
     });
@@ -113,6 +112,7 @@ describe('sliceLiveAlgoParentWithSessionCredit', () => {
       parentClientOrderId: 'parent-twap',
       ...sliceFields,
       parentStore,
+      emsStore: new InMemoryEmsOrderStore(),
       submit: street.submit,
       credit: '   ',
     });
@@ -129,6 +129,7 @@ describe('sliceLiveAlgoParentWithSessionCredit', () => {
       parentClientOrderId: 'parent-twap',
       ...sliceFields,
       parentStore,
+      emsStore: new InMemoryEmsOrderStore(),
       submit: street.submit,
       credit: 'nope',
     });
@@ -145,6 +146,7 @@ describe('sliceLiveAlgoParentWithSessionCredit', () => {
       parentClientOrderId: 'parent-twap',
       ...sliceFields,
       parentStore,
+      emsStore: new InMemoryEmsOrderStore(),
       submit: street.submit,
       credit: '100',
     });
@@ -168,6 +170,7 @@ describe('sliceLiveAlgoParentWithSessionCredit', () => {
       parentClientOrderId: 'parent-twap',
       ...sliceFields,
       parentStore,
+      emsStore: new InMemoryEmsOrderStore(),
       submit: street.submit,
       credit: '0',
     });
@@ -185,6 +188,7 @@ describe('sliceLiveAlgoParentWithSessionCredit', () => {
       parentClientOrderId: 'parent-paper',
       ...sliceFields,
       parentStore,
+      emsStore: new InMemoryEmsOrderStore(),
       submit: street.submit,
       credit: '100',
     });

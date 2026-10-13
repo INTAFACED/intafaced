@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { DropCopyHub } from './hub.js';
-import { createDropCopyWebSocketGateway, DROP_COPY_STREAM_PATH, type DropCopyWebSocketGateway } from './gateway.js';
+import { CLOSE_UNAUTHORIZED, createDropCopyWebSocketGateway, DROP_COPY_STREAM_PATH, type DropCopyWebSocketGateway } from './gateway.js';
 import type { AccountStatusSnapshot, LiveCredentialPort, OwnershipSnapshot } from '../private/live-credential.js';
 import type { HubLogger } from '../depth/hub.js';
 
@@ -163,31 +163,32 @@ describe('drop-copy stream drops when the user is frozen', () => {
     };
     const { port: listen } = await boot(flipping, 40);
     const token = await access(KEY);
-    const frames: string[] = [];
-    let closed = false;
+    let closeCode: number | undefined;
     const ws = new WebSocket(`ws://127.0.0.1:${listen}${DROP_COPY_STREAM_PATH}?access_token=${token}`);
-    ws.on('message', (data) => frames.push(data.toString()));
     ws.on('error', () => undefined);
-    ws.on('close', () => {
-      closed = true;
+    ws.on('close', (code) => {
+      closeCode = code;
     });
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, 500);
+    const opened = await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), 500);
       ws.once('open', () => {
         clearTimeout(timer);
-        resolve();
+        resolve(true);
       });
     });
+    // An open timeout or a close before the freeze is a failure. Do not freeze.
+    if (!opened || closeCode !== undefined) {
+      ws.terminate();
+      expect(opened).toBe(true);
+      expect(closeCode).toBeUndefined();
+      return;
+    }
     status = 'frozen';
     await new Promise<void>((resolve) => {
-      if (closed) {
-        resolve();
-        return;
-      }
       ws.once('close', () => resolve());
       setTimeout(resolve, 2_000);
     });
-    expect(closed).toBe(true);
+    expect(closeCode).toBe(CLOSE_UNAUTHORIZED);
     ws.terminate();
   });
 });

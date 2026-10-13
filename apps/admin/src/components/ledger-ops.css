@@ -1,0 +1,169 @@
+/* Extracted from Paper 33; existing Admin tokens/primitives retain their authority. */
+.lo {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+  font-family: var(--if-font-body);
+}
+.lo-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 432px;
+  align-items: start;
+  gap: 32px;
+}
+.lo-record-lane,
+.lo-procedures {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+}
+.lo .if-panel {
+  border: 1px solid var(--if-border-strong);
+  border-radius: 8px;
+  background: var(--if-surface);
+  min-width: 0;
+}
+.lo .if-panel__header {
+  padding: 24px 24px 0;
+  border: 0;
+  gap: 16px;
+  align-items: start;
+}
+.lo .if-panel__body {
+  padding: 20px 24px 24px;
+}
+.lo .if-panel__title {
+  font: 500 18px/26px var(--if-font-body);
+}
+.lo-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.lo p,
+.lo h2,
+.lo h3,
+.lo dl,
+.lo dd {
+  margin: 0;
+}
+.lo-muted {
+  color: var(--if-text-muted);
+  font: 400 14px/22px var(--if-font-body);
+  overflow-wrap: anywhere;
+}
+.lo-status {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lo-status > strong {
+  font: 500 24px/32px var(--if-font-body);
+  color: var(--if-text);
+}
+.lo-values {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+.lo-record .lo-values {
+  padding-top: 16px;
+  border-top: 1px solid var(--if-border);
+}
+.lo-values > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.lo-values dt {
+  color: var(--if-text-muted);
+  font: 400 14px/22px var(--if-font-body);
+}
+.lo-values dd {
+  color: var(--if-text);
+  font: 400 16px/24px var(--if-font-body);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.lo-diagnostic {
+  color: var(--if-text-muted);
+  font: 400 14px/22px var(--if-font-body);
+  overflow-wrap: anywhere;
+}
+.lo-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 24px;
+  border-top: 1px solid var(--if-border);
+  min-width: 0;
+}
+.lo-section h2 {
+  font: 500 18px/26px var(--if-font-body);
+}
+.lo-transport {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--if-border);
+}
+.lo-transport h3 {
+  font: 500 14px/22px var(--if-font-body);
+}
+.lo-requirements {
+  border-top: 1px solid var(--if-border);
+  min-width: 0;
+}
+.lo-requirements summary {
+  min-height: 44px;
+  padding: 10px 0;
+  cursor: pointer;
+  font: 400 14px/22px var(--if-font-body);
+  overflow-wrap: anywhere;
+}
+.lo-requirements > .lo-stack {
+  padding-top: 16px;
+}
+.lo-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.lo .adm-btn {
+  min-height: 44px;
+  font: 400 14px/22px var(--if-font-body);
+  border-radius: 8px;
+  white-space: normal;
+}
+.lo .adm-field label,
+.lo .adm-check {
+  font: 400 14px/22px var(--if-font-body);
+}
+.lo .adm-textarea {
+  min-height: 88px;
+}
+.lo summary:focus-visible,
+.lo button:focus-visible {
+  outline: 2px solid var(--if-accent);
+  outline-offset: 3px;
+}
+@media (max-width: 1000px) {
+  .lo-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 520px) {
+  .lo .if-panel__header {
+    flex-direction: column;
+    padding: 20px 20px 0;
+  }
+  .lo .if-panel__body {
+    padding: 20px;
+  }
+}

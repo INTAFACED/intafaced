@@ -41,9 +41,7 @@ function refuse(reason: OmsIsApproveRefuseReason, detail: string): OmsIsApproveR
   return { ok: false, reason, detail };
 }
 
-function parseArrivalPrice(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsIsApproveRefusal {
+function parseArrivalPrice(raw: string | null | undefined): { ok: true; text: string } | OmsIsApproveRefusal {
   if (raw === null || raw === undefined) {
     return refuse('arrival_price_blank', 'arrival price is blank — refuse rather than invent a price from a book');
   }

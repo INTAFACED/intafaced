@@ -62,6 +62,33 @@ const tradeOnly = (venueId: string): VenueCredentials => ({
   scopes: ['read', 'trade'],
 });
 
+const knownBinanceSpot = ((id: string) => (id === 'binance-spot' ? fakeTradeAdapter(id) : null)) as typeof createVenueTradeAdapter;
+
+const BINANCE_SPOT_CREDENTIAL_ENV_KEYS = [
+  'EXECUTION_VENUE_BINANCE_SPOT_API_KEY',
+  'EXECUTION_VENUE_BINANCE_SPOT_API_SECRET',
+  'EXECUTION_VENUE_BINANCE_SPOT_PASSPHRASE',
+  'VENUE_AGGREGATION_BINANCE_SPOT_API_KEY',
+  'VENUE_AGGREGATION_BINANCE_SPOT_API_SECRET',
+  'VENUE_AGGREGATION_BINANCE_SPOT_PASSPHRASE',
+] as const;
+
+function withClearedBinanceSpotProcessEnv(run: () => void): void {
+  const saved = new Map<string, string | undefined>();
+  for (const key of BINANCE_SPOT_CREDENTIAL_ENV_KEYS) {
+    saved.set(key, process.env[key]);
+    delete process.env[key];
+  }
+  try {
+    run();
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
 describe('parseExecutionVenueIds', () => {
   it('splits comma list, normalizes, and treats off tokens as empty', () => {
     expect(parseExecutionVenueIds('binance-spot, bybit-spot ,okx-spot')).toEqual(['binance-spot', 'bybit-spot', 'okx-spot']);
@@ -156,6 +183,59 @@ describe('buildExecutionVenueTradeMaps', () => {
     });
     expect(maps.wiredVenueIds).toEqual([]);
     expect(maps.submitByVenue['binance-spot']).toBeUndefined();
+  });
+
+  it('loads credentials from options.env when credentialsFor is absent', () => {
+    withClearedBinanceSpotProcessEnv(() => {
+      const fromSuppliedEnv = buildExecutionVenueTradeMaps(['binance-spot'], {
+        env: {
+          EXECUTION_VENUE_BINANCE_SPOT_API_KEY: 'supplied-fake-key',
+          EXECUTION_VENUE_BINANCE_SPOT_API_SECRET: 'supplied-fake-secret',
+        },
+        createAdapter: knownBinanceSpot,
+      });
+      expect(fromSuppliedEnv.wiredVenueIds).toEqual(['binance-spot']);
+
+      process.env.EXECUTION_VENUE_BINANCE_SPOT_API_KEY = 'process-fake-key';
+      process.env.EXECUTION_VENUE_BINANCE_SPOT_API_SECRET = 'process-fake-secret';
+      const ignoresProcessEnv = buildExecutionVenueTradeMaps(['binance-spot'], {
+        env: {},
+        createAdapter: knownBinanceSpot,
+      });
+      expect(ignoresProcessEnv.wiredVenueIds).toEqual([]);
+      expect(ignoresProcessEnv.submitByVenue['binance-spot']).toBeUndefined();
+    });
+  });
+
+  it('loads credentials from process.env when options.env is absent', () => {
+    withClearedBinanceSpotProcessEnv(() => {
+      process.env.EXECUTION_VENUE_BINANCE_SPOT_API_KEY = 'process-fake-key';
+      process.env.EXECUTION_VENUE_BINANCE_SPOT_API_SECRET = 'process-fake-secret';
+      const maps = buildExecutionVenueTradeMaps(['binance-spot'], {
+        createAdapter: knownBinanceSpot,
+      });
+      expect(maps.wiredVenueIds).toEqual(['binance-spot']);
+    });
+  });
+
+  it('uses a supplied credentialsFor as given and does not consult options.env', () => {
+    const unwired = buildExecutionVenueTradeMaps(['binance-spot'], {
+      env: {
+        EXECUTION_VENUE_BINANCE_SPOT_API_KEY: 'supplied-fake-key',
+        EXECUTION_VENUE_BINANCE_SPOT_API_SECRET: 'supplied-fake-secret',
+      },
+      credentialsFor: () => null,
+      createAdapter: knownBinanceSpot,
+    });
+    expect(unwired.wiredVenueIds).toEqual([]);
+    expect(unwired.submitByVenue['binance-spot']).toBeUndefined();
+
+    const wired = buildExecutionVenueTradeMaps(['binance-spot'], {
+      env: {},
+      credentialsFor: () => tradeOnly('binance-spot'),
+      createAdapter: knownBinanceSpot,
+    });
+    expect(wired.wiredVenueIds).toEqual(['binance-spot']);
   });
 
   it('loadExecutionVenueCredentials prefers EXECUTION_VENUE_* over VENUE_AGGREGATION_*', () => {

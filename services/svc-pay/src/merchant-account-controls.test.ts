@@ -1,3 +1,4 @@
+import { truncatePayForTest } from './payment-events-test-reset.js';
 import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { beforeAll, beforeEach, afterAll, describe, it, expect } from 'vitest';
@@ -31,7 +32,7 @@ describe('merchant founder controls real PostgreSQL', () => {
     db = await createTestDatabase({ service: 'pay', migrations });
   });
   beforeEach(async () => {
-    await db.sql`TRUNCATE pay.account_control_audit,pay.account_control_requests,pay.merchants CASCADE`;
+    await truncatePayForTest(db.sql, 'pay', `TRUNCATE pay.account_control_audit,pay.account_control_requests,pay.merchants CASCADE`);
     enabled = true;
     controls = new MerchantAccountControls(db.sql, async (ctx) => {
       if (!enabled || !ctx.principal || !founders.includes(ctx.principal.userId)) throw new MerchantControlError('operator.denied');

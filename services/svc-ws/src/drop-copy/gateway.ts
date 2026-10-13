@@ -265,10 +265,16 @@ export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGateway
           const detach = hub.attach(userId, sink);
           if (!detach) {
             lease.dispose();
-            try {
-              ws.terminate();
-            } catch {
-              /* ignore */
+            // Attach already queued the policy close. terminate() destroys the
+            // socket and can drop that frame, so the client sees 1006.
+            // Leave a closing socket alone. A socket attach left open is not
+            // given an invented code.
+            if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
+              try {
+                ws.terminate();
+              } catch {
+                /* ignore */
+              }
             }
             return;
           }
@@ -347,20 +353,24 @@ export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGateway
           }
           continue;
         }
-        // Missed pong on a still-live drop-copy seat is not 1006 — identity
-        // heartbeat already drops revoked seats 4003. terminate() here killed
-        // KEEP across 40ms tests (`recovery-drop-other-streams`, session-revoked).
+        // Ping already went out and no pong has been applied yet. A failed
+        // live credential still closes 4003. A seat that stays silent is
+        // terminate()'d so the hub seat is released.
+        //
+        // The credential promise resolves as a microtask, before a pong already
+        // in the I/O queue can mark this socket alive. terminate() in that
+        // turn is an abnormal 1006 on a client that answered (the 40ms KEEP
+        // tests). Decide after that poll. Do not re-ping a silent seat.
         if (seat && liveCredential) {
           void assertLiveCredential(liveCredential, liveCredentialInput(seat)).then(
             () => {
-              if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
-                awaitingPong.add(ws);
-                try {
-                  ws.ping();
-                } catch {
+              const decide = setImmediate(() => {
+                if (alive.has(ws)) return;
+                if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
                   ws.terminate();
                 }
-              }
+              });
+              decide.unref?.();
             },
             () => {
               if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {

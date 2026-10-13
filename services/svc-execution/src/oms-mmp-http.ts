@@ -25,19 +25,19 @@ export type OmsMmpPostDoorBody = OmsMmpDoorGreeks & {
   readonly symbol?: string;
   readonly bidQuoteId?: string;
   readonly askQuoteId?: string;
-  readonly mqq?: string | null;
-  readonly bidSize?: string | null;
-  readonly askSize?: string | null;
+  readonly mqq?: unknown;
+  readonly bidSize?: unknown;
+  readonly askSize?: unknown;
 };
 
 export type OmsMmpHedgeDoorBody = OmsMmpDoorGreeks & {
   readonly parentClientOrderId?: string;
-  readonly hedgeSize?: string | null;
+  readonly hedgeSize?: unknown;
 };
 
 export type OmsMmpMqqDoorBody = OmsMmpDoorGreeks & {
-  readonly mqq?: string | null;
-  readonly quotes?: OmsMmpMqqInput['quotes'];
+  readonly mqq?: unknown;
+  readonly quotes?: unknown;
 };
 
 export type OmsMmpDoorDeps = {
@@ -63,10 +63,36 @@ function refuseInventedGreeks(body: OmsMmpDoorGreeks): OmsMmpUnsupportedRefuse |
   });
 }
 
+/** Ledger amounts stay decimal strings. A number or object is not coerced into a size. */
+function isLedgerText(raw: unknown): raw is string | null | undefined {
+  return raw === null || raw === undefined || typeof raw === 'string';
+}
+
 /** Pure door — tests call this. Delta/vega refuses before mill post. Never matching. */
 export function handleOmsMmpPostDoor(body: OmsMmpPostDoorBody): OmsMmpPostResult | OmsMmpUnsupportedRefuse {
   const refused = refuseInventedGreeks(body);
   if (refused) return refused;
+  if (!isLedgerText(body.mqq)) {
+    return {
+      ok: false,
+      reason: 'mqq_invalid',
+      detail: 'MQQ is not a ledger amount — refuse rather than invent a minimum quote quantity',
+    };
+  }
+  if (!isLedgerText(body.bidSize)) {
+    return {
+      ok: false,
+      reason: 'size_invalid',
+      detail: 'bidSize is not a ledger amount — refuse rather than invent size',
+    };
+  }
+  if (!isLedgerText(body.askSize)) {
+    return {
+      ok: false,
+      reason: 'size_invalid',
+      detail: 'askSize is not a ledger amount — refuse rather than invent size',
+    };
+  }
   const mill: OmsMmpPostInput = {
     parentClientOrderId: body.parentClientOrderId,
     quoteId: body.quoteId,
@@ -84,6 +110,13 @@ export function handleOmsMmpPostDoor(body: OmsMmpPostDoorBody): OmsMmpPostResult
 export function handleOmsMmpHedgeDoor(body: OmsMmpHedgeDoorBody): OmsMmpHedgeResult | OmsMmpUnsupportedRefuse {
   const refused = refuseInventedGreeks(body);
   if (refused) return refused;
+  if (!isLedgerText(body.hedgeSize)) {
+    return {
+      ok: false,
+      reason: 'hedge_size_invalid',
+      detail: 'hedge size is not a ledger amount — not invented',
+    };
+  }
   return hedgeRemainingAfterMmpFill({
     parentClientOrderId: body.parentClientOrderId,
     hedgeSize: body.hedgeSize,
@@ -94,9 +127,26 @@ export function handleOmsMmpHedgeDoor(body: OmsMmpHedgeDoorBody): OmsMmpHedgeRes
 export function handleOmsMmpMqqDoor(body: OmsMmpMqqDoorBody): OmsMmpMqqResult | OmsMmpUnsupportedRefuse {
   const refused = refuseInventedGreeks(body);
   if (refused) return refused;
+  if (!isLedgerText(body.mqq)) {
+    return {
+      ok: false,
+      reason: 'mqq_invalid',
+      detail: 'MQQ is not a ledger amount — refuse rather than invent a minimum quote quantity',
+    };
+  }
+  const quotes: unknown = body.quotes ?? [];
+  if (!Array.isArray(quotes)) {
+    const parsedMqq = cancelBothSidesOnMqqBreach({ mqq: body.mqq, quotes: [] });
+    if (!parsedMqq.ok) return parsedMqq;
+    return {
+      ok: false,
+      reason: 'remaining_blank',
+      detail: 'quotes are not a list — refuse rather than invent remaining size',
+    };
+  }
   return cancelBothSidesOnMqqBreach({
     mqq: body.mqq,
-    quotes: body.quotes ?? [],
+    quotes: quotes as OmsMmpMqqInput['quotes'],
   });
 }
 

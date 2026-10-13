@@ -40,12 +40,12 @@ receive that credential.
 | `INTERNAL_SERVICE_SECRET`                    | no       | **yes**   | **yes**      | **no**       |
 | `EDGE_PRINCIPAL_SECRET`                      | yes      | yes       | no           | **no**       |
 | `DATABASE_URL`                               | no       | yes       | no           | **no**       |
-| `JWT_ACCESS_SECRET` (private stream only)    | yes*     | no        | no           | **optional** |
+| `JWT_ACCESS_SECRET` (private and drop-copy)  | yes*     | no        | no           | **optional** |
 | Event bus connection                         | no       | yes       | yes          | **yes***     |
 | A ledger client                              | no       | yes       | no           | **no**       |
 | Accepts anonymous connections from a browser | yes      | no        | no           | **yes**      |
 
-\*NATS for `orderFilled` only — public print fan-out. Not a money path; order ids never leave the bus-side handler.
+\*NATS for the public `orderFilled` print and for private and drop-copy. Not a money path; public order ids never leave the bus-side handler.
 
 The last two rows are the point. This is the second internet-facing process in the fleet, and it is the one with the
 least to steal.
@@ -291,7 +291,7 @@ After a consumer is attached, **nats.js owns TCP reconnect** for that connection
 | `HTTP_PORT`                           | `4014`                  | every port 4000–4013 is taken                                                                                                    |
 | `MATCHING_URL`                        | `http://localhost:4005` | svc-matching's **read** surface; no credential is sent                                                                           |
 | `TRADE_URL`                           | `http://localhost:4004` | svc-trade's public market **listing**; no credential                                                                             |
-| `NATS_URL`                            | `nats://localhost:4222` | bus for `orderFilled` trade tape only                                                                                            |
+| `NATS_URL`                            | `nats://localhost:4222` | bus for public `orderFilled` tape, private, and drop-copy                                                                        |
 | `WS_DEPTH_LIMIT`                      | _(unset)_               | owner-published levels per side (snapshot and delta); blank refuses `ws.depth_limit_unset` (owner may set 50)                    |
 | `WS_POLL_INTERVAL_MS`                 | `250`                   | one GET per subscribed market per tick                                                                                           |
 | `WS_MARKETS_REFRESH_MS`               | `30000`                 | market-list cache window                                                                                                         |
@@ -304,7 +304,7 @@ After a consumer is attached, **nats.js owns TCP reconnect** for that connection
 | `WS_DROP_COPY_RECENT_LIMIT`           | _(unset)_               | owner-published drop-copy session replay; blank refuses `ws.drop_copy_recent_limit_unset` (owner may set 50)                     |
 | `WS_TRADES_DURABLE`                   | `ws-trade-tape`         | JetStream durable; unique per replica for multi-instance                                                                         |
 | `WS_GATEWAY_ENABLED`                  | `true`                  | kill-switch (env / restart / SIGTERM — not edge admin)                                                                           |
-| `JWT_ACCESS_SECRET`                   | _(unset)_               | optional; only `/private/stream` — public path ignores it                                                                        |
+| `JWT_ACCESS_SECRET`                   | _(unset)_               | optional; `/private/stream` and `/drop-copy/stream` — public path ignores it                                                     |
 | `IDENTITY_URL`                        | _(unset)_               | identity authority base; missing/invalid disables private upgrades only                                                          |
 | `IDENTITY_OWNERSHIP_SECRET`           | _(unset)_               | dedicated identity private-read key matching `IDENTITY_WS_AUTHORITY_SECRET`; at least 32 characters; no default                  |
 
@@ -315,7 +315,7 @@ After a consumer is attached, **nats.js owns TCP reconnect** for that connection
 | `INTERNAL_SERVICE_SECRET`   | **no**   | no S2S writes; depth/listing reads are public |
 | `EDGE_PRINCIPAL_SECRET`     | **no**   | public port is not principal-scoped           |
 | `DATABASE_URL`              | **no**   | nothing stored here                           |
-| `JWT_ACCESS_SECRET`         | optional | private order/fill/position stream only       |
+| `JWT_ACCESS_SECRET`         | optional | private order/fill/position and drop-copy     |
 | `IDENTITY_OWNERSHIP_SECRET` | optional | body-signed identity private authority reads  |
 
 Pin: `src/env.isolation.test.ts` + `FORBIDDEN_SERVICE_CREDENTIALS` in `env.ts`.
@@ -390,7 +390,8 @@ Same `*.engine_unavailable` family as public `depth.engine_unavailable`. A match
 surfaces the same code.
 
 Positions updates are emitted only when `trade.futures` publishes `positionUpdated`. Until then the channel is
-mounted and silent — same honesty as REST `GET /positions → []`. Never invent a position frame.
+mounted and silent. The positions read is `GET /markets/:marketId/positions`, which is `404` `NoPositions` and
+never `200 { positions: [] }`. Never invent a position frame.
 
 ## Not built (outside this service’s Done bar)
 
@@ -435,3 +436,31 @@ detach on close, and the HTTP half including CORS and the `502`-not-`500` rule.
 
 `depth/source.test.ts` covers refusing a JSON number where a price belongs, refusing a response with no engine
 sequence, and asserting no credential is ever attached to an upstream request.
+
+### Replay and backpressure limits
+
+Public trade dedup covers the configured recent ring while watched. Zero replay
+retains no dedup history; older redeliveries and reconnects can print again.
+Drop-copy positive-window dedup follows its session replay ring, including while
+idle. The last seat leaving clears that ring and its fill IDs; the issued
+`dropCopySeq` remains process-local. Restart loses these counters and all replay
+state. The existing zero-window drop-copy behavior retains fill IDs until the
+last seat leaves; it provides no durable recovery guarantee.
+
+`replayDurable: false` and `RECOVERY_REQUIRED` remain honest. These streams do not
+provide exactly-once execution evidence. Private hydration and supplemental
+credential-check queues count pending UTF-8 bytes in the published socket high
+water check; no new unpublished limit is supplied.
+
+A prior matching halt remains named when later responses omit flags. Only
+explicit non-halted or OPEN evidence clears a market halt. A venue halt requires
+`venueHalted: false` or `venue_halted: false`; market OPEN does not confirm venue
+state. `orders.submits_resumed` is never inferred from a null parser result.
+
+Completed COD cancellation results retain the original command ID and scope,
+even if another lease is armed or a later cancellation finishes first. The
+existing single reconnect receipt slot belongs to the latest issued fire
+activation. Issuing that fire clears the older slot while pending; older
+operations still report to their original seat and listeners but cannot replace
+that slot. Arming a newer lease does not erase an already-issued operation's
+receipt. This remains replica-local last-fire replay, not full operation history.

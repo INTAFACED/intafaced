@@ -137,6 +137,20 @@ describe('releaseExpiredPaperScaleOutResidual', () => {
     ).toMatchObject({ ok: false, reason: 'missing_residual' });
   });
 
+  it("refuses non-positive remaining '0', '-1', and '0.0' with missing_residual and does not release", () => {
+    const base = {
+      parentClientOrderId: 'p-sout',
+      kind: 'scale-out' as const,
+      status: 'expired',
+      paper: PAPER_ON,
+    };
+    for (const remaining of ['0', '-1', '0.0'] as const) {
+      const result = releaseExpiredPaperScaleOutResidual({ ...base, remaining });
+      expect(result).toMatchObject({ ok: false, reason: 'missing_residual' });
+      expect(result).not.toMatchObject({ released: true });
+    }
+  });
+
   it("happy expired paper remaining '1.25' + paper on: released through ledger-client", () => {
     const result = releaseExpiredPaperScaleOutResidual({
       parentClientOrderId: 'p-sout',

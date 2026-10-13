@@ -13,34 +13,21 @@ export type OmsPovMaxParticipationRefuse =
 
 export type OmsApproveWithMaxParticipationResult = OmsApproveResult | OmsPovMaxParticipationRefuse;
 
-function refuseMax(
-  reason: OmsPovMaxParticipationRefuse['reason'],
-  detail: string,
-): OmsPovMaxParticipationRefuse {
+function refuseMax(reason: OmsPovMaxParticipationRefuse['reason'], detail: string): OmsPovMaxParticipationRefuse {
   return { ok: false, reason, detail };
 }
 
-function parseMaxParticipationBps(
-  raw: number | null | undefined,
-): { ok: true } | OmsPovMaxParticipationRefuse {
+function parseMaxParticipationBps(raw: number | null | undefined): { ok: true } | OmsPovMaxParticipationRefuse {
   if (raw === null || raw === undefined) {
-    return refuseMax(
-      'max_participation_blank',
-      'max participation is blank — refuse rather than invent a POV rate',
-    );
+    return refuseMax('max_participation_blank', 'max participation is blank — refuse rather than invent a POV rate');
   }
   if (!Number.isInteger(raw) || raw < 0) {
-    return refuseMax(
-      'max_participation_invalid',
-      'max participation must be a non-negative integer bps — not invented',
-    );
+    return refuseMax('max_participation_invalid', 'max participation must be a non-negative integer bps — not invented');
   }
   return { ok: true };
 }
 
-function resolvedKind(
-  input: Parameters<typeof approveAlgoParent>[0],
-): AlgoKind | string | undefined {
+function resolvedKind(input: Parameters<typeof approveAlgoParent>[0]): AlgoKind | string | undefined {
   const fromInput = input.kind;
   if (fromInput === 'twap' || fromInput === 'vwap' || fromInput === 'pov') return fromInput;
   const id = input.parentClientOrderId?.trim() ?? '';

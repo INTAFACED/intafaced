@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CLIENT_CORPORATE_COMMINGLED,
+  OWNERS_UNNAMED,
   POR_MISLEADING,
   RECIPES_INCOMPLETE,
   RESERVE_INVENTED,
@@ -36,6 +37,41 @@ describe('CARD G-finance client vs corporate, close, PoR', () => {
     if (same.ok || flag.ok) return;
     expect(same.reason).toBe(CLIENT_CORPORATE_COMMINGLED);
     expect(flag.reason).toBe(CLIENT_CORPORATE_COMMINGLED);
+  });
+
+  it('refuses a segregation that omits an owner because the owner was not named', () => {
+    const cases: ReadonlyArray<{ readonly body: Record<string, unknown>; readonly missing: readonly string[] }> = [
+      { body: { kind: 'segregation' }, missing: ['clientOwnerId', 'corporateOwnerId'] },
+      { body: { kind: 'segregation', corporateOwnerId: 'corp-1' }, missing: ['clientOwnerId'] },
+      { body: { kind: 'segregation', clientOwnerId: 'client-1' }, missing: ['corporateOwnerId'] },
+      { body: { kind: 'segregation', clientOwnerId: '', corporateOwnerId: 'corp-1' }, missing: ['clientOwnerId'] },
+      { body: { kind: 'segregation', clientOwnerId: '   ', corporateOwnerId: 'corp-1' }, missing: ['clientOwnerId'] },
+      { body: { kind: 'segregation', clientOwnerId: 'client-1', corporateOwnerId: '' }, missing: ['corporateOwnerId'] },
+      { body: { kind: 'segregation', clientOwnerId: 'client-1', corporateOwnerId: ' \n' }, missing: ['corporateOwnerId'] },
+      { body: { kind: 'segregation', complete: true, corporateOwnerId: 'corp-1' }, missing: ['clientOwnerId'] },
+      {
+        body: { kind: 'segregation', claimFullyReserved: true, clientOwnerId: 'client-1' },
+        missing: ['corporateOwnerId'],
+      },
+    ];
+
+    for (const { body, missing } of cases) {
+      const out = handleFinanceClose(body);
+      expect(out.ok).toBe(false);
+      if (out.ok) return;
+      expect(out.reason).toBe(OWNERS_UNNAMED);
+      expect(out.reason).not.toBe(CLIENT_CORPORATE_COMMINGLED);
+      expect(out.kind).toBe('segregation');
+      expect(out.missing).toEqual(missing);
+      expect(out.detail).toMatch(/not named/);
+      const json = JSON.stringify(out);
+      expect(json).not.toMatch(/client_corporate_commingled/);
+      expect(json).not.toMatch(/"clientOwnerId":/);
+      expect(json).not.toMatch(/"corporateOwnerId":/);
+      expect(json).not.toMatch(/"balance"|"drift"|"amount"/);
+      expect(out).not.toHaveProperty('balance');
+      expect(out).not.toHaveProperty('drift');
+    }
   });
 
   it('keeps client and corporate owners distinct on a named segregation', () => {

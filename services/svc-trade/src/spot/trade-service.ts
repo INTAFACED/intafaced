@@ -58,14 +58,15 @@ import {
   type DropCopyIngestPort,
 } from './drop-copy-ingest.js';
 import { NoSubAccounts, assertSubAccountOwned, type SubAccountOwnershipSource } from './sub-account-ownership.js';
-import type {
-  EngineAmendResult,
-  EngineCancellation,
-  EngineFill,
-  EngineSubmitRequest,
-  EngineSubmitResult,
-  MatchingClient,
+import {
+  type EngineAmendResult,
+  type EngineCancellation,
+  type EngineFill,
+  type EngineSubmitRequest,
+  type EngineSubmitResult,
+  type MatchingClient,
 } from './matching-client.js';
+import { judgeEngineSequence, probeEngineSequence } from './sequence-guard.js';
 import {
   acceptConvertQuote,
   buildFirmConvertQuote,
@@ -1407,6 +1408,52 @@ export class TradeService {
     return this.executeAdmittedOrder(evidence);
   }
 
+  private async recordedFillSequence(marketId: string): Promise<number | undefined> {
+    const rows = await this.sql<Array<{ max_sequence: string | null }>>`
+      SELECT MAX(sequence)::text AS max_sequence
+        FROM trade.fills
+       WHERE market_id = ${marketId}
+    `;
+    const raw = rows[0]?.max_sequence;
+    return raw == null ? undefined : Number(raw);
+  }
+
+  /**
+   * Refuse a new order while the engine counter is behind what is settled.
+   *
+   * The stored max is read again AFTER the depth reply: a delayed fill from the
+   * previous engine can settle while the probe is in flight, and the reply must
+   * be judged against that newer max, not the one sampled before the await.
+   * This narrows the window; it does not make admission atomic with
+   * settlement. A fill that settles after the second read is still caught by
+   * `insertFillLeg` (#899) at settlement. No epoch or restart-safety protocol
+   * is claimed here.
+   *
+   * Unknown is not missing: an outage, 5xx or malformed depth reply throws
+   * `MatchingUnavailableError` (502), never `engine_sequence_regressed`.
+   */
+  private async refuseRestartedEngineSequence(market: Market): Promise<void> {
+    // A market with no stored fill is unjudged, as before: no probe.
+    const before = await this.recordedFillSequence(market.id);
+    if (before === undefined) return;
+
+    const engineSequence = await probeEngineSequence((marketId) => this.matching.depth(marketId, 1), market.id);
+
+    // Fills only grow, but take the max so a stale read can never lower the bar.
+    const after = await this.recordedFillSequence(market.id);
+    const recordedSequence = after === undefined ? before : Math.max(before, after);
+    if (judgeEngineSequence(recordedSequence, engineSequence) !== 'regression') return;
+
+    const where =
+      engineSequence === null
+        ? `the engine book is missing after fills through sequence ${recordedSequence}`
+        : `the engine sequence ${engineSequence} is behind settled sequence ${recordedSequence}`;
+    throw new TradeError(
+      `${market.symbol}: ${where}. Refusing the submit so the sequence counter does not start again and reissue a sequence stored on trade.fills.`,
+      'trade.engine_sequence_regressed',
+    );
+  }
+
   /** Only called with the owner's immutable prepared payload, never public receipts. */
   private async executeAdmittedOrder(evidence: Record<string, unknown>): Promise<OrderRecord> {
     const rawInput = evidence.request as Record<string, unknown>;
@@ -1432,6 +1479,7 @@ export class TradeService {
     const attribution = evidence.attribution as AuthAttribution;
     const lifecycleProof = evidence.lifecycleProof as LifecycleAdmissionProof;
     const engineRequest = evidence.engineRequest as EngineSubmitRequest;
+    if (!(await this.findOrder(orderId))) await this.refuseRestartedEngineSequence(market);
     // ── 2b · THE INTENT ROW ─────────────────────────────────────────────────
     //
     // If this crashes exactly here, whose funds are stranded? Nobody's. A
@@ -1455,7 +1503,7 @@ export class TradeService {
         ${formatAmount(input.qty)}::numeric, 'pending', ${tif},
         ${hold.assetId}, ${formatAmount(hold.amount)}::numeric, ${perks.feeDiscountBps},
         ${protectionPrice === null ? null : formatAmount(protectionPrice)}::numeric,
-        ${seeded}, ${JSON.stringify(lifecycleProof)}::jsonb,
+        ${seeded}, ${JSON.stringify(lifecycleProof)}::text::jsonb,
         ${input.replacementOf ?? null}, ${input.replacementRequestHash ?? null},
         ${attribution.sessionId}, ${attribution.apiKeyId}
       )
@@ -1562,7 +1610,7 @@ export class TradeService {
         ${formatAmount(input.qty)}::numeric, 'open', ${tif},
         ${holdAsset}, ${formatAmount(0n)}::numeric, 0,
         null,
-        false, ${JSON.stringify(lifecycleProof)}::jsonb,
+        false, ${JSON.stringify(lifecycleProof)}::text::jsonb,
         ${input.replacementOf ?? null}, ${input.replacementRequestHash ?? null},
         ${attribution.sessionId}, ${attribution.apiKeyId}
       )

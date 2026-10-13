@@ -33,7 +33,7 @@ describe('startPaperStopLimitParent', () => {
     ).toMatchObject({ ok: false, reason: 'missing_parent' });
   });
 
-  it("paper unwired / paper_off refuse even with approved paper + both prices", () => {
+  it('paper unwired / paper_off refuse even with approved paper + both prices', () => {
     expect(
       startPaperStopLimitParent({
         parentClientOrderId: 'p-stpl',
@@ -84,6 +84,52 @@ describe('startPaperStopLimitParent', () => {
         paper: PAPER_ON,
       }),
     ).toMatchObject({ ok: false, reason: 'already_started' });
+  });
+
+  it("refuses padded status 'running ' with already_started and does not start", () => {
+    const started = startPaperStopLimitParent({
+      parentClientOrderId: 'p-stpl',
+      approved: true,
+      status: 'running ',
+      stopPrice: STOP,
+      limitPrice: LIMIT,
+      operatorId: OP,
+      paper: PAPER_ON,
+    });
+    expect(started).toMatchObject({ ok: false, reason: 'already_started' });
+    expect(started).not.toMatchObject({ started: true });
+  });
+
+  it('refuses stopped, expired, and halted with not_approved even when approved is true', () => {
+    for (const status of ['stopped', 'expired', 'halted'] as const) {
+      const started = startPaperStopLimitParent({
+        parentClientOrderId: 'p-stpl',
+        approved: true,
+        status,
+        stopPrice: STOP,
+        limitPrice: LIMIT,
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(started).toMatchObject({ ok: false, reason: 'not_approved' });
+      expect(started).not.toMatchObject({ started: true });
+    }
+  });
+
+  it('refuses blank and whitespace-only status with not_approved even when approved is true and does not start', () => {
+    for (const status of ['', '   '] as const) {
+      const started = startPaperStopLimitParent({
+        parentClientOrderId: 'p-stpl',
+        approved: true,
+        status,
+        stopPrice: STOP,
+        limitPrice: LIMIT,
+        operatorId: OP,
+        paper: PAPER_ON,
+      });
+      expect(started).toMatchObject({ ok: false, reason: 'not_approved' });
+      expect(started).not.toMatchObject({ started: true });
+    }
   });
 
   it('refuses omitted status and approved:false with not_approved', () => {
@@ -222,7 +268,53 @@ describe('startPaperStopLimitParent', () => {
     expect(started).not.toHaveProperty('matching');
   });
 
-  it("happy: approved true + both prices + operator + paper on (status omitted) — not invented from amount", () => {
+  it('happy: approved true + status paper + both prices starts paper', () => {
+    expect(
+      startPaperStopLimitParent({
+        parentClientOrderId: 'p-stpl',
+        approved: true,
+        status: 'paper',
+        stopPrice: STOP,
+        limitPrice: LIMIT,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-stpl',
+      kind: 'stop-limit',
+      status: 'paper',
+      stopPrice: formatAmount(parseAmount(STOP)),
+      limitPrice: formatAmount(parseAmount(LIMIT)),
+    });
+  });
+
+  it('happy: approved true + status approved + both prices starts paper', () => {
+    expect(
+      startPaperStopLimitParent({
+        parentClientOrderId: 'p-stpl',
+        approved: true,
+        status: 'approved',
+        stopPrice: STOP,
+        limitPrice: LIMIT,
+        operatorId: OP,
+        paper: PAPER_ON,
+      }),
+    ).toEqual({
+      ok: true,
+      started: true,
+      paper: true,
+      parentClientOrderId: 'p-stpl',
+      kind: 'stop-limit',
+      status: 'paper',
+      stopPrice: formatAmount(parseAmount(STOP)),
+      limitPrice: formatAmount(parseAmount(LIMIT)),
+    });
+  });
+
+  it('happy: approved true + both prices + operator + paper on (status omitted) — not invented from amount', () => {
     const started = startPaperStopLimitParent({
       parentClientOrderId: 'p-stpl',
       approved: true,

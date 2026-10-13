@@ -110,6 +110,17 @@ describe('mark-gate (prices.ts vocabulary)', () => {
     ).toBe(false);
   });
 
+  it('refuses invalid mark and current timestamps while accepting a finite current mark', () => {
+    const now = new Date('2026-08-07T12:00:00Z');
+    const mark = { marketId: MARKET, price: parseAmount('1'), asOf: now, quality: 'mid' as const };
+    expect(acceptableForAlgo({ ...mark, asOf: new Date(Number.NaN) }, now)).toMatchObject({
+      ok: false,
+      code: 'trade.algo_mark_unusable',
+    });
+    expect(acceptableForAlgo(mark, new Date(Number.NaN))).toMatchObject({ ok: false, code: 'trade.algo_mark_unusable' });
+    expect(acceptableForAlgo(mark, now)).toEqual({ ok: true });
+  });
+
   it('price band: buy refuses above limit, sell refuses below', () => {
     expect(withinPriceBand('buy', parseAmount('101'), parseAmount('100'))).toBe(false);
     expect(withinPriceBand('buy', parseAmount('99'), parseAmount('100'))).toBe(true);

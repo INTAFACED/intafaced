@@ -266,6 +266,48 @@ describe('reconcile — both have it but disagree', () => {
     expect(finding?.counterpart).toContain('remaining=5');
   });
 
+  it('refuses a pending claim whose id is already resting, including when unfunded and the qty matches', async () => {
+    const id = idFactory();
+    const engine = engineWith();
+    await engine.submit(MARKET, limit(id('intent'), 'intent', 'buy', '2', '100'));
+
+    const before = engine.restingOrders();
+    const unfunded = reconcile(before, [claim({ orderId: id('intent'), state: 'pending', remaining: '2', funded: false })]);
+
+    // Intent recorded, not yet live. Same market and same remaining are not agreement,
+    // and funded false does not make a resting id clean.
+    expect(unfunded.agreed).toBe(0);
+    expect(unfunded.ok).toBe(false);
+    expect(unfunded.refusals).toBe(1);
+    expect(unfunded.findings).toHaveLength(1);
+    expect(unfunded.findings[0]).toMatchObject({
+      orderId: id('intent'),
+      case: 'counterpart_pending_engine_live',
+      verdict: 'refuse',
+    });
+    expect(unfunded.findings[0]?.engine).toContain('LIVE');
+    expect(unfunded.findings[0]?.engine).toContain('remaining=2');
+    expect(unfunded.findings[0]?.counterpart).toContain('PENDING');
+    expect(unfunded.findings[0]?.counterpart).toContain('funded=false');
+    expect(unfunded.findings[0]?.counterpart).toContain('remaining=2');
+    expect(unfunded.findings[0]?.reason).toMatch(/not yet live/i);
+    expect(unfunded.findings[0]?.reason).toMatch(/auto-cancel/i);
+    expect(unfunded.findings[0]?.reason).toMatch(/auto-release/i);
+
+    const funded = reconcile(before, [claim({ orderId: id('intent'), state: 'pending', remaining: '2', funded: true })]);
+    expect(funded.agreed).toBe(0);
+    expect(funded.ok).toBe(false);
+    expect(funded.findings[0]?.case).toBe('counterpart_pending_engine_live');
+    expect(funded.findings[0]?.verdict).toBe('refuse');
+
+    const opened = reconcile(before, [claim({ orderId: id('intent'), state: 'open', remaining: '2', funded: true })]);
+    expect(opened).toMatchObject({ ok: true, refusals: 0, agreed: 1, checked: 1 });
+    expect(opened.findings).toEqual([]);
+
+    // Classify only. The resting order stays, at the same remaining.
+    expect(engine.restingOrders()).toEqual(before);
+  });
+
   it('refuses when the counterpart calls it terminal and the engine is still working it', async () => {
     const id = idFactory();
     const engine = engineWith();

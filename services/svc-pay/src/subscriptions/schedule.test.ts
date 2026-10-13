@@ -77,6 +77,47 @@ describe('subscription schedule arithmetic (transplant from bank)', () => {
     expect(next.occurrences).toEqual([5, 6, 7, 8, 9]);
   });
 
+  it('planDue leaves an omitted endsAt open and does not emit for an inverted window', () => {
+    const start = utc(2026, 1, 1);
+    const now = utc(2026, 6, 1);
+
+    const open = planDue({
+      startsAt: start,
+      cadence: 'daily',
+      endsAt: null,
+      lastFired: null,
+      now,
+      maxCatchUp: 3,
+    });
+    expect(open.occurrences).toEqual([0, 1, 2]);
+    expect(open.completed).toBe(false);
+
+    for (const cadence of CADENCES) {
+      for (const endsAt of [start, utc(2025, 12, 1)]) {
+        const plan = planDue({
+          startsAt: start,
+          cadence,
+          endsAt,
+          lastFired: null,
+          now,
+        });
+        expect(plan.occurrences).toEqual([]);
+        expect(plan.completed).toBe(true);
+        expect(plan.nextRunAt.toISOString()).toBe(endsAt.toISOString());
+
+        const later = planDue({
+          startsAt: start,
+          cadence,
+          endsAt,
+          lastFired: null,
+          now: utc(2027, 1, 1),
+        });
+        expect(later.occurrences).toEqual([]);
+        expect(later.completed).toBe(true);
+      }
+    }
+  });
+
   it('planDue marks completed when past endsAt window', () => {
     const start = utc(2026, 1, 1);
     const endsAt = utc(2026, 1, 4); // occurrences 0..2 (end exclusive of end day in lastOccurrenceBefore)

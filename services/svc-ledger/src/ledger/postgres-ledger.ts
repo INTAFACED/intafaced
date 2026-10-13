@@ -19,7 +19,16 @@ import {
   type PostedEntry,
 } from '@intafaced/ledger-client';
 import { frozenMessage } from './freeze.js';
-import { HISTORY_MAX_ENTRIES, HistoryTooLargeError, type HistoryEntry, type HistoryRange } from './history.js';
+import {
+  HISTORY_MAX_ENTRIES,
+  HistoryTooLargeError,
+  decodeHistoryCursor,
+  encodeHistoryCursor,
+  type HistoryEntry,
+  type HistoryPage,
+  type HistoryPageInput,
+  type HistoryRange,
+} from './history.js';
 import { assertScaledBigintAmounts, parseStoredAmount } from './live-money.js';
 
 /**
@@ -89,29 +98,11 @@ export class PostgresLedger implements LedgerClient {
         // READ COMMITTED is sufficient here (see the isolation note below) and
         // why the hash chain can be a chain at all.
         //
-        // THE FREEZE IS READ IN THIS QUERY, and that placement is the point.
-        //
-        // Cost first, because it is the easy half: joining the singleton
-        // `posting_freeze` row here costs no extra round trip, so consulting
-        // durable state instead of a process field is free on the hot path.
-        //
-        // Correctness second, because it is the half that matters. Read
-        // anywhere earlier — in the service layer, before the transaction — and
-        // there is a window between "not frozen" and COMMIT in which an
-        // operator freeze can land while this post sails through it. A freeze a
-        // post in flight can outrun is not a freeze. Inside the lock, freeze
-        // and post are ordered against each other by the same mechanism that
-        // orders posts against each other, so every post either sees the freeze
-        // or committed strictly before it.
-        //
-        // `FOR UPDATE OF t` locks only the tip: `posting_freeze` is read, never
-        // written here, and taking a row lock on the kill-switch would make the
-        // operator's freeze queue behind every post it is trying to stop.
-        const tipRows = await tx<Array<{ hash: string | null; seq: string; frozen: boolean; reason: string | null }>>`
-          SELECT t.hash, t.seq, f.frozen, f.reason
-            FROM chain_tip t, posting_freeze f
-           WHERE t.id = true AND f.id = true
-             FOR UPDATE OF t
+        // A statement waiting on the tip lock can retain a pre-wait snapshot
+        // of any joined freeze row. Lock first; the separate freeze read below
+        // starts a fresh statement snapshot after that wait has completed.
+        const tipRows = await tx<Array<{ hash: string | null; seq: string }>>`
+          SELECT hash, seq FROM chain_tip WHERE id = true FOR UPDATE
         `;
 
         const tip = tipRows[0];
@@ -130,7 +121,12 @@ export class PostgresLedger implements LedgerClient {
         const inTx = await this.loadTxByKey(tx, request.idempotencyKey);
         if (inTx) return inTx;
 
-        if (tip.frozen) throw new LedgerError(frozenMessage(tip.reason), 'ledger.frozen');
+        const freezeRows = await tx<Array<{ frozen: boolean; reason: string | null }>>`
+          SELECT frozen, reason FROM posting_freeze WHERE id = true
+        `;
+        const freeze = freezeRows[0];
+        if (!freeze) throw new LedgerError('posting_freeze row is missing — the ledger is not initialised', 'ledger.uninitialised');
+        if (freeze.frozen) throw new LedgerError(frozenMessage(freeze.reason), 'ledger.frozen');
 
         // Inside the lock: a body that does not sum to zero never writes. The
         // shared `assertValidPost` already ran; this is the engine's own refuse
@@ -178,16 +174,33 @@ export class PostgresLedger implements LedgerClient {
           });
         }
 
-        const hash = hashTx({ id: txId, module: request.module, reason: request.reason, postedAt, entries: postedEntries }, previousHash);
+        const meta = canonicalMeta(request.meta ?? {});
+        const hash = hashTx(
+          {
+            id: txId,
+            module: request.module,
+            reason: request.reason,
+            postedAt,
+            entries: postedEntries,
+          },
+          previousHash,
+        );
 
         const insertedTx = await tx<Array<{ id: string; seq: string; posted_at: Date }>>`
         INSERT INTO ledger_tx (id, idempotency_key, module, reason, meta, posted_at, hash, previous_hash)
         VALUES (
           ${txId}, ${request.idempotencyKey}, ${request.module}, ${request.reason},
-          ${tx.json((request.meta ?? {}) as never)}, ${postedAt}, ${hash}, ${previousHash}
+          ${tx.json(meta as never)}, ${postedAt}, ${hash}, ${previousHash}
         )
         RETURNING id, seq, posted_at
       `;
+        // Same transaction as the journal row. The claim keeps the key, the
+        // hash, and the meta from this insert. Rewriting the journal row does
+        // not free the key and does not move this copy.
+        await tx`
+          INSERT INTO ledger_posted_keys (idempotency_key, tx_id, posted_hash, posted_meta)
+          VALUES (${request.idempotencyKey}, ${txId}, ${hash}, ${tx.json(meta as never)})
+        `;
         const seq = insertedTx[0]!.seq;
 
         for (const entry of postedEntries) {
@@ -218,7 +231,7 @@ export class PostgresLedger implements LedgerClient {
 
         // Same transaction as the book: crash after COMMIT still has a row to
         // publish. Amounts are decimal strings (`formatAmount`). The CHECK
-        // cannot walk entries[].amount — Postgres forbids subqueries in CHECK.
+        // rejects a missing entries key and a JSON number amount.
         const outboxPayload = {
           txId,
           module: request.module,
@@ -247,7 +260,7 @@ export class PostgresLedger implements LedgerClient {
           idempotencyKey: request.idempotencyKey,
           module: request.module,
           reason: request.reason,
-          meta: request.meta ?? {},
+          meta,
           postedAt,
           hash,
           previousHash,
@@ -375,14 +388,84 @@ export class PostgresLedger implements LedgerClient {
     }));
   }
 
+  /**
+   * One page of entries, newest first, keyed on the entry id.
+   *
+   * A READ, like `history()`: no lock, no write, no path into `post()`. Keyset
+   * paging, never OFFSET, so page N costs the same as page 1 and a movement
+   * posted mid-browse cannot shift a boundary. The accounts come from `input`
+   * alone — owner, kind, purpose, and optionally one asset — and the cursor
+   * contributes only an entry id to start below, so a forged cursor cannot widen
+   * what is readable.
+   *
+   * ORDER. Newest first by posting sequence (entry id; posts are serialised
+   * under the global chain_tip lock). The page walks each account's `ledger_entries_account_idx (account_id, id)`
+   * backwards, `LIMIT n+1` per account (LATERAL), and merges the accounts —
+   * bounded work per page however long the history, no sort of the whole set.
+   * There is deliberately no time filter (see `historyPageInputSchema`).
+   *
+   * LIMIT + 1 tells us whether a next page exists without a count.
+   */
+  async historyPage(input: HistoryPageInput): Promise<HistoryPage> {
+    const cursor = input.cursor === undefined ? undefined : decodeHistoryCursor(input.cursor);
+    const purpose = (input.purpose ?? '').trim(); // same canonical trim as `accountPurpose`
+    const limit = input.limit;
+    const assetId = input.assetId ?? null;
+    const cursorId = cursor?.entryId ?? null;
+
+    const rows = await this.sql<Array<HistoryRow & { entry_id: string; asset_id: string }>>`
+      SELECT x.entry_id, t.id AS tx_id, t.module, t.reason, x.direction, x.amount, x.asset_id, t.posted_at
+        FROM accounts a
+        CROSS JOIN LATERAL (
+          SELECT e.id AS entry_id, e.tx_id, e.direction, e.amount, e.asset_id
+            FROM ledger_entries e
+           WHERE e.account_id = a.id
+             AND (${cursorId}::bigint IS NULL OR e.id < ${cursorId}::bigint)
+           ORDER BY e.id DESC
+           LIMIT ${limit + 1}
+        ) x
+        JOIN ledger_tx t ON t.id = x.tx_id
+       WHERE a.owner_type = ${input.ownerType}::owner_type
+         AND a.owner_id   = ${input.ownerId}
+         AND a.kind       = ${input.kind}::account_kind
+         AND a.purpose    = ${purpose}
+         AND (${assetId}::text IS NULL OR a.asset_id = ${assetId}::text)
+       ORDER BY x.entry_id DESC
+       LIMIT ${limit + 1}
+    `;
+
+    const page = rows.slice(0, limit);
+    const last = page[page.length - 1];
+    return {
+      entries: page.map((r) => ({
+        txId: r.tx_id,
+        module: r.module,
+        reason: r.reason,
+        direction: r.direction,
+        amount: parseStoredAmount(r.amount, 'ledger_entries.amount'),
+        postedAt: r.posted_at,
+        assetId: r.asset_id,
+      })),
+      nextCursor: rows.length > limit && last ? encodeHistoryCursor({ entryId: last.entry_id }) : null,
+    };
+  }
+
   async getTx(txId: string): Promise<LedgerTx | null> {
-    const rows = await this.sql<TxRow[]>`SELECT * FROM ledger_tx WHERE id = ${txId}`;
-    return rows[0] ? this.hydrate(this.sql, rows[0]) : null;
+    const rows = await this.sql<ClaimRow[]>`
+      SELECT t.*,
+             (k.idempotency_key IS NOT DISTINCT FROM t.idempotency_key
+              AND k.posted_hash IS NOT DISTINCT FROM t.hash
+              AND k.posted_meta IS NOT DISTINCT FROM t.meta) AS claim_matches
+        FROM ledger_tx t LEFT JOIN ledger_posted_keys k ON k.tx_id = t.id
+       WHERE t.id = ${txId}
+    `;
+    if (rows.length === 0) return null;
+    assertPostedClaim(rows);
+    return this.hydrate(this.sql, rows[0]!);
   }
 
   async getTxByKey(idempotencyKey: string): Promise<LedgerTx | null> {
-    const rows = await this.sql<TxRow[]>`SELECT * FROM ledger_tx WHERE idempotency_key = ${idempotencyKey}`;
-    return rows[0] ? this.hydrate(this.sql, rows[0]) : null;
+    return this.loadTxByKey(this.sql, idempotencyKey);
   }
 
   /**
@@ -420,11 +503,19 @@ export class PostgresLedger implements LedgerClient {
     `;
   }
 
-  /** Every transaction in commit order — the replay source (§4.2). */
+  /**
+   * Every transaction in commit order — the replay source (§4.2).
+   *
+   * One row past `limit` refuses, same as `history()`. A prefix of `limit`
+   * rows is indistinguishable from the whole journal, so a replay that
+   * accepted it would drop every later transaction and still look complete.
+   * The default is this same `limit`, not a higher cap and not a page.
+   */
   async journal(limit = 10_000, afterSeq = 0n): Promise<LedgerTx[]> {
     const rows = await this.sql<TxRow[]>`
-      SELECT * FROM ledger_tx WHERE seq > ${String(afterSeq)} ORDER BY seq ASC LIMIT ${limit}
+      SELECT * FROM ledger_tx WHERE seq > ${String(afterSeq)} ORDER BY seq ASC LIMIT ${limit + 1}
     `;
+    if (rows.length > limit) throw new HistoryTooLargeError(limit);
     return Promise.all(rows.map((row) => this.hydrate(this.sql, row)));
   }
 
@@ -449,8 +540,24 @@ export class PostgresLedger implements LedgerClient {
   }
 
   private async loadTxByKey(tx: Sql, key: string): Promise<LedgerTx | null> {
-    const rows = await tx<TxRow[]>`SELECT * FROM ledger_tx WHERE idempotency_key = ${key}`;
-    return rows[0] ? this.hydrate(tx, rows[0]) : null;
+    // One statement snapshot: separate claim/journal probes can straddle a
+    // concurrent commit and falsely call the just-committed row unclaimed.
+    const rows = await tx<ClaimRow[]>`
+      WITH target AS (
+        SELECT tx_id AS id FROM ledger_posted_keys WHERE idempotency_key = ${key}
+        UNION
+        SELECT id FROM ledger_tx WHERE idempotency_key = ${key}
+      )
+      SELECT t.*,
+             (k.idempotency_key IS NOT DISTINCT FROM t.idempotency_key
+              AND k.posted_hash IS NOT DISTINCT FROM t.hash
+              AND k.posted_meta IS NOT DISTINCT FROM t.meta) AS claim_matches
+        FROM target JOIN ledger_tx t ON t.id = target.id
+        LEFT JOIN ledger_posted_keys k ON k.tx_id = t.id
+    `;
+    if (rows.length === 0) return null;
+    assertPostedClaim(rows);
+    return this.hydrate(tx, rows[0]!);
   }
 
   private async hydrate(sql: Sql, row: TxRow): Promise<LedgerTx> {
@@ -520,4 +627,32 @@ interface EntryRow {
   balance_after: string;
 }
 
+/** Stable JSON metadata. Key order is not part of claim identity. */
+function canonicalMeta(meta: unknown): Record<string, unknown> {
+  if (meta === null || typeof meta !== 'object' || Array.isArray(meta)) return {};
+  const source = meta as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(source).sort()) {
+    if (source[key] === undefined) continue;
+    out[key] = canonicalMetaValue(source[key]);
+  }
+  return out;
+}
+
+function canonicalMetaValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => canonicalMetaValue(item));
+  if (value !== null && typeof value === 'object') return canonicalMeta(value);
+  return value;
+}
+
 export { hashTx };
+
+interface ClaimRow extends TxRow {
+  claim_matches: boolean;
+}
+
+function assertPostedClaim(rows: ClaimRow[]): void {
+  if (rows.length !== 1 || rows[0]?.claim_matches !== true) {
+    throw new LedgerError('Posted transaction differs from its immutable idempotency claim', 'ledger.posted_claim_mismatch');
+  }
+}

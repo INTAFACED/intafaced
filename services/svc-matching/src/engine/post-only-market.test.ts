@@ -9,7 +9,9 @@ import type { EngineOrder, OrderSide, TimeInForce } from './types.js';
 
 /**
  * Operator post-only of one market. Non-post-only submits refuse. Other markets stay.
- * Post-only that would take still refuses. Cancel stays. Resume is explicit. No duration.
+ * Post-only that would take still refuses. An amend that is not post-only, or a
+ * price that would cross, does not take. A post-only amend that would not cross may rest.
+ * Cancel stays. Resume is explicit. No duration.
  * Not halt. Missing/same confirm refuses. Missing operator refuses.
  */
 
@@ -90,6 +92,70 @@ describe('operator post-only of one market', () => {
     expect(result.fills).toEqual([]);
     expect(engine.book(MARKET).toState().asks[0]!.orders[0]!.orderId).toBe(ASK);
     expect(journal.length).toBe(before + 1);
+  });
+
+  it('does not take through amend while the market is post-only', async () => {
+    const { journal, engine } = build();
+    await engine.submit(MARKET, order({ id: ASK, account: 'mm', side: 'sell', qty: '1', price: '100' }));
+    const rested = await engine.submit(MARKET, order({ id: REST, account: 'taker', side: 'buy', qty: '1', price: '99' }));
+    expect(rested.accepted).toBe(true);
+    await engine.postOnly(MARKET, { operatorId: 'ops-1', confirmOperatorId: 'ops-2' });
+    const before = journal.length;
+
+    const crossed = await engine.amend(MARKET, {
+      orderId: REST,
+      expectedVersion: 1,
+      price: parseAmount('100'),
+    });
+
+    expect(crossed.accepted).toBe(false);
+    expect(crossed.rejected?.code).toBe(MARKET_POST_ONLY);
+    expect(crossed.fills).toEqual([]);
+    expect(engine.book(MARKET).toState().lastTradePrice).toBeNull();
+    expect(engine.book(MARKET).toState().asks[0]!.orders[0]!.remaining).toBe('1');
+    expect(engine.book(MARKET).toState().bids[0]!.orders[0]!.orderId).toBe(REST);
+    expect(journal.length).toBe(before);
+
+    const notPostOnly = await engine.amend(MARKET, {
+      orderId: REST,
+      expectedVersion: 1,
+      tif: 'GTC',
+      price: parseAmount('98'),
+    });
+    expect(notPostOnly.accepted).toBe(false);
+    expect(notPostOnly.rejected?.code).toBe(MARKET_POST_ONLY);
+    expect(notPostOnly.fills).toEqual([]);
+    expect(engine.book(MARKET).toState().bids[0]!.price).toBe('99');
+
+    const resting = await engine.amend(MARKET, {
+      orderId: REST,
+      expectedVersion: 1,
+      tif: 'PO',
+      price: parseAmount('98'),
+    });
+    expect(resting.accepted).toBe(true);
+    expect(resting.fills).toEqual([]);
+    expect(engine.book(MARKET).toState().bids[0]!.price).toBe('98');
+    expect(engine.book(MARKET).toState().bids[0]!.orders[0]!.postOnly).toBe(true);
+    expect(engine.book(MARKET).toState().asks[0]!.orders[0]!.remaining).toBe('1');
+    expect(engine.book(MARKET).toState().lastTradePrice).toBeNull();
+
+    const poCross = await engine.amend(MARKET, {
+      orderId: REST,
+      expectedVersion: resting.version ?? 0,
+      tif: 'PO',
+      price: parseAmount('100'),
+    });
+    expect(poCross.accepted).toBe(false);
+    expect(poCross.rejected?.code).toBe(MARKET_POST_ONLY);
+    expect(poCross.fills).toEqual([]);
+    expect(engine.book(MARKET).toState().asks[0]!.orders[0]!.remaining).toBe('1');
+    expect(engine.book(MARKET).toState().bids[0]!.price).toBe('98');
+    expect(engine.book(MARKET).toState().lastTradePrice).toBeNull();
+
+    const submit = await engine.submit(MARKET, order({ id: GTC, side: 'buy', qty: '1', price: '97' }));
+    expect(submit.accepted).toBe(false);
+    expect(submit.rejected?.code).toBe(MARKET_POST_ONLY);
   });
 
   it('leaves another market open for new submits', async () => {

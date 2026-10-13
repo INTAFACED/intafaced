@@ -91,6 +91,60 @@ describe('copy-intel buildLeaderStats (Stage-1 fixtures)', () => {
     expect(r.status).toBe('unavailable');
   });
 
+  it('does not invent win rate when winning is below 0 on a positive closed count', () => {
+    const r = buildLeaderStats([row({ leaderId: 'L1', closedTrades: 5, winningTrades: -1 })], { now: NOW });
+    expect(r).toEqual({
+      status: 'unavailable',
+      userMessageKey: 'agents.copy_intel.unavailable',
+      reason: 'no_data',
+    });
+  });
+
+  it('refuses impossible winning counts even when no trades closed', () => {
+    for (const winningTrades of [-1, 1]) {
+      expect(buildLeaderStats([row({ leaderId: 'L1', closedTrades: 0, winningTrades })], { now: NOW })).toMatchObject({
+        status: 'unavailable',
+        reason: 'no_data',
+      });
+    }
+    expect(buildLeaderStats([row({ leaderId: 'L1', closedTrades: 0, winningTrades: 0 })], { now: NOW })).toMatchObject({
+      status: 'ok',
+      stats: [expect.objectContaining({ winRate: '0.0000' })],
+    });
+  });
+
+  it('treats a negative closed count as incomplete and does not publish 0.0000', () => {
+    const alone = buildLeaderStats([row({ leaderId: 'L1', closedTrades: -1, winningTrades: 0, realisedPnl: '12.5' })], { now: NOW });
+    expect(alone).toEqual({
+      status: 'unavailable',
+      userMessageKey: 'agents.copy_intel.unavailable',
+      reason: 'no_data',
+    });
+
+    const mixed = buildLeaderStats(
+      [
+        row({ leaderId: 'neg', closedTrades: -4, winningTrades: -1, realisedPnl: '99' }),
+        row({ leaderId: 'ok', closedTrades: 10, winningTrades: 6, realisedPnl: '12.5' }),
+      ],
+      { now: NOW },
+    );
+    expect(mixed.status).toBe('ok');
+    if (mixed.status !== 'ok') return;
+    expect(mixed.stats).toEqual([
+      {
+        leaderId: 'ok',
+        realisedPnl: '12.5',
+        closedTrades: 10,
+        winRate: '0.6000',
+        windowStart: '2026-08-01T00:00:00.000Z',
+        windowEnd: '2026-08-05T00:00:00.000Z',
+      },
+    ]);
+    expect(mixed.skippedIncomplete).toBe(1);
+    expect(mixed.audit).toHaveLength(1);
+    expect(mixed.audit[0]!.leaderId).toBe('ok');
+  });
+
   it('Stage-2: copy plane dark → refuse invent PnL', () => {
     const r = buildLeaderStats([row({ leaderId: 'L1' })], { now: NOW, copyPlane: 'dark' });
     expect(r).toEqual({

@@ -4,9 +4,10 @@
 import type { IncomingMessage } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { WebSocket } from 'ws';
+import { WebSocket, WebSocketServer } from 'ws';
 import type { DepthSnapshot } from '@intafaced/market-data';
-import { DepthHub } from './depth/hub.js';
+import { resolveWsCopy, WS_COPY } from './copy.js';
+import { CLOSE_TRY_LATER, DepthHub } from './depth/hub.js';
 import { NativeL3Hub } from './depth/l3-hub.js';
 import { DepthL3UnavailableError, type DepthSource, type NativeL3Queue } from './depth/source.js';
 import { DEPTH_BINARY_UNAVAILABLE, DEPTH_L3_UNAVAILABLE, MARKET_DATA_FEED_REFUSE_HTTP } from './gateway-policy.js';
@@ -95,6 +96,78 @@ class Client {
   }
 }
 
+/** Holds the first native L3 read so a test can close around the in-flight probe. */
+function holdFirstL3Read(source: Source): { entered: Promise<void>; release: () => void } {
+  let releaseHeld!: (queue: NativeL3Queue) => void;
+  const held = new Promise<NativeL3Queue>((resolve) => {
+    releaseHeld = resolve;
+  });
+  let markEntered!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    markEntered = resolve;
+  });
+  const readQueue = source.l3Queue.bind(source);
+  let first = true;
+  source.l3Queue = async (marketId: string) => {
+    if (!first) return readQueue(marketId);
+    first = false;
+    source.l3Calls.push(marketId);
+    markEntered();
+    const queue = await held;
+    return { ...queue, marketId };
+  };
+  return { entered, release: () => releaseHeld(native) };
+}
+
+/** Holds every native L3 read so concurrent probes stay in flight together. */
+function holdEveryL3Read(source: Source): { entered: Promise<void>; release: () => void } {
+  const pending: Array<(queue: NativeL3Queue) => void> = [];
+  let markEntered!: () => void;
+  let enteredOnce = false;
+  const entered = new Promise<void>((resolve) => {
+    markEntered = resolve;
+  });
+  source.l3Queue = async (marketId: string) => {
+    source.l3Calls.push(marketId);
+    if (!enteredOnce) {
+      enteredOnce = true;
+      markEntered();
+    }
+    const queue = await new Promise<NativeL3Queue>((resolve) => {
+      pending.push(resolve);
+    });
+    return { ...queue, marketId };
+  };
+  return {
+    entered,
+    release: () => {
+      const waiting = pending.splice(0);
+      for (const resolve of waiting) resolve(native);
+    },
+  };
+}
+
+/** Records whether the upgrade became a socket, then settles on open, refuse, or error. */
+function trackUpgrade(url: string): { socket: WebSocket; opened: () => boolean; done: Promise<void> } {
+  const socket = new WebSocket(url);
+  let opened = false;
+  const done = new Promise<void>((resolve) => {
+    const finish = () => resolve();
+    socket.on('open', () => {
+      opened = true;
+      finish();
+    });
+    socket.on('unexpected-response', (_req, res: IncomingMessage) => {
+      res.resume();
+      socket.terminate();
+      finish();
+    });
+    socket.on('error', finish);
+    socket.on('close', finish);
+  });
+  return { socket, opened: () => opened, done };
+}
+
 async function upgradeRefuse(url: string): Promise<{ status: number; body: unknown }> {
   const socket = new WebSocket(url);
   return new Promise((resolve) => {
@@ -127,6 +200,7 @@ describe('H2 native L3 projection', () => {
   let app: FastifyInstance;
   let hub: DepthHub;
   let l3Hub: NativeL3Hub;
+  let tradeHub: TradeHub;
   let source: Source;
   let gateway: WebSocketGateway;
   let base: string;
@@ -149,7 +223,7 @@ describe('H2 native L3 projection', () => {
       maxConnections: 8,
       ensureKnownMarket: (id) => hub.ensureKnownMarket(id),
     });
-    const tradeHub = new TradeHub({
+    tradeHub = new TradeHub({
       highWaterBytes: 1_000_000,
       maxLagTicks: 5,
       maxConnections: 8,
@@ -191,6 +265,27 @@ describe('H2 native L3 projection', () => {
     await hub.refreshMarkets();
   });
 
+  async function retarget(maxConnections: number | undefined, l3ProbeBoundMs?: number): Promise<void> {
+    await gateway.close('retarget');
+    l3Hub = new NativeL3Hub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000_000,
+      maxLagTicks: 5,
+      maxConnections,
+      ensureKnownMarket: (id) => hub.ensureKnownMarket(id),
+    });
+    gateway = createWebSocketGateway({
+      server: app.server,
+      hub,
+      tradeHub,
+      l3Hub,
+      heartbeatMs: 60_000,
+      log: { info: vi.fn(), warn: vi.fn() },
+      enabled: () => true,
+      ...(l3ProbeBoundMs === undefined ? {} : { l3ProbeBoundMs }),
+    });
+  }
+
   afterEach(async () => {
     for (const client of clients.splice(0)) client.dispose();
     await gateway.close('test over');
@@ -209,6 +304,148 @@ describe('H2 native L3 projection', () => {
     expect(source.snapshotCalls).toEqual([]);
     expect(hub.connections).toBe(0);
     expect(l3Hub.connections).toBe(1);
+  });
+
+  it('a native L3 probe that resolves before close still attaches', async () => {
+    const gate = holdFirstL3Read(source);
+    const attach = vi.spyOn(l3Hub, 'attach');
+    const client = new Client(`ws://${base}/stream?market=${MARKET}&channel=l3`);
+    clients.push(client);
+    await gate.entered;
+    gate.release();
+    await client.frameCount(1);
+    expect(attach).toHaveBeenCalledTimes(1);
+    expect(client.closed).toBeNull();
+    expect(l3Hub.connections).toBe(1);
+    expect(gateway.connections).toBe(1);
+  });
+
+  it('a native L3 probe that resolves after close does not attach', async () => {
+    const gate = holdFirstL3Read(source);
+    const attach = vi.spyOn(l3Hub, 'attach');
+    const handleUpgrade = vi.spyOn(WebSocketServer.prototype, 'handleUpgrade');
+    const upgrade = trackUpgrade(`ws://${base}/stream?market=${MARKET}&channel=l3`);
+    try {
+      await gate.entered;
+      const upgradesWhileProbeHeld = handleUpgrade.mock.calls.length;
+      await gateway.close('shutting down');
+      gate.release();
+      await upgrade.done;
+      expect(handleUpgrade).toHaveBeenCalledTimes(upgradesWhileProbeHeld);
+      expect(attach).not.toHaveBeenCalled();
+      expect(upgrade.opened()).toBe(false);
+      expect(l3Hub.connections).toBe(0);
+      expect(gateway.connections).toBe(0);
+    } finally {
+      upgrade.socket.terminate();
+      handleUpgrade.mockRestore();
+    }
+  });
+
+  it('a native L3 handshake past maxConnections does not await probe', async () => {
+    await retarget(1);
+    const gate = holdFirstL3Read(source);
+    const probe = vi.spyOn(l3Hub, 'probe');
+    const attach = vi.spyOn(l3Hub, 'attach');
+    const holder = new Client(`ws://${base}/stream?market=${MARKET}&channel=l3`);
+    clients.push(holder);
+    try {
+      await gate.entered;
+      expect(probe).toHaveBeenCalledTimes(1);
+      const blocked = new Client(`ws://${base}/stream?market=${MARKET}&channel=l3`);
+      clients.push(blocked);
+      await Promise.race([
+        blocked.frameCount(1),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('past-ceiling handshake stayed pinned on probe')), 500)),
+      ]);
+      expect(probe).toHaveBeenCalledTimes(1);
+      expect(attach).not.toHaveBeenCalled();
+      expect(l3Hub.connections).toBe(0);
+      expect(blocked.frames).toEqual([]);
+      expect(blocked.closed).toEqual({ code: CLOSE_TRY_LATER, reason: resolveWsCopy(WS_COPY.atCapacity) });
+
+      gate.release();
+      await holder.frameCount(1);
+      expect(holder.closed).toBeNull();
+      expect(attach).toHaveBeenCalledTimes(1);
+      expect(l3Hub.connections).toBe(1);
+
+      const afterAttach = new Client(`ws://${base}/stream?market=${MARKET}&channel=l3`);
+      clients.push(afterAttach);
+      await Promise.race([
+        afterAttach.frameCount(1),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('attached seat did not refuse the next handshake')), 500)),
+      ]);
+      expect(probe).toHaveBeenCalledTimes(1);
+      expect(attach).toHaveBeenCalledTimes(1);
+      expect(l3Hub.connections).toBe(1);
+      expect(afterAttach.frames).toEqual([]);
+      expect(afterAttach.closed).toEqual({ code: CLOSE_TRY_LATER, reason: resolveWsCopy(WS_COPY.atCapacity) });
+    } finally {
+      gate.release();
+    }
+  });
+
+  it('an unpublished maxConnections still refuses at attach', async () => {
+    await retarget(undefined);
+    const gate = holdEveryL3Read(source);
+    const probe = vi.spyOn(l3Hub, 'probe');
+    const attach = vi.spyOn(l3Hub, 'attach');
+    const first = new Client(`ws://${base}/stream?market=${MARKET}&channel=l3`);
+    const second = new Client(`ws://${base}/stream?market=${MARKET}&channel=l3`);
+    clients.push(first, second);
+    try {
+      await gate.entered;
+      await vi.waitFor(() => expect(probe).toHaveBeenCalledTimes(2));
+      expect(attach).not.toHaveBeenCalled();
+      gate.release();
+      await first.frameCount(1);
+      await second.frameCount(1);
+      expect(attach).toHaveBeenCalledTimes(2);
+      expect(first.frames).toEqual([]);
+      expect(second.frames).toEqual([]);
+      expect(first.closed).not.toBeNull();
+      expect(second.closed).not.toBeNull();
+      expect(l3Hub.connections).toBe(0);
+    } finally {
+      gate.release();
+    }
+  });
+
+  it('a native L3 probe that does not settle releases the raw socket', async () => {
+    const probeBoundMs = 50;
+    await retarget(1, probeBoundMs);
+    const gate = holdFirstL3Read(source);
+    const attach = vi.spyOn(l3Hub, 'attach');
+    const hung = trackUpgrade(`ws://${base}/stream?market=${MARKET}&channel=l3`);
+    try {
+      await gate.entered;
+      const released = await Promise.race([
+        hung.done.then(() => 'released' as const),
+        new Promise<'pinned'>((resolve) => setTimeout(() => resolve('pinned'), 1_000)),
+      ]);
+      expect(released).toBe('released');
+      expect(hung.opened()).toBe(false);
+      expect(attach).not.toHaveBeenCalled();
+      expect(l3Hub.connections).toBe(0);
+      expect(gateway.connections).toBe(0);
+
+      const next = new Client(`ws://${base}/stream?market=${MARKET}&channel=l3`);
+      clients.push(next);
+      await next.frameCount(1);
+      expect(next.closed).toBeNull();
+      expect(attach).toHaveBeenCalledTimes(1);
+      expect(l3Hub.connections).toBe(1);
+
+      gate.release();
+      await new Promise((resolve) => setTimeout(resolve, probeBoundMs));
+      expect(attach).toHaveBeenCalledTimes(1);
+      expect(l3Hub.connections).toBe(1);
+      expect(gateway.connections).toBe(1);
+    } finally {
+      hung.socket.terminate();
+      gate.release();
+    }
   });
 
   it('GET /depth/l3 is native queue; GET /depth stays L2 tuples', async () => {

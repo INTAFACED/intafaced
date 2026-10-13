@@ -59,10 +59,7 @@ function stampMatches(record: JournalRecord, stamp: GatewayStamp): boolean {
  * Pass-through journalled transitions plus named gaps.
  * Never synthesizes submit/cancel/fill/amend records.
  */
-export function reconstructTransitions(
-  records: readonly JournalRecord[],
-  stamps: readonly GatewayStamp[] = [],
-): TransitionReconstruction {
+export function reconstructTransitions(records: readonly JournalRecord[], stamps: readonly GatewayStamp[] = []): TransitionReconstruction {
   const gaps: JournalGap[] = [];
   for (let i = 1; i < records.length; i += 1) {
     const hole = seqGap(records[i - 1]!, records[i]!);

@@ -318,10 +318,11 @@ export function targetsFromCancel(input: {
       targets: [{ selector, outcome: 'OUTCOME_UNKNOWN', reason: `cod.trade_http_${input.result.status}` }],
     };
   }
+  const applied = input.result.orders.map((o) => ({ selector: o.orderId, outcome: 'APPLIED' as const }));
   return {
     tradeReached: true,
-    complete: true,
-    targets: input.result.orders.map((o) => ({ selector: o.orderId, outcome: 'APPLIED' as const })),
+    complete: applied.length > 0,
+    targets: applied,
   };
 }
 
@@ -403,6 +404,8 @@ export class CodController {
   readonly #seats = new Map<object, Seat>();
   readonly #lastFire = new Map<string, string>();
   readonly #listeners = new Map<string, Set<(frame: string) => void>>();
+  /** Latest issued fire activation. Arming never erases an already-issued cancel outcome. */
+  readonly #fireOwners = new Map<string, object>();
 
   constructor(options: CodControllerOptions) {
     this.#options = options;
@@ -410,6 +413,11 @@ export class CodController {
 
   get armedCount(): number {
     return this.#seats.size;
+  }
+
+  /** Users that still have a listener set. The last unsubscribe removes the key. */
+  get listenerCount(): number {
+    return this.#listeners.size;
   }
 
   listen(userId: string, send: (frame: string) => void): () => void {
@@ -421,7 +429,7 @@ export class CodController {
     set.add(send);
     return () => {
       set.delete(send);
-      if (set.size === 0) this.#listeners.delete(userId);
+      if (set.size === 0 && this.#listeners.get(userId) === set) this.#listeners.delete(userId);
     };
   }
 
@@ -546,6 +554,13 @@ export class CodController {
     ctx.send(disarmedFrame(commandId, leaseCommandId));
   }
 
+  #beginFire(userId: string): object {
+    const owner = {};
+    this.#fireOwners.set(userId, owner);
+    this.#lastFire.delete(userId);
+    return owner;
+  }
+
   #armTimer(conn: object, lease: CodLease): () => void {
     const delay = Math.max(0, lease.expiresAtMs - this.#options.now());
     return this.#options.schedule(() => {
@@ -563,6 +578,7 @@ export class CodController {
     seat.cancelTimer();
     const lease = seat.lease;
     this.#seats.delete(conn);
+    const owner = this.#beginFire(lease.userId);
 
     let result: TradeCancelResult | null = null;
     if (lease.cancelExecutable && this.#options.cancel && (lease.scope === 'account' || lease.scope === 'market')) {
@@ -584,7 +600,12 @@ export class CodController {
       complete: mapped.complete,
       targets: mapped.targets,
     });
-    this.#lastFire.set(lease.userId, frame);
+    // Every issued operation reports its immutable command/scope outcome.
+    // Only the latest fire activation owns the one-frame reconnect slot.
+    if (this.#fireOwners.get(lease.userId) === owner) {
+      this.#lastFire.set(lease.userId, frame);
+      this.#fireOwners.delete(lease.userId);
+    }
     try {
       seat.send(frame);
     } catch {

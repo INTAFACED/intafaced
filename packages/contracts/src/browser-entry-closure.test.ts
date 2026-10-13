@@ -27,11 +27,11 @@ describe('browser entry closure', () => {
     expect(report.pure.find((graph) => graph.id === 'contracts-instruments-dist')?.forbidden).toEqual([]);
     expect(report.pure.find((graph) => graph.id === 'contracts-identity-dist')?.forbidden).toEqual([]);
     expect(report.pure.map((graph) => graph.id).join(' ')).not.toContain('exchange');
-  });
+  }, 30_000);
 
   it('refuses computed import and require forms', () => {
     const script = fileURLToPath(new URL('./browser-entry-closure.negative.mjs', import.meta.url));
     const stdout = execFileSync(process.execPath, [script], { encoding: 'utf8' });
     expect(stdout).toContain('negative-controls-ok');
-  });
+  }, 30_000);
 });

@@ -28,10 +28,22 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
   'auth.sub_account_denied': 'error.forbidden',
   'auth.sub_account_revoked': 'error.forbidden',
   'auth.sub_account_limit': 'error.forbidden',
+  'auth.privileged_enrolment_requires_invite': 'error.forbidden',
   'auth.mfa_not_enrolled': 'error.forbidden',
   'auth.webauthn_not_enrolled': 'error.forbidden',
 };
 
 export function userCopy(key: string, params: Readonly<Record<string, string | number | bigint>> = {}): string {
-  return copyWithoutInsuredClaim(translator.tUnsafe(CATALOG_ALIAS[key] ?? key, params));
+  const alias = typeof key === 'string' && Object.hasOwn(CATALOG_ALIAS, key) ? CATALOG_ALIAS[key] : undefined;
+  const lookup = typeof alias === 'string' ? alias : typeof key === 'string' ? key : '';
+  // The catalog object inherits constructor / toString / __proto__. Passing the
+  // key string is the echo; if that lookup throws or yields native source, keep the key.
+  let rendered = lookup;
+  try {
+    const fromCatalog = translator.tUnsafe(lookup, params);
+    if (typeof fromCatalog === 'string' && !fromCatalog.includes('[native code]')) rendered = fromCatalog;
+  } catch {
+    rendered = lookup;
+  }
+  return copyWithoutInsuredClaim(rendered);
 }

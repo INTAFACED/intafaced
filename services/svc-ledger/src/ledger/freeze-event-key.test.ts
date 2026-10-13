@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { freezeEventKey, type FreezeState } from './freeze.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { freezeEventKey, MemoryPostingFreeze, type FreezeState } from './freeze.js';
 
 /**
  * A THAW MUST NOT BE MISTAKEN FOR THE FREEZE THAT PRECEDED IT.
@@ -56,5 +56,29 @@ describe('the freeze event identity (STOP §4.2b #7)', () => {
 
   it('is stable for the same state change — it is still an idempotency key', () => {
     expect(freezeEventKey(state(FROZEN_AT, true))).toBe(freezeEventKey(state(FROZEN_AT, true)));
+  });
+});
+
+describe('MemoryPostingFreeze inside one millisecond', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('gives a freeze and the thaw after it different keys, and a same-actor re-freeze keeps its key', () => {
+    vi.useFakeTimers({ now: new Date('2026-08-08T01:23:45.123Z') });
+    const book = new MemoryPostingFreeze();
+    const frozen = book.freeze('reconciliation mismatch', 'reconciliation');
+    const again = book.freeze('reconciliation mismatch', 'reconciliation');
+    const thawed = book.unfreeze('reconciliation');
+
+    expect(frozen.changedAt.getTime()).toBe(thawed.changedAt.getTime());
+    expect(freezeEventKey(frozen)).toBe(`ledger.freeze:${frozen.changedAtPrecise}`);
+    expect(freezeEventKey(thawed)).toBe(`ledger.freeze:${thawed.changedAtPrecise}`);
+    // A Date round-trip is only milliseconds, so it must not be how this text is rebuilt.
+    expect(frozen.changedAtPrecise).not.toBe(new Date(frozen.changedAtPrecise).toISOString());
+    expect(thawed.changedAtPrecise).not.toBe(new Date(thawed.changedAtPrecise).toISOString());
+    expect(freezeEventKey(frozen)).not.toBe(freezeEventKey(thawed));
+    expect(freezeEventKey(again)).toBe(freezeEventKey(frozen));
+    expect(again.changedAtPrecise).toBe(frozen.changedAtPrecise);
   });
 });

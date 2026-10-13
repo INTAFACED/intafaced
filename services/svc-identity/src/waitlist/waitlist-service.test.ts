@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FlagDisabledError, type FlagContext } from '@intafaced/config';
-import { MemoryWaitlistStore } from './waitlist-store.js';
+import { MemoryWaitlistStore, type WaitlistStore } from './waitlist-store.js';
 import { WaitlistError, WaitlistService } from './waitlist-service.js';
 
 function flags(overrides: FlagContext['overrides'] = {}, drop: FlagContext['drop'] = '0'): FlagContext {
@@ -174,6 +174,53 @@ describe('WaitlistService — queue + referral attribution', () => {
   it('refuses a malformed referral code', async () => {
     const svc = openService();
     await expect(svc.enroll({ email: 'ada@example.com', referralCode: 'not-a-code' })).rejects.toBeInstanceOf(WaitlistError);
+  });
+
+  it('sends the trimmed referral code, and a blank code as null without the referral queue', async () => {
+    const seen: Array<string | null | undefined> = [];
+    const store: WaitlistStore = {
+      async enroll(input) {
+        seen.push(input.referredBy);
+        return {
+          created: true,
+          entry: {
+            id: 'row',
+            email: input.email,
+            referralCode: 'observed',
+            referredBy: input.referredBy ?? null,
+            position: seen.length,
+            referredCount: 0,
+            createdAt: new Date(0),
+          },
+        };
+      },
+      async getByCode() {
+        return null;
+      },
+      async getByEmail() {
+        return null;
+      },
+      async list() {
+        return { total: 0, entries: [] };
+      },
+      async count() {
+        return 0;
+      },
+    };
+
+    const open = new WaitlistService(store, flags());
+    const padded = await open.enroll({ email: 'ada@example.com', referralCode: ' code ' });
+    expect(padded.entry.referredBy).toBe('code');
+    expect(seen[0]).toBe('code');
+
+    const closed = new WaitlistService(store, flags({ 'referral.queue': false }));
+    const blank = await closed.enroll({ email: 'blank@example.com', referralCode: '   ' });
+    expect(blank.entry.referredBy).toBeNull();
+    expect(seen[1]).toBeNull();
+
+    const omitted = await closed.enroll({ email: 'omit@example.com' });
+    expect(omitted.entry.referredBy).toBeNull();
+    expect(seen[2]).toBeNull();
   });
 
   it('lists FIFO for the operator including email', async () => {

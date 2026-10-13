@@ -89,6 +89,7 @@ export interface CounterpartOrder {
  * | `engine_only`                               | live          | unknown              | REFUSE  |
  * | `quantity_disagreement`                     | live, qty N   | open, qty M (N≠M)    | REFUSE  |
  * | `counterpart_terminal_engine_live`          | live          | terminal             | REFUSE  |
+ * | `counterpart_pending_engine_live`           | live, qty N   | pending, qty N       | REFUSE  |
  * | `market_disagreement`                       | live in A     | open in B            | REFUSE  |
  * | `unreadable_amount`                         | —             | malformed decimal    | REFUSE  |
  * | `duplicate_counterpart_id`                  | any           | same id twice        | REFUSE  |
@@ -100,6 +101,7 @@ export const RECONCILE_CASES = [
   'engine_only',
   'quantity_disagreement',
   'counterpart_terminal_engine_live',
+  'counterpart_pending_engine_live',
   'market_disagreement',
   'unreadable_amount',
   'duplicate_counterpart_id',
@@ -309,6 +311,24 @@ export function reconcile(engine: readonly EngineLiveOrder[], counterpart: reado
         reason:
           'the two sides are working different quantities — one has mis-tracked a partial fill. ' +
           'Whichever is wrong, the held amount no longer matches the exposure, and picking a winner here writes that error into the book.',
+      });
+      continue;
+    }
+
+    // Agreed is only engine-live plus counterpart state open at the same qty.
+    // A pending claim is intent recorded and not yet live. Its id already
+    // resting is not agreement, funded or not — the caller has not opened it.
+    if (claim.state === 'pending') {
+      findings.push({
+        orderId: claim.orderId,
+        case: 'counterpart_pending_engine_live',
+        verdict: 'refuse',
+        engine: describeEngine(live),
+        counterpart: describeCounterpart(claim),
+        reason:
+          'the engine is already resting an order the caller has not opened — pending is intent recorded, not yet live. ' +
+          'Same market and the same remaining are not agreement. Cannot auto-cancel: cancelling would destroy a live order. ' +
+          'Cannot auto-release: funded false is not a fill, and this report does not invent a quantity.',
       });
       continue;
     }

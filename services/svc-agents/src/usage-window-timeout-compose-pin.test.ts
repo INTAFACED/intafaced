@@ -50,7 +50,7 @@ describe('compose usage window and upstream timeout for svc-agents', () => {
   const block = agentsServiceBlock(compose);
 
   it('env.ts still declares the flags this pin tracks, matching compose defaults', () => {
-    expect(envTs).toMatch(/AGENTS_USAGE_WINDOW_MINUTES:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(1440\),/);
+    expect(envTs).toMatch(/AGENTS_USAGE_WINDOW_MINUTES:\s*z\.coerce\s*\.number\(\)\s*\.int\(\)\s*\.min\(1\)\s*\.max\(1440\)/);
     expect(envTs).not.toMatch(/AGENTS_USAGE_WINDOW_MINUTES:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(1440\)\.default\(60\)/);
     expect(envTs).toMatch(/AGENTS_UPSTREAM_TIMEOUT_MS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1_000\)\.max\(600_000\)\.default\(60_000\)/);
   });
@@ -60,7 +60,7 @@ describe('compose usage window and upstream timeout for svc-agents', () => {
     expect(envTs).toMatch(/AGENTS_METERING_ENABLED:\s*z\.preprocess\(/);
     expect(envTs).toMatch(/agents\.metering_enabled_unset/);
     expect(envTs).not.toMatch(/AGENTS_FEE_ASSET_ID:\s*z\.string\(\)\.default\('IFC'\)/);
-    expect(envTs).toMatch(/AGENTS_FEE_ASSET_ID:\s*z\.string\(\)\.min\(1\)/);
+    expect(envTs).toMatch(/AGENTS_FEE_ASSET_ID:\s*z\.string\(\)\.trim\(\)\.min\(1\)/);
     const feeDecl = envTs.slice(envTs.indexOf('AGENTS_FEE_ASSET_ID:'));
     expect(feeDecl.slice(0, 120)).not.toMatch(/\.default\(/);
   });

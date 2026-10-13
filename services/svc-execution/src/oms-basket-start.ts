@@ -101,7 +101,11 @@ function parseRetainedRemaining(raw: string | null | undefined): { ok: true; tex
     return refuse('missing_residual', 'residual.remaining is missing — refusing to invent leftover flatten from partial failure');
   }
   try {
-    return { ok: true, text: formatAmount(parseAmount(text)) };
+    const value = parseAmount(text);
+    if (value < 0n) {
+      return refuse('missing_residual', 'residual.remaining must be a non-negative ledger amount — refusing to invent leftover');
+    }
+    return { ok: true, text: formatAmount(value) };
   } catch {
     return refuse('missing_residual', 'residual.remaining is not a ledger amount — refusing to invent leftover');
   }
@@ -182,7 +186,7 @@ export function startBasketParent(input: {
   kind?: string;
   /** Must be true — start needs an already-approved live parent. */
   approved?: boolean;
-  /** Live-approved status is 'approved'. Running refuses already_started. */
+  /** Live-approved status is 'approved'. Status paper refuses even when approved is true. Running refuses already_started. */
   status?: 'approved' | 'running' | 'paper' | string;
   legs?: readonly OmsBasketLegInput[] | null;
   /** Explicit policy. Only `refuse_all` is accepted — never invent flatten. */
@@ -214,7 +218,7 @@ export function startBasketParent(input: {
   if (input.status === 'running') {
     return refuse('already_started', `parent ${parentClientOrderId} is already running`);
   }
-  if (input.approved !== true && input.status !== 'approved') {
+  if (input.status === 'paper' || (input.approved !== true && input.status !== 'approved')) {
     return refuse('not_approved', `parent ${parentClientOrderId} is not approved`);
   }
   const operatorId = input.operatorId?.trim() ?? '';

@@ -4,10 +4,10 @@
  * The engine does not invent a trigger.
  * Not a redo of #3628 (OCO rest) or #3654 (bazaar OCO cancel).
  */
-import { ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { ZERO, sub, sum, type Amount } from '@intafaced/ledger-client/money';
 import { OrderBook } from './book.js';
 import { readStopLoss, readTakeProfit } from './oco-link.js';
-import type { EngineOrder, Fill, OrderSide, SubmitResult } from './types.js';
+import type { AmendResult, EngineAmend, EngineOrder, Fill, OrderSide, SubmitResult } from './types.js';
 
 export const ENTRY_MISSING = 'missing_price' as const;
 export const TAKE_PROFIT_MISSING = 'missing_stop_price' as const;
@@ -33,11 +33,21 @@ type Pending = {
   readonly slId: string;
   readonly side: OrderSide;
   readonly qty: Amount;
+  /** Fills already seen while this entry was still live. */
+  readonly traded: Amount;
   readonly accountId: string;
   readonly tif: EngineOrder['tif'];
 };
 
 const pending = new WeakMap<OrderBook, Map<string, Pending>>();
+
+type LiveExit = {
+  readonly tpId: string;
+  readonly slId: string;
+};
+
+/** Take-profit still resting after restExits, with the stop that must not sell again. */
+const liveExits = new WeakMap<OrderBook, Map<string, LiveExit>>();
 
 export function wantsBracket(order: { readonly bracket?: boolean }): boolean {
   return order.bracket === true;
@@ -111,6 +121,15 @@ function of(book: OrderBook): Map<string, Pending> {
   return rows;
 }
 
+function exitsOf(book: OrderBook): Map<string, LiveExit> {
+  let rows = liveExits.get(book);
+  if (!rows) {
+    rows = new Map();
+    liveExits.set(book, rows);
+  }
+  return rows;
+}
+
 function liveIds(book: OrderBook): Set<string> {
   const state = book.toState();
   const ids = new Set<string>();
@@ -132,8 +151,14 @@ function collectFills(result: SubmitResult): Fill[] {
   return out;
 }
 
-function filledEntry(fills: readonly Fill[], orderId: string): boolean {
-  return fills.some((fill) => fill.makerOrderId === orderId || fill.takerOrderId === orderId);
+function fillKey(fill: Fill): string {
+  return `${fill.sequence}:${fill.makerOrderId}:${fill.takerOrderId}`;
+}
+
+/** IOC and FOK cannot rest. A child that leaves immediately is already terminal, so the stop is refused. */
+function exitTif(tif: EngineOrder['tif']): EngineOrder['tif'] {
+  if (tif === 'IOC' || tif === 'FOK') return 'GTC';
+  return tif;
 }
 
 function mergeResults(left: SubmitResult, right: SubmitResult): SubmitResult {
@@ -171,24 +196,11 @@ function restExits(
   // The entry id is already on the book. Submitting it again is
   // duplicate_order_id, and that rejection was folded over a fill that
   // had already happened. The exits are their own orders.
+  //
+  // Rest the take-profit before the stop. The entry fill has already set
+  // lastTradePrice, so a stop at or through that price executes inside the
+  // stop submit. The take-profit has to be live so that fill can pull it.
   const side = exitSide(rec.side);
-  const sl = orig.call(
-    book,
-    {
-      orderId: rec.slId,
-      accountId: rec.accountId,
-      type: 'stop',
-      side,
-      qty: rec.qty,
-      price: null,
-      stopPrice: rec.stopLoss,
-      tif: rec.tif,
-      ocoSiblingId: rec.tpId,
-    } as EngineOrder,
-    now,
-  );
-  if (!sl.accepted) return sl;
-
   const tp = orig.call(
     book,
     {
@@ -199,23 +211,72 @@ function restExits(
       qty: rec.qty,
       price: rec.takeProfit,
       stopPrice: null,
-      tif: rec.tif,
+      tif: exitTif(rec.tif),
       ocoSiblingId: rec.slId,
     } as EngineOrder,
     now,
   );
-  if (!tp.accepted) {
-    book.cancel(rec.slId);
-    return tp;
+  if (!tp.accepted) return tp;
+
+  // A partial take-profit has already sold. The stop covers the size still
+  // open, so the two exits together cannot sell the entry twice. A print
+  // from that submit can fill more of the take-profit before this qty is
+  // chosen; those sales sit on triggered, not on fills. A complete
+  // take-profit still submits this qty: the book then refuses the stop
+  // because that sibling is terminal. This qty is the size the entry
+  // traded, so an unfilled remainder is not on the stop.
+  const sold = sum(
+    collectFills(tp)
+      .filter((fill) => fill.makerOrderId === rec.tpId || fill.takerOrderId === rec.tpId)
+      .map((fill) => fill.qty),
+  );
+  const stopQty = sold > ZERO && sold < rec.qty ? sub(rec.qty, sold) : rec.qty;
+
+  const sl = orig.call(
+    book,
+    {
+      orderId: rec.slId,
+      accountId: rec.accountId,
+      type: 'stop',
+      side,
+      qty: stopQty,
+      price: null,
+      stopPrice: rec.stopLoss,
+      tif: exitTif(rec.tif),
+      ocoSiblingId: rec.tpId,
+    } as EngineOrder,
+    now,
+  );
+  if (!sl.accepted) {
+    const rollback = book.cancel(rec.tpId);
+    // The take-profit may already have traded. Dropping those fills hides
+    // the entry they completed, so the refusal still carries them.
+    return {
+      accepted: false,
+      sequence: sl.sequence ?? tp.sequence,
+      fills: [...tp.fills, ...sl.fills],
+      resting: null,
+      rejected: sl.rejected,
+      cancellations: [...tp.cancellations, ...sl.cancellations, ...(rollback.cancellation ? [rollback.cancellation] : [])],
+      triggered: [...tp.triggered, ...sl.triggered],
+    };
   }
 
+  // Both exits still live. A later complete fill of the take-profit leaves
+  // the book index before sibling lookup, so this wrapper has to pull the stop.
+  const live = liveIds(book);
+  if (live.has(rec.tpId) && live.has(rec.slId)) {
+    exitsOf(book).set(rec.tpId, { tpId: rec.tpId, slId: rec.slId });
+  }
+
+  const pulledTp = sl.cancellations.some((row) => row.orderId === rec.tpId);
   return {
     accepted: true,
-    sequence: tp.sequence ?? sl.sequence,
-    fills: [...sl.fills, ...tp.fills],
-    resting: tp.resting ?? sl.resting,
-    cancellations: [...sl.cancellations, ...tp.cancellations],
-    triggered: [...sl.triggered, ...tp.triggered],
+    sequence: sl.sequence ?? tp.sequence,
+    fills: [...tp.fills, ...sl.fills],
+    resting: pulledTp ? sl.resting : (tp.resting ?? sl.resting),
+    cancellations: [...tp.cancellations, ...sl.cancellations],
+    triggered: [...tp.triggered, ...sl.triggered],
   };
 }
 
@@ -227,14 +288,81 @@ function restExitsForFills(
 ): SubmitResult {
   const rows = pending.get(book);
   if (!rows || rows.size === 0) return result;
-  const live = liveIds(book);
-  const fills = collectFills(result);
   let combined = result;
-  for (const [orderId, rec] of [...rows]) {
-    if (live.has(orderId)) continue;
-    rows.delete(orderId);
-    if (!filledEntry(fills, orderId)) continue;
-    combined = mergeResults(combined, restExits(book, orig, rec, now));
+  let merged = false;
+  let incoming = collectFills(result);
+  const seen = new Set<string>();
+  const filledThisWave = new Set<string>();
+
+  // An exit submit can fill another resting entry. That fill is not in the
+  // snapshot taken before the call, so each armed pair is applied before the
+  // next entry is judged.
+  for (;;) {
+    for (const fill of incoming) {
+      const key = fillKey(fill);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      for (const orderId of [fill.makerOrderId, fill.takerOrderId]) {
+        const rec = rows.get(orderId);
+        if (!rec) continue;
+        rows.set(orderId, { ...rec, traded: sum([rec.traded, fill.qty]) });
+        filledThisWave.add(orderId);
+      }
+    }
+    incoming = [];
+
+    const live = liveIds(book);
+    let armed: SubmitResult | null = null;
+    for (const [orderId, rec] of [...rows]) {
+      if (live.has(orderId)) continue;
+      rows.delete(orderId);
+      if (!filledThisWave.has(orderId) || rec.traded <= ZERO) continue;
+      armed = restExits(book, orig, { ...rec, qty: rec.traded }, now);
+      break;
+    }
+    if (!armed) break;
+    combined = mergeResults(combined, armed);
+    merged = true;
+    incoming = collectFills(armed);
+  }
+
+  return merged ? combined : result;
+}
+
+function asSubmit(result: AmendResult): SubmitResult {
+  return {
+    accepted: result.accepted,
+    sequence: result.sequence,
+    fills: result.fills,
+    resting: result.resting,
+    ...(result.rejected ? { rejected: result.rejected } : {}),
+    cancellations: result.cancellations,
+    triggered: result.triggered,
+  };
+}
+
+function pullLiveStop(book: OrderBook, result: SubmitResult, armedBefore: ReadonlySet<string>): SubmitResult {
+  const rows = liveExits.get(book);
+  if (!rows || armedBefore.size === 0) return result;
+  const fills = collectFills(result);
+  const live = liveIds(book);
+  let combined = result;
+  for (const tpId of armedBefore) {
+    const rec = rows.get(tpId);
+    if (!rec) continue;
+    const filled = fills.some((fill) => fill.makerOrderId === tpId || fill.takerOrderId === tpId);
+    if (!filled) {
+      if (!live.has(tpId) || !live.has(rec.slId)) rows.delete(tpId);
+      continue;
+    }
+    rows.delete(tpId);
+    if (!live.has(rec.slId)) continue;
+    const cancelled = book.cancel(rec.slId, 'oco_sibling_filled');
+    if (!cancelled.cancellation) continue;
+    combined = {
+      ...combined,
+      cancellations: [...combined.cancellations, cancelled.cancellation],
+    };
   }
   return combined;
 }
@@ -243,16 +371,36 @@ export function installBracket(ctor: typeof OrderBook): void {
   if (!ctor) return;
   const proto = ctor.prototype as {
     submit: (order: EngineOrder, now?: Date | null) => SubmitResult;
+    amend: (cmd: EngineAmend, now?: Date | null) => AmendResult;
     [FLAG]?: boolean;
   };
   if (proto[FLAG]) return;
   proto[FLAG] = true;
 
   const orig = proto.submit;
+  const origAmend = proto.amend;
+  proto.amend = function (this: OrderBook, cmd: EngineAmend, now?: Date | null) {
+    const amended = origAmend.call(this, cmd, now);
+    if (!amended.accepted) return amended;
+    const viewed = asSubmit(amended);
+    const combined = restExitsForFills(this, orig, viewed);
+    if (combined === viewed) return amended;
+    return {
+      ...amended,
+      accepted: combined.accepted,
+      sequence: combined.sequence ?? amended.sequence,
+      fills: combined.fills,
+      resting: combined.resting,
+      cancellations: combined.cancellations,
+      triggered: combined.triggered,
+      ...(combined.rejected ? { rejected: combined.rejected } : {}),
+    };
+  };
   proto.submit = function (this: OrderBook, order: EngineOrder, now?: Date | null) {
+    const armedBefore = new Set(liveExits.get(this)?.keys() ?? []);
     const extra = order as BracketOrder;
     if (!wantsBracket(extra)) {
-      return restExitsForFills(this, orig, orig.call(this, order, now), now);
+      return pullLiveStop(this, restExitsForFills(this, orig, orig.call(this, order, now), now), armedBefore);
     }
 
     const missingEntry = entryRefuse(extra);
@@ -277,10 +425,11 @@ export function installBracket(ctor: typeof OrderBook): void {
       slId,
       side: extra.side,
       qty: extra.qty,
+      traded: ZERO,
       accountId: extra.accountId,
       tif: extra.tif,
     });
-    return restExitsForFills(this, orig, entry, now);
+    return pullLiveStop(this, restExitsForFills(this, orig, entry, now), armedBefore);
   };
 }
 

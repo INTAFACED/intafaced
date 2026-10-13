@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryLedger, formatAmount, merchantClearing, parseAmount as amt } from '@intafaced/ledger-client';
 import { PayError, PayService } from '../payment-service.js';
 import { RailRegistry } from '../rails/registry.js';
@@ -11,6 +11,7 @@ import { CardSandboxAdapter } from '../rails/card-sandbox.js';
 import { signPayload } from '../rails/webhook-signature.js';
 import { SubscriptionService, type SubscriptionInvoiceOpener, type SubscriptionServiceOptions } from './subscription-service.js';
 import { MAX_ATTEMPTS_PER_CYCLE, chargeIdempotencyKey } from './charge-cycle.js';
+import { truncatePayForTest } from '../payment-events-test-reset.js';
 
 /**
  * THE RECURRING CHARGE CYCLE, END TO END, ASSERTED ON BALANCES.
@@ -107,6 +108,11 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
   let opened: Array<{ occurrence: number; idempotencyKey: string; paymentId: string }>;
   /** Occurrences the opener should fail on, so a failure can be driven. */
   let failOn: Set<number>;
+  /**
+   * Occurrences whose payment create commits, then the opener throws before
+   * returning the id. The execution therefore never receives payment_id.
+   */
+  let commitThenThrow: Set<number>;
 
   beforeAll(async () => {
     const admin = await openH8aAdmin();
@@ -117,15 +123,18 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
 
   beforeEach(async () => {
     if (!db || !sql) throw new Error('H8a: svc-pay charge-cycle PG was not opened');
-    await sql`
-      TRUNCATE pay.subscription_executions, pay.subscriptions, pay.subscription_mandates,
+    await truncatePayForTest(
+      sql,
+      'pay',
+      `TRUNCATE pay.subscription_executions, pay.subscriptions, pay.subscription_mandates,
                pay.payment_events, pay.payments, pay.merchants
-      RESTART IDENTITY CASCADE
-    `;
+       RESTART IDENTITY CASCADE`,
+    );
     ledger = new MemoryLedger();
     card = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
     opened = [];
     failOn = new Set();
+    commitThenThrow = new Set();
   });
 
   afterAll(async () => {
@@ -161,6 +170,10 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
       },
     });
     opened.push({ occurrence: input.occurrence, idempotencyKey: input.idempotencyKey, paymentId: payment.id });
+    if (commitThenThrow.has(input.occurrence)) {
+      commitThenThrow.delete(input.occurrence);
+      throw new Error('invoice link write failed');
+    }
     return { paymentId: payment.id };
   };
 
@@ -258,17 +271,35 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
     await settleLanded(paymentId);
   }
 
-  /** Polls until the capture hook has settled the period this payment belongs to. */
+  /**
+   * Polls until the capture hook has settled the period this payment belongs to.
+   *
+   * A missing `subscription_executions` row is not a landed settlement. The
+   * payment may not be linked yet, or the period may never have been written.
+   * Keep polling. A row that exists and is not settled keeps polling too. Only
+   * `status = settled` returns. When the attempts are exhausted, throw: a
+   * period that never settles times out and the test fails.
+   */
   async function settleLanded(paymentId: string): Promise<void> {
     for (let attempt = 0; attempt < 100; attempt++) {
       const rows = await sql<Array<{ status: string }>>`
         SELECT status FROM pay.subscription_executions WHERE payment_id = ${paymentId}
       `;
-      if (rows.length === 0 || rows[0]!.status === 'settled') return;
+      if (rows.length > 0 && rows[0]!.status === 'settled') return;
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     throw new Error(`capture of ${paymentId} never settled its subscription period`);
   }
+
+  describe('settleLanded does not treat a missing execution as landed', () => {
+    it('a payment id with no subscription_executions row times out instead of landing', async () => {
+      const paymentId = '00000000-0000-4000-8000-000000000099';
+      const started = Date.now();
+      await expect(settleLanded(paymentId)).rejects.toThrow(`capture of ${paymentId} never settled its subscription period`);
+      // The loop is 100 attempts of 20ms. Returning on the first empty poll finishes far under this.
+      expect(Date.now() - started).toBeGreaterThanOrEqual(1_500);
+    }, 15_000);
+  });
 
   const clearingOf = async (merchantId: string, assetId = 'USDT') =>
     formatAmount((await ledger.balance(merchantClearing(merchantId, assetId))).amount);
@@ -571,6 +602,66 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
       expect((await cyclesOf(subs, sub.id))[0]!.status).toBe('settled');
       expect(await clearingOf(m.id)).toBe('10');
     });
+
+    /**
+     * Last attempt: the invoice payment has committed, and the write that
+     * follows throws before payment_id is stored. The cycle is rejected and
+     * exhausted with no payment_id. The next pass attaches the existing
+     * payment and does not open another invoice. Capture of that payment
+     * settles the period.
+     */
+    it('links the payment a last attempt already opened, then a capture settles the period', async () => {
+      const { subs } = build({ defaultFeeBps: 250 });
+      const m = await merchant();
+      const { sub } = await mandateAndSubscription(subs, { merchantId: m.id });
+
+      failOn.add(0);
+      await subs.runDueSubscriptions({ limit: 50, now: utc(2026, 1, 1) });
+      await subs.runDueSubscriptions({ limit: 50, now: utc(2026, 1, 10) });
+      failOn.delete(0);
+      commitThenThrow.add(0);
+
+      await subs.runDueSubscriptions({ limit: 50, now: utc(2026, 1, 20) });
+
+      expect(opened).toHaveLength(1);
+      const payments = await sql<Array<{ n: string; amount: string }>>`
+        SELECT count(*)::text AS n, min(amount)::text AS amount FROM pay.payments
+      `;
+      expect(payments[0]!.n).toBe('1');
+      expect(formatAmount(amt(payments[0]!.amount))).toBe('10');
+
+      const [exhausted] = await cyclesOf(subs, sub.id);
+      expect(exhausted!.status).toBe('rejected');
+      expect(exhausted!.attemptCount).toBe(MAX_ATTEMPTS_PER_CYCLE);
+      expect(exhausted!.exhaustedAt).not.toBeNull();
+      expect(exhausted!.paymentId).toBeNull();
+      expect(formatAmount(exhausted!.amount)).toBe('10');
+      expect(await clearingOf(m.id)).toBe('0');
+
+      const again = await subs.runDueSubscriptions({ limit: 50, now: utc(2026, 1, 25) });
+      expect(again.fired).toBe(0);
+      expect(opened).toHaveLength(1);
+      const stillOne = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.payments`;
+      expect(stillOne[0]!.n).toBe('1');
+
+      const [linked] = await cyclesOf(subs, sub.id);
+      expect(linked!.paymentId).toBe(opened[0]!.paymentId);
+      expect(linked!.status).toBe('rejected');
+      expect(formatAmount(linked!.amount)).toBe('10');
+      expect((await subs.getSubscription(sub.id)).stallReason).toBe('arrears');
+
+      await payInvoice(opened[0]!.paymentId, '10');
+
+      const [settled] = await cyclesOf(subs, sub.id);
+      expect(settled!.status).toBe('settled');
+      expect(settled!.paymentId).toBe(opened[0]!.paymentId);
+      expect(settled!.exhaustedAt).toBeNull();
+      expect(await clearingOf(m.id)).toBe('10');
+      const healed = await subs.getSubscription(sub.id);
+      expect(healed.stallReason).toBeNull();
+      expect(healed.status).toBe('active');
+      expect(opened).toHaveLength(1);
+    });
   });
 
   // ── 3. A RESUMED SCHEDULE DOES NOT COMPRESS ───────────────────────────────
@@ -637,14 +728,22 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
       await resumed.runDueSubscriptions({ limit: 50, now: resumeAt });
       await payInvoice(opened[1]!.paymentId, '10');
 
-      // Two weeks on: nothing more is owed yet.
+      // Two weeks on: nothing more is owed yet. Opening an invoice does not
+      // pay it, so clearing stays 20 whether or not a third invoice exists.
+      // The count is the bill. Two weeks after resume is not the next period.
       await resumed.runDueSubscriptions({ limit: 50, now: utc(2026, 5, 24) });
+      expect(opened).toHaveLength(2);
       expect(await clearingOf(m.id)).toBe('20');
 
       // A month on from the RESUME instant, not from the mandate's start.
+      // Pay the invoice this pass opened. A length of 3 is also true when
+      // 24 May already opened the third invoice and 10 June opened nothing.
+      const openedBeforeJune = opened.map((invoice) => invoice.paymentId);
       await resumed.runDueSubscriptions({ limit: 50, now: utc(2026, 6, 10) });
       expect(opened).toHaveLength(3);
-      await payInvoice(opened[2]!.paymentId, '10');
+      const openedInJune = opened.filter((invoice) => !openedBeforeJune.includes(invoice.paymentId));
+      expect(openedInJune).toHaveLength(1);
+      await payInvoice(openedInJune[0]!.paymentId, '10');
       expect(await clearingOf(m.id)).toBe('30');
     });
 
@@ -802,6 +901,103 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
       expect(await clearingOf(m.id)).toBe('0');
       expect(opened).toHaveLength(0);
     });
+  });
+
+  describe('a cancel that commits after the due snapshot does not open an invoice', () => {
+    /**
+     * The due pass already holds an active subscription and an active mandate.
+     * Cancel commits on another connection. The charge must wait on that row,
+     * see the cancel, and not call openInvoice.
+     */
+    it('does not call openInvoice when the loaded mandate or subscription is cancelled', async () => {
+      const { subs } = build({ defaultFeeBps: 250 });
+      const m = await merchant();
+      const frame = {
+        cadence: 'monthly' as const,
+        mandateStartsAt: JAN,
+        mandateEndsAt: null,
+        anchorAt: null,
+        anchorOccurrence: 0,
+      };
+
+      async function stillPending<T>(pending: Promise<T>, ms: number): Promise<boolean> {
+        const winner = await Promise.race([
+          pending.then(
+            () => 'settled' as const,
+            () => 'settled' as const,
+          ),
+          new Promise<'pending'>((resolve) => setTimeout(() => resolve('pending'), ms)),
+        ]);
+        return winner === 'pending';
+      }
+
+      async function parkCancel(which: 'subscription' | 'mandate', id: string) {
+        let announceLocked!: () => void;
+        let release!: () => void;
+        const locked = new Promise<void>((resolve) => {
+          announceLocked = resolve;
+        });
+        const mayCommit = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const done = sql.begin(async (tx) => {
+          if (which === 'subscription') {
+            await tx`
+              UPDATE pay.subscriptions
+                 SET status = 'cancelled', cancelled_at = ${JAN}, updated_at = ${JAN}
+               WHERE id = ${id}
+            `;
+          } else {
+            await tx`
+              UPDATE pay.subscription_mandates
+                 SET status = 'cancelled', cancelled_at = ${JAN}, updated_at = ${JAN}
+               WHERE id = ${id}
+            `;
+          }
+          announceLocked();
+          await mayCommit;
+        });
+        await locked;
+        let released = false;
+        return {
+          async commit() {
+            if (released) return;
+            released = true;
+            release();
+            await done;
+          },
+        };
+      }
+
+      for (const which of ['subscription', 'mandate'] as const) {
+        const loaded = await mandateAndSubscription(subs, { merchantId: m.id });
+        const hold = await parkCancel(which, which === 'subscription' ? loaded.sub.id : loaded.mandate.id);
+        const attempt = subs.attemptCycle({
+          sub: loaded.sub,
+          mandate: loaded.mandate,
+          frame,
+          occurrence: 0,
+          isRetry: false,
+          now: JAN,
+        });
+        const guarded = attempt.then(
+          (value) => ({ ok: true as const, value }),
+          (error: unknown) => ({ ok: false as const, error }),
+        );
+        try {
+          expect(await stillPending(guarded, 400)).toBe(true);
+          await hold.commit();
+          const result = await guarded;
+          expect(result.ok).toBe(true);
+          if (result.ok) expect(result.value.outcome).toBe('skipped');
+          expect(opened).toHaveLength(0);
+        } finally {
+          await hold.commit();
+        }
+      }
+
+      expect(await clearingOf(m.id)).toBe('0');
+    }, 20_000);
   });
 
   // ── 5. AN UNSET FEE REFUSES BY CODE ───────────────────────────────────────
@@ -1003,6 +1199,83 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
       expect(cycle!.notifyStatus).toBeNull();
       expect(opened).toHaveLength(0);
       expect(await clearingOf(m.id)).toBe('0');
+    });
+  });
+
+  describe('a due-pass throw stays on that subscription', () => {
+    it('the earlier due row throws, the later one still runs, and the next pass is not stuck on the thrower', async () => {
+      const { subs } = build({ defaultFeeBps: 250 });
+      const m = await merchant();
+      const early = await mandateAndSubscription(subs, { merchantId: m.id, amount: '10' });
+      const late = await mandateAndSubscription(subs, { merchantId: m.id, amount: '12' });
+
+      const earlyAt = utc(2026, 1, 1, 0);
+      const lateAt = utc(2026, 1, 1, 1);
+      const now = utc(2026, 1, 1, 2);
+      await sql`UPDATE pay.subscriptions SET next_run_at = ${earlyAt} WHERE id = ${early.sub.id}`;
+      await sql`UPDATE pay.subscriptions SET next_run_at = ${lateAt} WHERE id = ${late.sub.id}`;
+
+      const original = subs.getMandate.bind(subs);
+      const spy = vi.spyOn(subs, 'getMandate').mockImplementation(async (mandateId: string) => {
+        if (mandateId === early.mandate.id) {
+          throw new PayError(`Mandate ${mandateId} not found`, 'pay.mandate_not_found');
+        }
+        return original(mandateId);
+      });
+
+      try {
+        const first = await subs.runDueSubscriptions({ limit: 50, now });
+        expect(first.examined).toBe(2);
+        expect(first.fired).toBe(1);
+        expect(first.stalled).toBe(1);
+        expect(first.outcomes).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              subscriptionId: early.sub.id,
+              occurrence: null,
+              outcome: 'stalled',
+              stallReason: 'due_pass_fault',
+              rejectionCode: 'pay.mandate_not_found',
+            }),
+            expect.objectContaining({
+              subscriptionId: late.sub.id,
+              outcome: 'invoiced',
+            }),
+          ]),
+        );
+
+        expect(await cyclesOf(subs, early.sub.id)).toEqual([]);
+        expect(opened).toHaveLength(1);
+        expect(opened[0]!.idempotencyKey).toBe(chargeIdempotencyKey({ subscriptionId: late.sub.id, occurrence: 0 }));
+        const amounts = await sql<Array<{ amount: string }>>`
+          SELECT amount::text AS amount FROM pay.payments WHERE id = ${opened[0]!.paymentId}
+        `;
+        expect(formatAmount(amt(amounts[0]!.amount))).toBe('12');
+
+        await payInvoice(opened[0]!.paymentId, '12');
+        expect(await clearingOf(m.id)).toBe('12');
+        expect(ledger.journal().some((tx) => tx.idempotencyKey.includes(early.sub.id))).toBe(false);
+
+        const stalled = await subs.getSubscription(early.sub.id);
+        expect(stalled.status).toBe('paused');
+        expect(stalled.stallReason).toBe('due_pass_fault');
+
+        const second = await subs.runDueSubscriptions({ limit: 1, now });
+        expect(second.examined).toBe(0);
+        expect(second.outcomes.some((outcome) => outcome.subscriptionId === early.sub.id)).toBe(false);
+        expect(opened).toHaveLength(1);
+        expect(await clearingOf(m.id)).toBe('12');
+
+        const stillFirst = await sql<Array<{ id: string }>>`
+          SELECT id FROM pay.subscriptions
+           WHERE status = 'active' AND next_run_at <= ${now}
+           ORDER BY next_run_at ASC
+           LIMIT 1
+        `;
+        expect(stillFirst.some((row) => row.id === early.sub.id)).toBe(false);
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 });

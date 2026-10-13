@@ -38,11 +38,16 @@ async function main() {
   const ups = all.filter((f) => !f.endsWith('.down.sql')).sort();
 
   if (down) {
-    for (const up of [...ups].reverse()) {
-      const downFile = up.replace(/\.sql$/, '.down.sql');
+    const applied = await sql<Array<{ name: string }>>`SELECT name FROM market.__migrations ORDER BY name DESC`;
+    for (const { name } of applied) {
+      const downFile = name.replace(/\.sql$/, '.down.sql');
       console.log(`↓ ${downFile}`);
-      await sql.unsafe(readFileSync(join(migrationsDir, downFile), 'utf8'));
-      await sql`DELETE FROM market.__migrations WHERE name = ${up}`;
+      // Keep reversal locks through metadata commit. A refusal or failed
+      // tracking delete rolls back the complete file, including its DDL.
+      await sql.begin(async (tx) => {
+        await tx.unsafe(readFileSync(join(migrationsDir, downFile), 'utf8'));
+        await tx`DELETE FROM market.__migrations WHERE name = ${name}`;
+      });
     }
     console.log('✓ reversed');
     return;

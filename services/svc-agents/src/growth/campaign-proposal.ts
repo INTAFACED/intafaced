@@ -106,8 +106,9 @@ export function proposeGrowthCampaign(input: GrowthProposeInput = {}): GrowthPro
     return refuse('autonomous_publish', warehouse);
   }
 
-  const budget = input.incentiveBudget?.trim() ?? input.spendAmount?.trim() ?? '';
-  if (budget !== '') {
+  const incentiveBudget = input.incentiveBudget?.trim() ?? '';
+  const spendAmount = input.spendAmount?.trim() ?? '';
+  if (incentiveBudget !== '' || spendAmount !== '') {
     return refuse('budget_undecided', warehouse);
   }
 
