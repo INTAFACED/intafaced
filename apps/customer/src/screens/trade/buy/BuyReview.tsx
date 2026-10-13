@@ -51,6 +51,13 @@ export function BuyReview({
   const protection = review?.preview.protectionPrice ?? null;
   const price = review?.price ?? null;
   const about = review && price !== null ? aboutValue(review.draft.amount, price) : null;
+  // The fee comes out of the coins bought, so say what is left: "about 0.00007992 BTC after the fee" (words only; the order is unchanged).
+  const net = review ? afterFee(review.draft.amount, review.preview.estimatedFee, review.preview.feeAsset, market.base) : null;
+  const getValue = review
+    ? net !== null
+      ? t('{amount} {coin} after the fee', { amount: fmtAmount(net, { places: 8 }), coin: market.base })
+      : `${fmtAmount(review.draft.amount, { places })} ${market.base}`
+    : '';
   return (
     <AlertDialog
       open={review !== null}
@@ -68,12 +75,7 @@ export function BuyReview({
             {buying ? (
               <>
                 <Row label={t('You pay about')} value={about === null ? '—' : fmtUsd(about)} data-testid="review-pay" />
-                <Row
-                  label={t('You get')}
-                  value={`${fmtAmount(review.draft.amount, { places })} ${market.base}`}
-                  data-testid="review-get"
-                  strong
-                />
+                <Row label={t('You get about')} value={getValue} data-testid="review-get" strong />
               </>
             ) : (
               <>
@@ -148,4 +150,12 @@ function aboutValue(base: string, price: string): string | null {
   const amount = dec(base);
   const unit = dec(price);
   return amount === null || unit === null ? null : str(mulDown(amount, unit));
+}
+
+/** The coin amount less a fee taken in that same coin; null when the fee is in something else or unknown. */
+function afterFee(base: string, fee: string | null, feeAsset: string | null, coin: string): string | null {
+  if (fee === null || feeAsset !== coin) return null;
+  const amount = dec(base);
+  const taken = dec(fee);
+  return amount === null || taken === null || taken > amount ? null : str(amount - taken);
 }

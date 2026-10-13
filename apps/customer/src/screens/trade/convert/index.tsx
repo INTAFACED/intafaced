@@ -34,11 +34,13 @@ import { usePendingNote } from '../buy/order-flow';
 import { useAvailable, useMarketLimits } from '../buy/quote-flow';
 import { dec, fractionDigits, toPlaces } from '../buy/trade-math';
 import { convertCopy } from './copy';
-import { defaultPair, edgeFor, edges, fromAssets, planConvert, spendCap, toAssets, type Edge } from './convert-model';
+import { defaultPair, edgeFor, edges, fromAssets, planConvert, reviewAmount, spendCap, toAssets, type Edge } from './convert-model';
 import { acceptQuote, newClientConvertId, refOf, useQuote, type AcceptRef, type Fill, type Quote } from './convert-flow';
 import type { ScreenProps } from '../../../app/screen-types';
 
 const ACTIVITY_HREF = '/money/activity?tab=trades';
+/** "Available" shows the whole balance, as Money does (up to 8 places); only Max rounds down to the lot (critic M5). */
+const BALANCE_PLACES = 8;
 const isDollar = (asset: string) => asset === 'USDT' || asset === 'USDC' || asset === 'USD';
 
 /** Spread in basis points as a percent: 20 is "0.20%". Whole numbers only. */
@@ -198,6 +200,8 @@ function ConvertCard({
   const price = ticker.status === 'ready' ? ((edge.side === 'buy' ? ticker.data.ask : ticker.data.bid) ?? ticker.data.last) : null;
   const coinPlaces = fractionDigits(market.lotSize) ?? 8;
   const fromPlaces = edge.side === 'buy' ? 6 : coinPlaces;
+  /** Decimals the review shows an asset in: the coin's lot, six for the dollar coin. */
+  const placesFor = (asset: string) => (asset === market.base ? coinPlaces : 6);
 
   const plan = useMemo(
     () => planConvert({ edge, amount, price, minAmount: limitRow?.minAmount ?? null, minCost: limitRow?.minCost ?? null }),
@@ -212,12 +216,14 @@ function ConvertCard({
     ? (() => {
         const words = refusalCopy('ledger.insufficient_funds', {
           asset: from,
-          available: fmtAmount(available.value, { places: fromPlaces, round: 'down' }),
+          available: fmtAmount(available.value, { places: BALANCE_PLACES, round: 'down' }),
         });
         return `${words.title}. ${words.body}`;
       })()
     : !plan.ok && plan.problem.kind === 'tooSmall'
-      ? t('Minimum is {min} {asset}.', { min: plan.problem.min, asset: plan.problem.asset })
+      ? plan.problem.asset === edge.market.quote
+        ? t('Minimum is about {min} {asset}.', { min: plan.problem.min, asset: plan.problem.asset })
+        : t('Minimum is {min} {asset}.', { min: plan.problem.min, asset: plan.problem.asset })
       : !plan.ok && plan.problem.kind === 'notOnLot'
         ? t('Use steps of {step} {asset}.', { step: plan.problem.step, asset: market.base })
         : null;
@@ -247,7 +253,7 @@ function ConvertCard({
   const shortText = (() => {
     const words = refusalCopy('ledger.insufficient_funds', {
       asset: from,
-      available: fmtAmount(available.value, { places: fromPlaces, round: 'down' }),
+      available: fmtAmount(available.value, { places: BALANCE_PLACES, round: 'down' }),
     });
     return `${words.title}. ${words.body}`;
   })();
@@ -326,7 +332,7 @@ function ConvertCard({
     setAttempt({ ref: refOf(shown), id });
     const outcome = await acceptQuote(tools, userId, refOf(shown), id, {
       asset: from,
-      available: fmtAmount(available.value, { places: fromPlaces, round: 'down' }),
+      available: fmtAmount(available.value, { places: BALANCE_PLACES, round: 'down' }),
       availableRaw: available.value,
     }).finally(() => {
       sending.current = false;
@@ -481,7 +487,7 @@ function ConvertCard({
           <div className="cvt-field__foot">
             <span data-testid="cvt-available">
               {available.state === 'ready'
-                ? t('Available {value}', { value: `${fmtAmount(available.value, { places: fromPlaces, round: 'down' })} ${from}` })
+                ? t('Available {value}', { value: `${fmtAmount(available.value, { places: BALANCE_PLACES, round: 'down' })} ${from}` })
                 : t('Available loading')}
             </span>
             {available.state === 'ready' && !signedOut ? (
@@ -624,14 +630,14 @@ function ConvertCard({
             <dl className="buy-dialog__rows" aria-busy={expired || undefined}>
               <div className="buy-dialog__row">
                 <dt>{t('You pay')}</dt>
-                <dd data-testid="dlg-pay">
-                  {quote.inAmount} {quote.inAsset}
+                <dd data-testid="dlg-pay" title={`${quote.inAmount} ${quote.inAsset}`}>
+                  {reviewAmount(quote.inAmount, placesFor(quote.inAsset), 'pay')} {quote.inAsset}
                 </dd>
               </div>
               <div className="buy-dialog__row" data-strong="true">
                 <dt>{t('You get')}</dt>
-                <dd data-testid="dlg-get">
-                  {quote.outAmount} {quote.outAsset}
+                <dd data-testid="dlg-get" title={`${quote.outAmount} ${quote.outAsset}`}>
+                  {reviewAmount(quote.outAmount, placesFor(quote.outAsset), 'get')} {quote.outAsset}
                 </dd>
               </div>
               <div className="buy-dialog__row">
@@ -690,5 +696,9 @@ function ConvertCard({
 
 function Balance({ asset }: { asset: string }) {
   const available = useAvailable(asset);
-  return <span className="if-num">{available.state === 'ready' ? fmtAmount(available.value, { places: 6, round: 'down' }) : '—'}</span>;
+  return (
+    <span className="if-num">
+      {available.state === 'ready' ? fmtAmount(available.value, { places: BALANCE_PLACES, round: 'down' }) : '—'}
+    </span>
+  );
 }

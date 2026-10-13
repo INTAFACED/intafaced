@@ -91,11 +91,21 @@ describe('planOrder', () => {
   it('refuses under the minimum order value, in dollars, rounded up to cents', () => {
     expect(planOrder({ ...BTC, unit: 'quote', amount: '4' })).toEqual({
       ok: false,
-      problem: { kind: 'tooSmall', min: '5', asset: 'USDT' },
+      problem: { kind: 'tooSmall', min: '5.21', asset: 'USDT' },
     });
     // 4.99 buys 0.00007 BTC = 4.55 < 5.
     expect(planOrder({ ...BTC, unit: 'quote', amount: '4.99' })).toMatchObject({ ok: false, problem: { kind: 'tooSmall', asset: 'USDT' } });
     expect(planOrder({ ...BTC, unit: 'quote', amount: '5.5' })).toMatchObject({ ok: true });
+  });
+
+  it('names a minimum that really passes: the first amount that buys a whole lot worth the minimum value (critic M1)', () => {
+    // $5 floors to 0.00007 BTC = $4.55, so "Minimum is 5" would be refused. The stated minimum must be accepted.
+    const refused = planOrder({ ...BTC, unit: 'quote', amount: '5' });
+    expect(refused).toMatchObject({ ok: false, problem: { kind: 'tooSmall', min: '5.21' } });
+    const min = refused.ok ? '' : refused.problem.kind === 'tooSmall' ? refused.problem.min : '';
+    expect(planOrder({ ...BTC, unit: 'quote', amount: min })).toMatchObject({ ok: true, base: '0.00008' });
+    // One cent less is refused again.
+    expect(planOrder({ ...BTC, unit: 'quote', amount: '5.20' })).toMatchObject({ ok: false });
   });
 
   it('refuses under the minimum order value when entered in coins, in coins rounded up to a lot', () => {

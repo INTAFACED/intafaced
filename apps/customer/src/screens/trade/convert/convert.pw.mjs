@@ -69,15 +69,21 @@ test('convert 10 USDT to ETH: quote, countdown, review, convert, receipt, new ba
   await expect(preview(page)).toBeEnabled();
   await shot(page, 'convert-1440x900-quote');
 
-  // Review: strings equal the quote response.
+  // Review (critic M7): the figures are rounded to the asset's decimals, pay UP and get DOWN, and the exact strings
+  // from the quote response stay in the title (and in the request).
   await preview(page).click();
   await expect(dialog(page)).toBeVisible();
-  await expect(page.getByTestId('dlg-pay')).toHaveText(
-    '9.910573584 USDT'.replace('9.910573584', api.world.quotes.get('quote-1')?.inAmount ?? '9.91'),
-  );
   const quoted = [...api.world.quotes.values()].at(-1);
-  await expect(page.getByTestId('dlg-pay')).toHaveText(`${quoted.inAmount} USDT`);
-  await expect(page.getByTestId('dlg-get')).toHaveText(`${quoted.outAmount} ETH`);
+  await expect(page.getByTestId('dlg-pay')).toHaveAttribute('title', `${quoted.inAmount} USDT`);
+  const pay = await page.getByTestId('dlg-pay').innerText();
+  expect(pay).toMatch(/^[\d,]+(\.\d{1,6})? USDT$/); // USDT has 6 decimals, never 10
+  const shownPay = Number(pay.replace(/,/g, '').split(' ')[0]);
+  expect(shownPay).toBeGreaterThanOrEqual(Number(quoted.inAmount)); // rounded up: never less than leaves the account
+  expect(shownPay - Number(quoted.inAmount)).toBeLessThan(0.000001);
+  const get = await page.getByTestId('dlg-get').innerText();
+  await expect(page.getByTestId('dlg-get')).toHaveAttribute('title', `${quoted.outAmount} ETH`);
+  expect(get).toMatch(/^\d+(\.\d{1,4})? ETH$/); // ETH's lot is 4 decimals: never more digits than the asset has
+  expect(Number(get.split(' ')[0])).toBeLessThanOrEqual(Number(quoted.outAmount));
   await expect(page.getByTestId('dlg-rate')).toContainText('1 ETH ≈ $2,608.05');
   await expect(page.getByTestId('dlg-hold')).toContainText('Price held for');
   expect(await dialog(page).innerText()).not.toMatch(forbidden);
@@ -101,7 +107,7 @@ test('convert 10 USDT to ETH: quote, countdown, review, convert, receipt, new ba
   await shot(page, 'convert-1440x900-success');
 
   await page.getByTestId('cvt-receipt').getByRole('button', { name: 'Done' }).click();
-  await expect(page.getByTestId('cvt-available')).toHaveText('Available 9,983.089426 USDT');
+  await expect(page.getByTestId('cvt-available')).toHaveText('Available 9,983.08942641 USDT'); // the whole balance, as Money shows it (critic M5)
   await shot(page, 'convert-1440x900-after-balance');
   expect(errors).toEqual([]);
 });
@@ -159,7 +165,7 @@ test('too small, and not enough: said before any price is asked for', async ({ p
   const api = await mock(page);
   await open(page);
   await amount(page).fill('3');
-  await expect(page.locator('[data-slot="amount-input"]').first()).toContainText('Minimum is 5 USDT.');
+  await expect(page.locator('[data-slot="amount-input"]').first()).toContainText('Minimum is about 5.21 USDT.');
   await shot(page, 'convert-1440x900-minimum');
   await amount(page).fill('20000');
   await expect(page.locator('[data-slot="amount-input"]').first()).toContainText('Not enough USDT. You have 9,993 USDT available.');
@@ -378,7 +384,7 @@ test('Max never quotes more than the balance: the spread is on top, so the reque
   // 9,993 USDT / 2602.84 = 3.8392 ETH is dearer than 9,993 once the spread is added, so a smaller quantity was asked.
   expect(quotes.length).toBeGreaterThanOrEqual(2);
   await preview(page).click();
-  const paid = await page.getByTestId('dlg-pay').innerText();
+  const paid = (await page.getByTestId('dlg-pay').innerText()).replace(/,/g, '');
   expect(BigInt(paid.replace(' USDT', '').split('.')[0]) <= 9993n).toBe(true);
   expect(paid).not.toMatch(/^1\d{4}/);
   const sent = [...api.world.quotes.values()].at(-1);

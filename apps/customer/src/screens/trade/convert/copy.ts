@@ -30,6 +30,7 @@ const messages = {
   'Log in to convert': 'Log in to convert',
   'Enter an amount': 'Enter an amount',
   'Minimum is {min} {asset}.': 'Minimum is {min} {asset}.',
+  'Minimum is about {min} {asset}.': 'Minimum is about {min} {asset}.',
   'Use steps of {step} {asset}.': 'Use steps of {step} {asset}.',
   'Not enough {asset}. You have {value} available.': 'Not enough {asset}. You have {value} available.',
   'Too big': 'That’s more than we can convert in one go right now. Try a smaller amount.',

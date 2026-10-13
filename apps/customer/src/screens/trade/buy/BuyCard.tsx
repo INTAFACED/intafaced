@@ -45,6 +45,7 @@ import {
 import {
   coinOptions,
   dollarsForBase,
+  isPayAsset,
   marketFor,
   payOptions,
   planOrder,
@@ -68,16 +69,27 @@ export interface BuyCardProps {
   lockAsset?: boolean;
   /** Called when the customer picks another coin. */
   onAssetChange?: (base: string) => void;
+  /** Called when the customer flips between Buy and Sell, so the page's headline can follow. */
+  onSideChange?: (side: 'buy' | 'sell') => void;
 }
 
 /** Where a finished order is listed. */
 export const ACTIVITY_HREF = '/money/activity?tab=trades';
+/** "Order history" opens the Orders tab; the receipt's "View in Activity" opens Trades. */
+export const ORDERS_HREF = '/money/activity?tab=orders';
 
 /**
  * Simple Buy and Sell card (UI-SPEC 5.9). Reusable: the page `/trade/buy` and the coin page both render it.
  * It needs the app's session and data providers, nothing else.
  */
-export function BuyCard({ initialAsset, initialSide = 'buy', compact = false, lockAsset = false, onAssetChange }: BuyCardProps) {
+export function BuyCard({
+  initialAsset,
+  initialSide = 'buy',
+  compact = false,
+  lockAsset = false,
+  onAssetChange,
+  onSideChange,
+}: BuyCardProps) {
   const { t } = buyCopy.useCopy();
   const markets = useMarkets();
   // Keeps the balance subscribed while the success card replaces the form, so "refresh the balance now" has someone listening.
@@ -128,7 +140,10 @@ export function BuyCard({ initialAsset, initialSide = 'buy', compact = false, lo
       coin={coin}
       coins={coins}
       side={side}
-      onSide={setSide}
+      onSide={(next) => {
+        setSide(next);
+        onSideChange?.(next);
+      }}
       lockAsset={lockAsset}
       compact={compact}
       onPickCoin={(next) => {
@@ -298,10 +313,10 @@ function BuyForm({
     if (!insufficient) return null;
     const words = refusalCopy('ledger.insufficient_funds', {
       asset: spendAsset,
-      available: fmtAmount(available.value, { places: buying ? 2 : lotPlaces, round: 'down' }),
+      available: fmtAmount(available.value, { places: 8, round: 'down' }),
     });
     return `${words.title}. ${words.body}`;
-  }, [insufficient, spendAsset, available.value, buying, lotPlaces]);
+  }, [insufficient, spendAsset, available.value]);
 
   const request: OrderRequest | null =
     plan.ok && !insufficient && session && note.state === 'none' ? { symbol: market.symbol, side, base: plan.base } : null;
@@ -318,7 +333,10 @@ function BuyForm({
   const planText = (issue: PlanProblem): string | null => {
     switch (issue.kind) {
       case 'tooSmall':
-        return t('Minimum is {min} {asset}.', { min: issue.min, asset: issue.asset });
+        // Dollars are rounded up to a whole lot of the coin, so the real minimum is a little above the published one.
+        return isPayAsset(issue.asset)
+          ? t('Minimum is about {min}.', { min: fmtUsd(issue.min) })
+          : t('Minimum is {min} {asset}.', { min: issue.min, asset: issue.asset });
       case 'notOnLot':
         return t('Use steps of {step} {asset}.', { step: issue.step, asset: market.base });
       default:
@@ -470,10 +488,14 @@ function BuyForm({
     busy === null;
   const buttonSize = compact ? 48 : 56;
   const loginHref = `/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
-  const approx =
-    unit === 'quote'
-      ? t('About {value}', { value: `${plan.ok ? fmtAmount(plan.base, { places: lotPlaces }) : '0'} ${market.base}` })
-      : t('About {value}', { value: plan.ok && plan.notional !== null ? fmtUsd(plan.notional) : '$0.00' });
+  // Nothing typed (or not a valid size yet) is "—", never a made-up zero (spec 1.1-4).
+  const approx = !plan.ok
+    ? '—'
+    : unit === 'quote'
+      ? t('About {value}', { value: `${fmtAmount(plan.base, { places: lotPlaces })} ${market.base}` })
+      : plan.notional !== null
+        ? t('About {value}', { value: fmtUsd(plan.notional) })
+        : '—';
   const feeLine =
     estimate.state === 'ready' && estimate.preview.estimatedFee !== null
       ? `${fmtAmount(estimate.preview.estimatedFee, { places: 8 })} ${estimate.preview.feeAsset ?? ''}`.trim()
@@ -519,7 +541,9 @@ function BuyForm({
           disabled={busy === 'max'}
         />
         <div className="buy-form__approx">
-          <span data-testid="approx">{approx}</span>
+          <span data-testid="approx" data-tone={plan.ok && buying ? 'up' : undefined}>
+            {approx}
+          </span>
           <button
             type="button"
             className="buy-form__swap"
@@ -594,7 +618,7 @@ function BuyForm({
           <span className="buy-row__aside" data-testid="available">
             {available.state === 'ready'
               ? t('Available {value}', {
-                  value: `${fmtAmount(available.value, { places: buying ? 2 : lotPlaces, round: 'down' })} ${spendAsset}`,
+                  value: `${fmtAmount(available.value, { places: 8, round: 'down' })} ${spendAsset}`,
                 })
               : t('Available loading')}
           </span>

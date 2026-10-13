@@ -2,9 +2,10 @@
  * Convert's pure rules (UI-SPEC 5.8): which assets can be swapped for which, and how an amount in the "From" asset
  * becomes the base-coin quantity the quote call takes. Exact bigint arithmetic only.
  */
-import type { MarketRow } from '../../../data';
+import { fmtAmount, type MarketRow } from '../../../data';
+import { roundScaled } from '../../../data/decimal';
 import { planOrder, type OrderPlan, type PlanInput } from '../buy/order-plan';
-import { dec, floorToStep, str } from '../buy/trade-math';
+import { ceilPlaces, dec, floorToStep, str } from '../buy/trade-math';
 
 export interface Edge {
   from: string;
@@ -128,4 +129,15 @@ export function spendCap(typed: string, available: string | null): string | null
   if (t === null) return null;
   const a = dec(available);
   return str(a !== null && a < t ? a : t);
+}
+
+/**
+ * What the review shows for an amount: `pay` rounds UP to the asset's places (never show less than will leave the
+ * account), `get` rounds DOWN (never promise more than arrives). Display only: the exact strings stay in the request.
+ */
+export function reviewAmount(value: string, places: number, rounding: 'pay' | 'get'): string {
+  const exact = dec(value);
+  if (exact === null) return value;
+  const shown = rounding === 'pay' ? ceilPlaces(exact, places) : roundScaled(exact, places, 'down');
+  return fmtAmount(str(shown), { places });
 }

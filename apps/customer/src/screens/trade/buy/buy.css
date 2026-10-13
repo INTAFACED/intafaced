@@ -131,6 +131,14 @@
   .buy-form__amount [data-slot='amount-input'] > div:first-child {
     justify-content: flex-end !important;
   }
+  /* The kit's focus ring is a square box that sticks out past the card padding (critic L3). The kit sets it with utility
+     classes, which beat this layer, so these two declarations are !important (an earlier layer's important rule wins). */
+  .buy-form__amount [data-slot='amount-input'] {
+    border-radius: var(--if-r-md) !important;
+  }
+  .buy-form__amount [data-slot='amount-input']:has(input:focus-visible) {
+    outline-offset: -2px !important;
+  }
   .buy-form__approx {
     display: flex;
     align-items: center;
@@ -138,6 +146,9 @@
     gap: 12px;
     flex-wrap: wrap;
     font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .buy-form__approx [data-tone='up'] {
     color: var(--if-up-text);
   }
   .buy-form__swap {

@@ -115,13 +115,16 @@ export function planOrder(input: PlanInput): OrderPlan {
   }
 
   if (input.unit === 'quote') {
-    // The smallest spend that buys one valid order, rounded up to cents.
+    // The smallest spend that buys one valid order, rounded up to cents. Shown to the customer only (the check below is
+    // the rule). The coin amount is floored to the lot, so the minimum order VALUE needs the next whole lot at or above
+    // minCost / price: $5 against a $5 minimum buys 0.00007 BTC, which is only $4.54.
     const minSpend =
       price === null
         ? minCost
         : (() => {
-            const forLot = mulUp(smallestBase, price);
-            return ceilPlaces(forLot > minCost ? forLot : minCost, 2);
+            const forValue = minCost > 0n ? divUp(minCost, price) : null;
+            const coins = forValue !== null && ceilToStep(forValue, lot) > smallestBase ? ceilToStep(forValue, lot) : smallestBase;
+            return ceilPlaces(mulUp(coins, price), 2);
           })();
     if (base <= 0n || base < minAmount || (price !== null && mulDown(base, price) < minCost))
       return fail({ kind: 'tooSmall', min: str(minSpend), asset: input.quoteAsset });

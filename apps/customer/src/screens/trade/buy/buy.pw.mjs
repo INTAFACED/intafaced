@@ -42,7 +42,7 @@ test('buy $10 of BTC: amount, estimate, review, confirm, receipt, new balance (1
   expect(Math.round((await box(card)).width)).toBe(450);
   await expect(page.locator('.buy-hero h1')).toHaveText('Buy crypto in a few steps');
   await expect(page.locator('.buy-crumbs')).toContainText('Trade');
-  await expect(page.locator('.buy-crumbs__history')).toHaveAttribute('href', '/money/activity?tab=trades');
+  await expect(page.locator('.buy-crumbs__history')).toHaveAttribute('href', '/money/activity?tab=orders');
   expect(
     await page.locator('.buy-hero h1').evaluate((node) => getComputedStyle(node).fontSize + '/' + getComputedStyle(node).lineHeight),
   ).toBe('48px/58px');
@@ -51,7 +51,7 @@ test('buy $10 of BTC: amount, estimate, review, confirm, receipt, new balance (1
   await expect(page.getByTestId('coin-row')).toContainText('BTC');
   await expect(page.getByTestId('available')).toHaveText('Available 9,993 USDT');
   await expect(card.getByRole('button', { name: 'Enter an amount' })).toBeDisabled();
-  await expect(page.getByTestId('approx')).toHaveText('≈ 0 BTC');
+  await expect(page.getByTestId('approx')).toHaveText('—');
   await shot(page, 'buy-1440x900-empty');
 
   // $10 -> whole lots, rounded down: 10 / 65,083.66 = 0.00015364 -> 0.00015 BTC, never more than $10.
@@ -65,7 +65,8 @@ test('buy $10 of BTC: amount, estimate, review, confirm, receipt, new balance (1
   // Review: the service's numbers, in plain words.
   await reviewButton(page).click();
   await expect(dialog(page)).toBeVisible();
-  await expect(page.getByTestId('review-get')).toHaveText('0.00015 BTC');
+  // The fee comes out of the coins: 0.00015 less 0.00000015 (critic L4).
+  await expect(page.getByTestId('review-get')).toHaveText('0.00014985 BTC after the fee');
   await expect(page.getByTestId('review-pay')).toHaveText('$9.76');
   await expect(page.getByTestId('review-fee')).toHaveText('0.00000015 BTC');
   await expect(page.getByTestId('review-protection')).toHaveText('We won’t buy above $65,409.08.');
@@ -96,7 +97,7 @@ test('buy $10 of BTC: amount, estimate, review, confirm, receipt, new balance (1
 
   // Done: the balance is read again straight away, so the new balance is what shows.
   await receipt.getByRole('button', { name: 'Done' }).click();
-  await expect(page.getByTestId('available')).toHaveText('Available 9,983.237451 USDT'.replace('9,983.237451', '9,983.23'));
+  await expect(page.getByTestId('available')).toHaveText('Available 9,983.237451 USDT'); // the whole balance, as Money shows it (critic M5)
   await shot(page, 'buy-1440x900-after-balance');
   expect(errors).toEqual([]);
 });
@@ -135,7 +136,7 @@ test('enter in coins: the toggle, lot validation and the minimum order value', a
   // Dollars: 4 is under the minimum, said in dollars.
   await page.getByRole('button', { name: 'Enter in USD' }).click();
   await amountBox(page).fill('4');
-  await expect(page.locator('[data-slot="amount-input"]')).toContainText('Minimum is 5 USDT.');
+  await expect(page.locator('[data-slot="amount-input"]')).toContainText('Minimum is about $5.21.');
   await shot(page, 'buy-1440x900-minimum');
 });
 const card = (page) => page.locator('.buy-card');
@@ -416,4 +417,19 @@ test('plain words, focus rings and a keyboard path', async ({ page }) => {
   expect(await page.evaluate(() => Boolean(document.activeElement.closest('[role="alertdialog"]')))).toBe(true);
   await page.keyboard.press('Escape');
   await expect(dialog(page)).toHaveCount(0);
+});
+
+test('the Sell tab says Sell in the headline and breadcrumb, and an empty amount shows a dash, not a made-up zero (critic L2, M12)', async ({
+  page,
+}) => {
+  await mock(page);
+  await open(page);
+  await expect(page.locator('.buy-hero h1')).toHaveText('Buy crypto in a few steps');
+  await page.locator('.buy-form__top').getByText('Sell', { exact: true }).click();
+  await expect(page.locator('.buy-hero h1')).toHaveText('Sell crypto in a few steps');
+  await expect(page.locator('.buy-crumbs [aria-current="page"]')).toHaveText('Sell crypto');
+  await expect(page.getByTestId('approx')).toHaveText('—');
+  expect(await page.getByTestId('approx').evaluate((node) => getComputedStyle(node).color)).not.toBe('rgb(37, 167, 80)');
+  await open(page, '/trade/buy?side=sell');
+  await expect(page.locator('.buy-hero h1')).toHaveText('Sell crypto in a few steps');
 });

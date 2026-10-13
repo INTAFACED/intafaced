@@ -66,7 +66,7 @@ describe('planConvert', () => {
   it('says the minimum in the From asset', () => {
     expect(planConvert({ edge: buy, amount: '3', price: '2602.84', minAmount: '0.0001', minCost: '5' })).toEqual({
       ok: false,
-      problem: { kind: 'tooSmall', min: '5', asset: 'USDT' },
+      problem: { kind: 'tooSmall', min: '5.21', asset: 'USDT' },
     });
     expect(planConvert({ edge: sell, amount: '0.0001', price: '2601.95', minAmount: '0.0001', minCost: '5' })).toMatchObject({
       ok: false,
