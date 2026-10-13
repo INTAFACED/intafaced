@@ -1466,7 +1466,9 @@ export class PositionService {
    * the ledger is a different system, so a commit that fails after the posts
    * succeeded leaves the row open with the money already moved, and the retry
    * must not pay again. It does not: the ledger returns the original
-   * transaction.
+   * transaction for the SAME body. A retry whose body differs (the live mark or margin moved)
+   * is a mismatch: logged in the ledger's `detect` mode, refused 409 in `refuse` mode.
+   * Freezing the close plan before the first post is the open item for that flip.
    *
    * Neither mechanism subsumes the other, so reverting either one is caught by
    * `position-close-concurrency.test.ts`.
