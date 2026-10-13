@@ -627,8 +627,10 @@ export class EarnService {
    *
    * If this crashes exactly here — after the ledger post, before the database
    * commit — the claim rolls back while the payment stands. The next run
-   * re-claims, re-posts (idempotent, returns the same transaction) and writes
-   * the record against it. Nobody's funds are stranded: the interest is in the
+   * re-claims, re-posts (idempotent, returns the same transaction when the payout list
+   * is unchanged; if a position moved in between the body differs, which the ledger logs
+   * in `detect` mode and refuses in `refuse` mode: reconcile against `getTxByKey` before flipping)
+   * and writes the record against it. Nobody's funds are stranded: the interest is in the
    * users' available balances the whole time.
    *
    * If the reserve cannot cover the day, NOTHING moves and the claim rolls back

@@ -306,23 +306,58 @@ export function assertIdempotencyKey(idempotencyKey: string | undefined): void {
 export const IDEMPOTENCY_CONFLICT_CODE = 'ledger.idempotency_conflict' as const;
 
 /**
- * What a post MOVES, as one digest: module, reason, and each entry's account,
- * direction and amount (entries sorted, so order does not matter). Meta and
- * correlation id are deliberately out: they describe a post, they do not move
- * money, and a retry may legitimately carry a fresh trace id.
+ * What a ledger does when a key that already booked a movement is posted again with a DIFFERENT body.
  *
- * It exists so a reused key can be told apart from a retry. Before it, "same
- * key" meant "same post": a different body under a booked key silently returned
- * the OLD transaction while the caller recorded success for money that never
- * moved (#4414 was exactly that). Never throws; a body that cannot be read
- * (a JS number amount, a missing account) gets a digest nothing else matches,
- * so the caller is refused rather than told the old booking is its own.
+ *   `refuse` — throw `ledger.idempotency_conflict` (409). The caller cannot record success for money that never moved.
+ *   `detect` — answer with the original transaction, as before, and report the mismatch (log line
+ *              `ledger.idempotency_mismatch`). It is the rollout mode: several jobs rebuild their body from live state when
+ *              re-run under the same key (liquidation rungs, funding legs, chargeback splits, daily interest), and refusing
+ *              them before they are fixed would wedge crash recovery instead of healing it.
+ */
+export type IdempotencyConflictMode = 'refuse' | 'detect';
+
+export interface IdempotencyMismatchInfo {
+  readonly idempotencyKey: string;
+  readonly module: string;
+  readonly reason: string;
+}
+
+export interface IdempotencyConflictOptions {
+  /** Default `refuse`. */
+  readonly idempotencyConflict?: IdempotencyConflictMode;
+  /** Called in `detect` mode for every mismatch. Must not throw. */
+  readonly onIdempotencyMismatch?: (info: IdempotencyMismatchInfo) => void;
+}
+
+/**
+ * What a post MOVES, as one digest: module, reason, and each entry's account, direction and amount (entries sorted, so
+ * order does not matter). Meta and correlation id are deliberately out: they describe a post, they do not move money, and a
+ * retry may legitimately carry a fresh trace id.
+ *
+ * It exists so a reused key can be told apart from a retry. Before it, "same key" meant "same post": a different body under
+ * a booked key silently returned the OLD transaction while the caller recorded success for money that never moved (#4414
+ * was exactly that). Never throws; a body that cannot be read (a JS number amount, a missing account) gets a digest nothing
+ * else matches, so the caller is refused rather than told the old booking is its own.
+ *
+ * THE ENCODING IS PERMANENT. Stored digests outlive any code change, so this does not call `accountKey`/`accountPurpose`
+ * (someone may edit those for their own reasons) and every field is JSON-encoded, never delimiter-joined. A test pins a
+ * known digest; if it fails, you changed the encoding: version it (`ledger-post-body-v2`) and keep reading v1.
  */
 export function postFingerprint(request: Pick<PostRequest, 'module' | 'reason' | 'entries'>): string {
   let canonical: string;
   try {
     const entries = request.entries
-      .map((e) => `${accountKey(e.account)}|${e.direction}|${typeof e.amount === 'bigint' ? e.amount.toString() : `!${String(e.amount)}`}`)
+      .map((e) =>
+        JSON.stringify([
+          e.account.ownerType,
+          e.account.ownerId,
+          e.account.assetId,
+          e.account.kind,
+          (e.account.purpose ?? '').trim(),
+          e.direction,
+          typeof e.amount === 'bigint' ? e.amount.toString() : `!${String(e.amount)}`,
+        ]),
+      )
       .sort();
     canonical = JSON.stringify([request.module, request.reason, entries]);
   } catch {

@@ -11,6 +11,7 @@ import {
   postFingerprint,
   signedDelta,
   IDEMPOTENCY_CONFLICT_CODE,
+  type IdempotencyConflictOptions,
   InsufficientFundsError,
   LedgerError,
   type AccountRef,
@@ -49,7 +50,10 @@ import { assertScaledBigintAmounts, parseStoredAmount } from './live-money.js';
  * worktrees cannot TRUNCATE each other into a false insufficient-funds failure.
  */
 export class PostgresLedger implements LedgerClient {
-  constructor(private readonly sql: Sql) {}
+  constructor(
+    private readonly sql: Sql,
+    private readonly options: IdempotencyConflictOptions = {},
+  ) {}
 
   async post(request: PostRequest): Promise<LedgerTx> {
     // The shared order, documented at `assertIdempotencyKey`: key, then
@@ -479,10 +483,13 @@ export class PostgresLedger implements LedgerClient {
    */
   private replayOf(claimed: { tx: LedgerTx; fingerprint: string | null }, request: PostRequest): LedgerTx {
     if (claimed.fingerprint !== null && claimed.fingerprint !== postFingerprint(request)) {
-      throw new LedgerError(
-        `Idempotency key ${request.idempotencyKey} already booked a different movement; a retry must carry the same body`,
-        IDEMPOTENCY_CONFLICT_CODE,
-      );
+      if ((this.options.idempotencyConflict ?? 'refuse') === 'refuse') {
+        throw new LedgerError(
+          `Idempotency key ${request.idempotencyKey} already booked a different movement; a retry must carry the same body`,
+          IDEMPOTENCY_CONFLICT_CODE,
+        );
+      }
+      this.options.onIdempotencyMismatch?.({ idempotencyKey: request.idempotencyKey, module: request.module, reason: request.reason });
     }
     return claimed.tx;
   }

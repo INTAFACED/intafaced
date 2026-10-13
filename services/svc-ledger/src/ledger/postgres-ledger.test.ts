@@ -366,6 +366,27 @@ describe('PostgresLedger', () => {
     });
 
     /**
+     * Rollout mode. Several jobs rebuild their body from live state when re-run under the same key, so the service ships in
+     * `detect`: the original is returned (as before) and the mismatch is reported, until those call sites are fixed.
+     */
+    it('detect mode answers a different body with the original transaction and reports it', async () => {
+      await reset();
+      const seen: Array<{ idempotencyKey: string; module: string; reason: string }> = [];
+      const detecting = new PostgresLedger(db!.sql, { idempotencyConflict: 'detect', onIdempotencyMismatch: (i) => seen.push(i) });
+      const first = await detecting.post(
+        recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('7'), rail: 'test', railRef: 'detect-mode' }),
+      );
+      const other = recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('70'), rail: 'test', railRef: 'detect-mode' });
+      expect((await detecting.post(other)).id).toBe(first.id);
+      expect(seen).toEqual([{ idempotencyKey: first.idempotencyKey, module: other.module, reason: other.reason }]);
+      // The same body is a plain retry: nothing reported.
+      await detecting.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('7'), rail: 'test', railRef: 'detect-mode' }));
+      expect(seen).toHaveLength(1);
+      // The default engine (the spec) refuses.
+      await expect(engine.post(other)).rejects.toMatchObject({ code: 'ledger.idempotency_conflict' });
+    });
+
+    /**
      * journal() is the replay source: every transaction, in commit order.
      * One row past the requested limit must refuse, the same way history()
      * refuses rather than handing back a prefix that looks complete.

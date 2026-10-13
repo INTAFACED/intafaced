@@ -265,7 +265,9 @@ export const ledgerTx = ledger.table(
     /** Commit order. The hash chain follows this sequence exactly. */
     seq: bigserial('seq', { mode: 'bigint' }).notNull(),
     /**
-     * Retry protection. A repeated key returns the original transaction.
+     * Retry protection. A repeated key returns the original transaction when the body is the same;
+     * a different body is a mismatch (`ledger_posted_keys.request_fingerprint`, 0021): refused
+     * `ledger.idempotency_conflict` in `refuse` mode, logged in `detect` mode.
      *
      * At least 8 characters, in the database as well as in `assertValidPost`
      * (0009). The key is the IDENTITY of a movement, and after #1060 `post()`

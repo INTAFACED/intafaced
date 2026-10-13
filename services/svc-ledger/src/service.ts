@@ -1,5 +1,13 @@
 import type { Sql, TransactionSql } from 'postgres';
-import { LedgerError, type AccountRef, type Balance, type LedgerClient, type LedgerTx, type PostRequest } from '@intafaced/ledger-client';
+import {
+  LedgerError,
+  type AccountRef,
+  type IdempotencyConflictOptions,
+  type Balance,
+  type LedgerClient,
+  type LedgerTx,
+  type PostRequest,
+} from '@intafaced/ledger-client';
 import type { EventBus, Payload } from '@intafaced/events';
 import { PostgresLedger, type LedgerTxOutboxRow } from './ledger/postgres-ledger.js';
 import {
@@ -33,9 +41,16 @@ export class LedgerService implements LedgerClient {
   constructor(
     private readonly sql: Sql,
     private readonly bus: EventBus,
-    options: { postingEnabled?: boolean } = {},
+    options: { postingEnabled?: boolean } & IdempotencyConflictOptions = {},
   ) {
-    this.engine = new PostgresLedger(sql);
+    this.engine = new PostgresLedger(sql, {
+      ...(options.idempotencyConflict ? { idempotencyConflict: options.idempotencyConflict } : {}),
+      onIdempotencyMismatch:
+        options.onIdempotencyMismatch ??
+        ((info) =>
+          // One greppable line per mismatch: the alert for "a job re-ran under a booked key with a different body".
+          console.warn(JSON.stringify({ level: 'warn', service: 'svc-ledger', event: 'ledger.idempotency_mismatch', ...info }))),
+    });
     this.bootPostingEnabled = options.postingEnabled ?? true;
   }
 

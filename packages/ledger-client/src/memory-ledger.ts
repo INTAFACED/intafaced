@@ -7,6 +7,7 @@ import {
   assertValidPost,
   postFingerprint,
   signedDelta,
+  type IdempotencyConflictOptions,
   type LedgerClient,
 } from './client.js';
 import {
@@ -43,6 +44,8 @@ export class MemoryLedger implements LedgerClient {
   private readonly txs = new Map<string, LedgerTx>();
   private readonly txByKey = new Map<string, string>();
   private readonly fingerprintByKey = new Map<string, string>();
+
+  constructor(private readonly options: IdempotencyConflictOptions = {}) {}
   private readonly txOrder: string[] = [];
   private tip: string | null = null;
   private readonly assetTips = new Map<string, string>();
@@ -73,10 +76,13 @@ export class MemoryLedger implements LedgerClient {
       const existing = this.txs.get(existingId);
       if (!existing) throw new LedgerError('Idempotency index corrupted', 'ledger.corrupt_index');
       if (this.fingerprintByKey.get(request.idempotencyKey) !== postFingerprint(request)) {
-        throw new LedgerError(
-          `Idempotency key ${request.idempotencyKey} already booked a different movement; a retry must carry the same body`,
-          IDEMPOTENCY_CONFLICT_CODE,
-        );
+        if ((this.options.idempotencyConflict ?? 'refuse') === 'refuse') {
+          throw new LedgerError(
+            `Idempotency key ${request.idempotencyKey} already booked a different movement; a retry must carry the same body`,
+            IDEMPOTENCY_CONFLICT_CODE,
+          );
+        }
+        this.options.onIdempotencyMismatch?.({ idempotencyKey: request.idempotencyKey, module: request.module, reason: request.reason });
       }
       return existing;
     }
