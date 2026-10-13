@@ -2,6 +2,34 @@ import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from 'reac
 import { MetalButton } from './metal-button';
 
 /**
+ * The label crossfades when it changes (a saved enquiry found after the page has already started). Both labels sit in one
+ * grid cell for 300ms, the old one fading out and the new one fading in, so the button never jumps or flashes. A first
+ * render, and reduced motion (outreach.css), show the new label at once.
+ */
+function CrossfadeLabel({ text }: { text: string }) {
+  // Derived during render, so the very first frame with the new text already carries the old one: no flash.
+  const [state, setState] = useState<{ shown: string; previous: string | null }>({ shown: text, previous: null });
+  if (state.shown !== text) setState({ shown: text, previous: state.shown });
+  useEffect(() => {
+    if (state.previous === null) return;
+    const timer = window.setTimeout(() => setState((now) => ({ ...now, previous: null })), 320);
+    return () => window.clearTimeout(timer);
+  }, [state.previous, state.shown]);
+  return (
+    <span className="label-crossfade" data-swapping={state.previous !== null || undefined}>
+      {state.previous !== null && (
+        <span className="label-out" aria-hidden="true">
+          {state.previous}
+        </span>
+      )}
+      <span className="label-in" key={text}>
+        {text}
+      </span>
+    </span>
+  );
+}
+
+/**
  * Welcome-only hero action: the same original Cult/MetalFx treatment as PrimaryMetal, larger
  * (radius 14), inside a soft lime rim and glow that outrank every other control. The inner
  * button owns all semantics; the rim, glow and arrow motion live in outreach.css (`.hero-cta`).
@@ -54,7 +82,9 @@ export function HeroMetal({
         }}
       >
         <span className="primary-caption">
-          <span className="primary-caption-current">{label}</span>
+          <span className="primary-caption-current">
+            <CrossfadeLabel text={label} />
+          </span>
         </span>
         <span className="cta-arrow" aria-hidden="true">
           {children || '→'}
