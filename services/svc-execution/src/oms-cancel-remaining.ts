@@ -32,9 +32,7 @@ export type OmsCancelRemainingRefuse =
 
 export type OmsCancelRemainingResult = OmsCancelRemainingOk | OmsCancelRemainingRefuse;
 
-export async function cancelRemainingParentChildren(
-  input: OmsCancelRemainingInput,
-): Promise<OmsCancelRemainingResult> {
+export async function cancelRemainingParentChildren(input: OmsCancelRemainingInput): Promise<OmsCancelRemainingResult> {
   const parentClientOrderId = input.parentClientOrderId?.trim() ?? '';
   const executionGroupId = input.executionGroupId?.trim() ?? '';
   if (executionGroupId) {

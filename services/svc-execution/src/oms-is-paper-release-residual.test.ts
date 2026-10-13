@@ -64,12 +64,14 @@ describe('releaseExpiredPaperImplementationShortfallResidual', () => {
       remaining: RETAINED_REMAINING,
       paper: PAPER_ON,
     };
-    expect(
-      releaseExpiredPaperImplementationShortfallResidual({ ...base, status: 'paper' }),
-    ).toMatchObject({ ok: false, reason: 'not_expired' });
-    expect(
-      releaseExpiredPaperImplementationShortfallResidual({ ...base, status: 'running' }),
-    ).toMatchObject({ ok: false, reason: 'not_expired' });
+    expect(releaseExpiredPaperImplementationShortfallResidual({ ...base, status: 'paper' })).toMatchObject({
+      ok: false,
+      reason: 'not_expired',
+    });
+    expect(releaseExpiredPaperImplementationShortfallResidual({ ...base, status: 'running' })).toMatchObject({
+      ok: false,
+      reason: 'not_expired',
+    });
     expect(releaseExpiredPaperImplementationShortfallResidual(base)).toMatchObject({
       ok: false,
       reason: 'not_expired',
@@ -100,15 +102,18 @@ describe('releaseExpiredPaperImplementationShortfallResidual', () => {
       ok: false,
       reason: 'missing_residual',
     });
-    expect(
-      releaseExpiredPaperImplementationShortfallResidual({ ...base, remaining: null }),
-    ).toMatchObject({ ok: false, reason: 'missing_residual' });
-    expect(
-      releaseExpiredPaperImplementationShortfallResidual({ ...base, remaining: '' }),
-    ).toMatchObject({ ok: false, reason: 'missing_residual' });
-    expect(
-      releaseExpiredPaperImplementationShortfallResidual({ ...base, remaining: '   ' }),
-    ).toMatchObject({ ok: false, reason: 'missing_residual' });
+    expect(releaseExpiredPaperImplementationShortfallResidual({ ...base, remaining: null })).toMatchObject({
+      ok: false,
+      reason: 'missing_residual',
+    });
+    expect(releaseExpiredPaperImplementationShortfallResidual({ ...base, remaining: '' })).toMatchObject({
+      ok: false,
+      reason: 'missing_residual',
+    });
+    expect(releaseExpiredPaperImplementationShortfallResidual({ ...base, remaining: '   ' })).toMatchObject({
+      ok: false,
+      reason: 'missing_residual',
+    });
   });
 
   it("refuses invalid remaining 'not-an-amount' with missing_residual", () => {

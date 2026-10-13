@@ -28,7 +28,7 @@ describe('EXECUTION_ALGO_JOBS_ENABLED cannot sneak default ON', () => {
     expect(decl![1]).not.toContain('.default(true)');
   });
 
-  it("only denylist strings enable jobs — empty / 0 / false stay off", () => {
+  it('only denylist strings enable jobs — empty / 0 / false stay off', () => {
     const decl = /EXECUTION_ALGO_JOBS_ENABLED:\s*(z\.[^\n]*)/.exec(envSrc);
     expect(decl![1]).toMatch(
       /\.transform\(\(v\)\s*=>\s*\(typeof v === 'boolean' \? v : \['1', 'true', 'on', 'yes'\]\.includes\(String\(v\)\.toLowerCase\(\)\)\)\)/,

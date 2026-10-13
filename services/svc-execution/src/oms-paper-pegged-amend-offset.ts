@@ -7,12 +7,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { PaperGate } from './oms-paper.js';
 
 export type OmsPaperPeggedAmendOffsetRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'offset_blank'
-  | 'offset_invalid'
-  | 'paper_gate_unwired'
-  | 'paper_off';
+  'missing_parent' | 'not_live' | 'offset_blank' | 'offset_invalid' | 'paper_gate_unwired' | 'paper_off';
 
 export type OmsPaperPeggedAmendOffsetRefusal = {
   readonly ok: false;
@@ -31,40 +26,24 @@ export type OmsPaperPeggedAmendOffsetOk = {
   readonly offset: string;
 };
 
-export type OmsPaperPeggedAmendOffsetResult =
-  | OmsPaperPeggedAmendOffsetOk
-  | OmsPaperPeggedAmendOffsetRefusal;
+export type OmsPaperPeggedAmendOffsetResult = OmsPaperPeggedAmendOffsetOk | OmsPaperPeggedAmendOffsetRefusal;
 
-function refuse(
-  reason: OmsPaperPeggedAmendOffsetRefuseReason,
-  detail: string,
-): OmsPaperPeggedAmendOffsetRefusal {
+function refuse(reason: OmsPaperPeggedAmendOffsetRefuseReason, detail: string): OmsPaperPeggedAmendOffsetRefusal {
   return { ok: false, reason, detail };
 }
 
-function parseOffset(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsPaperPeggedAmendOffsetRefusal {
+function parseOffset(raw: string | null | undefined): { ok: true; text: string } | OmsPaperPeggedAmendOffsetRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      'offset_blank',
-      'pegged offset is blank — refuse rather than invent offset from parent amount',
-    );
+    return refuse('offset_blank', 'pegged offset is blank — refuse rather than invent offset from parent amount');
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      'offset_blank',
-      'pegged offset is blank — refuse rather than invent offset from parent amount',
-    );
+    return refuse('offset_blank', 'pegged offset is blank — refuse rather than invent offset from parent amount');
   }
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      'offset_invalid',
-      'pegged offset is not a ledger amount — refusing to invent offset',
-    );
+    return refuse('offset_invalid', 'pegged offset is not a ledger amount — refusing to invent offset');
   }
 }
 
@@ -96,10 +75,7 @@ export function amendPaperPeggedOffset(input: {
   }
   const status = input.status?.trim() ?? '';
   if (status !== 'paper') {
-    return refuse(
-      'not_live',
-      `parent ${parentClientOrderId} is ${status || 'not paper'} — amend needs a live paper pegged parent`,
-    );
+    return refuse('not_live', `parent ${parentClientOrderId} is ${status || 'not paper'} — amend needs a live paper pegged parent`);
   }
   const offset = parseOffset(input.offset);
   if (!offset.ok) return offset;

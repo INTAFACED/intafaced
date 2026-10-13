@@ -5,11 +5,7 @@
  */
 import { parseAmount } from '@intafaced/ledger-client';
 
-export type OmsIsSliceRefuseReason =
-  | 'missing_parent'
-  | 'not_live'
-  | 'missing_qty'
-  | 'qty_invalid';
+export type OmsIsSliceRefuseReason = 'missing_parent' | 'not_live' | 'missing_qty' | 'qty_invalid';
 
 export type OmsIsSliceRefusal = {
   readonly ok: false;
@@ -33,9 +29,7 @@ function refuse(reason: OmsIsSliceRefuseReason, detail: string): OmsIsSliceRefus
   return { ok: false, reason, detail };
 }
 
-function parseQty(
-  raw: string | null | undefined,
-): { ok: true; text: string } | OmsIsSliceRefusal {
+function parseQty(raw: string | null | undefined): { ok: true; text: string } | OmsIsSliceRefusal {
   if (raw === null || raw === undefined) {
     return refuse('missing_qty', 'slice qty is blank — refuse rather than invent size from arrival');
   }
@@ -79,10 +73,7 @@ export function sliceImplementationShortfallParent(input: {
     return refuse('not_live', `kind ${String(input.kind)} is not implementation_shortfall`);
   }
   if (!liveStatus(input.status ?? '')) {
-    return refuse(
-      'not_live',
-      `parent ${parentClientOrderId} is ${input.status} — slice needs a live (approved or running) IS parent`,
-    );
+    return refuse('not_live', `parent ${parentClientOrderId} is ${input.status} — slice needs a live (approved or running) IS parent`);
   }
   const qty = parseQty(input.amount);
   if (!qty.ok) return qty;

@@ -9,14 +9,7 @@ export type OmsMmpUnsupportedRefuse = {
   readonly detail: string;
 };
 
-const EXTRA_KIND = new Set([
-  'mmp',
-  'mass-quote',
-  'mass_quote',
-  'mqq',
-  'market-maker',
-  'market_maker',
-]);
+const EXTRA_KIND = new Set(['mmp', 'mass-quote', 'mass_quote', 'mqq', 'market-maker', 'market_maker']);
 
 function present(value: string | null | undefined): boolean {
   return value !== undefined && value !== null;
