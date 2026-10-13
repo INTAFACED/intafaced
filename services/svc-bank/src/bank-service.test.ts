@@ -323,6 +323,21 @@ describe('svc-bank money PG-hard', () => {
       expect(unnamed).toEqual([{ assetId: 'BTC', balance: '0.25' }]);
     });
 
+    it('keeps the primary user-available balance visible when the first space is named', async () => {
+      await fund(USER_A, 'USDT', '18.5');
+      const named = await bank.spaces.create({ userId: USER_A, assetId: 'USDT', name: 'Rent' });
+      expect(named.kind).toBe('named');
+
+      const primary = await bank.spaces.findPrimary(USER_A, 'USDT');
+      expect(primary?.kind).toBe('primary');
+      expect(formatAmount(await bank.spaces.balanceOf(primary!))).toBe('18.5');
+      expect(await availableOf(USER_A, 'USDT')).toBe('18.5');
+      expect(formatAmount(await bank.spaces.balanceOf(named))).toBe('0');
+
+      const unnamed = await bank.spaces.unnamedAssets(USER_A);
+      expect(unnamed.map((row) => row.assetId)).not.toContain('USDT');
+    });
+
     it('archiving a space moves no value', async () => {
       const primary = await bank.spaces.ensurePrimary(USER_A, 'USDT');
       const pot = await bank.spaces.create({ userId: USER_A, assetId: 'USDT', name: 'Holiday' });

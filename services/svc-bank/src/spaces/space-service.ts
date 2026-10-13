@@ -142,6 +142,8 @@ export class SpaceService {
     goalTarget?: Amount | null;
     lockedUntil?: Date | null;
   }): Promise<SpaceRecord> {
+    // A named row maps to a subaccount. userAvailable stays on the primary.
+    await this.ensurePrimary(input.userId, input.assetId);
     const rows = await this.sql<SpaceRow[]>`
       INSERT INTO bank.spaces (user_id, asset_id, kind, name, goal_target, locked_until)
       VALUES (
@@ -259,17 +261,24 @@ export class SpaceService {
   }
 
   /**
-   * Assets the user holds that have no space yet.
+   * Assets the user holds whose userAvailable has no live primary yet.
    *
    * The ledger is the source of the asset list, not this table: a user who was
    * paid in an asset they have never named still has it, and an overview built
    * only from `spaces` would hide their own money from them.
+   *
+   * A live primary is the only space that covers userAvailable. A named
+   * subaccount does not, so a named-only asset stays on this list.
    */
   async unnamedAssets(userId: string): Promise<Array<{ assetId: string; balance: string }>> {
     const balances = await this.ledger.balances('user', userId);
-    const named = new Set((await this.namedSpaces(userId)).map((s) => s.assetId));
+    const coveredByPrimary = new Set(
+      (await this.namedSpaces(userId))
+        .filter((space) => space.kind === 'primary' && space.archivedAt === null)
+        .map((space) => space.assetId),
+    );
     return balances
-      .filter((b) => b.account.kind === 'available' && b.amount > 0n && !named.has(b.account.assetId))
+      .filter((b) => b.account.kind === 'available' && b.amount > 0n && !coveredByPrimary.has(b.account.assetId))
       .map((b) => ({ assetId: b.account.assetId, balance: formatAmount(b.amount) }));
   }
 
