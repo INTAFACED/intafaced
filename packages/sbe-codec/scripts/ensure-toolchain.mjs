@@ -56,34 +56,42 @@ function download(url, dest, alg, expected) {
   }
 }
 
-export function ensureToolchain() {
-  mkdirSync(TOOLS, { recursive: true });
+const TEMURIN_DIR = 'jdk-21.0.12.1+1';
+
+/** Installed home, or null. Temurin keeps the jdk-21.0.12.1+1 archive root. */
+export function installedJdkHome(jdkRoot) {
+  if (existsSync(join(jdkRoot, 'bin', 'java'))) return jdkRoot;
+  const macHome = join(jdkRoot, TEMURIN_DIR, 'Contents', 'Home');
+  if (existsSync(join(macHome, 'bin', 'java'))) return macHome;
+  const linuxHome = join(jdkRoot, TEMURIN_DIR);
+  if (existsSync(join(linuxHome, 'bin', 'java'))) return linuxHome;
+  return null;
+}
+
+export function ensureToolchain(toolsDir = TOOLS) {
+  mkdirSync(toolsDir, { recursive: true });
   const k = key();
   const jdkPin = JDK[k];
   if (!jdkPin) throw new Error(`no pinned Temurin 21 for ${k}`);
 
-  const jdkTar = join(TOOLS, 'jdk.tgz');
-  const jdkRoot = join(TOOLS, 'jdk');
-  const javaBin = join(jdkRoot, 'bin', 'java');
-  if (!existsSync(javaBin)) {
+  const jdkTar = join(toolsDir, 'jdk.tgz');
+  const jdkRoot = join(toolsDir, 'jdk');
+  let javaHome = installedJdkHome(jdkRoot);
+  if (javaHome === null) {
     download(jdkPin.url, jdkTar, 'sha256', jdkPin.sha256);
     rmSync(jdkRoot, { recursive: true, force: true });
     mkdirSync(jdkRoot, { recursive: true });
     execFileSync('tar', ['-xzf', jdkTar, '-C', jdkRoot], { stdio: 'inherit' });
-  }
-  let javaHome = jdkRoot;
-  const macHome = join(jdkRoot, 'jdk-21.0.12.1+1', 'Contents', 'Home');
-  const linuxHome = join(jdkRoot, 'jdk-21.0.12.1+1');
-  if (existsSync(join(macHome, 'bin', 'java'))) javaHome = macHome;
-  else if (existsSync(join(linuxHome, 'bin', 'java'))) javaHome = linuxHome;
-  else {
-    const javac = execFileSync('find', [jdkRoot, '-type', 'f', '-name', 'javac'], { encoding: 'utf8' }).trim().split('\n').find(Boolean);
-    if (!javac) throw new Error('javac not found in extracted JDK');
-    javaHome = dirname(dirname(javac));
+    javaHome = installedJdkHome(jdkRoot);
+    if (javaHome === null) {
+      const javac = execFileSync('find', [jdkRoot, '-type', 'f', '-name', 'javac'], { encoding: 'utf8' }).trim().split('\n').find(Boolean);
+      if (!javac) throw new Error('javac not found in extracted JDK');
+      javaHome = dirname(dirname(javac));
+    }
   }
 
-  const mvnTar = join(TOOLS, 'maven.tgz');
-  const mvnRoot = join(TOOLS, 'maven');
+  const mvnTar = join(toolsDir, 'maven.tgz');
+  const mvnRoot = join(toolsDir, 'maven');
   const mvnBin = join(mvnRoot, MAVEN.dir, 'bin', 'mvn');
   if (!existsSync(mvnBin)) {
     download(MAVEN.url, mvnTar, 'sha512', MAVEN.sha512);
@@ -95,9 +103,9 @@ export function ensureToolchain() {
   const env = {
     JAVA_HOME: javaHome,
     MVN: existsSync(mvnBin) ? mvnBin : join(mvnRoot, MAVEN.dir, 'bin', 'mvn'),
-    MAVEN_REPO: join(TOOLS, 'm2'),
+    MAVEN_REPO: join(toolsDir, 'm2'),
   };
-  writeFileSync(join(TOOLS, 'env.json'), JSON.stringify(env, null, 2));
+  writeFileSync(join(toolsDir, 'env.json'), JSON.stringify(env, null, 2));
   return env;
 }
 
