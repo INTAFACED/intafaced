@@ -113,9 +113,20 @@ if (!available) {
     return auth.register({ handle, email: `${handle}@example.com`, password: 'correct horse battery staple', region: 'DE' });
   };
 
-  async function ctx(userId: string, opts: { mfa: boolean; extraScopes?: string[] }): Promise<Context> {
+  async function ctx(
+    userId: string,
+    opts: { mfa: boolean; extraScopes?: string[]; apiKeyId?: string; subAccountId?: string },
+  ): Promise<Context> {
     const { token } = await issueAccessToken(
-      { userId, sessionId: randomUUID(), scopes: [...SESSION_SCOPES, ...(opts.extraScopes ?? [])], tier: 'none', mfa: opts.mfa },
+      {
+        userId,
+        sessionId: randomUUID(),
+        scopes: [...SESSION_SCOPES, ...(opts.extraScopes ?? [])],
+        tier: 'none',
+        mfa: opts.mfa,
+        ...(opts.apiKeyId ? { apiKeyId: opts.apiKeyId } : {}),
+        ...(opts.subAccountId ? { subAccountId: opts.subAccountId } : {}),
+      },
       tokenConfig,
     );
     return { principal: await verifyAccessToken(token, tokenConfig), service: null, region: 'DE', requestId: 'req-1' };
@@ -199,6 +210,22 @@ if (!available) {
       await expect(attacker.beginEnrollPasskey()).rejects.toMatchObject(refusedWith('auth.mfa_required'));
       const allowed = router.createCaller(await ctx(userId, { mfa: true }));
       await expect(allowed.beginEnrollPasskey()).resolves.toBeTruthy();
+    });
+
+    it('refuses the top-level enrollPasskey write on a password-only session, before the challenge is spent', async () => {
+      const userId = await accountWithPasskey();
+      const router = createEnrollPasskeyRouter(db.sql, { rpId: 'localhost', rpName: 'INTAFACED', origin: webauthnConfig.origin });
+      const owner = router.createCaller(await ctx(userId, { mfa: true }));
+      const options = await owner.beginEnrollPasskey();
+      const response = softAuthenticator().registrationResponse(options.challenge);
+
+      const attacker = router.createCaller(await ctx(userId, { mfa: false }));
+      await expect(attacker.enrollPasskey(response)).rejects.toMatchObject(refusedWith('auth.mfa_required'));
+      expect(await factors(userId)).toEqual({ totp: false, passkeys: 1 });
+
+      // The refusal is the gate, not a bad ceremony: the same response passes with MFA.
+      await expect(owner.enrollPasskey(response)).resolves.toMatchObject({ credentialId: response.id });
+      expect(await factors(userId)).toEqual({ totp: false, passkeys: 2 });
     });
 
     it('allows an MFA session (passkey login, TOTP login or fresh step-up carry mfa: true)', async () => {
@@ -307,6 +334,51 @@ if (!available) {
       await expect(user.webauthn.remove({ credentialId })).resolves.toEqual({ removed: true });
       expect(await factors(userId)).toEqual({ totp: false, passkeys: 0 });
     });
+  });
+
+  describe('API-key and sub-account principals', () => {
+    const delegates = [
+      ['an API key', { apiKeyId: randomUUID() }],
+      ['a sub-account', { subAccountId: randomUUID() }],
+    ] as const;
+
+    for (const [name, delegate] of delegates) {
+      it(`refuse ${name} adding even a first factor, with or without an mfa claim`, async () => {
+        const { userId } = await register();
+        const rp = { rpId: 'localhost', rpName: 'INTAFACED', origin: webauthnConfig.origin };
+        for (const mfa of [false, true]) {
+          const c = await ctx(userId, { mfa, ...delegate });
+          const api = identity().createCaller(c);
+          await expect(api.totp.enrol()).rejects.toMatchObject(refusedWith('auth.mfa_required'));
+          await expect(api.webauthn.registerOptions()).rejects.toMatchObject(refusedWith('auth.mfa_required'));
+          await expect(createEnrollPasskeyRouter(db.sql, rp).createCaller(c).beginEnrollPasskey()).rejects.toMatchObject(
+            refusedWith('auth.mfa_required'),
+          );
+        }
+        // The write paths refuse too, holding a valid pending secret / challenge.
+        const { secret } = await auth.startTotpEnrolment(userId, PASSWORD_SESSION);
+        const api = identity().createCaller(await ctx(userId, { mfa: false, ...delegate }));
+        await expect(api.totp.confirm({ secret, code: totp(secret) })).rejects.toMatchObject(refusedWith('auth.mfa_required'));
+        const options = await auth.startWebauthnRegistration(userId, PASSWORD_SESSION);
+        await expect(api.webauthn.registerVerify(softAuthenticator().registrationResponse(options.challenge))).rejects.toMatchObject(
+          refusedWith('auth.mfa_required'),
+        );
+        expect(await factors(userId)).toEqual({ totp: false, passkeys: 0 });
+      });
+
+      it(`refuse ${name} removing a factor, even with an mfa claim`, async () => {
+        const userId = await accountWithPasskey();
+        const [row] = await db.sql<Array<{ credentialId: string }>>`
+          SELECT webauthn_creds->0->>'credentialId' AS "credentialId" FROM users WHERE id = ${userId}`;
+        const credentialId = row!.credentialId;
+        const c = await ctx(userId, { mfa: true, ...delegate });
+        await expect(identity().createCaller(c).webauthn.remove({ credentialId })).rejects.toMatchObject(refusedWith('auth.mfa_required'));
+        await expect(createUnenrollPasskeyRouter(db.sql).createCaller(c).unenrollPasskey({ credentialId })).rejects.toMatchObject(
+          refusedWith('auth.mfa_required'),
+        );
+        expect(await factors(userId)).toEqual({ totp: false, passkeys: 1 });
+      });
+    }
   });
 
   it('merges cleanly with the top-level routers (no procedure name clash)', () => {

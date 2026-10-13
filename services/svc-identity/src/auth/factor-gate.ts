@@ -20,6 +20,9 @@
  *     through an invite-gated path, not a password.
  *   · Removing a factor always needs an MFA session (the account has one by
  *     definition), refused before any lookup so it cannot be used to probe ids.
+ *   · An API-key (`kid`) or sub-account (`sub_account`) principal may never add
+ *     or remove a factor, not even the first one: it is not a person at a
+ *     keyboard, and a leaked key must not be able to mint a sign-in factor.
  *
  * "Has no factor" is read here under `SELECT … FOR UPDATE` on the user row, in
  * the SAME transaction as the write, so two parallel first-factor enrolments
@@ -35,17 +38,26 @@ export interface FactorActor {
   readonly mfa: boolean;
   /** Founder / admin-scope identity: password-only first-factor enrolment is refused. */
   readonly privileged: boolean;
+  /** API-key or sub-account principal: every factor change is refused. */
+  readonly delegated?: boolean;
 }
 
 /** Derive the actor from a verified principal. `privilegedUserIds` is the founder pair. */
 export function factorActor(
-  principal: { readonly userId: string; readonly mfa: boolean; readonly scopes: readonly string[] },
+  principal: {
+    readonly userId: string;
+    readonly mfa: boolean;
+    readonly scopes: readonly string[];
+    readonly kid?: string | undefined;
+    readonly sub_account?: string | undefined;
+  },
   privilegedUserIds: readonly string[] = [],
 ): FactorActor {
   const id = principal.userId.toLowerCase();
   return {
     mfa: principal.mfa === true,
     privileged: privilegedUserIds.some((p) => p.toLowerCase() === id) || principal.scopes.some((s) => s.startsWith('admin:')),
+    delegated: Boolean(principal.kid) || Boolean(principal.sub_account),
   };
 }
 
@@ -55,6 +67,12 @@ export function accountHasSecondFactor(row: { totp_secret: string | null; webaut
 
 function refuseMfa(): never {
   throw new AuthError('Verify with your second factor before changing two-factor settings', 'auth.mfa_required');
+}
+
+function refuseDelegated(actor: FactorActor): void {
+  if (actor.delegated) {
+    throw new AuthError('Sign in yourself to change two-factor settings; an API key or sub-account cannot', 'auth.mfa_required');
+  }
 }
 
 /**
@@ -76,6 +94,7 @@ export async function assertMayAddFactor(sql: Sql, userId: string, actor: Factor
 
 /** The rule itself, on a row the caller already read (and, for writes, locked). */
 export function checkMayAddFactor(row: { totp_secret: string | null; webauthn_creds: unknown }, actor: FactorActor): void {
+  refuseDelegated(actor);
   if (actor.mfa) return;
   if (accountHasSecondFactor(row)) refuseMfa();
   if (actor.privileged) {
@@ -83,8 +102,9 @@ export function checkMayAddFactor(row: { totp_secret: string | null; webauthn_cr
   }
 }
 
-/** Removing any factor needs an MFA session. Call before touching the row. */
+/** Removing any factor needs an interactive MFA session. Call before touching the row. */
 export function assertMayRemoveFactor(actor: FactorActor): void {
+  refuseDelegated(actor);
   if (!actor.mfa) refuseMfa();
 }
 
