@@ -78,4 +78,15 @@ describe('MemoryLedger idempotency conflict mode', () => {
     expect((await ledger.post(deposit('50'))).id).toBe(first.id);
     expect(seen).toEqual([{ idempotencyKey: first.idempotencyKey, module: 'ledger', reason: expect.any(String) }]);
   });
+
+  it('detect: a throwing reporter cannot change the answer', async () => {
+    const ledger = new MemoryLedger({
+      idempotencyConflict: 'detect',
+      onIdempotencyMismatch: () => {
+        throw new Error('log sink down');
+      },
+    });
+    const first = await ledger.post(deposit('50'));
+    expect((await ledger.post(deposit('500'))).id).toBe(first.id);
+  });
 });

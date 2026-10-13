@@ -489,7 +489,11 @@ export class PostgresLedger implements LedgerClient {
           IDEMPOTENCY_CONFLICT_CODE,
         );
       }
-      this.options.onIdempotencyMismatch?.({ idempotencyKey: request.idempotencyKey, module: request.module, reason: request.reason });
+      try {
+        this.options.onIdempotencyMismatch?.({ idempotencyKey: request.idempotencyKey, module: request.module, reason: request.reason });
+      } catch {
+        // Reporting a mismatch must never change the answer: detect mode returns the original, always.
+      }
     }
     return claimed.tx;
   }
