@@ -200,8 +200,10 @@ export const paymentProfiles = pay.table(
  * A payment (§6.1).
  *
  * `amount` is the AUTHORIZED amount — what the payer agreed to. It never
- * changes. What was actually captured and refunded is summed from
- * `payment_events`.
+ * changes, and neither do `currency` or `rail_adapter`: capture posts that
+ * amount in that currency through that rail. `payments_amount_frozen_trg`
+ * (0020) refuses an UPDATE that would rewrite any of the three. What was
+ * actually captured and refunded is summed from `payment_events`.
  */
 export const payments = pay.table(
   'payments',
