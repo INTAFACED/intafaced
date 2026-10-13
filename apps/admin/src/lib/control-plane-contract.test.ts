@@ -55,7 +55,7 @@ describe('strict module read data', () => {
     expect(decodeRead({ status: 'unconfigured', snapshot: zero, detail: null }, 200, true).status).toBe('invalid_response');
   });
   it('browser GET uses only same-origin no-store and decodes unreadable success', async () => {
-    const fetch = vi.fn(async () => new Response('unreadable', { status: 200 }));
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response('unreadable', { status: 200 }));
     vi.stubGlobal('fetch', (url: string, init?: RequestInit) =>
       url === '/api/session' ? Promise.resolve(Response.json({ csrf: 'A'.repeat(43) })) : fetch(url, init),
     );
@@ -162,7 +162,9 @@ describe('browser command envelopes cannot turn contradictory HTTP200 into a def
     expect(decodeToggle(valid, 200, intent, true).detail).toContain('original operation lookup and current human identity are unavailable');
   });
   it('actual browser helper treats false200 as unresolved with exactly one isolated request', async () => {
-    const fetch = vi.fn(async () => Response.json({ ...valid, ok: false, status: 400, code: 'action_approval.missing' }));
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      Response.json({ ...valid, ok: false, status: 400, code: 'action_approval.missing' }),
+    );
     vi.stubGlobal('fetch', (url: string, init?: RequestInit) =>
       url === '/api/session' ? Promise.resolve(Response.json({ csrf: 'A'.repeat(43) })) : fetch(url, init),
     );
