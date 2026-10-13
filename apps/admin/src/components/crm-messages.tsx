@@ -3,16 +3,36 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CrmOpportunity, crmMessagePageSchema, crmQueueMessageReceiptSchema, crmMessageSchema } from '@intafaced/contracts';
 import { crmJson, crmWrite, workflowUrl, crmDate as date, crmLabel as label, type PendingCrmWrite } from '@/lib/crm-browser';
 import { founderName, type FounderOwner } from './founder-names';
+import { kindLabel } from './crm-workflows';
 type Page = (typeof crmMessagePageSchema)['_output'];
 type Receipt = (typeof crmQueueMessageReceiptSchema)['_output'];
 type Message = (typeof crmMessageSchema)['_output'];
-const statusText: Record<Message['status'], string> = {
-  pending: 'Queued · awaiting dispatch',
-  unconfigured: 'Saved in queue · delivery not configured',
-  accepted: 'Gateway accepted · arrival unconfirmed',
-  failed: 'Dispatch failed',
-  unresolved: 'Acceptance unknown · no automatic resend',
+export const statusText: Record<Message['status'], string> = {
+  pending: 'Saved, not emailed yet',
+  unconfigured: 'Saved, but email sending is not set up yet',
+  accepted: 'Handed to the email service. We cannot confirm it arrived',
+  failed: 'Sending failed',
+  unresolved: 'Unclear whether it was sent. It will not be resent automatically',
 };
+/** A sent or queued message as a founder reads it. The text is shown only when the API returns it. */
+export function MessageItem({ message, owners }: { message: Message & { staffText?: string }; owners: FounderOwner[] }) {
+  return (
+    <li>
+      <strong>{kindLabel(message.kind)}</strong>
+      <small>{statusText[message.status]}</small>
+      <small>
+        {founderName(owners, message.actorUserId)} · saved {date(message.createdAt)}
+      </small>
+      {message.staffText && <p className="adm-message-text">{message.staffText}</p>}
+      {message.notification?.code && <p className="adm-subtle">{label(message.notification.code.replace('guest.', ''))}</p>}
+      {message.notification?.acceptedAt && (
+        <p className="adm-subtle">
+          Handed to the email service {date(message.notification.acceptedAt)}. This does not confirm that the person received or read it.
+        </p>
+      )}
+    </li>
+  );
+}
 export function CrmMessages({
   csrf,
   opportunity,
@@ -80,10 +100,10 @@ export function CrmMessages({
       const recordFresh = await onSaved(),
         messagesFresh = await refresh();
       setNotice(
-        `Queue-time receipt: ${statusText[saved.message.status]}. This is a durable queue receipt.${recordFresh && messagesFresh ? '' : ' Refresh to load the latest records.'}`,
+        `Message saved. Status: ${statusText[saved.message.status]}.${recordFresh && messagesFresh ? '' : ' Refresh to load the latest records.'}`,
       );
     } catch (failure) {
-      if (saved) setNotice(`Queue-time receipt: ${statusText[saved.message.status]}. Refresh to load the latest records.`);
+      if (saved) setNotice(`Message saved. Status: ${statusText[saved.message.status]}. Refresh to load the latest records.`);
       else setError(failure instanceof Error ? failure.message : 'Could not confirm the queue request.');
     } finally {
       setBusy(false);
@@ -92,10 +112,10 @@ export function CrmMessages({
   const inviteAllowed = opportunity.audience === 'investor' && ['qualified', 'diligence', 'terms'].includes(opportunity.stage);
   return (
     <section className="adm-enquiry-messages">
-      <h3>Enquiry messages</h3>
+      <h3>Messages</h3>
       <p className="adm-subtle">
-        Messages go to the original submission address: {originalRecipient.name} · {originalRecipient.email}. A canonical contact merge does
-        not replace this recipient.
+        Messages go to the original submission address: {originalRecipient.name} · {originalRecipient.email}. Merging duplicate contacts
+        does not change who receives them.
       </p>
       {error && (
         <p className="adm-alert" role="alert">
@@ -109,22 +129,10 @@ export function CrmMessages({
       )}
       <ul className="adm-history">
         {page?.items.map((message) => (
-          <li key={message.id}>
-            <strong>{label(message.kind)}</strong>
-            <small>{statusText[message.status]}</small>
-            <small>
-              {founderName(owners, message.actorUserId)} · queued {date(message.createdAt)}
-            </small>
-            {message.notification?.code && <p className="adm-subtle">{label(message.notification.code.replace('guest.', ''))}</p>}
-            {message.notification?.acceptedAt && (
-              <p className="adm-subtle">
-                Gateway accepted {date(message.notification.acceptedAt)}. This does not confirm that the recipient received or read it.
-              </p>
-            )}
-          </li>
+          <MessageItem key={message.id} message={message} owners={owners} />
         ))}
       </ul>
-      {!loading && page?.items.length === 0 && <p className="adm-subtle">No staff messages on the last loaded page.</p>}
+      {!loading && page?.items.length === 0 && <p className="adm-subtle">No messages yet.</p>}
       <div className="adm-pagination">
         <button
           type="button"
@@ -208,8 +216,8 @@ export function CrmMessages({
             Queue this transactional message for the original enquiry address shown above.
           </label>
           <p className="adm-subtle">
-            Saved in queue and gateway accepted are different outcomes. Unknown acceptance remains for staff review; there is no automatic
-            resend button.
+            "Saved" and "handed to the email service" are different things. If we cannot tell whether a message was sent, it stays there for
+            you to review; it is never resent automatically.
           </p>
           <button
             type="submit"
