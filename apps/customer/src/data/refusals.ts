@@ -40,6 +40,11 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   pricesDown: { title: "Prices can't be loaded", body: "Prices can't be loaded right now. Try again in a minute." },
   slippageCapUnset: { title: 'Market orders are paused', body: 'Use a limit order instead.' },
   noBook: { title: 'No one is trading this market right now', body: 'Prices will show when the first orders arrive.' },
+  insufficientDepth: {
+    title: 'Not enough for sale right now',
+    body: 'Not enough for sale right now for that amount. Try a smaller amount.',
+  },
+  quoteFailed: { title: "Couldn't get a price", body: "Couldn't get a price, try again." },
   marketNotOpen: { title: "This market isn't open", body: "You can't trade it right now." },
   destMissing: { title: "We couldn't find that account", body: 'Check the handle and try again.' },
   signedOut: { title: 'Sign in again', body: 'Your session ended. Sign in to carry on.', action: { label: 'Sign in', href: '/login' } },

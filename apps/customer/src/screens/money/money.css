@@ -418,6 +418,33 @@
   .money-tabs {
     margin-top: 16px;
   }
+  .money-filter {
+    display: flex;
+    margin-top: 16px;
+  }
+  .money-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 10px 0 12px;
+    border: 1px solid var(--if-line);
+    border-radius: 999px;
+    background: var(--if-raised);
+    color: var(--if-fg);
+    font: 500 13px/18px var(--if-font-ui);
+    cursor: pointer;
+    transition: background-color var(--if-t-fast) var(--if-ease);
+  }
+  .money-chip:hover {
+    background: var(--if-pill-active);
+  }
+  .money-chip svg {
+    color: var(--if-fg-2);
+  }
+  .money-filter + .money-card--activity {
+    margin-top: 12px;
+  }
   .money-card--activity {
     margin-top: 16px;
     padding-bottom: 0;

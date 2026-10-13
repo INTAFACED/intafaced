@@ -539,7 +539,7 @@ for (const kind of ['create', 'revoke'])
     s.owner = other;
     await login(page);
     hold.release();
-    await expect(page.getByRole('region', { name: 'Personal account' })).toContainText(other);
+    await expect(page.getByRole('region', { name: 'Account ID' })).toContainText(other);
     await expect(list(page)).toContainText(a);
     expect(s.writes).toEqual([]);
     expect(await journal(page)).toBeNull();
@@ -559,7 +559,7 @@ test('held create preflight token refresh cancels original despite same owner', 
   await expect.poll(() => reads).toBe(2);
   await expect.poll(() => s.sequence).toBe(2);
   hold.release();
-  await expect(page.getByRole('region', { name: 'Personal account' })).toContainText(owner);
+  await expect(page.getByRole('region', { name: 'Account ID' })).toContainText(owner);
   expect(createCount(s)).toBe(0);
   expect(await journal(page)).toBeNull();
 });
@@ -580,7 +580,7 @@ for (const kind of ['create', 'revoke'])
     s.owner = other;
     await login(page);
     hold.release();
-    await expect(page.getByRole('region', { name: 'Personal account' })).toContainText(other);
+    await expect(page.getByRole('region', { name: 'Account ID' })).toContainText(other);
     await expect(requests(page)).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Review subaccount', exact: true })).toBeEnabled();
     expect(await journal(page)).toEqual(original);

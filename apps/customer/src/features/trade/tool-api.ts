@@ -147,10 +147,16 @@ export const positionPreviewSchema = z.object({
   orderable: z.boolean(),
   refusals: z.array(z.object({ code: z.string(), field: z.string(), message: z.string() })),
 });
+/**
+ * `convert.quote` takes exactly one size: a base amount (`qty`, buy or sell) or a spend in the quote asset
+ * (`quoteQty`, buy only; the service never charges more than it). The union makes sending both, or neither, a type error.
+ */
+export type ConvertQuoteInput =
+  { symbol: string; side: 'buy' | 'sell'; qty: string; quoteQty?: never } | { symbol: string; side: 'buy'; quoteQty: string; qty?: never };
+
 export function createToolApi(api: ApiClient) {
   return {
-    convertQuote: (input: { symbol: string; side: 'buy' | 'sell'; qty: string }) =>
-      api.query('trade', 'convert.quote', input, convertQuoteSchema),
+    convertQuote: (input: ConvertQuoteInput) => api.query('trade', 'convert.quote', input, convertQuoteSchema),
     convertAccept: (quoteId: string, clientConvertId: string) =>
       api.mutate('trade', 'convert.accept', { quoteId, clientConvertId }, convertTradeSchema),
     algoGet: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.get', { algoId }, algoSchema, { signal }),

@@ -52,9 +52,10 @@ function pathOf(href: string): string {
 /**
  * The five top-bar tabs and the dropdown rows under them (UI-SPEC 3.1). A row whose route
  * belongs to a hidden feature is dropped, so a menu only ever lists things that work; a tab
- * left with no rows is a plain link.
+ * left with no rows is a plain link. More and Settings need a session, so a signed-out visitor's More tab opens the public Help centre
+ * (`/help`) and lists only that; a signed-in person gets `/more` and `/support`.
  */
-export function tabSpecs(layoutMode: 'simple' | 'pro'): TabSpec[] {
+export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true): TabSpec[] {
   const all: TabSpec[] = [
     { door: 'Home', href: '/home', icon: 'home', items: [] },
     {
@@ -88,12 +89,14 @@ export function tabSpecs(layoutMode: 'simple' | 'pro'): TabSpec[] {
     },
     {
       door: 'More',
-      href: '/help',
+      href: signedIn ? '/more' : '/help',
       icon: 'grid',
-      items: [
-        { id: 'help', href: '/help', icon: 'help', title: 'Help', description: 'Answers and support' },
-        { id: 'settings', href: '/view', icon: 'settings', title: 'Settings', description: 'Display, language and notifications' },
-      ],
+      items: signedIn
+        ? [
+            { id: 'help', href: '/support', icon: 'help', title: 'Help', description: 'Answers and support' },
+            { id: 'settings', href: '/view', icon: 'settings', title: 'Settings', description: 'Display, language and notifications' },
+          ]
+        : [{ id: 'help', href: '/help', icon: 'help', title: 'Help', description: 'Answers and support' }],
     },
   ];
   return all.map((tab) => ({ ...tab, items: tab.items.filter((item) => !isHiddenPath(pathOf(item.href))) }));

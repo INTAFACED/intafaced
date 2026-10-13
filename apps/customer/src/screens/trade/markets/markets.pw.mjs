@@ -130,13 +130,12 @@ test('ready state at 1440x900: layout, words, numbers, keyboard path', async ({ 
   await expect(btc.locator('.mkt-range__marker')).toHaveAttribute('style', /left: 8\d\.\d+%/);
   expect(await page.locator('.mkt-row [data-slot="sparkline"] polyline').count()).toBe(8);
 
-  // Simple mode (default): the row and the Buy button go to the Buy card. There is no Details button until the coin
-  // page exists (M3), and nothing on the page links to the old /coin screen (critic H3).
-  await expect(btc.locator('[data-row-link]')).toHaveAttribute('href', '/trade/buy?asset=BTC');
-  await expect(btc.locator('[data-col="action"] a')).toHaveCount(1);
+  // Simple mode (default), signed in: the row and the Buy button open the coin page (it needs a session).
+  await expect(btc.locator('[data-row-link]')).toHaveAttribute('href', '/coin/BTC');
+  await expect(btc.locator('[data-col="action"] a')).toHaveCount(2);
   await expect(btc.locator('[data-col="action"] a').nth(0)).toHaveText('Buy');
-  await expect(btc.locator('[data-col="action"] a').nth(0)).toHaveAttribute('href', '/trade/buy?asset=BTC');
-  expect(await page.locator('.if-markets a[href^="/coin/"]').count()).toBe(0);
+  await expect(btc.locator('[data-col="action"] a').nth(0)).toHaveAttribute('href', '/coin/BTC');
+  await expect(btc.locator('[data-col="action"] a').nth(1)).toHaveText('Details');
   // Critic H1/H2: the Buy label is readable and kit sizes are true px.
   expect(Math.round((await box(page, '[data-symbol="BTC/USDT"] [data-col="action"] a'))?.height)).toBe(32);
 
@@ -177,10 +176,10 @@ test('ready state at 1440x900: layout, words, numbers, keyboard path', async ({ 
   expect(names).toEqual(expect.arrayContaining(['See all New listings', 'See all Top gainers']));
   expect(names).toContain('Search markets');
   expect(names).toContain('Sort by Name');
-  const rowStops = path.slice(path.findIndex((stop) => stop.href === '/trade/buy?asset=BTC' && stop.name.startsWith('BTC')));
+  const rowStops = path.slice(path.findIndex((stop) => stop.href === '/coin/BTC' && stop.name.startsWith('BTC')));
   expect(rowStops.map((stop) => stop.name)).toEqual(expect.arrayContaining(['Add BTC to favorites', 'Buy BTC']));
   // Focus ring: 2 px lime on controls; the stretched row link draws it on its ::after.
-  for (const stop of path.filter((s) => !s.href?.startsWith('/trade/') || s.name.startsWith('Buy'))) {
+  for (const stop of path.filter((s) => !(s.href?.startsWith('/trade/') || s.href?.startsWith('/coin/')) || s.name.startsWith('Buy'))) {
     expect(stop.outline, `focus ring on ${stop.name}`).toBe('solid 2px rgb(200, 246, 74)');
   }
 
@@ -339,6 +338,9 @@ test('signed out: the star leads to sign-in and comes back; Favorites says to lo
   await ready(page);
   const star = page.getByRole('link', { name: 'Log in to star BTC' }).first();
   await expect(star).toHaveAttribute('href', '/login?redirect=%2Ftrade%3Fsignedout%3D1');
+  // The coin page needs a session, so a signed-out visitor's rows open the public Buy card instead of a sign-in wall.
+  await expect(page.locator('[data-symbol="BTC/USDT"] [data-row-link]')).toHaveAttribute('href', '/trade/buy?asset=BTC');
+  expect(await page.locator('.if-markets a[href^="/coin/"]').count()).toBe(0);
   await page.getByRole('tab', { name: 'Favorites' }).click();
   await expect(page.locator('.mkt-empty')).toContainText('Log in to keep your favorites here.');
   await expect(page.locator('.mkt-empty a')).toHaveText('Log in');

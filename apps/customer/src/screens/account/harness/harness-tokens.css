@@ -1,0 +1,38 @@
+/* Test harness only: page chrome around Home. Tokens and fonts come from the real theme (app/redesign.css). */
+html,
+body {
+  margin: 0;
+  background: var(--if-bg);
+  color: var(--if-fg);
+}
+body {
+  min-height: 100vh;
+}
+.harness-bar {
+  overflow: hidden;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  height: 48px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--if-line);
+  font: 500 14px/20px var(--if-font-ui);
+}
+.harness-bar a {
+  color: var(--if-fg-2);
+  text-decoration: none;
+}
+.harness-bar a:first-child {
+  color: var(--if-fg);
+  font-weight: 700;
+  font-size: 16px;
+}
+.harness-bar a[aria-current='page'] {
+  color: var(--if-fg);
+}
+.harness-bar span {
+  margin-left: auto;
+  color: var(--if-fg-3);
+  font-size: 12px;
+}

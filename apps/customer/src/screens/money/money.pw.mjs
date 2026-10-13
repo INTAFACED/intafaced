@@ -583,6 +583,48 @@ test('activity opens on Trades, built from fills: one row per trade with price, 
   expect(errors).toEqual([]);
 });
 
+test('activity ?asset= narrows Trades and All to one coin, shows a removable chip, and unknown coins read as empty', async ({ page }) => {
+  await mock(page);
+  const chip = (name) => page.getByRole('button', { name: `Remove ${name} filter` });
+  // Trades: fills whose base or quote is the coin.
+  await open(page, '/money/activity?tab=trades&asset=BTC');
+  await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(2);
+  await expect(chip('BTC')).toHaveText('BTC');
+  await open(page, '/money/activity?asset=USDT');
+  await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(2);
+  await open(page, '/money/activity?tab=trades&asset=ETH');
+  await expect(chip('ETH')).toBeVisible();
+  await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(0);
+  await expect(page.locator('.money-state')).toContainText('No ETH trades yet');
+  // Unknown coin: a filter-aware empty state (every fill was seen), and the chip still removes the filter.
+  await open(page, '/money/activity?tab=trades&asset=ZZZ');
+  await expect(page.locator('.money-state')).toContainText('No ZZZ trades yet');
+  await chip('ZZZ').click();
+  await expect(page).toHaveURL(/\/money\/activity$/);
+  await expect(chip('ZZZ')).toHaveCount(0);
+  await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(2);
+  // All: a whole order stays together when any of its lines is in the coin (the BTC buy keeps its USDT lines).
+  await open(page, '/money/activity?tab=all&asset=BTC');
+  await expect(page.locator('.money-act')).toHaveCount(1);
+  expect(await texts(page.locator('.money-act__title'))).toEqual(['Trade']);
+  expect(await texts(page.locator('.money-act__sub'))).toEqual(['Paid 678.124000 USDT · Fee 0.678100 USDT']);
+  // ...and it looks back through older pages on its own (ETH is on both pages).
+  await open(page, '/money/activity?tab=all&asset=ETH');
+  await expect(page.locator('.money-act')).toHaveCount(2);
+  await open(page, '/money/activity?tab=all&asset=ZZZ');
+  await expect(page.locator('.money-act')).toHaveCount(0);
+  await expect(page.locator('.money-state')).toContainText('No ZZZ activity');
+  await expect(page.locator('.money-state')).not.toContainText('No activity yet');
+  await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(0);
+  // Switching tab keeps the coin; removing the chip clears only the coin.
+  await open(page, '/money/activity?tab=all&asset=BTC');
+  await page.locator('[data-slot="tabs-tab"]', { hasText: 'Deposits' }).click();
+  await expect(page).toHaveURL(/tab=deposits&asset=BTC$/);
+  await snap(page, 'activity-asset-chip-1440x900');
+  await chip('BTC').click();
+  await expect(page).toHaveURL(/\/money\/activity\?tab=deposits$/);
+});
+
 test('activity Orders tab shows open orders with Cancel and the order history (critic H2)', async ({ page }) => {
   await mock(page);
   await open(page, '/money/activity?tab=orders');
@@ -784,6 +826,71 @@ test('activity tabs filter the rows, keep the address in step, and look further 
   // Back and forward follow the tabs.
   await page.goBack();
   await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Transfers');
+});
+
+test('a coin filter with no match in the pages read keeps Load more and does not claim there is none', async ({ page }) => {
+  // Six pages of USDT lines; the only BTC line is on the last one. The screen reads the first five (itself, four times back), then stops and asks.
+  const line = (id, minutes, asset) => ({
+    id,
+    kind: 'transfer_in',
+    direction: 'in',
+    asset,
+    amount: '5',
+    postedAt: new Date(Date.UTC(2026, 9, 14, 12) - minutes * 60_000).toISOString(),
+    txId: `tx-${id}`,
+    counterparty: null,
+    spaceName: null,
+  });
+  const pageOf = (n) => ({
+    items: Array.from({ length: 5 }, (_, index) => line(`p${n}-${index}`, n * 10 + index, n === 6 && index === 4 ? 'BTC' : 'USDT')),
+    nextCursor: n === 6 ? null : `cursor-${n + 1}`,
+  });
+  const api = await mock(page, {
+    bank: { 'activity.list': (input) => pageOf(input?.cursor ? Number(input.cursor.split('-')[1]) : 1) },
+  });
+  await open(page, '/money/activity?tab=all&asset=BTC');
+  const block = page.locator('[data-slot="state-block"][data-kind="empty"]');
+  await expect(block).toContainText('No BTC activity in the latest items');
+  await expect(block).toContainText('Load more to look further back.');
+  await expect(block).not.toContainText('No activity yet');
+  await expect(block.locator('a')).toHaveCount(0);
+  const more = page.getByRole('button', { name: 'Load more' });
+  await expect(more).toBeVisible();
+  expect(api.calls('activity.list').filter((call) => call.input?.cursor)).toHaveLength(4);
+  // Pressing it reaches the older page, where the BTC line is.
+  await more.click();
+  await expect(page.locator('.money-act')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(0);
+  await expect(block).toHaveCount(0);
+  // The Deposits tab, with no coin, is the same: thin tabs keep asking instead of claiming "No deposits yet".
+  await open(page, '/money/activity?tab=deposits');
+  await expect(page.locator('[data-slot="state-block"][data-kind="empty"]')).toContainText('No deposits in the latest items');
+  await expect(page.getByRole('button', { name: 'Load more' })).toBeVisible();
+});
+
+test('Trades with a coin filter and a full page of other fills says "latest 100", keeps the note, and does not say none', async ({
+  page,
+}) => {
+  const fill = (index) => ({
+    id: `x${index}`,
+    order: `order-x${index}`,
+    timestamp: Date.UTC(2026, 9, 14, 8) - index * 60_000,
+    datetime: new Date(Date.UTC(2026, 9, 14, 8) - index * 60_000).toISOString(),
+    symbol: 'ETH/USDT',
+    type: 'market',
+    side: 'buy',
+    takerOrMaker: 'taker',
+    price: '2600.00',
+    amount: '0.5',
+    cost: '1300.000000',
+    fee: { cost: '0.00050000', currency: 'ETH', rate: '0.001' },
+  });
+  await mock(page, { rest: { 'account/trades': () => Array.from({ length: 100 }, (_, index) => fill(index + 1)) } });
+  await open(page, '/money/activity?tab=trades&asset=BTC');
+  const block = page.locator('[data-slot="state-block"][data-kind="empty"]');
+  await expect(block).toContainText('No BTC trades in your latest 100');
+  await expect(block).not.toContainText('No trades yet');
+  await expect(page.locator('.money-act-note')).toHaveText('Showing your latest 100 trades.');
 });
 
 test('activity empty: a way forward', async ({ page }) => {

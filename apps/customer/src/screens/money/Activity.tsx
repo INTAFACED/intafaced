@@ -13,12 +13,16 @@ import {
   LockOpen,
   Receipt,
   Repeat,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import {
+  assetFromSearch,
   groupActivity,
+  groupInAsset,
   inTab,
   isLedgerTab,
+  ledgerEmpty,
   tabFromSearch,
   tabHref,
   titleOf,
@@ -181,34 +185,83 @@ function emptyAction(copy: Copy) {
   return isHiddenPath('/pay/receive') ? undefined : { label: t('Receive'), href: '/pay/receive' };
 }
 
-function Body({ feed, tab, copy, hidden }: { feed: ActivityFeed; tab: LedgerTab; copy: Copy; hidden: boolean }) {
+function Body({
+  feed,
+  tab,
+  asset,
+  copy,
+  hidden,
+}: {
+  feed: ActivityFeed;
+  tab: LedgerTab;
+  asset: string | null;
+  copy: Copy;
+  hidden: boolean;
+}) {
   const { t } = copy;
   const { groups } = useMemo(() => groupActivity(feed.items), [feed.items]);
-  const rows = groups.filter((group) => inTab(group.main, tab));
+  const rows = groups.filter((group) => inTab(group.main, tab) && (!asset || groupInAsset(group, asset)));
   const pages = useRef(0);
 
   // The server has no kind filter, so a narrow tab may be thin: look further back a few pages, then ask.
   useEffect(() => {
     pages.current = 0;
-  }, [tab]);
+  }, [tab, asset]);
   useEffect(() => {
-    if (tab === 'all' || !feed.hasMore || feed.loadingMore || feed.moreFailed) return;
+    if ((tab === 'all' && !asset) || !feed.hasMore || feed.loadingMore || feed.moreFailed) return;
     if (rows.length >= WANT_ROWS || pages.current >= AUTO_PAGES) return;
     pages.current += 1;
     feed.loadMore();
-  }, [tab, rows.length, feed]);
+  }, [tab, asset, rows.length, feed]);
 
-  const searching = tab !== 'all' && rows.length === 0 && feed.hasMore && pages.current < AUTO_PAGES && !feed.moreFailed;
-  if (rows.length === 0 && !searching)
+  const searching =
+    (tab !== 'all' || asset !== null) && rows.length === 0 && feed.hasMore && pages.current < AUTO_PAGES && !feed.moreFailed;
+  const more = feed.hasMore ? (
+    <div className="money-more">
+      {feed.moreFailed ? <p className="money-more__note">{t('Couldn’t load more')}</p> : null}
+      <Button variant="secondary" size={40} loading={feed.loadingMore} onClick={feed.loadMore}>
+        {feed.moreFailed ? t('Try again') : t('Load more')}
+      </Button>
+    </div>
+  ) : null;
+  if (rows.length === 0 && !searching) {
+    // A filter that matches nothing in the pages read so far must not say there is nothing: older pages may match.
+    const why = ledgerEmpty(tab, asset, feed.hasMore);
+    const block =
+      why === 'more' ? (
+        <StateBlock
+          kind="empty"
+          className="money-state"
+          title={
+            asset
+              ? t('No {asset} activity in the latest items', { asset })
+              : t(tab === 'deposits' ? 'No deposits in the latest items' : 'No transfers in the latest items')
+          }
+          body={t('Load more to look further back')}
+        />
+      ) : why === 'asset' && asset ? (
+        <StateBlock
+          kind="empty"
+          className="money-state"
+          title={t('No {asset} activity', { asset })}
+          body={t('No {asset} activity body', { asset })}
+        />
+      ) : (
+        <StateBlock
+          kind="empty"
+          className="money-state"
+          title={t(tab === 'all' ? 'No activity yet' : TAB_EMPTY[tab as Exclude<LedgerTab, 'all'>])}
+          body={tab === 'all' ? t('No activity yet body') : t('Nothing of this kind yet body')}
+          action={tab === 'all' ? emptyAction(copy) : undefined}
+        />
+      );
     return (
-      <StateBlock
-        kind="empty"
-        className="money-state"
-        title={t(tab === 'all' ? 'No activity yet' : TAB_EMPTY[tab])}
-        body={tab === 'all' ? t('No activity yet body') : t('Nothing of this kind yet body')}
-        action={tab === 'all' ? emptyAction(copy) : undefined}
-      />
+      <>
+        {block}
+        {more}
+      </>
     );
+  }
   if (rows.length === 0) return <SkeletonRows count={4} label={t('Searching your history')} />;
 
   return (
@@ -238,19 +291,24 @@ function Body({ feed, tab, copy, hidden }: { feed: ActivityFeed; tab: LedgerTab;
           ))}
         </tbody>
       </table>
-      {feed.hasMore ? (
-        <div className="money-more">
-          {feed.moreFailed ? <p className="money-more__note">{t('Couldn’t load more')}</p> : null}
-          <Button variant="secondary" size={40} loading={feed.loadingMore} onClick={feed.loadMore}>
-            {feed.moreFailed ? t('Try again') : t('Load more')}
-          </Button>
-        </div>
-      ) : null}
+      {more}
     </>
   );
 }
 
-function Content({ activity, tab, copy, hidden }: { activity: Loadable<ActivityFeed>; tab: LedgerTab; copy: Copy; hidden: boolean }) {
+function Content({
+  activity,
+  tab,
+  asset,
+  copy,
+  hidden,
+}: {
+  activity: Loadable<ActivityFeed>;
+  tab: LedgerTab;
+  asset: string | null;
+  copy: Copy;
+  hidden: boolean;
+}) {
   const { t } = copy;
   switch (activity.status) {
     case 'loading':
@@ -289,14 +347,14 @@ function Content({ activity, tab, copy, hidden }: { activity: Loadable<ActivityF
         />
       );
     case 'ready':
-      return <Body feed={activity.data} tab={tab} copy={copy} hidden={hidden} />;
+      return <Body feed={activity.data} tab={tab} asset={asset} copy={copy} hidden={hidden} />;
   }
 }
 
 /** The ledger-based tabs (All, Deposits, Transfers). Mounted only on those tabs, so the other two never read the ledger. */
-function LedgerTabs({ tab, copy, hidden }: { tab: LedgerTab; copy: Copy; hidden: boolean }) {
+function LedgerTabs({ tab, asset, copy, hidden }: { tab: LedgerTab; asset: string | null; copy: Copy; hidden: boolean }) {
   const activity = useActivity();
-  return <Content activity={activity} tab={tab} copy={copy} hidden={hidden} />;
+  return <Content activity={activity} tab={tab} asset={asset} copy={copy} hidden={hidden} />;
 }
 
 export default function Activity({ search }: { search: string }) {
@@ -304,10 +362,12 @@ export default function Activity({ search }: { search: string }) {
   const { t } = copy;
   const { hideBalances, layoutMode } = usePreferences();
   const tab = tabFromSearch(search);
+  // `?asset=BTC` narrows every tab that lists money lines or fills; Orders lists orders, so it ignores it.
+  const asset = tab === 'orders' ? null : assetFromSearch(search);
   return (
     <div className="if-money if-money--activity" data-density={layoutMode === 'pro' ? 'pro' : undefined}>
       <h1 className="money-title">{t('Activity')}</h1>
-      <Tabs value={tab} onValueChange={(next) => navigate(tabHref(next as Tab))}>
+      <Tabs value={tab} onValueChange={(next) => navigate(tabHref(next as Tab, assetFromSearch(search)))}>
         <TabsList divider aria-label={t('Activity filters')} className="money-tabs">
           {TABS.map((id) => (
             <TabsTab key={id} value={id}>
@@ -316,13 +376,26 @@ export default function Activity({ search }: { search: string }) {
           ))}
         </TabsList>
       </Tabs>
+      {asset ? (
+        <div className="money-filter">
+          <button
+            type="button"
+            className="money-chip"
+            aria-label={t('Remove {asset} filter', { asset })}
+            onClick={() => navigate(tabHref(tab))}
+          >
+            {asset}
+            <X size={14} aria-hidden="true" />
+          </button>
+        </div>
+      ) : null}
       <section className="money-card money-card--activity" aria-label={t('Activity')}>
         {tab === 'trades' ? (
-          <TradesPanel />
+          <TradesPanel asset={asset} />
         ) : tab === 'orders' ? (
           <OrdersPanel />
         ) : isLedgerTab(tab) ? (
-          <LedgerTabs tab={tab} copy={copy} hidden={hideBalances} />
+          <LedgerTabs tab={tab} asset={asset} copy={copy} hidden={hideBalances} />
         ) : null}
       </section>
     </div>

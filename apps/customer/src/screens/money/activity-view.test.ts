@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { groupActivity, inTab, isLedgerTab, TABS, tabFromSearch, tabHref, titleOf, type ActivityGroup } from './activity-view';
+import {
+  assetFromSearch,
+  groupActivity,
+  groupInAsset,
+  inTab,
+  isLedgerTab,
+  ledgerEmpty,
+  tradesEmpty,
+  FILLS_PAGE,
+  symbolHasAsset,
+  TABS,
+  tabFromSearch,
+  tabHref,
+  titleOf,
+  type ActivityGroup,
+} from './activity-view';
 import { dec, type ActivityItem } from './deps';
 
 const item = (over: Partial<ActivityItem>): ActivityItem => ({
@@ -28,6 +43,30 @@ describe('tabs', () => {
     expect(tabHref('trades')).toBe('/money/activity');
     expect(tabHref('orders')).toBe('/money/activity?tab=orders');
     expect(tabHref('transfers')).toBe('/money/activity?tab=transfers');
+  });
+
+  it('reads ?asset= as an upper-case coin, and nothing or blank as no filter', () => {
+    expect(assetFromSearch('?tab=trades&asset=BTC')).toBe('BTC');
+    expect(assetFromSearch('?asset=eth')).toBe('ETH');
+    expect(assetFromSearch('?asset=')).toBeNull();
+    expect(assetFromSearch('?asset=%20')).toBeNull();
+    expect(assetFromSearch('?tab=all')).toBeNull();
+    expect(assetFromSearch('')).toBeNull();
+  });
+
+  it('keeps the coin when it builds a tab link', () => {
+    expect(tabHref('trades', 'BTC')).toBe('/money/activity?asset=BTC');
+    expect(tabHref('all', 'BTC')).toBe('/money/activity?tab=all&asset=BTC');
+    expect(tabHref('all', null)).toBe('/money/activity?tab=all');
+    expect(tabHref('trades', null)).toBe('/money/activity');
+  });
+
+  it('matches a fill to a coin by its base or quote, whichever way the symbol is spelled', () => {
+    expect(symbolHasAsset('BTC/USDT', 'BTC')).toBe(true);
+    expect(symbolHasAsset('BTC/USDT', 'USDT')).toBe(true);
+    expect(symbolHasAsset('BTC-USDT', 'USDT')).toBe(true);
+    expect(symbolHasAsset('BTC/USDT', 'ETH')).toBe(false);
+    expect(symbolHasAsset('WBTC/USDT', 'BTC')).toBe(false);
   });
 
   it('puts the ledger tabs and only them on the ledger', () => {
@@ -310,6 +349,24 @@ describe('groupActivity: only the same orderId groups lines', () => {
   });
 });
 
+describe('groupInAsset: a coin keeps whole orders', () => {
+  it('includes an order when any of its lines is in the coin, with all its lines, and plain lines only by their own coin', () => {
+    const { groups } = groupActivity([
+      L(0, 'trade', 'out', 'USDT', '100', 'o1'),
+      L(0, 'trade', 'in', 'BTC', '0.002', 'o1'),
+      L(0, 'fee', 'out', 'USDT', '0.1', 'o1'),
+      L(1000, 'deposit', 'in', 'USDT', '5'),
+      L(2000, 'other', 'in', 'ETH', '1'),
+    ]);
+    const inBtc = groups.filter((group) => groupInAsset(group, 'BTC'));
+    expect(inBtc).toHaveLength(1);
+    expect(inBtc[0]!.lines.map((line) => line.asset).sort()).toEqual(['BTC', 'USDT', 'USDT']);
+    expect(groups.filter((group) => groupInAsset(group, 'USDT'))).toHaveLength(2);
+    expect(groups.filter((group) => groupInAsset(group, 'ETH'))).toHaveLength(1);
+    expect(groups.filter((group) => groupInAsset(group, 'ZZZ'))).toHaveLength(0);
+  });
+});
+
 describe('titleOf', () => {
   it('names the other person when known', () => {
     expect(titleOf(item({ kind: 'transfer_in', counterparty: { handle: 'maya' } }), t, withHandle)).toBe('Received from @maya');
@@ -323,5 +380,28 @@ describe('titleOf', () => {
     expect(titleOf(item({ kind: 'payment', direction: 'out' }), t, withHandle)).toBe('Payment sent');
     expect(titleOf(item({ kind: 'space_move' }), t, withHandle)).toBe('Moved between your accounts');
     expect(titleOf(item({ kind: 'other' }), t, withHandle)).toBe('Other activity');
+  });
+});
+
+describe('empty states never claim there is nothing while older history may match', () => {
+  it('a coin filter or a narrow tab with more pages to read says "not found yet" and keeps Load more', () => {
+    expect(ledgerEmpty('all', 'BTC', true)).toBe('more');
+    expect(ledgerEmpty('deposits', null, true)).toBe('more');
+    expect(ledgerEmpty('transfers', 'BTC', true)).toBe('more');
+  });
+  it('once every page is read, the filter or tab can honestly say there is none', () => {
+    expect(ledgerEmpty('all', 'BTC', false)).toBe('asset');
+    expect(ledgerEmpty('deposits', null, false)).toBe('tab');
+    expect(ledgerEmpty('all', null, false)).toBe('all');
+  });
+  it('an unfiltered All with more pages is not a filtered search', () => {
+    expect(ledgerEmpty('all', null, true)).toBe('all');
+  });
+  it('Trades: a filter matching nothing in a full page of fills says "latest"; below a full page it says none', () => {
+    expect(tradesEmpty('BTC', FILLS_PAGE)).toBe('asset-latest');
+    expect(tradesEmpty('BTC', FILLS_PAGE + 5)).toBe('asset-latest');
+    expect(tradesEmpty('BTC', FILLS_PAGE - 1)).toBe('asset');
+    expect(tradesEmpty('BTC', 0)).toBe('none');
+    expect(tradesEmpty(null, 0)).toBe('none');
   });
 });

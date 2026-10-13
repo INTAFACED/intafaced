@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { customerRoomHref, deskPairLabel, findRoom, resolveAlias, rooms, safeReturnTo, searchRooms } from './navigation';
+import { coinHref, customerRoomHref, deskPairLabel, findRoom, resolveAlias, rooms, safeReturnTo, searchRooms } from './navigation';
 import { screens } from './screens';
 import { isHiddenPath } from './feature-registry';
 
@@ -188,4 +188,10 @@ it('titles each desk market by its pair, so desk tabs can be told apart', () => 
   expect(deskPairLabel('/trade/spot/BTC%2FUSDT')).toBe('BTC/USDT');
   expect(deskPairLabel('/trade')).toBeNull();
   expect(deskPairLabel('/trade/spot/BTC-USDT/extra')).toBeNull();
+});
+
+it('a coin link needs a session for the coin page, so a signed-out visitor gets the public Buy card instead', () => {
+  expect(coinHref('BTC', 'simple')).toBe('/coin/BTC');
+  expect(coinHref('BTC', 'simple', null, false)).toBe('/trade/buy?asset=BTC');
+  expect(coinHref('BTC', 'pro', 'BTC/USDT', false)).toBe('/trade/spot/BTC-USDT');
 });

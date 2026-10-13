@@ -1,10 +1,10 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { z } from 'zod';
 import { ChevronDown } from 'lucide-react';
 import { SegmentedControl, Tooltip, TooltipContent, TooltipTrigger, Wordmark } from '@intafaced/ui';
 import { useSession } from '../features/session/session';
 import { usePreferences, savePreferences } from '../shared/preferences';
 import { proCopy } from '../screens/home/pro-copy';
+import { BellPopover } from '../screens/notifications/BellPopover';
 import { currentReturnLocation } from './location';
 import { doorLabel, safeReturnTo, type Door } from './navigation';
 import { isFeatureLive } from './feature-registry';
@@ -28,32 +28,6 @@ export function useBannerOffset() {
     observer.observe(document.body, { childList: true });
     return () => observer.disconnect();
   }, []);
-}
-
-const unreadList = z.object({ items: z.array(z.object({ id: z.string() }).passthrough()).max(50), nextCursor: z.string().nullable() });
-function useUnreadCount(enabled: boolean, path: string): number | null {
-  const { api, userId } = useSession();
-  const [count, setCount] = useState<number | null>(null);
-  useEffect(() => {
-    if (!enabled || !userId) {
-      setCount(null);
-      return;
-    }
-    const controller = new AbortController();
-    const load = () => {
-      if (document.hidden) return;
-      void api.query('notify', 'notify.list', { limit: 50, unreadOnly: true }, unreadList, { signal: controller.signal }).then((result) => {
-        if (!controller.signal.aborted && result.ok) setCount(result.data.items.length + (result.data.nextCursor ? 1 : 0));
-      });
-    };
-    load();
-    const timer = setInterval(load, 60_000);
-    return () => {
-      controller.abort();
-      clearInterval(timer);
-    };
-  }, [api, enabled, userId, path]);
-  return count;
 }
 
 /** Closes a popup on Escape, an outside press and focus leaving it. */
@@ -266,8 +240,7 @@ export function TopBar({
   const { session } = useSession();
   useBannerOffset();
   const notificationsLive = isFeatureLive('notifications');
-  const unread = useUnreadCount(Boolean(session) && notificationsLive, path);
-  const tabs = tabSpecs(layoutMode);
+  const tabs = tabSpecs(layoutMode, Boolean(session));
   const signIn = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
   return (
     <>
@@ -287,16 +260,7 @@ export function TopBar({
           {session ? (
             <>
               {isFeatureLive('pro-mode-switch') && <ModeSwitch />}
-              {notificationsLive && (
-                <a
-                  className="tb-icon-button tb-bell"
-                  href="/notifications"
-                  aria-label={unread ? t('Notifications, {count} unread', { count: unread > 99 ? '99+' : unread }) : t('Notifications')}
-                >
-                  <ShellIcon name="bell" size={18} />
-                  {unread ? <span className="tb-badge">{unread > 99 ? '99+' : unread}</span> : null}
-                </a>
-              )}
+              {notificationsLive && <BellPopover path={path} />}
               <AccountButton onSignOut={onSignOut} />
             </>
           ) : (
@@ -320,9 +284,10 @@ export function TopBar({
 export function MobileTabs({ door, language }: { door: Door | undefined; language: Parameters<typeof doorLabel>[1] }) {
   const { t } = shellCopy.useCopy();
   const { layoutMode } = usePreferences();
+  const { session } = useSession();
   return (
     <nav className="mobile-doors" aria-label={t('Customer doors on phone')}>
-      {tabSpecs(layoutMode).map((tab) => (
+      {tabSpecs(layoutMode, Boolean(session)).map((tab) => (
         <a key={tab.door} href={tab.href} aria-current={door === tab.door ? 'page' : undefined}>
           <ShellIcon name={tab.icon} />
           {doorLabel(tab.door, language)}

@@ -117,7 +117,17 @@ export function App() {
   useEffect(() => {
     const pair = deskPairLabel(path);
     // Each desk market gets its own tab title ("ETH/USDT · Spot"), so several desk tabs can be told apart.
-    const page = devFeatures ? 'Hidden features' : pair ? `${pair} · Spot` : room ? roomTitle(room, requestedLocale) : t('Page not found');
+    // A coin page is named after its coin ("BTC price"), so several coin tabs can be told apart.
+    const coin = /^\/coin\/([A-Za-z0-9]+)\/?$/.exec(path)?.[1];
+    const page = devFeatures
+      ? 'Hidden features'
+      : pair
+        ? `${pair} · Spot`
+        : coin
+          ? t('{name} price', { name: coin.toUpperCase() })
+          : room
+            ? roomTitle(room, requestedLocale)
+            : t('Page not found');
     document.title = `${page} · INTAFACED`;
   }, [path, room, requestedLocale, devFeatures]);
   function followLink(event: MouseEvent<HTMLDivElement>) {

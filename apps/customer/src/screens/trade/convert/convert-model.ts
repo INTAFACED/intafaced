@@ -56,6 +56,13 @@ export function defaultPair(
   asked: { asset?: string | null; from?: string | null; to?: string | null },
 ): { from: string; to: string } | null {
   if (asked.from && asked.to && edgeFor(all, asked.from, asked.to)) return { from: asked.from, to: asked.to };
+  // "?from=BTC" alone means sell BTC: pick a dollar coin to receive, else any market that takes it.
+  if (asked.from && !asked.to) {
+    const sell =
+      all.find((edge) => edge.from === asked.from && (edge.to === 'USDT' || edge.to === 'USDC')) ??
+      all.find((edge) => edge.from === asked.from);
+    if (sell) return { from: sell.from, to: sell.to };
+  }
   const wanted = asked.asset ?? null;
   if (wanted) {
     for (const pay of ['USDT', 'USDC']) if (edgeFor(all, pay, wanted)) return { from: pay, to: wanted };

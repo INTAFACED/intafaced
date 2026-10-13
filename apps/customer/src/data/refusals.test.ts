@@ -108,6 +108,8 @@ describe('classifyRefusal', () => {
       ['auth.required', 'signedOut'],
       ['bank.below_minimum', 'belowMinimum'],
       ['trade.self_trade', 'selfTrade'],
+      ['trade.convert_insufficient_depth', 'insufficientDepth'],
+      ['trade.convert_invalid_qty', 'quoteFailed'],
     ];
     for (const [code, kind] of cases) expect(classifyRefusal(code), code).toBe(kind);
   });
@@ -115,6 +117,17 @@ describe('classifyRefusal', () => {
     expect(classifyRefusal('  KYC.TIER_REQUIRED ')).toBe('verify');
     expect(classifyRefusal(null)).toBe('unknown');
     expect(classifyRefusal(undefined)).toBe('unknown');
+  });
+});
+
+describe('spend-sized convert refusals', () => {
+  it('says plainly when the book cannot absorb the spend, and shows no raw code', () => {
+    const copy = refusalCopy('trade.convert_insufficient_depth');
+    expect(copy.body).toBe('Not enough for sale right now for that amount. Try a smaller amount.');
+    expect(`${copy.title} ${copy.body}`).not.toMatch(/trade\.|convert_|quoteQty/);
+  });
+  it('treats a bad size as our mistake with a generic try-again', () => {
+    expect(refusalCopy('trade.convert_invalid_qty')).toEqual({ title: "Couldn't get a price", body: "Couldn't get a price, try again." });
   });
 });
 

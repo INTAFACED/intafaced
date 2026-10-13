@@ -4,6 +4,7 @@ import { deskCopy } from '../trade/desk/copy';
 import { useClosedOrders, useDeskMarkets, useFills, useOpenOrders, useRefreshPrivate } from '../trade/desk/data';
 import { FillsTable, LoadState, OrdersTable, precisionOf } from '../trade/desk/OrderTables';
 import { StateBlock } from './deps';
+import { FILLS_PAGE, symbolHasAsset, tradesEmpty } from './activity-view';
 import { moneyCopy } from './copy';
 
 /**
@@ -18,10 +19,7 @@ function usePrecision() {
   return useMemo(() => precisionOf(list ?? []), [list]);
 }
 
-/** The fills call returns the latest this many; a full page says so instead of pretending to be everything. */
-const FILLS_PAGE = 100;
-
-export function TradesPanel() {
+export function TradesPanel({ asset = null }: { asset?: string | null }) {
   const { t } = deskCopy.useCopy();
   const money = moneyCopy.useCopy();
   const fills = useFills(true);
@@ -29,16 +27,41 @@ export function TradesPanel() {
   return (
     <div className="money-trade-tab">
       <LoadState load={fills} thing="trades">
-        {(rows) =>
-          rows.length === 0 ? (
-            <StateBlock kind="empty" className="money-state" title={money.t('No trades yet')} body={money.t('No trades yet body')} />
-          ) : (
+        {(all) => {
+          const rows = asset ? all.filter((fill) => symbolHasAsset(fill.symbol, asset)) : all;
+          const note = all.length >= FILLS_PAGE ? <p className="money-act-note">{t('Latest trades note', { count: FILLS_PAGE })}</p> : null;
+          if (rows.length > 0)
+            return (
+              <>
+                <FillsTable rows={rows} precision={precision} layout="activity" />
+                {note}
+              </>
+            );
+          // Only the latest page of fills is read: with a coin filter and a full page, older fills may match, so it says "latest", not "none".
+          const why = tradesEmpty(asset, all.length);
+          return (
             <>
-              <FillsTable rows={rows} precision={precision} layout="activity" />
-              {rows.length >= FILLS_PAGE ? <p className="money-act-note">{t('Latest trades note', { count: FILLS_PAGE })}</p> : null}
+              {why === 'asset-latest' && asset ? (
+                <StateBlock
+                  kind="empty"
+                  className="money-state"
+                  title={money.t('No {asset} trades in your latest {count}', { asset, count: FILLS_PAGE })}
+                  body={money.t('No {asset} trades latest body')}
+                />
+              ) : why === 'asset' && asset ? (
+                <StateBlock
+                  kind="empty"
+                  className="money-state"
+                  title={money.t('No {asset} trades', { asset })}
+                  body={money.t('No {asset} trades body', { asset })}
+                />
+              ) : (
+                <StateBlock kind="empty" className="money-state" title={money.t('No trades yet')} body={money.t('No trades yet body')} />
+              )}
+              {why === 'asset-latest' ? note : null}
             </>
-          )
-        }
+          );
+        }}
       </LoadState>
     </div>
   );
