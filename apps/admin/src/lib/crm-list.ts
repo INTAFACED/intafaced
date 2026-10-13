@@ -75,6 +75,8 @@ export function amountCell(value: { amount: string; currency: string } | null): 
       style: 'currency',
       currency: value.currency,
       notation: 'compact',
+      // Explicit 0: older ICU (Node 20, CI) otherwise keeps a currency's own minimum digits and prints "€125.0M".
+      minimumFractionDigits: 0,
       maximumFractionDigits: 1,
     }).format(value.amount as never);
     return { text, full, compact: true };
