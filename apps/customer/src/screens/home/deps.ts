@@ -22,4 +22,4 @@ export type { Decimal, Holding, Loadable, MarketRow, PortfolioSummary, TickerRow
 export { compareDecimal, dec, decOrNull, ratio, roundScaled, sub, toFixedString } from '../../data/decimal';
 
 export { isHiddenPath } from '../../app/feature-registry';
-export { defaultDeskPair } from '../../app/navigation';
+export { coinHref, defaultDeskPair } from '../../app/navigation';

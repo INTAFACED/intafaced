@@ -333,6 +333,17 @@
     text-align: left;
     color: var(--tb-fg);
   }
+  .tb-account-mode {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+  }
+  .tb-account-mode__label {
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--tb-fg-2);
+  }
   .tb-account-divider {
     height: 1px;
     margin: 4px 0;

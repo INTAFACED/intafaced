@@ -103,7 +103,7 @@ export const rooms: readonly Room[] = [
   { path: '/exchange', title: 'Trade', description: 'Spot trading terminal', door: 'Trade', area: 'trade', alias: '/trade' },
   {
     path: '/trade/spot/:pair',
-    title: 'Market',
+    title: 'Trade',
     description: 'Linked chart, book and order ticket',
     door: 'Trade',
     area: 'trade',
@@ -112,7 +112,7 @@ export const rooms: readonly Room[] = [
   },
   {
     path: '/exchange/:pair',
-    title: 'Market',
+    title: 'Trade',
     description: 'Linked chart, book and order ticket',
     door: 'Trade',
     area: 'trade',
@@ -343,9 +343,21 @@ export function searchRooms(query: string, mode: 'Personal' | 'Business', locale
 }
 
 export const defaultDeskPair = 'BTC-USDT';
+/** The pair of a desk path (`/trade/spot/ETH-USDT`, `/exchange/ETH_USDT`), as "ETH/USDT"; null for any other path. */
+export function deskPairLabel(path: string): string | null {
+  const match = /^\/(?:trade\/spot|exchange)\/([^/]+)$/.exec(path);
+  return match ? normalizePair(match[1]!).replace('-', '/') : null;
+}
 /** The Trade tab: the markets list in Simple, the desk in Pro. A link to a specific page ignores the mode. */
 export function tradeTabHref(layoutMode: 'simple' | 'pro', lastPair: string = defaultDeskPair): string {
   return layoutMode === 'pro' ? `/trade/spot/${normalizePair(lastPair)}` : '/trade';
+}
+/**
+ * Where a coin link goes until the coin page (M3) exists: the Buy card in Simple, the desk in Pro. The old `/coin/:asset`
+ * page is hidden (feature registry), so nothing links to it. When M3 lands, point Simple here at `/coin/{asset}`.
+ */
+export function coinHref(asset: string, layoutMode: 'simple' | 'pro', symbol?: string | null): string {
+  return layoutMode === 'pro' ? `/trade/spot/${normalizePair(symbol ?? `${asset}-USDT`)}` : `/trade/buy?asset=${encodeURIComponent(asset)}`;
 }
 export const doors: ReadonlyArray<{ name: Door; path: string }> = [
   { name: 'Home', path: '/home' },

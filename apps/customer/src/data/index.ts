@@ -7,3 +7,4 @@ export { classifyRefusal, type RefusalKind } from './refusal-codes';
 export { favoritesKey, readFavorites, toggleFavorite, useFavorites, writeFavorites } from './favorites';
 export { primarySymbolFor, classOf, DERIVATION_MARKET_CAP } from './derive';
 export { createPoller, defaultPoller, setDefaultPoller, type Poller, type PollStats } from './poll';
+export * from './activity';

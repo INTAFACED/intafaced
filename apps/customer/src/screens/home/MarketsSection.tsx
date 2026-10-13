@@ -1,5 +1,17 @@
 import { assetName, homeCopy } from './copy';
-import { direction, fmtPct, fmtPrice, Pct, Skeleton, Sparkline, StateBlock, type Decimal, type Loadable, type TickerRow } from './deps';
+import {
+  coinHref,
+  direction,
+  fmtPct,
+  fmtPrice,
+  Pct,
+  Skeleton,
+  Sparkline,
+  StateBlock,
+  type Decimal,
+  type Loadable,
+  type TickerRow,
+} from './deps';
 
 const UNKNOWN = '—';
 import { InfoTip } from './InfoTip';
@@ -37,7 +49,7 @@ function MarketCard({
   const name = assetName(item.base, copy);
   return (
     <div className="home-card-wrap">
-      <a className="home-card" href={`/coin/${encodeURIComponent(item.base)}`}>
+      <a className="home-card" href={coinHref(item.base, 'simple')}>
         <span className="home-card__name">
           <span className="home-card__ticker">{item.base}</span>
           {name ? <span className="home-card__full">{name}</span> : null}
@@ -113,7 +125,7 @@ export function MoversRow({ movers }: { movers: Array<{ base: string; ticker: Ti
     <ul className="home-pills">
       {movers.map(({ base, ticker }) => (
         <li key={base}>
-          <a className="home-pill" href={`/coin/${encodeURIComponent(base)}`}>
+          <a className="home-pill" href={coinHref(base, 'simple')}>
             <span>{base}</span>
             <Pct value={fmtPct(ticker.changePct24h)} arrow />
           </a>

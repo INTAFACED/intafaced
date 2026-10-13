@@ -1,6 +1,21 @@
 import { assetName, homeCopy } from './copy';
 import { IN_PANEL } from './panel';
-import { Amount, CoinIcon, dec, decOrNull, fmtAmount, fmtPct, fmtUsd, Money, Pct, ratio, Skeleton, sub, type Holding } from './deps';
+import {
+  Amount,
+  coinHref,
+  CoinIcon,
+  dec,
+  decOrNull,
+  fmtAmount,
+  fmtPct,
+  fmtUsd,
+  Money,
+  Pct,
+  ratio,
+  Skeleton,
+  sub,
+  type Holding,
+} from './deps';
 
 /** How many holdings the side card lists before it offers "See all". */
 const SHOWN = 6;
@@ -34,7 +49,7 @@ export function YourCrypto({ holdings, hidden }: { holdings: Holding[]; hidden: 
           const pct = changeRatio(holding);
           return (
             <li key={holding.asset} className="home-watch__item">
-              <a className="home-watch__row" href={`/coin/${encodeURIComponent(holding.asset)}`}>
+              <a className="home-watch__row" href={coinHref(holding.asset, 'simple')}>
                 <CoinIcon asset={holding.asset} size={28} />
                 <span className="home-watch__name">
                   <span className="home-watch__ticker">{name ? `${holding.asset} · ${name}` : holding.asset}</span>

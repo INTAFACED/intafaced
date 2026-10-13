@@ -4,7 +4,7 @@ import { CoinIcon } from '@intafaced/ui';
 import { fmtPrice, useMarkets, useTickers, type Loadable, type MarketRow, type TickerRow } from '../data';
 import { assetName, homeCopy } from '../screens/home/copy';
 import { navigate } from './location';
-import { roomTitle, roomDescription, searchRooms, normalizePair } from './navigation';
+import { coinHref, roomTitle, roomDescription, searchRooms } from './navigation';
 import { ShellIcon } from './icons';
 import { shellCopy } from './shell-copy';
 import { usePreferences } from '../shared/preferences';
@@ -193,7 +193,12 @@ function SearchPanel({
         group: 'Coins',
         label: listing.base,
         hint: assetName(listing.base, names) ?? '',
-        href: `/coin/${encodeURIComponent(listing.base)}`,
+        // Until the M3 coin page: the Buy card in Simple, the coin's own desk in Pro (critic H3).
+        href: coinHref(
+          listing.base,
+          layoutMode,
+          (listed.find((m) => m.base === listing.base && m.quote === 'USDT') ?? listing.market).symbol,
+        ),
         asset: listing.base,
         price: priceOf(listing.market),
       }));
@@ -206,7 +211,7 @@ function SearchPanel({
         label: market.symbol,
         hint: '',
         price: priceOf(market),
-        href: layoutMode === 'pro' ? `/trade/spot/${normalizePair(market.symbol)}` : `/coin/${encodeURIComponent(market.base)}`,
+        href: coinHref(market.base, layoutMode, market.symbol),
       }));
     return [...coins, ...markets, ...pages];
   }, [source, tickers, pages, layoutMode, query]);

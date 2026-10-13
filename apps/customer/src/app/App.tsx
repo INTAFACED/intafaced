@@ -1,6 +1,6 @@
 import { Component, Suspense, useEffect, type MouseEvent, type ReactNode } from 'react';
 import { Page, EmptyState, Button, Loading } from '../shared/ui';
-import { findRoom, resolveAlias, roomTitle, safeReturnTo, type Room } from './navigation';
+import { deskPairLabel, findRoom, resolveAlias, roomTitle, safeReturnTo, type Room } from './navigation';
 import { useLocation, useReturnLocation, currentReturnLocation, navigate } from './location';
 import { Shell } from './Shell';
 import { PublicRoutes } from '../features/public/PublicRoutes';
@@ -115,7 +115,10 @@ export function App() {
     if (redirectTo) navigate(redirectTo + location.hash, true);
   }, [redirectTo]);
   useEffect(() => {
-    document.title = `${devFeatures ? 'Hidden features' : room ? roomTitle(room, requestedLocale) : t('Page not found')} · INTAFACED`;
+    const pair = deskPairLabel(path);
+    // Each desk market gets its own tab title ("ETH/USDT · Spot"), so several desk tabs can be told apart.
+    const page = devFeatures ? 'Hidden features' : pair ? `${pair} · Spot` : room ? roomTitle(room, requestedLocale) : t('Page not found');
+    document.title = `${page} · INTAFACED`;
   }, [path, room, requestedLocale, devFeatures]);
   function followLink(event: MouseEvent<HTMLDivElement>) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;

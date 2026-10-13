@@ -1,0 +1,508 @@
+/*
+ * Simple Buy / Sell (UI-SPEC 5.9) and the pieces Convert shares (pickers, the review rows, the pending note).
+ * Only --if-* tokens: no colour values live here. The whole file is in `@layer components`, as Home's is: unlayered CSS
+ * beats every layer, and an unlayered rule once turned a kit button's dark label white (critic H1).
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  .if-buy {
+    width: min(var(--if-container-max), calc(100% - 56px));
+    margin: 0 auto;
+    padding: 0 0 64px;
+    color: var(--if-fg);
+    font-family: var(--if-font-ui);
+  }
+  .if-buy *,
+  .buy-card * {
+    box-sizing: border-box;
+  }
+  .if-buy :where(a) {
+    color: inherit;
+    text-decoration: none;
+  }
+  .if-buy :where(h1, h2, p, dl, dd, ul) {
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Breadcrumb row, 56 high */
+  .buy-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 56px;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .buy-crumbs a:hover {
+    color: var(--if-fg);
+  }
+  .buy-crumbs [aria-current='page'] {
+    color: var(--if-fg);
+  }
+  .buy-crumbs__history {
+    margin-left: auto;
+    padding: 6px 12px;
+    border-radius: var(--if-r-pill);
+    transition: background-color var(--if-t-fast) var(--if-ease);
+  }
+  .buy-crumbs__history:hover {
+    background: var(--if-hover);
+  }
+  .if-buy a:focus-visible,
+  .if-buy button:focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: 2px;
+  }
+
+  /* Two columns: headline left, card 450 right */
+  .buy-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 450px;
+    column-gap: 96px;
+    align-items: start;
+    padding-top: 56px;
+  }
+  .buy-hero h1 {
+    font-size: var(--if-text-hero);
+    line-height: var(--if-leading-hero);
+    font-weight: var(--if-weight-hero);
+    letter-spacing: var(--if-tracking-tight);
+    max-width: 560px;
+  }
+  .buy-hero p {
+    margin-top: 24px;
+    max-width: 520px;
+    font-size: var(--if-text-lg);
+    line-height: var(--if-leading-lg);
+    font-weight: 400;
+    color: var(--if-fg-2);
+  }
+
+  /* The card */
+  .buy-card {
+    width: 100%;
+    max-width: 450px;
+    padding: 24px;
+    border: 1px solid var(--if-line);
+    border-radius: var(--if-r-lg);
+    background: var(--if-panel);
+    color: var(--if-fg);
+    font-family: var(--if-font-ui);
+  }
+  .buy-card[data-compact] {
+    max-width: 288px;
+    padding: 16px;
+  }
+  .buy-card :where(h2, p, dl, dd) {
+    margin: 0;
+    padding: 0;
+  }
+  .buy-card__skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .buy-card__skeleton .buy-card__field {
+    background: var(--if-field);
+  }
+  .buy-skel {
+    background: var(--if-field);
+  }
+  .buy-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .buy-form__top {
+    display: flex;
+  }
+  .buy-form__amount {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 16px 0 8px;
+  }
+  .buy-form__amount [data-slot='amount-input'] {
+    align-items: stretch;
+  }
+  /* The kit centres the hero amount with a utility class, which beats this layer; the spec right-aligns it (OKX), so this
+     one declaration is !important: an important rule in an earlier layer beats a normal one in a later layer. */
+  .buy-form__amount [data-slot='amount-input'] > div:first-child {
+    justify-content: flex-end !important;
+  }
+  /* The kit's focus ring is a square box that sticks out past the card padding (critic L3). The ring is an outline on the
+     field's first child div (not on the [data-slot] root), set by kit utility classes that beat this layer, so these two
+     declarations are !important (an earlier layer's important rule wins). */
+  .buy-form__amount [data-slot='amount-input'] > div:first-child {
+    border-radius: var(--if-r-md) !important;
+  }
+  .buy-form__amount [data-slot='amount-input'] > div:first-child:has(input:focus-visible) {
+    outline-offset: -2px !important;
+  }
+  .buy-form__approx {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .buy-form__approx [data-tone='up'] {
+    color: var(--if-up-text);
+  }
+  .buy-form__swap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: var(--if-r-pill);
+    background: var(--if-field);
+    color: var(--if-fg-2);
+    font: 500 12px/16px var(--if-font-ui);
+    cursor: pointer;
+    transition:
+      background-color var(--if-t-fast) var(--if-ease),
+      color var(--if-t-fast) var(--if-ease);
+  }
+  .buy-form__swap:hover {
+    background: var(--if-raised);
+    color: var(--if-fg);
+  }
+
+  /* Two list rows, 56 each */
+  .buy-form__rows {
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--if-r-md);
+    background: var(--if-raised);
+    overflow: hidden;
+  }
+  .buy-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 56px;
+    padding: 8px 16px;
+    border: 0;
+    background: transparent;
+    color: var(--if-fg);
+    font: inherit;
+    text-align: left;
+    width: 100%;
+  }
+  .buy-row + .buy-row {
+    border-top: 1px solid var(--if-line);
+  }
+  button.buy-row {
+    cursor: pointer;
+    transition: background-color var(--if-t-fast) var(--if-ease);
+  }
+  button.buy-row:hover {
+    background: var(--if-pill-active);
+  }
+  .buy-row__text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+  .buy-row__label {
+    font: 500 14px/20px var(--if-font-ui);
+  }
+  .buy-row__value {
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .buy-row__name {
+    color: var(--if-fg-3);
+  }
+  .buy-row__aside {
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+    text-align: right;
+    white-space: nowrap;
+  }
+  .buy-row__chev {
+    color: var(--if-fg-2);
+    flex-shrink: 0;
+  }
+  .buy-row__select {
+    margin-left: -2px;
+  }
+
+  /* Estimated price and fee */
+  .buy-form__summary {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 4px;
+  }
+  .buy-form__summary > div {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .buy-form__summary dt {
+    color: var(--if-fg-2);
+  }
+  .buy-form__summary dd {
+    color: var(--if-fg);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  /* States inside the card sit left-aligned, like Home's (critic M7) */
+  .buy-state {
+    align-items: flex-start;
+    padding: 0;
+    text-align: left;
+  }
+  .buy-pending {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 16px;
+    border: 1px solid var(--if-line-strong);
+    border-radius: var(--if-r-md);
+    background: transparent;
+  }
+  .buy-pending__title {
+    font: 600 14px/20px var(--if-font-ui);
+  }
+  .buy-pending__body {
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .buy-pending__actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+
+  /* Result */
+  .buy-receipt {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+    text-align: center;
+  }
+  .buy-receipt__badge {
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    border-radius: var(--if-r-pill);
+    font-size: 28px;
+    font-weight: 700;
+  }
+  .buy-receipt__badge[data-tone='ok'] {
+    background: var(--if-up-bg);
+    color: var(--if-up-text);
+  }
+  .buy-receipt__badge[data-tone='neutral'] {
+    background: var(--if-field);
+    color: var(--if-fg-2);
+  }
+  .buy-receipt__title {
+    font-size: var(--if-text-xl);
+    line-height: var(--if-leading-xl);
+    font-weight: var(--if-weight-xl);
+  }
+  .buy-receipt__body {
+    font: 400 14px/20px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .buy-receipt__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px;
+    border-radius: var(--if-r-md);
+    background: var(--if-raised);
+    text-align: left;
+  }
+  .buy-receipt__rows > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .buy-receipt__rows dt {
+    color: var(--if-fg-2);
+  }
+  .buy-receipt__rows dd {
+    font-variant-numeric: tabular-nums;
+  }
+  .buy-receipt__actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  /* Review dialog (portal: no .if-buy ancestor) */
+  .buy-dialog__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 0;
+    padding: 16px;
+    border-radius: var(--if-r-md);
+    background: var(--if-field);
+  }
+  .buy-dialog__row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .buy-dialog__row dt {
+    color: var(--if-fg-2);
+    flex-shrink: 0;
+  }
+  .buy-dialog__row dd {
+    margin: 0;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--if-fg);
+  }
+  .buy-dialog__row[data-strong] dd {
+    font: 600 16px/24px var(--if-font-ui);
+  }
+  .buy-dialog__note {
+    margin: 12px 0 0;
+    padding: 12px;
+    border-radius: var(--if-r-sm);
+    background: var(--if-lime-soft);
+    font: 500 13px/18px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .buy-dialog__error {
+    margin: 12px 0 0;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-down-text);
+  }
+
+  /* Asset picker (portal) */
+  .picker {
+    max-width: 420px;
+  }
+  .picker__search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 12px;
+    border-radius: var(--if-r-sm);
+    background: var(--if-field);
+    color: var(--if-fg-2);
+  }
+  .picker__search:focus-within {
+    outline: 2px solid var(--if-lime);
+    outline-offset: 2px;
+  }
+  .picker__search input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--if-fg);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .picker__search input::placeholder {
+    color: var(--if-fg-3);
+  }
+  .picker__list {
+    list-style: none;
+    margin: 12px -8px 0;
+    padding: 0;
+    max-height: 340px;
+    overflow-y: auto;
+  }
+  .picker__row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 56px;
+    padding: 8px;
+    border: 0;
+    border-radius: var(--if-r-md);
+    background: transparent;
+    color: var(--if-fg);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color var(--if-t-fast) var(--if-ease);
+  }
+  .picker__row:hover,
+  .picker__row[aria-pressed='true'] {
+    background: var(--if-hover);
+  }
+  .picker__row:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .picker__row:focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: -2px;
+  }
+  .picker__names {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+  }
+  .picker__ticker {
+    font: 500 14px/20px var(--if-font-ui);
+  }
+  .picker__name {
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .picker__detail {
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .picker__none {
+    margin: 16px 0 0;
+    font: 400 14px/20px var(--if-font-ui);
+    color: var(--if-fg-2);
+    text-align: center;
+  }
+
+  /* Between 768 and 1279 the two columns stack closer; below 768 the page must not break */
+  @media (max-width: 1100px) {
+    .buy-grid {
+      column-gap: 48px;
+    }
+  }
+  @media (max-width: 880px) {
+    .buy-grid {
+      grid-template-columns: minmax(0, 1fr);
+      row-gap: 32px;
+      padding-top: 16px;
+    }
+    .buy-hero h1 {
+      font-size: var(--if-text-2xl);
+      line-height: var(--if-leading-2xl);
+    }
+    .buy-card {
+      max-width: none;
+    }
+  }
+}

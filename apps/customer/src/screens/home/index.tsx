@@ -7,7 +7,6 @@ import {
   Button,
   ChangeText,
   dec,
-  defaultDeskPair,
   fmtChangeLine,
   fmtUsd,
   HeroNumber,
@@ -33,17 +32,15 @@ import { IN_PANEL, STATE_IN_COLUMN } from './panel';
 import { MarketsFailure, MarketsRow, MarketsSkeleton, MoversHeading, MoversRow, MoversSkeleton } from './MarketsSection';
 import { YourCrypto, YourCryptoSkeleton } from './YourCrypto';
 import { listings, topCards, topMovers } from './select';
+import { HomePro } from './HomePro';
 import { Watchlist } from './Watchlist';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { useSession } from '../../features/session/session';
 
-/**
- * Until the M2 Buy card lands (B8), Buy and Sell open the working spot desk on BTC/USDT: `/trade/buy` is the old
- * screen on a simulated market (critic H4). When M2 lands, point Buy at `/trade/buy` and Sell at `/trade/buy?side=sell`.
- */
+/** Simple Home: Buy and Sell open the Buy card (Pro Home goes to the desk, `HomePro.tsx`). */
 const ACTIONS = [
-  { label: 'Buy', href: `/trade/spot/${defaultDeskPair}` },
-  { label: 'Sell', href: `/trade/spot/${defaultDeskPair}?side=sell` },
+  { label: 'Buy', href: '/trade/buy' },
+  { label: 'Sell', href: '/trade/buy?side=sell' },
   { label: 'Convert', href: '/trade/convert' },
   { label: 'Send', href: '/pay/send' },
   { label: 'Receive', href: '/pay/receive' },
@@ -217,7 +214,8 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<PortfolioSummary>;
   );
 }
 
-export default function Home() {
+/** Simple Home (UI-SPEC 5.1). Pro mode draws `HomePro` instead; see `Home` below. */
+function HomeSimple() {
   const { t } = homeCopy.useCopy();
   const { hideBalances, timeZone } = usePreferences();
   const portfolio = usePortfolio();
@@ -350,4 +348,10 @@ export default function Home() {
       </div>
     </div>
   );
+}
+
+/** The layout preference decides which Home is drawn (UI-SPEC 3.3); a switch in the top bar flips it at once. */
+export default function Home() {
+  const { layoutMode } = usePreferences();
+  return layoutMode === 'pro' ? <HomePro /> : <HomeSimple />;
 }
