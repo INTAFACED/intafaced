@@ -1,4 +1,5 @@
 import { DECIMALS, LOCK_KINDS, formatAmount, mul, type Amount, type Balance } from '@intafaced/ledger-client';
+import { BankError } from '../errors.js';
 
 /**
  * THE TOTAL-VALUE RULE (UI-SPEC §1.2), written once, here.
@@ -17,7 +18,14 @@ import { DECIMALS, LOCK_KINDS, formatAmount, mul, type Amount, type Balance } fr
  *     means the asset is listed in `unpriced` and NOT counted. Never guessed,
  *     never valued at zero, never converted through a third market. Other fiat
  *     codes (EUR, ...) land in `unpriced` too: this platform has no FX source.
- *   · Holdings are the user's ledger balances, total = free + used (below).
+ *   · svc-trade leaves a market out of `/tickers` when it cannot read its book.
+ *     If markets are listed but the ticker answer carries NONE of them, svc-matching
+ *     is down and the whole call refuses `bank.prices_unavailable`. If only some
+ *     are missing (a new listing with no book), a coin whose candidate markets are
+ *     all missing or never traded is `unpriced` with reason `no_price_yet`; a coin
+ *     with no USDT/USDC market at all (or another fiat) is `no_market`.
+ *   · Holdings are everything the user owns: the main balance plus every Space
+ *     (named Spaces sit under the `subaccount` owner type), total = free + used.
  *   · `change24hUsd` = Σ holding × (last − open24h) over the priced assets. It is
  *     "price move on current holdings, NOT profit and loss": trades, deposits and
  *     transfers made today are not in it. It is null if ANY priced non-stable
@@ -28,6 +36,9 @@ import { DECIMALS, LOCK_KINDS, formatAmount, mul, type Amount, type Balance } fr
  * headline figures are rounded once, half away from zero, to 2 decimals from
  * the full-precision sums (so Cash + Crypto can differ from Total by one cent).
  */
+
+/** The sentence a user may read when the total cannot be shown. */
+export const PRICES_UNAVAILABLE_COPY = "Prices can't be loaded right now, so your total can't be shown. Try again in a minute.";
 
 /** Counted as exactly 1 USD. */
 export const PAR_ASSETS: ReadonlySet<string> = new Set(['USDT', 'USDC', 'USD']);
@@ -61,6 +72,12 @@ export interface TickerQuote {
 /** Keyed by unified symbol, e.g. "BTC/USDT". */
 export type TickerMap = ReadonlyMap<string, TickerQuote>;
 
+/** What the price source answers: the tickers, and which spot markets are listed (active) at all. */
+export interface PriceBook {
+  readonly tickers: TickerMap;
+  readonly listed: ReadonlySet<string>;
+}
+
 export interface PricedRow {
   readonly asset: string;
   readonly amount: string;
@@ -71,9 +88,13 @@ export interface PricedRow {
   readonly pair: string | null;
 }
 
+export type UnpricedReason = 'no_market' | 'no_price_yet';
+
 export interface UnpricedRow {
   readonly asset: string;
   readonly amount: string;
+  /** `no_market`: no USDT/USDC market exists (or another fiat). `no_price_yet`: a market exists but has no readable price. */
+  readonly reason: UnpricedReason;
 }
 
 export interface PortfolioSummary {
@@ -139,8 +160,19 @@ interface Counted {
   readonly cash: boolean;
 }
 
-export function valuePortfolio(input: { holdings: readonly Holding[]; tickers: TickerMap; nowMs: number }): PortfolioSummary {
+export function valuePortfolio(input: {
+  holdings: readonly Holding[];
+  tickers: TickerMap;
+  /** Listed spot markets. Defaults to "whatever the tickers carry" (no listing known). */
+  listed?: ReadonlySet<string>;
+  nowMs: number;
+}): PortfolioSummary {
   const { holdings, tickers, nowMs } = input;
+  const listed = input.listed ?? new Set<string>();
+  // Listed markets and not one of them answered: svc-matching is down, not "some coin is new".
+  if (listed.size > 0 && ![...listed].some((symbol) => tickers.has(symbol))) {
+    throw new BankError(PRICES_UNAVAILABLE_COPY, 'bank.prices_unavailable');
+  }
   const counted: Counted[] = [];
   const unpriced: UnpricedRow[] = [];
   const partialStarts: number[] = [];
@@ -161,9 +193,11 @@ export function valuePortfolio(input: { holdings: readonly Holding[]; tickers: T
     }
 
     let priced = false;
+    let marketExists = false;
     for (const quote of PRICE_QUOTES) {
       const pair = `${code}/${quote}`;
       const t = tickers.get(pair);
+      if (t || listed.has(pair)) marketExists = true;
       if (!t || t.last === null || t.last <= 0n) continue;
       const open = t.open !== null && t.open > 0n ? t.open : null;
       const value = mul(h.total, t.last, 'half-up');
@@ -185,7 +219,7 @@ export function valuePortfolio(input: { holdings: readonly Holding[]; tickers: T
       priced = true;
       break;
     }
-    if (!priced) unpriced.push({ asset, amount: formatAmount(h.total) });
+    if (!priced) unpriced.push({ asset, amount: formatAmount(h.total), reason: marketExists ? 'no_price_yet' : 'no_market' });
   }
 
   // Biggest first; ties by asset code, so the order is stable.

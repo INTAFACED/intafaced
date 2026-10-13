@@ -96,7 +96,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const transfers = new TransferService(sql, ledger, spaces);
   const earn = new EarnService(sql, ledger, { nativeAssetId: options.nativeAssetId ?? 'IFC' });
   const analytics = new SpendAnalytics(spaces, history);
-  const portfolio = new PortfolioService(ledger, options.portfolio ?? {});
+  const portfolio = new PortfolioService(ledger, spaces, options.portfolio ?? {});
   // No price source configured = no marks = no liquidations, and every LTV read
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
   // not decided where its prices come from.

@@ -55,7 +55,7 @@ const portfolioSummaryOutput = z.object({
       pair: z.string().nullable(),
     }),
   ),
-  unpriced: z.array(z.object({ asset: z.string(), amount: z.string() })),
+  unpriced: z.array(z.object({ asset: z.string(), amount: z.string(), reason: z.enum(['no_market', 'no_price_yet']) })),
   asOf: z.number().int(),
   windowStart: z.number().int().nullable(),
 });

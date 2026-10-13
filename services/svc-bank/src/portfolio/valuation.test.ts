@@ -73,7 +73,7 @@ describe('valuePortfolio, the one total-value rule (UI-SPEC §1.2)', () => {
   it('lists an asset with no market in unpriced, never guessed and never valued at zero', () => {
     const s = value([h('USDT', '10'), h('IFC', '500')], { 'BTC/USDT': q('60000', '58000') });
     expect(s.totalUsd).toBe('10.00');
-    expect(s.unpriced).toEqual([{ asset: 'IFC', amount: '500' }]);
+    expect(s.unpriced).toEqual([{ asset: 'IFC', amount: '500', reason: 'no_market' }]);
     expect(s.priced.map((r) => r.asset)).toEqual(['USDT']);
     // The unpriced coin does not make the change unknown; it is simply not counted.
     expect(s.change24hUsd).toBe('0.00');
@@ -81,7 +81,10 @@ describe('valuePortfolio, the one total-value rule (UI-SPEC §1.2)', () => {
 
   it('treats another fiat code as unpriced (no FX source) and a market that never traded as unpriced', () => {
     const s = value([h('EUR', '50'), h('SOL', '3')], { 'SOL/USDT': q(null) });
-    expect(s.unpriced.map((r) => r.asset)).toEqual(['EUR', 'SOL']);
+    expect(s.unpriced.map((r) => [r.asset, r.reason])).toEqual([
+      ['EUR', 'no_market'],
+      ['SOL', 'no_price_yet'],
+    ]);
     expect(s.totalUsd).toBeNull();
     expect(s.cashUsd).toBeNull();
     expect(s.cryptoUsd).toBeNull();
@@ -98,7 +101,7 @@ describe('valuePortfolio, the one total-value rule (UI-SPEC §1.2)', () => {
 
   it('does not cross through a third market (BTC priced only against ETH stays unpriced)', () => {
     const s = value([h('BTC', '1')], { 'BTC/ETH': q('20') });
-    expect(s.unpriced).toEqual([{ asset: 'BTC', amount: '1' }]);
+    expect(s.unpriced).toEqual([{ asset: 'BTC', amount: '1', reason: 'no_market' }]);
   });
 
   it('is case-insensitive on the asset code', () => {

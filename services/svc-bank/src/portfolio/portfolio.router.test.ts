@@ -4,8 +4,9 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafa
 import { parseAmount as amt, type Balance, type LedgerClient } from '@intafaced/ledger-client';
 import { createBankRouter } from '../router.js';
 import type { BankServices } from '../bank-service.js';
-import { PortfolioService, httpTickerSource, type TickerSource } from './portfolio-service.js';
-import type { TickerMap } from './valuation.js';
+import type { SpaceRecord } from '../spaces/space-service.js';
+import { PortfolioService, httpTickerSource, type SpaceLister, type TickerSource } from './portfolio-service.js';
+import type { PriceBook, TickerMap } from './valuation.js';
 
 /**
  * `bank.portfolio.summary` through the real router and the real edge-context,
@@ -45,8 +46,14 @@ function signed(p: Principal) {
 
 const anonymous = () => edgeContext({ headers: { 'x-intafaced-region': 'DE' }, id: 'req-anon' });
 
-const bal = (ownerId: string, assetId: string, kind: Balance['account']['kind'], amount: string): Balance => ({
-  account: { ownerType: 'user', ownerId, assetId, kind },
+const bal = (
+  ownerId: string,
+  assetId: string,
+  kind: Balance['account']['kind'],
+  amount: string,
+  ownerType: Balance['account']['ownerType'] = 'user',
+): Balance => ({
+  account: { ownerType, ownerId, assetId, kind },
   accountId: `${ownerId}-${assetId}-${kind}`,
   amount: amt(amount),
 });
@@ -63,16 +70,38 @@ function fakeLedger(rows: Balance[]) {
   return { ledger, asked };
 }
 
-function fakeTrade(map: Record<string, { last: string | null; open: string | null; windowStart?: number | null }>) {
+function fakeTrade(
+  map: Record<string, { last: string | null; open: string | null; windowStart?: number | null }>,
+  extraListed: string[] = [],
+) {
   let calls = 0;
   const source: TickerSource = {
-    tickers: async () => {
+    prices: async (): Promise<PriceBook> => {
       calls += 1;
-      return mapOf(map);
+      // A market is listed if it has a ticker, or is named in `extraListed` (listed but its book was unreadable).
+      return { tickers: mapOf(map), listed: new Set([...Object.keys(map), ...extraListed]) };
     },
   };
   return { source, calls: () => calls };
 }
+
+const space = (id: string, userId: string, kind: SpaceRecord['kind'] = 'named', assetId = 'BTC'): SpaceRecord => ({
+  id,
+  userId,
+  assetId,
+  kind,
+  name: id,
+  goalTarget: null,
+  lockedUntil: null,
+  archivedAt: null,
+});
+
+/** A Space list that, like the real one, answers only for the user asked about. */
+function fakeSpaces(all: SpaceRecord[]): SpaceLister {
+  return { namedSpaces: async (userId) => all.filter((s) => s.userId === userId) };
+}
+
+const noSpaces = fakeSpaces([]);
 
 function mapOf(map: Record<string, { last: string | null; open: string | null; windowStart?: number | null }>): TickerMap {
   return new Map(
@@ -100,7 +129,7 @@ describe('bank.portfolio.summary', () => {
   it("returns the signed-in user's server-computed total (labelled TEST DATA)", async () => {
     const { ledger, asked } = fakeLedger(rows);
     const trade = fakeTrade({ 'BTC/USDT': { last: '60000', open: '59000', windowStart: null } });
-    const svc = new PortfolioService(ledger, { tickers: trade.source, now: () => NOW });
+    const svc = new PortfolioService(ledger, noSpaces, { tickers: trade.source, now: () => NOW });
 
     const out = await callerFor(svc, principal(ALICE)).portfolio.summary();
 
@@ -113,7 +142,7 @@ describe('bank.portfolio.summary', () => {
         { asset: 'BTC', amount: '0.75', priceUsd: '60000', valueUsd: '45000', change24hUsd: '750', pair: 'BTC/USDT' },
         { asset: 'USDT', amount: '1000', priceUsd: '1', valueUsd: '1000', change24hUsd: '0', pair: null },
       ],
-      unpriced: [{ asset: 'IFC', amount: '40' }],
+      unpriced: [{ asset: 'IFC', amount: '40', reason: 'no_market' }],
       asOf: NOW.getTime(),
       windowStart: null,
     });
@@ -122,7 +151,7 @@ describe('bank.portfolio.summary', () => {
 
   it("only ever reads the caller's own balances: Bob's money is never in Alice's total, and no input can name another user", async () => {
     const { ledger, asked } = fakeLedger(rows);
-    const svc = new PortfolioService(ledger, { tickers: fakeTrade({}).source, now: () => NOW });
+    const svc = new PortfolioService(ledger, noSpaces, { tickers: fakeTrade({}).source, now: () => NOW });
 
     const bobs = await callerFor(svc, principal(BOB)).portfolio.summary();
     expect(bobs.totalUsd).toBe('999999.00');
@@ -139,7 +168,7 @@ describe('bank.portfolio.summary', () => {
 
   it('refuses an anonymous caller and a token without bank:read, and reads nothing', async () => {
     const { ledger, asked } = fakeLedger(rows);
-    const svc = new PortfolioService(ledger, { tickers: fakeTrade({}).source });
+    const svc = new PortfolioService(ledger, noSpaces, { tickers: fakeTrade({}).source });
     const bank = { portfolio: svc } as unknown as BankServices;
 
     await expect(createBankRouter(bank).createCaller(anonymous()).portfolio.summary()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
@@ -150,11 +179,11 @@ describe('bank.portfolio.summary', () => {
   it('refuses SERVICE_UNAVAILABLE / bank.prices_unavailable when trade is down, with no partial total', async () => {
     const { ledger } = fakeLedger(rows);
     const down: TickerSource = {
-      tickers: async () => {
+      prices: async () => {
         throw new Error('connect ECONNREFUSED 127.0.0.1:4004');
       },
     };
-    const svc = new PortfolioService(ledger, { tickers: down, now: () => NOW });
+    const svc = new PortfolioService(ledger, noSpaces, { tickers: down, now: () => NOW });
 
     const err = await callerFor(svc, principal(ALICE))
       .portfolio.summary()
@@ -167,14 +196,14 @@ describe('bank.portfolio.summary', () => {
 
   it('refuses when no price source is wired at all, instead of valuing at zero', async () => {
     const { ledger } = fakeLedger(rows);
-    const svc = new PortfolioService(ledger, { now: () => NOW });
+    const svc = new PortfolioService(ledger, noSpaces, { now: () => NOW });
     await expect(callerFor(svc, principal(ALICE)).portfolio.summary()).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
   });
 
   it('answers a stablecoin-only user while trade is down, and never calls trade for them', async () => {
     const { ledger } = fakeLedger([bal(ALICE, 'USDC', 'available', '12.34'), bal(ALICE, 'USD', 'hold', '0.66')]);
     const trade = fakeTrade({});
-    const svc = new PortfolioService(ledger, { tickers: trade.source, now: () => NOW });
+    const svc = new PortfolioService(ledger, noSpaces, { tickers: trade.source, now: () => NOW });
     const out = await callerFor(svc, principal(ALICE)).portfolio.summary();
     expect(out).toMatchObject({ totalUsd: '13.00', cashUsd: '13.00', cryptoUsd: '0.00', change24hUsd: '0.00' });
     expect(trade.calls()).toBe(0);
@@ -183,7 +212,7 @@ describe('bank.portfolio.summary', () => {
   it("on today's svc-trade (no 24 h stats yet) gives the total and a null change, not a guess", async () => {
     const { ledger } = fakeLedger(rows);
     const trade = fakeTrade({ 'BTC/USDT': { last: '60000', open: null } });
-    const svc = new PortfolioService(ledger, { tickers: trade.source, now: () => NOW });
+    const svc = new PortfolioService(ledger, noSpaces, { tickers: trade.source, now: () => NOW });
     const out = await callerFor(svc, principal(ALICE)).portfolio.summary();
     expect(out.totalUsd).toBe('46000.00');
     expect(out.change24hUsd).toBeNull();
@@ -192,7 +221,7 @@ describe('bank.portfolio.summary', () => {
 
   it('an empty ledger is an honest $0.00', async () => {
     const { ledger } = fakeLedger([]);
-    const svc = new PortfolioService(ledger, { tickers: fakeTrade({}).source, now: () => NOW });
+    const svc = new PortfolioService(ledger, noSpaces, { tickers: fakeTrade({}).source, now: () => NOW });
     const out = await callerFor(svc, principal(ALICE)).portfolio.summary();
     expect(out).toMatchObject({ totalUsd: '0.00', change24hUsd: '0.00', priced: [], unpriced: [] });
   });
@@ -201,55 +230,86 @@ describe('bank.portfolio.summary', () => {
 describe('httpTickerSource, the cross-service call to svc-trade', () => {
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  const COPY = "Prices can't be loaded right now, so your total can't be shown. Try again in a minute.";
 
-  it('reads GET /api/v1/tickers?limit=500 and parses last/open/windowStart as scaled amounts', async () => {
-    let url = '';
+  /** Routes by path, like svc-trade does. */
+  const trade = (tickers: () => Response | Promise<Response>, markets: () => Response | Promise<Response>, urls: string[] = []) =>
+    (async (u: string) => {
+      urls.push(u);
+      return u.includes('/api/v1/tickers') ? tickers() : markets();
+    }) as unknown as typeof fetch;
+
+  it('reads /api/v1/tickers and /api/v1/markets (limit 500) and parses prices and the listed set', async () => {
+    const urls: string[] = [];
     const src = httpTickerSource({
       baseUrl: 'http://trade.test/',
-      fetchImpl: (async (u: string) => {
-        url = u;
-        return json({
-          'BTC/USDT': { symbol: 'BTC/USDT', last: '60000.5', open: '59000', windowStart: 1_700_000_000_000, sparkline: ['1'] },
-          'ETH/USDT': { last: null, open: null },
-          'JUNK/USDT': { last: 'abc', open: 12 },
-          bad: null,
-        });
-      }) as unknown as typeof fetch,
+      fetchImpl: trade(
+        () =>
+          json({
+            'BTC/USDT': { symbol: 'BTC/USDT', last: '60000.5', open: '59000', windowStart: 1_700_000_000_000, sparkline: ['1'] },
+            'ETH/USDT': { last: null, open: null },
+            'JUNK/USDT': { last: 'abc', open: 12 },
+            bad: null,
+          }),
+        () =>
+          json([
+            { symbol: 'BTC/USDT', type: 'spot', active: true },
+            { symbol: 'SOL/USDT', type: 'spot', active: true },
+            { symbol: 'OLD/USDT', type: 'spot', active: false },
+            { symbol: 'BTC/USDT:USDT', type: 'swap', active: true },
+          ]),
+        urls,
+      ),
     });
-    const map = await src.tickers();
-    expect(url).toBe('http://trade.test/api/v1/tickers?limit=500');
-    expect(map.get('BTC/USDT')).toEqual({ last: amt('60000.5'), open: amt('59000'), windowStart: 1_700_000_000_000 });
-    expect(map.get('ETH/USDT')).toEqual({ last: null, open: null, windowStart: null });
-    expect(map.get('JUNK/USDT')).toEqual({ last: null, open: null, windowStart: null });
-    expect(map.has('bad')).toBe(false);
+    const { tickers, listed } = await src.prices();
+    expect(urls.sort()).toEqual(['http://trade.test/api/v1/markets?limit=500', 'http://trade.test/api/v1/tickers?limit=500']);
+    expect(tickers.get('BTC/USDT')).toEqual({ last: amt('60000.5'), open: amt('59000'), windowStart: 1_700_000_000_000 });
+    expect(tickers.get('ETH/USDT')).toEqual({ last: null, open: null, windowStart: null });
+    expect(tickers.get('JUNK/USDT')).toEqual({ last: null, open: null, windowStart: null });
+    expect(tickers.has('bad')).toBe(false);
+    expect([...listed].sort()).toEqual(['BTC/USDT', 'SOL/USDT']);
   });
 
-  it('times out on a hung svc-trade and refuses bank.prices_unavailable', async () => {
-    const hung = (async (_u: string, init: { signal: AbortSignal }) =>
-      new Promise((_resolve, reject) => {
+  it('times out on a hung svc-trade (either call) and refuses bank.prices_unavailable', async () => {
+    // Markets answers; tickers never does. Only the abort signal ends it.
+    const fetchImpl = (async (u: string, init: { signal: AbortSignal }) =>
+      new Promise((resolve, reject) => {
         init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+        if (u.includes('/markets')) resolve(json([]));
       })) as unknown as typeof fetch;
-    const src = httpTickerSource({ baseUrl: 'http://trade.test', fetchImpl: hung, timeoutMs: 20 });
-    await expect(src.tickers()).rejects.toMatchObject({ code: 'bank.prices_unavailable', message: expect.stringContaining('timed out') });
-  });
+    const src = httpTickerSource({ baseUrl: 'http://trade.test', fetchImpl, timeoutMs: 20 });
+    await expect(src.prices()).rejects.toMatchObject({ code: 'bank.prices_unavailable', message: COPY });
 
-  it('refuses on a 5xx, a refused connection and a non-object body', async () => {
-    const make = (impl: unknown) => httpTickerSource({ baseUrl: 'http://trade.test', fetchImpl: impl as typeof fetch });
-    await expect(make(async () => json({ error: 'x' }, 503)).tickers()).rejects.toMatchObject({ code: 'bank.prices_unavailable' });
-    await expect(
-      make(async () => {
-        throw new TypeError('fetch failed');
-      }).tickers(),
-    ).rejects.toMatchObject({ code: 'bank.prices_unavailable' });
-    await expect(make(async () => json([1, 2])).tickers()).rejects.toMatchObject({ code: 'bank.prices_unavailable' });
-    await expect(make(async () => new Response('not json', { status: 200 })).tickers()).rejects.toMatchObject({
+    const slowMarkets = (async (u: string, init: { signal: AbortSignal }) =>
+      new Promise((resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+        if (u.includes('/tickers')) resolve(json({}));
+      })) as unknown as typeof fetch;
+    await expect(httpTickerSource({ baseUrl: 'http://trade.test', fetchImpl: slowMarkets, timeoutMs: 20 }).prices()).rejects.toMatchObject({
       code: 'bank.prices_unavailable',
     });
   });
 
-  it('end to end: a dead svc-trade surfaces as SERVICE_UNAVAILABLE through the router', async () => {
+  it('refuses on a 5xx from either call, a refused connection and a wrong-shaped body', async () => {
+    const ok = () => json({});
+    const okMarkets = () => json([]);
+    const make = (impl: typeof fetch) => httpTickerSource({ baseUrl: 'http://trade.test', fetchImpl: impl });
+    const refused = { code: 'bank.prices_unavailable' };
+    await expect(make(trade(() => json({ error: 'x' }, 503), okMarkets)).prices()).rejects.toMatchObject(refused);
+    await expect(make(trade(ok, () => json({ error: 'x' }, 502))).prices()).rejects.toMatchObject(refused);
+    await expect(
+      make((async () => {
+        throw new TypeError('fetch failed');
+      }) as unknown as typeof fetch).prices(),
+    ).rejects.toMatchObject(refused);
+    await expect(make(trade(() => json([1, 2]), okMarkets)).prices()).rejects.toMatchObject(refused);
+    await expect(make(trade(ok, () => json({ not: 'a list' }))).prices()).rejects.toMatchObject(refused);
+    await expect(make(trade(() => new Response('not json', { status: 200 }), okMarkets)).prices()).rejects.toMatchObject(refused);
+  });
+
+  it('end to end: a dead svc-trade surfaces as SERVICE_UNAVAILABLE with the user-facing sentence', async () => {
     const { ledger } = fakeLedger([bal(ALICE, 'BTC', 'available', '1')]);
-    const svc = new PortfolioService(ledger, {
+    const svc = new PortfolioService(ledger, noSpaces, {
       tickers: httpTickerSource({
         baseUrl: 'http://trade.test',
         fetchImpl: (async () => {
@@ -257,6 +317,124 @@ describe('httpTickerSource, the cross-service call to svc-trade', () => {
         }) as unknown as typeof fetch,
       }),
     });
-    await expect(callerFor(svc, principal(ALICE)).portfolio.summary()).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+    const err = await callerFor(svc, principal(ALICE))
+      .portfolio.summary()
+      .catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+    expect((err as Error).message).toContain(COPY);
+    expect((err as Error).message).toContain('bank.prices_unavailable');
+  });
+});
+
+describe('markets that /tickers left out: matching down refuses, a new listing is just not priced yet', () => {
+  const alice = [bal(ALICE, 'USDT', 'available', '100'), bal(ALICE, 'BTC', 'available', '1'), bal(ALICE, 'NEW', 'available', '7')];
+  const run = (trade: ReturnType<typeof fakeTrade>, rows = alice) =>
+    callerFor(
+      new PortfolioService(fakeLedger(rows).ledger, noSpaces, { tickers: trade.source, now: () => NOW }),
+      principal(ALICE),
+    ).portfolio.summary();
+
+  it('refuses when markets are listed but /tickers carries none of them (svc-matching is down)', async () => {
+    const err = await run(fakeTrade({}, ['BTC/USDT', 'ETH/USDT', 'NEW/USDT'])).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+    expect((err as Error).message).toContain('bank.prices_unavailable');
+  });
+
+  it('serves the total when only one listed market is missing, and lists that coin as no_price_yet', async () => {
+    const out = await run(fakeTrade({ 'BTC/USDT': { last: '60000', open: '59000' } }, ['NEW/USDT']));
+    expect(out.totalUsd).toBe('60100.00');
+    expect(out.change24hUsd).toBe('1000.00');
+    expect(out.unpriced).toEqual([{ asset: 'NEW', amount: '7', reason: 'no_price_yet' }]);
+  });
+
+  it('a coin whose USDT market is missing but USDC market answers is priced from USDC', async () => {
+    const out = await run(fakeTrade({ 'BTC/USDT': { last: '60000', open: null }, 'NEW/USDC': { last: '2', open: '2' } }, ['NEW/USDT']));
+    expect(out.priced.find((r) => r.asset === 'NEW')).toMatchObject({ pair: 'NEW/USDC', valueUsd: '14' });
+    expect(out.unpriced).toEqual([]);
+  });
+
+  it('a coin with no USDT or USDC market at all is unpriced with reason no_market', async () => {
+    const rows = [bal(ALICE, 'USDT', 'available', '100'), bal(ALICE, 'IFC', 'available', '5'), bal(ALICE, 'EUR', 'available', '9')];
+    const out = await run(fakeTrade({ 'BTC/USDT': { last: '60000', open: '59000' } }), rows);
+    expect(out.totalUsd).toBe('100.00');
+    expect(out.unpriced).toEqual([
+      { asset: 'EUR', amount: '9', reason: 'no_market' },
+      { asset: 'IFC', amount: '5', reason: 'no_market' },
+    ]);
+  });
+
+  it('stable-only users never need prices, even when listed markets exist', async () => {
+    const trade = fakeTrade({}, ['BTC/USDT']);
+    const out = await run(trade, [bal(ALICE, 'USDT', 'available', '3')]);
+    expect(out.totalUsd).toBe('3.00');
+    expect(trade.calls()).toBe(0);
+  });
+});
+
+describe("Spaces: everything the user owns is in the total, and nobody else's", () => {
+  const rows = [
+    bal(ALICE, 'USDT', 'available', '100'),
+    bal(ALICE, 'BTC', 'available', '0.1'),
+    // Alice's named Space "holiday" holds BTC (subaccount owner type) and some USDT; one is locked.
+    bal('space-alice-1', 'BTC', 'available', '0.4', 'subaccount'),
+    bal('space-alice-1', 'BTC', 'hold', '0.1', 'subaccount'),
+    bal('space-alice-2', 'USDT', 'available', '50', 'subaccount'),
+    // Bob's Space is large and must never leak into Alice's total.
+    bal(BOB, 'USDT', 'available', '1', 'user'),
+    bal('space-bob-1', 'BTC', 'available', '100', 'subaccount'),
+  ];
+  const spaces = fakeSpaces([
+    space('space-alice-1', ALICE),
+    space('space-alice-2', ALICE, 'named', 'USDT'),
+    space('primary-alice', ALICE, 'primary'),
+    space('space-bob-1', BOB),
+  ]);
+  const prices = () => fakeTrade({ 'BTC/USDT': { last: '60000', open: '59000' } }).source;
+
+  it("counts a user's Space balances (free and locked) with their main balance", async () => {
+    const { ledger, asked } = fakeLedger(rows);
+    const svc = new PortfolioService(ledger, spaces, { tickers: prices(), now: () => NOW });
+    const out = await callerFor(svc, principal(ALICE)).portfolio.summary();
+    // BTC 0.1 + 0.4 + 0.1 = 0.6 -> 36000; USDT 100 + 50 = 150
+    expect(out.totalUsd).toBe('36150.00');
+    expect(out.cashUsd).toBe('150.00');
+    expect(out.cryptoUsd).toBe('36000.00');
+    expect(out.change24hUsd).toBe('600.00');
+    expect(out.priced.find((r) => r.asset === 'BTC')!.amount).toBe('0.6');
+    // The primary Space is a view over the user's own accounts, so it adds no read of its own.
+    expect(asked.sort()).toEqual(
+      [
+        ['user', ALICE],
+        ['subaccount', 'space-alice-1'],
+        ['subaccount', 'space-alice-2'],
+      ].sort(),
+    );
+  });
+
+  it("never reads or counts another user's Space", async () => {
+    const { ledger, asked } = fakeLedger(rows);
+    const svc = new PortfolioService(ledger, spaces, { tickers: prices(), now: () => NOW });
+    const out = await callerFor(svc, principal(ALICE)).portfolio.summary();
+    expect(asked.some(([, id]) => id === 'space-bob-1')).toBe(false);
+    expect(out.priced.find((r) => r.asset === 'BTC')!.amount).not.toContain('100');
+
+    const bobs = await callerFor(svc, principal(BOB)).portfolio.summary();
+    expect(bobs.priced.find((r) => r.asset === 'BTC')!.amount).toBe('100');
+    expect(bobs.totalUsd).toBe('6000001.00');
+  });
+
+  it('even a mis-scoped Space list cannot pull in a Space whose owner is someone else', async () => {
+    const { ledger, asked } = fakeLedger(rows);
+    const leaky: SpaceLister = { namedSpaces: async () => [space('space-alice-1', ALICE), space('space-bob-1', BOB)] };
+    const svc = new PortfolioService(ledger, leaky, { tickers: prices(), now: () => NOW });
+    await callerFor(svc, principal(ALICE)).portfolio.summary();
+    expect(asked.some(([, id]) => id === 'space-bob-1')).toBe(false);
+  });
+
+  it('a user whose only crypto sits in a Space is not told they hold nothing', async () => {
+    const { ledger } = fakeLedger([bal('space-alice-1', 'BTC', 'available', '1', 'subaccount')]);
+    const svc = new PortfolioService(ledger, fakeSpaces([space('space-alice-1', ALICE)]), { tickers: prices(), now: () => NOW });
+    const out = await callerFor(svc, principal(ALICE)).portfolio.summary();
+    expect(out.totalUsd).toBe('60000.00');
   });
 });
