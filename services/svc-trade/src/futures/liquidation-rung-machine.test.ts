@@ -46,7 +46,7 @@ const WIDE_POLICY = {
 
 const body = (req: PostRequest) => JSON.stringify(req, (_k, v) => (typeof v === 'bigint' ? `${v}n` : v));
 
-function harness(opts: { insurance?: Amount } = {}) {
+function harness(opts: { insurance?: Amount; pot?: Amount } = {}) {
   const row = {
     positionId: 'pos-1',
     userId: USER,
@@ -61,6 +61,8 @@ function harness(opts: { insurance?: Amount } = {}) {
   };
   const price = { current: '93' };
   const insurance = { available: opts.insurance ?? amt('1000000') };
+  /** The position's collateral pot, as the ledger sees it. */
+  const pot = { amount: opts.pot ?? amt('1000000') };
   const posts: PostRequest[] = [];
   const booked = new Map<string, PostRequest>();
   const reduces: { sizeClosed: string; marginRemaining: string }[] = [];
@@ -127,6 +129,11 @@ function harness(opts: { insurance?: Amount } = {}) {
             formatAmount(insurance.available),
           );
         }
+        // A release can only return what the pot holds.
+        const potLeg = req.reason === 'futures.margin.release' ? req.entries.find((e) => e.direction === 'credit') : undefined;
+        if (potLeg && !booked.has(req.idempotencyKey) && potLeg.amount > pot.amount) {
+          throw new InsufficientFundsError('user:position-pot', 'USDT', formatAmount(potLeg.amount), formatAmount(pot.amount));
+        }
         posts.push(req);
         const old = booked.get(req.idempotencyKey);
         if (old && body(old) !== body(req)) {
@@ -138,7 +145,12 @@ function harness(opts: { insurance?: Amount } = {}) {
         return { id: `tx:${req.idempotencyKey}`, idempotencyKey: req.idempotencyKey } as never;
       },
       async balance(ref: AccountRef) {
-        const amount = ref.ownerType === 'house' && ref.ownerId === 'insurance-fund' ? insurance.available : amt('1000000');
+        const amount =
+          ref.ownerType === 'house' && ref.ownerId === 'insurance-fund'
+            ? insurance.available
+            : ref.kind === 'collateral'
+              ? pot.amount
+              : amt('1000000');
         return { account: ref, accountId: 'x', amount };
       },
       // The production client cannot answer this (services/svc-trade/src/ledger-client.ts). Nothing may ask.
@@ -171,7 +183,7 @@ function harness(opts: { insurance?: Amount } = {}) {
         0n,
       );
   const lossKeys = () => [...booked.keys()].filter((k) => k.startsWith('futures.loss:'));
-  return { deps, row, price, posts, booked, reduces, announced, hooks, rungs, attempts, marginTaken, lossKeys, snapshot, insurance };
+  return { deps, row, price, posts, booked, reduces, announced, hooks, rungs, attempts, marginTaken, lossKeys, snapshot, insurance, pot };
 }
 
 const show = (t: { items: { outcome: string; reason: string }[] }) => t.items.map((i) => `${i.outcome}/${i.reason}`).join(',');
@@ -555,6 +567,141 @@ describe('probe F / H: ordinary writers move the row after the loss is booked', 
   });
 });
 
+describe('probe L: the margin release comes up short (the position must never stay open after its loss is booked)', () => {
+  const potAccount = {
+    ownerType: 'user',
+    ownerId: USER,
+    assetId: 'USDT',
+    kind: 'collateral',
+    purpose: 'position:pos-1',
+  } as unknown as AccountRef;
+  const avail = { ownerType: 'user', ownerId: USER, assetId: 'USDT', kind: 'available' } as unknown as AccountRef;
+  const fees = { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available' } as unknown as AccountRef;
+
+  /** A stored closing rung: loss 70 from a 100 margin, release 30 — as the planner would have written it. */
+  async function storedRung(h: ReturnType<typeof harness>) {
+    const loss: PostRequest = {
+      idempotencyKey: 'futures.loss:liq:pos-1:rung:r1:loss',
+      module: 'trade',
+      reason: 'futures.loss.realized',
+      entries: [
+        { account: potAccount, direction: 'credit', amount: amt('70') },
+        { account: fees, direction: 'debit', amount: amt('70') },
+      ],
+    };
+    const release: PostRequest = {
+      idempotencyKey: 'futures.margin.release:pos-1:rung:r1',
+      module: 'trade',
+      reason: 'futures.margin.release',
+      entries: [
+        { account: potAccount, direction: 'credit', amount: amt('30') },
+        { account: avail, direction: 'debit', amount: amt('30') },
+      ],
+    };
+    const plan: RungPlan = {
+      recipes: [loss, release],
+      sizeClosed: amt('10'),
+      marginRemaining: 0n,
+      marginTaken: amt('70'),
+      releaseShort: 0n,
+      reason: 'ladder_full_close',
+      fromInsurance: 0n,
+      marginAsset: 'USDT',
+    };
+    const r = await h.rungs.begin({
+      rungId: 'r1',
+      positionId: 'pos-1',
+      liquidationId: 'liq:pos-1',
+      kind: 'closing',
+      fromSize: amt('10'),
+      fromMargin: amt('100'),
+      plan,
+    });
+    expect(r.status).toBe('created');
+  }
+  const releaseOf = (h: ReturnType<typeof harness>) => h.booked.get('futures.margin.release:pos-1:rung:r1');
+
+  it('funding took 5 before the release posted: the release is amended to the pot, the row closes, the shortfall is alerted', async () => {
+    const h = harness({ pot: amt('25') });
+    await storedRung(h);
+    h.row.margin -= amt('5'); // funding took it from the row and the pot
+    const t = await runLiquidationTick(h.deps);
+    expect(t.items[0]).toMatchObject({
+      outcome: 'liquidated',
+      releaseShort: { code: 'trade.liquidation_release_short', rungId: 'r1', amount: '5' },
+    });
+    expect(h.row.status).toBe('liquidated');
+    expect(releaseOf(h)!.entries.map((e) => e.amount)).toEqual([amt('25'), amt('25')]);
+    expect(h.booked.get('futures.loss:liq:pos-1:rung:r1:loss')!.entries[0]!.amount).toBe(amt('70'));
+    expect(h.rungs.all().map((r) => [r.state, r.plan.releaseShort, r.marginDrift])).toEqual([['applied', amt('5'), -amt('5')]]);
+    expect(h.announced).toEqual(['pos-1']);
+  });
+
+  it('a margin withdrawal of 10 (pot and row) before the release posted: same, amended to 20', async () => {
+    const h = harness({ pot: amt('20') });
+    await storedRung(h);
+    h.row.margin -= amt('10');
+    const t = await runLiquidationTick(h.deps);
+    expect(t.items[0]).toMatchObject({ outcome: 'liquidated', releaseShort: { amount: '10' } });
+    expect(h.row.status).toBe('liquidated');
+    expect(releaseOf(h)!.entries[0]!.amount).toBe(amt('20'));
+  });
+
+  it('crash after the amendment is persisted but before it posts: the replay posts the AMENDED body, byte for byte', async () => {
+    const h = harness({ pot: amt('25') });
+    await storedRung(h);
+    h.row.margin -= amt('5');
+    let crash = true;
+    const real = h.deps.ledger.post;
+    h.deps.ledger.post = async (req) => {
+      // The amended release is the second attempt at this key; the first (stored) one was refused.
+      if (crash && req.idempotencyKey.includes('margin.release') && req.entries[0]!.amount === amt('25')) {
+        crash = false;
+        throw new Error('died right after amending');
+      }
+      return real(req);
+    };
+    const t1 = await runLiquidationTick(h.deps);
+    expect(t1.items[0]).toMatchObject({ outcome: 'errored', reason: 'trade.liquidation_tick_error' });
+    const live = (await h.rungs.findLive('pos-1'))!;
+    expect(live.state).toBe('planned');
+    expect(live.plan.releaseShort).toBe(amt('5'));
+    const amended = live.plan.recipes.find((r) => r.reason === 'futures.margin.release')!;
+    expect(amended.entries[0]!.amount).toBe(amt('25'));
+    expect(h.row.status).toBe('open');
+
+    const t2 = await runLiquidationTick(h.deps);
+    expect(t2.items[0]).toMatchObject({ outcome: 'liquidated', releaseShort: { amount: '5' } });
+    expect(body(releaseOf(h)!)).toBe(body(amended));
+    expect(h.row.status).toBe('liquidated');
+  });
+
+  it('an empty pot: the release is skipped, the row still closes, the whole release is the shortfall', async () => {
+    const h = harness({ pot: 0n });
+    await storedRung(h);
+    h.row.margin = 0n;
+    const t = await runLiquidationTick(h.deps);
+    expect(t.items[0]).toMatchObject({ outcome: 'liquidated', releaseShort: { amount: '30' } });
+    expect(h.row.status).toBe('liquidated');
+    expect(releaseOf(h)).toBeUndefined();
+    expect((await h.rungs.all())[0]!.plan.recipes).toHaveLength(1);
+  });
+
+  it('a refusal that is NOT a short pot (the pot holds enough) is not amended: it errors and the rung stays live', async () => {
+    const h = harness({ pot: amt('1000') });
+    await storedRung(h);
+    h.hooks.beforePost = (req) => {
+      if (req.idempotencyKey.includes('margin.release')) {
+        throw new InsufficientFundsError('user:available', 'USDT', '30', '0');
+      }
+    };
+    const t = await runLiquidationTick(h.deps);
+    expect(t.items[0]).toMatchObject({ outcome: 'errored' });
+    expect(h.row.status).toBe('open');
+    expect((await h.rungs.findLive('pos-1'))!.plan.releaseShort).toBe(0n);
+  });
+});
+
 describe('probe G: the production ledger client cannot look keys up', () => {
   it('a bankrupt closing rung (insurance leg) that crashes before its first post is replayed to completion', async () => {
     const h = harness();
@@ -652,6 +799,7 @@ describe('the close announcement is at-least-once', () => {
         sizeClosed: amt('10'),
         marginRemaining: 0n,
         marginTaken: 0n,
+        releaseShort: 0n,
         reason: 'ladder_full_close',
         fromInsurance: 0n,
         marginAsset: 'USDT',
@@ -770,6 +918,7 @@ describe('the memory store models the lock and the one-live-rung rule', () => {
     sizeClosed: amt('1'),
     marginRemaining: amt('90'),
     marginTaken: amt('10'),
+    releaseShort: 0n,
     reason: 'ladder_partial',
     fromInsurance: 0n,
     marginAsset: 'USDT',
@@ -837,6 +986,7 @@ describe('plan codec', () => {
       sizeClosed: huge,
       marginRemaining: big,
       marginTaken: huge,
+      releaseShort: 0n,
       reason: 'ladder_partial',
       fromInsurance: huge,
       marginAsset: 'USDT',

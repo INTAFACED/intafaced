@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { formatAmount, parseAmount as amt, type AccountRef, type PostRequest } from '@intafaced/ledger-client';
+import { formatAmount, InsufficientFundsError, parseAmount as amt, type AccountRef, type PostRequest } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { memoryAcceptedMarkStore } from './accepted-mark.js';
 import { ABANDONED_PARKED, runLiquidationTick, type LiquidationTickDeps } from './liquidation-tick.js';
@@ -94,6 +94,7 @@ describe('liquidation rungs (Postgres)', () => {
 
   beforeEach(async () => {
     userSeq = 0;
+    pot.amount = amt('1000000');
     await sql`TRUNCATE trade.positions, trade.fills, trade.orders, trade.markets, trade.liquidation_rungs, trade.liquidation_attempts RESTART IDENTITY CASCADE`;
     await sql`
       INSERT INTO trade.markets (
@@ -131,6 +132,8 @@ describe('liquidation rungs (Postgres)', () => {
       >`SELECT state, kind FROM trade.liquidation_rungs WHERE position_id = ${id} ORDER BY created_at, rung_id`
     ).map((r) => `${r.kind}:${r.state}`);
 
+  const pot = { amount: amt('1000000') };
+
   function fixture(opts: { price?: { current: string }; bus?: { published: unknown[] } } = {}) {
     const price = opts.price ?? { current: '93' };
     const posts: PostRequest[] = [];
@@ -161,6 +164,10 @@ describe('liquidation rungs (Postgres)', () => {
       ledger: {
         async post(req) {
           await hooks.beforePost?.(req);
+          const potLeg = req.reason === 'futures.margin.release' ? req.entries.find((e) => e.direction === 'credit') : undefined;
+          if (potLeg && !booked.has(req.idempotencyKey) && potLeg.amount > pot.amount) {
+            throw new InsufficientFundsError('user:position-pot', 'USDT', formatAmount(potLeg.amount), formatAmount(pot.amount));
+          }
           posts.push(req);
           const old = booked.get(req.idempotencyKey);
           if (old && body(old) !== body(req)) {
@@ -172,7 +179,7 @@ describe('liquidation rungs (Postgres)', () => {
           return { id: `tx:${req.idempotencyKey}`, idempotencyKey: req.idempotencyKey } as never;
         },
         async balance(ref: AccountRef) {
-          return { account: ref, accountId: 'x', amount: amt('1000000') };
+          return { account: ref, accountId: 'x', amount: ref.kind === 'collateral' ? pot.amount : amt('1000000') };
         },
         // The production client cannot answer this (services/svc-trade/src/ledger-client.ts). Nothing may ask.
         async getTxByKey() {
@@ -445,6 +452,123 @@ describe('liquidation rungs (Postgres)', () => {
     expect(amt(r!.margin_drift)).toBe(shortfall);
   });
 
+  describe('probe L: a short margin release is amended, never left open', () => {
+    const potOf = (user: string, id: string) =>
+      ({ ownerType: 'user', ownerId: user, assetId: 'USDT', kind: 'collateral', purpose: `position:${id}` }) as unknown as AccountRef;
+    const avail = (user: string) => ({ ownerType: 'user', ownerId: user, assetId: 'USDT', kind: 'available' }) as unknown as AccountRef;
+    const fees = { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available' } as unknown as AccountRef;
+
+    async function storedClosingRung(id: string) {
+      const [{ user_id }] = await sql<{ user_id: string }[]>`SELECT user_id FROM trade.positions WHERE id = ${id}`;
+      const loss: PostRequest = {
+        idempotencyKey: `futures.loss:liq:${id}:rung:r1:loss`,
+        module: 'trade',
+        reason: 'futures.loss.realized',
+        entries: [
+          { account: potOf(user_id!, id), direction: 'credit', amount: amt('70') },
+          { account: fees, direction: 'debit', amount: amt('70') },
+        ],
+      };
+      const release: PostRequest = {
+        idempotencyKey: `futures.margin.release:${id}:rung:r1`,
+        module: 'trade',
+        reason: 'futures.margin.release',
+        entries: [
+          { account: potOf(user_id!, id), direction: 'credit', amount: amt('30') },
+          { account: avail(user_id!), direction: 'debit', amount: amt('30') },
+        ],
+      };
+      const store = sqlLiquidationRungStore(sql);
+      const r = await store.begin({
+        rungId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        positionId: id,
+        liquidationId: `liq:${id}`,
+        kind: 'closing',
+        fromSize: amt('10'),
+        fromMargin: amt('100'),
+        plan: {
+          recipes: [loss, release],
+          sizeClosed: amt('10'),
+          marginRemaining: 0n,
+          marginTaken: amt('70'),
+          releaseShort: 0n,
+          reason: 'ladder_full_close',
+          fromInsurance: 0n,
+          marginAsset: 'USDT',
+        },
+      });
+      expect(r.status).toBe('created');
+    }
+
+    it('funding took 5 before the release posted: amended to the pot, row closed, shortfall persisted in the plan and alerted', async () => {
+      const id = await openPosition();
+      await storedClosingRung(id);
+      await sql`UPDATE trade.positions SET margin_current = margin_current - 5 WHERE id = ${id}`;
+      pot.amount = amt('25');
+      const f = fixture();
+      const t = await runLiquidationTick(f.deps);
+      expect(t.items[0]).toMatchObject({ outcome: 'liquidated', releaseShort: { code: 'trade.liquidation_release_short', amount: '5' } });
+      expect((await readRow(id)).status).toBe('liquidated');
+      expect(await rungStates(id)).toEqual(['closing:applied']);
+      const release = [...f.booked.values()].find((p) => p.reason === 'futures.margin.release')!;
+      expect(release.entries.map((e) => e.amount)).toEqual([amt('25'), amt('25')]);
+      const [r] = await sql<{ plan: { releaseShort: string }; margin_drift: string }[]>`
+        SELECT plan, margin_drift FROM trade.liquidation_rungs WHERE position_id = ${id}`;
+      expect(r!.plan.releaseShort).toBe(amt('5').toString());
+      expect(money(r!.margin_drift)).toBe(money('-5'));
+    });
+
+    it('crash after the amendment is persisted: the replay posts the amended body byte for byte', async () => {
+      const id = await openPosition();
+      await storedClosingRung(id);
+      pot.amount = amt('25');
+      const f = fixture();
+      let crash = true;
+      const real = f.deps.ledger.post;
+      f.deps.ledger.post = async (req) => {
+        if (crash && req.reason === 'futures.margin.release' && req.entries[0]!.amount === amt('25')) {
+          crash = false;
+          throw new Error('died right after amending');
+        }
+        return real(req);
+      };
+      const t1 = await runLiquidationTick(f.deps);
+      expect(t1.items[0]!.outcome).toBe('errored');
+      const [stored] = await sql<{ plan: { recipes: { reason: string; entries: { amount: string }[] }[] } }[]>`
+        SELECT plan FROM trade.liquidation_rungs WHERE position_id = ${id}`;
+      expect(stored!.plan.recipes.find((r) => r.reason === 'futures.margin.release')!.entries[0]!.amount).toBe(amt('25').toString());
+      expect(await rungStates(id)).toEqual(['closing:planned']);
+
+      const t2 = await runLiquidationTick(f.deps);
+      expect(t2.items[0]).toMatchObject({ outcome: 'liquidated', releaseShort: { amount: '5' } });
+      expect((await readRow(id)).status).toBe('liquidated');
+      const release = [...f.booked.values()].find((p) => p.reason === 'futures.margin.release')!;
+      expect(release.entries[0]!.amount).toBe(amt('25'));
+    });
+
+    it('an empty pot: the release is skipped and the row still closes', async () => {
+      const id = await openPosition();
+      await storedClosingRung(id);
+      pot.amount = 0n;
+      const f = fixture();
+      const t = await runLiquidationTick(f.deps);
+      expect(t.items[0]).toMatchObject({ outcome: 'liquidated', releaseShort: { amount: '30' } });
+      expect((await readRow(id)).status).toBe('liquidated');
+      expect([...f.booked.values()].some((p) => p.reason === 'futures.margin.release')).toBe(false);
+    });
+
+    it('amendPlan only writes to a rung that is still planned', async () => {
+      const id = await openPosition();
+      await storedClosingRung(id);
+      const store = sqlLiquidationRungStore(sql);
+      const live = (await store.findLive(id))!;
+      expect(await store.amendPlan(live.rungId, { ...live.plan, releaseShort: amt('1') })).toBe(true);
+      await store.markPosted(live.rungId);
+      expect(await store.amendPlan(live.rungId, { ...live.plan, releaseShort: amt('2') })).toBe(false);
+      expect((await store.findLive(id))!.plan.releaseShort).toBe(amt('1'));
+    });
+  });
+
   it('G: with a ledger that cannot look keys up, a bankrupt closing rung that crashes before its first post completes on replay', async () => {
     const id = await openPosition();
     const f = fixture({ price: { current: '84' } });
@@ -553,6 +677,7 @@ describe('liquidation rungs (Postgres)', () => {
       sizeClosed: amt('1'),
       marginRemaining: amt('90'),
       marginTaken: amt('10'),
+      releaseShort: 0n,
       reason: 'ladder_partial',
       fromInsurance: 0n,
       marginAsset: 'USDT',
@@ -624,6 +749,7 @@ describe('liquidation rungs (Postgres)', () => {
         sizeClosed: huge,
         marginRemaining: big,
         marginTaken: huge,
+        releaseShort: 0n,
         reason: 'ladder_partial',
         fromInsurance: huge,
         marginAsset: 'USDT',

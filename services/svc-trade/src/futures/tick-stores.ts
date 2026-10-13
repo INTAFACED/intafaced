@@ -465,6 +465,16 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
       }
     },
 
+    async amendPlan(rungId, plan) {
+      const rows = await sql`
+        UPDATE trade.liquidation_rungs
+           SET plan = ${sql.json(encodeRungPlan(plan) as never)}, updated_at = now()
+         WHERE rung_id = ${rungId} AND state = 'planned'
+        RETURNING rung_id
+      `;
+      return rows.length > 0;
+    },
+
     async markPosted(rungId) {
       await sql`
         UPDATE trade.liquidation_rungs

@@ -66,6 +66,13 @@ export interface RungPlan {
   marginRemaining: Amount;
   /** The margin this rung's loss took out of the position's pot (the loss recipe's `fromMargin`). */
   marginTaken: Amount;
+  /**
+   * How much LESS than planned the margin release actually returns (>= 0). Set when the
+   * pot no longer held the planned amount at post time (funding or a margin withdrawal
+   * took some first) and the release was amended to what the pot holds. The amendment
+   * is persisted before it posts, so a replay posts the same amended body.
+   */
+  releaseShort: Amount;
   reason: string;
   /** The insurance leg of the loss: re-checked before a replay that has not booked it. */
   fromInsurance: Amount;
@@ -144,6 +151,13 @@ export interface LiquidationRungStore {
   /** Every recipe of the rung is booked. Idempotent. */
   markPosted(rungId: string): Promise<void>;
   /**
+   * Replace the stored plan of a rung that is still 'planned' (nothing known to be fully
+   * posted). Used to persist an amended margin release BEFORE it posts, so any replay
+   * posts the amended body. Resolves false, writing nothing, when the rung is no longer
+   * 'planned'.
+   */
+  amendPlan(rungId: string, plan: RungPlan): Promise<boolean>;
+  /**
    * Under a row lock, in ONE transaction: apply the rung to the row AND set it
    * 'applied'. Partial: size and margin move by the stored DELTA on whatever the
    * row is now (open, and larger than the tranche). Closing: the row closes if it is
@@ -172,6 +186,7 @@ export interface EncodedRungPlan {
   sizeClosed: string;
   marginRemaining: string;
   marginTaken: string;
+  releaseShort: string;
   reason: string;
   fromInsurance: string;
   marginAsset: string;
@@ -186,6 +201,7 @@ export function encodeRungPlan(plan: RungPlan): EncodedRungPlan {
     sizeClosed: plan.sizeClosed.toString(),
     marginRemaining: plan.marginRemaining.toString(),
     marginTaken: plan.marginTaken.toString(),
+    releaseShort: plan.releaseShort.toString(),
     reason: plan.reason,
     fromInsurance: plan.fromInsurance.toString(),
     marginAsset: plan.marginAsset,
@@ -201,6 +217,7 @@ export function decodeRungPlan(encoded: EncodedRungPlan): RungPlan {
     sizeClosed: BigInt(encoded.sizeClosed),
     marginRemaining: BigInt(encoded.marginRemaining),
     marginTaken: BigInt(encoded.marginTaken),
+    releaseShort: BigInt(encoded.releaseShort ?? '0'),
     reason: encoded.reason,
     fromInsurance: BigInt(encoded.fromInsurance),
     marginAsset: encoded.marginAsset,
@@ -270,6 +287,12 @@ export function memoryLiquidationRungStore(rows: RungRowBook): LiquidationRungSt
     async markPosted(rungId) {
       const e = rungs.get(rungId);
       if (e && e.rec.state === 'planned') e.rec.state = 'posted';
+    },
+    async amendPlan(rungId, plan) {
+      const e = rungs.get(rungId);
+      if (!e || e.rec.state !== 'planned') return false;
+      e.plan = encodeRungPlan(plan);
+      return true;
     },
     async apply(positionId, rungId) {
       const e = rungs.get(rungId);

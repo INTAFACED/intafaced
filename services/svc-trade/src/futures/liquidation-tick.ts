@@ -31,7 +31,7 @@ import { breakerBasis, type AcceptedMarkStore } from './accepted-mark.js';
 import { INSURANCE_UNDERFUNDED, checkInsuranceBound } from './insurance-bound.js';
 import { parkUnderfundedWithAdl, type LiquidationAdlDeps } from './liquidation-adl-gate.js';
 export type { LiquidationAdlDeps } from './liquidation-adl-gate.js';
-import type { LiquidationRungStore, RungIdFactory, RungRecord } from './liquidation-rungs.js';
+import type { LiquidationRungStore, RungIdFactory, RungPlan, RungRecord } from './liquidation-rungs.js';
 
 /**
  * WHAT A CALLER ASKS A MARK SOURCE FOR — AND WHAT THE ANSWER IS FOR.
@@ -335,6 +335,8 @@ export interface LiquidationTickItemResult {
    * still a success; `reportLiquidationTick` raises the alert at error level.
    */
   alert?: { code: string; rungId: string; amount: string };
+  /** The rung's margin release was amended down to what the pot held (`trade.liquidation_release_short`). Amount is the shortfall. */
+  releaseShort?: { code: string; rungId: string; amount: string };
   /**
    * Set when `outcome === 'margin_call'`: whether the notify port accepted
    * delivery. Observable on the tick result; REST durability is the trader door.
@@ -733,6 +735,7 @@ async function runLadderRung(
         sizeClosed: decision.sizeClosed,
         marginRemaining: decision.marginRemaining,
         marginTaken: decision.fromMargin,
+        releaseShort: 0n,
         reason: decision.reason,
         fromInsurance: decision.fromInsurance,
         marginAsset: row.marginAsset,
@@ -841,28 +844,63 @@ async function driveRung(
   const outcome = closing ? ('liquidated' as const) : ('partially_liquidated' as const);
   const label = `rung ${rung.rungId} (${rung.kind}) close=${formatAmount(plan.sizeClosed)} marginTaken=${formatAmount(plan.marginTaken)}`;
 
+  let releaseShort = plan.releaseShort;
+
   if (rung.state === 'planned') {
-    try {
-      for (const recipe of plan.recipes) {
+    let current: RungPlan = plan;
+    for (const stored of plan.recipes) {
+      let recipe: PostRequest | null = stored;
+      try {
         await deps.ledger.post(recipe);
+      } catch (err) {
+        const code = (err as { code?: unknown } | null)?.code;
+        if (code === 'ledger.insufficient_funds' && stored.reason === 'futures.margin.release') {
+          /**
+           * THE RELEASE CAME UP SHORT — AMEND IT, NEVER LEAVE THE POSITION OPEN.
+           *
+           * The loss is booked (it posted first). The release returns the margin the loss
+           * did not consume, as planned from the row; if the pot holds less now (funding
+           * or a margin withdrawal took some before the release posted) the ledger refuses
+           * it and, unamended, the rung would error every tick with the row still open and
+           * tradable after its loss was booked. So: read the pot, release what it holds
+           * under the SAME key (a refused post leaves nothing booked, so a different body
+           * is not a key reuse), skip the release when the pot is empty, and persist the
+           * amended plan BEFORE posting so a replay posts the same body.
+           */
+          const potEntry = stored.entries.find((e) => e.direction === 'credit');
+          if (!potEntry) throw err;
+          const pot = (await deps.ledger.balance(potEntry.account)).amount;
+          if (pot >= potEntry.amount) throw err; // the pot is not short: this refusal is something else
+          const amended = pot > 0n ? pot : 0n;
+          recipe = amended > 0n ? { ...stored, entries: stored.entries.map((e) => ({ ...e, amount: amended })) } : null;
+          releaseShort += potEntry.amount - amended;
+          current = {
+            ...current,
+            recipes: current.recipes.flatMap((r) => (r.idempotencyKey !== stored.idempotencyKey ? [r] : recipe ? [recipe] : [])),
+            releaseShort,
+          };
+          if (!(await rungs.amendPlan(rung.rungId, current))) {
+            throw new Error(`rung ${rung.rungId} left 'planned' while its release was being amended — replayed next tick`);
+          }
+          if (recipe) await deps.ledger.post(recipe);
+        } else if (plan.fromInsurance > 0n && code === 'ledger.insufficient_funds') {
+          const parked = await parkUnderfundedWithAdl({
+            adl: deps.adl,
+            row,
+            fromInsurance: plan.fromInsurance,
+            insuranceReason: INSURANCE_UNDERFUNDED,
+            at: (deps.now ?? (() => new Date()))(),
+          });
+          return {
+            positionId: row.positionId,
+            outcome: 'errored',
+            reason: 'trade.liquidation_insurance_underfunded_on_replay',
+            summary: `${label}: the ledger refused the insurance leg of ${formatAmount(plan.fromInsurance)} — rung stays live and is retried every tick (${parked.summary})`,
+          };
+        } else {
+          throw err;
+        }
       }
-    } catch (err) {
-      if (plan.fromInsurance > 0n && (err as { code?: unknown } | null)?.code === 'ledger.insufficient_funds') {
-        const parked = await parkUnderfundedWithAdl({
-          adl: deps.adl,
-          row,
-          fromInsurance: plan.fromInsurance,
-          insuranceReason: INSURANCE_UNDERFUNDED,
-          at: (deps.now ?? (() => new Date()))(),
-        });
-        return {
-          positionId: row.positionId,
-          outcome: 'errored',
-          reason: 'trade.liquidation_insurance_underfunded_on_replay',
-          summary: `${label}: the ledger refused the insurance leg of ${formatAmount(plan.fromInsurance)} — rung stays live and is retried every tick (${parked.summary})`,
-        };
-      }
-      throw err;
     }
     await rungs.markPosted(rung.rungId);
   }
@@ -881,6 +919,9 @@ async function driveRung(
         reason: plan.reason,
         summary: `${label} ${applied.status === 'applied' ? 'applied' : 'already applied'}${alert ? ` — ${alert.code} ${formatAmount(alert.amount)}` : ''}`,
         ...(alert ? { alert: { code: alert.code, rungId: rung.rungId, amount: formatAmount(alert.amount) } } : {}),
+        ...(releaseShort > 0n && applied.status === 'applied'
+          ? { releaseShort: { code: 'trade.liquidation_release_short', rungId: rung.rungId, amount: formatAmount(releaseShort) } }
+          : {}),
       };
     }
     case 'abandoned':

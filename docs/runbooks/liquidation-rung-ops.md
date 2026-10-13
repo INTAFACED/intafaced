@@ -7,15 +7,16 @@ A **rung** is one tranche of a liquidation (a partial reduction, or the closing 
 
 ## 1. What raises a flag (all at error level, every tick while true)
 
-| Log line (job `futures.liquidation`)                                        | Meaning                                                                                                                                                              | Section |
-| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `position <id> errored (trade.liquidation_row_changed_after_post): …`       | The rung just got abandoned: loss booked, row could not be reconciled. The position is now parked.                                                                   | 2       |
-| `liquidation parked: the latest rung was abandoned … positionId=<id>`       | A parked position (reason `trade.liquidation_abandoned_parked`). Nothing is planned for it until resolved. **An unhealthy parked position is not being liquidated.** | 2       |
-| `liquidation rung parked: claim exists but position still open …`           | A closing rung claimed by the code from before rung ids. Same handling as a park.                                                                                    | 2.4     |
-| `trade.liquidation_margin_drift positionId=… rungId=… amount=…`             | A closing rung closed the row but the row's margin was not what the stored release assumed. `amount` is signed.                                                      | 3       |
-| `trade.liquidation_margin_clipped positionId=… rungId=… amount=…`           | A partial rung applied but the row held less margin than the loss took; `margin_current` was floored at 0. `amount` is the (negative) shortfall.                     | 3       |
-| `position <id> errored (trade.liquidation_insurance_underfunded_on_replay)` | A stored rung needs insurance cover the fund no longer has. The rung stays live and retries every tick; top up the fund or follow ADL policy.                        | —       |
-| `… (trade.liquidation_announce_failed)`                                     | A close committed but its bus announcement did not publish. Retried every tick (one attempt per tick). Fix the bus.                                                  | —       |
+| Log line (job `futures.liquidation`)                                        | Meaning                                                                                                                                                                           | Section |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `position <id> errored (trade.liquidation_row_changed_after_post): …`       | The rung just got abandoned: loss booked, row could not be reconciled. The position is now parked.                                                                                | 2       |
+| `liquidation parked: the latest rung was abandoned … positionId=<id>`       | A parked position (reason `trade.liquidation_abandoned_parked`). Nothing is planned for it until resolved. **An unhealthy parked position is not being liquidated.**              | 2       |
+| `liquidation rung parked: claim exists but position still open …`           | A closing rung claimed by the code from before rung ids. Same handling as a park.                                                                                                 | 2.4     |
+| `trade.liquidation_margin_drift positionId=… rungId=… amount=…`             | A closing rung closed the row but the row's margin was not what the stored release assumed. `amount` is signed.                                                                   | 3       |
+| `trade.liquidation_margin_clipped positionId=… rungId=… amount=…`           | A partial rung applied but the row held less margin than the loss took; `margin_current` was floored at 0. `amount` is the (negative) shortfall.                                  | 3       |
+| `position <id> errored (trade.liquidation_insurance_underfunded_on_replay)` | A stored rung needs insurance cover the fund no longer has. The rung stays live and retries every tick; top up the fund or follow ADL policy.                                     | —       |
+| `trade.liquidation_release_short positionId=… rungId=… amount=…`            | A closing rung's margin release was amended DOWN by `amount` because the pot held less than planned (funding or a margin withdrawal took some first). The position closed. See 3. | 3       |
+| `… (trade.liquidation_announce_failed)`                                     | A close committed but its bus announcement did not publish. Retried every tick (one attempt per tick). Fix the bus.                                                               | —       |
 
 ## 2. Release a parked position
 
@@ -86,13 +87,15 @@ DELETE FROM trade.liquidation_attempts WHERE liquidation_id = 'liq:' || :'pid';
 
 _Why the code does not auto-release stranded margin:_ it is only safe if the ledger pot and the row agreed before the rung, which is exactly what is in doubt when drift appears. A failed release after the row has closed would also need its own retry state. So it is logged with the amount and left to an operator.
 
+- **Closing rung, `trade.liquidation_release_short`:** the release was posted for less than planned, because the pot held less (the rung's `plan.releaseShort` stores the amount, and `margin_drift` stores the row-side difference; they overlap when funding hit both). The position closed. Check the pot for the closed position: it should be 0. Nothing to post.
+
 ## 4. Deploy gate (the first deploy of rungs, and any deploy that changes how rungs plan)
 
 Rungs that were in flight under the old claim-based code are invisible to the new code, except closing claims in `trade.liquidation_attempts`. A partial rung that posted its loss under the old key (`futures.loss:liq:<pid>:loss:partial:<closed>:<size>`) and crashed before reducing the row has **no marker**, and the new code would book that tranche again. So reconcile first:
 
 1. Set `TRADE_FUTURES_JOBS_ENABLED=false` on svc-trade and roll it out. This stops liquidation, funding and settlement (`startFuturesJobs`). Confirm in the logs that `futures.liquidation` no longer runs.
 2. Deploy the new version (migration `0050_liquidation_rungs` applies; `node tooling/ci/migration-check.mjs` is the CI gate).
-3. Run the reconciliation query (section 5) for **every open position**. A position is clean when `margin_current` equals the ledger `position:<id>` collateral balance.
+3. **First run the section-5 reconciliation once on a staging snapshot** (a restore of production data) and read the mismatches before relying on it. Ordinary mismatches exist in a healthy book — for example a funding write that floored the row's margin at 0 while its ledger leg was refused — and step 4 would park every one of them, which can park the whole book. Decide per class of mismatch what the hand-fix is, then run the query for **every open position** in production. A position is clean when `margin_current` equals the ledger `position:<id>` collateral balance.
 4. For each mismatching open position, park it so the new code does not plan against a half-booked tranche:
    ```sql
    INSERT INTO trade.liquidation_attempts (liquidation_id, position_id)
@@ -140,3 +143,36 @@ SELECT position_id, rung_id, kind, state, created_at FROM trade.liquidation_rung
  WHERE (state IN ('planned','posted') AND updated_at < now() - interval '10 minutes')
     OR (kind = 'closing' AND state = 'applied' AND announced_at IS NULL AND updated_at < now() - interval '10 minutes');
 ```
+
+## 6. A rung stuck live (`planned` or `posted`, erroring every tick)
+
+A live rung is replayed every tick until it applies. If it keeps erroring, find which error:
+
+- `trade.liquidation_insurance_underfunded_on_replay` — the insurance fund cannot cover the rung's shortfall leg. Top the fund up (or follow the ADL policy) and the next tick finishes it. Do not abandon unless the position must be released by hand.
+- A refused margin release was amended automatically (since this version) when the pot holds less than planned; before that version it errored forever. If a release is still refused, the pot holds MORE than the planned amount yet the post fails, which is a ledger-side problem: read the ledger error in the log line.
+- Any other persistent ledger refusal (frozen posting, account unknown, idempotency conflict).
+
+To decide:
+
+1. **Which of the rung's recipe keys are booked?** Ask svc-ledger directly (`ledger.ledger_tx`), for the keys in the rung's plan:
+   ```sql
+   -- trade DB: the keys the rung posts
+   SELECT r->>'idempotencyKey' AS key, r->>'reason' AS reason
+     FROM trade.liquidation_rungs, jsonb_array_elements(plan->'recipes') r WHERE rung_id = :'rung_id';
+   ```
+   ```sql
+   -- ledger DB: which of them exist
+   SELECT idempotency_key, posted_at FROM ledger.ledger_tx WHERE idempotency_key = ANY (:'keys');
+   ```
+2. **Nothing booked** (no loss key): the rung can simply be given up — it has cost nothing. Set it `abandoned` and the position parks only until you `resolve` it; the next tick will plan afresh once resolved.
+3. **The loss is booked** (the usual case for a stuck rung): the row must catch up, so fix the cause on the ledger side (unfreeze posting, restore the account) and let the next tick apply it. Abandon only if the position must be hand-closed or hand-reduced.
+4. To abandon, in ONE transaction, then continue with section 2 (hand-fix the row to the ledger, then resolve):
+   ```sql
+   BEGIN;
+   UPDATE trade.liquidation_rungs
+      SET state = 'abandoned', updated_at = now()
+    WHERE rung_id = :'rung_id' AND position_id = :'pid' AND state IN ('planned','posted')
+   RETURNING rung_id, state;       -- exactly one row, or ROLLBACK
+   COMMIT;
+   ```
+   The position is now parked (reason `trade.liquidation_abandoned_parked`). Do not run two tick workers' worth of hand edits: stop `TRADE_FUTURES_JOBS_ENABLED` first if several positions are in this state.

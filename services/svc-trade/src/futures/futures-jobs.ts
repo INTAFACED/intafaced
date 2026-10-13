@@ -172,6 +172,14 @@ export function reportLiquidationTick(tick: LiquidationTickResult, onError: (nam
         new Error(`${item.alert.code} positionId=${item.positionId} rungId=${item.alert.rungId} amount=${item.alert.amount}`),
       );
     }
+    if (item.releaseShort) {
+      onError(
+        'futures.liquidation',
+        new Error(
+          `${item.releaseShort.code} positionId=${item.positionId} rungId=${item.releaseShort.rungId} amount=${item.releaseShort.amount} (the margin release was amended down to what the pot held)`,
+        ),
+      );
+    }
     if (item.outcome === 'errored') {
       onError('futures.liquidation', new Error(`position ${item.positionId} errored (${item.reason}): ${item.summary ?? ''}`));
     } else if (item.outcome === 'skipped_already' && item.reason === ABANDONED_PARKED) {
