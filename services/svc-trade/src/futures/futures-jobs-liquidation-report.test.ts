@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { reportLiquidationTick } from './futures-jobs.js';
 import type { LiquidationTickResult } from './liquidation-tick.js';
@@ -33,5 +35,13 @@ describe('reportLiquidationTick', () => {
     reportLiquidationTick(parked, (_n, e) => logged.push(e));
     reportLiquidationTick(parked, (_n, e) => logged.push(e));
     expect(logged).toHaveLength(2);
+  });
+});
+
+describe('startFuturesJobs wiring', () => {
+  it('hands the liquidation tick the SQL rung store (a rung that is not stored cannot be replayed)', () => {
+    const src = readFileSync(fileURLToPath(new URL('./futures-jobs.ts', import.meta.url)), 'utf8');
+    expect(src).toMatch(/const rungs = sqlLiquidationRungStore\(deps\.sql\)/);
+    expect(src).toMatch(/runLiquidationTick\(\{[\s\S]*?\brungs,[\s\S]*?\}\)/);
   });
 });

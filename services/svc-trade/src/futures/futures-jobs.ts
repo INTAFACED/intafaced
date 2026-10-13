@@ -31,6 +31,7 @@ import {
   sqlFundingMarginApplier,
   sqlFundingPeriodStore,
   sqlLiquidationAttemptStore,
+  sqlLiquidationRungStore,
   sqlPositionCloser,
   sqlPositionReducer,
 } from './tick-stores.js';
@@ -153,9 +154,10 @@ export interface FuturesJobsHandle {
  * - `errored`: that position threw; the tick scanned the rest (see
  *   `runLiquidationTick`), so without this line the failure would vanish.
  * - `skipped_already` on an open position: a claim exists yet the position is
- *   still open — a rung parked after a crash, which only an operator can clear.
- *   It is logged EVERY tick so it cannot be scrolled past. (A worker that is
- *   merely mid-flight on another replica clears itself and stops logging.)
+ *   still open. Rungs that run through the rung store never leave one (a failed
+ *   rung is replayed), so this is a closing rung claimed by the code that
+ *   predates rung ids and parked after a crash — only an operator can clear it.
+ *   It is logged EVERY tick so it cannot be scrolled past.
  */
 export function reportLiquidationTick(tick: LiquidationTickResult, onError: (name: string, err: unknown) => void): void {
   for (const item of tick.items) {
@@ -225,6 +227,7 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
 
   const liqLoader = sqlLiquidationPositionLoader(deps.sql);
   const attempts = sqlLiquidationAttemptStore(deps.sql);
+  const rungs = sqlLiquidationRungStore(deps.sql);
   const closer = sqlPositionCloser(deps.sql, deps.bus);
   const fundLoader = sqlFundingPositionLoader(deps.sql);
   const periods = sqlFundingPeriodStore(deps.sql);
@@ -282,6 +285,9 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
       positions: liqLoader,
       closer,
       attempts,
+      // Rungs are a state machine on the position row (liquidation-rungs.ts): a failed
+      // rung is replayed from its stored bodies, never re-planned at a new mark.
+      rungs,
       acceptedMarks,
       ladder,
       ledger: deps.ledger,

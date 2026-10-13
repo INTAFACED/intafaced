@@ -1,0 +1,474 @@
+/**
+ * THE RUNG STATE MACHINE AGAINST REAL POSTGRES.
+ *
+ * `liquidation-rung-machine.test.ts` proves the laws against a memory model of
+ * the store. This file proves the model is honest: the row lock, the one-live-rung
+ * unique index and the single transaction that moves the row AND the rung are
+ * Postgres facts, and a mock can only assert that statements were issued.
+ *
+ * H8a PG-hard: never `describe.skip` / `postgresAvailable`. CI uses
+ * TEST_DATABASE_URL (per-run `createTestDatabase`). Local without that env starts
+ * Testcontainers `postgres:16-alpine`; Docker/PG down is a failed suite.
+ */
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import { formatAmount, parseAmount as amt, type AccountRef, type PostRequest } from '@intafaced/ledger-client';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { memoryAcceptedMarkStore } from './accepted-mark.js';
+import { runLiquidationTick, type LiquidationTickDeps } from './liquidation-tick.js';
+import { sqlLiquidationPositionLoader } from './position-loaders.js';
+import type { RungPlan } from './liquidation-rungs.js';
+import { sqlLiquidationAttemptStore, sqlLiquidationRungStore, sqlPositionCloser, sqlPositionReducer } from './tick-stores.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const drizzle = join(here, '..', '..', 'drizzle');
+const migrations = readdirSync(drizzle)
+  .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+  .sort()
+  .map((f) => readFileSync(join(drizzle, f), 'utf8'));
+const H8A_IMAGE = 'postgres:16-alpine';
+
+async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
+  const envUrl = process.env.TEST_DATABASE_URL?.trim();
+  if (envUrl) return { url: envUrl, stop: async () => undefined };
+  try {
+    const container = await new PostgreSqlContainer(H8A_IMAGE)
+      .withDatabase('intafaced_h8a_test')
+      .withUsername('intafaced')
+      .withPassword('intafaced')
+      .start();
+    return { url: container.getConnectionUri(), stop: async () => void (await container.stop()) };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `H8a: svc-trade liquidation-rung-store is PG-hard (no skip-green). ` +
+        `TEST_DATABASE_URL unset and Testcontainers could not start ${H8A_IMAGE}: ${msg}`,
+    );
+  }
+}
+
+const MARKET = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const AT = new Date('2026-08-12T14:00:00.000Z');
+const WIDE_POLICY = {
+  tiers: [
+    { uptoDepthBps: 500, maintenanceBps: 500 },
+    { uptoDepthBps: 5_000, maintenanceBps: 800 },
+    { uptoDepthBps: Number.MAX_SAFE_INTEGER, maintenanceBps: 1_500 },
+  ],
+  marginCallBps: 12_000,
+  targetBps: 15_000,
+  maxTrancheBps: 10_000,
+};
+const body = (req: PostRequest) => JSON.stringify(req, (_k, v) => (typeof v === 'bigint' ? `${v}n` : v));
+const money = (v: string) => formatAmount(amt(v));
+
+describe('src: this suite is not skip-green', () => {
+  it('has no postgresAvailable / describe.skip / it.skip', () => {
+    const src = readFileSync(fileURLToPath(import.meta.url), 'utf8');
+    expect(src).not.toMatch(/\bpostgresAvailable\s*\(/);
+    expect(src).not.toMatch(/describe\.skip\s*\(/);
+    expect(src).not.toMatch(/\bit\.skip\s*\(/);
+  });
+});
+
+describe('liquidation rungs (Postgres)', () => {
+  let adminStop: () => Promise<void> = async () => undefined;
+  let db: TestDatabase | undefined;
+  let sql!: TestDatabase['sql'];
+  let userSeq = 0;
+
+  beforeAll(async () => {
+    const admin = await openAdmin();
+    adminStop = admin.stop;
+    db = await createTestDatabase({ service: 'trade', url: admin.url, migrations });
+    sql = db.sql;
+  }, 120_000);
+
+  afterAll(async () => {
+    await db?.drop();
+    await adminStop();
+  }, 30_000);
+
+  beforeEach(async () => {
+    userSeq = 0;
+    await sql`TRUNCATE trade.positions, trade.fills, trade.orders, trade.markets, trade.liquidation_rung_plans, trade.liquidation_attempts RESTART IDENTITY CASCADE`;
+    await sql`
+      INSERT INTO trade.markets (
+        id, symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
+        maker_bps, taker_bps, status, display_name, listed_at
+      ) VALUES (
+        ${MARKET}, 'BTC/USDT-PERP', 'BTC', 'USDT', 'futures',
+        '0.01', '0.0001', '0.0001', '1', 10, 20, 'active', 'BTC Perpetual', now()
+      )
+    `;
+  });
+
+  /** One open long: size 10, entry 100, margin 100 — at mark 93 it is partially liquidated, at 60 it is closed. */
+  async function openPosition(size = '10', margin = '100'): Promise<string> {
+    const user = `11111111-1111-4111-8111-${String(++userSeq).padStart(12, '0')}`;
+    const [row] = await sql<{ id: string }[]>`
+      INSERT INTO trade.positions (
+        user_id, market_id, side, status, margin_mode, size, entry_price, leverage,
+        margin_initial, margin_current, margin_asset, funding_paid
+      ) VALUES (${user}, ${MARKET}, 'long', 'open', 'isolated', ${size}, '100', '5', ${margin}, ${margin}, 'USDT', '0')
+      RETURNING id
+    `;
+    return row!.id;
+  }
+  const readRow = async (id: string) => {
+    const [r] = await sql<{ status: string; size: string; margin_current: string }[]>`
+      SELECT status, size, margin_current FROM trade.positions WHERE id = ${id}
+    `;
+    return { status: r!.status, size: money(r!.size), margin: money(r!.margin_current) };
+  };
+  const rungStates = async (id: string) =>
+    (
+      await sql<
+        { state: string; kind: string }[]
+      >`SELECT state, kind FROM trade.liquidation_rung_plans WHERE position_id = ${id} ORDER BY created_at, rung_id`
+    ).map((r) => `${r.kind}:${r.state}`);
+
+  function fixture(opts: { price?: { current: string }; bus?: { published: unknown[] } } = {}) {
+    const price = opts.price ?? { current: '93' };
+    const posts: PostRequest[] = [];
+    const booked = new Map<string, PostRequest>();
+    const hooks: { beforePost?: (req: PostRequest) => void | Promise<void> } = {};
+    const bus = opts.bus
+      ? ({
+          async publish(name: string, payload: unknown, o: unknown) {
+            opts.bus!.published.push({ name, payload, o });
+            return {} as never;
+          },
+        } as never)
+      : null;
+    const deps: LiquidationTickDeps = {
+      marks: {
+        async markPrice() {
+          return price.current;
+        },
+        async quote({ marketId, symbol, at }) {
+          return { marketId, symbol, price: amt(price.current), asOf: at, quality: 'mid' };
+        },
+      },
+      positions: sqlLiquidationPositionLoader(sql),
+      closer: sqlPositionCloser(sql, bus),
+      attempts: sqlLiquidationAttemptStore(sql),
+      rungs: sqlLiquidationRungStore(sql),
+      acceptedMarks: memoryAcceptedMarkStore(),
+      ledger: {
+        async post(req) {
+          await hooks.beforePost?.(req);
+          posts.push(req);
+          const old = booked.get(req.idempotencyKey);
+          if (old && body(old) !== body(req)) {
+            throw Object.assign(new Error(`key ${req.idempotencyKey} reused with a different body`), {
+              code: 'ledger.idempotency_conflict',
+            });
+          }
+          booked.set(req.idempotencyKey, req);
+          return { id: `tx:${req.idempotencyKey}`, idempotencyKey: req.idempotencyKey } as never;
+        },
+        async balance(ref: AccountRef) {
+          return { account: ref, accountId: 'x', amount: amt('1000000') };
+        },
+        async getTxByKey(key: string) {
+          return booked.has(key) ? ({ id: key } as never) : null;
+        },
+      },
+      now: () => AT,
+      ladder: {
+        depth: {
+          async depthNotional() {
+            return amt('1114000');
+          },
+        },
+        policy: WIDE_POLICY,
+        reducer: sqlPositionReducer(sql),
+      },
+    };
+    const lossKeys = () => [...booked.keys()].filter((k) => k.startsWith('futures.loss:'));
+    const marginTaken = () =>
+      [...booked.values()]
+        .filter((p) => p.reason === 'futures.loss.realized')
+        .reduce(
+          (sum, p) =>
+            sum + p.entries.filter((e) => e.direction === 'credit' && e.account.ownerType === 'user').reduce((s, e) => s + e.amount, 0n),
+          0n,
+        );
+    return { deps, price, posts, booked, hooks, lossKeys, marginTaken };
+  }
+
+  it('happy path: the loss key carries the rung id, the row and the rung move together', async () => {
+    const id = await openPosition();
+    const f = fixture();
+    const t = await runLiquidationTick(f.deps);
+    expect(t.items.map((i) => i.outcome)).toEqual(['partially_liquidated']);
+    const [rung] = await sql<{ rung_id: string; from_size: string; from_margin: string }[]>`
+      SELECT rung_id, from_size, from_margin FROM trade.liquidation_rung_plans WHERE position_id = ${id}
+    `;
+    expect(f.lossKeys()).toEqual([`futures.loss:liq:${id}:rung:${rung!.rung_id}:loss`]);
+    expect(money(rung!.from_size)).toBe(money('10'));
+    expect(await rungStates(id)).toEqual(['partial:applied']);
+    const after = await readRow(id);
+    expect(after.size).not.toBe(money('10'));
+    expect(amt(after.size)).toBeLessThan(amt('10'));
+    expect(amt('100') - amt(after.margin)).toBe(f.marginTaken());
+  });
+
+  it('two ticks racing on one position book exactly one loss and one reduction (20 positions, 2 workers each)', async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 20; i++) ids.push(await openPosition());
+    const fa = fixture();
+    const fb = fixture();
+    // One shared ledger: a second book would hide a double post.
+    fb.deps.ledger = fa.deps.ledger;
+    const [a, b] = await Promise.all([runLiquidationTick(fa.deps), runLiquidationTick(fb.deps)]);
+    expect(a.errored + b.errored).toBe(0);
+    expect(fa.lossKeys()).toHaveLength(20);
+    for (const id of ids) {
+      expect(await rungStates(id)).toEqual(['partial:applied']);
+    }
+    // One reduction per position, and the ledger took exactly what the rows lost.
+    let rowLoss = 0n;
+    for (const id of ids) rowLoss += amt('100') - amt((await readRow(id)).margin);
+    expect(fa.marginTaken()).toBe(rowLoss);
+    const sizes = new Set<string>();
+    for (const id of ids) sizes.add((await readRow(id)).size);
+    expect(sizes.size).toBe(1);
+  });
+
+  it('a worker with a stale listOpen snapshot refuses (skipped_changed) and books nothing', async () => {
+    const id = await openPosition();
+    const stale = await sqlLiquidationPositionLoader(sql).listOpen();
+    const f = fixture();
+    await runLiquidationTick(f.deps);
+    const keys = f.lossKeys();
+    const taken = f.marginTaken();
+
+    f.price.current = '92.5';
+    const t = await runLiquidationTick({
+      ...f.deps,
+      positions: {
+        async listOpen() {
+          return stale;
+        },
+      },
+    });
+    expect(t.items.map((i) => i.outcome)).toEqual(['skipped_changed']);
+    expect(f.lossKeys()).toEqual(keys);
+    expect(f.marginTaken()).toBe(taken);
+    expect(await rungStates(id)).toEqual(['partial:applied']);
+    expect(amt('100') - amt((await readRow(id)).margin)).toBe(taken);
+  });
+
+  it('a position the trader closed between the read and the lock is skipped_changed', async () => {
+    const id = await openPosition();
+    const stale = await sqlLiquidationPositionLoader(sql).listOpen();
+    await sql`UPDATE trade.positions SET status = 'closed', closed_at = now() WHERE id = ${id}`;
+    const f = fixture();
+    const t = await runLiquidationTick({
+      ...f.deps,
+      positions: {
+        async listOpen() {
+          return stale;
+        },
+      },
+    });
+    expect(t.items.map((i) => i.outcome)).toEqual(['skipped_changed']);
+    expect(f.posts).toHaveLength(0);
+    expect(await rungStates(id)).toEqual([]);
+  });
+
+  it('regrow to the same size at the same mark: a different rung id, a different key, its own loss', async () => {
+    const id = await openPosition();
+    const f = fixture();
+    await runLiquidationTick(f.deps);
+    await sql`UPDATE trade.positions SET size = '10', margin_current = '100' WHERE id = ${id}`;
+    const t2 = await runLiquidationTick(f.deps);
+    expect(t2.items.map((i) => i.outcome)).toEqual(['partially_liquidated']);
+    expect(new Set(f.lossKeys()).size).toBe(2);
+    expect(await rungStates(id)).toEqual(['partial:applied', 'partial:applied']);
+    expect(f.marginTaken()).toBe(2n * (amt('100') - amt((await readRow(id)).margin)));
+  });
+
+  it('the row changes while the loss is being booked: rung abandoned in the table, errored, row untouched by the rung', async () => {
+    const id = await openPosition();
+    const f = fixture();
+    f.hooks.beforePost = async () => {
+      await sql`UPDATE trade.positions SET size = '9' WHERE id = ${id}`;
+    };
+    const t = await runLiquidationTick(f.deps);
+    expect(t.items[0]).toMatchObject({ outcome: 'errored', reason: 'trade.liquidation_row_changed_after_post' });
+    expect(t.partial).toBe(0);
+    expect(await rungStates(id)).toEqual(['partial:abandoned']);
+    expect(await readRow(id)).toEqual({ status: 'open', size: money('9'), margin: money('100') });
+  });
+
+  it('sqlPositionReducer reports false when no row moved, true when one did', async () => {
+    const id = await openPosition();
+    const reducer = sqlPositionReducer(sql);
+    const input = { liquidationId: 'x', sizeClosed: amt('1'), marginRemaining: amt('90'), reason: 'ladder_partial' };
+    expect(await reducer.reduce(id, { ...input, sizeClosed: amt('10') })).toBe(false); // would take it to zero
+    expect(await reducer.reduce(id, { ...input, sizeClosed: 0n })).toBe(false);
+    await sql`UPDATE trade.positions SET status = 'closed' WHERE id = ${id}`;
+    expect(await reducer.reduce(id, input)).toBe(false);
+    await sql`UPDATE trade.positions SET status = 'open' WHERE id = ${id}`;
+    expect(await reducer.reduce(id, input)).toBe(true);
+    expect((await readRow(id)).size).toBe(money('9'));
+  });
+
+  it('a closing rung that throws after its post is replayed next tick and completes (no park)', async () => {
+    const id = await openPosition();
+    const published: unknown[] = [];
+    const f = fixture({ price: { current: '60' }, bus: { published } });
+    const realApply = f.deps.rungs!.apply;
+    let crash = true;
+    f.deps.rungs!.apply = async (...args) => {
+      if (crash) {
+        crash = false;
+        throw new Error('db blip');
+      }
+      return realApply(...args);
+    };
+    const t1 = await runLiquidationTick(f.deps);
+    expect(t1.items[0]!.outcome).toBe('errored');
+    expect(await rungStates(id)).toEqual(['closing:posted']);
+    expect((await readRow(id)).status).toBe('open');
+
+    const t2 = await runLiquidationTick(f.deps);
+    expect(t2.items.map((i) => i.outcome)).toEqual(['liquidated']);
+    expect(await rungStates(id)).toEqual(['closing:applied']);
+    expect((await readRow(id)).status).toBe('liquidated');
+    expect(f.lossKeys()).toHaveLength(1);
+    const claims = await sql`SELECT 1 FROM trade.liquidation_attempts WHERE liquidation_id = ${`liq:${id}`}`;
+    expect(claims).toHaveLength(1);
+    expect(published).toHaveLength(1); // fanned out once, after the commit
+  });
+
+  it('a claim left by the old code on an open position keeps the old behaviour: parked, nothing posted', async () => {
+    const id = await openPosition();
+    await sql`INSERT INTO trade.liquidation_attempts (liquidation_id) VALUES (${`liq:${id}`})`;
+    const f = fixture({ price: { current: '60' } });
+    const t = await runLiquidationTick(f.deps);
+    expect(t.items[0]).toMatchObject({ outcome: 'skipped_already' });
+    expect(t.parked).toBe(1);
+    expect(f.posts).toHaveLength(0);
+    expect(await rungStates(id)).toEqual([]);
+  });
+
+  describe('the store itself', () => {
+    const plan = (): RungPlan => ({
+      recipes: [],
+      sizeClosed: amt('1'),
+      marginRemaining: amt('90'),
+      reason: 'ladder_partial',
+      fromInsurance: 0n,
+      marginAsset: 'USDT',
+    });
+
+    it('two concurrent begins: one created, one handed the winner (the row lock + the unique index)', async () => {
+      const id = await openPosition();
+      const store = sqlLiquidationRungStore(sql);
+      const mk = (rungId: string) => ({
+        rungId,
+        positionId: id,
+        kind: 'partial' as const,
+        fromSize: amt('10'),
+        fromMargin: amt('100'),
+        plan: plan(),
+      });
+      const [a, b] = await Promise.all([
+        store.begin(mk('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')),
+        store.begin(mk('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1')),
+      ]);
+      expect([a.status, b.status].sort()).toEqual(['created', 'live']);
+      const winner = a.status === 'created' ? a.rung : (b as { rung: { rungId: string } }).rung;
+      const loser = a.status === 'live' ? a.rung : (b as { rung: { rungId: string } }).rung;
+      expect(loser.rungId).toBe(winner.rungId);
+      expect(await sql`SELECT 1 FROM trade.liquidation_rung_plans WHERE position_id = ${id}`).toHaveLength(1);
+    });
+
+    it('the database refuses a second live rung for a position, and an unknown kind or state', async () => {
+      const id = await openPosition();
+      const ins = (rung: string, kind: string, state: string) => sql`
+        INSERT INTO trade.liquidation_rung_plans (rung_id, position_id, kind, from_size, from_margin, plan, state)
+        VALUES (${rung}, ${id}, ${kind}, '10', '100', ${sql.json({} as never)}, ${state})
+      `;
+      await ins('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'partial', 'planned');
+      await expect(ins('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1', 'partial', 'posted')).rejects.toMatchObject({ code: '23505' });
+      // A finished rung does not count as live.
+      await ins('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'closing', 'applied');
+      await ins('dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'closing', 'abandoned');
+      await expect(ins('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 'sideways', 'applied')).rejects.toMatchObject({ code: '23514' });
+      await expect(ins('ffffffff-ffff-4fff-8fff-ffffffffffff', 'partial', 'maybe')).rejects.toMatchObject({ code: '23514' });
+    });
+
+    it('amounts beyond 2^53 survive the jsonb round trip, recipes included', async () => {
+      const id = await openPosition('12345678.123456789012345678', '98765432.123456789012345678');
+      const store = sqlLiquidationRungStore(sql);
+      const big = 2n ** 53n + 1n;
+      const huge = 123456789012345678901234567890n;
+      const p: RungPlan = {
+        recipes: [
+          {
+            idempotencyKey: 'futures.loss:liq:x:rung:r:loss',
+            module: 'trade',
+            reason: 'futures.loss.realized',
+            entries: [
+              {
+                account: { ownerType: 'user', ownerId: 'u', assetId: 'USDT', kind: 'available' } as never,
+                direction: 'credit',
+                amount: big,
+              },
+              {
+                account: { ownerType: 'house', ownerId: 'fees', assetId: 'USDT', kind: 'available' } as never,
+                direction: 'debit',
+                amount: big,
+              },
+            ],
+          },
+        ],
+        sizeClosed: huge,
+        marginRemaining: big,
+        reason: 'ladder_partial',
+        fromInsurance: huge,
+        marginAsset: 'USDT',
+      };
+      const created = await store.begin({
+        rungId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        positionId: id,
+        kind: 'partial',
+        fromSize: amt('12345678.123456789012345678'),
+        fromMargin: amt('98765432.123456789012345678'),
+        plan: p,
+      });
+      expect(created.status).toBe('created');
+      const live = await store.findLive(id);
+      expect(live!.plan).toEqual(p);
+      expect(live!.fromSize).toBe(amt('12345678.123456789012345678'));
+      expect(live!.fromMargin).toBe(amt('98765432.123456789012345678'));
+    });
+
+    it('apply twice moves the row once (second call: already_applied)', async () => {
+      const id = await openPosition();
+      const store = sqlLiquidationRungStore(sql);
+      await store.begin({
+        rungId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        positionId: id,
+        kind: 'partial',
+        fromSize: amt('10'),
+        fromMargin: amt('100'),
+        plan: plan(),
+      });
+      const [a, b] = await Promise.all([
+        store.apply(id, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+        store.apply(id, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+      ]);
+      expect([a.status, b.status].sort()).toEqual(['already_applied', 'applied']);
+      expect(await readRow(id)).toEqual({ status: 'open', size: money('9'), margin: money('90') });
+    });
+  });
+});
