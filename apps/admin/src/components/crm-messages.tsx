@@ -36,30 +36,44 @@ export function MessageItem({ message, owners }: { message: Message; owners: Fou
 export function CrmMessages({
   csrf,
   opportunity,
+  expectedRevision,
   originalRecipient,
   owners,
   onSaved,
   onDraftChange,
+  initialDraft,
+  onDraftValues,
 }: {
   csrf: string;
   opportunity: CrmOpportunity;
+  /** The revision the console's form is based on (see crm-base-revision); defaults to the record's own. */
+  expectedRevision?: number;
   originalRecipient: { name: string; email: string };
   owners: FounderOwner[];
   onSaved: () => Promise<boolean>;
   onDraftChange: (dirty: boolean) => void;
+  /** Text kept from before the session ended, put back when the form opens. The confirmation tick is never restored. */
+  initialDraft?: { kind: string; staffText: string; reason: string };
+  /** Reports the typed fields, so the workspace can keep them if the session ends. */
+  onDraftValues?: (values: { kind: string; staffText: string; reason: string }) => void;
 }) {
   const [page, setPage] = useState<Page | null>(null),
     [cursor, setCursor] = useState<string>(),
     [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false);
-  const [kind, setKind] = useState('information_request'),
-    [staffText, setStaffText] = useState(''),
-    [reason, setReason] = useState(''),
+  const [kind, setKind] = useState(initialDraft?.kind ?? 'information_request'),
+    [staffText, setStaffText] = useState(initialDraft?.staffText ?? ''),
+    [reason, setReason] = useState(initialDraft?.reason ?? ''),
     [confirmed, setConfirmed] = useState(false),
     [error, setError] = useState(''),
     [notice, setNotice] = useState('');
   const pending = useRef(new Map<string, PendingCrmWrite>()),
     generation = useRef(0);
+  const [startOpen] = useState(Boolean(initialDraft?.staffText || initialDraft?.reason));
+  useEffect(() => {
+    onDraftValues?.({ kind, staffText, reason });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, staffText, reason]);
   const refresh = useCallback(async () => {
     const current = ++generation.current;
     setLoading(true);
@@ -88,7 +102,7 @@ export function CrmMessages({
     try {
       saved = await crmWrite<Receipt>(csrf, pending.current, 'queueMessage', {
         opportunityId: opportunity.id,
-        expectedRevision: opportunity.revision,
+        expectedRevision: expectedRevision ?? opportunity.revision,
         kind,
         staffText,
         reason,
@@ -155,7 +169,7 @@ export function CrmMessages({
           </button>
         )}
       </div>
-      <details>
+      <details open={startOpen || undefined}>
         <summary>Queue an enquiry message</summary>
         <form
           className="adm-form"
