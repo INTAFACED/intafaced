@@ -45,6 +45,7 @@ export const tradeStatusEnum = p2p.enum('trade_status', ['created', 'escrowed', 
  *
  * `voided` exists because a trade can die between "reserved" and "escrowed",
  * and a terminal trade with a NULL resolution would be a row nobody can explain.
+ * `0011` refuses that resolution once `escrowed_at` or `escrow_amount` is set.
  */
 export const tradeResolutionEnum = p2p.enum('trade_resolution', ['released', 'refunded', 'voided']);
 
