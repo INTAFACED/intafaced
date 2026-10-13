@@ -11,14 +11,7 @@ import {
   type FundingMemberSnapshot,
   type FundingPeriodStore,
 } from './funding-tick.js';
-import {
-  decodeRungPlan,
-  encodeRungPlan,
-  type EncodedRungPlan,
-  type LiquidationAttemptStore,
-  type PositionCloser,
-  type PositionReducer,
-} from './liquidation-tick.js';
+import type { LiquidationAttemptStore, PositionCloser, PositionReducer } from './liquidation-tick.js';
 import type { EventBus } from '@intafaced/events';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 
@@ -195,41 +188,6 @@ export function sqlLiquidationAttemptStore(sql: Sql): LiquidationAttemptStore {
         ON CONFLICT (liquidation_id) DO NOTHING
       `;
     },
-    async loadPlan(rungKey) {
-      const rows = await sql<{ plan: EncodedRungPlan }[]>`
-        SELECT plan FROM trade.liquidation_rung_plans
-        WHERE rung_key = ${rungKey} AND completed_at IS NULL
-        LIMIT 1
-      `;
-      return rows[0] ? decodeRungPlan(rows[0].plan) : null;
-    },
-    /**
-     * ONE statement, three cases. No row: insert. An UNFINISHED row: the no-op
-     * update leaves it untouched and RETURNING hands it back, so the loser of a
-     * race gets the winner's plan without a second read a delete could slip
-     * between. A COMPLETED row: replaced by this plan and reopened — the row it
-     * described has moved on, and the same size coming round again is a new rung.
-     */
-    async savePlan(rungKey, plan) {
-      const rows = await sql<{ plan: EncodedRungPlan }[]>`
-        INSERT INTO trade.liquidation_rung_plans (rung_key, plan)
-        VALUES (${rungKey}, ${sql.json(encodeRungPlan(plan) as never)})
-        ON CONFLICT (rung_key) DO UPDATE
-          SET plan = CASE WHEN trade.liquidation_rung_plans.completed_at IS NULL
-                          THEN trade.liquidation_rung_plans.plan ELSE EXCLUDED.plan END,
-              created_at = CASE WHEN trade.liquidation_rung_plans.completed_at IS NULL
-                                THEN trade.liquidation_rung_plans.created_at ELSE now() END,
-              completed_at = NULL
-        RETURNING plan
-      `;
-      return decodeRungPlan(rows[0]!.plan);
-    },
-    async completePlan(rungKey) {
-      await sql`
-        UPDATE trade.liquidation_rung_plans SET completed_at = now()
-        WHERE rung_key = ${rungKey} AND completed_at IS NULL
-      `;
-    },
   };
 }
 
@@ -265,7 +223,6 @@ export function sqlPositionReducer(sql: Sql): PositionReducer {
       if (input.sizeClosed <= 0n) return;
       const sizeClosed = formatAmount(input.sizeClosed);
       const marginRemaining = formatAmount(input.marginRemaining < 0n ? 0n : input.marginRemaining);
-      const expectedSize = input.expectedSize === undefined ? null : formatAmount(input.expectedSize);
       await sql`
         UPDATE trade.positions
            SET size = size - ${sizeClosed}::numeric,
@@ -274,7 +231,6 @@ export function sqlPositionReducer(sql: Sql): PositionReducer {
          WHERE id = ${positionId}
            AND status = 'open'
            AND size > ${sizeClosed}::numeric
-           AND (${expectedSize}::numeric IS NULL OR size = ${expectedSize}::numeric)
       `;
       // input.liquidationId / input.reason are for logs — the ledger already
       // carries the idempotency key that makes this rung identifiable.

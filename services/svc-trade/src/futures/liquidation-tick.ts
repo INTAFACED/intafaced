@@ -13,7 +13,7 @@
  * `DIRECTION` §1's failure mode, not a fallback policy. Omit `deps.ladder` and
  * the tick refuses (`trade.ladder_unset`) — it does not flatten the book.
  */
-import { formatAmount, parseAmount, type Amount, type EntryInput, type LedgerClient, type PostRequest } from '@intafaced/ledger-client';
+import { parseAmount, type Amount, type LedgerClient, type PostRequest } from '@intafaced/ledger-client';
 import { type LiquidationPosition } from './liquidation-planner.js';
 import {
   DEPTH_UNKNOWN,
@@ -112,20 +112,7 @@ export interface PositionCloser {
  * to argue about it.
  */
 export interface PositionReducer {
-  reduce(
-    positionId: string,
-    input: {
-      liquidationId: string;
-      sizeClosed: Amount;
-      marginRemaining: Amount;
-      reason: string;
-      /**
-       * The size the plan was made against. When given, the reduction applies only to a row still at exactly this
-       * size, so two workers replaying one stored plan shrink the position once, not twice.
-       */
-      expectedSize?: Amount;
-    },
-  ): Promise<void>;
+  reduce(positionId: string, input: { liquidationId: string; sizeClosed: Amount; marginRemaining: Amount; reason: string }): Promise<void>;
 }
 
 /** The book this position would have to be closed INTO. Null → skip (never invent depth). */
@@ -210,86 +197,6 @@ export interface LiquidationAttemptStore {
    */
   tryClaim(liquidationId: string): Promise<boolean>;
   markDone(liquidationId: string): Promise<void>;
-  /**
-   * The UNFINISHED rung plan persisted under `rungKey`, or null — a completed
-   * plan is history and is never handed back. OPTIONAL, and the three plan
-   * methods are a set: a store implements all of them or none.
-   *
-   * WHY A STORED PLAN. The ledger dedupes on the recipe key, and the key does
-   * not carry the amounts. A rung that posted and then crashed before the row
-   * moved gets re-planned on the next tick from the LIVE mark: same key, new
-   * fromMargin / fromInsurance. Depending on the ledger that is either a
-   * silent return of the old tx (the row then moves by the NEW margin, which
-   * is not what was booked) or a refused post. Persisting the plan before the
-   * first post and re-posting THAT on every replay makes the key and the
-   * amounts one fact again.
-   */
-  loadPlan?(rungKey: string): Promise<StoredRungPlan | null>;
-  /**
-   * Insert, then return whichever plan is now live under `rungKey`, so two
-   * workers racing to plan the same rung agree on one set of amounts. An
-   * UNFINISHED row wins and is returned as it stands; a COMPLETED row is
-   * replaced by `plan` — the position row has since moved on, and a rung that
-   * comes round again at the same size is a new rung.
-   */
-  savePlan?(rungKey: string, plan: StoredRungPlan): Promise<StoredRungPlan>;
-  /**
-   * The row has moved by the plan: retire it so it can never be replayed. Called
-   * after `reduce` / `markLiquidated` succeeds and before anything is done.
-   */
-  completePlan?(rungKey: string): Promise<void>;
-}
-
-/**
- * What one rung committed to, fixed before its first post.
- *
- * `recipes` are exactly what posts (idempotency keys included); `sizeClosed`,
- * `marginRemaining` and `reason` are what the position row is moved by after
- * they post. All three come from the plan, never from a re-plan.
- */
-export interface StoredRungPlan {
-  recipes: PostRequest[];
-  sizeClosed: Amount;
-  marginRemaining: Amount;
-  reason: string;
-  closesPosition: boolean;
-}
-
-/** {@link StoredRungPlan} as it sits in jsonb: every amount a decimal string, because JSON cannot hold a bigint. */
-export interface EncodedRungPlan {
-  recipes: (Omit<PostRequest, 'entries'> & {
-    entries: { account: EntryInput['account']; direction: EntryInput['direction']; amount: string }[];
-  })[];
-  sizeClosed: string;
-  marginRemaining: string;
-  reason: string;
-  closesPosition: boolean;
-}
-
-export function encodeRungPlan(plan: StoredRungPlan): EncodedRungPlan {
-  return {
-    recipes: plan.recipes.map((r) => ({
-      ...r,
-      entries: r.entries.map((e) => ({ account: e.account, direction: e.direction, amount: formatAmount(e.amount) })),
-    })),
-    sizeClosed: formatAmount(plan.sizeClosed),
-    marginRemaining: formatAmount(plan.marginRemaining),
-    reason: plan.reason,
-    closesPosition: plan.closesPosition,
-  };
-}
-
-export function decodeRungPlan(encoded: EncodedRungPlan): StoredRungPlan {
-  return {
-    recipes: encoded.recipes.map((r) => ({
-      ...r,
-      entries: r.entries.map((e) => ({ account: e.account, direction: e.direction, amount: parseAmount(e.amount) })),
-    })),
-    sizeClosed: parseAmount(encoded.sizeClosed),
-    marginRemaining: parseAmount(encoded.marginRemaining),
-    reason: encoded.reason,
-    closesPosition: encoded.closesPosition,
-  };
 }
 
 /**
@@ -397,6 +304,13 @@ export interface LiquidationTickResult {
   marginCalls: number;
   /** Positions whose processing threw. Each has an `errored` item carrying the cause. */
   errored: number;
+  /**
+   * Open positions the tick skipped as `skipped_already`: an attempt/claim row
+   * exists, yet the position is still open. A claim whose worker is mid-flight
+   * clears itself next tick; one that persists is a rung parked after a crash
+   * (see `runLadderRung`) and needs an operator. Alert on it staying non-zero.
+   */
+  parked: number;
   items: LiquidationTickItemResult[];
 }
 
@@ -521,7 +435,10 @@ export async function runLiquidationTick(deps: LiquidationTickDeps): Promise<Liq
     }
   }
 
-  return { scanned: open.length, liquidated, partial, marginCalls, errored, items };
+  // Every item came off `listOpen`, so a `skipped_already` is an open position
+  // that still has a claim — see `LiquidationTickResult.parked`.
+  const parked = items.filter((i) => i.outcome === 'skipped_already').length;
+  return { scanned: open.length, liquidated, partial, marginCalls, errored, parked, items };
 }
 
 /**
@@ -533,20 +450,13 @@ export async function runLiquidationTick(deps: LiquidationTickDeps): Promise<Liq
  *
  *   1. Read the depth this position would be closed into. No depth → skip.
  *   2. Plan. A refusal or a healthy rung → skip, and nothing posts.
- *   3. Fix the plan (below) and post ITS recipes. The ledger dedupes on the
- *      recipe keys.
+ *   3. Post the recipes. The ledger dedupes on `liquidationId`.
  *   4. THEN move the row — reduce on a partial rung, close on a closing one.
  *
  * Step 4 last, and the attempt only marked done after it, so a crash between 3
- * and 4 replays the rung: the stored plan re-posts the same recipes, so the ledger
- * moves nothing twice and the row catches up by the amounts that were BOOKED. The
- * reverse order would shrink a position whose loss never posted.
- *
- * THE PLAN IS STORED, NOT RE-DERIVED. The recipe keys do not carry the amounts,
- * and the amounts come from the live mark. Re-planning a crashed rung at a new
- * mark would present the same key with different money — see
- * `LiquidationAttemptStore.loadPlan`. A store without plan methods keeps the old
- * behaviour: plan fresh every tick.
+ * and 4 re-runs the whole rung: the ledger moves nothing twice on the replay, and
+ * the row catches up. The reverse order would shrink a position whose loss never
+ * posted.
  */
 async function runLadderRung(
   deps: LiquidationTickDeps,
@@ -555,35 +465,6 @@ async function runLadderRung(
   markPrice: Amount,
   liquidationId: string,
 ): Promise<LiquidationTickItemResult> {
-  /**
-   * FINISH WHAT WAS BOOKED BEFORE DECIDING ANYTHING NEW.
-   *
-   * An unfinished stored plan means a rung already posted (or is posting) its
-   * loss and the row has not moved by it. That is owed regardless of what the
-   * mark says now, and regardless of whether the policy or the book is readable:
-   * the position may have recovered to healthy since, and re-planning would
-   * then skip it and leave the ledger and the row disagreeing for good.
-   */
-  const stored = planStore(deps.attempts);
-  if (stored) {
-    // A closing rung's plan sits under its claimed lifecycle id. A replay of one
-    // still parks, exactly as `tryClaim` returning false does below: a crash
-    // after the claim waits for an operator rather than risk a second full loss.
-    if (await stored.loadPlan(liquidationId)) {
-      return { positionId: row.positionId, outcome: 'skipped_already', reason: 'already_done' };
-    }
-    const owed = await stored.loadPlan(partialRungKey(liquidationId, row));
-    if (owed) {
-      await executePlan(deps, ladder, row, liquidationId, partialRungKey(liquidationId, row), owed, stored);
-      return {
-        positionId: row.positionId,
-        outcome: 'partially_liquidated',
-        reason: owed.reason,
-        summary: `replayed stored rung plan: close=${formatAmount(owed.sizeClosed)} marginRemaining=${formatAmount(owed.marginRemaining)}`,
-      };
-    }
-  }
-
   if (ladder.policy == null) {
     return {
       positionId: row.positionId,
@@ -717,6 +598,10 @@ async function runLadderRung(
    * twice. Partial rungs deliberately do NOT claim `liq:{positionId}` — the
    * position stays open for the next rung, and recipe keys already include the
    * closed size so two partials do not share a ledger id.
+   *
+   * A claim that outlives its worker parks the position here until an operator
+   * clears it. The tick counts these (`parked`) and `startFuturesJobs` logs each
+   * one every tick, so the park is a signal and not a silence.
    */
   if (decision.closesPosition) {
     if (!(await deps.attempts.tryClaim(liquidationId))) {
@@ -724,93 +609,32 @@ async function runLadderRung(
     }
   }
 
-  /**
-   * What posts and what moves the row are ONE plan. First worker to save wins;
-   * a racing second worker reads that plan back and ignores what this tick just
-   * computed from its own mark. (A crashed rung is picked up at the top, before
-   * any planning, so a replay never gets here with a different plan.)
-   *
-   * A partial rung is keyed by the row size it was planned against, NOT by the
-   * size it closes: the closed size comes from the mark, so a key that carried it
-   * would change with the mark and the replay would never find its own plan (it
-   * would book a second tranche under a new ledger key). The reducer is the only
-   * thing that shrinks the row and it runs after the post, so an unfinished rung
-   * is exactly one whose row is still this size; a finished one is completed and
-   * a row that regrows to that size gets a fresh plan.
-   */
-  const fresh: StoredRungPlan = {
-    recipes: decision.recipes as PostRequest[],
-    sizeClosed: decision.sizeClosed,
-    marginRemaining: decision.marginRemaining,
-    reason: decision.reason,
-    closesPosition: decision.closesPosition,
-  };
-  const rungKey = decision.closesPosition ? liquidationId : partialRungKey(liquidationId, row);
-  const plan = stored ? ((await stored.loadPlan(rungKey)) ?? (await stored.savePlan(rungKey, fresh))) : fresh;
-
-  await executePlan(deps, ladder, row, liquidationId, rungKey, plan, stored);
-
-  return {
-    positionId: row.positionId,
-    outcome: decision.closesPosition ? 'liquidated' : 'partially_liquidated',
-    reason: plan.reason,
-    summary: summarizeLadder(decision),
-  };
-}
-
-/** The plan methods, or null for a store that has none (plan fresh every tick, as before). */
-function planStore(
-  attempts: LiquidationAttemptStore,
-): (LiquidationAttemptStore & Required<Pick<LiquidationAttemptStore, 'loadPlan' | 'savePlan' | 'completePlan'>>) | null {
-  return attempts.loadPlan && attempts.savePlan && attempts.completePlan ? (attempts as never) : null;
-}
-
-function partialRungKey(liquidationId: string, row: LiquidationPositionRow): string {
-  return `${liquidationId}:partial:${formatAmount(parseAmount(row.size))}`;
-}
-
-/**
- * Post the plan, move the row by the PLAN's figures, then retire the plan.
- * Retiring comes last: a crash before it replays the same plan, and the ledger
- * dedupes the posts. (A crash between the row moving and the retire leaves an
- * unfinished plan under a size the row has left; only a row that regrows to
- * exactly that size could meet it, and the reducer's own guards refuse a move
- * that does not fit the row.)
- */
-async function executePlan(
-  deps: LiquidationTickDeps,
-  ladder: LiquidationLadderDeps,
-  row: LiquidationPositionRow,
-  liquidationId: string,
-  rungKey: string,
-  plan: StoredRungPlan,
-  stored: ReturnType<typeof planStore>,
-): Promise<void> {
-  for (const recipe of plan.recipes) {
-    await deps.ledger.post(recipe);
+  for (const recipe of decision.recipes) {
+    await deps.ledger.post(recipe as PostRequest);
   }
 
-  if (plan.closesPosition) {
-    await deps.closer.markLiquidated(row.positionId, { liquidationId, reason: plan.reason });
-    await stored?.completePlan(rungKey);
+  if (decision.closesPosition) {
+    await deps.closer.markLiquidated(row.positionId, { liquidationId, reason: decision.reason });
     await deps.attempts.markDone(liquidationId);
   } else {
     await ladder.reducer.reduce(row.positionId, {
       liquidationId,
-      sizeClosed: plan.sizeClosed,
-      marginRemaining: plan.marginRemaining,
-      reason: plan.reason,
-      expectedSize: parseAmount(row.size),
+      sizeClosed: decision.sizeClosed,
+      marginRemaining: decision.marginRemaining,
+      reason: decision.reason,
     });
-    await stored?.completePlan(rungKey);
   }
+
+  return {
+    positionId: row.positionId,
+    outcome: decision.closesPosition ? 'liquidated' : 'partially_liquidated',
+    reason: decision.reason,
+    summary: summarizeLadder(decision),
+  };
 }
 
 export function memoryLiquidationAttemptStore(): LiquidationAttemptStore {
   const done = new Set<string>();
-  // Held ENCODED, as the sql store holds it, so a test through here exercises the
-  // same round trip production does rather than sharing object identity.
-  const plans = new Map<string, { plan: EncodedRungPlan; completed: boolean }>();
   return {
     async isDone(id) {
       return done.has(id);
@@ -822,19 +646,6 @@ export function memoryLiquidationAttemptStore(): LiquidationAttemptStore {
     },
     async markDone(id) {
       done.add(id);
-    },
-    async loadPlan(rungKey) {
-      const stored = plans.get(rungKey);
-      return stored && !stored.completed ? decodeRungPlan(stored.plan) : null;
-    },
-    async savePlan(rungKey, plan) {
-      const existing = plans.get(rungKey);
-      if (!existing || existing.completed) plans.set(rungKey, { plan: encodeRungPlan(plan), completed: false });
-      return decodeRungPlan(plans.get(rungKey)!.plan);
-    },
-    async completePlan(rungKey) {
-      const existing = plans.get(rungKey);
-      if (existing) existing.completed = true;
     },
   };
 }

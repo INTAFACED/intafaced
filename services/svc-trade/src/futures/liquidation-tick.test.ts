@@ -428,6 +428,49 @@ describe('runLiquidationTick — one position cannot stop the others', () => {
   });
 });
 
+describe('runLiquidationTick — a parked rung is counted', () => {
+  it('a claim that exists while the position is still open is skipped_already and counted as parked', async () => {
+    const attempts = memoryLiquidationAttemptStore();
+    await attempts.tryClaim('liq:pos-1'); // a worker claimed, then died before closing
+    const { ledger, posts } = recordingLedger();
+    const result = await runLiquidationTick({
+      marks: fixedMark('80'),
+      positions: {
+        async listOpen() {
+          return [underwaterLong()];
+        },
+      },
+      closer: { async markLiquidated() {} },
+      attempts,
+      acceptedMarks: memoryAcceptedMarkStore(),
+      ledger,
+      ladder: deepFullCloseLadder(),
+    });
+    expect(result.parked).toBe(1);
+    expect(result.liquidated).toBe(0);
+    expect(result.items[0]).toMatchObject({ positionId: 'pos-1', outcome: 'skipped_already' });
+    expect(posts).toHaveLength(0);
+  });
+
+  it('a tick with nothing parked reports parked: 0', async () => {
+    const { ledger } = recordingLedger();
+    const result = await runLiquidationTick({
+      marks: fixedMark('80'),
+      positions: {
+        async listOpen() {
+          return [underwaterLong()];
+        },
+      },
+      closer: { async markLiquidated() {} },
+      attempts: memoryLiquidationAttemptStore(),
+      acceptedMarks: memoryAcceptedMarkStore(),
+      ledger,
+      ladder: deepFullCloseLadder(),
+    });
+    expect(result.parked).toBe(0);
+  });
+});
+
 describe('runLiquidationTick — mark gates', () => {
   const AT = new Date('2026-08-06T12:00:00.000Z');
 

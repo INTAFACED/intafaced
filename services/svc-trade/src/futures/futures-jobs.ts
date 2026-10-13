@@ -16,7 +16,7 @@ import type { EventBus } from '@intafaced/events';
 import type { MatchingClient } from '../spot/matching-client.js';
 import { createJobHost, type JobHost } from './job-host.js';
 import { runFundingTick } from './funding-tick.js';
-import { runLiquidationTick, type MarkSource } from './liquidation-tick.js';
+import { runLiquidationTick, type LiquidationTickResult, type MarkSource } from './liquidation-tick.js';
 import { depthNotionalSourceFromDepth, markSourceFromDepth } from './mark-from-depth.js';
 import { markSourcePrefer } from './mark-from-venue.js';
 import { memoryFundingRateBook, type FundingRateEntry } from './funding-rate-source.js';
@@ -147,6 +147,30 @@ export interface FuturesJobsHandle {
 }
 
 /**
+ * Surface what a liquidation tick would otherwise swallow, at error level, once
+ * per position per tick, through the sink a failed job uses.
+ *
+ * - `errored`: that position threw; the tick scanned the rest (see
+ *   `runLiquidationTick`), so without this line the failure would vanish.
+ * - `skipped_already` on an open position: a claim exists yet the position is
+ *   still open — a rung parked after a crash, which only an operator can clear.
+ *   It is logged EVERY tick so it cannot be scrolled past. (A worker that is
+ *   merely mid-flight on another replica clears itself and stops logging.)
+ */
+export function reportLiquidationTick(tick: LiquidationTickResult, onError: (name: string, err: unknown) => void): void {
+  for (const item of tick.items) {
+    if (item.outcome === 'errored') {
+      onError('futures.liquidation', new Error(`position ${item.positionId} errored (${item.reason}): ${item.summary ?? ''}`));
+    } else if (item.outcome === 'skipped_already') {
+      onError(
+        'futures.liquidation',
+        new Error(`liquidation rung parked: claim exists but position still open (operator action needed) positionId=${item.positionId}`),
+      );
+    }
+  }
+}
+
+/**
  * Assemble futures jobs. Does not invent markets or rates.
  * When disabled, returns a stopped host (list empty) but still exposes markPrice.
  */
@@ -266,16 +290,7 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
       // ADL omitted: owner policy unset. Tick defaults policy null →
       // trade.adl_unconfigured. Do not invent last-resort reduce magnitudes.
     });
-    // A position that threw does not fail the tick (the rest were still
-    // scanned), so it must not vanish either: one error-level line per position,
-    // through the same sink a failed job uses.
-    for (const item of tick.items) {
-      if (item.outcome !== 'errored') continue;
-      (deps.onError ?? ((name, err) => console.error(`[job-host] ${name}`, err)))(
-        'futures.liquidation',
-        new Error(`position ${item.positionId} errored (${item.reason}): ${item.summary ?? ''}`),
-      );
-    }
+    reportLiquidationTick(tick, deps.onError ?? ((name, err) => console.error(`[job-host] ${name}`, err)));
   });
 
   const fundingIntervalMs = deps.config.fundingIntervalMs;
