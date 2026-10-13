@@ -42,6 +42,8 @@ export function FounderSessionBar({ csrf, userId, expiresAt }: { csrf: string; u
         </small>
       )}
       <button
+        type="button"
+        className="adm-quiet-button"
         disabled={busy}
         onClick={async () => {
           setBusy(true);

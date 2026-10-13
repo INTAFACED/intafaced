@@ -54,12 +54,20 @@ describe('follow-ups queue', () => {
     expect(sortTasks(rows, NOW).map((row) => row.id)).toEqual(['late5', 'late2', 'soon', 'later', 'done']);
   });
 
-  it('words due dates plainly', () => {
-    expect(dueText({ status: 'pending', dueAt: due(-2 * day - 1000) }, NOW)).toEqual({ text: '2 days overdue', overdue: true });
-    expect(dueText({ status: 'pending', dueAt: due(-day - 1000) }, NOW)?.text).toBe('1 day overdue');
-    expect(dueText({ status: 'pending', dueAt: due(-3 * 3600000) }, NOW)?.text).toBe('3 hours overdue');
-    expect(dueText({ status: 'pending', dueAt: due(3 * day + 60000) }, NOW)).toEqual({ text: 'due in 3 days', overdue: false });
-    expect(dueText({ status: 'completed', dueAt: due(-day) }, NOW)).toBeNull();
+  it('words due dates plainly, in local calendar days (never hours) and in the same words as the list and the open enquiry', () => {
+    // NOW is 08:00 UTC. Pin the clock zone so "yesterday" means the same day everywhere this runs.
+    const zone = process.env.TZ;
+    process.env.TZ = 'UTC';
+    try {
+      expect(dueText({ status: 'pending', dueAt: due(-2 * day - 1000) }, NOW)).toEqual({ text: '2 days overdue', overdue: true });
+      expect(dueText({ status: 'pending', dueAt: due(-day - 1000) }, NOW)?.text).toBe('1 day overdue');
+      expect(dueText({ status: 'pending', dueAt: due(-3 * 3600000) }, NOW)?.text).toBe('Overdue today');
+      expect(dueText({ status: 'pending', dueAt: due(3 * day + 60000) }, NOW)).toEqual({ text: 'Due in 3 days', overdue: false });
+      expect(dueText({ status: 'completed', dueAt: due(-day) }, NOW)).toBeNull();
+    } finally {
+      if (zone === undefined) delete process.env.TZ;
+      else process.env.TZ = zone;
+    }
   });
 
   it('shows who the follow-up is for and flags overdue', () => {

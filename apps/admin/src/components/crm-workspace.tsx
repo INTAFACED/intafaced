@@ -1,10 +1,17 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { founderName, useFounderOwners } from './founder-names';
-import { CrmMetrics, CrmTasks, CrmCampaigns, CrmDuplicates, CrmExports, CrmEnquiryTasks } from './crm-workflows';
+import { CrmMetrics, CrmTasks, CrmCampaigns, CrmDuplicates, CrmExports, CrmEnquiryTasks, useDismissableMenus } from './crm-workflows';
 import { CrmMessages } from './crm-messages';
 import { CrmPrivacy } from './crm-privacy';
-import { crmDate, crmLocalDate, crmOverdueCalendarDays, crmRelative, crmTime } from '@/lib/crm-browser';
+import { Callout } from './crm-callout';
+import { crmDate, crmLocalDate, crmRelative, crmTime } from '@/lib/crm-browser';
+import { describeDue, overdueText } from '@/lib/crm-due';
+import { RESTORED_EDITS_NOTICE, RETAINED_EDITS_NOTICE, SAVED_NOTICE, detailNotices } from '@/lib/crm-notices';
+import { createDiscardConfirm, type DiscardQuestion } from '@/lib/crm-discard-confirm';
+import { nextEditorDirty, nextEditorOpen } from '@/lib/crm-next-editor';
+import { submitProps } from '@/lib/crm-form-state';
+import { listSummary, toolsLabel, viewHeading, viewShowsTotals } from '@/lib/crm-view';
 import { baseIsStale, expectedRevisionFor, nextBaseRevision, type BaseRevision, type BaseRevisionChange } from '@/lib/crm-base-revision';
 import { createOpenGate, draftOf, followRecord } from '@/lib/crm-open-gate';
 import {
@@ -58,11 +65,12 @@ const DETAIL_TABS = ['overview', 'answers', 'activity', 'messages'] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 const label = (value: string) => value.replace(/_/g, ' ').replace(/^./, (letter) => letter.toUpperCase());
 const plural = (count: number, one: string, many: string) => `${count.toLocaleString('en-GB')} ${count === 1 ? one : many}`;
-/** "Overdue · 2 days", or null when the due time has not passed. Days are local calendar days: yesterday evening is "1 day", not "today". */
+/**
+ * "2 days overdue" or "Overdue today", or null when the due time has not passed. Days are local calendar days: yesterday evening
+ * is "1 day overdue", not "today". The enquiry list, this panel and Follow-ups all use this wording (see lib/crm-due).
+ */
 export function overdueLabel(dueAt: string, now = Date.now()): string | null {
-  if (Date.parse(dueAt) >= now) return null;
-  const days = crmOverdueCalendarDays(dueAt, now);
-  return days >= 1 ? `Overdue · ${plural(days, 'day', 'days')}` : 'Overdue · today';
+  return overdueText(dueAt, now);
 }
 /** The activity log's own contract kinds in words a founder would use. */
 export function activityTitle(
@@ -100,11 +108,33 @@ export function activityTitle(
       return { title: label(String(activity.kind)), note: activity.note };
   }
 }
+/** "A", "A · latest B", or null when neither is known. */
+export function sourceValue(first: string | null | undefined, latest: string | null | undefined): string | null {
+  if (first && latest && first !== latest) return `${first} · latest ${latest}`;
+  return first ?? latest ?? null;
+}
 /** "Source: A", "Source: A · latest B", or null when neither is known. */
 export function sourceLine(first: string | null | undefined, latest: string | null | undefined): string | null {
-  if (first && latest && first !== latest) return `Source: ${first} · latest ${latest}`;
-  const known = first ?? latest;
-  return known ? `Source: ${known}` : null;
+  const value = sourceValue(first, latest);
+  return value ? `Source: ${value}` : null;
+}
+/** What the confirmation email to the enquirer is doing, in words a founder would use. */
+export function deliveryText(delivery: { status: string; errorCode: string | null }): string {
+  if (delivery.status === 'unconfigured' || /unconfigured/.test(delivery.errorCode ?? '')) return 'Not set up yet';
+  switch (delivery.status) {
+    case 'pending':
+      return 'Saved, not emailed yet';
+    case 'accepted':
+      return 'Handed to the email service';
+    case 'delivered':
+      return 'Delivered';
+    case 'failed':
+      return 'Sending failed';
+    case 'unresolved':
+      return 'Unclear whether it was sent';
+    default:
+      return label(delivery.status);
+  }
 }
 const emailStatusText = (status: string) =>
   status === 'verified' ? 'email verified' : status === 'unverified' ? 'email not verified' : `email ${label(status).toLowerCase()}`;
@@ -157,6 +187,8 @@ export function NextActionEditor({
   onDescription,
   onDue,
   onSave,
+  onCancel,
+  focusOnMount = false,
   now = Date.now(),
 }: {
   description: string;
@@ -166,11 +198,16 @@ export function NextActionEditor({
   onDescription: (value: string) => void;
   onDue: (value: string) => void;
   onSave: () => void;
+  /** Closes the editor and drops what was typed in it. Left out when the editor cannot be closed. */
+  onCancel?: () => void;
+  /** Put the cursor in the first field when the editor appears (the founder just pressed Change). */
+  focusOnMount?: boolean;
   now?: number;
 }) {
   const warning = pastDueWarning(due, now);
   return (
     <form
+      id="crm-next-editor"
       className="adm-crm-next-edit"
       aria-label="Edit next action"
       onSubmit={(event) => {
@@ -180,7 +217,13 @@ export function NextActionEditor({
     >
       <label>
         What happens next
-        <input required maxLength={160} value={description} onChange={(event) => onDescription(event.target.value)} />
+        <input
+          required
+          maxLength={160}
+          value={description}
+          autoFocus={focusOnMount}
+          onChange={(event) => onDescription(event.target.value)}
+        />
       </label>
       <label>
         Due (your local time)
@@ -198,9 +241,16 @@ export function NextActionEditor({
           {warning}
         </p>
       )}
-      <button type="submit" disabled={busy || unchanged || !description.trim() || !due}>
-        Save next action
-      </button>
+      <div className="adm-crm-next-buttons">
+        <button type="submit" {...submitProps({ disabled: busy || unchanged || !description.trim() || !due, changed: !unchanged })}>
+          Save next action
+        </button>
+        {onCancel && (
+          <button type="button" className="adm-text-button adm-link-button" disabled={busy} onClick={onCancel}>
+            Cancel
+          </button>
+        )}
+      </div>
     </form>
   );
 }
@@ -259,21 +309,64 @@ function syncEnquiryUrl(enquiryId: string | null) {
     // The address bar is a convenience only.
   }
 }
-const KEPT_EDITS_NOTICE = 'We kept your unsaved edits.';
-
 /**
  * Shown next to the save buttons while the form is based on an older version of the enquiry than the one on screen, so a
  * founder cannot miss that another save has happened since. It leaves only when the edits are discarded or a save succeeds.
  */
 export function StaleDraftWarning({ busy, onDiscard }: { busy: boolean; onDiscard: () => void }) {
   return (
-    <p className="adm-stale-warning" role="alert" data-testid="stale-draft-warning">
+    <Callout
+      tone="warn"
+      role="alert"
+      data-testid="stale-draft-warning"
+      className="adm-stale-warning"
+      actions={
+        <button type="button" disabled={busy} onClick={onDiscard}>
+          Discard my edits and reload
+        </button>
+      }
+    >
       <strong>This enquiry has changed since you wrote these edits.</strong> Saving a stage, owner, next action or message will be refused,
-      so nothing newer is overwritten. Copy anything you want to keep, then discard the edits to load the latest version.{' '}
-      <button type="button" disabled={busy} onClick={onDiscard}>
-        Discard my edits and reload
-      </button>
-    </p>
+      so nothing newer is overwritten. Copy anything you want to keep, then discard the edits to load the latest version.
+    </Callout>
+  );
+}
+
+/**
+ * The "discard your unsaved edits?" question, asked in the panel rather than in a browser dialog. Focus moves to Keep editing
+ * (the safe choice) when it appears; Escape also keeps the edits.
+ */
+export function DiscardBar({ prompt, onKeep, onDiscard }: { prompt: string; onKeep: () => void; onDiscard: () => void }) {
+  const keep = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    keep.current?.focus();
+  }, [prompt]);
+  return (
+    <Callout
+      tone="warn"
+      role="alertdialog"
+      aria-labelledby="crm-discard-prompt"
+      className="adm-discard-bar"
+      data-testid="discard-bar"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.stopPropagation();
+          onKeep();
+        }
+      }}
+      actions={
+        <>
+          <button ref={keep} type="button" onClick={onKeep}>
+            Keep editing
+          </button>
+          <button type="button" onClick={onDiscard}>
+            Discard
+          </button>
+        </>
+      }
+    >
+      <span id="crm-discard-prompt">{prompt}</span>
+    </Callout>
   );
 }
 
@@ -295,9 +388,10 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
   const detailHeading = useRef<HTMLDivElement>(null);
   const inFlight = useRef(0);
   const lastAutoRefresh = useRef(0);
-  const live = useRef({ detailId: '', dirty: false, busy: false, retentionPending: false });
+  const live = useRef({ detailId: '', dirty: false, busy: false, retentionPending: false, view: 'enquiries' });
   const refreshRef = useRef<(auto: boolean) => Promise<void>>(async () => undefined);
   const owners = useFounderOwners();
+  useDismissableMenus();
   const [audience, setAudience] = useState('');
   const [stageFilter, setStageFilter] = useState('');
   const [ownerFilter, setOwnerFilter] = useState('');
@@ -307,7 +401,14 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [ownersWaited, setOwnersWaited] = useState(false);
+  // `notice` is for the page (a deleted contact); `detailError` / `detailNotice` belong to the open enquiry and show inside its panel.
   const [notice, setNotice] = useState('');
+  const [detailError, setDetailError] = useState('');
+  const [detailErrorKind, setDetailErrorKind] = useState<CrmErrorKind>('other');
+  const [detailNotice, setDetailNotice] = useState('');
+  // The founder pressed "Change" on the next action. The editor also shows by itself while it holds edits.
+  const [nextEditorOpenedByFounder, setNextEditorOpenedByFounder] = useState(false);
+  const [discardQuestion, setDiscardQuestion] = useState<DiscardQuestion | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -332,12 +433,17 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
   // Bumped when a discard must empty the message form, which keeps its own fields.
   const [messagesResetVersion, setMessagesResetVersion] = useState(0);
   const pending = useRef(new Map<string, { inputKey: string; requestId: string }>());
+  const discardConfirm = useRef<ReturnType<typeof createDiscardConfirm> | null>(null);
+  if (!discardConfirm.current) discardConfirm.current = createDiscardConfirm(setDiscardQuestion);
+  // Where focus was when the question appeared, so it can go back there once it is answered.
+  const focusBeforeQuestion = useRef<HTMLElement | null>(null);
+  const changeNextButton = useRef<HTMLButtonElement>(null);
   const sequence = useRef(0);
   const openGate = useRef(createOpenGate());
   const listScroll = useRef(0);
   const retentionPendingPrevious = useRef(false);
   const onRetentionDraftState = useCallback((dirty: boolean, pending: boolean) => {
-    if (retentionPendingPrevious.current && !pending) setNotice('');
+    if (retentionPendingPrevious.current && !pending) setDetailNotice('');
     retentionPendingPrevious.current = pending;
     setRetentionDraftDirty(dirty);
     setRetentionWritePending(pending);
@@ -391,11 +497,11 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
     if (id !== gate.selected() && typeof window !== 'undefined') listScroll.current = window.scrollY;
     if (detail && detail.opportunity.id !== id) {
       if (retentionWritePending) {
-        setNotice('A retention review result is unconfirmed. Retry that same request before leaving this enquiry.');
+        setDetailNotice('A retention review result is unconfirmed. Retry that same request before leaving this enquiry.');
         return false;
       }
       if (hasDirtyDraft()) {
-        if (!window.confirm('Discard unsaved changes and open another enquiry?')) return false;
+        if (!(await askDiscard('Discard unsaved changes and open another enquiry?'))) return false;
         resetDraft();
         setPrivacyResetVersion((value) => value + 1);
       }
@@ -405,6 +511,8 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
     if (!silent) {
       setError('');
       setNotice('');
+      setDetailError('');
+      setDetailNotice('');
     }
     inFlight.current += 1;
     try {
@@ -421,6 +529,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
       if (changedRecord) {
         setDetailTab('overview');
         setVisitedDetailTabs(new Set(['overview']));
+        setNextEditorOpenedByFounder(false);
         setMessageDraftDirty(false);
         requestAnimationFrame(() => {
           // Phone: the list is hidden, so start at the top where "Back" is. Narrow desktop: the detail sits below the list, so let
@@ -486,7 +595,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
               kept.fields.newOwner !== undefined
             )
               setStageFormOpen(true);
-            setNotice(KEPT_EDITS_NOTICE);
+            setDetailNotice(RESTORED_EDITS_NOTICE);
           }
         }
       } else {
@@ -520,8 +629,14 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
       if (!keep) gate.clear();
       setDetail((current) => (keep && current?.opportunity.id === id ? current : null));
       const { message, kind } = failureOf(failure, 'Enquiry unavailable.');
-      setError(message);
-      setErrorKind(kind);
+      // A kept enquiry is still on screen, so its error belongs in its panel; otherwise there is no panel to hold it.
+      if (keep) {
+        setDetailError(message);
+        setDetailErrorKind(kind);
+      } else {
+        setError(message);
+        setErrorKind(kind);
+      }
       return false;
     } finally {
       inFlight.current -= 1;
@@ -564,37 +679,60 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
     setMessageDraftDirty(false);
     setRetentionDraftDirty(false);
   }
-  function canLeaveCurrentDetail(prompt: string): boolean {
+  /** Asks inside the panel, and resolves true only when the founder chose Discard. */
+  function askDiscard(prompt: string): Promise<boolean> {
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    focusBeforeQuestion.current = active instanceof HTMLElement && active !== document.body ? active : null;
+    return discardConfirm.current!.ask(prompt);
+  }
+  function answerDiscard(discard: boolean) {
+    discardConfirm.current!.answer(discard);
+    const back = focusBeforeQuestion.current;
+    focusBeforeQuestion.current = null;
+    // After the bar has left the page. An open that follows a Discard moves focus to the new enquiry itself, a moment later.
+    requestAnimationFrame(() => {
+      if (back && back.isConnected) back.focus({ preventScroll: true });
+    });
+  }
+  async function canLeaveCurrentDetail(prompt: string): Promise<boolean> {
     if (retentionWritePending) {
-      setNotice('A retention review result is unconfirmed. Retry that same request before leaving this enquiry.');
+      setDetailNotice('A retention review result is unconfirmed. Retry that same request before leaving this enquiry.');
       return false;
     }
     if (!hasDirtyDraft()) return true;
-    if (!window.confirm(prompt)) return false;
+    if (!(await askDiscard(prompt))) return false;
     resetDraft();
     setPrivacyResetVersion((value) => value + 1);
     return true;
+  }
+  /** Nothing about one view's saves or restores should still be on screen when the founder comes back to it. */
+  function clearMessages() {
+    setNotice('');
+    setDetailNotice('');
+    setDetailError('');
   }
   function selectTab(tab: DetailTab) {
     setDetailTab(tab);
     setVisitedDetailTabs((visited) => new Set([...visited, tab]));
   }
-  function navigateView(next: string) {
+  async function navigateView(next: string) {
     if (next === view) return;
-    if (!canLeaveCurrentDetail('Discard unsaved edits before leaving this CRM view?')) return;
+    if (!(await canLeaveCurrentDetail('Discard unsaved edits before leaving this CRM view?'))) return;
+    clearMessages();
     setView(next);
   }
   /** Follow-ups, optionally narrowed to overdue ones (the totals strip's overdue count). */
-  function openTasks(overdue: boolean) {
-    if (view !== 'tasks' && !canLeaveCurrentDetail('Discard unsaved edits before leaving this CRM view?')) return;
+  async function openTasks(overdue: boolean) {
+    if (view !== 'tasks' && !(await canLeaveCurrentDetail('Discard unsaved edits before leaving this CRM view?'))) return;
+    clearMessages();
     setOverdueOnly(overdue);
     setView('tasks');
   }
   async function mutate(action: string, input: Record<string, unknown>) {
     if (!detail) return;
     setBusy(true);
-    setError('');
-    setNotice('');
+    setDetailError('');
+    setDetailNotice('');
     const inputKey = JSON.stringify(input);
     const previous = pending.current.get(action);
     const requestId = previous?.inputKey === inputKey ? previous.requestId : crypto.randomUUID();
@@ -616,16 +754,18 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
         // draft there is kept, and an untouched one follows the record when the refresh below re-bases it.
         setEditDescription(String(input.description));
         setEditDue(crmLocalDate(String(input.dueAt)));
+        setNextEditorOpenedByFounder(false);
+        requestAnimationFrame(() => changeNextButton.current?.focus({ preventScroll: true }));
       }
       // A note carries no revision (adding one overwrites nothing), so saving one says nothing about the form's base.
       const refreshed = await open(detail.opportunity.id, false, false, false, true, action !== 'addNote');
       await load();
       setWorkflowVersion((value) => value + 1);
-      setNotice(refreshed ? 'Saved to the enquiry history.' : 'Your change was saved. Reopen the enquiry to load its latest records.');
+      setDetailNotice(refreshed ? SAVED_NOTICE : 'Your change was saved. Reopen the enquiry to load its latest records.');
     } catch (failure) {
       const { message, kind } = failureOf(failure, 'Could not save.');
-      setError(message);
-      setErrorKind(kind);
+      setDetailError(message);
+      setDetailErrorKind(kind);
     } finally {
       setBusy(false);
     }
@@ -644,8 +784,9 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
       lastAutoRefresh.current = Date.now();
     }
     const jobs: Array<Promise<unknown>> = [load(auto)];
-    if (state.detailId && !(auto && (state.dirty || state.retentionPending))) {
-      const reloadDetail = auto || canLeaveCurrentDetail('Discard unsaved edits and reload this enquiry?');
+    // A manual refresh reloads the view on screen. In a tool view the open enquiry is not on screen, so it is left alone.
+    if (state.detailId && !(auto && (state.dirty || state.retentionPending)) && (auto || state.view === 'enquiries')) {
+      const reloadDetail = auto || (await canLeaveCurrentDetail('Discard unsaved edits and reload this enquiry?'));
       // After a confirmed discard the form is re-based onto the newest revision, so the next save carries that revision knowingly.
       if (reloadDetail) jobs.push(open(state.detailId, false, auto, !auto, false));
     }
@@ -698,6 +839,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
       dirty: hasDirtyDraft(),
       busy,
       retentionPending: retentionWritePending,
+      view,
     };
     refreshRef.current = refresh;
   });
@@ -744,12 +886,12 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
     setHistory([]);
   };
   const now = Date.now();
-  let pageSummary = 'Workspace unavailable';
-  if (loading) pageSummary = 'Loading…';
-  else if (page) {
-    const overdue = items.filter((item) => item.nextAction && Date.parse(item.nextAction.dueAt) < now).length;
-    pageSummary = `${items.length} shown · ${overdue} overdue`;
-  }
+  const pageSummary = listSummary({
+    searching: query.trim().length > 0,
+    loading,
+    shown: items.length,
+    overdue: items.filter((item) => item.nextAction && Date.parse(item.nextAction.dueAt) < now).length,
+  });
   const ownersMissing = owners.length !== 2;
   // The organisation record may not exist yet; the form's own organisation and country fields still do.
   const organisationName = detail ? (detail.organisation?.name ?? detail.submission.contact.organisationName ?? null) : null;
@@ -757,37 +899,32 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
     ? (detail.submission.contact.country ? [detail.submission.contact.country] : (detail.organisation?.countries ?? [])).map(countryName)
     : [];
   const source = detail
-    ? sourceLine(detail.provenance.firstKnownSource?.campaign?.name, detail.provenance.latestKnownSource?.campaign?.name)
+    ? sourceValue(detail.provenance.firstKnownSource?.campaign?.name, detail.provenance.latestKnownSource?.campaign?.name)
     : null;
   const activeFilters = [audience, stageFilter, ownerFilter].filter(Boolean).length;
+  const heading = viewHeading(view);
+  const noticeKinds = detailNotices({ error: detailError, notice: detailNotice, stale: staleDraft, dirty: hasDirtyDraft() });
+  const nextAction = detail?.opportunity.nextAction ?? null;
+  const nextEditorShown = nextEditorOpen(
+    nextEditorOpenedByFounder,
+    nextEditorDirty(nextAction, { description: editDescription, due: editDue }, crmLocalDate),
+  );
+  // The skip link lives in the page layout; it needs to know when the list it points at is not on screen.
+  useEffect(() => {
+    document.body.dataset.crmView = view;
+    return () => {
+      delete document.body.dataset.crmView;
+    };
+  }, [view]);
+  const discardBar = discardQuestion && (
+    <DiscardBar prompt={discardQuestion.prompt} onKeep={() => answerDiscard(false)} onDiscard={() => answerDiscard(true)} />
+  );
   return (
     <section className={`adm-workspace${mobileDetail && view === 'enquiries' ? ' is-mobile-detail' : ''}`}>
-      {view === 'enquiries' && (
-        <a
-          className="adm-skip-link"
-          href="#crm-enquiries"
-          onClick={(event) => {
-            event.preventDefault();
-            document.getElementById('crm-enquiries')?.focus();
-          }}
-        >
-          Skip to enquiries
-        </a>
-      )}
       <div className="adm-crm-topbar">
         <div className="adm-workspace-heading">
           <div>
-            <h1>
-              {view === 'tasks'
-                ? 'Follow-ups'
-                : view === 'campaigns'
-                  ? 'Sources and campaigns'
-                  : view === 'duplicates'
-                    ? 'Duplicates'
-                    : view === 'exports'
-                      ? 'Exports'
-                      : 'Enquiries'}
-            </h1>
+            <h1>{heading.title}</h1>
           </div>
           <div className="adm-crm-refresh">
             {lastUpdated && <span className="adm-subtle">Updated {crmTime(lastUpdated)}</span>}
@@ -801,26 +938,32 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
               Refresh
             </button>
           </div>
+          {heading.description && <p className="adm-crm-view-note">{heading.description}</p>}
         </div>
-        <CrmMetrics
-          version={workflowVersion}
-          filters={{
-            ...(audience ? { audience } : {}),
-            ...(stageFilter ? { stage: stageFilter } : {}),
-            ...(ownerFilter ? { ownerUserId: ownerFilter } : {}),
-          }}
-          onTasks={() => openTasks(false)}
-          onOverdue={() => openTasks(true)}
-        />
+        {viewShowsTotals(view) && (
+          <CrmMetrics
+            version={workflowVersion}
+            filters={{
+              ...(audience ? { audience } : {}),
+              ...(stageFilter ? { stage: stageFilter } : {}),
+              ...(ownerFilter ? { ownerUserId: ownerFilter } : {}),
+            }}
+            onTasks={() => void openTasks(false)}
+            onOverdue={() => void openTasks(true)}
+          />
+        )}
         <nav className="adm-crm-tabs" aria-label="CRM workflows">
-          <button type="button" aria-current={view === 'enquiries' ? 'page' : undefined} onClick={() => navigateView('enquiries')}>
+          <button type="button" aria-current={view === 'enquiries' ? 'page' : undefined} onClick={() => void navigateView('enquiries')}>
             Enquiries
           </button>
-          <button type="button" aria-current={view === 'tasks' ? 'page' : undefined} onClick={() => openTasks(false)}>
+          <button type="button" aria-current={view === 'tasks' ? 'page' : undefined} onClick={() => void openTasks(false)}>
             Follow-ups
           </button>
-          <details className="adm-crm-tools-menu">
-            <summary>Tools</summary>
+          <details
+            className="adm-crm-tools-menu"
+            data-active={view === 'campaigns' || view === 'duplicates' || view === 'exports' ? 'true' : undefined}
+          >
+            <summary>{toolsLabel(view)}</summary>
             <div>
               {(
                 [
@@ -829,7 +972,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                   ['exports', 'Exports'],
                 ] as const
               ).map(([key, name]) => (
-                <button key={key} type="button" aria-current={view === key ? 'page' : undefined} onClick={() => navigateView(key)}>
+                <button key={key} type="button" aria-current={view === key ? 'page' : undefined} onClick={() => void navigateView(key)}>
                   {name}
                 </button>
               ))}
@@ -846,6 +989,22 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
             void load();
           }}
         >
+          {view === 'enquiries' && (
+            <label className="adm-filter-search">
+              <span className="adm-sr-only">Search</span>
+              <input
+                aria-label="Search"
+                type="search"
+                placeholder="Search name or email"
+                maxLength={160}
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  resetPage();
+                }}
+              />
+            </label>
+          )}
           <button type="button" className="adm-filters-toggle" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((open) => !open)}>
             {activeFilters ? `Filters (${activeFilters})` : 'Filters'}
           </button>
@@ -860,7 +1019,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                 resetPage();
               }}
             >
-              <option value="">All audiences</option>
+              <option value="">All</option>
               {AUDIENCES.map((value) => (
                 <option key={value} value={value}>
                   {label(value)}
@@ -878,7 +1037,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                 resetPage();
               }}
             >
-              <option value="">All stages</option>
+              <option value="">All</option>
               {stages.map((value) => (
                 <option key={value} value={value}>
                   {label(value)}
@@ -896,7 +1055,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                 resetPage();
               }}
             >
-              <option value="">Both founders</option>
+              <option value="">Both</option>
               {owners.map((value) => (
                 <option key={value.userId} value={value.userId}>
                   {value.displayName}
@@ -904,47 +1063,45 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
               ))}
             </select>
           </label>
-          {view === 'enquiries' && (
-            <label className="adm-filter-search">
-              Search
-              <input
-                aria-label="Search"
-                type="search"
-                placeholder="Name or email"
-                maxLength={160}
-                value={query}
-                onChange={(event) => {
-                  setQuery(event.target.value);
-                  resetPage();
-                }}
-              />
-            </label>
-          )}
         </form>
       )}
       {error && (
-        <p className="adm-alert" role="alert">
-          {error} {errorKind === 'session' && <a href={signInHref(detail?.opportunity.id)}>Sign in</a>}
-          {errorKind === 'conflict' && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                if (detail) void refresh();
-                else void load();
-              }}
-            >
-              Reload this enquiry
-            </button>
-          )}
-        </p>
+        <Callout
+          tone="danger"
+          role="alert"
+          actions={
+            errorKind === 'session' ? (
+              <a className="adm-link" href={signInHref(detail?.opportunity.id)}>
+                Sign in
+              </a>
+            ) : errorKind === 'conflict' ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  if (detail) void refresh();
+                  else void load();
+                }}
+              >
+                Reload this enquiry
+              </button>
+            ) : undefined
+          }
+        >
+          {error}
+        </Callout>
       )}
       {ownersWaited && owners.length === 0 && (
         <p className="adm-subtle" role="status">
           Founder names did not load, so the Owner filter is empty and owners cannot be changed. Reload the page to try again.
         </p>
       )}
-      {notice && <p role="status">{notice}</p>}
+      {notice && (
+        <Callout role="status" icon="check">
+          {notice}
+        </Callout>
+      )}
+      {discardQuestion && !(view === 'enquiries' && detail) && discardBar}
       {view === 'tasks' && (
         <CrmTasks
           key={String(overdueOnly)}
@@ -959,11 +1116,12 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
           }}
         />
       )}
-      {view === 'campaigns' && <CrmCampaigns csrf={csrf} owners={owners} />}
+      {view === 'campaigns' && <CrmCampaigns csrf={csrf} owners={owners} version={workflowVersion} />}
       {view === 'duplicates' && (
         <CrmDuplicates
           csrf={csrf}
           owners={owners}
+          version={workflowVersion}
           onChanged={async () => {
             await load();
             if (detail) await open(detail.opportunity.id, false);
@@ -986,7 +1144,11 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
         <>
           <div className={`adm-workspace-grid${mobileDetail ? ' is-mobile-detail' : ''}`}>
             <div id="crm-enquiries" tabIndex={-1}>
-              <p className="adm-subtle adm-crm-page-summary">{pageSummary}</p>
+              {pageSummary && (
+                <p className="adm-subtle adm-crm-page-summary" role="status">
+                  {pageSummary}
+                </p>
+              )}
               {paginated && (
                 <p className="adm-subtle adm-crm-sort-note">
                   Sorting applies to the enquiries loaded on this page only. Use Next and Previous to see the others.
@@ -1081,7 +1243,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                                   {item.nextAction.description}
                                 </span>
                                 <small title={crmDate(item.nextAction.dueAt)}>
-                                  {crmRelative(item.nextAction.dueAt, now)}
+                                  {describeDue(item.nextAction.dueAt, now).when}
                                   {overdue && <span className="adm-overdue-badge">{overdue}</span>}
                                 </small>
                               </>
@@ -1102,37 +1264,44 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                 </table>
               </div>
               {!loading && page && items.length === 0 && <p className="adm-empty">Nothing matches these filters.</p>}
-              <div className="adm-pagination">
-                <button
-                  disabled={loading || history.length === 0}
-                  onClick={() => {
-                    setCursor(history.at(-1) ?? null);
-                    setHistory((values) => values.slice(0, -1));
-                  }}
-                >
-                  Previous
-                </button>
-                <button
-                  disabled={loading || !page?.nextCursor}
-                  onClick={() => {
-                    setHistory((values) => [...values, cursor]);
-                    setCursor(page?.nextCursor ?? null);
-                  }}
-                >
-                  Next
-                </button>
-              </div>
+              {paginated && (
+                <div className="adm-pagination">
+                  <button
+                    disabled={loading || history.length === 0}
+                    onClick={() => {
+                      setCursor(history.at(-1) ?? null);
+                      setHistory((values) => values.slice(0, -1));
+                    }}
+                  >
+                    Previous
+                  </button>
+                  <button
+                    disabled={loading || !page?.nextCursor}
+                    onClick={() => {
+                      setHistory((values) => [...values, cursor]);
+                      setCursor(page?.nextCursor ?? null);
+                    }}
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
             </div>
-            <aside className={`adm-detail${mobileDetail ? ' is-mobile-open' : ''}`} aria-label="Enquiry details">
+            <aside
+              className={`adm-detail${mobileDetail ? ' is-mobile-open' : ''}${detail ? '' : ' is-empty'}`}
+              aria-label="Enquiry details"
+            >
               {!detail ? (
-                <p>Pick a row to see its answers and follow-up.</p>
+                <p className="adm-detail-hint">Select an enquiry to see its answers and follow-up.</p>
               ) : (
                 <>
+                  {discardBar}
                   <button
                     className="adm-crm-back"
                     type="button"
-                    onClick={() => {
-                      if (!canLeaveCurrentDetail('Discard unsaved edits before returning to the enquiry list?')) return;
+                    onClick={async () => {
+                      if (!(await canLeaveCurrentDetail('Discard unsaved edits before returning to the enquiry list?'))) return;
+                      clearMessages();
                       setMobileDetail(false);
                       syncEnquiryUrl(null);
                       requestAnimationFrame(() => {
@@ -1165,12 +1334,26 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                       : 'Partly answered: questionnaires not finished'}
                   </p>
                   <section className="adm-crm-next-action" aria-label="Current next action">
-                    <small>Next action</small>
+                    <div className="adm-crm-next-head">
+                      <small>Next action</small>
+                      {detail.opportunity.nextAction && !nextEditorShown && (
+                        <button
+                          ref={changeNextButton}
+                          type="button"
+                          className="adm-text-button adm-link-button"
+                          aria-expanded="false"
+                          aria-controls="crm-next-editor"
+                          onClick={() => setNextEditorOpenedByFounder(true)}
+                        >
+                          Change
+                        </button>
+                      )}
+                    </div>
                     {detail.opportunity.nextAction ? (
                       <>
                         <strong>{detail.opportunity.nextAction.description}</strong>
                         <span>
-                          {crmDate(detail.opportunity.nextAction.dueAt)} · {crmRelative(detail.opportunity.nextAction.dueAt, now)}
+                          {describeDue(detail.opportunity.nextAction.dueAt, now).when} · {crmDate(detail.opportunity.nextAction.dueAt)}
                         </span>
                         {overdueLabel(detail.opportunity.nextAction.dueAt, now) && (
                           <span className="adm-overdue-badge">{overdueLabel(detail.opportunity.nextAction.dueAt, now)}</span>
@@ -1179,8 +1362,17 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                     ) : (
                       <strong>{label(detail.opportunity.closedDisposition ?? 'Closed')}</strong>
                     )}
-                    {detail.opportunity.nextAction && (
+                    {detail.opportunity.nextAction && nextEditorShown && (
                       <NextActionEditor
+                        focusOnMount={nextEditorOpenedByFounder}
+                        onCancel={() => {
+                          // Drops what was typed in the editor and closes it.
+                          const record = detail.opportunity.nextAction;
+                          setEditDescription(record?.description ?? '');
+                          setEditDue(record ? crmLocalDate(record.dueAt) : '');
+                          setNextEditorOpenedByFounder(false);
+                          requestAnimationFrame(() => changeNextButton.current?.focus({ preventScroll: true }));
+                        }}
                         description={editDescription}
                         due={editDue}
                         unchanged={
@@ -1202,8 +1394,40 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                         }}
                       />
                     )}
-                    {staleWarning}
                   </section>
+                  {noticeKinds.length > 0 && (
+                    <div className="adm-crm-detail-notices">
+                      {noticeKinds.map((kind) => {
+                        if (kind === 'error')
+                          return (
+                            <Callout
+                              key={kind}
+                              tone="danger"
+                              role="alert"
+                              actions={
+                                detailErrorKind === 'session' ? (
+                                  <a className="adm-link" href={signInHref(detail.opportunity.id)}>
+                                    Sign in
+                                  </a>
+                                ) : detailErrorKind === 'conflict' ? (
+                                  <button type="button" disabled={busy} onClick={() => void refresh()}>
+                                    Reload this enquiry
+                                  </button>
+                                ) : undefined
+                              }
+                            >
+                              {detailError}
+                            </Callout>
+                          );
+                        if (kind === 'stale') return <Fragment key={kind}>{staleWarning}</Fragment>;
+                        return (
+                          <Callout key={kind} role="status" icon={kind === 'notice' ? 'check' : 'info'}>
+                            {kind === 'notice' ? detailNotice : RETAINED_EDITS_NOTICE}
+                          </Callout>
+                        );
+                      })}
+                    </div>
+                  )}
                   <div className="adm-crm-detail-tabs" role="tablist" aria-label="Enquiry detail">
                     {DETAIL_TABS.map((tab, index) => (
                       <button
@@ -1244,20 +1468,24 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                       </button>
                     ))}
                   </div>
-                  {hasDirtyDraft() && (
-                    <p className="adm-save-notice" role="status">
-                      Unsaved edits are retained while you review this enquiry.
-                    </p>
-                  )}
                   {visitedDetailTabs.has('overview') && (
                     <section role="tabpanel" id="crm-overview-panel" aria-labelledby="crm-overview-tab" hidden={detailTab !== 'overview'}>
-                      <p>
-                        <strong>Organisation:</strong> {organisationName ?? <span className="adm-subtle">not given</span>}
-                      </p>
-                      <p>
-                        <strong>Country:</strong> {countries.length ? countries.join(', ') : <span className="adm-subtle">not given</span>}
-                      </p>
-                      {source && <p className="adm-subtle">{source}</p>}
+                      <dl className="adm-answers adm-overview-facts">
+                        <div>
+                          <dt>Organisation</dt>
+                          <dd>{organisationName ?? <span className="adm-subtle">not given</span>}</dd>
+                        </div>
+                        <div>
+                          <dt>Country</dt>
+                          <dd>{countries.length ? countries.join(', ') : <span className="adm-subtle">not given</span>}</dd>
+                        </div>
+                        {source && (
+                          <div>
+                            <dt>Source</dt>
+                            <dd>{source}</dd>
+                          </div>
+                        )}
+                      </dl>
                       <details className="adm-original-contact">
                         <summary>Original contact and consent</summary>
                         <strong>{detail.submission.contact.name}</strong>
@@ -1303,7 +1531,13 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                               ))}
                             </select>
                           </label>
-                          <button type="submit" disabled={busy || ownersMissing || newOwner === detail.opportunity.ownerUserId}>
+                          <button
+                            type="submit"
+                            {...submitProps({
+                              disabled: busy || ownersMissing || newOwner === detail.opportunity.ownerUserId,
+                              changed: newOwner !== detail.opportunity.ownerUserId,
+                            })}
+                          >
                             Assign owner
                           </button>
                           {ownersMissing && (
@@ -1400,7 +1634,17 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                               </label>
                             </>
                           )}
-                          <button type="submit" disabled={busy}>
+                          <button
+                            type="submit"
+                            {...submitProps({
+                              disabled: busy,
+                              changed:
+                                newStage !== detail.opportunity.stage ||
+                                Boolean(reason.trim() || evidence.trim()) ||
+                                actionDescription !== (detail.opportunity.nextAction?.description ?? '') ||
+                                actionDue !== (detail.opportunity.nextAction ? crmLocalDate(detail.opportunity.nextAction.dueAt) : ''),
+                            })}
+                          >
                             Save stage and follow-up
                           </button>
                         </form>
@@ -1500,7 +1744,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                             onChange={(event) => setNote(event.target.value)}
                           />
                         </label>
-                        <button type="submit" disabled={busy || !note.trim()}>
+                        <button type="submit" {...submitProps({ disabled: busy || !note.trim(), changed: note.trim().length > 0 })}>
                           Add note
                         </button>
                       </form>
@@ -1541,12 +1785,9 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                       />
                       {detail.deliveries && (
                         <section className="adm-original-contact">
-                          <h3>Enquiry acknowledgement</h3>
+                          <h3>Confirmation email</h3>
                           {detail.deliveries.map((delivery, index) => (
-                            <p key={index}>
-                              {label(delivery.status)}
-                              {delivery.errorCode ? ` · ${label(delivery.errorCode.replace(/^ops\.crm\./, ''))}` : ''}
-                            </p>
+                            <p key={index}>{deliveryText(delivery)}</p>
                           ))}
                         </section>
                       )}

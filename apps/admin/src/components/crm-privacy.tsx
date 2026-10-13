@@ -11,6 +11,7 @@ import type {
 } from '@intafaced/contracts';
 import { crmJson, crmDate } from '@/lib/crm-browser';
 import { founderName, type FounderOwner } from './founder-names';
+import { Callout, CrmIcon } from './crm-callout';
 
 type Preview = (typeof crmErasurePreviewSchema)['_output'];
 type Status = (typeof crmErasureStatusSchema)['_output'];
@@ -585,11 +586,11 @@ export function CrmPrivacy({
               Refresh current review
             </button>
             {retentionReview && (
-              <p className="adm-save-notice" role="status">
+              <Callout role="status">
                 Last review marked <strong>{retentionReview.state}</strong> by {founderName(owners, retentionReview.reviewedBy)} on{' '}
                 {crmDate(retentionReview.reviewedAt)}.
                 {retentionReview.state === 'active' ? ` Recorded review expiry: ${crmDate(retentionReview.expiresAt!)}` : ''}
-              </p>
+              </Callout>
             )}
             {!retentionReview && <p className="adm-subtle">No contact discussion review has been recorded.</p>}
             <label>
@@ -624,9 +625,9 @@ export function CrmPrivacy({
             </label>
             <p className="adm-subtle">Active reviews are bounded by the policy window. No expiry is entered or extended by the browser.</p>
             {reviewError && (
-              <p className="adm-alert" role="alert">
+              <Callout tone="danger" role="alert">
                 {reviewError}
-              </p>
+              </Callout>
             )}
             <button type="button" disabled={reviewBusy} onClick={() => void saveRetentionReview()}>
               {reviewBusy
@@ -654,10 +655,10 @@ export function CrmPrivacy({
           accepted by an external provider.
         </p>
         {error && (
-          <p className="adm-alert" role="alert">
+          <Callout tone="danger" role="alert">
             {error}
             {pending.current.size > 0 ? ' The last result is unconfirmed. Keep this enquiry open and use its retry action.' : ''}
-          </p>
+          </Callout>
         )}
         {!intent && (
           <>
@@ -700,13 +701,13 @@ export function CrmPrivacy({
                     </div>
                   ))}
                 </dl>
-                <div className="adm-callout" data-tone="danger">
+                <Callout tone="warn">
                   <strong>Destructive action · all linked contact records</strong>
                   <p>
                     Saved contact details, original answers, notes and linked enquiry records will be removed after deletion of their saved
                     email records is confirmed. This cannot be undone here.
                   </p>
-                </div>
+                </Callout>
                 <label className="adm-check">
                   <input
                     type="checkbox"
@@ -723,13 +724,13 @@ export function CrmPrivacy({
                 </p>
                 <button
                   type="button"
-                  className="adm-btn adm-danger-button"
-                  data-tone="danger"
+                  className="adm-irreversible"
                   disabled={busy || Boolean(reviewPending.current) || (!confirmed && !pending.current.has('privacyBegin'))}
                   onClick={() => {
                     void start();
                   }}
                 >
+                  <CrmIcon name="warning" />
                   {startLabel}
                 </button>
               </div>
@@ -747,7 +748,11 @@ export function CrmPrivacy({
                 Internal reference for this contact. Either founder can select the contact and check deletion progress after signing in.
               </p>
             </details>
-            <p className="adm-save-notice" role="status">
+            <Callout
+              role="status"
+              icon={intent.status === 'complete' ? 'check' : 'warning'}
+              tone={intent.status === 'complete' ? 'neutral' : 'warn'}
+            >
               <strong>{intent.status === 'complete' ? 'Linked contact records deleted' : 'Deletion pending'}</strong> · started by{' '}
               {intent.actorKind === 'system'
                 ? 'System retention sweep'
@@ -755,7 +760,7 @@ export function CrmPrivacy({
                   ? founderName(owners, intent.requestedBy)
                   : 'Founder'}{' '}
               on {crmDate(intent.requestedAt)}.
-            </p>
+            </Callout>
             {intent.status === 'pending_notify' ? (
               <>
                 <p>Enquiries awaiting email-record deletion: {intent.pendingSubmissionCount}.</p>
@@ -780,13 +785,13 @@ export function CrmPrivacy({
                   </button>
                   <button
                     type="button"
-                    className="adm-btn adm-danger-button"
-                    data-tone="danger"
+                    className="adm-irreversible"
                     disabled={busy || Boolean(reviewPending.current) || needsStatus}
                     onClick={() => {
                       void step();
                     }}
                   >
+                    <CrmIcon name="warning" />
                     {advanceLabel}
                   </button>
                 </div>

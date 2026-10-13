@@ -15,13 +15,15 @@ import {
   crmLabel as label,
   crmDate as date,
   crmLocalDate,
-  crmRelative,
-  crmOverdueDays,
   AT_FETCH_TIME,
   resolveFetchTime,
   readFailureKeepsValue,
   type PendingCrmWrite,
 } from '@/lib/crm-browser';
+import { describeDue } from '@/lib/crm-due';
+import { submitProps } from '@/lib/crm-form-state';
+import { pagerVisible } from '@/lib/crm-view';
+import { Callout, CrmIcon } from './crm-callout';
 import { founderName, type FounderOwner } from './founder-names';
 import './crm-workflows.css';
 type Result<K extends keyof CrmWorkflowsContract> = Awaited<ReturnType<CrmWorkflowsContract[K]>>;
@@ -154,14 +156,14 @@ export function sortTasks<T extends { task: { status: string; dueAt: string } }>
   const rank = (item: T) => (item.task.status !== 'pending' ? 2 : Date.parse(item.task.dueAt) < now ? 0 : 1);
   return [...items].sort((a, b) => rank(a) - rank(b) || Date.parse(a.task.dueAt) - Date.parse(b.task.dueAt));
 }
-/** "2 days overdue" or "due in 3 days"; null for tasks that are no longer pending. */
+/**
+ * "2 days overdue", "Overdue today" or "Due in 3 days"; null for tasks that are no longer pending. The words come from
+ * lib/crm-due, the same wording the enquiry list and the open enquiry use.
+ */
 export function dueText(task: { status: string; dueAt: string }, now = Date.now()): { text: string; overdue: boolean } | null {
   if (task.status !== 'pending') return null;
-  if (Date.parse(task.dueAt) >= now) return { text: `due ${crmRelative(task.dueAt, now)}`, overdue: false };
-  const days = crmOverdueDays(task.dueAt, now);
-  if (days >= 1) return { text: `${days} ${days === 1 ? 'day' : 'days'} overdue`, overdue: true };
-  const hours = Math.floor((now - Date.parse(task.dueAt)) / 3600000);
-  return { text: hours >= 1 ? `${hours} ${hours === 1 ? 'hour' : 'hours'} overdue` : 'overdue', overdue: true };
+  const due = describeDue(task.dueAt, now);
+  return due.overdue ? { text: due.overdue, overdue: true } : { text: due.when, overdue: false };
 }
 /** Inline hint under a date field; a past date is still allowed. */
 export function PastDateWarning({ value, now = Date.now() }: { value: string; now?: number }) {
@@ -172,8 +174,11 @@ export function PastDateWarning({ value, now = Date.now() }: { value: string; no
     </small>
   );
 }
-/** Escape Tools and Reports on Escape or an outside click, so an opened menu never lingers over the page. */
-function useDismissableMenus() {
+/**
+ * Close Tools and Reports on Escape or an outside click, so an opened menu never lingers over the page. The workspace calls it
+ * once, so it works in every view (the Reports menu is only on some of them, Tools is on all).
+ */
+export function useDismissableMenus() {
   useEffect(() => {
     const open = () =>
       Array.from(document.querySelectorAll<HTMLDetailsElement>('details.adm-crm-report-details[open], details.adm-crm-tools-menu[open]'));
@@ -271,19 +276,32 @@ function Message({ error, notice, stale }: { error?: string; notice?: string; st
     <>
       <StaleNote error={stale ?? ''} />
       {error && (
-        <p className="adm-alert" role="alert">
+        <Callout tone="danger" role="alert">
           {error}
-        </p>
+        </Callout>
       )}
       {notice && (
-        <p className="adm-save-notice" role="status">
+        <Callout role="status" icon="check">
           {notice}
-        </p>
+        </Callout>
       )}
     </>
   );
 }
-function Pager({ next, loading, setCursor }: { next?: string | null; loading: boolean; setCursor: (value: string | undefined) => void }) {
+/** First and next page. Nothing is shown while the list fits on one page. */
+function Pager({
+  next,
+  current,
+  loading,
+  setCursor,
+}: {
+  next?: string | null;
+  /** The cursor of the page on screen; undefined on the first page. */
+  current?: string;
+  loading: boolean;
+  setCursor: (value: string | undefined) => void;
+}) {
+  if (!pagerVisible(Boolean(next), current !== undefined)) return null;
   return (
     <div className="adm-pagination">
       <button type="button" disabled={loading} onClick={() => setCursor(undefined)}>
@@ -315,7 +333,6 @@ export function CrmMetrics({
   onInvitations?: () => void;
 }) {
   const { value, error, staleError, loading } = useRead('metrics', filters, version);
-  useDismissableMenus();
   const firstLoad = loading && !value;
   let observation = firstLoad ? 'Loading totals…' : 'Reporting unavailable';
   if (value) observation = `updated ${date(value.observedAt)}`;
@@ -346,7 +363,6 @@ export function CrmMetrics({
         ) : (
           <span>{count(value?.totals.manualCallInvitations)} invitations</span>
         )}
-        <small>Totals follow your filters (not the search)</small>
         <StaleNote error={staleError} />
       </div>
       <Message error={error} />
@@ -365,15 +381,27 @@ export function CrmMetrics({
                 {[
                   ['Enquiries', value.totals.opportunities, 'All enquiries'],
                   ['Incomplete', value.totals.incompleteSubmissions, 'Contact saved, questions unfinished'],
-                  ['Overdue', value.totals.overdueTasks, 'Follow-ups past their due time'],
+                  ['Overdue', value.totals.overdueTasks, 'Follow-ups past their due time. Open the queue.'],
                   ['Call invitations', value.totals.manualCallInvitations, 'Recorded by hand'],
-                ].map(([name, n, help]) => (
-                  <div className="adm-metric" key={String(name)}>
-                    <span>{name}</span>
-                    <strong>{typeof n === 'number' ? n.toLocaleString('en-GB') : '—'}</strong>
-                    <small>{help}</small>
-                  </div>
-                ))}
+                ].map(([name, n, help]) => {
+                  const inner = (
+                    <>
+                      <span>{name}</span>
+                      <strong>{typeof n === 'number' ? n.toLocaleString('en-GB') : '—'}</strong>
+                      <small>{help}</small>
+                    </>
+                  );
+                  // The Overdue figure is itself the way to the queue, so there is no separate button for it.
+                  return name === 'Overdue' ? (
+                    <button type="button" className="adm-metric adm-metric--link" key={String(name)} onClick={overdueGo}>
+                      {inner}
+                    </button>
+                  ) : (
+                    <div className="adm-metric" key={String(name)}>
+                      {inner}
+                    </div>
+                  );
+                })}
               </div>
               <p className="adm-subtle">
                 {pluralise(value.totals.submissions, 'submission', 'submissions')} ·{' '}
@@ -386,9 +414,6 @@ export function CrmMetrics({
                     {label(item.audience)} / {label(item.stage)} <strong>{item.count}</strong>
                   </span>
                 ))}
-                <button type="button" onClick={overdueGo}>
-                  Review overdue follow-ups
-                </button>
               </div>
               <details className="adm-audit">
                 <summary>Enquiries by source</summary>
@@ -407,10 +432,10 @@ export function CrmMetrics({
               </details>
             </>
           )}
-          <p className="adm-provider-status">
+          <Callout className="adm-provider-status">
             Deck tracking: not connected. Our Papermark plan does not let us import deck views, so we cannot see who opened the deck. A
             source link shows which link was used, not who used it.
-          </p>
+          </Callout>
         </div>
       </details>
     </section>
@@ -476,7 +501,7 @@ export function CrmTasks({
     [overdue, setOverdue] = useState(initialOverdue),
     [cursor, setCursor] = useState<string>();
   // "Overdue" is measured at the moment of each fetch, so a task that falls due while this view stays open appears on the next refresh.
-  const { value, error, staleError, loading, refresh } = useRead(
+  const { value, error, staleError, loading } = useRead(
     'listTasks',
     {
       limit: 50,
@@ -489,16 +514,7 @@ export function CrmTasks({
   );
   const briefs = useTaskBriefs(value?.items.map((item) => item.task.opportunityId) ?? []);
   return (
-    <section className="adm-workflow-panel">
-      <div className="adm-section-heading">
-        <div>
-          <h2>Follow-ups</h2>
-          <p className="adm-subtle">Overdue first, then soonest due. Click a row to open the enquiry.</p>
-        </div>
-        <button type="button" onClick={() => void refresh()} disabled={loading}>
-          Refresh
-        </button>
-      </div>
+    <section className="adm-workflow-panel" aria-label="Follow-ups">
       <div className="adm-filters">
         <label>
           Task owner
@@ -510,7 +526,7 @@ export function CrmTasks({
               setCursor(undefined);
             }}
           >
-            <option value="">Both founders</option>
+            <option value="">Both</option>
             {owners.map((o) => (
               <option value={o.userId} key={o.userId}>
                 {o.displayName}
@@ -568,7 +584,7 @@ export function CrmTasks({
         ))}
       </ul>
       {!loading && value?.items.length === 0 && <p className="adm-empty">No follow-ups match these filters.</p>}
-      <Pager next={value?.nextCursor} loading={loading} setCursor={setCursor} />
+      <Pager next={value?.nextCursor} current={cursor} loading={loading} setCursor={setCursor} />
     </section>
   );
 }
@@ -716,7 +732,13 @@ export function CrmEnquiryTasks({
             Task reason
             <textarea aria-label="Task reason" required maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} />
           </label>
-          <button type="submit" disabled={busy || owners.length !== 2 || opportunity.stage === 'closed'}>
+          <button
+            type="submit"
+            {...submitProps({
+              disabled: busy || owners.length !== 2 || opportunity.stage === 'closed',
+              changed: Boolean(description.trim() || dueAt || reason.trim()),
+            })}
+          >
             Create task
           </button>
         </form>
@@ -795,7 +817,10 @@ export function CrmEnquiryTasks({
               </label>
             </>
           )}
-          <button type="submit" disabled={busy || !task}>
+          <button
+            type="submit"
+            {...submitProps({ disabled: busy || !task, changed: Boolean(task && (transitionReason.trim() || replacement.trim())) })}
+          >
             Record task outcome
           </button>
         </form>
@@ -889,7 +914,13 @@ export function CrmEnquiryTasks({
               </label>
             </>
           )}
-          <button type="submit" disabled={busy || opportunity.stage === 'closed'}>
+          <button
+            type="submit"
+            {...submitProps({
+              disabled: busy || opportunity.stage === 'closed',
+              changed: Boolean(evidence.trim() || interactionReason.trim() || next.trim()),
+            })}
+          >
             Save manual evidence
           </button>
         </form>
@@ -917,15 +948,16 @@ export function CrmAudit({ subjectType, subjectId, owners }: { subjectType: stri
         ))}
       </ol>
       {!loading && value?.items.length === 0 && <p className="adm-subtle">Nothing recorded yet.</p>}
-      <Pager next={value?.nextCursor} loading={loading} setCursor={setCursor} />
+      <Pager next={value?.nextCursor} current={cursor} loading={loading} setCursor={setCursor} />
     </details>
   );
 }
-export function CrmCampaigns({ csrf, owners }: { csrf: string; owners: FounderOwner[] }) {
+export function CrmCampaigns({ csrf, owners, version = 0 }: { csrf: string; owners: FounderOwner[]; version?: number }) {
   const [cursor, setCursor] = useState<string>(),
     [mappingCursor, setMappingCursor] = useState<string>();
-  const campaigns = useRead('listCampaigns', { limit: 50, cursor }),
-    mappings = useRead('listSourceMappings', { limit: 50, cursor: mappingCursor });
+  // The page's Refresh button bumps `version`, which reloads both lists.
+  const campaigns = useRead('listCampaigns', { limit: 50, cursor }, version),
+    mappings = useRead('listSourceMappings', { limit: 50, cursor: mappingCursor }, version);
   const [campaignId, setCampaignId] = useState(() => crypto.randomUUID()),
     [campaignRevision, setCampaignRevision] = useState(0),
     [name, setName] = useState(''),
@@ -974,27 +1006,12 @@ export function CrmCampaigns({ csrf, owners }: { csrf: string; owners: FounderOw
     }
   }
   return (
-    <section className="adm-workflow-panel">
-      <div className="adm-section-heading">
-        <div>
-          <h2>Campaigns and source links</h2>
-          <p className="adm-subtle">A source hint identifies a campaign, never the identity of a deck reader.</p>
-        </div>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => {
-            void campaigns.refresh();
-            void mappings.refresh();
-          }}
-        >
-          Refresh campaigns
-        </button>
-      </div>
+    <section className="adm-workflow-panel" aria-label="Sources and campaigns">
       <Message error={error || campaigns.error || mappings.error} stale={campaigns.staleError || mappings.staleError} notice={notice} />
       <div className="adm-workflow-columns">
         <div>
           <h3>Campaigns</h3>
+          {!campaigns.loading && campaigns.value?.items.length === 0 && <p className="adm-subtle">No campaigns yet.</p>}
           <ul className="adm-history">
             {campaigns.value?.items.map((item) => (
               <li key={item.id}>
@@ -1005,7 +1022,7 @@ export function CrmCampaigns({ csrf, owners }: { csrf: string; owners: FounderOw
               </li>
             ))}
           </ul>
-          <Pager next={campaigns.value?.nextCursor} loading={campaigns.loading} setCursor={setCursor} />
+          <Pager next={campaigns.value?.nextCursor} current={cursor} loading={campaigns.loading} setCursor={setCursor} />
           <form
             className="adm-form"
             onSubmit={(e) => {
@@ -1091,7 +1108,20 @@ export function CrmCampaigns({ csrf, owners }: { csrf: string; owners: FounderOw
                 onChange={(e) => setReason(e.target.value)}
               />
             </label>
-            <button type="submit" disabled={busy}>
+            <button
+              type="submit"
+              {...submitProps({
+                disabled: busy,
+                changed: Boolean(
+                  campaignRevision
+                    ? reason.trim() ||
+                        campaigns.value?.items.some(
+                          (c) => c.id === campaignId && (c.name !== name || c.channel !== channel || c.status !== campaignStatus),
+                        )
+                    : name.trim() || reason.trim(),
+                ),
+              })}
+            >
               Save campaign
             </button>
           </form>
@@ -1101,6 +1131,7 @@ export function CrmCampaigns({ csrf, owners }: { csrf: string; owners: FounderOw
         </div>
         <div>
           <h3>Source mappings</h3>
+          {!mappings.loading && mappings.value?.items.length === 0 && <p className="adm-subtle">No source mappings yet.</p>}
           <ul className="adm-history">
             {mappings.value?.items.map((item) => (
               <li key={item.id}>
@@ -1112,7 +1143,7 @@ export function CrmCampaigns({ csrf, owners }: { csrf: string; owners: FounderOw
               </li>
             ))}
           </ul>
-          <Pager next={mappings.value?.nextCursor} loading={mappings.loading} setCursor={setMappingCursor} />
+          <Pager next={mappings.value?.nextCursor} current={mappingCursor} loading={mappings.loading} setCursor={setMappingCursor} />
           <form
             className="adm-form"
             onSubmit={(e) => {
@@ -1166,9 +1197,9 @@ export function CrmCampaigns({ csrf, owners }: { csrf: string; owners: FounderOw
               </select>
             </label>
             <label>
-              Opaque source hint
+              Link code
               <input
-                aria-label="Opaque source hint"
+                aria-label="Link code"
                 required
                 minLength={16}
                 maxLength={128}
@@ -1177,7 +1208,7 @@ export function CrmCampaigns({ csrf, owners }: { csrf: string; owners: FounderOw
                 onChange={(e) => setSourceKey(e.target.value)}
               />
             </label>
-            <p className="adm-subtle">Use this hint in the supported enquiry link. Do not encode an email address or recipient name.</p>
+            <p className="adm-subtle">Use this code in the supported enquiry link. Do not encode an email address or recipient name.</p>
             <label>
               Mapping status
               <select aria-label="Mapping status" value={mappingStatus} onChange={(e) => setMappingStatus(e.target.value)}>
@@ -1195,7 +1226,10 @@ export function CrmCampaigns({ csrf, owners }: { csrf: string; owners: FounderOw
                 onChange={(e) => setMappingReason(e.target.value)}
               />
             </label>
-            <button type="submit" disabled={busy}>
+            <button
+              type="submit"
+              {...submitProps({ disabled: busy, changed: Boolean(mappingReason.trim() || (mappingRevision === 0 && mappedCampaign)) })}
+            >
               Save source mapping
             </button>
           </form>
@@ -1204,10 +1238,10 @@ export function CrmCampaigns({ csrf, owners }: { csrf: string; owners: FounderOw
           )}
         </div>
       </div>
-      <p className="adm-provider-status">
+      <Callout className="adm-provider-status">
         Deck tracking: not connected. Our Papermark plan does not let us import deck views. Saving a mapping does not turn tracking on or
         tell us who opened the deck.
-      </p>
+      </Callout>
     </section>
   );
 }
@@ -1331,7 +1365,18 @@ export function mergeInput(source: string, target: string, sourceRevision: numbe
     reason,
   };
 }
-export function CrmDuplicates({ csrf, owners, onChanged }: { csrf: string; owners: FounderOwner[]; onChanged: () => Promise<void> }) {
+export function CrmDuplicates({
+  csrf,
+  owners,
+  onChanged,
+  version = 0,
+}: {
+  csrf: string;
+  owners: FounderOwner[];
+  onChanged: () => Promise<void>;
+  /** The page's Refresh button bumps this to reload the candidates. */
+  version?: number;
+}) {
   const [cursor, setCursor] = useState<string>(),
     [query, setQuery] = useState(''),
     [source, setSource] = useState(''),
@@ -1344,7 +1389,7 @@ export function CrmDuplicates({ csrf, owners, onChanged }: { csrf: string; owner
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [notice, setNotice] = useState('');
-  const candidates = useRead('listDuplicates', { limit: 50, cursor, query: query || undefined }),
+  const candidates = useRead('listDuplicates', { limit: 50, cursor, query: query || undefined }, version),
     index = useEnquiryIndex(),
     generation = useRef(0),
     pending = useRef(new Map<string, PendingCrmWrite>());
@@ -1415,12 +1460,7 @@ export function CrmDuplicates({ csrf, owners, onChanged }: { csrf: string; owner
     setError('');
   }
   return (
-    <section className="adm-workflow-panel">
-      <h2>Duplicates</h2>
-      <p className="adm-subtle">
-        Contacts that share an email address. A matching email is only a hint: it does not prove they are the same person, and nothing is
-        merged automatically.
-      </p>
+    <section className="adm-workflow-panel" aria-label="Duplicates">
       <div className="adm-filters">
         <label>
           Search duplicates
@@ -1477,7 +1517,7 @@ export function CrmDuplicates({ csrf, owners, onChanged }: { csrf: string; owner
       {index.truncated && (
         <p className="adm-subtle">Details are shown for the 200 newest enquiries. Older records show only what the contact itself holds.</p>
       )}
-      <Pager next={candidates.value?.nextCursor} loading={candidates.loading} setCursor={setCursor} />
+      <Pager next={candidates.value?.nextCursor} current={cursor} loading={candidates.loading} setCursor={setCursor} />
       {!candidates.loading && items.length === 0 && <p className="adm-empty">No duplicates found on this page.</p>}
       {keepItem && (
         <form
@@ -1489,9 +1529,9 @@ export function CrmDuplicates({ csrf, owners, onChanged }: { csrf: string; owner
         >
           <h3>Merge duplicates</h3>
           {foldItem ? (
-            <p className="crm-wf-summary" role="status">
+            <Callout tone="warn" role="status" className="crm-wf-summary">
               {mergeSummary(keepItem.contact, briefsOf(keepItem.contact.id), foldItem.contact, briefsOf(foldItem.contact.id))}
-            </p>
+            </Callout>
           ) : (
             <p className="adm-subtle">Now choose which record to fold in.</p>
           )}
@@ -1503,7 +1543,12 @@ export function CrmDuplicates({ csrf, owners, onChanged }: { csrf: string; owner
             <input type="checkbox" required checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />I have checked both
             records and understand this can&apos;t be undone.
           </label>
-          <button type="submit" disabled={busy || !confirmed || !sourceProof || !targetProof || source === target || !foldItem}>
+          <button
+            type="submit"
+            className="adm-irreversible"
+            disabled={busy || !confirmed || !sourceProof || !targetProof || source === target || !foldItem}
+          >
+            <CrmIcon name="warning" />
             Merge into {keepItem.contact.name}
           </button>
         </form>
@@ -1608,12 +1653,7 @@ export function CrmExports({ csrf, filters, owners }: { csrf: string; filters: R
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   return (
-    <section className="adm-workflow-panel">
-      <h2>Controlled original-submission export</h2>
-      <p className="adm-subtle">
-        Each request exports at most 200 original submissions with initial consent, preserved answers, canonical contact linkage and source
-        snapshots. No automatic bulk download.
-      </p>
+    <section className="adm-workflow-panel" aria-label="Exports">
       <Message error={error || campaigns.error} stale={campaigns.staleError} notice={notice} />
       <form
         className="adm-form adm-export-form"
@@ -1684,8 +1724,8 @@ export function CrmExports({ csrf, filters, owners }: { csrf: string; filters: R
           <input required type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />I need these private
           enquiry records for founder follow-up and will handle the exported file securely.
         </label>
-        <button type="submit" disabled={busy || !confirmed}>
-          Prepare original export
+        <button type="submit" {...submitProps({ disabled: busy || !confirmed, changed: confirmed })}>
+          Prepare export
         </button>
       </form>
       {value && (
