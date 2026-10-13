@@ -349,8 +349,28 @@ describe('svc-trade lifecycle evidence SQL (postgres.js jsonb binding)', () => {
       valueImpact: 'NONE',
       ledgerTransactionId: null,
     });
+    await store.appendTransition({
+      transitionId: 'transition:jsonb',
+      idempotencyKey: 'market-jsonb:halt',
+      marketId: 'market-jsonb',
+      expectedState: 'OPEN',
+      expectedRuleVersion: 'rules:v1',
+      requestedState: 'HALTED',
+      resolvedState: 'HALTED',
+      reasonCategory: 'TECHNICAL',
+      reasonCode: 'matching.halt',
+      actorId: 'actor',
+      authorityRef: 'grant',
+      approvalRefs: [],
+      requestedAt: '2026-08-24T12:00:00.000Z',
+      effectiveAt: '2026-08-24T12:00:00.000Z',
+      expiresAt: null,
+      recoveryEvidenceRefs: [],
+      outcome: { outcome: 'APPLIED', appliedTargets: ['market'], unresolvedTargets: [] },
+    } as MarketTransitionRecord);
     const inserts = queries.filter((q) => q.includes('INSERT INTO trade.market_lifecycle_evidence'));
-    expect(inserts).toHaveLength(2);
+    expect(inserts).toHaveLength(3);
+    expect(inserts.some((q) => q.includes("'TRANSITION'"))).toBe(true);
     for (const q of inserts) {
       expect(q).toContain('::text::jsonb');
       expect(q).not.toMatch(/\?::jsonb/);
