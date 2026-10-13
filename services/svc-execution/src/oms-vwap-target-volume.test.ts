@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  InMemoryApprovedAlgoParentStore,
-  type RetainedAlgoSchedule,
-} from './oms-start.js';
+import { InMemoryApprovedAlgoParentStore, type RetainedAlgoSchedule } from './oms-start.js';
 import { approveAlgoParentWithVwapTargetVolume } from './oms-vwap-target-volume.js';
 
 const MATCHING_OPEN = { venueHalted: false } as const;
@@ -40,54 +37,42 @@ function vwapApproveInput(
 describe('approveAlgoParentWithVwapTargetVolume', () => {
   it('refuses VWAP + null targetVolume with target_volume_blank; store has no approved row', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithVwapTargetVolume(
-      vwapApproveInput(parentStore, { targetVolume: null }),
-    );
+    const result = approveAlgoParentWithVwapTargetVolume(vwapApproveInput(parentStore, { targetVolume: null }));
     expect(result).toMatchObject({ ok: false, reason: 'target_volume_blank' });
     expect(parentStore.get('p-vwap')).toBeNull();
   });
 
   it('refuses VWAP + undefined targetVolume with target_volume_blank', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithVwapTargetVolume(
-      vwapApproveInput(parentStore, { targetVolume: undefined }),
-    );
+    const result = approveAlgoParentWithVwapTargetVolume(vwapApproveInput(parentStore, { targetVolume: undefined }));
     expect(result).toMatchObject({ ok: false, reason: 'target_volume_blank' });
     expect(parentStore.get('p-vwap')).toBeNull();
   });
 
   it('refuses VWAP + whitespace targetVolume with target_volume_blank', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithVwapTargetVolume(
-      vwapApproveInput(parentStore, { targetVolume: '   ' }),
-    );
+    const result = approveAlgoParentWithVwapTargetVolume(vwapApproveInput(parentStore, { targetVolume: '   ' }));
     expect(result).toMatchObject({ ok: false, reason: 'target_volume_blank' });
     expect(parentStore.get('p-vwap')).toBeNull();
   });
 
   it('refuses VWAP + 0 with target_volume_invalid; no approved row', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithVwapTargetVolume(
-      vwapApproveInput(parentStore, { targetVolume: '0' }),
-    );
+    const result = approveAlgoParentWithVwapTargetVolume(vwapApproveInput(parentStore, { targetVolume: '0' }));
     expect(result).toMatchObject({ ok: false, reason: 'target_volume_invalid' });
     expect(parentStore.get('p-vwap')).toBeNull();
   });
 
   it('refuses VWAP + nope with target_volume_invalid', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithVwapTargetVolume(
-      vwapApproveInput(parentStore, { targetVolume: 'nope' }),
-    );
+    const result = approveAlgoParentWithVwapTargetVolume(vwapApproveInput(parentStore, { targetVolume: 'nope' }));
     expect(result).toMatchObject({ ok: false, reason: 'target_volume_invalid' });
     expect(parentStore.get('p-vwap')).toBeNull();
   });
 
   it('VWAP + 10 + complete schedule + jobs on + operator + matching open: approve succeeds', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithVwapTargetVolume(
-      vwapApproveInput(parentStore, { targetVolume: '10' }),
-    );
+    const result = approveAlgoParentWithVwapTargetVolume(vwapApproveInput(parentStore, { targetVolume: '10' }));
     expect(result).toEqual({
       ok: true,
       approved: true,
@@ -140,9 +125,7 @@ describe('approveAlgoParentWithVwapTargetVolume', () => {
 
   it('VWAP jobs_off still refuses after a present targetVolume (delegate to approve)', () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
-    const result = approveAlgoParentWithVwapTargetVolume(
-      vwapApproveInput(parentStore, { jobs: { enabled: false }, targetVolume: '10' }),
-    );
+    const result = approveAlgoParentWithVwapTargetVolume(vwapApproveInput(parentStore, { jobs: { enabled: false }, targetVolume: '10' }));
     expect(result).toMatchObject({ ok: false, reason: 'jobs_off' });
     expect(parentStore.get('p-vwap')).toBeNull();
   });

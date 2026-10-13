@@ -12,6 +12,9 @@ import { installOptionPlace } from './option-place.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
 import type { Market } from './types.js';
 
+// #4494: scopes are explicit now - trade:write no longer implies trade:read.
+const TRADE_READ = ['trade:read'] as const;
+
 installOptionPlace(TradeService);
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -241,7 +244,7 @@ describe('svc-trade option-expire-place (H8a PG-hard)', () => {
       } as Parameters<TradeService['placeOrder']>[1] & { now: string });
 
       expect((matching.submitted.at(-1)?.request as { now?: string }).now).toBe(AFTER);
-      const expired = await trade.getOrder(principalFor(ALICE), resting.id);
+      const expired = await trade.getOrder(principalFor(ALICE, TRADE_READ), resting.id);
       expect(expired.status).toBe('expired');
       expect(await heldFor(ALICE, 'USDT', resting.id)).toBe('0');
       expect(postsWithReason('order.hold.released')).toHaveLength(1);

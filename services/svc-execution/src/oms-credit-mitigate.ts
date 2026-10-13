@@ -5,10 +5,7 @@
  */
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { VenueKind } from '@intafaced/venue-adapter';
-import {
-  cancelRemainingParentChildren,
-  type OmsCancelRemainingInput,
-} from './oms-cancel-remaining.js';
+import { cancelRemainingParentChildren, type OmsCancelRemainingInput } from './oms-cancel-remaining.js';
 import type { OmsDrainChild, OmsDrainResidual } from './oms-drain.js';
 import type { OmsCancelFn } from './oms-cancel.js';
 import type { EmsOrderStore } from './oms-ems-store.js';
@@ -29,13 +26,7 @@ export type OmsCreditMitigateInput = {
 };
 
 export type OmsCreditMitigateRefuseReason =
-  | 'credit_blank'
-  | 'credit_invalid'
-  | 'used_credit_blank'
-  | 'used_credit_invalid'
-  | 'missing_parent'
-  | 'parent_only'
-  | 'ems_store_unwired';
+  'credit_blank' | 'credit_invalid' | 'used_credit_blank' | 'used_credit_invalid' | 'missing_parent' | 'parent_only' | 'ems_store_unwired';
 
 export type OmsCreditMitigateRefusal = {
   readonly ok: false;
@@ -63,10 +54,7 @@ export type OmsCreditMitigateCancelled = {
   readonly residual: OmsDrainResidual;
 };
 
-export type OmsCreditMitigateResult =
-  | OmsCreditMitigateClear
-  | OmsCreditMitigateCancelled
-  | OmsCreditMitigateRefusal;
+export type OmsCreditMitigateResult = OmsCreditMitigateClear | OmsCreditMitigateCancelled | OmsCreditMitigateRefusal;
 
 function refuse(reason: OmsCreditMitigateRefuseReason, detail: string): OmsCreditMitigateRefusal {
   return { ok: false, reason, detail };
@@ -97,10 +85,7 @@ function parseLedger(
   }
 }
 
-function parentResidualRemaining(
-  parentStore: ApprovedAlgoParentStore | undefined,
-  parentClientOrderId: string,
-): string | null {
+function parentResidualRemaining(parentStore: ApprovedAlgoParentStore | undefined, parentClientOrderId: string): string | null {
   if (!parentStore) return null;
   const row = parentStore.get(parentClientOrderId);
   const remaining = row?.residual?.remaining?.trim() ?? '';
@@ -111,9 +96,7 @@ function parentResidualRemaining(
  * Cancel remaining children of one parent when used credit exceeds owner credit.
  * Equality is not a breach. Residual stays on the parent — never released here.
  */
-export async function cancelRemainingOnCreditBreach(
-  input: OmsCreditMitigateInput,
-): Promise<OmsCreditMitigateResult> {
+export async function cancelRemainingOnCreditBreach(input: OmsCreditMitigateInput): Promise<OmsCreditMitigateResult> {
   const executionGroupId = input.executionGroupId?.trim() ?? '';
   if (executionGroupId) {
     return refuse('parent_only', 'mitigate exactly one parentClientOrderId');

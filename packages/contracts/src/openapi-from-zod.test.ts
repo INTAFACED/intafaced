@@ -50,9 +50,7 @@ describe('CARD G-developer OpenAPI from Zod 3', () => {
       expect(result.adapter).toBe(ZOD_TO_OPENAPI);
       expect(result.adapterVersion).toBe('7.3.4');
       expect(result.document.openapi.startsWith('3.')).toBe(true);
-      const schema = result.document.components?.schemas?.QuoteConvention as
-        | { properties?: Record<string, { type?: string }> }
-        | undefined;
+      const schema = result.document.components?.schemas?.QuoteConvention as { properties?: Record<string, { type?: string }> } | undefined;
       expect(schema?.properties?.unitSize?.type).not.toBe('number');
       expect(schema?.properties?.pipSize?.type).not.toBe('number');
       return;

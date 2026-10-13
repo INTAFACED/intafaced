@@ -52,9 +52,7 @@ describe('newlyEnrolledPasskeyMints — enroll after last unenroll', () => {
     expect(() => newlyEnrolledPasskeyMints([enrolledAgain])).not.toThrow();
     expect(() => requireVerifiedPasskey([enrolledAgain])).not.toThrow();
     const { minter, created } = makeMinter();
-    await expect(
-      mintApiKeyAfterNewlyEnrolledPasskey(minter, fakeSql([{ webauthn_creds: [enrolledAgain] }]), mintInput),
-    ).resolves.toEqual({
+    await expect(mintApiKeyAfterNewlyEnrolledPasskey(minter, fakeSql([{ webauthn_creds: [enrolledAgain] }]), mintInput)).resolves.toEqual({
       id: 'k1',
       key: 'ifk_live_secret',
       prefix: 'ifk_live',

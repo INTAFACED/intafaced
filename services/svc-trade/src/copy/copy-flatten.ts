@@ -31,11 +31,9 @@ export type FlattenCopyPositionResult = {
 
 export type FlattenCopyPositionPort = (principal: Principal, input: FlattenCopyPositionInput) => Promise<FlattenCopyPositionResult>;
 
-export const COPY_FLATTEN_DRIFT_RESIDUAL =
-  'copy.flatten refuses when the close drifted — never invent a flatten';
+export const COPY_FLATTEN_DRIFT_RESIDUAL = 'copy.flatten refuses when the close drifted — never invent a flatten';
 
-export const COPY_FLATTEN_UNAVAILABLE_RESIDUAL =
-  'copy.flatten refuses when the close is unavailable — never invent a flatten';
+export const COPY_FLATTEN_UNAVAILABLE_RESIDUAL = 'copy.flatten refuses when the close is unavailable — never invent a flatten';
 
 export type CopyFlattenAck = {
   readonly followId: string;

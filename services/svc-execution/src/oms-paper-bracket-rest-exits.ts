@@ -39,14 +39,9 @@ export type OmsPaperBracketRestExitsOk = {
   readonly stopLoss: string;
 };
 
-export type OmsPaperBracketRestExitsResult =
-  | OmsPaperBracketRestExitsOk
-  | OmsPaperBracketRestExitsRefusal;
+export type OmsPaperBracketRestExitsResult = OmsPaperBracketRestExitsOk | OmsPaperBracketRestExitsRefusal;
 
-function refuse(
-  reason: OmsPaperBracketRestExitsRefuseReason,
-  detail: string,
-): OmsPaperBracketRestExitsRefusal {
+function refuse(reason: OmsPaperBracketRestExitsRefuseReason, detail: string): OmsPaperBracketRestExitsRefusal {
   return { ok: false, reason, detail };
 }
 
@@ -56,25 +51,16 @@ function parseRetainedTrigger(
   label: string,
 ): { ok: true; text: string } | OmsPaperBracketRestExitsRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      missing,
-      `${label} is missing — refusing to invent a trigger or a live venue`,
-    );
+    return refuse(missing, `${label} is missing — refusing to invent a trigger or a live venue`);
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      missing,
-      `${label} is missing — refusing to invent a trigger or a live venue`,
-    );
+    return refuse(missing, `${label} is missing — refusing to invent a trigger or a live venue`);
   }
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      missing,
-      `${label} is not a ledger amount — refusing to invent a trigger`,
-    );
+    return refuse(missing, `${label} is not a ledger amount — refusing to invent a trigger`);
   }
 }
 
@@ -113,27 +99,16 @@ export function restPaperBracketExitsOnEntryFill(input: {
     return refuse('already_stopped', `parent ${parentClientOrderId} is already stopped`);
   }
   if (status === 'running') {
-    return refuse(
-      'not_running',
-      `parent ${parentClientOrderId} is running live — refusing to invent a paper rest over live`,
-    );
+    return refuse('not_running', `parent ${parentClientOrderId} is running live — refusing to invent a paper rest over live`);
   }
   if (status !== 'paper') {
     return refuse('not_running', `parent ${parentClientOrderId} is not a live paper bracket parent`);
   }
   const entry = parseRetainedTrigger(input.entry, 'missing_entry', 'bracket entry');
   if (!entry.ok) return entry;
-  const takeProfit = parseRetainedTrigger(
-    input.takeProfit,
-    'missing_take_profit',
-    'bracket take-profit',
-  );
+  const takeProfit = parseRetainedTrigger(input.takeProfit, 'missing_take_profit', 'bracket take-profit');
   if (!takeProfit.ok) return takeProfit;
-  const stopLoss = parseRetainedTrigger(
-    input.stopLoss,
-    'missing_stop_loss',
-    'bracket stop-loss',
-  );
+  const stopLoss = parseRetainedTrigger(input.stopLoss, 'missing_stop_loss', 'bracket stop-loss');
   if (!stopLoss.ok) return stopLoss;
 
   return {

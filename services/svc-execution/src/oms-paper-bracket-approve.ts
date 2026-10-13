@@ -40,14 +40,9 @@ export type OmsPaperBracketApproveOk = {
   readonly stopLoss: string;
 };
 
-export type OmsPaperBracketApproveResult =
-  | OmsPaperBracketApproveOk
-  | OmsPaperBracketApproveRefusal;
+export type OmsPaperBracketApproveResult = OmsPaperBracketApproveOk | OmsPaperBracketApproveRefusal;
 
-function refuse(
-  reason: OmsPaperBracketApproveRefuseReason,
-  detail: string,
-): OmsPaperBracketApproveRefusal {
+function refuse(reason: OmsPaperBracketApproveRefuseReason, detail: string): OmsPaperBracketApproveRefusal {
   return { ok: false, reason, detail };
 }
 
@@ -67,10 +62,7 @@ function parseTrigger(
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      invalid,
-      `${label} is not a ledger amount — refusing to invent a trigger`,
-    );
+    return refuse(invalid, `${label} is not a ledger amount — refusing to invent a trigger`);
   }
 }
 
@@ -107,19 +99,9 @@ export function approvePaperBracketParent(input: {
   }
   const entry = parseTrigger(input.entry, 'entry_blank', 'entry_invalid', 'bracket entry');
   if (!entry.ok) return entry;
-  const takeProfit = parseTrigger(
-    input.takeProfit,
-    'take_profit_blank',
-    'take_profit_invalid',
-    'bracket take-profit',
-  );
+  const takeProfit = parseTrigger(input.takeProfit, 'take_profit_blank', 'take_profit_invalid', 'bracket take-profit');
   if (!takeProfit.ok) return takeProfit;
-  const stopLoss = parseTrigger(
-    input.stopLoss,
-    'stop_loss_blank',
-    'stop_loss_invalid',
-    'bracket stop-loss',
-  );
+  const stopLoss = parseTrigger(input.stopLoss, 'stop_loss_blank', 'stop_loss_invalid', 'bracket stop-loss');
   if (!stopLoss.ok) return stopLoss;
 
   return {
