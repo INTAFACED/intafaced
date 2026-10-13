@@ -100,6 +100,12 @@ export function toScaled(text) {
   if (frac.length > SCALE_DIGITS) throw new Error(`more than ${SCALE_DIGITS} decimal places: ${text}`);
   return BigInt(whole) * ONE + BigInt(frac.padEnd(SCALE_DIGITS, '0'));
 }
+/** Like toScaled, but rounds a longer fraction DOWN to 8 places. For reading balances: trade fills can leave a balance with more places than the 8 this script quotes in. */
+export function toScaledFloor(text) {
+  if (typeof text !== 'string' || !/^\d+(\.\d+)?$/.test(text)) throw new Error(`not a plain decimal string: ${String(text)}`);
+  const [whole, frac = ''] = text.split('.');
+  return BigInt(whole) * ONE + BigInt(frac.slice(0, SCALE_DIGITS).padEnd(SCALE_DIGITS, '0'));
+}
 export function fromScaled(value) {
   const whole = value / ONE;
   const frac = (value % ONE).toString().padStart(SCALE_DIGITS, '0').replace(/0+$/, '');
@@ -376,7 +382,7 @@ async function ensureFunds(client, who, assets, divisor) {
   for (const asset of assets) {
     const target = toScaled(FUND_TO[asset] ?? '0') / BigInt(divisor);
     if (target === 0n) continue;
-    const free = toScaled(have[asset]?.free ?? '0');
+    const free = toScaledFloor(have[asset]?.free ?? '0');
     if (free * 2n >= target) continue;
     const ref = `MM-${who}-${asset}-${nowIso().slice(0, 13).replace(/[-:T]/g, '')}`;
     const r = spawnSync(process.execPath, [STACK_SCRIPT, 'fund', client.account.userId, asset, fromScaled(target), '--ref', ref], {

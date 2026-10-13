@@ -7,7 +7,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GuardError, assertLocalTarget, buildLadder, createPriceWalk, fromScaled, toScaled } from './local-test-market.mjs';
+import { GuardError, assertLocalTarget, buildLadder, createPriceWalk, fromScaled, toScaled, toScaledFloor } from './local-test-market.mjs';
 
 const script = resolve(dirname(fileURLToPath(import.meta.url)), 'local-test-market.mjs');
 const run = (home, args) => spawnSync(process.execPath, [script, ...args], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
@@ -56,6 +56,7 @@ try {
 // 6. Decimal helpers round-trip and refuse non-decimal text.
 assert.equal(fromScaled(toScaled('0.00001')), '0.00001');
 assert.equal(fromScaled(toScaled('65000')), '65000');
+assert.equal(fromScaled(toScaledFloor('1069912.42670961408')), '1069912.42670961'); // balances can carry more than 8 places
 for (const bad of ['1e3', '-1', '0x10', '1.123456789', '']) assert.throws(() => toScaled(bad), bad);
 
 // 7. The walk is deterministic for a seed, differs across seeds and symbols, and stays in its band on its tick grid.
