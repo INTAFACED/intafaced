@@ -1,3 +1,4 @@
+import { moduleDisabledResponse } from '@/lib/modules';
 import { isModuleId } from '@intafaced/config';
 import { adminBffGate } from '@/lib/admin-bff-gate';
 import { readKillSwitches, setKillSwitch } from '@/lib/control-plane-client';
@@ -23,6 +24,8 @@ import { readKillSwitches, setKillSwitch } from '@/lib/control-plane-client';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
+  const disabled = moduleDisabledResponse('killswitches');
+  if (disabled) return disabled;
   const gate = await adminBffGate(request);
   if (gate) return gate;
   const state = await readKillSwitches();
@@ -32,6 +35,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const disabled = moduleDisabledResponse('killswitches');
+  if (disabled) return disabled;
   const gate = await adminBffGate(request);
   if (gate) return gate;
 
