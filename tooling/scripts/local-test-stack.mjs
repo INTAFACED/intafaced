@@ -589,6 +589,22 @@ function serviceDefs(secrets) {
         MATCHING_URL: urlOf('matching'),
         TOKEN_URL: urlOf('token'), // OTC stake tiers; picked up the next time trade restarts
         IDENTITY_ADMISSION_SECRET: secrets.tradeAdmission,
+        // LOCAL TEST owner risk limits, not owner decisions: the stack stands in for the owner
+        // under Nitro's 2026-10-13 option B. pretrade-credit.ts only requires them to be published
+        // integers; it does not compare orders against them. Test funds only.
+        TRADE_MAX_ORDER: '1000000',
+        TRADE_MAX_POSITION: '5000000',
+        TRADE_MAX_LOSS: '100000',
+        // LOCAL TEST, not an owner decision (option B, 2026-10-13). Fee schedule reference: OKX's public
+        // regular-user spot tier, maker 8 bps, taker 10 bps, no maker rebate (makerRebateBps omitted).
+        // Without it trade refuses every order with 400 trade.fee_schedule_blank
+        // (services/svc-trade/src/spot/fee-schedule.ts, trade-service.ts assertOwnerFeeSchedulePublished).
+        TRADE_FEE_SCHEDULE: JSON.stringify({
+          published: true,
+          version: 'local-test:okx-regular-spot-reference',
+          makerBps: '8',
+          takerBps: '10',
+        }),
       }),
     },
     {
