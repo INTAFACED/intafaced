@@ -174,7 +174,7 @@ describe('D26-P1-B4 bank.ramps fiat public doors — pay adapters, ledger-only',
     const none = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       ramps: { programme: NO_RAMP_PROGRAMME },
     });
-    const noneUser = signedCaller(none, principal(HOLDER, ['bank:read', 'bank:write']));
+    const noneUser = signedCaller(none, principal(HOLDER, ['bank:read', 'bank:write', 'trade:withdraw']));
     const noneOps = signedCaller(none, principal(OPERATOR, ['admin:treasury']));
 
     await expect(
@@ -341,7 +341,7 @@ describe('D26-P1-B4 bank.ramps fiat public doors — pay adapters, ledger-only',
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       ramps: { programme: CRYPTO_LEDGER_PROGRAMME, payFiat: livePay },
     });
-    const user = signedCaller(bank, principal(HOLDER, ['bank:read', 'bank:write']));
+    const user = signedCaller(bank, principal(HOLDER, ['bank:read', 'bank:write', 'trade:withdraw']));
     const offrampId = randomUUID();
     await expect(
       user.ramps.offramp({
@@ -375,7 +375,7 @@ describe('D26-P1-B4 bank.ramps fiat public doors — pay adapters, ledger-only',
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       ramps: { programme: CRYPTO_LEDGER_PROGRAMME, payFiat: livePay },
     });
-    const user = signedCaller(bank, principal(HOLDER, ['bank:read', 'bank:write']));
+    const user = signedCaller(bank, principal(HOLDER, ['bank:read', 'bank:write', 'trade:withdraw']));
     await expect(
       user.ops.creditOnramp({
         userId: HOLDER,
