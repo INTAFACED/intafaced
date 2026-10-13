@@ -50,6 +50,19 @@ describe('matching order command — decimal strings, no book', () => {
     expect(typeof cmd.qty).toBe('string');
   });
 
+  it('market command forwards an explicit protection price decimal string', () => {
+    const cmd = parseMatchingOrderCommand({ ...valid, ordType: 'market', price: '101.50' });
+    expect(cmd.price).toBe('101.50');
+    expect(cmd.ordType).toBe('market');
+  });
+
+  it('refuses a blank or non-decimal price on a market command', () => {
+    for (const price of ['', ' ', 'abc', '1e-2', '-1']) {
+      const r = matchingOrderCommandSchema.safeParse({ ...valid, ordType: 'market', price });
+      expect(r.success, JSON.stringify(price)).toBe(false);
+    }
+  });
+
   it('accepts optional senderCompId and tif without inventing them', () => {
     const cmd = parseMatchingOrderCommand({ ...valid, senderCompId: 'CLIENT', tif: 'GTC' });
     expect(cmd.senderCompId).toBe('CLIENT');
