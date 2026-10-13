@@ -1,4 +1,5 @@
 import { requireFounderPage } from '@/lib/founder-page';
+import { requireModulePage } from '@/lib/module-page-guard';
 import { KillSwitchBoard } from '@/components/kill-switch-board';
 import { readKillSwitches } from '@/lib/control-plane-client';
 import { readOperatorEnv } from '@/lib/operator-env';
@@ -11,6 +12,7 @@ import { readOperatorEnv } from '@/lib/operator-env';
  * plane is reachable — see the board and `docs/OPS-KILL-SWITCH-RUNBOOK.md`.
  */
 export default async function KillSwitchesPage() {
+  requireModulePage('killswitches');
   await requireFounderPage();
   const env = readOperatorEnv();
   const controlPlane = await readKillSwitches();

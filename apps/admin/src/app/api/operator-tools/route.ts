@@ -1,3 +1,4 @@
+import { moduleDisabledResponse } from '@/lib/modules';
 import { adminBffGate } from '@/lib/admin-bff-gate';
 import { invokeOperatorTool, listToolWireStates } from '@/lib/operator-edge-client';
 import { OPERATOR_TOOLS, toolById, usesAccountConsole } from '@/lib/operator-tools-catalog';
@@ -17,6 +18,8 @@ import { adminSessionConfig, openFounderSession } from '@/lib/founder-session';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
+  const disabled = moduleDisabledResponse('tools');
+  if (disabled) return disabled;
   const gate = await adminBffGate(request);
   if (gate) return gate;
 
@@ -55,6 +58,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const disabled = moduleDisabledResponse('tools');
+  if (disabled) return disabled;
   const gate = await adminBffGate(request);
   if (gate) return gate;
 
