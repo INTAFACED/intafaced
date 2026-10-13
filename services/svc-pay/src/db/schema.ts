@@ -514,6 +514,11 @@ export const checkoutSessionStatusEnum = pay.enum('checkout_session_status', ['o
  *   · `amount` / `currency` are frozen at open and never re-read from a request
  *     afterwards. That is what makes client-side amount tampering impossible
  *     rather than merely discouraged.
+ *   · `merchant_id` is the merchant the frozen amount is charged against.
+ *     `checkout_sessions_merchant_match_trg` (0022) refuses an insert or update
+ *     unless `payment_links.merchant_id` equals it, and unless
+ *     `payments.merchant_id` equals it when `payment_id` is set. The trigger
+ *     does not rewrite `amount`, `currency`, or `rail_adapter`.
  *   · `rail_adapter` is chosen SERVER-SIDE from configuration. A hosted checkout
  *     that lets its caller name a rail is the route straight back to the P0 that
  *     `rails/posture.ts` closed; the payer names a method at most.
