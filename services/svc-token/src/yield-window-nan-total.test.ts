@@ -17,7 +17,15 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  * other than `intafaced_test`.
  */
 
-const ADMIN_URL = 'postgres://127.0.0.1:5432/postgres';
+// Admin connection (needs CREATEDB) comes from TEST_DATABASE_URL like the rest of svc-token's database
+// tests, pointed at the `postgres` maintenance database. Unset keeps the old local default.
+const ADMIN_URL = ((): string => {
+  const envUrl = process.env.TEST_DATABASE_URL?.trim();
+  if (!envUrl) return 'postgres://127.0.0.1:5432/postgres';
+  const url = new URL(envUrl);
+  url.pathname = '/postgres';
+  return url.toString();
+})();
 const YIELD_AMOUNT = '100';
 const NAN_WINDOW = 'l1250-nan';
 const FINITE_WINDOW = 'l1250-finite';

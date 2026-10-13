@@ -14,6 +14,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
+import { postgresAvailable, resolveTestDatabaseUrl } from '@intafaced/db';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db/testing';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -24,7 +25,9 @@ const migrations = readdirSync(drizzle)
   .map((f) => readFileSync(join(drizzle, f), 'utf8'))
   .map((body) => (schema: string) => rewriteSchemaSql(body, 'bank', schema));
 
-const URL = 'postgres://Nitro@127.0.0.1:5432/intafaced_test';
+// Same env var as the rest of svc-bank's database tests; falls back to the local compose default.
+const URL = resolveTestDatabaseUrl(undefined, 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test');
+const available = await postgresAvailable(URL);
 const CHECK_VIOLATION = '23514';
 const USER = '11111111-1111-4111-8111-111111111111';
 /** The code the standing-order path already writes when the ledger refuses. */
@@ -33,10 +36,10 @@ const OMITTED_LEDGER_TX = 'transfer_executions_rejected_omits_ledger_tx_ck';
 const REJECTED_HAS_CODE = 'transfer_executions_rejected_has_code_ck';
 const SETTLED_HAS_TX = 'transfer_executions_settled_has_tx_ck';
 
-const db: TestDb = await createTestDb({ service: 'bank_l1098', url: URL, migrations });
+const db: TestDb = available ? await createTestDb({ service: 'bank_l1098', url: URL, migrations }) : (undefined as unknown as TestDb);
 
 afterAll(async () => {
-  await db.drop();
+  await db?.drop();
 });
 
 let schedules = 0;
@@ -63,7 +66,7 @@ async function seedSchedule(): Promise<string> {
   return schedule!.id;
 }
 
-describe.sequential('a rejected transfer execution omits the ledger posting', () => {
+describe.skipIf(!available)('a rejected transfer execution omits the ledger posting', { sequential: true }, () => {
   it('refuses a rejected firing that points at a ledger posting', async () => {
     const scheduleId = await seedSchedule();
     await expect(
