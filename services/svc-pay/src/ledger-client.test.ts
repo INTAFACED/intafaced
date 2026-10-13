@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   formatAmount,
+  MemoryLedger,
   parseAmount as amt,
   merchantClearing,
   railBoundary,
@@ -10,6 +11,7 @@ import {
 } from '@intafaced/ledger-client';
 import { serviceAuthHeaders, verifyServiceHeaders } from '@intafaced/contracts';
 import { createLedgerClient } from './ledger-client.js';
+import { fakeLedgerDoor, type DoorCall } from './ledger-door-fake.js';
 
 function retained(body: string) {
   return { retained: true as const, bytes: Buffer.from(body, 'utf8') };
@@ -18,9 +20,10 @@ function retained(body: string) {
 /**
  * THE WIRE SHAPE.
  *
- * This client is the only way svc-pay touches a balance (§2, Doctrine §0.6),
- * and the whole of its job is a translation: scaled bigint in memory, decimal
- * string on the wire.
+ * `createLedgerClient` is a thin wrapper over the shared `createHttpLedgerClient`
+ * (signed as `svc-pay`, bounded timeouts and retries). This client is the only
+ * way svc-pay touches a balance (§2, Doctrine §0.6), and the whole of its job is
+ * a translation: scaled bigint in memory, decimal string on the wire.
  *
  * The failure mode is loud today — `JSON.stringify` throws on a bigint, so a
  * missed conversion crashes rather than corrupts. That is exactly why this file
@@ -426,6 +429,184 @@ describe('errors', () => {
     respond = () => ({ status: 503, body: 'ledger.frozen' });
     await expect(client().balance(userAvailable(USER, 'USDT'))).rejects.toThrow(/\/trpc\/balance failed \(503\)/);
   });
+
+  it('gives reads a smaller budget than posts: one retry, not two', async () => {
+    // Reads run inside the receipt check while a pay transaction is open, so they are bounded tighter than the post.
+    respond = () => ({ status: 503, body: 'busy' });
+    await expect(client().balance(userAvailable(USER, 'USDT'))).rejects.toThrow();
+    expect(sent).toHaveLength(2);
+    sent.length = 0;
+    await expect(client().getTxByKey('withdraw.hold:s-1:0')).rejects.toThrow();
+    expect(sent).toHaveLength(2);
+  });
+
+  it('never retries a refusal: a 4xx is the ledger’s answer, sent once', async () => {
+    respond = () => ({ status: 422, body: 'ledger.insufficient_funds' });
+    await expect(client().balance(userAvailable(USER, 'USDT'))).rejects.toThrow(/insufficient_funds/);
+    expect(sent).toHaveLength(1);
+  });
+});
+
+/**
+ * The shared transport's bounded retries, as svc-pay sees them (capture and the first phase of a refund post while a pay
+ * transaction is open). A post is safe to retry because the ledger answers a reused key with the original transaction.
+ */
+describe('retries — bounded, same body, re-signed', () => {
+  const capture = () =>
+    recipes.paymentCapture({
+      paymentId: 'p-retry',
+      merchantId: MERCHANT,
+      assetId: 'USDT',
+      amount: amt('1'),
+      rail: 'card-sandbox',
+      railRef: 'ch_retry',
+    });
+
+  it('retries a 503 with the identical bytes and a fresh, valid signature each attempt', async () => {
+    let attempts = 0;
+    respond = () => {
+      attempts += 1;
+      return attempts === 1
+        ? { status: 503, body: 'busy' }
+        : { status: 200, body: { txId: 'tx-r', hash: 'hr', postedAt: '2026-07-27T12:00:00.000Z' } };
+    };
+
+    const tx = await client().post(capture());
+
+    expect(tx.id).toBe('tx-r');
+    expect(sent).toHaveLength(2);
+    expect(sent[1]!.raw).toBe(sent[0]!.raw);
+    for (const attempt of sent) {
+      expect(verifyServiceHeaders(attempt.headers, SECRET, { rawBody: retained(attempt.raw), mode: 'require' })).toEqual({
+        service: 'svc-pay',
+        rejected: null,
+        scheme: 'v2',
+      });
+    }
+  });
+
+  it('gives up after two retries (three attempts) and throws the ledger’s refusal', async () => {
+    respond = () => ({ status: 502, body: 'bad gateway' });
+    await expect(client().post(capture())).rejects.toThrow(/\/trpc\/post failed \(502\)/);
+    expect(sent).toHaveLength(3);
+  });
+
+  it('refuses a malformed acknowledgement as an unknown outcome, never a success', async () => {
+    respond = () => ({ status: 200, body: { txId: '', hash: 'h', postedAt: 'invalid' } });
+    await expect(client().post(capture())).rejects.toThrow('svc-ledger invalid post acknowledgement; outcome unknown');
+  });
+});
+
+/**
+ * THE CONTRACT END TO END. A fake svc-ledger door over the in-memory ledger: it verifies the signature against the exact
+ * bytes it receives and answers as svc-ledger does, so what comes back is what the real ledger would have booked.
+ */
+describe('against a fake ledger door', () => {
+  const DOOR_SECRET = 'door-internal-service-secret-32-chars!!';
+  let book: MemoryLedger;
+  let calls: DoorCall[];
+
+  beforeEach(() => {
+    book = new MemoryLedger();
+    calls = [];
+    globalThis.fetch = fakeLedgerDoor(book, DOOR_SECRET, calls);
+  });
+
+  const door = () => createLedgerClient('http://ledger.test', DOOR_SECRET);
+  const capture = (paymentId = 'p-door') =>
+    recipes.paymentCapture({
+      paymentId,
+      merchantId: MERCHANT,
+      assetId: 'USDT',
+      amount: amt('12.5'),
+      rail: 'card-sandbox',
+      railRef: `ch_${paymentId}`,
+    });
+
+  it('authenticates as exactly svc-pay on every call (a wrong secret would be a 401)', async () => {
+    const request = capture();
+    await door().post(request);
+    await door().getTxByKey(request.idempotencyKey);
+    await door().balance(merchantClearing(MERCHANT, 'USDT'));
+    expect(calls.map((c) => [c.path, c.service])).toEqual([
+      ['/trpc/post', 'svc-pay'],
+      ['/trpc/txByKey', 'svc-pay'],
+      ['/trpc/txById', 'svc-pay'],
+      ['/trpc/balance', 'svc-pay'],
+    ]);
+    await expect(
+      createLedgerClient('http://ledger.test', 'a-different-secret-of-32-characters!!').balance(userAvailable(USER, 'USDT')),
+    ).rejects.toThrow(/401|unauthenticated/);
+  });
+
+  it('returns the entries the ledger booked on the post receipt, as scaled bigints', async () => {
+    const request = capture();
+    const tx = await door().post(request);
+
+    expect(tx.entries).toHaveLength(request.entries.length);
+    expect(tx.entries.every((e) => e.txId === tx.id)).toBe(true);
+    expect(tx.entries.map((e) => [e.assetId, e.direction, e.amount]).sort()).toEqual(
+      request.entries.map((e) => ['USDT', e.direction, e.amount]).sort(),
+    );
+    for (const entry of tx.entries) expect(typeof entry.amount).toBe('bigint');
+  });
+
+  it('reads a booked transaction back by id and by key, with the same legs', async () => {
+    const request = capture();
+    const posted = await door().post(request);
+
+    const byId = await door().getTx(posted.id);
+    const byKey = await door().getTxByKey(request.idempotencyKey);
+
+    for (const read of [byId, byKey]) {
+      expect(read).toMatchObject({ id: posted.id, idempotencyKey: request.idempotencyKey, module: 'pay', hash: posted.hash });
+      expect(read!.entries.map((e) => [e.accountId, e.direction, e.amount]).sort()).toEqual(
+        posted.entries.map((e) => [e.accountId, e.direction, e.amount]).sort(),
+      );
+    }
+  });
+
+  it('answers null for an unbooked key and an unbooked id', async () => {
+    await expect(door().getTxByKey('payment.capture:never')).resolves.toBeNull();
+    await expect(door().getTx('9d2a8a4e-6f31-4c0e-9a55-0d7f4b1c2e10')).resolves.toBeNull();
+  });
+
+  it('a retry of the same key returns the original booking, not a second one', async () => {
+    const request = capture();
+    const first = await door().post(request);
+    const again = await door().post(request);
+    expect(again.id).toBe(first.id);
+    expect((await book.balance(merchantClearing(MERCHANT, 'USDT'))).amount).toBe(amt('12.5'));
+  });
+
+  it('rehydrates a ledger refusal with its own error text', async () => {
+    // The same key with a different body is the ledger refusing, not an outage.
+    await door().post(capture());
+    const drifted = { ...capture(), entries: capture().entries.map((e) => ({ ...e, amount: amt('99') })) };
+    await expect(door().post(drifted)).rejects.toThrow(/already booked a different movement/);
+  });
+
+  it('never leaks the raw secret: not in a header, a body, or an error', async () => {
+    const seen: string[] = [];
+    const spy = fakeLedgerDoor(book, DOOR_SECRET, calls);
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      seen.push(JSON.stringify(init?.headers ?? {}), String(init?.body ?? ''));
+      return spy(input, init);
+    }) as typeof fetch;
+
+    await door().post(capture());
+    await expect(createLedgerClient('http://ledger.test', DOOR_SECRET + 'x').balance(userAvailable(USER, 'USDT'))).rejects.toThrow();
+    const failure = await createLedgerClient('http://ledger.test', DOOR_SECRET + 'x')
+      .balance(userAvailable(USER, 'USDT'))
+      .catch((e: Error) => e);
+
+    expect(seen.length).toBeGreaterThan(0);
+    for (const text of seen) {
+      expect(text).not.toContain(DOOR_SECRET);
+      expect(text).not.toContain(DOOR_SECRET + 'x');
+    }
+    expect(String((failure as Error).message)).not.toContain(DOOR_SECRET);
+  });
 });
 
 /**
@@ -435,7 +616,26 @@ describe('errors', () => {
  * They now call svc-ledger's read-only, service-signed `/trpc/txByKey` (#4692)
  * and `/trpc/txById` doors.
  */
-describe('getTxByKey — the txByKey door', () => {
+describe('getTxByKey — the txByKey door, chained to txById', () => {
+  const KEY_TX = '9d2a8a4e-6f31-4c0e-9a55-0d7f4b1c2e11';
+  const keyHit = {
+    found: true,
+    txId: KEY_TX,
+    hash: 'h9',
+    postedAt: '2026-10-14T01:02:03.000Z',
+    module: 'withdraw',
+    reason: 'withdraw.hold',
+  };
+  const byId = (idempotencyKey: string, txId = KEY_TX) => ({
+    ...keyHit,
+    txId,
+    idempotencyKey,
+    entries: [
+      { accountId: 'a-1', assetId: 'USDT', direction: 'credit', amount: '10' },
+      { accountId: 'a-2', assetId: 'USDT', direction: 'debit', amount: '10' },
+    ],
+  });
+
   it('asks /trpc/txByKey with the key alone, signed over the exact bytes, as svc-pay', async () => {
     respond = () => ({ status: 200, body: { found: false } });
     await client().getTxByKey('withdraw.hold:s-1:0');
@@ -457,27 +657,33 @@ describe('getTxByKey — the txByKey door', () => {
     await expect(client().getTxByKey('withdraw.hold:never:0')).resolves.toBeNull();
   });
 
-  it('answers the booked transaction for a key it has', async () => {
-    respond = () => ({
-      status: 200,
-      body: { found: true, txId: 'tx-9', hash: 'h9', postedAt: '2026-10-14T01:02:03.000Z', module: 'withdraw', reason: 'withdraw.hold' },
-    });
+  it('answers the booked transaction for a key it has, with its entries from /trpc/txById', async () => {
+    respond = (path) => ({ status: 200, body: path === '/trpc/txByKey' ? keyHit : byId('withdraw.hold:s-1:0') });
     const tx = await client().getTxByKey('withdraw.hold:s-1:0');
+    expect(sent.map((c) => new URL(c.url).pathname)).toEqual(['/trpc/txByKey', '/trpc/txById']);
+    expect(sent[1]!.body).toEqual({ txId: KEY_TX });
     expect(tx).toMatchObject({
-      id: 'tx-9',
+      id: KEY_TX,
       idempotencyKey: 'withdraw.hold:s-1:0',
       hash: 'h9',
       module: 'withdraw',
       reason: 'withdraw.hold',
-      entries: [],
     });
+    expect(tx?.entries).toHaveLength(2);
     expect(tx?.postedAt.toISOString()).toBe('2026-10-14T01:02:03.000Z');
+  });
+
+  it('throws when the key is found but its transaction is not, or was booked under another key', async () => {
+    respond = (path) => ({ status: 200, body: path === '/trpc/txByKey' ? keyHit : { found: false } });
+    await expect(client().getTxByKey('withdraw.hold:s-1:0')).rejects.toThrow(/inconsistent/);
+    respond = (path) => ({ status: 200, body: path === '/trpc/txByKey' ? keyHit : byId('some-other-key') });
+    await expect(client().getTxByKey('withdraw.hold:s-1:0')).rejects.toThrow(/another key/);
   });
 
   it('throws on an answer with no found verdict, rather than reading it as "not booked"', async () => {
     respond = () => ({ status: 200, body: { txId: 'tx-1', hash: 'h1', postedAt: '2026-10-14T00:00:00.000Z' } });
-    await expect(client().getTxByKey('withdraw.hold:s-1:0')).rejects.toThrow(/found/);
-    await expect(client().getTx('9d2a8a4e-6f31-4c0e-9a55-0d7f4b1c2e10')).rejects.toThrow(/found/);
+    await expect(client().getTxByKey('withdraw.hold:s-1:0')).rejects.toThrow(/malformed/);
+    await expect(client().getTx('9d2a8a4e-6f31-4c0e-9a55-0d7f4b1c2e10')).rejects.toThrow(/malformed/);
   });
 
   it('throws when the ledger cannot answer, rather than reading it as "not booked"', async () => {

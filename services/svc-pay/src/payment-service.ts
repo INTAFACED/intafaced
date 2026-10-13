@@ -12,10 +12,12 @@ import {
   merchantClearing,
   mulBps,
   parseAmount,
+  railBoundary,
   recipes,
   userAvailable,
   type Amount,
   type LedgerClient,
+  type LedgerTx,
 } from '@intafaced/ledger-client';
 import type { PaymentIntent, RailAdapter, RailEvent, RailResult, RailWebhookRequest } from './rails/rail-adapter.js';
 import type { RailRegistry } from './rails/registry.js';
@@ -2366,10 +2368,8 @@ export class PayService {
         const sequence = await countEvents(tx, row.id, 'refund.posted');
         const refundId = options.refundId ?? `${row.id}:${sequence + 1}`;
         const merchant = await this.getMerchant(row.merchant_id);
-        const source = row.status === 'settled' ? ('settled' as const) : ('clearing' as const);
-
-        const posted = await postPayLedger(
-          this.ledger,
+        let source = row.status === 'settled' ? ('settled' as const) : ('clearing' as const);
+        const refundRequest = (from: 'clearing' | 'settled') =>
           recipes.paymentRefund({
             refundId,
             paymentId: row.id,
@@ -2378,9 +2378,34 @@ export class PayService {
             assetId: row.currency,
             amount,
             rail: row.rail_adapter,
-            source,
-          }),
-        );
+            source: from,
+          });
+
+        let posted: LedgerTx;
+        try {
+          posted = await postPayLedger(this.ledger, refundRequest(source));
+        } catch (error) {
+          // `source` is derived from the payment's CURRENT status, but the ledger key
+          // `payment.refund:<paymentId>:<refundId>` does not contain it and it decides which account is debited. If an
+          // earlier attempt booked this refund and its reply was lost (timeout, deadline, unreadable acknowledgement) the
+          // transaction rolled back with no `refund.posted`; the payment may have settled since, so this attempt asks for
+          // the other account. The ledger then answers with the ORIGINAL booking (or refuses the key) and every retry
+          // would fail, while a new refundId would debit the merchant twice. Recover only that case: the booked
+          // transaction is read back, checked leg by leg, and its own source is adopted.
+          const recovered = await this.recoverBookedRefund(error, {
+            key: refundRequest(source).idempotencyKey,
+            paymentId: row.id,
+            refundId,
+            merchantId: row.merchant_id,
+            merchantUserId: merchant.userId,
+            assetId: row.currency,
+            rail: row.rail_adapter,
+            amount,
+          });
+          if (!recovered) throw error;
+          posted = recovered.tx;
+          source = recovered.source;
+        }
 
         await appendEvent(tx, row.id, 'refund.posted', {
           refundId,
@@ -2464,6 +2489,60 @@ export class PayService {
 
     this.notifyPaymentEvent('payment.refunded', settled.view);
     return settled.view;
+  }
+
+  /**
+   * A refund whose first attempt was booked by svc-ledger but never acknowledged to us (see the phase-1 call).
+   *
+   * Returns the booked transaction and the source it was booked from, when `error` is a receipt mismatch or an
+   * idempotency refusal AND the ledger really holds this refund key with exactly the two legs `paymentRefund` books:
+   * the merchant account (clearing or available) credited and the rail boundary debited, in this asset. A booking for a
+   * different amount is a refund id reused for another refund (`pay.refund_id_conflict`). Anything else, including
+   * nothing booked, returns null so the caller rethrows the original error.
+   */
+  private async recoverBookedRefund(
+    error: unknown,
+    input: {
+      key: string;
+      paymentId: string;
+      refundId: string;
+      merchantId: string;
+      merchantUserId: string;
+      assetId: string;
+      rail: string;
+      amount: Amount;
+    },
+  ): Promise<{ tx: LedgerTx; source: 'clearing' | 'settled' } | null> {
+    if (!(error instanceof LedgerError) || (error.code !== 'pay.ledger_receipt_mismatch' && error.code !== 'ledger.idempotency_conflict')) {
+      return null;
+    }
+    const booked = await this.ledger.getTxByKey(input.key);
+    if (!booked || booked.module !== 'pay' || booked.reason !== 'payment.refunded' || booked.entries.length !== 2) return null;
+    const credit = booked.entries.find((e) => e.direction === 'credit');
+    const debit = booked.entries.find((e) => e.direction === 'debit');
+    if (!credit || !debit || credit.assetId !== input.assetId || debit.assetId !== input.assetId || credit.amount !== debit.amount)
+      return null;
+
+    const boundary = (await this.ledger.balance(railBoundary(input.rail, input.assetId))).accountId;
+    if (!boundary || debit.accountId !== boundary) return null;
+    const clearing = (await this.ledger.balance(merchantClearing(input.merchantId, input.assetId))).accountId;
+    const available = (await this.ledger.balance(userAvailable(input.merchantUserId, input.assetId))).accountId;
+    const source = credit.accountId === clearing ? ('clearing' as const) : credit.accountId === available ? ('settled' as const) : null;
+    if (!source) return null;
+
+    if (credit.amount !== input.amount) {
+      throw new PayError(
+        `Refund id ${input.refundId} is already booked for ${formatAmount(credit.amount)}; requested ${formatAmount(input.amount)} — use a new refundId for a different amount`,
+        'pay.refund_id_conflict',
+        {
+          refundId: input.refundId,
+          paymentId: input.paymentId,
+          completedAmount: formatAmount(credit.amount),
+          requested: formatAmount(input.amount),
+        },
+      );
+    }
+    return { tx: booked, source };
   }
 
   // ── Webhooks ───────────────────────────────────────────────────────────────
@@ -3557,9 +3636,9 @@ export class PayService {
   ): Promise<{ id: string } | null> {
     return transaction(this.sql, async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.chargeback.plan:${disputeId}`}))`;
-      // The lookup only detects ANOTHER delivery's booking of this same plan. svc-pay's production ledger client does not expose
-      // it (it throws), and a failed lookup must not stop the void: our own refusal for funds already proves our post booked
-      // nothing, and a plan wrongly voided here is restored by `ensureChargebackPlanLive` once the other post returns.
+      // The lookup only detects ANOTHER delivery's booking of this same plan. It goes over svc-ledger's txByKey door in
+      // production (#4696), and a failed lookup must not stop the void: our own refusal for funds already proves our post
+      // booked nothing, and a plan wrongly voided here is restored by `ensureChargebackPlanLive` once the other post returns.
       const booked = await this.ledger.getTxByKey(idempotencyKey).catch(() => null);
       if (booked) return booked;
       const live = await readLivePlan(tx, paymentId, disputeId);
