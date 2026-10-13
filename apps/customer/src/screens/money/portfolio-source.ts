@@ -7,7 +7,7 @@
  * prices can't be read, or the account is paused) is shown as that refusal and never papered over by the fallback.
  * Each row of the result says which one it came from (`source`).
  */
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { z } from 'zod';
 import { classOf, useDataEnv, useSource, type Decimal, type Loadable, type PortfolioSummary } from '../../data';
 import { dec, decOrNull, ratio, sub, sumOf, type Scaled } from '../../data/decimal';
@@ -264,6 +264,11 @@ const BALANCE_INTERVAL = 15_000;
  */
 export function useAssetBalances(enabled: boolean): Loadable<Record<string, BalanceEntry>> {
   const env = useDataEnv();
+  // The poller may hold a value up to 15 s old from another screen (the desk polls the same key). Money asks for a fresh
+  // one when it opens, so "In orders" never shows money from an order that was cancelled a moment ago.
+  useEffect(() => {
+    if (enabled && env.userId) env.poller.refresh(`balance:${env.userId}`);
+  }, [enabled, env]);
   return useSource(
     useMemo(
       () =>
