@@ -30,6 +30,8 @@ import {
   Skeleton,
   StateBlock,
   str,
+  useHideBalances,
+  HIDDEN_MASK,
   useSession,
   type ApiClient,
   type ApiResult,
@@ -212,7 +214,12 @@ function SendForm({
     if (sourceId === '' && firstId !== '') setSourceId(firstId);
   }, [sourceId, firstId]);
   const amountCheck = checkAmount(amount, source);
-  const availableText = source ? `${fmtAmount(source.balance, { places: BALANCE_PLACES, round: 'down' })} ${source.asset}` : '';
+  const hideBalances = useHideBalances();
+  const availableText = source
+    ? hideBalances
+      ? HIDDEN_MASK
+      : `${fmtAmount(source.balance, { places: BALANCE_PLACES, round: 'down' })} ${source.asset}`
+    : '';
   const places = source ? Math.min(18, Math.max(BALANCE_PLACES, fractionDigits(source.balance) ?? 0)) : BALANCE_PLACES;
   const amountError =
     amountCheck.kind === 'exceeds' && source ? payCopy.t('You have {value} available.', { value: availableText }) : undefined;

@@ -22,6 +22,8 @@ export {
   TabsList,
   TabsTab,
   useToast,
+  useHideBalances,
+  HIDDEN_MASK,
 } from '@intafaced/ui';
 
 export { fmtAmount, refusalCopy } from '../../data';
