@@ -340,6 +340,53 @@ describe('PostgresLedger', () => {
     }, 60_000);
 
     /**
+     * Rows booked before migration 0021 have no stored request digest, and the
+     * claim table is append-only, so they cannot be backfilled. For those the
+     * engine keeps the old answer (the original transaction) rather than refusing
+     * every legacy retry. A row WITH a digest refuses a different body (conformance).
+     */
+    it('keeps answering a legacy claim (no stored digest) with the original, and stores a digest for new posts', async () => {
+      await reset();
+      const first = await engine.post(
+        recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('7'), rail: 'test', railRef: 'legacy-claim' }),
+      );
+      const [stored] = await db!.sql<Array<{ request_fingerprint: string | null }>>`
+        SELECT request_fingerprint FROM ledger_posted_keys WHERE tx_id = ${first.id}
+      `;
+      expect(stored?.request_fingerprint).toMatch(/^[0-9a-f]{64}$/);
+
+      await db!.sql`ALTER TABLE ledger_posted_keys DISABLE TRIGGER ledger_posted_keys_immutable`;
+      try {
+        await db!.sql`UPDATE ledger_posted_keys SET request_fingerprint = NULL WHERE tx_id = ${first.id}`;
+      } finally {
+        await db!.sql`ALTER TABLE ledger_posted_keys ENABLE TRIGGER ledger_posted_keys_immutable`;
+      }
+      const other = recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('70'), rail: 'test', railRef: 'legacy-claim' });
+      expect((await engine.post(other)).id).toBe(first.id);
+    });
+
+    /**
+     * Rollout mode. Several jobs rebuild their body from live state when re-run under the same key, so the service ships in
+     * `detect`: the original is returned (as before) and the mismatch is reported, until those call sites are fixed.
+     */
+    it('detect mode answers a different body with the original transaction and reports it', async () => {
+      await reset();
+      const seen: Array<{ idempotencyKey: string; module: string; reason: string }> = [];
+      const detecting = new PostgresLedger(db!.sql, { idempotencyConflict: 'detect', onIdempotencyMismatch: (i) => seen.push(i) });
+      const first = await detecting.post(
+        recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('7'), rail: 'test', railRef: 'detect-mode' }),
+      );
+      const other = recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('70'), rail: 'test', railRef: 'detect-mode' });
+      expect((await detecting.post(other)).id).toBe(first.id);
+      expect(seen).toEqual([{ idempotencyKey: first.idempotencyKey, module: other.module, reason: other.reason }]);
+      // The same body is a plain retry: nothing reported.
+      await detecting.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('7'), rail: 'test', railRef: 'detect-mode' }));
+      expect(seen).toHaveLength(1);
+      // The default engine (the spec) refuses.
+      await expect(engine.post(other)).rejects.toMatchObject({ code: 'ledger.idempotency_conflict' });
+    });
+
+    /**
      * journal() is the replay source: every transaction, in commit order.
      * One row past the requested limit must refuse, the same way history()
      * refuses rather than handing back a prefix that looks complete.

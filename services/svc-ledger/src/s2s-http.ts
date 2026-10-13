@@ -68,6 +68,11 @@ export function httpError(err: unknown): { status: number; body: Record<string, 
   if (err instanceof LedgerError && err.code === 'ledger.unauthenticated') {
     return { status: 401, body: { message: err.message, code: err.code } };
   }
+  // 409: the key is taken by a different movement. Retrying unchanged is guaranteed
+  // useless and the caller must NOT record success; a new key is a new movement.
+  if (err instanceof LedgerError && err.code === 'ledger.idempotency_conflict') {
+    return { status: 409, body: { message: err.message, code: err.code } };
+  }
   if (err instanceof LedgerError && err.code === 'ledger.frozen') {
     return { status: 412, body: { message: userCopy(err.code), code: err.code } };
   }
