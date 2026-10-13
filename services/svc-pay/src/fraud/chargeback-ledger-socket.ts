@@ -17,7 +17,10 @@ export const CHARGEBACK_LEDGER_REFUSE_CODE = 'pay.chargeback_ledger_unwired' as 
 
 export const CHARGEBACK_LEDGER_UNCOVERED_CODE = 'pay.chargeback_uncovered' as const;
 
-export type ChargebackLedgerRefuseCode = typeof CHARGEBACK_LEDGER_REFUSE_CODE | typeof CHARGEBACK_LEDGER_UNCOVERED_CODE;
+export const CHARGEBACK_LEDGER_PLAN_CONFLICT_CODE = 'pay.chargeback_plan_conflict' as const;
+
+export type ChargebackLedgerRefuseCode =
+  typeof CHARGEBACK_LEDGER_REFUSE_CODE | typeof CHARGEBACK_LEDGER_UNCOVERED_CODE | typeof CHARGEBACK_LEDGER_PLAN_CONFLICT_CODE;
 
 export interface ChargebackLedgerRefuse {
   readonly code: ChargebackLedgerRefuseCode;
@@ -46,6 +49,22 @@ export function refuseChargebackUncovered(input: { readonly disputeId: string; r
     message:
       'Merchant clearing and available cannot cover this chargeback; ' +
       `shortfall recipes stay refuse-closed (${CHARGEBACK_LEDGER_SOCKET_ID}). No value moved.`,
+    disputeId: input.disputeId,
+    paymentId: input.paymentId,
+  };
+}
+
+/**
+ * A redelivery names a different amount than the opening this dispute already planned. The rail must not redeliver forever:
+ * the case is recorded and the conflict named; the money plan stays the first one. No value moved by this refusal.
+ */
+export function refuseChargebackPlanConflict(input: { readonly disputeId: string; readonly paymentId: string }): ChargebackLedgerRefuse {
+  return {
+    code: CHARGEBACK_LEDGER_PLAN_CONFLICT_CODE,
+    socket: CHARGEBACK_LEDGER_SOCKET_ID,
+    message:
+      'This dispute already planned its opening for a different amount; the first plan stands ' +
+      `(${CHARGEBACK_LEDGER_SOCKET_ID}). No value moved by this delivery.`,
     disputeId: input.disputeId,
     paymentId: input.paymentId,
   };

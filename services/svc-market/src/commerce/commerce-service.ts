@@ -2,6 +2,8 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import {
   formatAmount,
+  IDEMPOTENCY_CONFLICT_CODE,
+  LedgerError,
   MoneyError,
   parseAmount,
   recipes,
@@ -559,8 +561,15 @@ export class CommerceService {
         price: snapshotPrice,
         commissionBps: snapshotBps,
       });
-      const tx = await this.ledger.post(request);
-      // Rich clients return the original receipt even when this key was used
+      const tx = await this.ledger.post(request).catch((error: unknown) => {
+        // The ledger refuses a reused key whose body differs: another buyer's or other terms' payment
+        // already holds this purchase id. Same answer as the receipt check below.
+        if (error instanceof LedgerError && error.code === IDEMPOTENCY_CONFLICT_CODE) {
+          throw new MarketError('Ledger receipt does not match this purchase', 'market.purchase_receipt_mismatch');
+        }
+        throw error;
+      });
+      // Older clients return the original receipt even when this key was used
       // with different terms. Never settle that different payment as this sale.
       if (tx.entries.length > 0) await this.requireMatchingReceipt(tx, request);
 
