@@ -677,6 +677,56 @@ describe('svc-pay money PG-hard', () => {
 
   // ── Capture rules ─────────────────────────────────────────────────────────
 
+  describe('chargeback opening replay', () => {
+    const open = (m: { id: string }, paymentId: string, disputeId: string, amount: string) =>
+      pay.openChargeback({ disputeId, paymentId, merchantId: m.id, amount, assetId: 'USDT' });
+
+    it('replays the stored split after the first opening has moved the balances it was computed from', async () => {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '100');
+      await pay.capture(payment.id);
+      expect(await clearingOf(m.id)).toBe('100');
+
+      const first = await open(m, payment.id, 'dp-replay-1', '100');
+      expect(await clearingOf(m.id)).toBe('0');
+
+      // The delivery marker was never written (crash), so the rail redelivers. Clearing is now 0 and the merchant holds
+      // nothing: re-splitting from live balances would read "uncovered". The frozen plan posts the same recipe again.
+      const second = await open(m, payment.id, 'dp-replay-1', '100');
+      expect(second.txId).toBe(first.txId);
+      expect(await clearingOf(m.id)).toBe('0');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+      expect((await events(payment.id)).filter((e) => e === 'chargeback.opening_planned')).toHaveLength(1);
+    });
+
+    it('refuses a redelivery that names a different amount than the dispute already planned', async () => {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '100');
+      await pay.capture(payment.id);
+      await open(m, payment.id, 'dp-replay-2', '60');
+      await expect(open(m, payment.id, 'dp-replay-2', '100')).rejects.toMatchObject({ code: 'pay.chargeback_plan_conflict' });
+      expect(await clearingOf(m.id)).toBe('40');
+    });
+
+    it('plans once when two deliveries race', async () => {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '100');
+      await pay.capture(payment.id);
+      const [a, b] = await Promise.all([open(m, payment.id, 'dp-replay-3', '100'), open(m, payment.id, 'dp-replay-3', '100')]);
+      expect(a.txId).toBe(b.txId);
+      expect((await events(payment.id)).filter((e) => e === 'chargeback.opening_planned')).toHaveLength(1);
+      expect(await clearingOf(m.id)).toBe('0');
+    });
+
+    it('still names an uncovered chargeback and plans nothing', async () => {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '100');
+      await pay.capture(payment.id);
+      await expect(open(m, payment.id, 'dp-replay-4', '500')).rejects.toMatchObject({ code: 'pay.invalid_amount' });
+      expect((await events(payment.id)).filter((e) => e === 'chargeback.opening_planned')).toHaveLength(0);
+    });
+  });
+
   describe('capture', () => {
     it('REJECTS A CAPTURE EXCEEDING THE AUTHORIZED AMOUNT, before touching the rail', async () => {
       const m = await merchant();

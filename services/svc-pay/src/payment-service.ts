@@ -185,6 +185,8 @@ export type PayErrorCode =
    */
   | 'pay.refund_id_spent'
   | 'pay.refund_id_conflict'
+  /** A redelivered chargeback names a different amount than the opening already planned for that dispute. */
+  | 'pay.chargeback_plan_conflict'
   /**
    * A pending settlement window has already frozen this payment into its set.
    * Pre-settlement refunds would drain clearing under the frozen gross and let
@@ -3436,13 +3438,20 @@ export class PayService {
     if (payment.merchantId !== input.merchantId) throw new PayError('Payment does not belong to merchant', 'pay.payment_not_found');
     if (payment.assetId !== input.assetId) throw new PayError('Chargeback asset does not match payment', 'pay.invalid_amount');
     const amount = parseAmount(input.amount);
-    const clearing = await this.clearingBalance(input.merchantId, input.assetId);
-    const available = await this.merchantBalance(input.merchantId, input.assetId);
-    const fromClearing = clearing < amount ? clearing : amount;
-    const fromMerchantBalance = amount - fromClearing;
-    if (fromMerchantBalance > available) {
-      throw new PayError('Merchant balances cannot cover chargeback', 'pay.invalid_amount');
-    }
+    // The split is frozen per dispute the first time it is computed. It depends on LIVE clearing and merchant
+    // balances, and the opening recipe's key is the dispute id: a redelivery after a crash (post committed, delivery
+    // marker not yet written) would otherwise re-split from balances the first post already moved, and book the same key
+    // with different amounts. Replays post the stored plan.
+    const { fromClearing, fromMerchantBalance } = await this.chargebackSplit(input.paymentId, input.disputeId, amount, async () => {
+      const clearing = await this.clearingBalance(input.merchantId, input.assetId);
+      const available = await this.merchantBalance(input.merchantId, input.assetId);
+      const fromClearing = clearing < amount ? clearing : amount;
+      const fromMerchantBalance = amount - fromClearing;
+      if (fromMerchantBalance > available) {
+        throw new PayError('Merchant balances cannot cover chargeback', 'pay.invalid_amount');
+      }
+      return { fromClearing, fromMerchantBalance };
+    });
     return postDisputeOpening(this.ledger, {
       disputeId: input.disputeId,
       paymentId: input.paymentId,
@@ -3453,6 +3462,54 @@ export class PayService {
       fromClearing,
       fromMerchantBalance,
     });
+  }
+
+  /**
+   * The clearing-first split for one dispute, computed once and stored as a `chargeback.opening_planned` event (append-only,
+   * no money moves). A plan that already exists wins: same amount replays it, a different amount is a conflict.
+   * The balance reads (network) happen outside any transaction; only the insert-once is serialised, per dispute.
+   */
+  private async chargebackSplit(
+    paymentId: string,
+    disputeId: string,
+    amount: Amount,
+    compute: () => Promise<{ fromClearing: Amount; fromMerchantBalance: Amount }>,
+  ): Promise<{ fromClearing: Amount; fromMerchantBalance: Amount }> {
+    type Planned = { amount: string; fromClearing: string; fromMerchantBalance: string };
+    const read = async (sql: Sql): Promise<Planned | null> => {
+      const rows = await sql<Array<{ payload: Planned }>>`
+        SELECT payload FROM pay.payment_events
+         WHERE payment_id = ${paymentId} AND event = 'chargeback.opening_planned' AND payload->>'disputeId' = ${disputeId}
+         ORDER BY seq ASC LIMIT 1
+      `;
+      return rows[0]?.payload ?? null;
+    };
+    const decode = (planned: Planned) => {
+      if (parseAmount(planned.amount) !== amount) {
+        throw new PayError(`Dispute ${disputeId} already planned its opening for a different amount`, 'pay.chargeback_plan_conflict', {
+          disputeId,
+        });
+      }
+      return { fromClearing: parseAmount(planned.fromClearing), fromMerchantBalance: parseAmount(planned.fromMerchantBalance) };
+    };
+
+    const existing = await read(this.sql);
+    if (existing) return decode(existing);
+
+    const split = await compute();
+    const planned = await transaction(this.sql, async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.chargeback.plan:${disputeId}`}))`;
+      const winner = await read(tx);
+      if (winner) return winner;
+      const payload: Planned = {
+        amount: formatAmount(amount),
+        fromClearing: formatAmount(split.fromClearing),
+        fromMerchantBalance: formatAmount(split.fromMerchantBalance),
+      };
+      await appendEvent(tx, paymentId, 'chargeback.opening_planned', { disputeId, ...payload });
+      return payload;
+    });
+    return decode(planned);
   }
 
   /**

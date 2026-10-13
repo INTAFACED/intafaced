@@ -1774,6 +1774,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.refund_in_flight':
       case 'pay.refund_id_spent':
       case 'pay.refund_id_conflict':
+      case 'pay.chargeback_plan_conflict':
       case 'pay.settlement_in_flight':
       case 'pay.settlement_desynced':
       case 'pay.settlement_not_pending':
