@@ -47,20 +47,14 @@ function readMark(rec: { readonly mark?: Amount | null }): Amount | null {
 
 export function trailRefuse(trail: Amount | null): TradeError | null {
   if (trail === null || trail <= (0n as Amount)) {
-    return new TradeError(
-      'a trailing stop requires a trail; trade does not invent a distance',
-      'trade.missing_trail',
-    );
+    return new TradeError('a trailing stop requires a trail; trade does not invent a distance', 'trade.missing_trail');
   }
   return null;
 }
 
 export function markRefuse(mark: Amount | null): TradeError | null {
   if (mark === null || mark <= (0n as Amount)) {
-    return new TradeError(
-      'a trailing stop walks with the mark; trade does not invent a mark',
-      'trade.missing_mark',
-    );
+    return new TradeError('a trailing stop walks with the mark; trade does not invent a mark', 'trade.missing_mark');
   }
   return null;
 }

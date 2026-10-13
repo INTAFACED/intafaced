@@ -16,6 +16,7 @@ import {
   type AccountRef,
   type LedgerClient,
 } from '@intafaced/ledger-client';
+import { isDefiniteLedgerRefusal } from '../ledger-outcome.js';
 import { BankError } from '../errors.js';
 import { assertLoanProductsListLimit } from '../catalog-list-limit.js';
 import { assertLoansListLimit } from '../owner-list-limit.js';
@@ -312,6 +313,14 @@ function quoteValue(quantity: Amount, price: Amount, rounding: 'floor' | 'ceil')
   const raw = quantity * price;
   if (rounding === 'floor') return raw / ONE;
   return (raw + ONE - 1n) / ONE;
+}
+
+/** A re-drive found its row no longer pending (settled or refused since it was listed). */
+class NoLongerPending extends Error {
+  constructor(id: string) {
+    super(`row ${id} is no longer pending`);
+    this.name = 'NoLongerPending';
+  }
 }
 
 export class LoanService {
@@ -1264,13 +1273,7 @@ export class LoanService {
         // is still locked — release it and mark the loan repaid. A loan already
         // repaid or liquidated is left as it is.
         if (remaining.total <= 0n && loan.status !== 'repaid' && loan.status !== 'liquidated') {
-          const held = await this.collateralOf(loan);
-          if (held > 0n) await this.releaseCollateral(loan, held);
-          await this.sql`
-            UPDATE bank.loans SET status = 'repaid', margin_called_at = NULL, closed_at = ${now}, updated_at = now()
-             WHERE id = ${loan.id}
-          `;
-          await this.clearMarginCalls(loan.id, now);
+          await this.closeRepaid(loan, now);
           return {
             ledgerTxId: prior.ledger_tx_id,
             sequence: Number(prior.sequence),
@@ -1353,6 +1356,12 @@ export class LoanService {
 
           const status = locked[0]!.status;
           if (status === 'repaid' || status === 'liquidated') throw new BankError(`Loan ${loan.id} is ${status}`, 'bank.loan_closed');
+          if (await this.hasPendingLiquidation(loan.id, tx)) {
+            throw new BankError(
+              `Loan ${loan.id} has a liquidation whose ledger outcome is not yet known — repay after the sweep finishes that sale`,
+              'bank.ledger_outcome_unknown',
+            );
+          }
           if (status === 'pending') throw new BankError(`Loan ${loan.id} has no drawn principal to repay`, 'bank.loan_not_drawable');
           if (status === 'liquidating')
             throw new BankError(
@@ -1376,6 +1385,16 @@ export class LoanService {
           const interestOpen = debt.interest > pendingInterest ? debt.interest - pendingInterest : 0n;
           const principalOpen = debt.principal > pendingPrincipal ? debt.principal - pendingPrincipal : 0n;
           const open = interestOpen + principalOpen;
+          if (open <= 0n && pendingPrincipal + pendingInterest > 0n) {
+            // An earlier repayment is still pending — its ledger outcome may be
+            // a commit whose acknowledgement was lost. It is counted as covering
+            // the debt until it is re-driven, so a new event cannot collect the
+            // same principal again.
+            throw new BankError(
+              `Loan ${loan.id} has a repayment whose ledger outcome is not yet known — retry that repayment id or wait for recovery`,
+              'bank.ledger_outcome_unknown',
+            );
+          }
           if (open <= 0n) {
             throw new BankError(`Loan ${loan.id} has nothing outstanding — release its collateral instead`, 'bank.loan_closed');
           }
@@ -1469,13 +1488,7 @@ export class LoanService {
     // here, from a figure derived after the repayment has settled.
     let closed = false;
     if (remaining.total <= 0n) {
-      const held = await this.collateralOf(loan);
-      if (held > 0n) await this.releaseCollateral(loan, held);
-      await this.sql`
-        UPDATE bank.loans SET status = 'repaid', margin_called_at = NULL, closed_at = ${now}, updated_at = now()
-         WHERE id = ${loan.id}
-      `;
-      await this.clearMarginCalls(loan.id, now);
+      await this.closeRepaid(loan, now);
       closed = true;
     }
 
@@ -1720,6 +1733,12 @@ export class LoanService {
     const collateralMark = marks.get(loan.collateralAssetId)!;
     const debtMark = marks.get(loan.debtAssetId)!;
 
+    // A pending repayment may already have moved the borrower's money. Re-drive
+    // it before reading the debt, so a lost acknowledgement can never make a
+    // paid loan look underwater. Still unknown: throws, and the sweep reports
+    // this loan and acts on nothing.
+    await this.redrivePendingRepayments(loan);
+
     // Re-drive insurance posts that failed after a settled liquidate (B-01).
     await this.coverOpenShortfalls(loan);
 
@@ -1742,6 +1761,12 @@ export class LoanService {
                  margin_called_at = NULL, updated_at = now()
            WHERE id = ${loan.id}
         `;
+      } else if (await this.hasSettledRepayment(loan.id)) {
+        // Repaid by the borrower, but the close did not finish (a lost release
+        // acknowledgement, or a crash after the repayment settled). Finish it
+        // here so no customer retry is needed.
+        await this.closeRepaid(loan, now);
+        return 'cleared';
       } else {
         await this.sql`UPDATE bank.loans SET margin_called_at = NULL, updated_at = now() WHERE id = ${loan.id}`;
       }
@@ -1772,10 +1797,13 @@ export class LoanService {
     // 0. Once the collateral is gone the ladder has nothing to sell and would
     // return here without finishing that rung, so the shortfall would never be
     // booked. Finish the stored sale. Do not plan another one.
+    // A rung whose post had an unknown outcome (no tx yet) is finished the same
+    // way: liquidateTranche reuses the stored sale and its tranche key, so the
+    // ledger returns the original sale if it committed or makes it once.
     const postedPending = await this.sql<Array<{ ltv_bps: number; grace_waived: boolean; collateral_sold: string }>>`
       SELECT ltv_bps, grace_waived, collateral_sold::text AS collateral_sold
         FROM bank.loan_liquidations
-       WHERE loan_id = ${loan.id} AND status = 'pending' AND ledger_tx_id IS NOT NULL
+       WHERE loan_id = ${loan.id} AND status = 'pending'
        ORDER BY tranche ASC
        LIMIT 1
     `;
@@ -2095,20 +2123,31 @@ export class LoanService {
       // what is already stored: principal still owed minus principal repaid
       // when the sale closed the position, and 0 when collateral remains.
       // A figure already stored is kept. A later quote is not an input.
-      let shortfallToBook = split.shortfall;
-      let alreadyStored = false;
-      if (storedSale && pending?.ledger_tx_id) {
-        if (storedSale.shortfall > 0n) {
-          alreadyStored = true;
-        } else {
-          const heldNow = await this.collateralOf(loan);
-          const owed = input.debt.principal;
-          const repaid = storedSale.principalRepaid;
-          const gap = owed > repaid ? owed - repaid : 0n;
-          shortfallToBook = heldNow <= 0n ? gap : 0n;
-        }
-      }
-      const writeShortfall = shortfallToBook > 0n && !alreadyStored;
+      //
+      // For a stored sale the figure is worked out AFTER the post, inside
+      // beforeSettle: a rung whose first post had an unknown outcome has no tx
+      // id yet, and only once its sale is on the ledger does "no collateral
+      // left" mean the position closed.
+      const storedShortfall = async (): Promise<Amount> => {
+        const heldNow = await this.collateralOf(loan);
+        const owed = input.debt.principal;
+        const repaid = storedSale!.principalRepaid;
+        const gap = owed > repaid ? owed - repaid : 0n;
+        return heldNow <= 0n ? gap : 0n;
+      };
+      const shortfallAlreadyStored = storedSale !== null && storedSale.shortfall > 0n;
+      const beforeSettle = storedSale
+        ? shortfallAlreadyStored
+          ? undefined
+          : async () => {
+              const shortfall = await storedShortfall();
+              if (shortfall > 0n) await this.coverShortfallTranche(loan, tranche, shortfall);
+            }
+        : split.shortfall > 0n
+          ? async () => {
+              await this.coverShortfallTranche(loan, tranche, split.shortfall);
+            }
+          : undefined;
 
       await withMoneySpan('bank.loan.liquidate', { operation: 'loan-liquidate', loanId: loan.id, tranche }, async (span) => {
         span.setAttribute('intafaced.ltv_bps', input.ltv);
@@ -2171,11 +2210,7 @@ export class LoanService {
           // the bad-debt tx id, before status becomes settled, so the row never
           // holds a shortfall with a null bad_debt_ledger_tx_id. On a retry this
           // is the figure implied by the stored sale, not the later quote.
-          beforeSettle: writeShortfall
-            ? async () => {
-                await this.coverShortfallTranche(loan, tranche, shortfallToBook);
-              }
-            : undefined,
+          beforeSettle,
         });
 
         void ledgerTxId;
@@ -2231,9 +2266,15 @@ export class LoanService {
         `;
       }
     } catch (err) {
-      if (claimedOpen && openStatus) {
+      // A rung left pending (its post failed without a definite refusal) may
+      // already have sold collateral and repaid debt. The loan stays
+      // `liquidating`, so repay is refused, until the sweep finishes that sale.
+      // With no pending rung left (nothing posted, or a re-drive was definitely
+      // refused) the loan goes back to its open status, whoever claimed it, so
+      // the next sweep can plan again and the borrower can still cure.
+      if (!(await this.hasPendingLiquidation(loan.id))) {
         await this.sql`
-          UPDATE bank.loans SET status = ${openStatus}::bank.loan_status, updated_at = now()
+          UPDATE bank.loans SET status = ${openStatus ?? 'margin_call'}::bank.loan_status, updated_at = now()
            WHERE id = ${loan.id} AND status = 'liquidating'
         `;
       }
@@ -2487,6 +2528,179 @@ export class LoanService {
   }
 
   /**
+   * RECOVER REPAYMENTS whose ledger outcome is unknown, without the borrower.
+   *
+   * For each loan with a `pending` repayment or a `pending` collateral release:
+   * re-drive pending repayments on their ORIGINAL keys (the ledger returns the
+   * original transaction when it committed, or commits it once now). When the
+   * debt is clear and a repayment settled, settle pending releases, release the
+   * remaining collateral once and mark the loan repaid. A loan that still owes
+   * keeps its pending releases untouched. Safe to run any number of times.
+   */
+  async recoverRepayments(limit?: number): Promise<Array<{ loanId: string; outcome: 'completed' | 'open' | 'failed'; reason?: string }>> {
+    const batch = assertLoanResumePendingLimit(limit);
+    const rows = await this.sql<Array<Record<string, unknown>>>`
+      SELECT l.* FROM bank.loans l
+       WHERE l.status IN ('active', 'margin_call')
+         AND (EXISTS (SELECT 1 FROM bank.loan_repayments r WHERE r.loan_id = l.id AND r.status = 'pending')
+           OR EXISTS (SELECT 1 FROM bank.loan_collateral_events e
+                       WHERE e.loan_id = l.id AND e.direction = 'release' AND e.status = 'pending'))
+       ORDER BY l.opened_at ASC LIMIT ${batch}
+    `;
+    const out: Array<{ loanId: string; outcome: 'completed' | 'open' | 'failed'; reason?: string }> = [];
+    for (const row of rows) {
+      const loan = toLoan(row);
+      try {
+        await this.redrivePendingRepayments(loan);
+        const debt = await this.outstanding(loan.id);
+        if (debt.total <= 0n && (await this.hasSettledRepayment(loan.id))) {
+          await this.closeRepaid(loan, new Date());
+          out.push({ loanId: loan.id, outcome: 'completed' });
+        } else {
+          // Still owing: a pending release is NOT re-sent here. Its LTV cap was
+          // judged at an earlier price; only the borrower's same-id retry (which
+          // re-checks the cap under the loan lock) or the close path may move it.
+          out.push({ loanId: loan.id, outcome: 'open' });
+        }
+      } catch (err) {
+        out.push({ loanId: loan.id, outcome: 'failed', reason: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Debt is clear: settle pending releases, release what is still held, mark
+   * repaid. Refuses while a liquidation rung is pending: its sale may already
+   * have taken collateral and repaid part of the debt, and closing over it
+   * would leave that sale unbooked.
+   */
+  private async closeRepaid(loan: LoanRecord, now: Date): Promise<void> {
+    if (await this.hasPendingLiquidation(loan.id)) {
+      throw new BankError(
+        `Loan ${loan.id} has a liquidation whose ledger outcome is not yet known — it closes after the sweep finishes that sale`,
+        'bank.ledger_outcome_unknown',
+      );
+    }
+    await this.redrivePendingReleases(loan);
+    const held = await this.collateralOf(loan);
+    if (held > 0n) await this.releaseCollateral(loan, held);
+    await this.sql`
+      UPDATE bank.loans SET status = 'repaid', margin_called_at = NULL, closed_at = ${now}, updated_at = now()
+       WHERE id = ${loan.id} AND status IN ('active', 'margin_call')
+    `;
+    await this.clearMarginCalls(loan.id, now);
+  }
+
+  private async hasPendingLiquidation(loanId: string, tx: Sql = this.sql): Promise<boolean> {
+    const rows = await tx<Array<{ n: string }>>`
+      SELECT COUNT(*)::text AS n FROM bank.loan_liquidations WHERE loan_id = ${loanId} AND status = 'pending'
+    `;
+    return Number(rows[0]?.n ?? 0) > 0;
+  }
+
+  private async hasSettledRepayment(loanId: string): Promise<boolean> {
+    const rows = await this.sql<Array<{ n: string }>>`
+      SELECT COUNT(*)::text AS n FROM bank.loan_repayments WHERE loan_id = ${loanId} AND status = 'settled'
+    `;
+    return Number(rows[0]?.n ?? 0) > 0;
+  }
+
+  /**
+   * Re-post every pending repayment of a loan on its original key and terms.
+   * Each row is re-read under its row lock first: a row that settled or was
+   * definitely refused since the list was read is skipped, never re-sent. A
+   * definite refusal now is recorded (rejected) and the next row continues;
+   * an unknown outcome still throws, so callers act on nothing for this loan.
+   */
+  private async redrivePendingRepayments(loan: LoanRecord): Promise<void> {
+    const pending = await this.sql<Array<{ id: string; sequence: number; interest_amount: string; principal_amount: string }>>`
+      SELECT id, sequence, interest_amount::text AS interest_amount, principal_amount::text AS principal_amount
+        FROM bank.loan_repayments
+       WHERE loan_id = ${loan.id} AND status = 'pending'
+       ORDER BY sequence ASC
+    `;
+    for (const row of pending) {
+      try {
+        await this.withRepayLock(loan.id, () =>
+          this.drivenPost({
+            claim: (tx) => this.reclaimPending(tx, 'loan_repayments', row.id),
+            post: () =>
+              this.ledger.post(
+                recipes.loanRepay({
+                  loanId: loan.id,
+                  userId: loan.userId,
+                  debtAssetId: loan.debtAssetId,
+                  principal: parseAmount(row.principal_amount),
+                  interest: parseAmount(row.interest_amount),
+                  sequence: Number(row.sequence),
+                }),
+              ),
+            table: 'loan_repayments',
+          }),
+        );
+      } catch (err) {
+        if (err instanceof NoLongerPending || isDefiniteLedgerRefusal(err)) continue;
+        throw err;
+      }
+    }
+  }
+
+  /**
+   * Claim step for a re-drive: lock the row and confirm it is still pending.
+   * A settled row returns its tx (drivenPost does not post again); anything
+   * else is skipped.
+   */
+  private async reclaimPending(
+    tx: Sql,
+    table: 'loan_repayments' | 'loan_collateral_events',
+    id: string,
+  ): Promise<{ claimed: false; id: string; ledgerTxId: string | null }> {
+    const rows = await tx.unsafe<Array<{ status: string; ledger_tx_id: string | null }>>(
+      `SELECT status, ledger_tx_id FROM bank.${table} WHERE id = $1 FOR UPDATE`,
+      [id],
+    );
+    const row = rows[0];
+    if (!row || row.status !== 'pending') throw new NoLongerPending(id);
+    return { claimed: false, id, ledgerTxId: row.ledger_tx_id };
+  }
+
+  /**
+   * Re-post every pending collateral release of a loan on its original key and
+   * terms. Only called once the debt is clear (closeRepaid), so no LTV cap
+   * applies. Same row re-read and skip rules as redrivePendingRepayments.
+   */
+  private async redrivePendingReleases(loan: LoanRecord): Promise<void> {
+    const pending = await this.sql<Array<{ id: string; sequence: number; amount: string }>>`
+      SELECT id, sequence, amount::text AS amount
+        FROM bank.loan_collateral_events
+       WHERE loan_id = ${loan.id} AND direction = 'release' AND status = 'pending'
+       ORDER BY sequence ASC
+    `;
+    for (const row of pending) {
+      try {
+        await this.drivenPost({
+          claim: (tx) => this.reclaimPending(tx, 'loan_collateral_events', row.id),
+          post: () =>
+            this.ledger.post(
+              recipes.loanCollateralRelease({
+                loanId: loan.id,
+                userId: loan.userId,
+                collateralAssetId: loan.collateralAssetId,
+                amount: parseAmount(row.amount),
+                sequence: Number(row.sequence),
+              }),
+            ),
+          table: 'loan_collateral_events',
+        });
+      } catch (err) {
+        if (err instanceof NoLongerPending || isDefiniteLedgerRefusal(err)) continue;
+        throw err;
+      }
+    }
+  }
+
+  /**
    * CLAIM ROW → LEDGER POST → RECORD THE TX ID.
    *
    * The shape every money path in svc-bank uses, factored out because getting it
@@ -2542,8 +2756,15 @@ export class LoanService {
     try {
       posted = await input.post();
     } catch (err) {
+      // Only a definite ledger refusal proves nothing committed under this key.
+      // Anything else may be a commit whose acknowledgement was lost: the row
+      // stays `pending` with its original terms, so it keeps counting against
+      // new claims (a repayment cannot be collected twice) and a same-id retry
+      // or the recovery job re-drives the same idempotent post. A durable
+      // `rejected` for a committed post is what let a second collection in.
+      if (!isDefiniteLedgerRefusal(err)) throw err;
       await this.sql.unsafe(`UPDATE bank.${input.table} SET status = 'rejected', rejection_code = $1 WHERE id = $2`, [
-        err instanceof LedgerError ? err.code : 'bank.post_failed',
+        (err as LedgerError).code,
         claim.id,
       ]);
       throw err;

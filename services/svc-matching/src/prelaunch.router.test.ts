@@ -220,6 +220,27 @@ describe('POST /markets/:marketId/open', () => {
     await app.close();
   });
 
+  it('an approved open lists the empty market in GET /markets, an unapproved open does not', async () => {
+    const { app } = await mount();
+
+    const refused = await post(app, `/markets/${MARKET}/open`, { operatorId: 'ops-2', confirmOperatorId: 'ops-2' });
+    expect(refused.statusCode).toBe(400);
+    expect((await app.inject({ method: 'GET', url: '/markets' })).json().markets).not.toContain(MARKET);
+
+    const opened = await post(app, `/markets/${MARKET}/open`, {
+      operatorId: 'ops-2',
+      confirmOperatorId: 'ops-confirm',
+      approvalId: 'appr-1',
+      operationId: 'op-1',
+    });
+    expect(opened.json().accepted).toBe(true);
+
+    const board = (await app.inject({ method: 'GET', url: '/markets' })).json();
+    expect(board.markets).toEqual([MARKET]);
+    expect(board.prelaunch).toEqual([]);
+    await app.close();
+  });
+
   it('missing operator on open is 400 and leaves prelaunch', async () => {
     const { app, engine } = await mount();
     await post(app, `/markets/${MARKET}/prelaunch`, {

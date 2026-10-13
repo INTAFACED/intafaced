@@ -414,6 +414,24 @@ app.post('/internal/jobs/resume-pending-loans', async (req, reply) => {
 });
 
 /**
+ * Recover loan repayments and collateral releases whose ledger outcome is
+ * unknown (a lost acknowledgement). Re-posts each pending row on its original
+ * key, then closes loans whose debt is clear: collateral released once, loan
+ * repaid. No borrower action needed; safe to fire on a schedule.
+ */
+app.post('/internal/jobs/recover-loan-repayments', async (req, reply) => {
+  if (!requireService(req)) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'bank.unauthenticated' });
+  }
+  try {
+    const limit = assertLoanResumePendingLimit(bodyLimit(req.body));
+    return await withSpan('bank.job.recoverLoanRepayments', async () => bank.loans.recoverRepayments(limit));
+  } catch (err) {
+    return sendBankJobRefuse(reply, err);
+  }
+});
+
+/**
  * Re-drive earn deposits stuck between the ledger post and activate.
  *
  * Mirror of resume-pending-loans for the earn claim window: row is `pending`,

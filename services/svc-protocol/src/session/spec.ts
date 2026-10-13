@@ -29,8 +29,10 @@ export const MAX_SELECTORS = 32;
 /**
  * Selectors a session key may never be given.
  *
- * Every one of these either moves a token out of the account or hands another
- * address the standing right to. A session key trades THROUGH a venue using an
+ * Every one of these either moves a token out of the account, hands another
+ * address the standing right to, or (the protocol calls at the end) pays out or
+ * redirects control through an address the caller names and the account cannot
+ * bind. A session key trades THROUGH a venue using an
  * allowance the owner set; it never moves the asset and never creates an
  * allowance of its own.
  *
@@ -54,6 +56,33 @@ export const FORBIDDEN_SIGNATURES = [
   'transferOwnership(address)',
   'upgradeTo(address)',
   'upgradeToAndCall(address,bytes)',
+  // Protocol calls that pay out, redirect an entitlement or hand over control
+  // through an address the caller names and that the account cannot bind
+  // (reasons mirror SessionKeyLib.sol):
+  // escrow / market: spend or release the account's tokens against caller-chosen terms
+  'open(address,address,uint128,address,address,uint16,uint32,uint8)', // SovereignEscrow
+  'lock(uint256)', // SovereignEscrow, LaunchLpLock
+  'release(uint256)', // SovereignEscrow
+  // dispute: a seller-side session could open it, and settleTimeout then pays the buyer (release by another route)
+  'dispute(uint256)', // SovereignEscrow
+  'buy(uint256)', // RoyaltyMarket
+  'bid(uint256,uint256)', // RoyaltyMarket
+  // market: escrow the account's NFT against a caller-chosen quote token and price
+  'list(address,uint256,address,uint256)', // RoyaltyMarket
+  'startAuction(address,uint256,address,uint256,uint32)', // RoyaltyMarket
+  // redirect funds or control
+  'approveSpend(uint256)', // CrewVault
+  'setHeirs(address[],uint16[])', // LegacyVault
+  'addGuardian(address)', // UserElectedRecovery
+  'removeGuardian(address)', // UserElectedRecovery
+  'proposeRecovery(address)', // UserElectedRecovery
+  'approveRecoveryWithSignature(address,bytes)', // UserElectedRecovery
+  'setThreshold(uint64)', // UserElectedRecovery
+  'setSettlement(address)', // CardPull
+  'withdrawFloat(address,uint256)', // ScopedPaymaster
+  // addresses inside a struct with dynamic fields; a fake pair token drains the quote side
+  'launch((address,string,string,uint8,uint256,address,uint16,uint256,uint256,uint64,bytes32))', // MemeLaunch
+  'createToken(bytes32,(string,string,uint8,uint256,address))', // TokenFactory
 ] as const;
 
 /** selector → the signature it came from, for error messages a human can act on. */
@@ -64,6 +93,66 @@ export const FORBIDDEN_SELECTORS: ReadonlyMap<Hex, string> = new Map(
 export function isOutboundTransferSelector(selector: Hex): boolean {
   return FORBIDDEN_SELECTORS.has(selector.toLowerCase() as Hex);
 }
+
+/**
+ * Calls a session may be allowlisted for whose calldata names who receives the
+ * output, and the position of that argument. For each, the recipient must be the
+ * granting account — a session trades FOR its account, never for a stranger,
+ * even when the owner's token allowance is what pays for the trade.
+ *
+ * How the set was built: every non-view function in the compiled ABIs
+ * (`contracts/out`) with an address-typed input, including inside arrays and
+ * structs, was classified as (a) listed here, (b) listed in TARGET_ARG_CALLS,
+ * (c) in FORBIDDEN_SIGNATURES, or (d) exempt with a written reason.
+ * `erc20-recipient-scope.test.ts` re-runs that sweep, so a new function with an
+ * address input fails the build until someone classifies it. The sweep covers
+ * contracts in `contracts/out` only: a venue outside this repo is not covered,
+ * and an amount cap (what a session may spend, as opposed to where it goes) is
+ * a separate, unbuilt control.
+ *
+ * Mirrors `SessionKeyLib.recipientOffset`. `spec.test.ts` asserts every selector
+ * and byte offset (4 + 32 * recipientArg) against the Solidity source.
+ */
+export const RECIPIENT_SCOPED_CALLS = [
+  // ConstantProductPool.swapExactIn(tokenIn, amountIn, minAmountOut, to)
+  { signature: 'swapExactIn(address,uint256,uint256,address)', recipientArg: 3 },
+  // SovereignRouter.swapExactIn(pool, tokenIn, amountIn, minAmountOut, to)
+  { signature: 'swapExactIn(address,address,uint256,uint256,address)', recipientArg: 4 },
+  // ConstantProductPool.swap(amount0Out, amount1Out, to)
+  { signature: 'swap(uint256,uint256,address)', recipientArg: 2 },
+  // ConstantProductPool.mint(to, amount0Desired, amount1Desired) — LP credited to `to`
+  { signature: 'mint(address,uint256,uint256)', recipientArg: 0 },
+  // ConstantProductPool.burn(to, liquidity) — underlying paid to `to`
+  { signature: 'burn(address,uint256)', recipientArg: 0 },
+  // CrewVault.proposeSpend(to, amount)
+  { signature: 'proposeSpend(address,uint256)', recipientArg: 0 },
+  // SovereignNft.setTokenRoyalty(tokenId, receiver, bps) — royalties paid to `receiver`
+  { signature: 'setTokenRoyalty(uint256,address,uint16)', recipientArg: 1 },
+] as const;
+
+/**
+ * Calls with an address argument the called contract TRUSTS: it reads
+ * token0/token1/amountOut from it or moves the account's tokens through it. The
+ * recipient rule does not cover this — a fake `pool` can take the account's
+ * approved tokens while `to` is the account. The argument must be one of the
+ * session's own targets, i.e. a contract the owner chose to trust.
+ *
+ * Mirrors `SessionKeyLib.targetArgOffset`.
+ */
+export const TARGET_ARG_CALLS = [
+  // SovereignRouter.swapExactIn(pool, tokenIn, amountIn, minAmountOut, to)
+  { signature: 'swapExactIn(address,address,uint256,uint256,address)', targetArg: 0 },
+] as const;
+
+/** selector → byte offset of the 32-byte trusted-address word in calldata. */
+export const TARGET_ARG_OFFSETS: ReadonlyMap<Hex, number> = new Map(
+  TARGET_ARG_CALLS.map((c) => [toFunctionSelector(c.signature).toLowerCase() as Hex, 4 + 32 * c.targetArg]),
+);
+
+/** selector → byte offset of the 32-byte recipient word in calldata. */
+export const RECIPIENT_OFFSETS: ReadonlyMap<Hex, number> = new Map(
+  RECIPIENT_SCOPED_CALLS.map((c) => [toFunctionSelector(c.signature).toLowerCase() as Hex, 4 + 32 * c.recipientArg]),
+);
 
 // ── The spec ────────────────────────────────────────────────────────────────
 
@@ -317,6 +406,10 @@ export type SessionCallCode =
   | 'session.calldata_too_short'
   | 'session.selector_not_allowed'
   | 'session.outbound_transfer_forbidden'
+  | 'session.recipient_not_account'
+  | 'session.recipient_calldata_too_short'
+  | 'session.target_arg_not_allowed'
+  | 'session.target_arg_calldata_too_short'
   | 'session.spend_limit_exceeded';
 
 export interface SessionCallDecision {
@@ -375,6 +468,53 @@ export function evaluateSessionCall(q: SessionCallQuery): SessionCallDecision {
   const forbidden = FORBIDDEN_SELECTORS.get(selector);
   if (forbidden) {
     return deny('session.outbound_transfer_forbidden', `"${forbidden}" is never callable by a session key`);
+  }
+
+  // Where the call names a recipient, it must be this account. Whole-word
+  // compare against the left-padded account, no decoding — exactly
+  // `SessionKeyLib.assertRecipientIsAccount`. Dirty high bytes are refused, and
+  // calldata that ends before the word is refused, never read as zero.
+  const recipientOffset = RECIPIENT_OFFSETS.get(selector);
+  if (recipientOffset !== undefined) {
+    const start = 2 + recipientOffset * 2;
+    const end = start + 64;
+    if (q.data.length < end) {
+      return deny(
+        'session.recipient_calldata_too_short',
+        `${selector} names a recipient, but the calldata ends before it. A session call must carry its recipient.`,
+      );
+    }
+    const word = q.data.slice(start, end).toLowerCase();
+    const expected = '0'.repeat(24) + q.account.slice(2).toLowerCase();
+    if (word !== expected) {
+      return deny(
+        'session.recipient_not_account',
+        `${selector} sends its output to 0x${word}, not to the account ${q.account}. A session key trades for its account only.`,
+      );
+    }
+  }
+
+  // Where the contract trusts an address argument (the router's pool), that
+  // address must be one of this session's targets. Same raw-word rule; mirrors
+  // `SessionKeyLib.assertTargetArgAllowed`.
+  const targetArgOffset = TARGET_ARG_OFFSETS.get(selector);
+  if (targetArgOffset !== undefined) {
+    const start = 2 + targetArgOffset * 2;
+    const end = start + 64;
+    if (q.data.length < end) {
+      return deny(
+        'session.target_arg_calldata_too_short',
+        `${selector} names a contract it trusts, but the calldata ends before it. A session call must carry it.`,
+      );
+    }
+    const word = q.data.slice(start, end).toLowerCase();
+    const clean = word.startsWith('0'.repeat(24));
+    if (!clean || !q.spec.targets.some((t) => t.slice(2).toLowerCase() === word.slice(24))) {
+      return deny(
+        'session.target_arg_not_allowed',
+        `${selector} trusts the contract at 0x${word}, which is not one of this session's targets. A session may only route through contracts its owner allowed.`,
+      );
+    }
   }
 
   const spentAfterWei = q.spentWei + q.value;

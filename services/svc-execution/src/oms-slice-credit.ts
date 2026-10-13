@@ -16,9 +16,7 @@ function refuseCredit(reason: OmsSliceCreditRefuse['reason'], detail: string): O
   return { ok: false, reason, detail };
 }
 
-function parseSessionCredit(
-  raw: string | null | undefined,
-): { ok: true } | OmsSliceCreditRefuse {
+function parseSessionCredit(raw: string | null | undefined): { ok: true } | OmsSliceCreditRefuse {
   if (raw === null || raw === undefined) {
     return refuseCredit('credit_blank', 'session credit is blank — refuse rather than invent a limit');
   }

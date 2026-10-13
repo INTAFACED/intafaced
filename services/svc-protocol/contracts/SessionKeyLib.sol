@@ -25,6 +25,13 @@ pragma solidity ^0.8.24;
  *      cannot be constructed: `assertGrantable` reverts.
  *   4. NATIVE VALUE IS CAPPED cumulatively by `spendLimitWei`, counted before
  *      the external call, so re-entrancy cannot spend it twice.
+ *   5. OUTPUT GOES HOME. A selector that names a recipient (a swap's `to`, an
+ *      LP mint/burn `to`) may only be called with the granting account as that
+ *      recipient. A session key trades FOR the account; it cannot route the
+ *      proceeds of a trade to anyone else, even when the owner's token
+ *      allowance is what pays for it. See `recipientOffset`. Where the called
+ *      contract also trusts an address argument (the router's pool), that
+ *      address must be one of the session's own targets. See `targetArgOffset`.
  *
  * The user grants it. The user revokes it. The platform relays the transaction
  * and holds nothing else.
@@ -82,6 +89,66 @@ library SessionKeyLib {
     bytes4 internal constant SEL_TRANSFER_OWNERSHIP = 0xf2fde38b;
     bytes4 internal constant SEL_UPGRADE_TO = 0x3659cfe6;
     bytes4 internal constant SEL_UPGRADE_TO_AND_CALL = 0x4f1ef286;
+    //
+    // Protocol calls that pay out, redirect an entitlement, or hand over control
+    // through an address (or a struct holding one) the caller names and this
+    // library cannot bind to the account. Refused outright for a session; the
+    // owner key does these. Reasons, by group:
+    //   escrow open/lock/release/dispute (dispute starts the clock after which
+    //     settleTimeout can pay the buyer, i.e. release by another route),
+    //     market buy/bid: spend or release the account's
+    //     tokens against terms the caller chooses (price, quote token, fee recipient)
+    //   market list/startAuction: escrow the account's NFT against a caller-chosen
+    //     quote token and price
+    //   crew approveSpend, legacy setHeirs, recovery guardian/owner calls, card
+    //     setSettlement, paymaster withdrawFloat: redirect funds or control
+    //   meme launch, token factory create: the recipient / token / quote addresses
+    //     sit inside a struct with dynamic fields, and a fake pair token lets the
+    //     caller drain the quote side
+    bytes4 internal constant SEL_ESCROW_OPEN = 0x492284ae; // open(address,address,uint128,address,address,uint16,uint32,uint8)
+    bytes4 internal constant SEL_LOCK = 0xdd467064; // lock(uint256)
+    bytes4 internal constant SEL_ESCROW_RELEASE = 0x37bdc99b; // release(uint256)
+    bytes4 internal constant SEL_ESCROW_DISPUTE = 0x86d6282c; // dispute(uint256)
+    bytes4 internal constant SEL_CREW_APPROVE_SPEND = 0xad453b6f; // approveSpend(uint256)
+    bytes4 internal constant SEL_LEGACY_SET_HEIRS = 0xe520d104; // setHeirs(address[],uint16[])
+    bytes4 internal constant SEL_MARKET_LIST = 0xea8cdb1f; // list(address,uint256,address,uint256)
+    bytes4 internal constant SEL_MARKET_START_AUCTION = 0xea51b9e1; // startAuction(address,uint256,address,uint256,uint32)
+    bytes4 internal constant SEL_MARKET_BUY = 0xd96a094a; // buy(uint256)
+    bytes4 internal constant SEL_MARKET_BID = 0x598647f8; // bid(uint256,uint256)
+    bytes4 internal constant SEL_MEME_LAUNCH = 0x4223ede2; // launch((address,string,string,uint8,uint256,address,uint16,uint256,uint256,uint64,bytes32))
+    bytes4 internal constant SEL_TOKEN_FACTORY_CREATE = 0x30af4ba0; // createToken(bytes32,(string,string,uint8,uint256,address))
+    bytes4 internal constant SEL_RECOVERY_ADD_GUARDIAN = 0xa526d83b; // addGuardian(address)
+    bytes4 internal constant SEL_RECOVERY_REMOVE_GUARDIAN = 0x71404156; // removeGuardian(address)
+    bytes4 internal constant SEL_RECOVERY_PROPOSE = 0x7ee76082; // proposeRecovery(address)
+    bytes4 internal constant SEL_RECOVERY_APPROVE_WITH_SIG = 0x2c6b732a; // approveRecoveryWithSignature(address,bytes)
+    bytes4 internal constant SEL_RECOVERY_SET_THRESHOLD = 0x17c4de35; // setThreshold(uint64)
+    bytes4 internal constant SEL_CARD_SET_SETTLEMENT = 0x8f4e6f37; // setSettlement(address)
+    bytes4 internal constant SEL_PAYMASTER_WITHDRAW_FLOAT = 0xf9bf1347; // withdrawFloat(address,uint256)
+
+    // ── The recipient-bearing selectors ──────────────────────────────────────
+    //
+    // Calls a session MAY be allowlisted for, whose calldata names who receives
+    // the output. For each, the recipient argument must be the account itself.
+    //
+    //   pool    swapExactIn(address tokenIn,uint256,uint256,address to)  arg 3
+    //   router  swapExactIn(address pool,address tokenIn,uint256,uint256,address to)  arg 4
+    //   pool    swap(uint256,uint256,address to)                         arg 2
+    //   pool    mint(address to,uint256,uint256)                         arg 0
+    //   pool    burn(address to,uint256)                                 arg 0
+    //   vault   proposeSpend(address to,uint256)                         arg 0
+    //   nft     setTokenRoyalty(uint256,address receiver,uint16)         arg 1
+    //
+    // The TypeScript mirror (`RECIPIENT_SCOPED_CALLS` in session/spec.ts) lists
+    // the same signatures and argument positions; spec.test.ts asserts every
+    // selector and offset below against it, and against the compiled ABIs.
+
+    bytes4 internal constant SEL_POOL_SWAP_EXACT_IN = 0xa6220b66;
+    bytes4 internal constant SEL_ROUTER_SWAP_EXACT_IN = 0x7b32b50e;
+    bytes4 internal constant SEL_POOL_SWAP = 0x6d9a640a;
+    bytes4 internal constant SEL_POOL_MINT = 0x156e29f6;
+    bytes4 internal constant SEL_POOL_BURN = 0x9dc29fac;
+    bytes4 internal constant SEL_VAULT_PROPOSE_SPEND = 0x20a1440a;
+    bytes4 internal constant SEL_NFT_SET_TOKEN_ROYALTY = 0x78db6c53;
 
     error SessionKeyRequired();
     error SessionExpiryRequired();
@@ -96,6 +163,14 @@ library SessionKeyLib {
     error SessionFallbackSelectorForbidden();
     /** The one that matters: a session key may not be given transfer power. */
     error SessionOutboundTransferForbidden(bytes4 selector);
+    /** The call's recipient word is not the granting account (right-aligned, clean high bytes). */
+    error SessionRecipientNotAccount(bytes4 selector, bytes32 recipientWord);
+    /** The call's calldata ends before its recipient word does. */
+    error SessionRecipientCalldataTooShort(bytes4 selector);
+    /** An address argument the contract trusts (the router's pool) is not one of the session's targets. */
+    error SessionTargetArgNotAllowed(bytes4 selector, bytes32 argWord);
+    /** The call's calldata ends before its trusted-address word does. */
+    error SessionTargetArgCalldataTooShort(bytes4 selector);
 
     /**
      * The commitment stored on the account.
@@ -180,7 +255,88 @@ library SessionKeyLib {
             selector == SEL_PERMIT2_APPROVE ||
             selector == SEL_TRANSFER_OWNERSHIP ||
             selector == SEL_UPGRADE_TO ||
+            selector == SEL_ESCROW_OPEN ||
+            selector == SEL_LOCK ||
+            selector == SEL_ESCROW_RELEASE ||
+            selector == SEL_ESCROW_DISPUTE ||
+            selector == SEL_CREW_APPROVE_SPEND ||
+            selector == SEL_LEGACY_SET_HEIRS ||
+            selector == SEL_MARKET_LIST ||
+            selector == SEL_MARKET_START_AUCTION ||
+            selector == SEL_MARKET_BUY ||
+            selector == SEL_MARKET_BID ||
+            selector == SEL_MEME_LAUNCH ||
+            selector == SEL_TOKEN_FACTORY_CREATE ||
+            selector == SEL_RECOVERY_ADD_GUARDIAN ||
+            selector == SEL_RECOVERY_REMOVE_GUARDIAN ||
+            selector == SEL_RECOVERY_PROPOSE ||
+            selector == SEL_RECOVERY_APPROVE_WITH_SIG ||
+            selector == SEL_RECOVERY_SET_THRESHOLD ||
+            selector == SEL_CARD_SET_SETTLEMENT ||
+            selector == SEL_PAYMASTER_WITHDRAW_FLOAT ||
             selector == SEL_UPGRADE_TO_AND_CALL;
+    }
+
+    /**
+     * Byte offset, within calldata, of the recipient word of a recipient-bearing
+     * selector (4 + 32 * argument index). 0 means the selector names no recipient
+     * that this library constrains.
+     */
+    function recipientOffset(bytes4 selector) internal pure returns (uint256) {
+        if (selector == SEL_POOL_SWAP_EXACT_IN) return 100;
+        if (selector == SEL_ROUTER_SWAP_EXACT_IN) return 132;
+        if (selector == SEL_POOL_SWAP) return 68;
+        if (selector == SEL_POOL_MINT) return 4;
+        if (selector == SEL_POOL_BURN) return 4;
+        if (selector == SEL_VAULT_PROPOSE_SPEND) return 4;
+        if (selector == SEL_NFT_SET_TOKEN_ROYALTY) return 36;
+        return 0;
+    }
+
+    /**
+     * For a recipient-bearing selector, require the recipient to be `account`.
+     *
+     * The comparison is on the whole 32-byte word against the account
+     * left-padded with zeros, with no decoding: a word with dirty high bytes is
+     * refused rather than truncated, so there is nothing for the TypeScript
+     * mirror to decode differently. Calldata that ends before the word is
+     * refused, never read as zero. Selectors that are not recipient-bearing pass.
+     */
+    function assertRecipientIsAccount(bytes4 selector, bytes calldata data, address account) internal pure {
+        uint256 offset = recipientOffset(selector);
+        if (offset == 0) return;
+        if (data.length < offset + 32) revert SessionRecipientCalldataTooShort(selector);
+        bytes32 word = bytes32(data[offset:offset + 32]);
+        if (word != bytes32(uint256(uint160(account)))) revert SessionRecipientNotAccount(selector, word);
+    }
+
+    /**
+     * Byte offset of an address argument that the called contract TRUSTS (reads
+     * token0/token1 and amountOut from it, or sends the account's tokens to it).
+     * A recipient check alone does not protect against it: the router's `pool`
+     * argument can be an attacker's contract that takes the account's approved
+     * tokens while `to` is the account. For these selectors the argument must be
+     * one of the session's own targets, i.e. a contract the owner chose to
+     * trust. 0 means the selector has no such argument.
+     */
+    function targetArgOffset(bytes4 selector) internal pure returns (uint256) {
+        if (selector == SEL_ROUTER_SWAP_EXACT_IN) return 4;
+        return 0;
+    }
+
+    /**
+     * For a selector with a trusted-address argument, require that argument to be
+     * in `spec.targets`. Same raw-word rule as the recipient: no decoding, dirty
+     * high bytes refused, calldata that ends early refused.
+     */
+    function assertTargetArgAllowed(SessionSpec memory spec, bytes4 selector, bytes calldata data) internal pure {
+        uint256 offset = targetArgOffset(selector);
+        if (offset == 0) return;
+        if (data.length < offset + 32) revert SessionTargetArgCalldataTooShort(selector);
+        bytes32 word = bytes32(data[offset:offset + 32]);
+        if (uint256(word) >> 160 != 0 || !allowsTarget(spec, address(uint160(uint256(word))))) {
+            revert SessionTargetArgNotAllowed(selector, word);
+        }
     }
 
     function allowsTarget(SessionSpec memory spec, address target) internal pure returns (bool) {

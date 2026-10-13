@@ -56,19 +56,26 @@ const read = (...parts) => {
  */
 const callsWithApp = (source, name) => {
   let inBlock = false;
-  return source.split('\n').some((raw) => {
-    const line = raw.trim();
-    if (inBlock) {
-      if (line.includes('*/')) inBlock = false;
-      return false;
-    }
-    if (line.startsWith('/*')) {
-      if (!line.includes('*/')) inBlock = true;
-      return false;
-    }
-    if (line.startsWith('//') || line.startsWith('*')) return false;
-    return new RegExp(`(^|[^\\w.])${name}\\s*\\(\\s*app`).test(line);
-  });
+  const code = source
+    .split('\n')
+    .filter((raw) => {
+      const line = raw.trim();
+      if (inBlock) {
+        if (line.includes('*/')) inBlock = false;
+        return false;
+      }
+      if (line.startsWith('/*')) {
+        if (!line.includes('*/')) inBlock = true;
+        return false;
+      }
+      return !(line.startsWith('//') || line.startsWith('*'));
+    })
+    .join('\n');
+  // Matched over the comment-stripped SOURCE, not line by line. Prettier puts
+  // `app` on its own line once a call gains a fourth argument (325e91a43 did
+  // exactly that to svc-ledger's `registerOperatorHttp`), and a per-line test
+  // then reported a mounted surface as unmounted. `\s*` spans the newline.
+  return new RegExp(`(^|[^\\w.])${name}\\s*\\(\\s*app\\b`, 'm').test(code);
 };
 
 // Read once, up here: assertions 1b and 4 both need it.

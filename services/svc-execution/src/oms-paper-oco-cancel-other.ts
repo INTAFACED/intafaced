@@ -42,14 +42,9 @@ export type OmsPaperOcoCancelOtherOk = {
   readonly residual: { readonly remaining: string | null };
 };
 
-export type OmsPaperOcoCancelOtherResult =
-  | OmsPaperOcoCancelOtherOk
-  | OmsPaperOcoCancelOtherRefusal;
+export type OmsPaperOcoCancelOtherResult = OmsPaperOcoCancelOtherOk | OmsPaperOcoCancelOtherRefusal;
 
-function refuse(
-  reason: OmsPaperOcoCancelOtherRefuseReason,
-  detail: string,
-): OmsPaperOcoCancelOtherRefusal {
+function refuse(reason: OmsPaperOcoCancelOtherRefuseReason, detail: string): OmsPaperOcoCancelOtherRefusal {
   return { ok: false, reason, detail };
 }
 
@@ -64,25 +59,16 @@ function parseRetainedTrigger(
   label: string,
 ): { ok: true; text: string } | OmsPaperOcoCancelOtherRefusal {
   if (raw === null || raw === undefined) {
-    return refuse(
-      missing,
-      `${label} is missing — refusing to invent a trigger or a live venue`,
-    );
+    return refuse(missing, `${label} is missing — refusing to invent a trigger or a live venue`);
   }
   const text = raw.trim();
   if (text.length === 0) {
-    return refuse(
-      missing,
-      `${label} is missing — refusing to invent a trigger or a live venue`,
-    );
+    return refuse(missing, `${label} is missing — refusing to invent a trigger or a live venue`);
   }
   try {
     return { ok: true, text: formatAmount(parseAmount(text)) };
   } catch {
-    return refuse(
-      missing,
-      `${label} is not a ledger amount — refusing to invent a trigger`,
-    );
+    return refuse(missing, `${label} is not a ledger amount — refusing to invent a trigger`);
   }
 }
 
@@ -126,33 +112,19 @@ export function cancelOtherPaperOcoSiblingOnFill(input: {
     return refuse('already_stopped', `parent ${parentClientOrderId} is already stopped`);
   }
   if (status === 'running') {
-    return refuse(
-      'not_running',
-      `parent ${parentClientOrderId} is running live — refusing to invent a paper cancel over live`,
-    );
+    return refuse('not_running', `parent ${parentClientOrderId} is running live — refusing to invent a paper cancel over live`);
   }
   if (status !== 'paper') {
     return refuse('not_running', `parent ${parentClientOrderId} is not a live paper OCO parent`);
   }
   const filledRaw = input.filled?.trim() ?? '';
   if (filledRaw !== 'take_profit' && filledRaw !== 'stop_loss') {
-    return refuse(
-      'missing_filled_sibling',
-      'filled sibling is missing — refuse rather than invent which child filled',
-    );
+    return refuse('missing_filled_sibling', 'filled sibling is missing — refuse rather than invent which child filled');
   }
   const filled: OmsPaperOcoFilledSibling = filledRaw;
-  const takeProfit = parseRetainedTrigger(
-    input.takeProfit,
-    'missing_take_profit',
-    'OCO take-profit',
-  );
+  const takeProfit = parseRetainedTrigger(input.takeProfit, 'missing_take_profit', 'OCO take-profit');
   if (!takeProfit.ok) return takeProfit;
-  const stopLoss = parseRetainedTrigger(
-    input.stopLoss,
-    'missing_stop_loss',
-    'OCO stop-loss',
-  );
+  const stopLoss = parseRetainedTrigger(input.stopLoss, 'missing_stop_loss', 'OCO stop-loss');
   if (!stopLoss.ok) return stopLoss;
 
   return {

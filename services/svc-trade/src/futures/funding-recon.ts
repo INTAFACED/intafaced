@@ -11,12 +11,7 @@
  * every surface must call so they cannot pick a second rate.
  */
 import { formatAmount, type PostRequest } from '@intafaced/ledger-client';
-import {
-  planFundingSettlement,
-  type FundingLeg,
-  type FundingOpenPosition,
-  type FundingPlanInput,
-} from './funding-settlement.js';
+import { planFundingSettlement, type FundingLeg, type FundingOpenPosition, type FundingPlanInput } from './funding-settlement.js';
 
 export const FUNDING_SURFACES = ['predict', 'accrue', 'settle', 'correct', 'report'] as const;
 export type FundingSurface = (typeof FUNDING_SURFACES)[number];
@@ -57,9 +52,7 @@ export function requireOwnerFundingRate(rate: unknown): string {
 }
 
 function fingerprintLegs(legs: readonly FundingLeg[]): string {
-  return legs
-    .map((l) => `${l.recipe.idempotencyKey}:${l.payerPositionId}:${l.payeePositionId}:${formatAmount(l.amount)}`)
-    .join('|');
+  return legs.map((l) => `${l.recipe.idempotencyKey}:${l.payerPositionId}:${l.payeePositionId}:${formatAmount(l.amount)}`).join('|');
 }
 
 export interface FundingReconInput {

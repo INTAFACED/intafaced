@@ -2,6 +2,7 @@ import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { formatAmount, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { mul } from '@intafaced/ledger-client/money';
 import type { Sql } from 'postgres';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import { env } from '../env.js';
@@ -114,9 +115,13 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
   }
 
   const flatten = flattenFromResult(result);
-  const hold = holdFor(market, flatten.side, flatten.price > 0n ? flatten.price : 0n, flatten.qty);
+  // A BUY flatten can sweep several levels: hold the exact executed notional, not first price x qty (#4591).
+  const buyNotional = result.fills.reduce((n, f) => n + mul(parseAmount(f.price), parseAmount(f.qty), 'ceil'), 0n) as Amount;
+  const hold =
+    flatten.side === 'buy' ? { assetId: market.quoteAsset, amount: buyNotional } : holdFor(market, flatten.side, 0n as Amount, flatten.qty);
   const perks = await host.perks.perksOf(userId);
 
+  // A market row carries no price (orders_price_shape_ck); the executed prices live in trade.fills (#4591).
   const inserted = await host.sql<Array<{ id: string }>>`
     INSERT INTO trade.orders (
       id, user_id, market_id, client_order_id, side, type,
@@ -125,7 +130,7 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
     ) VALUES (
       ${orderId}, ${userId}, ${market.id}, ${input.clientOrderId},
       ${flatten.side}, ${'market'},
-      ${flatten.price > 0n ? formatAmount(flatten.price) : null}::numeric,
+      ${null}::numeric,
       ${formatAmount(flatten.qty)}::numeric, 'pending', ${'IOC'},
       ${hold.assetId}, ${formatAmount(market.paper ? 0n : hold.amount)}::numeric, ${perks.feeDiscountBps},
       ${false}, ${JSON.stringify(lifecycleProof)}::jsonb,

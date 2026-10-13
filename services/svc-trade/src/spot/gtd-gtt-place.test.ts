@@ -12,6 +12,9 @@ import { installGtdGttPlace } from './gtd-gtt-place.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
 import type { Market } from './types.js';
 
+// #4494: scopes are explicit now - trade:write no longer implies trade:read.
+const TRADE_READ = ['trade:read'] as const;
+
 installGtdGttPlace(TradeService);
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -244,7 +247,7 @@ describe('svc-trade gtd-gtt-place (H8a PG-hard)', () => {
         clientOrderId: 'later-clock',
       });
 
-      const expired = await trade.getOrder(principalFor(ALICE), resting.id);
+      const expired = await trade.getOrder(principalFor(ALICE, TRADE_READ), resting.id);
       expect(expired.status).toBe('expired');
       expect(await heldFor(ALICE, 'USDT', resting.id)).toBe('0');
       expect(await avail(ALICE, 'USDT')).toBe('401');

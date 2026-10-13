@@ -205,12 +205,18 @@ describe('svc-trade funding recon F7 money', () => {
 
   it('published owner rate: settle posts the recon recipe once; predict does not post', async () => {
     const ledger = new MemoryLedger();
+    // Fixture never funded the payer (5 USDT due from position collateral); hidden by skip-without-Postgres until
+    // #3954/#3924 made it hard-fail. Deposit, then lock margin into pos-long.
+    await ledger.post(
+      recipes.deposit({ userId: ALICE, assetId: 'USDT', amount: amt('100'), rail: 'test', railRef: 'funding-recon-alice' }),
+    );
+    await ledger.post(recipes.futuresMarginLock({ positionId: 'pos-long', userId: ALICE, assetId: 'USDT', amount: amt('50') }));
     const recon = reconFundingSurfaces({ ...BASE, rate: OWNER_RATE });
     expect(recon.ok).toBe(true);
     if (!recon.ok) return;
     const predict = fundingRecipeForSurface('predict', { ...BASE, rate: OWNER_RATE });
     expect(predict.ok && predict.fingerprint).toBe(recon.fingerprint);
-    expect(ledger.journal()).toHaveLength(0);
+    expect(ledger.journal()).toHaveLength(2); // deposit + margin lock only: predict posted nothing
     for (const recipe of settleRecipesFromRecon(recon)) {
       await ledger.post(recipe);
     }
