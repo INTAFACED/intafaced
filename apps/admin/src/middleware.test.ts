@@ -40,7 +40,7 @@ describe('admin middleware module gate', () => {
     for (const path of ['/', '/accounts', '/launch', '/jurisdiction', '/ledger', '/tools', '/tools/x']) {
       const res = run(path);
       expect(res.status, path).toBe(307);
-      expect(new URL(res.headers.get('location')!).pathname).toBe('/crm');
+      expect(res.headers.get('location')).toBe('/crm');
     }
   });
 
@@ -84,13 +84,13 @@ describe('admin middleware module gate', () => {
     ]) {
       const res = run(path);
       expect(res.status, path).toBe(307);
-      expect(new URL(res.headers.get('location')!).pathname, path).toBe('/crm');
+      expect(res.headers.get('location'), path).toBe('/crm');
     }
   });
 
   it('ADMIN_MODULES=crm: encoded API paths are refused with the same 404', async () => {
     process.env.ADMIN_MODULES = 'crm';
-    for (const path of ['/api/%61ccounts', '/api/operator%2Dtools', '/api/%2561ccounts']) {
+    for (const path of ['/api/%61ccounts', '/api/operator%2Dtools', '/api/%2561ccounts', '/%61pi/accounts', '/%2561pi/ledger-freeze']) {
       const res = run(path);
       expect(res.status, path).toBe(404);
       expect(await res.json()).toEqual({ error: 'not_found' });

@@ -30,14 +30,15 @@ export function createOpenGate() {
     /**
      * Call when the result arrives. `apply: false` means drop it: a newer open started, or a silent refresh finished
      * after the founder moved to another enquiry. The phone detail view opens only for a non-silent open, so a background
-     * refresh never re-shows an enquiry the founder backed out of.
+     * refresh never re-shows an enquiry the founder backed out of. `reveal: false` (a manual Refresh) applies the result
+     * but leaves the phone on whichever view the founder chose.
      */
-    settle(call: number, id: string, silent: boolean): OpenDecision {
+    settle(call: number, id: string, silent: boolean, reveal = true): OpenDecision {
       if (call !== latest) return { apply: false };
       if (silent && selected !== id) return { apply: false };
       const changedRecord = selected !== id;
       selected = id;
-      return { apply: true, changedRecord, showMobileDetail: !silent };
+      return { apply: true, changedRecord, showMobileDetail: !silent && reveal };
     },
   };
 }

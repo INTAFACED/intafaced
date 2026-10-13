@@ -1,5 +1,13 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { configuredModules, firstEnabledHref, isModuleEnabled, isUndecodablePath, moduleForApi, moduleForPage } from '@/lib/modules';
+import {
+  configuredModules,
+  firstEnabledHref,
+  isModuleEnabled,
+  isUndecodablePath,
+  moduleForApi,
+  moduleForPage,
+  normalise,
+} from '@/lib/modules';
 
 /**
  * ADMIN_MODULES gate (see `lib/modules.ts`). A disabled module's API routes get
@@ -17,7 +25,9 @@ export function middleware(request: NextRequest) {
     return new NextResponse('Not found', { status: 404, headers: { 'cache-control': 'no-store' } });
   }
 
-  if (pathname === '/api' || pathname.startsWith('/api/')) {
+  // Branch on the decoded path, so `/%61pi/accounts` is treated as the API route Next will serve.
+  const routed = normalise(pathname) ?? pathname;
+  if (routed === '/api' || routed.startsWith('/api/')) {
     const id = moduleForApi(pathname);
     if (id && !isModuleEnabled(id)) {
       return NextResponse.json({ error: 'not_found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
@@ -29,10 +39,9 @@ export function middleware(request: NextRequest) {
   if (id && !isModuleEnabled(id)) {
     const target = firstEnabledHref();
     if (target) {
-      const url = request.nextUrl.clone();
-      url.pathname = target;
-      url.search = '';
-      return NextResponse.redirect(url);
+      // A relative Location resolves against the address the founder used. Behind the edge or
+      // the preview proxy, request.nextUrl carries Next's own internal host and port instead.
+      return new NextResponse(null, { status: 307, headers: { location: target, 'cache-control': 'no-store' } });
     }
     return new NextResponse('Not found', { status: 404, headers: { 'cache-control': 'no-store' } });
   }

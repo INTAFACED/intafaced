@@ -102,7 +102,8 @@ function decodedPath(pathname: string): string | null {
   return null;
 }
 
-function normalise(pathname: string): string | null {
+/** The path as Next will route it: fully decoded, dot segments resolved, no trailing slash; null when undecodable. */
+export function normalise(pathname: string): string | null {
   const path = decodedPath(pathname);
   if (path === null) return null;
   return path.length > 1 ? path.replace(/\/+$/, '') : path;

@@ -230,7 +230,7 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
    * Only the latest call's result is applied (see createOpenGate). `rebase` forces the form fields to the freshly loaded
    * record; it is for a founder-confirmed reload, where the unsaved edits were just discarded.
    */
-  async function open(id: string, manageBusy = true, silent = false, rebase = false) {
+  async function open(id: string, manageBusy = true, silent = false, rebase = false, reveal = true) {
     const gate = openGate.current;
     if (id !== gate.selected() && typeof window !== 'undefined') listScroll.current = window.scrollY;
     if (detail && detail.opportunity.id !== id) {
@@ -254,8 +254,11 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
     try {
       const result = await readJson<Detail | null>(`/api/crm?opportunityId=${encodeURIComponent(id)}`);
       if (!result) throw new Error('This enquiry could not be found.');
-      const decision = gate.settle(call, id, silent);
+      const decision = gate.settle(call, id, silent, reveal);
       if (!decision.apply) return false;
+      // The founder started typing while this background read was in flight: keep the revision their draft is based on, so
+      // the next save still meets the conflict check instead of silently overwriting the newer record.
+      if (silent && live.current.dirty) return false;
       const { changedRecord } = decision;
       setDetail(result);
       if (decision.showMobileDetail) setMobileDetail(true);
@@ -403,7 +406,7 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
     if (state.detailId && !(auto && (state.dirty || state.retentionPending))) {
       const reloadDetail = auto || canLeaveCurrentDetail('Discard unsaved edits and reload this enquiry?');
       // After a confirmed discard the form is re-based onto the newest revision, so the next save carries that revision knowingly.
-      if (reloadDetail) jobs.push(open(state.detailId, false, auto, !auto));
+      if (reloadDetail) jobs.push(open(state.detailId, false, auto, !auto, false));
     }
     await Promise.all(jobs);
     setWorkflowVersion((value) => value + 1);
@@ -1036,6 +1039,7 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                           onDraftState={onRetentionDraftState}
                           onComplete={async () => {
                             const erasedContactId = detail.provenance.canonicalContact.id;
+                            if (detail.provenance.canonicalContact.id === erasedContactId) openGate.current.clear();
                             setDetail((current) => (current?.provenance.canonicalContact.id === erasedContactId ? null : current));
                             setNotice('Linked contact records deleted from outreach.');
                             await load();

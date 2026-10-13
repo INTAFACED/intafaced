@@ -97,4 +97,12 @@ describe('open gate (M2: phone back button)', () => {
     const second = gate.begin();
     expect(gate.settle(second, 'A', true)).toEqual({ apply: true, changedRecord: false, showMobileDetail: false });
   });
+
+  it('a manual Refresh (reveal: false) applies the result but leaves the phone on the list the founder chose', () => {
+    const gate = createOpenGate();
+    gate.settle(gate.begin(), 'A', false);
+    expect(gate.settle(gate.begin(), 'A', false, false)).toEqual({ apply: true, changedRecord: false, showMobileDetail: false });
+    // Tapping a row for the enquiry already selected still opens the phone detail.
+    expect(gate.settle(gate.begin(), 'A', false)).toEqual({ apply: true, changedRecord: false, showMobileDetail: true });
+  });
 });
