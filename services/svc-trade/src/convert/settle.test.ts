@@ -35,7 +35,7 @@ function boundBuy() {
 }
 
 describe('planConvertSettle / postConvertSettle', () => {
-  it('posts house inventory first at the bound quoted notional (not a book fill)', async () => {
+  it('posts the customer hold first, then house inventory, at the bound quoted notional (not a book fill)', async () => {
     const ledger = new MemoryLedger();
     await ledger.post(recipes.marketMakerSeedFund({ assetId: 'BTC', amount: parseAmount('10'), seedId: 'cvt-btc' }));
     await ledger.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('1000'), rail: 'test', railRef: 'cvt-u' }));

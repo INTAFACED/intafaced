@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
-import { MemoryLedger, formatAmount, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
+import { MemoryLedger, formatAmount, marketMaker, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import type { Market } from '../spot/types.js';
@@ -329,6 +329,72 @@ describe('svc-trade convert-settle (H8a PG-hard)', () => {
       expect(amt(await avail('BTC'))).toBe(amt(btc) + amt('1'));
       expect((await trade.convertExecute(principal, { quoteId: quote.quoteId })).fillId).toBe(first.fillId);
       expect(fillPosts()).toHaveLength(1);
+    });
+
+    describe('convert hold order — customer first, no stranded house inventory (#4676)', () => {
+      const houseAvail = async (assetId: string) => formatAmount((await ledger.balance(marketMaker(assetId))).amount);
+      const reasons = (reason: string) => ledger.journal().filter((tx) => tx.reason === reason);
+
+      it('customer cannot cover: refuses ledger.insufficient_funds, house BTC untouched, quote not left bound, retry safe', async () => {
+        matching.asks = [['300', '5']];
+        const quoted = await trade.convertQuote(principal, { symbol: btcusdt.symbol, side: 'buy', qty: amt('5') });
+        expect(amt(quoted.inAmount)).toBeGreaterThan(amt('1000'));
+        const house = await houseAvail('BTC');
+        const usdt = await avail('USDT');
+
+        await expect(trade.convertExecute(principal, { quoteId: quoted.quoteId })).rejects.toMatchObject({
+          code: 'ledger.insufficient_funds',
+        });
+        // A second fresh-looking retry must not strand a second hold either.
+        await expect(trade.convertExecute(principal, { quoteId: quoted.quoteId })).rejects.toMatchObject({
+          code: 'ledger.insufficient_funds',
+        });
+
+        expect(await houseAvail('BTC')).toBe(house);
+        expect(await avail('USDT')).toBe(usdt);
+        expect(reasons('order.hold.mm')).toHaveLength(0);
+        expect(reasons('order.hold')).toHaveLength(0);
+        expect((await new SqlConvertQuoteStore(sql).load(quoted.quoteId))?.lifecycle).not.toBe('bound');
+        expect(ledger.reconcile()).toEqual({ ok: true });
+
+        // The customer tops up: the same quote then settles exactly once.
+        await fundUser('USDT', '1000');
+        const settled = await trade.convertExecute(principal, { quoteId: quoted.quoteId });
+        expect(settled.outAmount).toBe(quoted.outAmount);
+        expect(reasons('order.hold.mm')).toHaveLength(1);
+        expect(reasons('order.hold')).toHaveLength(1);
+        expect(fillPosts()).toHaveLength(1);
+        expect(ledger.reconcile()).toEqual({ ok: true });
+      });
+
+      it('house cannot cover: distinct trade.convert_liquidity_unavailable, customer hold released once, quote not bound, retry never double-holds', async () => {
+        matching.asks = [['100', '20']];
+        await fundUser('USDT', '5000');
+        const quoted = await trade.convertQuote(principal, { symbol: btcusdt.symbol, side: 'buy', qty: amt('20') });
+        const house = await houseAvail('BTC');
+        const usdt = await avail('USDT');
+        expect(amt(house)).toBeLessThan(amt('20'));
+
+        await expect(trade.convertExecute(principal, { quoteId: quoted.quoteId })).rejects.toMatchObject({
+          code: 'trade.convert_liquidity_unavailable',
+        });
+
+        expect(await houseAvail('BTC')).toBe(house);
+        expect(await avail('USDT')).toBe(usdt);
+        expect(reasons('order.hold')).toHaveLength(1);
+        expect(reasons('order.hold.released')).toHaveLength(1);
+        expect(reasons('order.hold.mm')).toHaveLength(0);
+        expect(fillPosts()).toHaveLength(0);
+        expect((await new SqlConvertQuoteStore(sql).load(quoted.quoteId))?.lifecycle).not.toBe('bound');
+
+        const journalBefore = ledger.journal().length;
+        await expect(trade.convertExecute(principal, { quoteId: quoted.quoteId })).rejects.toMatchObject({
+          code: 'trade.convert_liquidity_unavailable',
+        });
+        expect(ledger.journal()).toHaveLength(journalBefore);
+        expect(await avail('USDT')).toBe(usdt);
+        expect(ledger.reconcile()).toEqual({ ok: true });
+      });
     });
 
     it('settled quote after expiry still returns the first settle — no second fill', async () => {
