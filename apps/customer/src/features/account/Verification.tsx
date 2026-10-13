@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { StatusTag } from '@intafaced/ui';
 import { useSession } from '../session/session';
 import type { ApiClient } from '../../shared/api';
 import { useResource } from '../../shared/resource';
@@ -432,81 +433,87 @@ export function Verification() {
                   <span className="eyebrow">
                     <Copy k="current" />
                   </span>
-                  <h2>
-                    <Copy k={resource.data.tier} />
+                  <h2 className="verification__level">
+                    <StatusTag
+                      className="verification__level-tag h-10 rounded-sm px-5 text-lg font-semibold"
+                      status={resource.data.tier === 'none' ? 'working' : 'filled'}
+                      label={t(resource.data.tier)}
+                    />
                   </h2>
                   <p className="muted">
                     <Copy k="currentBody" />
                   </p>
                 </div>
-                <div className="verification__heading">
-                  <h2>
-                    <Copy k="records" />
-                  </h2>
-                  <Button variant="secondary" onClick={reload}>
-                    <Copy k="refresh" />
-                  </Button>
-                </div>
-                <p className="muted">
-                  <Copy k="window" params={{ limit }} />
-                </p>
-                <Button className="verification__jump" variant="secondary" disabled={blocked} onClick={jump}>
-                  <Copy k="jump" />
-                </Button>
-                {resource.data.records.length ? (
-                  <ul className="verification__rows">
-                    {resource.data.records.map((row) => (
-                      <li key={row.id}>
-                        <div className="verification__row">
-                          <strong>
-                            <Copy k={row.tier} />
-                          </strong>
-                          <span lang="zxx">{row.jurisdiction}</span>
-                          <span className={row.status === 'approved' ? 'verification__approved' : 'muted'}>
-                            <Copy k={row.status} />
-                          </span>
-                          {time(row.createdAt)}
-                          <Button variant="ghost" aria-label={t('inspectId', { id: row.id })} onClick={() => setSelected({ ...row })}>
-                            <Copy k="inspect" /> →
-                          </Button>
-                        </div>
-                        <p className="verification__ref muted" lang="zxx">
-                          {row.id}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <EmptyState title={t('empty')}>
-                    <Copy k="emptyBody" />
-                  </EmptyState>
-                )}
-                {limit < 200 && resource.data.records.length === limit && (
-                  <Button variant="secondary" onClick={() => setLimit((value) => Math.min(200, value + 50))}>
-                    <Copy k="expand" params={{ limit: limit + 50 }} />
-                  </Button>
-                )}
-                {limit === 200 && (
-                  <p className="muted">
-                    <Copy k="maximum" />
-                  </p>
-                )}
-                {privateVisible && selected && (
-                  <section className="verification__selection" aria-label={t('selected')}>
+                <div className="verification__records">
+                  <div className="verification__heading">
                     <h2>
-                      <Copy k="selected" />
+                      <Copy k="records" />
                     </h2>
-                    {!resource.data.records.some((row) => row.id === selected.id) && (
-                      <p>
-                        <Copy k="selectionMissing" />
-                      </p>
-                    )}
-                    {record(selected)}
+                    <Button variant="secondary" onClick={reload}>
+                      <Copy k="refresh" />
+                    </Button>
+                  </div>
+                  <p className="muted">
+                    <Copy k="window" params={{ limit }} />
+                  </p>
+                  <Button className="verification__jump" variant="secondary" disabled={blocked} onClick={jump}>
+                    <Copy k="jump" />
+                  </Button>
+                  {resource.data.records.length ? (
+                    <ul className="verification__rows">
+                      {resource.data.records.map((row) => (
+                        <li key={row.id}>
+                          <div className="verification__row">
+                            <strong>
+                              <Copy k={row.tier} />
+                            </strong>
+                            <span lang="zxx">{row.jurisdiction}</span>
+                            <span className={row.status === 'approved' ? 'verification__approved' : 'muted'}>
+                              <Copy k={row.status} />
+                            </span>
+                            {time(row.createdAt)}
+                            <Button variant="ghost" aria-label={t('inspectId', { id: row.id })} onClick={() => setSelected({ ...row })}>
+                              <Copy k="inspect" /> →
+                            </Button>
+                          </div>
+                          <p className="verification__ref muted" lang="zxx">
+                            {row.id}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <EmptyState title={t('empty')}>
+                      <Copy k="emptyBody" />
+                    </EmptyState>
+                  )}
+                  {limit < 200 && resource.data.records.length === limit && (
+                    <Button variant="secondary" onClick={() => setLimit((value) => Math.min(200, value + 50))}>
+                      <Copy k="expand" params={{ limit: limit + 50 }} />
+                    </Button>
+                  )}
+                  {limit === 200 && (
                     <p className="muted">
-                      <Copy k="recordBoundary" />
+                      <Copy k="maximum" />
                     </p>
-                  </section>
-                )}
+                  )}
+                  {privateVisible && selected && (
+                    <section className="verification__selection" aria-label={t('selected')}>
+                      <h2>
+                        <Copy k="selected" />
+                      </h2>
+                      {!resource.data.records.some((row) => row.id === selected.id) && (
+                        <p>
+                          <Copy k="selectionMissing" />
+                        </p>
+                      )}
+                      {record(selected)}
+                      <p className="muted">
+                        <Copy k="recordBoundary" />
+                      </p>
+                    </section>
+                  )}
+                </div>
               </>
             )}
           </section>
@@ -570,9 +577,6 @@ export function Verification() {
           <Button variant="secondary" onClick={reload}>
             <Copy k="readCurrent" />
           </Button>
-          <a className="text-link" href="/uc/account">
-            <Copy k="account" /> →
-          </a>
         </div>
         {privateVisible && review && same(review) && (
           <Dialog title={t('reviewTitle')} onClose={close}>

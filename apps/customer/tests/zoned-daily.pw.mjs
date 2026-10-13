@@ -245,7 +245,7 @@ async function inspect(page) {
 }
 test('View accepts browser-recognized named aliases containing digits', async ({ page }) => {
   const state = await mount(page, { path: '/view', signedIn: true });
-  const zone = page.getByLabel('Daily candle time zone', { exact: true });
+  const zone = page.getByLabel('Daily chart time zone', { exact: true });
   const mappings = [];
   for (const [alias, target] of [
     ['EST5EDT', 'America/New_York'],
@@ -275,7 +275,7 @@ for (const clock of [now, Date.parse('2026-03-08T12:00:00Z'), Date.parse('2026-1
     await ready(page);
     await primary(page).getByRole('link', { name: 'Choose time zone', exact: true }).click();
     await expect(page).toHaveURL(/\/view$/);
-    const zone = page.getByLabel('Daily candle time zone', { exact: true });
+    const zone = page.getByLabel('Daily chart time zone', { exact: true });
     await zone.fill('CST6CDT');
     await page.getByRole('button', { name: 'Apply time zone', exact: true }).click();
     writeFileSync(
@@ -303,7 +303,7 @@ test('named UTC and fixed-offset Etc zones stay usable while numeric offsets and
   page,
 }) => {
   const state = await mount(page, { path: '/view', signedIn: true });
-  const zone = page.getByLabel('Daily candle time zone', { exact: true });
+  const zone = page.getByLabel('Daily chart time zone', { exact: true });
   for (const named of ['UTC', 'Etc/GMT+8', 'US/Eastern']) {
     const canonical = await page.evaluate((value) => new Intl.DateTimeFormat('en', { timeZone: value }).resolvedOptions().timeZone, named);
     await zone.fill(named);
@@ -318,7 +318,7 @@ test('named UTC and fixed-offset Etc zones stay usable while numeric offsets and
     await expect(zone).toHaveAttribute('aria-invalid', 'true');
     await expect(page.getByRole('alert')).toContainText('current choice is kept');
     expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)).dailyZone, preferenceKey)).toBe('America/New_York');
-    await page.getByRole('button', { name: 'Cancel draft', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(zone).toHaveValue('America/New_York');
   }
   await zone.fill('PST8PDT');
@@ -332,13 +332,13 @@ test('named UTC and fixed-offset Etc zones stay usable while numeric offsets and
 });
 test('View stages invalid zones, keeps the saved choice, and labels are independent', async ({ page }) => {
   const state = await mount(page, { path: '/view', signedIn: true });
-  const zone = page.getByLabel('Daily candle time zone', { exact: true });
+  const zone = page.getByLabel('Daily chart time zone', { exact: true });
   await zone.fill('Invalid/Choice');
   await page.getByRole('button', { name: 'Apply time zone', exact: true }).click();
   await expect(zone).toHaveAttribute('aria-invalid', 'true');
   await expect(page.getByRole('alert')).toContainText('current choice is kept');
   expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)).dailyZone, preferenceKey)).toBe('America/New_York');
-  await page.getByRole('button', { name: 'Cancel draft', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(zone).toHaveValue('America/New_York');
   await zone.fill('Asia/Kathmandu');
   await zone.press('Enter');
@@ -661,7 +661,7 @@ test('published-schema whole read failures retain no prefix, retry deliberately,
   await expect(primary(page)).toContainText('Original selected read unavailable.');
   state.failure = false;
   await primary(page).getByRole('button', { name: 'Use native UTC', exact: true }).click();
-  await expect(primary(page).getByLabel('Daily start', { exact: true })).toHaveValue('nativeUTC');
+  await expect(primary(page).getByLabel('Daily chart starts at', { exact: true })).toHaveValue('nativeUTC');
   await expect(primary(page).locator('.trade-engine canvas').first()).toBeVisible();
   expect(state.reads.at(-1).timeframe).toBe('1d');
   expect(state.writes).toEqual([]);

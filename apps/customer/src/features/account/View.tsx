@@ -1,5 +1,6 @@
 import { copy, t as copyText, Text } from './copy';
 import { useEffect, useLayoutEffect, useState } from 'react';
+import { SegmentedControl } from '@intafaced/ui';
 import { Page, Button } from '../../shared/ui';
 import {
   usePreferences,
@@ -75,30 +76,8 @@ export function View() {
         <div className="settings-grid">
           <section className="settings-section">
             <h2>
-              <Text k="view.appearance" />
+              <Text k="view.display" />
             </h2>
-            <label className="field">
-              <span>
-                <Text k="view.theme" />
-              </span>
-              <select
-                aria-label={copyText('view.theme')}
-                value={preferences.theme}
-                onChange={(event) => {
-                  save({ theme: event.target.value as 'dark' | 'light' | 'system' });
-                }}
-              >
-                <option value="dark" lang={copy.forLocale(preferences.language).languageFor('view.dark')}>
-                  {copyText('view.dark')}
-                </option>
-                <option value="light" lang={copy.forLocale(preferences.language).languageFor('view.light')}>
-                  {copyText('view.light')}
-                </option>
-                <option value="system" lang={copy.forLocale(preferences.language).languageFor('view.match.device')}>
-                  {copyText('view.match.device')}
-                </option>
-              </select>
-            </label>
             <label className="field">
               <span>
                 <Text k="view.language" />
@@ -132,44 +111,6 @@ export function View() {
                 </p>
               )}
             </label>
-          </section>
-          <section className="settings-section">
-            <h2>
-              <Text k="view.money" />
-            </h2>
-            <Toggle
-              label={copyText('view.hide.balance.values')}
-              checked={preferences.hideBalances}
-              onChange={(value) => {
-                save({ hideBalances: value });
-              }}
-            />
-            <label className="field">
-              <span>
-                <Text k="view.display.currency" />
-              </span>
-              <select
-                aria-label={copyText('view.display.currency')}
-                value={preferences.displayCurrency}
-                onChange={(event) => {
-                  save({ displayCurrency: event.target.value as 'USD' | 'BTC' });
-                }}
-              >
-                <option value="USD">USD</option>
-                <option value="BTC">BTC</option>
-              </select>
-              <small>
-                <Text k="view.a.converted.total.requires.a.complete.valuation" />
-              </small>
-            </label>
-            <div className="notice">
-              <Text k="view.hiding.small.balances.requires.a.valuation.threshold" />
-            </div>
-          </section>
-          <section className="settings-section">
-            <h2>
-              <Text k="view.chart.display" />
-            </h2>
             <label className="field">
               <span>
                 <Text k="view.up.and.down.colors" />
@@ -188,6 +129,77 @@ export function View() {
                   {copyText('view.red.up.green.down')}
                 </option>
               </select>
+            </label>
+            <div className="field">
+              <span>
+                <Text k="view.default.view" />
+              </span>
+              <SegmentedControl
+                aria-label={copyText('view.default.view')}
+                size={32}
+                value={preferences.layoutMode}
+                items={[
+                  { value: 'simple', label: copyText('view.simple') },
+                  { value: 'pro', label: copyText('view.pro') },
+                ]}
+                onValueChange={(value) => {
+                  if (value === 'simple' || value === 'pro') save({ layoutMode: value });
+                }}
+              />
+              <small>
+                <Text k="view.default.view.hint" />
+              </small>
+            </div>
+            <Toggle
+              label={copyText('view.hide.balance.values')}
+              checked={preferences.hideBalances}
+              onChange={(value) => {
+                save({ hideBalances: value });
+              }}
+            />
+            <label className="field">
+              <span>
+                <Text k="view.time.zone" />
+              </span>
+              <select
+                aria-label={copyText('view.time.zone')}
+                value={preferences.timeZone}
+                onChange={(event) => {
+                  save({ timeZone: event.target.value as 'UTC' | 'UTC+8' | 'device' });
+                }}
+              >
+                <option value="UTC">UTC</option>
+                <option value="UTC+8">UTC+8</option>
+                <option value="device" lang={copy.forLocale(preferences.language).languageFor('view.device.time.zone')}>
+                  {copyText('view.device.time.zone')}
+                </option>
+              </select>
+              <small>
+                <Text k="view.daily.labels.independent" />
+              </small>
+            </label>
+          </section>
+          <section className="settings-section">
+            <h2>
+              <Text k="view.charts.and.trading" />
+            </h2>
+            <label className="field">
+              <span>
+                <Text k="view.display.currency" />
+              </span>
+              <select
+                aria-label={copyText('view.display.currency')}
+                value={preferences.displayCurrency}
+                onChange={(event) => {
+                  save({ displayCurrency: event.target.value as 'USD' | 'BTC' });
+                }}
+              >
+                <option value="USD">USD</option>
+                <option value="BTC">BTC</option>
+              </select>
+              <small>
+                <Text k="view.a.converted.total.requires.a.complete.valuation" />
+              </small>
             </label>
             <label className="field">
               <span>
@@ -210,27 +222,6 @@ export function View() {
                   {copyText('view.hidden')}
                 </option>
               </select>
-            </label>
-            <label className="field">
-              <span>
-                <Text k="view.chart.time.labels" />
-              </span>
-              <select
-                aria-label={copyText('view.chart.time.labels')}
-                value={preferences.timeZone}
-                onChange={(event) => {
-                  save({ timeZone: event.target.value as 'UTC' | 'UTC+8' | 'device' });
-                }}
-              >
-                <option value="UTC">UTC</option>
-                <option value="UTC+8">UTC+8</option>
-                <option value="device" lang={copy.forLocale(preferences.language).languageFor('view.device.time.zone')}>
-                  {copyText('view.device.time.zone')}
-                </option>
-              </select>
-              <small>
-                <Text k="view.daily.labels.independent" />
-              </small>
             </label>
             <label className="field">
               <span>
@@ -372,9 +363,6 @@ export function View() {
                 </option>
               </select>
             </label>
-            <div className="notice">
-              <Text k="view.futures.cooling.off.and.shared.drawings.require" />
-            </div>
           </section>
         </div>
         <div className="actions section">
@@ -383,6 +371,7 @@ export function View() {
             onClick={() => {
               save({
                 theme: 'dark',
+                layoutMode: 'simple',
                 language: 'en',
                 hideBalances: false,
                 displayCurrency: 'USD',
