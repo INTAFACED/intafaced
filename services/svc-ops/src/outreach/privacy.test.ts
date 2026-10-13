@@ -178,6 +178,39 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('founder-controlled clust
       );
     return current;
   };
+  it('never finds or names a merged-away contact through an alias once its cluster has an erasure intent (pending_notify)', async () => {
+    const capturing = (name: string, email: string) => ({ ...capture(), contact: { ...capture().contact, name, email } });
+    await crm.capture(capturing('Yara Keep', 'yara@example.test'), randomUUID());
+    await crm.capture(capturing('Zelda Old', 'zelda@example.test'), randomUUID());
+    const contactOf = async (email: string) => (await db.sql`SELECT id,revision FROM ops.crm_contacts WHERE record->>'email'=${email}`)[0]!;
+    const source = await contactOf('zelda@example.test'),
+      target = await contactOf('yara@example.test');
+    await crm.mergeContacts(
+      {
+        requestId: randomUUID(),
+        sourceContactId: String(source.id),
+        targetContactId: String(target.id),
+        sourceExpectedRevision: source.revision,
+        targetExpectedRevision: target.revision,
+        confirmed: true,
+        reason: 'Founder confirmed one person',
+      },
+      founders[0],
+    );
+    const before = await crm.listOpportunities({ limit: 10, query: 'zelda' });
+    expect(before.items).toHaveLength(2);
+    expect(before.aliasMatches).toHaveLength(2);
+    const preview = await crm.privacy.preview({ canonicalContactId: String(target.id) }, founders[0]);
+    const intent = await crm.privacy.begin(beginInput(preview), founders[0]);
+    expect(intent.status).toBe('pending_notify');
+    // The merged-away name must not surface while erasure is pending, by name or by email, and nothing names it.
+    for (const query of ['zelda', 'ZELDA@example', 'old']) {
+      const during = await crm.listOpportunities({ limit: 10, query });
+      expect(during.items.map((o) => o.contactId)).not.toContain(String(target.id));
+      expect(during.aliasMatches).toBeUndefined();
+    }
+    expect((await crm.listOpportunities({ limit: 10, query: 'zelda' })).items).toHaveLength(0);
+  });
   it('erases every alias and original, cached exports, notes/messages/tasks/merge facts while preserving another cluster and immutable history', async () => {
     const a = await saved(),
       b = await saved(),
