@@ -250,7 +250,7 @@ test('loading shows final-size skeletons and nothing moves when data arrives', a
   await open(page);
   await expect(page.locator('[data-slot="skeleton"]').first()).toBeVisible();
   expect(await page.locator('.home-cards [data-slot="skeleton"]').count()).toBe(4);
-  const hero = await page.locator('.home-hero [data-slot="skeleton"]').boundingBox();
+  const hero = await page.locator('.home-total [data-slot="skeleton"]').boundingBox();
   expect([Math.round(hero.width), Math.round(hero.height)]).toEqual([240, 56]);
   const layout = () =>
     page.evaluate(() =>

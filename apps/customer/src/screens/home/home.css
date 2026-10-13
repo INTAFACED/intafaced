@@ -70,7 +70,7 @@
   color: var(--if-fg);
 }
 
-.home-hero {
+.home-total {
   display: flex;
   align-items: center;
   height: 56px;

@@ -9,15 +9,8 @@ export type ScreenComponent = LazyExoticComponent<ComponentType<ScreenProps>>;
  * replaces its file, the stub there renders the old view inside `.legacy-room`, so every route
  * keeps working through the migration. Each stub file belongs to that screen's builder.
  */
-const home = import.meta.glob<{ default: ComponentType<ScreenProps> }>('../screens/home/index.tsx');
-
 export const screens: Record<ScreenId, ScreenComponent> = {
-  // Home belongs to B4. It is looked up by path so this file builds before and after B4 merges;
-  // until then the old Money view stands in.
-  home: lazy(() => {
-    const load = Object.values(home)[0];
-    return load ? load() : import('./HomeFallback');
-  }),
+  home: lazy(() => import('../screens/home')),
   money: lazy(() => import('../screens/money')),
   coin: lazy(() => import('../screens/coin')),
   'trade/markets': lazy(() => import('../screens/trade/markets')),

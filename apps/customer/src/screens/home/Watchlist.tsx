@@ -21,7 +21,7 @@ export function Watchlist({
   const points = sparklines.status === 'ready' ? sparklines.data : {};
   return (
     <section className="home-watch" aria-labelledby="home-watch-title">
-      <header className="home-watch__head">
+      <div className="home-watch__head">
         <h2 id="home-watch-title">{popular ? t('Popular') : t('Watchlist')}</h2>
         <Button
           variant="ghost"
@@ -32,7 +32,7 @@ export function Watchlist({
         >
           {t('Edit')}
         </Button>
-      </header>
+      </div>
       {loading ? (
         <div aria-hidden="true">
           {[0, 1, 2, 3, 4, 5].map((index) => (

@@ -119,7 +119,7 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<PortfolioSummary>;
   if (portfolio.status === 'loading')
     return (
       <div aria-busy="true" aria-label={t('Est. total value')}>
-        <div className="home-hero">
+        <div className="home-total">
           <Skeleton width={240} height={56} />
         </div>
         <div className="home-change">
@@ -140,7 +140,7 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<PortfolioSummary>;
   if (empty)
     return (
       <>
-        <div className="home-hero">
+        <div className="home-total">
           {/* The balance call answered with no assets, so zero is correct here and only here. */}
           <HeroNumber value="0.00" decimals={2} prefix="$" unit="USD" hidden={hidden} />
         </div>
@@ -159,7 +159,7 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<PortfolioSummary>;
   const unpriced = data.unpriced.length;
   return (
     <>
-      <div className="home-hero">
+      <div className="home-total">
         <HeroNumber value={cents(data.totalUsd)} decimals={2} prefix="$" unit="USD" hidden={hidden} />
       </div>
       {data.change24hUsd !== null ? (

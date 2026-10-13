@@ -511,8 +511,15 @@ async function focusInfo(page, within) {
       const ids = (el.getAttribute('aria-labelledby') ?? '').split(/\s+/).filter(Boolean);
       name = ids.map((id) => document.getElementById(id)?.textContent ?? '').join(' ');
     }
-    if (!clean(name))
-      name = el.innerText || el.getAttribute('title') || el.getAttribute('alt') || el.value || el.getAttribute('placeholder') || '';
+    if (!clean(name)) {
+      // Accessible name from content: decorative parts (aria-hidden, e.g. a "$" glyph or an arrow) do not count.
+      const copy = el.cloneNode(true);
+      if (copy.querySelectorAll) copy.querySelectorAll('[aria-hidden="true"]').forEach((node) => node.remove());
+      const parts = [];
+      const walker = document.createTreeWalker(copy, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) parts.push(walker.currentNode.textContent ?? '');
+      name = parts.join(' ') || el.getAttribute('title') || el.getAttribute('alt') || el.value || el.getAttribute('placeholder') || '';
+    }
     const anchor = el.closest('a[href]');
     const outlineVisible =
       (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0 && !/rgba\(\s*\d+,\s*\d+,\s*\d+,\s*0\s*\)/.test(cs.outlineColor)) ||
@@ -650,13 +657,14 @@ async function clickByName(page, step) {
 // Run
 // ---------------------------------------------------------------------------------------------
 function makeState() {
-  return { inflight: 0, counting: false, count: 0, console: [], fiveXX: [], fourXX: [], external: [] };
+  return { inflight: 0, counting: false, count: 0, console: [], fiveXX: [], fourXX: [], external: [], wsAbsent: 0 };
 }
 
 function resetCollectors(state) {
   state.console = [];
   state.fiveXX = [];
   state.fourXX = [];
+  state.wsAbsent = 0;
 }
 
 async function signIn(page, base, account) {
@@ -826,6 +834,8 @@ async function runRoute(ctx, route) {
     state.fiveXX.length ? { samples: state.fiveXX.slice(0, 5) } : {},
   );
   if (state.fourXX.length) rec.info4xx = state.fourXX.slice(0, 10);
+  if (state.wsAbsent)
+    rec.infoWsAbsent = `${state.wsAbsent} WebSocket handshake(s) answered 503: the local test stack has no WebSocket service`;
   return rec;
 }
 
@@ -1015,6 +1025,12 @@ export async function main(argv) {
       const loc = msg.location()?.url ?? '';
       // A 4xx the app handled is a typed refusal, not a console error (5xx is asserted separately).
       if (/Failed to load resource: the server responded with a status of 4\d\d/.test(text)) return;
+      // The local test stack has no WebSocket service on purpose: its server answers every /ws/ upgrade with 503.
+      // That is the environment, not the screen, so it is counted and reported (info), not failed.
+      if (/WebSocket connection to 'ws:\/\/127\.0\.0\.1:\d+\/ws\/.*Unexpected response code: 503/.test(text)) {
+        state.wsAbsent++;
+        return;
+      }
       state.console.push({ text, blocked: Boolean(loc) && !isLoopbackUrl(loc) });
     });
     page.on('pageerror', (error) => state.console.push({ text: `uncaught: ${error.message}`, blocked: false }));
