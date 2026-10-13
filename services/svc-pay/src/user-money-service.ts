@@ -532,6 +532,9 @@ export class UserMoneyService {
    * the same client reference with a different amount, asset or destination is a
    * client bug, and resuming it against the ORIGINAL numbers would send money
    * somewhere the caller did not just ask for.
+   *
+   * The `FOR UPDATE` below ends when this transaction commits. Later settle
+   * and refusal steps lock the row again; they do not inherit this one.
    */
   private async claimWithdrawal(
     input: {
@@ -579,6 +582,69 @@ export class UserMoneyService {
 
       return existing;
     });
+  }
+
+  /**
+   * Rail refusal, or the sent row if the overlapping call already settled.
+   *
+   * A `sent` return is the book. Anything else throws: a reversed withdrawal
+   * is not reported as sent.
+   */
+  private async refuseOrReturnSent(claimed: WithdrawalRecord, failureCode: string, failureReason: string): Promise<WithdrawalRecord> {
+    const finished = await this.finalizeRailRefusal(claimed, failureCode);
+    if (finished.status === 'sent') return finished;
+    throw new PayError(failureReason, 'pay.rail_failed', {
+      failureCode,
+      withdrawalId: claimed.id,
+    });
+  }
+
+  /**
+   * Post `withdrawSettle` only while this attempt is still allowed to settle.
+   *
+   * Allowed means `held` and `failure_code` is null: the hold is in place and
+   * nobody has claimed the reverse. `sent` is already done — return it, do not
+   * post again. `failed`, or `held` with a refusal stamp, stays that way.
+   *
+   * The lock is held across the post and the status update. `withdrawSettle`
+   * and `withdrawReverse` do not share an idempotency key, so posting first
+   * and noticing a lost update afterwards would leave both recipes on the book.
+   */
+  private async settleHeldWithdrawal(withdrawalId: string, railRef: string): Promise<WithdrawalRecord> {
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const row = await this.lockWithdrawal(tx, withdrawalId);
+        if (row.status === 'sent') return row;
+        if (row.status === 'failed' || row.failureCode) {
+          throw new PayError('Rail refused the withdrawal', 'pay.rail_failed', {
+            failureCode: row.failureCode,
+            withdrawalId: row.id,
+          });
+        }
+        if (row.status !== 'held') {
+          throw new PayError(`Withdrawal ${row.id} cannot settle from ${row.status}`, 'pay.invalid_transition', {
+            withdrawalId: row.id,
+          });
+        }
+
+        await this.ledger.post(recipes.withdrawSettle(this.attemptLedgerInput(row)));
+
+        const updated = await tx<WithdrawalRow[]>`
+          UPDATE pay.withdrawals
+             SET status = 'sent', rail_ref = ${railRef}, failure_code = NULL, updated_at = now()
+           WHERE id = ${row.id} AND status = 'held' AND failure_code IS NULL
+          RETURNING id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
+        `;
+        if (!updated[0]) {
+          throw new PayError(`Withdrawal ${row.id} settle matched 0 rows`, 'pay.invalid_transition', {
+            withdrawalId: row.id,
+          });
+        }
+        return toWithdrawal(updated[0]);
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
   }
 
   /**

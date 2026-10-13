@@ -859,6 +859,112 @@ describe('svc-pay user money PG-hard', () => {
       expect(await availableOf()).toBe('60');
     });
 
+    /**
+     * Two withdraws, one clientRef, both inside the rail before either finishes.
+     *
+     * A sequential retry is a different story: the second call sees `failed` at
+     * claim time and opens the next attempt. That is supposed to pay. This is
+     * the overlap where one rail result is a refusal and the other is a send,
+     * and the loser must not post the other recipe or rewrite the row.
+     *
+     * `hold` parks one result after the rail returns and before this service
+     * posts, while the other caller is still in `withdraw`. Both promises are
+     * in flight together.
+     */
+    async function overlapWithdraw(holdOk: boolean) {
+      await deposit({ amount: amt('100') });
+      card.failNext('bank.rejected', 'Beneficiary account closed');
+
+      let arrived = 0;
+      let openBoth: () => void = () => undefined;
+      const bothInRail = new Promise<void>((resolve) => {
+        openBoth = resolve;
+      });
+      let releaseHeld: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => {
+        releaseHeld = resolve;
+      });
+
+      const spy = new Proxy(card, {
+        get(target, prop, receiver) {
+          if (prop === 'payout') {
+            return async (...args: Parameters<CardSandboxAdapter['payout']>) => {
+              arrived += 1;
+              if (arrived === 2) openBoth();
+              await bothInRail;
+              const result = await target.payout(...args);
+              if (result.ok === holdOk) await held;
+              return result;
+            };
+          }
+          return Reflect.get(target, prop, receiver);
+        },
+      });
+      money = new UserMoneyService(sql, ledger, new RailRegistry([spy]), { operatorCreditRails: ['card-sandbox'] });
+
+      const calls = [
+        withdraw({ amount: amt('40'), clientRef: 'w-race-relock' }),
+        withdraw({ amount: amt('40'), clientRef: 'w-race-relock' }),
+      ];
+      await Promise.race(calls).then(
+        () => undefined,
+        () => undefined,
+      );
+      releaseHeld();
+      const results = await Promise.allSettled(calls);
+      const record = (await money.listWithdrawals(USER, 50))[0]!;
+      return { arrived, results, record };
+    }
+
+    it('does not settle an attempt the overlapping call has already reversed', async () => {
+      const { arrived, results, record } = await overlapWithdraw(true);
+
+      expect(arrived).toBe(2);
+      expect(record.status).toBe('failed');
+      expect(record.failureCode).toBe('bank.rejected');
+      expect(record.attempts).toBe(1);
+      expect(results.every((r) => r.status === 'rejected')).toBe(true);
+      for (const result of results) {
+        expect(result.status).toBe('rejected');
+        if (result.status === 'rejected') expect(result.reason).toMatchObject({ code: 'pay.rail_failed' });
+      }
+
+      expect(await ledger.getTxByKey(`withdraw.reverse:${record.id}:0`)).not.toBeNull();
+      expect(await ledger.getTxByKey(`withdraw.settle:${record.id}:0`)).toBeNull();
+      expect(await ledger.getTxByKey(`withdraw.settle:${record.id}:1`)).toBeNull();
+      expect(await availableOf()).toBe('100');
+      expect(await boundaryOf()).toBe('-100');
+      expect(await holdOf(record.id, 0)).toBe('0');
+      expect(await sql`SELECT id FROM pay.withdrawals`).toHaveLength(1);
+    });
+
+    it('does not reverse an attempt the overlapping call has already settled', async () => {
+      const { arrived, results, record } = await overlapWithdraw(false);
+
+      expect(arrived).toBe(2);
+      expect(record.status).toBe('sent');
+      expect(record.failureCode).toBeNull();
+      expect(record.attempts).toBe(0);
+      expect(await ledger.getTxByKey(`withdraw.settle:${record.id}:0`)).not.toBeNull();
+      expect(await ledger.getTxByKey(`withdraw.reverse:${record.id}:0`)).toBeNull();
+      expect(await availableOf()).toBe('60');
+      expect(await boundaryOf()).toBe('-60');
+      expect(await holdOf(record.id, 0)).toBe('0');
+      expect(await sql`SELECT id FROM pay.withdrawals`).toHaveLength(1);
+
+      const fulfilled = results.filter((r) => r.status === 'fulfilled');
+      expect(fulfilled.length).toBeGreaterThanOrEqual(1);
+      for (const result of fulfilled) {
+        if (result.status === 'fulfilled') expect(result.value.status).toBe('sent');
+      }
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          expect(result.reason).not.toMatchObject({ code: 'pay.rail_failed' });
+          expect(String((result.reason as { message?: string }).message ?? '')).not.toMatch(/insufficient/i);
+        }
+      }
+    });
+
     it('refuses the second submission when the two disagree about the money', async () => {
       await deposit({ amount: amt('100') });
 
