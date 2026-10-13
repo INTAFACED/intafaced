@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { postgresAvailable } from '@intafaced/db';
 import postgres from 'postgres';
 import { afterAll, describe, expect, it } from 'vitest';
 
@@ -52,7 +53,12 @@ function assertIsolated(url: string): void {
 
 async function openAdmin(): Promise<{ sql: postgres.Sql; url: string } | null> {
   for (const url of ADMIN_CANDIDATES) {
-    const sql = postgres(url, { max: 1, connect_timeout: 2, onnotice: () => undefined });
+    // The shared, CI-aware probe: it throws under CI / REQUIRE_POSTGRES when this
+    // candidate is down, and journals the decision either way, so a laptop skip is
+    // visible to `pnpm verify` instead of silent. It replaces a private
+    // `postgres(url, { connect_timeout })` probe that swallowed every error.
+    if (!(await postgresAvailable(url))) continue;
+    const sql = postgres(url, { max: 1, onnotice: () => undefined });
     try {
       const rows = await sql<{ ok: boolean }[]>`
         SELECT (rolcreatedb OR rolsuper) AS ok
@@ -61,7 +67,7 @@ async function openAdmin(): Promise<{ sql: postgres.Sql; url: string } | null> {
       `;
       if (rows[0]?.ok) return { sql, url };
     } catch {
-      // This candidate is down or refused. Try the next one.
+      // Reachable, but the role check was refused. Try the next candidate.
     }
     await sql.end({ timeout: 1 }).catch(() => undefined);
   }

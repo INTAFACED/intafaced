@@ -1,3 +1,7 @@
+-- intafaced:destructive — drops the DEFAULT 0 and the NOT NULL on bank.earn_pools.min_deposit
+-- (and re-creates its non-negative CHECK under the same name). Invariants are relaxed, not data:
+-- no row is deleted or rewritten, and a stored floor keeps its value. Intended: a blank limit
+-- must stay blank instead of silently becoming an allow-all floor of 0. Reversal: the .down.sql.
 -- earn_pools.min_deposit DEFAULT 0 stores an allow-all floor when an insert
 -- omits the limit. A blank limit is null. An explicit number, including 0,
 -- stays that number.
