@@ -154,17 +154,18 @@ try {
     await page.getByRole('button', { name: 'Begin', exact: true }).click();
     await control(page, 'Your name').fill('Local focus proof');
     await control(page, 'Email').fill('focus@example.invalid');
-    await page.locator('.optional-details>summary').click();
-    await page.locator('.recovery-options summary').click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page.locator('#intake-heading')).toBeFocused();
+    await expect(page.locator('#intake-heading')).toHaveText('A little more, if you like.');
     await page.getByRole('checkbox', { name: 'Remember my draft on this device.' }).check();
     await page.getByRole('button', { name: 'Save details & continue' }).click();
     await page.getByRole('button', { name: 'I can introduce an investor', exact: true }).click();
     await next(page);
-    await control(page, 'Which best describes you').selectOption('individual');
+    await page.getByRole('radio', { name: 'Individual', exact: true }).check();
     await next(page);
-    await control(page, 'What is your role').selectOption('introducer');
+    await page.getByRole('radio', { name: 'I make introductions', exact: true }).check();
     await next(page);
-    await control(page, 'When would you consider').selectOption('later');
+    await page.getByRole('radio', { name: 'Later', exact: true }).check();
     // Simulate a delayed display frame, then begin real keyboard entry immediately.
     // There is deliberately no wait for heading focus before the first character.
     await page.evaluate(() => {
@@ -189,8 +190,9 @@ try {
     await control(page, 'What would you like us to know?').pressSequentially(' Please reply by email.', { delay: 60 });
     await expect(control(page, 'What would you like us to know?')).toHaveValue(edited);
     await page.getByRole('button', { name: 'Review your answers' }).click();
-    await page.locator('.draft-recovery>summary').click();
-    await expect(page.getByRole('status').filter({ hasText: 'Draft kept on this device' })).toBeVisible();
+    await page.locator('.saved-contact-details>summary').click();
+    await expect(page.getByText('Draft kept on this device')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Forget this draft on my device' })).toBeVisible();
     await page.close();
     page = await context.newPage();
     await page.goto(origin + '/invest');

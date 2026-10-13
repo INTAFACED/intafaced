@@ -19,7 +19,7 @@ import {
   type FreezeOutboxRow,
   type FreezeState,
 } from './ledger/freeze.js';
-import type { HistoryEntry, HistoryRange } from './ledger/history.js';
+import type { HistoryEntry, HistoryPage, HistoryPageInput, HistoryRange } from './ledger/history.js';
 import { runReconciliation, type ReconciliationReport } from './ledger/reconcile.js';
 import { withMoneySpan, withSpan } from './tracing.js';
 
@@ -100,6 +100,11 @@ export class LedgerService implements LedgerClient {
    */
   history(ref: AccountRef, range: HistoryRange): Promise<HistoryEntry[]> {
     return this.engine.history(ref, range);
+  }
+
+  /** Paged sibling of `history`. A read; same no-span reasoning. */
+  historyPage(input: HistoryPageInput): Promise<HistoryPage> {
+    return this.engine.historyPage(input);
   }
 
   getTx(txId: string): Promise<LedgerTx | null> {

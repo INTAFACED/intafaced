@@ -835,6 +835,69 @@ describe('s2s HTTP — service credentials', () => {
     await app.close();
   });
 
+  it('serves /trpc/historyPage behind the same guard: 401 without credentials, never asked', async () => {
+    let asked = false;
+    const app = await mount(
+      stubService({
+        historyPage: async () => {
+          asked = true;
+          return { entries: [], nextCursor: null };
+        },
+      }),
+    );
+    const res = await send(app, '/trpc/historyPage', {}, wire({ ownerType: 'user', ownerId: USER, kind: 'available' }));
+    expect(res.statusCode).toBe(401);
+    expect(asked).toBe(false);
+    await app.close();
+  });
+
+  it('serves /trpc/historyPage to a signed service: decimal-string amounts, ISO times, cursor passthrough', async () => {
+    const seen: unknown[] = [];
+    const app = await mount(
+      stubService({
+        historyPage: async (input: unknown) => {
+          seen.push(input);
+          return { entries: [{ ...historyEntry, assetId: 'USDT' }], nextCursor: 'abc' };
+        },
+      }),
+    );
+    const payload = wire({ ownerType: 'user', ownerId: USER, kind: 'available', assetId: 'USDT' });
+    const res = await send(app, '/trpc/historyPage', serviceAuthHeadersForBody('svc-bank', SECRET, payload), payload);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      entries: [
+        {
+          txId: 'tx-hist-1',
+          module: 'trade',
+          reason: 'trade.fill',
+          direction: 'credit',
+          amount: '12.345678901234567891',
+          postedAt: '2026-07-27T12:00:00.000Z',
+          assetId: 'USDT',
+        },
+      ],
+      nextCursor: 'abc',
+    });
+    expect(seen[0]).toMatchObject({ limit: 50, assetId: 'USDT' });
+    await app.close();
+  });
+
+  it('/trpc/historyPage: bad limit is 400, forged cursor is 400 with its code, old /trpc/history still refuses cursor', async () => {
+    const app = await mount();
+    const body = { ownerType: 'user', ownerId: USER, kind: 'available' };
+
+    const tooBig = wire({ ...body, limit: 201 });
+    expect((await send(app, '/trpc/historyPage', serviceAuthHeadersForBody('svc-bank', SECRET, tooBig), tooBig)).statusCode).toBe(400);
+
+    expect(httpError(new LedgerError('bad', 'ledger.history_cursor_invalid')).status).toBe(400);
+
+    const old = wire({ ...validHistory, cursor: 'x' });
+    const res = await send(app, '/trpc/history', serviceAuthHeadersForBody('svc-bank', SECRET, old), old);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe('ledger.history_page_socket');
+    await app.close();
+  });
+
   it('history infra fail is 500, never a 200 empty or a 0 spend', async () => {
     const app = await mount(
       stubService({
