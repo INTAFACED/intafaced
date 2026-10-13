@@ -3,6 +3,7 @@ import { drainPendingPayoutIdentityIntents } from './payout-admission.js';
 import { drainPendingPaymentIdentityIntents } from './payment-admission.js';
 import { createPayfacAuthorityGuard, drainPayfacPermissionIntents } from './payfac-authority.js';
 import { createFounderAuthority } from './founder-authority.js';
+import { isExplicitDevOrTestEnv } from '@intafaced/config';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { env } from './env.js';
@@ -170,7 +171,11 @@ for (const { railId } of env.PAY_CHECKOUT_RAILS) {
  * Durable journal — Memory alone is not multi-replica safe.
  * Does not move value; enqueue runs after money commits.
  */
-const merchantWebhooks = new MerchantWebhookService(new PostgresMerchantWebhookStore(sql));
+const merchantWebhooks = new MerchantWebhookService(new PostgresMerchantWebhookStore(sql), {
+  // SSRF guard: http and loopback receivers only under an EXPLICIT dev/test APP_ENV.
+  // Read the raw process env, not `env.APP_ENV`, which defaults an unset value to `dev`.
+  allowLocalHttp: isExplicitDevOrTestEnv(process.env),
+});
 
 const payoutDestinations = new MerchantPayoutDestinationStore(sql);
 const identityAdmission = createIdentityOperationDecisionClient({

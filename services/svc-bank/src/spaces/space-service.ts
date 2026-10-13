@@ -10,6 +10,15 @@ import {
 } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { assertSpacesListLimit } from '../owner-list-limit.js';
+import {
+  RecipientStateUnavailableError,
+  unconfiguredRecipientState,
+  type RecipientStatePort,
+  type RecipientStatus,
+} from '../recipient-state.js';
+
+/** One message for frozen, closed and unknown. Never says which. */
+export const RECIPIENT_CANNOT_RECEIVE_MESSAGE = 'This recipient cannot receive payments';
 
 /**
  * SPACES — named views over ledger accounts (§8.1).
@@ -91,7 +100,35 @@ export class SpaceService {
   constructor(
     private readonly sql: Sql,
     private readonly ledger: Pick<LedgerClient, 'balance' | 'balances'>,
+    /**
+     * Who may be credited. Defaults to the refusing port, never to "everyone":
+     * a deployment that was not given identity cannot tell a frozen recipient
+     * from an active one, and must not pay either.
+     */
+    private readonly recipients: RecipientStatePort = unconfiguredRecipientState(),
   ) {}
+
+  /**
+   * Refuse a credit to a user identity says cannot receive. Frozen, closed and
+   * unknown all give `bank.recipient_cannot_receive` with one message; an outage
+   * or a missing identity gives a different, retryable/operator code. Runs before
+   * any ledger posting on every credit-by-id path.
+   */
+  async assertCanReceive(userId: string): Promise<void> {
+    let status: RecipientStatus;
+    try {
+      status = await this.recipients.statusOf(userId);
+    } catch (err) {
+      if (err instanceof RecipientStateUnavailableError && err.reason === 'unset') {
+        throw new BankError(err.message, 'bank.recipient_check_unset');
+      }
+      throw new BankError(
+        'Could not check whether the recipient can receive payments; nothing was sent. Retry with the same id.',
+        'bank.recipient_check_unavailable',
+      );
+    }
+    if (status !== 'active') throw new BankError(RECIPIENT_CANNOT_RECEIVE_MESSAGE, 'bank.recipient_cannot_receive');
+  }
 
   /**
    * The user's main balance in an asset, given a name.
@@ -207,6 +244,27 @@ export class SpaceService {
     return orderSpaces([...rows.map(toRecord), ...funded], assetId === undefined);
   }
 
+  /**
+   * EVERY named space this user has ever owned, archived or not, funded or not.
+   * For history reads (`bank.activity.list`), which must still see a closed
+   * Space's postings: a move into one is a move between the user's own pots,
+   * not a payment to a stranger. Filtered by `user_id`, so never another user's.
+   */
+  async allNamedSpaces(userId: string, assetId?: string): Promise<SpaceRecord[]> {
+    const rows = assetId
+      ? await this.sql<SpaceRow[]>`
+          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+            FROM bank.spaces WHERE user_id = ${userId} AND asset_id = ${assetId} AND kind = 'named'
+            ORDER BY asset_id ASC, name ASC, id ASC
+        `
+      : await this.sql<SpaceRow[]>`
+          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+            FROM bank.spaces WHERE user_id = ${userId} AND kind = 'named'
+            ORDER BY asset_id ASC, name ASC, id ASC
+        `;
+    return rows.map(toRecord);
+  }
+
   async list(userId: string, assetId?: string, limit?: number): Promise<SpaceRecord[]> {
     const page = assertSpacesListLimit(limit);
     const rows = assetId
@@ -286,9 +344,36 @@ export class SpaceService {
     return space;
   }
 
-  async resolveForCredit(spaceId: string): Promise<SpaceRecord> {
+  /**
+   * Resolve a space for a money path that CREDITS it, refusing a recipient who
+   * cannot receive.
+   *
+   * `actingUserId` is the user moving the value: crediting their own space needs
+   * no identity call (a move between your own pots is not a payment to a
+   * recipient, and the edge already gates the sender's own account).
+   *
+   * `alreadyBooked` is for RETRIES. When the recipient check refuses but this
+   * very instruction already posted (same idempotency key) while the recipient
+   * was active, the retry must see the original result, not a refusal telling
+   * the caller a committed payment failed. The caller then still goes through
+   * the idempotent ledger post, which returns the original and refuses a changed
+   * body, so nothing new can move on this path.
+   */
+  async resolveForCredit(
+    spaceId: string,
+    opts: { actingUserId?: string; alreadyBooked?: () => Promise<boolean> } = {},
+  ): Promise<SpaceRecord> {
     const space = await this.get(spaceId);
     if (space.archivedAt) throw new BankError(`Space "${space.name}" is archived`, 'bank.space_archived');
+    if (space.userId === opts.actingUserId) return space;
+    try {
+      await this.assertCanReceive(space.userId);
+    } catch (err) {
+      if (opts.alreadyBooked && err instanceof BankError && err.code.startsWith('bank.recipient_') && (await opts.alreadyBooked())) {
+        return space;
+      }
+      throw err;
+    }
     return space;
   }
 

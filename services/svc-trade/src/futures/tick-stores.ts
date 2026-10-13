@@ -11,7 +11,21 @@ import {
   type FundingMemberSnapshot,
   type FundingPeriodStore,
 } from './funding-tick.js';
+import { transaction } from '@intafaced/db';
 import type { LiquidationAttemptStore, PositionCloser, PositionReducer } from './liquidation-tick.js';
+import {
+  decodeRungPlan,
+  encodeRungPlan,
+  type ApplyRungResult,
+  type RungAlert,
+  type BeginRungInput,
+  type BeginRungResult,
+  type EncodedRungPlan,
+  type LiquidationRungStore,
+  type RungKind,
+  type RungRecord,
+  type RungState,
+} from './liquidation-rungs.js';
 import type { EventBus } from '@intafaced/events';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 
@@ -133,6 +147,30 @@ export function sqlFundingPeriodStore(sql: Sql): FundingPeriodStore {
       }
       return [];
     },
+    async freezeRate(periodId, rate) {
+      // First writer freezes the rate; every later run (replay, concurrent tick,
+      // oracle republish at a new rate) reads the same one back.
+      await sql`
+        INSERT INTO trade.funding_period_rates (period_id, rate)
+        VALUES (${periodId}, ${rate})
+        ON CONFLICT (period_id) DO NOTHING
+      `;
+      const rows = await sql<{ rate: string }[]>`
+        SELECT rate FROM trade.funding_period_rates WHERE period_id = ${periodId} LIMIT 1
+      `;
+      const row = rows[0];
+      if (!row) {
+        // Never fall back to the oracle rate — that is the defect this table closes.
+        throw new Error(`funding rate freeze for ${periodId} produced no row — refusing oracle-rate fallback`);
+      }
+      return row.rate;
+    },
+    async peekRate(periodId) {
+      const rows = await sql<{ rate: string }[]>`
+        SELECT rate FROM trade.funding_period_rates WHERE period_id = ${periodId} LIMIT 1
+      `;
+      return rows[0]?.rate ?? null;
+    },
     async recordSkip(periodId, meta) {
       await sql`
         INSERT INTO trade.funding_period_skips (period_id, market_id, reason)
@@ -220,10 +258,10 @@ export function sqlLiquidationAttemptStore(sql: Sql): LiquidationAttemptStore {
 export function sqlPositionReducer(sql: Sql): PositionReducer {
   return {
     async reduce(positionId, input) {
-      if (input.sizeClosed <= 0n) return;
+      if (input.sizeClosed <= 0n) return false;
       const sizeClosed = formatAmount(input.sizeClosed);
       const marginRemaining = formatAmount(input.marginRemaining < 0n ? 0n : input.marginRemaining);
-      await sql`
+      const moved = await sql`
         UPDATE trade.positions
            SET size = size - ${sizeClosed}::numeric,
                margin_current = ${marginRemaining}::numeric,
@@ -231,11 +269,15 @@ export function sqlPositionReducer(sql: Sql): PositionReducer {
          WHERE id = ${positionId}
            AND status = 'open'
            AND size > ${sizeClosed}::numeric
+        RETURNING id
       `;
       // input.liquidationId / input.reason are for logs — the ledger already
       // carries the idempotency key that makes this rung identifiable.
       void input.liquidationId;
       void input.reason;
+      // A row that did not match the predicate is a no-op the caller must see:
+      // the tranche's loss is booked and the position did not shrink.
+      return moved.length > 0;
     },
   };
 }
@@ -245,6 +287,67 @@ export function sqlPositionReducer(sql: Sql): PositionReducer {
  * Optional bus fan-out — honest status only.
  */
 export function sqlPositionCloser(sql: Sql, bus: EventBus | null = null): PositionCloser {
+  /** The bus fan-out only — the row is already `liquidated`. */
+  async function announceLiquidated(positionId: string, meta: { liquidationId: string; reason: string }): Promise<void> {
+    if (!bus) return;
+    const rows = await sql<
+      {
+        id: string;
+        user_id: string;
+        market_id: string;
+        side: 'long' | 'short';
+        size: string;
+        entry_price: string;
+        leverage: string;
+        margin_initial: string;
+        margin_current: string | null;
+        margin_mode: 'cross' | 'isolated';
+        funding_paid: string;
+        liq_price: string | null;
+        symbol: string;
+      }[]
+    >`
+        SELECT p.*, m.symbol
+        FROM trade.positions p
+        JOIN trade.markets m ON m.id = p.market_id
+        WHERE p.id = ${positionId}
+        LIMIT 1
+      `;
+    const row = rows[0];
+    if (!row) return;
+    const size = parseAmount(row.size);
+    const entry = parseAmount(row.entry_price);
+    const SCALE = 10n ** 18n;
+    const notional = (size * entry) / SCALE;
+    const ts = new Date().toISOString();
+    const collateral = parseAmount(row.margin_current ?? row.margin_initial);
+    await bus.publish(
+      'positionUpdated',
+      {
+        positionId: row.id,
+        userId: row.user_id,
+        marketId: row.market_id,
+        symbol: row.symbol,
+        status: 'liquidated',
+        side: row.side,
+        contracts: formatAmount(size),
+        entryPrice: formatAmount(entry),
+        markPrice: null,
+        notional: formatAmount(notional),
+        leverage: formatAmount(parseAmount(row.leverage)),
+        collateral: formatAmount(collateral),
+        unrealizedPnl: null,
+        realizedPnl: null,
+        liquidationPrice: row.liq_price != null ? formatAmount(parseAmount(row.liq_price)) : null,
+        marginMode: row.margin_mode,
+        fundingPaid: formatAmount(parseAmount(row.funding_paid ?? '0')),
+        ts,
+      },
+      { idempotencyKey: `trade.position.liquidated:${row.id}:${meta.liquidationId}` },
+    );
+    // meta.reason is for logs only — not on positionUpdated schema
+    void meta.reason;
+  }
   return {
     async markLiquidated(positionId, meta) {
       await sql`
@@ -252,64 +355,256 @@ export function sqlPositionCloser(sql: Sql, bus: EventBus | null = null): Positi
         SET status = 'liquidated', closed_at = now(), updated_at = now()
         WHERE id = ${positionId} AND status = 'open'
       `;
-      if (!bus) return;
-      const rows = await sql<
-        {
-          id: string;
-          user_id: string;
-          market_id: string;
-          side: 'long' | 'short';
-          size: string;
-          entry_price: string;
-          leverage: string;
-          margin_initial: string;
-          margin_current: string | null;
-          margin_mode: 'cross' | 'isolated';
-          funding_paid: string;
-          liq_price: string | null;
-          symbol: string;
-        }[]
-      >`
-        SELECT p.*, m.symbol
-        FROM trade.positions p
-        JOIN trade.markets m ON m.id = p.market_id
-        WHERE p.id = ${positionId}
-        LIMIT 1
+      await announceLiquidated(positionId, meta);
+    },
+    announceLiquidated,
+  };
+}
+
+interface RungRow {
+  rung_id: string;
+  position_id: string;
+  liquidation_id: string;
+  kind: RungKind;
+  from_size: string;
+  from_margin: string;
+  plan: EncodedRungPlan;
+  state: RungState;
+  plan_version: number;
+  margin_drift: string;
+}
+
+function rungFromRow(row: RungRow): RungRecord {
+  return {
+    rungId: row.rung_id,
+    positionId: row.position_id,
+    liquidationId: row.liquidation_id,
+    kind: row.kind,
+    fromSize: parseAmount(row.from_size),
+    fromMargin: parseAmount(row.from_margin),
+    plan: decodeRungPlan(row.plan),
+    state: row.state,
+    planVersion: row.plan_version,
+    marginDrift: parseAmount(row.margin_drift),
+  };
+}
+
+/**
+ * The rung state machine on Postgres — see `liquidation-rungs.ts`.
+ *
+ * EVERY ROW-STATE CHECK IS UNDER `SELECT … FOR UPDATE` ON THE POSITION ROW. A
+ * rung is created and applied only while holding that lock, so for one position
+ * "is there a live rung?", "is the row still what the decision read?" and "move
+ * the row, set the rung applied" are each a single indivisible step. READ
+ * COMMITTED is correct here for the reason `transaction` documents: the lock
+ * establishes the total order, so transactions queue instead of aborting.
+ *
+ * The partial unique index `liquidation_rungs_one_live_idx` is the backstop
+ * (a second live rung for one position cannot exist whatever the code does).
+ */
+export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
+  async function liveIn(tx: Sql, positionId: string): Promise<RungRecord | null> {
+    const rows = await tx<RungRow[]>`
+      SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state, plan_version, margin_drift
+        FROM trade.liquidation_rungs
+       WHERE position_id = ${positionId} AND state IN ('planned', 'posted')
+       LIMIT 1
+    `;
+    return rows[0] ? rungFromRow(rows[0]) : null;
+  }
+
+  async function beginLocked(input: BeginRungInput): Promise<BeginRungResult> {
+    return transaction(
+      sql,
+      async (tx) => {
+        const locked = await tx<{ status: string; size_ok: boolean; margin_ok: boolean }[]>`
+          SELECT status,
+                 size = ${formatAmount(input.fromSize)}::numeric AS size_ok,
+                 margin_current = ${formatAmount(input.fromMargin)}::numeric AS margin_ok
+            FROM trade.positions
+           WHERE id = ${input.positionId}
+             FOR UPDATE
+        `;
+        // A live rung wins whatever the row looks like now: it is the one that
+        // may already have booked a loss, and it is what must be finished.
+        const existing = await liveIn(tx, input.positionId);
+        if (existing) return { status: 'live' as const, rung: existing };
+
+        const row = locked[0];
+        if (!row || row.status !== 'open' || !row.size_ok || !row.margin_ok) return { status: 'changed' as const };
+
+        const inserted = await tx<RungRow[]>`
+          INSERT INTO trade.liquidation_rungs (rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state)
+          VALUES (
+            ${input.rungId}, ${input.positionId}, ${input.liquidationId}, ${input.kind},
+            ${formatAmount(input.fromSize)}::numeric, ${formatAmount(input.fromMargin)}::numeric,
+            ${tx.json(encodeRungPlan(input.plan) as never)}, 'planned'
+          )
+          RETURNING rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state, plan_version, margin_drift
+        `;
+        return { status: 'created' as const, rung: rungFromRow(inserted[0]!) };
+      },
+      { isolation: 'read committed' },
+    );
+  }
+
+  return {
+    async findLive(positionId) {
+      return liveIn(sql, positionId);
+    },
+
+    async begin(input): Promise<BeginRungResult> {
+      try {
+        return await beginLocked(input);
+      } catch (err) {
+        // The row lock makes this unreachable through this code path; the unique
+        // index is the backstop, and a writer that raced past the lock (a manual
+        // insert, a future second writer) still converges on the winner's rung.
+        if ((err as { code?: string } | null)?.code !== '23505') throw err;
+        const winner = await liveIn(sql, input.positionId);
+        if (!winner) throw err;
+        return { status: 'live', rung: winner };
+      }
+    },
+
+    async amendPlan(rungId, plan, expectedVersion) {
+      // Compare-and-set on plan_version: the amendment applies only to the plan its
+      // author read. A second worker amending from the same read matches no row.
+      const rows = await sql<{ plan_version: number }[]>`
+        UPDATE trade.liquidation_rungs
+           SET plan = ${sql.json(encodeRungPlan(plan) as never)}, plan_version = plan_version + 1, updated_at = now()
+         WHERE rung_id = ${rungId} AND state = 'planned' AND plan_version = ${expectedVersion}
+        RETURNING plan_version
       `;
-      const row = rows[0];
-      if (!row) return;
-      const size = parseAmount(row.size);
-      const entry = parseAmount(row.entry_price);
-      const SCALE = 10n ** 18n;
-      const notional = (size * entry) / SCALE;
-      const ts = new Date().toISOString();
-      const collateral = parseAmount(row.margin_current ?? row.margin_initial);
-      await bus.publish(
-        'positionUpdated',
-        {
-          positionId: row.id,
-          userId: row.user_id,
-          marketId: row.market_id,
-          symbol: row.symbol,
-          status: 'liquidated',
-          side: row.side,
-          contracts: formatAmount(size),
-          entryPrice: formatAmount(entry),
-          markPrice: null,
-          notional: formatAmount(notional),
-          leverage: formatAmount(parseAmount(row.leverage)),
-          collateral: formatAmount(collateral),
-          unrealizedPnl: null,
-          realizedPnl: null,
-          liquidationPrice: row.liq_price != null ? formatAmount(parseAmount(row.liq_price)) : null,
-          marginMode: row.margin_mode,
-          fundingPaid: formatAmount(parseAmount(row.funding_paid ?? '0')),
-          ts,
+      return rows[0] ? rows[0].plan_version : null;
+    },
+
+    async markPosted(rungId) {
+      await sql`
+        UPDATE trade.liquidation_rungs
+           SET state = 'posted', updated_at = now()
+         WHERE rung_id = ${rungId} AND state = 'planned'
+      `;
+    },
+
+    async apply(positionId, rungId): Promise<ApplyRungResult> {
+      return transaction(
+        sql,
+        async (tx): Promise<ApplyRungResult> => {
+          // The position row first: that is the order every writer takes.
+          const locked = await tx<{ status: string; size: string; margin_current: string }[]>`
+            SELECT status, size, margin_current FROM trade.positions WHERE id = ${positionId} FOR UPDATE
+          `;
+          // Read AFTER the lock, so a concurrent apply's 'applied' is visible here.
+          const found = await tx<RungRow[]>`
+            SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state, plan_version, margin_drift
+              FROM trade.liquidation_rungs
+             WHERE rung_id = ${rungId} AND position_id = ${positionId}
+          `;
+          const rungRow = found[0];
+          if (!rungRow) return { status: 'not_live' };
+          if (rungRow.state === 'applied') return { status: 'already_applied' };
+          if (rungRow.state === 'abandoned' || rungRow.state === 'resolved') return { status: 'not_live' };
+          const rung = rungFromRow(rungRow);
+
+          const abandon = async (reason: 'row_changed' | 'row_missing' | 'reduction_no_op'): Promise<ApplyRungResult> => {
+            await tx`
+              UPDATE trade.liquidation_rungs SET state = 'abandoned', updated_at = now() WHERE rung_id = ${rungId}
+            `;
+            return { status: 'abandoned', reason };
+          };
+
+          const row = locked[0];
+          if (!row) return abandon('row_missing');
+          if (row.status !== 'open') return abandon('row_changed');
+
+          let drift = 0n;
+          let alert: RungAlert | undefined;
+
+          if (rung.kind === 'partial') {
+            const sizeClosed = formatAmount(rung.plan.sizeClosed);
+            const marginTaken = formatAmount(rung.plan.marginTaken);
+            // THE LOSS IS BOOKED, SO THE ROW MOVES BY A DELTA. Funding, the trader
+            // adding or taking margin, a partial close — any of them may have moved
+            // the row since the decision, and none of them un-books the loss. The
+            // only guard is the one `positions_size_positive_ck` needs: the tranche
+            // must be strictly smaller than what is left.
+            const moved = await tx`
+              UPDATE trade.positions
+                 SET size = size - ${sizeClosed}::numeric,
+                     margin_current = GREATEST(margin_current - ${marginTaken}::numeric, 0),
+                     updated_at = now()
+               WHERE id = ${positionId}
+                 AND status = 'open'
+                 AND size > ${sizeClosed}::numeric
+               RETURNING id
+            `;
+            if (moved.length === 0) return abandon('reduction_no_op');
+            // THE FLOOR AT ZERO MUST NOT HIDE A SHORTFALL. If the row held less margin
+            // than the loss took (funding took it first), the rung still applies — the
+            // loss is booked and the size must shrink — but the shortfall is recorded
+            // and raised, not swallowed by GREATEST.
+            const shortfall = parseAmount(row.margin_current) - rung.plan.marginTaken;
+            if (shortfall < 0n) {
+              drift = shortfall;
+              alert = { code: 'trade.liquidation_margin_clipped', amount: shortfall };
+            }
+          } else {
+            // THE LOSS AND THE STORED RELEASE ARE BOOKED, so the row closes if it is
+            // still the SIZE they were computed for — whatever its margin did since.
+            // Abandoning on a margin change (the first version) left a position the
+            // ledger had fully liquidated open and tradable. The margin difference is
+            // recorded and raised for an operator instead.
+            const closed = await tx<{ margin_current: string }[]>`
+              UPDATE trade.positions
+                 SET status = 'liquidated', closed_at = now(), updated_at = now()
+               WHERE id = ${positionId}
+                 AND status = 'open'
+                 AND size = ${formatAmount(rung.fromSize)}::numeric
+               RETURNING margin_current
+            `;
+            if (closed.length === 0) return abandon('row_changed');
+            drift = parseAmount(closed[0]!.margin_current) - rung.fromMargin;
+            if (drift !== 0n) alert = { code: 'trade.liquidation_margin_drift', amount: drift };
+          }
+
+          await tx`
+            UPDATE trade.liquidation_rungs
+               SET state = 'applied', margin_drift = ${formatAmount(drift)}::numeric, updated_at = now()
+             WHERE rung_id = ${rungId}
+          `;
+          return alert ? { status: 'applied', alert } : { status: 'applied' };
         },
-        { idempotencyKey: `trade.position.liquidated:${row.id}:${meta.liquidationId}` },
+        { isolation: 'read committed' },
       );
-      // meta.reason is for logs only — not on positionUpdated schema
-      void meta.reason;
+    },
+
+    async isParked(positionId) {
+      const rows = await sql<{ state: string }[]>`
+        SELECT state FROM trade.liquidation_rungs
+         WHERE position_id = ${positionId}
+         ORDER BY created_at DESC, rung_id DESC
+         LIMIT 1
+      `;
+      return rows[0]?.state === 'abandoned';
+    },
+
+    async listUnannounced(limit) {
+      const rows = await sql<RungRow[]>`
+        SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state, plan_version, margin_drift
+          FROM trade.liquidation_rungs
+         WHERE kind = 'closing' AND state = 'applied' AND announced_at IS NULL
+         ORDER BY created_at
+         LIMIT ${limit}
+      `;
+      return rows.map(rungFromRow);
+    },
+
+    async markAnnounced(rungId) {
+      await sql`
+        UPDATE trade.liquidation_rungs SET announced_at = now(), updated_at = now()
+         WHERE rung_id = ${rungId} AND announced_at IS NULL
+      `;
     },
   };
 }

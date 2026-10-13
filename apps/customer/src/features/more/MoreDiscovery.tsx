@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import { Text as RoomText } from './copy';
 import { discoveryCopy } from './discovery-copy';
+import { isHiddenPath } from '../../app/feature-registry';
 import { preservePaperHref } from './trade-context';
 import './more-discovery.css';
 
@@ -49,6 +50,9 @@ const blueprint = {
 } as const;
 type CompactRoom = (typeof research)[number] | (typeof explore)[number] | typeof blueprint;
 
+// The registry is the single source of truth: a room hidden from customers is not listed (critic S1).
+const isLive = (room: { href: string }) => !isHiddenPath(room.href.split('?')[0] ?? room.href);
+
 function TaskMark({ icon }: { icon: 'book' | 'chat' }) {
   return (
     <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
@@ -89,52 +93,62 @@ function CompactLink({ room, paper }: { room: CompactRoom; paper: boolean }) {
 export function MoreDiscovery({ paper }: { paper: boolean }) {
   const id = useId();
   const { Copy } = discoveryCopy.useCopy();
+  const livePrimary = primary.filter(isLive);
+  const liveResearch = research.filter(isLive);
+  const liveExplore = explore.filter(isLive);
+  const showBlueprint = isLive(blueprint);
   return (
     <div className="more-discovery">
-      <section aria-labelledby={`${id}-learn`}>
-        <h2 id={`${id}-learn`}>
-          <Copy k="learn" />
-        </h2>
-        <div className="more-discovery-primary">
-          {primary.map((room) => (
-            <a className="more-discovery-card" href={preservePaperHref(room.href, paper)} key={room.href}>
-              <span className="more-discovery-mark">
-                <TaskMark icon={room.icon} />
-              </span>
-              <h3>
-                <RoomText k={room.name} />
-              </h3>
-              <p>
-                <Copy k={room.description} />
-              </p>
-              <span className="more-discovery-cta">
-                <Copy k={room.action} /> <span aria-hidden="true">↗</span>
-              </span>
-            </a>
-          ))}
-        </div>
-        <CompactLink room={blueprint} paper={paper} />
-      </section>
-      <section aria-labelledby={`${id}-research`}>
-        <h2 id={`${id}-research`}>
-          <Copy k="research" />
-        </h2>
-        <div className="more-discovery-list">
-          {research.map((room) => (
-            <CompactLink room={room} paper={paper} key={room.href} />
-          ))}
-        </div>
-      </section>
-      <section aria-labelledby={`${id}-explore`}>
-        <h2 id={`${id}-explore`}>
-          <Copy k="explore" />
-        </h2>
-        <div className="more-discovery-list">
-          {explore.map((room) => (
-            <CompactLink room={room} paper={paper} key={room.href} />
-          ))}
-        </div>
-      </section>
+      {livePrimary.length > 0 || showBlueprint ? (
+        <section aria-labelledby={`${id}-learn`}>
+          <h2 id={`${id}-learn`}>
+            <Copy k="learn" />
+          </h2>
+          <div className="more-discovery-primary">
+            {livePrimary.map((room) => (
+              <a className="more-discovery-card" href={preservePaperHref(room.href, paper)} key={room.href}>
+                <span className="more-discovery-mark">
+                  <TaskMark icon={room.icon} />
+                </span>
+                <h3>
+                  <RoomText k={room.name} />
+                </h3>
+                <p>
+                  <Copy k={room.description} />
+                </p>
+                <span className="more-discovery-cta">
+                  <Copy k={room.action} /> <span aria-hidden="true">↗</span>
+                </span>
+              </a>
+            ))}
+          </div>
+          {showBlueprint ? <CompactLink room={blueprint} paper={paper} /> : null}
+        </section>
+      ) : null}
+      {liveResearch.length > 0 ? (
+        <section aria-labelledby={`${id}-research`}>
+          <h2 id={`${id}-research`}>
+            <Copy k="research" />
+          </h2>
+          <div className="more-discovery-list">
+            {liveResearch.map((room) => (
+              <CompactLink room={room} paper={paper} key={room.href} />
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {liveExplore.length > 0 ? (
+        <section aria-labelledby={`${id}-explore`}>
+          <h2 id={`${id}-explore`}>
+            <Copy k="explore" />
+          </h2>
+          <div className="more-discovery-list">
+            {liveExplore.map((room) => (
+              <CompactLink room={room} paper={paper} key={room.href} />
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

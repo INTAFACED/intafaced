@@ -11,7 +11,7 @@
     "localChanges": [
       "relative local import paths; further calm-motion/colour changes tracked by git",
       "Original finite5/6s field glow travel uses full-parent-width transform wrappers instead of animated left; original35%/55% endpoints, glow sizes, gradients, blur and normal timing retained; reduced motion static",
-      "Resting glow damped: the glow layer (data-slot halo-glow) sits at 5% opacity on an empty or unfocused field and returns to full opacity on hover and focus-within (300ms ease-out), so an idle field does not read as a stain; the shell gains the group/halo name for that"
+      "Glow on focus only: the glow layer (data-slot halo-glow) is hidden at rest and on hover and fades in on focus-within (300ms ease-out), so an idle field never reads as a stain; the shell gains the group/halo name for that. Surface: the translucent backdrop blur/saturate and the inner focus ring are replaced by the page's one control gradient and one focus outline (design QA 2026-10-13)"
     ],
     "registry": "https://www.cult-ui.com/r/halo-input.json"
   },

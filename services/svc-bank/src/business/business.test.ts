@@ -16,7 +16,7 @@ import {
   type LedgerClient,
   type PostRequest,
 } from '@intafaced/ledger-client';
-import { createBankServices, type BankServices } from '../bank-service.js';
+import { createBankServices, memoryRecipientState, type BankServices } from '../bank-service.js';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { accountForSpace } from '../spaces/space-service.js';
 
@@ -144,7 +144,7 @@ describe('maker/checker dual control with ledger holds', () => {
       RESTART IDENTITY CASCADE
     `;
     ledger = new MemoryLedger();
-    bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
+    bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC', recipients: memoryRecipientState() });
   });
 
   afterAll(async () => {
@@ -1425,7 +1425,10 @@ describe('maker/checker dual control with ledger holds', () => {
   it('records a payroll when the ledger client returns no entries', async () => {
     const inner = new MemoryLedger();
     const hidden = ledgerThatHidesEntries(inner);
-    const bankStub = createBankServices(sql, hidden, memoryLedgerHistory(inner), { nativeAssetId: 'IFC' });
+    const bankStub = createBankServices(sql, hidden, memoryLedgerHistory(inner), {
+      nativeAssetId: 'IFC',
+      recipients: memoryRecipientState(),
+    });
     const account = await bankStub.business.createAccount({
       name: 'Ops Co',
       assetId: 'USDT',
@@ -1531,9 +1534,12 @@ describe('maker/checker dual control with ledger holds', () => {
       INSERT INTO bank.business_payroll_lines (payroll_id, to_space_id, amount)
       VALUES (${shortId}::uuid, ${alice.id}::uuid, ${formatAmount(amt('40'))}::numeric)
     `;
-    const short = await run(shortId, [{ toSpaceId: alice.id, amount: amt('40') }]);
-    expect(short.ledgerTxId).toBe(shortPosted.id);
-    expect(short.recipients).toEqual([{ toSpaceId: alice.id, amount: amt('40') }]);
+    // The booked payment pays alice AND bob; this retry names only alice. The ledger refuses a reused
+    // key with a different body, so a client that hides entries can no longer paper over it (this used
+    // to return the booked tx and record one recipient while the ledger had paid two).
+    await expect(run(shortId, [{ toSpaceId: alice.id, amount: amt('40') }])).rejects.toMatchObject({
+      code: 'bank.business_request_conflict',
+    });
     expect(movements(shortId)).toBe(1);
     const shortLines = await sql<{ to_space_id: string }[]>`
       SELECT to_space_id FROM bank.business_payroll_lines WHERE payroll_id = ${shortId}::uuid ORDER BY to_space_id

@@ -251,9 +251,64 @@ export const historyPageInputSchema = accountRefSchema
 
 export type HistoryPageInput = z.infer<typeof historyPageInputSchema>;
 
-/** One entry on a page: the history shape plus the asset, which a multi-asset page needs to mean anything. */
+/**
+ * Rails `historyPage` may echo back from `ledger_tx.meta.rail`. Anything else is
+ * returned as `null` — meta is free-form and never leaves this door as-is.
+ *
+ * Built from the rails that actually reach `recipes.deposit` (meta `{ rail, railRef }`):
+ *  - `crypto-native`      svc-pay/src/rails/crypto-native.ts:67 (id); operator credit svc-pay/src/user-money-service.ts:219
+ *  - `card-sandbox`       svc-pay/src/rails/card-sandbox.ts:55 (id); svc-pay/src/index.ts:284 (operator-credit rail)
+ *  - `bank-crypto-ledger` svc-bank/src/ramps/rails.ts:64 (BANK_CRYPTO_LEDGER_RAIL); on-ramp svc-bank/src/ramps/ramp-service.ts:285
+ * Operator ("admin") credits post the rail named in PAY_OPERATOR_CREDIT_RAILS
+ * (svc-pay/src/router.ts:1467), so they carry one of the above and stay ordinary deposits.
+ *  - `local-test`         the local test stack's labelled welcome credit
+ *    (tooling/scripts/local-test-world.mjs:10, stack worktree). A display label only;
+ *    production has no welcome rail.
+ */
+export const HISTORY_RAILS = ['crypto-native', 'card-sandbox', 'bank-crypto-ledger', 'local-test'] as const;
+export type HistoryRail = (typeof HISTORY_RAILS)[number];
+
+const HISTORY_RAIL_SET: ReadonlySet<string> = new Set(HISTORY_RAILS);
+
+/** `meta.rail` if it is an allow-listed rail, else `null`. */
+export function allowedHistoryRail(raw: unknown): HistoryRail | null {
+  return typeof raw === 'string' && HISTORY_RAIL_SET.has(raw) ? (raw as HistoryRail) : null;
+}
+
+/**
+ * Trade postings whose customer line belongs to one order, and which of them name the order by the
+ * owner's own order-hold account (`purpose` = `order:<id>`) that the SAME transaction moves.
+ *
+ * WHY THE HOLD ACCOUNT AND NOT `meta`. A fill's meta names both orders (`takerOrderId`, `makerOrderId`)
+ * but neither user, so a reader of the meta alone cannot tell which order is the page owner's. The
+ * transaction's own entries can: `tradeFill` and `marketMakerMakerFill` credit each party's order hold
+ * and debit that party's `available`, so the hold account owned by the page owner IS the owner's order,
+ * and the counterparty's order id is never read. For a hold, an amend and a release the owner has exactly
+ * one order hold in the transaction, and its purpose is the same id as `meta.orderId`.
+ *
+ * ON A FILL, WHICH HOLD. The owner's `available` line receives the asset the COUNTERPARTY paid; the owner's
+ * own order was held in the asset the owner paid. So on a fill the order is the owner's hold whose asset is
+ * NOT the line's asset. That also keeps a self-trade (one user on both sides, two holds in one transaction)
+ * exact. Every other reason has one hold, no asset test.
+ */
+/** `order:<id>` hold purpose to `<id>`. Anything that is not a plain id (or not an order hold) is `null`. */
+const ORDER_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+export function orderIdFromHoldPurpose(purpose: unknown): string | null {
+  if (typeof purpose !== 'string' || !purpose.startsWith('order:')) return null;
+  const id = purpose.slice('order:'.length);
+  return ORDER_ID_PATTERN.test(id) ? id : null;
+}
+
+/**
+ * One entry on a page: the history shape plus the asset, which a multi-asset page needs to mean anything,
+ * the `entryId` (bigserial `ledger_entries.id`, decimal string) a caller resumes from, the allow-listed `rail`,
+ * and the `orderId` of the page owner's own trade order when this line belongs to one (else `null`).
+ */
 export interface HistoryPageEntry extends HistoryEntry {
   readonly assetId: string;
+  readonly entryId: string;
+  readonly rail: HistoryRail | null;
+  readonly orderId: string | null;
 }
 
 export interface HistoryPage {
@@ -307,6 +362,9 @@ export function serializeHistoryPage(page: HistoryPage) {
       amount: formatAmount(e.amount),
       postedAt: e.postedAt.toISOString(),
       assetId: e.assetId,
+      entryId: e.entryId,
+      rail: e.rail,
+      orderId: e.orderId,
     })),
     nextCursor: page.nextCursor,
   };

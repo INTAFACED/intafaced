@@ -56,6 +56,16 @@ Unconfigured product surfaces refuse without posting: `cards.rewards` names
 programme never claims live fiat settlement; kind `fiat` refuses
 `bank.fiat_ramp_socket` before any row or ledger post.
 
+**Recipients who cannot receive.** Every credit to another user (`transfers.toUser`,
+`transfers.create` to someone else's space, `scheduleToUser` and each standing-order run, business
+payroll and proposals) first asks svc-identity (`GET /internal/account/:userId`, service-signed, a
+status only, no PII) whether the recipient is active. Frozen, closed and unknown all refuse
+`bank.recipient_cannot_receive` with one message, before any ledger post. An identity outage refuses
+`bank.recipient_check_unavailable` (retry with the same id; a standing order is not consumed). With no
+`IDENTITY_URL`, credits to another user refuse `bank.recipient_check_unset` and the boot log says so;
+moves between a user's own spaces are unaffected. A retry of a transfer that already posted still
+returns the original.
+
 `spaces.unarchive` restores an archived space without moving value. Funded
 archived spaces remain visible. `loans.releaseExcess` requires a caller-supplied
 `eventId` so overlapping or repeated requests cannot release collateral twice.

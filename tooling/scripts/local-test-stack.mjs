@@ -18,6 +18,8 @@
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
  *   pnpm local:stack --only a,b           start only the named services (plus Postgres/NATS)
  *   pnpm local:stack restart edge         stop the named services, then start (idempotent)
+ *   pnpm local:stack customer-dist <abs>  serve a Customer build from another folder (never rebuilt or overwritten)
+ *   pnpm local:stack customer-dist --clear   go back to this checkout's own build
  *
  * Rules this file keeps (AGENTS.md "Money"):
  *   - Value moves ONLY through the ledger (packages/ledger-client recipes -> svc-ledger).
@@ -58,6 +60,7 @@ const P = {
   natsVerified: path.join(STATE, 'nats-verified.json'),
   buildStamp: path.join(STATE, 'build-stamp.json'),
   customerDist: path.join(REPO, 'apps', 'customer', 'dist'),
+  customerDistFile: path.join(STATE, 'customer-dist.json'),
 };
 
 const PORTS = {
@@ -429,30 +432,151 @@ function sourceUnchangedSince(oldHead, head) {
 
 const distOf = (pkg) => path.join(REPO, 'services', pkg, 'dist', 'index.js');
 
-function ensureBuilt(rebuild) {
-  const head = gitHead();
-  const stamp = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
-  const customerOk = fs.existsSync(path.join(P.customerDist, 'index.html'));
-  const fresh = !rebuild && sourceUnchangedSince(stamp.head, head);
-  const missing = BACKEND_PKGS.filter((s) => !fs.existsSync(distOf(s)));
-  if (fresh && customerOk && missing.length === 0) {
-    say('  build: up to date (use --rebuild to force)');
-    if (stamp.head !== head) writePrivate(P.buildStamp, JSON.stringify({ head, builtAt: stamp.builtAt }, null, 2));
+// ── Customer folder override (LOCAL_STACK_CUSTOMER_DIST) ────────────────────
+// A folder the founder is reviewing (for example a redesign build from another worktree) can be served
+// instead of this checkout's apps/customer/dist. While it is set, this script never builds into it,
+// never builds the Customer app at all, and never writes into it.
+
+const CUSTOMER_DIST_ENV = 'LOCAL_STACK_CUSTOMER_DIST';
+
+/** True when `file` is `dir` or lies under it (both already real paths). */
+const insideDir = (dir, file) => file === dir || file.startsWith(dir + path.sep);
+
+/** Validate a candidate folder. Returns { dir } or { error } (plain words). Touches nothing. */
+function checkCustomerDist(raw) {
+  if (typeof raw !== 'string' || raw.trim() === '') return { error: 'no folder given' };
+  if (!path.isAbsolute(raw)) return { error: `the folder must be an absolute path starting with "/" (got "${raw}")` };
+  const dir = path.resolve(raw);
+  let real;
+  try {
+    real = fs.realpathSync(dir);
+    if (!fs.statSync(real).isDirectory()) return { error: `${dir} is not a folder` };
+  } catch {
+    return { error: `${dir} does not exist` };
+  }
+  let home = os.homedir();
+  try {
+    home = fs.realpathSync(home);
+  } catch {
+    /* keep the plain home path */
+  }
+  if (!real.startsWith(home + path.sep))
+    return { error: `${dir} is not inside your home folder (${home}); only folders under it are allowed` };
+  // Hidden folders under home hold state and keys (~/.intafaced, ~/.ssh, ~/.config ...): never serve them.
+  const hidden = path
+    .relative(home, real)
+    .split(path.sep)
+    .find((seg) => seg.startsWith('.'));
+  if (hidden) return { error: `${dir} is inside a hidden folder (${hidden}); those are never served` };
+  try {
+    if (!fs.statSync(path.join(real, 'index.html')).isFile()) throw new Error('not a file');
+    if (!insideDir(real, fs.realpathSync(path.join(real, 'index.html')))) throw new Error('index.html points outside');
+  } catch {
+    return { error: `${dir} has no index.html, so it is not a built Customer app` };
+  }
+  // A source folder (apps/customer) also has an index.html; serving it would expose src/ and node_modules.
+  if (fs.existsSync(path.join(real, 'package.json')))
+    return { error: `${dir} contains package.json, so it looks like a source folder, not a build output` };
+  // The realpath captured here is what gets stored and served, so a later symlink swap cannot redirect it.
+  return { dir: real };
+}
+
+/** Which source is asked for: the environment wins over the saved choice. */
+function customerDistChoice() {
+  const env = process.env[CUSTOMER_DIST_ENV];
+  if (env !== undefined && env !== '') return { source: 'env', raw: env };
+  try {
+    return { source: 'saved', raw: readJson(P.customerDistFile).path };
+  } catch (e) {
+    if (e?.code === 'ENOENT') return { source: 'own' };
+    return { source: 'saved', raw: undefined }; // unreadable file: reported as invalid, never ignored
+  }
+}
+
+/** The folder the Customer server serves right now: { source, dir } or { source, error }. */
+function activeCustomerDist() {
+  const c = customerDistChoice();
+  if (c.source === 'own') return { source: 'own', dir: P.customerDist };
+  const v = checkCustomerDist(c.raw);
+  return v.error ? { source: c.source, error: v.error } : { source: c.source, dir: v.dir };
+}
+
+function describeCustomerDist() {
+  const a = activeCustomerDist();
+  if (a.source === 'own') return `customer app: this checkout's own build (${P.customerDist})`;
+  const from = a.source === 'env' ? `${CUSTOMER_DIST_ENV} in your shell` : 'saved by "customer-dist"';
+  if (a.error) return `customer app: OVERRIDE UNUSABLE (${from}): ${a.error}. Fix it or run: pnpm local:stack customer-dist --clear`;
+  return `customer app: ${a.dir}  (override, ${from}; never rebuilt or overwritten)`;
+}
+
+/** An override given in the environment is saved, so later commands (restart, start) keep serving it. */
+function adoptEnvCustomerDist() {
+  const c = customerDistChoice();
+  if (c.source !== 'env') return;
+  const v = checkCustomerDist(c.raw);
+  if (v.error) fail(`${CUSTOMER_DIST_ENV}: ${v.error}`);
+  writePrivate(P.customerDistFile, JSON.stringify({ path: v.dir, setAt: new Date().toISOString(), from: 'env' }, null, 2));
+}
+
+/** `customer-dist [<abs path> | --clear]`: show, set or clear the saved choice. Does not touch running processes. */
+function cmdCustomerDist(args) {
+  if (args.length === 0) return say(`  ${describeCustomerDist()}`);
+  const envSet = (process.env[CUSTOMER_DIST_ENV] ?? '') !== '';
+  if (args[0] === '--clear') {
+    fs.rmSync(P.customerDistFile, { force: true });
+    say("  customer-dist: cleared; the Customer app is this checkout's own build again.");
+    if (envSet) say(`  Note: ${CUSTOMER_DIST_ENV} is still set in your shell and wins until you unset it.`);
     return;
   }
-  if (fresh && customerOk) {
+  if (args.length !== 1) fail('usage: customer-dist <absolute folder> | customer-dist --clear', 2);
+  const v = checkCustomerDist(args[0]);
+  if (v.error) fail(`refusing: ${v.error}`);
+  writePrivate(P.customerDistFile, JSON.stringify({ path: v.dir, setAt: new Date().toISOString(), from: 'command' }, null, 2));
+  say(`  customer-dist: saved ${v.dir}`);
+  say(
+    '  restart, start and the build step will leave it alone. A running Customer server reads this per request, so no restart is needed.',
+  );
+  if (envSet) say(`  Note: ${CUSTOMER_DIST_ENV} is set in your shell and wins over the saved folder.`);
+}
+
+/** What ensureBuilt would do. Read-only. `customer` is true only when the Customer app would be built. */
+function buildPlan(rebuild, act = activeCustomerDist()) {
+  const head = gitHead();
+  const stamp = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
+  const override = act.source !== 'own';
+  // Without an override, a stamp written while an override skipped the Customer build cannot vouch for our own dist.
+  const customerOk = override ? !act.error : fs.existsSync(path.join(P.customerDist, 'index.html')) && stamp.customerBuilt !== false;
+  const fresh = !rebuild && sourceUnchangedSince(stamp.head, head);
+  const missing = BACKEND_PKGS.filter((s) => !fs.existsSync(distOf(s)));
+  const backend = fresh && customerOk ? (missing.length === 0 ? 'none' : 'missing') : 'full';
+  return { head, stamp, override, missing, backend, customer: backend === 'full' && !override };
+}
+
+function ensureBuilt(rebuild) {
+  const act = activeCustomerDist();
+  if (act.error) fail(`customer folder override is unusable: ${act.error}\n  Fix it, or run: pnpm local:stack customer-dist --clear`);
+  const { head, stamp, override, missing, backend } = buildPlan(rebuild, act);
+  if (override) say(`  build: customer app is ${act.dir} (override); not building it`);
+  if (backend === 'none') {
+    say('  build: up to date (use --rebuild to force)');
+    if (stamp.head !== head) writePrivate(P.buildStamp, JSON.stringify({ ...stamp, head }, null, 2));
+    return;
+  }
+  if (backend === 'missing') {
     // Source is the same as the last full build; only some services have never been built.
     // Build just those so running services keep their files untouched.
     say(`  build: ${missing.length} service(s) not built yet (${missing.map((m) => m.replace('svc-', '')).join(', ')})…`);
     runPnpm([...missing.flatMap((s) => ['--filter', `@intafaced/${s}...`]), 'build'], 'build-backend-missing');
-    writePrivate(P.buildStamp, JSON.stringify({ head, builtAt: stamp.builtAt ?? new Date().toISOString() }, null, 2));
+    writePrivate(P.buildStamp, JSON.stringify({ ...stamp, head, builtAt: stamp.builtAt ?? new Date().toISOString() }, null, 2));
     return;
   }
   say('  build: backend packages and services (a few minutes on a cold tree)…');
   runPnpm([...BACKEND_PKGS.flatMap((s) => ['--filter', `@intafaced/${s}...`]), 'build'], 'build-backend');
-  say('  build: customer app…');
-  runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer');
-  writePrivate(P.buildStamp, JSON.stringify({ head, builtAt: new Date().toISOString() }, null, 2));
+  if (!override) {
+    say('  build: customer app…');
+    runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer');
+  }
+  writePrivate(P.buildStamp, JSON.stringify({ head, builtAt: new Date().toISOString(), customerBuilt: !override }, null, 2));
 }
 
 function migrate(secrets, schemas = SCHEMAS) {
@@ -1006,6 +1130,7 @@ async function cmdStart(flags) {
       `${JSON.stringify({ killed: [], updatedAt: new Date().toISOString() }, null, 2)}\n`,
     );
   }
+  adoptEnvCustomerDist();
   const only = onlyFlag(flags);
   ensureNatsBinary();
   ensureBuilt(flags.includes('--rebuild'));
@@ -1020,7 +1145,8 @@ async function cmdStart(flags) {
   await startNats();
   ensureStreams();
   for (const def of wanted) await startNodeService(def);
-  if (!fs.existsSync(path.join(P.customerDist, 'index.html'))) fail('customer build missing; run with --rebuild');
+  if (activeCustomerDist().error || !fs.existsSync(path.join(activeCustomerDist().dir, 'index.html')))
+    fail('customer build missing; run with --rebuild');
   if (!only || only.includes('customer')) await startCustomer();
   say('');
   const allOk = await healthTable();
@@ -1034,6 +1160,7 @@ async function cmdStart(flags) {
     );
   }
   say('');
+  say(`  ${describeCustomerDist()}`);
   say(`  Open: ${CUSTOMER_ORIGIN}   (register, sign in, then: pnpm local:fund <email> USDT 1000)`);
   say(`  Stop: pnpm local:stack:stop`);
   if (!allOk) process.exit(1);
@@ -1088,13 +1215,18 @@ function cmdPlan(flags) {
     ...Object.entries(EDGE_UPSTREAMS).map(([k, service]) => [k, { url: edgeEnv[k], service }]),
     ...Object.entries(EDGE_ABSENT).map(([k, reason]) => [k, { url: edgeEnv[k], service: null, absentReason: reason }]),
   ]);
+  const act = activeCustomerDist();
+  const bp = buildPlan(flags.includes('--rebuild'), act);
+  const customer = { source: act.source, dir: act.dir ?? null, error: act.error ?? null, wouldBuild: bp.customer };
   if (flags.includes('--json'))
-    return say(JSON.stringify({ host: HOST, services, edgeUpstreams, backendPackages: BACKEND_PKGS, schemas: SCHEMAS }, null, 2));
+    return say(JSON.stringify({ host: HOST, services, edgeUpstreams, backendPackages: BACKEND_PKGS, schemas: SCHEMAS, customer }, null, 2));
   say('INTAFACED local test stack, plan (nothing is started or changed)');
   for (const sv of services)
     say(
       `  ${sv.name.padEnd(11)}${String(sv.port).padEnd(7)}${(sv.schema ?? 'no database').padEnd(13)}${sv.running ? 'running' : 'not running'}`,
     );
+  say(`  ${describeCustomerDist()}`);
+  say(`  Customer build on next start: ${bp.customer ? 'yes' : 'no'}`);
   say('  Edge upstreams:');
   for (const [k, v] of Object.entries(edgeUpstreams)) say(`    ${k.padEnd(16)}${v.service ?? `ABSENT (${v.absentReason})`}`);
 }
@@ -1136,17 +1268,16 @@ const MIME = {
 const BANNER_HTML =
   `<style>body{padding-top:28px !important}</style>` +
   `<div id="local-test-stack-banner" role="status" style="position:fixed;top:0;left:0;right:0;height:28px;z-index:2147483647;` +
-  `display:flex;align-items:center;justify-content:center;background:#C8F64A;color:#0b0b0b;` +
+  `display:flex;align-items:center;justify-content:center;background:#F5A915;color:#0b0b0b;` +
   `font:600 12px/1 ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;letter-spacing:.04em;text-align:center;` +
   `pointer-events:none;user-select:none">${BANNER_TEXT}</div>`;
 
-function indexWithBanner() {
-  const html = fs.readFileSync(path.join(P.customerDist, 'index.html'), 'utf8');
+function indexWithBanner(dist) {
+  const html = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
   return html.replace(/<body([^>]*)>/i, (m) => `${m}${BANNER_HTML}`);
 }
 
-function serveCustomer() {
-  const dist = P.customerDist;
+function serveCustomer(port = PORTS.customer) {
   const edge = { host: HOST, port: PORTS.edge };
   const send = (res, status, type, body, extra = {}) => {
     res.writeHead(status, { 'content-type': type, 'content-length': Buffer.byteLength(body), 'cache-control': 'no-store', ...extra });
@@ -1154,7 +1285,7 @@ function serveCustomer() {
   };
   const server = http.createServer((req, res) => {
     const host = req.headers.host ?? '';
-    if (host !== `${HOST}:${PORTS.customer}` && host !== `localhost:${PORTS.customer}`) {
+    if (host !== `${HOST}:${port}` && host !== `localhost:${port}`) {
       // Refuse foreign Host headers (DNS rebinding). Only the two local names are served.
       res.writeHead(403);
       return void res.end();
@@ -1192,6 +1323,18 @@ function serveCustomer() {
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'text/plain; charset=utf-8', 'method not allowed');
 
+    // The folder is resolved on every request, so "customer-dist <path>" / "--clear" take effect at once.
+    const active = activeCustomerDist();
+    if (active.error) {
+      return send(
+        res,
+        503,
+        'text/plain; charset=utf-8',
+        `The Customer folder override is unusable: ${active.error}\nFix it, or run: pnpm local:stack customer-dist --clear`,
+      );
+    }
+    const dist = active.dir;
+
     // Static files; unknown paths fall back to index.html like apps/customer/nginx.conf.
     let decoded;
     try {
@@ -1201,19 +1344,36 @@ function serveCustomer() {
     }
     const rel = path.normalize(decoded).replace(/^([/\\])+/, '');
     const file = path.join(dist, rel);
-    const inside = file === dist || file.startsWith(dist + path.sep);
-    if (inside && rel !== '' && rel !== 'index.html' && fs.existsSync(file) && fs.statSync(file).isFile()) {
-      const body = fs.readFileSync(file);
+    // Hidden files and folders are never served, and neither is anything whose real path leaves the folder
+    // (a symlink inside the build pointing elsewhere).
+    if (rel.split(path.sep).some((seg) => seg.startsWith('.'))) return send(res, 404, 'text/plain; charset=utf-8', 'not found');
+    let target = null;
+    if (insideDir(dist, file) && rel !== '' && rel !== 'index.html') {
+      try {
+        const real = fs.realpathSync(file);
+        if (!insideDir(dist, real)) return send(res, 404, 'text/plain; charset=utf-8', 'not found');
+        if (fs.statSync(real).isFile()) target = real;
+      } catch {
+        /* not found: falls through to the app shell like nginx try_files */
+      }
+    }
+    if (target) {
+      const body = fs.readFileSync(target);
       const immutable = p.startsWith('/assets/');
       res.writeHead(200, {
-        'content-type': MIME[path.extname(file)] ?? 'application/octet-stream',
+        'content-type': MIME[path.extname(target)] ?? 'application/octet-stream',
         'content-length': body.length,
         'cache-control': immutable ? 'public, max-age=31536000, immutable' : 'no-store',
       });
       return void res.end(req.method === 'HEAD' ? undefined : body);
     }
     if (p.startsWith('/assets/')) return send(res, 404, 'text/plain; charset=utf-8', 'not found');
-    const html = indexWithBanner();
+    let html;
+    try {
+      html = indexWithBanner(dist);
+    } catch {
+      return send(res, 503, 'text/plain; charset=utf-8', `No Customer build found in ${dist}. Run: pnpm local:stack --rebuild`);
+    }
     res.writeHead(200, { 'content-type': MIME['.html'], 'content-length': Buffer.byteLength(html), 'cache-control': 'no-store' });
     res.end(req.method === 'HEAD' ? undefined : html);
   });
@@ -1221,7 +1381,7 @@ function serveCustomer() {
   server.on('upgrade', (req, socket) => {
     socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
   });
-  server.listen(PORTS.customer, HOST);
+  server.listen(port, HOST);
 }
 
 // ── local:fund ──────────────────────────────────────────────────────────────
@@ -1349,11 +1509,19 @@ async function cmdFund(rawArgs) {
 // ── Entry ───────────────────────────────────────────────────────────────────
 
 const [cmd = 'start', ...rest] = process.argv.slice(2);
-if (cmd === '__serve-customer') serveCustomer();
+if (cmd === '__serve-customer')
+  serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
+else if (cmd === 'start' && rest[0] === 'customer-dist')
+  cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
 else if (cmd === 'start') await cmdStart(rest);
 else if (cmd === 'stop') await cmdStop(rest);
 else if (cmd === 'plan') cmdPlan(rest);
 else if (cmd === 'restart') await cmdRestart(rest);
 else if (cmd === 'fund') await cmdFund(rest);
-else if (cmd === 'status') process.exit((await healthTable()) ? 0 : 1);
-else fail(`unknown command "${cmd}". Use: start | stop | status | fund | plan | restart`, 2);
+else if (cmd === 'customer-dist') cmdCustomerDist(rest);
+else if (cmd === 'status') {
+  const ok = await healthTable();
+  say('');
+  say(`  ${describeCustomerDist()}`);
+  process.exit(ok ? 0 : 1);
+} else fail(`unknown command "${cmd}". Use: start | stop | status | fund | plan | restart | customer-dist`, 2);

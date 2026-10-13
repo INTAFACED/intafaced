@@ -23,7 +23,7 @@ import {
   readApprovalIds,
   unwiredApprovalConsumer,
 } from './ledger/action-approval-consume.js';
-import { parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
+import { HISTORY_RAILS, parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
 import { statementPnlFromThisBook, statementPnlInputSchema, statementPnlResultSchema } from './ledger/statement-pnl.js';
 import type { LedgerService } from './service.js';
@@ -46,6 +46,9 @@ function toTrpcError(err: unknown): TRPCError {
   if (err instanceof UnbalancedTransactionError || err instanceof InvalidEntryError) {
     // A malformed transaction is a bug in the calling service, not user error.
     return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: userCopy(err.code), cause: err });
+  }
+  if (err instanceof LedgerError && err.code === 'ledger.idempotency_conflict') {
+    return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
   }
   if (err instanceof LedgerError && err.code === 'ledger.frozen') {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: userCopy(err.code), cause: err });
@@ -328,6 +331,12 @@ export function createLedgerRouter(
               amount: z.string(),
               postedAt: z.string(),
               assetId: z.string(),
+              /** `ledger_entries.id` (bigserial) as a decimal string. */
+              entryId: z.string(),
+              /** `meta.rail` when allow-listed (see `HISTORY_RAILS`), else null. */
+              rail: z.enum(HISTORY_RAILS).nullable(),
+              /** The page owner's own trade order this line belongs to (hold, amend, release, fill), else null. */
+              orderId: z.string().min(1).max(128).nullable(),
             }),
           ),
           nextCursor: z.string().nullable(),
