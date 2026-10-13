@@ -141,7 +141,7 @@ Every BROWSER-PROVED crop records: route, fixture, browser, viewport, SHA, workt
 
 `intafaced-ui` v0: Grok authors truth/provenance/fixtures/money/a11y-evidence. Codex authors look routing / Impeccable allow-deny / N4. Neither merges v0/v1 alone. v1 does not govern remaining work until look+truth+a11y transcripts exist **and** 1440+390 calibration crops are delivered files.
 
-Impeccable: pin `c0f495212236129c2e92aaf7714a3a9914569d13`. Allow document/layout/quieter/distill/harden/clarify/critique/audit/adapt/polish/shape. Forbid init/extract. Forbid Impeccable `live` CLI (including inside Orca). Critique without detector = degraded, never “full Impeccable.” Vercel pin `e3d624baaf29dc1fc645aff3e38f03e564d2d6b1`. No Taste-Skill. No Anthropic frontend-design. No `npx` installer.
+Impeccable: pin `c0f495212236129c2e92aaf7714a3a9914569d13`. Allow document/layout/quieter/distill/harden/clarify/critique/audit/adapt/polish/shape. Forbid init/extract. Forbid Impeccable `live` CLI (including inside Orca). Critique without detector = degraded, never “full Impeccable.” Vercel pin `e3d624baaf29dc1fc645aff3e38f03e564d2d6b1`. No Taste-Skill. No first-party frontend-design skill. No `npx` installer.
 
 ---
 

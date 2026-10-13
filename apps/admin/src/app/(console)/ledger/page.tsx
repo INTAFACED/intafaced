@@ -1,4 +1,5 @@
 import { requireFounderPage } from '@/lib/founder-page';
+import { requireModulePage } from '@/lib/module-page-guard';
 import { LedgerOps } from '@/components/ledger-ops';
 import { readConsoleStatus } from '@/lib/console-status';
 import { readFreeze } from '@/lib/control-plane-client';
@@ -18,6 +19,7 @@ import { readFreeze } from '@/lib/control-plane-client';
  * UNKNOWN.
  */
 export default async function LedgerOpsPage() {
+  requireModulePage('ledger');
   await requireFounderPage();
   const status = readConsoleStatus();
   const initialFreeze = await readFreeze();

@@ -9,6 +9,7 @@ import {
   toRegistrationResponseJSON,
   type PasskeyRp,
 } from './auth/enroll-passkey.js';
+import { assertMayAddFactor, factorActor, factorGateTrpcError } from './auth/factor-gate.js';
 
 const registrationResponse = z.object({
   id: z.string().min(1),
@@ -26,13 +27,16 @@ const registrationResponse = z.object({
  * Top-level enroll (not nested under webauthn) so mergeRouters cannot replace
  * webauthn.registerVerify. identity:write. RP id/origin required. No invented secret.
  */
-export function createEnrollPasskeyRouter(sql: Sql, rp: PasskeyRp) {
+export function createEnrollPasskeyRouter(sql: Sql, rp: PasskeyRp, privilegedUserIds: readonly string[] = []) {
   const challenges = sqlPasskeyChallenges(sql);
   return router({
     beginEnrollPasskey: scopedProcedure('identity:write').mutation(async ({ ctx }) => {
       try {
+        await assertMayAddFactor(sql, ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds), false);
         return await beginEnrollPasskey(sql, ctx.principal.userId, rp, challenges);
       } catch (err) {
+        const gate = factorGateTrpcError(err);
+        if (gate) throw gate;
         if (err instanceof EnrollPasskeyError) {
           if (err.code === 'auth.not_found') {
             throw new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
@@ -47,8 +51,13 @@ export function createEnrollPasskeyRouter(sql: Sql, rp: PasskeyRp) {
       .output(z.object({ credentialId: z.string() }))
       .mutation(async ({ ctx, input }) => {
         try {
+          // Pre-check only: enroll-passkey.ts does its own unlocked read-modify-write
+          // (row locks there are issue #4618). The race-free check is webauthn.registerVerify.
+          await assertMayAddFactor(sql, ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds), false);
           return await enrollPasskey(sql, ctx.principal.userId, rp, toRegistrationResponseJSON(input), challenges);
         } catch (err) {
+          const gate = factorGateTrpcError(err);
+          if (gate) throw gate;
           if (err instanceof EnrollPasskeyError) {
             if (err.code === 'auth.not_found') {
               throw new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
