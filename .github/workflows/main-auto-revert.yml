@@ -1,0 +1,76 @@
+# Main auto-revert: when a merge turns a CI job on main from green to red, revert that commit.
+#
+# Rules (the logic and its tests live in tooling/scripts/main-auto-revert.mjs; read its header):
+# - Only a push run of CI on main that FAILED, and only a job that was green in the previous completed, non-cancelled,
+#   job-running push run (green to red). A job already red on main never triggers: no loops, no piling on.
+# - Attempt 1 only re-runs the failed jobs; the next completion (attempt 2) decides. A flaky test cannot revert a good commit.
+# - The culprit must be a single commit. If CI was cancelled for some commits in the batch, nothing is reverted and an
+#   issue lists the candidates.
+# - Never reverts a revert, never reverts a commit twice, one auto-revert PR in flight, at most 3 per 24 hours.
+#
+# SAFETY
+# - Trigger is `workflow_run` of CI (push on main only) plus a manual `workflow_dispatch` whose default is a dry run.
+#   Never `pull_request_target`: nothing here runs code from a pull request.
+# - The script runs from main's own checkout. Commit subjects and job names are untrusted text: they only ever reach git
+#   and gh as array arguments (no shell), and no `${{ }}` expression is placed inside a `run:` script.
+# - Kill switch: `gh workflow disable main-auto-revert.yml -R Phantom-X-007/intafaced` (repo write access is enough).
+#
+# WHAT THIS NEEDS FROM THE REPO (unverified by the author; an admin can check, a dry run cannot):
+# - Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests" must be ON, or the PR step fails
+#   and the run reports it.
+# - Branch protection on main must let github-actions[bot] merge a PR once Gitleaks and Dependency audit pass. Auto-merge
+#   being off does not matter (this does a direct merge, not --auto). If protection also requires something else, the PR is
+#   left open and the run fails loudly.
+# - A merge made with GITHUB_TOKEN does not start a push run of CI on main; the revert is verified by the next real merge.
+name: Main auto-revert
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'CI push run on main to evaluate (blank = newest failed one)'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Dry run: decide and print, change nothing'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: main-auto-revert
+  cancel-in-progress: false
+
+jobs:
+  revert:
+    name: Revert a commit that turned main red
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.conclusion == 'failure')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Decide, confirm, revert
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          args=(--repo "$REPO" --run-id "${RUN_ID:-latest}")
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          node tooling/scripts/main-auto-revert.mjs "${args[@]}"
