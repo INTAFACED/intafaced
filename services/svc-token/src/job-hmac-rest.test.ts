@@ -113,7 +113,7 @@ beforeAll(async () => {
     prefix: '/trpc',
     trpcOptions: {
       router,
-      createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
+      createContext: ({ req }) => edgeContext(req),
     } satisfies FastifyTRPCPluginOptions<TokenRouter>['trpcOptions'],
   });
   await app.ready();
