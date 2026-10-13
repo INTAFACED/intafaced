@@ -1,4 +1,4 @@
-import { boolean, date, index, integer, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, date, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { amount, bps, createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -288,6 +288,12 @@ export const interestAccruals = bank.table(
     paidAmount: amount('paid_amount').notNull(),
     recipients: integer('recipients').notNull().default(0),
     ledgerTxId: text('ledger_tx_id'),
+    /**
+     * The payout list planned for the day, committed with the claim before the
+     * ledger post: `[{ userId, amount }]`, amounts as decimal strings. Null for
+     * a row with nothing to resume: written before 0032, or an empty day.
+     */
+    plannedPayouts: jsonb('planned_payouts').$type<ReadonlyArray<{ userId: string; amount: string }>>(),
     createdAt: createdAt(),
   },
   (t) => [

@@ -2058,6 +2058,317 @@ describe('svc-bank money PG-hard', () => {
     });
 
     /**
+     * The crash window the stored plan closes: the ledger post lands, the
+     * process dies before the claim records it. The next run must pay what the
+     * first run planned, not what the positions look like by then.
+     */
+    describe('a run that dies after the ledger post', () => {
+      const at = new Date('2026-03-02T00:00:00Z');
+
+      /** A ledger whose first interest post lands and then "kills the process". */
+      function dieAfterFirstInterestPost(real: MemoryLedger): LedgerClient {
+        let armed = true;
+        return new Proxy(real, {
+          get(target, prop) {
+            const value = Reflect.get(target, prop, target);
+            if (typeof value !== 'function') return value;
+            if (prop !== 'post') return value.bind(target);
+            return async (request: Parameters<MemoryLedger['post']>[0]) => {
+              const posted = await target.post(request);
+              if (armed && request.idempotencyKey.startsWith('bank.interest:')) {
+                armed = false;
+                throw new Error('process died after the ledger post');
+              }
+              return posted;
+            };
+          },
+        }) as LedgerClient;
+      }
+
+      const interestTxs = (poolId: string) =>
+        ledger.journal().filter((tx) => tx.reason === 'bank.earn.interest' && tx.meta.poolId === poolId);
+
+      async function twoPositions() {
+        const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Flexible', aprBps: 3650 });
+        await accrueBankFees('USDT', '10000');
+        await bank.earn.fundPool({ poolId: pool.id, fundingId: 'seed-1', amount: amt('10000') });
+        const positions: Record<string, string> = {};
+        for (const userId of [USER_A, USER_B]) {
+          await fund(userId, 'USDT', '1000');
+          const position = await bank.earn.deposit({
+            positionId: randomUUID(),
+            poolId: pool.id,
+            userId,
+            amount: amt('1000'),
+            now: new Date('2026-03-01T00:00:00Z'),
+          });
+          positions[userId] = position.id;
+        }
+        return { pool, positions };
+      }
+
+      it('posts the stored plan again, not a plan rebuilt from today’s positions', async () => {
+        const { pool, positions } = await twoPositions();
+        const crashing = createBankServices(sql, dieAfterFirstInterestPost(ledger), memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
+
+        await expect(crashing.earn.accrue({ poolId: pool.id, at })).rejects.toThrow('process died after the ledger post');
+
+        // The payment stands and the claim survived with its plan, unrecorded.
+        expect(interestTxs(pool.id)).toHaveLength(1);
+        const [claim] = await sql<Array<{ planned_payouts: unknown; ledger_tx_id: string | null; paid_amount: string }>>`
+          SELECT planned_payouts, ledger_tx_id, paid_amount FROM bank.interest_accruals WHERE pool_id = ${pool.id}
+        `;
+        expect(claim!.ledger_tx_id).toBeNull();
+        expect(claim!.paid_amount).toBe('0.000000000000000000');
+        expect(claim!.planned_payouts).toEqual(
+          [
+            { userId: USER_A, amount: '1' },
+            { userId: USER_B, amount: '1' },
+          ].sort((a, b) => (a.userId < b.userId ? -1 : 1)),
+        );
+
+        // B leaves before the job runs again: a rebuilt plan would pay A alone.
+        await bank.earn.withdraw(positions[USER_B]!);
+        const beforeA = await availableOf(USER_A, 'USDT');
+        const beforeB = await availableOf(USER_B, 'USDT');
+
+        const second = await bank.earn.accrue({ poolId: pool.id, at });
+
+        expect(second.alreadyAccrued).toBe(false);
+        expect(formatAmount(second.paid)).toBe('2');
+        expect(second.recipients).toBe(2);
+        expect(await availableOf(USER_A, 'USDT')).toBe(beforeA);
+        expect(await availableOf(USER_B, 'USDT')).toBe(beforeB);
+        expect(await availableOf(USER_A, 'USDT')).toBe('1');
+        expect(await availableOf(USER_B, 'USDT')).toBe('1001');
+
+        const txs = interestTxs(pool.id);
+        expect(txs).toHaveLength(1);
+        expect(second.ledgerTxId).toBe(txs[0]!.id);
+        const rows = await sql<Array<{ paid_amount: string; recipients: number; ledger_tx_id: string | null }>>`
+          SELECT paid_amount, recipients, ledger_tx_id FROM bank.interest_accruals WHERE pool_id = ${pool.id}
+        `;
+        expect(rows).toHaveLength(1);
+        expect(rows[0]!.recipients).toBe(2);
+        expect(formatAmount(amt(rows[0]!.paid_amount))).toBe('2');
+        expect(rows[0]!.ledger_tx_id).toBe(txs[0]!.id);
+        expect(formatAmount(await bank.earn.interestPaid(pool.id))).toBe('2');
+
+        // The recorded day is final: a third run posts nothing.
+        const third = await bank.earn.accrue({ poolId: pool.id, at });
+        expect(third.alreadyAccrued).toBe(true);
+        expect(interestTxs(pool.id)).toHaveLength(1);
+        expect(ledger.reconcile()).toEqual({ ok: true });
+      });
+
+      it('records the payment even if a concurrent run released the claim after the post landed', async () => {
+        const { pool } = await twoPositions();
+        // After the first interest post lands, another run's underfunded refusal
+        // deletes the claim, as it would between our post and our UPDATE.
+        let armed = true;
+        const racing = new Proxy(ledger, {
+          get(target, prop) {
+            const value = Reflect.get(target, prop, target);
+            if (typeof value !== 'function') return value;
+            if (prop !== 'post') return value.bind(target);
+            return async (request: Parameters<MemoryLedger['post']>[0]) => {
+              const posted = await target.post(request);
+              if (armed && request.idempotencyKey.startsWith('bank.interest:')) {
+                armed = false;
+                await sql`DELETE FROM bank.interest_accruals WHERE pool_id = ${pool.id}`;
+              }
+              return posted;
+            };
+          },
+        }) as LedgerClient;
+        const racer = createBankServices(sql, racing, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
+
+        const result = await racer.earn.accrue({ poolId: pool.id, at });
+
+        const txs = interestTxs(pool.id);
+        expect(txs).toHaveLength(1);
+        expect(result.ledgerTxId).toBe(txs[0]!.id);
+        const rows = await sql<Array<{ paid_amount: string; recipients: number; ledger_tx_id: string | null; planned_payouts: unknown }>>`
+          SELECT paid_amount, recipients, ledger_tx_id, planned_payouts FROM bank.interest_accruals WHERE pool_id = ${pool.id}
+        `;
+        expect(rows).toHaveLength(1);
+        expect(rows[0]!.ledger_tx_id).toBe(txs[0]!.id);
+        expect(rows[0]!.recipients).toBe(2);
+        expect(formatAmount(amt(rows[0]!.paid_amount))).toBe('2');
+        expect(formatAmount(await bank.earn.interestPaid(pool.id))).toBe('2');
+      });
+
+      it('accrueAll finishes an earlier day from its stored plan, then accrues today', async () => {
+        const { pool, positions } = await twoPositions();
+        const crashing = createBankServices(sql, dieAfterFirstInterestPost(ledger), memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
+        await expect(crashing.earn.accrue({ poolId: pool.id, at })).rejects.toThrow('process died after the ledger post');
+        await bank.earn.withdraw(positions[USER_B]!);
+
+        const report = await bank.earn.accrueAll(new Date('2026-03-03T00:00:00Z'));
+
+        expect(report.failures).toEqual([]);
+        const earlier = report.results.find((r) => r.date === '2026-03-02');
+        expect(earlier).toBeDefined();
+        expect(earlier!.alreadyAccrued).toBe(false);
+        expect(formatAmount(earlier!.paid)).toBe('2');
+        expect(earlier!.recipients).toBe(2);
+        // Today is planned from today's positions: B has left.
+        const today = report.results.find((r) => r.date === '2026-03-03');
+        expect(today).toBeDefined();
+        expect(today!.recipients).toBe(1);
+        expect(formatAmount(today!.paid)).toBe('1');
+
+        expect(interestTxs(pool.id)).toHaveLength(2);
+        expect(await availableOf(USER_A, 'USDT')).toBe('2');
+        expect(await availableOf(USER_B, 'USDT')).toBe('1001');
+        const pending = await sql`SELECT id FROM bank.interest_accruals WHERE ledger_tx_id IS NULL AND planned_payouts IS NOT NULL`;
+        expect(pending).toHaveLength(0);
+
+        // Nothing is left to resume: a second pass pays nothing more.
+        await bank.earn.accrueAll(new Date('2026-03-03T00:00:00Z'));
+        expect(interestTxs(pool.id)).toHaveLength(2);
+        expect(ledger.reconcile()).toEqual({ ok: true });
+      });
+
+      it('accrueAll reports an earlier day it cannot fund and keeps its plan for the next pass', async () => {
+        const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Dry', aprBps: 3650 });
+        await sql`
+          INSERT INTO bank.interest_accruals (pool_id, accrual_date, rate_bps, paid_amount, recipients, planned_payouts)
+          VALUES (${pool.id}, '2026-03-02', 3650, 0, 0, ${sql.json([{ userId: USER_A, amount: '1' }])})
+        `;
+
+        const dry = await bank.earn.accrueAll(new Date('2026-03-03T00:00:00Z'));
+        expect(dry.failures).toEqual(expect.arrayContaining([expect.objectContaining({ poolId: pool.id, code: 'bank.pool_underfunded' })]));
+        expect(interestTxs(pool.id)).toHaveLength(0);
+        const kept = await sql`SELECT id FROM bank.interest_accruals WHERE pool_id = ${pool.id} AND accrual_date = '2026-03-02'`;
+        expect(kept).toHaveLength(1);
+
+        await accrueBankFees('USDT', '100');
+        await bank.earn.fundPool({ poolId: pool.id, fundingId: 'dry-1', amount: amt('100') });
+        const funded = await bank.earn.accrueAll(new Date('2026-03-03T00:00:00Z'));
+        expect(funded.results.find((r) => r.date === '2026-03-02')?.recipients).toBe(1);
+        expect(await availableOf(USER_A, 'USDT')).toBe('1');
+        expect(interestTxs(pool.id)).toHaveLength(1);
+      });
+
+      it('resumes once when two runs pick up the crashed day together', async () => {
+        const { pool, positions } = await twoPositions();
+        const crashing = createBankServices(sql, dieAfterFirstInterestPost(ledger), memoryLedgerHistory(ledger), { nativeAssetId: 'IFC' });
+        await expect(crashing.earn.accrue({ poolId: pool.id, at })).rejects.toThrow('process died after the ledger post');
+        await bank.earn.withdraw(positions[USER_B]!);
+
+        const runs = await Promise.all([bank.earn.accrue({ poolId: pool.id, at }), bank.earn.accrue({ poolId: pool.id, at })]);
+
+        for (const run of runs) {
+          expect(formatAmount(run.paid)).toBe('2');
+          expect(run.recipients).toBe(2);
+        }
+        expect(interestTxs(pool.id)).toHaveLength(1);
+        expect(await availableOf(USER_A, 'USDT')).toBe('1');
+        expect(await availableOf(USER_B, 'USDT')).toBe('1001');
+        const rows = await sql`SELECT id FROM bank.interest_accruals WHERE pool_id = ${pool.id}`;
+        expect(rows).toHaveLength(1);
+      });
+    });
+
+    it('pays once when two runs claim the same day together, and neither is refused', async () => {
+      const pool = await fundedPool();
+      await fund(USER_A, 'USDT', '1000');
+      await bank.earn.deposit({
+        positionId: randomUUID(),
+        poolId: pool.id,
+        userId: USER_A,
+        amount: amt('1000'),
+        now: new Date('2026-03-01T00:00:00Z'),
+      });
+
+      const at = new Date('2026-03-02T00:00:00Z');
+      const runs = await Promise.all([bank.earn.accrue({ poolId: pool.id, at }), bank.earn.accrue({ poolId: pool.id, at })]);
+
+      for (const run of runs) expect(formatAmount(run.paid)).toBe('1');
+      expect(await availableOf(USER_A, 'USDT')).toBe('1');
+      expect(ledger.journal().filter((tx) => tx.reason === 'bank.earn.interest' && tx.meta.poolId === pool.id)).toHaveLength(1);
+      const rows = await sql`SELECT id FROM bank.interest_accruals WHERE pool_id = ${pool.id}`;
+      expect(rows).toHaveLength(1);
+    });
+
+    it('treats a row with no stored plan, or with a ledger transaction, as a finished day', async () => {
+      const pool = await fundedPool();
+      await fund(USER_A, 'USDT', '1000');
+      await bank.earn.deposit({
+        positionId: randomUUID(),
+        poolId: pool.id,
+        userId: USER_A,
+        amount: amt('1000'),
+        now: new Date('2026-03-01T00:00:00Z'),
+      });
+
+      // Written before 0032: paid, recorded, no plan.
+      await sql`
+        INSERT INTO bank.interest_accruals (pool_id, accrual_date, rate_bps, paid_amount, recipients, ledger_tx_id)
+        VALUES (${pool.id}, '2026-03-02', 3650, 5, 1, 'legacy-tx')
+      `;
+      // Planned and recorded: the post is done, so nothing resumes.
+      await sql`
+        INSERT INTO bank.interest_accruals (pool_id, accrual_date, rate_bps, paid_amount, recipients, ledger_tx_id, planned_payouts)
+        VALUES (${pool.id}, '2026-03-03', 3650, 1, 1, 'recorded-tx', ${sql.json([{ userId: USER_A, amount: '1' }])})
+      `;
+
+      const legacy = await bank.earn.accrue({ poolId: pool.id, at: new Date('2026-03-02T00:00:00Z') });
+      expect(legacy.alreadyAccrued).toBe(true);
+      expect(formatAmount(legacy.paid)).toBe('5');
+      expect(legacy.ledgerTxId).toBe('legacy-tx');
+
+      const recorded = await bank.earn.accrue({ poolId: pool.id, at: new Date('2026-03-03T00:00:00Z') });
+      expect(recorded.alreadyAccrued).toBe(true);
+      expect(recorded.ledgerTxId).toBe('recorded-tx');
+
+      // An empty day is recorded without a plan and stays finished.
+      const emptyPool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Empty day', aprBps: 3650 });
+      const first = await bank.earn.accrue({ poolId: emptyPool.id, at: new Date('2026-03-02T00:00:00Z') });
+      const again = await bank.earn.accrue({ poolId: emptyPool.id, at: new Date('2026-03-02T12:00:00Z') });
+      expect(first.alreadyAccrued).toBe(false);
+      expect(again.alreadyAccrued).toBe(true);
+      expect(again.recipients).toBe(0);
+
+      expect(ledger.journal().some((tx) => tx.reason === 'bank.earn.interest')).toBe(false);
+      expect(await availableOf(USER_A, 'USDT')).toBe('0');
+    });
+
+    it('plans the day again after an underfunded refusal, from the positions that exist then', async () => {
+      const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'Late funding', aprBps: 3650 });
+      const positions: string[] = [];
+      for (const userId of [USER_A, USER_B]) {
+        await fund(userId, 'USDT', '1000');
+        const position = await bank.earn.deposit({
+          positionId: randomUUID(),
+          poolId: pool.id,
+          userId,
+          amount: amt('1000'),
+          now: new Date('2026-03-01T00:00:00Z'),
+        });
+        positions.push(position.id);
+      }
+      const at = new Date('2026-03-02T00:00:00Z');
+
+      await expect(bank.earn.accrue({ poolId: pool.id, at })).rejects.toMatchObject({ code: 'bank.pool_underfunded' });
+      // The stored plan went with the claim: nothing is left to resume.
+      expect(await sql`SELECT id FROM bank.interest_accruals WHERE pool_id = ${pool.id}`).toHaveLength(0);
+
+      await bank.earn.withdraw(positions[1]!);
+      await accrueBankFees('USDT', '100');
+      await bank.earn.fundPool({ poolId: pool.id, fundingId: 'late-1', amount: amt('100') });
+
+      const rescued = await bank.earn.accrue({ poolId: pool.id, at });
+      expect(rescued.alreadyAccrued).toBe(false);
+      expect(rescued.recipients).toBe(1);
+      expect(formatAmount(rescued.paid)).toBe('1');
+      expect(await availableOf(USER_A, 'USDT')).toBe('1');
+      expect(await availableOf(USER_B, 'USDT')).toBe('1000');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    /**
      * Isolation residual (audit B-4 class): one underfunded pool used to throw
      * out of `accrueAll` and leave every later pool unpaid for the day.
      * Single-pool `accrue` stays loud; the job entry point must continue.
