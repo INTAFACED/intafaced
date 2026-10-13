@@ -22,12 +22,21 @@ export class FixtureError extends Error {
   }
 }
 
-export function createOutreachFixture(c, clock = () => Date.now()) {
+/**
+ * `notifyConfigured` mirrors svc-ops' notification link (notifyUrl plus a secret
+ * of 32+ characters, notification-client.ts). It is a configuration dependency,
+ * not email. Launch has it configured, so that is the default here: erasure
+ * then completes the way production does (one pending submission notification
+ * is cleared per advance, records are removed on the last). Pass false to see
+ * the unconfigured path, where erasure stays pending_notify.
+ */
+export function createOutreachFixture(c, clock = () => Date.now(), { notifyConfigured = true } = {}) {
   const iso = (offset = 0) => new Date(clock() + offset).toISOString();
   const contacts = new Map(); // id -> { record, revision }
   const aliases = new Map(); // merged contact id -> canonical id
   const submissions = new Map(); // id -> { record, token, expiresAt, initialContact, firstCompletedAt, deliveries }
   const opportunities = new Map();
+  const organisations = new Map(); // id -> crmOrganisation
   const activities = new Map(); // opportunity id -> []
   const tasks = []; // crmWorkflowTask
   const messages = [];
@@ -36,6 +45,7 @@ export function createOutreachFixture(c, clock = () => Date.now()) {
   const mappings = new Map();
   const reviews = new Map(); // canonical contact id -> retention review
   const erasures = new Map(); // intent id -> status
+  const erasureScopes = new Map(); // intent id -> { contactIds, submissionIds, opportunityIds, organisationIds }
   const replies = new Map(); // `${scope}:${requestId}` -> { input, data }
   const controls = new Map(); // `${area}:${userId}` -> { version, restricted, history }
 
@@ -102,12 +112,12 @@ export function createOutreachFixture(c, clock = () => Date.now()) {
     return saveOpportunity({ ...current, revision: current.revision + 1 });
   }
 
-  function openOpportunity(submissionId, contactId, audience) {
+  function openOpportunity(submissionId, contactId, audience, organisationId = null) {
     const at = iso();
     const opportunity = saveOpportunity({
       id: randomUUID(),
       contactId,
-      organisationId: null,
+      organisationId,
       submissionId,
       audience,
       stage: 'new',
@@ -142,7 +152,8 @@ export function createOutreachFixture(c, clock = () => Date.now()) {
 
   function authenticate(input) {
     const saved = submissions.get(input.submissionId);
-    if (!saved || saved.token !== input.continuationToken || Date.parse(saved.expiresAt) <= clock())
+    const underErasure = [...erasureScopes.values()].some((scope) => scope.submissionIds.includes(input.submissionId));
+    if (!saved || underErasure || saved.token !== input.continuationToken || Date.parse(saved.expiresAt) <= clock())
       throw new FixtureError('ops.crm.continuation_invalid');
     return saved;
   }
@@ -166,6 +177,19 @@ export function createOutreachFixture(c, clock = () => Date.now()) {
         const at = iso();
         const contactId = randomUUID();
         const submissionId = randomUUID();
+        // Like svc-ops crm.ts capture: a named organisation becomes a record linked to the contact.
+        const organisationId = input.contact.organisationName ? randomUUID() : null;
+        if (organisationId)
+          organisations.set(
+            organisationId,
+            c.crmOrganisationSchema.parse({
+              id: organisationId,
+              name: input.contact.organisationName,
+              website: null,
+              countries: input.contact.country ? [input.contact.country] : [],
+              createdAt: at,
+            }),
+          );
         contacts.set(contactId, {
           revision: 1,
           record: c.crmContactSchema.parse({
@@ -173,7 +197,7 @@ export function createOutreachFixture(c, clock = () => Date.now()) {
             name: input.contact.name,
             email: input.contact.email,
             emailEvidence: { status: 'unverified' },
-            organisationIds: [],
+            organisationIds: organisationId ? [organisationId] : [],
             interests: input.contact.interests,
             platformIdentity: null,
             createdAt: at,
@@ -197,7 +221,7 @@ export function createOutreachFixture(c, clock = () => Date.now()) {
             completedAt: null,
           }),
         });
-        for (const audience of input.contact.interests) openOpportunity(submissionId, contactId, audience);
+        for (const audience of input.contact.interests) openOpportunity(submissionId, contactId, audience, organisationId);
         return c.outreachCaptureReceiptSchema.parse({ submissionId, revision: 1, capturedAt: at, continuationExpiresAt: expiresAt });
       });
     },
@@ -238,7 +262,8 @@ export function createOutreachFixture(c, clock = () => Date.now()) {
         if (old.revision !== input.expectedRevision) throw new FixtureError('ops.crm.revision_conflict');
         const additions = input.interests.filter((interest) => !old.contact.interests.includes(interest));
         if (additions.length) {
-          for (const audience of additions) openOpportunity(input.submissionId, canonical(old.contactId), audience);
+          const organisationId = contact(old.contactId)?.organisationIds[0] ?? null;
+          for (const audience of additions) openOpportunity(input.submissionId, canonical(old.contactId), audience, organisationId);
           saved.record = c.crmSubmissionSchema.parse({
             ...old,
             revision: old.revision + 1,
@@ -284,6 +309,30 @@ export function createOutreachFixture(c, clock = () => Date.now()) {
     const key = `${target.area}:${target.userId}`;
     if (!controls.has(key)) controls.set(key, { version: '0', restricted: false, history: [] });
     return controls.get(key);
+  }
+
+  // svc-ops privacy.ts assertContactWritable: a contact in an erasure intent takes no further privacy action.
+  function assertContactWritable(contactId) {
+    for (const [intentId, scope] of erasureScopes)
+      if (scope.contactIds.includes(contactId))
+        throw new FixtureError(erasures.get(intentId).status === 'complete' ? 'ops.crm.contact_erased' : 'ops.crm.erasure_pending', 409);
+  }
+
+  // svc-ops crm_apply_erasure: runs once every submission notification is cleared.
+  function applyErasure(scope) {
+    for (const id of scope.opportunityIds) {
+      opportunities.delete(id);
+      activities.delete(id);
+      for (let i = tasks.length - 1; i >= 0; i -= 1) if (tasks[i].task.opportunityId === id) tasks.splice(i, 1);
+      for (let i = messages.length - 1; i >= 0; i -= 1) if (messages[i].opportunityId === id) messages.splice(i, 1);
+    }
+    for (const id of scope.submissionIds) submissions.delete(id);
+    for (const id of scope.organisationIds) organisations.delete(id);
+    for (const id of scope.contactIds) {
+      contacts.delete(id);
+      aliases.delete(id);
+    }
+    reviews.delete(scope.contactIds[0]);
   }
 
   // Founder procedures, keyed by the edge path after /api/<module>/trpc/.
@@ -355,7 +404,7 @@ export function createOutreachFixture(c, clock = () => Date.now()) {
         opportunity,
         contact: contact(opportunity.contactId),
         submission: saved.record,
-        organisation: null,
+        organisation: (opportunity.organisationId && organisations.get(opportunity.organisationId)) || null,
         activities: activities.get(opportunity.id) ?? [],
         tasks: tasks.filter((row) => row.task.opportunityId === opportunity.id).map((row) => row.task),
         deliveries: saved.deliveries,
@@ -380,7 +429,34 @@ export function createOutreachFixture(c, clock = () => Date.now()) {
       return remember(NITRO, input.requestId, input, () => {
         const next = bump(input.opportunityId, input.expectedRevision);
         activity(next.id, { kind: 'operator', userId: NITRO }, 'assigned', null, input.ownerUserId);
-        return saveOpportunity({ ...next, ownerUserId: input.ownerUserId });
+        const reassigned = saveOpportunity({ ...next, ownerUserId: input.ownerUserId });
+        // Like svc-ops assign: the pending next-action task is replaced by one owned by the new owner.
+        const replace = { requestId: input.requestId, reason: 'Founder reassigned the opportunity' };
+        for (const row of tasks)
+          if (row.task.opportunityId === next.id && row.kind === 'next_action' && row.task.status === 'pending') {
+            row.revision += 1;
+            row.task = { ...row.task, status: 'cancelled', updatedAt: iso() };
+            audit(replace, 'task', row.task.id, 'task_transitioned', NITRO);
+          }
+        if (reassigned.nextAction) {
+          const at = iso();
+          const created = c.crmWorkflowTaskSchema.parse({
+            task: {
+              id: randomUUID(),
+              opportunityId: reassigned.id,
+              ownerUserId: reassigned.ownerUserId,
+              ...reassigned.nextAction,
+              status: 'pending',
+              updatedAt: at,
+            },
+            revision: 1,
+            kind: 'next_action',
+            createdAt: at,
+          });
+          tasks.push(created);
+          audit(replace, 'task', created.task.id, 'task_created', NITRO);
+        }
+        return reassigned;
       });
     },
     'outreach.changeStage': (raw) => {
@@ -727,6 +803,7 @@ export function createOutreachFixture(c, clock = () => Date.now()) {
     },
     'outreach.privacyPreview': (raw) => {
       const input = c.crmErasurePreviewInputSchema.parse(raw);
+      assertContactWritable(input.canonicalContactId);
       const target = contacts.get(input.canonicalContactId);
       if (!target || aliases.has(input.canonicalContactId)) throw new FixtureError('ops.crm.not_found', 404);
       const ids = cluster(input.canonicalContactId);
@@ -754,17 +831,14 @@ export function createOutreachFixture(c, clock = () => Date.now()) {
         if (preview.snapshot !== input.snapshot || preview.canonicalRevision !== input.expectedCanonicalRevision)
           throw new FixtureError('ops.crm.erasure_snapshot_changed', 409);
         const ids = cluster(input.canonicalContactId);
-        for (const row of [...opportunities.values()].filter((item) => ids.includes(item.contactId))) {
-          opportunities.delete(row.id);
-          activities.delete(row.id);
-          for (let i = tasks.length - 1; i >= 0; i -= 1) if (tasks[i].task.opportunityId === row.id) tasks.splice(i, 1);
-        }
-        for (const id of preview.submissionIds) submissions.delete(id);
-        for (const id of ids) {
-          contacts.delete(id);
-          aliases.delete(id);
-        }
-        // With mail unconfigured, the original notification erasure receipt cannot be obtained.
+        // Like svc-ops createIntent: the request is recorded and records stay in place
+        // until every submission's notification erasure is cleared (see privacyAdvance).
+        const scope = {
+          contactIds: ids,
+          submissionIds: preview.submissionIds,
+          opportunityIds: [...opportunities.values()].filter((row) => ids.includes(row.contactId)).map((row) => row.id),
+          organisationIds: [...new Set(ids.flatMap((id) => contact(id)?.organisationIds ?? []))],
+        };
         const status = c.crmErasureStatusSchema.parse({
           intentId: randomUUID(),
           canonicalContactId: input.canonicalContactId,
@@ -775,9 +849,10 @@ export function createOutreachFixture(c, clock = () => Date.now()) {
           requestedAt: iso(),
           completedAt: null,
           pendingSubmissionCount: preview.submissionIds.length,
-          code: UNCONFIGURED,
+          code: null,
         });
         erasures.set(status.intentId, status);
+        erasureScopes.set(status.intentId, scope);
         return status;
       });
     },
@@ -786,9 +861,30 @@ export function createOutreachFixture(c, clock = () => Date.now()) {
       const prior = erasures.get(input.intentId);
       if (!prior) throw new FixtureError('ops.crm.erasure_not_found', 404);
       if (prior.status === 'complete') return prior;
-      const next = c.crmErasureStatusSchema.parse({ ...prior, revision: prior.revision + 1 });
-      erasures.set(next.intentId, next);
-      return next;
+      return remember(NITRO, input.requestId, input, () => {
+        const current = erasures.get(input.intentId);
+        if (current.revision !== input.expectedRevision) throw new FixtureError('ops.crm.revision_conflict', 409);
+        // svc-ops advanceIntent: without the notification link the intent stays pending_notify.
+        if (!notifyConfigured) {
+          const stuck = c.crmErasureStatusSchema.parse({ ...current, revision: current.revision + 1, code: UNCONFIGURED });
+          erasures.set(stuck.intentId, stuck);
+          return stuck;
+        }
+        // One submission notification is cleared per advance; the last one applies the erasure.
+        const pendingSubmissionCount = Math.max(0, current.pendingSubmissionCount - 1);
+        const done = pendingSubmissionCount === 0;
+        const next = c.crmErasureStatusSchema.parse({
+          ...current,
+          revision: current.revision + 1,
+          status: done ? 'complete' : 'pending_notify',
+          completedAt: done ? iso() : null,
+          pendingSubmissionCount,
+          code: null,
+        });
+        erasures.set(next.intentId, next);
+        if (done) applyErasure(erasureScopes.get(next.intentId));
+        return next;
+      });
     },
     'outreach.privacyStatus': (raw) => {
       const input = c.crmErasureStatusInputSchema.parse(raw);
