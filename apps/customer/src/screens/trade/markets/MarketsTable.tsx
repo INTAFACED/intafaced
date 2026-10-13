@@ -17,6 +17,8 @@ import { Skeleton, isHiddenPath, type Decimal } from './deps';
 import { MarketRow, type FavoriteControl } from './MarketRow';
 import { ALL_COLUMNS, marketTarget, nextSort, type Entry, type MarketColumn, type Mode, type Sort, type SortKey } from './select';
 import type { MarketData } from './deps';
+import { sharedWindowStart, sinceLabel } from './window';
+import { usePreferences } from '../../../shared/preferences';
 
 /** Past this many rows the table draws only the rows on screen (TanStack Virtual). */
 export const VIRTUALIZE_AFTER = 50;
@@ -141,13 +143,18 @@ function Header({
   variant,
   sort,
   onSortChange,
+  since,
 }: {
   columns: readonly MarketColumn[];
   variant: 'table' | 'panel';
   sort: Sort | null;
   onSortChange?: (sort: Sort | null) => void;
+  /** "19:29" when the 24h figures cover only part of a day; the headers then say "since 19:29" instead of "24h". */
+  since: string | null;
 }) {
   const { t } = marketsCopy.useCopy();
+  const volumeLabel = since ? t('Volume since {time}', { time: since }) : t('24h volume');
+  const changeLabel = since ? t('Change since {time}', { time: since }) : t('24h change');
   const sortAria = (key: SortKey): 'ascending' | 'descending' | 'none' =>
     sort?.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none';
   const sortable = (key: SortKey, label: string) =>
@@ -159,12 +166,12 @@ function Header({
         <div role="columnheader" aria-sort={sortAria('name')} className="mkt-panel__head-left">
           {sortable('name', t('Name'))}
           <span aria-hidden="true">/</span>
-          {sortable('volume', t('24h volume'))}
+          {sortable('volume', volumeLabel)}
         </div>
         <div role="columnheader" aria-sort={sortAria('price')} className="mkt-panel__head-right">
           {sortable('price', t('Last price'))}
           <span aria-hidden="true">/</span>
-          {sortable('change', t('24h change'))}
+          {sortable('change', changeLabel)}
         </div>
       </div>
     );
@@ -173,7 +180,14 @@ function Header({
     <div role="row" className="mkt-header">
       {columns.map((column) => {
         const key = SORT_KEY[column];
-        const label = t(columnLabelKey(column));
+        const label =
+          since && column === 'change'
+            ? changeLabel
+            : since && column === 'range'
+              ? t('Range since {time}', { time: since })
+              : since && column === 'volume'
+                ? volumeLabel
+                : t(columnLabelKey(column));
         return (
           <div
             key={column}
@@ -383,6 +397,16 @@ export function MarketsTable({
   empty,
 }: MarketsTableProps) {
   const { t } = marketsCopy.useCopy();
+  const { timeZone } = usePreferences();
+  const windowStart = useMemo(
+    () =>
+      sharedWindowStart(
+        entries.map((entry) => entry.ticker),
+        Date.now(),
+      ),
+    [entries],
+  );
+  const since = windowStart === null ? null : sinceLabel(windowStart, timeZone);
   const shown = useMemo(() => ALL_COLUMNS.filter((column) => columns.includes(column)), [columns]);
   const style = useMemo(() => {
     const join = (list: readonly MarketColumn[], override: Partial<Record<MarketColumn, string>> = {}) =>
@@ -430,7 +454,7 @@ export function MarketsTable({
       className={`mkt-table ${variant === 'panel' ? 'mkt-table--panel' : ''}`}
       style={style}
     >
-      <Header columns={shown} variant={variant} sort={sort} onSortChange={onSortChange} />
+      <Header columns={shown} variant={variant} sort={sort} onSortChange={onSortChange} since={since} />
       {loading ? (
         <div role="rowgroup" className="mkt-body" aria-label={t('Loading')}>
           {Array.from({ length: skeletonRows }, (_, index) => (

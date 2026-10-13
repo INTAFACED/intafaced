@@ -180,6 +180,13 @@ function SideForm({
     [spendAsset, available, market.symbol],
   );
 
+  // "Your order is in" is news for a moment, not a permanent fact: it would still be on screen after the order is cancelled (critic L5).
+  useEffect(() => {
+    if (status === null) return;
+    const timer = setTimeout(() => setStatus(null), 12_000);
+    return () => clearTimeout(timer);
+  }, [status]);
+
   const edit = (apply: () => void) => {
     if (busyRef.current) return;
     apply();

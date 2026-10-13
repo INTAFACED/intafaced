@@ -130,12 +130,13 @@ test('ready state at 1440x900: layout, words, numbers, keyboard path', async ({ 
   await expect(btc.locator('.mkt-range__marker')).toHaveAttribute('style', /left: 8\d\.\d+%/);
   expect(await page.locator('.mkt-row [data-slot="sparkline"] polyline').count()).toBe(8);
 
-  // Simple mode (default): the row and the Buy button go to the working desk until the Buy card is live; Details goes to the coin.
-  await expect(btc.locator('[data-row-link]')).toHaveAttribute('href', '/trade/spot/BTC-USDT');
+  // Simple mode (default): the row and the Buy button go to the Buy card. There is no Details button until the coin
+  // page exists (M3), and nothing on the page links to the old /coin screen (critic H3).
+  await expect(btc.locator('[data-row-link]')).toHaveAttribute('href', '/trade/buy?asset=BTC');
+  await expect(btc.locator('[data-col="action"] a')).toHaveCount(1);
   await expect(btc.locator('[data-col="action"] a').nth(0)).toHaveText('Buy');
-  await expect(btc.locator('[data-col="action"] a').nth(0)).toHaveAttribute('href', '/trade/spot/BTC-USDT');
-  await expect(btc.locator('[data-col="action"] a').nth(1)).toHaveText('Details');
-  await expect(btc.locator('[data-col="action"] a').nth(1)).toHaveAttribute('href', '/coin/BTC');
+  await expect(btc.locator('[data-col="action"] a').nth(0)).toHaveAttribute('href', '/trade/buy?asset=BTC');
+  expect(await page.locator('.if-markets a[href^="/coin/"]').count()).toBe(0);
   // Critic H1/H2: the Buy label is readable and kit sizes are true px.
   expect(Math.round((await box(page, '[data-symbol="BTC/USDT"] [data-col="action"] a'))?.height)).toBe(32);
 
@@ -150,7 +151,7 @@ test('ready state at 1440x900: layout, words, numbers, keyboard path', async ({ 
   ]);
   expect(align).toEqual(['right', 'flex-end']);
 
-  // Keyboard: Tab reaches the tabs, search, chips, sort buttons, then the first row (link, star, Buy, Details).
+  // Keyboard: Tab reaches the tabs, search, chips, sort buttons, then the first row (link, star, Buy).
   await page.locator('.harness-bar a').last().focus();
   const path = [];
   for (let step = 0; step < 40; step++) {
@@ -169,17 +170,17 @@ test('ready state at 1440x900: layout, words, numbers, keyboard path', async ({ 
     });
     if (!stop.inside) break;
     path.push(stop);
-    if (stop.href === '/coin/BTC') break;
+    if (stop.name === 'Buy BTC') break;
   }
   const names = path.map((stop) => stop.name);
   expect(names[0]).toBe('See all Popular'); // then the three rows of that card
   expect(names).toEqual(expect.arrayContaining(['See all New listings', 'See all Top gainers']));
   expect(names).toContain('Search markets');
   expect(names).toContain('Sort by Name');
-  const rowStops = path.slice(path.findIndex((stop) => stop.href === '/trade/spot/BTC-USDT' && stop.name.startsWith('BTC')));
-  expect(rowStops.map((stop) => stop.name)).toEqual(expect.arrayContaining(['Add BTC to favorites', 'Buy BTC', 'Details for BTC']));
+  const rowStops = path.slice(path.findIndex((stop) => stop.href === '/trade/buy?asset=BTC' && stop.name.startsWith('BTC')));
+  expect(rowStops.map((stop) => stop.name)).toEqual(expect.arrayContaining(['Add BTC to favorites', 'Buy BTC']));
   // Focus ring: 2 px lime on controls; the stretched row link draws it on its ::after.
-  for (const stop of path.filter((s) => !s.href?.startsWith('/trade/spot') || s.name.startsWith('Buy'))) {
+  for (const stop of path.filter((s) => !s.href?.startsWith('/trade/') || s.name.startsWith('Buy'))) {
     expect(stop.outline, `focus ring on ${stop.name}`).toBe('solid 2px rgb(200, 246, 74)');
   }
 
@@ -490,4 +491,31 @@ test('responsive: no horizontal page scroll at 1280x800 and below', async ({ pag
     }
     await page.screenshot({ path: join(shots, `markets-${size.width}x${size.height}.png`), fullPage: size.width < 800 });
   }
+});
+
+test('a market younger than a day: the headers say "since HH:MM", never "24h" next to the same figures (critic M2)', async ({ page }) => {
+  const started = Date.now() - 3 * 3_600_000;
+  await mock(page, {
+    tickers: () => Object.fromEntries(Object.entries(tickers()).map(([symbol, row]) => [symbol, { ...row, windowStart: started }])),
+  });
+  await open(page);
+  await ready(page);
+  const clock = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' }).format(started);
+  const heads = await texts(page.locator('.mkt-header [role="columnheader"]'));
+  expect(heads.join(' | ')).toContain(`Change since ${clock}`);
+  expect(heads.join(' | ')).toContain(`Range since ${clock}`);
+  expect(heads.join(' | ')).toContain(`Volume since ${clock}`);
+  expect(heads.join(' | ')).not.toContain('24h change');
+});
+
+test('with two top cards, the two share the row (no empty third) (critic M8)', async ({ page }) => {
+  await mock(page);
+  await open(page);
+  await ready(page);
+  const cards = page.locator('.mkt-card');
+  const count = await cards.count();
+  const widths = await cards.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().width)));
+  const row = await page.locator('.mkt-cards').evaluate((node) => Math.round(node.getBoundingClientRect().width));
+  // However many cards are drawn (one to three), together with their gaps they fill the row.
+  expect(widths.reduce((a, b) => a + b, 0) + (count - 1) * 24).toBeGreaterThanOrEqual(row - 2);
 });

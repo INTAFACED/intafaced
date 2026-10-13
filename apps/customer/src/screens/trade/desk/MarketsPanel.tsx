@@ -18,6 +18,8 @@ import {
 import { useMinWidth } from './hooks';
 import { pairOf, type DeskMarket } from './market';
 import { isUsdQuote, turnoverText } from './text';
+import { sharedWindowStart, sinceLabel } from '../markets/window';
+import { usePreferences } from '../../../shared/preferences';
 import { useSession } from '../../../features/session/session';
 
 type Chip = 'favorites' | 'all' | string;
@@ -62,6 +64,9 @@ export const MarketsPanel = memo(function MarketsPanel({ selected, hrefFor, onCh
   const open = useMemo(() => (markets.status === 'ready' ? markets.data.filter((m) => m.open) : []), [markets]);
   const quotes = useMemo(() => ['USDT', 'USDC'].filter((q) => open.some((m) => m.quote === q)), [open]);
   const tickerMap = tickers.status === 'ready' ? tickers.data : null;
+  const { timeZone } = usePreferences();
+  const windowStart = useMemo(() => (tickerMap ? sharedWindowStart(Object.values(tickerMap), Date.now()) : null), [tickerMap]);
+  const since = windowStart === null ? null : sinceLabel(windowStart, timeZone);
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const filtered = open.filter(
@@ -167,11 +172,11 @@ export const MarketsPanel = memo(function MarketsPanel({ selected, hrefFor, onCh
       </div>
       <div className="dk-mk-head">
         <button type="button" onClick={() => cycle('volume')} aria-label={t('Sort by volume')}>
-          {t('Name and volume')}
+          {since ? t('Name and volume since', { time: since }) : t('Name and volume')}
           {arrow('volume')}
         </button>
         <button type="button" onClick={() => cycle('change')} aria-label={t('Sort by change')}>
-          {t('Price and change')}
+          {since ? t('Price and change since', { time: since }) : t('Price and change')}
           {arrow('change')}
         </button>
       </div>

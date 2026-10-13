@@ -57,7 +57,8 @@
   /* Top cards: three across, 224 high */
   .mkt-cards {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    /* As many columns as cards drawn, up to three, so two cards fill the row (critic M8). */
+    grid-template-columns: repeat(var(--mkt-card-count, 3), minmax(0, 1fr));
     gap: 24px;
     margin-bottom: 32px;
   }

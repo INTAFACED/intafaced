@@ -104,6 +104,25 @@ export interface PriceChartProps {
 
 const MA_PERIODS = [5, 10, 20] as const;
 
+interface Zone {
+  language: string;
+  timeZone: string | undefined;
+}
+const stamp = (seconds: number, zone: Zone, options: Intl.DateTimeFormatOptions) =>
+  new Intl.DateTimeFormat(zone.language, { ...options, ...(zone.timeZone ? { timeZone: zone.timeZone } : {}) }).format(seconds * 1000);
+
+/** Crosshair label on the time axis: "14 Oct, 02:15". */
+export const axisTime = (seconds: number, zone: Zone): string =>
+  stamp(seconds, zone, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+
+/** Tick labels, by the library's tick kind (0 year, 1 month, 2 day, 3 and 4 time): "02:15", "14", "Oct", "2026". */
+export function tickMark(seconds: number, kind: number, zone: Zone): string {
+  if (kind === 0) return stamp(seconds, zone, { year: 'numeric' });
+  if (kind === 1) return stamp(seconds, zone, { month: 'short' });
+  if (kind === 2) return stamp(seconds, zone, { day: 'numeric' });
+  return stamp(seconds, zone, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+}
+
 export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderLines, fills, timeZone, labels }: PriceChartProps) {
   const { upColor, language } = usePreferences();
   const host = useRef<HTMLDivElement>(null);
@@ -121,13 +140,23 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
   const [ready, setReady] = useState(0); // bumps whenever the main series is (re)created
   const [hover, setHover] = useState<number | null>(null);
 
+  // Legend: "14 Oct, 02:15" in the person's zone, like every other time in the app.
   const formatTime = useMemo(
     () => (seconds: number) =>
-      new Intl.DateTimeFormat(language, { dateStyle: 'short', timeStyle: 'short', ...(timeZone ? { timeZone } : {}) }).format(
-        seconds * 1000,
-      ),
+      new Intl.DateTimeFormat(language, {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+        ...(timeZone ? { timeZone } : {}),
+      }).format(seconds * 1000),
     [language, timeZone],
   );
+  // The axis labels are drawn by the library, which reads UTC unless told otherwise (critic M3). The chart is created
+  // once, so its formatters read the current zone and language from here.
+  const zone = useRef({ language, timeZone });
+  zone.current = { language, timeZone };
 
   // One chart per mount.
   useEffect(() => {
@@ -150,7 +179,14 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
         },
         grid: { vertLines: { color: c.grid }, horzLines: { color: c.grid } },
         rightPriceScale: { borderColor: c.line },
-        timeScale: { borderColor: c.line, timeVisible: true, secondsVisible: false, rightOffset: 6 },
+        localization: { timeFormatter: (seconds: number) => axisTime(seconds, zone.current) },
+        timeScale: {
+          borderColor: c.line,
+          timeVisible: true,
+          secondsVisible: false,
+          rightOffset: 6,
+          tickMarkFormatter: (seconds: number, kind: number) => tickMark(seconds, kind, zone.current),
+        },
         crosshair: { mode: 0 },
       });
       engine.current = lib;

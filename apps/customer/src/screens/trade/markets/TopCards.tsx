@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { assetName, marketsCopy } from './copy';
 import { CoinIcon, fmtPct, isHiddenPath, Pct, Skeleton } from './deps';
@@ -12,7 +13,11 @@ export function TopCards({ cards, mode, onSeeAll }: { cards: Card[]; mode: Mode;
   const copy = marketsCopy.useCopy();
   const { t } = copy;
   return (
-    <section className="mkt-cards" aria-label={t('Markets')}>
+    <section
+      className="mkt-cards"
+      aria-label={t('Markets')}
+      style={{ '--mkt-card-count': Math.max(1, Math.min(3, cards.length)) } as CSSProperties}
+    >
       {cards.map((card) => {
         const title = t(TITLE[card.id]);
         return (

@@ -105,12 +105,12 @@ test('ready state at 1440x900: the three columns, ticker, chart, book, form, str
     .evaluate((node) => getComputedStyle(node).rowGap + ' ' + getComputedStyle(node).backgroundColor);
   expect(gutter).toContain('3px');
 
-  // Ticker strip: every figure from /ticker, "$" on dollar prices
+  // Ticker strip: every figure from /ticker; plain quote prices, no "$" (critic L8)
   await expect(page.locator('.dk-pair')).toHaveText('BTC/USDT');
-  await expect(page.locator('.dk-last')).toHaveText('$65,000.00');
+  await expect(page.locator('.dk-last')).toHaveText('65,000.00');
   await expect(page.locator('.dk-stats')).toContainText('24h low');
-  await expect(page.locator('.dk-stats')).toContainText('$64,100.00');
-  await expect(page.locator('.dk-stats')).toContainText('$65,400.00');
+  await expect(page.locator('.dk-stats')).toContainText('64,100.00');
+  await expect(page.locator('.dk-stats')).toContainText('65,400.00');
   await expect(page.locator('.dk-stats')).toContainText('24h volume (BTC)');
   await expect(page.locator('.dk-stats')).toContainText('1.8894');
   await expect(page.locator('.dk-stats')).toContainText('24h turnover (USDT)');
@@ -141,7 +141,7 @@ test('ready state at 1440x900: the three columns, ticker, chart, book, form, str
       .evaluate((node) => getComputedStyle(node).backgroundColor),
   ).toBe('rgb(40, 13, 20)');
   await expect(page.locator('.dk-bk-ratio')).toContainText('B ');
-  await expect(page.locator('.dk-bk-mid')).toContainText('$65,000.00');
+  await expect(page.locator('.dk-bk-mid')).toContainText('65,000.00');
 
   // Forms side by side with the up and down colours and near-black text on green
   await expect(buyButton(page)).toBeDisabled();
