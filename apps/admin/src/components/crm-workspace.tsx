@@ -50,8 +50,13 @@ export function activityTitle(
       return { title: owner ? `Assigned to ${owner.displayName}` : 'Owner assigned', note: activity.note };
     }
     case 'stage_changed':
-      // The log keeps the reason only, not the stage before and after, so it cannot tell a stage move from a next-action edit.
+      // Older entries keep the reason only, not the stage before and after, so they cannot tell a stage move from a next-action edit.
       return { title: 'Stage or next action updated', note: activity.note };
+    case 'next_action_changed': {
+      // The service stores the new description in note and the new due time in referenceId (svc-ops crm.ts updateNextAction).
+      const due = activity.referenceId && !Number.isNaN(Date.parse(activity.referenceId)) ? crmDate(activity.referenceId) : null;
+      return { title: 'Next action changed', note: [activity.note, due ? `due ${due}` : null].filter(Boolean).join(' · ') || null };
+    }
     case 'note':
       return { title: 'Note added', note: activity.note };
     case 'questionnaire_submitted':
@@ -88,6 +93,90 @@ function groupedAmount(value: string): string {
   const [whole = '0', fraction] = value.split('.');
   const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return fraction === undefined ? grouped : `${grouped}.${fraction}`;
+}
+
+/** Enquiry id to the merged-away contact's name, for rows the search reached through a merge. Empty when the page has none. */
+export function aliasNamesOf(page: Pick<CrmOpportunityPage, 'aliasMatches'> | null): Map<string, string> {
+  return new Map(page?.aliasMatches?.map((match) => [match.opportunityId, match.name]) ?? []);
+}
+/** "also: <old name>" under a row whose search match came through a merged contact. */
+export function AliasNote({ name }: { name: string | undefined }) {
+  return name ? <small className="adm-crm-also">also: {name}</small> : null;
+}
+/** Quick due dates for the next-action editor: days from today, each at 09:00 your local time. */
+export const NEXT_ACTION_CHIPS = [
+  { label: 'Tomorrow', days: 1 },
+  { label: '+3 days', days: 3 },
+  { label: 'Next week', days: 7 },
+] as const;
+/** The date field's value (local "YYYY-MM-DDTHH:mm") for `days` from today at 09:00. Calendar days, so a clock change never shifts it. */
+export function quickDue(days: number, now = Date.now()): string {
+  const day = new Date(now);
+  day.setDate(day.getDate() + days);
+  day.setHours(9, 0, 0, 0);
+  return crmLocalDate(day.toISOString());
+}
+/** A warning (never a block) when the chosen due time has already passed, or null. */
+export function pastDueWarning(due: string, now = Date.now()): string | null {
+  const time = due ? new Date(due).getTime() : Number.NaN;
+  if (Number.isNaN(time) || time >= now) return null;
+  return 'That time has already passed, so this will show as overdue straight away.';
+}
+/** Edit what happens next and when, without touching the stage. No reason is asked for. */
+export function NextActionEditor({
+  description,
+  due,
+  unchanged,
+  busy,
+  onDescription,
+  onDue,
+  onSave,
+  now = Date.now(),
+}: {
+  description: string;
+  due: string;
+  unchanged: boolean;
+  busy: boolean;
+  onDescription: (value: string) => void;
+  onDue: (value: string) => void;
+  onSave: () => void;
+  now?: number;
+}) {
+  const warning = pastDueWarning(due, now);
+  return (
+    <form
+      className="adm-crm-next-edit"
+      aria-label="Edit next action"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSave();
+      }}
+    >
+      <label>
+        What happens next
+        <input required maxLength={160} value={description} onChange={(event) => onDescription(event.target.value)} />
+      </label>
+      <label>
+        Due (your local time)
+        <input type="datetime-local" required value={due} onChange={(event) => onDue(event.target.value)} />
+      </label>
+      <div className="adm-crm-next-chips" role="group" aria-label="Quick due dates">
+        {NEXT_ACTION_CHIPS.map((chip) => (
+          <button key={chip.label} type="button" disabled={busy} onClick={() => onDue(quickDue(chip.days, now))}>
+            {chip.label}
+          </button>
+        ))}
+      </div>
+      {warning && (
+        <p className="adm-crm-next-warn" role="status">
+          {warning}
+        </p>
+      )}
+      <button type="submit" disabled={busy || unchanged || !description.trim() || !due}>
+        Save next action
+      </button>
+    </form>
+  );
 }
 
 function stagesForAudience(audience: string): string[] {
@@ -174,6 +263,9 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
   const [reason, setReason] = useState('');
   const [actionDescription, setActionDescription] = useState('');
   const [actionDue, setActionDue] = useState('');
+  // The header's next-action editor has its own fields, so typing there never edits the stage form's follow-up.
+  const [editDescription, setEditDescription] = useState('');
+  const [editDue, setEditDue] = useState('');
   const [disposition, setDisposition] = useState('proceeded');
   const [evidence, setEvidence] = useState('');
   const pending = useRef(new Map<string, { inputKey: string; requestId: string }>());
@@ -282,6 +374,8 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
         setNewStage(draft.newStage);
         setActionDescription(draft.actionDescription);
         setActionDue(draft.actionDue);
+        setEditDescription(draft.actionDescription);
+        setEditDue(draft.actionDue);
         setReason('');
         setEvidence('');
         setNote('');
@@ -312,6 +406,8 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
       newStage !== detail.opportunity.stage ||
       actionDescription !== (detail.opportunity.nextAction?.description ?? '') ||
       actionDue !== originalDue ||
+      editDescription !== (detail.opportunity.nextAction?.description ?? '') ||
+      editDue !== originalDue ||
       Boolean(reason.trim() || evidence.trim() || note.trim()) ||
       messageDraftDirty ||
       retentionDraftDirty
@@ -324,6 +420,8 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
     setActionDescription(detail.opportunity.nextAction?.description ?? '');
     const due = detail.opportunity.nextAction?.dueAt;
     setActionDue(due ? crmLocalDate(due) : '');
+    setEditDescription(detail.opportunity.nextAction?.description ?? '');
+    setEditDue(due ? crmLocalDate(due) : '');
     setReason('');
     setEvidence('');
     setNote('');
@@ -376,6 +474,12 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
       if (action === 'changeStage') {
         setReason('');
         setEvidence('');
+      }
+      if (action === 'updateNextAction') {
+        // The saved values are now the record's, so the stage form's follow-up fields must not read as unsaved edits.
+        setActionDescription(String(input.description));
+        setActionDue(crmLocalDate(String(input.dueAt)));
+        setEditDescription(String(input.description));
       }
       const refreshed = await open(detail.opportunity.id, false);
       await load();
@@ -441,6 +545,8 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
   const items = page?.items ?? [];
   const contacts = new Map(page?.contacts.map((contact) => [contact.id, contact]) ?? []);
   const submissions = new Map(page?.submissions.map((submission) => [submission.submissionId, submission]) ?? []);
+  // Present only when the search matched a merged-away contact instead of the one shown on the row.
+  const aliasNames = aliasNamesOf(page);
   const stages = stagesForAudience(audience);
   const resetPage = () => {
     setCursor(null);
@@ -725,6 +831,7 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                               {contact?.name ?? 'Open enquiry'}
                             </button>
                             <small>{contact?.email}</small>
+                            <AliasNote name={aliasNames.get(item.id)} />
                           </td>
                           <td data-label="Audience and stage">
                             {label(item.audience)}
@@ -830,6 +937,29 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                       </>
                     ) : (
                       <strong>{label(detail.opportunity.closedDisposition ?? 'Closed')}</strong>
+                    )}
+                    {detail.opportunity.nextAction && (
+                      <NextActionEditor
+                        description={editDescription}
+                        due={editDue}
+                        unchanged={
+                          editDescription === detail.opportunity.nextAction.description &&
+                          editDue === crmLocalDate(detail.opportunity.nextAction.dueAt)
+                        }
+                        busy={busy}
+                        onDescription={setEditDescription}
+                        onDue={setEditDue}
+                        onSave={() => {
+                          const dueAt = new Date(editDue);
+                          if (Number.isNaN(dueAt.getTime())) return;
+                          void mutate('updateNextAction', {
+                            opportunityId: detail.opportunity.id,
+                            expectedRevision: detail.opportunity.revision,
+                            description: editDescription.trim(),
+                            dueAt: dueAt.toISOString(),
+                          });
+                        }}
+                      />
                     )}
                   </section>
                   <div className="adm-crm-detail-tabs" role="tablist" aria-label="Enquiry detail">

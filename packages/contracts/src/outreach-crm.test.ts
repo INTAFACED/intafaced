@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { crmMessageSchema, crmMessagePageSchema } from './crm-notifications.js';
 import {
+  crmActivitySchema,
   crmCommunityStageSchema,
+  crmNextActionInputSchema,
   crmEngagementSyncSchema,
   crmInvestorStageSchema,
   crmOpportunitySchema,
@@ -367,5 +370,89 @@ describe('outreach and CRM boundary contracts', () => {
     expect(crmEngagementSyncSchema.safeParse({ status: 'disabled', reason: 'api_access_unavailable' }).success).toBe(true);
     expect(crmEngagementSyncSchema.safeParse({ status: 'disabled', reason: 'unconfigured' }).success).toBe(true);
     expect(crmEngagementSyncSchema.safeParse({ status: 'synced', views: 0 }).success).toBe(false);
+  });
+
+  it('accepts a next-action edit without a stage or a reason, and refuses actor identity or an empty description', () => {
+    const edit = {
+      requestId: REQUEST_ID,
+      opportunityId: OPPORTUNITY_ID,
+      expectedRevision: 3,
+      description: 'Send the deck',
+      dueAt: '2026-10-14T09:00:00.000Z',
+    };
+    expect(crmNextActionInputSchema.safeParse(edit).success).toBe(true);
+    expect(crmNextActionInputSchema.safeParse({ ...edit, stage: 'qualified' }).success).toBe(false);
+    expect(crmNextActionInputSchema.safeParse({ ...edit, reason: 'Because' }).success).toBe(false);
+    expect(crmNextActionInputSchema.safeParse({ ...edit, actor: OWNER_ID }).success).toBe(false);
+    expect(crmNextActionInputSchema.safeParse({ ...edit, description: '   ' }).success).toBe(false);
+    expect(crmNextActionInputSchema.safeParse({ ...edit, description: 'x'.repeat(161) }).success).toBe(false);
+    expect(crmNextActionInputSchema.safeParse({ ...edit, dueAt: 'tomorrow' }).success).toBe(false);
+    expect(crmNextActionInputSchema.safeParse({ ...edit, expectedRevision: 0 }).success).toBe(false);
+    expect(crmNextActionInputSchema.safeParse({ ...edit, requestId: undefined }).success).toBe(false);
+  });
+
+  it('knows the next_action_changed activity kind', () => {
+    const activity = {
+      id: REQUEST_ID,
+      opportunityId: OPPORTUNITY_ID,
+      sequence: 2,
+      kind: 'next_action_changed',
+      actor: { kind: 'operator', userId: OWNER_ID },
+      note: 'Send the deck',
+      referenceId: '2026-10-14T09:00:00.000Z',
+      occurredAt: NOW,
+    };
+    expect(crmActivitySchema.safeParse(activity).success).toBe(true);
+    expect(crmActivitySchema.safeParse({ ...activity, kind: 'next_action_edited' }).success).toBe(false);
+  });
+
+  it('carries an alias match only for a visible opportunity', () => {
+    const opportunity = { ...OPPORTUNITY_BASE, audience: 'investor', stage: 'new', indicativeContribution: { status: 'undecided' } };
+    const contact = {
+      id: CONTACT_ID,
+      name: 'Ada',
+      email: 'ada@example.com',
+      emailEvidence: { status: 'unverified' },
+      organisationIds: [],
+      interests: ['investor'],
+      platformIdentity: null,
+      createdAt: NOW,
+      updatedAt: NOW,
+    };
+    const summary = { submissionId: opportunity.submissionId, completedAt: null, organisationName: null };
+    const page = { items: [opportunity], contacts: [contact], submissions: [summary], nextCursor: null };
+    expect(crmOpportunityPageSchema.safeParse(page).success).toBe(true); // optional: an older page still parses
+    expect(
+      crmOpportunityPageSchema.safeParse({ ...page, aliasMatches: [{ opportunityId: OPPORTUNITY_ID, name: 'Old Ada' }] }).success,
+    ).toBe(true);
+    expect(crmOpportunityPageSchema.safeParse({ ...page, aliasMatches: [{ opportunityId: REQUEST_ID, name: 'Old Ada' }] }).success).toBe(
+      false,
+    );
+    expect(
+      crmOpportunityPageSchema.safeParse({ ...page, aliasMatches: [{ opportunityId: OPPORTUNITY_ID, name: 'Old Ada', email: 'x@y.test' }] })
+        .success,
+    ).toBe(false);
+    expect(crmOpportunityPageSchema.safeParse({ ...page, aliasMatches: [{ opportunityId: OPPORTUNITY_ID, name: '' }] }).success).toBe(
+      false,
+    );
+  });
+
+  it('returns the founder-written message text, or null, on a message', () => {
+    const message = {
+      id: REQUEST_ID,
+      opportunityId: OPPORTUNITY_ID,
+      submissionId: SUBMISSION_ID,
+      kind: 'follow_up',
+      staffText: 'Thanks for your interest. Are you free on Friday?',
+      actorUserId: OWNER_ID,
+      status: 'unconfigured',
+      createdAt: NOW,
+      notification: null,
+    };
+    expect(crmMessageSchema.parse(message).staffText).toBe('Thanks for your interest. Are you free on Friday?');
+    expect(crmMessageSchema.parse({ ...message, staffText: null }).staffText).toBeNull();
+    expect(crmMessageSchema.safeParse({ ...message, staffText: undefined }).success).toBe(false);
+    expect(crmMessageSchema.safeParse({ ...message, staffText: 'x'.repeat(2001) }).success).toBe(false);
+    expect(crmMessagePageSchema.safeParse({ items: [message], nextCursor: null }).success).toBe(true);
   });
 });

@@ -226,6 +226,13 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('CRM durable guest queue 
       message: { activityId: queued.activity.id, kind: 'information_request', staffText: input.staffText },
     });
     expect((await crm.listMessages({ opportunityId: source.id, limit: 10 })).items).toEqual([queued.message]);
+    // The founder reads back exactly what was written; a missing stored payload reads as null, never as an error.
+    expect(queued.message.staffText).toBe('Please tell us about your introduction.');
+    expect((await crm.listMessages({ opportunityId: source.id, limit: 10 })).items[0]?.staffText).toBe(input.staffText);
+    await db.sql`ALTER TABLE ops.crm_outbox DISABLE TRIGGER crm_dispatch_origin_immutable`;
+    await db.sql`UPDATE ops.crm_outbox SET dispatch_payload=NULL WHERE id=${queued.message.id}`;
+    await db.sql`ALTER TABLE ops.crm_outbox ENABLE TRIGGER crm_dispatch_origin_immutable`;
+    expect((await crm.listMessages({ opportunityId: source.id, limit: 10 })).items[0]?.staffText).toBeNull();
   });
   it('refuses call invitations until actual investor answers and founder review exist', async () => {
     const original = capture(),

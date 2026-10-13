@@ -22,6 +22,11 @@ export const crmMessageSchema = z
     opportunityId: id,
     submissionId: id,
     kind: crmQueueMessageInputSchema.shape.kind,
+    /**
+     * What the founder wrote, for founders only. Null once the stored text is gone. Never copy this field into a public,
+     * guest or prospect-facing schema.
+     */
+    staffText: crmQueueMessageInputSchema.shape.staffText.nullable(),
     actorUserId: id,
     status: z.enum(['pending', 'unconfigured', 'accepted', 'failed', 'unresolved']),
     createdAt: timestamp,
