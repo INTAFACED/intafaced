@@ -165,7 +165,7 @@ async function httpGet(url, timeoutMs = 4000) {
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: ac.signal });
+    const res = await fetch(url, { redirect: 'error', signal: ac.signal });
     const text = await res.text();
     return { status: res.status, text };
   } catch (err) {
@@ -1326,7 +1326,7 @@ async function cmdFund(rawArgs) {
       'content-type': 'application/json',
       ...contracts.serviceAuthHeadersForBody('local-test-fund', secrets.internal, raw),
     };
-    const res = await fetch(`${ledgerUrl}/trpc/${route}`, { method: 'POST', headers, body: raw });
+    const res = await fetch(`${ledgerUrl}/trpc/${route}`, { redirect: 'error', method: 'POST', headers, body: raw });
     const text = await res.text();
     if (!res.ok) fail(`ledger ${route} refused (${res.status}): ${text.slice(0, 400)}`);
     return JSON.parse(text);

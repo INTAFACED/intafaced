@@ -252,6 +252,7 @@ class EdgeClient {
     const headers = { origin: DEFAULT_CUSTOMER_ORIGIN, ...(body ? { 'content-type': 'application/json' } : {}) };
     if (auth) headers.authorization = `Bearer ${this.token}`;
     const res = await fetch(`${this.edge}${route}`, {
+      redirect: 'error',
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
@@ -338,12 +339,15 @@ function save(p, accounts) {
 
 async function preflight(maker, symbols) {
   const blockers = [];
-  const edgeHealth = await fetch(`${maker.edge.replace(/\/+$/, '')}/health`, { signal: AbortSignal.timeout(10_000) }).catch(() => null);
+  const edgeHealth = await fetch(`${maker.edge.replace(/\/+$/, '')}/health`, {
+    redirect: 'error',
+    signal: AbortSignal.timeout(10_000),
+  }).catch(() => null);
   if (!edgeHealth) blockers.push('edge is not answering on its local port. Run: pnpm local:stack');
   // Gate 1: Edge refuses every NEW order unless matching's /health carries a halt flag.
   const marker = JSON.parse(fs.readFileSync(stackPaths().marker, 'utf8'));
   const matchingUrl = `http://${LOCAL_HOST}:${marker.ports.matching}`;
-  const mh = await fetch(`${matchingUrl}/health`, { signal: AbortSignal.timeout(10_000) })
+  const mh = await fetch(`${matchingUrl}/health`, { redirect: 'error', signal: AbortSignal.timeout(10_000) })
     .then((r) => r.json())
     .catch(() => null);
   if (!mh) blockers.push('matching /health is not answering');

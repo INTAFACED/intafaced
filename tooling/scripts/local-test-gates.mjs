@@ -310,6 +310,7 @@ class Edge {
     const headers = { origin: this.origin, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) };
     if (token) headers.authorization = `Bearer ${token}`;
     const res = await fetch(`${this.base}${route}`, {
+      redirect: 'error',
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -494,7 +495,13 @@ async function signedTrade(ctx, method, route, bodyObj) {
   const raw = bodyObj === undefined ? '' : JSON.stringify(bodyObj);
   const headers = { ...ctx.contracts.serviceAuthHeadersForBody('local-test-stack', ctx.secrets.internal, raw) };
   if (raw) headers['content-type'] = 'application/json';
-  const res = await fetch(`${ctx.url('trade')}${route}`, { method, headers, body: raw || undefined, signal: AbortSignal.timeout(30_000) });
+  const res = await fetch(`${ctx.url('trade')}${route}`, {
+    redirect: 'error',
+    method,
+    headers,
+    body: raw || undefined,
+    signal: AbortSignal.timeout(30_000),
+  });
   const text = await res.text();
   let json = null;
   try {
@@ -534,7 +541,7 @@ export async function publishLifecycles(ctx) {
 
 export async function openBooks(ctx) {
   const matchingBase = ctx.url('matching');
-  const listed = await fetch(`${matchingBase}/markets`, { signal: AbortSignal.timeout(15_000) }).then((r) => r.json());
+  const listed = await fetch(`${matchingBase}/markets`, { redirect: 'error', signal: AbortSignal.timeout(15_000) }).then((r) => r.json());
   const have = new Set((listed.markets ?? []).map((m) => (typeof m === 'string' ? m : (m.marketId ?? m.id))));
   const markets = openableMarkets(await listMarkets(ctx)).filter((m) => !have.has(m.id));
   const out = [];
@@ -544,6 +551,7 @@ export async function openBooks(ctx) {
     const ids = await twoPerson(ctx, sessions, openProposal(m.id));
     const raw = JSON.stringify({ operatorId: sessions.a.op.userId, approvalId: ids.approvalId, operationId: ids.operationId });
     const res = await fetch(`${matchingBase}/markets/${encodeURIComponent(m.id)}/open`, {
+      redirect: 'error',
       method: 'POST',
       headers: { 'content-type': 'application/json', ...ctx.contracts.serviceAuthHeadersForBody('svc-trade', ctx.secrets.internal, raw) },
       body: raw,
@@ -649,7 +657,7 @@ export async function verifyAll(ctx) {
 
 export async function status(ctx) {
   const markets = openableMarkets(await listMarkets(ctx));
-  const matching = await fetch(`${ctx.url('matching')}/markets`)
+  const matching = await fetch(`${ctx.url('matching')}/markets`, { redirect: 'error' })
     .then((r) => r.json())
     .catch(() => ({ markets: [] }));
   const listed = new Set((matching.markets ?? []).map((m) => (typeof m === 'string' ? m : (m.marketId ?? m.id))));

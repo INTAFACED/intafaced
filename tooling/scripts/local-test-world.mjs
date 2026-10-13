@@ -174,7 +174,8 @@ function makeLogger(file) {
     const line = `${nowIso()} ${msg}`;
     process.stdout.write(`${line}\n`);
     try {
-      fs.appendFileSync(file, `${line}\n`);
+      fs.appendFileSync(file, `${line}\n`, { mode: 0o600 });
+      fs.chmodSync(file, 0o600);
     } catch {
       /* log is best effort */
     }
@@ -263,6 +264,7 @@ class EdgeClient {
     const headers = { origin: CUSTOMER_ORIGIN, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) };
     if (auth) headers.authorization = `Bearer ${this.token}`;
     const res = await fetch(`${EDGE}${route}`, {
+      redirect: 'error',
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
