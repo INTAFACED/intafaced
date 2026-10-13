@@ -1331,6 +1331,142 @@ describe('svc-pay money PG-hard', () => {
       await expect(settle(m.id, 'w-empty')).rejects.toMatchObject({ code: 'pay.nothing_to_settle' });
     });
 
+    it('refuses one bound or an impossible UTC day, and a real day stays half-open', async () => {
+      const m = await merchant(0);
+      const day = '2026-07-27';
+      const start = new Date('2026-07-27T00:00:00.000Z');
+      const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+
+      async function plantCaptured(amount: string, at: Date, railRef: string): Promise<string> {
+        const rows = await sql<{ id: string }[]>`
+          INSERT INTO pay.payments (merchant_id, amount, currency, method, rail_adapter, rail_ref, status)
+          VALUES (${m.id}, ${amount}::numeric, 'USDT', 'card', 'card-sandbox', ${railRef}, 'captured')
+          RETURNING id
+        `;
+        const id = rows[0]!.id;
+        await sql`
+          INSERT INTO pay.payment_events (payment_id, event, payload, ts)
+          VALUES (${id}, 'captured', ${sql.json({ amount } as never)}, ${at})
+        `;
+        return id;
+      }
+
+      async function fund(paymentId: string, amount: string, railRef: string): Promise<void> {
+        await ledger.post(
+          recipes.paymentCapture({
+            paymentId,
+            merchantId: m.id,
+            assetId: 'USDT',
+            amount: amt(amount),
+            rail: 'card-sandbox',
+            railRef,
+          }),
+        );
+      }
+
+      const atStart = await plantCaptured('10', start, 'rail-day-start');
+      const atEndMinus = await plantCaptured('15', new Date(end.getTime() - 1), 'rail-day-end');
+      await fund(atStart, '10', 'rail-day-start');
+      await fund(atEndMinus, '15', 'rail-day-end');
+      // 2026-02-31 rolls through Date to 2026-03-03. That payment must not be frozen under the original key.
+      const overflow = await plantCaptured('80', new Date('2026-03-03T12:00:00.000Z'), 'rail-overflow');
+      const before = await plantCaptured('100', new Date(start.getTime() - 1), 'rail-before');
+      const atEnd = await plantCaptured('100', end, 'rail-at-end');
+      // 0001-01-01 is that UTC day. Date.UTC(1, 0, 1) is 1901-01-01; this window must not follow it.
+      const yearOne = '0001-01-01';
+      const yearOneStart = new Date(`${yearOne}T00:00:00.000Z`);
+      const yearOneEnd = new Date(yearOneStart.getTime() + 24 * 60 * 60 * 1000);
+      const atYearOne = await plantCaptured('4', yearOneStart, 'rail-year-one');
+      const atYearOneEnd = await plantCaptured('100', yearOneEnd, 'rail-year-one-end');
+      await fund(atYearOne, '4', 'rail-year-one');
+
+      for (const window of ['2026-02-31', '2026-02-29', '2026-04-31']) {
+        await expect(pay.settleWindow({ merchantId: m.id, window, assetId: 'USDT' })).rejects.toMatchObject({
+          code: 'pay.invalid_window',
+        });
+      }
+      await expect(
+        pay.settleWindow({
+          merchantId: m.id,
+          window: '2026-02-31',
+          assetId: 'USDT',
+          from: new Date('2026-03-03T00:00:00.000Z'),
+        }),
+      ).rejects.toMatchObject({ code: 'pay.invalid_window' });
+      await expect(
+        pay.settleWindow({
+          merchantId: m.id,
+          window: day,
+          assetId: 'USDT',
+          to: end,
+        }),
+      ).rejects.toMatchObject({ code: 'pay.invalid_window' });
+      await expect(
+        pay.settleWindow({
+          merchantId: m.id,
+          window: 'w-one-bound',
+          assetId: 'USDT',
+          from: start,
+        }),
+      ).rejects.toMatchObject({ code: 'pay.invalid_window' });
+
+      const frozen = await sql<{ n: string }[]>`
+        SELECT COUNT(*)::text AS n FROM pay.settlements WHERE merchant_id = ${m.id}
+      `;
+      expect(frozen[0]?.n).toBe('0');
+      for (const paymentId of [overflow, before, atEnd, atStart, atEndMinus, atYearOne, atYearOneEnd]) {
+        expect((await pay.getPayment(paymentId)).status).toBe('captured');
+        expect(await events(paymentId)).not.toContain('settlement.included');
+      }
+
+      const posted = await pay.settleWindow({ merchantId: m.id, window: day, assetId: 'USDT' });
+      expect(posted.status).toBe('posted');
+      expect(posted.window).toBe(day);
+      expect(formatAmount(posted.gross)).toBe('25');
+      expect((await pay.getPayment(atStart)).status).toBe('settled');
+      expect((await pay.getPayment(atEndMinus)).status).toBe('settled');
+      for (const paymentId of [overflow, before, atEnd, atYearOne, atYearOneEnd]) {
+        expect((await pay.getPayment(paymentId)).status).toBe('captured');
+        expect(await events(paymentId)).not.toContain('settlement.included');
+      }
+      const overflowKey = await sql<{ n: string }[]>`
+        SELECT COUNT(*)::text AS n FROM pay.settlements WHERE merchant_id = ${m.id} AND "window" = '2026-02-31'
+      `;
+      expect(overflowKey[0]?.n).toBe('0');
+
+      const ancient = await pay.settleWindow({ merchantId: m.id, window: yearOne, assetId: 'USDT' });
+      expect(ancient.status).toBe('posted');
+      expect(ancient.window).toBe(yearOne);
+      expect(formatAmount(ancient.gross)).toBe('4');
+      expect(yearOneStart.toISOString()).toBe('0001-01-01T00:00:00.000Z');
+      expect(yearOneEnd.toISOString()).toBe('0001-01-02T00:00:00.000Z');
+      expect((await pay.getPayment(atYearOne)).status).toBe('settled');
+      for (const paymentId of [atYearOneEnd, overflow]) {
+        expect((await pay.getPayment(paymentId)).status).toBe('captured');
+        expect(await events(paymentId)).not.toContain('settlement.included');
+      }
+
+      // Both explicit bounds still win, including when the label is not a calendar day.
+      const from = new Date(Date.now() - 60_000);
+      const live = await cardPayment(m.id, '7');
+      await pay.capture(live.id);
+      const bounded = await pay.settleWindow({
+        merchantId: m.id,
+        window: '2026-02-31',
+        assetId: 'USDT',
+        from,
+        to: new Date(Date.now() + 60_000),
+      });
+      expect(bounded.status).toBe('posted');
+      expect(bounded.window).toBe('2026-02-31');
+      expect(formatAmount(bounded.gross)).toBe('7');
+      expect((await pay.getPayment(live.id)).status).toBe('settled');
+      expect((await pay.getPayment(overflow)).status).toBe('captured');
+      expect(await availableOf(MERCHANT_USER)).toBe('36');
+      expect(await clearingOf(m.id)).toBe('0');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
     it('does not settle a payment that has not been captured', async () => {
       const m = await merchant();
       await cardPayment(m.id, '100'); // authorized only

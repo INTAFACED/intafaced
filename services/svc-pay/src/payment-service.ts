@@ -2762,7 +2762,11 @@ export class PayService {
     /** Window label, e.g. '2026-07-27'. Half the business key. */
     window: string;
     assetId: string;
-    /** Defaults to the UTC day named by `window`. */
+    /**
+     * Both bounds replace the label. Exactly one is `pay.invalid_window`
+     * (the missing side is not invented, and the label's day is not substituted).
+     * Neither: `window` must be a real UTC calendar day, half-open for 24 hours.
+     */
     from?: Date;
     to?: Date;
   }): Promise<SettlementRecord> {
