@@ -51,9 +51,11 @@ function pnpm(args, env = {}) {
   return result.status === 0;
 }
 
+/** The last commit that touched anything the three builds read, so tooling-only commits skip a rebuild. */
 function head() {
   try {
-    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim();
+    const inputs = ['apps/invitation', 'apps/admin', 'packages', 'vendor/upstream-exchange/05_Web_Front/src', 'pnpm-lock.yaml'];
+    return execFileSync('git', ['log', '-1', '--format=%H', '--', ...inputs], { cwd: repo, encoding: 'utf8' }).trim() || 'unknown';
   } catch {
     return 'unknown';
   }
@@ -247,6 +249,8 @@ async function main() {
   servers.push(edge);
 
   const nextPort = await freePort();
+  // Claim the console port before starting Next, so a busy port never leaves Next running alone.
+  servers.push(...(await listenLocal(consoleProxy(nextPort), ADMIN_PORT)));
   const adminOrigin = `http://localhost:${ADMIN_PORT}`;
   const next = spawn(
     process.execPath,
@@ -265,9 +269,10 @@ async function main() {
       stdio: ['ignore', 'ignore', 'inherit'],
     },
   );
-  servers.push(...(await listenLocal(consoleProxy(nextPort), ADMIN_PORT)));
 
+  let stopping = false;
   const stop = () => {
+    stopping = true;
     next.kill('SIGTERM');
     for (const server of servers) server.close();
     setTimeout(() => process.exit(0), 500).unref();
@@ -275,16 +280,20 @@ async function main() {
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);
   next.once('exit', (code) => {
-    if (code !== null && code !== 0) fail(`The founder console stopped (exit ${code}).`);
+    if (!stopping && code !== null && code !== 0) fail(`The founder console stopped (exit ${code}).`);
   });
 
-  for (let i = 0; i < 100; i += 1) {
-    const ready = await fetch(`http://127.0.0.1:${nextPort}/login`, { headers: { host: `localhost:${ADMIN_PORT}` } }).then(
+  let ready = false;
+  for (let i = 0; i < 100 && !ready; i += 1) {
+    ready = await fetch(`http://127.0.0.1:${nextPort}/login`, { headers: { host: `localhost:${ADMIN_PORT}` } }).then(
       (r) => r.ok,
       () => false,
     );
-    if (ready) break;
-    await sleep(300);
+    if (!ready) await sleep(300);
+  }
+  if (!ready) {
+    next.kill('SIGTERM');
+    fail('The founder console did not start within 30 seconds.');
   }
   console.log(`
 INTAFACED local preview — test data, not live. Nothing is saved, emailed or deployed.
