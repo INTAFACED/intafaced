@@ -61,6 +61,14 @@ async function rejection<E>(promise: Promise<unknown>, kind: abstract new (...ar
   throw new Error(`expected ${kind.name}, but the call resolved`);
 }
 
+/** Cross-tree onboarding must not name the other tree or say which shape it has. */
+function expectNoOtherTree(err: SubMerchantError, ...ids: string[]): void {
+  const text = `${err.message}\n${JSON.stringify(err.detail ?? null)}`;
+  for (const forbidden of ['in its own right', 'under another parent', ...ids]) {
+    expect(text).not.toContain(forbidden);
+  }
+}
+
 function at<T>(rows: readonly T[], index: number, what: string): T {
   const row = rows[index];
   if (row === undefined) throw new Error(`expected ${what}[${index}], but only ${rows.length} row(s) came back`);
@@ -292,13 +300,39 @@ describe('svc-pay sub-merchant trees PG-hard', () => {
         }),
         SubMerchantError,
       );
-      expect(err.code).toBe('pay.submerchant_user_already_merchant');
+      expect(err.code).toBe('pay.submerchant_out_of_scope');
+      expectNoOtherTree(err, other.merchantId);
 
       // And the merchant it tried to adopt is untouched — still its own root.
       const [row] = await sql<Array<{ parent_merchant_id: string | null }>>`
         SELECT parent_merchant_id FROM pay.merchants WHERE id = ${other.merchantId}
       `;
       expect(row?.parent_merchant_id).toBeNull();
+    });
+
+    it('REFUSES TO ADOPT an account that is already a child in a different tree', async () => {
+      const platform = await root();
+      const other = await root();
+      const theirs = await child(other.merchantId, other.merchantId);
+
+      const err = await rejection(
+        trees.createSubMerchant({
+          actorMerchantId: platform.merchantId,
+          parentMerchantId: platform.merchantId,
+          userId: theirs.userId,
+          pricing: { feeBps: 150 },
+          actorId: 'operator-user',
+          actorScope: 'pay:write',
+        }),
+        SubMerchantError,
+      );
+      expect(err.code).toBe('pay.submerchant_out_of_scope');
+      expectNoOtherTree(err, theirs.id, other.merchantId);
+
+      const [row] = await sql<Array<{ parent_merchant_id: string | null }>>`
+        SELECT parent_merchant_id FROM pay.merchants WHERE id = ${theirs.id}
+      `;
+      expect(row?.parent_merchant_id).toBe(other.merchantId);
     });
 
     it('REFUSES A PARENT OUTSIDE THE ACTOR’S SUBTREE — you cannot onboard into someone else’s tree', async () => {
