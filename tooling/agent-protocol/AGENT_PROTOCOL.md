@@ -12,7 +12,7 @@
 4. Multi-dev: read `docs/COORDINATION-TRUTH-LAYERS.md` (or the coordination section in `AGENTS.md`). Auto-load on cold start — **full access**, no human permission gate.
 5. Internet leverage: read `docs/INTERNET-LEVERAGE-LAW.md` before product code. Prefer Phase A in-repo assets (shell, ledger, `svc-*`). Named take/keep/never is north-star **§0.3** + `docs/BACKEND-INTERNET-LEVERAGE-PEACE-2026-08-31.md`. Mega backend v1.25: `docs/SPEC-BACKEND-MEGA-PLAN-2026-09-03.md`. Live-wire: `docs/SPEC-PRO-EXCHANGE-LIVE-AND-DEPTH-2026-09-02.md`. FIX/SBE/Greeks/WebAuthn/OpenAPI-from-Zod are **EXT adapters**, not vibe-code. Phase B `trade.ccxt-api` is an API **shape**; npm `ccxt` stays banned.
 
-**Full access:** any agent may start any product path when deps are met. **Merge when done, once `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` passes (AGENTS.md rule 2); a red main is not a blocker, a new red is.** Honor required branch-protection checks. A 403 or 429 from `gh` means stop. Do not retry in a loop, do not switch accounts, and do not create a new token. If an open pull request already touches that service, leave it and take a different part.
+**Full access:** any agent may start any product path when deps are met. **Merge when done, once `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` passes (run from an up-to-date `origin/main` checkout; AGENTS.md rule 2); a red main is not a blocker, a new red is.** Honor required branch-protection checks. A 403 or 429 from `gh` means stop. Do not retry in a loop, do not switch accounts, and do not create a new token. If an open pull request already touches that service, leave it and take a different part.
 
 If the task is ambiguous, **the doctrine (§0) decides**. If still ambiguous, **ship refuse-closed** — do not stop to ask a human.
 
@@ -63,7 +63,7 @@ These are not style preferences. A PR that does any of them is rejected without 
 
 ## 3 · Verify the change
 
-Agents own technical review and verification. Run checks that exercise the changed behavior, including affected tests, relevant typecheck/build, and money invariants where applicable. Fix failures introduced by the change. Report unrelated baseline failures and checks that could not run; do not claim unverified behavior works. Full-suite CI and `pnpm verify` are informational. Required branch-protection checks still apply.
+Agents own technical review and verification. Run checks that exercise the changed behavior, including affected tests, relevant typecheck/build, and money invariants where applicable. Fix failures introduced by the change. Report unrelated baseline failures and checks that could not run; do not claim unverified behavior works. `pnpm verify` is informational. Merging is gated by `node tooling/scripts/merge-gate.mjs <pr> --head <sha>`, run from an up-to-date `origin/main` checkout (AGENTS.md rule 2); required branch-protection checks still apply.
 
 ```bash
 pnpm verify           # broad informational check; use affected checks for the change
