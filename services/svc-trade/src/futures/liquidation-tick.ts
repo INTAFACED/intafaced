@@ -331,6 +331,11 @@ export interface LiquidationTickItemResult {
   reason: string;
   summary?: string;
   /**
+   * The rung applied, but its margin did not reconcile (see `RungAlert`). The item is
+   * still a success; `reportLiquidationTick` raises the alert at error level.
+   */
+  alert?: { code: string; rungId: string; amount: string };
+  /**
    * Set when `outcome === 'margin_call'`: whether the notify port accepted
    * delivery. Observable on the tick result; REST durability is the trader door.
    */
@@ -373,15 +378,6 @@ export async function runLiquidationTick(deps: LiquidationTickDeps): Promise<Liq
   let partial = 0;
   let marginCalls = 0;
   let errored = 0;
-
-  // Closes that committed but whose announcement never published (a crash between
-  // the two). Independent of `open`: a closed position is not in it.
-  if (deps.rungs) {
-    for (const failed of await announceMissing(deps, deps.rungs)) {
-      items.push(failed);
-      errored += 1;
-    }
-  }
 
   for (const row of open) {
     /**
@@ -535,6 +531,22 @@ export async function runLiquidationTick(deps: LiquidationTickDeps): Promise<Liq
         reason: typeof code === 'string' ? code : 'trade.liquidation_tick_error',
         summary: err instanceof Error ? err.message : String(err),
       });
+      errored += 1;
+    }
+  }
+
+  /**
+   * ANNOUNCEMENTS RUN LAST, AND A DOWN BUS COSTS ONE ATTEMPT.
+   *
+   * A close commits in `apply`; telling the bus is a separate, slower, failure-prone
+   * step (a JetStream publish waits for an ack). Doing it before or inside the scan
+   * let a dead bus stall every liquidation behind it. Now the scan never waits on it,
+   * and this pass stops at the first failure.
+   */
+  if (deps.rungs) {
+    const failed = await announceMissing(deps, deps.rungs);
+    if (failed) {
+      items.push(failed);
       errored += 1;
     }
   }
@@ -859,17 +871,16 @@ async function driveRung(
   switch (applied.status) {
     case 'applied':
     case 'already_applied': {
-      if (closing) {
-        await deps.attempts.markDone(rung.liquidationId);
-        // After the commit: a failed fan-out must not undo (or hold back) the close.
-        // It stays unannounced and the next tick's scan re-publishes it.
-        if (applied.status === 'applied') await announceRung(deps, rungs, rung);
-      }
+      // The announcement is NOT made here: it is the after-scan pass's job
+      // (`announceMissing`), so a slow or dead bus never delays a rung.
+      if (closing) await deps.attempts.markDone(rung.liquidationId);
+      const alert = applied.status === 'applied' ? applied.alert : undefined;
       return {
         positionId: row.positionId,
         outcome,
         reason: plan.reason,
-        summary: `${label} ${applied.status === 'applied' ? 'applied' : 'already applied'}`,
+        summary: `${label} ${applied.status === 'applied' ? 'applied' : 'already applied'}${alert ? ` — ${alert.code} ${formatAmount(alert.amount)}` : ''}`,
+        ...(alert ? { alert: { code: alert.code, rungId: rung.rungId, amount: formatAmount(alert.amount) } } : {}),
       };
     }
     case 'abandoned':
@@ -894,31 +905,47 @@ async function driveRung(
  *
  * AT-LEAST-ONCE. The row closed in `apply`'s transaction; the bus is a separate
  * system, so a crash between the two used to lose the event for good. Now the rung
- * row says whether the announcement is recorded (`announced_at`), a tick re-scans
- * applied closing rungs that are not (`announceMissing`), and the publish key
- * `trade.position.liquidated:{id}:{liquidationId}` makes a repeat harmless.
+ * row says whether the announcement is recorded (`announced_at`), and every tick's
+ * last pass (`announceMissing`) publishes the applied closing rungs that are not.
+ * The publish key `trade.position.liquidated:{id}:{liquidationId}` makes a repeat
+ * harmless.
  */
 async function announceRung(deps: LiquidationTickDeps, rungs: LiquidationRungStore, rung: RungRecord): Promise<void> {
   await deps.closer.announceLiquidated?.(rung.positionId, { liquidationId: rung.liquidationId, reason: rung.plan.reason });
   await rungs.markAnnounced(rung.rungId);
 }
 
-/** Re-publish the closes whose announcement never made it out. A failure is reported on its own item; the scan goes on. */
-async function announceMissing(deps: LiquidationTickDeps, rungs: LiquidationRungStore): Promise<LiquidationTickItemResult[]> {
-  const failed: LiquidationTickItemResult[] = [];
-  for (const rung of await rungs.listUnannounced(50)) {
+/**
+ * Publish the closes that have not been announced — oldest first, and STOPPING AT THE
+ * FIRST FAILURE: a bus that is down fails every publish and each one can wait for an
+ * ack, so trying fifty of them would turn one outage into minutes of stall per tick.
+ * Returns the single errored item, or null.
+ */
+async function announceMissing(deps: LiquidationTickDeps, rungs: LiquidationRungStore): Promise<LiquidationTickItemResult | null> {
+  let pending: RungRecord[];
+  try {
+    pending = await rungs.listUnannounced(50);
+  } catch (err) {
+    return {
+      positionId: 'announce-scan',
+      outcome: 'errored',
+      reason: 'trade.liquidation_announce_failed',
+      summary: `could not list unannounced liquidations (${err instanceof Error ? err.message : String(err)})`,
+    };
+  }
+  for (const rung of pending) {
     try {
       await announceRung(deps, rungs, rung);
     } catch (err) {
-      failed.push({
+      return {
         positionId: rung.positionId,
         outcome: 'errored',
         reason: 'trade.liquidation_announce_failed',
-        summary: `rung ${rung.rungId}: the liquidation closed the position but its announcement did not publish (${err instanceof Error ? err.message : String(err)}) — retried next tick`,
-      });
+        summary: `rung ${rung.rungId}: the liquidation closed the position but its announcement did not publish (${err instanceof Error ? err.message : String(err)}) — retried next tick, ${pending.length} unannounced`,
+      };
     }
   }
-  return failed;
+  return null;
 }
 
 export function memoryLiquidationAttemptStore(): LiquidationAttemptStore {

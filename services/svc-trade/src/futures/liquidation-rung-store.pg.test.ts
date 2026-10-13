@@ -362,7 +362,25 @@ describe('liquidation rungs (Postgres)', () => {
     expect(t3.items.map((i) => i.outcome)).toEqual(['partially_liquidated']);
   });
 
-  it('a closing rung whose margin moved after the post is abandoned (its stored release is wrong) and parks the position', async () => {
+  it('I: the trader adds 50 margin while a closing rung posts: the row still closes, drift +50 is stored and alerted', async () => {
+    const id = await openPosition();
+    const f = fixture({ price: { current: '60' } });
+    let once = true;
+    f.hooks.beforePost = async () => {
+      if (once) {
+        once = false;
+        await sql`UPDATE trade.positions SET margin_current = margin_current + 50 WHERE id = ${id}`;
+      }
+    };
+    const t = await runLiquidationTick(f.deps);
+    expect(t.items[0]).toMatchObject({ outcome: 'liquidated', alert: { code: 'trade.liquidation_margin_drift', amount: '50' } });
+    expect((await readRow(id)).status).toBe('liquidated');
+    expect(await rungStates(id)).toEqual(['closing:applied']);
+    const [r] = await sql<{ margin_drift: string }[]>`SELECT margin_drift FROM trade.liquidation_rungs WHERE position_id = ${id}`;
+    expect(money(r!.margin_drift)).toBe(money('50'));
+  });
+
+  it('funding takes 1 between a closing rung post and apply: the row closes, drift -1', async () => {
     const id = await openPosition();
     const f = fixture({ price: { current: '60' } });
     const realApply = f.deps.rungs!.apply;
@@ -377,10 +395,54 @@ describe('liquidation rungs (Postgres)', () => {
     await runLiquidationTick(f.deps);
     await sql`UPDATE trade.positions SET margin_current = margin_current - 1 WHERE id = ${id}`;
     const t2 = await runLiquidationTick(f.deps);
+    expect(t2.items[0]).toMatchObject({ outcome: 'liquidated', alert: { code: 'trade.liquidation_margin_drift', amount: '-1' } });
+    expect((await readRow(id)).status).toBe('liquidated');
+  });
+
+  it('a closing rung whose SIZE changed is abandoned and parks the position', async () => {
+    const id = await openPosition();
+    const f = fixture({ price: { current: '60' } });
+    const realApply = f.deps.rungs!.apply;
+    let crash = true;
+    f.deps.rungs!.apply = async (...args) => {
+      if (crash) {
+        crash = false;
+        throw new Error('died before apply');
+      }
+      return realApply(...args);
+    };
+    await runLiquidationTick(f.deps);
+    await sql`UPDATE trade.positions SET size = '9' WHERE id = ${id}`;
+    const t2 = await runLiquidationTick(f.deps);
     expect(t2.items[0]).toMatchObject({ outcome: 'errored', reason: 'trade.liquidation_row_changed_after_post' });
     expect((await readRow(id)).status).toBe('open');
     const t3 = await runLiquidationTick(f.deps);
     expect(t3.items[0]).toMatchObject({ outcome: 'skipped_already', reason: ABANDONED_PARKED });
+  });
+
+  it('K: funding took 70 before a partial rung applied: it applies, floors at 0 and stores/alerts the shortfall', async () => {
+    const id = await openPosition();
+    const f = fixture();
+    const realApply = f.deps.rungs!.apply;
+    let crash = true;
+    f.deps.rungs!.apply = async (...args) => {
+      if (crash) {
+        crash = false;
+        throw new Error('died before apply');
+      }
+      return realApply(...args);
+    };
+    await runLiquidationTick(f.deps);
+    await sql`UPDATE trade.positions SET margin_current = margin_current - 70 WHERE id = ${id}`;
+    const t2 = await runLiquidationTick(f.deps);
+    const shortfall = amt('30') - f.marginTaken();
+    expect(t2.items[0]).toMatchObject({
+      outcome: 'partially_liquidated',
+      alert: { code: 'trade.liquidation_margin_clipped', amount: formatAmount(shortfall) },
+    });
+    expect((await readRow(id)).margin).toBe(money('0'));
+    const [r] = await sql<{ margin_drift: string }[]>`SELECT margin_drift FROM trade.liquidation_rungs WHERE position_id = ${id}`;
+    expect(amt(r!.margin_drift)).toBe(shortfall);
   });
 
   it('G: with a ledger that cannot look keys up, a bankrupt closing rung that crashes before its first post completes on replay', async () => {
@@ -420,7 +482,7 @@ describe('liquidation rungs (Postgres)', () => {
         .announced_at;
 
     const t1 = await runLiquidationTick(f.deps);
-    expect(t1.items[0]!.outcome).toBe('errored');
+    expect(t1.items.map((i) => i.outcome)).toEqual(['liquidated', 'errored']);
     expect((await readRow(id)).status).toBe('liquidated');
     expect(published).toHaveLength(0);
     expect(await announcedAt()).toBeNull();

@@ -51,6 +51,24 @@ describe('reportLiquidationTick: an abandoned rung', () => {
   });
 });
 
+describe('reportLiquidationTick: margin alerts', () => {
+  it('raises a rung that applied with a margin drift at error level, though the item is a success', () => {
+    const logged: string[] = [];
+    reportLiquidationTick(
+      tick([
+        {
+          positionId: 'pos-d',
+          outcome: 'liquidated',
+          reason: 'bankrupt_full_close',
+          alert: { code: 'trade.liquidation_margin_drift', rungId: 'r-1', amount: '50' },
+        },
+      ]),
+      (_n, err) => logged.push((err as Error).message),
+    );
+    expect(logged).toEqual(['trade.liquidation_margin_drift positionId=pos-d rungId=r-1 amount=50']);
+  });
+});
+
 describe('startFuturesJobs wiring', () => {
   it('hands the liquidation tick the SQL rung store (a rung that is not stored cannot be replayed)', () => {
     const src = readFileSync(fileURLToPath(new URL('./futures-jobs.ts', import.meta.url)), 'utf8');

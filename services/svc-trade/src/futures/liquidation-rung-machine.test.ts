@@ -433,7 +433,8 @@ describe('probe D: a failed closing rung is replayed, not parked', () => {
       throw new Error('bus down');
     };
     const t = await runLiquidationTick(h.deps);
-    expect(t.items[0]).toMatchObject({ outcome: 'errored', reason: 'trade.liquidation_tick_error' });
+    expect(t.items.map((i) => i.outcome)).toEqual(['liquidated', 'errored']);
+    expect(t.items[1]).toMatchObject({ reason: 'trade.liquidation_announce_failed' });
     expect(h.row.status).toBe('liquidated');
     expect(await h.attempts.isDone('liq:pos-1')).toBe(true);
   });
@@ -478,9 +479,7 @@ describe('probe F / H: ordinary writers move the row after the loss is booked', 
     expect(h.marginTaken() + h.row.margin).toBe(amt('99'));
   });
 
-  it('a closing rung whose margin moved after the post (its stored release is now wrong) is abandoned and parks the position', async () => {
-    const h = harness();
-    h.price.current = '60';
+  const crashFirstApply = (h: ReturnType<typeof harness>) => {
     const realApply = h.rungs.apply;
     let crash = true;
     h.rungs.apply = async (...args) => {
@@ -490,13 +489,69 @@ describe('probe F / H: ordinary writers move the row after the loss is booked', 
       }
       return realApply(...args);
     };
+  };
+
+  it('I: the trader adds 50 margin while a closing rung posts: the row STILL closes, the stranded 50 is recorded and alerted', async () => {
+    const h = harness();
+    h.price.current = '60';
+    let once = true;
+    h.hooks.beforePost = () => {
+      if (once) {
+        once = false;
+        h.row.margin += amt('50');
+      }
+    };
+    const t = await runLiquidationTick(h.deps);
+    expect(t.items[0]).toMatchObject({
+      outcome: 'liquidated',
+      alert: { code: 'trade.liquidation_margin_drift', rungId: 'rung-1', amount: '50' },
+    });
+    expect(h.row.status).toBe('liquidated'); // never left open and tradable after the full loss is booked
+    expect(h.rungs.all().map((r) => [r.state, r.marginDrift])).toEqual([['applied', amt('50')]]);
+    expect(await h.rungs.isParked('pos-1')).toBe(false);
+  });
+
+  it('funding takes 1 from a closing rung between its post and its apply: the row closes, drift -1 is alerted, nothing else to post', async () => {
+    const h = harness();
+    h.price.current = '60';
+    crashFirstApply(h);
     await runLiquidationTick(h.deps);
-    h.row.margin -= amt('1'); // funding
+    const posts = h.posts.length;
+    h.row.margin -= amt('1'); // funding (its own ledger legs are the funding writer's business)
+    const t2 = await runLiquidationTick(h.deps);
+    expect(t2.items[0]).toMatchObject({ outcome: 'liquidated', alert: { code: 'trade.liquidation_margin_drift', amount: '-1' } });
+    expect(h.row.status).toBe('liquidated');
+    expect(h.posts.length).toBe(posts);
+    expect(h.rungs.all().map((r) => r.marginDrift)).toEqual([-amt('1')]);
+  });
+
+  it('a closing rung whose SIZE changed is abandoned and parks the position', async () => {
+    const h = harness();
+    h.price.current = '60';
+    crashFirstApply(h);
+    await runLiquidationTick(h.deps);
+    h.row.size = amt('9'); // the trader closed part of it
     const t2 = await runLiquidationTick(h.deps);
     expect(t2.items[0]).toMatchObject({ outcome: 'errored', reason: 'trade.liquidation_row_changed_after_post' });
     expect(h.row.status).toBe('open');
     const t3 = await runLiquidationTick(h.deps);
     expect(t3.items[0]).toMatchObject({ outcome: 'skipped_already', reason: ABANDONED_PARKED });
+  });
+
+  it('K: funding took 70 of a 100 margin before a partial rung (loss ~39.89) applied: it still applies, floors at 0, and alerts the shortfall', async () => {
+    const h = harness();
+    crashFirstApply(h);
+    await runLiquidationTick(h.deps);
+    h.row.margin -= amt('70');
+    const t2 = await runLiquidationTick(h.deps);
+    const taken = h.marginTaken();
+    expect(t2.items[0]).toMatchObject({
+      outcome: 'partially_liquidated',
+      alert: { code: 'trade.liquidation_margin_clipped', amount: formatAmount(amt('30') - taken) },
+    });
+    expect(h.row.margin).toBe(0n);
+    expect(h.row.size).toBeLessThan(amt('10'));
+    expect(h.rungs.all().map((r) => r.marginDrift)).toEqual([amt('30') - taken]);
   });
 });
 
@@ -563,7 +618,7 @@ describe('the close announcement is at-least-once', () => {
       published.push(`${id}:${meta.liquidationId}`);
     };
     const t1 = await runLiquidationTick(h.deps);
-    expect(t1.items[0]).toMatchObject({ outcome: 'errored' });
+    expect(t1.items.map((i) => i.outcome)).toEqual(['liquidated', 'errored']);
     expect(h.row.status).toBe('liquidated');
     expect(published).toEqual([]);
 
@@ -582,7 +637,63 @@ describe('the close announcement is at-least-once', () => {
     };
     await runLiquidationTick(h.deps);
     const t2 = await runLiquidationTick(h.deps);
-    expect(t2.items[0]).toMatchObject({ outcome: 'errored', reason: 'trade.liquidation_announce_failed' });
+    expect(t2.items.at(-1)).toMatchObject({ outcome: 'errored', reason: 'trade.liquidation_announce_failed' });
+  });
+
+  it('a dead bus costs ONE publish attempt per tick however many closes are waiting', async () => {
+    const h = harness();
+    // Three applied-but-unannounced closes (the position id is reused by the harness).
+    for (let i = 1; i <= 3; i++) {
+      h.row.status = 'open';
+      h.row.size = amt('10');
+      h.row.margin = amt('100');
+      const plan = {
+        recipes: [],
+        sizeClosed: amt('10'),
+        marginRemaining: 0n,
+        marginTaken: 0n,
+        reason: 'ladder_full_close',
+        fromInsurance: 0n,
+        marginAsset: 'USDT',
+      };
+      await h.rungs.begin({
+        rungId: `old-${i}`,
+        positionId: 'pos-1',
+        liquidationId: 'liq:pos-1',
+        kind: 'closing',
+        fromSize: amt('10'),
+        fromMargin: amt('100'),
+        plan,
+      });
+      await h.rungs.markPosted(`old-${i}`);
+      expect((await h.rungs.apply('pos-1', `old-${i}`)).status).toBe('applied');
+    }
+    let attempts = 0;
+    h.deps.closer.announceLiquidated = async () => {
+      attempts += 1;
+      throw new Error('bus down');
+    };
+    const t1 = await runLiquidationTick(h.deps);
+    expect(attempts).toBe(1); // not 3
+    expect(t1.items.filter((i) => i.outcome === 'errored')).toHaveLength(1);
+    await runLiquidationTick(h.deps);
+    expect(attempts).toBe(2);
+  });
+
+  it('the announcement is attempted after the scan: a rung never waits on the bus', async () => {
+    const h = harness();
+    h.price.current = '60';
+    const order: string[] = [];
+    h.deps.closer.announceLiquidated = async () => {
+      order.push('announce');
+    };
+    const realPost = h.deps.ledger.post;
+    h.deps.ledger.post = async (req) => {
+      order.push('post');
+      return realPost(req);
+    };
+    await runLiquidationTick(h.deps);
+    expect(order).toEqual(['post', 'announce']);
   });
 });
 

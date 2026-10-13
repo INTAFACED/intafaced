@@ -17,6 +17,7 @@ import {
   decodeRungPlan,
   encodeRungPlan,
   type ApplyRungResult,
+  type RungAlert,
   type BeginRungInput,
   type BeginRungResult,
   type EncodedRungPlan,
@@ -369,6 +370,7 @@ interface RungRow {
   from_margin: string;
   plan: EncodedRungPlan;
   state: RungState;
+  margin_drift: string;
 }
 
 function rungFromRow(row: RungRow): RungRecord {
@@ -381,6 +383,7 @@ function rungFromRow(row: RungRow): RungRecord {
     fromMargin: parseAmount(row.from_margin),
     plan: decodeRungPlan(row.plan),
     state: row.state,
+    marginDrift: parseAmount(row.margin_drift),
   };
 }
 
@@ -400,7 +403,7 @@ function rungFromRow(row: RungRow): RungRecord {
 export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
   async function liveIn(tx: Sql, positionId: string): Promise<RungRecord | null> {
     const rows = await tx<RungRow[]>`
-      SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state
+      SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state, margin_drift
         FROM trade.liquidation_rungs
        WHERE position_id = ${positionId} AND state IN ('planned', 'posted')
        LIMIT 1
@@ -435,7 +438,7 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
             ${formatAmount(input.fromSize)}::numeric, ${formatAmount(input.fromMargin)}::numeric,
             ${tx.json(encodeRungPlan(input.plan) as never)}, 'planned'
           )
-          RETURNING rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state
+          RETURNING rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state, margin_drift
         `;
         return { status: 'created' as const, rung: rungFromRow(inserted[0]!) };
       },
@@ -480,7 +483,7 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
           `;
           // Read AFTER the lock, so a concurrent apply's 'applied' is visible here.
           const found = await tx<RungRow[]>`
-            SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state
+            SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state, margin_drift
               FROM trade.liquidation_rungs
              WHERE rung_id = ${rungId} AND position_id = ${positionId}
           `;
@@ -501,6 +504,9 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
           if (!row) return abandon('row_missing');
           if (row.status !== 'open') return abandon('row_changed');
 
+          let drift = 0n;
+          let alert: RungAlert | undefined;
+
           if (rung.kind === 'partial') {
             const sizeClosed = formatAmount(rung.plan.sizeClosed);
             const marginTaken = formatAmount(rung.plan.marginTaken);
@@ -520,27 +526,40 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
                RETURNING id
             `;
             if (moved.length === 0) return abandon('reduction_no_op');
+            // THE FLOOR AT ZERO MUST NOT HIDE A SHORTFALL. If the row held less margin
+            // than the loss took (funding took it first), the rung still applies — the
+            // loss is booked and the size must shrink — but the shortfall is recorded
+            // and raised, not swallowed by GREATEST.
+            const shortfall = parseAmount(row.margin_current) - rung.plan.marginTaken;
+            if (shortfall < 0n) {
+              drift = shortfall;
+              alert = { code: 'trade.liquidation_margin_clipped', amount: shortfall };
+            }
           } else {
-            // The stored residual release was computed from THIS size and margin. A
-            // row that has moved makes the release wrong; closing it anyway would
-            // hand back margin the ledger does not hold (or keep margin it should
-            // release). Not ours to guess: abandon and park.
-            const closed = await tx`
+            // THE LOSS AND THE STORED RELEASE ARE BOOKED, so the row closes if it is
+            // still the SIZE they were computed for — whatever its margin did since.
+            // Abandoning on a margin change (the first version) left a position the
+            // ledger had fully liquidated open and tradable. The margin difference is
+            // recorded and raised for an operator instead.
+            const closed = await tx<{ margin_current: string }[]>`
               UPDATE trade.positions
                  SET status = 'liquidated', closed_at = now(), updated_at = now()
                WHERE id = ${positionId}
                  AND status = 'open'
                  AND size = ${formatAmount(rung.fromSize)}::numeric
-                 AND margin_current = ${formatAmount(rung.fromMargin)}::numeric
-               RETURNING id
+               RETURNING margin_current
             `;
             if (closed.length === 0) return abandon('row_changed');
+            drift = parseAmount(closed[0]!.margin_current) - rung.fromMargin;
+            if (drift !== 0n) alert = { code: 'trade.liquidation_margin_drift', amount: drift };
           }
 
           await tx`
-            UPDATE trade.liquidation_rungs SET state = 'applied', updated_at = now() WHERE rung_id = ${rungId}
+            UPDATE trade.liquidation_rungs
+               SET state = 'applied', margin_drift = ${formatAmount(drift)}::numeric, updated_at = now()
+             WHERE rung_id = ${rungId}
           `;
-          return { status: 'applied' };
+          return alert ? { status: 'applied', alert } : { status: 'applied' };
         },
         { isolation: 'read committed' },
       );
@@ -558,7 +577,7 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
 
     async listUnannounced(limit) {
       const rows = await sql<RungRow[]>`
-        SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state
+        SELECT rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state, margin_drift
           FROM trade.liquidation_rungs
          WHERE kind = 'closing' AND state = 'applied' AND announced_at IS NULL
          ORDER BY created_at

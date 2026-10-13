@@ -164,6 +164,14 @@ export interface FuturesJobsHandle {
  */
 export function reportLiquidationTick(tick: LiquidationTickResult, onError: (name: string, err: unknown) => void): void {
   for (const item of tick.items) {
+    // An applied rung whose margin did not reconcile is a success AND an alert: the loss is
+    // booked and the row moved, but ledger and row disagree by this amount (see the runbook).
+    if (item.alert) {
+      onError(
+        'futures.liquidation',
+        new Error(`${item.alert.code} positionId=${item.positionId} rungId=${item.alert.rungId} amount=${item.alert.amount}`),
+      );
+    }
     if (item.outcome === 'errored') {
       onError('futures.liquidation', new Error(`position ${item.positionId} errored (${item.reason}): ${item.summary ?? ''}`));
     } else if (item.outcome === 'skipped_already' && item.reason === ABANDONED_PARKED) {

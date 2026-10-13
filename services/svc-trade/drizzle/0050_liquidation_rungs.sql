@@ -15,9 +15,9 @@
 --   planned    written, not (known to be) fully posted
 --   posted     every recipe is booked in the ledger; the row has not moved yet
 --   applied    the row moved by the plan (same transaction as this state)
---   abandoned  the loss is booked and the row cannot be reconciled with it (closed,
---              no larger than the tranche, or a closing rung whose release no
---              longer matches the row's margin). The position is PARKED: no new
+--   abandoned  the loss is booked and the row cannot be reconciled with it (closed
+--              or gone, no larger than the tranche, or a closing rung whose size
+--              changed). The position is PARKED: no new
 --              rung is planned while its latest rung is abandoned. Loud operator
 --              signal (trade.liquidation_row_changed_after_post).
 --   resolved   an operator reconciled an abandoned rung by hand and released the park:
@@ -26,6 +26,13 @@
 -- AT MOST ONE LIVE RUNG PER POSITION: the partial unique index below covers
 -- planned and posted. Two replicas that plan the same position converge on one
 -- rung; the loser reads the winner's and replays it.
+--
+-- margin_drift: set when the rung applies. Closing rung: the margin the row held at
+-- close minus from_margin (the margin the stored release assumed) — positive means
+-- margin the trader added is stranded in the position's collateral pot, negative
+-- means funding took margin. Partial rung: the NEGATIVE shortfall when the zero
+-- floor on margin_current bit; 0 otherwise. Non-zero is also raised at error level
+-- (trade.liquidation_margin_drift / trade.liquidation_margin_clipped).
 --
 -- announced_at: a closing rung closes its row inside the rung transaction; the bus
 -- announcement is a separate step. announced_at records that it published, so a
@@ -51,6 +58,7 @@ CREATE TABLE IF NOT EXISTS "trade"."liquidation_rungs" (
   "from_margin"    numeric NOT NULL,
   "plan"           jsonb NOT NULL,
   "state"          text NOT NULL DEFAULT 'planned',
+  "margin_drift"   numeric NOT NULL DEFAULT 0,
   "announced_at"   timestamptz,
   "created_at"     timestamptz NOT NULL DEFAULT now(),
   "updated_at"     timestamptz NOT NULL DEFAULT now()

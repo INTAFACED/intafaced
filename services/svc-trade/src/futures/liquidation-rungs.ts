@@ -29,9 +29,16 @@
  * tranche again. So a partial rung applies `size - sizeClosed` and
  * `margin_current - marginTaken` (floored at zero) to whatever the row is now. Only
  * what cannot be reconciled is abandoned — a row that is closed, or no larger than
- * the tranche, or a closing rung whose stored residual release no longer matches
- * the row's margin — and an abandoned rung PARKS the position: no new rung is
- * planned until an operator has reconciled it and marked it `resolved`.
+ * the tranche, or a closing rung whose size changed — and an abandoned rung PARKS
+ * the position: no new rung is planned until an operator has reconciled it and
+ * marked it `resolved`.
+ *
+ * MARGIN DRIFT DOES NOT BLOCK A CLOSE. A closing rung's loss (and its stored
+ * residual release) is booked; leaving the row open and tradable because the margin
+ * moved meanwhile (the trader added some, funding took some) would leave a
+ * liquidated-in-the-ledger position live. So the row closes when its SIZE is what
+ * the rung was planned against, whatever the margin, and the difference is recorded
+ * (`marginDrift`) and raised as `trade.liquidation_margin_drift` for an operator.
  *
  * WHY EVERY ROW-STATE CHECK IS UNDER A ROW LOCK. Deciding on a snapshot read
  * earlier by `listOpen` and then writing is how a stale replica books a second
@@ -76,6 +83,14 @@ export interface RungRecord {
   fromMargin: Amount;
   plan: RungPlan;
   state: RungState;
+  /**
+   * Set when the rung applied. Closing rung: the margin the row held at close minus
+   * the margin the stored release was computed from (positive: margin the trader added
+   * is stranded in the collateral pot; negative: funding took margin). Partial rung:
+   * the NEGATIVE shortfall when the zero floor on `margin_current` bit (the row held
+   * less than the loss took); 0 otherwise.
+   */
+  marginDrift: Amount;
 }
 
 export interface BeginRungInput {
@@ -96,16 +111,22 @@ export type BeginRungResult =
   /** The row is no longer what the decision read (moved, closed, or gone). Nothing was written. */
   | { status: 'changed' };
 
+/** A rung that applied, but whose margin did not reconcile. Raised at error level by `reportLiquidationTick`. */
+export interface RungAlert {
+  code: 'trade.liquidation_margin_drift' | 'trade.liquidation_margin_clipped';
+  /** Signed; see `RungRecord.marginDrift`. */
+  amount: Amount;
+}
+
 export type ApplyRungResult =
-  /** This call moved the row and set the rung 'applied' (one transaction). */
-  | { status: 'applied' }
+  /** This call moved the row and set the rung 'applied' (one transaction). `alert` is set when the margin did not reconcile. */
+  | { status: 'applied'; alert?: RungAlert }
   /** Another call already did. */
   | { status: 'already_applied' }
   /**
    * The row cannot be reconciled with the booked loss (closed or gone, no larger
-   * than the tranche, or a closing rung whose stored release no longer matches the
-   * row). The rung is now 'abandoned' and the position is parked — an operator's
-   * problem, never a success.
+   * than the tranche, or a closing rung whose size changed). The rung is now
+   * 'abandoned' and the position is parked — an operator's problem, never a success.
    */
   | { status: 'abandoned'; reason: 'row_changed' | 'row_missing' | 'reduction_no_op' }
   /** The rung was abandoned earlier (or never existed): nothing to apply. */
@@ -125,9 +146,9 @@ export interface LiquidationRungStore {
   /**
    * Under a row lock, in ONE transaction: apply the rung to the row AND set it
    * 'applied'. Partial: size and margin move by the stored DELTA on whatever the
-   * row is now (open, and larger than the tranche). Closing: the row closes only
-   * if it is still the size and margin the stored release was computed from.
-   * Anything else abandons the rung.
+   * row is now (open, and larger than the tranche). Closing: the row closes if it is
+   * still the size the rung was planned against, whatever its margin. Anything else
+   * abandons the rung.
    */
   apply(positionId: string, rungId: string): Promise<ApplyRungResult>;
   /** The position's LATEST rung is 'abandoned': no new rung may be planned until an operator marks it 'resolved'. */
@@ -238,6 +259,7 @@ export function memoryLiquidationRungStore(rows: RungRowBook): LiquidationRungSt
           fromSize: input.fromSize,
           fromMargin: input.fromMargin,
           state: 'planned',
+          marginDrift: 0n,
         },
         plan: encodeRungPlan(input.plan),
         announced: false,
@@ -266,11 +288,22 @@ export function memoryLiquidationRungStore(rows: RungRowBook): LiquidationRungSt
         if (plan.sizeClosed <= 0n || row.size <= plan.sizeClosed) return abandon('reduction_no_op');
         const margin = row.margin - plan.marginTaken;
         rows.reduce(positionId, plan.sizeClosed, margin < 0n ? 0n : margin);
+        if (margin < 0n) {
+          e.rec.marginDrift = margin; // the floor bit: the row held less than the loss took
+          e.rec.state = 'applied';
+          return { status: 'applied', alert: { code: 'trade.liquidation_margin_clipped', amount: margin } };
+        }
       } else {
-        // The stored residual release was computed from this row's margin; a row
-        // that has since moved makes the release wrong, and that is not ours to guess.
-        if (row.size !== e.rec.fromSize || row.margin !== e.rec.fromMargin) return abandon('row_changed');
+        // The loss and the stored release are booked, so the row closes if it is still
+        // the size they were computed for — whatever the margin did meanwhile.
+        if (row.size !== e.rec.fromSize) return abandon('row_changed');
         rows.close(positionId);
+        const drift = row.margin - e.rec.fromMargin;
+        if (drift !== 0n) {
+          e.rec.marginDrift = drift;
+          e.rec.state = 'applied';
+          return { status: 'applied', alert: { code: 'trade.liquidation_margin_drift', amount: drift } };
+        }
       }
       e.rec.state = 'applied';
       return { status: 'applied' };
