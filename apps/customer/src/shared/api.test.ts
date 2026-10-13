@@ -17,6 +17,20 @@ describe('customer transport boundary', () => {
     const result = await api.rest('/account/balance', z.unknown());
     expect(result).toMatchObject({ ok: false, message: 'Verification tier full is required.' });
   });
+  it('sends no JSON content type on a body-less DELETE, so the trade service accepts a cancel', async () => {
+    const seen: Array<{ method?: string; headers: Record<string, string>; body?: unknown }> = [];
+    const api = createApiClient({
+      fetch: async (_url, init) => {
+        seen.push({ method: init?.method, headers: (init?.headers ?? {}) as Record<string, string>, body: init?.body });
+        return new Response(JSON.stringify({ id: 'o1' }));
+      },
+    });
+    await api.rest('/orders/o1', z.unknown(), { method: 'DELETE' });
+    await api.rest('/orders', z.unknown(), { method: 'POST', body: { symbol: 'BTC/USDT' } });
+    expect(seen[0]).toMatchObject({ method: 'DELETE', body: undefined });
+    expect(seen[0]!.headers['content-type']).toBeUndefined();
+    expect(seen[1]!.headers['content-type']).toBe('application/json');
+  });
   it('reports an unreadable gateway failure as a connection problem', async () => {
     const api = createApiClient({ fetch: async () => new Response('', { status: 503 }) });
     expect(await api.rest('/markets', z.unknown())).toMatchObject({ ok: false, reason: 'unreachable' });
