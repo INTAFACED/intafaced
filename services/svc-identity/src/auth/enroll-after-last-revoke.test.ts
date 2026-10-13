@@ -77,9 +77,7 @@ describe('newlyEnrolledPasskeyRevokes — enroll after last unenroll', () => {
       expect(err).toMatchObject({ code: 'auth.passkey_missing' });
     }
     const { minter, revoked } = makeMinter();
-    await expect(
-      revokeApiKeyAfterNewlyEnrolledPasskey(minter, fakeSql([{ webauthn_creds: [] }]), revokeInput),
-    ).rejects.toMatchObject({
+    await expect(revokeApiKeyAfterNewlyEnrolledPasskey(minter, fakeSql([{ webauthn_creds: [] }]), revokeInput)).rejects.toMatchObject({
       code: 'auth.passkey_missing',
     });
     expect(revoked).toEqual([]);
