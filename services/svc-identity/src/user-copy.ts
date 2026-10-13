@@ -28,6 +28,7 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
   'auth.sub_account_denied': 'error.forbidden',
   'auth.sub_account_revoked': 'error.forbidden',
   'auth.sub_account_limit': 'error.forbidden',
+  'auth.privileged_enrolment_requires_invite': 'error.forbidden',
   'auth.mfa_not_enrolled': 'error.forbidden',
   'auth.webauthn_not_enrolled': 'error.forbidden',
 };

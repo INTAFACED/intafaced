@@ -1,3 +1,6 @@
+-- intafaced:destructive — drops NOT NULL and DEFAULT on token.token_params columns for books that already applied
+-- 0000 before parameters could stay blank. Invariants are relaxed, not data: existing values are preserved exactly,
+-- no row is deleted, and no supply, rate, fee or split is written. Reversal: the .down.sql.
 -- Upgrade books that already recorded 0000 before token parameters could stay
 -- blank. This only relaxes nullability and JSON defaults. Existing parameter
 -- values are preserved exactly; no supply, rate, fee, or split is written.

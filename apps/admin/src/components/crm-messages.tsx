@@ -14,8 +14,8 @@ export const statusText: Record<Message['status'], string> = {
   failed: 'Sending failed',
   unresolved: 'Unclear whether it was sent. It will not be resent automatically',
 };
-/** A sent or queued message as a founder reads it. The text is shown only when the API returns it. */
-export function MessageItem({ message, owners }: { message: Message & { staffText?: string }; owners: FounderOwner[] }) {
+/** A sent or queued message as a founder reads it. The text is founder-only and null once it is no longer stored. */
+export function MessageItem({ message, owners }: { message: Message; owners: FounderOwner[] }) {
   return (
     <li>
       <strong>{kindLabel(message.kind)}</strong>

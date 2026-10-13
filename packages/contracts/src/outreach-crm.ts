@@ -335,12 +335,36 @@ export const crmStageChangeInputSchema = z
   });
 export type CrmStageChangeInput = z.infer<typeof crmStageChangeInputSchema>;
 
+/**
+ * Edits the pending next action only: no stage change and no reason. The service writes the "next_action_changed"
+ * activity (note = description, referenceId = dueAt) and replaces the pending next-action task.
+ */
+export const crmNextActionInputSchema = z
+  .object({
+    requestId: id,
+    opportunityId: id,
+    expectedRevision: z.number().int().positive(),
+    description: shortText,
+    dueAt: timestamp,
+  })
+  .strict();
+export type CrmNextActionInput = z.infer<typeof crmNextActionInputSchema>;
+
 export const crmActivitySchema = z
   .object({
     id,
     opportunityId: id,
     sequence: z.number().int().positive(),
-    kind: z.enum(['note', 'assigned', 'stage_changed', 'questionnaire_submitted', 'call_invited', 'call_booked', 'email_status']),
+    kind: z.enum([
+      'note',
+      'assigned',
+      'stage_changed',
+      'next_action_changed',
+      'questionnaire_submitted',
+      'call_invited',
+      'call_booked',
+      'email_status',
+    ]),
     /** Filled by the authenticated service; input schemas never accept an operator identity. */
     actor: z.discriminatedUnion('kind', [
       z.object({ kind: z.literal('operator'), userId: id }).strict(),
@@ -392,11 +416,18 @@ export type CrmListInput = z.infer<typeof crmListInputSchema>;
 export const crmSubmissionSummarySchema = z
   .object({ submissionId: id, completedAt: timestamp.nullable(), organisationName: shortText.nullable() })
   .strict();
+/**
+ * Present only for a search whose match came through a merged-away (alias) contact rather than the visible one:
+ * the old name the founder typed part of, so the row can say "also: <old name>".
+ */
+export const crmAliasMatchSchema = z.object({ opportunityId: id, name: z.string().min(1).max(120) }).strict();
+export type CrmAliasMatch = z.infer<typeof crmAliasMatchSchema>;
 export const crmOpportunityPageSchema = z
   .object({
     items: z.array(crmOpportunitySchema).max(200),
     contacts: z.array(crmContactSchema).max(200),
     submissions: z.array(crmSubmissionSummarySchema).max(200),
+    aliasMatches: z.array(crmAliasMatchSchema).max(200).optional(),
     nextCursor: z.string().min(1).max(256).nullable(),
   })
   .strict()
@@ -419,6 +450,12 @@ export const crmOpportunityPageSchema = z
         code: z.ZodIssueCode.custom,
         path: ['submissions'],
         message: 'List submissions must match the visible opportunities',
+      });
+    if (page.aliasMatches?.some((match) => !page.items.some((item) => item.id === match.opportunityId)))
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['aliasMatches'],
+        message: 'Alias matches must belong to the visible opportunities',
       });
   });
 export type CrmOpportunityPage = z.infer<typeof crmOpportunityPageSchema>;
@@ -447,5 +484,6 @@ export interface OutreachCrmContract {
   } | null>;
   assign(input: CrmAssignmentInput): Promise<CrmOpportunity>;
   changeStage(input: CrmStageChangeInput): Promise<CrmOpportunity>;
+  updateNextAction(input: CrmNextActionInput): Promise<CrmOpportunity>;
   addNote(input: CrmNoteInput): Promise<CrmActivity>;
 }
