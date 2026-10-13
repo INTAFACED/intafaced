@@ -146,6 +146,9 @@
     color: var(--if-fg-2);
   }
   .pay-problem {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
     color: var(--if-down-text);
   }
   .pay-found {

@@ -50,7 +50,8 @@ type Recipient =
   | { kind: 'checking' }
   /** `handle` is null in Account ID mode: the service could not tell us who they are. */
   | { kind: 'found'; userId: string; handle: string | null }
-  | { kind: 'problem'; text: string };
+  /** `retry`: the answer says nothing about the person (busy or failed), so asking again is fine. */
+  | { kind: 'problem'; text: string; retry?: boolean };
 
 type Review = {
   input: z.infer<typeof sendInput>;
@@ -59,6 +60,12 @@ type Review = {
   firstTime: boolean;
 };
 type Receipt = { amount: string; asset: string; handle: string | null };
+
+/**
+ * The last confirmed payment per signed-in user, kept outside the screen. If the customer leaves Pay while a payment is
+ * on its way, the answer still clears the device note; this keeps the receipt so it is there when they come back.
+ */
+const lastReceipt = new Map<string, Receipt>();
 
 /** Send (UI-SPEC 5.10): who, what, how much, then a review that cannot be skipped. */
 export function SendCard({ identity }: { identity: IdentityState }) {
@@ -147,7 +154,7 @@ function SendForm({
     if (!byHandle) {
       const id = parseAccountId(raw);
       if (id === null) return setRecipient({ kind: 'problem', text: payCopy.t('Bad account ID') });
-      if (id === userId) return setRecipient({ kind: 'problem', text: payCopy.t('That is you') });
+      if (id === userId.toLowerCase()) return setRecipient({ kind: 'problem', text: payCopy.t('That is you') });
       return setRecipient({ kind: 'found', userId: id, handle: null });
     }
     const handle = cleanHandle(raw);
@@ -161,12 +168,13 @@ function SendForm({
     if (lookup.current.id !== mine || controller.signal.aborted) return;
     switch (outcome.kind) {
       case 'found':
-        if (outcome.self || outcome.userId === userId) return setRecipient({ kind: 'problem', text: payCopy.t('That is you') });
+        if (outcome.self || outcome.userId.toLowerCase() === userId.toLowerCase())
+          return setRecipient({ kind: 'problem', text: payCopy.t('That is you') });
         return setRecipient({ kind: 'found', userId: outcome.userId, handle: outcome.handle });
       case 'notFound':
         return setRecipient({ kind: 'problem', text: payCopy.t('Handle not found', { handle }) });
       case 'rateLimited':
-        return setRecipient({ kind: 'problem', text: payCopy.t('Lookup rate limited') });
+        return setRecipient({ kind: 'problem', text: payCopy.t('Lookup rate limited'), retry: true });
       case 'unavailable':
         // The server cannot do handles yet: switch to the Account ID input and say why.
         setFallback(true);
@@ -174,7 +182,7 @@ function SendForm({
         setNote(payCopy.t('Handles not on yet'));
         return setRecipient({ kind: 'idle' });
       case 'failed':
-        return setRecipient({ kind: 'problem', text: payCopy.t('Lookup failed') });
+        return setRecipient({ kind: 'problem', text: payCopy.t('Lookup failed'), retry: true });
     }
   }
 
@@ -190,9 +198,19 @@ function SendForm({
 
   // ── What and how much ────────────────────────────────────────────────────────────────────────────────────────
   const [sourceId, setSourceId] = useState('');
-  // The chosen asset, or the first one held; if a payment emptied it, the next one.
-  const source = sources.find((row) => row.id === sourceId) ?? sources[0] ?? null;
+  // The chosen asset, or the first one held. If the chosen one drops out (spent elsewhere, newly locked), nothing is
+  // chosen and the amount is cleared: a typed number must never silently move to another asset.
+  const source = sourceId === '' ? (sources[0] ?? null) : (sources.find((row) => row.id === sourceId) ?? null);
   const [amount, setAmount] = useState('');
+  const sourceGone = sourceId !== '' && source === null;
+  useEffect(() => {
+    if (sourceGone) setAmount('');
+  }, [sourceGone]);
+  // Pin the default choice, so that if it drops out later it is "gone", not quietly replaced by the next asset.
+  const firstId = sources[0]?.id ?? '';
+  useEffect(() => {
+    if (sourceId === '' && firstId !== '') setSourceId(firstId);
+  }, [sourceId, firstId]);
   const amountCheck = checkAmount(amount, source);
   const availableText = source ? `${fmtAmount(source.balance, { places: BALANCE_PLACES, round: 'down' })} ${source.asset}` : '';
   const places = source ? Math.min(18, Math.max(BALANCE_PLACES, fractionDigits(source.balance) ?? 0)) : BALANCE_PLACES;
@@ -264,7 +282,10 @@ function SendForm({
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const inFlight = useRef<object | null>(null);
-  const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [receipt, setReceipt] = useState<Receipt | null>(() => lastReceipt.get(key) ?? null);
+
+  // Enter looks the person up when nothing has been asked yet, or when the last try failed or was rationed.
+  const retryable = recipient.kind === 'idle' || (recipient.kind === 'problem' && recipient.retry === true);
 
   const reason: string | null = waiting
     ? payCopy.t('Still confirming')
@@ -325,17 +346,23 @@ function SendForm({
     } finally {
       inFlight.current = null;
     }
-    if (!mounted.current) return;
-    setBusy(false);
-    refreshGuard();
     if (outcome.ok) {
+      // Kept even if the screen was left meanwhile: the note is cleared by a definitive answer, so the receipt must outlive it.
+      const confirmed: Receipt = { amount: outcome.data.amount, asset: review.source.asset, handle: review.recipient.handle };
       rememberRecipient(userId, review.recipient.userId);
-      setReceipt({ amount: outcome.data.amount, asset: review.source.asset, handle: review.recipient.handle });
+      lastReceipt.set(key, confirmed);
+      if (!mounted.current) return;
+      setBusy(false);
+      refreshGuard();
+      setReceipt(confirmed);
       setReview(null);
       setAmount('');
       reload();
       return;
     }
+    if (!mounted.current) return;
+    setBusy(false);
+    refreshGuard();
     if (outcome.reason === 'uncertain' || outcome.reason === 'aborted') {
       // The guard now holds the original: Send stays off until it is settled. No automatic retry.
       setReview(null);
@@ -379,7 +406,9 @@ function SendForm({
               size={56}
               fullWidth
               onClick={() => {
+                lastReceipt.delete(key);
                 setReceipt(null);
+                setSourceId('');
                 editTo('');
               }}
             >
@@ -415,7 +444,7 @@ function SendForm({
       onSubmit={(event) => {
         event.preventDefault();
         // Enter in the To field looks the person up first; a second Enter (or the button) reviews.
-        if (recipient.kind === 'idle' && to.trim() !== '') void check();
+        if (retryable && to.trim() !== '') void check();
         else prepare();
       }}
     >
@@ -459,7 +488,7 @@ function SendForm({
               // A disabled Review button blocks Enter's own submit, so the lookup is started here.
               if (event.key === 'Enter') {
                 event.preventDefault();
-                if (recipient.kind === 'idle' && to.trim() !== '') void check();
+                if (retryable && to.trim() !== '') void check();
                 else prepare();
               }
             }}
@@ -489,6 +518,11 @@ function SendForm({
           ) : recipient.kind === 'problem' ? (
             <span className="pay-problem" role="alert">
               {recipient.text}
+              {recipient.retry ? (
+                <button type="button" className="pay-chip" onClick={() => void check()}>
+                  {payCopy.t('Try again')}
+                </button>
+              ) : null}
             </span>
           ) : note ? (
             <span className="pay-muted">{note}</span>
@@ -641,6 +675,8 @@ function failureText(outcome: Extract<ApiResult<unknown>, { ok: false }>, source
       return payCopy.t('No safe storage');
   }
   if (outcome.reason === 'unauthorized') return payCopy.t('Sign in again');
+  if (outcome.status === 429) return payCopy.t('Too many tries');
+  if (outcome.code === 'bank.dest_user_missing' && !handle) return payCopy.t('Account not found');
   if (outcome.code) {
     const words = refusalCopy(outcome.code, { asset: source.asset, available, ...(handle ? { recipient: `@${handle}` } : {}) });
     return `${words.title}. ${words.body}`;

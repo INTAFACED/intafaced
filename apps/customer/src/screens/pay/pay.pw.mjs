@@ -209,12 +209,12 @@ test('rate limited and failed lookups say so in plain words', async ({ page }) =
   await open(page);
   await to(page).fill('maya_test');
   await to(page).blur();
-  await expect(page.getByTestId('to-status')).toHaveText('You’ve checked a lot of handles. Wait a minute, then try again.');
+  await expect(page.getByTestId('to-status')).toContainText('You’ve checked a lot of handles. Wait a minute, then try again.');
   await shotBoth(page, 'send-rate-limited');
   mode = 'fail';
   await to(page).fill('maya_tes');
   await to(page).blur();
-  await expect(page.getByTestId('to-status')).toHaveText('We couldn’t check that handle. Nothing was sent. Try again.');
+  await expect(page.getByTestId('to-status')).toContainText('We couldn’t check that handle. Nothing was sent. Try again.');
   await expect(review(page)).toBeDisabled();
 });
 
@@ -521,4 +521,139 @@ test('a named space is told apart from the main one', async ({ page }) => {
   await expect(page.getByRole('option')).toHaveText(['USDT', 'USDT · Holiday']);
   await page.getByRole('option', { name: 'USDT · Holiday' }).click();
   await expect(page.getByTestId('pay-available')).toHaveText('Available 55 USDT');
+});
+
+test('leaving Pay while a payment is on its way: the answer clears the note and the receipt is waiting on return', async ({ page }) => {
+  const api = await mock(page, { toUser: 'hang' });
+  await open(page);
+  await pickMaya(page);
+  await amount(page).fill('1');
+  await review(page).click();
+  await sendButton(page).click();
+  await expect.poll(() => api.to('transfers.toUser').length).toBe(1);
+  // Go somewhere else in the app: Pay unmounts while the request is out.
+  await page.evaluate(() => {
+    history.pushState(null, '', '/elsewhere');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await expect(page.getByTestId('elsewhere')).toBeVisible();
+  await expect(page.locator('.pay-card')).toHaveCount(0);
+  await api.release();
+  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), pendingKey)).toBeNull();
+  await page.evaluate(() => {
+    history.pushState(null, '', '/pay/send');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await expect(page.locator('.buy-receipt__title')).toHaveText('Sent 1 USDT to @maya_test');
+  expect(api.to('transfers.toUser')).toHaveLength(1);
+  // Done clears it for good.
+  await page.getByRole('button', { name: 'Done' }).click();
+  await page.evaluate(() => {
+    history.pushState(null, '', '/elsewhere');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await page.evaluate(() => {
+    history.pushState(null, '', '/pay/send');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await expect(to(page)).toBeVisible();
+  await expect(page.getByTestId('pay-receipt')).toHaveCount(0);
+});
+
+test('an upper-case copy of your own Account ID is still "That’s you"', async ({ page }) => {
+  await mock(page, { me: { status: 404, json: { error: { message: 'x' } } } });
+  await open(page);
+  await accountId(page).fill(ME.toUpperCase());
+  await accountId(page).blur();
+  await expect(page.getByTestId('to-status')).toHaveText('That’s you. Pick someone else.');
+});
+
+test('a handle that answers as you, in other letters, is refused', async ({ page }) => {
+  await mock(page, {
+    resolve: () => ({ result: { data: { found: true, userId: ME.toUpperCase(), handle: 'maya_test', self: false } } }),
+  });
+  await open(page);
+  await to(page).fill('maya_test');
+  await to(page).blur();
+  await expect(page.getByTestId('to-status')).toHaveText('That’s you. Pick someone else.');
+});
+
+test('if the chosen asset drops out after a refusal, nothing is chosen and the amount is cleared', async ({ page }) => {
+  let dropped = false;
+  await mock(page, {
+    spaces: () => {
+      const data = [
+        {
+          id: SPACE.usdt,
+          assetId: 'USDT',
+          kind: 'primary',
+          name: 'Main',
+          goalTarget: null,
+          lockedUntil: null,
+          balance: '10',
+          ledgerAccount: { ownerType: 'user', ownerId: ME, assetId: 'USDT', kind: 'available' },
+        },
+        {
+          id: SPACE.eth,
+          assetId: 'ETH',
+          kind: 'primary',
+          name: 'Main',
+          goalTarget: null,
+          lockedUntil: null,
+          balance: '5',
+          ledgerAccount: { ownerType: 'user', ownerId: ME, assetId: 'ETH', kind: 'available' },
+        },
+      ];
+      return { result: { data: dropped ? data.slice(1) : data } };
+    },
+    toUser: refusal(400, 'no', 'bank.space_not_found'),
+  });
+  await open(page);
+  await pickMaya(page);
+  await amount(page).fill('3');
+  await review(page).click();
+  dropped = true; // USDT is spent in another tab while the review is open
+  await sendButton(page).click();
+  await expect(page.getByTestId('pay-failure')).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(review(page)).toHaveText('Choose what to send');
+  await expect(amount(page)).toHaveValue('');
+  await expect(page.getByTestId('pay-available')).toHaveText('');
+});
+
+test('a rate-limited send, a rate-limited lookup that can be retried, and Account ID wording', async ({ page }) => {
+  let limited = true;
+  const api = await mock(page, {
+    resolve: ({ input }) =>
+      limited
+        ? refusal(429, 'slow', 'identity.handle_lookup_rate_limited')
+        : { result: { data: { found: true, userId: MAYA.userId, handle: input.handle, self: false } } },
+    toUser: refusal(429, 'slow down'),
+  });
+  await open(page);
+  await to(page).fill('maya_test');
+  await to(page).blur();
+  await expect(page.getByTestId('to-status')).toContainText('Wait a minute');
+  limited = false;
+  await page.getByTestId('to-status').getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByTestId('recipient-found')).toContainText('@maya_test');
+  expect(api.to('users.resolveHandle')).toHaveLength(2);
+  await amount(page).fill('1');
+  await review(page).click();
+  await sendButton(page).click();
+  await expect(page.getByTestId('pay-failure')).toHaveText('Too many tries. Wait a minute, then try again.');
+});
+
+test('Account ID mode never talks about handles when the account is not found', async ({ page }) => {
+  await mock(page, {
+    me: { status: 404, json: { error: { message: 'x' } } },
+    toUser: refusal(400, 'gone', 'bank.dest_user_missing'),
+  });
+  await open(page);
+  await accountId(page).fill(MAYA.userId);
+  await accountId(page).blur();
+  await amount(page).fill('1');
+  await review(page).click();
+  await sendButton(page).click();
+  await expect(page.getByTestId('pay-failure')).toHaveText('We couldn’t find that account. Check the Account ID and try again.');
 });

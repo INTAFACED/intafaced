@@ -50,7 +50,7 @@ function Page() {
             <span>harness stand-in for the top bar</span>
           </nav>
           <main id="main">
-            <Pay {...props} />
+            {location.pathname.startsWith('/elsewhere') ? <p data-testid="elsewhere">Elsewhere in the app</p> : <Pay {...props} />}
           </main>
         </div>
       </TooltipProvider>

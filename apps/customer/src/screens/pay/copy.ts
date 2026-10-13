@@ -79,6 +79,8 @@ const messages = {
   'Contact support': 'Contact support',
   // Failures in the dialog
   'Not confirmed': 'We couldn’t confirm this payment. Check Activity before you try again.',
+  'Too many tries': 'Too many tries. Wait a minute, then try again.',
+  'Account not found': 'We couldn’t find that account. Check the Account ID and try again.',
   'Not sent': 'The payment wasn’t sent. Nothing left your account. Try again.',
   'Check amount and recipient': 'Check who you’re paying and the amount, then try again.',
   'Balance locked': 'That balance is locked for now. Pick another.',
