@@ -1039,7 +1039,7 @@ export function CrmWorkspace({ csrf }: { csrf: string }) {
                           onDraftState={onRetentionDraftState}
                           onComplete={async () => {
                             const erasedContactId = detail.provenance.canonicalContact.id;
-                            if (detail.provenance.canonicalContact.id === erasedContactId) openGate.current.clear();
+                            if (openGate.current.selected() === detail.opportunity.id) openGate.current.clear();
                             setDetail((current) => (current?.provenance.canonicalContact.id === erasedContactId ? null : current));
                             setNotice('Linked contact records deleted from outreach.');
                             await load();
