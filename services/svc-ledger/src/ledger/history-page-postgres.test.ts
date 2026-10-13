@@ -4,13 +4,14 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
-import { formatAmount, parseAmount as amt, railBoundary, userAvailable } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount as amt, railBoundary, recipes, userAvailable } from '@intafaced/ledger-client';
 import { PostgresLedger } from './postgres-ledger.js';
 import {
   HISTORY_PAGE_DEFAULT_LIMIT,
   encodeHistoryCursor,
   historyPageInputSchema,
   parseHistoryDoorInput,
+  serializeHistoryPage,
   type HistoryPageInput,
 } from './history.js';
 
@@ -32,6 +33,7 @@ const migrations = readdirSync(drizzleDir)
 const PAGER = '71111111-1111-4111-8111-111111111111';
 const OTHER = '72222222-2222-4222-8222-222222222222';
 const EMPTY = '73333333-3333-4333-8333-333333333333';
+const RAILER = '74444444-4444-4444-8444-444444444444';
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
@@ -236,6 +238,50 @@ describe('PostgresLedger.historyPage', () => {
     const one = await engine.historyPage(scope({ limit: 1 }));
     expect(one.entries).toHaveLength(1);
     expect(one.nextCursor).not.toBeNull();
+  });
+
+  it('returns entryId (decimal string of ledger_entries.id) and an allow-listed rail, null for anything else', async () => {
+    const dep = (rail: string, railRef: string) => recipes.deposit({ userId: RAILER, assetId: 'USDT', amount: amt('1'), rail, railRef });
+    await engine.post(dep('crypto-native', 'r1'));
+    await engine.post(dep('bank-crypto-ledger', 'r2'));
+    await engine.post(dep('local-test', 'r2b'));
+    await engine.post(dep('not-a-known-rail', 'r3'));
+    // meta.rail present but not a string, and a meta with no rail at all.
+    await engine.post({
+      ...dep('crypto-native', 'r4'),
+      idempotencyKey: 'rail-nonstring',
+      meta: { rail: { x: 1 }, secret: 'must-not-leak' },
+    });
+    await engine.post(move(RAILER, 'rail-none', 'USDT', '1'));
+
+    const page = await engine.historyPage(scope({ ownerId: RAILER, limit: 200 }));
+    expect(page.entries).toHaveLength(6);
+
+    // entryId: the bigserial as a decimal string, strictly descending, and equal to the DB's own ids.
+    const dbIds = (
+      await db!.sql<Array<{ id: string }>>`
+        SELECT e.id::text AS id FROM ledger_entries e JOIN accounts a ON a.id = e.account_id
+         WHERE a.owner_id = ${RAILER} AND a.kind = 'available'::account_kind ORDER BY e.id DESC
+      `
+    ).map((r) => r.id);
+    const ids = page.entries.map((e) => e.entryId);
+    expect(ids).toEqual(dbIds);
+    expect(ids.every((id) => /^[1-9]\d*$/.test(id))).toBe(true);
+    expect(ids.map((id) => BigInt(id))).toEqual([...ids.map((id) => BigInt(id))].sort((a, b) => (a > b ? -1 : 1)));
+
+    // Oldest to newest posted: r1 crypto-native, r2 bank-crypto-ledger, r3 unknown, r4 non-string, none.
+    expect([...page.entries].reverse().map((e) => e.rail)).toEqual(['crypto-native', 'bank-crypto-ledger', 'local-test', null, null, null]);
+    // Nothing else from meta crosses the door.
+    const wire = JSON.stringify(serializeHistoryPage(page));
+    expect(wire).not.toContain('must-not-leak');
+    expect(wire).not.toContain('not-a-known-rail');
+
+    // A page resumed from entryId's cursor starts exactly below it.
+    const first = await engine.historyPage(scope({ ownerId: RAILER, limit: 2 }));
+    const resumed = await engine.historyPage(
+      scope({ ownerId: RAILER, limit: 200, cursor: encodeHistoryCursor({ entryId: first.entries[1]!.entryId }) }),
+    );
+    expect(resumed.entries.map((e) => e.entryId)).toEqual(ids.slice(2));
   });
 
   it('does not touch the old `history`: ascending bare array, window required, cursor still refused', async () => {
