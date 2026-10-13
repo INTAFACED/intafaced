@@ -79,6 +79,11 @@ export interface PortfolioSummary {
   unpriced: string[];
   source: 'server' | 'derived';
   asOf: number;
+  /**
+   * Added by the data layer. Epoch ms when today's change only covers part of a day
+   * (a counted market is younger than 24 h): the screen says "since 14:00". Null for a full day.
+   */
+  windowStart?: number | null;
 }
 
 export interface Movers {
