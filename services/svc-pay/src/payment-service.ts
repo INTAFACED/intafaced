@@ -3557,7 +3557,10 @@ export class PayService {
   ): Promise<{ id: string } | null> {
     return transaction(this.sql, async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.chargeback.plan:${disputeId}`}))`;
-      const booked = await this.ledger.getTxByKey(idempotencyKey);
+      // The lookup only detects ANOTHER delivery's booking of this same plan. svc-pay's production ledger client does not expose
+      // it (it throws), and a failed lookup must not stop the void: our own refusal for funds already proves our post booked
+      // nothing, and a plan wrongly voided here is restored by `ensureChargebackPlanLive` once the other post returns.
+      const booked = await this.ledger.getTxByKey(idempotencyKey).catch(() => null);
       if (booked) return booked;
       const live = await readLivePlan(tx, paymentId, disputeId);
       if (!live || live.seq !== planSeq) return null;

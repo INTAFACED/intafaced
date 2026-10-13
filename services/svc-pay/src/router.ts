@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { AuthError, requireMfa } from '@intafaced/auth';
 import { router, scopedProcedure, publicProcedure, TRPCError } from '@intafaced/contracts';
 import { credentialAuthority } from './payment-authority.js';
-import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, LedgerError, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
 import {
   ActionApprovalConsumeError,
@@ -35,7 +35,7 @@ import { evaluateFraud } from './fraud/evaluate.js';
 import { describeFraudPolicy } from './fraud/fraud-policy.js';
 import { describeRoutingPolicy } from './routing/routing-policy.js';
 import { defaultFraudReviewQueue, FraudReviewError } from './fraud/review-queue.js';
-import { defaultDisputeCaseStore, DisputeCaseError } from './fraud/dispute-case.js';
+import { defaultDisputeCaseStore, DisputeCaseError, refuseChargebackUncovered, type ChargebackLedgerRefuse } from './fraud/dispute-case.js';
 import { describeCmsPluginStatus } from './plugins/cms-status.js';
 import { describePluginsPolicy } from './plugins/plugins-policy.js';
 import {
@@ -1243,16 +1243,24 @@ export function createPayRouter(
             // Lightweight router fixtures may omit the money port; production
             // PayService posts via ledger-client. No port → named refuse, never
             // a hardcoded `posted`.
-            const posted =
-              typeof pay.openChargeback === 'function'
-                ? await pay.openChargeback({
-                    disputeId: input.disputeId,
-                    paymentId: input.paymentId,
-                    merchantId: input.merchantId,
-                    amount: input.amount,
-                    assetId: input.assetId,
-                  })
-                : undefined;
+            let ledgerRefuse: ChargebackLedgerRefuse | undefined;
+            let posted: { txId: string } | undefined;
+            if (typeof pay.openChargeback === 'function') {
+              try {
+                posted = await pay.openChargeback({
+                  disputeId: input.disputeId,
+                  paymentId: input.paymentId,
+                  merchantId: input.merchantId,
+                  amount: input.amount,
+                  assetId: input.assetId,
+                });
+              } catch (e) {
+                // The ledger refused for funds (money moved since the plan): the same named refusal the webhook door records,
+                // not a 500 the operator can only retry. Anything else keeps its own error.
+                if (!(e instanceof LedgerError && e.code === 'ledger.insufficient_funds')) throw e;
+                ledgerRefuse = refuseChargebackUncovered({ disputeId: input.disputeId, paymentId: input.paymentId });
+              }
+            }
             const ledgerPost = posted?.txId?.trim() ? { txId: posted.txId.trim() } : undefined;
             const c = defaultDisputeCaseStore.open({
               disputeId: input.disputeId,
@@ -1263,6 +1271,7 @@ export function createPayRouter(
               reasonCode: input.reasonCode,
               paymentMarkedDisputed: marked,
               ledgerPost,
+              ledgerRefuse,
             });
             return {
               disputeId: c.disputeId,

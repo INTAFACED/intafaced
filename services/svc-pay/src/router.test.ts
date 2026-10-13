@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { INTERACTIVE_ONLY_SCOPES, SESSION_SCOPES, assertKeyScopesAllowed, issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
-import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
+import { formatAmount, InsufficientFundsError, parseAmount as amt } from '@intafaced/ledger-client';
 import { createPayRouter } from './router.js';
 import { stubApprovalConsumer } from './action-approval-consume.js';
 import { defaultDisputeCaseStore } from './fraud/dispute-case.js';
@@ -1175,6 +1175,25 @@ describe('leftover treasury mutates consume identity approval', () => {
       status: 'declined',
       confirmOperatorId: CONFIRM,
     });
+  });
+
+  it('openDispute records the named uncovered refusal, not a 500, when the ledger refuses the opening for funds', async () => {
+    (stub.service as unknown as { openChargeback: unknown }).openChargeback = async () => {
+      throw new InsufficientFundsError('acct', 'USDT', '40.5', '0');
+    };
+    const api = await caller(['admin:treasury']);
+    const disputeId = `dsp-uncovered-${Date.now()}`;
+    const opened = await api.fraud.openDispute({
+      disputeId,
+      paymentId: PAYMENT,
+      merchantId: MERCHANT,
+      amount: '40.50',
+      assetId: 'USDT',
+      confirmOperatorId: CONFIRM,
+      ...APPROVED,
+    });
+    expect(opened).toMatchObject({ disputeId, ledgerWire: 'refused', ledgerRefuseCode: 'pay.chargeback_uncovered', ledgerTxId: null });
+    expect(defaultDisputeCaseStore.get(disputeId)?.ledgerRefuse?.code).toBe('pay.chargeback_uncovered');
   });
 
   it('openDispute and contestDispute refuse missing approval ids without mutating', async () => {
