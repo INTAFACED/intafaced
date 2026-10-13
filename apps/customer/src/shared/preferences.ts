@@ -37,6 +37,8 @@ const schema = z.object({
   confirmSend: z.boolean().default(true),
   confirmCancel: z.boolean().default(true),
   favoritesView: z.enum(['list', 'cards']).default('list'),
+  /** Simple (Robinhood-like) or Pro (dense desk). Layout only: it never changes data, prices or what an action does. */
+  layoutMode: z.enum(['simple', 'pro']).default('simple'),
 });
 export type Preferences = z.infer<typeof schema>;
 const key = 'intafaced.customer.view.v1';

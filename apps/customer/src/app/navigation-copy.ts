@@ -3,6 +3,12 @@ import { defineCopy } from '../shared/i18n';
 // Explicit authored room labels only; route IDs and API content never enter this catalog.
 const messages = {
   Home: 'Home',
+  'Your money and markets': 'Your money and markets',
+  'Trades, orders and withdrawals': 'Trades, orders and withdrawals',
+  Markets: 'Markets',
+  'Prices for every market': 'Prices for every market',
+  'Buy and sell': 'Buy and sell',
+  'Buy crypto in a few steps': 'Buy crypto in a few steps',
   Intafaced: 'Intafaced',
   'Sign in': 'Sign in',
   'Access your account': 'Access your account',
@@ -224,6 +230,12 @@ const messages = {
 export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.navigation', messages, {
   es: {
     Home: 'Inicio',
+    'Your money and markets': 'Tu dinero y los mercados',
+    'Trades, orders and withdrawals': 'Operaciones, órdenes y retiros',
+    Markets: 'Mercados',
+    'Prices for every market': 'Precios de cada mercado',
+    'Buy and sell': 'Comprar y vender',
+    'Buy crypto in a few steps': 'Compra cripto en pocos pasos',
     Intafaced: 'Intafaced',
     'Sign in': 'Iniciar sesión',
     'Access your account': 'Accede a tu cuenta',
@@ -443,6 +455,12 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
   },
   fr: {
     Home: 'Accueil',
+    'Your money and markets': 'Votre argent et les marchés',
+    'Trades, orders and withdrawals': 'Opérations, ordres et retraits',
+    Markets: 'Marchés',
+    'Prices for every market': 'Les prix de chaque marché',
+    'Buy and sell': 'Acheter et vendre',
+    'Buy crypto in a few steps': 'Achetez des cryptos en quelques étapes',
     Intafaced: 'Intafaced',
     'Sign in': 'Se connecter',
     'Access your account': 'Accédez à votre compte',
