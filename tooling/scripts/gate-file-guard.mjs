@@ -24,11 +24,17 @@
  * It is a declaration check, not an access control. An agent can still write `ci:` on a PR that loosens a gate; the
  * point is that it now has to say so out loud, and the title is what a reviewer or the weekly audit reads. The workflow
  * (.github/workflows/gate-file-guard.yml) runs the copy of this script from the PR's BASE commit, so a PR cannot
- * weaken the rule inside the PR it is judged on. A PR can still edit or delete the workflow file itself; that edit is
- * a gate change too, and merge-gate.mjs applies the same rule independently when the PR is merged.
+ * weaken the rule inside the PR it is judged on.
+ *
+ * KNOWN LIMIT: a PR can still edit or delete the workflow file gate-file-guard.yml itself, and GitHub runs the PR's copy of
+ * a workflow. That edit is a gate change, so the rule flags it in every other place that applies it. The backstop is
+ * merge-gate.mjs: it applies this same rule to the PR when the PR is merged, and it refuses to run unless the checkout
+ * it runs from matches origin/main (tooling/scripts and tooling/ci), so the rule that judges is always main's.
+ *
+ * The one exemption: dependabot[bot] may change the root package.json (dependency bumps) under its own title.
  *
  * Usage:
- *   node tooling/scripts/gate-file-guard.mjs --pr 4402 --title "fix(db): ..." [--repo owner/name] [--comment]
+ *   node tooling/scripts/gate-file-guard.mjs --pr 4402 --title "fix(db): ..." [--author login] [--repo owner/name] [--comment]
  *   node tooling/scripts/gate-file-guard.mjs --title "..." --files-file changed.txt      (offline)
  * Exit 0 = pass, 1 = undeclared gate change, 2 = usage or lookup error, 3 = GitHub refused (stop, no retry).
  */
@@ -43,15 +49,29 @@ export const DEFAULT_REPO = 'Phantom-X-007/intafaced';
 export const GATE_PATHS = [
   ['tooling/ci/**', 'every CI scan, including the dependency-audit allowlist, the secret-scan allowlists and the money-skip inventory'],
   ['.github/workflows/**', 'the workflows that run the checks'],
+  ['.github/dependabot.yml', 'what Dependabot may change, and under which PR title'],
+  ['.github/CODEOWNERS', 'who must review what'],
+  ['CODEOWNERS', 'who must review what'],
+  ['docs/CODEOWNERS', 'who must review what'],
   ['.gitleaks.toml', 'the secret-scan (gitleaks) allowlist'],
   ['.gitleaksignore', 'the secret-scan (gitleaks) ignore list'],
+  ['AGENTS.md', 'the rules every agent loads, including the merge rule'],
+  ['CLAUDE.md', 'the rules every agent loads'],
+  ['tooling/agent-protocol/**', 'the agent protocol every agent loads'],
+  ['.agents/**', 'agent skills and rules'],
+  ['.cursor/rules/**', 'agent rules'],
+  ['turbo.json', 'which tasks CI runs and how they depend on each other'],
+  ['.prettierignore', 'which files the format check skips'],
+  ['package.json', 'the root scripts CI and verify run'],
   ['tooling/scripts/merge-gate.mjs', 'the merge gate'],
   ['tooling/scripts/merge-gate.test.mjs', 'the merge gate tests'],
+  ['tooling/scripts/fixtures/merge-gate/**', 'the merge gate test fixtures'],
   ['tooling/scripts/main-auto-revert.mjs', 'the auto-revert of a red main'],
   ['tooling/scripts/main-auto-revert.test.mjs', 'the auto-revert tests'],
   ['tooling/scripts/gate-file-guard.mjs', 'this guard'],
   ['tooling/scripts/gate-file-guard.test.mjs', 'this guard tests'],
   ['tooling/scripts/gate-gh.mjs', 'the gh wrapper the gate tools share'],
+  ['tooling/scripts/github-refusal.mjs', 'how the gate tools recognise a 403 or 429 and stop'],
   ['tooling/scripts/gate-tools.test.mjs', 'the gate tools test entry'],
 ];
 
@@ -86,8 +106,11 @@ export function titleStatesGateChange(title) {
 }
 
 /** @returns {{ ok: boolean, gateFiles: Array<{file:string,glob:string,why:string}>, declared: boolean }} */
-export function evaluateGateFileRule(title, files) {
-  const gateFiles = gateFilesTouched(files);
+/** Dependabot bumps dependencies in the root package.json under a `chore(deps)` title. Only that bot, only that file. */
+const BOT_AUTHORS = new Set(['dependabot[bot]', 'app/dependabot']);
+
+export function evaluateGateFileRule(title, files, { author } = {}) {
+  const gateFiles = gateFilesTouched(files).filter((g) => !(BOT_AUTHORS.has(author) && g.file === 'package.json'));
   const declared = titleStatesGateChange(title);
   return { ok: gateFiles.length === 0 || declared, gateFiles, declared };
 }
@@ -135,6 +158,7 @@ function parseArgs(argv) {
     if (a === '--pr') o.pr = argv[++i];
     else if (a === '--title') o.title = argv[++i];
     else if (a === '--repo') o.repo = argv[++i];
+    else if (a === '--author') o.author = argv[++i];
     else if (a === '--files-file') o.filesFile = argv[++i];
     else if (a === '--comment') o.comment = true;
     else throw new Error(`unknown argument: ${a}`);
@@ -155,7 +179,7 @@ async function main() {
   try {
     const gh = makeGh();
     const files = o.filesFile ? readFileSync(o.filesFile, 'utf8').split('\n').filter(Boolean) : listPrFiles(gh, o.repo, o.pr);
-    const result = evaluateGateFileRule(o.title, files);
+    const result = evaluateGateFileRule(o.title, files, { author: o.author });
     const body = renderComment(result);
     console.log(body.replace(MARKER, '').trim());
     if (o.comment && o.pr) {

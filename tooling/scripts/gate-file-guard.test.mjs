@@ -3,6 +3,7 @@
  * Run: node --test tooling/scripts/gate-file-guard.test.mjs
  */
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { GitHubRefusalError, makeGh } from './gate-gh.mjs';
 import { MARKER, evaluateGateFileRule, gateFilesTouched, renderComment, titleStatesGateChange, upsertComment } from './gate-file-guard.mjs';
@@ -63,9 +64,8 @@ test('gate files: ordinary files are not gate files', () => {
     'tooling/scripts/worktree.mjs',
     'tooling/cia/x.mjs',
     'github/workflows/x.yml',
-    '.github/CODEOWNERS',
     'docs/ci.md',
-    'package.json',
+    'apps/admin/package.json',
   ]) {
     assert.equal(gateFilesTouched([f]).length, 0, f);
   }
@@ -128,4 +128,64 @@ test('gate-gh: 403 and 429 throw a refusal; other failures throw plain errors; s
   );
   assert.equal(makeGh({ spawn: spawn({ status: 1, stderr: 'HTTP 404', stdout: '' }) })(['api', 'x'], { allowFail: true }).status, 1);
   assert.equal(makeGh({ spawn: spawn({ status: 0, stdout: 'ok', stderr: '' }) })(['api', 'x']).stdout, 'ok');
+});
+
+test('gate files: the review additions (rules every agent loads, repo-wide config, refusal handling)', () => {
+  for (const f of [
+    'AGENTS.md',
+    'CLAUDE.md',
+    'tooling/agent-protocol/AGENT_PROTOCOL.md',
+    '.agents/skills/x/SKILL.md',
+    '.cursor/rules/inta.mdc',
+    '.github/dependabot.yml',
+    '.github/CODEOWNERS',
+    'turbo.json',
+    '.prettierignore',
+    'package.json',
+    'tooling/scripts/github-refusal.mjs',
+    'tooling/scripts/gate-gh.mjs',
+    'tooling/scripts/fixtures/merge-gate/main-runs.json',
+  ]) {
+    assert.equal(gateFilesTouched([f]).length, 1, f);
+  }
+  assert.equal(gateFilesTouched(['apps/admin/package.json', 'services/svc-pay/package.json']).length, 0, 'only the ROOT package.json');
+});
+
+test('dependabot may bump the root package.json under a chore(deps) title; nobody else may', () => {
+  const files = ['package.json', 'pnpm-lock.yaml'];
+  assert.equal(evaluateGateFileRule('chore(deps): bump x', files, { author: 'dependabot[bot]' }).ok, true);
+  assert.equal(evaluateGateFileRule('chore(deps): bump x', files, { author: 'ZenYoda3' }).ok, false);
+  assert.equal(evaluateGateFileRule('chore(deps): bump x', ['.github/workflows/ci.yml'], { author: 'dependabot[bot]' }).ok, false);
+});
+
+const DEPENDABOT = new URL('../../.github/dependabot.yml', import.meta.url);
+test(
+  'dependabot github-actions prefix passes the title rule',
+  { skip: !existsSync(DEPENDABOT) && 'dependabot.yml not present (empty-tree run)' },
+  () => {
+    const yml = readFileSync(DEPENDABOT, 'utf8');
+    const block = yml.slice(yml.indexOf("package-ecosystem: 'github-actions'"), yml.indexOf("package-ecosystem: 'maven'"));
+    const prefix = /prefix: '([^']+)'/.exec(block)?.[1];
+    assert.ok(prefix, 'a prefix is set for github-actions');
+    assert.equal(titleStatesGateChange(`${prefix}: Bump actions/checkout from 6 to 7`), true);
+  },
+);
+
+test('gate-gh: a hung or unspawnable gh fails with a clear error, never hangs; a timeout is passed to spawn', () => {
+  let seen;
+  const hung = (bin, args, o) => (
+    (seen = o),
+    { error: Object.assign(new Error('spawnSync gh ETIMEDOUT'), { code: 'ETIMEDOUT' }), status: null }
+  );
+  assert.throws(() => makeGh({ spawn: hung, timeoutMs: 5000 })(['api', 'x']), /did not complete \(ETIMEDOUT\) within 5s/);
+  assert.equal(seen.timeout, 5000);
+  makeGh({ spawn: (b, a, o) => ((seen = o), { status: 0, stdout: '', stderr: '' }) })(['api', 'x']);
+  assert.equal(seen.timeout, 120000);
+});
+
+test('gate-gh: the GraphQL "API rate limit already exceeded" message is a refusal (exit 3 territory)', () => {
+  const spawn = () => ({ status: 1, stderr: 'GraphQL: API rate limit already exceeded for user ID 123.', stdout: '' });
+  assert.throws(() => makeGh({ spawn })(['pr', 'view', '1']), GitHubRefusalError);
+  const secondary = () => ({ status: 1, stderr: 'You have exceeded a secondary rate limit.', stdout: '' });
+  assert.throws(() => makeGh({ spawn: secondary })(['pr', 'view', '1']), GitHubRefusalError);
 });

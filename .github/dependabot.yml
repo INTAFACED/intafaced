@@ -70,7 +70,9 @@ updates:
       day: 'wednesday'
     open-pull-requests-limit: 2
     commit-message:
-      prefix: 'chore(actions)'
+      # `ci`, not `chore(actions)`: the bump edits .github/workflows/**, a gate file, and the gate-file guard
+      # (tooling/scripts/gate-file-guard.mjs) passes a PR only when its title starts with `ci:`.
+      prefix: 'ci'
     groups:
       actions:
         patterns: ['*']
