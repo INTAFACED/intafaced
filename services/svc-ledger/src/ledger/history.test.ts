@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { LedgerError, userAvailable } from '@intafaced/ledger-client';
 import {
   HISTORY_MAX_ENTRIES,
+  HISTORY_PAGE_MAX_LIMIT,
+  HistoryCursorInvalidError,
   HistoryPageSocketError,
   HistoryRangeInvalidError,
   HistoryTooLargeError,
+  decodeHistoryCursor,
+  encodeHistoryCursor,
   historyInputSchema,
+  historyPageInputSchema,
   parseHistoryDoorInput,
   parseHistoryRange,
   refuseHistoryCursor,
@@ -116,5 +121,38 @@ describe('the cap is visible, because it refuses', () => {
   it('states a bound at all — an unbounded read of the money service is the failure mode', () => {
     expect(Number.isInteger(HISTORY_MAX_ENTRIES)).toBe(true);
     expect(HISTORY_MAX_ENTRIES).toBeGreaterThan(0);
+  });
+});
+
+describe('history page cursor and input (pure)', () => {
+  const base = { ownerType: 'user', ownerId: USER, kind: 'available' };
+
+  it('round-trips a position and is opaque base64url', () => {
+    const postedAt = new Date('2026-03-01T12:00:00.123Z');
+    const cursor = encodeHistoryCursor({ postedAt, entryId: '42' });
+    expect(cursor).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(decodeHistoryCursor(cursor)).toEqual({ postedAt, entryId: '42' });
+  });
+
+  it('refuses anything this door did not issue', () => {
+    for (const bad of [
+      '',
+      '!!',
+      'AAAA',
+      Buffer.from('v1.1.0').toString('base64url'),
+      Buffer.from('v1.1.9223372036854775808').toString('base64url'),
+    ]) {
+      expect(() => decodeHistoryCursor(bad)).toThrow(HistoryCursorInvalidError);
+    }
+  });
+
+  it('defaults limit to 50 and bounds it 1..200', () => {
+    expect(historyPageInputSchema.parse(base).limit).toBe(50);
+    expect(historyPageInputSchema.parse({ ...base, limit: HISTORY_PAGE_MAX_LIMIT }).limit).toBe(200);
+    for (const limit of [0, 201, -5, 2.5, '10']) expect(() => historyPageInputSchema.parse({ ...base, limit })).toThrow();
+  });
+
+  it('holds the owner identifier space like AccountRef does', () => {
+    expect(() => historyPageInputSchema.parse({ ...base, ownerId: 'not-a-uuid' })).toThrow();
   });
 });

@@ -19,7 +19,16 @@ import {
   type PostedEntry,
 } from '@intafaced/ledger-client';
 import { frozenMessage } from './freeze.js';
-import { HISTORY_MAX_ENTRIES, HistoryTooLargeError, type HistoryEntry, type HistoryRange } from './history.js';
+import {
+  HISTORY_MAX_ENTRIES,
+  HistoryTooLargeError,
+  decodeHistoryCursor,
+  encodeHistoryCursor,
+  type HistoryEntry,
+  type HistoryPage,
+  type HistoryPageInput,
+  type HistoryRange,
+} from './history.js';
 import { assertScaledBigintAmounts, parseStoredAmount } from './live-money.js';
 
 /**
@@ -377,6 +386,67 @@ export class PostgresLedger implements LedgerClient {
       amount: parseStoredAmount(r.amount, 'ledger_entries.amount'),
       postedAt: r.posted_at,
     }));
+  }
+
+  /**
+   * One page of entries, newest first, over `(posted_at DESC, entry id DESC)`.
+   *
+   * A READ, like `history()`: no lock, no write, no path into `post()`. Keyset
+   * paging (row comparison against the cursor position), never OFFSET, so page N
+   * costs the same as page 1 and a movement posted mid-browse cannot shift a
+   * boundary. The accounts come from `input` alone — owner, kind, purpose, and
+   * optionally one asset — and the cursor contributes only a position inside
+   * that set, so a forged cursor cannot widen what is readable.
+   *
+   * LIMIT + 1 tells us whether a next page exists without a count.
+   *
+   * INDEX NOTE. `posted_at` lives on `ledger_tx`, so no single index can cover
+   * `(account_id, posted_at, id)`. The plan is `accounts_owner_idx` then
+   * `ledger_entries_account_idx (account_id, id)` plus a sort of that account's
+   * entries; fine at current account sizes. Making it a pure index walk would
+   * mean copying `posted_at` onto `ledger_entries`, a change to the money table
+   * and the posting path that this read-only change deliberately does not make.
+   */
+  async historyPage(input: HistoryPageInput): Promise<HistoryPage> {
+    const cursor = input.cursor === undefined ? undefined : decodeHistoryCursor(input.cursor);
+    const purpose = (input.purpose ?? '').trim(); // same canonical trim as `accountPurpose`
+    const limit = input.limit;
+    const before = input.before === undefined ? null : new Date(input.before);
+    const assetId = input.assetId ?? null;
+    const cursorAt = cursor?.postedAt ?? null;
+    const cursorId = cursor?.entryId ?? null;
+
+    const rows = await this.sql<Array<HistoryRow & { entry_id: string; asset_id: string }>>`
+      SELECT e.id::text AS entry_id, t.id AS tx_id, t.module, t.reason, e.direction, e.amount,
+             e.asset_id, t.posted_at
+        FROM accounts a
+        JOIN ledger_entries e ON e.account_id = a.id
+        JOIN ledger_tx t ON t.id = e.tx_id
+       WHERE a.owner_type = ${input.ownerType}::owner_type
+         AND a.owner_id   = ${input.ownerId}
+         AND a.kind       = ${input.kind}::account_kind
+         AND a.purpose    = ${purpose}
+         AND (${assetId}::text IS NULL OR a.asset_id = ${assetId}::text)
+         AND (${before}::timestamptz IS NULL OR t.posted_at < ${before}::timestamptz)
+         AND (${cursorAt}::timestamptz IS NULL OR (t.posted_at, e.id) < (${cursorAt}::timestamptz, ${cursorId}::bigint))
+       ORDER BY t.posted_at DESC, e.id DESC
+       LIMIT ${limit + 1}
+    `;
+
+    const page = rows.slice(0, limit);
+    const last = page[page.length - 1];
+    return {
+      entries: page.map((r) => ({
+        txId: r.tx_id,
+        module: r.module,
+        reason: r.reason,
+        direction: r.direction,
+        amount: parseStoredAmount(r.amount, 'ledger_entries.amount'),
+        postedAt: r.posted_at,
+        assetId: r.asset_id,
+      })),
+      nextCursor: rows.length > limit && last ? encodeHistoryCursor({ postedAt: last.posted_at, entryId: last.entry_id }) : null,
+    };
   }
 
   async getTx(txId: string): Promise<LedgerTx | null> {

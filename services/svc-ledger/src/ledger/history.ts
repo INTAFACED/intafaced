@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { accountRefSchema, LedgerError, type Amount } from '@intafaced/ledger-client';
+import { accountRefSchema, describeOwnerIdSpace, formatAmount, isValidOwnerId, LedgerError, type Amount } from '@intafaced/ledger-client';
 
 /**
  * ENTRY HISTORY — the read behind svc-bank's spend view (§8.1).
@@ -202,4 +202,111 @@ export function refuseHistoryCursor(body: unknown): void {
 export function parseHistoryDoorInput(body: unknown): HistoryInput {
   refuseHistoryCursor(body);
   return historyInputSchema.parse(body);
+}
+
+/**
+ * PAGED HISTORY (`historyPage`) — the §13 socket above, served as a SIBLING.
+ *
+ * `history` is untouched and still refuses `after`/`cursor`: its callers
+ * (svc-bank analytics, svc-tax) fold a whole window and must never receive a
+ * silently partial one. A page is a different question ("the next N, newest
+ * first, I will come back for more"), with a different answer shape
+ * (`{entries, nextCursor}`), so it gets its own procedure rather than a flag on
+ * the one whose contract is "complete or refuse".
+ *
+ * WHICH ENTRIES. The caller names an owner and an account kind (and purpose);
+ * `assetId` is optional. Omitted, the page spans every asset that owner holds in
+ * that kind — what a user's activity feed needs; given, it is that one account.
+ * The scope comes ONLY from this input, which only a service can send. The
+ * cursor carries a position, never an account.
+ *
+ * ORDER. `(posted_at DESC, entry id DESC)`. The entry id is a global bigserial,
+ * so the pair is unique and a page boundary can fall between two entries with
+ * the same timestamp without skipping or repeating either.
+ */
+export const HISTORY_PAGE_DEFAULT_LIMIT = 50;
+export const HISTORY_PAGE_MAX_LIMIT = 200;
+
+export const historyPageInputSchema = accountRefSchema
+  .innerType()
+  .extend({
+    /** Optional here (required on a plain AccountRef): omitted = all of the owner's assets. */
+    assetId: z.string().min(1).max(16).optional(),
+    limit: z.number().int().min(1).max(HISTORY_PAGE_MAX_LIMIT).default(HISTORY_PAGE_DEFAULT_LIMIT),
+    cursor: z.string().min(1).max(256).optional(),
+    /** Only entries posted strictly before this instant. Anchors the first page. */
+    before: z.string().datetime({ offset: true }).optional(),
+  })
+  .superRefine((ref, ctx) => {
+    if (isValidOwnerId(ref.ownerType, ref.ownerId)) return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['ownerId'],
+      message: `owner_type "${ref.ownerType}" requires ${describeOwnerIdSpace(ref.ownerType)} — got "${ref.ownerId}"`,
+    });
+  });
+
+export type HistoryPageInput = z.infer<typeof historyPageInputSchema>;
+
+/** One entry on a page: the history shape plus the asset, which a multi-asset page needs to mean anything. */
+export interface HistoryPageEntry extends HistoryEntry {
+  readonly assetId: string;
+}
+
+export interface HistoryPage {
+  readonly entries: HistoryPageEntry[];
+  /** Pass back as `cursor` for the next (older) page; `null` when this was the last. */
+  readonly nextCursor: string | null;
+}
+
+export interface HistoryCursorPosition {
+  readonly postedAt: Date;
+  /** `ledger_entries.id` (bigserial) as a decimal string. */
+  readonly entryId: string;
+}
+
+/** A cursor that is not one this door issued. A forged or mangled cursor is a refusal, never "page one". */
+export class HistoryCursorInvalidError extends LedgerError {
+  constructor() {
+    super('History cursor is not valid — start again without a cursor', 'ledger.history_cursor_invalid');
+    this.name = 'HistoryCursorInvalidError';
+  }
+}
+
+const BIGINT_MAX = 9223372036854775807n;
+
+/** Opaque to callers: base64url of `v1.<posted_at epoch ms>.<entry id>`. */
+export function encodeHistoryCursor(pos: HistoryCursorPosition): string {
+  return Buffer.from(`v1.${pos.postedAt.getTime()}.${pos.entryId}`, 'utf8').toString('base64url');
+}
+
+export function decodeHistoryCursor(cursor: string): HistoryCursorPosition {
+  if (!/^[A-Za-z0-9_-]+$/.test(cursor)) throw new HistoryCursorInvalidError();
+  const m = /^v1\.(\d{1,15})\.(\d{1,19})$/.exec(Buffer.from(cursor, 'base64url').toString('utf8'));
+  if (!m) throw new HistoryCursorInvalidError();
+  const postedAt = new Date(Number(m[1]));
+  const id = BigInt(m[2]!);
+  if (Number.isNaN(postedAt.getTime()) || id < 1n || id > BIGINT_MAX) throw new HistoryCursorInvalidError();
+  return { postedAt, entryId: id.toString() };
+}
+
+/** Door parse. Does NOT call `refuseHistoryCursor`: here `cursor` is the field. */
+export function parseHistoryPageInput(body: unknown): HistoryPageInput {
+  return historyPageInputSchema.parse(body);
+}
+
+/** Wire form of a page: decimal-string amounts, ISO timestamps. `formatAmount` is the only encoder. */
+export function serializeHistoryPage(page: HistoryPage) {
+  return {
+    entries: page.entries.map((e) => ({
+      txId: e.txId,
+      module: e.module,
+      reason: e.reason,
+      direction: e.direction,
+      amount: formatAmount(e.amount),
+      postedAt: e.postedAt.toISOString(),
+      assetId: e.assetId,
+    })),
+    nextCursor: page.nextCursor,
+  };
 }
