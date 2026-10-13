@@ -161,11 +161,7 @@ export function createSbeCodec(deps: { readonly java?: JavaSbeCodec | null } = {
       }
       const payloadB64 = stringField(parsed, 'payloadB64');
       const outTemplate = stringField(parsed, 'template');
-      if (
-        payloadB64 === null ||
-        !canonicalStandardBase64(payloadB64) ||
-        (outTemplate !== 'Trade' && outTemplate !== 'DepthLevel')
-      ) {
+      if (payloadB64 === null || !canonicalStandardBase64(payloadB64) || (outTemplate !== 'Trade' && outTemplate !== 'DepthLevel')) {
         return refuse(linked, 'invalid_message', 'SBE Java encode omitted payload');
       }
       return { ok: true, linked: true, template: outTemplate, payload: Uint8Array.from(Buffer.from(payloadB64, 'base64')), payloadB64 };
