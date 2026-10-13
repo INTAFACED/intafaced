@@ -1285,10 +1285,16 @@ export function createPayRouter(
             if (e instanceof DualControlError || e instanceof ActionApprovalConsumeError) {
               throw new TRPCError({ code: 'PRECONDITION_FAILED', message: e.message, cause: e });
             }
-            if (e instanceof DisputeCaseError || e instanceof PayError) {
+            // PayError keeps toTrpcError's status. A dispute case that only wraps
+            // one does too. A malformed dispute case stays a bad request.
+            let pay: PayError | undefined;
+            if (e instanceof PayError) pay = e;
+            else if (e instanceof DisputeCaseError && e.cause instanceof PayError) pay = e.cause;
+            if (pay) throw toTrpcError(pay);
+            if (e instanceof DisputeCaseError) {
               throw new TRPCError({
                 code: 'BAD_REQUEST',
-                message: `${'code' in e ? e.code : 'pay.error'}: ${e.message}`,
+                message: `${e.code}: ${e.message}`,
                 cause: e,
               });
             }
