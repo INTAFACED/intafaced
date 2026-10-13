@@ -321,8 +321,8 @@ export class BusinessService {
     // Recover pre-claim legacy receipts before choosing a mode. Neither ledger
     // key may be rebound to different economic terms or a second money path.
     const [previousTransfer, previousHold] = await Promise.all([
-      this.ledger.getTxByKey(`bank.transfer:${clientId}:0`),
-      this.ledger.getTxByKey(`bank.business.hold:${clientId}`),
+      this.ledger.getTxByKey(`bank.transfer:${clientId}:0`).then((tx) => this.withEntries(tx)),
+      this.ledger.getTxByKey(`bank.business.hold:${clientId}`).then((tx) => this.withEntries(tx)),
     ]);
     const fromAcct = accountForSpace(from);
     const holdRequest = recipes.businessApprovalHold({ approvalId: clientId, from: fromAcct, amount: input.amount });
@@ -680,6 +680,23 @@ export class BusinessService {
     return this.postedPayrollMatches(posted, fromAcct, resolved);
   }
 
+  /**
+   * The HTTP ledger client's `post` receipt and `getTxByKey` answer carry no
+   * entries, and `postedPayrollMatches` reads them. Without them every match
+   * fails, which showed up as a false `bank.business_request_conflict` on a hold
+   * that had already posted. When entries are missing, read the transaction back
+   * by id (the ledger's txById door returns them). A transaction the ledger then
+   * cannot show is unavailable, never "different".
+   */
+  private async withEntries(tx: LedgerTx): Promise<LedgerTx>;
+  private async withEntries(tx: LedgerTx | null): Promise<LedgerTx | null>;
+  private async withEntries(tx: LedgerTx | null): Promise<LedgerTx | null> {
+    if (!tx || tx.entries.length > 0) return tx;
+    const full = await this.ledger.getTx(tx.id);
+    if (!full) throw new LedgerError('Business transfer receipt is unavailable', 'ledger.unavailable');
+    return full;
+  }
+
   /** The posted book is the instruction. A same key with other lines is not a second payment. */
   private async postedPayrollMatches(
     posted: LedgerTx,
@@ -832,7 +849,7 @@ export class BusinessService {
         const request = recipes.businessApprovalHold({ approvalId: approval.id, from: accountForSpace(from), amount: approval.amount });
         // Lost acknowledgements leave the claimed instruction intact. The maker
         // retries this key; checker settlement waits for a recorded receipt.
-        const held = await this.ledger.post(request);
+        const held = await this.withEntries(await this.ledger.post(request));
         const destination = request.entries.find((entry) => entry.direction === 'debit')!;
         if (
           held.idempotencyKey !== request.idempotencyKey ||
