@@ -335,9 +335,12 @@ const presentation = {
         let heading = this.refs.stepHeading || this.refs.welcomeTitle;
         let active = document.activeElement;
         // A visitor may begin typing before the scheduled heading focus runs.
-        // Preserve a control they have already focused in the current view.
+        // Preserve a control they have already focused in the current view. The review's own buttons are the ones that
+        // sent the visitor here and are about to unmount, so they are never a choice to keep: skipping the heading
+        // would leave focus on <body> once Send disappears.
         if (
           active &&
+          !active.closest('.outreach-review') &&
           (active.closest('form') || (this.complete && active.closest('.outreach-workspace'))) &&
           active.matches('input, textarea, select, button, a[href], summary, [contenteditable="true"]')
         )

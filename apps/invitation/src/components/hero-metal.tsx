@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from 'react';
+import { ArrowRight } from './icons';
 import { MetalButton } from './metal-button';
 
 /**
@@ -87,7 +88,7 @@ export function HeroMetal({
           </span>
         </span>
         <span className="cta-arrow" aria-hidden="true">
-          {children || '→'}
+          {children || <ArrowRight />}
         </span>
       </MetalButton>
     </span>
