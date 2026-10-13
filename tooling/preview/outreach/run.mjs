@@ -284,7 +284,8 @@ async function main() {
   });
 
   let ready = false;
-  for (let i = 0; i < 100 && !ready; i += 1) {
+  // Up to two minutes: Next starts slowly when the Mac is busy with other builds.
+  for (let i = 0; i < 400 && !ready; i += 1) {
     ready = await fetch(`http://127.0.0.1:${nextPort}/login`, { headers: { host: `localhost:${ADMIN_PORT}` } }).then(
       (r) => r.ok,
       () => false,
@@ -293,7 +294,7 @@ async function main() {
   }
   if (!ready) {
     next.kill('SIGTERM');
-    fail('The founder console did not start within 30 seconds.');
+    fail('The founder console did not start within two minutes.');
   }
   console.log(`
 INTAFACED local preview — test data, not live. Nothing is saved, emailed or deployed.
