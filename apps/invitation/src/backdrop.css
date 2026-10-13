@@ -166,6 +166,15 @@
   }
 }
 
+/* A photo shown only because the ribbons could not run (no WebGL, failed shader, lost context) is a still image. */
+.lb.is-still .lb__photo,
+.lb.is-still .lb__sweep i {
+  animation: none !important;
+}
+.lb.is-still .lb__sweep {
+  display: none;
+}
+
 /* Reduced motion: one still frame, no animation at all. Mirrors the JS flag so a live change works. */
 .lb.is-reduced .lb__photo,
 .lb.is-reduced .lb__sweep i,

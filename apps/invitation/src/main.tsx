@@ -13,11 +13,12 @@ import { ChoiceCards } from './components/choice-cards';
 import { SearchPicker, SearchPickerMulti, type PickerGroup, type PickerOption } from './components/search-picker';
 import { BlurFade } from './components/blur-fade';
 import { LivingBackdrop } from './components/living-backdrop';
+import { AMOUNT_ERROR, groupAmount, parseAmount, storedAmount } from './lib/amount';
 import heroPhone from '../../../vendor/upstream-exchange/05_Web_Front/src/assets/images/outreach/graphite-fins-phone.webp';
 import logo from '../../../vendor/upstream-exchange/05_Web_Front/src/assets/images/logo.svg';
 import './outreach.css';
 
-function TextField({ id, label, help, multiline, hideLabel, ...props }: any) {
+function TextField({ id, label, help, multiline, hideLabel, inputRef, ...props }: any) {
   const [invalid, setInvalid] = useState(false);
   const [validationMessage, setValidationMessage] = useState('');
   const Control = multiline ? HaloTextarea : HaloInput;
@@ -34,6 +35,7 @@ function TextField({ id, label, help, multiline, hideLabel, ...props }: any) {
       <HaloFieldContent>
         <Control
           {...props}
+          ref={inputRef}
           id={id}
           invalid={invalid}
           aria-describedby={[help && `${id}-help`, invalid && `${id}-error`].filter(Boolean).join(' ') || undefined}
@@ -57,23 +59,22 @@ function TextField({ id, label, help, multiline, hideLabel, ...props }: any) {
 
 const POPULAR_CURRENCIES = ['USD', 'EUR', 'GBP', 'SGD', 'IDR', 'AUD', 'CHF', 'AED', 'JPY'];
 const NO_COUNTRY: PickerOption = { value: '', label: 'Prefer not to say' };
-const AMOUNT_DISALLOWED = /[^0-9.,\s\u00a0\u202f]/g;
-const AMOUNT_SEPARATORS = /[,\s\u00a0\u202f]/g;
-// Same shape the journey contract validates: no leading zeros, optional decimal part.
-const AMOUNT_DECIMAL = /^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,18})?$/;
-const normaliseAmount = (raw: string) => raw.replace(AMOUNT_SEPARATORS, '');
-const groupAmount = (plain: string) => {
-  if (!AMOUNT_DECIMAL.test(plain)) return plain;
-  const [whole, fraction] = plain.split('.');
-  return whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (fraction === undefined ? '' : '.' + fraction);
-};
+// The contract's own email rule (outreach-intake buildContact): something@something.something
+const CONTACT_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_ERROR = 'Enter a full email address, for example you@example.com.';
+const NAME_ERROR = 'Enter your name.';
 
 /** Accepts "150,000", "150 000" and "150000.50"; shows separators once the field is left; stores the plain string. */
 function AmountField({ value, onValue, disabled }: { value: string; onValue: (plain: string) => void; disabled?: boolean }) {
   const [display, setDisplay] = useState(() => groupAmount(value));
+  const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (normaliseAmount(display) !== value) setDisplay(groupAmount(value));
+    if (storedAmount(display) !== value) setDisplay(groupAmount(value));
   }, [value]);
+  // A remounted field (Back, forward, a returning visitor) must carry the message too, not only a field that was typed in.
+  useEffect(() => {
+    input.current?.setCustomValidity(parseAmount(display).kind === 'invalid' ? AMOUNT_ERROR : '');
+  }, [display]);
   return (
     <TextField
       id="amount"
@@ -85,19 +86,17 @@ function AmountField({ value, onValue, disabled }: { value: string; onValue: (pl
       maxLength={60}
       required
       disabled={disabled}
+      inputRef={input}
       help="An estimate is fine."
       onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
-        const cleaned = event.target.value.replace(AMOUNT_DISALLOWED, '');
-        const plain = normaliseAmount(cleaned);
-        setDisplay(cleaned);
-        event.target.setCustomValidity(
-          plain && !AMOUNT_DECIMAL.test(plain) ? 'Use digits with one optional decimal point, for example 150,000 or 150000.50.' : '',
-        );
-        onValue(plain);
+        const typed = event.target.value;
+        setDisplay(typed);
+        event.target.setCustomValidity(parseAmount(typed).kind === 'invalid' ? AMOUNT_ERROR : '');
+        onValue(storedAmount(typed));
       }}
       onBlur={(event: React.FocusEvent<HTMLInputElement>) => {
-        const plain = normaliseAmount(event.target.value);
-        if (AMOUNT_DECIMAL.test(plain)) setDisplay(groupAmount(plain));
+        const parsed = parseAmount(event.target.value);
+        if (parsed.kind === 'valid') setDisplay(groupAmount(parsed.plain));
       }}
     />
   );
@@ -135,6 +134,7 @@ function App() {
     entrance: !welcomePlayed.current,
   }));
   const [contactStep, setContactStep] = useState<1 | 2>(1);
+  const [contactProblem, setContactProblem] = useState(0);
   const [privacyFocus, setPrivacyFocus] = useState(0);
   const currencyGroups = useMemo<PickerGroup[]>(() => {
     const option = (item: any): PickerOption => ({ value: item.code, label: `${item.name} · ${item.code}` });
@@ -206,6 +206,19 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [entryReveal, entryStarted]);
   useEffect(() => {
+    if (!contactProblem) return;
+    // After the refreshed screen 1 has mounted (and after the error banner's own focus), land on the field at fault.
+    const frame = requestAnimationFrame(() => {
+      const nameMissing = !vm.contact.name.trim();
+      const field = document.getElementById(nameMissing ? 'outreach-name' : 'outreach-email') as HTMLInputElement | null;
+      if (!field) return;
+      field.setCustomValidity(nameMissing ? NAME_ERROR : EMAIL_ERROR);
+      field.focus();
+      field.reportValidity();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [contactProblem]);
+  useEffect(() => {
     if (!privacyFocus) return;
     vm.refs.privacyHeading?.focus();
   }, [privacyFocus]);
@@ -231,6 +244,11 @@ function App() {
     void vm.act(key, ...args).then(() => {
       freshCompletionIntent.current = false;
       if (vm.error) setCompletionReveal(null);
+      // The details were refused as invalid: the problem is on screen 1 (name or email), so go back and point at it.
+      if (key === 'saveContact' && vm.errorCode === 'invalid_input') {
+        setContactStep(1);
+        setContactProblem((value) => value + 1);
+      }
     });
   };
   const begin = () => {
@@ -253,18 +271,24 @@ function App() {
     if (key === 'advance') {
       const kind = vm.questionStep?.kind;
       const stated = vm.answers.amountStatus === 'stated';
+      const amount = kind === 'amount' && stated ? parseAmount(vm.answers.amount).kind : 'valid';
       const message =
-        vm.visibleFields.some((field: any) => field.type === 'select' && !vm.answers[field.key]) ||
-        (kind === 'timing' && !vm.answers.timing)
-          ? 'Choose an option to continue.'
-          : kind === 'amount' && stated && !vm.answers.currency
-            ? 'Choose a currency to continue.'
-            : kind === 'amount' && stated && vm.currentAudience === 'merchant' && !vm.answers.period
-              ? 'Choose a volume period to continue.'
-              : '';
+        amount === 'invalid'
+          ? AMOUNT_ERROR
+          : amount === 'empty'
+            ? 'Enter an amount, or choose the undecided option.'
+            : vm.visibleFields.some((field: any) => field.type === 'select' && !vm.answers[field.key]) ||
+                (kind === 'timing' && !vm.answers.timing)
+              ? 'Choose an option to continue.'
+              : kind === 'amount' && stated && !vm.answers.currency
+                ? 'Choose a currency to continue.'
+                : kind === 'amount' && stated && vm.currentAudience === 'merchant' && !vm.answers.period
+                  ? 'Choose a volume period to continue.'
+                  : '';
       if (message) {
         vm.error = message;
         refresh();
+        if (amount !== 'valid') requestAnimationFrame(() => document.getElementById('amount')?.focus());
         return;
       }
     }
@@ -514,7 +538,21 @@ function App() {
   const heading = contactForm && contactStep === 2 ? 'A little more, if you like.' : vm.stepTitle;
   const eyebrow = contactForm ? `YOUR DETAILS · ${contactStep} OF 2` : vm.progressLabel;
   const showDraftStatus = !!vm.draft && !!vm.currentAudience && !vm.interestsOpen && !vm.interestChangeRequested && !vm.complete;
-  const draftStatus = !vm.state.storageAvailable ? 'Not saved in this browser' : vm.state.draftStored ? 'Saved ✓' : 'Saving…';
+  // "Draft", never a bare "Saved": nothing here has been sent. A draft kept only for this tab is said to be.
+  const draftStatus = !vm.state.storageAvailable
+    ? 'Not saved in this browser'
+    : !vm.state.draftStored
+      ? 'Saving…'
+      : vm.remember
+        ? 'Draft saved ✓'
+        : 'Draft kept in this tab';
+  // The visible text follows every keystroke; the spoken one waits until typing settles and never says "Saving…".
+  const [spokenStatus, setSpokenStatus] = useState('');
+  useEffect(() => {
+    if (!showDraftStatus || draftStatus === 'Saving…') return;
+    const timer = window.setTimeout(() => setSpokenStatus(draftStatus), 800);
+    return () => window.clearTimeout(timer);
+  }, [showDraftStatus, draftStatus]);
   const showDeviceDetails =
     !!vm.draft && !vm.interestChangeRequested && !vm.interestsOpen && (vm.complete || !vm.currentAudience || vm.isReview);
   const logoLink = (width: number, className: string) => (
@@ -522,9 +560,10 @@ function App() {
       <img src={logo} alt="INTAFACED" width={width} height={Math.round((width * 35) / 150)} />
     </a>
   );
-  const privacyLine = (
+  // Screen 1 sends nothing and promises nothing: only the way to the notice. The sentence belongs where data is sent.
+  const privacyLine = (full: boolean) => (
     <p className="outreach-small">
-      By continuing, you ask INTAFACED to review and reply to your enquiry.{' '}
+      {full ? 'By continuing, you ask INTAFACED to review and reply to your enquiry.' : 'How we handle your details:'}{' '}
       <button type="button" className="outreach-inline-link" onClick={openPrivacy}>
         Privacy &amp; contact
       </button>
@@ -536,6 +575,17 @@ function App() {
         key="contact-1"
         onSubmit={(event) => {
           event.preventDefault();
+          // type="email" lets "investor@gmail" through; the contract needs a dot in the domain. Say so here, on the field.
+          const problem = !vm.contact.name.trim() ? 'outreach-name' : !CONTACT_EMAIL.test(vm.contact.email.trim()) ? 'outreach-email' : '';
+          if (problem) {
+            const field = event.currentTarget.querySelector<HTMLInputElement>('#' + problem);
+            if (field) {
+              field.setCustomValidity(problem === 'outreach-name' ? NAME_ERROR : EMAIL_ERROR);
+              field.focus();
+              field.reportValidity();
+            }
+            return;
+          }
           goContactStep(2);
         }}
       >
@@ -561,7 +611,10 @@ function App() {
             required
             disabled={vm.busy}
             value={vm.contact.name}
-            onChange={(event: any) => contactValue('name', event.target.value)}
+            onChange={(event: any) => {
+              event.target.setCustomValidity('');
+              contactValue('name', event.target.value);
+            }}
             onBlur={(event: any) => contactValue('name', event.target.value.trim())}
           />
           <TextField
@@ -576,7 +629,10 @@ function App() {
             disabled={vm.busy}
             help="We’ll use this address to reply about your enquiry."
             value={vm.contact.email}
-            onChange={(event: any) => contactValue('email', event.target.value)}
+            onChange={(event: any) => {
+              event.target.setCustomValidity('');
+              contactValue('email', event.target.value);
+            }}
             onBlur={(event: any) => contactValue('email', event.target.value.trim())}
           />
         </div>
@@ -584,7 +640,7 @@ function App() {
           {back()}
           {primary('Continue')}
         </div>
-        {privacyLine}
+        {privacyLine(false)}
       </form>
     ) : (
       <form key="contact-2" onSubmit={submit('saveContact')}>
@@ -644,7 +700,7 @@ function App() {
           </button>
           {primary('Save details & continue', undefined, !vm.storageReady)}
         </div>
-        {privacyLine}
+        {privacyLine(true)}
       </form>
     );
   const deviceDetails = () => (
@@ -780,9 +836,14 @@ function App() {
                 {eyebrow}
               </p>
               {showDraftStatus && (
-                <span className="draft-status" role="status" aria-live="polite" data-state={draftStatus}>
-                  {draftStatus}
-                </span>
+                <>
+                  <span className="draft-status" aria-hidden="true" data-state={draftStatus}>
+                    {draftStatus}
+                  </span>
+                  <span className="sr-only draft-status-live" role="status" aria-live="polite">
+                    {spokenStatus}
+                  </span>
+                </>
               )}
             </div>
             {vm.currentAudience && !vm.interestsOpen && !vm.interestChangeRequested && !vm.complete && (

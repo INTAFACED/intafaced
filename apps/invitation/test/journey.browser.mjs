@@ -12,6 +12,7 @@ import { dirname, resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID, createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
+import { AMOUNT_ERROR, parseAmount, storedAmount } from '../src/lib/amount.ts';
 import { applyPlaywrightBrowsersEnv } from '../../../tooling/uiproof/playwright-browsers.mjs';
 
 const front = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -43,6 +44,45 @@ const server = createServer(async (request, response) => {
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const origin = `http://127.0.0.1:${server.address().port}`;
+
+// The amount rule itself, as a table: what is accepted (and what it becomes) and what is never normalised.
+for (const [typed, plain] of [
+  ['150000', '150000'],
+  ['150000.50', '150000.50'],
+  ['0.5', '0.5'],
+  ['150,000', '150000'],
+  ['1,250,000.50', '1250000.50'],
+  ['150 000', '150000'],
+  ['1 250 000.5', '1250000.5'],
+  ['150\u00a0000', '150000'],
+  [' 150000 ', '150000'],
+  ['150.000', '150.000'],
+])
+  assert.deepEqual(parseAmount(typed), { kind: 'valid', plain }, `valid amount ${JSON.stringify(typed)}`);
+for (const typed of [
+  '1,5',
+  '1.000,50',
+  '1e5',
+  '-5',
+  '1,2,3',
+  '1.5.',
+  ' ',
+  '1 250,000',
+  '1,250 000',
+  '1,50,000',
+  '150,00',
+  '1234,567',
+  '01',
+  '12a',
+  '$5',
+  '.5',
+  '5.',
+  ',',
+])
+  assert.deepEqual(parseAmount(typed), { kind: 'invalid', plain: '' }, `invalid amount ${JSON.stringify(typed)}`);
+assert.equal(parseAmount('').kind, 'empty');
+assert.equal(storedAmount('1,5'), '1,5', 'an invalid amount is stored exactly as typed, never repaired');
+assert.equal(storedAmount('150,000'), '150000', 'a legacy grouped value reads back as the plain string');
 
 let browser;
 const proof = '/tmp/intafaced-outreach-react-invitation-journey-proof';
@@ -181,7 +221,7 @@ async function openDeviceDetails(page) {
   return details;
 }
 async function showSavedStatus(page) {
-  await expect(page.getByRole('status').filter({ hasText: 'Saved ✓' })).toBeVisible();
+  await expect(page.locator('.draft-status')).toHaveText('Draft saved ✓');
 }
 async function continueGroup(page) {
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -203,6 +243,33 @@ async function reopen(page) {
   await page.getByRole('button', { name: 'Continue your enquiry' }).click();
   await page.getByRole('button', { name: 'Reopen saved enquiry' }).click();
 }
+// The entrance animations sit on the welcome content's children, not on .welcome-content itself. Returns every one
+// that still animates (empty when still), and fails loudly if the elements it is meant to inspect are not there.
+const WELCOME_ANIMATED = [
+  '.welcome-logo',
+  '.h1-line',
+  '.welcome-description',
+  '.welcome-action',
+  '.hero-cta',
+  '.welcome-content > .outreach-small',
+];
+async function welcomeMotion(page) {
+  return page.evaluate((selectors) => {
+    const found = [];
+    const moving = [];
+    for (const selector of selectors) {
+      for (const el of document.querySelectorAll(selector)) {
+        found.push(selector);
+        const name = getComputedStyle(el).animationName;
+        const running = el.getAnimations().filter((a) => a.playState === 'running').length;
+        if (name !== 'none' || running) moving.push(`${selector}: ${name}, ${running} running`);
+      }
+    }
+    if (found.length < selectors.length)
+      throw new Error('welcome motion check found no element for some selectors: ' + selectors.filter((x) => !found.includes(x)));
+    return moving;
+  }, WELCOME_ANIMATED);
+}
 async function geometry(page) {
   assert.equal(await page.locator('[data-framework=react]').count(), 1);
   assert.equal(await page.locator('.ivu-loading-bar,.ivu-menu').count(), 0);
@@ -218,11 +285,7 @@ async function geometry(page) {
   assert.equal(await page.evaluate(() => document.fonts.check('16px "Outreach Inter"')), true, 'real Inter font loads');
   const reduced = await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
   if (reduced && (await page.locator('.welcome-content').count()))
-    assert.equal(
-      await page.locator('.welcome-content').evaluate((el) => getComputedStyle(el).animationName),
-      'none',
-      'reduced motion removes the welcome reveal',
-    );
+    assert.deepEqual(await welcomeMotion(page), [], 'reduced motion removes the welcome reveal from every element that carries it');
   assert.ok(
     await page.getByRole('img', { name: 'INTAFACED', exact: true }).evaluate((img) => img.complete && img.naturalWidth > 0),
     'actual logo loads',
@@ -249,6 +312,15 @@ try {
     await page.waitForFunction(() => getComputedStyle(document.querySelector('.welcome-content')).opacity === '1');
     await page.screenshot({ path: `${proof}/invest-welcome-${width}.png`, fullPage: true });
     await geometry(page);
+    if (width === 320) {
+      // Positive control: the motion check can fail. Put a running animation on a child and it must be reported.
+      const control = await page.addStyleTag({
+        content: '.outreach-page .h1-line{animation:control-spin 4s linear infinite !important}@keyframes control-spin{to{opacity:.99}}',
+      });
+      assert.ok((await welcomeMotion(page)).length > 0, 'the reduced-motion check reports a child that animates');
+      await control.evaluate((el) => el.remove());
+      assert.deepEqual(await welcomeMotion(page), []);
+    }
     const firstAction = await page.getByRole('button', { name: 'Begin', exact: true }).boundingBox();
     assert.ok(firstAction.y + firstAction.height <= 850, 'first meaningful action fits the welcome viewport');
     await page.keyboard.press('Tab');
@@ -299,7 +371,9 @@ try {
     for (const [typed, shown] of [
       ['150,000', '150,000'],
       ['150 000', '150,000'],
+      ['150000', '150,000'],
       ['150000.50', '150,000.50'],
+      ['1,250,000.50', '1,250,000.50'],
     ]) {
       await control(page, 'Amount', { exact: true }).fill(typed);
       await control(page, 'Amount', { exact: true }).blur();
@@ -359,10 +433,18 @@ try {
     await page.getByRole('checkbox', { name: 'Payment acceptance' }).check();
     await continueGroup(page);
     await page.getByRole('button', { name: 'Share an indicative amount' }).click();
-    await control(page, 'Amount', { exact: true }).fill('1 250,000.50');
+    await control(page, 'Amount', { exact: true }).fill('1,250,000.50');
     await pick(page, 'Currency', 'IDR', 'Indonesian Rupiah');
     await page.getByRole('button', { name: 'Monthly', exact: true }).click();
     await review(page, 'as_available');
+    if (width > 680) {
+      // Eight review rows on a laptop: the main action is still on screen without scrolling.
+      const send = await page.getByRole('button', { name: 'Send enquiry', exact: true }).boundingBox();
+      assert.ok(
+        send.y >= 0 && send.y + send.height <= 850,
+        `Send enquiry is above the fold at ${width}px (bottom ${send.y + send.height})`,
+      );
+    }
     await page.getByRole('button', { name: 'Send enquiry', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'What would you like to learn?', exact: true })).toBeVisible();
     await page.screenshot({ path: `${proof}/academy-questions-${width}.png`, fullPage: true });
@@ -546,6 +628,175 @@ try {
     console.log(`disclosure ${width}px ${mode}: explicit unknown-state recovery, retained inputs and same-intent retry passed`);
   }
 
+  // Contact screen 1: the email rule is the contract's, and screen 1 promises nothing.
+  for (const width of [1280, 390]) {
+    const context = await browser.newContext({ viewport: { width, height: 850 } });
+    const api = await fixtures(context);
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(origin + '/invest');
+    await begin(page);
+    const body = () => page.locator('.outreach-workspace').innerText();
+    assert.ok(!/By continuing|ask INTAFACED/.test(await body()), 'screen 1 makes no promise');
+    assert.match(await body(), /How we handle your details:/);
+    await expect(page.getByRole('button', { name: 'Privacy & contact' })).toBeVisible();
+    await control(page, 'Your name').fill('Local proof visitor');
+    for (const typed of ['investor@gmail', 'investor@', '@gmail.com', 'in vestor@gmail.com']) {
+      await control(page, 'Email', { exact: false }).fill(typed);
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Let’s start with you.', exact: true })).toBeVisible();
+      await expect(control(page, 'Email', { exact: false })).toBeFocused();
+      // "investor@gmail" passes the browser's own email check, so the message is ours; the others get the browser's wording.
+      if (typed === 'investor@gmail') await expect(page.locator('#outreach-email-error')).toContainText('full email address');
+      else await expect(page.locator('#outreach-email-error')).toBeVisible();
+      assert.equal(await control(page, 'Email', { exact: false }).inputValue(), typed, 'the typed email is left as typed');
+    }
+    assert.equal(api.captureRequests.length, 0, 'nothing is sent from screen 1');
+    // Correcting it clears the message and lets the visitor on.
+    await control(page, 'Email', { exact: false }).fill('investor@gmail.com');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'A little more, if you like.', exact: true })).toBeFocused();
+    assert.match(
+      await body(),
+      /By continuing, you ask INTAFACED to review and reply to your enquiry\./,
+      'the promise sits on screen 2, where data is sent',
+    );
+    assert.equal(api.captureRequests.length, 0, 'screen 2 has not been submitted yet');
+    // If the details are refused as invalid after all, the visitor lands back on the email field with the error shown.
+    await page.evaluate(() => {
+      const trim = String.prototype.trim;
+      window.__restoreTrim = () => (String.prototype.trim = trim);
+      String.prototype.trim = function () {
+        const value = trim.call(this);
+        return value === 'investor@gmail.com' ? '' : value;
+      };
+    });
+    await page.getByRole('button', { name: 'Save details & continue' }).click();
+    await expect(page.getByRole('heading', { name: 'Let’s start with you.', exact: true })).toBeVisible();
+    await expect(control(page, 'Email', { exact: false })).toBeFocused();
+    await expect(page.locator('#outreach-email-error')).toContainText('full email address');
+    await expect(page.locator('.outreach-notice')).toContainText('Check the required fields');
+    assert.equal(await control(page, 'Email', { exact: false }).inputValue(), 'investor@gmail.com', 'the email is kept');
+    assert.equal(await control(page, 'Your name').inputValue(), 'Local proof visitor', 'the name is kept');
+    assert.equal(api.captureRequests.length, 0, 'a refused contact is never sent');
+    await page.evaluate(() => window.__restoreTrim());
+    assert.deepEqual(errors, []);
+    await context.close();
+    console.log(
+      `contact ${width}px: contract email rule on screen 1, no promise on screen 1, invalid_input returns to the email field passed`,
+    );
+  }
+
+  // The amount step: only digits (one decimal point) or three-digit grouping with a comma or a space are accepted.
+  // Anything else stays as typed, shows an inline error, blocks Continue, and is never sent.
+  for (const width of [1280, 390]) {
+    const context = await browser.newContext({ viewport: { width, height: 850 } });
+    const api = await fixtures(context);
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(origin + '/invest');
+    await begin(page);
+    await fillContact(page, false);
+    await page.getByRole('button', { name: 'I’m considering investing' }).click();
+    await continueGroup(page);
+    await choose(page, 'Which best describes you or the organisation you represent?', 'Individual');
+    await continueGroup(page);
+    await choose(page, 'What is your role in the decision?', 'I make investment decisions');
+    await continueGroup(page);
+    await page.getByRole('button', { name: 'Share an indicative amount' }).click();
+    const amount = control(page, 'Amount', { exact: true });
+    const amountHeading = page.getByRole('heading', { name: 'What amount are you considering?', exact: true });
+    await pick(page, 'Currency', 'USD', 'US Dollar');
+    const cont = page.getByRole('button', { name: 'Continue', exact: true });
+    for (const typed of ['1,5', '1.000,50', '1e5', '-5', '1,2,3', '1.5.', ' ', '1 250,000', '1,50,000', '150,00', '12a', '$5']) {
+      await amount.fill(typed);
+      await amount.blur();
+      await expect(amount, `displayed as typed: ${JSON.stringify(typed)}`).toHaveValue(typed);
+      await expect(page.locator('#amount-error'), `error for ${JSON.stringify(typed)}`).toHaveText(AMOUNT_ERROR);
+      await cont.click();
+      await expect(amountHeading, `Continue is blocked for ${JSON.stringify(typed)}`).toBeVisible();
+      await expect(amount).toHaveValue(typed);
+    }
+    assert.equal(api.answerRequests.length, 0, 'an invalid amount is never sent');
+    // Back and forward must not launder it: the remounted field still carries the error and still blocks.
+    for (const typed of ['1.5.', ' ']) {
+      await amount.fill(typed);
+      await page.getByRole('button', { name: 'Back', exact: false }).click();
+      await expect(page.locator('#intake-heading')).toBeFocused();
+      await continueGroup(page);
+      await expect(amountHeading).toBeVisible();
+      await expect(amount).toHaveValue(typed);
+      await cont.click();
+      await expect(amountHeading, `Continue still blocked after Back and forward for ${JSON.stringify(typed)}`).toBeVisible();
+      await expect(page.locator('#amount-error')).toHaveText(AMOUNT_ERROR);
+    }
+    // Correcting it unblocks the step. Spaces between groups of three are normalised in what is sent.
+    await amount.fill('150 000');
+    await amount.blur();
+    await expect(amount).toHaveValue('150,000');
+    await expect(page.locator('#amount-error')).toHaveCount(0);
+    await review(page, 'later', 'x');
+    await expect(page.locator('.outreach-review')).toContainText('150,000 USD');
+    await page.getByRole('button', { name: 'Send enquiry', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Your enquiry is saved.', exact: true })).toBeVisible();
+    assert.equal(api.answerRequests.length, 1);
+    assert.equal(
+      api.answerRequests[0].questionnaire.answers.indicativeContribution.amount,
+      '150000',
+      'only the normalised plain string is sent',
+    );
+    assert.deepEqual(errors, []);
+    await context.close();
+    console.log(
+      `amount ${width}px: accepted forms normalised, 12 odd forms kept as typed, blocked and never sent, Back/forward cannot bypass`,
+    );
+  }
+
+  // The status line is announced once, after typing settles, never on every keystroke.
+  {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 850 } });
+    await fixtures(context);
+    const page = await context.newPage();
+    await page.goto(origin + '/invest');
+    await begin(page);
+    await fillContact(page, false);
+    await page.getByRole('button', { name: 'I can introduce an investor' }).click();
+    await continueGroup(page);
+    await choose(page, 'Which best describes you or the organisation you represent?', 'Individual');
+    await continueGroup(page);
+    await choose(page, 'What is your role in the decision?', 'I make introductions');
+    await continueGroup(page);
+    await choose(page, 'When would you consider taking part?', TIMING.later);
+    await continueGroup(page);
+    const message = control(page, 'What would you like us to know?', { exact: false });
+    await expect(page.locator('.draft-status')).toHaveText('Draft kept in this tab');
+    await expect(page.locator('.draft-status-live')).toHaveText('Draft kept in this tab', { timeout: 5000 });
+    await page.evaluate(() => {
+      const count = (selector) => {
+        const node = document.querySelector(selector);
+        const box = { n: 0 };
+        new MutationObserver((list) => (box.n += list.length)).observe(node, { subtree: true, childList: true, characterData: true });
+        return box;
+      };
+      window.__live = count('.draft-status-live');
+      window.__visible = count('.draft-status');
+    });
+    await message.click();
+    await message.pressSequentially('hello world', { delay: 45 }); // 11 characters
+    const during = await page.evaluate(() => ({ live: window.__live.n, visible: window.__visible.n }));
+    assert.equal(during.live, 0, `the live region stays quiet while typing (${during.live} changes)`);
+    assert.ok(during.visible >= 2, `the visible text does follow the typing (${during.visible} changes), so this check is not vacuous`);
+    await page.waitForTimeout(1500);
+    const settled = await page.evaluate(() => window.__live.n);
+    assert.ok(settled <= 1, `at most one announcement once typing settles (${settled})`);
+    assert.equal(await page.locator('.draft-status-live').textContent(), 'Draft kept in this tab');
+    assert.equal(await page.locator('.draft-status').getAttribute('aria-hidden'), 'true', 'the visible copy is not read out as well');
+    await context.close();
+    console.log('status line: 0 live-region changes while typing 11 characters, at most 1 once settled');
+  }
+
   // Recovery consent boundaries: refresh works by default; a closed tab does not persist without opt-in.
   const tabContext = await browser.newContext({ viewport: { width: 390, height: 850 } });
   await fixtures(tabContext);
@@ -562,6 +813,7 @@ try {
   await choose(tabPage, 'What is your role in the decision?', 'I make introductions');
   await continueGroup(tabPage);
   await review(tabPage, 'later', 'Tab-only draft.');
+  await expect(tabPage.locator('.draft-status')).toHaveText('Draft kept in this tab');
   await (await openDeviceDetails(tabPage)).getByText('Draft kept in this tab').waitFor();
   await tabPage.reload();
   await reopen(tabPage);
@@ -595,7 +847,8 @@ try {
   await blockedPage.getByRole('button', { name: 'Reopen saved enquiry' }).click();
   await expect(blockedPage.getByRole('heading', { name: 'How would you like to take part?', exact: true })).toBeVisible();
   await expect(blockedPage.getByRole('status').filter({ hasText: 'cannot be stored' })).toContainText('cannot be stored');
-  await expect(blockedPage.getByRole('status').filter({ hasText: 'Not saved in this browser' })).toBeVisible();
+  await expect(blockedPage.locator('.draft-status')).toHaveText('Not saved in this browser');
+  await expect(blockedPage.locator('.draft-status-live')).toHaveText('Not saved in this browser');
   assert.equal(blockedApi.captureRequests[0].requestId, blockedApi.captureRequests[1].requestId);
   await blocked.close();
   console.log('blocked storage: honest resume limitation and stable in-memory capture retry passed');

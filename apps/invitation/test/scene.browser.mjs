@@ -90,6 +90,16 @@ const instrument = () => {
 };
 
 const draws = (page) => page.evaluate(() => window.__draws);
+// The photo's own motion: the slow drift on .lb__photo and the light sweep on .lb__sweep i.
+const photoMotion = (page) =>
+  page.evaluate(() => ({
+    still: document.querySelector('[data-backdrop]').dataset.still,
+    running: document
+      .getAnimations()
+      .filter((a) => a.playState === 'running' && a.effect?.target?.matches?.('.lb__photo, .lb__sweep i'))
+      .map((a) => a.animationName),
+    sweep: getComputedStyle(document.querySelector('.lb__sweep')).display,
+  }));
 async function open(browserRef, query = '', options = {}) {
   const context = await browserRef.newContext({
     viewport: options.viewport || { width: 1440, height: 900 },
@@ -168,6 +178,10 @@ try {
     }));
     assert.deepEqual(state, { mode: 'photo', img: true, canvas: false, decoded: true });
     assert.equal(await draws(page), 0, 'photo variant never touches WebGL');
+    // Asked for on purpose, so it moves: this is the control that shows the still check below can fail.
+    const motion = await photoMotion(page);
+    assert.equal(motion.still, '0');
+    assert.deepEqual([...motion.running].sort(), ['lb-drift', 'lb-sweep'], 'the requested photo drifts and sweeps');
     // Content stacks above the fixed backdrop.
     await page.getByRole('button', { name: 'Begin', exact: true }).waitFor({ state: 'visible', timeout: 30000 });
     const above = await page.evaluate(() => {
@@ -290,14 +304,17 @@ try {
   });
 
   await check('800 ms cap: a slow backdrop never holds the foreground (slow photo decode)', async () => {
+    // The image is held until the foreground has started, so the proof does not depend on how busy the machine is.
+    let letImageThrough;
+    const gate = new Promise((resolve) => (letImageThrough = resolve));
     const { context, page } = await open(browser, '?bg=photo', {
       route: (p) =>
         p.route(/graphite-fins-.*\.webp/, async (route) => {
-          await new Promise((r) => setTimeout(r, 3500));
+          await gate;
           await route.continue();
         }),
     });
-    await page.waitForFunction(() => window.__t.started != null, null, { timeout: 30000 });
+    await page.waitForFunction(() => window.__t.started != null, null, { timeout: 120000 });
     const early = await page.evaluate(() => ({
       t: window.__t,
       ready: document.querySelector('[data-backdrop]').dataset.ready,
@@ -306,7 +323,7 @@ try {
     assert.equal(early.ready, '0', 'backdrop is still loading when the foreground starts');
     assert.equal(early.stage, '0', 'and it is not half-showing');
     assert.ok(early.t.started >= 700, `the cap is a cap, not an early start (${early.t.started})`);
-    assert.ok(early.t.started < 3000, `the foreground did not wait for the slow image (${early.t.started})`);
+    letImageThrough();
     await page.getByRole('button', { name: 'Begin', exact: true }).waitFor({ state: 'visible', timeout: 30000 });
     await ready(page);
     const late = await page.evaluate(() => window.__t);
@@ -331,6 +348,11 @@ try {
     await ready(page);
     assert.equal(await page.evaluate(() => document.querySelector('[data-backdrop]').dataset.backdrop), 'photo');
     assert.equal(await draws(page), 0);
+    assert.deepEqual(
+      await photoMotion(page),
+      { still: '1', running: [], sweep: 'none' },
+      'the fallback photo is still: no drift, no sweep',
+    );
     assert.deepEqual(errors, []);
     await context.close();
   });
@@ -347,6 +369,11 @@ try {
     await page.getByRole('button', { name: 'Begin', exact: true }).waitFor({ state: 'visible', timeout: 30000 });
     await ready(page);
     assert.equal(await page.evaluate(() => document.querySelector('[data-backdrop]').dataset.backdrop), 'photo');
+    assert.deepEqual(
+      await photoMotion(page),
+      { still: '1', running: [], sweep: 'none' },
+      'the fallback photo is still: no drift, no sweep',
+    );
     assert.deepEqual(errors, []);
     await context.close();
   });

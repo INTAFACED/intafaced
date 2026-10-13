@@ -5,7 +5,8 @@ import '../backdrop.css';
  * Living backdrop for the invitation journey.
  *  - 'ribbons': one full-screen WebGL fragment shader (diagonal graphite light bands, lime only in the cores).
  *  - 'photo'  : the graphite-fins photo with a slow drift and one travelling light sweep (CSS only).
- * Falls back to 'photo' (still) when WebGL is unavailable, the shader fails, or the context is lost.
+ * Falls back to 'photo' (a STILL photo: no drift, no sweep) when WebGL is unavailable, the shader fails, or the context is lost.
+ *  ?bg=photo asks for the moving photo on purpose; only that one animates.
  * Entrance (first visit only): nothing shows until the first frame / decode, then it resolves from black in 1.4s.
  * Dim (question steps): settles to ~35% brightness over 800ms, then the ribbons stop drawing (one still frame).
  */
@@ -95,10 +96,10 @@ void main(){
   vec3 L = vec3(0.);
   //          s      w     soft   amp   kind rim  px/s  lambda  phase per
   L += band(s, ua, -.92, .026, .008, .80, 0., 1., 42., 760., 0.6, 29.);   // thin steel, front
-  L += band(s, ua, -.68, .042, .012, .42, 1., 1., 36., 640., 2.4, 33.);   // lime echo, front, weaker
+  L += band(s, ua, -.68, .042, .012, .34, 1., 1., 36., 640., 2.4, 33.);   // lime echo, front, weaker (x.8 so the button is the most saturated lime)
   L += band(s, ua, -.38, .075, .095, .55, 0., 0., 52., 900., 4.1, 37.);   // steel, back, out of focus
   L += band(s, ua,  .40, .042, .014, .85, 0., 1., 31., 560., 1.5, 31.);   // steel, front
-  L += band(s, ua,  .67, .058, .012, 1.0, 1., 1., 48., 700., 3.3, 27.);   // lime hero, front
+  L += band(s, ua,  .67, .058, .012, .80, 1., 1., 48., 700., 3.3, 27.);   // lime hero, front (.8: hot core kept, less blown out)
   L += band(s, ua,  .90, .055, .085, .60, 0., 0., 58., 820., 5.2, 35.);   // steel, back, soft
   L *= W;
 
@@ -131,6 +132,8 @@ function readReduced(): boolean {
 
 export function LivingBackdrop({ variant, photoSrc, dim = false, entrance = false, onReady }: LivingBackdropProps) {
   const [mode, setMode] = useState<'ribbons' | 'photo'>(variant);
+  // True when the photo is a fallback for ribbons that could not run: a still image, nothing moves.
+  const [still, setStill] = useState(false);
   const [ready, setReady] = useState(false);
   const [entering, setEntering] = useState(false);
   const [reduced, setReduced] = useState(readReduced);
@@ -147,6 +150,7 @@ export function LivingBackdrop({ variant, photoSrc, dim = false, entrance = fals
 
   useEffect(() => {
     setMode(variant);
+    setStill(false);
     setReady(false);
   }, [variant]);
 
@@ -211,6 +215,7 @@ export function LivingBackdrop({ variant, photoSrc, dim = false, entrance = fals
       if (dead) return;
       dead = true;
       setReady(false);
+      setStill(true);
       setMode('photo');
     };
 
@@ -228,8 +233,20 @@ export function LivingBackdrop({ variant, photoSrc, dim = false, entrance = fals
       return;
     }
     const g = gl;
+    // This effect's cleanup is only returned at the very end, so every early exit below frees the context itself.
+    const releaseContext = () => {
+      try {
+        g.getExtension('WEBGL_lose_context')?.loseContext();
+      } catch {
+        /* ignore */
+      }
+    };
     const stage = host.querySelector('.lb__stage');
-    if (!stage) return;
+    if (!stage) {
+      releaseContext();
+      fail();
+      return;
+    }
     stage.insertBefore(canvas, stage.firstChild);
 
     // Any failure while setting up the shader (createShader returning null on a lost or exhausted
@@ -254,6 +271,7 @@ export function LivingBackdrop({ variant, photoSrc, dim = false, entrance = fals
       parallel = g.getExtension('KHR_parallel_shader_compile');
     } catch {
       canvas.remove();
+      releaseContext();
       fail();
       return;
     }
@@ -465,18 +483,23 @@ export function LivingBackdrop({ variant, photoSrc, dim = false, entrance = fals
       canvas.removeEventListener('webglcontextlost', onLost);
       cleanups.forEach((fn) => fn());
       canvas.remove();
-      try {
-        g.getExtension('WEBGL_lose_context')?.loseContext();
-      } catch {
-        /* ignore */
-      }
+      releaseContext();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
-  const cls = ['lb', dim ? 'is-dim' : '', reduced ? 'is-reduced' : '', entering ? 'is-entering-host' : ''].filter(Boolean).join(' ');
+  const cls = ['lb', dim ? 'is-dim' : '', reduced ? 'is-reduced' : '', still ? 'is-still' : '', entering ? 'is-entering-host' : '']
+    .filter(Boolean)
+    .join(' ');
   return (
-    <div ref={hostRef} className={cls} aria-hidden="true" data-backdrop={mode} data-ready={ready ? '1' : '0'}>
+    <div
+      ref={hostRef}
+      className={cls}
+      aria-hidden="true"
+      data-backdrop={mode}
+      data-ready={ready ? '1' : '0'}
+      data-still={still ? '1' : '0'}
+    >
       <div className={'lb__stage' + (ready ? ' is-ready' : '') + (ready && entering ? ' is-entering' : '')}>
         {mode === 'photo' ? (
           <>
