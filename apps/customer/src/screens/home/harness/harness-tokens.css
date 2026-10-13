@@ -1,0 +1,61 @@
+/* TODO(B1): delete this file and import packages/ui/src/theme/tokens.css instead.
+   Test harness only: the UI-SPEC §2.2 values, so Home renders before B1's tokens merge. */
+:root {
+  --if-bg: rgb(0 0 0);
+  --if-panel: rgb(18 18 18);
+  --if-field: rgb(33 33 33);
+  --if-hover: rgb(29 29 29);
+  --if-raised: rgb(44 44 44);
+  --if-pill-active: rgb(56 56 56);
+  --if-line: rgb(46 46 46);
+  --if-line-strong: rgb(56 56 56);
+  --if-fg: rgb(255 255 255);
+  --if-fg-2: rgb(144 144 144);
+  --if-fg-3: rgb(108 108 108);
+  --if-up: rgb(37 167 80);
+  --if-down-text: rgb(224 86 122);
+  --if-lime: rgb(200 246 74);
+  --if-lime-hover: rgb(212 250 110);
+  --if-lime-press: rgb(181 224 58);
+  --if-on-lime: rgb(11 11 11);
+  --if-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --if-t-fast: 120ms;
+  --if-font-ui: 'Inter Variable', Inter, system-ui, sans-serif;
+}
+html,
+body {
+  margin: 0;
+  background: var(--if-bg);
+  color: var(--if-fg);
+}
+body {
+  min-height: 100vh;
+}
+.harness-bar {
+  overflow: hidden;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  height: 48px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--if-line);
+  font: 500 14px/20px var(--if-font-ui);
+}
+.harness-bar a {
+  color: var(--if-fg-2);
+  text-decoration: none;
+}
+.harness-bar a:first-child {
+  color: var(--if-fg);
+  font-weight: 700;
+  font-size: 16px;
+}
+.harness-bar a[aria-current='page'] {
+  color: var(--if-fg);
+}
+.harness-bar span {
+  margin-left: auto;
+  color: var(--if-fg-3);
+  font-size: 12px;
+}

@@ -1,0 +1,325 @@
+/* Home, Simple (UI-SPEC §5.1). Only --if-* tokens: no colour values live here. */
+.if-home {
+  width: min(1224px, calc(100% - 56px));
+  margin: 0 auto;
+  padding: 32px 0 64px;
+  color: var(--if-fg);
+  font-family: var(--if-font-ui);
+}
+.if-home * {
+  box-sizing: border-box;
+}
+.if-home :where(a) {
+  color: inherit;
+  text-decoration: none;
+}
+.if-home :focus-visible {
+  outline: 2px solid var(--if-lime);
+  outline-offset: 2px;
+}
+.if-home :where(h1, h2, p, ul) {
+  margin: 0;
+  padding: 0;
+}
+.if-home :where(ul) {
+  list-style: none;
+}
+.if-home .if-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Two columns: main 792, gap 24, side 408 */
+.home-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 792fr) minmax(0, 408fr);
+  column-gap: 24px;
+  align-items: start;
+}
+.home-main {
+  min-width: 0;
+}
+
+.home-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+  font: 400 13px/18px var(--if-font-ui);
+  color: var(--if-fg-2);
+}
+.home-eye {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--if-fg-2);
+  cursor: pointer;
+  transition: color var(--if-t-fast) var(--if-ease);
+}
+.home-eye:hover {
+  color: var(--if-fg);
+}
+
+.home-hero {
+  display: flex;
+  align-items: center;
+  height: 56px;
+  margin-top: 4px;
+}
+.home-change {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  min-height: 20px;
+  font: 400 14px/20px var(--if-font-ui);
+}
+.home-change__label {
+  color: var(--if-fg-2);
+}
+.home-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font: 400 12px/16px var(--if-font-ui);
+  color: var(--if-fg-2);
+}
+.home-note--lg {
+  margin-top: 8px;
+  font: 400 14px/20px var(--if-font-ui);
+}
+
+.home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
+  min-height: 40px;
+}
+
+/* Cash / Crypto card: two 64 px rows with a divider */
+.home-holdings {
+  margin-top: 32px;
+  padding: 8px 0;
+  border-radius: 16px;
+  background: var(--if-panel);
+}
+.home-holdings__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 64px;
+  margin: 0 16px;
+  transition: background var(--if-t-fast) var(--if-ease);
+}
+.home-holdings__row + .home-holdings__row {
+  border-top: 1px solid var(--if-line);
+}
+.home-holdings__glyph {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--if-field);
+  color: var(--if-fg);
+  font: 600 16px/24px var(--if-font-ui);
+}
+.home-holdings__label {
+  flex: 1;
+  font: 500 16px/24px var(--if-font-ui);
+}
+.home-holdings__value {
+  font: 500 16px/24px var(--if-font-ui);
+  font-variant-numeric: tabular-nums;
+}
+.home-holdings__chev {
+  color: var(--if-fg-2);
+  flex: none;
+}
+
+.home-section {
+  margin-top: 40px;
+}
+.home-section--movers {
+  margin-top: 32px;
+}
+.home-h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 700 24px/32px var(--if-font-ui);
+  letter-spacing: -0.02em;
+}
+.home-h2 + * {
+  margin-top: 16px;
+}
+
+/* Market cards: 186 x 176 at a 792 px column */
+.home-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.home-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 176px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--if-panel);
+  transition: background var(--if-t-fast) var(--if-ease);
+}
+.home-card:hover {
+  background: var(--if-hover);
+}
+.home-card__name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font: 500 16px/24px var(--if-font-ui);
+}
+.home-card__full {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--if-fg-2);
+  font: 400 13px/18px var(--if-font-ui);
+}
+.home-card__figures {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.home-card__price {
+  font: 600 20px/28px var(--if-font-ui);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.home-card .if-delta {
+  font: 400 14px/20px var(--if-font-ui);
+}
+
+/* Top movers */
+.home-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.home-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: var(--if-field);
+  font: 500 14px/20px var(--if-font-ui);
+  transition: background var(--if-t-fast) var(--if-ease);
+}
+.home-pill:hover {
+  background: var(--if-raised);
+}
+
+/* Watchlist / Popular */
+.home-watch {
+  border-radius: 16px;
+  background: var(--if-panel);
+  overflow: hidden;
+}
+.home-watch__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 48px;
+  padding: 0 8px 0 16px;
+}
+.home-watch__head h2 {
+  font: 600 16px/24px var(--if-font-ui);
+}
+.home-watch__row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 64px 96px;
+  align-items: center;
+  column-gap: 12px;
+  height: 56px;
+  padding: 0 16px;
+  transition: background var(--if-t-fast) var(--if-ease);
+}
+.home-watch a.home-watch__row:hover {
+  background: var(--if-hover);
+}
+.home-watch__name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.home-watch__ticker {
+  font: 500 14px/20px var(--if-font-ui);
+}
+.home-watch__full {
+  font: 400 12px/16px var(--if-font-ui);
+  color: var(--if-fg-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-watch__figures {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 0;
+}
+.home-watch__price {
+  font: 500 14px/20px var(--if-font-ui);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.home-watch__figures .home-watch__pct {
+  font: 400 12px/16px var(--if-font-ui);
+}
+
+/* Below 1100: one column; the side card follows the main column */
+@media (max-width: 1099px) {
+  .home-grid {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 40px;
+  }
+}
+@media (max-width: 767px) {
+  .if-home {
+    width: calc(100% - 32px);
+    padding-top: 24px;
+  }
+  .home-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .if-hero {
+    font-size: 40px;
+    line-height: 48px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-card,
+  .home-pill,
+  .home-watch__row,
+  .home-eye {
+    transition: none;
+  }
+}
