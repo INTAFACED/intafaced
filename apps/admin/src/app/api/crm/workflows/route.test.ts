@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET, POST } from './route';
-import { GET as detailGet } from '../route';
+import { GET as detailGet, POST as crmPost } from '../route';
 import { adminSessionConfig, ADMIN_COOKIE, sealFounderSession, type FounderSession } from '@/lib/founder-session';
 const original = { ...process.env },
   now = new Date().toISOString();
@@ -416,6 +416,7 @@ describe('protected founder CRM workflows', () => {
           opportunityId,
           submissionId: wrong === 'submission' ? randomUUID() : submissionId,
           kind: input.kind,
+          staffText: input.staffText,
           actorUserId: wrong === 'actor' ? randomUUID() : userId,
           status: wrong === 'premature_acceptance' ? 'accepted' : 'unconfigured',
           createdAt: now,
@@ -448,12 +449,75 @@ describe('protected founder CRM workflows', () => {
       ).toBe(400);
     },
   );
+  it.each(['valid', 'foreign', 'revision', 'text', 'due', 'stage_field', 'reason_field'] as const)(
+    'next-action edit binds the enquiry, one revision on, and the asked text and time: %s',
+    async (wrong) => {
+      const input = {
+        requestId: randomUUID(),
+        opportunityId,
+        expectedRevision: 2,
+        description: 'Send the deck',
+        dueAt: '2026-10-20T09:00:00.000Z',
+      };
+      const result = {
+        ...opportunity,
+        id: wrong === 'foreign' ? randomUUID() : opportunityId,
+        revision: wrong === 'revision' ? 5 : 3,
+        nextAction: {
+          description: wrong === 'text' ? 'Something else' : input.description,
+          dueAt: wrong === 'due' ? '2026-10-21T09:00:00.000Z' : input.dueAt,
+        },
+      };
+      const fetcher = upstream({ updateNextAction: result });
+      const sent =
+        wrong === 'stage_field' ? { ...input, stage: 'closed' } : wrong === 'reason_field' ? { ...input, reason: 'Because' } : input;
+      const response = await crmPost(request('/api/crm', 'POST', { action: 'updateNextAction', input: sent }));
+      expect(response.status).toBe(wrong === 'valid' ? 200 : wrong === 'stage_field' || wrong === 'reason_field' ? 400 : 502);
+      const toOps = () => fetcher.mock.calls.filter(([url]) => String(url).includes('/api/ops/'));
+      if (wrong === 'stage_field' || wrong === 'reason_field') expect(toOps()).toHaveLength(0);
+      else {
+        expect(String(fetcher.mock.calls[1]?.[0])).toContain('outreach.updateNextAction');
+        expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toEqual(input);
+        expect(new Headers(fetcher.mock.calls[1]?.[1]?.headers).get('authorization')).toBe(`Bearer ${session.accessToken}`);
+      }
+      if (wrong === 'valid') expect((await response.json()).nextAction).toEqual({ description: input.description, dueAt: input.dueAt });
+    },
+  );
+  it('next-action edit refuses a missing CSRF token and a supplied actor before any upstream call', async () => {
+    const fetcher = upstream({});
+    const input = { requestId: randomUUID(), opportunityId, expectedRevision: 2, description: 'x', dueAt: now };
+    const incoming = request('/api/crm', 'POST', { action: 'updateNextAction', input });
+    incoming.headers.delete('x-intafaced-csrf');
+    expect((await crmPost(incoming)).status).toBe(403);
+    expect(
+      (await crmPost(request('/api/crm', 'POST', { action: 'updateNextAction', input: { ...input, actorUserId: userId } }))).status,
+    ).toBe(400);
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('/api/ops/'))).toHaveLength(0);
+  });
+  it('list pages pass an alias match through and refuse one for an enquiry that is not on the page', async () => {
+    const page = {
+      items: [opportunity],
+      contacts: [canonicalContact],
+      submissions: [{ submissionId, completedAt: null, organisationName: null }],
+      nextCursor: null,
+    };
+    const alias = { opportunityId, name: 'Old Name' };
+    upstream({ listOpportunities: { ...page, aliasMatches: [alias] } });
+    const found = await detailGet(request('/api/crm?limit=50&query=old'));
+    expect(found.status).toBe(200);
+    expect((await found.json()).aliasMatches).toEqual([alias]);
+    upstream({ listOpportunities: page });
+    expect((await (await detailGet(request('/api/crm?limit=50'))).json()).aliasMatches).toBeUndefined();
+    upstream({ listOpportunities: { ...page, aliasMatches: [{ ...alias, opportunityId: randomUUID() }] } });
+    expect((await detailGet(request('/api/crm?limit=50&query=old'))).status).toBe(502);
+  });
   it('message pages bind the enquiry and enforce the requested bound', async () => {
     const message = {
       id: randomUUID(),
       opportunityId,
       submissionId,
       kind: 'follow_up',
+      staffText: 'Are you free on Friday?',
       actorUserId: userId,
       status: 'unresolved',
       createdAt: now,
@@ -461,7 +525,17 @@ describe('protected founder CRM workflows', () => {
     };
     upstream({ listMessages: { items: [message], nextCursor: null } });
     const url = `/api/crm/workflows?view=listMessages&opportunityId=${opportunityId}&limit=1`;
-    expect((await GET(request(url))).status).toBe(200);
+    const page = await GET(request(url));
+    expect(page.status).toBe(200);
+    // The founder's own text reaches the console; a message saved before the field existed reads as null, not as a fault.
+    expect((await page.json()).items[0].staffText).toBe('Are you free on Friday?');
+    const { staffText: _omitted, ...withoutText } = message;
+    upstream({ listMessages: { items: [withoutText], nextCursor: null } });
+    const old = await GET(request(url));
+    expect(old.status).toBe(200);
+    expect((await old.json()).items[0].staffText).toBeNull();
+    upstream({ listMessages: { items: [{ ...message, staffText: null }], nextCursor: null } });
+    expect((await (await GET(request(url))).json()).items[0].staffText).toBeNull();
     upstream({ listMessages: { items: [{ ...message, opportunityId: randomUUID() }], nextCursor: null } });
     expect((await GET(request(url))).status).toBe(502);
     upstream({ listMessages: { items: [message, { ...message, id: randomUUID() }], nextCursor: null } });
@@ -488,6 +562,7 @@ describe('protected founder CRM workflows', () => {
               opportunityId,
               submissionId,
               kind: 'follow_up',
+              staffText: 'Are you free on Friday?',
               actorUserId: userId,
               status: wrong === 'delivered' ? 'delivered' : 'accepted',
               createdAt: now,
