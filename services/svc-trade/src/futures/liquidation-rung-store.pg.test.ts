@@ -463,13 +463,13 @@ describe('liquidation rungs (Postgres)', () => {
     const fees = { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available' } as unknown as AccountRef;
 
     async function storedClosingRung(id: string) {
-      const [{ user_id }] = await sql<{ user_id: string }[]>`SELECT user_id FROM trade.positions WHERE id = ${id}`;
+      const user_id = (await sql<{ user_id: string }[]>`SELECT user_id FROM trade.positions WHERE id = ${id}`)[0]!.user_id;
       const loss: PostRequest = {
         idempotencyKey: `futures.loss:liq:${id}:rung:r1:loss`,
         module: 'trade',
         reason: 'futures.loss.realized',
         entries: [
-          { account: potOf(user_id!, id), direction: 'credit', amount: amt('70') },
+          { account: potOf(user_id, id), direction: 'credit', amount: amt('70') },
           { account: fees, direction: 'debit', amount: amt('70') },
         ],
       };
@@ -478,8 +478,8 @@ describe('liquidation rungs (Postgres)', () => {
         module: 'trade',
         reason: 'futures.margin.release',
         entries: [
-          { account: potOf(user_id!, id), direction: 'credit', amount: amt('30') },
-          { account: avail(user_id!), direction: 'debit', amount: amt('30') },
+          { account: potOf(user_id, id), direction: 'credit', amount: amt('30') },
+          { account: avail(user_id), direction: 'debit', amount: amt('30') },
         ],
       };
       const store = sqlLiquidationRungStore(sql);
@@ -564,13 +564,13 @@ describe('liquidation rungs (Postgres)', () => {
 
     it('M: bankrupt closing rung, funding left the pot at 99: the loss is re-split 99 + 61 insurance and the position closes', async () => {
       const id = await openPosition();
-      const [{ user_id }] = await sql<{ user_id: string }[]>`SELECT user_id FROM trade.positions WHERE id = ${id}`;
+      const user_id = (await sql<{ user_id: string }[]>`SELECT user_id FROM trade.positions WHERE id = ${id}`)[0]!.user_id;
       const loss: PostRequest = {
         idempotencyKey: `futures.loss:liq:${id}:rung:r1:loss`,
         module: 'trade',
         reason: 'futures.loss.realized',
         entries: [
-          { account: potOf(user_id!, id), direction: 'credit', amount: amt('100') },
+          { account: potOf(user_id, id), direction: 'credit', amount: amt('100') },
           {
             account: { ownerType: 'house', ownerId: 'insurance-fund', assetId: 'USDT', kind: 'available' } as unknown as AccountRef,
             direction: 'credit',
@@ -619,14 +619,14 @@ describe('liquidation rungs (Postgres)', () => {
 
     it('a PARTIAL rung whose pot shrank books the loss for what the pot holds and records lossShort', async () => {
       const id = await openPosition();
-      const [{ user_id }] = await sql<{ user_id: string }[]>`SELECT user_id FROM trade.positions WHERE id = ${id}`;
+      const user_id = (await sql<{ user_id: string }[]>`SELECT user_id FROM trade.positions WHERE id = ${id}`)[0]!.user_id;
       await sql`UPDATE trade.positions SET margin_current = 30 WHERE id = ${id}`;
       const loss: PostRequest = {
         idempotencyKey: `futures.loss:liq:${id}:rung:r1:loss`,
         module: 'trade',
         reason: 'futures.loss.realized',
         entries: [
-          { account: potOf(user_id!, id), direction: 'credit', amount: amt('40') },
+          { account: potOf(user_id, id), direction: 'credit', amount: amt('40') },
           { account: fees, direction: 'debit', amount: amt('40') },
         ],
       };
