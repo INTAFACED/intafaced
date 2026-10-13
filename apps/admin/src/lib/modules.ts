@@ -148,3 +148,6 @@ export function moduleDisabledResponse(id: ModuleId, env: Env = process.env): Re
   if (isModuleEnabled(id, env)) return null;
   return Response.json({ error: 'not_found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
 }
+
+/** A navigation bar with one link in it points nowhere new, so the console hides it until a second module is enabled. */
+export const navNeeded = (enabledRouteCount: number): boolean => enabledRouteCount > 1;
