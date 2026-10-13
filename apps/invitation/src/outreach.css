@@ -51,12 +51,12 @@
   font-display: swap;
 }
 :root {
-  background: #090a0b;
+  background: #07090a;
   color-scheme: dark;
 }
 body {
   margin: 0;
-  background: #090a0b;
+  background: #07090a;
 }
 .outreach-page {
   --background: #090a0b;
@@ -109,68 +109,36 @@ body {
 .outreach-page h2:focus {
   outline: none;
 }
-.invitation-scene {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background: #090a0b;
-  overflow: hidden;
-  opacity: 0;
-  transition: opacity 600ms ease-in-out;
+/* Page content sits above the fixed living backdrop (backdrop.css: z-index 0). */
+.outreach-welcome,
+.outreach-workspace,
+.outreach-privacy,
+.outreach-notice {
+  position: relative;
+  z-index: 1;
 }
-.is-welcome .invitation-scene {
-  opacity: 1;
-}
-.invitation-scene img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: 58% center;
-  opacity: 0.72;
-  mask-image: linear-gradient(180deg, transparent, #000 24%, #000 80%, transparent);
-}
-.invitation-scene::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse 420px 280px at 50% 50%, rgba(9, 10, 11, 0.72) 66%, transparent 100%),
-    linear-gradient(
-      90deg,
-      #090a0b,
-      rgba(9, 10, 11, 0.26) 20%,
-      rgba(9, 10, 11, 0.04) 44%,
-      rgba(9, 10, 11, 0.04) 66%,
-      rgba(9, 10, 11, 0.24) 84%,
-      #090a0b
-    ),
-    linear-gradient(0deg, #090a0b, rgba(9, 10, 11, 0.22) 20%, transparent 42%, transparent 70%, rgba(9, 10, 11, 0.24) 84%, #090a0b);
-}
-.invitation-header {
-  position: absolute;
-  inset: 0 0 auto;
-  z-index: 5;
-  padding: 30px 40px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-}
-.invitation-header img {
-  width: 150px;
-  height: auto;
-  opacity: 0.86;
-}
-.invitation-header a {
+.brand-logo {
   display: block;
+  width: fit-content;
+}
+.brand-logo img {
+  display: block;
+  width: 112px;
+  height: auto;
+  opacity: 0.9;
+}
+.welcome-logo {
+  margin: 0 auto 44px;
+}
+.form-logo {
+  margin: 0 0 44px;
 }
 .outreach-welcome {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 100svh;
-  padding: 110px max(48px, calc((100vw - 1600px) / 2 + 88px));
+  padding: 72px max(48px, calc((100vw - 1600px) / 2 + 88px));
 }
 .welcome-content {
   max-width: 760px;
@@ -181,8 +149,12 @@ body {
   font-size: clamp(48px, 4.8vw, 72px);
   font-weight: 500;
   line-height: 1.08;
-  letter-spacing: -0.06em;
+  letter-spacing: -0.035em;
   margin: 0 0 24px;
+  text-wrap: balance;
+}
+.h1-line {
+  display: block;
 }
 .welcome-description {
   color: #bec6c4;
@@ -190,39 +162,105 @@ body {
   line-height: 1.65;
   margin: 0 0 32px;
 }
+.welcome-content .nowrap {
+  white-space: nowrap;
+}
 .welcome-content .outreach-small {
   margin: 20px 0 0;
   font-size: 13px;
 }
-.welcome-cta {
-  min-width: 170px;
-  min-height: 54px;
-  gap: 32px;
-  padding: 14px 26px !important;
-  font-size: 15px !important;
+.welcome-action {
+  display: flex;
+  justify-content: center;
+}
+/* Hero action: lit metal inside a soft lime rim and glow. Only the welcome screen uses it. */
+.hero-cta {
+  position: relative;
+  display: inline-block;
+  padding: 1px;
+  border-radius: 15px;
+  background: linear-gradient(140deg, rgb(200 246 74 / 70%), rgb(200 246 74 / 14%) 38%, rgb(200 246 74 / 24%) 62%, rgb(200 246 74 / 55%));
+  box-shadow:
+    0 0 34px rgb(200 246 74 / 26%),
+    0 0 80px rgb(200 246 74 / 12%);
+  transition: box-shadow 320ms ease-out;
+}
+.hero-cta:hover,
+.hero-cta:focus-within {
+  box-shadow:
+    0 0 38px rgb(200 246 74 / 38%),
+    0 0 96px rgb(200 246 74 / 18%);
+}
+.hero-cta .hero-metal {
+  border-radius: 14px;
+  background: #1c2022;
+}
+.hero-cta .hero-metal:has(button:hover:not(:disabled)) {
+  background: #262b2d;
+}
+.hero-cta .welcome-cta {
+  min-width: 220px;
+  min-height: 56px;
+  gap: 24px;
+  justify-content: center;
+  padding: 15px 30px !important;
+  border-radius: 14px;
+  font-size: 16px !important;
+  letter-spacing: 0.01em;
   color: var(--foreground);
 }
 .welcome-cta > div {
   pointer-events: none;
 }
+.cta-arrow {
+  display: inline-block;
+  transition: transform 220ms ease-out;
+}
+.welcome-cta:hover .cta-arrow,
+.welcome-cta:focus-visible .cta-arrow {
+  transform: translateX(3px);
+}
 .outreach-workspace {
   max-width: 620px;
   min-height: calc(100svh - 64px);
   margin: auto;
-  padding: 148px 30px 80px;
+  padding: 72px 30px 80px;
 }
 .outreach-form-panel > h1 {
   font-size: clamp(32px, 3.3vw, 42px);
   font-weight: 500;
   line-height: 1.16;
-  letter-spacing: -0.045em;
+  letter-spacing: -0.03em;
   margin: 0 0 30px;
+  text-wrap: balance;
+}
+.outreach-page h2 {
+  text-wrap: balance;
+}
+.outreach-page p {
+  text-wrap: pretty;
+}
+.outreach-eyebrow-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 18px;
 }
 .outreach-eyebrow {
   font-size: 12px;
   letter-spacing: 0.12em;
   color: var(--muted-foreground);
-  margin: 0 0 18px;
+  margin: 0;
+}
+.draft-status {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  opacity: 0.8;
+}
+.draft-status[data-state='Saved ✓'] {
+  color: #b7d98c;
 }
 .invitation-progress {
   margin: 0 0 24px;
@@ -392,14 +430,6 @@ body {
 }
 .outreach-actions + .outreach-small {
   margin-top: 22px;
-}
-.optional-details {
-  margin-top: 20px;
-  padding-top: 10px;
-  border-top: 1px solid #2c3335;
-}
-.recovery-options {
-  margin-top: 20px;
 }
 .outreach-page summary {
   cursor: pointer;
@@ -604,25 +634,6 @@ body {
 .outreach-complete li span {
   color: var(--primary);
 }
-.privacy-entry {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  position: relative;
-  padding: 0 40px 24px;
-  color: var(--muted-foreground);
-  font-size: 12px;
-}
-.is-welcome .privacy-entry {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-}
-.privacy-entry .outreach-text-button {
-  font-size: 12px !important;
-}
 .outreach-privacy {
   position: relative;
   max-width: 700px;
@@ -642,52 +653,26 @@ body {
   margin-bottom: 20px;
 }
 @media (max-width: 680px) {
-  .invitation-header {
-    padding: 22px;
-  }
-  .invitation-header img {
-    width: 130px;
-  }
-  .invitation-header .outreach-text-button {
-    font-size: 12px !important;
-  }
-  .invitation-scene img {
-    position: absolute;
-    width: 900px;
-    height: 507px;
-    max-width: none;
-    left: calc(50% - 600px);
-    top: 40px;
-    object-fit: contain;
-    opacity: 0.64;
-  }
-  .invitation-scene::after {
-    background:
-      radial-gradient(ellipse 300px 230px at 50% 48%, rgba(9, 10, 11, 0.72) 66%, transparent 100%),
-      linear-gradient(180deg, #090a0b 3%, rgba(9, 10, 11, 0.14) 24%, rgba(9, 10, 11, 0.06) 40%, rgba(9, 10, 11, 0.24) 58%, #090a0b 78%),
-      linear-gradient(90deg, #090a0b, rgba(9, 10, 11, 0.16) 20%, transparent 56%, rgba(9, 10, 11, 0.12) 82%, #090a0b);
-  }
   .outreach-welcome {
-    padding: 140px 24px 112px;
+    padding: 64px 24px 72px;
     align-items: center;
   }
   .welcome-content h1 {
-    font-size: clamp(36px, 10.6vw, 48px);
+    font-size: clamp(32px, 9vw, 46px);
     line-height: 1.12;
-    letter-spacing: -0.055em;
+    letter-spacing: -0.03em;
   }
   .welcome-description {
     font-size: 16px;
-    max-width: 24ch;
     margin-inline: auto;
   }
   .welcome-content .outreach-small {
-    max-width: 27ch;
     margin-inline: auto;
     line-height: 1.7;
+    text-wrap: balance;
   }
   .outreach-workspace {
-    padding: 122px 24px 76px;
+    padding: 56px 24px 76px;
   }
   .outreach-form-panel > h1 {
     font-size: clamp(29px, 8vw, 36px);
@@ -702,6 +687,12 @@ body {
     isolation: isolate;
     margin-top: 24px;
   }
+  /* Keep focused fields and anchors clear of the sticky action bar. */
+  html {
+    scroll-padding-bottom: 110px;
+  }
+  /* The scrim under the bar is only needed while it floats over scrolling content. In its natural
+     place it would show as a dark box with a hard lower edge over the living backdrop. */
   .outreach-actions::before {
     content: '';
     position: absolute;
@@ -712,15 +703,25 @@ body {
     bottom: 0;
     z-index: -1;
     pointer-events: none;
-    background: linear-gradient(0deg, rgb(9 10 11 / 96%) 38%, rgb(9 10 11 / 86%) 62%, rgb(9 10 11 / 38%) 83%, transparent);
+    background: linear-gradient(0deg, rgb(7 9 10 / 96%) 38%, rgb(7 9 10 / 86%) 62%, rgb(7 9 10 / 38%) 83%, transparent);
+  }
+  @supports (container-type: scroll-state) {
+    .outreach-actions {
+      container-type: scroll-state;
+    }
+    .outreach-actions::before {
+      opacity: 0;
+      transition: opacity 160ms ease-out;
+    }
+    @container scroll-state(stuck: bottom) {
+      .outreach-actions::before {
+        opacity: 1;
+      }
+    }
   }
   .outreach-primary {
     padding: 14px 18px;
     gap: 12px;
-  }
-  .privacy-entry {
-    padding: 0 24px 22px;
-    gap: 10px;
   }
   .outreach-grid {
     gap: 20px;
@@ -738,9 +739,6 @@ body {
   }
   .outreach-actions {
     gap: 8px;
-  }
-  .privacy-entry {
-    padding-inline: 18px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -769,65 +767,54 @@ body {
   transform: none;
 }
 
-/* Selected A: original static material; scene retirement never gates the form. */
-.question-scene {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  overflow: hidden;
-  pointer-events: none;
-  background: #090a0b;
-  opacity: 1;
-  visibility: visible;
-  transition:
-    opacity 600ms ease-in-out,
-    visibility 0ms;
-}
-.is-welcome .question-scene {
-  opacity: 0;
-  visibility: hidden;
-  transition:
-    opacity 600ms ease-in-out,
-    visibility 0ms 600ms;
-}
-.graphite-field {
-  position: absolute;
-  inset: -12px;
-  animation: graphite-light-arrival 240ms ease-out both;
-  background:
-    radial-gradient(ellipse 42% 65% at 87% 12%, rgba(160, 195, 95, 0.16), transparent 74%),
-    radial-gradient(ellipse 40% 55% at 0% 85%, rgba(125, 145, 135, 0.08), transparent 70%),
-    linear-gradient(125deg, #101315 0%, #090a0b 52%, #0b100d 100%);
-}
-.graphite-grain {
-  width: 100%;
-  height: 100%;
-}
-@media (max-width: 680px) {
-  .graphite-field {
-    background:
-      radial-gradient(ellipse 75% 35% at 90% 0%, rgba(160, 195, 95, 0.18), transparent 75%), linear-gradient(125deg, #101315, #090a0b 70%);
-  }
-}
-/* Begin is readable and usable throughout the later finite emphasis. */
-.entry-reveal.is-welcome .invitation-scene {
-  animation: invitation-art-entry 650ms ease-out both;
-}
-.entry-reveal .welcome-description {
-  animation: invitation-copy-entry 480ms 800ms ease-out both;
-}
-.entry-reveal .welcome-action {
-  animation: invitation-action-emphasis 520ms 940ms ease-out both;
-}
+/*
+ * Welcome choreography. Everything starts at opacity 0 from the first frame and every delay is
+ * measured from `.entry-started` (one start signal). The class is removed once settled, which is
+ * also what reduced motion, a hidden tab and a returning visit do immediately.
+ */
+.entry-reveal .welcome-logo,
+.entry-reveal .h1-line,
+.entry-reveal .welcome-description,
+.entry-reveal .welcome-action,
 .entry-reveal .welcome-content > .outreach-small {
-  animation: invitation-copy-entry 450ms 940ms ease-out both;
+  opacity: 0;
 }
-@keyframes invitation-art-entry {
+.entry-reveal.entry-started .welcome-logo {
+  animation: invitation-logo-entry 700ms 250ms ease-out both;
+}
+.entry-reveal.entry-started .h1-line {
+  animation: invitation-line-entry 900ms calc(450ms + var(--line, 0) * 120ms) cubic-bezier(0.2, 0.65, 0.3, 1) both;
+}
+.entry-reveal.entry-started .welcome-description {
+  animation: invitation-copy-entry 600ms 1000ms ease-out both;
+}
+.entry-reveal.entry-started .welcome-action {
+  animation: invitation-cta-entry 700ms 1250ms cubic-bezier(0.2, 0.65, 0.3, 1) both;
+}
+.entry-reveal.entry-started .hero-cta {
+  animation: invitation-action-emphasis 700ms 1500ms ease-out both;
+}
+.entry-reveal.entry-started .welcome-content > .outreach-small {
+  animation: invitation-copy-entry 600ms 1450ms ease-out both;
+}
+@keyframes invitation-logo-entry {
   from {
     opacity: 0;
   }
   to {
     opacity: 1;
+  }
+}
+@keyframes invitation-line-entry {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
   }
 }
 @keyframes invitation-copy-entry {
@@ -840,39 +827,346 @@ body {
     transform: translateY(0);
   }
 }
-@keyframes invitation-action-emphasis {
+@keyframes invitation-cta-entry {
   from {
-    opacity: 0.72;
+    opacity: 0;
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
+    transform: translateY(0);
+  }
+}
+/* One soft glow pulse as the action settles; ends on the resting glow. */
+@keyframes invitation-action-emphasis {
+  0%,
+  100% {
+    box-shadow:
+      0 0 34px rgb(200 246 74 / 26%),
+      0 0 80px rgb(200 246 74 / 12%);
+  }
+  45% {
+    box-shadow:
+      0 0 40px rgb(200 246 74 / 42%),
+      0 0 100px rgb(200 246 74 / 20%);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .invitation-scene,
-  .question-scene {
-    transition: none;
-  }
-  .entry-reveal .invitation-scene,
+  .entry-reveal .welcome-logo,
+  .entry-reveal .h1-line,
   .entry-reveal .welcome-description,
   .entry-reveal .welcome-action,
+  .entry-reveal .hero-cta,
   .entry-reveal .welcome-content > .outreach-small {
     animation: none;
+    opacity: 1;
   }
 }
 
-@keyframes graphite-light-arrival {
-  from {
-    transform: translateX(-8px);
-    opacity: 0.84;
+/* Answer cards: native radios styled like .interest-choice and the halo toggle group. */
+.choice-cards {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+}
+.choice-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 52px;
+  padding: 13px 18px 13px 20px;
+  border: 1px solid #475049;
+  border-radius: 12px;
+  background: linear-gradient(to bottom, rgb(23 27 29 / 82%), rgb(23 27 29 / 70%));
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 6%) inset,
+    0 4px 20px rgb(0 0 0 / 30%);
+  color: var(--muted-foreground);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+  transition:
+    border-color 180ms ease-out,
+    background-color 180ms ease-out,
+    color 180ms ease-out,
+    box-shadow 180ms ease-out;
+}
+.choice-card:hover:not([data-disabled]) {
+  border-color: #6a7668;
+  color: var(--foreground);
+}
+.choice-card[data-selected] {
+  border-color: rgb(200 246 74 / 70%);
+  background: linear-gradient(to bottom, rgb(30 38 24 / 88%), rgb(23 30 20 / 80%));
+  color: var(--foreground);
+  box-shadow:
+    0 0 0 1px rgb(200 246 74 / 22%),
+    0 1px 0 rgb(255 255 255 / 8%) inset,
+    0 4px 22px rgb(0 0 0 / 34%);
+}
+.choice-card[data-disabled] {
+  opacity: 0.55;
+  cursor: default;
+}
+.choice-card input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+.choice-card:has(input:focus-visible) {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+}
+.choice-card-label {
+  min-width: 0;
+}
+.choice-card-check {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border: 1px solid #586451;
+  border-radius: 50%;
+  color: transparent;
+  transition:
+    background-color 180ms ease-out,
+    border-color 180ms ease-out,
+    color 180ms ease-out;
+}
+.choice-card[data-selected] .choice-card-check {
+  border-color: #c8f64a;
+  background: #c8f64a;
+  color: #10140c;
+}
+
+/* Contact / steps */
+.save-note {
+  margin: 22px 0 0;
+}
+.picker-note {
+  margin: 12px 0 0;
+}
+.saved-contact-details {
+  margin-top: 28px;
+  padding-top: 10px;
+  border-top: 1px solid #2c3335;
+}
+.saved-contact-details > .outreach-text-button {
+  display: block;
+}
+.saved-contact-details .device-status {
+  margin: 8px 0 0;
+}
+
+/* Amount and currency */
+.amount-grid {
+  grid-template-columns: 1fr;
+}
+.amount-period {
+  display: grid;
+  gap: 10px;
+}
+@media (min-width: 681px) {
+  .amount-grid {
+    grid-template-columns: 2fr 1fr;
+    align-items: start;
   }
-  to {
-    transform: translateX(0);
-    opacity: 1;
+  .amount-period {
+    grid-column: 1 / -1;
   }
 }
+
+/* Searchable picker (Base UI Combobox), dark halo field styling. */
+.picker-field {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.picker-label {
+  font-size: 14px;
+  color: var(--foreground);
+}
+.picker-shell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 52px;
+  padding: 4px 8px 4px 16px;
+  border: 1px solid #475049;
+  border-radius: 12px;
+  background: linear-gradient(to bottom, rgb(23 27 29 / 82%), rgb(23 27 29 / 70%));
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 6%) inset,
+    0 1px 2px rgb(0 0 0 / 35%),
+    0 4px 20px rgb(0 0 0 / 35%);
+  transition:
+    border-color 200ms ease-out,
+    box-shadow 200ms ease-out;
+}
+.picker-shell:focus-within {
+  border-color: rgb(185 246 90 / 80%);
+  box-shadow:
+    0 0 0 2px rgb(185 246 90 / 28%),
+    0 1px 2px rgb(0 0 0 / 35%),
+    0 4px 20px rgb(0 0 0 / 35%);
+}
+.picker-shell[data-disabled] {
+  opacity: 0.55;
+}
+.picker-input {
+  flex: 1 1 0;
+  min-width: 0;
+  width: 100%;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 16px;
+  text-overflow: ellipsis;
+}
+.picker-input::placeholder {
+  color: var(--muted-foreground);
+}
+.picker-input:focus,
+.picker-input:focus-visible {
+  outline: none;
+}
+.picker-trigger {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted-foreground);
+}
+.picker-trigger:hover {
+  color: var(--foreground);
+}
+.picker-chips {
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  gap: 8px;
+}
+.picker-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 2px 6px 2px 12px;
+  border: 1px solid rgb(200 246 74 / 45%);
+  border-radius: 999px;
+  background: rgb(30 38 24 / 80%);
+  color: var(--foreground);
+  font-size: 14px;
+}
+.picker-chip:focus-visible,
+.picker-chip[data-highlighted] {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.picker-chip-remove {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted-foreground);
+}
+.picker-chip-remove:hover {
+  color: var(--foreground);
+  background: rgb(255 255 255 / 8%);
+}
+.picker-input-chips {
+  flex: 1 1 120px;
+  min-width: 120px;
+  height: 32px;
+}
+/* The popup is portalled outside .outreach-page, so it carries its own literal colours. */
+.picker-positioner {
+  z-index: 50;
+}
+.picker-popup {
+  box-sizing: border-box;
+  width: var(--anchor-width);
+  min-width: min(280px, calc(100vw - 24px));
+  max-height: min(340px, var(--available-height));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  border: 1px solid #475049;
+  border-radius: 12px;
+  background: #121618;
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 6%) inset,
+    0 16px 48px rgb(0 0 0 / 60%);
+  color: #f2f5ef;
+  font-family: 'Outreach Inter', Inter, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.4;
+}
+.picker-list {
+  margin: 0;
+  padding: 0;
+}
+.picker-group-label {
+  padding: 10px 12px 6px;
+  color: #8f9b92;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.picker-item[data-highlighted] {
+  background: #1f2a1c;
+  outline: none;
+}
+.picker-item[data-selected] {
+  color: #c8f64a;
+}
+.picker-item-check {
+  display: grid;
+  flex-shrink: 0;
+  color: #c8f64a;
+}
+.picker-empty {
+  padding: 14px 12px;
+  color: #8f9b92;
+  font-size: 14px;
+}
+.picker-empty:empty {
+  display: none;
+}
 @media (prefers-reduced-motion: reduce) {
-  .graphite-field {
-    animation: none;
+  .hero-cta,
+  .cta-arrow,
+  .choice-card,
+  .choice-card-check,
+  .picker-shell {
+    transition: none;
   }
 }
