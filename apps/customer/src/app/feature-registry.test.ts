@@ -89,6 +89,14 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       expect(featureById(id)?.checked, id).toMatch(/2026-10-13/);
     }
   });
+  it('marks Passkeys live with a note on how WebAuthn is set up', () => {
+    const passkeys = featureById('passkeys');
+    expect(isFeatureLive('passkeys')).toBe(true);
+    // A section of Security, not a route of its own: nothing to hide, nothing to redirect.
+    expect(passkeys?.paths).toEqual([]);
+    expect(passkeys?.checked).toMatch(/2026-10-14.*WEBAUTHN_ENABLED=true.*localhost/);
+    expect(isHiddenPath('/uc/safe')).toBe(false);
+  });
   it('shows the Pro switch from M2', () => {
     expect(isFeatureLive('pro-mode-switch')).toBe(true);
   });

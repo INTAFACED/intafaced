@@ -247,10 +247,12 @@ export const features: readonly Feature[] = [
     id: 'passkeys',
     label: 'Passkeys (section of Security)',
     paths: [],
-    status: 'hidden',
-    reason: 'WebAuthn is off locally',
-    unlock: 'WEBAUTHN_ENABLED',
+    status: 'live',
+    reason: 'WebAuthn is on in the local stack (relying party localhost)',
+    unlock: 'already live',
     tab: 'person',
+    checked:
+      '2026-10-14, local stack: svc-identity runs WEBAUTHN_ENABLED=true with relying-party ID localhost (tooling/scripts/local-test-stack.mjs), open the app on http://localhost:3210; the founder tests the Touch ID enrolment there.',
   },
   {
     id: 'pro-mode-switch',
