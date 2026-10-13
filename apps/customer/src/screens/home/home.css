@@ -1,0 +1,448 @@
+/*
+ * Home, Simple (UI-SPEC §5.1). Only --if-* tokens: no colour values live here.
+ *
+ * The whole file is in `@layer components`. Unlayered CSS beats every layer whatever its specificity, so the
+ * unlayered `.if-home :where(a){color:inherit}` used to override the kit's `text-on-lime` (a utility) and turned
+ * the Buy pill white on lime (critic H1). The order is declared again so it holds in any bundle order.
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  .if-home {
+    width: min(var(--if-container-max), calc(100% - 56px));
+    margin: 0 auto;
+    padding: 32px 0 64px;
+    color: var(--if-fg);
+    font-family: var(--if-font-ui);
+  }
+  .if-home * {
+    box-sizing: border-box;
+  }
+  .if-home :where(a) {
+    color: inherit;
+    text-decoration: none;
+  }
+  .if-home :focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: 2px;
+  }
+  .if-home :where(h1, h2, p, ul) {
+    margin: 0;
+    padding: 0;
+  }
+  .if-home :where(ul) {
+    list-style: none;
+  }
+  .if-home .if-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  /* Two columns: main 792, gap 24, side 408 */
+  .home-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 792fr) minmax(0, 408fr);
+    column-gap: 24px;
+    align-items: start;
+  }
+  .home-main {
+    min-width: 0;
+  }
+
+  .home-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 20px;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .home-eye {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--if-fg-2);
+    cursor: pointer;
+    transition: color var(--if-t-fast) var(--if-ease);
+  }
+  .home-eye:hover {
+    color: var(--if-fg);
+  }
+
+  .home-total {
+    display: flex;
+    align-items: center;
+    height: 56px;
+    margin-top: 4px;
+  }
+  .home-change {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+    height: 20px;
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .home-change > [data-slot='change-text'] {
+    line-height: 20px;
+  }
+  .home-note {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .home-note--lg {
+    margin-top: 8px;
+    font: 400 14px/20px var(--if-font-ui);
+  }
+
+  .home-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 24px;
+    min-height: 40px;
+  }
+
+  /* Cash / Crypto card: two 64 px rows with a divider */
+  .home-holdings {
+    margin-top: 32px;
+    padding: 8px 0;
+    border-radius: 16px;
+    background: var(--if-panel);
+  }
+  .home-holdings__row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 64px;
+    margin: 0 16px;
+    transition: background var(--if-t-fast) var(--if-ease);
+  }
+  .home-holdings__row + .home-holdings__row {
+    border-top: 1px solid var(--if-line);
+  }
+  .home-holdings__glyph {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--if-field);
+    color: var(--if-fg);
+    font: 600 16px/24px var(--if-font-ui);
+  }
+  .home-holdings__label {
+    flex: 1;
+    font: 500 16px/24px var(--if-font-ui);
+  }
+  .home-holdings__value {
+    font: 500 16px/24px var(--if-font-ui);
+    font-variant-numeric: tabular-nums;
+  }
+  .home-holdings__chev {
+    color: var(--if-fg-2);
+    flex: none;
+    transition:
+      transform var(--if-t-fast) var(--if-ease),
+      color var(--if-t-fast) var(--if-ease);
+  }
+  .home-holdings__row:hover .home-holdings__chev {
+    color: var(--if-fg);
+    transform: translateX(2px);
+  }
+
+  .home-section {
+    margin-top: 40px;
+  }
+  .home-section--movers {
+    margin-top: 32px;
+  }
+  .home-h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font: var(--if-weight-xl) var(--if-text-xl) / var(--if-leading-xl) var(--if-font-ui);
+  }
+  .home-section > .home-h2 + *,
+  .home-section__head + * {
+    margin-top: 16px;
+  }
+  .home-section__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .home-fresh {
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Market cards: 186 x 176 at a 792 px column */
+  .home-cards {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .home-card-wrap {
+    position: relative;
+  }
+  .home-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 176px;
+    padding: 16px;
+    border-radius: 16px;
+    background: var(--if-panel);
+    transition: background var(--if-t-fast) var(--if-ease);
+  }
+  .home-card:hover {
+    background: var(--if-hover);
+  }
+  .home-card__name {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+    padding-right: 28px;
+    font: 500 16px/24px var(--if-font-ui);
+  }
+  .home-card__full {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--if-fg-2);
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .home-card__figures {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .home-card__price {
+    font: 600 20px/28px var(--if-font-ui);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+  .home-card .if-delta {
+    font: 400 14px/20px var(--if-font-ui);
+  }
+
+  /* Top movers */
+  .home-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .home-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 16px;
+    border-radius: 999px;
+    background: var(--if-field);
+    font: 500 14px/20px var(--if-font-ui);
+    transition: background var(--if-t-fast) var(--if-ease);
+  }
+  .home-pill:hover {
+    background: var(--if-raised);
+  }
+
+  /* Watchlist / Popular */
+  .home-watch {
+    border-radius: 16px;
+    background: var(--if-panel);
+    overflow: hidden;
+  }
+  .home-watch__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 48px;
+    padding: 0 8px 0 16px;
+  }
+  .home-watch__head h2 {
+    font: 600 16px/24px var(--if-font-ui);
+  }
+  .home-watch__item {
+    display: flex;
+    align-items: center;
+    padding-right: 8px;
+    transition: background var(--if-t-fast) var(--if-ease);
+  }
+  .home-watch__item:hover {
+    background: var(--if-hover);
+  }
+  .home-watch__item > .home-watch__row {
+    flex: 1;
+    min-width: 0;
+  }
+  .home-watch__row {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) 64px 96px;
+    align-items: center;
+    column-gap: 12px;
+    height: 56px;
+    padding: 0 16px;
+    transition: background var(--if-t-fast) var(--if-ease);
+  }
+  .home-watch__name {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .home-watch__ticker {
+    font: 500 14px/20px var(--if-font-ui);
+  }
+  .home-watch__full {
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .home-watch__figures {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    min-width: 0;
+  }
+  .home-watch__price {
+    font: 500 14px/20px var(--if-font-ui);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .home-watch__figures .home-watch__pct {
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 400;
+  }
+
+  /* Your crypto (T2-A): same rows as the watchlist, without the sparkline column */
+  .home-side {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+  .home-yours .home-watch__row {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+  }
+  .home-yours__amount {
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--if-fg-2);
+  }
+  .home-yours__more {
+    display: flex;
+    align-items: center;
+    height: 40px;
+    padding: 0 16px;
+    font: 500 14px/20px var(--if-font-ui);
+    color: var(--if-fg-2);
+    border-top: 1px solid var(--if-line);
+  }
+  .home-yours__more:hover {
+    color: var(--if-fg);
+  }
+
+  /* The watchlist star: a 28 px target beside the row's link */
+  .home-star {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--if-fg-3);
+    cursor: pointer;
+    transition: color var(--if-t-fast) var(--if-ease);
+  }
+  .home-star:hover {
+    color: var(--if-fg);
+  }
+  .home-star--on,
+  .home-star--on:hover {
+    color: var(--if-lime);
+  }
+  .home-card__star {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+  }
+
+  /* Below 1280: one column; the side card follows the main column. The card sparklines are 154 px wide and need
+   a 186 px card, which the two-column layout only gives from 1280 (critic M10). */
+  @media (max-width: 1279px) {
+    .home-grid {
+      grid-template-columns: minmax(0, 1fr);
+      row-gap: 40px;
+    }
+    /* Your crypto and Popular sit side by side from 664px up instead of stretching to full width (critic N4). */
+    .home-side {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      align-items: start;
+    }
+  }
+  @media (max-width: 767px) {
+    .if-home {
+      width: calc(100% - 32px);
+      padding-top: 24px;
+    }
+    .home-cards {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .if-hero {
+      font-size: 40px;
+      line-height: 48px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .home-card,
+    .home-pill,
+    .home-watch__item,
+    .home-star,
+    .home-holdings__chev,
+    .home-eye {
+      transition: none;
+    }
+  }
+
+  /* Info tip trigger (kit Tooltip opens on hover and focus) */
+  .if-tip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--if-fg-2);
+    cursor: help;
+  }
+  .if-tip:hover {
+    color: var(--if-fg);
+  }
+}

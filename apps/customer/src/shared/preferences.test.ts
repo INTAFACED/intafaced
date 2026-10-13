@@ -32,6 +32,26 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('time zone: the browser clock unless the person picked one', () => {
+  it('defaults to the device clock', async () => {
+    const p = await setup();
+    expect(p.currentPreferences().timeZone).toBe('device');
+  });
+  it('treats an older stored UTC (written as a default) as unset', async () => {
+    const p = await setup(JSON.stringify({ language: 'en', timeZone: 'UTC' }));
+    expect(p.currentPreferences().timeZone).toBe('device');
+  });
+  it('keeps UTC or UTC+8 once the person has picked it, and survives a reload', async () => {
+    const p = await setup();
+    p.savePreferences({ timeZone: 'UTC+8' });
+    expect(p.currentPreferences()).toMatchObject({ timeZone: 'UTC+8', timeZoneChosen: true });
+    p.savePreferences({ hideBalances: true });
+    expect(p.currentPreferences().timeZone).toBe('UTC+8');
+    const again = await setup(p.raw());
+    expect(again.currentPreferences().timeZone).toBe('UTC+8');
+  });
+});
+
 describe('canonical device preference admission', () => {
   it('hydrates an alias without rewriting stored bytes or unrelated choices', async () => {
     const raw = JSON.stringify({ language: 'zh-CN', theme: 'light', confirmSend: false });

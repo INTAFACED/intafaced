@@ -411,6 +411,8 @@ export type TradeErrorCode =
   | 'trade.reconcile_unknown_engine_miss'
   | 'trade.convert_disabled'
   | 'trade.convert_no_liquidity'
+  /** House inventory short at settle. Customer hold was released; request a new quote. Never the customer's shortfall. */
+  | 'trade.convert_liquidity_unavailable'
   | 'trade.convert_insufficient_depth'
   | 'trade.convert_price_moved'
   | 'trade.convert_missing_id'

@@ -378,6 +378,9 @@ async function preflight(maker, symbols) {
   return blockers;
 }
 
+/** Crossing side for the nth crossing in a market: buy, sell, buy, sell... so the taker's balances stay flat. */
+export const crossingSide = (n) => (n % 2 === 1 ? 'buy' : 'sell');
+
 // ── Funding (reuses local:fund: real svc-ledger deposit, LOCAL-TEST- rail ref) ─
 
 async function ensureFunds(client, who, assets, divisor) {
@@ -393,7 +396,12 @@ async function ensureFunds(client, who, assets, divisor) {
       encoding: 'utf8',
     });
     if (r.status !== 0) throw new Error(`local:fund ${asset} failed: ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
-    log(`funded ${who} ${fromScaled(target)} ${asset} through the real ledger (TEST FUNDS, rail ref LOCAL-TEST-${ref})`);
+    // The rail ref repeats within the hour, so a second top-up is a ledger no-op: say so instead of "funded".
+    const after = await client.http('GET', '/api/v1/account/balance');
+    const nowFree = toScaledFloor(after.json?.balances?.[asset]?.free ?? '0');
+    if (nowFree > free)
+      log(`funded ${who} ${fromScaled(target)} ${asset} through the real ledger (TEST FUNDS, rail ref LOCAL-TEST-${ref})`);
+    else log(`top-up for ${who} ${asset} already booked this hour (rail ref LOCAL-TEST-${ref}); nothing new credited`);
   }
 }
 
@@ -482,6 +490,7 @@ async function runLoop(opts, home) {
   const runId = crypto.randomBytes(3).toString('hex');
   let counter = 0;
   let cycle = 0;
+  const crossings = new Map();
   const place = (client, m, side, price, amount, tif) =>
     client.http('POST', '/api/v1/orders', {
       symbol: m.symbol,
@@ -522,10 +531,18 @@ async function runLoop(opts, home) {
         `${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}`,
       );
       if (cycle % 3 === 0 && rested > 0 && (cycle / 3 + m.symbol.length) % 2 === 0) {
-        const side = (cycle / 3) % 2 === 0 ? 'buy' : 'sell';
+        // Alternate per market (failure it prevents: every symbol here has the same name length, so a
+        // side picked from cycle and name parity was always "buy", drained the taker's quote asset, and
+        // every crossing then failed with 400 ledger.insufficient_funds).
+        const n = (crossings.get(m.symbol) ?? 0) + 1;
+        crossings.set(m.symbol, n);
+        const side = crossingSide(n);
+        // Top the taker up through the real ledger if either leg is under half its target.
+        await ensureFunds(taker, 'taker', [m.base, m.quote], 10).catch((err) => log(`taker top-up failed: ${err.message}`));
         const best = ladder.find((q) => q.level === 0 && q.side === (side === 'buy' ? 'sell' : 'buy'));
         const r = await place(taker, m, side, best.price, best.amount, 'IOC');
-        log(`${m.symbol} crossing trade by test_taker: ${side} ${best.amount} @ ${best.price} -> HTTP ${r.status}`);
+        const why = r.status === 201 ? '' : ` (${(r.json?.intafacedCode ?? r.json?.code ?? r.text).toString().slice(0, 120)})`;
+        log(`${m.symbol} crossing trade by test_taker: ${side} ${best.amount} @ ${best.price} -> HTTP ${r.status}${why}`);
       }
     }
     fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });

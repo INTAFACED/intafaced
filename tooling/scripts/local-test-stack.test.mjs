@@ -1,8 +1,20 @@
 // Proves the local test stack's two safety properties without starting anything:
 // local:fund refuses outside its own stack, and the script never supplies a sanctions list.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:net';
+import {
+  existsSync,
+  realpathSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -150,3 +162,153 @@ try {
   rmSync(planHome, { recursive: true, force: true });
 }
 console.log('local-test-stack: edge upstream coverage checks passed');
+
+// 8. Customer folder override (LOCAL_STACK_CUSTOMER_DIST / `customer-dist`): validated, saved with mode 600,
+// shown in plan/status, and it stops ensureBuilt from building the Customer app. Nothing here starts a server.
+const distHome = mkdtempSync(join(tmpdir(), 'local-test-stack-dist-'));
+const outside = mkdtempSync(join(tmpdir(), 'local-test-stack-outside-'));
+try {
+  const run = (args, env = {}) =>
+    spawnSync(process.execPath, [script, ...args], {
+      env: { ...process.env, LOCAL_STACK_CUSTOMER_DIST: '', ...env, HOME: distHome },
+      encoding: 'utf8',
+    });
+  const saved = join(distHome, '.intafaced', 'local-test-stack', 'customer-dist.json');
+  const good = join(distHome, 'review', 'dist');
+  mkdirSync(good, { recursive: true });
+  writeFileSync(join(good, 'index.html'), '<html><body>redesign</body></html>');
+  const noIndex = join(distHome, 'empty');
+  mkdirSync(noIndex);
+  writeFileSync(join(outside, 'index.html'), '<html></html>');
+  symlinkSync(outside, join(distHome, 'sneaky'));
+  const sourceDir = join(distHome, 'src-folder');
+  mkdirSync(sourceDir);
+  writeFileSync(join(sourceDir, 'index.html'), '<html></html>');
+  writeFileSync(join(sourceDir, 'package.json'), '{}');
+  const hiddenDir = join(distHome, '.intafaced', 'build');
+  mkdirSync(hiddenDir, { recursive: true });
+  writeFileSync(join(hiddenDir, 'index.html'), '<html></html>');
+  const dotParent = join(distHome, '.ssh');
+  mkdirSync(dotParent);
+  writeFileSync(join(dotParent, 'index.html'), '<html></html>');
+
+  // Refusals: relative, missing, no index.html, outside $HOME (also through a symlink). Nothing is saved.
+  for (const [arg, re] of [
+    ['review/dist', /absolute path/],
+    [join(distHome, 'nope'), /does not exist/],
+    [noIndex, /no index\.html/],
+    [outside, /not inside your home folder/],
+    [join(distHome, 'sneaky'), /not inside your home folder/],
+    [join(distHome, 'review', 'dist', 'index.html'), /is not a folder/],
+    [sourceDir, /contains package\.json/],
+    [hiddenDir, /hidden folder \(\.intafaced\)/],
+    [dotParent, /hidden folder \(\.ssh\)/],
+  ]) {
+    const r = run(['customer-dist', arg]);
+    assert.equal(r.status, 1, `${arg}: ${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, re, arg);
+    assert.equal(existsSync(saved), false, `${arg}: must not be saved`);
+  }
+
+  // Without an override the Customer app is built as before.
+  let plan = JSON.parse(run(['plan', '--json']).stdout);
+  assert.equal(plan.customer.source, 'own');
+  assert.equal(plan.customer.wouldBuild, true, 'no override: ensureBuilt builds the Customer app');
+
+  // `pnpm local:stack customer-dist <path>` goes through `start`; it saves the choice at mode 600.
+  let r = run(['start', 'customer-dist', good]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(statSync(saved).mode & 0o777, 0o600);
+  assert.equal(JSON.parse(readFileSync(saved, 'utf8')).path, realpathSync(good));
+  plan = JSON.parse(run(['plan', '--json']).stdout);
+  assert.equal(plan.customer.source, 'saved');
+  assert.equal(plan.customer.dir, realpathSync(good));
+  assert.equal(plan.customer.wouldBuild, false, 'override: ensureBuilt must not build the Customer app');
+  assert.match(run(['customer-dist']).stdout, /override, saved by "customer-dist"; never rebuilt or overwritten/);
+  assert.match(run(['status']).stdout, /customer app: .*review.*dist/);
+
+  // A stamp from a build that skipped the Customer app cannot vouch for the checkout's own dist.
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).stdout.trim();
+  const stampFile = join(distHome, '.intafaced', 'local-test-stack', 'build-stamp.json');
+  writeFileSync(stampFile, JSON.stringify({ head, builtAt: 'x', customerBuilt: false }));
+  plan = JSON.parse(run(['plan', '--json']).stdout);
+  assert.equal(plan.customer.wouldBuild, false, 'override stays in force with a skipped-customer stamp');
+
+  // Live check on a throwaway port (never 3210): symlink escapes and dotfiles are 404, normal files are served.
+  writeFileSync(join(good, 'app.js'), 'console.log(1)');
+  mkdirSync(join(good, '.git'));
+  writeFileSync(join(good, '.git', 'config'), 'secret');
+  writeFileSync(join(good, '.env'), 'secret');
+  writeFileSync(join(outside, 'passwd.txt'), 'outside-secret');
+  symlinkSync(join(outside, 'passwd.txt'), join(good, 'leak.txt'));
+  symlinkSync(outside, join(good, 'leakdir'));
+  const port = await new Promise((ok) => {
+    const probe = createServer();
+    probe.listen(0, '127.0.0.1', () => {
+      const { port: pt } = probe.address();
+      probe.close(() => ok(pt));
+    });
+  });
+  const server = spawn(process.execPath, [script, '__serve-customer', String(port)], {
+    env: { ...process.env, HOME: distHome },
+    stdio: 'ignore',
+  });
+  try {
+    const get = async (path) => {
+      for (let i = 0; i < 50; i++) {
+        try {
+          const res = await fetch(`http://127.0.0.1:${port}${path}`);
+          return { status: res.status, text: await res.text() };
+        } catch {
+          await new Promise((r) => setTimeout(r, 100));
+        }
+      }
+      throw new Error('throwaway server did not answer');
+    };
+    assert.equal((await get('/app.js')).text, 'console.log(1)');
+    assert.match((await get('/some/route')).text, /redesign/, 'unknown route falls back to the override index.html');
+    for (const bad of ['/leak.txt', '/leakdir/passwd.txt', '/.env', '/.git/config']) {
+      const res = await get(bad);
+      assert.equal(res.status, 404, bad);
+      assert.equal(res.text.includes('secret'), false, bad);
+    }
+    // Traversal never reaches a file outside the folder: it only gets the app shell.
+    assert.match((await get('/%2e%2e/%2e%2e/etc/hosts')).text, /redesign/);
+    // Clearing takes effect on the next request, with no restart.
+    run(['customer-dist', '--clear']);
+    assert.doesNotMatch((await get('/')).text, /redesign/);
+    run(['customer-dist', good]);
+    assert.match((await get('/')).text, /redesign/);
+  } finally {
+    server.kill('SIGTERM');
+  }
+
+  // The shell variable beats the saved choice; a bad one is reported, never silently ignored.
+  const other = join(distHome, 'other');
+  mkdirSync(other);
+  writeFileSync(join(other, 'index.html'), '<html></html>');
+  plan = JSON.parse(run(['plan', '--json'], { LOCAL_STACK_CUSTOMER_DIST: other }).stdout);
+  assert.equal(plan.customer.source, 'env');
+  assert.equal(plan.customer.dir, realpathSync(other));
+  plan = JSON.parse(run(['plan', '--json'], { LOCAL_STACK_CUSTOMER_DIST: 'relative' }).stdout);
+  assert.match(plan.customer.error, /absolute path/);
+  assert.equal(plan.customer.wouldBuild, false);
+
+  // --clear returns to the checkout's own build, and the skipped-customer stamp forces a Customer build.
+  r = run(['customer-dist', '--clear']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(existsSync(saved), false);
+  plan = JSON.parse(run(['plan', '--json']).stdout);
+  assert.equal(plan.customer.source, 'own');
+  assert.equal(plan.customer.wouldBuild, true);
+} finally {
+  rmSync(distHome, { recursive: true, force: true });
+  rmSync(outside, { recursive: true, force: true });
+}
+// The only Customer build call is inside the `!override` guard in ensureBuilt.
+assert.match(
+  source,
+  /if \(!override\) \{\s*say\('  build: customer app…'\);\s*runPnpm\(\['--filter', '@intafaced\/customer\.\.\.', 'build'\], 'build-customer'\);/,
+);
+assert.equal(source.split("'build-customer'").length - 1, 1, 'one place builds the Customer app');
+console.log('local-test-stack: customer folder override checks passed');

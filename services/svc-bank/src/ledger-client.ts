@@ -168,6 +168,7 @@ export function createLedgerHistoryPages(baseUrl: string, internalSecret: string
           assetId: string;
           entryId?: string;
           rail?: string | null;
+          orderId?: string | null;
         }>;
         nextCursor: string | null;
       }>(url, '/trpc/historyPage', body, authHeaders);
@@ -185,6 +186,8 @@ export function createLedgerHistoryPages(baseUrl: string, internalSecret: string
           // Both arrive with svc-ledger's entry-id change; absent before it, and the feed copes.
           ...(typeof e.entryId === 'string' && /^\d{1,19}$/.test(e.entryId) ? { entryId: e.entryId } : {}),
           ...(typeof e.rail === 'string' || e.rail === null ? { rail: e.rail } : {}),
+          // The page owner's own order id (trade lines only). Absent from an older ledger; null or absent = none.
+          ...(typeof e.orderId === 'string' && e.orderId !== '' ? { orderId: e.orderId } : {}),
         })),
         nextCursor: result.nextCursor,
       };

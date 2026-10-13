@@ -1,0 +1,75 @@
+import { defineCopy } from '../../../shared/i18n';
+
+// English source only (UI-SPEC §4.4); other languages fall back to English.
+const messages = {
+  Markets: 'Markets',
+  Popular: 'Popular',
+  'New listings': 'New listings',
+  'Top gainers': 'Top gainers',
+  'See all {title}': 'See all {title}',
+  Favorites: 'Favorites',
+  Spot: 'Spot',
+  All: 'All',
+  Gainers: 'Gainers',
+  Losers: 'Losers',
+  New: 'New',
+  'Filter by change': 'Filter by change',
+  'Filter by currency': 'Filter by currency',
+  'Search markets': 'Search markets',
+  'Close search': 'Close search',
+  'Search by coin or name': 'Search by coin or name',
+  Name: 'Name',
+  Price: 'Price',
+  'Last price': 'Last price',
+  '24h change': '24h change',
+  'Last 24h': 'Last 24h',
+  '24h range': '24h range',
+  '24h volume': '24h volume',
+  'since {time}': 'since {time}',
+  Action: 'Action',
+  Buy: 'Buy',
+  Trade: 'Trade',
+  Details: 'Details',
+  'Buy {asset}': 'Buy {asset}',
+  'Trade {pair}': 'Trade {pair}',
+  'Details for {asset}': 'Details for {asset}',
+  'Low {price}': 'Low {price}',
+  'High {price}': 'High {price}',
+  'Sort by {column}': 'Sort by {column}',
+  'Prices updated {time}': 'Prices updated {time}',
+  'Add {asset} to favorites': 'Add {asset} to favorites',
+  'Remove {asset} from favorites': 'Remove {asset} from favorites',
+  'Log in to star {asset}': 'Log in to star {asset}',
+  'Star a market to keep it here.': 'Star a market to keep it here.',
+  'Log in to keep your favorites here.': 'Log in to keep your favorites here.',
+  'Browse markets': 'Browse markets',
+  'Log in': 'Log in',
+  'No markets are open right now.': 'No markets are open right now.',
+  'No markets match “{query}”.': 'No markets match “{query}”.',
+  'Nothing is gaining right now.': 'Nothing is gaining right now.',
+  'Nothing is falling right now.': 'Nothing is falling right now.',
+  'No new listings.': 'No new listings.',
+  'Clear search': 'Clear search',
+  'Couldn’t load markets': 'Couldn’t load markets.',
+  'Couldn’t load prices': 'Couldn’t load prices. The list may be out of date.',
+  'Try again': 'Try again',
+  Loading: 'Loading markets',
+  Bitcoin: 'Bitcoin',
+  Ethereum: 'Ethereum',
+  Tether: 'Tether',
+  'USD Coin': 'USD Coin',
+} as const;
+
+export const marketsCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.trade.markets', messages);
+
+const assetNameKey = {
+  BTC: 'Bitcoin',
+  ETH: 'Ethereum',
+  USDT: 'Tether',
+  USDC: 'USD Coin',
+} as const satisfies Record<string, keyof typeof messages>;
+
+/** The plain name for an asset we can name without guessing, else null (the ticker then stands alone). */
+export function assetName(base: string, copy: Pick<ReturnType<typeof marketsCopy.useCopy>, 't'>): string | null {
+  return base in assetNameKey ? copy.t(assetNameKey[base as keyof typeof assetNameKey]) : null;
+}
