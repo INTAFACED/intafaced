@@ -133,6 +133,12 @@ export type BankErrorCode =
   /** No mark at all for an asset the position holds. Never valued at zero. */
   | 'bank.mark_missing'
   /**
+   * `portfolio.summary` needs market prices and svc-trade's tickers could not be
+   * read (down, slow, or an unreadable answer). The total is refused whole: a
+   * sum that quietly omitted the coins it could not price would be a wrong number.
+   */
+  | 'bank.prices_unavailable'
+  /**
    * Loan health has no price. The health slot stays empty.
    * The missing piece is price. A stored last mark is not a substitute.
    */
