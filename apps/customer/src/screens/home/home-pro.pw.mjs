@@ -212,7 +212,7 @@ test('ready state at 1440x900: summary, assets, markets, words, numbers', async 
     expect(value, `money shape: ${value}`).toMatch(moneyShape);
 
   // Keyboard: Tab from the top bar reaches eye -> info tips -> actions -> Open orders -> View all assets -> asset rows.
-  await page.locator('.tb-right a').last().focus();
+  await page.locator('.tb-right button').last().focus();
   const path = [];
   for (let step = 0; step < 40; step++) {
     await page.keyboard.press('Tab');

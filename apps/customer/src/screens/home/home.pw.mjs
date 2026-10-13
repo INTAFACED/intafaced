@@ -115,7 +115,7 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   await expect(cards.first()).toContainText('$67,812.40'); // a dollar-quoted price carries the unit (critic M3)
   await expect(cards.first()).toContainText('+2.75%');
   await expect(cards.nth(2)).toContainText('−2.14%');
-  await expect(cards.first()).toHaveAttribute('href', '/trade/buy?asset=BTC');
+  await expect(cards.first()).toHaveAttribute('href', '/coin/BTC');
   expect(await page.locator('.home-card [data-slot="sparkline"] polyline').count()).toBe(4);
 
   // Top movers: up to 6, biggest move first, one per asset.
@@ -136,7 +136,7 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   expect(await texts(page.locator('.home-yours [data-slot="amount"]'))).toEqual(['0.1 BTC', '0.5 ETH']);
   expect(await texts(page.locator('.home-yours [data-slot="money"]'))).toEqual(['$6,781.24', '$1,600.05']);
   expect(await texts(page.locator('.home-yours [data-slot="pct"]'))).toEqual(['+2.75%', '+1.59%']);
-  await expect(page.locator('.home-yours .home-watch__row').first()).toHaveAttribute('href', '/trade/buy?asset=BTC');
+  await expect(page.locator('.home-yours .home-watch__row').first()).toHaveAttribute('href', '/coin/BTC');
   expect((await box('.home-yours')).y).toBeLessThan((await box('.home-watch:not(.home-yours)')).y);
 
   // Freshness line (missing-function #4): when the prices were last fetched.
@@ -205,12 +205,7 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   ]);
   expect(path.slice(8, 10).map((stop) => stop.href)).toEqual(['/money#cash', '/money#crypto']);
   const cardStops = path.slice(10, 18);
-  expect(cardStops.filter((stop) => stop.href).map((stop) => stop.href)).toEqual([
-    '/trade/buy?asset=BTC',
-    '/trade/buy?asset=ETH',
-    '/trade/buy?asset=IFC',
-    '/trade/buy?asset=SOL',
-  ]);
+  expect(cardStops.filter((stop) => stop.href).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH', '/coin/IFC', '/coin/SOL']);
   expect(cardStops.filter((stop) => !stop.href).map((stop) => stop.name)).toEqual([
     'Add BTC to watchlist',
     'Add ETH to watchlist',
@@ -219,20 +214,20 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   ]);
   expect(path[18].name).toBe('About top movers');
   expect(path.slice(19, 25).map((stop) => stop.href)).toEqual([
-    '/trade/buy?asset=DOGE',
-    '/trade/buy?asset=BTC',
-    '/trade/buy?asset=XRP',
-    '/trade/buy?asset=IFC',
-    '/trade/buy?asset=SOL',
-    '/trade/buy?asset=ETH',
+    '/coin/DOGE',
+    '/coin/BTC',
+    '/coin/XRP',
+    '/coin/IFC',
+    '/coin/SOL',
+    '/coin/ETH',
   ]);
-  expect(path.slice(25, 27).map((stop) => stop.href)).toEqual(['/trade/buy?asset=BTC', '/trade/buy?asset=ETH']); // Your crypto
+  expect(path.slice(25, 27).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH']); // Your crypto
   expect(
     path
       .slice(27)
       .filter((stop) => stop.href)
       .map((stop) => stop.href),
-  ).toEqual(['/trade/buy?asset=XRP', '/trade/buy?asset=DOGE']);
+  ).toEqual(['/coin/XRP', '/coin/DOGE']);
   expect(path.slice(27).filter((stop) => !stop.href).length).toBe(2); // one star per row
 
   // The total-value rule is available in the page for assistive tech and as a tooltip that opens on hover AND
