@@ -1047,7 +1047,10 @@ export const businessMembers = bank.table(
     role: businessMemberRoleEnum('role').notNull(),
     createdAt: createdAt(),
   },
-  (t) => [index('business_members_user_idx').on(t.userId)],
+  (t) => [
+    primaryKey({ columns: [t.accountId, t.userId] }),
+    index('business_members_user_idx').on(t.userId),
+  ],
 );
 
 export const businessApprovals = bank.table(
