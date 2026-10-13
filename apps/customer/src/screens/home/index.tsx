@@ -33,6 +33,7 @@ import { IN_PANEL, STATE_IN_COLUMN } from './panel';
 import { MarketsFailure, MarketsRow, MarketsSkeleton, MoversHeading, MoversRow, MoversSkeleton } from './MarketsSection';
 import { YourCrypto, YourCryptoSkeleton } from './YourCrypto';
 import { listings, topCards, topMovers } from './select';
+import { HomePro } from './HomePro';
 import { Watchlist } from './Watchlist';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { useSession } from '../../features/session/session';
@@ -217,7 +218,8 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<PortfolioSummary>;
   );
 }
 
-export default function Home() {
+/** Simple Home (UI-SPEC 5.1). Pro mode draws `HomePro` instead; see `Home` below. */
+function HomeSimple() {
   const { t } = homeCopy.useCopy();
   const { hideBalances, timeZone } = usePreferences();
   const portfolio = usePortfolio();
@@ -350,4 +352,10 @@ export default function Home() {
       </div>
     </div>
   );
+}
+
+/** The layout preference decides which Home is drawn (UI-SPEC 3.3); a switch in the top bar flips it at once. */
+export default function Home() {
+  const { layoutMode } = usePreferences();
+  return layoutMode === 'pro' ? <HomePro /> : <HomeSimple />;
 }
