@@ -12,7 +12,9 @@ export type VenueKeyPermissions = {
   readonly flags?: Readonly<Record<string, boolean | string | number>>;
 };
 
-const WITHDRAW_TOKEN = /withdraw|enablewithdraw|universaltransfer|internaltransfer|fund.?out|wallet_withdraw|perm\.withdraw|canwithdraw/i;
+// `_` and `-` sit inside the token (`universal_transfer`, `funds_out`), same as the contiguous form.
+const WITHDRAW_TOKEN =
+  /withdraw|enablewithdraw|universal[-_]?transfer|internal[-_]?transfer|funds?.?out|wallet_withdraw|perm\.withdraw|canwithdraw/i;
 
 export class WithdrawalPermissionRefusedError extends Error {
   readonly code = 'venue_vault.withdrawal_permission_refused' as const;
@@ -23,12 +25,17 @@ export class WithdrawalPermissionRefusedError extends Error {
 }
 
 export function withdrawalPermissionHits(permissions: VenueKeyPermissions): string[] {
+  // A string is iterable. Refuse it before for...of yields characters.
+  if (!permissions || !Array.isArray(permissions.scopes) || permissions.scopes.some((scope) => typeof scope !== 'string')) {
+    throw new WithdrawalPermissionRefusedError('scopes');
+  }
   const hits: string[] = [];
   for (const scope of permissions.scopes) {
     if (WITHDRAW_TOKEN.test(scope)) hits.push(`scope:${scope}`);
   }
   for (const [key, value] of Object.entries(permissions.flags ?? {})) {
-    if (value === true && WITHDRAW_TOKEN.test(key)) hits.push(`flag:${key}`);
+    const disabled = value === false || value === 0 || (typeof value === 'string' && ['false', '0'].includes(value.toLowerCase()));
+    if (!disabled && WITHDRAW_TOKEN.test(key)) hits.push(`flag:${key}`);
     if (typeof value === 'string' && WITHDRAW_TOKEN.test(value)) hits.push(`flag:${key}=${value}`);
   }
   return hits;
