@@ -159,7 +159,7 @@ try {
     await expect(page.locator('#intake-heading')).toHaveText('A little more, if you like.');
     await page.getByRole('checkbox', { name: 'Remember my draft on this device.' }).check();
     await page.getByRole('button', { name: 'Save details & continue' }).click();
-    await page.getByRole('button', { name: 'I can introduce an investor', exact: true }).click();
+    await page.getByRole('radio', { name: 'I can introduce an investor', exact: true }).check();
     await next(page);
     await page.getByRole('radio', { name: 'Individual', exact: true }).check();
     await next(page);
@@ -191,16 +191,15 @@ try {
     await expect(control(page, 'What would you like us to know?')).toHaveValue(edited);
     await page.getByRole('button', { name: 'Review your answers' }).click();
     await page.locator('.saved-contact-details>summary').click();
-    await expect(page.getByText('Draft kept on this device')).toBeVisible();
+    await expect(page.getByText('Kept on this device.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Forget this draft on my device' })).toBeVisible();
     await page.close();
     page = await context.newPage();
     await page.goto(origin + '/invest');
     await page.getByRole('button', { name: 'Continue your enquiry' }).click();
-    await page.getByRole('button', { name: 'Reopen saved enquiry' }).click();
     await expect(page.getByText(edited, { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Send enquiry', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Your enquiry is saved.' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Thank you. We’ve received your enquiry.' })).toBeVisible();
     assert.equal(api.answerRequests.length, 1);
     assert.equal(api.answerRequests[0].questionnaire.answers.message, edited);
     assert.equal(api.answerRequests[0].questionnaire.answers.participation, 'introduction');

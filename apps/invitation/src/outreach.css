@@ -40,15 +40,23 @@
   src: url('../../../vendor/upstream-exchange/05_Web_Front/src/assets/fonts/inter-latin.woff2') format('woff2');
   font-weight: 100 900;
   font-display: swap;
+  /* Ranges match each file's character map (read directly, 2026-10-14). Latin: Latin-1, punctuation, € ™ ↑ ↓ −, and the
+     combining accents Inter's latin file holds. The file has no ← → ✓, so those fall back as before. */
   unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20A0-20AB, U+20AD-20C0,
-    U+2113, U+2C60-2C7F, U+A720-A7FF;
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+FEFF;
 }
 @font-face {
   font-family: 'Outreach Inter';
   src: url('../../../vendor/upstream-exchange/05_Web_Front/src/assets/fonts/inter-latin-ext.woff2') format('woff2');
   font-weight: 100 900;
   font-display: swap;
+  /* The latin-ext subset's range, so an English-only page never downloads this 85 KB file (without a range the face claims
+     every character and both subsets load on every visit). It keeps all combining accents and the Vietnamese block, so
+     decomposed or Vietnamese names still render in Inter. */
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0300-036F, U+1D00-1DBF, U+1E00-1EFF, U+2020, U+20A0-20AB,
+    U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 :root {
   background: #07090a;
@@ -64,7 +72,8 @@ body {
   --card: #171b1d;
   --muted: #22292b;
   --muted-foreground: #aab4ac;
-  --border: #475049;
+  /* Control borders: 3.2:1 against the surface they sit on (WCAG 1.4.11 asks for 3:1). */
+  --border: #636d65;
   --ring: #b9f65a;
   --primary: #b9f65a;
   --destructive: #f1a899;
@@ -98,9 +107,14 @@ body {
   outline: 2px solid var(--ring);
   outline-offset: 4px;
 }
-.outreach-page [data-slot='halo-input-shell']:has(:focus-visible) {
+.outreach-page [data-slot='halo-input-shell']:has(:focus-visible),
+.outreach-page .picker-shell:has(:focus-visible) {
   outline: 2px solid var(--ring);
   outline-offset: 4px;
+}
+.outreach-page ::selection {
+  background: rgb(200 246 74 / 32%);
+  color: #fff;
 }
 .outreach-page [data-slot='halo-input-shell'] :focus-visible {
   outline: none;
@@ -262,7 +276,7 @@ body {
   margin: auto;
   padding: 72px 30px 80px;
 }
-.outreach-form-panel > h1 {
+.outreach-form-panel h1 {
   font-size: clamp(32px, 3.3vw, 42px);
   font-weight: 500;
   line-height: 1.16;
@@ -307,6 +321,16 @@ body {
 /* Base UI adds a visually-hidden presentational sentinel; it is not our progress label. */
 .invitation-progress > span[role='presentation'] {
   display: none;
+}
+/* The step action carries the one lime cue on a question screen: a thin lime rim and a lime arrow. The welcome hero keeps the
+   only solid lime, and a selected answer is the next brightest thing. */
+.invitation-metal:not(.hero-metal) {
+  box-shadow:
+    0 0 0 1px rgb(200 246 74 / 60%),
+    0 0 22px rgb(200 246 74 / 14%) !important;
+}
+.invitation-metal:not(.hero-metal) .outreach-primary > span[aria-hidden='true']:last-child {
+  color: #c8f64a;
 }
 /* Original Cult surface/edge and MetalFx own the shell; native button stays transparent. */
 .invitation-metal {
@@ -372,13 +396,23 @@ body {
 .outreach-inline-link:hover {
   color: var(--foreground);
 }
-.outreach-inline-link {
+/* One link style everywhere: quiet white, underlined. Lime is kept for the one action and the selected answer. */
+.outreach-inline-link,
+.saved-contact-details a,
+.outreach-privacy a {
   background: transparent;
   border: 0;
-  color: var(--primary);
+  color: var(--foreground);
   padding: 0;
   text-decoration: underline;
+  text-decoration-color: rgb(242 245 239 / 45%);
+  text-underline-offset: 3px;
   font-size: inherit;
+}
+.outreach-inline-link:hover,
+.saved-contact-details a:hover,
+.outreach-privacy a:hover {
+  text-decoration-color: rgb(242 245 239 / 90%);
 }
 .outreach-small,
 .section-description,
@@ -417,6 +451,10 @@ body {
 .outreach-page [data-slot='animated-textarea'] {
   font-size: 16px;
   min-height: 30px;
+}
+/* The message box starts tall enough to invite a sentence: about 120px with its padding. */
+.outreach-page textarea[data-slot='animated-textarea'] {
+  min-height: 100px;
 }
 .outreach-page [data-slot='halo-input-shell'] > div:last-child > div > div {
   min-height: 52px;
@@ -477,56 +515,12 @@ body {
 .outreach-page summary span {
   margin-left: 6px;
 }
-.outreach-consent {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  font-size: 14px;
-  margin: 18px 0 10px;
-}
 .outreach-page input[type='checkbox'] {
   width: 18px;
   height: 18px;
   margin-top: 3px;
   accent-color: #b9f65a;
   flex-shrink: 0;
-}
-.interest-choice {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  min-height: 64px;
-  padding: 16px 20px;
-  border: 1px solid #475049;
-  border-radius: 12px;
-  background: #14191b;
-  margin-bottom: 12px;
-}
-.interest-choice[data-selected] {
-  border-color: #96bd65;
-  background: #1b2418;
-}
-.interest-choice span {
-  display: block;
-  min-width: 0;
-}
-.interest-choice strong {
-  display: block;
-  font-size: 16px;
-  font-weight: 500;
-}
-.interest-choice small {
-  display: block;
-  font-size: 14px;
-  color: var(--muted-foreground);
-}
-.question-choice-well {
-  display: block;
-  width: 100%;
-  margin: 6px 0 0;
-}
-.question-choice-well [aria-pressed='true'] {
-  color: #dcf5bd;
 }
 .outreach-notice {
   padding: 14px;
@@ -568,45 +562,6 @@ body {
 .outreach-review .section-description {
   margin-bottom: 8px;
 }
-@media (min-width: 681px) {
-  /* A laptop is short. The review rhythm above is tightened so a typical review fits; the bar is also sticky (as it is on a
-     phone) so a long one (a merchant has eight rows) never pushes "Send enquiry" below the fold. In its natural place it
-     does not move; the scrim shows only while it floats over rows. */
-  .outreach-review .outreach-actions {
-    position: sticky;
-    bottom: 0;
-    z-index: 2;
-    isolation: isolate;
-    margin-top: 8px;
-    padding: 12px 0 18px;
-  }
-  .outreach-review .outreach-actions::before {
-    content: '';
-    position: absolute;
-    width: 100vw;
-    left: 50%;
-    transform: translateX(-50%);
-    top: -28px;
-    bottom: 0;
-    z-index: -1;
-    pointer-events: none;
-    background: linear-gradient(0deg, rgb(7 9 10 / 96%) 38%, rgb(7 9 10 / 86%) 62%, rgb(7 9 10 / 38%) 83%, transparent);
-  }
-  @supports (container-type: scroll-state) {
-    .outreach-review .outreach-actions {
-      container-type: scroll-state;
-    }
-    .outreach-review .outreach-actions::before {
-      opacity: 0;
-      transition: opacity 160ms ease-out;
-    }
-    @container scroll-state(stuck: bottom) {
-      .outreach-review .outreach-actions::before {
-        opacity: 1;
-      }
-    }
-  }
-}
 .outreach-page dt {
   color: var(--muted-foreground);
   font-size: 14px;
@@ -614,7 +569,8 @@ body {
 }
 .outreach-page dd {
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 500;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -625,17 +581,13 @@ body {
   margin-top: 20px;
 }
 .saved-contact-details dl > div {
-  display: flex;
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
   gap: 15px;
   padding: 7px 0;
 }
 .saved-contact-details dt {
-  flex: 0 0 80px;
-}
-.saved-contact-details a,
-.outreach-privacy a {
-  color: var(--primary);
-  text-decoration: underline;
+  margin: 0;
 }
 .outreach-complete p {
   color: var(--muted-foreground);
@@ -646,7 +598,15 @@ body {
   width: 48px;
   height: 48px;
   color: var(--primary);
-  margin-bottom: 25px;
+  margin: 0 0 22px;
+}
+.completion-receipt-copy {
+  min-width: 0;
+}
+/* A long address wraps inside the column instead of widening the page. */
+.receipt-email {
+  color: var(--foreground);
+  overflow-wrap: anywhere;
 }
 .completion-outline {
   opacity: 0.24;
@@ -717,20 +677,29 @@ body {
 }
 .outreach-privacy {
   position: relative;
-  max-width: 700px;
-  margin: auto;
-  padding: 40px 24px 60px;
-  border-top: 1px solid #2c3335;
+  max-width: 620px;
+  margin: 40px auto 0;
+  padding: 0 30px 80px;
+}
+/* The rule above the panel is drawn inside the column, so it lines up with the form. */
+.outreach-privacy::before {
+  content: '';
+  display: block;
+  height: 1px;
+  margin: 0 0 24px;
+  background: #2c3335;
 }
 .outreach-privacy h2 {
-  font-size: 27px;
-  line-height: 1.3;
-  margin: 20px 0;
+  font-size: 28px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+  margin: 20px 0 24px;
 }
 .outreach-privacy p {
   font-size: 14px;
   color: var(--muted-foreground);
-  line-height: 1.9;
+  line-height: 1.65;
   margin-bottom: 20px;
 }
 @media (max-width: 680px) {
@@ -755,50 +724,12 @@ body {
   .outreach-workspace {
     padding: 56px 24px 76px;
   }
-  .outreach-form-panel > h1 {
+  .outreach-privacy {
+    padding-inline: 24px;
+  }
+  .outreach-form-panel h1 {
     font-size: clamp(29px, 8vw, 36px);
     margin-bottom: 24px;
-  }
-  .outreach-actions {
-    position: sticky;
-    bottom: 0;
-    z-index: 2;
-    padding: 14px 0 max(14px, env(safe-area-inset-bottom));
-    background: transparent;
-    isolation: isolate;
-    margin-top: 24px;
-  }
-  /* Keep focused fields and anchors clear of the sticky action bar. */
-  html {
-    scroll-padding-bottom: 110px;
-  }
-  /* The scrim under the bar is only needed while it floats over scrolling content. In its natural
-     place it would show as a dark box with a hard lower edge over the living backdrop. */
-  .outreach-actions::before {
-    content: '';
-    position: absolute;
-    width: 100vw;
-    left: 50%;
-    transform: translateX(-50%);
-    top: -28px;
-    bottom: 0;
-    z-index: -1;
-    pointer-events: none;
-    background: linear-gradient(0deg, rgb(7 9 10 / 96%) 38%, rgb(7 9 10 / 86%) 62%, rgb(7 9 10 / 38%) 83%, transparent);
-  }
-  @supports (container-type: scroll-state) {
-    .outreach-actions {
-      container-type: scroll-state;
-    }
-    .outreach-actions::before {
-      opacity: 0;
-      transition: opacity 160ms ease-out;
-    }
-    @container scroll-state(stuck: bottom) {
-      .outreach-actions::before {
-        opacity: 1;
-      }
-    }
   }
   .outreach-primary {
     padding: 14px 18px;
@@ -810,7 +741,8 @@ body {
 }
 @media (max-width: 360px) {
   .outreach-workspace,
-  .outreach-welcome {
+  .outreach-welcome,
+  .outreach-privacy {
     padding-inline: 18px;
   }
   .outreach-primary {
@@ -820,6 +752,57 @@ body {
   }
   .outreach-actions {
     gap: 8px;
+  }
+}
+/* The action bar stays in reach on every step, on a phone and on a laptop. It is sticky only when the window is tall enough to
+   leave room for the fields as well (not at 200% zoom, where it would cover them: WCAG 2.4.11). In its natural place it does
+   not move; the scrim shows only while it floats over content. */
+@media (min-height: 600px) {
+  .outreach-form-panel .outreach-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    isolation: isolate;
+    margin-top: 24px;
+    padding: 14px 0 max(18px, env(safe-area-inset-bottom));
+  }
+  .outreach-form-panel .outreach-actions::before {
+    content: '';
+    position: absolute;
+    width: 100vw;
+    left: 50%;
+    transform: translateX(-50%);
+    top: -28px;
+    bottom: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(0deg, rgb(7 9 10 / 96%) 38%, rgb(7 9 10 / 86%) 62%, rgb(7 9 10 / 38%) 83%, transparent);
+  }
+  /* Keep focused fields and anchors clear of the bar. */
+  html {
+    scroll-padding-bottom: 110px;
+  }
+  @supports (container-type: scroll-state) {
+    .outreach-form-panel .outreach-actions {
+      container-type: scroll-state;
+    }
+    .outreach-form-panel .outreach-actions::before {
+      opacity: 0;
+      transition: opacity 160ms ease-out;
+    }
+    @container scroll-state(stuck: bottom) {
+      .outreach-form-panel .outreach-actions::before {
+        opacity: 1;
+      }
+    }
+  }
+}
+/* Where the browser cannot tell when the bar is floating, a laptop shows no scrim at all (a phone keeps it, as before). */
+@media (min-height: 600px) and (min-width: 681px) {
+  @supports not (container-type: scroll-state) {
+    .outreach-form-panel .outreach-actions::before {
+      display: none;
+    }
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -933,6 +916,9 @@ body {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .label-crossfade .label-out {
+    display: none;
+  }
   .entry-reveal .welcome-logo,
   .entry-reveal .h1-line,
   .entry-reveal .welcome-description,
@@ -942,6 +928,34 @@ body {
     animation: none;
     opacity: 1;
   }
+}
+
+/* The hero label changes with a crossfade when a saved enquiry is found after the page has started. */
+.label-crossfade {
+  display: grid;
+  justify-items: center;
+}
+.label-crossfade > span {
+  grid-area: 1 / 1;
+}
+.label-crossfade[data-swapping] .label-out {
+  animation: label-out 300ms ease-out both;
+}
+.label-crossfade[data-swapping] .label-in {
+  animation: label-in 300ms ease-out both;
+}
+@keyframes label-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes label-in {
+  from {
+    opacity: 0;
+  }
+}
+.note-fade {
+  animation: invitation-copy-entry 320ms ease-out both;
 }
 
 /* Answer cards: native radios styled like .interest-choice and the halo toggle group. */
@@ -958,9 +972,9 @@ body {
   gap: 16px;
   min-height: 52px;
   padding: 13px 18px 13px 20px;
-  border: 1px solid #475049;
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: linear-gradient(to bottom, rgb(23 27 29 / 82%), rgb(23 27 29 / 70%));
+  background: linear-gradient(to bottom, rgb(23 27 29 / 82%) 0%, rgb(23 27 29 / 70%) 100%);
   box-shadow:
     0 1px 0 rgb(255 255 255 / 6%) inset,
     0 4px 20px rgb(0 0 0 / 30%);
@@ -976,7 +990,7 @@ body {
     box-shadow 180ms ease-out;
 }
 .choice-card:hover:not([data-disabled]) {
-  border-color: #6a7668;
+  border-color: #8b978d;
   color: var(--foreground);
 }
 .choice-card[data-selected] {
@@ -1014,7 +1028,7 @@ body {
   flex-shrink: 0;
   width: 22px;
   height: 22px;
-  border: 1px solid #586451;
+  border: 1px solid var(--border);
   border-radius: 50%;
   color: transparent;
   transition:
@@ -1028,7 +1042,58 @@ body {
   color: #10140c;
 }
 
+/* A tick-box answer is the same card with a square indicator. */
+.choice-card-check-square {
+  border-radius: 6px;
+}
+.choice-card-text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.choice-card-text .choice-card-label {
+  cursor: pointer;
+}
+.choice-card-description {
+  color: var(--muted-foreground);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+.check-cards {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+/* The volume period: three equal short cards, no indicator. */
+.choice-cards[data-variant='compact'] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.choice-cards[data-variant='compact'] .choice-card {
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px 12px;
+  text-align: center;
+  font-size: 15px;
+}
+
 /* Contact / steps */
+.step-helper {
+  margin: -14px 0 22px;
+  color: var(--muted-foreground);
+  font-size: 14px;
+  line-height: 1.65;
+}
+.step-error {
+  margin: 14px 0 0;
+  color: var(--destructive);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.outreach-questions .choice-cards + .step-error {
+  margin-top: 14px;
+}
 .save-note {
   margin: 22px 0 0;
 }
@@ -1048,6 +1113,49 @@ body {
 }
 
 /* Amount and currency */
+.amount-ask-region {
+  min-width: 0;
+}
+.amount-ask {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgb(200 246 74 / 35%);
+  border-radius: 12px;
+  background: rgb(30 38 24 / 70%);
+  color: var(--foreground);
+  font-size: 14px;
+}
+.amount-ask[data-blocked] {
+  border-color: rgb(241 168 153 / 70%);
+}
+.amount-ask p {
+  margin: 0 0 10px;
+  color: var(--foreground);
+  line-height: 1.5;
+}
+/* Focus lands on the question when Continue is blocked; the ring hugs the text, not the box. */
+.amount-ask #amount-ask-text:focus-visible {
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.amount-ask .amount-ask-note {
+  margin: 10px 0 0;
+  color: var(--destructive);
+}
+.amount-ask-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.amount-ask-actions button {
+  min-height: 44px;
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgb(23 27 29 / 80%);
+  color: var(--foreground);
+  font-size: 14px;
+}
 .amount-grid {
   grid-template-columns: 1fr;
 }
@@ -1072,7 +1180,10 @@ body {
   min-width: 0;
 }
 .picker-label {
+  /* The same label as the text fields next to it (FieldLabel: 14px, medium, leading-snug), so a row of them lines up. */
   font-size: 14px;
+  font-weight: 500;
+  line-height: 1.375;
   color: var(--foreground);
 }
 .picker-shell {
@@ -1080,11 +1191,11 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  min-height: 52px;
+  min-height: 56px;
   padding: 4px 8px 4px 16px;
-  border: 1px solid #475049;
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: linear-gradient(to bottom, rgb(23 27 29 / 82%), rgb(23 27 29 / 70%));
+  background: linear-gradient(to bottom, rgb(23 27 29 / 82%) 0%, rgb(23 27 29 / 70%) 100%);
   box-shadow:
     0 1px 0 rgb(255 255 255 / 6%) inset,
     0 1px 2px rgb(0 0 0 / 35%),
@@ -1093,13 +1204,6 @@ body {
     border-color 200ms ease-out,
     box-shadow 200ms ease-out;
 }
-.picker-shell:focus-within {
-  border-color: rgb(185 246 90 / 80%);
-  box-shadow:
-    0 0 0 2px rgb(185 246 90 / 28%),
-    0 1px 2px rgb(0 0 0 / 35%),
-    0 4px 20px rgb(0 0 0 / 35%);
-}
 .picker-shell[data-disabled] {
   opacity: 0.55;
 }
@@ -1107,7 +1211,7 @@ body {
   flex: 1 1 0;
   min-width: 0;
   width: 100%;
-  height: 40px;
+  height: 44px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -1189,7 +1293,7 @@ body {
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 6px;
-  border: 1px solid #475049;
+  border: 1px solid var(--border);
   border-radius: 12px;
   background: #121618;
   box-shadow:

@@ -8,7 +8,7 @@ import '../backdrop.css';
  * Falls back to 'photo' (a STILL photo: no drift, no sweep) when WebGL is unavailable, the shader fails, or the context is lost.
  *  ?bg=photo asks for the moving photo on purpose; only that one animates.
  * Entrance (first visit only): nothing shows until the first frame / decode, then it resolves from black in 1.4s.
- * Dim (question steps): settles to ~35% brightness over 800ms, then the ribbons stop drawing (one still frame).
+ * Dim (question steps): settles to ~18% brightness (a black veil at 0.82) over 800ms, then the ribbons stop drawing (one still frame).
  */
 export type LivingBackdropProps = {
   variant: 'ribbons' | 'photo';

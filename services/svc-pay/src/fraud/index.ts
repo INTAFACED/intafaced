@@ -22,6 +22,8 @@ export {
   CHARGEBACK_LEDGER_SOCKET_ID,
   CHARGEBACK_LEDGER_UNCOVERED_CODE,
   refuseChargebackLedgerPost,
+  refuseChargebackPlanConflict,
+  CHARGEBACK_LEDGER_PLAN_CONFLICT_CODE,
   refuseChargebackUncovered,
   type ChargebackLedgerRefuse,
   type ChargebackLedgerRefuseCode,

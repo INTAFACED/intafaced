@@ -4,15 +4,22 @@ One command starts a private copy of the INTAFACED backend and the Customer app 
 
 ## Commands
 
-| Command                                              | What it does                                                                                                                                   |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm local:stack`                                   | Start (safe to re-run) and print a health table. First run builds and sets up the database; allow a few minutes. `--rebuild` forces a rebuild. |
-| `pnpm local:stack:stop`                              | Stop only the processes this script started (checked by pid file and command line), then Postgres. Data is kept.                               |
-| `pnpm local:fund <email-or-userId> <ASSET> <amount>` | Credit test funds, e.g. `pnpm local:fund me@example.com USDT 1000`. Decimal strings only.                                                      |
-| `node tooling/scripts/local-test-stack.mjs status`   | Health table only.                                                                                                                             |
-| `pnpm local:stack:plan`                              | Read-only: every service, port, database schema and where Edge sends each route. Changes nothing (`--json` for a machine-readable copy).       |
-| `pnpm local:stack --only token,p2p`                  | Start only the named services (plus Postgres and NATS). Anything already running is left alone.                                                |
-| `pnpm local:stack:restart edge`                      | Stop the named services, then start whatever is not running. Use after Edge's wiring changes; other services and their data stay up.           |
+| Command                                              | What it does                                                                                                                                                                                                                     |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm local:stack`                                   | Start (safe to re-run) and print a health table. First run builds and sets up the database; allow a few minutes. `--rebuild` forces a rebuild.                                                                                   |
+| `pnpm local:stack:stop`                              | Stop only the processes this script started (checked by pid file and command line), then Postgres. Data is kept.                                                                                                                 |
+| `pnpm local:fund <email-or-userId> <ASSET> <amount>` | Credit test funds, e.g. `pnpm local:fund me@example.com USDT 1000`. Decimal strings only.                                                                                                                                        |
+| `node tooling/scripts/local-test-stack.mjs status`   | Health table only.                                                                                                                                                                                                               |
+| `pnpm local:stack:plan`                              | Read-only: every service, port, database schema and where Edge sends each route. Changes nothing (`--json` for a machine-readable copy).                                                                                         |
+| `pnpm local:stack --only token,p2p`                  | Start only the named services (plus Postgres and NATS). Anything already running is left alone.                                                                                                                                  |
+| `pnpm local:stack:restart edge`                      | Stop the named services, then start whatever is not running. Use after Edge's wiring changes; other services and their data stay up.                                                                                             |
+| `pnpm local:stack customer-dist <abs path>`          | Serve the Customer app from another folder (for example a redesign build under review). Saved, so `start` and `restart` keep it. `customer-dist` alone shows it; `customer-dist --clear` goes back to this checkout's own build. |
+
+### Serving a different Customer build
+
+`LOCAL_STACK_CUSTOMER_DIST=<absolute folder>` (in the shell) or `pnpm local:stack customer-dist <absolute folder>` makes the Customer server on 3210 serve that folder instead of `apps/customer/dist`. While it is set, the script never builds the Customer app (so an unrelated `restart trade` cannot replace the build being reviewed) and never writes into the folder. The folder must be an absolute path, exist, contain `index.html` and sit under your home folder (symlinks are followed before that check); otherwise the command refuses and says why.
+
+The choice is saved in `~/.intafaced/local-test-stack/customer-dist.json` (mode 600). A value in the shell is saved too the next time `start` or `restart` runs, and the shell value wins over a saved one. `status`, `plan` and the end of `start` print which folder is active. The Customer server looks the folder up on every request and reads files per request (no caching), so setting, changing or clearing it takes effect at once with no restart, and rebuilding files inside the folder shows on the next reload. If the folder later disappears, the server answers 503 with the reason instead of falling back to another build. After `--clear`, the next start rebuilds the Customer app if the last build skipped it.
 
 Open **http://127.0.0.1:3210** for everything except passkeys.
 

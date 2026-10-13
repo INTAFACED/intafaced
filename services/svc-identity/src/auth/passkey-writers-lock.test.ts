@@ -3,6 +3,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
+import { checkMayAddFactor, type FactorActor } from './factor-gate.js';
 import { enrollPasskey, toRegistrationResponseJSON, type PasskeyCeremony, type StoredPasskey } from './enroll-passkey.js';
 import { toAuthenticationResponseJSON, verifyPasskey, type VerifyPasskeyCeremony } from './verify-passkey.js';
 import { unenrollPasskey } from './unenroll-passkey.js';
@@ -46,6 +47,9 @@ function barrier(n: number) {
     await gate.promise;
   };
 }
+
+const mfaActor: FactorActor = { mfa: true, privileged: false };
+const passwordOnly: FactorActor = { mfa: false, privileged: false };
 
 const rp = { rpId: 'intafaced.com', rpName: 'INTAFACED', origin: 'https://app.intafaced.com' };
 
@@ -154,8 +158,8 @@ if (!available) {
       const ceremony = enrollCeremony(barrier(2)); // both read the list, then both write
       const challenges = holdingChallenges(userId);
       await Promise.all([
-        enrollPasskey(db.sql, userId, rp, registration('cred-a'), challenges, ceremony),
-        enrollPasskey(db.sql, userId, rp, registration('cred-b'), challenges, ceremony),
+        enrollPasskey(db.sql, userId, rp, registration('cred-a'), challenges, mfaActor, ceremony),
+        enrollPasskey(db.sql, userId, rp, registration('cred-b'), challenges, mfaActor, ceremony),
       ]);
       const ids = (await credsOf(userId)).map((c) => c.credentialId).sort();
       expect(ids).toEqual(['cred-a', 'cred-b']);
@@ -170,6 +174,7 @@ if (!available) {
         rp,
         registration('new'),
         holdingChallenges(userId),
+        mfaActor,
         enrollCeremony(() => gate.promise),
       );
       await sleep(50); // the enrolment has read ['old'] and is parked in its ceremony
@@ -177,6 +182,23 @@ if (!available) {
       gate.release();
       await enrolling;
       expect((await credsOf(userId)).map((c) => c.credentialId)).toEqual(['new']);
+    });
+
+    it('two parallel password-only first-factor enrolments leave exactly one passkey (gate runs under the lock)', async () => {
+      const userId = await makeUser([]);
+      // Both callers pass the router's unlocked "has a factor?" check on the empty
+      // account, then meet at the barrier before either takes the row lock.
+      const ceremony = enrollCeremony(barrier(2));
+      const challenges = holdingChallenges(userId);
+      const outcomes = await Promise.allSettled([
+        enrollPasskey(db.sql, userId, rp, registration('cred-a'), challenges, passwordOnly, ceremony),
+        enrollPasskey(db.sql, userId, rp, registration('cred-b'), challenges, passwordOnly, ceremony),
+      ]);
+      expect(outcomes.filter((o) => o.status === 'fulfilled')).toHaveLength(1);
+      const refused = outcomes.filter((o): o is PromiseRejectedResult => o.status === 'rejected');
+      expect(refused).toHaveLength(1);
+      expect(refused[0]!.reason).toMatchObject({ code: 'auth.mfa_required' });
+      expect(await credsOf(userId)).toHaveLength(1);
     });
 
     it('two parallel assertions on different passkeys both advance their counters', async () => {

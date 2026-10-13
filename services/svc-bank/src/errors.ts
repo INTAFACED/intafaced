@@ -133,6 +133,12 @@ export type BankErrorCode =
   /** No mark at all for an asset the position holds. Never valued at zero. */
   | 'bank.mark_missing'
   /**
+   * `portfolio.summary` needs market prices and svc-trade's tickers could not be
+   * read (down, slow, or an unreadable answer). The total is refused whole: a
+   * sum that quietly omitted the coins it could not price would be a wrong number.
+   */
+  | 'bank.prices_unavailable'
+  /**
    * Loan health has no price. The health slot stays empty.
    * The missing piece is price. A stored last mark is not a substitute.
    */
@@ -193,8 +199,10 @@ export type BankErrorCode =
    * A settlement re-drive disagreed with the amount its row was claimed for.
    *
    * The ledger's business key is the authorisation, not the amount, and a reused
-   * key returns the original transaction without comparing bodies — correct for a
-   * re-drive, silently wrong for a disagreement. Refused rather than reconciled,
+   * key returned the original transaction without comparing bodies — correct for a
+   * re-drive, silently wrong for a disagreement. (The ledger now compares: in `refuse`
+   * mode it answers `ledger.idempotency_conflict`; in `detect` mode it still returns the
+   * original and logs `ledger.idempotency_mismatch`, so this check stays.) Refused rather than reconciled,
    * because the alternative reports a capture the ledger never saw and reverses
    * a remainder computed from it.
    */

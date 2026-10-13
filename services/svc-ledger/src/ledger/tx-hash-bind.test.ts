@@ -229,7 +229,11 @@ async function insertHistoricalDeposit(database: TestDb, railRef: string): Promi
 function read0016(): string {
   const name = readdirSync(drizzleDir).find((f) => f.startsWith('0018_') && f.endsWith('.sql') && !f.endsWith('.down.sql'));
   if (!name) throw new Error('0016 is not in drizzle/');
-  return readFileSync(join(drizzleDir, name), 'utf8');
+  // 0021 adds the request digest column the engine now reads on every replay; the
+  // historical databases here stop at 0018, so apply it with the claim-bind step.
+  const fingerprint = readdirSync(drizzleDir).find((f) => f.startsWith('0021_') && f.endsWith('.sql') && !f.endsWith('.down.sql'));
+  if (!fingerprint) throw new Error('0021 is not in drizzle/');
+  return `${readFileSync(join(drizzleDir, name), 'utf8')}\n${readFileSync(join(drizzleDir, fingerprint), 'utf8')}`;
 }
 
 describe('a legacy short digest cannot launder a rewritten key or meta', () => {

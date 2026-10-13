@@ -857,7 +857,7 @@ describe('s2s HTTP — service credentials', () => {
       stubService({
         historyPage: async (input: unknown) => {
           seen.push(input);
-          return { entries: [{ ...historyEntry, assetId: 'USDT' }], nextCursor: 'abc' };
+          return { entries: [{ ...historyEntry, assetId: 'USDT', entryId: '42', rail: 'crypto-native' }], nextCursor: 'abc' };
         },
       }),
     );
@@ -874,6 +874,8 @@ describe('s2s HTTP — service credentials', () => {
           amount: '12.345678901234567891',
           postedAt: '2026-07-27T12:00:00.000Z',
           assetId: 'USDT',
+          entryId: '42',
+          rail: 'crypto-native',
         },
       ],
       nextCursor: 'abc',
@@ -995,6 +997,13 @@ describe('s2s HTTP — service credentials', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().code).toBe('FST_ERR_CTP_EMPTY_JSON_BODY');
     await app.close();
+  });
+
+  it('maps a reused idempotency key with a different body to 409, so a caller cannot record success', () => {
+    expect(httpError(new LedgerError('key taken by another movement', 'ledger.idempotency_conflict'))).toEqual({
+      status: 409,
+      body: { message: 'key taken by another movement', code: 'ledger.idempotency_conflict' },
+    });
   });
 
   it('maps an unauthenticated caller to 401, distinct from 412 frozen and 400 funds', () => {

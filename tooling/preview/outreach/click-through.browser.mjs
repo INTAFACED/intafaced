@@ -48,8 +48,10 @@ try {
     await page.screenshot({ path: join(shots, `2b-contact-more-${width}.png`) });
     await page.getByRole('button', { name: 'Save details & continue' }).click();
     await expect(page.getByRole('heading', { name: 'How would you like to take part?', exact: true })).toBeVisible();
-    const investing = page.getByRole('button', { name: 'I’m considering investing' });
-    if ((await investing.getAttribute('aria-pressed')) !== 'true') await investing.click();
+    await page
+      .getByRole('radiogroup', { name: 'Are you considering investing or making an introduction?' })
+      .getByRole('radio', { name: 'I’m considering investing', exact: true })
+      .check();
     await next(page);
     await page
       .getByRole('radiogroup', { name: 'Which best describes you or the organisation you represent?' })
@@ -62,7 +64,10 @@ try {
       .getByRole('radio', { name: 'I make investment decisions', exact: true })
       .check();
     await next(page);
-    await page.getByRole('button', { name: 'Share an indicative amount' }).click();
+    await page
+      .getByRole('radiogroup', { name: 'Amount preference', exact: true })
+      .getByRole('radio', { name: 'Share an indicative amount', exact: true })
+      .check();
     await control(page, 'Amount', { exact: true }).fill('150,000');
     const currency = page.getByRole('combobox', { name: 'Currency', exact: true });
     await currency.click();
