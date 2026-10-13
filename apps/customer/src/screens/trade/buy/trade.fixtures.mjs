@@ -209,7 +209,22 @@ export const fillOf = (draft, orderId) => {
 
 let quoteCounter = 0;
 /** A firm convert quote: the book price plus a 20 bps spread, held 15 s. */
-export const quoteFor = ({ symbol, side, qty }, { ttlMs = 15_000, spreadBps = 20 } = {}) => {
+const LOT = { 'BTC/USDT': '0.00001', 'BTC/USDC': '0.00001', 'ETH/USDT': '0.0001', 'ETH/USDC': '0.0001', 'IFC/USDT': '0.01' };
+/** What a spend of `quoteQty` buys, the way the service sizes it: the biggest whole number of lots whose cost, spread included, fits. */
+const lotsForSpend = (symbol, quoteQty, spreadBps) => {
+  const lot = dec(LOT[symbol]);
+  const unit = dec(mul(book[symbol][1], add('1', str((BigInt(spreadBps) * SCALE) / 10_000n))));
+  let lots = (dec(quoteQty) * SCALE) / unit / lot;
+  const cost = (n) => dec(mul(str(n * lot), str(unit)));
+  while (cost(lots + 1n) <= dec(quoteQty)) lots += 1n;
+  while (lots > 0n && cost(lots) > dec(quoteQty)) lots -= 1n;
+  return str(lots * lot);
+};
+export const quoteFor = (input, { ttlMs = 15_000, spreadBps = 20 } = {}) => {
+  const { symbol, side } = input;
+  // Exactly one of qty or quoteQty, as on the service. A spend is a buy only.
+  if ((input.qty === undefined) === (input.quoteQty === undefined) || (input.quoteQty !== undefined && side !== 'buy')) return null;
+  const qty = input.qty ?? lotsForSpend(symbol, input.quoteQty, spreadBps);
   const [bid, ask] = book[symbol];
   const [base, quote] = symbol.split('/');
   const now = Date.now();

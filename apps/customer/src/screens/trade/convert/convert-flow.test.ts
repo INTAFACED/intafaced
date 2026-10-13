@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ApiResult, ToolApi } from '../buy/deps';
-import { convertRefusal, fetchQuote, OVER_COST_CODE, type Quote, type QuoteRequest } from './convert-flow';
+import { convertRefusal, fetchQuote, OVER_COST_CODE, refusesQuoteQty, type Quote, type QuoteRequest } from './convert-flow';
 import { spendCap, steppedDownQty } from './convert-model';
 import { dec, divDown, mulDown, str } from '../buy/trade-math';
 
@@ -31,9 +31,9 @@ const quoteFor = (qty: string, spreadBps = 20): Quote => {
 };
 const tools = () => {
   const asked: string[] = [];
-  const convertQuote = vi.fn(async (input: { qty: string }): Promise<ApiResult<Quote>> => {
-    asked.push(input.qty);
-    return { ok: true, data: quoteFor(input.qty) };
+  const convertQuote = vi.fn(async (input: { qty?: string }): Promise<ApiResult<Quote>> => {
+    asked.push(input.qty!);
+    return { ok: true, data: quoteFor(input.qty!) };
   });
   return { asked, tools: { convertQuote } as unknown as ToolApi };
 };
@@ -43,6 +43,7 @@ const request = (over: Partial<QuoteRequest> = {}): QuoteRequest => ({
   qty: '0.0038',
   typed: '10',
   cap: '10',
+  spend: null,
   lot: '0.0001',
   pair: 'ETH/USDT',
   ...over,
@@ -84,6 +85,108 @@ describe('a quote never costs more than the budget (our spread is added on top)'
     const s = tools();
     await fetchQuote(s.tools, request({ side: 'sell', qty: '0.01', typed: '0.01', cap: '0.01' }));
     expect(s.asked).toEqual(['0.01']);
+  });
+});
+
+type Asked = { qty?: string; quoteQty?: string; side: string };
+/** A service that knows `quoteQty`: the biggest whole number of lots whose cost, spread included, fits the spend. */
+const spendTools = (answer?: (input: Asked) => ApiResult<Quote> | null) => {
+  const asked: Asked[] = [];
+  const convertQuote = vi.fn(async (input: Asked): Promise<ApiResult<Quote>> => {
+    asked.push(input);
+    const custom = answer?.(input);
+    if (custom) return custom;
+    if (input.quoteQty === undefined) return { ok: true, data: quoteFor(input.qty!) };
+    let lots = 0n;
+    const lot = dec('0.0001')!;
+    while (dec(quoteFor(str((lots + 1n) * lot)).inAmount)! <= dec(input.quoteQty)!) lots += 1n;
+    return { ok: true, data: quoteFor(str(lots * lot)) };
+  });
+  return { asked, tools: { convertQuote } as unknown as ToolApi };
+};
+const oldServer = {
+  ok: false as const,
+  reason: 'error' as const,
+  message: 'Invalid input: expected string, received undefined',
+  code: 'BAD_REQUEST',
+  status: 400,
+};
+
+describe('typing the spend asks for quoteQty, exactly what was typed', () => {
+  it('sends the typed decimal as quoteQty with no qty, and gets a quote that costs at most that', async () => {
+    const t = spendTools();
+    const result = await fetchQuote(t.tools, request({ spend: '10', cap: '10' }));
+    expect(t.asked).toEqual([{ symbol: 'ETH/USDT', side: 'buy', quoteQty: '10' }]);
+    expect(result.ok && dec(result.data.inAmount)! <= dec('10')!).toBe(true);
+  });
+
+  it('sends the balance when it is lower than what was typed (never quote what the customer cannot pay)', async () => {
+    const t = spendTools();
+    await fetchQuote(t.tools, request({ spend: '50', cap: '9.5' }));
+    expect(t.asked).toEqual([{ symbol: 'ETH/USDT', side: 'buy', quoteQty: '9.5' }]);
+  });
+
+  it('keeps qty for a sell', async () => {
+    const t = spendTools();
+    await fetchQuote(t.tools, request({ side: 'sell', qty: '0.01', typed: '0.01', cap: '0.01', spend: null }));
+    expect(t.asked).toEqual([{ symbol: 'ETH/USDT', side: 'sell', qty: '0.01' }]);
+  });
+
+  it('never offers a quote that costs more than the spend, even if the service sent one', async () => {
+    const t = spendTools((input) => (input.quoteQty ? { ok: true, data: quoteFor('0.0039') } : null));
+    const result = await fetchQuote(t.tools, request({ spend: '10', cap: '10' }));
+    expect(result).toMatchObject({ ok: false, code: OVER_COST_CODE });
+  });
+
+  it('passes a depth or minimum refusal straight through, with no second try by coin amount', async () => {
+    const depth = {
+      ok: false as const,
+      reason: 'error' as const,
+      message: 'insufficient book depth to spend 99999',
+      code: 'trade.convert_insufficient_depth',
+    };
+    const t = spendTools(() => depth);
+    expect(await fetchQuote(t.tools, request({ spend: '99999', cap: '99999' }))).toEqual(depth);
+    expect(t.asked).toHaveLength(1);
+    const min = { ok: false as const, reason: 'error' as const, message: 'below the minimum', code: 'trade.below_min_notional' };
+    const m = spendTools(() => min);
+    expect(await fetchQuote(m.tools, request({ spend: '0.2', cap: '0.2' }))).toEqual(min);
+    expect(m.asked).toHaveLength(1);
+  });
+});
+
+describe('an older trade service that refuses quoteQty', () => {
+  it('falls back to the coin-amount search and still never costs more than typed', async () => {
+    const t = spendTools((input) => (input.quoteQty !== undefined ? oldServer : null));
+    const result = await fetchQuote(t.tools, request({ spend: '9.9', cap: '9.9', typed: '9.9' }));
+    expect(t.asked[0]).toEqual({ symbol: 'ETH/USDT', side: 'buy', quoteQty: '9.9' });
+    expect(t.asked.slice(1).every((input) => input.qty !== undefined && input.quoteQty === undefined)).toBe(true);
+    expect(result.ok && dec(result.data.inAmount)! <= dec('9.9')!).toBe(true);
+    expect(result.ok && result.data.requestedQty).toBe('0.0037');
+  });
+
+  it('also falls back on trade.convert_invalid_qty, and stops trying quoteQty once a service was seen to refuse it', async () => {
+    const invalid = {
+      ok: false as const,
+      reason: 'error' as const,
+      message: 'convert takes one of qty',
+      code: 'trade.convert_invalid_qty',
+    };
+    const t = spendTools((input) => (input.quoteQty !== undefined ? invalid : null));
+    const first = await fetchQuote(t.tools, request({ spend: '10', cap: '10' }));
+    expect(first.ok).toBe(true);
+    const same = spendTools((input) => (input.quoteQty !== undefined ? oldServer : null));
+    await fetchQuote(same.tools, request({ spend: '10', cap: '10' }));
+    const before = same.asked.length;
+    await fetchQuote(same.tools, request({ spend: '10', cap: '10' }));
+    expect(same.asked.slice(before).every((input) => input.quoteQty === undefined)).toBe(true);
+  });
+
+  it('reads only those refusals as "old server"', () => {
+    expect(refusesQuoteQty(oldServer)).toBe(true);
+    expect(refusesQuoteQty({ ...oldServer, code: 'trade.convert_insufficient_depth' })).toBe(false);
+    expect(refusesQuoteQty({ ...oldServer, message: 'insufficient book depth to convert' })).toBe(false);
+    expect(refusesQuoteQty({ ...oldServer, code: 'tier.insufficient' })).toBe(false);
   });
 });
 

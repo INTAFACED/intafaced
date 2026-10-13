@@ -62,7 +62,8 @@ test('convert 10 USDT to ETH: quote, countdown, review, convert, receipt, new ba
   await expect(page.getByTestId('rate')).toContainText('Rate: 1 ETH ≈ $2,608.05');
   const asked = api.of('quote');
   expect(asked).toHaveLength(1);
-  expect(asked[0].input).toEqual({ symbol: 'ETH/USDT', side: 'buy', qty: '0.0038' });
+  // The typed spend goes to the service as it was typed (quoteQty); the service picks the lots.
+  expect(asked[0].input).toEqual({ symbol: 'ETH/USDT', side: 'buy', quoteQty: '10' });
   // The To box shows the SERVICE's out amount, not an estimate.
   await expect(page.getByTestId('to-amount').locator('input')).toHaveValue('0.0038');
   await expect(page.getByTestId('hold')).toHaveText(/^Price held for (14|15)s$/);
@@ -110,6 +111,34 @@ test('convert 10 USDT to ETH: quote, countdown, review, convert, receipt, new ba
   await expect(page.getByTestId('cvt-available')).toHaveText('Available 9,983.08942641 USDT'); // the whole balance, as Money shows it (critic M5)
   await shot(page, 'convert-1440x900-after-balance');
   expect(errors).toEqual([]);
+});
+
+test('buying with the typed spend: the quote costs at most what was typed', async ({ page }) => {
+  const api = await mock(page);
+  await open(page);
+  await amount(page).fill('10');
+  await expect(page.getByTestId('hold')).toHaveText(/^Price held for/);
+  expect(api.of('quote').map((call) => call.input)).toEqual([{ symbol: 'ETH/USDT', side: 'buy', quoteQty: '10' }]);
+  const quoted = [...api.world.quotes.values()].at(-1);
+  expect(Number(quoted.inAmount)).toBeLessThanOrEqual(10);
+  expect(Number(quoted.inAmount)).toBeGreaterThan(9.7);
+  await preview(page).click();
+  await expect(page.getByTestId('dlg-pay')).toHaveAttribute('title', `${quoted.inAmount} USDT`);
+  await expect(dialog(page)).not.toContainText(/about/i);
+});
+
+test('an older trade service refuses quoteQty: the screen asks again by coin amount and still never costs more than typed', async ({
+  page,
+}) => {
+  const old = await mock(page, { oldServer: true });
+  await open(page);
+  await amount(page).fill('10');
+  await expect(page.getByTestId('hold')).toHaveText(/^Price held for/);
+  const calls = old.of('quote').map((call) => call.input);
+  expect(calls[0]).toEqual({ symbol: 'ETH/USDT', side: 'buy', quoteQty: '10' });
+  expect(calls.slice(1).every((input) => input.qty !== undefined && input.quoteQty === undefined)).toBe(true);
+  const oldQuote = [...old.world.quotes.values()].at(-1);
+  expect(Number(oldQuote.inAmount)).toBeLessThanOrEqual(10);
 });
 
 test('1280x800: card, review and receipt fit without scrolling sideways', async ({ page }) => {
@@ -375,8 +404,22 @@ test('a dropped connection on accept: sent once, the note stays, "Check again" a
   expect(await note(page)).toBeNull();
 });
 
-test('Max never quotes more than the balance: the spread is on top, so the request is stepped down', async ({ page }) => {
+test('Max never quotes more than the balance: the service sizes the order to the spend, so one ask is enough', async ({ page }) => {
   const api = await mock(page);
+  await open(page);
+  await page.getByRole('button', { name: 'Max' }).click();
+  await expect(preview(page)).toBeEnabled();
+  expect(api.of('quote').map((call) => call.input)).toEqual([{ symbol: 'ETH/USDT', side: 'buy', quoteQty: '9993' }]);
+  await preview(page).click();
+  const sent = [...api.world.quotes.values()].at(-1);
+  expect(BigInt(sent.inAmount.split('.')[0])).toBeLessThanOrEqual(9993n);
+  expect(Number(sent.inAmount)).toBeLessThanOrEqual(9993);
+});
+
+test('on an older service, Max still never quotes more than the balance: the spread is on top, so the request is stepped down', async ({
+  page,
+}) => {
+  const api = await mock(page, { oldServer: true });
   await open(page);
   await page.getByRole('button', { name: 'Max' }).click();
   await expect(preview(page)).toBeEnabled();

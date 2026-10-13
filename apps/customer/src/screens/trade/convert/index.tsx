@@ -237,6 +237,8 @@ function ConvertCard({
           typed: amount,
           // Never quote more than was typed or than the balance holds: our spread is added ON TOP of the book price.
           cap: spendCap(amount, available.value) ?? amount,
+          // Paying with the quote asset (a buy): the service sizes the order to the spend. A sell keeps the coin amount.
+          spend: edge.side === 'buy' ? amount : null,
           lot: market.lotSize,
           pair: market.symbol,
         }
