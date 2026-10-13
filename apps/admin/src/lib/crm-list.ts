@@ -60,6 +60,29 @@ export function formatIndicativeAmount(value: { amount: string; currency: string
   }
 }
 
+/** Longest amount text the list's amount column holds without clipping; longer ones show in compact form. */
+export const AMOUNT_CELL_MAX_CHARS = 11;
+
+/**
+ * What the list's amount cell shows. `text` is the full value ("€12,500,000") unless that would clip the column, then the
+ * compact form ("€12.5M"). `full` is always the exact value, for the cell's title. Both are "—" and "" when nothing is stated.
+ */
+export function amountCell(value: { amount: string; currency: string } | null): { text: string; full: string; compact: boolean } {
+  const full = formatIndicativeAmount(value);
+  if (!value || full.length <= AMOUNT_CELL_MAX_CHARS) return { text: full, full: value ? full : '', compact: false };
+  try {
+    const text = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: value.currency,
+      notation: 'compact',
+      maximumFractionDigits: 1,
+    }).format(value.amount as never);
+    return { text, full, compact: true };
+  } catch {
+    return { text: full, full, compact: false };
+  }
+}
+
 /** Compares two non-negative decimal strings exactly, without turning them into floating-point numbers. */
 export function compareDecimal(a: string, b: string): number {
   const [wholeA = '0', fractionA = ''] = a.split('.');
@@ -72,10 +95,29 @@ export function compareDecimal(a: string, b: string): number {
   return left === right ? 0 : left < right ? -1 : 1;
 }
 
+/** True when the stated amounts on this page are not all in one currency, so they cannot be compared as one total. */
+export function hasMixedCurrencies(items: readonly CrmOpportunity[]): boolean {
+  const currencies = new Set<string>();
+  for (const item of items) {
+    const stated = indicativeAmountOf(item);
+    if (stated) currencies.add(stated.currency);
+  }
+  return currencies.size > 1;
+}
+export const MIXED_CURRENCY_NOTE = 'Amounts in different currencies are not converted.';
+
+/** A date string as milliseconds, or null when it is missing or not a real date (bad data counts as missing). */
+function timeOf(value: string | undefined): number | null {
+  if (!value) return null;
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? null : time;
+}
+
 /**
  * Re-orders the rows already loaded on this page; it never asks the server. Rows with nothing to compare (no next action,
- * no stated amount) always go last, whichever way the column runs, and ties keep the order they arrived in. Amounts are
- * compared as plain numbers, so rows in different currencies are not converted.
+ * no stated amount, an unreadable date) always go last, whichever way the column runs, and ties keep the order they arrived
+ * in. Amounts are never converted between currencies: rows are grouped by currency code first (A to Z), then ordered by
+ * amount within each currency.
  */
 export function sortEnquiries(
   items: CrmOpportunity[],
@@ -88,23 +130,36 @@ export function sortEnquiries(
     let missingA = false;
     let missingB = false;
     let result = 0;
-    if (sort.key === 'received') result = Date.parse(a.createdAt) - Date.parse(b.createdAt);
-    else if (sort.key === 'name') {
+    // Added after the direction is applied, so the currency groups keep one fixed order.
+    let group = 0;
+    if (sort.key === 'received') {
+      const left = timeOf(a.createdAt);
+      const right = timeOf(b.createdAt);
+      missingA = left === null;
+      missingB = right === null;
+      if (left !== null && right !== null) result = left - right;
+    } else if (sort.key === 'name') {
       result = (contacts.get(a.contactId)?.name ?? '').localeCompare(contacts.get(b.contactId)?.name ?? '', 'en-GB', {
         sensitivity: 'base',
       });
     } else if (sort.key === 'due') {
-      missingA = !a.nextAction;
-      missingB = !b.nextAction;
-      if (a.nextAction && b.nextAction) result = Date.parse(a.nextAction.dueAt) - Date.parse(b.nextAction.dueAt);
+      const left = timeOf(a.nextAction?.dueAt);
+      const right = timeOf(b.nextAction?.dueAt);
+      missingA = left === null;
+      missingB = right === null;
+      if (left !== null && right !== null) result = left - right;
     } else {
       const left = indicativeAmountOf(a);
       const right = indicativeAmountOf(b);
       missingA = !left;
       missingB = !right;
-      if (left && right) result = compareDecimal(left.amount, right.amount);
+      if (left && right) {
+        group = left.currency < right.currency ? -1 : left.currency > right.currency ? 1 : 0;
+        result = compareDecimal(left.amount, right.amount);
+      }
     }
     if (missingA !== missingB) return missingA ? 1 : -1;
+    if (group !== 0) return group;
     if (result !== 0) return Math.sign(result) * sign;
     return (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0);
   };

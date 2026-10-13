@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { CrmOpportunity } from '@intafaced/contracts';
 import {
   DEFAULT_CRM_SORT,
+  amountCell,
   ariaSort,
   compareDecimal,
   formatIndicativeAmount,
+  hasMixedCurrencies,
   indicativeAmountOf,
+  MIXED_CURRENCY_NOTE,
   nextSort,
   sortEnquiries,
 } from './crm-list';
@@ -39,6 +42,13 @@ describe('indicative amount', () => {
     expect(formatIndicativeAmount({ amount: '1250.5', currency: 'GBP' })).toBe('£1,250.5');
     expect(formatIndicativeAmount({ amount: '0', currency: 'EUR' })).toBe('€0');
     expect(formatIndicativeAmount(null)).toBe('—');
+  });
+  it('shows the full value when it fits the column and a compact one, with the full value kept, when it would clip', () => {
+    expect(amountCell({ amount: '1250000', currency: 'EUR' })).toEqual({ text: '€1,250,000', full: '€1,250,000', compact: false });
+    expect(amountCell({ amount: '12500000', currency: 'EUR' })).toEqual({ text: '€12,500,000', full: '€12,500,000', compact: false });
+    expect(amountCell({ amount: '125000000', currency: 'EUR' })).toEqual({ text: '€125M', full: '€125,000,000', compact: true });
+    expect(amountCell({ amount: '1250000000', currency: 'EUR' })).toEqual({ text: '€1.3B', full: '€1,250,000,000', compact: true });
+    expect(amountCell(null)).toEqual({ text: '—', full: '', compact: false });
   });
   it('falls back to plain digits for a currency the browser does not know', () => {
     expect(formatIndicativeAmount({ amount: '1500000', currency: 'ZZ' })).toBe('1,500,000 ZZ');
@@ -106,7 +116,37 @@ describe('sorting the loaded page', () => {
     expect(ids(sortEnquiries(make(), contacts, { key: 'amount', direction: 'desc' }))).toEqual(['o2', 'o1', 'o4', 'o3']);
     expect(ids(sortEnquiries(make(), contacts, { key: 'amount', direction: 'asc' }))).toEqual(['o4', 'o1', 'o2', 'o3']);
   });
-  it('keeps ties in their arrival order and never changes the input', () => {
+  it('keeps two equal amounts in their arrival order, in both directions', () => {
+    counter = 0;
+    const tied = [row(stated('1000')), row(stated('5000')), row(stated('1000')), row(stated('5000'))];
+    expect(ids(sortEnquiries(tied, contacts, { key: 'amount', direction: 'asc' }))).toEqual(['o1', 'o3', 'o2', 'o4']);
+    expect(ids(sortEnquiries(tied, contacts, { key: 'amount', direction: 'desc' }))).toEqual(['o2', 'o4', 'o1', 'o3']);
+  });
+  it('groups amounts by currency first, then orders by amount inside each currency', () => {
+    counter = 0;
+    const mixed = [row(stated('10000000', 'JPY')), row(stated('250000', 'EUR')), row(stated('900', 'EUR')), row(stated('5000', 'GBP'))];
+    expect(ids(sortEnquiries(mixed, contacts, { key: 'amount', direction: 'desc' }))).toEqual(['o2', 'o3', 'o4', 'o1']);
+    expect(ids(sortEnquiries(mixed, contacts, { key: 'amount', direction: 'asc' }))).toEqual(['o3', 'o2', 'o4', 'o1']);
+  });
+  it('says so only when the page holds more than one currency', () => {
+    counter = 0;
+    expect(hasMixedCurrencies([row(stated('1')), row(stated('2')), row({})])).toBe(false);
+    expect(hasMixedCurrencies([row(stated('1')), row(stated('2', 'GBP'))])).toBe(true);
+    expect(MIXED_CURRENCY_NOTE).toBe('Amounts in different currencies are not converted.');
+  });
+  it('treats an unreadable date as missing instead of breaking the order', () => {
+    counter = 0;
+    const rows = [
+      row({ createdAt: 'not a date', nextAction: { description: 'x', dueAt: 'nope' } }),
+      row({ createdAt: '2026-10-11T00:00:00.000Z', nextAction: { description: 'y', dueAt: '2026-10-14T00:00:00.000Z' } }),
+      row({ createdAt: '2026-10-09T00:00:00.000Z', nextAction: { description: 'z', dueAt: '2026-10-12T00:00:00.000Z' } }),
+    ];
+    expect(ids(sortEnquiries(rows, contacts, { key: 'received', direction: 'asc' }))).toEqual(['o3', 'o2', 'o1']);
+    expect(ids(sortEnquiries(rows, contacts, { key: 'received', direction: 'desc' }))).toEqual(['o2', 'o3', 'o1']);
+    expect(ids(sortEnquiries(rows, contacts, { key: 'due', direction: 'asc' }))).toEqual(['o3', 'o2', 'o1']);
+    expect(ids(sortEnquiries(rows, contacts, { key: 'due', direction: 'desc' }))).toEqual(['o2', 'o3', 'o1']);
+  });
+  it('never changes the input', () => {
     const input = make();
     const before = ids(input);
     const sorted = sortEnquiries(input, contacts, { key: 'amount', direction: 'desc' });

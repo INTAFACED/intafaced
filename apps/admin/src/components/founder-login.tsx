@@ -3,9 +3,11 @@ import { useState } from 'react';
 import { browserDraftStorage, keptEnquiryId } from '@/lib/crm-drafts';
 import { signInReturnTarget } from '@/lib/crm-return';
 
-/** After signing in: the page the sign-in link asked for (only a /crm path), else the enquiry whose edits this tab kept, else /crm. */
-function returnTarget(): string {
-  return signInReturnTarget(window.location.search, keptEnquiryId(browserDraftStorage()));
+/** After signing in: the page the sign-in link asked for (only a /crm path), else the enquiry whose edits this tab kept for the founder who just signed in, else /crm. */
+function returnTarget(session: unknown): string {
+  const userId =
+    session && typeof session === 'object' && 'userId' in session && typeof session.userId === 'string' ? session.userId : null;
+  return signInReturnTarget(window.location.search, keptEnquiryId(browserDraftStorage(), userId));
 }
 
 function decode(value: string): ArrayBuffer {
@@ -46,8 +48,8 @@ export function FounderLogin() {
         setBusy(true);
         setError('');
         try {
-          await post('/api/session', { identifier, password, totpCode });
-          window.location.assign(returnTarget());
+          const session = await post('/api/session', { identifier, password, totpCode });
+          window.location.assign(returnTarget(session));
         } catch (failure) {
           setError(failure instanceof Error ? failure.message : 'Sign-in failed.');
         } finally {
@@ -116,7 +118,7 @@ export function FounderLogin() {
             })) as PublicKeyCredential | null;
             if (!credential) throw new Error('Passkey sign-in was cancelled.');
             const response = credential.response as AuthenticatorAssertionResponse;
-            await post('/api/session/passkey', {
+            const session = await post('/api/session/passkey', {
               action: 'authenticate',
               identifier,
               credential: {
@@ -132,7 +134,7 @@ export function FounderLogin() {
                 clientExtensionResults: credential.getClientExtensionResults(),
               },
             });
-            window.location.assign(returnTarget());
+            window.location.assign(returnTarget(session));
           } catch (failure) {
             setError(failure instanceof Error ? failure.message : 'Passkey sign-in failed.');
           } finally {

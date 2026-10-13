@@ -36,6 +36,7 @@ export function MessageItem({ message, owners }: { message: Message; owners: Fou
 export function CrmMessages({
   csrf,
   opportunity,
+  expectedRevision,
   originalRecipient,
   owners,
   onSaved,
@@ -45,6 +46,8 @@ export function CrmMessages({
 }: {
   csrf: string;
   opportunity: CrmOpportunity;
+  /** The revision the console's form is based on (see crm-base-revision); defaults to the record's own. */
+  expectedRevision?: number;
   originalRecipient: { name: string; email: string };
   owners: FounderOwner[];
   onSaved: () => Promise<boolean>;
@@ -99,7 +102,7 @@ export function CrmMessages({
     try {
       saved = await crmWrite<Receipt>(csrf, pending.current, 'queueMessage', {
         opportunityId: opportunity.id,
-        expectedRevision: opportunity.revision,
+        expectedRevision: expectedRevision ?? opportunity.revision,
         kind,
         staffText,
         reason,

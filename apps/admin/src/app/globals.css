@@ -2238,6 +2238,19 @@ code {
   display: list-item;
   align-content: center;
 }
+.adm-stale-warning {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--if-warn) 60%, transparent);
+  border-radius: var(--if-radius-md);
+  background: color-mix(in srgb, var(--if-warn) 14%, transparent);
+  color: var(--if-text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.adm-stale-warning button {
+  margin-top: 4px;
+}
 .adm-save-notice {
   padding: 12px 16px;
   border-left: 2px solid var(--if-accent);
@@ -2341,13 +2354,13 @@ code {
   width: 76px;
 }
 .adm-crm-table th.adm-col-amount {
-  width: 92px;
+  width: 112px;
 }
 .adm-crm-table th.adm-col-stage {
   width: 96px;
 }
 .adm-crm-table th.adm-col-owner {
-  width: 68px;
+  width: 84px;
 }
 .adm-crm-table th.adm-col-received {
   width: 122px;
@@ -2526,6 +2539,10 @@ code {
   .adm-crm-table td.adm-col-amount {
     order: 5;
     text-align: left;
+  }
+  /* No stated amount: leave the cell out of the card rather than show a bare dash after the stage. */
+  .adm-crm-table td.adm-col-amount.is-empty {
+    display: none;
   }
   .adm-crm-table td.adm-col-owner {
     order: 6;

@@ -130,21 +130,22 @@ export function browserDraftStorage(): DraftStorage | null {
 
 export function saveDraft(
   storage: DraftStorage | null,
-  input: { enquiryId: string; userId?: string | null; revision: number; fields: Partial<DraftValues> },
+  input: { enquiryId: string; userId: string; revision: number; fields: Partial<DraftValues> },
   now = Date.now(),
 ): void {
-  if (!storage || !isEnquiryId(input.enquiryId)) return;
+  // A draft with no founder on it could never be loaded again (loadDraft requires a match), so it is not kept at all.
+  if (!storage || !isEnquiryId(input.enquiryId) || !input.userId) return;
   const envelope: Envelope = {
     v: 1,
     enquiryId: input.enquiryId,
-    userId: input.userId ?? null,
+    userId: input.userId,
     revision: input.revision,
     savedAt: now,
     fields: sanitiseDraft(input.fields),
   };
   try {
     storage.setItem(keyFor(input.enquiryId), JSON.stringify(envelope));
-    storage.setItem(RESUME_KEY, input.enquiryId);
+    storage.setItem(RESUME_KEY, JSON.stringify({ enquiryId: input.enquiryId, userId: input.userId }));
   } catch {
     // Storage full or blocked: the page works as before, it just cannot keep the draft.
   }
@@ -154,7 +155,7 @@ export function clearDraft(storage: DraftStorage | null, enquiryId: string): voi
   if (!storage) return;
   try {
     storage.removeItem(keyFor(enquiryId));
-    if (storage.getItem(RESUME_KEY) === enquiryId) storage.removeItem(RESUME_KEY);
+    if (readPointer(storage)?.enquiryId === enquiryId) storage.removeItem(RESUME_KEY);
   } catch {
     // Nothing to clear if storage is unavailable.
   }
@@ -180,7 +181,12 @@ export function clearAllDrafts(storage: DraftStorage | null): void {
  * The kept draft for this enquiry, or null. A draft saved by another founder, older than 12 hours, malformed or empty
  * is not returned and is removed.
  */
-export function loadDraft(storage: DraftStorage | null, enquiryId: string, userId?: string | null, now = Date.now()): StoredDraft | null {
+export function loadDraft(
+  storage: DraftStorage | null,
+  enquiryId: string,
+  userId: string | null | undefined,
+  now = Date.now(),
+): StoredDraft | null {
   if (!storage || !isEnquiryId(enquiryId)) return null;
   try {
     const text = storage.getItem(keyFor(enquiryId));
@@ -195,7 +201,9 @@ export function loadDraft(storage: DraftStorage | null, enquiryId: string, userI
       now - value.savedAt <= DRAFT_MAX_AGE_MS &&
       value.savedAt - now < 60_000 &&
       typeof value.revision === 'number' &&
-      !(userId && value.userId && value.userId !== userId);
+      // Fails closed: with no signed-in founder, or no founder on the draft, nothing is restored.
+      Boolean(userId) &&
+      value.userId === userId;
     const fields = fresh ? sanitiseDraft(value.fields) : {};
     if (!fresh || !Object.keys(fields).length) {
       clearDraft(storage, enquiryId);
@@ -208,12 +216,29 @@ export function loadDraft(storage: DraftStorage | null, enquiryId: string, userI
   }
 }
 
-/** The enquiry this tab last kept a draft for, so sign-in can send the founder back to it. */
-export function keptEnquiryId(storage: DraftStorage | null): string | null {
-  if (!storage) return null;
+type Pointer = { enquiryId: string; userId: string };
+function readPointer(storage: DraftStorage): Pointer | null {
+  const text = storage.getItem(RESUME_KEY);
+  if (text === null) return null;
   try {
-    const value = storage.getItem(RESUME_KEY);
-    return isEnquiryId(value) ? value : null;
+    const value = JSON.parse(text) as Partial<Pointer> | null;
+    if (value && typeof value === 'object' && isEnquiryId(value.enquiryId) && typeof value.userId === 'string' && value.userId)
+      return { enquiryId: value.enquiryId, userId: value.userId };
+  } catch {
+    // An old or damaged pointer is ignored.
+  }
+  return null;
+}
+
+/**
+ * The enquiry this tab last kept a draft for, so sign-in can send the founder back to it. Only the founder who kept it is
+ * sent there: with no known founder, or another one, the pointer is ignored.
+ */
+export function keptEnquiryId(storage: DraftStorage | null, userId: string | null | undefined): string | null {
+  if (!storage || !userId) return null;
+  try {
+    const pointer = readPointer(storage);
+    return pointer && pointer.userId === userId ? pointer.enquiryId : null;
   } catch {
     return null;
   }

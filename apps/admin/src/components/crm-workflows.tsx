@@ -575,11 +575,14 @@ export function CrmTasks({
 export function CrmEnquiryTasks({
   csrf,
   opportunity,
+  expectedRevision,
   owners,
   onSaved,
 }: {
   csrf: string;
   opportunity: CrmOpportunity;
+  /** The revision the console's form is based on (see crm-base-revision); defaults to the record's own. */
+  expectedRevision?: number;
   owners: FounderOwner[];
   onSaved: () => Promise<boolean>;
 }) {
@@ -662,7 +665,7 @@ export function CrmEnquiryTasks({
             e.preventDefault();
             void save('createTask', {
               opportunityId: opportunity.id,
-              expectedRevision: opportunity.revision,
+              expectedRevision: expectedRevision ?? opportunity.revision,
               ownerUserId: owner,
               kind,
               description,
@@ -727,7 +730,7 @@ export function CrmEnquiryTasks({
             if (!task) return;
             void save('transitionTask', {
               opportunityId: opportunity.id,
-              expectedRevision: opportunity.revision,
+              expectedRevision: expectedRevision ?? opportunity.revision,
               taskId: task.task.id,
               expectedTaskRevision: task.revision,
               status,
@@ -806,7 +809,7 @@ export function CrmEnquiryTasks({
             e.preventDefault();
             void save('recordInteraction', {
               opportunityId: opportunity.id,
-              expectedRevision: opportunity.revision,
+              expectedRevision: expectedRevision ?? opportunity.revision,
               kind: interactionKind,
               occurredAt: new Date(occurredAt).toISOString(),
               evidenceRef: evidence,

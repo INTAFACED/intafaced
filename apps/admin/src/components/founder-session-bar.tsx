@@ -33,7 +33,9 @@ export function FounderSessionBar({ csrf, userId, expiresAt }: { csrf: string; u
       {status && (
         <small className={status.warning ? 'adm-session-note is-warning' : 'adm-session-note'} role={status.warning ? 'status' : undefined}>
           {status.expired ? (
-            <a href={signInHref(enquiryIdFromSearch(window.location.search) ?? keptEnquiryId(browserDraftStorage()))}>{status.text}</a>
+            <a href={signInHref(enquiryIdFromSearch(window.location.search) ?? keptEnquiryId(browserDraftStorage(), userId))}>
+              {status.text}
+            </a>
           ) : (
             status.text
           )}
@@ -43,14 +45,14 @@ export function FounderSessionBar({ csrf, userId, expiresAt }: { csrf: string; u
         disabled={busy}
         onClick={async () => {
           setBusy(true);
+          // Signing out is explicit intent: nothing typed in this tab is kept for the next person, even if the server call fails.
+          clearAllDrafts(browserDraftStorage());
           try {
             const response = await fetch('/api/session', { method: 'DELETE', headers: { 'x-intafaced-csrf': csrf } });
             if (!response.ok) {
               setMessage('Sign-out could not be confirmed. Try again.');
               return;
             }
-            // Signed out on purpose: nothing typed in this tab is kept for the next person.
-            clearAllDrafts(browserDraftStorage());
             window.location.assign('/login');
           } catch {
             setMessage('Connection unavailable. Try again.');

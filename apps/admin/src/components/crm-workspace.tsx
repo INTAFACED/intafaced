@@ -5,12 +5,15 @@ import { CrmMetrics, CrmTasks, CrmCampaigns, CrmDuplicates, CrmExports, CrmEnqui
 import { CrmMessages } from './crm-messages';
 import { CrmPrivacy } from './crm-privacy';
 import { crmDate, crmLocalDate, crmOverdueCalendarDays, crmRelative, crmTime } from '@/lib/crm-browser';
+import { baseIsStale, expectedRevisionFor, nextBaseRevision, type BaseRevision, type BaseRevisionChange } from '@/lib/crm-base-revision';
 import { createOpenGate, draftOf, followRecord } from '@/lib/crm-open-gate';
 import {
   DEFAULT_CRM_SORT,
+  MIXED_CURRENCY_NOTE,
   SORT_PRESETS,
+  amountCell,
   ariaSort,
-  formatIndicativeAmount,
+  hasMixedCurrencies,
   indicativeAmountOf,
   nextSort,
   sortEnquiries,
@@ -257,14 +260,31 @@ function syncEnquiryUrl(enquiryId: string | null) {
   }
 }
 const KEPT_EDITS_NOTICE = 'We kept your unsaved edits.';
-const KEPT_EDITS_CHANGED = `${KEPT_EDITS_NOTICE} This enquiry has changed since, so check them before saving.`;
 
-export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }) {
+/**
+ * Shown next to the save buttons while the form is based on an older version of the enquiry than the one on screen, so a
+ * founder cannot miss that another save has happened since. It leaves only when the edits are discarded or a save succeeds.
+ */
+export function StaleDraftWarning({ busy, onDiscard }: { busy: boolean; onDiscard: () => void }) {
+  return (
+    <p className="adm-stale-warning" role="alert" data-testid="stale-draft-warning">
+      <strong>This enquiry has changed since you wrote these edits.</strong> Saving a stage, owner, next action or message will be refused,
+      so nothing newer is overwritten. Copy anything you want to keep, then discard the edits to load the latest version.{' '}
+      <button type="button" disabled={busy} onClick={onDiscard}>
+        Discard my edits and reload
+      </button>
+    </p>
+  );
+}
+
+export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string }) {
   const [view, setView] = useState('enquiries');
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [workflowVersion, setWorkflowVersion] = useState(0);
   const [page, setPage] = useState<CrmOpportunityPage | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
+  // The revision the form is based on; every save sends it (see crm-base-revision). Not always the one on screen.
+  const [base, setBase] = useState<BaseRevision | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>('overview');
   const [visitedDetailTabs, setVisitedDetailTabs] = useState<Set<DetailTab>>(() => new Set(['overview']));
   const [messageDraftDirty, setMessageDraftDirty] = useState(false);
@@ -363,9 +383,10 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
   }, [load]);
   /**
    * Only the latest call's result is applied (see createOpenGate). `rebase` forces the form fields to the freshly loaded
-   * record; it is for a founder-confirmed reload, where the unsaved edits were just discarded.
+   * record; it is for a founder-confirmed reload, where the unsaved edits were just discarded. `savedWithBase` says the write
+   * that triggered this read was checked against the form's base revision, so it succeeding proves that base was current.
    */
-  async function open(id: string, manageBusy = true, silent = false, rebase = false, reveal = true) {
+  async function open(id: string, manageBusy = true, silent = false, rebase = false, reveal = true, savedWithBase = false) {
     const gate = openGate.current;
     if (id !== gate.selected() && typeof window !== 'undefined') listScroll.current = window.scrollY;
     if (detail && detail.opportunity.id !== id) {
@@ -411,6 +432,8 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
         });
       }
       const draft = draftOf(result, crmLocalDate);
+      // The revision of edits restored from this tab, if any; they stay based on it even when the record has moved on.
+      let restoredRevision: number | null = null;
       // A refresh of the same record with nothing typed also re-bases the form, so a change made elsewhere does not read as an unsaved edit.
       if (changedRecord || rebase || (silent && !live.current.dirty)) {
         setNewOwner(draft.newOwner);
@@ -428,6 +451,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
           // Edits kept in this tab (the session ended, or the page was reloaded) go back over the freshly loaded record.
           const kept = loadDraft(browserDraftStorage(), result.opportunity.id, userId);
           if (kept) {
+            restoredRevision = kept.revision;
             // The contracts package is imported for types only here (its main entry pulls in server code), so the stage list is local.
             const next = applyDraft(emptyDraftValues(draft), kept.fields, (stage) =>
               stagesForAudience(result.opportunity.audience).includes(stage),
@@ -462,7 +486,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
               kept.fields.newOwner !== undefined
             )
               setStageFormOpen(true);
-            setNotice(kept.revision === result.opportunity.revision ? KEPT_EDITS_NOTICE : KEPT_EDITS_CHANGED);
+            setNotice(KEPT_EDITS_NOTICE);
           }
         }
       } else {
@@ -475,6 +499,18 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
         setActionDue((value) => followRecord(value, loaded.due, draft.actionDue));
       }
       loadedAction.current = { description: draft.actionDescription, due: draft.actionDue };
+      const loaded = result.opportunity.revision;
+      setBase((current) => {
+        const previous = current && current.id === id ? current.revision : loaded;
+        const change: BaseRevisionChange = changedRecord
+          ? { kind: 'open', loaded, kept: restoredRevision }
+          : rebase
+            ? { kind: 'rebase', loaded }
+            : savedWithBase
+              ? { kind: 'saved', loaded }
+              : { kind: 'refresh', previous, loaded, formDirty: live.current.dirty };
+        return { id, revision: nextBaseRevision(change) };
+      });
       return true;
     } catch (failure) {
       // A newer open owns the screen now; this older call's failure must not clear or alert over it.
@@ -511,6 +547,8 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
   function resetDraft() {
     if (!detail) return;
     clearDraft(browserDraftStorage(), detail.opportunity.id);
+    // The edits are gone, so the form is based on the record on screen again.
+    setBase({ id: detail.opportunity.id, revision: detail.opportunity.revision });
     setMessageValues({ kind: 'information_request', staffText: '', reason: '' });
     setMessagesResetVersion((value) => value + 1);
     setNewOwner(detail.opportunity.ownerUserId);
@@ -579,7 +617,8 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
         setEditDescription(String(input.description));
         setEditDue(crmLocalDate(String(input.dueAt)));
       }
-      const refreshed = await open(detail.opportunity.id, false);
+      // A note carries no revision (adding one overwrites nothing), so saving one says nothing about the form's base.
+      const refreshed = await open(detail.opportunity.id, false, false, false, true, action !== 'addNote');
       await load();
       setWorkflowVersion((value) => value + 1);
       setNotice(refreshed ? 'Saved to the enquiry history.' : 'Your change was saved. Reopen the enquiry to load its latest records.');
@@ -635,9 +674,18 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
     if (!detail || busy) return;
     const storage = browserDraftStorage();
     const kept = keptDraft(JSON.parse(draftSignature) as DraftValues, draftOf(detail, crmLocalDate));
-    if (kept) saveDraft(storage, { enquiryId: detail.opportunity.id, userId, revision: detail.opportunity.revision, fields: kept });
-    else clearDraft(storage, detail.opportunity.id);
-  }, [detail, busy, draftSignature, userId]);
+    // The draft keeps the revision it was written against until it is cleared, so a restore can never launder a stale base.
+    const revision = expectedRevisionFor(base, detail.opportunity.id, detail.opportunity.revision);
+    if (kept) saveDraft(storage, { enquiryId: detail.opportunity.id, userId, revision, fields: kept });
+    else {
+      clearDraft(storage, detail.opportunity.id);
+      // Nothing left to keep (reverted by hand, or the record now matches), so there is nothing stale either.
+      if (revision !== detail.opportunity.revision) setBase({ id: detail.opportunity.id, revision: detail.opportunity.revision });
+    }
+  }, [detail, busy, draftSignature, userId, base]);
+  const expectedRevision = detail ? expectedRevisionFor(base, detail.opportunity.id, detail.opportunity.revision) : 0;
+  const staleDraft = detail ? baseIsStale(base, detail.opportunity.id, detail.opportunity.revision) : false;
+  const staleWarning = staleDraft ? <StaleDraftWarning busy={busy} onDiscard={() => void refresh()} /> : null;
   // Coming back from sign-in (or a reload) lands on /crm?enquiry=<id>: open that enquiry.
   useEffect(() => {
     const id = enquiryIdFromSearch(window.location.search);
@@ -675,6 +723,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
   const contacts = new Map(page?.contacts.map((contact) => [contact.id, contact]) ?? []);
   // Sorting only re-orders the page already loaded; the server keeps returning newest first.
   const sortedItems = sortEnquiries(items, contacts, sort);
+  const mixedCurrencies = hasMixedCurrencies(items);
   const paginated = Boolean(page?.nextCursor) || history.length > 0;
   const sortHeader = (key: CrmSortKey, text: string, className?: string) => (
     <th scope="col" aria-sort={ariaSort(sort, key)} className={className}>
@@ -943,6 +992,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
                   Sorting applies to the enquiries loaded on this page only. Use Next and Previous to see the others.
                 </p>
               )}
+              {mixedCurrencies && <p className="adm-subtle adm-crm-sort-note">{MIXED_CURRENCY_NOTE}</p>}
               <label className="adm-crm-sort-phone">
                 Sort by
                 <select
@@ -985,6 +1035,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
                       const submission = submissions.get(item.submissionId);
                       const overdue = item.nextAction ? overdueLabel(item.nextAction.dueAt, now) : null;
                       const selected = detail?.opportunity.id === item.id;
+                      const amount = amountCell(indicativeAmountOf(item));
                       return (
                         <tr key={item.id} className={selected ? 'is-selected' : undefined} data-overdue={overdue ? 'true' : undefined}>
                           <td data-label="Name" className="adm-col-name">
@@ -1011,8 +1062,12 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
                               <small title="Partly answered: questionnaires not finished">Partial</small>
                             )}
                           </td>
-                          <td data-label="Amount" className="adm-col-amount" title="Indicative only, not a commitment">
-                            {formatIndicativeAmount(indicativeAmountOf(item))}
+                          <td
+                            data-label="Amount"
+                            className={amount.full ? 'adm-col-amount' : 'adm-col-amount is-empty'}
+                            title={amount.full ? `${amount.full} · indicative only, not a commitment` : 'No amount stated'}
+                          >
+                            {amount.text}
                           </td>
                           <td data-label="Stage" className="adm-col-stage">
                             <span className="adm-crm-stage" data-stage={item.stage}>
@@ -1034,7 +1089,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
                               label(item.closedDisposition ?? 'Closed')
                             )}
                           </td>
-                          <td data-label="Owner" className="adm-col-owner" title={item.ownerUserId}>
+                          <td data-label="Owner" className="adm-col-owner" title={founderName(owners, item.ownerUserId)}>
                             {founderName(owners, item.ownerUserId)}
                           </td>
                           <td data-label="Received" className="adm-col-received" title={crmDate(item.createdAt)}>
@@ -1140,13 +1195,14 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
                           if (Number.isNaN(dueAt.getTime())) return;
                           void mutate('updateNextAction', {
                             opportunityId: detail.opportunity.id,
-                            expectedRevision: detail.opportunity.revision,
+                            expectedRevision,
                             description: editDescription.trim(),
                             dueAt: dueAt.toISOString(),
                           });
                         }}
                       />
                     )}
+                    {staleWarning}
                   </section>
                   <div className="adm-crm-detail-tabs" role="tablist" aria-label="Enquiry detail">
                     {DETAIL_TABS.map((tab, index) => (
@@ -1224,13 +1280,14 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
                         onToggle={(event) => setStageFormOpen(event.currentTarget.open)}
                       >
                         <summary>Assign owner and set next action</summary>
+                        {staleWarning}
                         <form
                           className="adm-form"
                           onSubmit={(event) => {
                             event.preventDefault();
                             void mutate('assign', {
                               opportunityId: detail.opportunity.id,
-                              expectedRevision: detail.opportunity.revision,
+                              expectedRevision,
                               ownerUserId: newOwner,
                             });
                           }}
@@ -1261,7 +1318,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
                             event.preventDefault();
                             void mutate('changeStage', {
                               opportunityId: detail.opportunity.id,
-                              expectedRevision: detail.opportunity.revision,
+                              expectedRevision,
                               stage: newStage,
                               reason,
                               nextAction:
@@ -1405,6 +1462,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
                   {visitedDetailTabs.has('activity') && (
                     <section role="tabpanel" id="crm-activity-panel" aria-labelledby="crm-activity-tab" hidden={detailTab !== 'activity'}>
                       <h3>History</h3>
+                      {staleWarning}
                       <ol className="adm-history">
                         {detail.activities.map((activity) => {
                           const entry = activityTitle(activity, owners);
@@ -1450,9 +1508,10 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
                         key={`tasks:${detail.opportunity.id}`}
                         csrf={csrf}
                         opportunity={detail.opportunity}
+                        expectedRevision={expectedRevision}
                         owners={owners}
                         onSaved={async () => {
-                          const refreshed = await open(detail.opportunity.id, false);
+                          const refreshed = await open(detail.opportunity.id, false, false, false, true, true);
                           await load();
                           setWorkflowVersion((value) => value + 1);
                           return refreshed;
@@ -1462,17 +1521,19 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId?: string }
                   )}
                   {visitedDetailTabs.has('messages') && (
                     <section role="tabpanel" id="crm-messages-panel" aria-labelledby="crm-messages-tab" hidden={detailTab !== 'messages'}>
+                      {staleWarning}
                       <CrmMessages
                         key={`messages:${detail.opportunity.id}:${messagesResetVersion}`}
                         csrf={csrf}
                         opportunity={detail.opportunity}
+                        expectedRevision={expectedRevision}
                         originalRecipient={detail.submission.contact}
                         owners={owners}
                         onDraftChange={setMessageDraftDirty}
                         initialDraft={messageValues}
                         onDraftValues={setMessageValues}
                         onSaved={async () => {
-                          const refreshed = await open(detail.opportunity.id, false);
+                          const refreshed = await open(detail.opportunity.id, false, false, false, true, true);
                           await load();
                           setWorkflowVersion((value) => value + 1);
                           return refreshed;

@@ -110,7 +110,9 @@ describe('the tab store', () => {
     saveDraft(store, { enquiryId: ID, userId: USER, revision: 4, fields: { note: 'Call back' } }, now);
     expect(loadDraft(store, ID, USER, now + 1000)).toEqual({ enquiryId: ID, revision: 4, fields: { note: 'Call back' } });
     expect(loadDraft(store, OTHER, USER, now)).toBeNull();
-    expect(keptEnquiryId(store)).toBe(ID);
+    expect(keptEnquiryId(store, USER)).toBe(ID);
+    expect(keptEnquiryId(store, OTHER)).toBeNull();
+    expect(keptEnquiryId(store, null)).toBeNull();
   });
   it('never writes a secret: only the typed fields, ids and times are stored', () => {
     const store = memory();
@@ -122,7 +124,12 @@ describe('the tab store', () => {
   });
   it('refuses a draft for something that is not an enquiry id', () => {
     const store = memory();
-    saveDraft(store, { enquiryId: '../etc', revision: 1, fields: { note: 'x' } }, now);
+    saveDraft(store, { enquiryId: '../etc', userId: USER, revision: 1, fields: { note: 'x' } }, now);
+    expect(store.data.size).toBe(0);
+  });
+  it('does not keep a draft that has no founder on it', () => {
+    const store = memory();
+    saveDraft(store, { enquiryId: ID, userId: '', revision: 1, fields: { note: 'x' } }, now);
     expect(store.data.size).toBe(0);
   });
   it('drops a draft that is old, belongs to another founder, or is damaged', () => {
@@ -137,32 +144,54 @@ describe('the tab store', () => {
     expect(loadDraft(store, ID, USER, now)).toBeNull();
     expect(store.data.has(`${DRAFT_KEY_PREFIX}${ID}`)).toBe(false);
   });
+  it('fails closed: a draft stored with no founder, or read with no founder, is refused and removed', () => {
+    const store = memory();
+    saveDraft(store, { enquiryId: ID, userId: USER, revision: 2, fields: { note: 'x' } }, now);
+    expect(loadDraft(store, ID, null, now)).toBeNull();
+    saveDraft(store, { enquiryId: ID, userId: USER, revision: 2, fields: { note: 'x' } }, now);
+    expect(loadDraft(store, ID, undefined, now)).toBeNull();
+    store.data.set(
+      `${DRAFT_KEY_PREFIX}${ID}`,
+      JSON.stringify({ v: 1, enquiryId: ID, userId: null, revision: 2, savedAt: now, fields: { note: 'x' } }),
+    );
+    expect(loadDraft(store, ID, USER, now)).toBeNull();
+    expect(store.data.has(`${DRAFT_KEY_PREFIX}${ID}`)).toBe(false);
+  });
+  it('ignores a resume pointer from another founder, a bare id, or damage', () => {
+    const store = memory();
+    saveDraft(store, { enquiryId: ID, userId: USER, revision: 2, fields: { note: 'x' } }, now);
+    expect(keptEnquiryId(store, OTHER)).toBeNull();
+    store.data.set(RESUME_KEY, ID);
+    expect(keptEnquiryId(store, USER)).toBeNull();
+    store.data.set(RESUME_KEY, '{oops');
+    expect(keptEnquiryId(store, USER)).toBeNull();
+  });
   it('clears one draft after a save, and the pointer only if it points at that enquiry', () => {
     const store = memory();
-    saveDraft(store, { enquiryId: ID, revision: 1, fields: { note: 'x' } }, now);
-    saveDraft(store, { enquiryId: OTHER, revision: 1, fields: { note: 'y' } }, now);
+    saveDraft(store, { enquiryId: ID, userId: USER, revision: 1, fields: { note: 'x' } }, now);
+    saveDraft(store, { enquiryId: OTHER, userId: USER, revision: 1, fields: { note: 'y' } }, now);
     clearDraft(store, ID);
-    expect(loadDraft(store, ID, null, now)).toBeNull();
-    expect(loadDraft(store, OTHER, null, now)).not.toBeNull();
-    expect(keptEnquiryId(store)).toBe(OTHER);
+    expect(loadDraft(store, ID, USER, now)).toBeNull();
+    expect(loadDraft(store, OTHER, USER, now)).not.toBeNull();
+    expect(keptEnquiryId(store, USER)).toBe(OTHER);
     clearDraft(store, OTHER);
-    expect(keptEnquiryId(store)).toBeNull();
+    expect(keptEnquiryId(store, USER)).toBeNull();
   });
   it('clears every draft and the pointer on sign-out, leaving other keys alone', () => {
     const store = memory();
     store.setItem('unrelated', 'keep');
-    saveDraft(store, { enquiryId: ID, revision: 1, fields: { note: 'x' } }, now);
-    saveDraft(store, { enquiryId: OTHER, revision: 1, fields: { note: 'y' } }, now);
+    saveDraft(store, { enquiryId: ID, userId: USER, revision: 1, fields: { note: 'x' } }, now);
+    saveDraft(store, { enquiryId: OTHER, userId: USER, revision: 1, fields: { note: 'y' } }, now);
     clearAllDrafts(store);
     expect([...store.data.keys()]).toEqual(['unrelated']);
     expect(store.getItem(RESUME_KEY)).toBeNull();
   });
   it('works without storage at all', () => {
-    expect(() => saveDraft(null, { enquiryId: ID, revision: 1, fields: { note: 'x' } })).not.toThrow();
-    expect(loadDraft(null, ID)).toBeNull();
+    expect(() => saveDraft(null, { enquiryId: ID, userId: USER, revision: 1, fields: { note: 'x' } })).not.toThrow();
+    expect(loadDraft(null, ID, USER)).toBeNull();
     expect(() => clearDraft(null, ID)).not.toThrow();
     expect(() => clearAllDrafts(null)).not.toThrow();
-    expect(keptEnquiryId(null)).toBeNull();
+    expect(keptEnquiryId(null, USER)).toBeNull();
   });
   it('survives a storage that throws', () => {
     const broken: DraftStorage = {
@@ -180,10 +209,10 @@ describe('the tab store', () => {
         throw new Error('blocked');
       },
     };
-    expect(() => saveDraft(broken, { enquiryId: ID, revision: 1, fields: { note: 'x' } })).not.toThrow();
-    expect(loadDraft(broken, ID)).toBeNull();
+    expect(() => saveDraft(broken, { enquiryId: ID, userId: USER, revision: 1, fields: { note: 'x' } })).not.toThrow();
+    expect(loadDraft(broken, ID, USER)).toBeNull();
     expect(() => clearDraft(broken, ID)).not.toThrow();
     expect(() => clearAllDrafts(broken)).not.toThrow();
-    expect(keptEnquiryId(broken)).toBeNull();
+    expect(keptEnquiryId(broken, USER)).toBeNull();
   });
 });
