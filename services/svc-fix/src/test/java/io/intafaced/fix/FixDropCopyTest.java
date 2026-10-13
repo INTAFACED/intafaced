@@ -15,12 +15,15 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import quickfix.ApplicationAdapter;
 import quickfix.ConfigError;
 import quickfix.DefaultMessageFactory;
+import quickfix.FieldNotFound;
 import quickfix.FixVersions;
 import quickfix.MemoryStoreFactory;
 import quickfix.Message;
@@ -31,6 +34,7 @@ import quickfix.SessionSettings;
 import quickfix.SocketInitiator;
 import quickfix.field.ClOrdID;
 import quickfix.field.ExecID;
+import quickfix.field.MsgSeqNum;
 import quickfix.field.MsgType;
 import quickfix.field.OrdType;
 import quickfix.field.OrderQty;
@@ -394,6 +398,204 @@ class FixDropCopyTest {
             assertEquals(List.of(DropCopyCatalog.FIX), claim.included);
         } finally {
             dual.close();
+        }
+    }
+
+    @Test
+    void missingSessionDoesNotInventASessionOrSequence() throws Exception {
+        FixDropCopyApplication drop = new FixDropCopyApplication();
+        SessionID missing = new SessionID(FixVersions.BEGINSTRING_FIX44, "NO-SUCH-DC", "NO-SUCH-CLIENT");
+        assertNull(Session.lookupSession(missing));
+        Message execution = execution("41");
+        drop.deliver(execution);
+        drop.onLogon(missing);
+        assertNull(Session.lookupSession(missing));
+        assertFalse(execution.getHeader().isSetField(MsgSeqNum.FIELD));
+        assertEquals(1, drop.outbound().size());
+        assertEquals("41", drop.outbound().get(0).getString(ExecID.FIELD));
+        assertEquals(0, drop.matchingPosts());
+        assertFalse(drop.outbound().get(0).toString().contains("ledger"));
+    }
+
+    @Test
+    @Timeout(20)
+    void executionBeforeLogonIsSentOnceWhenTheSessionLogsOn() throws Exception {
+        FixDropCopyApplication server = new FixDropCopyApplication();
+        SessionID serverId = new SessionID(FixVersions.BEGINSTRING_FIX44, "DROPCOPY", "DC-CLIENT");
+        Message early = execution("41");
+        server.deliver(early);
+        assertEquals(1, server.outbound().size());
+        assertFalse(early.getHeader().isSetField(MsgSeqNum.FIELD));
+
+        int port = Pair.freePort();
+        SessionConfigResult parsed = FixDropCopyConfig.fromOwner(
+                FixVersions.BEGINSTRING_FIX44, "DROPCOPY", "DC-CLIENT", Integer.toString(port), "5");
+        assertTrue(parsed.ok, parsed.errorMessage);
+        try (FixDropCopyAcceptor acceptor = FixDropCopyAcceptor.start(parsed.config, server)) {
+            Session registered = Session.lookupSession(serverId);
+            assertTrue(registered != null && !registered.isLoggedOn());
+            assertFalse(early.getHeader().isSetField(MsgSeqNum.FIELD), "registered but not logged on does not assign a sequence");
+            DropListener client = DropListener.connect(port);
+            try {
+                assertTrue(server.loggedOn.await(8, TimeUnit.SECONDS), "drop-copy acceptor logon");
+                assertTrue(client.loggedOn.await(8, TimeUnit.SECONDS), "drop-copy initiator logon");
+                awaitExec(client, "41", 1);
+                assertEquals(1, count(client, "41"));
+                assertEquals(1, server.outbound().size());
+                assertEquals(0, server.matchingPosts());
+
+                server.deliver(execution("42"));
+                awaitExec(client, "42", 1);
+                assertEquals(1, count(client, "41"));
+                assertEquals(1, count(client, "42"));
+                assertEquals(2, server.outbound().size());
+
+                server.onLogon(serverId);
+                Thread.sleep(400);
+                assertEquals(1, count(client, "41"), "logon must not resend an execution already passed to Session.send");
+                assertEquals(1, count(client, "42"));
+                assertEquals(2, server.outbound().size());
+            } finally {
+                client.close();
+            }
+            assertTrue(acceptor.application == server);
+        }
+    }
+
+    @Test
+    @Timeout(20)
+    void executionWhileLookupMissesIsSentOnceOnLogon() throws Exception {
+        FixDropCopyApplication server = new FixDropCopyApplication();
+        SessionID serverId = new SessionID(FixVersions.BEGINSTRING_FIX44, "DROPCOPY", "DC-CLIENT");
+        assertNull(Session.lookupSession(serverId));
+        server.onLogon(serverId);
+        assertNull(Session.lookupSession(serverId));
+        Message early = execution("77");
+        server.deliver(early);
+        assertFalse(early.getHeader().isSetField(MsgSeqNum.FIELD));
+        assertEquals(1, server.outbound().size());
+
+        int port = Pair.freePort();
+        SessionConfigResult parsed = FixDropCopyConfig.fromOwner(
+                FixVersions.BEGINSTRING_FIX44, "DROPCOPY", "DC-CLIENT", Integer.toString(port), "5");
+        assertTrue(parsed.ok, parsed.errorMessage);
+        try (FixDropCopyAcceptor acceptor = FixDropCopyAcceptor.start(parsed.config, server)) {
+            Session registered = Session.lookupSession(serverId);
+            assertTrue(registered != null && !registered.isLoggedOn());
+            assertFalse(early.getHeader().isSetField(MsgSeqNum.FIELD));
+            DropListener client = DropListener.connect(port);
+            try {
+                assertTrue(client.loggedOn.await(8, TimeUnit.SECONDS), "drop-copy initiator logon");
+                awaitExec(client, "77", 1);
+                assertEquals(1, count(client, "77"));
+                assertEquals(1, server.outbound().size());
+                assertEquals(0, server.matchingPosts());
+                assertFalse(server.outbound().get(0).toString().contains("ledger"));
+
+                server.onLogon(serverId);
+                Thread.sleep(400);
+                assertEquals(1, count(client, "77"));
+            } finally {
+                client.close();
+            }
+            assertTrue(acceptor.application == server);
+        }
+    }
+
+    private static Message execution(String execId) {
+        Message er = ExecutionReportFactory.fromAck(
+                new MatchingOrderCommand(
+                        "clid-" + execId,
+                        FixVersions.BEGINSTRING_FIX44,
+                        null,
+                        "BTC/USDT",
+                        "buy",
+                        "limit",
+                        "1.50",
+                        "100.25",
+                        "CLIENT",
+                        "GTC"),
+                new MatchingAck(true, Long.parseLong(execId)));
+        return er;
+    }
+
+    private static int count(DropListener client, String execId) {
+        int n = 0;
+        for (String id : client.execIds) {
+            if (execId.equals(id)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    private static void awaitExec(DropListener client, String execId, int times) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8);
+        while (count(client, execId) < times && System.nanoTime() < deadline) {
+            Thread.sleep(20);
+        }
+        assertEquals(times, count(client, execId), execId);
+    }
+
+    private static final class DropListener extends ApplicationAdapter implements AutoCloseable {
+        final CopyOnWriteArrayList<String> execIds = new CopyOnWriteArrayList<>();
+        final java.util.concurrent.CountDownLatch loggedOn = new java.util.concurrent.CountDownLatch(1);
+        final SessionID sessionId = new SessionID(FixVersions.BEGINSTRING_FIX44, "DC-CLIENT", "DROPCOPY");
+        SocketInitiator initiator;
+
+        static DropListener connect(int port) throws Exception {
+            DropListener app = new DropListener();
+            StringBuilder text = new StringBuilder();
+            text.append("[DEFAULT]\n");
+            text.append("ConnectionType=initiator\n");
+            text.append("HeartBtInt=5\n");
+            text.append("StartTime=00:00:00\n");
+            text.append("EndTime=00:00:00\n");
+            text.append("UseDataDictionary=Y\n");
+            text.append("ValidateIncomingMessage=N\n");
+            text.append("TimeZone=UTC\n");
+            text.append("ResetOnLogon=Y\n");
+            text.append("ResetOnLogout=Y\n");
+            text.append("ResetOnDisconnect=Y\n");
+            text.append("SocketConnectHost=127.0.0.1\n");
+            text.append("SocketConnectPort=").append(port).append('\n');
+            text.append("ReconnectInterval=2\n");
+            text.append("[SESSION]\n");
+            text.append("BeginString=").append(FixVersions.BEGINSTRING_FIX44).append('\n');
+            text.append("SenderCompID=DC-CLIENT\n");
+            text.append("TargetCompID=DROPCOPY\n");
+            text.append("DataDictionary=").append(FixDictionaries.FIX44_XML).append('\n');
+            SessionSettings settings =
+                    new SessionSettings(new ByteArrayInputStream(text.toString().getBytes(StandardCharsets.UTF_8)));
+            app.initiator = new SocketInitiator(
+                    app,
+                    new MemoryStoreFactory(),
+                    settings,
+                    new ScreenLogFactory(false, false, false),
+                    new DefaultMessageFactory());
+            app.initiator.start();
+            return app;
+        }
+
+        @Override
+        public void onLogon(SessionID sessionId) {
+            loggedOn.countDown();
+        }
+
+        @Override
+        public void fromApp(Message message, SessionID sessionId) throws FieldNotFound {
+            if (MsgType.EXECUTION_REPORT.equals(message.getHeader().getString(MsgType.FIELD))) {
+                execIds.add(message.getString(ExecID.FIELD));
+            }
+        }
+
+        @Override
+        public void close() {
+            Session session = Session.lookupSession(sessionId);
+            if (session != null) {
+                session.logout("l218 done");
+            }
+            initiator.stop();
         }
     }
 

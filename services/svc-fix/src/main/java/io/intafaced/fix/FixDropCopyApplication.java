@@ -27,7 +27,11 @@ public final class FixDropCopyApplication extends ApplicationAdapter {
     private final List<String> adminMsgTypes = new ArrayList<>();
     private final List<String> appMsgTypes = new ArrayList<>();
     private final List<Message> outbound = new ArrayList<>();
+    /** Executions and rejects not yet passed to {@link Session#send}. */
+    private final List<Message> unsent = new ArrayList<>();
     private final AtomicReference<SessionID> sessionId = new AtomicReference<>();
+    private boolean flushing;
+    private boolean flushAgain;
     private final DropCopyHub hub;
 
     public FixDropCopyApplication() {
@@ -53,7 +57,10 @@ public final class FixDropCopyApplication extends ApplicationAdapter {
 
     @Override
     public void onLogon(SessionID sessionId) {
-        this.sessionId.set(sessionId);
+        synchronized (this) {
+            this.sessionId.set(sessionId);
+        }
+        flushUnsent(sessionId);
         loggedOn.countDown();
     }
 
@@ -86,7 +93,7 @@ public final class FixDropCopyApplication extends ApplicationAdapter {
     }
 
     public void deliver(Message execution) {
-        send(execution, sessionId.get());
+        send(execution, null);
     }
 
     public int matchingPosts() {
@@ -122,16 +129,64 @@ public final class FixDropCopyApplication extends ApplicationAdapter {
         send(reject, sessionId);
     }
 
-    private void send(Message outboundMessage, SessionID sessionId) {
+    private void send(Message outboundMessage, SessionID explicitSessionId) {
         synchronized (this) {
             outbound.add(outboundMessage);
+            unsent.add(outboundMessage);
         }
-        if (sessionId == null) {
-            return;
+        flushUnsent(explicitSessionId);
+    }
+
+    /**
+     * Hand queued messages to a session that is already logged on.
+     * Lookup miss or a session that is not logged on leaves them queued:
+     * no session is created and no sequence is written.
+     * Messages already passed to {@link Session#send} are not in {@code unsent}.
+     */
+    private void flushUnsent(SessionID preferred) {
+        synchronized (this) {
+            if (flushing) {
+                flushAgain = true;
+                return;
+            }
+            flushing = true;
         }
-        Session session = Session.lookupSession(sessionId);
-        if (session != null) {
-            session.send(outboundMessage);
+        try {
+            drainUnsent(preferred);
+        } finally {
+            boolean again;
+            synchronized (this) {
+                flushing = false;
+                again = flushAgain;
+                flushAgain = false;
+            }
+            if (again) {
+                flushUnsent(null);
+            }
+        }
+    }
+
+    private void drainUnsent(SessionID preferred) {
+        while (true) {
+            SessionID id;
+            synchronized (this) {
+                id = preferred != null ? preferred : sessionId.get();
+            }
+            if (id == null) {
+                return;
+            }
+            Session session = Session.lookupSession(id);
+            if (session == null || !session.isLoggedOn()) {
+                return;
+            }
+            Message next;
+            synchronized (this) {
+                if (unsent.isEmpty()) {
+                    return;
+                }
+                next = unsent.remove(0);
+            }
+            session.send(next);
         }
     }
 
