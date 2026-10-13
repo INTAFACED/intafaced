@@ -146,7 +146,7 @@ describe('simulated card capture pays no cashback', () => {
     );
 
     const ops = caller(['admin:treasury'], OPERATOR);
-    const user = caller(['bank:read', 'bank:write']);
+    const user = caller(['bank:read', 'bank:write', 'trade:withdraw']);
     await ops.ops.fundCashbackPot({
       windowId: `w-${randomUUID()}`,
       assetId: 'USDT',
@@ -205,7 +205,7 @@ describe('simulated card capture pays no cashback', () => {
       recipes.feeCharge({ chargeId: randomUUID(), userId: FEE_PAYER, module: 'bank', mode: 'asset', assetId: 'USDT', amount: amt('10') }),
     );
     const ops = caller(['admin:treasury'], OPERATOR);
-    const user = caller(['bank:read', 'bank:write']);
+    const user = caller(['bank:read', 'bank:write', 'trade:withdraw']);
     await ops.ops.fundCashbackPot({ windowId: randomUUID(), assetId: 'USDT', amount: '10', confirmOperatorId: CONFIRM, ...APPROVAL });
     const card = await user.cards.issue({ cardId: randomUUID(), assetId: 'USDT', cashbackBps: 100, perAuthorizationLimit: '250' });
     for (const ref of ['legacy-landed', 'legacy-missing']) {
@@ -313,7 +313,7 @@ describe('simulated cash ramp posts nothing', () => {
   }
 
   it('refuses a fiat on-ramp, off-ramp, and settle while the programme is simulated', async () => {
-    const user = caller(['bank:read', 'bank:write']);
+    const user = caller(['bank:read', 'bank:write', 'trade:withdraw']);
     const ops = caller(['admin:treasury'], OPERATOR);
     const programme = await user.ramps.programme();
     expect(programme.simulated).toBe(true);
