@@ -10,19 +10,29 @@ export type SupportedBeginString = z.infer<typeof supportedBeginStringSchema>;
 export const matchingTifSchema = z.enum(['GTC', 'IOC', 'FOK', 'GTD', 'DAY']);
 export type MatchingTif = z.infer<typeof matchingTifSchema>;
 
-export const matchingOrderCommandSchema = z.object({
-  kind: z.literal('new_order_single'),
-  clOrdId: z.string().min(1),
-  beginString: supportedBeginStringSchema,
-  applVerId: z.string().min(1).optional(),
-  symbol: z.string().min(1),
-  side: z.enum(['buy', 'sell']),
-  ordType: z.enum(['market', 'limit']),
-  qty: decimalString,
-  price: decimalString.nullable(),
-  senderCompId: z.string().min(1).optional(),
-  tif: matchingTifSchema.optional(),
-});
+export const matchingOrderCommandSchema = z
+  .object({
+    kind: z.literal('new_order_single'),
+    clOrdId: z.string().min(1),
+    beginString: supportedBeginStringSchema,
+    applVerId: z.string().min(1).optional(),
+    symbol: z.string().min(1),
+    side: z.enum(['buy', 'sell']),
+    ordType: z.enum(['market', 'limit']),
+    qty: decimalString,
+    // Limit requires an explicit decimal price. Market may be null. Never invent one.
+    price: decimalString.nullable(),
+    senderCompId: z.string().min(1).optional(),
+    tif: matchingTifSchema.optional(),
+  })
+  .superRefine((command, ctx) => {
+    if (command.ordType !== 'limit' || command.price !== null) return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['price'],
+      message: 'limit new_order_single requires an explicit decimal price',
+    });
+  });
 
 export type MatchingOrderCommand = z.infer<typeof matchingOrderCommandSchema>;
 
