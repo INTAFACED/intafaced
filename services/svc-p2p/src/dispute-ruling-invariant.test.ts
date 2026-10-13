@@ -53,6 +53,7 @@ const migrations = [
   '0005_p2p_late_settle_error.sql',
   '0006_p2p_dispute_open_origin.sql',
   '0007_p2p_dispute_chat_thread.sql',
+  '0010_p2p_dispute_resolution_match.sql',
 ].map((file) => readFileSync(join(here, '..', 'drizzle', file), 'utf8'));
 
 const SELLER = '11111111-1111-4111-8111-111111111111';
@@ -176,6 +177,120 @@ describe('p2p dispute ruling invariant', () => {
     await db?.drop();
     await adminStop();
   }, 30_000);
+
+  describe('the terminal write must be the ruling the dispute holds', () => {
+    /**
+     * 0003 reads dispute status and moderator_id and then accepts any terminal
+     * resolution. A refund already ruled by a person still lets the trade become
+     * released, and settleOnce posts escrowRelease from that row. voided is the
+     * same hole and posts nothing. The write is refused here so settleOnce never
+     * sees it. A release that matches a release ruling still goes through.
+     */
+    it('refuses a release or a void that is not the human ruling, and still allows a matching release', async () => {
+      const refunded = await disputedTrade('00000000-0000-4000-8000-000000000040');
+      await rule(refunded, MODERATOR);
+
+      await expect(sql`
+        UPDATE p2p.p2p_trades
+           SET status = 'released', resolution = 'released', resolved_at = now(), deadline_at = NULL
+         WHERE id = ${refunded}
+      `).rejects.toMatchObject({
+        code: '23514',
+        message: expect.stringMatching(/does not match the human ruling/),
+      });
+
+      const refundedRow = (
+        await sql<Array<{ status: string; resolution: string | null }>>`
+          SELECT status, resolution::text AS resolution FROM p2p.p2p_trades WHERE id = ${refunded}
+        `
+      )[0]!;
+      expect(refundedRow).toEqual({ status: 'disputed', resolution: null });
+
+      const voided = await disputedTrade('00000000-0000-4000-8000-000000000041');
+      await rule(voided, MODERATOR);
+
+      await expect(sql`
+        UPDATE p2p.p2p_trades
+           SET status = 'cancelled', resolution = 'voided', resolved_at = now(), deadline_at = NULL
+         WHERE id = ${voided}
+      `).rejects.toMatchObject({
+        code: '23514',
+        message: expect.stringMatching(/does not match the human ruling/),
+      });
+
+      const voidedRow = (
+        await sql<Array<{ status: string; resolution: string | null }>>`
+          SELECT status, resolution::text AS resolution FROM p2p.p2p_trades WHERE id = ${voided}
+        `
+      )[0]!;
+      expect(voidedRow).toEqual({ status: 'disputed', resolution: null });
+
+      const released = await disputedTrade('00000000-0000-4000-8000-000000000042');
+      await sql`
+        UPDATE p2p.p2p_disputes
+           SET status = 'resolved', moderator_id = ${MODERATOR}, resolution = 'release', resolved_at = now()
+         WHERE trade_id = ${released}
+      `;
+      await sql`
+        UPDATE p2p.p2p_trades
+           SET status = 'released', resolution = 'released', resolved_at = now(), deadline_at = NULL
+         WHERE id = ${released}
+      `;
+      expect(await statusOf(released)).toBe('released');
+
+      const fn = await sql<Array<{ prosrc: string }>>`
+        SELECT p.prosrc
+          FROM pg_proc p
+          JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'p2p' AND p.proname = 'p2p_trades_disputed_needs_ruling'
+      `;
+      expect(fn[0]!.prosrc).toMatch(/SELECT true, "status"::text, "moderator_id", "resolution"::text/);
+    });
+
+    /**
+     * The match above sits inside `OLD.resolution IS NULL`. Once the trade is
+     * already the matching refunded row, a later write is not re-checked.
+     * Clearing `settled_at` is what makes settleOnce post escrowRelease again:
+     * it returns early only when settledAt is set, and it posts from the trade
+     * row. The second write must be refused, and the refunded row must stay.
+     */
+    it('refuses a second write that rewrites a matching refund as released', async () => {
+      const id = await disputedTrade('00000000-0000-4000-8000-000000000043');
+      await rule(id, MODERATOR);
+
+      await sql`
+        UPDATE p2p.p2p_trades
+           SET status = 'cancelled', resolution = 'refunded', resolved_at = now(), deadline_at = NULL
+         WHERE id = ${id}
+      `;
+      await sql`UPDATE p2p.p2p_trades SET settled_at = now() WHERE id = ${id}`;
+
+      const matched = (
+        await sql<Array<{ status: string; resolution: string | null; settled: boolean }>>`
+          SELECT status, resolution::text AS resolution, settled_at IS NOT NULL AS settled
+            FROM p2p.p2p_trades WHERE id = ${id}
+        `
+      )[0]!;
+      expect(matched).toEqual({ status: 'cancelled', resolution: 'refunded', settled: true });
+
+      await expect(sql`
+        UPDATE p2p.p2p_trades
+           SET status = 'released', resolution = 'released', settled_at = NULL
+         WHERE id = ${id}
+      `).rejects.toMatchObject({
+        code: '23514',
+        message: expect.stringMatching(/does not match the human ruling/),
+      });
+
+      const stayed = (
+        await sql<Array<{ status: string; resolution: string | null; settled: boolean }>>`
+          SELECT status, resolution::text AS resolution, settled_at IS NOT NULL AS settled
+            FROM p2p.p2p_trades WHERE id = ${id}
+        `
+      )[0]!;
+      expect(stayed).toEqual({ status: 'cancelled', resolution: 'refunded', settled: true });
+    });
+  });
 
   describe('the ruling that terminates an escrow', () => {
     it('accepts a real one — an attributed person, on a resolved dispute', async () => {
