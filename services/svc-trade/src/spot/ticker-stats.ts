@@ -18,6 +18,9 @@
 import type { Sql } from 'postgres';
 import { div, parseAmount, type Amount } from '@intafaced/ledger-client';
 
+/** How far before the window the last-print (carry) lookup searches. */
+export const CARRY_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
+
 export const TICKER_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const SPARKLINE_BUCKET_MS = 60 * 60 * 1000;
 export const SPARKLINE_POINTS = 24;
@@ -97,6 +100,9 @@ export async function queryTickerStats(sql: Sql, marketIds: readonly string[], n
 
   const sinceMs = nowMs - TICKER_WINDOW_MS;
   const since = new Date(sinceMs);
+  // The carry lookup only looks back this far, so a market whose older prints are
+  // all seeded never scans its whole history on a cache miss.
+  const carryFloor = new Date(sinceMs - CARRY_LOOKBACK_MS);
   const now = new Date(nowMs);
   const ids = [...new Set(marketIds)];
 
@@ -162,6 +168,7 @@ export async function queryTickerStats(sql: Sql, marketIds: readonly string[], n
            AND o.seeded = false
            AND c.seeded = false
            AND f.ts < ${since}
+           AND f.ts >= ${carryFloor}
          ORDER BY f.ts DESC, f.sequence DESC
          LIMIT 1
       ) carry ON true

@@ -820,6 +820,26 @@ describe('public REST routes', () => {
       await app.close();
     });
 
+    it('a failed stats query serves null rollups instead of failing /tickers or /ticker', async () => {
+      const app = await build(
+        deps({
+          tickerStats: async () => {
+            throw new Error('stats query timed out');
+          },
+        }),
+      );
+      const all = await app.inject({ method: 'GET', url: '/api/v1/tickers?limit=500' });
+      expect(all.statusCode).toBe(200);
+      const row = (all.json() as Record<string, Record<string, unknown>>)['BTC/USDT']!;
+      expect(row.last).toBe('100.5');
+      expect(row.open).toBeNull();
+      expect(row.sparkline).toEqual([]);
+      const one = await app.inject({ method: 'GET', url: '/api/v1/ticker/BTC%2FUSDT' });
+      expect(one.statusCode).toBe(200);
+      expect((one.json() as Record<string, unknown>).open).toBeNull();
+      await app.close();
+    });
+
     it('a mount without a stats source keeps null rollups (never invented)', async () => {
       const app = await build();
       const res = await app.inject({ method: 'GET', url: '/api/v1/tickers?limit=500' });

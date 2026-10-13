@@ -692,7 +692,8 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
       const [depth, tape, stats] = await Promise.all([
         deps.depth(market.id, 1),
         deps.publicTape(market.id, 1),
-        deps.tickerStats ? deps.tickerStats([market.id], ts) : Promise.resolve(undefined),
+        // Stats are best effort: a failed stats query serves null rollups, never a 5xx ticker.
+        deps.tickerStats ? deps.tickerStats([market.id], ts).catch(() => undefined) : Promise.resolve(undefined),
       ]);
       return reply.code(200).send(presentTicker(market.symbol, depth, tape[0] ?? null, ts, stats?.get(market.id) ?? null));
     } catch (err) {
@@ -718,11 +719,14 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     const markets = await deps.markets(limit);
     const ts = now();
     const out: Record<string, ReturnType<typeof presentTicker>> = {};
+    // Stats are best effort: a failed stats query serves null rollups, never a 5xx map.
     const stats = deps.tickerStats
-      ? await deps.tickerStats(
-          markets.map((m) => m.id),
-          ts,
-        )
+      ? await deps
+          .tickerStats(
+            markets.map((m) => m.id),
+            ts,
+          )
+          .catch(() => undefined)
       : undefined;
 
     await Promise.all(
