@@ -3,6 +3,7 @@ import {
   CHARGEBACK_LEDGER_SOCKET_ID,
   CHARGEBACK_LEDGER_UNCOVERED_CODE,
   refuseChargebackLedgerPost,
+  refuseChargebackPlanConflict,
   refuseChargebackUncovered,
   type ChargebackLedgerRefuse,
 } from './chargeback-ledger-socket.js';
@@ -191,6 +192,7 @@ export {
   CHARGEBACK_LEDGER_SOCKET_ID,
   CHARGEBACK_LEDGER_UNCOVERED_CODE,
   refuseChargebackLedgerPost,
+  refuseChargebackPlanConflict,
   refuseChargebackUncovered,
   type ChargebackLedgerRefuse,
 };

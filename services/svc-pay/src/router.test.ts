@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { INTERACTIVE_ONLY_SCOPES, SESSION_SCOPES, assertKeyScopesAllowed, issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
-import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
+import { formatAmount, InsufficientFundsError, parseAmount as amt } from '@intafaced/ledger-client';
 import { createPayRouter } from './router.js';
 import { stubApprovalConsumer } from './action-approval-consume.js';
 import { defaultDisputeCaseStore } from './fraud/dispute-case.js';
@@ -1175,6 +1175,34 @@ describe('leftover treasury mutates consume identity approval', () => {
       status: 'declined',
       confirmOperatorId: CONFIRM,
     });
+  });
+
+  it('openDispute answers a named precondition error, not a 500 and not a recorded case, when the ledger refuses the opening for funds', async () => {
+    const service = stub.service as unknown as { openChargeback: unknown };
+    service.openChargeback = async () => {
+      throw new InsufficientFundsError('acct', 'USDT', '40.5', '0');
+    };
+    const api = await caller(['admin:treasury']);
+    const disputeId = `dsp-uncovered-${Date.now()}`;
+    const input = {
+      disputeId,
+      paymentId: PAYMENT,
+      merchantId: MERCHANT,
+      amount: '40.50',
+      assetId: 'USDT',
+      confirmOperatorId: CONFIRM,
+      ...APPROVED,
+    };
+    await expect(api.fraud.openDispute(input)).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: expect.stringContaining('pay.chargeback_uncovered'),
+    });
+    // Nothing was recorded: the case store keeps its first answer, so a recorded refusal would mask a later retry that posts.
+    expect(defaultDisputeCaseStore.get(disputeId)).toBeNull();
+
+    service.openChargeback = async () => ({ txId: 'tx-after-topup' });
+    const retried = await api.fraud.openDispute(input);
+    expect(retried).toMatchObject({ disputeId, ledgerWire: 'posted', ledgerTxId: 'tx-after-topup' });
   });
 
   it('openDispute and contestDispute refuse missing approval ids without mutating', async () => {

@@ -1408,9 +1408,10 @@ export class CardService {
 
     // THE LEDGER KEY IS THE AUTHORISATION, NOT THE AMOUNT.
     //
-    // `post()` returns the existing transaction for a reused business key and
-    // never compares the body against it, which is correct for a re-drive and
-    // wrong for a disagreement. Without this check a second caller arriving at
+    // `post()` returns the existing transaction for a reused business key; in the ledger's
+    // `detect` mode it still does not refuse a different body (it logs
+    // `ledger.idempotency_mismatch`), which is correct for a re-drive and wrong for a
+    // disagreement. Without this check a second caller arriving at
     // the same sequence with a DIFFERENT amount is handed the first caller's
     // transaction and believes its own number: it reports a capture at a value
     // the ledger never saw, computes its remainder from that value — so the
