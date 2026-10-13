@@ -133,7 +133,7 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
       ${null}::numeric,
       ${formatAmount(flatten.qty)}::numeric, 'pending', ${'IOC'},
       ${hold.assetId}, ${formatAmount(market.paper ? 0n : hold.amount)}::numeric, ${perks.feeDiscountBps},
-      ${false}, ${JSON.stringify(lifecycleProof)}::jsonb,
+      ${false}, ${JSON.stringify(lifecycleProof)}::text::jsonb,
       ${attribution.sessionId}, ${attribution.apiKeyId}
     )
     ON CONFLICT (id) DO NOTHING

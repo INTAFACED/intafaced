@@ -236,6 +236,10 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
       expect(order.type).toBe('market');
       expect(order.price).toBeNull();
       await expectMarketRowWithoutPrice(order.id, [100]);
+      // The flatten row stores its lifecycle proof as a JSON object, not the text of one.
+      const proof = await sql<Array<{ kind: string; action: string | null }>>`
+        SELECT jsonb_typeof(lifecycle_proof) AS kind, lifecycle_proof->>'action' AS action FROM trade.orders WHERE id = ${order.id}`;
+      expect(proof[0]).toEqual({ kind: 'object', action: 'PLACE' });
     });
 
     it('releases leftover hold through recipes.orderHoldRelease', async () => {
