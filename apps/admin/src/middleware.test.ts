@@ -21,7 +21,16 @@ describe('admin middleware module gate', () => {
 
   it('ADMIN_MODULES=crm: CRM, login and session still work', () => {
     process.env.ADMIN_MODULES = 'crm';
-    for (const path of ['/crm', '/crm/', '/login', '/api/crm', '/api/crm/workflows', '/api/crm/privacy', '/api/session', '/api/session/passkey']) {
+    for (const path of [
+      '/crm',
+      '/crm/',
+      '/login',
+      '/api/crm',
+      '/api/crm/workflows',
+      '/api/crm/privacy',
+      '/api/session',
+      '/api/session/passkey',
+    ]) {
       expect(passes(run(path)), path).toBe(true);
     }
   });

@@ -51,7 +51,12 @@ type Env = Record<string, string | undefined>;
 export function configuredModules(env: Env = process.env): ReadonlySet<ModuleId> | null {
   const raw = env.ADMIN_MODULES;
   if (raw === undefined || raw.trim() === '') return null;
-  const wanted = new Set(raw.split(',').map((part) => part.trim().toLowerCase()).filter(Boolean));
+  const wanted = new Set(
+    raw
+      .split(',')
+      .map((part) => part.trim().toLowerCase())
+      .filter(Boolean),
+  );
   return new Set(MODULE_IDS.filter((id) => wanted.has(id)));
 }
 
