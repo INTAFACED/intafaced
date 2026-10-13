@@ -114,7 +114,7 @@ export function HaloToggleGroup({
             animate={{ left: '35%' }}
             className="-bottom-4 absolute h-14 w-44 blur-xl"
             style={{
-              background: 'linear-gradient(90deg, #b9f65a, #455039, #bccdd5, #424c50)',
+              background: 'linear-gradient(90deg, #c8f64a, #455039, #bccdd5, #424c50)',
             }}
             transition={{
               duration: reduceMotion ? 0.01 : 6,
@@ -126,7 +126,7 @@ export function HaloToggleGroup({
             animate={{ left: '55%' }}
             className="-bottom-3 absolute h-11 w-36 blur-lg"
             style={{
-              background: 'linear-gradient(90deg, #515a44, #b9f65a, #b9f65a)',
+              background: 'linear-gradient(90deg, #515a44, #c8f64a, #c8f64a)',
             }}
             transition={{
               duration: reduceMotion ? 0.01 : 5,

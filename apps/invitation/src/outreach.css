@@ -41,7 +41,8 @@
   font-weight: 100 900;
   font-display: swap;
   /* Ranges match each file's character map (read directly, 2026-10-14). Latin: Latin-1, punctuation, € ™ ↑ ↓ −, and the
-     combining accents Inter's latin file holds. The file has no ← → ✓, so those fall back as before. */
+     combining accents Inter's latin file holds. The file has no ← → ✓, so those marks are drawn as inline SVG
+     (components/icons.tsx) and never typed as text. */
   unicode-range:
     U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329,
     U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+FEFF;
@@ -74,8 +75,8 @@ body {
   --muted-foreground: #aab4ac;
   /* Control borders: 3.2:1 against the surface they sit on (WCAG 1.4.11 asks for 3:1). */
   --border: #636d65;
-  --ring: #b9f65a;
-  --primary: #b9f65a;
+  --ring: #c8f64a;
+  --primary: #c8f64a;
   --destructive: #f1a899;
   position: relative;
   isolation: isolate;
@@ -263,7 +264,8 @@ body {
   pointer-events: none;
 }
 .cta-arrow {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   transition: transform 220ms ease-out;
 }
 .welcome-cta:hover .cta-arrow,
@@ -303,13 +305,40 @@ body {
   color: var(--muted-foreground);
   margin: 0;
 }
+/* Icons are drawn with the text, so they sit on its line and take its colour. */
+.ui-icon {
+  flex-shrink: 0;
+  display: block;
+}
+.draft-status,
+.received-status,
+.outreach-text-button.with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.outreach-text-button.with-icon {
+  gap: 8px;
+}
+/* A wrapping sentence: the tick sits inline before the first word, so every line starts at the column edge. */
+.saved-summary .ui-icon {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+.draft-status .ui-icon,
+.received-status .ui-icon,
+.saved-summary .ui-icon {
+  width: 14px;
+  height: 14px;
+}
 .draft-status {
   flex-shrink: 0;
   font-size: 12px;
   color: var(--muted-foreground);
   opacity: 0.8;
 }
-.draft-status[data-state='Draft saved ✓'] {
+.draft-status[data-state='Draft saved'] {
   color: #b7d98c;
 }
 .invitation-progress {
@@ -519,7 +548,7 @@ body {
   width: 18px;
   height: 18px;
   margin-top: 3px;
-  accent-color: #b9f65a;
+  accent-color: #c8f64a;
   flex-shrink: 0;
 }
 .outreach-notice {
@@ -822,7 +851,7 @@ body {
   left: 24px;
   padding: 10px 16px;
   background: #111416;
-  border: 1px solid #b9f65a;
+  border: 1px solid #c8f64a;
   border-radius: 8px;
   color: #f2f5ef;
   transform: translateY(-200%);

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Nav } from '@/components/nav';
 import { FounderSessionBar } from '@/components/founder-session-bar';
+import { SkipLink } from '@/components/skip-link';
 import { requireFounderPage } from '@/lib/founder-page';
 import { enabledModuleIds } from '@/lib/modules';
 
@@ -8,6 +9,8 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
   const { session } = await requireFounderPage();
   return (
     <div className="adm-shell">
+      {/* First in the page, so it is the first Tab stop. */}
+      <SkipLink />
       <header className="adm-topbar">
         <a className="adm-brand" href="/crm">
           <img src="/intafaced-logo.svg" alt="INTAFACED" width="164" height="30" />

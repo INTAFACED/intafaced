@@ -1268,7 +1268,7 @@ const MIME = {
 const BANNER_HTML =
   `<style>body{padding-top:28px !important}</style>` +
   `<div id="local-test-stack-banner" role="status" style="position:fixed;top:0;left:0;right:0;height:28px;z-index:2147483647;` +
-  `display:flex;align-items:center;justify-content:center;background:#C8F64A;color:#0b0b0b;` +
+  `display:flex;align-items:center;justify-content:center;background:#F5A915;color:#0b0b0b;` +
   `font:600 12px/1 ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;letter-spacing:.04em;text-align:center;` +
   `pointer-events:none;user-select:none">${BANNER_TEXT}</div>`;
 

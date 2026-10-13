@@ -8,6 +8,7 @@ import { GradientButtonGroup } from './components/gradient-button-group';
 import { HaloProgress } from './components/halo-progress';
 import { PrimaryMetal } from './components/primary-metal';
 import { HeroMetal } from './components/hero-metal';
+import { ArrowLeft, Check } from './components/icons';
 import { CheckCard, ChoiceCards } from './components/choice-cards';
 import { SearchPicker, SearchPickerMulti, type PickerGroup, type PickerOption } from './components/search-picker';
 import { BlurFade } from './components/blur-fade';
@@ -497,7 +498,7 @@ function App() {
   const back = (method?: string, ...args: unknown[]) => (
     <button
       type="button"
-      className="outreach-text-button"
+      className="outreach-text-button with-icon"
       disabled={vm.busy}
       onClick={() => {
         if (method) act(method, ...args);
@@ -507,7 +508,8 @@ function App() {
         }
       }}
     >
-      ← Back
+      <ArrowLeft />
+      Back
     </button>
   );
   const interests = (captured = false) => (
@@ -743,7 +745,7 @@ function App() {
     : !vm.state.draftStored
       ? 'Saving…'
       : vm.remember
-        ? 'Draft saved ✓'
+        ? 'Draft saved'
         : 'Draft kept in this tab';
   // The visible text follows every keystroke; the spoken one waits until typing settles and never says "Saving…".
   const [spokenStatus, setSpokenStatus] = useState('');
@@ -816,6 +818,13 @@ function App() {
       id="intake-heading"
       tabIndex={-1}
       ref={(node) => {
+        // The confirmation moves this h1 into the receipt, so React unmounts the focused node and remounts a new one. Carry
+        // focus across that swap; otherwise a heading focus that ran just before the commit leaves focus on <body>.
+        if (!node) vm.headingHadFocus = document.activeElement === vm.refs.stepHeading;
+        else if (vm.headingHadFocus) {
+          vm.headingHadFocus = false;
+          if (document.activeElement !== node) node.focus();
+        }
         vm.refs.stepHeading = node;
       }}
     >
@@ -955,8 +964,9 @@ function App() {
           Your details will be saved so the team can follow up, even if you finish the questions later.
         </p>
         <div className="outreach-actions">
-          <button type="button" className="outreach-text-button" disabled={vm.busy} onClick={() => goContactStep(1)}>
-            ← Back
+          <button type="button" className="outreach-text-button with-icon" disabled={vm.busy} onClick={() => goContactStep(1)}>
+            <ArrowLeft />
+            Back
           </button>
           {primary('Save details & continue', undefined, !vm.storageReady)}
         </div>
@@ -1107,6 +1117,7 @@ function App() {
                 <>
                   <span className="draft-status" aria-hidden="true" data-state={draftStatus}>
                     {draftStatus}
+                    {draftStatus === 'Draft saved' && <Check />}
                   </span>
                   <span className="sr-only draft-status-live" role="status" aria-live="polite">
                     {spokenStatus}
@@ -1207,8 +1218,9 @@ function App() {
                       ))}
                     </dl>
                     <div className="outreach-actions">
-                      <button type="button" className="outreach-text-button" disabled={vm.busy} onClick={() => act('goGroup', 0)}>
-                        ← Edit answers
+                      <button type="button" className="outreach-text-button with-icon" disabled={vm.busy} onClick={() => act('goGroup', 0)}>
+                        <ArrowLeft />
+                        Edit answers
                       </button>
                       {primary('Send enquiry', 'saveAnswers')}
                     </div>
@@ -1250,7 +1262,11 @@ function App() {
                     <ul>
                       {vm.draft.contact.interests.map((key: string) => (
                         <li key={key}>
-                          {vm.audienceLabel(key)} <span>Received ✓</span>
+                          {vm.audienceLabel(key)}{' '}
+                          <span className="received-status">
+                            Received
+                            <Check />
+                          </span>
                         </li>
                       ))}
                     </ul>
@@ -1264,7 +1280,10 @@ function App() {
               )}
             </BlurFade>
             {vm.isReview && vm.draft && !vm.interestChangeRequested && vm.currentAudience && (
-              <p className="outreach-small saved-summary">✓ {vm.savedStageMessage}</p>
+              <p className="outreach-small saved-summary">
+                <Check />
+                {vm.savedStageMessage}
+              </p>
             )}
             {showDeviceDetails && deviceDetails()}
           </div>
@@ -1274,13 +1293,14 @@ function App() {
         <section className="outreach-privacy" aria-labelledby="privacy-heading">
           <button
             type="button"
-            className="outreach-text-button"
+            className="outreach-text-button with-icon"
             onClick={() => {
               vm.privacyOpen = false;
               act('focusHeading');
             }}
           >
-            ← Return to your enquiry
+            <ArrowLeft />
+            Return to your enquiry
           </button>
           <h2
             id="privacy-heading"
