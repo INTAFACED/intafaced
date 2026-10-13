@@ -278,7 +278,10 @@ try {
     await page.screenshot({ path: `${proof}/invest-questions-${width}.png`, fullPage: true });
     const welcomeVideo = page.video();
     await page.close();
-    if (welcomeVideo) await welcomeVideo.saveAs(`${proof}/investor-desktop-welcome-contact.webm`).catch((e) => console.warn('video evidence not saved (recorder unavailable):', e.code || e.message));
+    if (welcomeVideo)
+      await welcomeVideo
+        .saveAs(`${proof}/investor-desktop-welcome-contact.webm`)
+        .catch((e) => console.warn('video evidence not saved (recorder unavailable):', e.code || e.message));
     page = await context.newPage();
     await page.goto(origin + '/invest');
     await reopen(page);
@@ -416,7 +419,10 @@ try {
     assert.deepEqual(errors, []);
     const questionsVideo = page.video();
     await context.close();
-    if (questionsVideo) await questionsVideo.saveAs(`${proof}/investor-desktop-review-completion.webm`).catch((e) => console.warn('video evidence not saved (recorder unavailable):', e.code || e.message));
+    if (questionsVideo)
+      await questionsVideo
+        .saveAs(`${proof}/investor-desktop-review-completion.webm`)
+        .catch((e) => console.warn('video evidence not saved (recorder unavailable):', e.code || e.message));
     console.log(
       `public ${width}px: all five enquiries, real font/logo, device reopen, unsent review/edit, lost response recovery, decimal strings, encrypted capability and overflow passed`,
     );

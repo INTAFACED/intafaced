@@ -140,7 +140,10 @@ async function review(page) {
     .getByRole('radio', { name: 'I make introductions', exact: true })
     .check();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await page.getByRole('radiogroup', { name: 'When would you consider taking part?' }).getByRole('radio', { name: 'Later', exact: true }).check();
+  await page
+    .getByRole('radiogroup', { name: 'When would you consider taking part?' })
+    .getByRole('radio', { name: 'Later', exact: true })
+    .check();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByLabel('What would you like us to know?').and(page.locator('textarea')).fill('Please review this introduction enquiry.');
   await page.getByRole('button', { name: 'Review your answers' }).click();
@@ -410,7 +413,10 @@ try {
       errors,
     });
     await context.close();
-    if (video) await video.saveAs(`${out}/videos/completion-${scenario.width}.webm`).catch((e) => console.warn('video evidence not saved (recorder unavailable):', e.code || e.message));
+    if (video)
+      await video
+        .saveAs(`${out}/videos/completion-${scenario.width}.webm`)
+        .catch((e) => console.warn('video evidence not saved (recorder unavailable):', e.code || e.message));
   }
   await writeFile(
     out + '/evidence.json',

@@ -82,7 +82,15 @@ const server = createServer(async (request, response) => {
   const file = path.startsWith('/assets/') ? resolve(dist, '.' + path) : resolve(dist, 'index.html');
   if (!file.startsWith(dist + '/')) return response.writeHead(404).end();
   try {
-    const type = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.woff2': 'font/woff2' }[extname(file)] || 'application/octet-stream';
+    const type =
+      {
+        '.html': 'text/html',
+        '.js': 'text/javascript',
+        '.css': 'text/css',
+        '.svg': 'image/svg+xml',
+        '.webp': 'image/webp',
+        '.woff2': 'font/woff2',
+      }[extname(file)] || 'application/octet-stream';
     response.writeHead(200, { 'content-type': type }).end(await readFile(file));
   } catch {
     response.writeHead(404).end();
@@ -200,5 +208,13 @@ for (const profile of profiles) {
 }
 await browser.close();
 await new Promise((r) => server.close(r));
-console.log('\nWebGL renderer: ' + renderer + '   (' + SECONDS + ' s per row, built app from apps/invitation/dist' + (labBase ? ', lab ' + labBase : '') + ')');
+console.log(
+  '\nWebGL renderer: ' +
+    renderer +
+    '   (' +
+    SECONDS +
+    ' s per row, built app from apps/invitation/dist' +
+    (labBase ? ', lab ' + labBase : '') +
+    ')',
+);
 console.table(rows);

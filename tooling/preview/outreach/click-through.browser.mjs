@@ -51,10 +51,16 @@ try {
     const investing = page.getByRole('button', { name: 'I’m considering investing' });
     if ((await investing.getAttribute('aria-pressed')) !== 'true') await investing.click();
     await next(page);
-    await page.getByRole('radiogroup', { name: 'Which best describes you or the organisation you represent?' }).getByRole('radio', { name: 'Individual', exact: true }).check();
+    await page
+      .getByRole('radiogroup', { name: 'Which best describes you or the organisation you represent?' })
+      .getByRole('radio', { name: 'Individual', exact: true })
+      .check();
     await page.screenshot({ path: join(shots, `2c-answer-cards-${width}.png`) });
     await next(page);
-    await page.getByRole('radiogroup', { name: 'What is your role in the decision?' }).getByRole('radio', { name: 'I make investment decisions', exact: true }).check();
+    await page
+      .getByRole('radiogroup', { name: 'What is your role in the decision?' })
+      .getByRole('radio', { name: 'I make investment decisions', exact: true })
+      .check();
     await next(page);
     await page.getByRole('button', { name: 'Share an indicative amount' }).click();
     await control(page, 'Amount', { exact: true }).fill('150,000');
@@ -65,7 +71,10 @@ try {
     await control(page, 'Amount', { exact: true }).blur();
     await page.screenshot({ path: join(shots, `3-amount-${width}.png`) });
     await next(page);
-    await page.getByRole('radiogroup', { name: 'When would you consider taking part?' }).getByRole('radio', { name: 'Within three months', exact: true }).check();
+    await page
+      .getByRole('radiogroup', { name: 'When would you consider taking part?' })
+      .getByRole('radio', { name: 'Within three months', exact: true })
+      .check();
     await next(page);
     await control(page, 'What would you like us to know?', { exact: false }).fill('Click-through test enquiry.');
     await page.getByRole('button', { name: 'Review your answers' }).click();

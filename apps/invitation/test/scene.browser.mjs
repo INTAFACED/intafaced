@@ -122,7 +122,14 @@ const check = async (name, fn) => {
     console.log('ok   ' + name);
   } catch (error) {
     results.push({ name, ok: false, error: String(error?.message || error).slice(0, 600) });
-    console.log('FAIL ' + name + '\n     ' + String(error?.message || error).split('\n').join('\n     '));
+    console.log(
+      'FAIL ' +
+        name +
+        '\n     ' +
+        String(error?.message || error)
+          .split('\n')
+          .join('\n     '),
+    );
   }
 };
 
@@ -208,7 +215,9 @@ try {
     await page.getByRole('button', { name: 'Begin', exact: true }).click();
     await page.getByLabel('Your name', { exact: true }).waitFor();
     await page.waitForFunction(() => document.querySelector('.lb.is-dim'), null, { timeout: 30000 });
-    const states = await page.evaluate(() => [...document.querySelectorAll('.lb__photo, .lb__sweep i')].map((e) => getComputedStyle(e).animationPlayState));
+    const states = await page.evaluate(() =>
+      [...document.querySelectorAll('.lb__photo, .lb__sweep i')].map((e) => getComputedStyle(e).animationPlayState),
+    );
     assert.deepEqual(states, ['paused', 'paused']);
     await context.close();
   });
@@ -311,7 +320,10 @@ try {
   });
 
   await check('800 ms cap with no WebGL: ribbons fall back to the photo, foreground still starts on time', async () => {
-    noGlBrowser = await chromium.launch({ ...(executablePath ? { executablePath } : {}), args: ['--disable-gpu', '--disable-3d-apis', '--disable-webgl'] });
+    noGlBrowser = await chromium.launch({
+      ...(executablePath ? { executablePath } : {}),
+      args: ['--disable-gpu', '--disable-3d-apis', '--disable-webgl'],
+    });
     const { context, page, errors } = await open(noGlBrowser);
     await page.waitForFunction(() => window.__t.started != null, null, { timeout: 30000 });
     const started = await page.evaluate(() => window.__t.started);
