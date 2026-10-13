@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { Principal } from '@intafaced/auth';
-import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import { encodePrincipal, retainRawBody, signPrincipalHeader } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MemoryMerchantWebhookStore, MerchantWebhookService } from './merchant-webhooks.js';
@@ -539,6 +539,61 @@ describe('step 2 — mutating paths + Idempotency-Key (ADR §2.2)', () => {
 
     expect(res.statusCode).toBe(409);
     expect(res.json().error.code).toBe('pay.idempotency_conflict');
+    expect(pay.calls.filter((c) => c.method === 'createPayment')).toHaveLength(1);
+  });
+
+  /**
+   * The live parser is `retainRawBody` (`JSON.parse`), which keeps a top-level
+   * `__proto__` member as an own property. Ajv then deletes it. These two
+   * cases are that path: the member is part of the fingerprint.
+   */
+  async function buildLiveParser(pay: PayService): Promise<FastifyInstance> {
+    const instance = Fastify({ logger: false });
+    retainRawBody(instance);
+    await registerPublicPayRest(instance, {
+      edgeSecret: SECRET,
+      serviceName: 'svc-pay',
+      pay,
+      idempotency: new MemoryRestIdempotencyStore(),
+      webhooks: new MerchantWebhookService(new MemoryMerchantWebhookStore()),
+    });
+    await instance.ready();
+    return instance;
+  }
+
+  function withTopLevelProto(body: object, member: unknown): string {
+    return `${JSON.stringify(body).slice(0, -1)},"__proto__":${JSON.stringify(member)}}`;
+  }
+
+  it('CONFLICTS a repeated key when the body differs only by a top-level __proto__ member', async () => {
+    const pay = stubPay();
+    app = await buildLiveParser(pay);
+    const headers = { ...sandboxSigned(), 'content-type': 'application/json', 'idempotency-key': 'create:order:proto' };
+    const plain = JSON.stringify(createBody);
+    const withProto = withTopLevelProto(createBody, { extra: true });
+
+    const first = await app.inject({ method: 'POST', url: '/v1/payments', headers, payload: plain });
+    const second = await app.inject({ method: 'POST', url: '/v1/payments', headers, payload: withProto });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(409);
+    expect(second.json().error.code).toBe('pay.idempotency_conflict');
+    expect(second.json()).not.toEqual(first.json());
+    expect(pay.calls.filter((c) => c.method === 'createPayment')).toHaveLength(1);
+  });
+
+  it('REPLAYS the same body including the same top-level __proto__ member', async () => {
+    const pay = stubPay();
+    app = await buildLiveParser(pay);
+    const headers = { ...sandboxSigned(), 'content-type': 'application/json', 'idempotency-key': 'create:order:proto-same' };
+    const payload = withTopLevelProto(createBody, { extra: true });
+
+    const first = await app.inject({ method: 'POST', url: '/v1/payments', headers, payload });
+    const second = await app.inject({ method: 'POST', url: '/v1/payments', headers, payload });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toEqual(first.json());
     expect(pay.calls.filter((c) => c.method === 'createPayment')).toHaveLength(1);
   });
 

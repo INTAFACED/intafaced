@@ -288,6 +288,51 @@ function restRefundId(paymentId: string, idempotencyKey: string): string {
   return `rest:${paymentId}:${digest}`;
 }
 
+/**
+ * Deep copy of a JSON value that keeps an own `__proto__` data property.
+ * Ordinary assignment would invoke the prototype setter and drop the key.
+ */
+function copyJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(copyJsonValue);
+  if (value !== null && typeof value === 'object') {
+    const src = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(src)) {
+      Object.defineProperty(out, key, {
+        value: copyJsonValue(src[key]),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    return out;
+  }
+  return value;
+}
+
+/** Create body the journal hashes, with a top-level `__proto__` member restored after Ajv removed it. */
+function bodyForPaymentFingerprint(body: unknown, proto: { readonly value: unknown } | undefined): unknown {
+  if (!proto) return body;
+  const base = body !== null && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(base)) {
+    if (key === '__proto__') continue;
+    Object.defineProperty(out, key, {
+      value: base[key],
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  Object.defineProperty(out, '__proto__', {
+    value: proto.value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+  return out;
+}
+
 /** Reject JSON numbers / anything that is not already a decimal string (ADR §2.3). */
 function requireDecimalString(value: unknown, field: string): string {
   if (typeof value !== 'string' || !new RegExp(AMOUNT_PATTERN).test(value)) {
@@ -696,6 +741,25 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
     customerRef?: string;
     metadata?: Record<string, string>;
   };
+
+  /**
+   * The live JSON parser (`retainRawBody`) is `JSON.parse`, so a top-level
+   * `__proto__` member arrives as an own data property. Fastify's Ajv then
+   * runs `removeAdditional` and deletes that key under `additionalProperties:
+   * false` before this handler fingerprints `req.body`. The hash matches the
+   * body without the member, and a repeated Idempotency-Key replays the stored
+   * response. Remember the member here, while the parsed body still has it,
+   * and put it back on the object the journal hashes.
+   */
+  const preservedCreateProto = new WeakMap<object, { readonly value: unknown }>();
+  app.addHook('preValidation', async (req) => {
+    const path = req.url.split('?')[0] ?? req.url;
+    if (req.method !== 'POST' || path !== `${BASE}/payments`) return;
+    if (req.body === null || typeof req.body !== 'object') return;
+    const desc = Object.getOwnPropertyDescriptor(req.body, '__proto__');
+    if (!desc || !Object.prototype.hasOwnProperty.call(desc, 'value')) return;
+    preservedCreateProto.set(req, { value: copyJsonValue(desc.value) });
+  });
 
   app.post(
     `${BASE}/payments`,
