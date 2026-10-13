@@ -265,7 +265,9 @@ export const ledgerTx = ledger.table(
     /** Commit order. The hash chain follows this sequence exactly. */
     seq: bigserial('seq', { mode: 'bigint' }).notNull(),
     /**
-     * Retry protection. A repeated key returns the original transaction.
+     * Retry protection. A repeated key returns the original transaction when the body is the same;
+     * a different body is a mismatch (`ledger_posted_keys.request_fingerprint`, 0021): refused
+     * `ledger.idempotency_conflict` in `refuse` mode, logged in `detect` mode.
      *
      * At least 8 characters, in the database as well as in `assertValidPost`
      * (0009). The key is the IDENTITY of a movement, and after #1060 `post()`
@@ -298,7 +300,7 @@ export const ledgerTx = ledger.table(
 );
 
 /**
- * The posted idempotency claim (0017, 0018). Not a second book: no balance.
+ * The posted idempotency claim (0017, 0018, 0021). Not a second book: no balance.
  *
  * `posted_hash` and `posted_meta` are the hash and meta stored at insert.
  * Append-only is a trigger (`ledger_posted_keys_immutable`), not a CHECK.
@@ -310,6 +312,8 @@ export const ledgerPostedKeys = ledger.table(
     txId: uuid('tx_id').notNull(),
     postedHash: text('posted_hash').notNull(),
     postedMeta: jsonb('posted_meta').notNull(),
+    /** 0021: digest of what the post moved (null for rows booked before 0021). */
+    requestFingerprint: text('request_fingerprint'),
   },
   (t) => [
     uniqueIndex('ledger_posted_keys_tx_idx').on(t.txId),
