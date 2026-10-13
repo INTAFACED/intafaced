@@ -1,23 +1,12 @@
 import { assetName, homeCopy } from './copy';
-import {
-  directionOf,
-  fmtPct,
-  fmtPrice,
-  InfoTip,
-  Pct,
-  Skeleton,
-  Sparkline,
-  StateBlock,
-  type Decimal,
-  type Loadable,
-  type TickerRow,
-} from './deps';
-import { isUsdQuote, type Listing } from './select';
+import { direction, fmtPct, fmtPrice, Pct, Skeleton, Sparkline, StateBlock, type Decimal, type Loadable, type TickerRow } from './deps';
+import { InfoTip } from './InfoTip';
+import type { Listing } from './select';
 
 export type Tickers = Loadable<Record<string, TickerRow>>;
 
 export function priceText(item: Listing, ticker: TickerRow | undefined): string {
-  return fmtPrice(ticker?.last, item.market.tickSize, isUsdQuote(item.market.quote));
+  return fmtPrice(ticker?.last, item.market.tickSize);
 }
 
 function MarketCard({ item, tickers, points }: { item: Listing; tickers: Tickers; points: Decimal[] | undefined }) {
@@ -30,18 +19,18 @@ function MarketCard({ item, tickers, points }: { item: Listing; tickers: Tickers
         <span className="home-card__ticker">{item.base}</span>
         {name ? <span className="home-card__full">{name}</span> : null}
       </span>
-      <Sparkline points={points} width={154} height={56} />
+      <Sparkline values={points ?? []} width={154} height={56} endDot direction={direction(ticker?.changePct24h) ?? 'flat'} />
       {tickers.status === 'loading' ? (
         <span className="home-card__figures" aria-hidden="true">
-          <Skeleton width={96} height={28} radius={4} />
-          <Skeleton width={64} height={20} radius={4} />
+          <Skeleton width={96} height={28} />
+          <Skeleton width={64} height={20} />
         </span>
       ) : (
         <span className="home-card__figures">
           <span className="home-card__price" data-money>
             {priceText(item, ticker)}
           </span>
-          <Pct text={fmtPct(ticker?.changePct24h)} direction={directionOf(ticker?.changePct24h)} />
+          <Pct value={fmtPct(ticker?.changePct24h)} arrow />
         </span>
       )}
     </a>
@@ -71,7 +60,7 @@ export function MarketsSkeleton() {
   return (
     <div className="home-cards" aria-hidden="true">
       {[0, 1, 2, 3].map((index) => (
-        <Skeleton key={index} width="100%" height={176} radius={16} />
+        <Skeleton key={index} width="100%" height={176} className="rounded-lg" />
       ))}
     </div>
   );
@@ -79,7 +68,11 @@ export function MarketsSkeleton() {
 
 export function MarketsFailure({ retry }: { retry?: () => void }) {
   const { t } = homeCopy.useCopy();
-  return <StateBlock title={t('Couldn’t load markets')} action={retry ? { label: t('Try again'), onClick: retry } : undefined} />;
+  return retry ? (
+    <StateBlock kind="error" title={t('Couldn’t load markets')} onRetry={retry} retryLabel={t('Try again')} />
+  ) : (
+    <StateBlock kind="empty" title={t('Couldn’t load markets')} />
+  );
 }
 
 export function MoversRow({ movers }: { movers: Array<{ base: string; ticker: TickerRow }> }) {
@@ -89,7 +82,7 @@ export function MoversRow({ movers }: { movers: Array<{ base: string; ticker: Ti
         <li key={base}>
           <a className="home-pill" href={`/coin/${encodeURIComponent(base)}`}>
             <span>{base}</span>
-            <Pct text={fmtPct(ticker.changePct24h)} direction={directionOf(ticker.changePct24h)} />
+            <Pct value={fmtPct(ticker.changePct24h)} arrow />
           </a>
         </li>
       ))}
@@ -101,7 +94,7 @@ export function MoversSkeleton() {
   return (
     <div className="home-pills" aria-hidden="true">
       {[0, 1, 2, 3, 4, 5].map((index) => (
-        <Skeleton key={index} width={140} height={40} radius={999} />
+        <Skeleton key={index} width={140} height={40} circle />
       ))}
     </div>
   );

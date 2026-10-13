@@ -1,8 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
-import { z } from 'zod';
-import { marketSchema, type Market } from '@intafaced/exchange-contract/schemas';
-import { useResource, type Resource } from '../shared/resource';
 import { useSession } from '../features/session/session';
+import { useMarkets, type Loadable, type MarketRow } from '../data';
 import { navigate } from './location';
 import { roomTitle, roomDescription, searchRooms, normalizePair } from './navigation';
 import { ShellIcon } from './icons';
@@ -18,15 +16,13 @@ interface Row {
   href: string;
 }
 const perGroup = 8;
-const marketList = z.array(marketSchema);
 
 const isMac = typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.platform);
 
 /**
  * Header search (UI-SPEC 3.1): coins, markets and pages. Enter on a coin opens its page;
  * Enter on a market opens the desk in Pro and the coin page in Simple.
- * TODO(B1): swap to the Base UI Autocomplete in @intafaced/ui.
- * TODO(B3): swap the market lookup to useMarkets() once apps/customer/src/data lands.
+ * The markets come from the shared data layer (useMarkets). TODO(B1): swap the hand-built list to the kit Autocomplete.
  */
 export function TopSearch({ compact }: { compact?: boolean }) {
   const { t, requestedLocale } = shellCopy.useCopy();
@@ -138,12 +134,8 @@ export function TopSearch({ compact }: { compact?: boolean }) {
 
 /** Loads the listed markets once, after the first use, and keeps them for the session. */
 function SearchData({ open, ...props }: PanelProps & { open: boolean }) {
-  const { api, userId } = useSession();
-  const { resource } = useResource(
-    (signal) => api.rest('/markets', marketList, { query: { limit: 500 }, signal }),
-    `shell-markets:${userId ?? 'public'}`,
-  );
-  return open ? <SearchPanel {...props} resource={resource} /> : null;
+  const markets = useMarkets();
+  return open ? <SearchPanel {...props} source={markets} /> : null;
 }
 
 interface PanelProps {
@@ -168,13 +160,13 @@ function SearchPanel({
   inputRef,
   keysRef,
   close,
-  resource,
-}: PanelProps & { resource: Resource<Market[]> }) {
+  source,
+}: PanelProps & { source: Loadable<MarketRow[]> }) {
   const { t } = shellCopy.useCopy();
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
   const rows = useMemo(() => {
-    if (resource.status !== 'ready') return pages;
-    const listed = resource.data.filter((market) => market.spot && market.active && !market.paper);
+    if (source.status !== 'ready') return pages;
+    const listed = source.data.filter((market) => market.orderable);
     const fits = (text: string) => words.every((word) => text.toLowerCase().includes(word));
     const coins = [...new Set(listed.map((market) => market.base))]
       .filter((asset) => fits(asset))
@@ -191,7 +183,7 @@ function SearchPanel({
         href: layoutMode === 'pro' ? `/trade/spot/${normalizePair(market.symbol)}` : `/coin/${encodeURIComponent(market.base)}`,
       }));
     return [...coins, ...markets, ...pages];
-  }, [resource, pages, layoutMode, query]);
+  }, [source, pages, layoutMode, query]);
 
   function choose(row: Row | undefined) {
     if (!row) return;
@@ -220,7 +212,7 @@ function SearchPanel({
   });
 
   const groups: Group[] = ['Coins', 'Markets', 'Pages'];
-  const loading = resource.status === 'loading';
+  const loading = source.status === 'loading';
   let index = -1;
   return (
     <div className="tb-popover tb-search-panel" role="presentation">

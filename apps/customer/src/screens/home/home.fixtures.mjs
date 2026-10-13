@@ -1,50 +1,66 @@
-// Illustrative data for the Home test only. Not real balances or prices: the numbers are invented
-// but consistent, so the test can check the hero against the sum of its parts.
-const market = (base, quote, tickSize, lotSize = '0.0001') => ({
+// Illustrative data for the Home test only. Not real balances or prices: the numbers are invented but
+// consistent, so the test can check the hero against the sum of its parts. These are WIRE shapes: the
+// exact JSON the exchange REST API sends, so the real data layer (apps/customer/src/data) parses them.
+export const HOUR = 3_600_000;
+
+const wireMarket = (base, quote, tickSize, lotSize = '0.0001') => ({
+  id: `${base}-${quote}`,
   symbol: `${base}-${quote}`,
   base,
   quote,
+  settle: null,
+  baseId: base,
+  quoteId: quote,
+  type: 'spot',
+  spot: true,
+  swap: false,
+  future: false,
+  option: false,
+  contract: false,
+  linear: null,
+  inverse: null,
+  active: true,
   orderable: true,
-  tickSize,
-  lotSize,
-  minAmount: null,
-  listedAt: null,
+  paper: false,
+  schedule: 'crypto-24x7',
+  sessionOpen: true,
+  nextSessionChange: null,
+  hours: { kind: 'continuous' },
+  taker: '0.001',
+  maker: '0.001',
+  contractSize: null,
+  expiry: null,
+  expiryDatetime: null,
+  strike: null,
+  optionType: null,
+  precisionMode: 'TICK_SIZE',
+  precision: { amount: lotSize, price: tickSize },
+  limits: {
+    amount: { min: null, max: null },
+    price: { min: null, max: null },
+    cost: { min: null, max: null },
+    leverage: { min: null, max: null },
+  },
 });
 
 export const markets = [
-  market('BTC', 'USDT', '0.01'),
-  market('ETH', 'USDT', '0.01'),
-  market('IFC', 'USDT', '0.0001'),
-  market('SOL', 'USDT', '0.01'),
-  market('BTC', 'USDC', '0.01'),
-  market('XRP', 'USDT', '0.0001'),
-  market('DOGE', 'USDT', '0.00001'),
+  wireMarket('BTC', 'USDT', '0.01'),
+  wireMarket('ETH', 'USDT', '0.01'),
+  wireMarket('IFC', 'USDT', '0.0001'),
+  wireMarket('SOL', 'USDT', '0.01'),
+  wireMarket('BTC', 'USDC', '0.01'),
+  wireMarket('XRP', 'USDT', '0.0001'),
+  wireMarket('DOGE', 'USDT', '0.00001'),
 ];
 
-const ticker = (symbol, last, open, windowStart = null) => ({
-  symbol,
-  last,
-  bid: null,
-  ask: null,
-  open24h: open,
-  high24h: null,
-  low24h: null,
-  change24h: null,
-  changePct24h: null,
-  baseVolume24h: null,
-  quoteVolume24h: null,
-  windowStart,
-  source: 'derived',
-});
-const withPct = (row, pct) => ({ ...row, changePct24h: pct });
-
-export const tickers = {
-  'BTC-USDT': withPct(ticker('BTC-USDT', '67812.40', '66000.00'), '0.02746'),
-  'ETH-USDT': withPct(ticker('ETH-USDT', '3200.10', '3150.00'), '0.0159'),
-  'IFC-USDT': withPct(ticker('IFC-USDT', '0.4120', '0.4210'), '-0.02138'),
-  'SOL-USDT': withPct(ticker('SOL-USDT', '142.55', '140.10'), '0.01749'),
-  'XRP-USDT': withPct(ticker('XRP-USDT', '0.5230', '0.5120'), '0.02148'),
-  'DOGE-USDT': withPct(ticker('DOGE-USDT', '0.12345', '0.12987'), '-0.04943'),
+// symbol -> [last, open 24 h ago]
+const prices = {
+  'BTC-USDT': ['67812.40', '66000.00'],
+  'ETH-USDT': ['3200.10', '3150.00'],
+  'IFC-USDT': ['0.4120', '0.4210'],
+  'SOL-USDT': ['142.55', '140.10'],
+  'XRP-USDT': ['0.5230', '0.5120'],
+  'DOGE-USDT': ['0.12345', '0.12987'],
 };
 
 const series = (seed, up) =>
@@ -52,7 +68,7 @@ const series = (seed, up) =>
     const wobble = Math.sin(i * 0.9 + seed) * 0.6 + Math.cos(i * 0.4 + seed * 2) * 0.4;
     return String(100 + (up ? i * 0.5 : -i * 0.5) + wobble * 3);
   });
-export const sparklines = {
+const sparkline = {
   'BTC-USDT': series(1, true),
   'ETH-USDT': series(2, true),
   'IFC-USDT': series(3, false),
@@ -61,44 +77,62 @@ export const sparklines = {
   'DOGE-USDT': series(6, false),
 };
 
-const holding = (asset, cls, total, usdValue, usdChange24h, share, priceSymbol) => ({
-  asset,
-  class: cls,
-  total,
-  available: total,
-  inOrders: '0',
-  usdValue,
-  usdChange24h,
-  share,
-  priceSymbol,
-});
+/** /tickers. `withOpen: false` leaves the 24 h fields empty, so the data layer derives them from hourly candles. */
+export const tickers = ({ withOpen = true } = {}) => {
+  const now = Date.now();
+  return Object.fromEntries(
+    Object.entries(prices).map(([symbol, [last, open]]) => [
+      symbol,
+      {
+        symbol,
+        timestamp: now,
+        datetime: new Date(now).toISOString(),
+        high: null,
+        low: null,
+        bid: null,
+        bidVolume: null,
+        ask: null,
+        askVolume: null,
+        vwap: null,
+        open: withOpen ? open : null,
+        close: last,
+        last,
+        previousClose: null,
+        change: null,
+        percentage: null,
+        average: null,
+        baseVolume: null,
+        quoteVolume: null,
+        sparkline: withOpen ? sparkline[symbol] : null,
+      },
+    ]),
+  );
+};
+
+/** /ohlcv/<symbol>: hourly candles starting `hours` hours ago, closing at the symbol's last price. */
+export const hourlyCandles = (symbol, hours = 30) => {
+  const [last, open] = prices[symbol] ?? ['1', '1'];
+  const start = Math.floor((Date.now() - hours * HOUR) / HOUR) * HOUR;
+  return Array.from({ length: hours + 1 }, (_, i) => [start + i * HOUR, open, last, open, i === hours ? last : open, '1']);
+};
+
+/** /account/balance */
+export const balances = (extra = {}) => {
+  const now = Date.now();
+  const entry = (total) => ({ free: total, used: '0', total });
+  return {
+    timestamp: now,
+    datetime: new Date(now).toISOString(),
+    balances: { USDT: entry('4100.00'), BTC: entry('0.1'), ETH: entry('0.5'), ...extra },
+  };
+};
+export const emptyBalances = () => ({ ...balances(), balances: {} });
+
+// What the screen should show for the balances above (cents, no floats):
+//   BTC 0.1 x 67812.40 = 6781.24, ETH 0.5 x 3200.10 = 1600.05, USDT 4100.00, total 12481.29.
+//   Today = 0.1 x (67812.40 - 66000.00) + 0.5 x (3200.10 - 3150.00) = 181.24 + 25.05 = 206.29, on a prior 12275.00 (+1.68%).
 export const holdings = [
-  holding('USDT', 'cash', '4100.00', '4100.00', '0', '0.3285', null),
-  holding('BTC', 'crypto', '0.1', '6781.24', '181.24', '0.5433', 'BTC-USDT'),
-  holding('ETH', 'crypto', '0.5', '1600.05', '25.05', '0.1282', 'ETH-USDT'),
+  { asset: 'USDT', usdValue: '4100.00' },
+  { asset: 'BTC', usdValue: '6781.24' },
+  { asset: 'ETH', usdValue: '1600.05' },
 ];
-export const portfolio = {
-  totalUsd: '12481.29',
-  change24hUsd: '206.25',
-  change24hPct: '0.0168',
-  cashUsd: '4100.00',
-  cryptoUsd: '8381.29',
-  holdings,
-  unpriced: [],
-  source: 'derived',
-  asOf: 0,
-};
-
-export const movers = {
-  gainers: ['BTC-USDT', 'XRP-USDT', 'SOL-USDT', 'ETH-USDT'].map((s) => tickers[s]),
-  losers: ['DOGE-USDT', 'IFC-USDT'].map((s) => tickers[s]),
-};
-
-export const ready = (data) => ({ kind: 'ready', data });
-export const scenario = {
-  portfolio: ready(portfolio),
-  markets: ready(markets),
-  tickers: ready(tickers),
-  sparklines: ready(sparklines),
-  movers: ready(movers),
-};

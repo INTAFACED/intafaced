@@ -1,6 +1,6 @@
 import { assetName, homeCopy } from './copy';
 import { priceText, type Tickers } from './MarketsSection';
-import { directionOf, fmtPct, Button, CoinIcon, Pct, Skeleton, Sparkline, type Decimal, type Loadable } from './deps';
+import { direction, fmtPct, Button, CoinIcon, Pct, Skeleton, Sparkline, type Decimal, type Loadable } from './deps';
 import type { Listing } from './select';
 
 export function Watchlist({
@@ -23,7 +23,13 @@ export function Watchlist({
     <section className="home-watch" aria-labelledby="home-watch-title">
       <header className="home-watch__head">
         <h2 id="home-watch-title">{popular ? t('Popular') : t('Watchlist')}</h2>
-        <Button variant="ghost" size={32} href="/trade?tab=favorites" aria-label={t('Edit your watchlist')}>
+        <Button
+          variant="ghost"
+          size={32}
+          nativeButton={false}
+          render={<a href="/trade?tab=favorites" />}
+          aria-label={t('Edit your watchlist')}
+        >
           {t('Edit')}
         </Button>
       </header>
@@ -31,10 +37,10 @@ export function Watchlist({
         <div aria-hidden="true">
           {[0, 1, 2, 3, 4, 5].map((index) => (
             <div className="home-watch__row" key={index}>
-              <Skeleton width={28} height={28} radius={14} />
-              <Skeleton width={72} height={36} radius={4} />
-              <Skeleton width={64} height={24} radius={4} />
-              <Skeleton width={72} height={36} radius={4} />
+              <Skeleton width={28} height={28} circle />
+              <Skeleton width={72} height={36} />
+              <Skeleton width={64} height={24} />
+              <Skeleton width={72} height={36} />
             </div>
           ))}
         </div>
@@ -51,12 +57,17 @@ export function Watchlist({
                     <span className="home-watch__ticker">{item.base}</span>
                     {name ? <span className="home-watch__full">{name}</span> : null}
                   </span>
-                  <Sparkline points={points[item.symbol]} width={64} height={24} />
+                  <Sparkline
+                    values={points[item.symbol] ?? []}
+                    width={64}
+                    height={24}
+                    direction={direction(ticker?.changePct24h) ?? 'flat'}
+                  />
                   <span className="home-watch__figures">
                     <span className="home-watch__price" data-money>
                       {priceText(item, ticker)}
                     </span>
-                    <Pct text={fmtPct(ticker?.changePct24h)} direction={directionOf(ticker?.changePct24h)} className="home-watch__pct" />
+                    <Pct value={fmtPct(ticker?.changePct24h)} className="home-watch__pct" />
                   </span>
                 </a>
               </li>

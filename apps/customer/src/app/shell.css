@@ -1,21 +1,20 @@
 /*
  * The signed-in shell: top bar (UI-SPEC 3.1), phone tab bar and the dev ribbon.
- * Colours read the --if-* tokens from @intafaced/ui; the fallbacks keep the shell correct until that
- * theme is imported in main.tsx. TODO(B1): once the theme is imported, delete the fallback values.
+ * Colours read the --if-* tokens from @intafaced/ui (imported in main.tsx via app/redesign.css).
  */
 .if-app {
-  --tb-bg: var(--if-bg, #000000);
-  --tb-panel: var(--if-panel, #121212);
-  --tb-field: var(--if-field, #212121);
-  --tb-hover: var(--if-hover, #1d1d1d);
-  --tb-raised: var(--if-raised, #2c2c2c);
-  --tb-line: var(--if-line, #2e2e2e);
-  --tb-fg: var(--if-fg, #ffffff);
-  --tb-fg-2: var(--if-fg-2, #909090);
-  --tb-fg-3: var(--if-fg-3, #6c6c6c);
-  --tb-lime: var(--if-lime, #c8f64a);
-  --tb-on-lime: var(--if-on-lime, #0b0b0b);
-  --tb-ease: var(--if-ease, cubic-bezier(0.2, 0.8, 0.2, 1));
+  --tb-bg: var(--if-bg);
+  --tb-panel: var(--if-panel);
+  --tb-field: var(--if-field);
+  --tb-hover: var(--if-hover);
+  --tb-raised: var(--if-raised);
+  --tb-line: var(--if-line);
+  --tb-fg: var(--if-fg);
+  --tb-fg-2: var(--if-fg-2);
+  --tb-fg-3: var(--if-fg-3);
+  --tb-lime: var(--if-lime);
+  --tb-on-lime: var(--if-on-lime);
+  --tb-ease: var(--if-ease);
   min-height: 100dvh;
   background: var(--tb-bg);
   color: var(--tb-fg);

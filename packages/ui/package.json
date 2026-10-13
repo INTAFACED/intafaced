@@ -14,7 +14,10 @@
       "types": "./dist/tokens.d.ts",
       "default": "./dist/tokens.js"
     },
-    "./tokens.css": "./src/tokens.css"
+    "./tokens.css": "./src/tokens.css",
+    "./theme/tokens.css": "./src/theme/tokens.css",
+    "./theme/theme.css": "./src/theme/theme.css",
+    "./theme/base.css": "./src/theme/base.css"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -82,11 +82,11 @@
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
-  min-height: 20px;
+  height: 20px;
   font: 400 14px/20px var(--if-font-ui);
 }
-.home-change__label {
-  color: var(--if-fg-2);
+.home-change > [data-slot='change-text'] {
+  line-height: 20px;
 }
 .home-note {
   display: flex;
@@ -322,4 +322,12 @@
   .home-eye {
     transition: none;
   }
+}
+
+/* Info tip trigger (kit Tooltip opens on hover) */
+.if-tip {
+  display: inline-flex;
+  align-items: center;
+  color: var(--if-fg-2);
+  cursor: help;
 }

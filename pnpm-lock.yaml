@@ -117,6 +117,9 @@ importers:
       '@tanstack/react-virtual':
         specifier: 3.14.13
         version: 3.14.13(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react:
+        specifier: 1.48.0
+        version: 1.48.0(react@19.3.0)
       react:
         specifier: ^19.0.0
         version: 19.3.0

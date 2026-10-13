@@ -1,5 +1,8 @@
 import type { MarketRow, TickerRow } from './deps';
-import { absDecimal, compareDecimal } from './deps';
+import { compareDecimal } from './deps';
+
+const absDecimal = (value: string | null): string | null => (value === null ? null : value.replace(/^-/, ''));
+const order = (a: string | null, b: string | null): number => compareDecimal(a, b) ?? 0;
 
 /** One orderable market per asset, so BTC does not show twice for BTC/USDT and BTC/USDC. */
 export interface Listing {
@@ -34,12 +37,12 @@ function fallbackIndex(list: Listing[], item: Listing): number {
 /** Top cards: most 24h activity first; without activity numbers, BTC, ETH, IFC, then listing order. */
 export function topCards(list: Listing[], tickers: Record<string, TickerRow> | undefined, count: number): Listing[] {
   const activity = (item: Listing) => tickers?.[item.symbol]?.quoteVolume24h ?? null;
-  const active = (item: Listing) => compareDecimal(activity(item), '0') > 0;
+  const active = (item: Listing) => order(activity(item), '0') > 0;
   return [...list]
     .sort((a, b) => {
       if (active(a) !== active(b)) return active(a) ? -1 : 1;
       if (active(a) && active(b)) {
-        const byActivity = compareDecimal(activity(b), activity(a));
+        const byActivity = order(activity(b), activity(a));
         if (byActivity !== 0) return byActivity;
       }
       return fallbackIndex(list, a) - fallbackIndex(list, b);
@@ -56,7 +59,7 @@ export function topMovers(
   const seen = new Set<string>();
   return rows
     .filter((row) => row.changePct24h !== null)
-    .sort((a, b) => compareDecimal(absDecimal(b.changePct24h), absDecimal(a.changePct24h)))
+    .sort((a, b) => order(absDecimal(b.changePct24h), absDecimal(a.changePct24h)))
     .flatMap((ticker) => {
       const base = baseOf(ticker.symbol);
       if (!base || seen.has(base)) return [];

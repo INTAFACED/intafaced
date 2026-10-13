@@ -1,7 +1,9 @@
 import { defineConfig } from 'vite';
+import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   esbuild: { jsx: 'automatic' },
+  plugins: [tailwindcss()],
   server: {
     proxy: {
       '/api': { target: process.env.CUSTOMER_EDGE_URL ?? 'http://127.0.0.1:4000', changeOrigin: false },

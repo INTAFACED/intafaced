@@ -13,6 +13,12 @@ import { cn } from './cn.js';
 type FlowValue = React.ComponentProps<typeof NumberFlow>['value'];
 const asFlowValue = (decimal: string) => decimal as unknown as FlowValue;
 
+/** The figure as plain text for assistive tech ("$12,481.29"); Intl formats the decimal string exactly. */
+function spokenText(value: string, decimals: number, locales: string, prefix: string | undefined): string {
+  const format = new Intl.NumberFormat(locales, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  return `${prefix ?? ''}${format.format(value as unknown as number)}`;
+}
+
 export interface HeroNumberProps extends Omit<React.ComponentProps<'span'>, 'children'> {
   /**
    * Decimal string, ALREADY rounded to `decimals` by the app's format helper
@@ -72,16 +78,20 @@ export function HeroNumber({
       ) : value == null ? (
         <span className="text-fg-2">{UNKNOWN}</span>
       ) : (
-        <NumberFlow
-          value={asFlowValue(value)}
-          locales={locales}
-          prefix={prefix}
-          format={{ minimumFractionDigits: decimals, maximumFractionDigits: decimals }}
-          animated={!reduced}
-          transformTiming={{ duration: 450, easing: motion.ease }}
-          spinTiming={{ duration: 450, easing: motion.ease }}
-          opacityTiming={{ duration: 250, easing: 'ease-out' }}
-        />
+        // NumberFlow draws digit strips inside a shadow root, which assistive tech reads as a jumble
+        // ("01234567890..."), so the whole figure is one image with the real text as its name.
+        <span role="img" aria-label={spokenText(value, decimals, locales, prefix)} className="inline-flex">
+          <NumberFlow
+            value={asFlowValue(value)}
+            locales={locales}
+            prefix={prefix}
+            format={{ minimumFractionDigits: decimals, maximumFractionDigits: decimals }}
+            animated={!reduced}
+            transformTiming={{ duration: 450, easing: motion.ease }}
+            spinTiming={{ duration: 450, easing: motion.ease }}
+            opacityTiming={{ duration: 250, easing: 'ease-out' }}
+          />
+        </span>
       )}
       {unit ? <span className="text-md font-medium text-fg-2">{unit}</span> : null}
     </span>
