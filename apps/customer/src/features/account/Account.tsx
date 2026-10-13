@@ -22,6 +22,7 @@ import {
 } from './subaccount-guards';
 import './subaccount.css';
 import { RankPerks } from './RankPerks';
+import { CopyButton } from '../../screens/account/CopyButton';
 
 type Original = {
   owner: string;
@@ -308,14 +309,7 @@ export function Account() {
               {userId}
             </p>
           </div>
-          <div className="actions">
-            <a className="text-link subaccounts__support" href="/verification">
-              {t('verification')}
-            </a>
-            <a className="text-link subaccounts__support" href="/uc/safe">
-              {t('security')}
-            </a>
-          </div>
+          {userId && <CopyButton value={userId} label={t('copyId')} />}
         </section>
         <RankPerks />
         <div className="subaccounts__columns">
