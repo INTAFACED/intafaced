@@ -125,17 +125,25 @@ async function review(page) {
   await page.getByRole('button', { name: 'Begin', exact: true }).click();
   await page.getByLabel('Your name', { exact: true }).fill('Completion regression visitor');
   await page.getByLabel('Email', { exact: true }).fill(`completion-${mode}@example.invalid`);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'A little more, if you like.' })).toBeFocused();
   await page.getByRole('button', { name: 'Save details & continue' }).click();
   await page.getByRole('button', { name: 'I can introduce an investor', exact: true }).click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page
-    .getByLabel('Which best describes you or the organisation you represent?')
-    .and(page.locator('select'))
-    .selectOption('individual');
+    .getByRole('radiogroup', { name: 'Which best describes you or the organisation you represent?' })
+    .getByRole('radio', { name: 'Individual', exact: true })
+    .check();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await page.getByLabel('What is your role in the decision?').and(page.locator('select')).selectOption('introducer');
+  await page
+    .getByRole('radiogroup', { name: 'What is your role in the decision?' })
+    .getByRole('radio', { name: 'I make introductions', exact: true })
+    .check();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await page.getByLabel('When would you consider taking part?').and(page.locator('select')).selectOption('later');
+  await page
+    .getByRole('radiogroup', { name: 'When would you consider taking part?' })
+    .getByRole('radio', { name: 'Later', exact: true })
+    .check();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByLabel('What would you like us to know?').and(page.locator('textarea')).fill('Please review this introduction enquiry.');
   await page.getByRole('button', { name: 'Review your answers' }).click();
@@ -273,6 +281,9 @@ try {
     const receipt = page.locator('.outreach-complete');
     await expect(page.getByRole('heading', { name: 'Your enquiry is saved.' })).toBeVisible();
     await expect(receipt.getByRole('status')).toHaveCount(1);
+    // Erasure lives in the one quiet "Your details & this device" disclosure.
+    const summary = page.locator('.saved-contact-details > summary');
+    await summary.click();
     const control = page.getByRole('button', { name: 'Forget this draft on my device' });
     await expect(control).toBeEnabled();
     if (mode === 'local-delay') {
@@ -328,7 +339,6 @@ try {
     });
     assert.ok(held, 'Actual scheduled heading callback must be exercised');
     await expect(control).toBeFocused();
-    const summary = page.locator('.saved-contact-details > summary');
     await summary.focus();
     await page.evaluate(() => {
       for (const callback of window.__headingCallbacks) callback(performance.now());
@@ -403,7 +413,10 @@ try {
       errors,
     });
     await context.close();
-    if (video) await video.saveAs(`${out}/videos/completion-${scenario.width}.webm`);
+    if (video)
+      await video
+        .saveAs(`${out}/videos/completion-${scenario.width}.webm`)
+        .catch((e) => console.warn('video evidence not saved (recorder unavailable):', e.code || e.message));
   }
   await writeFile(
     out + '/evidence.json',

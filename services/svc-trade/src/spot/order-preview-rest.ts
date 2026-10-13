@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { AuthError, requireScope } from '@intafaced/auth';
-import { checkAccess } from '@intafaced/config';
+import { checkAccess, screeningFailClosedFromEnv } from '@intafaced/config';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import { formatAmount, mul, mulBps, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { MarketAction } from '@intafaced/exchange-contract';
@@ -354,14 +354,17 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       }
     }
 
-    // Same trade checkAccess gate as POST /api/v1/orders. Fail closed so a blank
-    // list is a refusal, not a clearance. This route posts no hold.
+    // Same trade checkAccess gate as POST /api/v1/orders. A blank list is a refusal, not a
+    // clearance: the shared switch fails closed unless INTAFACED_SCREENING_FAIL_CLOSED is
+    // explicitly off AND APP_ENV is dev/test. Read it from the shared config (as the other
+    // trade doors and every other service do) rather than hard-coding, so a local-test stack
+    // that turned it off previews the same way it places. This route posts no hold.
     const access = checkAccess({
       module: 'trade',
       plane: 'fiat',
       region: edge.region,
       kycTier: principal.tier,
-      screeningFailClosed: true,
+      screeningFailClosed: screeningFailClosedFromEnv(),
     });
     if (!access.allowed) {
       refusals.push({ code: access.code, field: 'region', message: access.reason });

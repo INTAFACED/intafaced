@@ -109,19 +109,19 @@ async function mountEnrol(auth: AuthService): Promise<FastifyInstance> {
 describe('totp.enrol — refuse blank IDENTITY_TOTP_SECRET_KEY', () => {
   it('startTotpEnrolment refuses a blank key — no invented secret, no pending write', async () => {
     const { auth, pending } = makeAuth('');
-    await expect(auth.startTotpEnrolment(USER)).rejects.toMatchObject({ code: 'auth.totp_key_missing' });
+    await expect(auth.startTotpEnrolment(USER, { mfa: false, privileged: false })).rejects.toMatchObject({ code: 'auth.totp_key_missing' });
     expect(pending.size).toBe(0);
   });
 
   it('startTotpEnrolment refuses a missing key', async () => {
     const { auth, pending } = makeAuth(undefined);
-    await expect(auth.startTotpEnrolment(USER)).rejects.toMatchObject({ code: 'auth.totp_key_missing' });
+    await expect(auth.startTotpEnrolment(USER, { mfa: false, privileged: false })).rejects.toMatchObject({ code: 'auth.totp_key_missing' });
     expect(pending.size).toBe(0);
   });
 
   it('startTotpEnrolment refuses a short key — no invented AES material', async () => {
     const { auth, pending } = makeAuth('short');
-    await expect(auth.startTotpEnrolment(USER)).rejects.toMatchObject({ code: 'auth.totp_key_missing' });
+    await expect(auth.startTotpEnrolment(USER, { mfa: false, privileged: false })).rejects.toMatchObject({ code: 'auth.totp_key_missing' });
     expect(pending.size).toBe(0);
   });
 
@@ -143,7 +143,7 @@ describe('totp.enrol — refuse blank IDENTITY_TOTP_SECRET_KEY', () => {
   it('a real 32-byte key lets enrol start and writes pending hashes only', async () => {
     const key = randomBytes(32).toString('base64');
     const { auth, pending } = makeAuth(key, userSql({ email: 'owner@example.com', totp_secret: null }));
-    const started = await auth.startTotpEnrolment(USER);
+    const started = await auth.startTotpEnrolment(USER, { mfa: false, privileged: false });
     expect(started.secret.length).toBeGreaterThan(16);
     expect(started.uri).toContain('otpauth://');
     expect(started.recoveryCodes.length).toBeGreaterThan(0);

@@ -18,7 +18,7 @@ const questionnaire = `http://localhost:${process.env.PREVIEW_PUBLIC_PORT ?? 440
 const crm = `http://localhost:${process.env.PREVIEW_ADMIN_PORT ?? 4401}`;
 const visitor = `Click-through visitor ${new Date().toISOString().slice(11, 19)}`;
 await mkdir(shots, { recursive: true });
-applyPlaywrightBrowsersEnv({ repoRoot: repo });
+const { executablePath } = applyPlaywrightBrowsersEnv({ repoRoot: repo });
 
 const control = (page, label, options) => page.getByLabel(label, options).and(page.locator('input, select, textarea'));
 async function next(page) {
@@ -26,7 +26,7 @@ async function next(page) {
   await expect(page.locator('#intake-heading')).toBeFocused();
 }
 
-const browser = await chromium.launch();
+const browser = await chromium.launch({ ...(executablePath ? { executablePath } : {}) });
 try {
   for (const width of [390, 1280]) {
     const context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 900 } });
@@ -42,25 +42,44 @@ try {
     await control(page, 'Your name').fill(`${visitor} ${width}`);
     await control(page, 'Email', { exact: false }).fill(`click-through-${width}@example.invalid`);
     await page.screenshot({ path: join(shots, `2-contact-${width}.png`) });
+    // Contact is two screens: name and email, then the optional extras. Nothing is sent until the second.
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'A little more, if you like.', exact: true })).toBeFocused();
+    await page.screenshot({ path: join(shots, `2b-contact-more-${width}.png`) });
     await page.getByRole('button', { name: 'Save details & continue' }).click();
     await expect(page.getByRole('heading', { name: 'How would you like to take part?', exact: true })).toBeVisible();
     const investing = page.getByRole('button', { name: 'I’m considering investing' });
     if ((await investing.getAttribute('aria-pressed')) !== 'true') await investing.click();
     await next(page);
-    await control(page, 'Which best describes you or the organisation you represent?').selectOption('individual');
+    await page
+      .getByRole('radiogroup', { name: 'Which best describes you or the organisation you represent?' })
+      .getByRole('radio', { name: 'Individual', exact: true })
+      .check();
+    await page.screenshot({ path: join(shots, `2c-answer-cards-${width}.png`) });
     await next(page);
-    await control(page, 'What is your role in the decision?').selectOption('decision_maker');
+    await page
+      .getByRole('radiogroup', { name: 'What is your role in the decision?' })
+      .getByRole('radio', { name: 'I make investment decisions', exact: true })
+      .check();
     await next(page);
     await page.getByRole('button', { name: 'Share an indicative amount' }).click();
-    await control(page, 'Amount', { exact: true }).fill('150000');
-    await control(page, 'Currency', { exact: true }).selectOption('EUR');
+    await control(page, 'Amount', { exact: true }).fill('150,000');
+    const currency = page.getByRole('combobox', { name: 'Currency', exact: true });
+    await currency.click();
+    await currency.fill('EUR');
+    await page.getByRole('option', { name: 'Euro' }).first().click();
+    await control(page, 'Amount', { exact: true }).blur();
     await page.screenshot({ path: join(shots, `3-amount-${width}.png`) });
     await next(page);
-    await control(page, 'When would you consider taking part?').selectOption('within_three_months');
+    await page
+      .getByRole('radiogroup', { name: 'When would you consider taking part?' })
+      .getByRole('radio', { name: 'Within three months', exact: true })
+      .check();
     await next(page);
     await control(page, 'What would you like us to know?', { exact: false }).fill('Click-through test enquiry.');
     await page.getByRole('button', { name: 'Review your answers' }).click();
     await expect(page.getByRole('heading', { name: 'Before you send.', exact: true })).toBeVisible();
+    await page.getByText('Your details & this device', { exact: true }).click();
     await page.screenshot({ path: join(shots, `4-review-${width}.png`), fullPage: true });
     await page.getByRole('button', { name: 'Send enquiry', exact: true }).click();
     await page.waitForTimeout(2500);
