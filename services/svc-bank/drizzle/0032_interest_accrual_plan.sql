@@ -1,0 +1,25 @@
+-- A daily interest accrual keeps the payout list it planned.
+--
+-- accrue claims (pool, day), plans who earns what from live positions and
+-- ledger stake pots, then posts one ledger transaction under the key
+-- bank.interest:<poolId>:<date>. The plan used to exist only in memory. A
+-- crash after the post and before the database commit rolled the claim back
+-- while the payment stood, and the next run rebuilt a different list from
+-- whatever positions existed by then and re-posted the same key with a
+-- different body.
+--
+-- planned_payouts is that list, committed with the claim before the post:
+-- a JSON array of {"userId": "<uuid>", "amount": "<decimal string>"}. Amounts
+-- are strings, never JSON numbers. paid_amount, recipients and ledger_tx_id
+-- keep their meaning (what was paid) and are written only after the post.
+--
+-- NULL means no plan was stored: a row written before this migration, or a day
+-- with nothing to pay. Either way the row is final. A plan with ledger_tx_id
+-- still null is a run that stopped between planning and recording; the next
+-- run posts the stored list instead of planning again.
+--
+-- Adds one nullable column. No row is read, rewritten or deleted.
+--
+-- Reversal: 0032_interest_accrual_plan.down.sql
+
+ALTER TABLE "bank"."interest_accruals" ADD COLUMN IF NOT EXISTS "planned_payouts" jsonb;
