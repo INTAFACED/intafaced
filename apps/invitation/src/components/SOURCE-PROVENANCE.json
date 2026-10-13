@@ -10,7 +10,8 @@
     "originalSha256": "4a7a48c35f916285c2f2f03dcae577831b3ed44cd127928c75f11fb82332bf85",
     "localChanges": [
       "relative local import paths; further calm-motion/colour changes tracked by git",
-      "Original finite5/6s field glow travel uses full-parent-width transform wrappers instead of animated left; original35%/55% endpoints, glow sizes, gradients, blur and normal timing retained; reduced motion static"
+      "Original finite5/6s field glow travel uses full-parent-width transform wrappers instead of animated left; original35%/55% endpoints, glow sizes, gradients, blur and normal timing retained; reduced motion static",
+      "Resting glow damped: the glow layer (data-slot halo-glow) sits at 5% opacity on an empty or unfocused field and returns to full opacity on hover and focus-within (300ms ease-out), so an idle field does not read as a stain; the shell gains the group/halo name for that"
     ],
     "registry": "https://www.cult-ui.com/r/halo-input.json"
   },

@@ -364,7 +364,7 @@ Verdicts (Cloudflare 2026-09 ledger, encoded, **not installed**): `confirmed`/`O
 
 ## 22 · Loop brakes (this is the mill-killer)
 
-Paid here: caller-chase, unset-refuse occupancy, compaction-as-stop, thinning. Paid in the industry **today (2026-09-17):** Google Agent Anomaly Detection — infinite loops, **oscillating retries**, rogue role-abandon. Cloudflare anti-patterns — prose findings that cannot be deduped, re-reporting the same source. OpenAI Codex (Provencher, today) — >2 overlapping agents “double-checking homework” as a **coordination tax**. arXiv 2607.24604 — generate–test–revise can **destroy a correct patch**.
+Paid here: caller-chase, unset-refuse occupancy, compaction-as-stop, thinning. Paid in the industry **today (2026-09-17):** Google Agent Anomaly Detection — infinite loops, **oscillating retries**, rogue role-abandon. Cloudflare anti-patterns — prose findings that cannot be deduped, re-reporting the same source. A coding-agent vendor’s own report (Provencher, today) — >2 overlapping agents “double-checking homework” as a **coordination tax**. arXiv 2607.24604 — generate–test–revise can **destroy a correct patch**.
 
 Brakes (all binding):
 
