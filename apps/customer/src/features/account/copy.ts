@@ -190,7 +190,8 @@ const messages = {
   'view.trading.preferences': 'Trading preferences',
   'view.confirm.before.send': 'Ask me to confirm before sending',
   'view.confirm.before.cancel': 'Ask me to confirm before cancelling',
-  'view.an.authoritative.price.fee.and.funds.review': 'You always see the price and fees before anything is sent.',
+  'view.an.authoritative.price.fee.and.funds.review':
+    'Before you send, you see the price and an estimated fee. The final amount can differ.',
   'view.favorites.view': 'Favorites view',
   'view.list': 'List',
   'view.cards': 'Cards',

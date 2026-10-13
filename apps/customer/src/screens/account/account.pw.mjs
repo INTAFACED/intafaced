@@ -233,7 +233,7 @@ for (const [tier, tag, status] of [
     expect(tierTop).toBeLessThan(formTop);
     expect(formTop).toBeLessThan(recordsTop);
     await expect(page.locator('.verification__request')).toContainText(
-      'We’ll review your details. You’ll get a notification when it’s done.',
+      'Sending this asks for a review. It doesn’t change your level unless it’s approved.',
     );
     await expect(page.locator('.acct')).not.toContainText('Submitting does not approve');
     expect(await page.locator('.acct').innerText()).not.toMatch(forbidden);

@@ -56,7 +56,7 @@ test('Security reads bounded own seats and revokes only the reviewed named seat 
   await expect(dialog).toContainText(seatId);
   await dialog.getByRole('button', { name: 'Sign out this session' }).click();
   await expect(page.getByText('The service revoked the selected session.')).toBeVisible();
-  await expect(page.getByText('No live sessions returned')).toBeVisible();
+  await expect(page.getByText('No active sessions')).toBeVisible();
   expect(writes).toEqual([{ userId, sessionId: seatId }]);
   expect(reads.length).toBeGreaterThan(1);
 });
