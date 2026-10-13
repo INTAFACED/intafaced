@@ -343,6 +343,10 @@ export class MemoryMerchantWebhookStore implements MerchantWebhookStore {
       .filter((d) => d.status === 'pending' || d.status === 'failed')
       .filter((d) => !this.httpSentAt.has(d.id))
       .filter((d) => d.nextAttemptAt.getTime() <= now.getTime())
+      .filter((d) => {
+        const ep = this.endpoints.get(d.endpointId);
+        return ep !== undefined && ep.status === 'active';
+      })
       .sort((a, b) => a.nextAttemptAt.getTime() - b.nextAttemptAt.getTime())
       .slice(0, limit);
     const out: Array<MerchantWebhookDelivery & { secret: string; url: string }> = [];

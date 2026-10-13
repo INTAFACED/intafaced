@@ -255,6 +255,56 @@ describe('MerchantWebhookService', () => {
     expect(second).toHaveLength(0);
   });
 
+  it('claimDue does not let disabled endpoints fill the batch ahead of a later active row', async () => {
+    const store = new MemoryMerchantWebhookStore();
+    const svc = new MerchantWebhookService(store);
+    const disabled = await svc.registerEndpoint(MERCHANT, 'https://merchant.example/disabled');
+    const active = await svc.registerEndpoint(MERCHANT, 'https://merchant.example/active');
+    await store.setEndpointStatus(disabled.id, 'disabled', 'consecutive_failures', 3);
+
+    const now = new Date('2026-08-12T12:00:00.000Z');
+    const limit = 3;
+    const disabledDueAt: number[] = [];
+    for (let i = 0; i < limit; i++) {
+      const nextAttemptAt = new Date(now.getTime() - (limit - i) * 1_000);
+      disabledDueAt.push(nextAttemptAt.getTime());
+      await store.insertDelivery({
+        id: `66666666-6666-4666-8666-66666666666${i}`,
+        endpointId: disabled.id,
+        merchantId: MERCHANT,
+        eventId: `payment.captured:disabled-${i}`,
+        eventType: 'payment.captured',
+        payload: { endpoint: 'disabled', i },
+        nextAttemptAt,
+      });
+    }
+    const activeId = '77777777-7777-4777-8777-777777777777';
+    await store.insertDelivery({
+      id: activeId,
+      endpointId: active.id,
+      merchantId: MERCHANT,
+      eventId: 'payment.captured:active',
+      eventType: 'payment.captured',
+      payload: { endpoint: 'active' },
+      nextAttemptAt: new Date(now.getTime() - 1),
+    });
+
+    const claimed = await store.claimDue(limit, now);
+    expect(claimed.map((row) => row.id)).toEqual([activeId]);
+    expect(claimed[0]?.endpointId).toBe(active.id);
+    expect(claimed[0]?.url).toBe('https://merchant.example/active');
+    expect(claimed[0]?.nextAttemptAt.getTime()).toBe(now.getTime() + WEBHOOK_CLAIM_LEASE_MS);
+
+    for (let i = 0; i < limit; i++) {
+      const row = store.deliveries.get(`66666666-6666-4666-8666-66666666666${i}`);
+      expect(row?.nextAttemptAt.getTime()).toBe(disabledDueAt[i]);
+      expect(row?.status).toBe('pending');
+    }
+
+    const again = await store.claimDue(limit, now);
+    expect(again).toEqual([]);
+  });
+
   it('does not POST again when the claim lease expires after the body was sent', async () => {
     const store = new MemoryMerchantWebhookStore();
     let posts = 0;
