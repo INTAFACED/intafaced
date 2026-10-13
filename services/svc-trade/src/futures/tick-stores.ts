@@ -133,6 +133,30 @@ export function sqlFundingPeriodStore(sql: Sql): FundingPeriodStore {
       }
       return [];
     },
+    async freezeRate(periodId, rate) {
+      // First writer freezes the rate; every later run (replay, concurrent tick,
+      // oracle republish at a new rate) reads the same one back.
+      await sql`
+        INSERT INTO trade.funding_period_rates (period_id, rate)
+        VALUES (${periodId}, ${rate})
+        ON CONFLICT (period_id) DO NOTHING
+      `;
+      const rows = await sql<{ rate: string }[]>`
+        SELECT rate FROM trade.funding_period_rates WHERE period_id = ${periodId} LIMIT 1
+      `;
+      const row = rows[0];
+      if (!row) {
+        // Never fall back to the oracle rate — that is the defect this table closes.
+        throw new Error(`funding rate freeze for ${periodId} produced no row — refusing oracle-rate fallback`);
+      }
+      return row.rate;
+    },
+    async peekRate(periodId) {
+      const rows = await sql<{ rate: string }[]>`
+        SELECT rate FROM trade.funding_period_rates WHERE period_id = ${periodId} LIMIT 1
+      `;
+      return rows[0]?.rate ?? null;
+    },
     async recordSkip(periodId, meta) {
       await sql`
         INSERT INTO trade.funding_period_skips (period_id, market_id, reason)
