@@ -88,10 +88,10 @@ export function tabSpecs(layoutMode: 'simple' | 'pro'): TabSpec[] {
     },
     {
       door: 'More',
-      href: '/help',
+      href: '/more',
       icon: 'grid',
       items: [
-        { id: 'help', href: '/help', icon: 'help', title: 'Help', description: 'Answers and support' },
+        { id: 'help', href: '/support', icon: 'help', title: 'Help', description: 'Answers and support' },
         { id: 'settings', href: '/view', icon: 'settings', title: 'Settings', description: 'Display, language and notifications' },
       ],
     },
