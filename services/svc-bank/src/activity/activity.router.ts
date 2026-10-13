@@ -33,6 +33,8 @@ const activityItem = z.object({
   txId: z.string(),
   counterparty: z.object({ handle: z.string() }).nullable(),
   spaceName: z.string().nullable(),
+  /** Present only when the ledger links the line to the user's own trade order. Omitted otherwise. */
+  orderId: z.string().min(1).max(128).optional(),
 });
 
 const activityListOutput = z.object({ items: z.array(activityItem), nextCursor: z.string().nullable() });
