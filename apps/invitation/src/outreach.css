@@ -40,15 +40,22 @@
   src: url('../../../vendor/upstream-exchange/05_Web_Front/src/assets/fonts/inter-latin.woff2') format('woff2');
   font-weight: 100 900;
   font-display: swap;
+  /* What this file actually holds (checked glyph by glyph, 2026-10-14): Latin-1, punctuation, € ₹ ™, arrows, minus,
+     ticks. The old range left out € and the arrows and claimed latin-ext characters this file lacks. */
   unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20A0-20AB, U+20AD-20C0,
-    U+2113, U+2C60-2C7F, U+A720-A7FF;
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+20B9, U+2122,
+    U+2190-2199, U+2212, U+2215, U+2500, U+2713-2717, U+FEFF, U+FFFD;
 }
 @font-face {
   font-family: 'Outreach Inter';
   src: url('../../../vendor/upstream-exchange/05_Web_Front/src/assets/fonts/inter-latin-ext.woff2') format('woff2');
   font-weight: 100 900;
   font-display: swap;
+  /* The latin-ext subset's own range, so an English-only page never downloads this 85 KB file. Without it the face
+     claims every character and the browser fetches both subsets on every visit. */
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 :root {
   background: #07090a;
