@@ -929,6 +929,30 @@ export class AuthService {
     return { userId: user.id, status: user.status, kycTier: await this.kycTier(user.id) };
   }
 
+  /**
+   * The caller's own handle, for `identity.me`. Null only when the account row
+   * is gone, which a live session should not be able to reach.
+   */
+  async handleOf(userId: string): Promise<string | null> {
+    const rows = await this.sql<Array<{ handle: string }>>`SELECT handle FROM users WHERE id = ${userId} LIMIT 1`;
+    return rows[0]?.handle ?? null;
+  }
+
+  /**
+   * Exact handle match for pay-by-@handle. `handle` is citext, so `=` is
+   * case-insensitive and there is no LIKE, prefix or list path here.
+   *
+   * Only `active` accounts come back. Frozen, closed and missing rows are the
+   * same null: the caller must not learn which handles belong to restricted
+   * accounts. Returns the stored handle and nothing else about the account.
+   */
+  async findActiveByHandle(handle: string): Promise<{ userId: string; handle: string } | null> {
+    const rows = await this.sql<Array<{ id: string; handle: string }>>`
+      SELECT id, handle FROM users WHERE handle = ${handle} AND status = 'active' LIMIT 1`;
+    const row = rows[0];
+    return row ? { userId: row.id, handle: row.handle } : null;
+  }
+
   async submitKyc(input: { userId: string; tier: SubmittableKycTier; jurisdiction: string; providerRef?: string }): Promise<KycRecordView> {
     return transaction(this.sql, async (tx) => {
       const users = await tx<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${input.userId} FOR UPDATE`;

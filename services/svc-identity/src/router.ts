@@ -23,6 +23,7 @@ import {
   type KycRecordView,
 } from './auth/auth-service.js';
 import type { RankService } from './rank/rank-service.js';
+import { HANDLE_LOOKUP_RATE_LIMITED, HandleLookupLimiter, normaliseHandleQuery, type HandleLookupLimiterPort } from './handle-lookup.js';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import {
   AFFILIATE_PAYOUT_RESIDUAL,
@@ -419,6 +420,12 @@ export function createIdentityRouter(
      * (no silent enroll). Wired in index.ts against SqlWaitlistStore.
      */
     waitlist?: WaitlistService;
+    /**
+     * Per-caller budget for `users.resolveHandle`. Defaults to 30 per minute,
+     * process-local. Injected so tests can pin the clock and a shared store can
+     * replace it later.
+     */
+    handleLookupLimiter?: HandleLookupLimiterPort;
   },
 ) {
   const webauthnEnabled = options.webauthnEnabled !== false;
@@ -433,6 +440,7 @@ export function createIdentityRouter(
   const kycDocs = options.kycDocs;
   const bindKycProviderRef = options.bindKycProviderRef;
   const waitlist = options.waitlist;
+  const handleLookupLimiter = options.handleLookupLimiter ?? new HandleLookupLimiter();
 
   function requireReferral(): ReferralService {
     if (!referral) {
@@ -519,6 +527,57 @@ export function createIdentityRouter(
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-identity') }))
       .query(() => ({ ok: true, service: 'svc-identity' as const })),
+
+    /**
+     * The caller's own handle (Receive screen, account menu). Self-only: the
+     * user id comes from the session, there is no input.
+     */
+    me: protectedProcedure.output(z.object({ userId: z.string().uuid(), handle: z.string() })).query(async ({ ctx }) => {
+      const handle = await auth.handleOf(ctx.principal.userId);
+      if (handle === null) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
+      return { userId: ctx.principal.userId, handle };
+    }),
+
+    users: router({
+      /**
+       * Pay by exact @handle: show the sender who they are about to pay.
+       *
+       * Returns the least that lets a sender confirm the right person: the
+       * stored handle, the user id the transfer needs, and `self`. No display
+       * name (today it is a copy of the handle, never user-set), no email,
+       * phone or legal name.
+       *
+       * No enumeration: exact case-insensitive match only; malformed, unknown,
+       * frozen and closed handles all answer `{ found: false }`; a per-caller
+       * budget (30/min) refuses bulk probing with 429. Sessions only: an API
+       * key may not probe the handle space.
+       */
+      resolveHandle: protectedProcedure
+        .input(z.object({ handle: z.string().max(64) }))
+        .output(
+          z.discriminatedUnion('found', [
+            z.object({ found: z.literal(false) }),
+            z.object({ found: z.literal(true), userId: z.string().uuid(), handle: z.string(), self: z.boolean() }),
+          ]),
+        )
+        .query(async ({ ctx, input }) => {
+          if (ctx.principal.kid) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Handle lookup needs a signed-in session' });
+          }
+          if (!(await handleLookupLimiter.tryTake(ctx.principal.userId))) {
+            throw new TRPCError({
+              code: 'TOO_MANY_REQUESTS',
+              message: `Too many lookups. Try again in a minute. [${HANDLE_LOOKUP_RATE_LIMITED}]`,
+              cause: Object.assign(new Error('handle lookup rate limited'), { code: HANDLE_LOOKUP_RATE_LIMITED }),
+            });
+          }
+          const handle = normaliseHandleQuery(input.handle);
+          if (handle === null) return { found: false as const };
+          const hit = await auth.findActiveByHandle(handle);
+          if (!hit) return { found: false as const };
+          return { found: true as const, userId: hit.userId, handle: hit.handle, self: hit.userId === ctx.principal.userId };
+        }),
+    }),
 
     auth: router({
       register: publicProcedure
