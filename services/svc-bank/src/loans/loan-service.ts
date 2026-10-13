@@ -2123,20 +2123,31 @@ export class LoanService {
       // what is already stored: principal still owed minus principal repaid
       // when the sale closed the position, and 0 when collateral remains.
       // A figure already stored is kept. A later quote is not an input.
-      let shortfallToBook = split.shortfall;
-      let alreadyStored = false;
-      if (storedSale && pending?.ledger_tx_id) {
-        if (storedSale.shortfall > 0n) {
-          alreadyStored = true;
-        } else {
-          const heldNow = await this.collateralOf(loan);
-          const owed = input.debt.principal;
-          const repaid = storedSale.principalRepaid;
-          const gap = owed > repaid ? owed - repaid : 0n;
-          shortfallToBook = heldNow <= 0n ? gap : 0n;
-        }
-      }
-      const writeShortfall = shortfallToBook > 0n && !alreadyStored;
+      //
+      // For a stored sale the figure is worked out AFTER the post, inside
+      // beforeSettle: a rung whose first post had an unknown outcome has no tx
+      // id yet, and only once its sale is on the ledger does "no collateral
+      // left" mean the position closed.
+      const storedShortfall = async (): Promise<Amount> => {
+        const heldNow = await this.collateralOf(loan);
+        const owed = input.debt.principal;
+        const repaid = storedSale!.principalRepaid;
+        const gap = owed > repaid ? owed - repaid : 0n;
+        return heldNow <= 0n ? gap : 0n;
+      };
+      const shortfallAlreadyStored = storedSale !== null && storedSale.shortfall > 0n;
+      const beforeSettle = storedSale
+        ? shortfallAlreadyStored
+          ? undefined
+          : async () => {
+              const shortfall = await storedShortfall();
+              if (shortfall > 0n) await this.coverShortfallTranche(loan, tranche, shortfall);
+            }
+        : split.shortfall > 0n
+          ? async () => {
+              await this.coverShortfallTranche(loan, tranche, split.shortfall);
+            }
+          : undefined;
 
       await withMoneySpan('bank.loan.liquidate', { operation: 'loan-liquidate', loanId: loan.id, tranche }, async (span) => {
         span.setAttribute('intafaced.ltv_bps', input.ltv);
@@ -2199,11 +2210,7 @@ export class LoanService {
           // the bad-debt tx id, before status becomes settled, so the row never
           // holds a shortfall with a null bad_debt_ledger_tx_id. On a retry this
           // is the figure implied by the stored sale, not the later quote.
-          beforeSettle: writeShortfall
-            ? async () => {
-                await this.coverShortfallTranche(loan, tranche, shortfallToBook);
-              }
-            : undefined,
+          beforeSettle,
         });
 
         void ledgerTxId;
@@ -2262,9 +2269,12 @@ export class LoanService {
       // A rung left pending (its post failed without a definite refusal) may
       // already have sold collateral and repaid debt. The loan stays
       // `liquidating`, so repay is refused, until the sweep finishes that sale.
-      if (claimedOpen && openStatus && !(await this.hasPendingLiquidation(loan.id))) {
+      // With no pending rung left (nothing posted, or a re-drive was definitely
+      // refused) the loan goes back to its open status, whoever claimed it, so
+      // the next sweep can plan again and the borrower can still cure.
+      if (!(await this.hasPendingLiquidation(loan.id))) {
         await this.sql`
-          UPDATE bank.loans SET status = ${openStatus}::bank.loan_status, updated_at = now()
+          UPDATE bank.loans SET status = ${openStatus ?? 'margin_call'}::bank.loan_status, updated_at = now()
            WHERE id = ${loan.id} AND status = 'liquidating'
         `;
       }

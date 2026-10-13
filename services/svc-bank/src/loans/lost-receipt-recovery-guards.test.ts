@@ -22,7 +22,15 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, describe, expect, it } from 'vitest';
-import { MemoryLedger, parseAmount as amt, formatAmount, marketMaker, recipes, userAvailable } from '@intafaced/ledger-client';
+import {
+  MemoryLedger,
+  parseAmount as amt,
+  formatAmount,
+  insuranceFund,
+  marketMaker,
+  recipes,
+  userAvailable,
+} from '@intafaced/ledger-client';
 import { LoanService, marketMakerVenue } from './loan-service.js';
 import { fixedPriceSource } from './prices.js';
 import { DEFAULT_LIQUIDATION_POLICY } from './risk.js';
@@ -75,7 +83,12 @@ function lose(ledger: MemoryLedger, reason: string, mode: 'after-commit' | 'befo
 const posts = (ledger: MemoryLedger, reason: string, loanId: string) =>
   ledger.journal().filter((tx) => tx.reason === reason && tx.idempotencyKey.includes(loanId));
 
-async function openLoan(ledger: MemoryLedger, collateral: string, principal: string) {
+async function openLoan(
+  ledger: MemoryLedger,
+  collateral: string,
+  principal: string,
+  policy: Partial<typeof DEFAULT_LIQUIDATION_POLICY> = {},
+) {
   markNow = NOW;
   await fund(ledger, PAYER, 'USDT', '100000');
   await fund(ledger, BORROWER, 'BTC', collateral);
@@ -100,7 +113,7 @@ async function openLoan(ledger: MemoryLedger, collateral: string, principal: str
     aprBps: 1000,
     maxLtvBps: 5000,
     minPrincipal: 0n,
-    policy: DEFAULT_LIQUIDATION_POLICY,
+    policy: { ...DEFAULT_LIQUIDATION_POLICY, ...policy },
   });
   const { loan } = await loans.open({
     loanId: randomUUID(),
@@ -190,5 +203,80 @@ describe('recovery after a lost loan receipt', () => {
     expect(rungs[0]?.status).toBe('settled');
     expect(posts(ledger, 'loan.liquidated', loan.id)).toHaveLength(1);
     expect(posts(ledger, 'loan.repaid', loan.id)).toHaveLength(0);
+  });
+
+  async function seedInsurance(ledger: MemoryLedger) {
+    const funder = '77777777-7777-4777-8777-777777777777';
+    await fund(ledger, funder, 'USDT', '10000');
+    await ledger.post({
+      idempotencyKey: `seed-insurance-${randomUUID()}`,
+      module: 'test',
+      reason: 'seed',
+      entries: [
+        { account: userAvailable(funder, 'USDT'), direction: 'credit', amount: amt('10000') },
+        { account: insuranceFund('USDT'), direction: 'debit', amount: amt('10000') },
+      ],
+    });
+  }
+
+  it('books the bad-debt cover when a closing sale is finished after its receipt was lost', async () => {
+    const ledger = new MemoryLedger();
+    const { loan } = await openLoan(ledger, '1', '5000', { maxTrancheBps: 10_000 });
+    await seedInsurance(ledger);
+    const loans = new LoanService(sql, ledger, { priceSource: price('4000'), venue: marketMakerVenue() });
+    markNow = NOW;
+    const restore = lose(ledger, 'loan.liquidated', 'after-commit');
+    await loans.runRiskSweep({ now: NOW, limit: 500 });
+    restore();
+    for (const minutes of [1, 2]) {
+      markNow = new Date(NOW.getTime() + minutes * 60_000);
+      await loans.runRiskSweep({ now: markNow, limit: 500 });
+    }
+
+    expect(posts(ledger, 'loan.liquidated', loan.id)).toHaveLength(1);
+    expect(posts(ledger, 'loan.bad_debt.covered', loan.id)).toHaveLength(1);
+    const rungs = await sql`SELECT status, shortfall::text AS shortfall FROM bank.loan_liquidations WHERE loan_id = ${loan.id}`;
+    expect(rungs[0]?.status).toBe('settled');
+    expect(rungs[0]?.shortfall).not.toBe('0');
+    expect((await loans.outstanding(loan.id)).total).toBe(0n);
+    expect((await loans.loan(loan.id)).status).toBe('liquidated');
+  });
+
+  it('does not strand a loan in liquidating when the re-drive of a pending sale is definitely refused', async () => {
+    const ledger = new MemoryLedger();
+    const { loan } = await openLoan(ledger, '1', '5000', { maxTrancheBps: 10_000 });
+    await seedInsurance(ledger);
+    const loans = new LoanService(sql, ledger, { priceSource: price('4000'), venue: marketMakerVenue() });
+    markNow = NOW;
+    const restore = lose(ledger, 'loan.liquidated', 'before-commit');
+    await loans.runRiskSweep({ now: NOW, limit: 500 });
+    restore();
+    expect((await loans.loan(loan.id)).status).toBe('liquidating');
+
+    // The buyer is empty, so the re-drive is a definite refusal.
+    const mm = await ledger.balance(marketMaker('USDT'));
+    const move = (from: ReturnType<typeof marketMaker>, to: ReturnType<typeof marketMaker>) =>
+      ledger.post({
+        idempotencyKey: `mm-${randomUUID()}`,
+        module: 'test',
+        reason: 'seed',
+        entries: [
+          { account: from, direction: 'credit', amount: mm.amount },
+          { account: to, direction: 'debit', amount: mm.amount },
+        ],
+      });
+    await move(marketMaker('USDT'), userAvailable(MM, 'USDT'));
+    markNow = new Date(NOW.getTime() + 60_000);
+    await loans.runRiskSweep({ now: markNow, limit: 500 });
+    expect((await loans.loan(loan.id)).status).not.toBe('liquidating');
+
+    // The buyer is funded again: the next sweeps liquidate for real.
+    await move(userAvailable(MM, 'USDT'), marketMaker('USDT'));
+    for (const minutes of [2, 3]) {
+      markNow = new Date(NOW.getTime() + minutes * 60_000);
+      await loans.runRiskSweep({ now: markNow, limit: 500 });
+    }
+    expect(posts(ledger, 'loan.liquidated', loan.id)).toHaveLength(1);
+    expect(formatAmount(await loans.collateralOf(loan))).toBe('0');
   });
 });
