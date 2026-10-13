@@ -1,3 +1,4 @@
+import { moduleDisabledResponse } from '@/lib/modules';
 import {
   accountControlHistoryInputSchema,
   accountControlInputSchema,
@@ -20,6 +21,8 @@ function sameTarget(left: unknown, right: unknown): boolean {
 }
 
 export async function GET(request: Request) {
+  const disabled = moduleDisabledResponse('accounts');
+  if (disabled) return disabled;
   try {
     const { session, config } = await authorizeAdminRequest(request);
     const params = new URL(request.url).searchParams;
@@ -61,6 +64,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const disabled = moduleDisabledResponse('accounts');
+  if (disabled) return disabled;
   try {
     const { session, config } = await authorizeAdminRequest(request);
     const parsed = accountControlInputSchema.safeParse(await readAdminJson(request));

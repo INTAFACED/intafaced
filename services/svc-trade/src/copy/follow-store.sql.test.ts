@@ -144,6 +144,22 @@ describe('SqlCopyFollowStore fee-share claim-before-post', () => {
     expect(loaded?.followId).toBe(FOLLOW_A);
   });
 
+  it('permitted_markets is stored as a JSON array and reads back, so the follow can mirror its markets', async () => {
+    const store = new SqlCopyFollowStore(db!.sql);
+    const base = follow(FOLLOW_A, LEADER);
+    await store.saveFollow({ ...base, envelope: { ...base.envelope, permittedMarkets: ['BTC-USDT', 'ETH-USDT'] } });
+    const raw = await db!.sql<Array<{ kind: string; n: number }>>`
+      SELECT jsonb_typeof(permitted_markets) AS kind, jsonb_array_length(permitted_markets) AS n
+      FROM copy_follows WHERE follow_id = ${FOLLOW_A}
+    `;
+    expect(raw[0]).toEqual({ kind: 'array', n: 2 });
+    const loaded = await store.getFollow(FOLLOW_A);
+    expect(loaded?.envelope.permittedMarkets).toEqual(['BTC-USDT', 'ETH-USDT']);
+    // The upsert path rewrites the column too; it must stay an array.
+    await store.saveFollow({ ...base, envelope: { ...base.envelope, permittedMarkets: ['SOL-USDT'] } });
+    expect((await store.getFollow(FOLLOW_A))?.envelope.permittedMarkets).toEqual(['SOL-USDT']);
+  });
+
   it('INSERT unique fill_id is visible before run() — crash window cannot miss the row', async () => {
     const store = new SqlCopyFollowStore(db!.sql);
     await store.saveFollow(follow(FOLLOW_A, LEADER));

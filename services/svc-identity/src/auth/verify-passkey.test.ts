@@ -5,6 +5,7 @@ import type { ChallengeStorePort } from './webauthn.js';
 function fakeSql(rows: unknown[] = []) {
   const fn = async () => rows;
   (fn as unknown as { json: (v: unknown) => unknown }).json = (v: unknown) => v;
+  (fn as unknown as { begin: unknown }).begin = (_o: string, cb: (t: unknown) => unknown) => cb(fn);
   return fn as unknown as Parameters<typeof verifyPasskey>[0];
 }
 
@@ -93,7 +94,7 @@ describe('verifyPasskey', () => {
         written.push(values);
         return [];
       },
-      { json: (v: unknown) => v },
+      { json: (v: unknown) => v, begin: (_o: string, cb: (t: unknown) => unknown) => cb(sql as never) },
     );
 
     const started = await beginVerifyPasskey(sql as never, 'user-1', rp, memChallenges(), ceremony);

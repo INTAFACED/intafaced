@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from 'vitest';
-import type { GuestNotificationReceipt, GuestNotificationSendInput } from '@intafaced/contracts';
+import { crmQueueMessageReceiptSchema, type GuestNotificationReceipt, type GuestNotificationSendInput } from '@intafaced/contracts';
 import { migrateOutreach } from '../db/migrate.js';
 import { OutreachCrm } from './crm.js';
 import { OutreachNotificationWorker } from './notification-worker.js';
@@ -226,6 +226,22 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('CRM durable guest queue 
       message: { activityId: queued.activity.id, kind: 'information_request', staffText: input.staffText },
     });
     expect((await crm.listMessages({ opportunityId: source.id, limit: 10 })).items).toEqual([queued.message]);
+    // The founder reads back exactly what was written; a missing stored payload reads as null, never as an error.
+    expect(queued.message.staffText).toBe('Please tell us about your introduction.');
+    expect((await crm.listMessages({ opportunityId: source.id, limit: 10 })).items[0]?.staffText).toBe(input.staffText);
+    await db.sql`ALTER TABLE ops.crm_outbox DISABLE TRIGGER crm_dispatch_origin_immutable`;
+    await db.sql`UPDATE ops.crm_outbox SET dispatch_payload=NULL WHERE id=${queued.message.id}`;
+    await db.sql`ALTER TABLE ops.crm_outbox ENABLE TRIGGER crm_dispatch_origin_immutable`;
+    expect((await crm.listMessages({ opportunityId: source.id, limit: 10 })).items[0]?.staffText).toBeNull();
+    // A receipt stored before staffText existed has no such key: replaying it must still pass output validation, with null.
+    const stored = (await db.sql`SELECT result FROM ops.crm_requests WHERE request_id=${input.requestId}`)[0]!.result as {
+      message: Record<string, unknown>;
+    };
+    delete stored.message.staffText;
+    await db.sql`UPDATE ops.crm_requests SET result=${db.sql.json(stored as never)} WHERE request_id=${input.requestId}`;
+    const replayed = await crm.queueMessage(input, founders[0]);
+    expect('staffText' in (replayed.message as object)).toBe(false);
+    expect(crmQueueMessageReceiptSchema.parse(replayed).message.staffText).toBeNull();
   });
   it('refuses call invitations until actual investor answers and founder review exist', async () => {
     const original = capture(),
