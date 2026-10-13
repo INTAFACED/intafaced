@@ -96,7 +96,7 @@ const messages = {
   'Other activity': 'Other activity',
   'Set aside for an order': 'Set aside for an order',
   'Returned from an order': 'Returned from an order',
-  'On hold': 'On hold',
+  'Set aside': 'Set aside',
   'Paid {amount} {asset}': 'Paid {amount} {asset}',
   'Gave {amount} {asset}': 'Gave {amount} {asset}',
   'Got {amount} {asset}': 'Got {amount} {asset}',

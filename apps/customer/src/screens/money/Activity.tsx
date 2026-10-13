@@ -142,7 +142,7 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
       </td>
       <td className="money-act__status money-cell--status">
         {holding ? (
-          <span className="money-act__hold">{t('On hold')}</span>
+          <span className="money-act__hold">{t('Set aside')}</span>
         ) : (
           <span className="money-act__done">
             <Check size={14} aria-hidden="true" />

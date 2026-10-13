@@ -633,7 +633,7 @@ test('All shows a hold the server has labelled as "On hold", never as completed 
   });
   await open(page, ALL);
   expect(await texts(page.locator('.money-act__title'))).toEqual(['Set aside for an order']);
-  expect(await texts(page.locator('.money-act__hold'))).toEqual(['On hold']);
+  expect(await texts(page.locator('.money-act__hold'))).toEqual(['Set aside']);
   await expect(page.locator('.money-act__done')).toHaveCount(0);
 });
 
