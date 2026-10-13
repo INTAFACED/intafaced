@@ -4,7 +4,9 @@ export const subaccountCopy = defineCopy(
   'account.subaccounts',
   {
     title: 'Account',
-    description: 'Your account ID, rank and strategy subaccounts.',
+    description: 'Your handle, account ID and rank.',
+    handle: 'Handle',
+    copyHandle: 'Copy handle',
     owner: 'Account ID',
     copyId: 'Copy account ID',
     verification: 'Verification',
@@ -80,7 +82,9 @@ export const subaccountCopy = defineCopy(
   {
     es: {
       title: 'Cuenta',
-      description: 'Tu identidad y particiones de estrategias.',
+      description: 'Tu identificador, ID de cuenta y rango.',
+      handle: 'Identificador',
+      copyHandle: 'Copiar identificador',
       owner: 'Cuenta personal',
       verification: 'Verificación',
       security: 'Seguridad',
@@ -156,7 +160,9 @@ export const subaccountCopy = defineCopy(
     },
     fr: {
       title: 'Compte',
-      description: 'Votre identité et vos partitions de stratégies.',
+      description: 'Votre identifiant, ID de compte et rang.',
+      handle: 'Identifiant',
+      copyHandle: 'Copier l’identifiant',
       owner: 'Compte personnel',
       verification: 'Vérification',
       security: 'Sécurité',

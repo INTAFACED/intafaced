@@ -150,9 +150,6 @@ export function ApiKeyRecords() {
         <p className="muted">
           <Copy k="api.records.intro" />
         </p>
-        <p className="muted">
-          <Copy k="api.records.authority" />
-        </p>
       </header>
       {failure && (
         <div className="api-key-records__failure" role="status">
@@ -193,18 +190,6 @@ export function ApiKeyRecords() {
         </div>
       )}
       <div className="api-key-records__controls">
-        <label className="api-key-records__window">
-          <span className="muted">
-            <Copy k="api.records.window" />
-          </span>
-          <select value={limit} onChange={(event) => chooseWindow(event.target.value)}>
-            {apiKeyReadWindows.map((value) => (
-              <option key={value} value={value}>
-                {t('api.records.window.option', { count: value })}
-              </option>
-            ))}
-          </select>
-        </label>
         {failure?.reason !== 'unauthorized' && (
           <Button variant="secondary" disabled={rendered.status === 'loading'} onClick={() => void read()}>
             <Copy
@@ -305,9 +290,11 @@ export function ApiKeyRecords() {
             ))}
           </ul>
         ))}
-      <p className="muted">
-        <Copy k="api.records.window.scope" params={{ count: limit }} />
-      </p>
+      {rendered.status === 'ready' && rendered.rows.length >= limit && (
+        <p className="muted">
+          <Copy k="api.records.window.scope" params={{ count: limit }} />
+        </p>
+      )}
     </section>
   );
 }

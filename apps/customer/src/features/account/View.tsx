@@ -1,20 +1,17 @@
 import { copy, t as copyText, Text } from './copy';
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useLayoutEffect, useMemo, useState } from 'react';
 import { SegmentedControl } from '@intafaced/ui';
 import { Page, Button } from '../../shared/ui';
 import {
   usePreferences,
   useResolvedTheme,
   savePreferences,
-  useDailyPreferenceEpoch,
-  currentDailyPreferenceEpoch,
   type Preferences,
   type PreferencePersistence,
   currentPreferences,
   currentPreferenceObservation,
   usePreferenceObservation,
 } from '../../shared/preferences';
-import { canonicalDailyZone } from '../trade/zoned-daily-history';
 import { customerCopyCoverage, renderedUiLanguage, useCopyRevision } from '../../shared/i18n';
 import { canonicalUiLocale, uiLocales, uiLocaleDescriptor, uiDirection } from '../../shared/locale';
 
@@ -44,17 +41,21 @@ export function View() {
   const currentSave = saved?.snapshot === preferences && saved.observation === observation ? saved : null;
   const current = copy.forLocale(preferences.language);
   const descriptor = uiLocaleDescriptor(preferences.language);
+  // Only languages with written copy are a real choice; the rest would show English under a foreign name.
+  const offeredLocales = useMemo(
+    () =>
+      uiLocales.filter(
+        (language) =>
+          language.code === 'en' ||
+          language.code === preferences.language ||
+          customerCopyCoverage(language.code).some((row) => row.translated > 0),
+      ),
+    [preferences.language],
+  );
   useCopyRevision();
   const rows = customerCopyCoverage(preferences.language);
   const hasWritten = rows.some((row) => row.translated > 0);
   const hasFallback = rows.some((row) => row.missing.length > 0);
-  const epoch = useDailyPreferenceEpoch();
-  const [zoneDraft, setZoneDraft] = useState(preferences.dailyZone);
-  const [zoneInvalid, setZoneInvalid] = useState(false);
-  useEffect(() => {
-    setZoneDraft(preferences.dailyZone);
-    setZoneInvalid(false);
-  }, [preferences.dailyZone, epoch]);
   function save(patch: Partial<Preferences>) {
     const persistence = savePreferences(patch);
     setSaved({
@@ -90,7 +91,7 @@ export function View() {
                   if (language) save({ language });
                 }}
               >
-                {uiLocales.map((language) => (
+                {offeredLocales.map((language) => (
                   <option key={language.code} value={language.code} lang={language.code} dir={uiDirection(language.code)}>
                     {language.nativeName}
                   </option>
@@ -177,191 +178,6 @@ export function View() {
               <small>
                 <Text k="view.daily.labels.independent" />
               </small>
-            </label>
-          </section>
-          <section className="settings-section">
-            <h2>
-              <Text k="view.charts.and.trading" />
-            </h2>
-            <label className="field">
-              <span>
-                <Text k="view.display.currency" />
-              </span>
-              <select
-                aria-label={copyText('view.display.currency')}
-                value={preferences.displayCurrency}
-                onChange={(event) => {
-                  save({ displayCurrency: event.target.value as 'USD' | 'BTC' });
-                }}
-              >
-                <option value="USD">USD</option>
-                <option value="BTC">BTC</option>
-              </select>
-              <small>
-                <Text k="view.a.converted.total.requires.a.complete.valuation" />
-              </small>
-            </label>
-            <label className="field">
-              <span>
-                <Text k="view.chart.on.phone" />
-              </span>
-              <select
-                aria-label={copyText('view.chart.on.phone')}
-                value={preferences.phoneChart}
-                onChange={(event) => {
-                  save({ phoneChart: event.target.value as 'top' | 'bottom' | 'hidden' });
-                }}
-              >
-                <option value="top" lang={copy.forLocale(preferences.language).languageFor('view.top')}>
-                  {copyText('view.top')}
-                </option>
-                <option value="bottom" lang={copy.forLocale(preferences.language).languageFor('view.bottom')}>
-                  {copyText('view.bottom')}
-                </option>
-                <option value="hidden" lang={copy.forLocale(preferences.language).languageFor('view.hidden')}>
-                  {copyText('view.hidden')}
-                </option>
-              </select>
-            </label>
-            <label className="field">
-              <span>
-                <Text k="view.daily.start" />
-              </span>
-              <select
-                aria-label={copyText('view.daily.start')}
-                value={preferences.dailyStart}
-                onChange={(event) => {
-                  if (currentDailyPreferenceEpoch() !== epoch) return;
-                  save({ dailyStart: event.target.value as Preferences['dailyStart'] });
-                }}
-              >
-                <option value="nativeUTC">{copyText('view.daily.start.native')}</option>
-                <option value="utc8">{copyText('view.daily.start.utc8')}</option>
-                <option value="zoned">{copyText('view.daily.start.zoned')}</option>
-              </select>
-              <small>
-                <Text k="view.daily.history.settings" />
-              </small>
-            </label>
-            {preferences.dailyStart === 'zoned' && (
-              <form
-                className="daily-zone-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (currentDailyPreferenceEpoch() !== epoch) return;
-                  try {
-                    const dailyZone = canonicalDailyZone(zoneDraft);
-                    save({ dailyZone, dailyStart: 'zoned' });
-                    setZoneDraft(dailyZone);
-                    setZoneInvalid(false);
-                  } catch {
-                    setZoneInvalid(true);
-                  }
-                }}
-              >
-                <label className="field">
-                  <span>
-                    <Text k="view.daily.zone" />
-                  </span>
-                  <input
-                    aria-label={copyText('view.daily.zone')}
-                    value={zoneDraft}
-                    maxLength={100}
-                    autoComplete="off"
-                    spellCheck={false}
-                    aria-invalid={zoneInvalid}
-                    aria-describedby={zoneInvalid ? 'daily-zone-error' : 'daily-zone-current'}
-                    onChange={(event) => {
-                      setZoneDraft(event.target.value);
-                      setZoneInvalid(false);
-                    }}
-                  />
-                </label>
-                {zoneInvalid && (
-                  <p id="daily-zone-error" role="alert">
-                    <Text k="view.daily.zone.invalid" />
-                  </p>
-                )}
-                <div className="daily-zone-actions">
-                  <Button type="submit">
-                    <Text k="view.daily.zone.apply" />
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      if (currentDailyPreferenceEpoch() !== epoch) return;
-                      setZoneDraft(preferences.dailyZone);
-                      setZoneInvalid(false);
-                    }}
-                  >
-                    <Text k="view.daily.zone.cancel" />
-                  </Button>
-                </div>
-                <p id="daily-zone-current">
-                  <Text k="view.daily.zone.current" /> {preferences.dailyZone}
-                </p>
-                <p>
-                  <Text k="view.daily.zone.explanation" />
-                </p>
-                <p>
-                  <Text k="view.daily.zone.window" />
-                </p>
-              </form>
-            )}
-            <Toggle
-              label={copyText('view.show.working.orders')}
-              checked={preferences.showOrders}
-              onChange={(value) => {
-                save({ showOrders: value });
-              }}
-            />
-            <Toggle
-              label={copyText('view.show.old.fills')}
-              checked={preferences.showFills}
-              onChange={(value) => {
-                save({ showFills: value });
-              }}
-            />
-          </section>
-          <section className="settings-section">
-            <h2>
-              <Text k="view.trading.preferences" />
-            </h2>
-            <Toggle
-              label={copyText('view.confirm.before.send')}
-              checked={preferences.confirmSend}
-              onChange={(value) => {
-                save({ confirmSend: value });
-              }}
-            />
-            <Toggle
-              label={copyText('view.confirm.before.cancel')}
-              checked={preferences.confirmCancel}
-              onChange={(value) => {
-                save({ confirmCancel: value });
-              }}
-            />
-            <p className="muted">
-              <Text k="view.an.authoritative.price.fee.and.funds.review" />
-            </p>
-            <label className="field">
-              <span>
-                <Text k="view.favorites.view" />
-              </span>
-              <select
-                aria-label={copyText('view.favorites.view')}
-                value={preferences.favoritesView}
-                onChange={(event) => {
-                  save({ favoritesView: event.target.value as 'list' | 'cards' });
-                }}
-              >
-                <option value="list" lang={copy.forLocale(preferences.language).languageFor('view.list')}>
-                  {copyText('view.list')}
-                </option>
-                <option value="cards" lang={copy.forLocale(preferences.language).languageFor('view.cards')}>
-                  {copyText('view.cards')}
-                </option>
-              </select>
             </label>
           </section>
         </div>

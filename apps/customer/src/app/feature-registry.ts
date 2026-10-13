@@ -213,6 +213,15 @@ export const features: readonly Feature[] = [
     tab: 'person',
   },
   {
+    id: 'strategy-subaccounts',
+    label: 'Strategy subaccounts (section of Account)',
+    paths: [],
+    status: 'hidden',
+    reason: 'Not a first-release customer path',
+    unlock: 'Copy trading and bots go live',
+    tab: 'person',
+  },
+  {
     id: 'public-extras',
     label: 'Notices, Lab, App, Partner',
     paths: ['/notice', '/notice/:id', '/announcement', '/announcement/:id', '/lab', '/lab/detail/:id', '/bzb', '/app', '/partner'],

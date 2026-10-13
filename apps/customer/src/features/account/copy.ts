@@ -21,12 +21,12 @@ const messages = {
   'view.daily.start.utc8': 'UTC+8 midnight',
   'view.daily.history.settings': 'Applies to daily charts on this device only.',
   'accountroutes.business.verification': 'Business verification',
-  'accountroutes.verified.company.accounts.are.not.connected': 'Verified company accounts are not connected',
+  'accountroutes.verified.company.accounts.are.not.connected': 'Company accounts aren’t available yet',
   'accountroutes.view.personal.verification': 'View personal verification ↗',
   'accountroutes.company.identity.owner.membership.and.the.associated':
     'Company identity, owner membership and the associated merchant permissions are not available through the current account service. Personal verification or a strategy subaccount cannot activate a Business account.',
   'accountroutes.dividend.records': 'Dividend records',
-  'accountroutes.dividend.history.is.not.connected': 'Dividend history is not connected',
+  'accountroutes.dividend.history.is.not.connected': 'Dividends aren’t available yet',
   'accountroutes.there.is.no.mounted.owner.scoped.dividend':
     'There is no mounted owner-scoped dividend history contract. Token stake and earning activity remain available in their own rooms.',
   'accountroutes.open.token': 'Open Token ↗',
@@ -107,7 +107,7 @@ const messages = {
   'accountroutes.no.verification.requests.returned': 'No verification requests returned',
   'accountroutes.request.the.tier.needed.for.your.account': 'Request the tier needed for your account.',
   'accountroutes.up.to.50.requests.document.uploads.and':
-    'Up to 50 requests. Document uploads and provider review are not connected through this request form.',
+    'Up to 50 requests. You can’t upload documents with this form yet.',
   'accountroutes.request.verification': 'Request verification',
   'accountroutes.basic': 'Basic',
   'accountroutes.full': 'Full',
@@ -125,7 +125,7 @@ const messages = {
     'Private account notifications. Public notices are a separate surface.',
   'accountroutes.no.notifications.returned': 'No notifications returned',
   'accountroutes.new.account.notifications.will.appear.here.when': 'New account notifications will appear here when delivered.',
-  'accountroutes.notification.text.is.unavailable': 'Notification text is unavailable',
+  'accountroutes.notification.text.is.unavailable': 'This notification has no text',
   'accountroutes.this.notification.s.details.are.not.published':
     'This notification’s details are not published. Open its related room for current information.',
   'accountroutes.open.related.room': 'Open related room ↗',
@@ -172,7 +172,7 @@ const messages = {
   'view.display.currency': 'Display currency',
   'view.a.converted.total.requires.a.complete.valuation': 'Totals are shown in this currency when every coin you hold has a price.',
   'view.hiding.small.balances.requires.a.valuation.threshold':
-    'Hiding small balances requires a valuation threshold. That control is unavailable while valuation coverage is missing.',
+    'Hiding small balances requires a valuation threshold. That isn’t available yet.',
   'view.chart.display': 'Chart display',
   'view.up.and.down.colors': 'Up colour',
   'view.green.up.red.down': 'Green for up, red for down',
@@ -203,14 +203,14 @@ const messages = {
   'accountroutes.show.all': 'Show all',
   'accountroutes.unread.only': 'Unread only',
   'accountroutes.copied.invitation.link': 'Copied invitation link.',
-  'accountroutes.copy.was.unavailable.select.the.link.above': 'Copy was unavailable; select the link above.',
+  'accountroutes.copy.was.unavailable.select.the.link.above': 'Couldn’t copy. Select the link above.',
 
   'api.records.title': 'API keys',
   'api.records.intro': 'The keys on your account. Secrets are never shown.',
   'api.records.authority': 'Recorded scopes and mode do not confirm current access.',
   'api.records.window': 'Show',
   'api.records.window.option': '{count} keys',
-  'api.records.read': 'Read API-key records',
+  'api.records.read': 'Show keys',
   'api.records.refresh': 'Refresh records',
   'api.records.loading': 'Reading API-key records…',
   'api.records.empty': 'No API keys yet.',
@@ -264,7 +264,7 @@ const messages = {
   'api.revoke.current.missing': 'Exact target was not returned in this read window.',
   'api.revoke.current.limit':
     'These are current key records. They do not verify the saved attempt. A missing key may be outside the selected window. The original remains unresolved.',
-  'api.revoke.unavailable': 'Saved revoke state unavailable',
+  'api.revoke.unavailable': 'Saved revoke state can’t be read',
   'api.revoke.unavailable.body':
     'This browser could not read its saved revoke state. Revoke actions are blocked to protect any original. Owner records can still be read.',
   'api.revoke.retry.local': 'Retry local read',

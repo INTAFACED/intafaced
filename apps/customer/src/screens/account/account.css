@@ -191,6 +191,15 @@
     gap: 12px;
   }
 
+  /* Buttons: pills at 40 px like the rest of the app (the old .button is unlayered, hence !important) */
+  .acct-body .button {
+    min-height: 40px !important;
+    border-radius: var(--if-r-pill) !important;
+  }
+  .acct-body .button--secondary:not(:hover) {
+    background: var(--if-field) !important;
+  }
+
   /* Account */
   .acct-body .subaccounts__identity {
     display: flex !important;
@@ -267,6 +276,10 @@
   }
 
   /* Security: the long session list scrolls inside its card; raw IDs stay readable by screen readers only */
+  .acct-body .identity-sessions__rows,
+  .acct-body .security__rows {
+    position: relative; /* the hidden .identity-sessions__ref spans are absolute: without this they escape the scroller and stretch the page */
+  }
   .acct-body .identity-sessions__rows {
     max-height: 360px;
     overflow-y: auto;

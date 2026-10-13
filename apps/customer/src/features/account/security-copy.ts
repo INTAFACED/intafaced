@@ -76,7 +76,7 @@ export const securityCopy = defineCopy(
     guardBody:
       'A known response was received, but its original saved guard could not be removed safely. Contact Support before another action in this group.',
     another: 'Another tab is preparing or sending a security action for this account. Nothing was sent here.',
-    locks: 'Safe coordination between tabs is unavailable. No security action was sent.',
+    locks: 'This browser can’t do this safely. Nothing was sent. Try Chrome, Safari or Firefox.',
     unsupported: 'Passkeys require a supported browser and a secure connection. No registration was sent.',
     cancelled: 'The browser ceremony stopped. No account credential registration was sent.',
     ceremonyFailed:

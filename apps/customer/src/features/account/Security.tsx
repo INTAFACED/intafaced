@@ -27,6 +27,8 @@ import {
   type SecurityRecord,
 } from './security-guards';
 import { nativeRegistration, registrationFor, registrationPayload } from './security-webauthn';
+import { stamp } from '../../screens/money/time';
+import { usePreferences } from '../../shared/preferences';
 import './security.css';
 
 type Problem = 'changed' | 'keyChanged' | 'setupChanged' | 'storage' | 'another' | 'locks' | 'unsupported' | 'cancelled' | 'ceremonyFailed';
@@ -45,6 +47,7 @@ const emptyJournal: SecurityJournal = { records: [], failed: false };
 export function Security() {
   const { api, userId, clear } = useSession();
   const { t, Copy, languageFor, requestedLocale } = copy.useCopy();
+  const { timeZone } = usePreferences();
   const [limit, setLimit] = useState(50),
     [busy, setBusy] = useState(false),
     [review, setReview] = useState<Original | null>(null);
@@ -523,9 +526,11 @@ export function Security() {
                 <Copy k="add" />
               </Button>
             </div>
-            <p className="muted">
-              <Copy k="window" params={{ limit }} />
-            </p>
+            {resource.status === 'ready' && resource.data.length >= limit && (
+              <p className="muted">
+                <Copy k="window" params={{ limit }} />
+              </p>
+            )}
             {resource.status === 'loading' ? (
               <Loading />
             ) : resource.status === 'failed' ? (
@@ -547,7 +552,7 @@ export function Security() {
                   <li key={key.credentialId} className="security__row">
                     <div>
                       <time dateTime={key.createdAt} lang={requestedLocale}>
-                        {t('added', { time: new Date(key.createdAt).toLocaleDateString(requestedLocale) })}
+                        {t('added', { time: stamp(key.createdAt, timeZone) })}
                       </time>
                       <span className="security__ref" lang="zxx">
                         {key.credentialId}
@@ -574,15 +579,17 @@ export function Security() {
               <Button variant="secondary" onClick={reload}>
                 <Copy k="refresh" />
               </Button>
-              {limit < 200 ? (
-                <Button variant="ghost" onClick={() => setLimit((value) => Math.min(200, value + 50))}>
-                  <Copy k="expand" />
-                </Button>
-              ) : (
-                <p className="muted">
-                  <Copy k="maximum" />
-                </p>
-              )}
+              {resource.status === 'ready' && resource.data.length >= limit ? (
+                limit < 200 ? (
+                  <Button variant="ghost" onClick={() => setLimit((value) => Math.min(200, value + 50))}>
+                    <Copy k="expand" />
+                  </Button>
+                ) : (
+                  <p className="muted">
+                    <Copy k="maximum" />
+                  </p>
+                )
+              ) : null}
             </div>
           </section>
           <section className="security__authenticator security__card" aria-label={t('authenticator')}>

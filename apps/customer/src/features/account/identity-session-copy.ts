@@ -40,7 +40,7 @@ export const identitySessionCopy = defineCopy(
     seatChanged: 'The original session changed or is outside this live window. No revocation was sent. Refresh and review again.',
     storage: 'The original request cannot be safely saved or read on this device. No new revocation is sent.',
     another: 'Another tab is reviewing or sending a revocation for this account. No revocation was sent here.',
-    locks: 'Safe coordination between tabs is unavailable in this browser. No revocation was sent.',
+    locks: 'This browser can’t do this safely. Nothing was sent. Try Chrome, Safari or Firefox.',
     sending: 'Sending the original revocation',
     readOnly: 'Refreshing the live list only reads current sessions. It does not resolve the original request.',
     maximumBoundary: 'At most 200 live sessions are shown; older sessions may be outside this window.',
