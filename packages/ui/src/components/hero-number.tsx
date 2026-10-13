@@ -93,7 +93,7 @@ export function HeroNumber({
           />
         </span>
       )}
-      {unit ? <span className="text-md font-medium text-fg-2">{unit}</span> : null}
+      {unit ? <span className="text-md font-medium tracking-normal text-fg-2">{unit}</span> : null}
     </span>
   );
 }

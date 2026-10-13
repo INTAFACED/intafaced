@@ -23,8 +23,8 @@ export const buttonVariants = cva(
         secondary: 'bg-field text-fg hover:bg-raised active:bg-pill-active',
         ghost: 'bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field',
         /** Up fill. Near-black text: white on this green fails AA (UI-SPEC 1.2). */
-        buy: 'bg-up text-on-up hover:brightness-110 active:brightness-95',
-        sell: 'bg-down text-on-down hover:brightness-110 active:brightness-95',
+        buy: 'bg-up text-on-up hover:bg-up-hover active:brightness-95',
+        sell: 'bg-down text-on-down hover:bg-down-hover active:brightness-95',
       },
       size: {
         28: 'h-7 px-3 text-sm',

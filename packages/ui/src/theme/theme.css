@@ -31,6 +31,13 @@
   --drop-shadow-*: initial;
   --ease-*: initial;
 
+  /* Tailwind's spacing step is 0.25rem; the legacy root font-size is 14px, so pin it to px. Every
+     p-*, gap-*, size-*, h-* and w-* utility is then a true 4 px multiple (critic H2). */
+  --spacing: 4px;
+  /* rem containers would shrink with the legacy 14 px root too. */
+  --container-sm: 384px;
+  --container-md: 448px;
+
   --color-bg: var(--if-bg);
   --color-panel: var(--if-panel);
   --color-field: var(--if-field);
@@ -39,9 +46,18 @@
   --color-pill-active: var(--if-pill-active);
   --color-line: var(--if-line);
   --color-line-strong: var(--if-line-strong);
+  --color-line-stronger: var(--if-line-stronger);
+  --color-line-popup: var(--if-line-popup);
   --color-fg: var(--if-fg);
   --color-fg-2: var(--if-fg-2);
   --color-fg-3: var(--if-fg-3);
+  --color-fg-disabled: var(--if-fg-disabled);
+  --color-overlay-hover: var(--if-overlay-hover);
+  --color-overlay-press: var(--if-overlay-press);
+  --color-overlay-disabled: var(--if-overlay-disabled);
+  --color-menu: var(--if-menu);
+  --color-tooltip: var(--if-tooltip);
+  --color-popover: var(--if-popover);
   --color-up: var(--if-up);
   --color-up-text: var(--if-up-text);
   --color-on-up: var(--if-on-up);
@@ -50,13 +66,20 @@
   --color-on-down: var(--if-on-down);
   --color-up-bg: var(--if-up-bg);
   --color-down-bg: var(--if-down-bg);
+  --color-up-hover: var(--if-up-hover);
+  --color-down-hover: var(--if-down-hover);
+  --color-up-bg-soft: var(--if-up-bg-soft);
   --color-lime: var(--if-lime);
   --color-lime-hover: var(--if-lime-hover);
   --color-lime-press: var(--if-lime-press);
   --color-on-lime: var(--if-on-lime);
   --color-lime-soft: var(--if-lime-soft);
   --color-warn: var(--if-warn);
+  --color-warn-text: var(--if-warn-text);
   --color-scrim: var(--if-scrim);
+  --color-vol-up: var(--if-vol-up);
+  --color-vol-down: var(--if-vol-down);
+  --color-grid: var(--if-grid);
   --color-alloc-1: var(--if-alloc-1);
   --color-alloc-2: var(--if-alloc-2);
   --color-alloc-3: var(--if-alloc-3);
@@ -88,20 +111,18 @@
   --text-xl: var(--if-text-xl);
   --text-xl--line-height: var(--if-leading-xl);
   --text-xl--font-weight: var(--if-weight-xl);
-  --text-xl--letter-spacing: var(--if-tracking-tight);
   --text-2xl: var(--if-text-2xl);
   --text-2xl--line-height: var(--if-leading-2xl);
   --text-2xl--font-weight: var(--if-weight-2xl);
-  --text-2xl--letter-spacing: var(--if-tracking-tight);
   --text-hero-pro: var(--if-text-hero-pro);
   --text-hero-pro--line-height: var(--if-leading-hero-pro);
   --text-hero-pro--font-weight: var(--if-weight-hero-pro);
-  --text-hero-pro--letter-spacing: var(--if-tracking-tight);
   --text-hero: var(--if-text-hero);
   --text-hero--line-height: var(--if-leading-hero);
   --text-hero--font-weight: var(--if-weight-hero);
   --text-hero--letter-spacing: var(--if-tracking-tight);
 
+  --radius-2xs: var(--if-r-2xs);
   --radius-xs: var(--if-r-xs);
   --radius-sm: var(--if-r-sm);
   --radius-md: var(--if-r-md);

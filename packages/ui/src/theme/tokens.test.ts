@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { colors, controlHeights, cssValue, cssVars, redUpOverrides, renderTokensCss, textStyles } from './tokens.js';
+import { colors, controlHeights, cssValue, cssVars, radii, redUpOverrides, renderTokensCss, sizes, textStyles, tightTextTokens } from './tokens.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const read = (name: string) => readFileSync(join(here, name), 'utf8');
@@ -49,6 +49,27 @@ describe('UI-SPEC 2 tokens: tokens.ts and tokens.css cannot drift', () => {
     expect(textStyles.base.size).toBe('14px');
   });
 
+  it('holds the measured OKX values from critic round 1', () => {
+    expect(colors.warn).toBe('#F5A915');
+    expect(colors['warn-text']).toBe('#FFC452');
+    expect(colors.scrim).toBe('rgba(0, 0, 0, 0.68)');
+    expect(colors['ma-2']).toBe('#EC407A');
+    expect(colors['lime-soft']).toBe('rgba(200, 246, 74, 0.16)');
+    expect(textStyles['2xs']).toEqual({ size: '12px', line: '16px', weight: '500' });
+    expect(textStyles.xl).toEqual({ size: '24px', line: '28px', weight: '600' });
+    expect(textStyles['2xl']).toEqual({ size: '28px', line: '34px', weight: '700' });
+    expect(textStyles.hero).toEqual({ size: '48px', line: '58px', weight: '700' });
+    expect(tightTextTokens).toEqual(['hero']);
+    expect(radii['2xs']).toBe('2px');
+    expect(sizes['topbar-h']).toBe('48px');
+    expect(sizes['container-max']).toBe('1224px');
+    expect(css).toContain('--if-topbar-h: 48px;');
+  });
+
+  it('pins Tailwind spacing to 4 px so the legacy 14 px root cannot shrink every kit size', () => {
+    expect(themeCss).toContain('--spacing: 4px;');
+  });
+
   it('turns every motion token to 0 ms under prefers-reduced-motion', () => {
     const block = /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/.exec(css)![1]!;
     for (const name of ['--if-t-fast', '--if-t-menu', '--if-t-tab', '--if-t-flash']) {
@@ -86,7 +107,7 @@ describe('contrast (WCAG 2.2 AA) on the surfaces the tokens sit on', () => {
 });
 
 describe('theme.css (Tailwind @theme mapping)', () => {
-  it('maps every colour token except the chart-only ones', () => {
+  it('maps every colour token except the chart lines', () => {
     for (const key of Object.keys(colors)) {
       if (key.startsWith('ma-')) continue;
       expect(themeCss, key).toContain(`--color-${key}: var(--if-${key});`);
@@ -119,9 +140,13 @@ describe('theme.css (Tailwind @theme mapping)', () => {
 
 describe('no hex colour outside tokens.ts', () => {
   const hexPattern = /#[0-9a-fA-F]{3,8}\b/;
-  const roots = [join(here, '../components'), join(here, '../../../../apps/customer/src/screens')].filter(existsSync);
+  const roots = [
+    join(here, '../components'),
+    join(here, '../../../../apps/customer/src/screens'),
+    join(here, '../../../../apps/customer/src/app'),
+  ].filter(existsSync);
 
-  it('finds no hex in component or screen source (.ts, .tsx, .css)', () => {
+  it('finds no hex in component, screen or shell source (.ts, .tsx, .css)', () => {
     const offenders: string[] = [];
     for (const root of roots) {
       for (const file of walk(root)) {

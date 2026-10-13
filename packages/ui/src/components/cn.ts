@@ -10,7 +10,7 @@ const twMerge = extendTailwindMerge({
   extend: {
     theme: {
       text: ['hero', 'hero-pro'],
-      radius: ['pill'],
+      radius: ['pill', '2xs'],
       shadow: ['menu'],
     },
   },
@@ -29,11 +29,14 @@ export const focusRing =
   'outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime';
 
 /**
- * Surface for every popup (menu, popover, dialog, select, tooltip): `panel`,
- * 1 px `line`, the one allowed shadow (UI-SPEC 2.4). Popups render in a portal
- * outside `.if-app`, so they carry their own font and text colour.
+ * Surface for every popup (menu, popover, dialog, select): `panel`, a 1 px hairline of white at 13%
+ * (OKX's popover border, taste call T3-C), the one allowed shadow (UI-SPEC 2.4). Popups render in a
+ * portal outside `.if-app`, so they carry their own font and text colour.
  */
-export const popupSurface = 'bg-panel text-fg font-ui text-base border border-line shadow-menu antialiased';
+export const popupSurface = 'bg-panel text-fg font-ui text-base border border-line-popup shadow-menu antialiased';
+
+/** Tooltips sit one step lighter, on `raised`, with 4 px corners (T3-C), so small help text separates from black. */
+export const tooltipSurface = 'bg-raised text-fg font-ui text-xs shadow-menu antialiased';
 
 /**
  * Fade plus scale 0.98 to 1 over the menu duration (COMPONENT-PLAN 3.7).

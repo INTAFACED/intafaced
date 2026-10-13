@@ -22,9 +22,23 @@ export const colors = {
   'pill-active': '#383838',
   line: '#2E2E2E',
   'line-strong': '#383838',
+  /** Outlined cards. */
+  'line-stronger': '#4D4D4D',
+  /** Border of menus and popovers: white at 13%, OKX's own hairline. */
+  'line-popup': 'rgba(255, 255, 255, 0.13)',
   fg: '#FFFFFF',
   'fg-2': '#909090',
   'fg-3': '#6C6C6C',
+  /** Disabled text only. */
+  'fg-disabled': '#5B5B5B',
+  /** Hover, press and disabled fills for fields and chips on any surface. */
+  'overlay-hover': 'rgba(255, 255, 255, 0.16)',
+  'overlay-press': 'rgba(255, 255, 255, 0.22)',
+  'overlay-disabled': 'rgba(255, 255, 255, 0.08)',
+  /** Popup surfaces. Tooltips sit on `raised` (T3-C); `menu` is kept for a later menu call. */
+  menu: '#343434',
+  tooltip: '#4D4D4D',
+  popover: '#171717',
   up: '#25A750',
   /** Gains as text on black. Same as `up` by default; split out so red-up mode can lighten it. */
   'up-text': '#25A750',
@@ -35,16 +49,28 @@ export const colors = {
   'on-down': '#FFFFFF',
   'up-bg': '#0B361A',
   'down-bg': '#280D14',
+  /** Hover fills for the buy and sell buttons (replace a brightness filter). */
+  'up-hover': '#1A8D40',
+  'down-hover': '#B43255',
+  /** 20% depth bars in the order book (M2). */
+  'up-bg-soft': '#072110',
   lime: '#C8F64A',
   'lime-hover': '#D4FA6E',
   'lime-press': '#B5E03A',
   'on-lime': '#0B0B0B',
-  'lime-soft': 'rgba(200, 246, 74, 0.12)',
-  warn: '#F5A524',
-  scrim: 'rgba(0, 0, 0, 0.64)',
+  'lime-soft': 'rgba(200, 246, 74, 0.16)',
+  /** Warning surface (OKX measured). */
+  warn: '#F5A915',
+  /** Warning text on black. */
+  'warn-text': '#FFC452',
+  scrim: 'rgba(0, 0, 0, 0.68)',
   'ma-1': '#FFA726',
-  'ma-2': '#EA3F79',
+  'ma-2': '#EC407A',
   'ma-3': '#27C6DA',
+  /** Chart (M2): volume bars and grid lines. */
+  'vol-up': '#135428',
+  'vol-down': '#652032',
+  grid: '#171717',
   'alloc-1': '#C8F64A',
   'alloc-2': '#E6E6E6',
   'alloc-3': '#A6A6A6',
@@ -69,6 +95,8 @@ export const redUpOverrides: Partial<Record<ColorToken, string>> = {
   'on-down': '#0B0B0B',
   'up-bg': '#280D14',
   'down-bg': '#0B361A',
+  'up-hover': '#B43255',
+  'down-hover': '#1A8D40',
 };
 
 export const fonts = {
@@ -79,26 +107,31 @@ export const fonts = {
 
 /** Type scale (UI-SPEC §2.3): size / line-height / weight. */
 export const textStyles = {
-  '2xs': { size: '11px', line: '14px', weight: '500' },
+  '2xs': { size: '12px', line: '16px', weight: '500' },
   xs: { size: '12px', line: '16px', weight: '400' },
   sm: { size: '13px', line: '18px', weight: '400' },
   base: { size: '14px', line: '20px', weight: '400' },
   md: { size: '16px', line: '24px', weight: '500' },
   lg: { size: '20px', line: '28px', weight: '600' },
-  xl: { size: '24px', line: '32px', weight: '700' },
-  '2xl': { size: '28px', line: '36px', weight: '700' },
+  xl: { size: '24px', line: '28px', weight: '600' },
+  '2xl': { size: '28px', line: '34px', weight: '700' },
   'hero-pro': { size: '32px', line: '40px', weight: '700' },
-  hero: { size: '48px', line: '56px', weight: '700' },
+  hero: { size: '48px', line: '58px', weight: '700' },
 } as const;
 
 export type TextToken = keyof typeof textStyles;
 
-/** Letter-spacing -0.02em at 24 px and above. */
+/**
+ * Letter-spacing -0.02em on the 48 px hero only. Inter at 24 and 28 px with -0.02em looks pinched
+ * next to body text, and OKX measures `normal` everywhere (critic round 1, tokens table).
+ */
 export const trackingTight = '-0.02em';
-export const tightTextTokens: readonly TextToken[] = ['xl', '2xl', 'hero-pro', 'hero'];
+export const tightTextTokens: readonly TextToken[] = ['hero'];
 
 /** Radius (UI-SPEC §2.4). */
 export const radii = {
+  /** Reserved for OKX-style 2 px corners (measured tooltip radius); tooltips use `xs` (T3-C). */
+  '2xs': '2px',
   xs: '4px',
   sm: '8px',
   md: '12px',
@@ -120,6 +153,24 @@ export const motion = {
   flash: '600ms',
 } as const;
 
+/**
+ * Layout sizes in px (critic round 1, from MEASURED-TOKENS). Emitted as `--if-<key>`.
+ * Plain custom properties for CSS (`var(--if-topbar-h)`), not Tailwind keys.
+ */
+export const sizes = {
+  'topbar-h': '48px',
+  'tab-gap': '24px',
+  'nav-gap': '24px',
+  'row-h': '60px',
+  'book-row-h': '22px',
+  /** Select and dropdown option rows. */
+  'menu-item-h': '36px',
+  /** Navigation menu rows. */
+  'nav-menu-item-h': '56px',
+  'container-max': '1224px',
+  gutter: '24px',
+} as const;
+
 /** Control heights in px (UI-SPEC §2.4). */
 export const controlHeights = [28, 32, 40, 48, 56] as const;
 
@@ -136,6 +187,7 @@ export function cssVars(): Record<string, string> {
   }
   out['--if-tracking-tight'] = trackingTight;
   for (const [k, v] of Object.entries(radii)) out[`--if-r-${k}`] = v;
+  for (const [k, v] of Object.entries(sizes)) out[`--if-${k}`] = v;
   out['--if-shadow-menu'] = shadows.menu;
   out['--if-ease'] = motion.ease;
   out['--if-t-fast'] = motion.fast;
