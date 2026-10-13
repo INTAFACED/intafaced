@@ -140,8 +140,8 @@ test('ready state at 1440x900: summary, assets, markets, words, numbers', async 
   expect(await texts(page.locator('.hp-stat__label'))).toEqual(['Cash', 'Crypto', 'Open orders']);
   expect(await texts(page.locator('.hp-stat__value'))).toEqual(['$4,100.00', '$8,381.29', '2']);
   await expect(page.locator('.hp-stat__link')).toHaveAttribute('href', '/money/activity?tab=orders');
-  // Only live actions (Convert is hidden until its screen lands), Buy is the one primary.
-  expect(await texts(page.locator('.hp-actions > *'))).toEqual(['Buy', 'Sell', 'Send', 'Receive']);
+  // Only live actions, Buy is the one primary.
+  expect(await texts(page.locator('.hp-actions > *'))).toEqual(['Buy', 'Sell', 'Convert', 'Send', 'Receive']);
   expect(await page.locator('.hp-actions a.bg-lime').count()).toBe(1);
   await expect(page.locator('.hp-actions a').nth(0)).toHaveAttribute('href', '/trade/spot/BTC-USDT');
   expect(
@@ -168,7 +168,8 @@ test('ready state at 1440x900: summary, assets, markets, words, numbers', async 
   expect(await cells('ETH')).toEqual(['ETHEthereum', '0.5', '$1,600.05', '+1.59%', 'Trade']);
   expect((await cells('USDT'))[0]).toBe('USDTTether');
   expect((await cells('USDT'))[4]).toBe(''); // cash has no market to open
-  await expect(assets.locator('[data-asset="BTC"] a').first()).toHaveAttribute('href', '/coin/BTC');
+  // The asset name opens the desk for its market (the coin page is M3; critic H3).
+  await expect(assets.locator('[data-asset="BTC"] a').first()).toHaveAttribute('href', '/trade/spot/BTC-USDT');
   await expect(assets.locator('[data-asset="BTC"] [data-slot="button"]')).toHaveAttribute('href', '/trade/spot/BTC-USDT');
   await expect(assets.locator('[data-asset="ETH"] [data-slot="button"]')).toHaveAttribute('href', '/trade/spot/ETH-USDT');
   expect(Math.round((await box(page, '.hp-assets__row:not(.hp-assets__row--head)')).height)).toBe(48);

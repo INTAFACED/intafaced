@@ -391,14 +391,24 @@ function Assets({ portfolio, hidden }: { portfolio: Loadable<PortfolioSummary>; 
               const pct = changeRatio(holding);
               const desk = deskFor(holding);
               const target = desk && !isHiddenPath(desk.split('?')[0]!) ? desk : null;
+              const assetLabel = (
+                <>
+                  <CoinIcon asset={holding.asset} size={28} />
+                  <span className="hp-assets__ticker">{holding.asset}</span>
+                  {name ? <span className="hp-assets__name">{name}</span> : null}
+                </>
+              );
               return (
                 <div role="row" className="hp-assets__row" key={holding.asset} data-asset={holding.asset}>
                   <div role="cell" className="hp-assets__cell hp-assets__cell--asset">
-                    <a className="hp-assets__asset" href={`/coin/${encodeURIComponent(holding.asset)}`}>
-                      <CoinIcon asset={holding.asset} size={28} />
-                      <span className="hp-assets__ticker">{holding.asset}</span>
-                      {name ? <span className="hp-assets__name">{name}</span> : null}
-                    </a>
+                    {/* The desk for coins with a market; cash has none, so no link (the coin page is M3). */}
+                    {target ? (
+                      <a className="hp-assets__asset" href={target}>
+                        {assetLabel}
+                      </a>
+                    ) : (
+                      <span className="hp-assets__asset">{assetLabel}</span>
+                    )}
                   </div>
                   <div role="cell" className="hp-assets__cell hp-assets__cell--num hp-assets__cell--amount">
                     <Amount value={fmtAmount(holding.total, { round: 'down' })} hidden={hidden} />
@@ -407,7 +417,8 @@ function Assets({ portfolio, hidden }: { portfolio: Loadable<PortfolioSummary>; 
                     <Money value={holding.usdValue === null ? null : fmtUsd(holding.usdValue)} hidden={hidden} />
                   </div>
                   <div role="cell" className="hp-assets__cell hp-assets__cell--num">
-                    <Pct value={pct === null ? null : fmtPct(pct)} />
+                    {/* Cash has no price move: "—", as on Money (critic L7). */}
+                    <Pct value={holding.class === 'cash' || pct === null ? null : fmtPct(pct)} />
                   </div>
                   <div role="cell" className="hp-assets__cell hp-assets__cell--action hp-assets__cell--trade">
                     {target ? (

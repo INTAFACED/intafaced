@@ -131,6 +131,15 @@ export const features: readonly Feature[] = [
     checked: '2026-10-14, local stack as test_friend: converted 10 USDT to 0.0038 ETH; Opus money review PASS at 48826285c.',
   },
   {
+    id: 'coin-page',
+    label: 'Coin page (old holding screen)',
+    paths: ['/coin/:asset', '/portfolio/:asset'],
+    status: 'hidden',
+    reason: 'Coin page is redesigned in M3',
+    unlock: 'M3 coin page (UI-SPEC 5.5)',
+    tab: 'trade',
+  },
+  {
     id: 'simulated-markets',
     label: 'Simulated markets',
     paths: [],

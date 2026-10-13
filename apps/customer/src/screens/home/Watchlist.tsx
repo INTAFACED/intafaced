@@ -1,6 +1,6 @@
 import { assetName, homeCopy } from './copy';
 import { priceText, type Favoriting, type Tickers } from './MarketsSection';
-import { direction, fmtPct, CoinIcon, Pct, Skeleton, Sparkline, type Decimal, type Loadable } from './deps';
+import { coinHref, direction, fmtPct, CoinIcon, Pct, Skeleton, Sparkline, type Decimal, type Loadable } from './deps';
 import { IN_PANEL } from './panel';
 import { StarButton } from './Star';
 import type { Listing } from './select';
@@ -47,7 +47,7 @@ export function Watchlist({
             const name = assetName(item.base, copy);
             return (
               <li key={item.symbol} className="home-watch__item">
-                <a className="home-watch__row" href={`/coin/${encodeURIComponent(item.base)}`}>
+                <a className="home-watch__row" href={coinHref(item.base, 'simple')}>
                   <CoinIcon asset={item.base} size={28} />
                   <span className="home-watch__name">
                     <span className="home-watch__ticker">{item.base}</span>

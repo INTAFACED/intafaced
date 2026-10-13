@@ -40,13 +40,15 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       '/uc/promotion',
       '/notice/42',
       '/partner',
+      // The old holding page, until the M3 coin page exists (critic H3).
+      '/coin/BTC',
+      '/portfolio/BTC',
     ])
       expect(isHiddenPath(path), path).toBe(true);
     for (const path of [
       '/home',
       '/money',
       '/money/activity',
-      '/coin/BTC',
       '/trade',
       '/trade/spot/BTC-USDT',
       '/trade/buy',

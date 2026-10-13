@@ -7,7 +7,6 @@ import {
   Button,
   ChangeText,
   dec,
-  defaultDeskPair,
   fmtChangeLine,
   fmtUsd,
   HeroNumber,
@@ -38,13 +37,10 @@ import { Watchlist } from './Watchlist';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { useSession } from '../../features/session/session';
 
-/**
- * Until the M2 Buy card lands (B8), Buy and Sell open the working spot desk on BTC/USDT: `/trade/buy` is the old
- * screen on a simulated market (critic H4). When M2 lands, point Buy at `/trade/buy` and Sell at `/trade/buy?side=sell`.
- */
+/** Simple Home: Buy and Sell open the Buy card (Pro Home goes to the desk, `HomePro.tsx`). */
 const ACTIONS = [
-  { label: 'Buy', href: `/trade/spot/${defaultDeskPair}` },
-  { label: 'Sell', href: `/trade/spot/${defaultDeskPair}?side=sell` },
+  { label: 'Buy', href: '/trade/buy' },
+  { label: 'Sell', href: '/trade/buy?side=sell' },
   { label: 'Convert', href: '/trade/convert' },
   { label: 'Send', href: '/pay/send' },
   { label: 'Receive', href: '/pay/receive' },
