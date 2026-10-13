@@ -13,6 +13,7 @@ export * from './jurisdiction.js';
 export * from './screening.js';
 export * from './app-env.js';
 export * from './local-test-guard.js';
+export * from './production-posture.js';
 export * from './fiat.js';
 export * from './network-signal.js';
 export * from './compliance-queue.js';
