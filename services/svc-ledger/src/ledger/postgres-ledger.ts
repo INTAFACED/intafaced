@@ -26,6 +26,7 @@ import {
   HISTORY_MAX_ENTRIES,
   HistoryTooLargeError,
   allowedHistoryRail,
+  orderIdFromHoldPurpose,
   decodeHistoryCursor,
   encodeHistoryCursor,
   type HistoryEntry,
@@ -420,9 +421,9 @@ export class PostgresLedger implements LedgerClient {
     const assetId = input.assetId ?? null;
     const cursorId = cursor?.entryId ?? null;
 
-    const rows = await this.sql<Array<HistoryRow & { entry_id: string; asset_id: string; rail: unknown }>>`
+    const rows = await this.sql<Array<HistoryRow & { entry_id: string; asset_id: string; rail: unknown; order_purpose: unknown }>>`
       SELECT x.entry_id, t.id AS tx_id, t.module, t.reason, x.direction, x.amount, x.asset_id, t.posted_at,
-             t.meta -> 'rail' AS rail
+             t.meta -> 'rail' AS rail, o.purpose AS order_purpose
         FROM accounts a
         CROSS JOIN LATERAL (
           SELECT e.id AS entry_id, e.tx_id, e.direction, e.amount, e.asset_id
@@ -433,6 +434,26 @@ export class PostgresLedger implements LedgerClient {
            LIMIT ${limit + 1}
         ) x
         JOIN ledger_tx t ON t.id = x.tx_id
+        -- The page owner's own order, for a trade line only (see orderIdFromHoldPurpose in history.ts): the order-hold
+        -- account of the SAME owner that this transaction also moves. Never another owner's hold. On a fill the
+        -- owner's line receives the asset the other side paid, so the owner's order is the hold in the OTHER asset.
+        LEFT JOIN LATERAL (
+          SELECT h.purpose
+            FROM ledger_entries he
+            JOIN accounts h ON h.id = he.account_id
+           WHERE he.tx_id = x.tx_id
+             AND t.module = 'trade'
+             AND h.owner_type = a.owner_type
+             AND h.owner_id = a.owner_id
+             AND h.kind = 'hold'
+             AND h.purpose LIKE 'order:%'
+             AND (
+               t.reason IN ('order.hold', 'order.hold.amend', 'order.hold.released')
+               OR (t.reason IN ('trade.fill', 'trade.fill.mm_maker') AND h.asset_id <> x.asset_id)
+             )
+           ORDER BY he.id
+           LIMIT 1
+        ) o ON true
        WHERE a.owner_type = ${input.ownerType}::owner_type
          AND a.owner_id   = ${input.ownerId}
          AND a.kind       = ${input.kind}::account_kind
@@ -456,6 +477,7 @@ export class PostgresLedger implements LedgerClient {
         entryId: r.entry_id,
         // Only the one key, and only if allow-listed: meta is free-form.
         rail: allowedHistoryRail(r.rail),
+        orderId: orderIdFromHoldPurpose(r.order_purpose),
       })),
       nextCursor: rows.length > limit && last ? encodeHistoryCursor({ entryId: last.entry_id }) : null,
     };

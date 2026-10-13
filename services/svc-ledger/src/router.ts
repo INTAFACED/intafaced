@@ -335,6 +335,8 @@ export function createLedgerRouter(
               entryId: z.string(),
               /** `meta.rail` when allow-listed (see `HISTORY_RAILS`), else null. */
               rail: z.enum(HISTORY_RAILS).nullable(),
+              /** The page owner's own trade order this line belongs to (hold, amend, release, fill), else null. */
+              orderId: z.string().min(1).max(128).nullable(),
             }),
           ),
           nextCursor: z.string().nullable(),
