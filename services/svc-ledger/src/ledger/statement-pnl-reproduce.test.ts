@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  STATEMENT_LOTS_MISSING,
-  STATEMENT_NAV_INPUTS_MISSING,
-} from './statement-pnl.js';
-import {
-  factsWhenLotsExist,
-  handleStatementPnlHappyOrRefuse,
-  reproduceStatementPnl,
-} from './statement-pnl-reproduce.js';
+import { STATEMENT_LOTS_MISSING, STATEMENT_NAV_INPUTS_MISSING } from './statement-pnl.js';
+import { factsWhenLotsExist, handleStatementPnlHappyOrRefuse, reproduceStatementPnl } from './statement-pnl-reproduce.js';
 
 const OWNER = {
   ownerType: 'user' as const,
@@ -39,10 +32,7 @@ describe('CARD G-statements-happy reproduce when lots exist', () => {
   });
 
   it('keeps the B5 refuse when lots do not exist', async () => {
-    const out = await handleStatementPnlHappyOrRefuse(
-      { balances: async () => [] },
-      OWNER,
-    );
+    const out = await handleStatementPnlHappyOrRefuse({ balances: async () => [] }, OWNER);
     expect(out.status).toBe('refused');
     expect(out.codes).toContain(STATEMENT_LOTS_MISSING);
     expect(out.realized).toBeNull();
@@ -60,10 +50,7 @@ describe('CARD G-statements-happy reproduce when lots exist', () => {
   });
 
   it('refuses present lots without NAV rather than inventing cash', async () => {
-    const out = await handleStatementPnlHappyOrRefuse(
-      { balances: async () => [] },
-      { ...OWNER, lots: LOTS, marks: MARKS },
-    );
+    const out = await handleStatementPnlHappyOrRefuse({ balances: async () => [] }, { ...OWNER, lots: LOTS, marks: MARKS });
     expect(out.status).toBe('refused');
     expect(out.codes).toContain(STATEMENT_NAV_INPUTS_MISSING);
     expect(out.nav).toBeNull();
