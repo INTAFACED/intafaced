@@ -444,6 +444,66 @@ describe('card-sandbox — a mock acquirer with real decline behaviour', () => {
     expect(full.ok).toBe(false);
     expect(full.failureCode).toBe('refund.exceeds_captured');
   });
+
+  it('returns the original payout when the same settlement is retried with a different asset', async () => {
+    const first = await adapter.payout({
+      settlementId: 's-card-1',
+      merchantId: 'm-1',
+      amount: amt('500'),
+      assetId: 'USDT',
+      window: '2026-07-27',
+      destination: { kind: 'bank', ref: 'GB82WEST12345698765432' },
+    });
+    expect(first.ok).toBe(true);
+    expect(first.status).toBe('paid_out');
+    expect(first.amount).toBe(amt('500'));
+    expect(typeof first.amount).toBe('bigint');
+    expect(first.assetId).toBe('USDT');
+    expect(first.raw).toEqual({ destination: 'bank' });
+
+    const retry = await adapter.payout({
+      settlementId: 's-card-1',
+      merchantId: 'm-1',
+      amount: amt('1'),
+      assetId: 'EUR',
+      window: '2026-07-28',
+      destination: { kind: 'crypto', ref: '0x000000000000000000000000000000000000dEaD' },
+    });
+    expect(retry).toBe(first);
+    expect(retry.amount).toBe(amt('500'));
+    expect(typeof retry.amount).toBe('bigint');
+    expect(retry.assetId).toBe('USDT');
+    expect(retry.raw).toEqual({ destination: 'bank' });
+
+    const other = await adapter.payout({
+      settlementId: 's-card-2',
+      merchantId: 'm-1',
+      amount: amt('40'),
+      assetId: 'EUR',
+      window: '2026-07-27',
+      destination: { kind: 'crypto', ref: '0x000000000000000000000000000000000000dEaD' },
+    });
+    expect(other.ok).toBe(true);
+    expect(other).not.toBe(first);
+    expect(other.railRef).not.toBe(first.railRef);
+    expect(other.amount).toBe(amt('40'));
+    expect(typeof other.amount).toBe('bigint');
+    expect(other.assetId).toBe('EUR');
+    expect(other.raw).toEqual({ destination: 'crypto' });
+
+    const otherRetry = await adapter.payout({
+      settlementId: 's-card-2',
+      merchantId: 'm-1',
+      amount: amt('999'),
+      assetId: 'USDT',
+      window: '2026-07-27',
+      destination: { kind: 'bank', ref: 'DE89370400440532013000' },
+    });
+    expect(otherRetry).toBe(other);
+    expect(otherRetry.amount).toBe(amt('40'));
+    expect(otherRetry.assetId).toBe('EUR');
+    expect(otherRetry.raw).toEqual({ destination: 'crypto' });
+  });
 });
 
 // ── The signature primitive itself ───────────────────────────────────────────
