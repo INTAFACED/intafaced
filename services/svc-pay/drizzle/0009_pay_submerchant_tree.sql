@@ -84,9 +84,13 @@ CREATE INDEX IF NOT EXISTS "merchants_parent_idx"
 CREATE TABLE IF NOT EXISTS "pay"."merchant_permission_events" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  -- The total order. `now()` inside a transaction is the transaction's start
-  -- time, so a grant and the revoke that corrects it in one statement would
-  -- share a timestamp and could not be ordered by it.
+  -- The total order of committed events. `now()` inside a transaction is the
+  -- transaction's start time, so a grant and the revoke that corrects it in
+  -- one statement would share a timestamp and could not be ordered by it.
+  -- This column is created as `bigserial` here, which takes its value when the
+  -- INSERT runs. 0018_pay_permission_seq_commit_order.sql moves that assignment
+  -- to commit: a revoke that inserts first must still win when it commits after
+  -- a grant of the same triple.
   "seq" bigserial NOT NULL,
 
   -- WHO HOLDS IT — an ancestor node of the subject.

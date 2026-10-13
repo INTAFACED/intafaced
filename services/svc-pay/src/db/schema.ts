@@ -140,8 +140,13 @@ export const merchantPermissionEvents = pay.table(
   'merchant_permission_events',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    /** Total order. Transaction timestamps collide; this does not. */
-    seq: bigserial('seq', { mode: 'number' }).notNull(),
+    /**
+     * Commit order. Assigned when the inserting transaction commits, not when
+     * the INSERT runs, so the greatest seq for a triple is the event that
+     * committed last. Null only inside the still-open transaction; the commit
+     * trigger refuses to finish unless it filled seq.
+     */
+    seq: bigint('seq', { mode: 'bigint' }),
     /** The ancestor node that holds the permission. */
     granteeMerchantId: uuid('grantee_merchant_id')
       .notNull()

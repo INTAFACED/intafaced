@@ -710,6 +710,63 @@ describe('svc-pay sub-merchant trees PG-hard', () => {
       await expect(sql`DELETE FROM pay.merchant_permission_events WHERE id = ${event.id}`).rejects.toThrow(/append-only/);
     });
 
+    it('a revoke that commits after a grant of the same triple is the effective permission', async () => {
+      const platform = await root();
+      const mid = await child(platform.merchantId, platform.merchantId);
+      const leaf = await child(mid.id, mid.id);
+
+      // Two real transactions. The revoke inserts first and stays open. The grant
+      // inserts and commits. Then the revoke commits. The later commit is the
+      // effective permission for that (grantee, subject, area) triple.
+      let revokeInserted!: () => void;
+      const revokeInsertedGate = new Promise<void>((resolve) => {
+        revokeInserted = resolve;
+      });
+      let grantCommitted!: () => void;
+      const grantCommittedGate = new Promise<void>((resolve) => {
+        grantCommitted = resolve;
+      });
+
+      const revokeTx = sql.begin(async (tx) => {
+        await tx`
+          INSERT INTO pay.merchant_permission_events
+            (grantee_merchant_id, subject_merchant_id, area, action, reason, actor_id, actor_merchant_id, actor_scope)
+          VALUES (
+            ${mid.id}, ${leaf.id}, 'payment', 'revoke',
+            'authority withdrawn while a grant of the same triple was still committing',
+            'platform-user', ${platform.merchantId}, 'pay:write'
+          )
+        `;
+        revokeInserted();
+        await grantCommittedGate;
+      });
+
+      const grantTx = (async () => {
+        try {
+          await revokeInsertedGate;
+          await sql.begin(async (tx) => {
+            await tx`
+              INSERT INTO pay.merchant_permission_events
+                (grantee_merchant_id, subject_merchant_id, area, action, reason, actor_id, actor_merchant_id, actor_scope)
+              VALUES (
+                ${mid.id}, ${leaf.id}, 'payment', 'grant',
+                'grant inserted and committed before the earlier revoke committed',
+                'platform-user', ${platform.merchantId}, 'pay:write'
+              )
+            `;
+          });
+        } finally {
+          grantCommitted();
+        }
+      })();
+
+      await Promise.all([revokeTx, grantTx]);
+
+      const payment = (await trees.permissionHistory(platform.merchantId, leaf.id, 50)).filter((event) => event.area === 'payment');
+      expect(payment.map((event) => event.action)).toEqual(['revoke', 'grant']);
+      expect(await trees.holds(mid.id, leaf.id, 'payment')).toBe(false);
+    });
+
     it('refuses a blank reason at the database level too, whatever writes the row', async () => {
       const platform = await root();
       const mid = await child(platform.merchantId, platform.merchantId);
